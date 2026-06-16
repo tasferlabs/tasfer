@@ -67,13 +67,16 @@ export {
   Node,
   type NodeActivateCtx,
   type NodeActivation,
+  type NodeAtomicHit,
   type NodeHitRegion,
   type NodeLayout,
   type NodeLayoutCtx,
   type NodePaintCtx,
+  type NodePointerMoveCtx,
   type NodePointerType,
   type NodeRegionCtx,
   NodeRegistry,
+  type NodeTextClickCtx,
   type Point,
 } from "./Node";
 export { UnknownNode } from "./UnknownNode";

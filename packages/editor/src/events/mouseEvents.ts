@@ -10,14 +10,6 @@ import {
   SELECT_WORD_AT_POINT,
 } from "../actions/mouse-actions";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
-import { getInlineMathAtPosition } from "../inline-math";
-import {
-  getDragHandleAtPoint,
-  OPEN_INLINE_MATH_OVERLAY,
-  SET_IMAGE_HOVER,
-  SET_INLINE_MATH_HOVER,
-  SET_MATH_BLOCK_HOVER,
-} from "../rendering/nodes";
 import {
   getScrollbarStyles,
   isPointInThumb,
@@ -387,55 +379,23 @@ export function handleMouseDown(
     viewport,
   );
 
-  // Click landed on an inline math chip → open the inline math editor popover
-  // instead of placing the cursor inside the LaTeX source.
-  if (position && state.ui.mode !== "readonly") {
-    const inlineMath = getInlineMathAtPosition(
-      position.blockIndex,
-      position.textIndex,
-      state,
-      "inside",
-      { x: canvasX, viewport },
-    );
-    // The inline-math edit overlay is host-defined; the `math` mark owns its key.
-    const key = inlineMath
-      ? state.marks.get("math")?.editOverlayKey
-      : undefined;
-    if (inlineMath && key) {
-      // Don't reopen if we just closed the popover for this same block
-      if (
-        wasMenuOpen &&
-        previousMenu.type === "overlay" &&
-        previousMenu.key === key &&
-        previousMenu.blockIndex === position.blockIndex
-      ) {
-        return { state, ops };
+  // Let a node claim the click before the caret is placed — e.g. MathNode opens
+  // the inline-math editor when the click lands on an inline-math chip, rather
+  // than dropping the caret into the LaTeX source. The node owns the detection;
+  // we only supply the resolved caret position and the pre-click menu.
+  if (position) {
+    for (const node of state.nodes.nodeList()) {
+      const claimed = node.onTextClick?.({
+        state,
+        viewport,
+        canvasX,
+        canvasY,
+        position,
+        previousMenu,
+      });
+      if (claimed) {
+        return { state: claimed.state, ops: [...ops, ...claimed.ops] };
       }
-
-      // Highlight the edited chip while the popover is open (engine-owned hover
-      // state; the host overlay reads the range from `data`).
-      return {
-        state: state.actionBus.dispatchState(OPEN_INLINE_MATH_OVERLAY, state, {
-          overlay: {
-            type: "overlay",
-            key,
-            blockIndex: position.blockIndex,
-            x: canvasX,
-            y: canvasY,
-            data: {
-              startIndex: inlineMath.startIndex,
-              endIndex: inlineMath.endIndex,
-              latex: inlineMath.latex,
-            },
-          },
-          hover: {
-            blockIndex: position.blockIndex,
-            startIndex: inlineMath.startIndex,
-            endIndex: inlineMath.endIndex,
-          },
-        }).state,
-        ops,
-      };
     }
   }
 
@@ -624,95 +584,35 @@ export function handleMouseMove(
     };
   }
 
-  // Check for image hover (desktop only, not in select mode, and not during image drag)
+  // Desktop hover (not in select mode, not during an image drag): let each node
+  // update its own hover highlights. The engine resolves the atomic block +
+  // caret position under the pointer once; nodes read those and set/clear their
+  // own hover state (ImageNode → resize-handle hover, MathNode → block +
+  // inline-math chip hover).
   if (!isTouchDevice() && state.ui.mode !== "select") {
-    const imageBlock = getAtomicBlockAtPoint(
+    const atomicBlock = getAtomicBlockAtPoint(
       canvasX,
       canvasY,
       state,
       viewport,
-      "image",
     );
-
-    if (imageBlock) {
-      // Get the block to check its object-fit mode
-      const block = state.document.page.blocks[imageBlock.blockIndex];
-      if (!block || block.deleted || block.type !== "image") {
-        return state;
-      }
-      const objectFit = block.objectFit ?? "cover";
-
-      // Check if hovering over a drag handle
-      const hoveredHandle = getDragHandleAtPoint(
-        canvasX,
-        canvasY,
-        imageBlock.x,
-        imageBlock.y,
-        imageBlock.width,
-        imageBlock.height,
-        objectFit,
-      );
-
-      // Mouse is over an image block - set imageHover state (not a blocking menu)
-      state = state.actionBus.dispatchState(SET_IMAGE_HOVER, state, {
-        imageHover: {
-          blockIndex: imageBlock.blockIndex,
-          x: imageBlock.x,
-          y: imageBlock.y,
-          width: imageBlock.width,
-          height: imageBlock.height,
-          hoveredHandle,
-        },
-      }).state;
-    } else {
-      // Clear image hover state
-      state = state.actionBus.dispatchState(SET_IMAGE_HOVER, state, {
-        imageHover: null,
-      }).state;
-    }
-
-    // Math block hover (full block backdrop)
-    const mathBlock = getAtomicBlockAtPoint(
+    const textPosition = getTextPositionFromViewport(
       canvasX,
       canvasY,
       state,
       viewport,
-      "math",
     );
-    const newMathBlockHover = mathBlock ? mathBlock.blockIndex : null;
-    state = state.actionBus.dispatchState(SET_MATH_BLOCK_HOVER, state, {
-      blockIndex: newMathBlockHover,
-    }).state;
-
-    // Inline math chip hover (per-chip background highlight)
-    let newInlineMathHover: typeof state.ui.inlineMathHover = null;
-    if (!mathBlock) {
-      const hoverPos = getTextPositionFromViewport(
-        canvasX,
-        canvasY,
-        state,
-        viewport,
-      );
-      if (hoverPos) {
-        const inlineMath = getInlineMathAtPosition(
-          hoverPos.blockIndex,
-          hoverPos.textIndex,
+    for (const node of state.nodes.nodeList()) {
+      state =
+        node.onPointerMove?.({
           state,
-          "inside",
-          { x: canvasX, viewport },
-        );
-        if (inlineMath) {
-          newInlineMathHover = {
-            blockIndex: hoverPos.blockIndex,
-            startIndex: inlineMath.startIndex,
-            endIndex: inlineMath.endIndex,
-          };
-        }
-      }
+          viewport,
+          canvasX,
+          canvasY,
+          atomicBlock,
+          textPosition,
+        }) ?? state;
     }
-    state = state.actionBus.dispatchState(SET_INLINE_MATH_HOVER, state, {
-      hover: newInlineMathHover,
-    }).state;
   }
 
   if (state.ui.mode !== "select") {

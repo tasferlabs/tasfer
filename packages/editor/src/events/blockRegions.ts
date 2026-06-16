@@ -10,21 +10,14 @@
  * the point compete purely on priority.
  */
 
-import { EDGE_SCROLL_THRESHOLD } from "../constants";
 import {
   AtomicNode,
-  cancelImageHandleDrag,
-  endImageHandleDrag,
   type NodeHitRegion,
   type NodeRegionCtx,
-  startImageHandleDrag,
   TOGGLE_TODO_CHECKED,
-  updateImageHandleDrag,
 } from "../rendering/nodes";
-import { getBlockHeight, imageCache } from "../rendering/renderer";
+import { getBlockHeight } from "../rendering/renderer";
 import { getEditorStyles } from "../styles";
-import { withScrollbarInteraction, withStoppedMomentum } from "./chromeRegions";
-import { startAutoScroll, stopAutoScroll } from "./interaction-session";
 import {
   hitTestRegions,
   type PointerType,
@@ -33,12 +26,6 @@ import {
   type RegionCtx,
   type RegionPoint,
 } from "./regions";
-
-interface ImageResizeHit {
-  blockIndex: number;
-  box: { x: number; y: number; width: number; height: number };
-  handle: "left" | "right" | "bottom";
-}
 
 /** Todo checkbox — tap toggles the checked state (emits a CRDT op). */
 function bindTodoCheckbox(hitRegion: NodeHitRegion): Region {
@@ -59,113 +46,26 @@ function bindTodoCheckbox(hitRegion: NodeHitRegion): Region {
   };
 }
 
-/** Image resize handles — drag to resize, with edge auto-scroll. */
-function bindImageResize(hitRegion: NodeHitRegion): Region {
-  return {
-    id: hitRegion.id,
-    priority: 60,
-    modes: ["edit", "select"],
-    hitTest: (p, pointerType) => hitRegion.hitTest(p, pointerType),
-    drag: {
-      onStart(hit, p, ctx) {
-        const { blockIndex, box } = hit as ImageResizeHit;
-        // Tolerance 12 covers both pointer types — the hit test already
-        // applied the per-pointer slop, this only re-derives the handle.
-        const dragState = startImageHandleDrag(
-          ctx.state,
-          { blockIndex, ...box },
-          p.x,
-          p.y,
-          12,
-        );
-        if (!dragState) return null;
-        return {
-          state: withScrollbarInteraction(withStoppedMomentum(dragState)),
-        };
-      },
-      onMove(p, ctx) {
-        const { state, viewport, session } = ctx;
-        if (!state.ui.imageDrag) return { state };
-        const { blockIndex, handle } = state.ui.imageDrag;
-        const block = state.document.page.blocks[blockIndex];
-        if (!block || block.deleted) return { state };
-
-        // Bottom handle: once the image is at its natural max height, stop
-        // auto-scrolling down (otherwise the drag chases its own scroll).
-        let shouldBlockBottomScroll = false;
-        const objectFit =
-          block.type === "image" ? (block.objectFit ?? "cover") : "cover";
-        if (
-          handle === "bottom" &&
-          objectFit === "cover" &&
-          block.type === "image" &&
-          block.url
-        ) {
-          const cachedImage = imageCache.get(block.url);
-          if (cachedImage && cachedImage.complete) {
-            const imgAspectRatio =
-              cachedImage.naturalWidth / cachedImage.naturalHeight;
-            const containerWidth =
-              typeof block.width === "number" ? block.width : viewport.width;
-            const maxHeightForRatio = containerWidth / imgAspectRatio;
-            const currentHeight =
-              state.ui.imageDrag.startHeight +
-              (p.y - state.ui.imageDrag.startY);
-            const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
-            const isNearBottomEdge =
-              p.y > viewport.height - EDGE_SCROLL_THRESHOLD ||
-              p.y > viewport.height;
-            shouldBlockBottomScroll = isAtMaxHeight && isNearBottomEdge;
-          }
-        }
-
-        // Edge auto-scroll: record the pointer so the frame loop in
-        // handleEvents keeps scrolling (and resizing) while the pointer
-        // holds still at the edge.
-        const isNearTopEdge = p.y < EDGE_SCROLL_THRESHOLD || p.y < 0;
-        const isNearBottomEdge =
-          p.y > viewport.height - EDGE_SCROLL_THRESHOLD ||
-          p.y > viewport.height;
-        if (
-          (isNearTopEdge || isNearBottomEdge) &&
-          !(shouldBlockBottomScroll && isNearBottomEdge)
-        ) {
-          startAutoScroll(session);
-          session.autoScroll.lastPointerX = p.x;
-          session.autoScroll.lastPointerY = p.y;
-        } else if (session.autoScroll.isActive) {
-          stopAutoScroll(session);
-        }
-
-        return {
-          state: withScrollbarInteraction(
-            updateImageHandleDrag(state, viewport, p.x, p.y),
-          ),
-        };
-      },
-      onEnd(_p, ctx) {
-        stopAutoScroll(ctx.session);
-        const result = endImageHandleDrag(ctx.state);
-        return {
-          state: withScrollbarInteraction(result.state),
-          ops: result.ops,
-        };
-      },
-      onCancel(ctx) {
-        stopAutoScroll(ctx.session);
-        return cancelImageHandleDrag(ctx.state);
-      },
-    },
-  };
-}
-
-/** Behavior bindings by node-region id. Unknown ids are inert (no behavior). */
+/**
+ * Adapt a node hit region to an event-layer Region. A region that carries its
+ * own behavior (`onTap`/`drag` — e.g. ImageNode's resize handle) is bound
+ * directly; a geometry-only region is bound by id (the todo checkbox is the
+ * remaining built-in case). Unknown geometry-only ids are inert (no behavior).
+ */
 function bindNodeRegion(hitRegion: NodeHitRegion): Region | null {
+  if (hitRegion.onTap || hitRegion.drag) {
+    return {
+      id: hitRegion.id,
+      priority: hitRegion.priority ?? 0,
+      modes: hitRegion.modes,
+      hitTest: (p, pointerType) => hitRegion.hitTest(p, pointerType),
+      onTap: hitRegion.onTap,
+      drag: hitRegion.drag,
+    };
+  }
   switch (hitRegion.id) {
     case "todo-checkbox":
       return bindTodoCheckbox(hitRegion);
-    case "image-resize":
-      return bindImageResize(hitRegion);
     default:
       return null;
   }

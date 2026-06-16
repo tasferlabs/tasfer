@@ -30,36 +30,13 @@ import {
 } from "../selection";
 import type { EditorState } from "../state-types";
 import { getSelectionHandleAtPoint } from "./eventUtils";
-import { startAutoScroll, stopAutoScroll } from "./interaction-session";
+import {
+  startAutoScroll,
+  stopAutoScroll,
+  withScrollbarInteraction,
+  withStoppedMomentum,
+} from "./interaction-session";
 import { type Region, RegionRegistry } from "./regions";
-
-/** Bump the scrollbar's lastInteraction so it stays visible (fade timer). */
-export function withScrollbarInteraction(state: EditorState): EditorState {
-  return {
-    ...state,
-    view: {
-      ...state.view,
-      scrollbar: {
-        ...state.view.scrollbar,
-        lastInteraction: Date.now(),
-      },
-    },
-  };
-}
-
-export function withStoppedMomentum(state: EditorState): EditorState {
-  return {
-    ...state,
-    view: {
-      ...state.view,
-      momentum: {
-        velocity: 0,
-        lastTime: Date.now(),
-        isActive: false,
-      },
-    },
-  };
-}
 
 function endScrollbarDragState(state: EditorState): EditorState {
   return {
