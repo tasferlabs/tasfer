@@ -33,6 +33,46 @@ describe("inline mark markdown round-trip", () => {
   });
 });
 
+describe("link target parsing (defuddle / Turndown output forms)", () => {
+  it("drops the link title so it doesn't leak into the URL", () => {
+    expect(
+      roundTrip('See [the docs](https://example.com "Documentation").'),
+    ).toBe("See [the docs](https://example.com).");
+    // Single-quoted and parenthesised titles too.
+    expect(roundTrip("[a](https://x.y 'T').")).toBe("[a](https://x.y).");
+    expect(roundTrip("[a](https://x.y (T)).")).toBe("[a](https://x.y).");
+  });
+
+  it("keeps balanced parentheses inside the URL", () => {
+    const md = "[Bar](https://en.wikipedia.org/wiki/Bar_(disambiguation)).";
+    expect(roundTrip(md)).toBe(md);
+  });
+
+  it("unescapes backslash-escaped parentheses in the URL", () => {
+    expect(roundTrip("[Bar](https://en.wikipedia.org/wiki/Bar_\\(x\\)).")).toBe(
+      "[Bar](https://en.wikipedia.org/wiki/Bar_(x)).",
+    );
+  });
+
+  it("parses angle-bracketed URLs", () => {
+    expect(roundTrip("[a](<https://x.y/a b>).")).toBe("[a](https://x.y/a b).");
+  });
+
+  it("reduces a linked image to its alt text", () => {
+    expect(roundTrip("[![logo](https://img.test/l.png)](https://x.y)")).toBe(
+      "[logo](https://x.y)",
+    );
+  });
+
+  it("allows nested brackets in link text", () => {
+    expect(roundTrip("[a [b] c](https://x.y)")).toBe("[a [b] c](https://x.y)");
+  });
+
+  it("leaves a non-link [text] untouched", () => {
+    expect(roundTrip("a [not a link] b")).toBe("a [not a link] b");
+  });
+});
+
 describe("inline mark HTML output (via MarkCodec.html)", () => {
   const html = (md: string) => serializeToHTML(loadPage(md).blocks);
 

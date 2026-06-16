@@ -41,6 +41,7 @@ import {
 } from "../sync/crdt-utils";
 import { generateBlockId } from "../sync/id";
 import { applyOps } from "../sync/reducer";
+import { createMarkdownContent } from "defuddle/full";
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
   return generateBlockId(binding.nextId);
@@ -560,12 +561,15 @@ export async function copySelectionToClipboard(
     const payload = buildClipboardPayload(state);
     if (!payload) return false;
 
-    const { plainText, markdown, html } = payload;
+    const { markdown, html } = payload;
 
     if (navigator.clipboard && navigator.clipboard.write) {
       const clipboardItems = [
         new ClipboardItem({
-          "text/plain": new Blob([plainText], { type: "text/plain" }),
+          // text/plain carries the markdown (formatted) variant so the
+          // markdown-aware paste path round-trips formatting when text/html
+          // isn't used by the target.
+          "text/plain": new Blob([markdown], { type: "text/plain" }),
           "text/html": new Blob([html], { type: "text/html" }),
         }),
       ];
@@ -608,50 +612,6 @@ export async function cutSelectionToClipboard(
     console.error("Failed to cut to clipboard:", error);
     return { success: false, result: null };
   }
-}
-
-/**
- * Clean up Google Docs HTML by removing metadata and normalizing structure
- */
-function cleanGoogleDocsHTML(html: string): string {
-  // Remove Google Docs meta tags
-  html = html.replace(/<meta[^>]*>/g, "");
-
-  // Remove Google Docs internal wrapper with ID
-  html = html.replace(/<b[^>]*id="docs-internal-guid-[^"]*"[^>]*>/g, "");
-  html = html.replace(/<\/b>/g, "");
-
-  // Convert multiple <br> or <br /> tags into paragraph separators
-  html = html.replace(/(<br\s*\/?>\s*){2,}/gi, "</p><p>");
-
-  // Wrap unwrapped text in paragraphs if needed
-  html = html.trim();
-
-  return html;
-}
-
-/**
- * Check if an element has Google Docs styling that indicates bold/italic
- */
-function hasGoogleDocsFormat(
-  element: Element,
-  format: "bold" | "italic",
-): boolean {
-  const style = element.getAttribute("style") || "";
-
-  if (format === "bold") {
-    // Check for font-weight in inline styles
-    const fontWeightMatch = style.match(/font-weight:\s*(\d+|bold)/i);
-    if (fontWeightMatch) {
-      const weight = fontWeightMatch[1];
-      return weight === "bold" || parseInt(weight) >= 600;
-    }
-  } else if (format === "italic") {
-    // Check for font-style in inline styles
-    return /font-style:\s*italic/i.test(style);
-  }
-
-  return false;
 }
 
 /**
@@ -707,443 +667,67 @@ function segmentsToCharsAndFormats(
 }
 
 /**
- * Parse HTML string into blocks with inline formatting
+ * Flatten block-level links into inline ones.
+ *
+ * When an `<a>` wraps block content (e.g. `<a href><h1>Title</h1></a>`, common
+ * for card/teaser links), Turndown — via defuddle — emits multi-line Markdown:
+ *
+ *   [\n\n# Title\n\n](https://example.com)
+ *
+ * That isn't a valid inline link (an inline link can't span a blank line), so
+ * Cypher's block model can't represent it and it renders as a literal `[`, a
+ * heading, then `](url)`. We collapse such constructs into a single inline link
+ * — `# [Title](https://example.com)` — preserving a leading heading level when
+ * the wrapped content was a heading, and joining any other inner lines into the
+ * link's visible text.
+ */
+export function flattenBlockLevelLinks(markdown: string): string {
+  return markdown.replace(
+    /\[[ \t]*\n+([\s\S]*?)\n+[ \t]*\]\(([^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\)/g,
+    (_match, inner: string, url: string) => {
+      const lines = inner.split("\n").map((l) => l.trim());
+      const firstNonEmpty = lines.find((l) => l !== "") ?? "";
+      const headingMatch = firstNonEmpty.match(/^(#{1,6})\s+/);
+      const headingPrefix = headingMatch ? `${headingMatch[1]} ` : "";
+      const text = lines
+        .map((l) =>
+          l
+            .replace(/^#{1,6}\s+/, "") // heading marker
+            .replace(/^>\s?/, "") // blockquote
+            .replace(/^(?:[-*+]|\d+[.)])\s+/, "") // list marker
+            .trim(),
+        )
+        .filter(Boolean)
+        .join(" ");
+      if (!text) return `[](${url})`;
+      return `${headingPrefix}[${text}](${url})`;
+    },
+  );
+}
+
+/**
+ * Parse pasted HTML into blocks.
+ *
+ * Source HTML from the system clipboard (Google Docs, web pages, other
+ * editors) is wildly inconsistent, so instead of walking the DOM ourselves we
+ * let defuddle normalize it into clean Markdown, then run that Markdown through
+ * the same parser the plain-text path uses. This keeps a single, well-tested
+ * Markdown -> blocks pipeline and inherits defuddle's HTML cleanup.
  */
 function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
-  // Clean up Google Docs HTML first
-  html = cleanGoogleDocsHTML(html);
+  if (!html.trim()) return [];
 
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-  const blocks: Block[] = [];
-
-  // Helper function to recursively extract text with formatting from DOM nodes
-  function extractTextWithFormatting(
-    node: Node,
-    currentFormats: any[] = [],
-  ): any[] {
-    const segments: any[] = [];
-
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent || "";
-      if (text) {
-        // Don't split for inline math if already inside a code/math format
-        const skipMath = currentFormats.some(
-          (f) => f.type === "code" || f.type === "math",
-        );
-        if (skipMath) {
-          segments.push({
-            content: text,
-            formats:
-              currentFormats.length > 0 ? [...currentFormats] : undefined,
-          });
-        } else {
-          // Split out inline math `$...$` segments (single-line, non-empty content)
-          const re = /\$([^$\n]+)\$/g;
-          let last = 0;
-          let m: RegExpExecArray | null;
-          while ((m = re.exec(text)) !== null) {
-            if (m.index > last) {
-              segments.push({
-                content: text.slice(last, m.index),
-                formats:
-                  currentFormats.length > 0 ? [...currentFormats] : undefined,
-              });
-            }
-            segments.push({
-              content: m[1],
-              formats: [...currentFormats, { type: "math" }],
-            });
-            last = m.index + m[0].length;
-          }
-          if (last < text.length) {
-            segments.push({
-              content: text.slice(last),
-              formats:
-                currentFormats.length > 0 ? [...currentFormats] : undefined,
-            });
-          }
-        }
-      }
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const element = node as Element;
-      const tagName = element.tagName.toLowerCase();
-      let newFormats = [...currentFormats];
-
-      // Skip meta tags and other non-content elements
-      if (
-        tagName === "meta" ||
-        tagName === "script" ||
-        tagName === "style" ||
-        tagName === "svg"
-      ) {
-        return segments;
-      }
-
-      // Add format based on tag
-      if (tagName === "strong" || tagName === "b") {
-        // For <b> tags, check if it's actually bold (Google Docs uses <b> with font-weight:normal)
-        if (tagName === "b" && hasGoogleDocsFormat(element, "bold")) {
-          newFormats.push({ type: "strong" });
-        } else if (tagName === "strong") {
-          newFormats.push({ type: "strong" });
-        } else if (tagName === "b" && !element.hasAttribute("style")) {
-          // Regular <b> tag without styles
-          newFormats.push({ type: "strong" });
-        }
-      } else if (tagName === "em" || tagName === "i") {
-        newFormats.push({ type: "emphasis" });
-      } else if (tagName === "s" || tagName === "strike" || tagName === "del") {
-        newFormats.push({ type: "strike" });
-      } else if (tagName === "code") {
-        newFormats.push({ type: "code" });
-      } else if (tagName === "a") {
-        const href = element.getAttribute("href");
-        if (href) {
-          newFormats.push({ type: "link", attrs: { url: href } });
-        }
-      } else if (tagName === "span") {
-        // Check for Google Docs inline styling on spans
-        if (hasGoogleDocsFormat(element, "bold")) {
-          newFormats.push({ type: "strong" });
-        }
-        if (hasGoogleDocsFormat(element, "italic")) {
-          newFormats.push({ type: "emphasis" });
-        }
-      }
-
-      // Handle <br> tags as text breaks within the same block
-      if (tagName === "br") {
-        segments.push({
-          content: "\n",
-          formats: currentFormats.length > 0 ? [...currentFormats] : undefined,
-        });
-        return segments;
-      }
-
-      // Handle <img> tags - these should be handled as blocks, not inline
-      // Skip them here and they'll be processed separately
-      if (tagName === "img") {
-        return segments;
-      }
-
-      // Process child nodes
-      for (let i = 0; i < node.childNodes.length; i++) {
-        segments.push(
-          ...extractTextWithFormatting(node.childNodes[i], newFormats),
-        );
-      }
-    }
-
-    return segments;
+  let markdown: string;
+  try {
+    markdown = createMarkdownContent(html, "");
+  } catch (error) {
+    console.error("Failed to convert pasted HTML to Markdown:", error);
+    return [];
   }
 
-  // Helper function to check if an element is a block-level content element
-  function isBlockElement(tagName: string): boolean {
-    return [
-      "p",
-      "h1",
-      "h2",
-      "h3",
-      "h4",
-      "h5",
-      "h6",
-      "blockquote",
-      "pre",
-      "li",
-      "img",
-    ].includes(tagName);
-  }
-
-  // Helper function to check if an element is a container element
-  function isContainerElement(tagName: string): boolean {
-    return [
-      "div",
-      "main",
-      "article",
-      "section",
-      "header",
-      "footer",
-      "nav",
-      "aside",
-      "ul",
-      "ol",
-    ].includes(tagName);
-  }
-
-  // Recursively find all block-level elements, even if deeply nested
-  // Also handles orphaned text nodes by wrapping them in synthetic paragraphs
-  function findBlockElements(
-    element: Element,
-  ): Array<Element | { syntheticParagraph: true; content: any[] }> {
-    const blockElements: Array<
-      Element | { syntheticParagraph: true; content: any[] }
-    > = [];
-    const tagName = element.tagName.toLowerCase();
-
-    // Cypher math block — recognize regardless of tag and don't recurse
-    if (element.hasAttribute("data-cypher-math")) {
-      blockElements.push(element);
-      return blockElements;
-    }
-
-    // If this is a block element itself, add it
-    if (isBlockElement(tagName)) {
-      blockElements.push(element);
-      return blockElements;
-    }
-
-    // If this is a container, recursively search its children
-    if (isContainerElement(tagName) || tagName === "body") {
-      // Check if there's any meaningful direct text content (orphaned text nodes)
-      let hasDirectText = false;
-
-      for (let i = 0; i < element.childNodes.length; i++) {
-        const child = element.childNodes[i];
-
-        // Check for text nodes or inline elements (like <span>, <a>) that aren't in block elements
-        if (child.nodeType === Node.TEXT_NODE) {
-          const text = child.textContent?.trim();
-          if (text) {
-            hasDirectText = true;
-            break;
-          }
-        } else if (child.nodeType === Node.ELEMENT_NODE) {
-          const childElement = child as Element;
-          const childTag = childElement.tagName.toLowerCase();
-
-          // If it's an inline element or unknown element, check if it has text
-          if (!isBlockElement(childTag) && !isContainerElement(childTag)) {
-            const text = childElement.textContent?.trim();
-            if (text) {
-              hasDirectText = true;
-              break;
-            }
-          }
-        }
-      }
-
-      // If there's direct text content, treat the whole container as a paragraph
-      if (hasDirectText) {
-        const content = extractTextWithFormatting(element);
-        if (content.length > 0 && content.some((seg) => seg.content.trim())) {
-          blockElements.push({
-            syntheticParagraph: true,
-            content: content,
-          });
-        }
-        return blockElements;
-      }
-
-      // Otherwise, recursively search children
-      for (let i = 0; i < element.children.length; i++) {
-        blockElements.push(...findBlockElements(element.children[i]));
-      }
-      return blockElements;
-    }
-
-    // For other elements (like span), treat as inline content - don't recurse
-    return blockElements;
-  }
-
-  // Find all block elements recursively
-  const blockElements = findBlockElements(doc.body);
-
-  // If there are no block-level elements but there's content, wrap it
-  if (blockElements.length === 0 && doc.body.textContent?.trim()) {
-    const content = extractTextWithFormatting(doc.body);
-    if (content.length > 0) {
-      const { chars, formats } = segmentsToCharsAndFormats(content);
-      blocks.push({
-        id: globalGenerateBlockId(binding),
-        type: "paragraph",
-        charRuns: charsToRuns(chars),
-        formats,
-      });
-    }
-    return blocks;
-  }
-
-  // Process each block element (including synthetic paragraphs)
-  for (const element of blockElements) {
-    // Handle synthetic paragraphs (orphaned text from containers)
-    if ("syntheticParagraph" in element) {
-      const content = element.content;
-      const hasContent = content.some(
-        (seg: any) => seg.content.trim().length > 0,
-      );
-      if (hasContent) {
-        const { chars, formats } = segmentsToCharsAndFormats(content);
-        blocks.push({
-          id: globalGenerateBlockId(binding),
-          type: "paragraph",
-          charRuns: charsToRuns(chars),
-          formats,
-        });
-      }
-      continue;
-    }
-
-    // Handle regular HTML elements
-    const tagName = element.tagName.toLowerCase();
-
-    // Handle Cypher math blocks
-    if (element.hasAttribute("data-cypher-math")) {
-      const mode = element.getAttribute("data-cypher-math");
-      const latex = element.textContent || "";
-      blocks.push({
-        id: globalGenerateBlockId(binding),
-        type: "math",
-        latex,
-        displayMode: mode !== "inline",
-      });
-      continue;
-    }
-
-    // Handle img tags
-    if (tagName === "img") {
-      const src = element.getAttribute("src");
-      if (src) {
-        const alt = element.getAttribute("alt") || "";
-        const widthAttr =
-          element.getAttribute("width") || element.getAttribute("data-width");
-        const heightAttr = element.getAttribute("height");
-        const objectFitAttr = element.getAttribute("data-object-fit");
-
-        const width =
-          widthAttr === "full"
-            ? "full"
-            : widthAttr
-              ? parseInt(widthAttr, 10)
-              : undefined;
-        const height = heightAttr ? parseInt(heightAttr, 10) : undefined;
-        const objectFit = objectFitAttr as ("cover" | "contain") | undefined;
-
-        blocks.push({
-          id: globalGenerateBlockId(binding),
-          type: "image",
-          url: src,
-          alt,
-          width,
-          height,
-          objectFit,
-        });
-      }
-      continue;
-    }
-
-    // Extract formatted content
-    const content = extractTextWithFormatting(element);
-
-    // Skip empty blocks (except if they have meaningful line breaks)
-    const hasContent = content.some((seg) => seg.content.trim().length > 0);
-    if (!hasContent) continue;
-
-    // Check if this is a list item
-    if (tagName === "li") {
-      const listType = element.getAttribute("data-list-type");
-      const indentStyle = element.getAttribute("style");
-      const indentMatch = indentStyle?.match(/margin-left:\s*(\d+)px/);
-      const indent = indentMatch
-        ? Math.floor(parseInt(indentMatch[1], 10) / 24)
-        : 0;
-
-      const { chars, formats } = segmentsToCharsAndFormats(
-        content.length > 0 ? content : [{ content: "" }],
-      );
-
-      if (listType === "todo") {
-        const checked = element.getAttribute("data-checked") === "true";
-        blocks.push({
-          id: globalGenerateBlockId(binding),
-          type: "todo_list",
-          charRuns: charsToRuns(chars),
-          formats,
-          checked,
-          indent,
-        });
-      } else if (listType === "numbered") {
-        blocks.push({
-          id: globalGenerateBlockId(binding),
-          type: "numbered_list",
-          charRuns: charsToRuns(chars),
-          formats,
-          indent,
-        });
-      } else {
-        // Default to bullet list for generic <li> tags
-        blocks.push({
-          id: globalGenerateBlockId(binding),
-          type: "bullet_list",
-          charRuns: charsToRuns(chars),
-          formats,
-          indent,
-        });
-      }
-      continue;
-    }
-
-    let blockType: "heading1" | "heading2" | "heading3" | "paragraph" =
-      "paragraph";
-
-    switch (tagName) {
-      case "h1":
-        blockType = "heading1";
-        break;
-      case "h2":
-        blockType = "heading2";
-        break;
-      case "h3":
-        blockType = "heading3";
-        break;
-      case "h4":
-      case "h5":
-      case "h6":
-        // Map h4-h6 to heading3
-        blockType = "heading3";
-        break;
-      case "p":
-      case "blockquote":
-      case "pre":
-      default:
-        blockType = "paragraph";
-        break;
-    }
-
-    const { chars, formats } = segmentsToCharsAndFormats(
-      content.length > 0 ? content : [{ content: "" }],
-    );
-
-    const block: Block = {
-      id: globalGenerateBlockId(binding),
-      type: blockType,
-      charRuns: charsToRuns(chars),
-      formats,
-    };
-
-    blocks.push(block);
-  }
-
-  // If no blocks were parsed, treat the entire content as paragraphs
-  if (blocks.length === 0 && doc.body.textContent) {
-    const lines = doc.body.textContent.split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed) {
-        const { chars, formats } = segmentsToCharsAndFormats([
-          { content: trimmed },
-        ]);
-        blocks.push({
-          id: globalGenerateBlockId(binding),
-          type: "paragraph",
-          charRuns: charsToRuns(chars),
-          formats,
-        });
-      }
-    }
-  }
-
-  return blocks;
+  markdown = flattenBlockLevelLinks(markdown);
+  if (!markdown.trim()) return [];
+  return parsePlainTextToBlocks(markdown, binding);
 }
 
 /**

@@ -324,6 +324,109 @@ function tokenizeHeading(state: TokenizerState, tokens: Token[]) {
     tokenizeLine(state, tokens);
   }
 }
+/**
+ * Cypher has no inline image, so an inline/linked image (`![alt](src)`, e.g.
+ * the `[![alt](src)](href)` form emitted when defuddle converts a linked
+ * image) is reduced to its alt text — that becomes the link's visible label.
+ */
+function stripInlineImages(text: string): string {
+  return text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+}
+
+/**
+ * Parse the target of an inline link — `dest`, an optional `"title"`, and the
+ * closing `)` — starting at `i`, the index just after the opening `(`.
+ *
+ * Returns the cleaned, backslash-unescaped destination URL and the index just
+ * past the closing `)`, or `null` if the target is malformed or spans a line
+ * break (links are single-line here). This handles the forms a real Markdown
+ * producer (e.g. Turndown, via defuddle) emits that the old "everything up to
+ * the first `)`" scan got wrong:
+ *   - titles:            `[t](url "title")`     → title dropped, url clean
+ *   - parenthesised url: `[t](a_(b))`           → balanced parens kept
+ *   - escaped parens:    `[t](a_\(b\))`         → `\(`/`\)` unescaped
+ *   - angle-bracket url: `[t](<url with space>)`
+ */
+function parseLinkTarget(
+  content: string,
+  i: number,
+): { url: string; end: number } | null {
+  const len = content.length;
+  const isWs = (c: string) => c === " " || c === "\t";
+  const isEol = (c: string) => c === "\n" || c === "\r";
+
+  // Optional whitespace between `(` and the destination.
+  while (i < len && isWs(content[i])) i++;
+
+  let url = "";
+  if (content[i] === "<") {
+    // Angle-bracketed destination: <...>, no line breaks, `\>` escapable.
+    i++;
+    while (i < len && content[i] !== ">") {
+      const c = content[i];
+      if (isEol(c)) return null;
+      if (c === "\\" && i + 1 < len) {
+        url += content[i + 1];
+        i += 2;
+        continue;
+      }
+      url += c;
+      i++;
+    }
+    if (content[i] !== ">") return null;
+    i++;
+  } else {
+    // Bare destination: ends at whitespace or the depth-0 closing `)`. Parens
+    // nest; a backslash escapes the next char (so `\)` stays in the url).
+    let depth = 0;
+    while (i < len) {
+      const c = content[i];
+      if (isEol(c)) return null;
+      if (c === "\\" && i + 1 < len) {
+        url += content[i + 1];
+        i += 2;
+        continue;
+      }
+      if (isWs(c)) break;
+      if (c === "(") depth++;
+      else if (c === ")") {
+        if (depth === 0) break;
+        depth--;
+      }
+      url += c;
+      i++;
+    }
+  }
+
+  // Optional title, separated from the destination by whitespace. Cypher's link
+  // mark has no title attribute, so the title is parsed only to be discarded.
+  let sawWs = false;
+  while (i < len && isWs(content[i])) {
+    sawWs = true;
+    i++;
+  }
+  if (
+    sawWs &&
+    (content[i] === '"' || content[i] === "'" || content[i] === "(")
+  ) {
+    const close = content[i] === "(" ? ")" : content[i];
+    i++;
+    while (i < len && content[i] !== close) {
+      if (content[i] === "\\" && i + 1 < len) {
+        i += 2;
+        continue;
+      }
+      i++;
+    }
+    if (content[i] !== close) return null;
+    i++;
+    while (i < len && isWs(content[i])) i++;
+  }
+
+  if (content[i] !== ")") return null;
+  return { url, end: i + 1 };
+}
+
 function tokenizeLine(state: TokenizerState, tokens: Token[]) {
   state.startOfLine = false;
   const formatStack: Array<{
@@ -431,61 +534,55 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
       tokens.push({ type: TEXT, content: text });
       next(state);
     }
-    // Check for links [text](url)
+    // Check for links [text](url "title"). The link text is scanned with
+    // bracket balancing so nested `[...]` (incl. a wrapped image's `![alt]`)
+    // doesn't close it early; the target is parsed by `parseLinkTarget`, which
+    // handles titles, parenthesised/escaped URLs, and angle-bracket URLs.
     else if (char === "[") {
       const start = state.index;
-      next(state);
-
-      // Find closing ]
-      let foundTextEnd = false;
-      let textEndIndex = state.index;
-      while (
-        !isEnd(state) &&
-        current(state) !== "\n" &&
-        current(state) !== "\r"
-      ) {
-        if (current(state) === "]") {
-          textEndIndex = state.index;
-          foundTextEnd = true;
-          break;
-        }
-        next(state);
-      }
-
-      // Check if followed by (url)
-      if (foundTextEnd && peek(state) === "(") {
-        next(state, 2); // Skip ] and (
-        let urlStart = state.index;
-        let foundUrlEnd = false;
-
-        while (
-          !isEnd(state) &&
-          current(state) !== "\n" &&
-          current(state) !== "\r"
-        ) {
-          if (current(state) === ")") {
-            foundUrlEnd = true;
-            break;
-          }
-          next(state);
-        }
-
-        if (foundUrlEnd) {
-          // Valid link found
-          tokens.push({ type: LINK_START, content: "[" });
-          const linkText = state.content.slice(start + 1, textEndIndex);
-          if (linkText.length > 0) {
-            tokens.push({ type: TEXT, content: linkText });
-          }
-          tokens.push({ type: LINK_TEXT_END, content: "](" });
-          const linkUrl = state.content.slice(urlStart, state.index);
-          if (linkUrl.length > 0) {
-            tokens.push({ type: TEXT, content: linkUrl });
-          }
-          tokens.push({ type: LINK_END, content: ")" });
-          next(state);
+      const content = state.content;
+      let i = start + 1;
+      let depth = 1;
+      let textEndIndex = -1;
+      while (i < content.length) {
+        const c = content[i];
+        if (c === "\n" || c === "\r") break;
+        if (c === "\\" && i + 1 < content.length) {
+          i += 2;
           continue;
         }
+        if (c === "[") depth++;
+        else if (c === "]") {
+          depth--;
+          if (depth === 0) {
+            textEndIndex = i;
+            break;
+          }
+        }
+        i++;
+      }
+
+      // Check if followed by a well-formed (url) target.
+      const target =
+        textEndIndex !== -1 && content[textEndIndex + 1] === "("
+          ? parseLinkTarget(content, textEndIndex + 2)
+          : null;
+
+      if (target) {
+        tokens.push({ type: LINK_START, content: "[" });
+        const linkText = stripInlineImages(
+          content.slice(start + 1, textEndIndex),
+        );
+        if (linkText.length > 0) {
+          tokens.push({ type: TEXT, content: linkText });
+        }
+        tokens.push({ type: LINK_TEXT_END, content: "](" });
+        if (target.url.length > 0) {
+          tokens.push({ type: TEXT, content: target.url });
+        }
+        tokens.push({ type: LINK_END, content: ")" });
+        state.index = target.end;
+        continue;
       }
 
       // Not a valid link, treat as regular text
