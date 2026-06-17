@@ -275,6 +275,42 @@ export function createActionBus(): ActionBus {
   };
 }
 
+/**
+ * A teardown function — what `editor.registerAction`, `editor.subscribe`,
+ * `doc.on`, and friends return. Calling it undoes the registration.
+ */
+export type Disposer = () => void;
+
+/**
+ * Combine several teardown functions into one (Lexical's `mergeRegister`).
+ * `editor.registerAction` / `subscribe` / `doc.on` each return a `Disposer`;
+ * collecting them by hand and remembering to call every one on unmount is
+ * error-prone — a dropped disposer leaks a handler that fires for the rest of
+ * the instance's life (and, on a re-run effect, stacks duplicates). Pass them
+ * all here and store the single returned `Disposer`:
+ *
+ * ```ts
+ * const dispose = mergeRegister(
+ *   editor.registerAction(OPEN_LINK, openNatively),
+ *   editor.registerAction(CURSOR_DRAG_END, buzz),
+ *   editor.subscribe(rerender),
+ * );
+ * // later (effect cleanup): dispose();
+ * ```
+ *
+ * Disposers run in registration order and each runs at most once — calling the
+ * returned function twice is a no-op (the list is cleared after the first call),
+ * matching `@lexical/utils`.
+ */
+export function mergeRegister(...disposers: Disposer[]): Disposer {
+  return () => {
+    for (const dispose of disposers) dispose();
+    // Drop references so a second call is a safe no-op and captured closures
+    // can be GC'd.
+    disposers.length = 0;
+  };
+}
+
 // ─── Built-in actions ─────────────────────────────────────────────────────
 
 /**
@@ -322,3 +358,48 @@ export const TEXT_INPUT = action<{
   blockIndex: number;
   textIndex: number;
 }>("text-input");
+
+/**
+ * The editor wants a context menu shown — emitted on desktop right-click and on
+ * touch long-press / cursor-hold. `x`/`y` are canvas coordinates (the host adds
+ * its container rect to position the menu); `hasSelection` lets the host build
+ * the item set without re-deriving it. The engine itself is headless about the
+ * menu: a host observes this, renders its own menu, and returns `true` to claim
+ * it. The engine itself tracks that a host menu is capturing the pointer (off
+ * this action and {@link CLOSE_CONTEXT_MENU}) so the touch FSM routes the
+ * subsequent drag/release to the menu (see {@link CONTEXT_MENU_POINTER_MOVE} /
+ * {@link CONTEXT_MENU_RELEASE}) instead of scrolling/selecting — the host never
+ * writes that flag, it just dispatches {@link CLOSE_CONTEXT_MENU} to dismiss.
+ */
+export const OPEN_CONTEXT_MENU = action<{
+  x: number;
+  y: number;
+  hasSelection: boolean;
+}>("open-context-menu");
+
+/**
+ * A touch drag moved while a host context menu is capturing the pointer (see
+ * {@link OPEN_CONTEXT_MENU}). Payload is the raw viewport client point so the
+ * host can hit-test its menu items (e.g. `document.elementFromPoint`) and update
+ * its own hover highlight. Observe-only.
+ */
+export const CONTEXT_MENU_POINTER_MOVE = action<{
+  clientX: number;
+  clientY: number;
+}>("context-menu-pointer-move");
+
+/**
+ * The touch lifted while a host context menu was capturing the pointer — the
+ * drag-and-release commit. The host runs whichever item the release landed on
+ * (if any) and closes its menu. Payload is the release client point. Observe-only.
+ */
+export const CONTEXT_MENU_RELEASE = action<{
+  clientX: number;
+  clientY: number;
+}>("context-menu-release");
+
+/**
+ * The editor cancelled the context menu (scrolling, a tap elsewhere, a new
+ * selection…). The host closes its menu and clears its capture flag. Observe-only.
+ */
+export const CLOSE_CONTEXT_MENU = action("close-context-menu");
