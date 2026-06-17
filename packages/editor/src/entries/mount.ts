@@ -496,7 +496,7 @@ export function mountEditor(
   // native blur below never fires — this releases logical focus for that case.
   const handleDocumentClick = (e: MouseEvent | TouchEvent) => {
     if (isInsideEditor(e.target as globalThis.Node | null)) return;
-    if (editor.getState()?.ui.activeMenu.type === "contextMenu") {
+    if (editor.isHostMenuCapturing()) {
       return;
     }
     editor.setFocus(false, true);
@@ -523,7 +523,7 @@ export function mountEditor(
   // blur is the source of truth for losing focus. The two document-level
   // backstop handlers cover the cases this event can't see.
   const handleInputBlur = (e: FocusEvent) => {
-    if (editor.getState()?.ui.activeMenu.type === "contextMenu") {
+    if (editor.isHostMenuCapturing()) {
       return;
     }
     if (

@@ -1,22 +1,20 @@
-/** emphasis → italic. */
+/** emphasis → italic. (The Ctrl/Cmd+I toggle lives in `./toggle-actions`.) */
 
-import { stateAction } from "../../action-bus";
-import { toggleItalic } from "../../actions/actions";
+import type { MarkCodec } from "../../serlization/codecs/mark-codec";
+import { ITALIC_END, ITALIC_START } from "../../serlization/tokenizer";
 import { Mark, type MarkStyle } from "./Mark";
+
+const EMPHASIS_CODEC: MarkCodec = {
+  type: "emphasis",
+  toMarkdown: (t) => `*${t}*`,
+  tokens: { start: ITALIC_START, end: ITALIC_END },
+  html: { priority: 2, render: (inner) => `<em>${inner}</em>` },
+};
 
 export class EmphasisMark extends Mark {
   readonly type = "emphasis";
+  readonly codec = EMPHASIS_CODEC;
   style(): MarkStyle {
     return { italic: true };
   }
 }
-
-/**
- * Toggle the `emphasis` (italic) mark over the selection (Ctrl/Cmd+I).
- * Co-located with the mark it toggles; wraps the pure `toggleItalic` transform.
- * Emits the resulting CRDT format ops.
- */
-export const TOGGLE_ITALIC = stateAction("toggle-italic", (state) => {
-  const result = toggleItalic(state);
-  return { state: result.state, ops: result.ops };
-});

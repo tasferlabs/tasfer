@@ -51,6 +51,17 @@ export interface BlockCapabilities {
    * code-like block opts in here instead of being named in events/keysEvents.
    */
   readonly preformatted?: boolean;
+  /**
+   * Text-morph compatibility group. A block can be morphed to another via
+   * `block_set { field: "type" }` without orphaning CRDT-tracked content
+   * (charRuns/formats) exactly when both share the same non-empty `morphGroup`
+   * (or it's a no-op self-morph). The built-in rich-text family (paragraph,
+   * headings, lists) shares group `"text"`; visual and preformatted blocks omit
+   * it (they only morph to themselves). This replaces the hand-listed
+   * `textPreservingMorphs` set — a custom block joins the family by declaring
+   * the same group, with no global enumeration to edit.
+   */
+  readonly morphGroup?: string;
 }
 
 // =============================================================================
@@ -62,52 +73,14 @@ export interface BlockTypeDescriptor {
   readonly capabilities: BlockCapabilities;
   readonly defaults: (id: string, afterId: string | null) => Block;
   readonly fields: Readonly<Record<string, FieldDescriptor>>;
-  /**
-   * Types this block can be morphed to via `block_set { field: "type" }`
-   * without losing CRDT-tracked content (charRuns/formats). Visual blocks
-   * list only themselves because morphing into a textual type would orphan
-   * their props (url/latex/etc.).
-   */
-  readonly textPreservingMorphs: readonly BlockType[];
 }
-
-// =============================================================================
-// Block type set (used by validators and the "type" field)
-// =============================================================================
-
-const ALL_BLOCK_TYPES: readonly BlockType[] = [
-  "paragraph",
-  "heading1",
-  "heading2",
-  "heading3",
-  "bullet_list",
-  "numbered_list",
-  "todo_list",
-  "image",
-  "line",
-  "math",
-  "code",
-];
-
-const ALL_BLOCK_TYPES_SET: ReadonlySet<BlockType> = new Set(ALL_BLOCK_TYPES);
-
-const TEXTUAL_BLOCK_TYPES: readonly BlockType[] = [
-  "paragraph",
-  "heading1",
-  "heading2",
-  "heading3",
-  "bullet_list",
-  "numbered_list",
-  "todo_list",
-];
 
 // =============================================================================
 // Shared field descriptors
 // =============================================================================
 
 const typeField: FieldDescriptor = {
-  validate: (value): boolean =>
-    typeof value === "string" && ALL_BLOCK_TYPES_SET.has(value as BlockType),
+  validate: (value): boolean => isValidBlockType(value),
   extractForInverse: (block) => block.type,
 };
 
@@ -199,6 +172,7 @@ const TEXTUAL_CAPS: BlockCapabilities = {
   hasFormats: true,
   indentable: false,
   togglable: false,
+  morphGroup: "text",
 };
 
 const HEADING_CAPS: BlockCapabilities = {
@@ -212,6 +186,7 @@ const BULLET_CAPS: BlockCapabilities = {
   indentable: true,
   togglable: false,
   listKind: "bullet",
+  morphGroup: "text",
 };
 
 const NUMBERED_CAPS: BlockCapabilities = {
@@ -225,6 +200,7 @@ const TODO_CAPS: BlockCapabilities = {
   indentable: true,
   togglable: true,
   listKind: "todo",
+  morphGroup: "text",
 };
 
 const VISUAL_CAPS: BlockCapabilities = {
@@ -245,10 +221,8 @@ const CODE_CAPS: BlockCapabilities = {
   preformatted: true,
 };
 
-// Each descriptor uses `satisfies BlockTypeDescriptor` (not a wide
-// annotation) so that `typeof xDescriptor.fields` keeps its literal key
-// type — that's what the cross-file compile-time check in sync.ts indexes
-// into to detect BlockFieldsOf drift.
+// Each descriptor uses `satisfies BlockTypeDescriptor` so it is checked against
+// the descriptor shape while keeping its own inferred type for local reads.
 
 const paragraphDescriptor = {
   type: "paragraph",
@@ -260,7 +234,6 @@ const paragraphDescriptor = {
     formats: [],
   }),
   fields: { type: typeField },
-  textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
 } satisfies BlockTypeDescriptor;
 
 const heading1Descriptor = {
@@ -273,7 +246,6 @@ const heading1Descriptor = {
     formats: [],
   }),
   fields: { type: typeField },
-  textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
 } satisfies BlockTypeDescriptor;
 
 const heading2Descriptor = {
@@ -286,7 +258,6 @@ const heading2Descriptor = {
     formats: [],
   }),
   fields: { type: typeField },
-  textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
 } satisfies BlockTypeDescriptor;
 
 const heading3Descriptor = {
@@ -299,7 +270,6 @@ const heading3Descriptor = {
     formats: [],
   }),
   fields: { type: typeField },
-  textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
 } satisfies BlockTypeDescriptor;
 
 const bulletListDescriptor = {
@@ -313,7 +283,6 @@ const bulletListDescriptor = {
     indent: 0,
   }),
   fields: { type: typeField, indent: indentField },
-  textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
 } satisfies BlockTypeDescriptor;
 
 const numberedListDescriptor = {
@@ -327,7 +296,6 @@ const numberedListDescriptor = {
     indent: 0,
   }),
   fields: { type: typeField, indent: indentField },
-  textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
 } satisfies BlockTypeDescriptor;
 
 const todoListDescriptor = {
@@ -342,7 +310,6 @@ const todoListDescriptor = {
     indent: 0,
   }),
   fields: { type: typeField, indent: indentField, checked: checkedField },
-  textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
 } satisfies BlockTypeDescriptor;
 
 const imageDescriptor = {
@@ -361,7 +328,6 @@ const imageDescriptor = {
     height: heightField,
     objectFit: objectFitField,
   },
-  textPreservingMorphs: ["image"],
 } satisfies BlockTypeDescriptor;
 
 const lineDescriptor = {
@@ -372,7 +338,6 @@ const lineDescriptor = {
     type: "line",
   }),
   fields: { type: typeField },
-  textPreservingMorphs: ["line"],
 } satisfies BlockTypeDescriptor;
 
 const mathDescriptor = {
@@ -389,7 +354,6 @@ const mathDescriptor = {
     latex: latexField,
     displayMode: displayModeField,
   },
-  textPreservingMorphs: ["math"],
 } satisfies BlockTypeDescriptor;
 
 const codeDescriptor = {
@@ -406,17 +370,15 @@ const codeDescriptor = {
     type: typeField,
     language: languageField,
   },
-  // Code holds text but can only morph to itself: morphing into a paragraph
-  // would orphan its `language` field and reinterpret embedded "\n" chars (which
-  // a code block renders as hard line breaks) as run-on paragraph text.
-  textPreservingMorphs: ["code"],
+  // Code omits a `morphGroup`, so it can only morph to itself: morphing into a
+  // paragraph would orphan its `language` field and reinterpret embedded "\n"
+  // chars (which a code block renders as hard line breaks) as run-on text.
 } satisfies BlockTypeDescriptor;
 
-// `satisfies` (rather than a wide annotation) preserves the per-key
-// inferred type, so `(typeof BLOCK_REGISTRY)["image"]["fields"]` carries
-// the literal field keys `"type" | "url" | "alt" | ...`. That's what lets
-// the compile-time check in sync.ts verify BlockFieldsOf against the
-// registry without drift.
+// The built-in block-type table — the single runtime source of truth for the
+// built-in set. Every "what block types exist" query (validation, the "type"
+// field's validator, morph compatibility) derives from this map; there is no
+// separate hand-listed enumeration to keep in sync.
 export const BLOCK_REGISTRY = {
   paragraph: paragraphDescriptor,
   heading1: heading1Descriptor,
@@ -436,10 +398,7 @@ export const BLOCK_REGISTRY = {
 // =============================================================================
 //
 // All helpers below access the registry through the wide BlockTypeDescriptor
-// view so that runtime-string indexing into `fields` and runtime-typed
-// `BlockType` indexing into `textPreservingMorphs` work. The narrow per-key
-// inferred types are only needed for the compile-time check in sync.ts;
-// callers want the homogeneous descriptor shape.
+// view so that runtime-string indexing into `fields`/capabilities works.
 
 const REGISTRY: Readonly<Record<string, BlockTypeDescriptor>> = BLOCK_REGISTRY;
 
@@ -540,15 +499,19 @@ export function getBlockFieldNames(type: string): readonly string[] {
   return descriptor ? Object.keys(descriptor.fields) : [];
 }
 
+/**
+ * Whether `from` can be morphed to `to` via `block_set { field: "type" }`
+ * without orphaning CRDT-tracked content. True for a no-op self-morph, or when
+ * both types share the same non-empty `morphGroup` capability (the rich-text
+ * family). Derived purely from capabilities — no per-type morph list.
+ */
 export function canMorphTo(from: string, to: string): boolean {
-  const morphs = REGISTRY[from]?.textPreservingMorphs as
-    | readonly string[]
-    | undefined;
-  return morphs?.includes(to) ?? false;
+  if (from === to) return REGISTRY[from] !== undefined;
+  const fromGroup = REGISTRY[from]?.capabilities.morphGroup;
+  const toGroup = REGISTRY[to]?.capabilities.morphGroup;
+  return fromGroup !== undefined && fromGroup === toGroup;
 }
 
 export function isValidBlockType(value: unknown): value is BlockType {
-  return (
-    typeof value === "string" && ALL_BLOCK_TYPES_SET.has(value as BlockType)
-  );
+  return typeof value === "string" && REGISTRY[value] !== undefined;
 }

@@ -16,19 +16,7 @@
  */
 
 import type { Mark } from "../loadPage";
-import {
-  BOLD_END,
-  BOLD_START,
-  CODE_END,
-  CODE_START,
-  INLINE_MATH_END,
-  INLINE_MATH_START,
-  ITALIC_END,
-  ITALIC_START,
-  STRIKETHROUGH_END,
-  STRIKETHROUGH_START,
-  type TokenType,
-} from "../tokenizer";
+import { type TokenType } from "../tokenizer";
 
 /** Helpers passed to an HTML codec so it needn't import the serializer. */
 export interface MarkHtmlCtx {
@@ -70,62 +58,8 @@ export interface MarkCodec {
   readonly html?: MarkHtmlCodec;
 }
 
-/** The built-in inline marks' markdown codecs, keyed by mark type. */
-export const BUILTIN_MARK_CODECS: Readonly<Record<string, MarkCodec>> = {
-  // `html.priority` reproduces the prior fixed nesting order exactly:
-  // code (innermost) → strong → emphasis → strike → link (outermost). Math is a
-  // replacement (renders an SVG, falls back to `$…$` source).
-  strong: {
-    type: "strong",
-    toMarkdown: (t) => `**${t}**`,
-    tokens: { start: BOLD_START, end: BOLD_END },
-    html: { priority: 1, render: (inner) => `<strong>${inner}</strong>` },
-  },
-  emphasis: {
-    type: "emphasis",
-    toMarkdown: (t) => `*${t}*`,
-    tokens: { start: ITALIC_START, end: ITALIC_END },
-    html: { priority: 2, render: (inner) => `<em>${inner}</em>` },
-  },
-  strike: {
-    type: "strike",
-    toMarkdown: (t) => `~~${t}~~`,
-    tokens: { start: STRIKETHROUGH_START, end: STRIKETHROUGH_END },
-    html: { priority: 3, render: (inner) => `<s>${inner}</s>` },
-  },
-  code: {
-    type: "code",
-    toMarkdown: (t) => `\`${t}\``,
-    tokens: { start: CODE_START, end: CODE_END },
-    html: { priority: 0, render: (inner) => `<code>${inner}</code>` },
-  },
-  math: {
-    type: "math",
-    toMarkdown: (t) => `$${t}$`,
-    tokens: { start: INLINE_MATH_START, end: INLINE_MATH_END },
-    html: {
-      priority: 0,
-      replace: true,
-      render: (_inner, _mark, ctx) => {
-        try {
-          if (!ctx.renderMathSVG) throw new Error("no math renderer");
-          return ctx.renderMathSVG(ctx.text, false);
-        } catch {
-          return `<code>$${ctx.escapeHtml(ctx.text)}$</code>`;
-        }
-      },
-    },
-  },
-  link: {
-    type: "link",
-    toMarkdown: (t, mark) =>
-      mark.attrs?.url ? `[${t}](${mark.attrs.url})` : t,
-    html: {
-      priority: 4,
-      render: (inner, mark, ctx) =>
-        mark.attrs?.url
-          ? `<a href="${ctx.escapeAttr(String(mark.attrs.url))}">${inner}</a>`
-          : inner,
-    },
-  },
-};
+// The built-in marks' codecs are NOT enumerated here — each built-in Mark
+// subclass (rendering/marks/*) owns its own `codec`, the inline analogue of a
+// Node owning its serialization. `baseDataSchema` derives the schema's mark
+// codecs from the registered marks, so there is no central mark table to keep
+// in sync.

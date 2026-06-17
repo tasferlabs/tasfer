@@ -1,22 +1,23 @@
-/** strike → strike-through. */
+/** strike → strike-through. (The toggle action lives in `./toggle-actions`.) */
 
-import { stateAction } from "../../action-bus";
-import { toggleStrikethrough } from "../../actions/actions";
+import type { MarkCodec } from "../../serlization/codecs/mark-codec";
+import {
+  STRIKETHROUGH_END,
+  STRIKETHROUGH_START,
+} from "../../serlization/tokenizer";
 import { Mark, type MarkStyle } from "./Mark";
+
+const STRIKE_CODEC: MarkCodec = {
+  type: "strike",
+  toMarkdown: (t) => `~~${t}~~`,
+  tokens: { start: STRIKETHROUGH_START, end: STRIKETHROUGH_END },
+  html: { priority: 3, render: (inner) => `<s>${inner}</s>` },
+};
 
 export class StrikeMark extends Mark {
   readonly type = "strike";
+  readonly codec = STRIKE_CODEC;
   style(): MarkStyle {
     return { strikethrough: true };
   }
 }
-
-/**
- * Toggle the `strike` (strike-through) mark over the selection. Co-located with
- * the mark it toggles; wraps the pure `toggleStrikethrough` transform. Emits the
- * resulting CRDT format ops.
- */
-export const TOGGLE_STRIKE = stateAction("toggle-strike", (state) => {
-  const result = toggleStrikethrough(state);
-  return { state: result.state, ops: result.ops };
-});

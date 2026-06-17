@@ -171,12 +171,16 @@ export type {
 } from "./action-bus";
 export {
   action,
+  CLOSE_CONTEXT_MENU,
+  CONTEXT_MENU_POINTER_MOVE,
+  CONTEXT_MENU_RELEASE,
   CURSOR_DRAG_BOUNDARY,
   CURSOR_DRAG_END,
   CURSOR_DRAG_START,
   isMutationAction,
   isStateAction,
   mergeRegister,
+  OPEN_CONTEXT_MENU,
   OPEN_LINK,
   REGION_DRAG_START,
   stateAction,

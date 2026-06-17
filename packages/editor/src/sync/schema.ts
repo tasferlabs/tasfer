@@ -27,16 +27,6 @@ import type { Block } from "../serlization/loadPage";
 import type { TokenType } from "../serlization/tokenizer";
 import type { BlockTypeDescriptor } from "./block-registry";
 
-/** The built-in inline mark types (Mark.type values). */
-export const BUILTIN_MARK_TYPES: readonly string[] = [
-  "strong",
-  "emphasis",
-  "strike",
-  "code",
-  "link",
-  "math",
-];
-
 /**
  * The CRDT + serialization facets of one block type, bundled. The rendering
  * facet (the canvas Node) is added separately by the full Schema so this stays
@@ -203,10 +193,10 @@ export class DataSchema {
   }
 
   canMorphTo(from: string, to: string): boolean {
-    const descriptor = this.getDescriptor(from);
-    return descriptor
-      ? (descriptor.textPreservingMorphs as readonly string[]).includes(to)
-      : false;
+    if (from === to) return this.hasBlock(from);
+    const fromGroup = this.getDescriptor(from)?.capabilities.morphGroup;
+    const toGroup = this.getDescriptor(to)?.capabilities.morphGroup;
+    return fromGroup !== undefined && fromGroup === toGroup;
   }
 
   /**

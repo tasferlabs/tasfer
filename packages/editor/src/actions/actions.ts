@@ -34,7 +34,16 @@ import {
   getBlockTextLength,
   updateMode,
 } from "../state-utils";
-import { isTextualBlock, isTogglable } from "../sync/block-registry";
+import {
+  canHaveFormats,
+  createDefaultBlock,
+  getBlockDescriptor,
+  getBlockFieldNames,
+  hasTextContent,
+  isPreformattedType,
+  isTextualBlock,
+  isTogglable,
+} from "../sync/block-registry";
 import {
   deleteFromRuns,
   getVisibleTextFromRuns,
@@ -1028,11 +1037,12 @@ export function insertText(state: EditorState, input: string): ActionResult {
     }
   }
 
-  // Code blocks are verbatim source: no inline-mark auto-format and no
-  // block-prefix conversion ever applies inside them (their `hasFormats` is
-  // false, and "# "/"- "/"```" must stay literal text). The paragraph→code
-  // creation path below is unaffected — there `oldBlock` is the paragraph.
-  const inCodeBlock = oldBlock.type === "code";
+  // Preformatted blocks (e.g. code) are verbatim source: no inline-mark
+  // auto-format and no block-prefix conversion ever applies inside them (their
+  // `hasFormats` is false, and "# "/"- "/"```" must stay literal text). The
+  // paragraph→preformatted creation path below is unaffected — there `oldBlock`
+  // is the paragraph.
+  const inCodeBlock = isPreformattedType(oldBlock.type);
 
   // Inline markdown detection (only on closing delimiter characters)
   const isClosingDelimiter =
@@ -2566,10 +2576,10 @@ export function splitBlock(state: EditorState): ActionResult {
     }
 
     const newBlockId = state.CRDTbinding.nextId();
-    const newBlockType: "bullet_list" | "numbered_list" | "todo_list" =
-      oldBlock.type === "bullet_list" || oldBlock.type === "numbered_list"
-        ? oldBlock.type
-        : "todo_list";
+    // Continue the same list type. `oldBlock` is already a list block, so its
+    // type is the desired type for the next item; togglable lists (todo) also
+    // seed an unchecked state.
+    const newBlockType = oldBlock.type;
 
     const blockInsertOp: BlockInsert = {
       op: "block_insert",
@@ -2579,10 +2589,9 @@ export function splitBlock(state: EditorState): ActionResult {
       afterBlockId: oldBlock.id,
       blockId: newBlockId,
       blockType: newBlockType,
-      initialProps:
-        oldBlock.type === "todo_list"
-          ? { checked: false, indent: oldBlock.indent }
-          : { indent: oldBlock.indent },
+      initialProps: isTogglable(oldBlock.type)
+        ? { checked: false, indent: oldBlock.indent }
+        : { indent: oldBlock.indent },
     };
     ops.push(blockInsertOp);
     pageAcc = applyOps(pageAcc, [blockInsertOp]);
@@ -3182,25 +3191,30 @@ export function convertBlockAtCursor(
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return { state, ops: [] };
 
-  // Special handling for image cover blocks
-  if (action.type === "image") {
-    // For image cover blocks, we replace the current block with an empty image cover block
-    const newBlock: Block = {
-      id: block.id,
-      afterId: block.afterId ?? null,
-      type: "image",
-      url: "", // Will be filled when image is uploaded
-      alt: "",
-    };
+  // Converting TO a non-textual (atomic) block — image/math/line or any custom
+  // void type. One path for all of them: the new block is the target type's
+  // default (from its descriptor), the source block's text is cleared and its
+  // type morphed, and the caret moves to the next block — creating a trailing
+  // paragraph when this was the last block, since the caret can't live inside an
+  // atomic block. A new atomic block type becomes slash-convertible with no
+  // code here.
+  if (!hasTextContent(action.type)) {
+    const newBlock = createDefaultBlock(
+      action.type,
+      block.id,
+      block.afterId ?? null,
+    );
+    if (!newBlock) return { state, ops: [] };
 
-    // Invalidate cache only for the changed block
     invalidateBlockCache(newBlock);
 
     const newBlocks = [...state.document.page.blocks];
     newBlocks[blockIndex] = newBlock;
     const newPage = { ...state.document.page, blocks: newBlocks };
 
-    // Emit CRDT operations: delete all text and change block type
+    // Emit CRDT ops only when morphing from a textual source: clear its text and
+    // change its type. (An atomic→atomic slash conversion leaves the source's
+    // CRDT type untouched, matching the prior per-type handlers.)
     if (isTextualBlock(block)) {
       const textLength = getVisibleLength(block.charRuns);
       if (textLength > 0) {
@@ -3221,7 +3235,7 @@ export function convertBlockAtCursor(
         pageId: state.CRDTbinding.pageId,
         blockId: block.id,
         field: "type",
-        value: "image",
+        value: action.type,
       };
       ops.push(blockSetOp);
     }
@@ -3232,186 +3246,11 @@ export function convertBlockAtCursor(
       document: { ...state.document, page: newPage },
     };
 
-    // Move cursor to next block (create one if needed)
+    // Move the caret to the next block, creating a trailing paragraph if this
+    // was the last block (the caret can't live inside an atomic block).
     if (blockIndex + 1 < newBlocks.length) {
       newState = moveCursorToPosition(newState, blockIndex + 1, 0);
     } else {
-      // Create a new paragraph block after the image
-      const newParagraphId = state.CRDTbinding.nextId();
-      const newParagraph: Block = {
-        id: newParagraphId,
-        afterId: block.id,
-        type: "paragraph",
-        charRuns: [],
-        formats: [],
-      };
-
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        afterBlockId: block.id,
-        blockId: newParagraphId,
-        blockType: "paragraph",
-      };
-      ops.push(blockInsertOp);
-
-      const blocksWithNewParagraph = [...newBlocks, newParagraph];
-      newState = {
-        ...newState,
-        document: {
-          ...newState.document,
-          page: { ...newPage, blocks: blocksWithNewParagraph },
-        },
-      };
-
-      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
-    }
-
-    return { state: newState, ops };
-  }
-
-  // Special handling for math blocks
-  if (action.type === "math") {
-    const newBlock: Block = {
-      id: block.id,
-      afterId: block.afterId ?? null,
-      type: "math",
-      latex: "",
-      displayMode: true,
-    };
-
-    invalidateBlockCache(newBlock);
-
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[blockIndex] = newBlock;
-    const newPage = { ...state.document.page, blocks: newBlocks };
-
-    // Emit CRDT operations: delete all text and change block type
-    if (isTextualBlock(block)) {
-      const textLength = getVisibleLength(block.charRuns);
-      if (textLength > 0) {
-        const { op: deleteOp } = deleteCharsInRange(
-          state.document.page,
-          block.id,
-          0,
-          textLength,
-          state.CRDTbinding,
-        );
-        ops.push(deleteOp);
-      }
-
-      const blockSetOp: BlockSet = {
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId: block.id,
-        field: "type",
-        value: "math",
-      };
-      ops.push(blockSetOp);
-    }
-
-    // Update state
-    let newState: EditorState = {
-      ...state,
-      document: { ...state.document, page: newPage },
-    };
-
-    // Move cursor to next block (create one if needed)
-    if (blockIndex + 1 < newBlocks.length) {
-      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
-    } else {
-      const newParagraphId = state.CRDTbinding.nextId();
-      const newParagraph: Block = {
-        id: newParagraphId,
-        afterId: block.id,
-        type: "paragraph",
-        charRuns: [],
-        formats: [],
-      };
-
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        afterBlockId: block.id,
-        blockId: newParagraphId,
-        blockType: "paragraph",
-      };
-      ops.push(blockInsertOp);
-
-      const blocksWithNewParagraph = [...newBlocks, newParagraph];
-      newState = {
-        ...newState,
-        document: {
-          ...newState.document,
-          page: { ...newPage, blocks: blocksWithNewParagraph },
-        },
-      };
-
-      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
-    }
-
-    return { state: newState, ops };
-  }
-
-  // Special handling for line/divider blocks
-  if (action.type === "line") {
-    // For line blocks, we replace the current block with a line block
-    const newBlock: Block = {
-      id: block.id,
-      afterId: block.afterId ?? null,
-      type: "line",
-    };
-
-    // Invalidate cache only for the changed block
-    invalidateBlockCache(newBlock);
-
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[blockIndex] = newBlock;
-    const newPage = { ...state.document.page, blocks: newBlocks };
-
-    // Emit CRDT operations: delete all text and change block type
-    if (isTextualBlock(block)) {
-      const textLength = getVisibleLength(block.charRuns);
-      if (textLength > 0) {
-        const { op: deleteOp } = deleteCharsInRange(
-          state.document.page,
-          block.id,
-          0,
-          textLength,
-          state.CRDTbinding,
-        );
-        ops.push(deleteOp);
-      }
-
-      const blockSetOp: BlockSet = {
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId: block.id,
-        field: "type",
-        value: "line",
-      };
-      ops.push(blockSetOp);
-    }
-
-    // Update state
-    let newState: EditorState = {
-      ...state,
-      document: { ...state.document, page: newPage },
-    };
-
-    // Move cursor to next block (create one if needed)
-    if (blockIndex + 1 < newBlocks.length) {
-      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
-    } else {
-      // Create a new paragraph block after the line
       const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
@@ -3475,60 +3314,23 @@ export function convertBlockAtCursor(
     ops.push(deleteOp);
   }
 
-  // Update block content and type
-  let newBlock: Block;
-  if (action.type === "bullet_list") {
-    newBlock = {
-      id: block.id,
-      type: "bullet_list",
-      charRuns: updatedCharRuns,
-      formats: block.formats,
-      indent: 0,
-    };
-  } else if (action.type === "numbered_list") {
-    newBlock = {
-      id: block.id,
-      type: "numbered_list",
-      charRuns: updatedCharRuns,
-      formats: block.formats,
-      indent: 0,
-    };
-  } else if (action.type === "todo_list") {
-    newBlock = {
-      id: block.id,
-      type: "todo_list",
-      charRuns: updatedCharRuns,
-      formats: block.formats,
-      checked: false,
-      indent: 0,
-    };
-  } else if (action.type === "code") {
-    // Code keeps its text but carries NO inline marks — drop any formats the
-    // source block had so they don't render inside the code block.
-    newBlock = {
-      id: block.id,
-      type: "code",
-      charRuns: updatedCharRuns,
-      formats: [],
-      language: "",
-    };
-  } else {
-    // Regular text blocks (headings, paragraphs)
-    newBlock = {
-      id: block.id,
-      type: action.type as "heading1" | "heading2" | "heading3" | "paragraph",
-      charRuns: updatedCharRuns,
-      formats: block.formats,
-    };
-  }
-
-  // Preserve the block's linked-list position. The conversion only changes
-  // type/props, not where the block sits in the document — but rebuilding the
-  // block literal above drops `afterId`. Without it, the next time block order
-  // is re-derived (a remote/undo `block_insert` applied through the reducer, or
-  // the inverse of this block's deletion) `resolveBlockOrder` keys the block
-  // under the `null` anchor and sorts it to the top of the page.
-  newBlock.afterId = block.afterId ?? null;
+  // Update block content and type. The converted block is the target type's
+  // default (which carries its own fields — a list's `indent`, a todo's
+  // `checked`, a code block's `language` — and preserves the linked-list
+  // position via `afterId`), with the source block's text carried over. Code
+  // drops inline marks (it has none); other textual types keep them. No
+  // per-type literal — a new textual type converts with no code here.
+  const defaults = createDefaultBlock(
+    action.type,
+    block.id,
+    block.afterId ?? null,
+  );
+  if (!defaults) return { state, ops: [] };
+  const newBlock = {
+    ...defaults,
+    charRuns: updatedCharRuns,
+    formats: canHaveFormats(action.type) ? block.formats : [],
+  } as Block;
 
   // Invalidate cache only for the changed block
   invalidateBlockCache(newBlock);
@@ -3549,34 +3351,24 @@ export function convertBlockAtCursor(
   };
   ops.push(blockSetOp);
 
-  // Emit property changes for list blocks
-  if (
-    action.type === "bullet_list" ||
-    action.type === "numbered_list" ||
-    action.type === "todo_list"
-  ) {
-    const indentSetOp: BlockSet = {
-      op: "block_set",
-      id: state.CRDTbinding.nextId(),
-      clock: state.CRDTbinding.getClock(),
-      pageId: state.CRDTbinding.pageId,
-      blockId: block.id,
-      field: "indent",
-      value: 0,
-    };
-    ops.push(indentSetOp);
-
-    if (action.type === "todo_list") {
-      const checkedSetOp: BlockSet = {
+  // Sync the target type's own fields (a list's `indent`, a todo's `checked`,
+  // …) as block_set ops, driven by the type's descriptor so a new textual type
+  // with extra fields converges with no per-type code here.
+  const descriptor = getBlockDescriptor(action.type);
+  if (descriptor) {
+    for (const field of getBlockFieldNames(action.type)) {
+      if (field === "type") continue;
+      const value = (newBlock as unknown as Record<string, unknown>)[field];
+      if (value === undefined) continue;
+      ops.push({
         op: "block_set",
         id: state.CRDTbinding.nextId(),
         clock: state.CRDTbinding.getClock(),
         pageId: state.CRDTbinding.pageId,
         blockId: block.id,
-        field: "checked",
-        value: false,
-      };
-      ops.push(checkedSetOp);
+        field,
+        value,
+      } as BlockSet);
     }
   }
 

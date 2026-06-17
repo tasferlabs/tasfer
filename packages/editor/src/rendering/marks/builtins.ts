@@ -28,7 +28,7 @@ import { StrongMark } from "./StrongMark";
  * stateless, holding only style/paint logic), so importing this module has no
  * side effects.
  */
-function defaultMarks(): Mark[] {
+export function defaultMarks(): Mark[] {
   return [
     new StrongMark(),
     new EmphasisMark(),

@@ -22,7 +22,7 @@ import type {
   TextInsert,
   VersionVector,
 } from "../state-types";
-import { BLOCK_REGISTRY, isTextualBlock } from "./block-registry";
+import { isTextualBlock } from "./block-registry";
 import { getCharIdsInRangeFromRuns } from "./char-runs";
 import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
 import {
@@ -147,145 +147,15 @@ export type {
   VersionVector,
 } from "../state-types";
 
-// =============================================================================
-// Typed BlockSet builder
-// =============================================================================
-
-/**
- * Compile-time map of block type → settable fields and their value types.
- *
- * Mirrors the runtime BLOCK_REGISTRY but expresses the field shapes at the
- * type level so that `createBlockSet` can refuse, at compile time, ops that
- * target a field that doesn't exist on a block type or carry a wrongly-typed
- * value. The wire shape itself stays `field: string, value: unknown` — this
- * is purely a guard at construction sites that know the block's static type.
- *
- * The KEYS of each entry are checked against BLOCK_REGISTRY at compile time
- * by `_BlockFieldsOfMatchesRegistry` below. The VALUE TYPES still need
- * manual sync with the descriptor's `validate` predicates — adding a new
- * field requires touching both the registry and this map; the assertion
- * catches the field-name half of that. (Encoding value types in the
- * registry would require lifting them into FieldDescriptor's generics; not
- * done because the validate functions already enforce them at runtime.)
- */
-export interface BlockFieldsOf {
-  paragraph: {};
-  heading1: {};
-  heading2: {};
-  heading3: {};
-  bullet_list: { indent: number };
-  numbered_list: { indent: number };
-  todo_list: { indent: number; checked: boolean };
-  image: {
-    url: string;
-    alt?: string;
-    width?: number | "full";
-    height?: number;
-    objectFit?: "cover" | "contain";
-  };
-  line: {};
-  math: { latex: string; displayMode: boolean };
-  code: { language?: string };
-}
-
-// =============================================================================
-// Compile-time check: BlockFieldsOf keys === BLOCK_REGISTRY field keys
-// =============================================================================
-//
-// If a block-type's field set drifts between BlockFieldsOf (compile-time)
-// and BLOCK_REGISTRY (runtime), one of the symbols below collapses to
-// `never` and surfaces as a "Type 'true' is not assignable to type 'never'"
-// error at the `_assertBlockFieldsOfMatchesRegistry` declaration.
-
-/** Field keys registered on a block type (excluding "type", which is always valid). */
-type _RegistryFieldKeys<T extends BlockType> = Exclude<
-  keyof (typeof BLOCK_REGISTRY)[T]["fields"] & string,
-  "type"
->;
-
-/** Field keys declared in BlockFieldsOf for a block type. */
-type _BlockFieldsOfKeys<T extends BlockType> = keyof BlockFieldsOf[T] & string;
-
-/** `true` iff A and B are mutually assignable as constraints. */
-type _Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
-
-/** Per-block-type key-set equality assertion. */
-type _BlockFieldsOfMatchesRegistry = {
-  [T in BlockType]: _Equal<_RegistryFieldKeys<T>, _BlockFieldsOfKeys<T>>;
-};
-
-// Force the assertion to evaluate. If any block-type's key sets diverge,
-// the corresponding entry becomes `never` and this declaration fails.
-const _assertBlockFieldsOfMatchesRegistry: _BlockFieldsOfMatchesRegistry = {
-  paragraph: true,
-  heading1: true,
-  heading2: true,
-  heading3: true,
-  bullet_list: true,
-  numbered_list: true,
-  todo_list: true,
-  image: true,
-  line: true,
-  math: true,
-  code: true,
-};
-void _assertBlockFieldsOfMatchesRegistry;
-
-/**
- * Field name allowed on a BlockSet for block type T.
- *
- * Includes "type" (always valid) plus all registered fields for that block
- * type.
- */
-export type BlockSetField<T extends BlockType> =
-  | "type"
-  | (keyof BlockFieldsOf[T] & string);
-
-/**
- * Value type for a given (block type, field) pair.
- *
- * - "type" accepts any BlockType.
- * - Other fields are looked up in BlockFieldsOf.
- */
-export type BlockSetValue<
-  T extends BlockType,
-  F extends BlockSetField<T>,
-> = F extends "type"
-  ? BlockType
-  : F extends keyof BlockFieldsOf[T]
-    ? BlockFieldsOf[T][F]
-    : never;
-
-/**
- * Construct a typed BlockSet op.
- *
- * Use this at emit sites that know the block's static type. The wire shape
- * is identical to the untyped form (field: string, value: unknown) so this
- * is a compile-time-only guard — no runtime cost.
- *
- * Example:
- *   createBlockSet<"todo_list", "checked">(blockId, "checked", true)
- *   createBlockSet<"math", "latex">(blockId, "latex", "x^2")
- *
- * Use the untyped form on `BlockSet`'s wire shape when the type isn't known
- * statically (e.g. when forwarding ops from a peer).
- */
-export function createBlockSet<T extends BlockType, F extends BlockSetField<T>>(
-  blockId: string,
-  field: F,
-  value: BlockSetValue<T, F>,
-  binding: CRDTbinding,
-): BlockSet {
-  return {
-    op: "block_set",
-    id: binding.nextId(),
-    clock: binding.getClock(),
-    pageId: binding.pageId,
-    blockId,
-    field,
-    value,
-  };
-}
+// BlockSet ops carry an untyped wire shape (`field: string, value: unknown`)
+// by design — a peer may forward a `block_set` for a custom block type this
+// build has never heard of. There is deliberately NO compile-time table of
+// "block type → its settable fields": that would be a hardcoded enumeration of
+// every block type, the very thing the dynamic-schema model avoids. Field
+// validity is enforced at runtime through the per-instance schema
+// (`DataSchema.validateField` → the block's own `FieldDescriptor`s), which
+// covers built-in and custom types uniformly. Emit `block_set` ops via the
+// engine's `createBlockSet(blockId, field, value)` method (see `SyncEngine`).
 
 // Re-export utilities
 export { compareHLC, deserializeHLC, serializeHLC } from "./hlc";

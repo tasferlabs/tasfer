@@ -1,11 +1,19 @@
-/** code → a colored chip + fill color. */
+/** code → a colored chip + fill color. (Toggle action in `./toggle-actions`.) */
 
-import { stateAction } from "../../action-bus";
-import { toggleCode } from "../../actions/actions";
+import type { MarkCodec } from "../../serlization/codecs/mark-codec";
+import { CODE_END, CODE_START } from "../../serlization/tokenizer";
 import { Mark, type MarkStyle, type MarkStyleCtx } from "./Mark";
+
+const CODE_CODEC: MarkCodec = {
+  type: "code",
+  toMarkdown: (t) => `\`${t}\``,
+  tokens: { start: CODE_START, end: CODE_END },
+  html: { priority: 0, render: (inner) => `<code>${inner}</code>` },
+};
 
 export class CodeMark extends Mark {
   readonly type = "code";
+  readonly codec = CODE_CODEC;
   style({ styles }: MarkStyleCtx): MarkStyle {
     const code = styles.textFormats.code;
     return {
@@ -18,13 +26,3 @@ export class CodeMark extends Mark {
     };
   }
 }
-
-/**
- * Toggle the `code` mark over the selection. Co-located with the mark it
- * toggles; wraps the pure `toggleCode` transform. Emits the resulting CRDT
- * format ops.
- */
-export const TOGGLE_CODE = stateAction("toggle-code", (state) => {
-  const result = toggleCode(state);
-  return { state: result.state, ops: result.ops };
-});

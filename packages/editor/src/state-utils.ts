@@ -190,54 +190,6 @@ export function createInitialCursorState(state: EditorState): EditorState {
   };
 }
 
-// Context Menu State Management
-export function openContextMenu(
-  state: EditorState,
-  x: number,
-  y: number,
-  hoveredItemId?: string | null,
-): EditorState {
-  return setActiveMenu(state, { type: "contextMenu", x, y, hoveredItemId });
-}
-
-export function closeContextMenu(state: EditorState): EditorState {
-  return closeActiveMenu(state);
-}
-
-export function updateContextMenuHover(
-  state: EditorState,
-  hoveredItemId: string | null,
-): EditorState {
-  if (state.ui.activeMenu.type !== "contextMenu") return state;
-  return {
-    ...state,
-    ui: {
-      ...state.ui,
-      activeMenu: {
-        ...state.ui.activeMenu,
-        hoveredItemId,
-      },
-    },
-  };
-}
-
-export function selectContextMenuItem(
-  state: EditorState,
-  selectedItemId: string,
-): EditorState {
-  if (state.ui.activeMenu.type !== "contextMenu") return state;
-  return {
-    ...state,
-    ui: {
-      ...state.ui,
-      activeMenu: {
-        ...state.ui.activeMenu,
-        selectedItemId,
-      },
-    },
-  };
-}
-
 // Link Hover State Management — engine-owned hover state (not a blocking menu),
 // rendered as a tooltip overlay host-side by the `link` mark.
 export function setLinkHover(

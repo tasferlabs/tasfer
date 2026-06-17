@@ -12,17 +12,12 @@
  * build never cycles through the nodes at module-init).
  */
 
+import { defaultMarks } from "./rendering/marks/builtins";
 import { defaultNodes } from "./rendering/nodes";
 import { codecFromNode } from "./serlization/codecs/from-node";
-import { BUILTIN_MARK_CODECS } from "./serlization/codecs/mark-codec";
 import type { Block } from "./serlization/loadPage";
 import { BLOCK_REGISTRY } from "./sync/block-registry";
-import {
-  type BlockSpecCore,
-  BUILTIN_MARK_TYPES,
-  DataSchema,
-  type MarkSpec,
-} from "./sync/schema";
+import { type BlockSpecCore, DataSchema, type MarkSpec } from "./sync/schema";
 
 /** Pair each built-in node's codec (adapted from its methods) with its descriptor. */
 function buildBaseBlockSpecs(): BlockSpecCore[] {
@@ -41,14 +36,24 @@ function buildBaseBlockSpecs(): BlockSpecCore[] {
 }
 
 /**
+ * Pair each built-in mark's data facet (its `type` + serialization `codec`)
+ * from the registered Mark instances — the inline analogue of
+ * `buildBaseBlockSpecs`. The marks are the single source of truth, so there is
+ * no separate name list or codec table to keep in sync.
+ */
+function buildBaseMarkSpecs(): MarkSpec[] {
+  return defaultMarks().map(
+    (mark): MarkSpec => ({ type: mark.type, codec: mark.codec }),
+  );
+}
+
+/**
  * The default schema: every built-in block and mark type. Immutable — derive
  * variants with `baseDataSchema.extend(...)`, never mutate this.
  */
 export const baseDataSchema: DataSchema = new DataSchema(
   buildBaseBlockSpecs(),
-  BUILTIN_MARK_TYPES.map(
-    (type): MarkSpec => ({ type, codec: BUILTIN_MARK_CODECS[type] }),
-  ),
+  buildBaseMarkSpecs(),
 );
 
 /**

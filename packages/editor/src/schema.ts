@@ -21,22 +21,8 @@
  */
 
 import { baseDataSchema } from "./baseDataSchema";
-import {
-  CodeMark,
-  EmphasisMark,
-  LinkMark,
-  Mark,
-  MathMark,
-  StrikeMark,
-  StrongMark,
-} from "./rendering/marks";
-import {
-  ImageNode,
-  LineNode,
-  ListNode,
-  MathNode,
-  TextNode,
-} from "./rendering/nodes";
+import { defaultMarks, Mark } from "./rendering/marks";
+import { defaultNodes } from "./rendering/nodes";
 import { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
 import { Node } from "./rendering/nodes/Node";
 import {
@@ -165,25 +151,14 @@ function toBlockSpec(entry: BlockSpec | Node): BlockSpec {
 
 /**
  * The default schema — every built-in block and mark type, and the built-in
- * nodes. Immutable; derive variants with `baseSchema.extend(...)`.
+ * nodes. The node/mark instances come straight from `defaultNodes()` /
+ * `defaultMarks()` (the single source of truth for the built-in set), so this
+ * never drifts from them. Immutable; derive variants with `baseSchema.extend(...)`.
  */
 export const baseSchema: Schema = new Schema(
   baseDataSchema,
-  [
-    new LineNode(),
-    new ImageNode(),
-    new MathNode(),
-    new TextNode(),
-    new ListNode(),
-  ],
-  [
-    new StrongMark(),
-    new EmphasisMark(),
-    new StrikeMark(),
-    new CodeMark(),
-    new LinkMark(),
-    new MathMark(),
-  ],
+  defaultNodes(),
+  defaultMarks(),
 );
 
 // ─── defineMark ──────────────────────────────────────────────────────────────
@@ -356,7 +331,8 @@ function buildLeafSpec(
       return asBlock(block);
     },
     fields,
-    textPreservingMorphs: [type as BlockTypeDescriptor["type"]],
+    // No `morphGroup` on VOID_CAPS → a custom leaf only morphs to itself, the
+    // same self-only behavior the old `textPreservingMorphs: [type]` gave.
   };
 
   // ── Serialization codec (generic HTML-tag round-trip) ─────────────────────

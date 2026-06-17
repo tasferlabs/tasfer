@@ -7,7 +7,32 @@
  */
 
 import { getInlineMathDims, getInlineMathImage } from "../../nodes/math";
+import type { MarkCodec } from "../../serlization/codecs/mark-codec";
+import {
+  INLINE_MATH_END,
+  INLINE_MATH_START,
+} from "../../serlization/tokenizer";
 import { Mark, type MarkReplacement, type MarkStyle } from "./Mark";
+
+// Math is a REPLACEMENT mark on HTML output (renders an SVG, falling back to
+// `$…$` source when no renderer is supplied) — so it wins the run.
+const MATH_CODEC: MarkCodec = {
+  type: "math",
+  toMarkdown: (t) => `$${t}$`,
+  tokens: { start: INLINE_MATH_START, end: INLINE_MATH_END },
+  html: {
+    priority: 0,
+    replace: true,
+    render: (_inner, _mark, ctx) => {
+      try {
+        if (!ctx.renderMathSVG) throw new Error("no math renderer");
+        return ctx.renderMathSVG(ctx.text, false);
+      } catch {
+        return `<code>$${ctx.escapeHtml(ctx.text)}$</code>`;
+      }
+    },
+  },
+};
 
 const inlineMathReplacement: MarkReplacement = {
   measure(text, fontSize) {
@@ -65,6 +90,7 @@ export class MathMark extends Mark {
   readonly type = "math";
   readonly togglable = false; // needs LaTeX — applied via the math action
   readonly replacement = inlineMathReplacement;
+  readonly codec = MATH_CODEC;
   style(): MarkStyle {
     return {};
   }

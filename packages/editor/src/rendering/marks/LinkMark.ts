@@ -1,13 +1,29 @@
 /** link → link color + underline. */
 
+import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import type { EditorState, Position } from "../../state-types";
 import { isTextualBlock } from "../../sync/block-registry";
 import { findCharInRuns, iterateVisibleChars } from "../../sync/char-runs";
 import { Mark, type MarkStyle, type MarkStyleCtx } from "./Mark";
 
+// `link` is parsed specially (its url arrives after its text), so it declares a
+// `toMarkdown` but no paired `tokens`. `html.priority` keeps it outermost (4).
+const LINK_CODEC: MarkCodec = {
+  type: "link",
+  toMarkdown: (t, mark) => (mark.attrs?.url ? `[${t}](${mark.attrs.url})` : t),
+  html: {
+    priority: 4,
+    render: (inner, mark, ctx) =>
+      mark.attrs?.url
+        ? `<a href="${ctx.escapeAttr(String(mark.attrs.url))}">${inner}</a>`
+        : inner,
+  },
+};
+
 export class LinkMark extends Mark {
   readonly type = "link";
   readonly togglable = false; // needs a url — applied via the link action
+  readonly codec = LINK_CODEC;
   style({ styles }: MarkStyleCtx): MarkStyle {
     const link = styles.textFormats.link;
     return {

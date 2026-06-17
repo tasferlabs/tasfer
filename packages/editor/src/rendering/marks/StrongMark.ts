@@ -4,26 +4,29 @@
  * `bold` is a flag rather than a {@link MarkStyle} channel because bold weight
  * changes text *metrics* (caret/wrap geometry); the measurement engine reads it
  * without resolving a theme.
+ *
+ * The Ctrl/Cmd+B toggle action lives in `./toggle-actions` (kept out of this
+ * file so constructing the mark stays free of the renderer/reducer graph).
  */
 
-import { stateAction } from "../../action-bus";
-import { toggleBold } from "../../actions/actions";
+import type { MarkCodec } from "../../serlization/codecs/mark-codec";
+import { BOLD_END, BOLD_START } from "../../serlization/tokenizer";
 import { Mark, type MarkStyle } from "./Mark";
+
+// `html.priority` reproduces the prior fixed nesting order exactly:
+// code (innermost) → strong → emphasis → strike → link (outermost).
+const STRONG_CODEC: MarkCodec = {
+  type: "strong",
+  toMarkdown: (t) => `**${t}**`,
+  tokens: { start: BOLD_START, end: BOLD_END },
+  html: { priority: 1, render: (inner) => `<strong>${inner}</strong>` },
+};
 
 export class StrongMark extends Mark {
   readonly type = "strong";
   readonly bold = true;
+  readonly codec = STRONG_CODEC;
   style(): MarkStyle {
     return {};
   }
 }
-
-/**
- * Toggle the `strong` (bold) mark over the selection (Ctrl/Cmd+B). Co-located
- * with the mark it toggles; wraps the pure `toggleBold` transform so hosts can
- * observe/override it. Emits the resulting CRDT format ops.
- */
-export const TOGGLE_BOLD = stateAction("toggle-bold", (state) => {
-  const result = toggleBold(state);
-  return { state: result.state, ops: result.ops };
-});

@@ -77,7 +77,14 @@ function isEmptyTextualBlock(b: Block): boolean {
   return true;
 }
 
-export function serializeToHTML(
+/**
+ * Serialize blocks to an HTML *fragment* (no document shell) — the per-block
+ * markup plus the cross-block list grouping. Each block's markup comes from its
+ * node codec (`codec.html.output`), never a per-type switch here, so a new block
+ * type serializes for free. Used directly for the clipboard `text/html` payload
+ * and wrapped in a document shell by {@link serializeToHTML} for file export.
+ */
+export function serializeToHTMLFragment(
   blocks: Block[],
   options: RenderOptions = {},
 ): string {
@@ -140,7 +147,14 @@ export function serializeToHTML(
   }
 
   closeAllLists();
+  return parts.join("\n");
+}
 
+export function serializeToHTML(
+  blocks: Block[],
+  options: RenderOptions = {},
+): string {
+  const body = serializeToHTMLFragment(blocks, options);
   const title = options.title ? escapeHtml(options.title) : "Document";
   return `<!DOCTYPE html>
 <html>
@@ -150,7 +164,7 @@ export function serializeToHTML(
 <style>${STYLES}</style>
 </head>
 <body>
-${parts.join("\n")}
+${body}
 </body>
 </html>`;
 }

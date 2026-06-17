@@ -141,8 +141,9 @@ describe("baseSchema.extend is immutable", () => {
   it("does not mutate the base schema", () => {
     expect(baseSchema.data.hasBlock("callout")).toBe(false);
     expect(schema.data.hasBlock("callout")).toBe(true);
-    // base nodes unchanged
-    expect(baseSchema.nodes.length).toBe(5);
-    expect(schema.nodes.length).toBe(6);
+    // base nodes unchanged — the built-in node set (now sourced from
+    // defaultNodes(): Line, Image, Math, Code, Text, List), plus the one added.
+    const baseCount = baseSchema.nodes.length;
+    expect(schema.nodes.length).toBe(baseCount + 1);
   });
 });

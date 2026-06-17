@@ -28,6 +28,7 @@
  * in `style()` never change advance width, so they stay render-only.
  */
 
+import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import type { Mark as MarkData } from "../../serlization/loadPage";
 import type {
   EditorState,
@@ -150,6 +151,15 @@ export abstract class Mark {
 
   /** If set, this mark replaces glyph rendering for its run (inline math). */
   readonly replacement?: MarkReplacement;
+
+  /**
+   * Markdown/HTML serialization facet — how this mark round-trips on export.
+   * Declared here so the Mark is the single source of truth for ALL of a mark
+   * type's facets (the inline analogue of a Node owning its codec); the
+   * canvas-free DataSchema reads it off the registered mark. Omit for a mark
+   * that survives only via the CRDT (it's dropped from markdown/HTML export).
+   */
+  readonly codec?: MarkCodec;
 
   /**
    * Optional: the host-rendered overlays this mark wants right now (an inline

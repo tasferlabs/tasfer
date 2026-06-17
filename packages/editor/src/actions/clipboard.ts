@@ -1,5 +1,4 @@
 import { deleteSelectedText, getSelectionRange } from "../actions/actions";
-import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import type {
@@ -10,8 +9,8 @@ import type {
   MarkSpan,
   Page,
 } from "../serlization/loadPage";
-import { isListBlock } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
+import { serializeToHTMLFragment } from "../serlization/htmlSerializer";
 import { serializeToMarkdown } from "../serlization/serializer";
 import { serializeToText } from "../serlization/textSerializer";
 import type {
@@ -97,6 +96,37 @@ export function atomicBlockInsertOps(
   }
 
   return ops;
+}
+
+/**
+ * Emit `block_set` ops for every declared, non-type field of `block` onto an
+ * already-inserted block (`blockId`). Descriptor-driven, so a new block type's
+ * fields sync on paste with no edit here — replaces per-type "set indent / set
+ * checked" branches. Fields whose value is `undefined` (genuinely unset, e.g.
+ * an image with no explicit width) are skipped.
+ */
+function pushBlockFieldOps(
+  block: Block,
+  blockId: string,
+  binding: CRDTbinding,
+  ops: Operation[],
+): void {
+  const descriptor = getBlockDescriptor(block.type);
+  if (!descriptor) return;
+  for (const field of getBlockFieldNames(block.type)) {
+    if (field === "type") continue;
+    const value = descriptor.fields[field].extractForInverse(block);
+    if (value === undefined) continue;
+    ops.push({
+      op: "block_set",
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: binding.pageId,
+      blockId,
+      field,
+      value,
+    } as BlockSet);
+  }
 }
 
 /**
@@ -396,149 +426,37 @@ function blocksToMarkdown(blocks: Block[]): string {
 }
 
 /**
- * Convert blocks to HTML with formatting
+ * Leading marker on a Cypher-originated clipboard `text/html` payload. It is an
+ * HTML comment (invisible to external apps, which just render the fragment that
+ * follows) carrying the base64'd canonical Markdown of the selection. On paste
+ * back into Cypher, `parseHTMLToBlocks` decodes this instead of round-tripping
+ * the rendered HTML through defuddle — which is lossy for image sizing, block
+ * math, list nesting, etc. base64 keeps the payload free of any `-->`.
  */
-function blocksToHTML(blocks: Block[]): string {
-  const htmlBlocks = blocks.map((block) => {
-    // Handle image cover blocks
-    if (block.type === "image") {
-      const alt = block.alt || "";
+const CYPHER_CLIPBOARD_MARKER_RE = /^\s*<!--cypher-clipboard:([A-Za-z0-9+/=]+)-->/;
 
-      // Check if image has custom properties
-      const width = block.width ?? "full";
-      const height = block.height ?? IMAGE_DEFAULT_HEIGHT;
-      const objectFit = block.objectFit ?? "cover";
+function encodeClipboardMarkdown(markdown: string): string {
+  const utf8 = new TextEncoder().encode(markdown);
+  let binary = "";
+  for (const byte of utf8) binary += String.fromCharCode(byte);
+  return `<!--cypher-clipboard:${btoa(binary)}-->`;
+}
 
-      // Always output with full properties for HTML clipboard
-      const widthAttr =
-        width === "full" ? 'data-width="full"' : `width="${width}"`;
-      const heightAttr = `height="${height}"`;
-      const objectFitAttr = `data-object-fit="${objectFit}"`;
-      const altAttr = alt ? ` alt="${alt}"` : "";
+function decodeClipboardMarkdown(base64: string): string {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
 
-      return `<img src="${block.url}"${altAttr} ${widthAttr} ${heightAttr} ${objectFitAttr} />`;
-    }
-
-    // Handle line/divider blocks
-    if (block.type === "line") {
-      return "<hr />";
-    }
-
-    // Handle math blocks
-    if (block.type === "math") {
-      const latex = (block.latex || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-      const mode = block.displayMode ? "display" : "inline";
-      return `<div data-cypher-math="${mode}">${latex}</div>`;
-    }
-
-    if (!isTextualBlock(block)) {
-      return "";
-    }
-
-    // Build content with inline formatting as HTML
-    let htmlContent = "";
-    const visibleChars: Char[] = [];
-    for (const { id, char } of iterateVisibleChars(block.charRuns)) {
-      visibleChars.push({ id, char, deleted: false });
-    }
-
-    // Build a map of char ID to formats
-    const charFormats = new Map<string, Mark[]>();
-    for (const span of block.formats) {
-      const startIdx = visibleChars.findIndex((c) => c.id === span.startCharId);
-      const endIdx = visibleChars.findIndex((c) => c.id === span.endCharId);
-
-      if (startIdx !== -1 && endIdx !== -1) {
-        for (let i = startIdx; i <= endIdx; i++) {
-          const charId = visibleChars[i].id;
-          if (!charFormats.has(charId)) {
-            charFormats.set(charId, []);
-          }
-          charFormats.get(charId)!.push(span.format);
-        }
-      }
-    }
-
-    // Generate HTML for each character
-    let inMath = false;
-    for (let i = 0; i < visibleChars.length; i++) {
-      const char = visibleChars[i];
-      const formats = charFormats.get(char.id) || [];
-      const isMath = formats.some((f) => f.type === "math");
-
-      if (isMath && !inMath) htmlContent += "$";
-      else if (!isMath && inMath) htmlContent += "$";
-      inMath = isMath;
-
-      // Escape HTML special characters
-      let text = char.char
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-
-      // Apply non-math formats as HTML tags (math is handled via $...$ wrapping)
-      if (!isMath) {
-        for (const format of formats) {
-          if (format.type === "strong") {
-            text = `<strong>${text}</strong>`;
-          } else if (format.type === "emphasis") {
-            text = `<em>${text}</em>`;
-          } else if (format.type === "strike") {
-            text = `<s>${text}</s>`;
-          } else if (format.type === "code") {
-            text = `<code>${text}</code>`;
-          } else if (format.type === "link" && format.attrs?.url) {
-            text = `<a href="${format.attrs.url}">${text}</a>`;
-          }
-        }
-      }
-
-      htmlContent += text;
-    }
-    if (inMath) htmlContent += "$";
-
-    switch (block.type) {
-      case "heading1":
-        return `<h1>${htmlContent}</h1>`;
-      case "heading2":
-        return `<h2>${htmlContent}</h2>`;
-      case "heading3":
-        return `<h3>${htmlContent}</h3>`;
-      case "bullet_list": {
-        const indent = isListBlock(block) ? block.indent : 0;
-        const indentStyle =
-          indent > 0 ? ` style="margin-left: ${indent * 24}px"` : "";
-        return `<li${indentStyle}>${htmlContent}</li>`;
-      }
-      case "numbered_list": {
-        const indent = isListBlock(block) ? block.indent : 0;
-        const indentStyle =
-          indent > 0 ? ` style="margin-left: ${indent * 24}px"` : "";
-        return `<li${indentStyle} data-list-type="numbered">${htmlContent}</li>`;
-      }
-      case "todo_list": {
-        const indent = isListBlock(block) ? block.indent : 0;
-        const checked =
-          isListBlock(block) && block.type === "todo_list"
-            ? block.checked
-            : false;
-        const indentStyle =
-          indent > 0 ? ` style="margin-left: ${indent * 24}px"` : "";
-        return `<li${indentStyle} data-list-type="todo" data-checked="${checked}">${htmlContent}</li>`;
-      }
-      case "paragraph":
-      default:
-        return `<p>${htmlContent}</p>`;
-    }
-  });
-
-  return htmlBlocks.join("\n");
+/**
+ * Build the clipboard `text/html` payload. The visible markup is the node-owned
+ * export fragment (each block's `html.output` — no per-block-type logic here);
+ * it is prefixed with the Cypher-origin marker carrying `markdown` for lossless
+ * internal paste.
+ */
+function blocksToHTML(blocks: Block[], markdown: string): string {
+  return encodeClipboardMarkdown(markdown) + serializeToHTMLFragment(blocks);
 }
 
 /**
@@ -554,10 +472,11 @@ export function buildClipboardPayload(
   if (!selectedContent) return null;
   const { blocks } = selectedContent;
   if (blocks.length === 0) return null;
+  const markdown = blocksToMarkdown(blocks);
   return {
     plainText: blocksToPlainText(blocks),
-    html: blocksToHTML(blocks),
-    markdown: blocksToMarkdown(blocks),
+    html: blocksToHTML(blocks, markdown),
+    markdown,
   };
 }
 
@@ -735,8 +654,21 @@ export function flattenBlockLevelLinks(markdown: string): string {
  * the same parser the plain-text path uses. This keeps a single, well-tested
  * Markdown -> blocks pipeline and inherits defuddle's HTML cleanup.
  */
-function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
+export function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
   if (!html.trim()) return [];
+
+  // Our own copies carry the canonical Markdown in a leading marker comment.
+  // Reconstruct from it directly — lossless, and skips defuddle entirely —
+  // rather than parsing the rendered (lossy) HTML.
+  const marker = html.match(CYPHER_CLIPBOARD_MARKER_RE);
+  if (marker) {
+    try {
+      return parsePlainTextToBlocks(decodeClipboardMarkdown(marker[1]), binding);
+    } catch (error) {
+      console.error("Failed to decode Cypher clipboard payload:", error);
+      // Fall through to generic HTML handling.
+    }
+  }
 
   let markdown: string;
   try {
@@ -874,102 +806,33 @@ function insertBlocksAtCursor(
 
   // If pasting a single block
   if (blocks.length === 1) {
-    // Handle pasting a single image block
-    if (blocks[0].type === "image") {
-      const imageBlock = blocks[0];
+    // Pasting a single atomic block (image, line, math, or any custom void
+    // type): insert it after the current block. Descriptor-driven via
+    // `atomicBlockInsertOps`, so a new atomic type pastes for free with no
+    // per-type code here.
+    if (!isTextualBlock(blocks[0])) {
+      const atomicBlock = blocks[0];
       const newBlockId = globalGenerateBlockId(state.CRDTbinding);
-
-      // Create the image block
-      const newImageBlock: Block = {
+      const newAtomicBlock: Block = {
+        ...atomicBlock,
         id: newBlockId,
         afterId: currentBlock.id,
-        type: "image",
-        url: imageBlock.url,
-        alt: imageBlock.alt,
-        width: imageBlock.width,
-        height: imageBlock.height,
-        objectFit: imageBlock.objectFit,
       };
-      invalidateBlockCache(newImageBlock);
+      invalidateBlockCache(newAtomicBlock);
 
-      // Create BlockInsert operation
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        afterBlockId: currentBlock.id,
-        blockId: newBlockId,
-        blockType: "image",
-      };
-      ops.push(blockInsertOp);
-
-      // Create BlockSet operations for image properties
-      if (imageBlock.url) {
-        const urlOp: BlockSet = {
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: newBlockId,
-          field: "url",
-          value: imageBlock.url,
-        };
-        ops.push(urlOp);
-      }
-      if (imageBlock.alt) {
-        const altOp: BlockSet = {
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: newBlockId,
-          field: "alt",
-          value: imageBlock.alt,
-        };
-        ops.push(altOp);
-      }
-      if (imageBlock.width !== undefined) {
-        const widthOp: BlockSet = {
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: newBlockId,
-          field: "width",
-          value: imageBlock.width,
-        };
-        ops.push(widthOp);
-      }
-      if (imageBlock.height !== undefined) {
-        const heightOp: BlockSet = {
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: newBlockId,
-          field: "height",
-          value: imageBlock.height,
-        };
-        ops.push(heightOp);
-      }
-      if (imageBlock.objectFit) {
-        const objectFitOp: BlockSet = {
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: newBlockId,
-          field: "objectFit",
-          value: imageBlock.objectFit,
-        };
-        ops.push(objectFitOp);
-      }
+      ops.push(
+        ...atomicBlockInsertOps(
+          atomicBlock,
+          newBlockId,
+          currentBlock.id,
+          state.CRDTbinding,
+        ),
+      );
 
       // Insert the block after the current block
       const newBlocks = [
         ...newState.document.page.blocks.slice(0, blockIndex + 1),
-        newImageBlock,
+        newAtomicBlock,
         ...newState.document.page.blocks.slice(blockIndex + 1),
       ];
 
@@ -981,114 +844,7 @@ function insertBlocksAtCursor(
         },
       };
 
-      // Move cursor to the next block after the image
-      newState = moveCursorToPosition(newState, blockIndex + 2, 0);
-
-      return { state: clearSelection(newState), ops };
-    }
-
-    // Handle pasting a single math block
-    if (blocks[0].type === "math") {
-      const mathBlock = blocks[0];
-      const newBlockId = globalGenerateBlockId(state.CRDTbinding);
-
-      const newMathBlock: Block = {
-        id: newBlockId,
-        afterId: currentBlock.id,
-        type: "math",
-        latex: mathBlock.latex,
-        displayMode: mathBlock.displayMode,
-      };
-      invalidateBlockCache(newMathBlock);
-
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        afterBlockId: currentBlock.id,
-        blockId: newBlockId,
-        blockType: "math",
-      };
-      ops.push(blockInsertOp);
-
-      const latexOp: BlockSet = {
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId: newBlockId,
-        field: "latex",
-        value: mathBlock.latex,
-      };
-      ops.push(latexOp);
-
-      const displayModeOp: BlockSet = {
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId: newBlockId,
-        field: "displayMode",
-        value: mathBlock.displayMode,
-      };
-      ops.push(displayModeOp);
-
-      const newBlocks = [
-        ...newState.document.page.blocks.slice(0, blockIndex + 1),
-        newMathBlock,
-        ...newState.document.page.blocks.slice(blockIndex + 1),
-      ];
-
-      newState = {
-        ...newState,
-        document: {
-          ...newState.document,
-          page: { ...newState.document.page, blocks: newBlocks },
-        },
-      };
-
-      newState = moveCursorToPosition(newState, blockIndex + 2, 0);
-
-      return { state: clearSelection(newState), ops };
-    }
-
-    // Handle pasting a single line block
-    if (blocks[0].type === "line") {
-      const newBlockId = globalGenerateBlockId(state.CRDTbinding);
-
-      const newLineBlock: Block = {
-        id: newBlockId,
-        afterId: currentBlock.id,
-        type: "line",
-      };
-      invalidateBlockCache(newLineBlock);
-
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        afterBlockId: currentBlock.id,
-        blockId: newBlockId,
-        blockType: "line",
-      };
-      ops.push(blockInsertOp);
-
-      const newBlocks = [
-        ...newState.document.page.blocks.slice(0, blockIndex + 1),
-        newLineBlock,
-        ...newState.document.page.blocks.slice(blockIndex + 1),
-      ];
-
-      newState = {
-        ...newState,
-        document: {
-          ...newState.document,
-          page: { ...newState.document.page, blocks: newBlocks },
-        },
-      };
-
+      // Move cursor to the block after the inserted atomic block
       newState = moveCursorToPosition(newState, blockIndex + 2, 0);
 
       return { state: clearSelection(newState), ops };
@@ -1096,11 +852,6 @@ function insertBlocksAtCursor(
 
     // Can't paste into non-text blocks
     if (!isTextualBlock(currentBlock)) {
-      return { state, ops: [] };
-    }
-
-    // Can't paste non-text blocks into text blocks (already handled image and line above)
-    if (!isTextualBlock(blocks[0])) {
       return { state, ops: [] };
     }
 
@@ -1260,6 +1011,103 @@ function insertBlocksAtCursor(
     const lastPastedBlock = blocks[blocks.length - 1];
     const resultBlocks: Block[] = [];
     let lastInsertedBlockId = currentBlock.id;
+
+    // Spill any after-cursor content (the text that followed the paste point in
+    // the current block) into a trailing paragraph anchored after `anchorId`.
+    // Atomic blocks can't hold a caret/text, so when the last pasted block is
+    // atomic this preserves the original tail. No-op when there's no live
+    // after-content. Type-agnostic, so every atomic block type behaves the same.
+    const appendTrailingParagraph = (anchorId: string) => {
+      const visibleAfter = afterChars.filter((c) => !c.deleted);
+      if (visibleAfter.length === 0) return;
+
+      const afterBlockId = globalGenerateBlockId(state.CRDTbinding);
+      const newAfterChars: Char[] = visibleAfter.map((c) => ({
+        id: state.CRDTbinding.nextId(),
+        char: c.char,
+        deleted: false,
+      }));
+
+      const oldToNew = new Map<string, string>();
+      visibleAfter.forEach((oldChar, idx) => {
+        oldToNew.set(oldChar.id, newAfterChars[idx].id);
+      });
+
+      const newAfterFormats: MarkSpan[] = afterFormats
+        .map((f) => {
+          const newStartId = oldToNew.get(f.startCharId);
+          const newEndId = oldToNew.get(f.endCharId);
+          if (newStartId && newEndId) {
+            return {
+              ...f,
+              startCharId: newStartId,
+              endCharId: newEndId,
+              clock: state.CRDTbinding.getClock(),
+            };
+          }
+          return null;
+        })
+        .filter((f): f is MarkSpan => f !== null);
+
+      const afterBlock: Block = {
+        id: afterBlockId,
+        afterId: anchorId,
+        type: "paragraph",
+        charRuns: charsToRuns(newAfterChars),
+        formats: newAfterFormats,
+      };
+      invalidateBlockCache(afterBlock);
+
+      const afterBlockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
+        afterBlockId: anchorId,
+        blockId: afterBlockId,
+        blockType: "paragraph",
+      };
+      ops.push(afterBlockInsertOp);
+
+      const textInsertOp: TextInsert = {
+        op: "text_insert",
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
+        blockId: afterBlockId,
+        afterCharId: null,
+        charRuns: charsToRuns(newAfterChars),
+      };
+      ops.push(textInsertOp);
+
+      for (const format of newAfterFormats) {
+        const startIdx = newAfterChars.findIndex(
+          (c) => c.id === format.startCharId,
+        );
+        const endIdx = newAfterChars.findIndex(
+          (c) => c.id === format.endCharId,
+        );
+        if (startIdx !== -1 && endIdx !== -1) {
+          const charIds = newAfterChars
+            .slice(startIdx, endIdx + 1)
+            .map((c) => c.id);
+          const formatOp: MarkSet = {
+            op: "mark_set",
+            id: state.CRDTbinding.nextId(),
+            clock: state.CRDTbinding.getClock(),
+            pageId: state.CRDTbinding.pageId,
+            blockId: afterBlockId,
+            charIds,
+            format: format.format,
+            value: true,
+          };
+          ops.push(formatOp);
+        }
+      }
+
+      resultBlocks.push(afterBlock);
+      lastInsertedBlockId = afterBlockId;
+    };
 
     // Handle first block
     if (isTextualBlock(firstPastedBlock)) {
@@ -1484,33 +1332,8 @@ function insertBlocksAtCursor(
           }
         }
 
-        // Add list properties if needed
-        if (isListBlock(newBlock)) {
-          if (newBlock.indent > 0) {
-            const indentOp: BlockSet = {
-              op: "block_set",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: newBlockId,
-              field: "indent",
-              value: newBlock.indent,
-            };
-            ops.push(indentOp);
-          }
-          if (newBlock.type === "todo_list") {
-            const checkedOp: BlockSet = {
-              op: "block_set",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: newBlockId,
-              field: "checked",
-              value: newBlock.checked,
-            };
-            ops.push(checkedOp);
-          }
-        }
+        // Sync the block's declared fields (e.g. list indent/checked)
+        pushBlockFieldOps(newBlock, newBlockId, state.CRDTbinding, ops);
 
         resultBlocks.push(newBlock);
         lastInsertedBlockId = newBlockId;
@@ -1658,389 +1481,37 @@ function insertBlocksAtCursor(
           }
         }
 
-        // Add list properties for last block if needed
-        if (isListBlock(lastBlock)) {
-          if (lastBlock.indent > 0) {
-            const indentOp: BlockSet = {
-              op: "block_set",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: lastBlockId,
-              field: "indent",
-              value: lastBlock.indent,
-            };
-            ops.push(indentOp);
-          }
-          if (lastBlock.type === "todo_list") {
-            const checkedOp: BlockSet = {
-              op: "block_set",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: lastBlockId,
-              field: "checked",
-              value: lastBlock.checked,
-            };
-            ops.push(checkedOp);
-          }
-        }
+        // Sync the block's declared fields (e.g. list indent/checked)
+        pushBlockFieldOps(lastBlock, lastBlockId, state.CRDTbinding, ops);
 
         resultBlocks.push(lastBlock);
         lastInsertedBlockId = lastBlockId;
-      } else if (lastPastedBlock.type === "image") {
-        // Insert image as new block
-        const newImageBlockId = globalGenerateBlockId(state.CRDTbinding);
-        const newImageBlock: Block = {
+      } else if (!isTextualBlock(lastPastedBlock)) {
+        // Re-create the atomic block (image, line, math, or any custom void
+        // type) at the new position, then spill any after-cursor content into a
+        // trailing paragraph. Type-agnostic: a new atomic type pastes for free.
+        const newAtomicBlockId = globalGenerateBlockId(state.CRDTbinding);
+        const newAtomicBlock: Block = {
           ...lastPastedBlock,
-          id: newImageBlockId,
+          id: newAtomicBlockId,
           afterId: lastInsertedBlockId,
         };
-        invalidateBlockCache(newImageBlock);
+        invalidateBlockCache(newAtomicBlock);
         pushAtomicBlockOps(
           lastPastedBlock,
-          newImageBlockId,
+          newAtomicBlockId,
           lastInsertedBlockId,
         );
-        resultBlocks.push(newImageBlock);
-        lastInsertedBlockId = newImageBlockId;
-
-        // If there's after-cursor content, create a new paragraph for it
-        if (afterChars.length > 0 && afterChars.some((c) => !c.deleted)) {
-          const afterBlockId = globalGenerateBlockId(state.CRDTbinding);
-
-          // Generate new chars with new IDs for after content
-          const visibleAfterCharsForImg = afterChars.filter((c) => !c.deleted);
-          const newAfterCharsForImg: Char[] = visibleAfterCharsForImg.map(
-            (c) => ({
-              id: state.CRDTbinding.nextId(),
-              char: c.char,
-              deleted: false,
-            }),
-          );
-
-          // Build mapping from old after char IDs to new IDs
-          const afterOldToNewMapForImg = new Map<string, string>();
-          visibleAfterCharsForImg.forEach((oldChar, idx) => {
-            afterOldToNewMapForImg.set(oldChar.id, newAfterCharsForImg[idx].id);
-          });
-
-          // Map after formats to use new char IDs
-          const newAfterFormatsForImg: MarkSpan[] = afterFormats
-            .map((f) => {
-              const newStartId = afterOldToNewMapForImg.get(f.startCharId);
-              const newEndId = afterOldToNewMapForImg.get(f.endCharId);
-              if (newStartId && newEndId) {
-                return {
-                  ...f,
-                  startCharId: newStartId,
-                  endCharId: newEndId,
-                  clock: state.CRDTbinding.getClock(),
-                };
-              }
-              return null;
-            })
-            .filter((f): f is MarkSpan => f !== null);
-
-          const afterBlock: Block = {
-            id: afterBlockId,
-            afterId: newImageBlockId,
-            type: "paragraph",
-            charRuns: charsToRuns(newAfterCharsForImg),
-            formats: newAfterFormatsForImg,
-          };
-          invalidateBlockCache(afterBlock);
-
-          const afterBlockInsertOp: BlockInsert = {
-            op: "block_insert",
-            id: state.CRDTbinding.nextId(),
-            clock: state.CRDTbinding.getClock(),
-            pageId: state.CRDTbinding.pageId,
-            afterBlockId: newImageBlockId,
-            blockId: afterBlockId,
-            blockType: "paragraph",
-          };
-          ops.push(afterBlockInsertOp);
-
-          // Add text_insert operation for after content
-          if (newAfterCharsForImg.length > 0) {
-            const charRuns = charsToRuns(newAfterCharsForImg);
-            const textInsertOp: TextInsert = {
-              op: "text_insert",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: afterBlockId,
-              afterCharId: null,
-              charRuns: charRuns,
-            };
-            ops.push(textInsertOp);
-          }
-
-          // Add mark_set operations
-          for (const format of newAfterFormatsForImg) {
-            const startIdx = newAfterCharsForImg.findIndex(
-              (c) => c.id === format.startCharId,
-            );
-            const endIdx = newAfterCharsForImg.findIndex(
-              (c) => c.id === format.endCharId,
-            );
-            if (startIdx !== -1 && endIdx !== -1) {
-              const charIds = newAfterCharsForImg
-                .slice(startIdx, endIdx + 1)
-                .map((c) => c.id);
-              const formatOp: MarkSet = {
-                op: "mark_set",
-                id: state.CRDTbinding.nextId(),
-                clock: state.CRDTbinding.getClock(),
-                pageId: state.CRDTbinding.pageId,
-                blockId: afterBlockId,
-                charIds,
-                format: format.format,
-                value: true,
-              };
-              ops.push(formatOp);
-            }
-          }
-
-          resultBlocks.push(afterBlock);
-          lastInsertedBlockId = afterBlockId;
-        }
-      } else if (lastPastedBlock.type === "math") {
-        const newMathBlockId = globalGenerateBlockId(state.CRDTbinding);
-        const newMathBlock: Block = {
-          ...lastPastedBlock,
-          id: newMathBlockId,
-          afterId: lastInsertedBlockId,
-        };
-        invalidateBlockCache(newMathBlock);
-        pushAtomicBlockOps(lastPastedBlock, newMathBlockId, lastInsertedBlockId);
-        resultBlocks.push(newMathBlock);
-        lastInsertedBlockId = newMathBlockId;
-      } else if (lastPastedBlock.type === "line") {
-        // Insert line as new block
-        const newLineBlockId = globalGenerateBlockId(state.CRDTbinding);
-        const newLineBlock: Block = {
-          ...lastPastedBlock,
-          id: newLineBlockId,
-          afterId: lastInsertedBlockId,
-        };
-        invalidateBlockCache(newLineBlock);
-        pushAtomicBlockOps(lastPastedBlock, newLineBlockId, lastInsertedBlockId);
-        resultBlocks.push(newLineBlock);
-        lastInsertedBlockId = newLineBlockId;
-
-        // If there's after-cursor content, create a new paragraph for it
-        if (afterChars.length > 0 && afterChars.some((c) => !c.deleted)) {
-          const afterBlockId = globalGenerateBlockId(state.CRDTbinding);
-
-          // Generate new chars with new IDs for after content
-          const visibleAfterCharsForLine = afterChars.filter((c) => !c.deleted);
-          const newAfterCharsForLine: Char[] = visibleAfterCharsForLine.map(
-            (c) => ({
-              id: state.CRDTbinding.nextId(),
-              char: c.char,
-              deleted: false,
-            }),
-          );
-
-          // Build mapping from old after char IDs to new IDs
-          const afterOldToNewMapForLine = new Map<string, string>();
-          visibleAfterCharsForLine.forEach((oldChar, idx) => {
-            afterOldToNewMapForLine.set(
-              oldChar.id,
-              newAfterCharsForLine[idx].id,
-            );
-          });
-
-          // Map after formats to use new char IDs
-          const newAfterFormatsForLine: MarkSpan[] = afterFormats
-            .map((f) => {
-              const newStartId = afterOldToNewMapForLine.get(f.startCharId);
-              const newEndId = afterOldToNewMapForLine.get(f.endCharId);
-              if (newStartId && newEndId) {
-                return {
-                  ...f,
-                  startCharId: newStartId,
-                  endCharId: newEndId,
-                  clock: state.CRDTbinding.getClock(),
-                };
-              }
-              return null;
-            })
-            .filter((f): f is MarkSpan => f !== null);
-
-          const afterBlock: Block = {
-            id: afterBlockId,
-            afterId: newLineBlockId,
-            type: "paragraph",
-            charRuns: charsToRuns(newAfterCharsForLine),
-            formats: newAfterFormatsForLine,
-          };
-          invalidateBlockCache(afterBlock);
-
-          const afterBlockInsertOp: BlockInsert = {
-            op: "block_insert",
-            id: state.CRDTbinding.nextId(),
-            clock: state.CRDTbinding.getClock(),
-            pageId: state.CRDTbinding.pageId,
-            afterBlockId: newLineBlockId,
-            blockId: afterBlockId,
-            blockType: "paragraph",
-          };
-          ops.push(afterBlockInsertOp);
-
-          // Add text_insert operation for after content
-          if (newAfterCharsForLine.length > 0) {
-            const charRuns = charsToRuns(newAfterCharsForLine);
-            const textInsertOp: TextInsert = {
-              op: "text_insert",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: afterBlockId,
-              afterCharId: null,
-              charRuns: charRuns,
-            };
-            ops.push(textInsertOp);
-          }
-
-          // Add mark_set operations
-          for (const format of newAfterFormatsForLine) {
-            const startIdx = newAfterCharsForLine.findIndex(
-              (c) => c.id === format.startCharId,
-            );
-            const endIdx = newAfterCharsForLine.findIndex(
-              (c) => c.id === format.endCharId,
-            );
-            if (startIdx !== -1 && endIdx !== -1) {
-              const charIds = newAfterCharsForLine
-                .slice(startIdx, endIdx + 1)
-                .map((c) => c.id);
-              const formatOp: MarkSet = {
-                op: "mark_set",
-                id: state.CRDTbinding.nextId(),
-                clock: state.CRDTbinding.getClock(),
-                pageId: state.CRDTbinding.pageId,
-                blockId: afterBlockId,
-                charIds,
-                format: format.format,
-                value: true,
-              };
-              ops.push(formatOp);
-            }
-          }
-
-          resultBlocks.push(afterBlock);
-          lastInsertedBlockId = afterBlockId;
-        }
+        resultBlocks.push(newAtomicBlock);
+        lastInsertedBlockId = newAtomicBlockId;
+        appendTrailingParagraph(newAtomicBlockId);
       }
     } else {
-      // Single block case was already handled, but if we reach here with after content
-      // we need to create a new paragraph for it (only for non-textual first blocks)
-      if (
-        !isTextualBlock(firstPastedBlock) &&
-        afterChars.length > 0 &&
-        afterChars.some((c) => !c.deleted)
-      ) {
-        const afterBlockId = globalGenerateBlockId(state.CRDTbinding);
-
-        // Generate new chars with new IDs for after content
-        const visibleAfterCharsSingle = afterChars.filter((c) => !c.deleted);
-        const newAfterCharsSingle: Char[] = visibleAfterCharsSingle.map(
-          (c) => ({
-            id: state.CRDTbinding.nextId(),
-            char: c.char,
-            deleted: false,
-          }),
-        );
-
-        // Build mapping from old after char IDs to new IDs
-        const afterOldToNewMapSingle = new Map<string, string>();
-        visibleAfterCharsSingle.forEach((oldChar, idx) => {
-          afterOldToNewMapSingle.set(oldChar.id, newAfterCharsSingle[idx].id);
-        });
-
-        // Map after formats to use new char IDs
-        const newAfterFormatsSingle: MarkSpan[] = afterFormats
-          .map((f) => {
-            const newStartId = afterOldToNewMapSingle.get(f.startCharId);
-            const newEndId = afterOldToNewMapSingle.get(f.endCharId);
-            if (newStartId && newEndId) {
-              return {
-                ...f,
-                startCharId: newStartId,
-                endCharId: newEndId,
-                clock: state.CRDTbinding.getClock(),
-              };
-            }
-            return null;
-          })
-          .filter((f): f is MarkSpan => f !== null);
-
-        const afterBlock: Block = {
-          id: afterBlockId,
-          afterId: lastInsertedBlockId,
-          type: "paragraph",
-          charRuns: charsToRuns(newAfterCharsSingle),
-          formats: newAfterFormatsSingle,
-        };
-        invalidateBlockCache(afterBlock);
-
-        const afterBlockInsertOp: BlockInsert = {
-          op: "block_insert",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          afterBlockId: lastInsertedBlockId,
-          blockId: afterBlockId,
-          blockType: "paragraph",
-        };
-        ops.push(afterBlockInsertOp);
-
-        // Add text_insert operation for after content
-        if (newAfterCharsSingle.length > 0) {
-          const charRuns = charsToRuns(newAfterCharsSingle);
-          const textInsertOp: TextInsert = {
-            op: "text_insert",
-            id: state.CRDTbinding.nextId(),
-            clock: state.CRDTbinding.getClock(),
-            pageId: state.CRDTbinding.pageId,
-            blockId: afterBlockId,
-            afterCharId: null,
-            charRuns: charRuns,
-          };
-          ops.push(textInsertOp);
-        }
-
-        // Add mark_set operations
-        for (const format of newAfterFormatsSingle) {
-          const startIdx = newAfterCharsSingle.findIndex(
-            (c) => c.id === format.startCharId,
-          );
-          const endIdx = newAfterCharsSingle.findIndex(
-            (c) => c.id === format.endCharId,
-          );
-          if (startIdx !== -1 && endIdx !== -1) {
-            const charIds = newAfterCharsSingle
-              .slice(startIdx, endIdx + 1)
-              .map((c) => c.id);
-            const formatOp: MarkSet = {
-              op: "mark_set",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: afterBlockId,
-              charIds,
-              format: format.format,
-              value: true,
-            };
-            ops.push(formatOp);
-          }
-        }
-
-        resultBlocks.push(afterBlock);
-        lastInsertedBlockId = afterBlockId;
+      // Single-block paste: the block itself was already handled above. If the
+      // pasted block is atomic and the cursor had after-content, spill it into a
+      // trailing paragraph (atomic blocks can't hold the tail text).
+      if (!isTextualBlock(firstPastedBlock)) {
+        appendTrailingParagraph(lastInsertedBlockId);
       }
     }
 

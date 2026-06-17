@@ -1,4 +1,5 @@
-import { CURSOR_DRAG_START } from "../action-bus";
+import { CURSOR_DRAG_START, OPEN_CONTEXT_MENU } from "../action-bus";
+import { getSelectionRange } from "../actions/actions";
 import {
   CONTEXT_MENU_DURATION,
   CURSOR_DRAG_ACTIVATION_DELAY,
@@ -19,7 +20,7 @@ import { updateCursor } from "../selection";
 import { startSelection, updateSelectionFocus } from "../selection";
 import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import type { Operation } from "../state-types";
-import { closeActiveMenu, openContextMenu, updateMode } from "../state-utils";
+import { closeActiveMenu, updateMode } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import { applyEdgeScroll } from "./autoScroll";
@@ -180,11 +181,14 @@ export function handleEvents(
           },
         });
 
-        state = openContextMenu(
-          state,
-          session.touch.currentTouchX,
-          session.touch.currentTouchY,
-        );
+        // Headless: signal the host to show its menu (canvas coords; the host
+        // adds its container rect). The engine flips its own capture flag off
+        // this action, which the touch FSM reads to route the drag/release.
+        state.actionBus.dispatch(OPEN_CONTEXT_MENU, {
+          x: session.touch.currentTouchX,
+          y: session.touch.currentTouchY,
+          hasSelection: !!getSelectionRange(state),
+        });
       } else {
         // On non-selected text: prepare for drag selection (don't show menu yet)
         // If they drag, selection will start. If they release, menu shows in touchend

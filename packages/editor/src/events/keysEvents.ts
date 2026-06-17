@@ -1,4 +1,4 @@
-import { TEXT_INPUT } from "../action-bus";
+import { OPEN_CONTEXT_MENU, TEXT_INPUT } from "../action-bus";
 import { getSelectionRange } from "../actions/actions";
 import {
   CLEAR_SELECTION,
@@ -65,7 +65,6 @@ import type {
 import {
   clearAutoCreatedParagraph,
   getBlockTextContent,
-  openContextMenu,
   setActiveMenu,
 } from "../state-utils";
 import { isPreformattedType, isTextualBlock } from "../sync/block-registry";
@@ -951,7 +950,14 @@ export function handleContextMenu(
       },
     };
 
-    state = openContextMenu(state, canvasX, canvasY);
+    // Headless: the engine doesn't own the menu — it signals the host, which
+    // renders its own context menu. `x`/`y` are canvas coords; the host adds its
+    // container rect.
+    state.actionBus.dispatch(OPEN_CONTEXT_MENU, {
+      x: canvasX,
+      y: canvasY,
+      hasSelection: !!getSelectionRange(state),
+    });
   }
 
   return state;

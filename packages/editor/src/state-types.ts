@@ -26,28 +26,17 @@ export interface HLC {
 }
 
 /**
- * The block types built into the engine. Kept a closed union: the built-in
- * registries (BLOCK_REGISTRY, the codec tables) key on it for exhaustiveness,
- * and the compile-time field check in sync.ts indexes it.
- *
- * Custom (schema-registered) block types are NOT in this union — they flow as
- * plain strings at the op/registry boundary (`BlockInsert.blockType` is a
- * `string`, the registry helpers take `string`, and `CustomBlock.type` is a
- * `string`). So `Block["type"]` is `string`, while internal code that needs
- * exhaustiveness narrows against these literals.
+ * A block type name. Just `string` — deliberately NOT a closed union of the
+ * built-in types. Block types are fully dynamic: a block type exists because a
+ * node was registered for it on a schema (`baseSchema` for the built-ins,
+ * `extend(...)` for custom ones), and the runtime `BLOCK_REGISTRY` is the only
+ * source of truth for "what built-in types exist." Custom and built-in types
+ * are indistinguishable at the type level — both flow as plain strings through
+ * ops, the registry helpers, and `Block["type"]` — so no code can hardcode an
+ * exhaustive list of them. The alias is kept purely as intent-revealing
+ * documentation at signatures that mean "a block type name."
  */
-export type BlockType =
-  | "paragraph"
-  | "heading1"
-  | "heading2"
-  | "heading3"
-  | "bullet_list"
-  | "numbered_list"
-  | "todo_list"
-  | "image"
-  | "line"
-  | "math"
-  | "code";
+export type BlockType = string;
 
 /**
  * Block properties that can be set via BlockSet operation.
@@ -205,11 +194,6 @@ export interface ClickTracker {
   lastClickPosition: { x: number; y: number } | null;
 }
 
-export interface ContextMenuState {
-  readonly x: number;
-  readonly y: number;
-}
-
 export interface LinkHoverState {
   readonly position: Position;
   readonly url: string;
@@ -223,13 +207,6 @@ export interface LinkHoverState {
 // Unified menu system - only one menu can be active at a time
 export type ActiveMenu =
   | { type: "none" }
-  | {
-      type: "contextMenu";
-      x: number;
-      y: number;
-      hoveredItemId?: string | null;
-      selectedItemId?: string | null;
-    }
   | {
       // A host-defined overlay (popover/drawer/tooltip), anchored at a block.
       // The engine knows nothing about which overlay it is: `key` maps to a host

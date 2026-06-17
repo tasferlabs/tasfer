@@ -1,11 +1,13 @@
 import {
   type Action,
   type ActionHandler,
+  CLOSE_CONTEXT_MENU,
   DEFAULT_ACTION_PRIORITY,
   type DispatchArgs,
   isMutationAction,
   type MutationAction,
   type MutationHandler,
+  OPEN_CONTEXT_MENU,
   OPEN_LINK,
 } from "../action-bus";
 import {
@@ -72,7 +74,6 @@ import type {
 import type { Operation } from "../state-types";
 import {
   closeActiveMenu,
-  closeContextMenu,
   createInitialCursorState,
   getBlockTextContent,
   isTouchDevice,
@@ -465,10 +466,18 @@ export interface EditorApi {
     direction: "left" | "right",
   ) => void;
   /**
-   * Close whichever menu/overlay is currently open (context menu, slash menu,
-   * host overlay…) and notify subscribers.
+   * Close whichever menu/overlay is currently open (slash menu, host overlay…)
+   * and notify subscribers.
    */
   closeActiveMenu: () => void;
+  /**
+   * Whether a host pointer-capturing menu (the context menu) is currently open.
+   * The engine maintains this from the menu's {@link OPEN_CONTEXT_MENU} /
+   * {@link CLOSE_CONTEXT_MENU} lifecycle actions — a host shows its menu and
+   * dispatches `CLOSE_CONTEXT_MENU` to dismiss it, never writing the flag
+   * itself. Read by the focus backstops and the touch FSM.
+   */
+  isHostMenuCapturing: () => boolean;
   /**
    * Adopt a remotely-merged page (the doc→editor channel). Pass the merged
    * `remoteOps` so `on("change")` listeners fire with `isRemote: true` and the
@@ -696,6 +705,28 @@ export class Editor implements EditorApi {
         return true;
       },
       DEFAULT_ACTION_PRIORITY,
+    );
+
+    // The engine owns the `hostMenuCapturing` flag (per-instance interaction
+    // state) but never names the context menu otherwise: it flips the flag on
+    // the menu's lifecycle actions so it can arbitrate focus + touch (keep the
+    // editor focused while a menu is up; route the long-press drag/release to
+    // the host). These observe (return void) at high priority so they run
+    // *before* a host claims OPEN — a host shows its menu and dispatches
+    // CLOSE_CONTEXT_MENU to dismiss it; it never touches the flag directly.
+    this._state.actionBus.register(
+      OPEN_CONTEXT_MENU,
+      () => {
+        this.session.hostMenuCapturing = true;
+      },
+      Infinity,
+    );
+    this._state.actionBus.register(
+      CLOSE_CONTEXT_MENU,
+      () => {
+        this.session.hostMenuCapturing = false;
+      },
+      Infinity,
     );
 
     this.awarenessCleanupInterval = setInterval(
@@ -1376,7 +1407,7 @@ export class Editor implements EditorApi {
       !this.touchHasMoved && touchDuration < this.TAP_TIME_THRESHOLD;
 
     // Don't focus input if a context menu just opened (it would close the menu)
-    const hasContextMenu = this._state.ui.activeMenu.type === "contextMenu";
+    const hasContextMenu = this.session.hostMenuCapturing;
 
     // Focus input if ending long press or on tap (but not when context menu is open or in readonly mode)
     if (
@@ -2575,7 +2606,7 @@ export class Editor implements EditorApi {
 
   copy = async (): Promise<boolean> => {
     const success = await copySelectionToClipboard(this._state);
-    this._state = closeContextMenu(this._state);
+    this._state = closeActiveMenu(this._state);
     this.scheduleRender();
     return success;
   };
@@ -2584,11 +2615,11 @@ export class Editor implements EditorApi {
     const result = await cutSelectionToClipboard(this._state);
     if (result.success && result.result) {
       this.executeAction(result.result);
-      this._state = closeContextMenu(this._state);
+      this._state = closeActiveMenu(this._state);
       this.scheduleRender();
       return true;
     }
-    this._state = closeContextMenu(this._state);
+    this._state = closeActiveMenu(this._state);
     this.scheduleRender();
     return false;
   };
@@ -2597,11 +2628,11 @@ export class Editor implements EditorApi {
     const result = await pasteFromSystemClipboard(this._state);
     if (result) {
       this.executeAction(result);
-      this._state = closeContextMenu(this._state);
+      this._state = closeActiveMenu(this._state);
       this.scheduleRender();
       return true;
     }
-    this._state = closeContextMenu(this._state);
+    this._state = closeActiveMenu(this._state);
     this.scheduleRender();
     return false;
   };
@@ -2985,6 +3016,8 @@ export class Editor implements EditorApi {
     this.scheduleRender();
     this.listeners.forEach((listener) => listener(currentState));
   };
+
+  isHostMenuCapturing = (): boolean => this.session.hostMenuCapturing;
 
   setWindowFocused = (focused: boolean): void => {
     if (this._state.view.isWindowFocused === focused) return;

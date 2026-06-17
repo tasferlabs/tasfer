@@ -9,9 +9,13 @@ import {
 } from "@/components/ui/combobox";
 import { getBridge } from "@/platform/bridge";
 import {
+  CLOSE_CONTEXT_MENU,
+  CONTEXT_MENU_POINTER_MOVE,
+  CONTEXT_MENU_RELEASE,
   CURSOR_DRAG_BOUNDARY,
   CURSOR_DRAG_END,
   CURSOR_DRAG_START,
+  OPEN_CONTEXT_MENU,
   OPEN_LINK,
   REGION_DRAG_START,
   allCharsHaveFormat,
@@ -24,6 +28,7 @@ import {
   getSelectionRange,
   isTextualBlock,
   isTouchDevice,
+  mergeRegister,
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
   serializeVV,
@@ -1147,8 +1152,7 @@ function EditorSurface({
 
     // Haptics + native link-opening are editor actions now:
     // the engine dispatches semantic actions and we map them to the
-    // native shell, falling back to the web Vibration API. These handlers live
-    // on this editor's action bus and die with it on destroy — no cleanup.
+    // native shell, falling back to the web Vibration API.
     const fireHaptic = (style: "light" | "medium" | "heavy") => {
       // Never let a haptic failure bubble into the editor's event loop.
       try {
@@ -1165,23 +1169,96 @@ function EditorSurface({
         console.debug("Haptic feedback not supported:", e);
       }
     };
-    mounted.editor.registerAction(CURSOR_DRAG_START, () =>
-      fireHaptic("light"),
-    );
-    mounted.editor.registerAction(CURSOR_DRAG_BOUNDARY, () =>
-      fireHaptic("light"),
-    );
-    mounted.editor.registerAction(CURSOR_DRAG_END, () => fireHaptic("medium"));
-    mounted.editor.registerAction(REGION_DRAG_START, ({ intensity }) =>
-      fireHaptic(intensity),
-    );
-    if (native) {
+
+    // Context menu is fully host-owned now: the engine emits OPEN_CONTEXT_MENU
+    // (canvas coords + selection flag); we render our own <ContextMenu> and own
+    // its hover/dismissal. The engine tracks "a host menu is capturing" itself
+    // from the OPEN/CLOSE actions (to arbitrate focus + the long-press
+    // drag/release it forwards via POINTER_MOVE / RELEASE) — we just dispatch
+    // CLOSE_CONTEXT_MENU to dismiss. Registered for both readonly/editable mounts.
+    const setMenu = (next: typeof contextMenuState) => {
+      lastContextMenuStateRef.current = next;
+      setContextMenuState(next);
+    };
+    // Hit-test the host menu's items by the raw client point (the menu renders in
+    // a portal, so it's a normal DOM hit-test — the same one the engine used to
+    // do inline before the menu moved fully host-side).
+    const menuButtonAt = (clientX: number, clientY: number): HTMLElement | null => {
+      const el = document.elementFromPoint(clientX, clientY);
+      const button = el?.closest("button[data-context-menu-item-id]");
+      return button instanceof HTMLElement ? button : null;
+    };
+
+    // Every action handler registered on this editor's bus, collected into one
+    // disposer (Lexical's mergeRegister). The effect re-runs whenever `editor`
+    // changes, and StrictMode double-invokes it — so dropping these disposers
+    // would stack duplicate handlers (haptics firing twice, the menu opening
+    // twice). Both cleanup paths (readonly early-return + the main one) call
+    // disposeActions().
+    const disposeActions = mergeRegister(
+      mounted.editor.registerAction(CURSOR_DRAG_START, () =>
+        fireHaptic("light"),
+      ),
+      mounted.editor.registerAction(CURSOR_DRAG_BOUNDARY, () =>
+        fireHaptic("light"),
+      ),
+      mounted.editor.registerAction(CURSOR_DRAG_END, () =>
+        fireHaptic("medium"),
+      ),
+      mounted.editor.registerAction(REGION_DRAG_START, ({ intensity }) =>
+        fireHaptic(intensity),
+      ),
       // Override the editor's window.open default with native navigation.
-      mounted.editor.registerAction(OPEN_LINK, ({ url }) => {
-        void native.navigation.openUrl(url);
-        return true;
-      });
-    }
+      ...(native
+        ? [
+            mounted.editor.registerAction(OPEN_LINK, ({ url }) => {
+              void native.navigation.openUrl(url);
+              return true;
+            }),
+          ]
+        : []),
+      mounted.editor.registerAction(
+        OPEN_CONTEXT_MENU,
+        ({ x, y, hasSelection }) => {
+          const rect = wrapperRef.current?.getBoundingClientRect();
+          if (!rect) return false;
+          setMenu({
+            x: rect.left + x,
+            y: rect.top + y,
+            hasSelection,
+            hoveredItemId: null,
+          });
+          return true;
+        },
+      ),
+      mounted.editor.registerAction(
+        CONTEXT_MENU_POINTER_MOVE,
+        ({ clientX, clientY }) => {
+          const hoveredItemId =
+            menuButtonAt(clientX, clientY)?.getAttribute(
+              "data-context-menu-item-id",
+            ) ?? null;
+          setContextMenuState((prev) => {
+            if (!prev || prev.hoveredItemId === hoveredItemId) return prev;
+            const next = { ...prev, hoveredItemId };
+            lastContextMenuStateRef.current = next;
+            return next;
+          });
+        },
+      ),
+      mounted.editor.registerAction(
+        CONTEXT_MENU_RELEASE,
+        ({ clientX, clientY }) => {
+          // Released over an item → run it (its onClick fires the action and our
+          // onClose, which clears the capture flag). Released elsewhere → keep
+          // the menu open for tapping; a later tap dispatches CLOSE_CONTEXT_MENU.
+          menuButtonAt(clientX, clientY)?.click();
+        },
+      ),
+      mounted.editor.registerAction(CLOSE_CONTEXT_MENU, () => {
+        setMenu(null);
+      }),
+    );
 
     // Re-push theme tokens whenever the document root's class changes (the
     // dark-mode toggle swaps the `.dark` class, which flips the CSS variables).
@@ -1217,9 +1294,10 @@ function EditorSurface({
 
     // Skip offline store and sync setup in readonly mode
     if (readonly) {
-      // In readonly mode, we only render the content - no sync, no offline store
-      // Subscribe to state changes for context menu only
-      const unsubscribe = mounted.editor.subscribe((state: EditorState) => {
+      // In readonly mode, we only render the content - no sync, no offline store.
+      // Subscribe only to re-collect node overlays (the context menu is wired via
+      // the OPEN_CONTEXT_MENU action above, not derived from state here).
+      const unsubscribe = mounted.editor.subscribe(() => {
         // Node-declared overlay slots (engine, framework-free) → host registry.
         // Recollected each tick; only pushed to React state when the set changes.
         const newOverlays = mounted.editor.collectOverlays();
@@ -1227,48 +1305,8 @@ function EditorSurface({
           lastNodeOverlaysRef.current = newOverlays;
           setNodeOverlays(newOverlays);
         }
-
-        // Calculate context menu state for readonly mode
-        let newContextMenuState: typeof contextMenuState = null;
-        if (state.ui.activeMenu.type === "contextMenu") {
-          const containerRect = wrapperRef.current?.getBoundingClientRect();
-          if (containerRect) {
-            const hasSelection = !!getSelectionRange(state);
-            newContextMenuState = {
-              x: containerRect.left + state.ui.activeMenu.x,
-              y: containerRect.top + state.ui.activeMenu.y,
-              hasSelection,
-              hoveredItemId: state.ui.activeMenu.hoveredItemId,
-            };
-
-            // Handle drag-and-release selection
-            if (state.ui.activeMenu.selectedItemId) {
-              const selectedItemId = state.ui.activeMenu.selectedItemId;
-              // Execute the action asynchronously
-              setTimeout(async () => {
-                if (!mountedRef.current) return;
-                const editor = mountedRef.current.editor;
-                switch (selectedItemId) {
-                  case "copy":
-                    await editor.copy();
-                    break;
-                  case "selectAll":
-                    editor.change((c) => c.selectAll());
-                    editor.closeActiveMenu();
-                    break;
-                }
-              }, 0);
-              newContextMenuState = null;
-            }
-          }
-        }
-
-        if (
-          !shallowEqual(newContextMenuState, lastContextMenuStateRef.current)
-        ) {
-          lastContextMenuStateRef.current = newContextMenuState;
-          setContextMenuState(newContextMenuState);
-        }
+        // The context menu is host-owned via the OPEN_CONTEXT_MENU action
+        // (registered above), no longer derived from editor state here.
       });
 
       // Readonly mode never receives sync updates, so reveal immediately if not already done.
@@ -1278,6 +1316,7 @@ function EditorSurface({
 
       return () => {
         unsubscribe();
+        disposeActions();
         themeObserver.disconnect();
         offFontRegistry();
         // The editor (useEditor) and the doc (our cleanup effects) are torn
@@ -1615,38 +1654,8 @@ function EditorSurface({
         lastNodeOverlaysRef.current = newOverlays;
         setNodeOverlays(newOverlays);
       }
-
-      // Calculate new context menu state
-      let newContextMenuState: typeof contextMenuState = null;
-      if (state.ui.activeMenu.type === "contextMenu") {
-        const containerRect = wrapperRef.current?.getBoundingClientRect();
-        if (containerRect) {
-          const hasSelection = !!getSelectionRange(state);
-          newContextMenuState = {
-            x: containerRect.left + state.ui.activeMenu.x,
-            y: containerRect.top + state.ui.activeMenu.y,
-            hasSelection,
-            hoveredItemId: state.ui.activeMenu.hoveredItemId,
-          };
-
-          // Handle drag-and-release selection
-          if (state.ui.activeMenu.selectedItemId) {
-            const selectedItemId = state.ui.activeMenu.selectedItemId;
-            // Execute the action asynchronously to avoid state mutation during render
-            setTimeout(() => {
-              handleContextMenuAction(selectedItemId);
-            }, 0);
-            // Close the menu immediately
-            newContextMenuState = null;
-          }
-        }
-      }
-
-      // Only update if changed
-      if (!shallowEqual(newContextMenuState, lastContextMenuStateRef.current)) {
-        lastContextMenuStateRef.current = newContextMenuState;
-        setContextMenuState(newContextMenuState);
-      }
+      // The context menu is host-owned via the OPEN_CONTEXT_MENU action
+      // (registered above), no longer derived from editor state here.
 
       // These all render via the node/mark overlay registry now, driven by the
       // engine's active menu (collectOverlays → NODE_OVERLAYS):
@@ -1861,6 +1870,7 @@ function EditorSurface({
 
     return () => {
       unsubscribe();
+      disposeActions();
       offDocUpdate();
       themeObserver.disconnect();
       offFontRegistry();
@@ -2086,9 +2096,10 @@ function EditorSurface({
         break;
       case "selectAll":
         editor.change((c) => c.selectAll());
-        editor.closeActiveMenu();
         break;
     }
+    // The menu's own onClose (fired right after the item action) clears the
+    // host-capture flag and dismisses the popover.
   };
 
   const getContextMenuItems = (): ContextMenuItem[] => {
@@ -2367,10 +2378,9 @@ function EditorSurface({
           y={contextMenuState.y}
           items={getContextMenuItems()}
           onClose={() => {
-            if (!mountedRef.current) return;
-            mountedRef.current.editor.closeActiveMenu();
-            setContextMenuState(null);
-            lastContextMenuStateRef.current = null;
+            // Clears the engine's capture flag (observer) and dismisses the menu
+            // (our CLOSE_CONTEXT_MENU handler calls setMenu(null)).
+            mountedRef.current?.editor.dispatch(CLOSE_CONTEXT_MENU);
           }}
           collisionBoundary={mountedRef.current?.portalContainer}
           container={mountedRef.current?.portalContainer}

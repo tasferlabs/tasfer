@@ -1,4 +1,10 @@
-import { CURSOR_DRAG_BOUNDARY, CURSOR_DRAG_END } from "../action-bus";
+import {
+  CLOSE_CONTEXT_MENU,
+  CONTEXT_MENU_POINTER_MOVE,
+  CONTEXT_MENU_RELEASE,
+  CURSOR_DRAG_BOUNDARY,
+  CURSOR_DRAG_END,
+} from "../action-bus";
 import {
   CLOSE_NODE_OVERLAY,
   FINISH_SELECT_MODE,
@@ -33,12 +39,7 @@ import {
 import { updateCursor } from "../selection";
 import { startSelection } from "../selection";
 import type { EditorState, ViewportState } from "../state-types";
-import {
-  closeActiveMenu,
-  selectContextMenuItem,
-  updateContextMenuHover,
-  updateMode,
-} from "../state-utils";
+import { closeActiveMenu, updateMode } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
@@ -548,40 +549,35 @@ export function handleTouchMove(
 
       // Close all menus on movement - scrolling has priority
       // But don't close menus if we're about to enter cursor drag mode
-      if (
-        state.ui.activeMenu.type !== "none" &&
-        !session.touch.isTouchingCursor
-      ) {
-        state = closeActiveMenu(state);
+      if (!session.touch.isTouchingCursor) {
+        if (state.ui.activeMenu.type !== "none") {
+          state = closeActiveMenu(state);
+        }
+        // The context menu is host-owned now — signal it to close too (the host
+        // clears `hostMenuCapturing` synchronously, so the long-press branch
+        // below falls through to selection/scrolling, as before).
+        if (session.hostMenuCapturing) {
+          state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
+        }
       }
     }
 
     // Handle long press text selection mode
     // Block long-press text selection in readonly mode
     if (session.touch.isLongPress && state.ui.mode !== "readonly") {
-      // If context menu is open, allow drag-and-release interaction
-      // Don't start text selection - user might be dragging to menu item
-      if (state.ui.activeMenu.type === "contextMenu") {
+      // If a host context menu is capturing the pointer, allow drag-and-release
+      // interaction — don't start text selection (the user might be dragging to
+      // a menu item). The host owns the menu, so forward the raw client point
+      // and let it hit-test its own items / update its hover highlight.
+      if (session.hostMenuCapturing) {
         session.touch.lastY = canvasY;
         session.touch.lastTime = currentTime;
 
-        // Update hover state based on touch position
         const touch = event.touches[0];
-        const element = document.elementFromPoint(touch.clientX, touch.clientY);
-        let hoveredItemId: string | null = null;
-
-        if (element) {
-          const button = element.closest("button[data-context-menu-item-id]");
-          if (button) {
-            hoveredItemId = button.getAttribute("data-context-menu-item-id");
-          }
-        }
-
-        // Update hover state if it changed
-        const currentHoveredId = state.ui.activeMenu.hoveredItemId || null;
-        if (hoveredItemId !== currentHoveredId) {
-          state = updateContextMenuHover(state, hoveredItemId);
-        }
+        state.actionBus.dispatch(CONTEXT_MENU_POINTER_MOVE, {
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+        });
 
         return state;
       }
@@ -793,51 +789,33 @@ export function handleTouchEnd(
     };
   }
 
-  // Handle drag-and-release for context menu (power user feature)
-  // Check if context menu is open and user is releasing (possibly over a menu item)
-  if (
-    state.ui.activeMenu.type === "contextMenu" &&
-    session.touch?.isLongPress
-  ) {
-    // Use the hoveredItemId from the state (already tracked during touchmove)
-    const hoveredItemId = state.ui.activeMenu.hoveredItemId;
-
-    if (hoveredItemId) {
-      // User released on a menu item - mark it as selected
-      // MountedEditor will detect this and execute the action
-      state = selectContextMenuItem(state, hoveredItemId);
-      session.touch = null;
-      return {
-        state: {
-          ...state,
-          view: {
-            ...state.view,
-            scrollbar: {
-              ...state.view.scrollbar,
-              lastInteraction: Date.now(),
-            },
-          },
-        },
-        ops,
-      };
-    } else {
-      // User released but not on a menu item - keep menu open for tapping
-      // Just clean up touch state and return
-      session.touch = null;
-      return {
-        state: {
-          ...state,
-          view: {
-            ...state.view,
-            scrollbar: {
-              ...state.view.scrollbar,
-              lastInteraction: Date.now(),
-            },
-          },
-        },
-        ops,
-      };
+  // Drag-and-release for the host context menu (power-user feature). If a host
+  // menu is capturing the pointer and the user lifts during a long press, hand
+  // the release point to the host: it hit-tests its own items and either runs
+  // the one under the finger (closing the menu) or keeps the menu open for
+  // tapping. The engine no longer owns the menu, so it just forwards the event.
+  if (session.hostMenuCapturing && session.touch?.isLongPress) {
+    const releaseTouch = _event.changedTouches[0];
+    if (releaseTouch) {
+      state.actionBus.dispatch(CONTEXT_MENU_RELEASE, {
+        clientX: releaseTouch.clientX,
+        clientY: releaseTouch.clientY,
+      });
     }
+    session.touch = null;
+    return {
+      state: {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      },
+      ops,
+    };
   }
 
   // If we were in long press mode

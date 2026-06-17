@@ -23,7 +23,11 @@
  * and derives from the `state` it is handed.
  */
 
-import { stateAction } from "../action-bus";
+import {
+  CLOSE_CONTEXT_MENU,
+  OPEN_CONTEXT_MENU,
+  stateAction,
+} from "../action-bus";
 import {
   clearSelection,
   moveCursorToPosition,
@@ -31,14 +35,13 @@ import {
 } from "../selection";
 import { type Block } from "../serlization/loadPage";
 import type { Position } from "../state-types";
-import {
-  closeActiveMenu,
-  openContextMenu,
-  setActiveMenu,
-  updateMode,
-} from "../state-utils";
+import { closeActiveMenu, setActiveMenu, updateMode } from "../state-utils";
 import { isTextualBlock } from "../sync/block-registry";
-import { selectLineAtPosition, selectWordAtPosition } from "./actions";
+import {
+  getSelectionRange,
+  selectLineAtPosition,
+  selectWordAtPosition,
+} from "./actions";
 
 /** A resolved text position from {@link getTextPositionFromViewport}. */
 interface PositionPayload {
@@ -60,9 +63,8 @@ interface PointPayload {
 export const TAP_TOP_PADDING = stateAction("tap-top-padding", (state) => {
   let next = clearSelection(state);
   next = updateMode(next, "edit");
-  if (next.ui.activeMenu.type === "contextMenu") {
-    next = closeActiveMenu(next);
-  }
+  // Host-owned context menu: signal it to close (no-op if none is open).
+  state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
   return { state: next, ops: [] };
 });
 
@@ -78,9 +80,8 @@ export const TAP_SIDE_PADDING = stateAction<PositionPayload>(
     let next = clearSelection(state);
     next = updateCursor(next, position);
     next = updateMode(next, "edit");
-    if (next.ui.activeMenu.type === "contextMenu") {
-      next = closeActiveMenu(next);
-    }
+    // Host-owned context menu: signal it to close (no-op if none is open).
+    state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
     return { state: next, ops: [] };
   },
 );
@@ -193,10 +194,9 @@ export const TAP_SELECT_LINE = stateAction<PositionPayload>(
 export const TAP_SELECT_WORD = stateAction<PositionPayload>(
   "tap-select-word",
   (state, { position }) => {
-    let next = selectWordAtPosition(state, position);
-    if (next.ui.activeMenu.type === "contextMenu") {
-      next = closeActiveMenu(next);
-    }
+    const next = selectWordAtPosition(state, position);
+    // Host-owned context menu: signal it to close (no-op if none is open).
+    state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
     return { state: next, ops: [] };
   },
 );
@@ -212,10 +212,14 @@ export const TAP_SELECT_WORD = stateAction<PositionPayload>(
 export const TAP_ON_SELECTION = stateAction<PointPayload>(
   "tap-on-selection",
   (state, { position, point }) => {
-    let next = updateCursor(state, position);
-    if (next.ui.activeMenu.type !== "contextMenu") {
-      next = openContextMenu(next, point.x, point.y);
-    }
+    const next = updateCursor(state, position);
+    // Headless: signal the host to open its menu (canvas coords; the host adds
+    // its container rect). The host dedupes if its menu is already open.
+    next.actionBus.dispatch(OPEN_CONTEXT_MENU, {
+      x: point.x,
+      y: point.y,
+      hasSelection: !!getSelectionRange(next),
+    });
     return { state: next, ops: [] };
   },
 );
@@ -231,9 +235,8 @@ export const TAP_PLACE_CURSOR = stateAction<PositionPayload>(
     let next = clearSelection(state);
     next = updateCursor(next, position);
     next = updateMode(next, "edit");
-    if (next.ui.activeMenu.type === "contextMenu") {
-      next = closeActiveMenu(next);
-    }
+    // Host-owned context menu: signal it to close (no-op if none is open).
+    state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
     return { state: next, ops: [] };
   },
 );
@@ -248,9 +251,8 @@ export const TAP_OUTSIDE_CONTENT = stateAction(
   (state) => {
     let next = clearSelection(state);
     next = updateMode(next, "edit");
-    if (next.ui.activeMenu.type === "contextMenu") {
-      next = closeActiveMenu(next);
-    }
+    // Host-owned context menu: signal it to close (no-op if none is open).
+    state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
     return { state: next, ops: [] };
   },
 );
@@ -261,14 +263,21 @@ export const TAP_OUTSIDE_CONTENT = stateAction(
  * Open the context menu at a resolved tap/long-press point. Shared by the
  * long-press-without-drag release and the cursor-drag-held-without-move release
  * (mobile's long-press-on-cursor = paste menu). The handler supplies the
- * pixel `point`. Pure, no ops.
+ * pixel `point`. Headless: the engine doesn't own the menu — it dispatches the
+ * host-facing {@link OPEN_CONTEXT_MENU} and leaves the state unchanged (the host
+ * renders the menu; the engine flips its own capture flag). Pure, no ops. Kept
+ * as a thin state-action shim so the touch call sites stay uniform.
  */
 export const OPEN_CONTEXT_MENU_AT = stateAction<{
   point: { x: number; y: number };
-}>("open-context-menu-at", (state, { point }) => ({
-  state: openContextMenu(state, point.x, point.y),
-  ops: [],
-}));
+}>("open-context-menu-at", (state, { point }) => {
+  state.actionBus.dispatch(OPEN_CONTEXT_MENU, {
+    x: point.x,
+    y: point.y,
+    hasSelection: !!getSelectionRange(state),
+  });
+  return { state, ops: [] };
+});
 
 /**
  * Finish a long-press drag-selection: clear the selection's `initialBoundary`

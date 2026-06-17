@@ -95,6 +95,15 @@ export interface InteractionSession {
    * at click time. Per-instance so two editors don't clobber each other.
    */
   outOfViewIndicatorHitAreas: IndicatorHitArea[];
+  /**
+   * A host pointer-capturing menu (the context menu) is open. Content-free — the
+   * engine never knows it's a context menu; it only needs the flag to arbitrate
+   * focus (don't blur the editor while it's up) and touch (route drag/release to
+   * the host instead of scrolling/selecting). The engine maintains it off the
+   * menu's OPEN_CONTEXT_MENU / CLOSE_CONTEXT_MENU lifecycle actions — the host
+   * never writes it directly, it just dispatches CLOSE_CONTEXT_MENU to dismiss.
+   */
+  hostMenuCapturing: boolean;
 }
 
 export function createInteractionSession(
@@ -117,6 +126,7 @@ export function createInteractionSession(
     captured: null,
     pendingCapture: null,
     outOfViewIndicatorHitAreas: [],
+    hostMenuCapturing: false,
   };
 }
 
