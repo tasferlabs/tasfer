@@ -21,25 +21,24 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("theme") as Theme;
-      return stored || "system";
-    }
-    return "system";
-  });
+  // Initialize to deterministic defaults so the first client render matches the
+  // server (SSR has no access to localStorage / matchMedia — reading them in the
+  // initializer diverges any theme-dependent output and trips hydration). The
+  // stored theme is read after mount below; the pre-hydration script in
+  // layout.tsx has already applied the correct `.dark` class, so there's no
+  // visual flash while React catches up.
+  const [theme, setThemeState] = useState<Theme>("system");
+  const [effectiveTheme, setEffectiveTheme] = useState<"light" | "dark">("light");
 
-  const [effectiveTheme, setEffectiveTheme] = useState<"light" | "dark">(() => {
-    if (typeof window !== "undefined") {
-      if (theme === "system") {
-        return window.matchMedia("(prefers-color-scheme: dark)").matches
-          ? "dark"
-          : "light";
-      }
-      return theme === "dark" ? "dark" : "light";
+  // Pick up the persisted choice once, after hydration. When it's "system" (or
+  // unset) the theme stays "system" and the effect below resolves it from the OS
+  // preference; otherwise this flips `theme` and re-runs that effect.
+  useEffect(() => {
+    const stored = localStorage.getItem("theme") as Theme | null;
+    if (stored === "light" || stored === "dark") {
+      setThemeState(stored);
     }
-    return "light";
-  });
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
