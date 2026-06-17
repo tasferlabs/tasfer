@@ -9,7 +9,7 @@
  * Every helper here resolves chips through one core — `getInlineMathSpans` — so
  * caret movement, snapping, hit-testing, and edge detection all agree on where a
  * chip's boundaries fall. (Rendering inline math to glyphs is a separate
- * concern — see `getInlineMathDims`/`getInlineMathImage` in `./math`.)
+ * concern — see `getInlineMathDims` in `./math` and the `MathMark` painter.)
  */
 
 import {

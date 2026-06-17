@@ -1,15 +1,20 @@
 /**
- * math → a replacement renderer (draws a MathJax SVG instead of glyphs).
+ * math → a replacement renderer (draws a canvas-native formula instead of
+ * glyphs).
  *
  * Inline math is a replacement mark: it measures as an atomic unit (the full
- * SVG width) and paints the rendered formula — a behavior-preserving move of
- * the former `batch.isMath` branch out of `renderLine`.
+ * formula width) and paints the rendered formula. Layout and painting both go
+ * through `@cypherkit/tex` — the formula is drawn directly onto the canvas with
+ * `paintMath` (no SVG, no bitmap, no async render), so color is just the current
+ * text color and it stays crisp at any DPI.
  */
+
+import { layoutMath, paintMath } from "@cypherkit/tex";
 
 import type { ActionBus } from "../../action-bus";
 import { CURSOR_MOVED } from "../../actions/pointer-actions";
 import { getCrossedInlineMathSpan } from "../../inline-math-spans";
-import { getInlineMathDims, getInlineMathImage } from "../../nodes/math";
+import { getInlineMathDims } from "../../nodes/math";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import {
   INLINE_MATH_END,
@@ -41,19 +46,7 @@ const inlineMathReplacement: MarkReplacement = {
   measure(text, fontSize) {
     return getInlineMathDims(text, fontSize);
   },
-  paint({
-    ctx,
-    text,
-    x,
-    y,
-    fontSize,
-    isRTL,
-    hovered,
-    dims,
-    styles,
-    requestRedraw,
-  }) {
-    const dpr = window.devicePixelRatio || 1;
+  paint({ ctx, text, x, y, fontSize, isRTL, hovered, dims, styles }) {
     const mathStyle = styles.textFormats.inlineMath;
     const mathWidth = dims.width;
     const drawX = isRTL ? x - mathWidth : x;
@@ -74,18 +67,12 @@ const inlineMathReplacement: MarkReplacement = {
       ctx.restore();
     }
 
-    const image = getInlineMathImage(
-      text,
-      fontSize,
-      dpr,
-      styles.blocks.paragraph.color,
-      styles.blocks.math.errorBackgroundColor,
-      requestRedraw,
-    );
-    if (image) {
-      const imgY = y - dims.height + dims.depthBelowBaseline;
-      ctx.drawImage(image.bitmap, drawX, imgY, mathWidth, dims.height);
-    }
+    // Paint the formula directly. `y` is the text baseline; the engine draws the
+    // layout's baseline there. Fonts load asynchronously at startup — until then
+    // glyphs simply don't paint (dimensions are already exact), and the host's
+    // font-load redraw fills them in.
+    const layout = layoutMath(text, { fontSize, displayMode: false });
+    paintMath(ctx, layout, drawX, y, { color: styles.blocks.paragraph.color });
   },
 };
 

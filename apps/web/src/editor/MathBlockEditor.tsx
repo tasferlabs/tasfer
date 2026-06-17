@@ -66,8 +66,8 @@ function MathPreview({
 
   const hasError = useMemo(() => {
     if (!latex.trim()) return false;
-    return !isValidLatex(latex, displayMode);
-  }, [latex, displayMode]);
+    return !isValidLatex(latex);
+  }, [latex]);
 
   if (!latex.trim()) {
     return (

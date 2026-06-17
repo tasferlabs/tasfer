@@ -26,9 +26,8 @@ export default defineConfig({
       registerType: "prompt",
       manifest: false,
       injectManifest: {
-        // The main bundle (~3.5 MB, includes the prebuilt MathJax bundle)
-        // exceeds Workbox's 2 MiB default precache limit.
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Headroom above Workbox's 2 MiB default for the largest single asset.
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       devOptions: {
         enabled: false,
@@ -45,6 +44,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@cypherkit/editor": resolve(__dirname, "../../packages/editor/src"),
+      "@cypherkit/tex": resolve(__dirname, "../../packages/tex/src"),
       "@cypherkit/react": resolve(__dirname, "../../packages/react/src"),
       "@": "/src",
       "@shared": resolve(__dirname, "../../shared"),

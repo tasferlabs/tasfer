@@ -1,0 +1,47 @@
+---
+title: "A Canvas-Native LaTeX Engine"
+date: "2026-06-17"
+summary: "Every math renderer ships DOM or SVG, which fights a canvas editor. So we vendored KaTeX's data, threw away its backend, and wrote a layout engine that paints glyphs and rules straight onto the canvas — small, theme-free, DPI-correct, and built for a caret that lives inside the formula."
+---
+
+## The problem
+
+Every existing maths package is designed for HTML. There is no canvas-based
+LaTeX editor/renderer, and Cypher renders all of its text directly onto an
+HTML5 `<canvas>`, not the DOM.
+
+MathJax renders to DOM/SVG, carries a huge bundle (~3.5 MB for the fonts +
+engine), and is awkward to drive. KaTeX is the same story — it produces DOM, and
+the only way onto a canvas is via SVG `<foreignObject>`, which means
+rasterizing an SVG and blitting a bitmap. Both fight us on every axis we care
+about: bundle size, theme color (you fight CSS instead of setting `fillStyle`),
+DPI correctness (bitmaps blur on retina), and — the one that matters most — a
+**caret that lives inside the formula**. You cannot put a text cursor inside a
+rasterized image.
+
+## Our solution
+
+Doing a whole TeX renderer from scratch is quite an undertaking. So we don't.
+The genuinely hard, correctness-critical part of a math renderer is the
+**layout** — the TeX box-and-glue rules for spacing, scripts, fractions,
+delimiters, radicals. The _data_ those rules run on is just numbers: glyph
+metrics, math constants, a symbol map, and the fonts themselves.
+
+KaTeX's data is MIT-licensed. So we vendor the **data** (with attribution) and the WOFF2 fonts (~296 KB for all 20 faces vs.
+MathJax's ~3.5 MB), and write our own **logic**: parser, layout, paint, edit.
+The backend is the only thing we replace — instead of emitting DOM, we walk the
+positioned box tree and call `ctx.fillText` for glyphs and `ctx.fillRect` for
+rules. That's all math rendering fundamentally is: glyphs and rules.
+
+The result is `@cypherkit/tex`: small, theme-color-free (color is just a
+`fillStyle`), DPI-correct for free, and editable.
+
+## Why it's safe to reuse the data
+
+The whole bet rests on one assumption: that KaTeX's metric table describes the
+glyphs we actually draw with our own fonts. If that's off, every box is the
+wrong size.
+
+The tests in code proves it. For every advance-laid
+glyph across all 18 fonts, `metric.width === font.advanceWidth` —
+**2010/2010 = 100% exact match**.

@@ -71,7 +71,6 @@
     "lodash-es": "^4.17.22",
     "lucide-react": "^0.532.0",
     "luxon": "^3.7.2",
-    "mathjax-full": "^3.2.1",
     "nanoid": "^5.1.7",
     "qrcode.react": "^4.2.0",
     "radix-ui": "^1.4.3",

@@ -23,6 +23,20 @@ import "@fontsource/space-grotesk/700.css";
 
 import type { FontStyles } from "@cypherkit/editor";
 import { notifyFontsChanged, notifyFontsLoaded } from "@cypherkit/editor";
+import { loadFonts as loadTexFonts } from "@cypherkit/tex";
+
+// KaTeX math faces, imported straight from the @cypherkit/tex package source so
+// Vite bundles+hashes them — no hand-copied duplicate under `public/fonts/tex`.
+// Keyed by the emitted asset URL under their `KaTeX_<Variant>.woff2` basename.
+const texFontModules = import.meta.glob<string>(
+  "../../../packages/tex/src/fonts/*.woff2",
+  { query: "?url", import: "default", eager: true },
+);
+const texFontUrls: Record<string, string> = {};
+for (const [path, url] of Object.entries(texFontModules)) {
+  const file = path.slice(path.lastIndexOf("/") + 1); // KaTeX_<Variant>.woff2
+  texFontUrls[file] = url;
+}
 
 // The app's font families (key → CSS font-stack). These keys are what
 // PageSettingsContext selects between (via `fontStyleToFamily`).
@@ -179,9 +193,15 @@ export async function loadFonts(): Promise<void> {
     return fontLoadingPromise;
   }
 
-  fontLoadingPromise = Promise.all(
-    FONT_CONFIGS.map(({ family, weight }) => loadSingleFont(family, weight)),
-  ).then(() => {
+  fontLoadingPromise = Promise.all([
+    ...FONT_CONFIGS.map(({ family, weight }) => loadSingleFont(family, weight)),
+    // Math fonts for @cypherkit/tex (bundled from the package via Vite). On
+    // completion the editor repaints, filling in math glyphs (their layout
+    // dimensions are already exact from metric data before the faces load).
+    loadTexFonts({
+      urlFor: (variant) => texFontUrls[`KaTeX_${variant}.woff2`],
+    }).catch(() => {}),
+  ]).then(() => {
     fontsLoaded = true;
     notifyFontsLoaded();
   });

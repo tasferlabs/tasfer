@@ -25,6 +25,8 @@
       "*": ["./*"],
       "@cypherkit/editor": ["../../packages/editor/src/index.ts"],
       "@cypherkit/editor/*": ["../../packages/editor/src/*"],
+      "@cypherkit/tex": ["../../packages/tex/src/index.ts"],
+      "@cypherkit/tex/*": ["../../packages/tex/src/*"],
       "@cypherkit/react": ["../../packages/react/src/index.ts"],
       "@cypherkit/react/*": ["../../packages/react/src/*"],
       "@/*": ["./src/*"],

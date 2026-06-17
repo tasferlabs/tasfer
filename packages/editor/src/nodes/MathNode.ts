@@ -2,17 +2,14 @@
  * MathNode — the `math` (block-level LaTeX equation) block ported onto
  * AtomicNode.
  *
- * Like ImageNode, the on-canvas size depends on an async-decoded asset:
- * MathJax renders the LaTeX to an SVG which we rasterize to an ImageBitmap, and
- * the decoded height drives the block's flow height. So — exactly as with images
- * — when a render lands we drop the cached height and request a repaint, letting
- * the layout reflow to the real equation size. (The pre-port renderer.ts path
- * skipped that invalidation, leaving tall equations stuck at minHeight until an
- * unrelated edit happened to clear the cache.)
- *
- * The math render cache lives here as module singletons — one MathJax render
- * serves every block referencing the same equation — mirroring the image cache
- * co-located in ImageNode.
+ * Rendering goes through `@cypherkit/tex`, the canvas-native LaTeX engine: the
+ * equation is laid out synchronously (metrics are a data table) and painted
+ * straight onto the canvas with `paintMath`. There is no rasterization, no
+ * bitmap cache, and no async render — so the height pass and paint always agree
+ * on size, with no reflow once an image decodes (the old MathJax path). Fonts
+ * load asynchronously at startup; until then the layout's dimensions are still
+ * exact (so the block reserves the right space) and glyphs simply paint in on
+ * the host's font-load redraw.
  *
  * Click-to-edit and hover tracking are node contributions registered on the
  * action bus (`registerActions`): a `TEXT_CLICK` handler opens the inline-math
@@ -23,11 +20,10 @@
  *
  * The serialization methods are this node's markdown/HTML/text round-trip,
  * adapted into a BlockCodec by the schema. HTML output renders through
- * `ctx.renderMathSVG`, injected by the HTML orchestrator — the codec path must
- * NOT statically import `./math` (it boots MathJax at module load, and the
- * codec registry sits on the parser/fuzz import path). The on-canvas render
- * keeps the dynamic `import("./math")`.
+ * `ctx.renderMathSVG`, injected by the HTML orchestrator.
  */
+
+import { layoutMath, type MathLayout, paintMath } from "@cypherkit/tex";
 
 import { type ActionBus, stateAction } from "../action-bus";
 import { POINTER_MOVE, TEXT_CLICK } from "../actions/pointer-actions";
@@ -58,155 +54,9 @@ export interface MathBlock extends BlockRuntimeState {
   displayMode: boolean; // true = display/block mode, false = inline mode
 }
 
-// ── Math render cache ───────────────────────────────────────────────────────
-// Rasterized equations keyed by displayMode + dpr + latex. Shared as module
-// singletons because one MathJax render must serve every block referencing the
-// same equation (mirrors the image cache in ImageNode).
-
-interface RenderedMath {
-  readonly img: HTMLImageElement | ImageBitmap;
-  /** Logical (CSS-pixel) size of the rasterized equation. */
-  readonly width: number;
-  readonly height: number;
-}
-
-const mathImageCache = new Map<string, RenderedMath>();
-const pendingMathRenders = new Set<string>();
-
-function mathCacheKey(
-  latex: string,
-  displayMode: boolean,
-  dpr: number,
-  color: string,
-): string {
-  // `color` is part of the key so a theme change re-renders with the new text
-  // color instead of serving the previous theme's colored glyphs.
-  return `${displayMode ? "D" : "I"}:${dpr}:${color}:${latex}`;
-}
-
-/**
- * Render `latex` to an ImageBitmap via MathJax (lazy-imported) and cache it.
- * Returns nothing — the caller drives the repaint through `onReady` once the
- * decode completes.
- */
-function renderMathToImage(
-  latex: string,
-  displayMode: boolean,
-  color: string,
-  errorBackgroundColor: string,
-  onReady: () => void,
-): void {
-  const dpr = window.devicePixelRatio || 1;
-  const cacheKey = mathCacheKey(latex, displayMode, dpr, color);
-  if (mathImageCache.has(cacheKey) || pendingMathRenders.has(cacheKey)) return;
-
-  pendingMathRenders.add(cacheKey);
-
-  // Lazy import MathJax renderer
-  import("./math").then(({ renderToSVG }) => {
-    try {
-      const svgString = renderToSVG(latex, displayMode);
-
-      // Strip the mjx-container wrapper so we can manipulate the inner <svg>
-      const coloredSvg = svgString.replace(
-        /^<mjx-container[^>]*>([\s\S]*)<\/mjx-container>$/,
-        "$1",
-      );
-
-      // Parse SVG to get its intrinsic dimensions
-      const parser = new DOMParser();
-      const svgDoc = parser.parseFromString(coloredSvg, "image/svg+xml");
-      const svgEl = svgDoc.querySelector("svg");
-      if (!svgEl) {
-        pendingMathRenders.delete(cacheKey);
-        return;
-      }
-
-      // Set fill color on the SVG root
-      svgEl.setAttribute("color", color);
-      svgEl.style.color = color;
-
-      // Fix MathJax error background rects: they inherit fill="currentColor"
-      // from the parent <g>, making error backgrounds the same color as text.
-      // Set them to a semi-transparent color instead.
-      for (const rect of svgEl.querySelectorAll("rect[data-background]")) {
-        rect.setAttribute("fill", errorBackgroundColor);
-      }
-
-      // Scale up: MathJax uses ex units, we want ~20px font equivalent
-      const scaleFactor = 2.2;
-      const viewBox = svgEl.getAttribute("viewBox");
-      const widthAttr = svgEl.getAttribute("width");
-      const heightAttr = svgEl.getAttribute("height");
-
-      // Logical (CSS-pixel) dimensions
-      let w: number;
-      let h: number;
-
-      if (viewBox) {
-        const parts = viewBox.split(/\s+/).map(Number);
-        // viewBox is in MathJax internal units (1000 units per ex)
-        w = Math.ceil((parts[2] / 1000) * 8.5 * scaleFactor) + 4;
-        h = Math.ceil((parts[3] / 1000) * 8.5 * scaleFactor) + 4;
-      } else {
-        w = Math.ceil(parseFloat(widthAttr || "100") * scaleFactor);
-        h = Math.ceil(parseFloat(heightAttr || "40") * scaleFactor);
-      }
-
-      // Physical-pixel dimensions for rasterization. Render at 2x the screen
-      // DPR so glyph edges stay sharp even after downscale, and to compensate
-      // for browsers that rasterize SVG <img> at lower-than-requested density.
-      const renderScale = dpr * 2;
-      const pxW = Math.max(1, Math.ceil(w * renderScale));
-      const pxH = Math.max(1, Math.ceil(h * renderScale));
-
-      // Set SVG natural size to integer physical pixels
-      svgEl.setAttribute("width", String(pxW));
-      svgEl.setAttribute("height", String(pxH));
-      svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
-
-      const finalSvg = new XMLSerializer().serializeToString(svgEl);
-      const svgBlob = new Blob([finalSvg], {
-        type: "image/svg+xml;charset=utf-8",
-      });
-      const url = URL.createObjectURL(svgBlob);
-
-      const img = new Image();
-      img.decoding = "sync";
-      img.width = pxW;
-      img.height = pxH;
-      const finalize = () => {
-        const offscreen = document.createElement("canvas");
-        offscreen.width = pxW;
-        offscreen.height = pxH;
-        const offCtx = offscreen.getContext("2d")!;
-        offCtx.imageSmoothingEnabled = true;
-        offCtx.imageSmoothingQuality = "high";
-        offCtx.drawImage(img, 0, 0, pxW, pxH);
-        URL.revokeObjectURL(url);
-
-        createImageBitmap(offscreen)
-          .then((bitmap) => {
-            // Store both the physical-pixel bitmap and the logical CSS size
-            mathImageCache.set(cacheKey, { img: bitmap, width: w, height: h });
-            pendingMathRenders.delete(cacheKey);
-            onReady();
-          })
-          .catch(() => {
-            pendingMathRenders.delete(cacheKey);
-          });
-      };
-      img.onload = finalize;
-      img.onerror = () => {
-        pendingMathRenders.delete(cacheKey);
-        URL.revokeObjectURL(url);
-      };
-      img.src = url;
-    } catch {
-      pendingMathRenders.delete(cacheKey);
-    }
-  });
-}
+// Display-math base font size, in CSS pixels (block equations render a touch
+// larger than body text).
+const BLOCK_MATH_FONT_SIZE = 22;
 
 export class MathNode extends AtomicNode<MathBlock> {
   readonly type = "math" as const;
@@ -224,25 +74,27 @@ export class MathNode extends AtomicNode<MathBlock> {
   // ── Rendering ──────────────────────────────────────────────────────────────
 
   /**
+   * Lay out the equation (or null when empty). Synchronous and exact — the
+   * engine reads metrics from a data table, so the height pass and paint agree
+   * on size with no async round-trip and no font-load reflow.
+   */
+  private mathLayout(c: NodeLayoutCtx): MathLayout | null {
+    const block = c.block as MathBlock;
+    if (!block.latex) return null;
+    return layoutMath(block.latex, {
+      fontSize: BLOCK_MATH_FONT_SIZE,
+      displayMode: block.displayMode,
+    });
+  }
+
+  /**
    * Drawn equation height, excluding the block's own top/bottom flow padding.
-   * Falls back to minHeight until the equation has been rendered + cached.
-   * Depends only on layout context, so the height pass and paint agree on size.
+   * Falls back to minHeight for an empty block.
    */
   private contentHeight(c: NodeLayoutCtx): number {
-    const block = c.block as MathBlock;
     const m = c.styles.blocks.math;
-    if (block.latex) {
-      const dpr = window.devicePixelRatio || 1;
-      const cached = mathImageCache.get(
-        mathCacheKey(
-          block.latex,
-          block.displayMode,
-          dpr,
-          c.styles.blocks.paragraph.color,
-        ),
-      );
-      if (cached) return Math.max(m.minHeight, cached.height);
-    }
+    const l = this.mathLayout(c);
+    if (l) return Math.max(m.minHeight, l.height + l.depth);
     return m.minHeight;
   }
 
@@ -268,54 +120,17 @@ export class MathNode extends AtomicNode<MathBlock> {
     }
 
     if (block.latex) {
-      const dpr = window.devicePixelRatio || 1;
-      const cached = mathImageCache.get(
-        mathCacheKey(
-          block.latex,
-          block.displayMode,
-          dpr,
-          styles.blocks.paragraph.color,
-        ),
-      );
-
-      if (cached) {
-        // Draw the rendered equation centered, snapping to the physical pixel
-        // grid to avoid bilinear-interpolation blur on high-DPI canvases.
-        const rawX = x + Math.max(0, (width - cached.width) / 2);
-        const rawY =
-          contentY + Math.max(0, (contentHeight - cached.height) / 2);
-        const drawX = Math.round(rawX * dpr) / dpr;
-        const drawY = Math.round(rawY * dpr) / dpr;
-        const drawW = Math.round(cached.width * dpr) / dpr;
-        const drawH = Math.round(cached.height * dpr) / dpr;
-        ctx.drawImage(cached.img, drawX, drawY, drawW, drawH);
-      } else {
-        // Kick off the async render. When it lands, drop the cached height so
-        // the block reflows to the real equation size, then repaint.
-        renderMathToImage(
-          block.latex,
-          block.displayMode,
-          styles.blocks.paragraph.color,
-          m.errorBackgroundColor,
-          () => {
-            block.cachedHeight = undefined;
-            block.cachedWidth = undefined;
-            c.requestRedraw();
-          },
-        );
-
-        // Draw loading placeholder
-        ctx.fillStyle = m.placeholder.textColor;
-        ctx.font = "14px system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.globalAlpha = 0.5;
-        ctx.fillText(
-          this.str(state, "rendering"),
-          x + width / 2,
-          contentY + contentHeight / 2,
-        );
-      }
+      // Paint the equation centered, directly onto the canvas. `y` passed to
+      // paintMath is the baseline (top of the centered box + its above-baseline
+      // height).
+      const l = this.mathLayout(c)!;
+      const w = l.width;
+      const h = l.height + l.depth;
+      const drawX = x + Math.max(0, (width - w) / 2);
+      const drawTop = contentY + Math.max(0, (contentHeight - h) / 2);
+      paintMath(ctx, l, drawX, drawTop + l.height, {
+        color: styles.blocks.paragraph.color,
+      });
     } else {
       // Empty math block — draw the click-to-edit placeholder.
       ctx.fillStyle = m.placeholder.backgroundColor;
