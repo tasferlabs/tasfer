@@ -73,4 +73,20 @@ ensure_node_on_path
 echo "build-and-sync.sh: building web app and syncing '$PLATFORM' (node $(node -v))"
 cd "$WEB_DIR"
 npm run build
-npx cap sync "$PLATFORM"
+
+# Per-build we run `cap copy` (web assets + capacitor.config.json) only — NOT
+# `cap sync`. `cap sync` also runs `cap update`, which regenerates the
+# capacitor-cordova-android-plugins Gradle project and DELETES its build/
+# intermediates. Because this script runs from inside the native build (Gradle
+# preBuild / Xcode phase), that wipe lands *after* Gradle has already run the
+# capacitor module's tasks (writeDebugAarMetadata, processDebugManifest, …),
+# so the app's checkAarMetadata / manifest-merge then fail reading the now-missing
+# files. `cap copy` doesn't touch that module, so the build stays consistent.
+#
+# Run a full sync explicitly after adding/removing/upgrading a native plugin:
+#   CYPHER_CAP_SYNC=1 <build>   (or just `npx cap sync <platform>` once)
+if [[ "${CYPHER_CAP_SYNC:-}" == "1" ]]; then
+  npx cap sync "$PLATFORM"
+else
+  npx cap copy "$PLATFORM"
+fi
