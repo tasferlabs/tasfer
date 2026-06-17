@@ -34,7 +34,7 @@ class OverlayTestNode extends AtomicNode {
     return [
       {
         key: "overlay-test-ui",
-        blockIndex: c.blockIndex,
+        blockId: (c.block as Block).id,
         rect: { x: c.origin.x, y: c.origin.y, width: c.maxWidth, height: 80 },
         data: { fromBlock: (c.block as Block).id },
       },
@@ -62,7 +62,7 @@ class OverlayTestMark extends Mark {
     return [
       {
         key: "mark-overlay-ui",
-        blockIndex: 3,
+        blockId: "b-mark",
         rect: { x: c.viewport.scrollY, y: 7 },
       },
     ];
@@ -106,7 +106,7 @@ describe("collectOverlays", () => {
     expect(overlays).toEqual([
       {
         key: "overlay-test-ui",
-        blockIndex: 0,
+        blockId: "b1",
         rect: {
           x: paddingLeft,
           y: paddingTop, // scrollY 0
@@ -157,7 +157,7 @@ describe("collectOverlays", () => {
     expect(collectOverlays(state, viewport, defaultStyles)).toEqual([
       {
         key: "mark-overlay-ui",
-        blockIndex: 3,
+        blockId: "b-mark",
         rect: { x: viewport.scrollY, y: 7, width: 1, height: 1 },
       },
     ]);

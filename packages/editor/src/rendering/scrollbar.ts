@@ -10,6 +10,7 @@ import { getEditorStyles } from "../styles";
 import {
   awarenessCursorToPosition,
   type AwarenessState,
+  getColorForPeer,
 } from "../sync/awareness";
 import { getBlockHeight } from "./renderer";
 
@@ -629,14 +630,14 @@ function renderScrollbarSearchMarkers(
     viewport.width -
     (editorStyles.canvas.paddingLeft + editorStyles.canvas.paddingRight);
 
-  // Build a map of blockIndex -> documentY for each unique block in highlights
-  const blockYMap = new Map<number, number>();
+  // Build a map of blockId -> documentY for each unique block in highlights
+  const blockYMap = new Map<string, number>();
   const visibleBlocks = state.view.visibleBlocks;
 
   let currentY = editorStyles.canvas.paddingTop;
   for (let i = 0; i < visibleBlocks.length; i++) {
     const block = visibleBlocks[i];
-    blockYMap.set(block.originalIndex, currentY);
+    blockYMap.set(block.id, currentY);
     currentY += getBlockHeight(
       state.nodes,
       block,
@@ -663,7 +664,7 @@ function renderScrollbarSearchMarkers(
 
   for (let i = 0; i < highlights.length; i++) {
     const h = highlights[i];
-    const blockDocY = blockYMap.get(h.blockIndex);
+    const blockDocY = blockYMap.get(h.blockId);
     if (blockDocY === undefined) continue;
 
     const ratio = Math.max(0, Math.min(1, blockDocY / documentHeight));
@@ -761,7 +762,7 @@ function calculatePeerMarkers(
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
-  for (const [_peerId, awareness] of remoteAwareness) {
+  for (const [peerId, awareness] of remoteAwareness) {
     if (!awareness.cursor) continue;
 
     const position = awarenessCursorToPosition(
@@ -791,7 +792,10 @@ function calculatePeerMarkers(
 
     // Calculate ratio
     const ratio = Math.max(0, Math.min(1, documentY / documentHeight));
-    markers.push({ color: awareness.user.color, ratio });
+    const color =
+      awareness.user.color ||
+      getColorForPeer(peerId, styles.remoteCursor.palette);
+    markers.push({ color, ratio });
   }
 
   return markers;

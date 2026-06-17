@@ -176,7 +176,7 @@ export function handleMouseDown(
         if (
           wasMenuOpen &&
           previousMenu.type === "overlay" &&
-          previousMenu.blockIndex === atomicBlock.blockIndex
+          previousMenu.blockId === block.id
         ) {
           return { state, ops };
         }
@@ -187,7 +187,7 @@ export function handleMouseDown(
             overlay: {
               type: "overlay",
               key: activation.key,
-              blockIndex: atomicBlock.blockIndex,
+              blockId: block.id,
               x: canvasX,
               y: canvasY,
               data: activation.data,

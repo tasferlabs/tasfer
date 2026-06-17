@@ -35,7 +35,7 @@ class CalloutNode extends AtomicNode {
     return [
       {
         key: "callout-editor",
-        blockIndex: c.blockIndex,
+        blockId: c.block.id,
         rect: { x: c.origin.x, y: c.origin.y, width: c.maxWidth, height: 48 },
       },
     ];

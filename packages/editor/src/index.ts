@@ -357,6 +357,7 @@ export { default as tokenizePage } from "./serlization/tokenizer";
 // cursor/selection into the awareness wire shape a host broadcasts to peers.
 export type { AwarenessState, AwarenessUser } from "./sync/awareness";
 export {
+  DEFAULT_AWARENESS_COLORS,
   getColorForPeer,
   positionToAwarenessCursor,
   selectionToAwarenessSelection,

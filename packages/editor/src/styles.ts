@@ -17,6 +17,7 @@ import type {
   TextStyle,
   ThemeTokens,
 } from "./state-types";
+import { DEFAULT_AWARENESS_COLORS } from "./sync/awareness";
 
 /**
  * English defaults for the cross-node canvas strings (block placeholders). The
@@ -377,6 +378,10 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
     },
     remoteCursor: {
       labelTextColor: t.remoteCursorLabelText,
+      labelFontSize: 10,
+      labelPadding: 2,
+      labelBorderRadius: 2,
+      palette: DEFAULT_AWARENESS_COLORS,
     },
     selection: {
       // Focused variant; `getEditorStyles` swaps in `unfocusedBackgroundColor`

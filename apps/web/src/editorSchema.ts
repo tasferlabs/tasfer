@@ -40,14 +40,14 @@ class CypherMathNode extends MathNode {
     if (
       menu.type !== "overlay" ||
       menu.key !== "math-edit" ||
-      menu.blockIndex !== c.blockIndex
+      menu.blockId !== c.block.id
     ) {
       return [];
     }
     return [
       {
         key: "math-edit",
-        blockIndex: c.blockIndex,
+        blockId: c.block.id,
         rect: { x: menu.x, y: menu.y },
       },
     ];
@@ -74,7 +74,7 @@ class CypherMathMark extends MathMark {
     return [
       {
         key: "inline-math-edit",
-        blockIndex: menu.blockIndex,
+        blockId: menu.blockId,
         rect: { x: menu.x, y: menu.y },
         data: menu.data,
       },
@@ -119,7 +119,7 @@ class CypherImageNode extends ImageNode {
     const menuOpen =
       menu.type === "overlay" &&
       menu.key === "image-upload" &&
-      menu.blockIndex === c.blockIndex;
+      menu.blockId === c.block.id;
 
     // Upload/edit popover (drawer on mobile) when the menu targets this block.
     if (menuOpen) {
@@ -131,7 +131,7 @@ class CypherImageNode extends ImageNode {
         )?.uploadStatus ?? "idle";
       result.push({
         key: "image-upload",
-        blockIndex: c.blockIndex,
+        blockId: c.block.id,
         rect: { x: menu.x, y: menu.y },
         data: { uploadStatus },
       });
@@ -144,7 +144,7 @@ class CypherImageNode extends ImageNode {
     if (block.type === "image" && block.url && (hovered || menuOpen)) {
       result.push({
         key: "image-hover",
-        blockIndex: c.blockIndex,
+        blockId: c.block.id,
         rect: this.displayBox(c),
       });
     }
@@ -163,11 +163,11 @@ class CypherImageNode extends ImageNode {
  */
 export function openImageUploadMenu(
   editor: Editor,
-  blockIndex: number,
+  blockId: string,
   x: number,
   y: number,
 ): void {
-  editor.openOverlay({ key: "image-upload", blockIndex, x, y });
+  editor.openOverlay({ key: "image-upload", blockId, x, y });
 }
 
 /**
@@ -181,10 +181,12 @@ class CypherLinkMark extends LinkMark {
   override overlays(c: MarkOverlayCtx): readonly NodeOverlay[] {
     const { linkHover } = c.state.ui;
     if (linkHover) {
+      const blockId =
+        c.state.document.page.blocks[linkHover.position.blockIndex]?.id ?? "";
       return [
         {
           key: "link-tooltip",
-          blockIndex: linkHover.position.blockIndex,
+          blockId,
           rect: { x: linkHover.x, y: linkHover.y },
           data: {
             url: linkHover.url,
@@ -200,7 +202,7 @@ class CypherLinkMark extends LinkMark {
       return [
         {
           key: "link-edit",
-          blockIndex: menu.blockIndex,
+          blockId: menu.blockId,
           rect: { x: menu.x, y: menu.y },
           data: menu.data,
         },
@@ -213,7 +215,7 @@ class CypherLinkMark extends LinkMark {
 /** Host payload carried by the `"link-edit"` overlay (the engine treats it as
  * opaque `data`; the opener writes it and the React popover reads it). */
 export interface LinkEditOverlayData {
-  blockIndex: number;
+  blockId: string;
   startIndex: number;
   endIndex: number;
   url: string;
@@ -232,13 +234,13 @@ export function openLinkEditMenu(
   editor: Editor,
   args: LinkEditOverlayData & { x: number; y: number },
 ): void {
-  const { x, y, blockIndex, ...data } = args;
+  const { x, y, blockId, ...data } = args;
   editor.openOverlay({
     key: "link-edit",
-    blockIndex,
+    blockId,
     x,
     y,
-    data: { blockIndex, ...data },
+    data: { blockId, ...data },
   });
 }
 

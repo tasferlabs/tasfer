@@ -444,7 +444,7 @@ export interface EditorApi {
    */
   openOverlay: (overlay: {
     key: string;
-    blockIndex: number;
+    blockId: string;
     x: number;
     y: number;
     data?: unknown;
@@ -458,9 +458,11 @@ export interface EditorApi {
    */
   setNodeViewState: (blockId: string, data: unknown | null) => void;
   /** Close the inline-math edit popover and move the caret past the chip in the
-   * given visual direction. Used when the user arrows out of the popover input. */
+   * given visual direction. Used when the user arrows out of the popover input.
+   * The block is addressed by stable `blockId` (resolved to an index internally),
+   * matching the document-mutating ChangeApi. */
   exitInlineMath: (
-    blockIndex: number,
+    blockId: string,
     startIndex: number,
     endIndex: number,
     direction: "left" | "right",
@@ -505,26 +507,29 @@ export interface EditorApi {
   setRemoteAwareness: (peerId: string, state: AwarenessState | null) => void;
   /** Get all remote awareness states */
   getRemoteAwareness: () => Map<string, AwarenessState>;
-  /** Set callback for when an image file is pasted from clipboard */
+  /** Set callback for when an image file is pasted from clipboard. The freshly
+   * inserted image block is identified by stable `blockId` (not a positional
+   * index) so the host's async upload resolves the right block even if remote
+   * edits shift indices while the upload is in flight. */
   onImagePaste: (
-    callback: ((file: File, blockIndex: number) => void) | null,
+    callback: ((file: File, blockId: string) => void) | null,
   ) => void;
   /** Set callback for scroll position changes */
   onScroll: (callback: ((scrollY: number) => void) | null) => void;
   /** Get current scroll position */
   getScrollY: () => number;
-  /** Set search highlights for find-in-document */
+  /** Set search highlights for find-in-document. Blocks are addressed by stable
+   * `blockId` (resolved to indices at paint time) so highlights stay correct
+   * across concurrent remote edits between search and paint. */
   setSearchHighlights: (
-    highlights: { blockIndex: number; startIndex: number; endIndex: number }[],
+    highlights: { blockId: string; startIndex: number; endIndex: number }[],
     activeIndex: number,
   ) => void;
   /** Clear all search highlights */
   clearSearchHighlights: () => void;
-  /** Scroll viewport to make a position visible */
-  scrollToPosition: (position: {
-    blockIndex: number;
-    textIndex: number;
-  }) => void;
+  /** Scroll viewport to make a position visible. The block is addressed by
+   * stable `blockId` (resolved to an index internally). */
+  scrollToPosition: (position: { blockId: string; textIndex: number }) => void;
 }
 
 type AwarenessBroadcastFn = (state: AwarenessState) => void;
@@ -634,9 +639,8 @@ export class Editor implements EditorApi {
   private lastSelectionSig: string | null = null;
 
   // Callback for when an image file is pasted (set by external code to handle async upload)
-  private onImagePasteCallback:
-    | ((file: File, blockIndex: number) => void)
-    | null = null;
+  private onImagePasteCallback: ((file: File, blockId: string) => void) | null =
+    null;
 
   // Callback for scroll position changes
   private onScrollCallback: ((scrollY: number) => void) | null = null;
@@ -1101,8 +1105,11 @@ export class Editor implements EditorApi {
       ) {
         const file = this.pendingClipboardData.imageFile;
         const blockIndex = handleEventsResult.pastedImageBlockIndex;
+        // Resolve to a stable id now (index is valid at this tick) so the host's
+        // async upload addresses the right block even if it shifts meanwhile.
+        const pastedBlock = this._state.document.page.blocks[blockIndex];
         // Call async — don't block the render loop
-        this.onImagePasteCallback(file, blockIndex);
+        if (pastedBlock) this.onImagePasteCallback(file, pastedBlock.id);
       }
 
       // Clear clipboard data after it's been used
@@ -2879,7 +2886,7 @@ export class Editor implements EditorApi {
 
   openOverlay = (overlay: {
     key: string;
-    blockIndex: number;
+    blockId: string;
     x: number;
     y: number;
     data?: unknown;
@@ -2981,11 +2988,15 @@ export class Editor implements EditorApi {
     };
 
   exitInlineMath = (
-    blockIndex: number,
+    blockId: string,
     startIndex: number,
     endIndex: number,
     direction: "left" | "right",
   ): void => {
+    const blockIndex = this._state.document.page.blocks.findIndex(
+      (b) => b.id === blockId,
+    );
+    if (blockIndex === -1) return;
     this._state = closeActiveMenu(this._state);
     // Clear the edit highlight set when the popover opened.
     if (this._state.ui.inlineMathHover) {
@@ -3296,7 +3307,7 @@ export class Editor implements EditorApi {
     collectOverlays(this._state, this.viewport, getEditorStyles(this._state));
 
   onImagePaste = (
-    callback: ((file: File, blockIndex: number) => void) | null,
+    callback: ((file: File, blockId: string) => void) | null,
   ): void => {
     this.onImagePasteCallback = callback;
   };
@@ -3309,7 +3320,7 @@ export class Editor implements EditorApi {
 
   setSearchHighlights = (
     highlights: {
-      blockIndex: number;
+      blockId: string;
       startIndex: number;
       endIndex: number;
     }[],
@@ -3331,11 +3342,15 @@ export class Editor implements EditorApi {
   };
 
   scrollToPosition = (position: {
-    blockIndex: number;
+    blockId: string;
     textIndex: number;
   }): void => {
+    const blockIndex = this._state.document.page.blocks.findIndex(
+      (b) => b.id === position.blockId,
+    );
+    if (blockIndex === -1) return;
     const newScrollY = scrollToMakeCursorVisible(
-      position,
+      { blockIndex, textIndex: position.textIndex },
       this._state,
       this.viewport,
     );

@@ -213,9 +213,15 @@ export type ActiveMenu =
       // component (the node/mark that declares it in `overlays()` reads this back
       // by key), `data` is an opaque host payload. This is the generic slot every
       // host overlay flows through — the engine never names a specific overlay.
+      //
+      // The anchored block is addressed by stable `blockId`, not a positional
+      // index: the menu is stored across ticks (opened on one tap/frame, read
+      // back by the overlay producer and compared on a later one), so a
+      // positional index could be invalidated by a concurrent remote edit in
+      // between. Consumers resolve the id to the current index when they need one.
       type: "overlay";
       key: string;
-      blockIndex: number;
+      blockId: string;
       x: number;
       y: number;
       data?: unknown;
@@ -281,9 +287,14 @@ export interface CursorDragState {
  * global) so multiple editors on one page don't clobber each other's find
  * results, and is deliberately NOT part of DocumentState (never enters
  * undo/redo).
+ *
+ * The block is addressed by stable `blockId`, not a positional index: the host
+ * computes matches in one tick but they're consumed at paint time (potentially
+ * many frames later), during which a concurrent remote edit could shift block
+ * indices. The id is resolved to the current index at paint time.
  */
 export interface SearchHighlight {
-  readonly blockIndex: number;
+  readonly blockId: string;
   readonly startIndex: number;
   readonly endIndex: number;
 }
@@ -398,8 +409,14 @@ export type NodeStringsMap = ReadonlyMap<
 export interface NodeOverlay {
   /** Stable key the host's overlay registry maps to a component. */
   readonly key: string;
-  /** The block this overlay belongs to (original page index). */
-  readonly blockIndex: number;
+  /**
+   * The block this overlay belongs to, addressed by stable `blockId`. The host
+   * overlay component captures this and acts on it asynchronously (after an
+   * upload resolves, after the user finishes typing in a popover), so it must
+   * survive concurrent remote edits that shift block indices — the component
+   * resolves the id to the current block at apply time.
+   */
+  readonly blockId: string;
   /**
    * Where to float the UI, in the same container/viewport coordinate space the
    * host positions its portals in (origin at the canvas top-left, current
@@ -630,8 +647,21 @@ export interface RenderedLine {
 }
 
 // Style Configuration
+/** Styling for remote peers' presence (caret flag label + color palette). */
 export interface RemoteCursorStyles {
+  /** Label text on a remote peer's cursor flag. */
   readonly labelTextColor: string;
+  /** Font size (px) of the name label drawn above a remote caret. */
+  readonly labelFontSize: number;
+  /** Inner padding (px) around the name-label text. */
+  readonly labelPadding: number;
+  /** Corner radius (px) of the name-label background. */
+  readonly labelBorderRadius: number;
+  /**
+   * Color palette used to assign a remote peer a color when its awareness state
+   * carries no explicit `color`. Defaults to the built-in awareness palette.
+   */
+  readonly palette: readonly string[];
 }
 
 export interface EditorStyles {

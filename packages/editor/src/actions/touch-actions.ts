@@ -139,19 +139,19 @@ export const TAP_CLEAR_VISUAL_BLOCK_SELECTION = stateAction(
 /**
  * Open a host overlay for an image node's activation (e.g. a placeholder image's
  * upload popover). The handler asks the node whether activation opens an overlay
- * and passes the resolved `key`/`data`, the block index, and the tap point.
+ * and passes the resolved `key`/`data`, the block id, and the tap point.
  * Pure, no ops.
  */
 export const OPEN_NODE_OVERLAY = stateAction<{
   key: string;
-  blockIndex: number;
+  blockId: string;
   point: { x: number; y: number };
   data: unknown;
-}>("open-node-overlay", (state, { key, blockIndex, point, data }) => ({
+}>("open-node-overlay", (state, { key, blockId, point, data }) => ({
   state: setActiveMenu(state, {
     type: "overlay",
     key,
-    blockIndex,
+    blockId,
     x: point.x,
     y: point.y,
     data,

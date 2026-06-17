@@ -177,6 +177,7 @@ export type {
 export {
   awarenessCursorToPosition,
   awarenessSelectionToSelection,
+  DEFAULT_AWARENESS_COLORS,
   getColorForPeer,
   positionToAwarenessCursor,
   selectionToAwarenessSelection,

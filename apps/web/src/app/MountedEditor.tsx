@@ -182,7 +182,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
   portalContainer,
   refocus,
 }) => {
-  const { blockIndex } = overlay;
+  const { blockId } = overlay;
   const uploadStatus =
     (overlay.data as { uploadStatus?: "idle" | "uploading" | "complete" | "error" })
       ?.uploadStatus ?? "idle";
@@ -201,7 +201,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
       y={containerRect.top + overlay.rect.y}
       uploadStatus={uploadStatus}
       onUpload={async (file) => {
-        const block = editor.getState()?.document.page.blocks[blockIndex];
+        const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
         if (!block || block.deleted || block.type !== "image") return;
 
         // Clear any failed-cache entry for the URL we're replacing.
@@ -228,7 +228,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
         }
       }}
       onUrlSubmit={(url) => {
-        const block = editor.getState()?.document.page.blocks[blockIndex];
+        const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
         if (!block || block.deleted || block.type !== "image") return;
 
         // Clear failed cache for this URL to allow retry
@@ -240,7 +240,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
       onDelete={() => {
         // "Remove Image" deletes the block (was a no-op on the desktop edit
         // path before this migration; the mobile drawer already deleted).
-        const block = editor.getState()?.document.page.blocks[blockIndex];
+        const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
         if (block && !block.deleted)
           editor.change((c) => c.deleteNode(block.id));
         close();
@@ -265,9 +265,9 @@ const MathEditOverlay: ComponentType<NodeOverlayProps> = ({
   editor,
   portalContainer,
 }) => {
-  const { blockIndex } = overlay;
+  const { blockId } = overlay;
   const containerRect = portalContainer.getBoundingClientRect();
-  const block = editor.getState()?.document.page.blocks[blockIndex];
+  const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
   const mathBlock = block?.type === "math" ? block : undefined;
 
   return (
@@ -277,14 +277,14 @@ const MathEditOverlay: ComponentType<NodeOverlayProps> = ({
       initialLatex={mathBlock?.latex ?? ""}
       displayMode={mathBlock?.displayMode ?? true}
       onSubmit={(latex, displayMode) => {
-        const b = editor.getState()?.document.page.blocks[blockIndex];
+        const b = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
         if (b && !b.deleted && b.type === "math") {
           editor.change((c) => c.setNodeAttrs(b.id, { latex, displayMode }));
         }
         editor.closeActiveMenu();
       }}
       onDelete={() => {
-        const b = editor.getState()?.document.page.blocks[blockIndex];
+        const b = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
         if (b && !b.deleted) editor.change((c) => c.deleteNode(b.id));
         editor.closeActiveMenu();
       }}
@@ -309,7 +309,7 @@ const InlineMathEditOverlay: ComponentType<NodeOverlayProps> = ({
   portalContainer,
   refocus,
 }) => {
-  const { blockIndex } = overlay;
+  const { blockId } = overlay;
   const { startIndex, endIndex, latex } = overlay.data as {
     startIndex: number;
     endIndex: number;
@@ -325,7 +325,7 @@ const InlineMathEditOverlay: ComponentType<NodeOverlayProps> = ({
       displayMode={false}
       inline
       onSubmit={(nextLatex) => {
-        const block = editor.getState()?.document.page.blocks[blockIndex];
+        const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
         if (block && !block.deleted) {
           editor.change((c) =>
             c.replaceInlineRange(block.id, startIndex, endIndex, nextLatex, {
@@ -336,7 +336,7 @@ const InlineMathEditOverlay: ComponentType<NodeOverlayProps> = ({
         editor.closeActiveMenu();
       }}
       onDelete={() => {
-        const block = editor.getState()?.document.page.blocks[blockIndex];
+        const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
         if (block && !block.deleted) {
           editor.change((c) =>
             c.deleteInlineRange(block.id, startIndex, endIndex),
@@ -346,7 +346,7 @@ const InlineMathEditOverlay: ComponentType<NodeOverlayProps> = ({
       }}
       onClose={() => editor.closeActiveMenu()}
       onExitArrow={(direction) => {
-        editor.exitInlineMath(blockIndex, startIndex, endIndex, direction);
+        editor.exitInlineMath(blockId, startIndex, endIndex, direction);
         refocus();
       }}
       collisionBoundary={portalContainer}
@@ -367,8 +367,8 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
   portalContainer,
 }) => {
   const { t } = useTranslation();
-  const { blockIndex } = overlay;
-  const block = editor.getState()?.document.page.blocks[blockIndex];
+  const { blockId } = overlay;
+  const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
   if (block?.type !== "image" || !block.url) return null;
   const { url, alt } = block;
 
@@ -405,7 +405,7 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
             const containerRect = portalContainer.getBoundingClientRect();
             openImageUploadMenu(
               editor,
-              blockIndex,
+              blockId,
               buttonRect.left - containerRect.left,
               buttonRect.bottom - containerRect.top,
             );
@@ -430,7 +430,7 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
   editor,
   portalContainer,
 }) => {
-  const { blockIndex } = overlay;
+  const { blockId } = overlay;
   const { url, text, startIndex, endIndex } = overlay.data as {
     url: string;
     text: string;
@@ -463,7 +463,7 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
         onEdit={() => {
           editor.clearSelection();
           openLinkEditMenu(editor, {
-            blockIndex,
+            blockId,
             startIndex,
             endIndex,
             url,
@@ -490,7 +490,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
   refocus,
 }) => {
   const isMobile = useResponsive("(max-width: 768px)");
-  const { blockIndex } = overlay;
+  const { blockId } = overlay;
   const { url, text, selectedText, startIndex, endIndex } =
     overlay.data as LinkEditOverlayData;
   const containerRect = portalContainer.getBoundingClientRect();
@@ -507,7 +507,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
       // newText is required (an empty range/text would shift indices); the
       // caller's UI guards against empty input.
       if (!newText) return;
-      const block = editor.getState()?.document.page.blocks[blockIndex];
+      const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
       if (!block) return;
       const link = { type: "link", attrs: { url: newUrl } };
       // The link's existing text is `text` (edit) or the selected text (create).
@@ -522,7 +522,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
     });
   const clearLink = () =>
     editor.change((c) => {
-      const block = editor.getState()?.document.page.blocks[blockIndex];
+      const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
       if (!block) return;
       c.setMarkRange(block.id, startIndex, endIndex, { type: "link" }, false);
     });
@@ -581,8 +581,8 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   editor,
 }) => {
   const { t } = useTranslation();
-  const { blockIndex } = overlay;
-  const block = editor.getState()?.document.page.blocks[blockIndex];
+  const { blockId } = overlay;
+  const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
   if (block?.type !== "code") return null;
 
   const currentLabel = codeLanguageLabel(block.language);
@@ -590,7 +590,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
 
   const handleChange = (label: string | null) => {
     const language = CODE_LANGUAGES.find((l) => l.label === label)?.id ?? "";
-    const b = editor.getState()?.document.page.blocks[blockIndex];
+    const b = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
     if (b && !b.deleted && b.type === "code") {
       editor.change((c) => c.setNodeAttrs(b.id, { language }));
     }
@@ -647,7 +647,7 @@ function nodeOverlaysEqual(a: NodeOverlay[], b: NodeOverlay[]): boolean {
     const y = b[i];
     if (
       x.key !== y.key ||
-      x.blockIndex !== y.blockIndex ||
+      x.blockId !== y.blockId ||
       x.rect.x !== y.rect.x ||
       x.rect.y !== y.rect.y ||
       x.rect.width !== y.rect.width ||
@@ -875,7 +875,7 @@ function EditorSurface({
   findBarOpenRef.current = findBarOpen;
   const [findSearchText, setFindSearchText] = useState("");
   const [findMatches, setFindMatches] = useState<
-    { blockIndex: number; startIndex: number; endIndex: number }[]
+    { blockId: string; startIndex: number; endIndex: number }[]
   >([]);
   const [findActiveIndex, setFindActiveIndex] = useState(0);
 
@@ -1479,12 +1479,13 @@ function EditorSurface({
     }, localUserRef.current);
 
     // Handle pasted image files (e.g. screenshots) — upload and update block URL
-    mounted.editor.onImagePaste(async (file, blockIndex) => {
+    mounted.editor.onImagePaste(async (file, blockId) => {
       try {
         const imageData = await uploadImage(file);
-        // Resolve the block by id (index may have shifted during the upload).
-        const block =
-          mounted.editor.getState()?.document.page.blocks[blockIndex];
+        // Resolve the block by id — the index may have shifted during the upload.
+        const block = mounted.editor
+          .getState()
+          ?.document.page.blocks.find((b) => b.id === blockId);
         if (!block || block.deleted || block.type !== "image") return;
         // Revoke the temporary blob URL we were displaying.
         if (block.url?.startsWith("blob:")) {
@@ -1525,7 +1526,7 @@ function EditorSurface({
           const { anchor } = state.document.selection;
           const block = state.document.page.blocks[anchor.blockIndex];
           if (block && block.type === "image") {
-            openImageUploadMenu(mounted.editor, anchor.blockIndex, menuX, menuY);
+            openImageUploadMenu(mounted.editor, block.id, menuX, menuY);
             return true;
           }
         }
@@ -1541,8 +1542,13 @@ function EditorSurface({
 
           if (linkData) {
             // Editing existing link
+            const linkBlockId =
+              state.document.page.blocks[
+                state.document.cursor.position.blockIndex
+              ]?.id;
+            if (!linkBlockId) return false;
             openLinkEditMenu(mounted.editor, {
-              blockIndex: state.document.cursor.position.blockIndex,
+              blockId: linkBlockId,
               startIndex: linkData.startIndex,
               endIndex: linkData.endIndex,
               url: linkData.url,
@@ -1568,7 +1574,7 @@ function EditorSurface({
                 );
 
                 openLinkEditMenu(mounted.editor, {
-                  blockIndex: start.blockIndex,
+                  blockId: block.id,
                   startIndex: start.textIndex,
                   endIndex: end.textIndex,
                   url: "",
@@ -1965,14 +1971,13 @@ function EditorSurface({
     if (!state) return;
 
     const matches: {
-      blockIndex: number;
+      blockId: string;
       startIndex: number;
       endIndex: number;
     }[] = [];
     const lowerSearch = text.toLowerCase();
 
-    for (let i = 0; i < state.document.page.blocks.length; i++) {
-      const block = state.document.page.blocks[i];
+    for (const block of state.document.page.blocks) {
       if (block.deleted) continue;
       const content = getBlockTextContent(block).toLowerCase();
       if (!content) continue;
@@ -1982,7 +1987,7 @@ function EditorSurface({
         const idx = content.indexOf(lowerSearch, pos);
         if (idx === -1) break;
         matches.push({
-          blockIndex: i,
+          blockId: block.id,
           startIndex: idx,
           endIndex: idx + text.length,
         });
@@ -2000,7 +2005,7 @@ function EditorSurface({
     // Scroll to first match
     if (matches.length > 0) {
       mountedRef.current.editor.scrollToPosition({
-        blockIndex: matches[0].blockIndex,
+        blockId: matches[0].blockId,
         textIndex: matches[0].startIndex,
       });
     }
@@ -2021,27 +2026,36 @@ function EditorSurface({
       mountedRef.current.editor.setSearchHighlights(findMatches, index);
       const match = findMatches[index];
       if (match) {
-        mountedRef.current.editor.restoreCursorAndSelection(
-          {
-            position: {
-              blockIndex: match.blockIndex,
-              textIndex: match.endIndex,
+        // restoreCursorAndSelection works in positional coordinates, so resolve
+        // the match's stable block id to a current index at navigation time.
+        const blockIndex =
+          mountedRef.current.editor
+            .getState()
+            ?.document.page.blocks.findIndex((b) => b.id === match.blockId) ??
+          -1;
+        if (blockIndex !== -1) {
+          mountedRef.current.editor.restoreCursorAndSelection(
+            {
+              position: {
+                blockIndex,
+                textIndex: match.endIndex,
+              },
+              lastUpdate: Date.now(),
             },
-            lastUpdate: Date.now(),
-          },
-          {
-            anchor: {
-              blockIndex: match.blockIndex,
-              textIndex: match.startIndex,
+            {
+              anchor: {
+                blockIndex,
+                textIndex: match.startIndex,
+              },
+              focus: { blockIndex, textIndex: match.endIndex },
+              isForward: true,
+              isCollapsed: false,
+              lastUpdate: Date.now(),
             },
-            focus: { blockIndex: match.blockIndex, textIndex: match.endIndex },
-            isForward: true,
-            isCollapsed: false,
-            lastUpdate: Date.now(),
-          },
-        );
+          );
+        }
         mountedRef.current.editor.scrollToPosition({
-          blockIndex: match.blockIndex,
+          blockId: match.blockId,
           textIndex: match.startIndex,
         });
       }
@@ -2291,7 +2305,7 @@ function EditorSurface({
               // Open the link create menu — rendered as a drawer on mobile by
               // the CypherLinkMark "link-edit" overlay.
               openLinkEditMenu(mountedEditor, {
-                blockIndex: start.blockIndex,
+                blockId: block.id,
                 startIndex: start.textIndex,
                 endIndex: end.textIndex,
                 url: "",
@@ -2404,7 +2418,7 @@ function EditorSurface({
           if (!Component) return null;
           return createPortal(
             <div
-              key={`${overlay.key}:${overlay.blockIndex}`}
+              key={`${overlay.key}:${overlay.blockId}`}
               style={{
                 position: "absolute",
                 left: `${overlay.rect.x}px`,

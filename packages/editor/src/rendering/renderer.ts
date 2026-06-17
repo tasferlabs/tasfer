@@ -16,7 +16,7 @@ import type {
 import { isTouchDevice } from "../state-utils";
 import { getEditorStyles } from "../styles";
 import type { AwarenessState } from "../sync/awareness";
-import { awarenessCursorToPosition } from "../sync/awareness";
+import { awarenessCursorToPosition, getColorForPeer } from "../sync/awareness";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   getCharIdFromRun,
@@ -542,7 +542,9 @@ function renderOutOfViewIndicators(
     });
 
     // Draw chevron pointing up
-    ctx.fillStyle = peer.awareness.user.color;
+    ctx.fillStyle =
+      peer.awareness.user.color ||
+      getColorForPeer(peer.awareness.user.peerId, styles.remoteCursor.palette);
     ctx.beginPath();
     ctx.moveTo(x + pillWidth / 2, y - chevronSize);
     ctx.lineTo(x + pillWidth / 2 - chevronSize, y);
@@ -586,7 +588,9 @@ function renderOutOfViewIndicators(
     });
 
     // Draw pill background
-    ctx.fillStyle = peer.awareness.user.color;
+    ctx.fillStyle =
+      peer.awareness.user.color ||
+      getColorForPeer(peer.awareness.user.peerId, styles.remoteCursor.palette);
     ctx.beginPath();
     ctx.roundRect(x, y, pillWidth, pillHeight, pillHeight / 2);
     ctx.fill();
@@ -621,7 +625,7 @@ function renderRemoteCursors(
 ) {
   const outOfViewPeers: OutOfViewPeer[] = [];
 
-  for (const [_peerId, awareness] of remoteAwareness) {
+  for (const [peerId, awareness] of remoteAwareness) {
     // Skip if no cursor
     if (!awareness.cursor) continue;
 
@@ -669,8 +673,12 @@ function renderRemoteCursors(
       continue;
     }
 
-    // Draw the remote cursor with the peer's color
-    ctx.fillStyle = awareness.user.color;
+    // Draw the remote cursor with the peer's color (falling back to the themed
+    // palette when the peer supplied none).
+    const peerColor =
+      awareness.user.color ||
+      getColorForPeer(peerId, styles.remoteCursor.palette);
+    ctx.fillStyle = peerColor;
     ctx.fillRect(
       cursorPos.x,
       cursorPos.y,
@@ -680,8 +688,8 @@ function renderRemoteCursors(
 
     // Optionally draw a name label above the cursor
     if (awareness.user.name) {
-      const labelPadding = 2;
-      const labelFontSize = 10;
+      const labelPadding = styles.remoteCursor.labelPadding;
+      const labelFontSize = styles.remoteCursor.labelFontSize;
       ctx.font = `${labelFontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
       const labelWidth =
         ctx.measureText(awareness.user.name).width + labelPadding * 2;
@@ -710,9 +718,15 @@ function renderRemoteCursors(
       }
 
       // Draw label background
-      ctx.fillStyle = awareness.user.color;
+      ctx.fillStyle = peerColor;
       ctx.beginPath();
-      ctx.roundRect(labelX, labelY, labelWidth, labelHeight, 2);
+      ctx.roundRect(
+        labelX,
+        labelY,
+        labelWidth,
+        labelHeight,
+        styles.remoteCursor.labelBorderRadius,
+      );
       ctx.fill();
 
       // Draw label text with correct direction

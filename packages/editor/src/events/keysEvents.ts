@@ -106,11 +106,13 @@ function maybeOpenInlineMathOnArrowCross(
   // The inline-math edit overlay is host-defined; the `math` mark owns its key.
   const key = newState.marks.get("math")?.editOverlayKey;
   if (!key) return newState;
-  const blockIndex = newCursor.position.blockIndex;
+  const blockId =
+    newState.document.page.blocks[newCursor.position.blockIndex]?.id;
+  if (!blockId) return newState;
   const withOverlay = setActiveMenu(newState, {
     type: "overlay",
     key,
-    blockIndex,
+    blockId,
     x: coords.x,
     y: coords.y - viewport.scrollY,
     data: {
@@ -126,7 +128,7 @@ function maybeOpenInlineMathOnArrowCross(
     ui: {
       ...withOverlay.ui,
       inlineMathHover: {
-        blockIndex,
+        blockIndex: newCursor.position.blockIndex,
         startIndex: span.startIndex,
         endIndex: span.endIndex,
       },

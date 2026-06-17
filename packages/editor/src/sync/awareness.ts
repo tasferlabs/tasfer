@@ -53,8 +53,13 @@ export interface AwarenessState {
 // Color Generation
 // =============================================================================
 
-/** Predefined colors for remote users (all unique) */
-const AWARENESS_COLORS = [
+/**
+ * Default palette for remote-user colors (all unique). A host re-themes this per
+ * instance via `theme.styles.remoteCursor.palette` (which the renderer uses as a
+ * fallback when a peer supplies no `color`) or by passing its own list to
+ * {@link getColorForPeer}. Exported so a host can extend rather than replace it.
+ */
+export const DEFAULT_AWARENESS_COLORS: readonly string[] = [
   "#ff5789", // pink
   "#ff7301", // orange
   "#0365d6", // blue
@@ -80,12 +85,17 @@ function hashString(str: string): number {
 }
 
 /**
- * Get a color for a given key (user name or peer ID).
+ * Get a color for a given key (user name or peer ID) from `palette`.
  * Uses deterministic hashing so the same key always gets the same color.
+ * Pass a host palette to override the built-in {@link DEFAULT_AWARENESS_COLORS}.
  */
-export function getColorForPeer(key: string): string {
-  const index = hashString(key) % AWARENESS_COLORS.length;
-  return AWARENESS_COLORS[index];
+export function getColorForPeer(
+  key: string,
+  palette: readonly string[] = DEFAULT_AWARENESS_COLORS,
+): string {
+  const colors = palette.length > 0 ? palette : DEFAULT_AWARENESS_COLORS;
+  const index = hashString(key) % colors.length;
+  return colors[index];
 }
 
 // =============================================================================

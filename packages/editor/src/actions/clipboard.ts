@@ -1,6 +1,7 @@
 import { deleteSelectedText, getSelectionRange } from "../actions/actions";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
+import { serializeToHTMLFragment } from "../serlization/htmlSerializer";
 import type {
   Block,
   Char,
@@ -10,7 +11,6 @@ import type {
   Page,
 } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
-import { serializeToHTMLFragment } from "../serlization/htmlSerializer";
 import { serializeToMarkdown } from "../serlization/serializer";
 import { serializeToText } from "../serlization/textSerializer";
 import type {
@@ -43,7 +43,7 @@ import {
   insertCharsAtPosition,
   markCharsInRange,
 } from "../sync/crdt-utils";
-import { generateBlockId } from "../sync/id";
+import { createIdGenerator, generateBlockId } from "../sync/id";
 import { applyOps } from "../sync/reducer";
 import { createMarkdownContent } from "defuddle/full";
 
@@ -433,7 +433,8 @@ function blocksToMarkdown(blocks: Block[]): string {
  * the rendered HTML through defuddle — which is lossy for image sizing, block
  * math, list nesting, etc. base64 keeps the payload free of any `-->`.
  */
-const CYPHER_CLIPBOARD_MARKER_RE = /^\s*<!--cypher-clipboard:([A-Za-z0-9+/=]+)-->/;
+const CYPHER_CLIPBOARD_MARKER_RE =
+  /^\s*<!--cypher-clipboard:([A-Za-z0-9+/=]+)-->/;
 
 function encodeClipboardMarkdown(markdown: string): string {
   const utf8 = new TextEncoder().encode(markdown);
@@ -555,17 +556,6 @@ export async function cutSelectionToClipboard(
 }
 
 /**
- * Simple ID generator for clipboard parsing (temporary IDs that will be replaced).
- * The counter lives in the closure so each parse gets its own sequence — these
- * IDs only need to be unique within a single parse, so there's no need for
- * (shared, multi-instance-unsafe) module-level state.
- */
-function makeClipboardIdGen(): () => string {
-  let counter = 0;
-  return () => `clipboard:${counter++}`;
-}
-
-/**
  * Convert text segments with formatting to chars and format spans
  */
 function segmentsToCharsAndFormats(
@@ -573,7 +563,7 @@ function segmentsToCharsAndFormats(
 ): { chars: Char[]; formats: MarkSpan[] } {
   const chars: Char[] = [];
   const formats: MarkSpan[] = [];
-  const idGen = makeClipboardIdGen();
+  const idGen = createIdGenerator("clipboard");
   const clock = { counter: 0, peerId: "clipboard" };
 
   for (const segment of segments) {
@@ -663,7 +653,10 @@ export function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
   const marker = html.match(CYPHER_CLIPBOARD_MARKER_RE);
   if (marker) {
     try {
-      return parsePlainTextToBlocks(decodeClipboardMarkdown(marker[1]), binding);
+      return parsePlainTextToBlocks(
+        decodeClipboardMarkdown(marker[1]),
+        binding,
+      );
     } catch (error) {
       console.error("Failed to decode Cypher clipboard payload:", error);
       // Fall through to generic HTML handling.

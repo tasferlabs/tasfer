@@ -266,7 +266,7 @@ export class CodeNode extends TextNode {
     return [
       {
         key: "code-language",
-        blockIndex: c.blockIndex,
+        blockId: c.block.id,
         // Point anchor at the box's top-right corner; the host chip positions
         // itself inward from here (it needs no width/height box).
         rect: { x: c.origin.x + c.maxWidth, y: c.origin.y },

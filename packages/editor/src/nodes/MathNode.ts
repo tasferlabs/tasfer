@@ -454,11 +454,14 @@ export class MathNode extends AtomicNode<MathBlock> {
       : undefined;
     if (!inlineMath || !key) return null;
 
+    const blockId = state.document.page.blocks[position.blockIndex]?.id;
+    if (!blockId) return null;
+
     // Don't reopen if we just closed the popover for this same block.
     if (
       previousMenu.type === "overlay" &&
       previousMenu.key === key &&
-      previousMenu.blockIndex === position.blockIndex
+      previousMenu.blockId === blockId
     ) {
       return { state, ops: [] };
     }
@@ -468,7 +471,7 @@ export class MathNode extends AtomicNode<MathBlock> {
         overlay: {
           type: "overlay",
           key,
-          blockIndex: position.blockIndex,
+          blockId,
           x: canvasX,
           y: canvasY,
           data: {

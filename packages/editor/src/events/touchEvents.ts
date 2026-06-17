@@ -891,9 +891,9 @@ export function handleTouchEnd(
 
     // Track if a host overlay was open (used to prevent reopening on same tap)
     const wasOverlayOpen = state.ui.activeMenu.type === "overlay";
-    const wasOverlayBlockIndex =
+    const wasOverlayBlockId =
       state.ui.activeMenu.type === "overlay"
-        ? state.ui.activeMenu.blockIndex
+        ? state.ui.activeMenu.blockId
         : undefined;
 
     // Check if tapping in top padding area
@@ -1090,10 +1090,7 @@ export function handleTouchEnd(
           if (activation) {
             // If an overlay was already open for this same block, don't reopen it
             // (let it stay closed) — tapping an open popover closes it.
-            if (
-              wasOverlayOpen &&
-              wasOverlayBlockIndex === position.blockIndex
-            ) {
+            if (wasOverlayOpen && wasOverlayBlockId === tappedBlock.id) {
               // Close the popover and keep it closed
               session.touch = null;
               const closedState = state.actionBus.dispatchState(
@@ -1122,7 +1119,7 @@ export function handleTouchEnd(
               state,
               {
                 key: activation.key,
-                blockIndex: position.blockIndex,
+                blockId: tappedBlock.id,
                 point: { x: tapPosition.x, y: tapPosition.y },
                 data: activation.data,
               },

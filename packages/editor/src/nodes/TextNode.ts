@@ -86,7 +86,10 @@ import type {
   TextStyle,
 } from "../state-types";
 import { getTextStyle } from "../styles";
-import { awarenessSelectionToSelection } from "../sync/awareness";
+import {
+  awarenessSelectionToSelection,
+  getColorForPeer,
+} from "../sync/awareness";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   charRunsToChars,
@@ -1370,9 +1373,7 @@ export class TextNode extends Node<TextualBlock> {
     // Search highlights (behind selections).
     const { highlights, activeIndex } = state.ui.search;
     if (highlights.length > 0) {
-      const blockHighlights = highlights.filter(
-        (h) => h.blockIndex === blockIndex,
-      );
+      const blockHighlights = highlights.filter((h) => h.blockId === block.id);
       for (const h of blockHighlights) {
         const isActive = highlights.indexOf(h) === activeIndex;
         const rects = this.selectionRects(
@@ -1407,12 +1408,10 @@ export class TextNode extends Node<TextualBlock> {
         );
         if (!sel || sel.isCollapsed) continue;
         const rects = this.selectionRects(layout, sel, blockIndex, x, y);
-        this.fillRects(
-          ctx,
-          rects,
-          awareness.user.color,
-          styles.selection.remoteOpacity,
-        );
+        const peerColor =
+          awareness.user.color ||
+          getColorForPeer(awareness.user.peerId, styles.remoteCursor.palette);
+        this.fillRects(ctx, rects, peerColor, styles.selection.remoteOpacity);
       }
     }
 
