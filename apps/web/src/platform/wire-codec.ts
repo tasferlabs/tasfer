@@ -22,6 +22,27 @@
  */
 
 // =============================================================================
+// Wire-codec version
+// =============================================================================
+
+/**
+ * Byte-level encoding version of the operations/messages produced by
+ * {@link compressOp}/{@link expandOp} — the op-type shortcodes, charId run
+ * compression, and pageId stripping documented above.
+ *
+ * Bump this ONLY when that encoding changes in a way an older peer cannot
+ * decode (a new/renamed shortcode, a changed {@link CharRange} layout, a new
+ * stripping rule). It is negotiated in the `hello` handshake (see
+ * `Replicator.handleHello` in sync.ts) so a mismatch is caught up front and
+ * surfaced to the host rather than silently corrupting ops on the wire.
+ *
+ * A purely *additive* change that older peers can safely ignore (e.g. a brand
+ * new message type behind protocol-version negotiation) does NOT require a
+ * bump — only changes to how existing ops are byte-encoded do.
+ */
+export const WIRE_VERSION = 1;
+
+// =============================================================================
 // Binary asset framing
 // =============================================================================
 

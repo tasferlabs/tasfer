@@ -322,6 +322,23 @@ export interface PageEvents {
 /** Connection state */
 export type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
 
+/**
+ * Versions a remote peer advertised in its `hello`, with our local values for
+ * comparison. Surfaced via `sync.onPeerVersionMismatch` whenever either number
+ * differs so the host can notify the user. `wireCompatible: false` means the
+ * byte-level op encoding differs — the replicator refuses that peer entirely
+ * (no ops exchanged in either direction); a protocol-only mismatch still syncs.
+ */
+export interface PeerVersionInfo {
+  publicKey: string;
+  remoteProtocolVersion: number;
+  remoteWireVersion: number;
+  localProtocolVersion: number;
+  localWireVersion: number;
+  /** True when the byte-level wire encoding matches (ops are decodable). */
+  wireCompatible: boolean;
+}
+
 // =============================================================================
 // Platform Interface
 // =============================================================================
@@ -486,6 +503,12 @@ export interface Platform {
     getConnectedPeers(): string[];
     /** Subscribe to connected peer list changes */
     onConnectedPeersChange(cb: (peers: string[]) => void): () => void;
+    /**
+     * Subscribe to protocol/wire-version mismatches detected during a peer's
+     * `hello` handshake — used to notify the user (e.g. "a connected device is
+     * on an incompatible version"). Fires once per hello on any mismatch.
+     */
+    onPeerVersionMismatch(cb: (info: PeerVersionInfo) => void): () => void;
   };
 
   // ---------------------------------------------------------------------------

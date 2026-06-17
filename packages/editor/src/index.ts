@@ -113,7 +113,10 @@ export { createEditor } from "./entries/create";
 // persist it via `encodeState()`. Editors without an explicit doc get a
 // private one, exposed as `editor.doc`.
 export type { CreateDocOptions, Doc, DocUpdate } from "./doc";
-export { createDoc } from "./doc";
+export { createDoc, PERSISTED_DOC_VERSION } from "./doc";
+
+// Error types — every editor-thrown error extends `EditorError`; see ./errors.
+export { EditorError, IncompatibleDocVersionError } from "./errors";
 
 // Schema & extensibility — declare custom block types (`defineNode`) and inline
 // marks (`defineMark`), bundle them with `baseSchema.extend(...)`, and pass the

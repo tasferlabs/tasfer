@@ -1,0 +1,29 @@
+---
+title: "Releasing Updates And Compatibility"
+date: "2026-03-25"
+---
+
+Since this project is peer to peer there is no central server to determine and enforce versioning. Thus we have to follow some rules.
+
+There are multiple types we need to account for:
+
+- Stored operations
+- Sqlite database.
+- Websocket transient connection. (On wire)
+
+# Rules for operations
+
+Thus the editor should be tolerant for operations it has not seen, while also preserving the structure of old operations. This means operations should be append only.
+
+- We never reshape or rename.
+- Unknown types stay in the log, since we do not know if they are new or not.
+- Convergence holds only if every peer runs the same merge function. So the function should not change. Gate any semantic change behind a protocol-version bump.
+- The op log is the source of truth. A snapshot is a rebuildable cache and is not the source.
+
+# Sqlite database
+
+- SQLite schema changes per device using the `PRAGMA user_version`, this is a classic migration procedure.
+
+# Wire connection
+
+- Versions are negotiated in the handshake. If there is a mismatch we deny until update.

@@ -21,6 +21,7 @@
  */
 
 import { baseDataSchema } from "./baseDataSchema";
+import { IncompatibleDocVersionError } from "./errors";
 import { type Block, loadPage, type Page } from "./serlization/loadPage";
 import { serializeToMarkdown } from "./serlization/serializer";
 import type {
@@ -72,7 +73,8 @@ export interface CreateDocOptions {
   blocks?: Block[];
   /**
    * Restore a doc persisted with `encodeState()`. Takes precedence over
-   * `markdown`/`blocks`/`ops`.
+   * `markdown`/`blocks`/`ops`. Throws {@link IncompatibleDocVersionError} if
+   * the blob's format version is unreadable by this build — see `createDoc`.
    */
   bytes?: Uint8Array;
   /**
@@ -180,6 +182,18 @@ export interface Doc {
   _ingestLocal(ops: Operation[], origin: unknown): void;
 }
 
+/**
+ * Format version of the `encodeState()`/`createDoc(bytes)` persisted blob.
+ *
+ * Unlike the op log (which is forward-compatible — unknown ops/blocks/marks
+ * are preserved), this top-level envelope is the one piece of data a Doc
+ * *writes locally and owns*, so reading a version it doesn't recognize is the
+ * one place we reject rather than tolerate (see the "Releasing Updates And
+ * Compatibility" note at /docs/internals/compatibility). Bump only if the
+ * envelope's shape changes incompatibly.
+ */
+export const PERSISTED_DOC_VERSION = 1;
+
 /** Persisted wire shape for encodeState()/createDoc(bytes). */
 interface PersistedDocV1 {
   v: 1;
@@ -192,11 +206,18 @@ interface PersistedDocV1 {
 }
 
 function decodePersisted(bytes: Uint8Array): PersistedDocV1 {
-  const parsed = JSON.parse(new TextDecoder().decode(bytes)) as PersistedDocV1;
-  if (parsed.v !== 1) {
-    throw new Error(`Unsupported doc state version: ${String(parsed.v)}`);
+  const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
+  const v =
+    typeof parsed === "object" && parsed !== null
+      ? (parsed as { v?: unknown }).v
+      : undefined;
+  if (v !== PERSISTED_DOC_VERSION) {
+    throw new IncompatibleDocVersionError(
+      typeof v === "number" ? v : undefined,
+      PERSISTED_DOC_VERSION,
+    );
   }
-  return parsed;
+  return parsed as PersistedDocV1;
 }
 
 /**
@@ -204,6 +225,13 @@ function decodePersisted(bytes: Uint8Array): PersistedDocV1 {
  *
  * Accepts persisted bytes directly (`createDoc(savedBytes)`) or an options
  * object — see {@link CreateDocOptions}.
+ *
+ * @throws {IncompatibleDocVersionError} when restoring from `bytes` (either
+ *   form) and the blob's format version isn't one this build can read — e.g.
+ *   it was written by a newer app version. Wrap byte-restores in try/catch and
+ *   handle this case (prompt to update) rather than letting it crash; do NOT
+ *   fall back to a fresh doc and re-persist, or you overwrite the newer data.
+ *   The non-`bytes` forms (markdown/blocks/ops) never throw it.
  */
 export function createDoc(input?: CreateDocOptions | Uint8Array): Doc {
   const options: CreateDocOptions =

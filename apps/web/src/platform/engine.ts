@@ -1471,6 +1471,9 @@ export class Engine implements Platform {
     onConnectedPeersChange() {
       return () => {};
     },
+    onPeerVersionMismatch() {
+      return () => {};
+    },
   };
 
   /** Replace the sync implementation (called by platform init) */
@@ -2076,6 +2079,15 @@ export class Engine implements Platform {
             [val, now, op.pageId],
           );
         }
+        break;
+      }
+      default: {
+        // Unknown space op type (e.g. from a newer peer). storeSpaceOp has
+        // already persisted it to the log + version vector, so it survives and
+        // propagates to other peers untouched (forward-compat) — we simply
+        // don't materialize it into space/page state we can't model, mirroring
+        // how the page-level reducer no-ops unknown ops. The SpaceOperation
+        // union is append-only; see /docs/internals/compatibility.
         break;
       }
     }

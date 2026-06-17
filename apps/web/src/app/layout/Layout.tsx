@@ -6,6 +6,7 @@ import { OnboardingScreen } from "../components/OnboardingScreen";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
 import { ActionCenter } from "../components/ActionCenter";
 import UpdatePopup from "../components/UpdatePopup";
+import PeerVersionPopup from "../components/PeerVersionPopup";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { TreeExpandProvider } from "../contexts/TreeExpandContext";
@@ -124,6 +125,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
       />
       <ActionCenter />
       <UpdatePopup />
+      <PeerVersionPopup />
       <DevToolbar />
       {needsForceUpdate && <ForceUpdatePage />}
     </>

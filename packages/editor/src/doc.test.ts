@@ -5,7 +5,8 @@
  * (the same way the convergence fuzz does), so no canvas/editor is needed.
  */
 
-import { createDoc, type DocUpdate } from "./doc";
+import { createDoc, type DocUpdate, PERSISTED_DOC_VERSION } from "./doc";
+import { IncompatibleDocVersionError } from "./errors";
 import { loadPage } from "./serlization/loadPage";
 import { serializeToMarkdown } from "./serlization/serializer";
 import type { Operation } from "./state-types";
@@ -131,6 +132,33 @@ describe("createDoc", () => {
     restored.on("update", (u) => events.push(u));
     restored.applyUpdate(batch);
     expect(events).toHaveLength(0);
+  });
+
+  it("rejects a persisted blob from a newer format version with a typed error", () => {
+    // Simulate bytes written by a future app version (envelope bumped to v2).
+    const future = new TextEncoder().encode(
+      JSON.stringify({
+        v: 2,
+        pageId: "p",
+        clock: 0,
+        vv: {},
+        blocks: [],
+        ops: [],
+      }),
+    );
+    expect(() => createDoc(future)).toThrow(IncompatibleDocVersionError);
+    try {
+      createDoc(future);
+    } catch (e) {
+      expect(e).toBeInstanceOf(IncompatibleDocVersionError);
+      expect((e as IncompatibleDocVersionError).version).toBe(2);
+      expect((e as IncompatibleDocVersionError).supportedVersion).toBe(
+        PERSISTED_DOC_VERSION,
+      );
+    }
+    // A missing/malformed version field reports `undefined`, not a crash.
+    const malformed = new TextEncoder().encode(JSON.stringify({ pageId: "p" }));
+    expect(() => createDoc(malformed)).toThrow(IncompatibleDocVersionError);
   });
 
   it("converges on a cross-origin dependent insert delivered out of order", () => {

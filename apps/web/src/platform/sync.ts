@@ -62,6 +62,7 @@ import type {
   PairCallbacks,
   Identity,
   Peer,
+  PeerVersionInfo,
 } from "./types";
 import type { AwarenessState } from "@cypherkit/editor/sync/awareness";
 import type { Operation } from "@cypherkit/editor/state-types";
@@ -71,7 +72,37 @@ import {
   bytesToHex,
   compressOp,
   expandOp,
+  WIRE_VERSION,
 } from "./wire-codec";
+
+// =============================================================================
+// Protocol versioning
+// =============================================================================
+
+/**
+ * Semantic version of the replication protocol — the set of message types, the
+ * shape of the CRDT `Operation` union, and the merge/convergence semantics.
+ *
+ * This is local-first and peer-to-peer: there is no central server to migrate
+ * and no flag day, so at any moment peers on different app versions sync with
+ * each other (an offline device can deliver months-old ops to a freshly
+ * updated peer, and vice-versa). Both versions are exchanged in the `hello`
+ * handshake so each side can detect a mismatch up front instead of silently
+ * mis-handling data.
+ *
+ * Compatibility rules (see also the "Releasing Updates And Compatibility"
+ * note at /docs/internals/compatibility):
+ *  - The `Operation` union is append-only. Never reshape an existing op type;
+ *    add new op/block/mark types instead, and gate emitting them on the peer's
+ *    negotiated `protocolVersion` so an older peer never receives ops it would
+ *    drop (a dropped op breaks CRDT convergence permanently).
+ *  - Received unknown ops/blocks/marks are preserved in the log, never rejected
+ *    (see reducer.applyOp's default case and UnknownNode).
+ *
+ * Bump on any protocol-level change; a higher remote value means "the peer may
+ * speak things we don't yet understand".
+ */
+export const PROTOCOL_VERSION = 1;
 
 // =============================================================================
 // ReplicatorHost — what the Replicator needs from the Engine
@@ -130,6 +161,13 @@ export interface ReplicatorHost {
 interface HelloMsg {
   type: "hello";
   publicKey: string;
+  /**
+   * Sender's {@link PROTOCOL_VERSION}. Optional on the wire so a hello from a
+   * peer predating version negotiation decodes fine and is treated as v1.
+   */
+  protocolVersion?: number;
+  /** Sender's {@link WIRE_VERSION} (byte-level op encoding). Absent = 1. */
+  wireVersion?: number;
 }
 /** Pull request: "here is what I already have — send me what I'm missing." Carries the sender's version vector for a space and all its pages so the recipient can compute the diff. */
 interface SyncPullMsg {
@@ -249,6 +287,17 @@ interface PeerConnection {
   cleanup: () => void;
   /** Serial message queue so async handlers don't interleave. */
   msgQueue: Promise<void>;
+  /** Protocol version the peer advertised in `hello` (undefined until received). */
+  remoteProtocolVersion?: number;
+  /** Wire-codec version the peer advertised in `hello` (undefined until received). */
+  remoteWireVersion?: number;
+  /**
+   * Set when the peer's {@link WIRE_VERSION} differs from ours: its ops cannot
+   * be reliably decoded, so we refuse all data exchange with it (no sync-pull,
+   * no sends, inbound non-hello messages dropped). A *protocol*-only mismatch
+   * does NOT set this — those peers still sync (forward-compat by design).
+   */
+  wireIncompatible?: boolean;
 }
 
 /** Represents a local peer's membership in a page's awareness room — who is present, their display info, and the latest cursor/selection state for each remote participant. */
@@ -371,6 +420,7 @@ export class Replicator {
   private connectionListeners = new Set<(state: ConnectionState) => void>();
   private connectedPeersListeners = new Set<(peers: string[]) => void>();
   private pageEventListeners = new Set<Partial<PageEvents>>();
+  private versionMismatchListeners = new Set<(info: PeerVersionInfo) => void>();
 
   constructor(network: NetworkDriver, host: ReplicatorHost) {
     this.network = network;
@@ -647,6 +697,23 @@ export class Replicator {
     };
   }
 
+  /**
+   * Subscribe to protocol/wire-version mismatches detected during a peer's
+   * `hello` handshake. Fires once per hello whenever the peer's advertised
+   * {@link PROTOCOL_VERSION} or {@link WIRE_VERSION} differs from ours, so the
+   * host can surface "an update is available" / "this peer is outdated".
+   *
+   * When `info.wireCompatible` is false the replicator additionally **refuses**
+   * the peer — it exchanges no ops/awareness in either direction — since its
+   * ops can't be reliably decoded. A protocol-only mismatch still syncs.
+   */
+  onPeerVersionMismatch(cb: (info: PeerVersionInfo) => void): () => void {
+    this.versionMismatchListeners.add(cb);
+    return () => {
+      this.versionMismatchListeners.delete(cb);
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Asset sync (lazy pull from peers)
   // ---------------------------------------------------------------------------
@@ -888,6 +955,8 @@ export class Replicator {
     const msg: Message = {
       type: "hello",
       publicKey: this.localPublicKey,
+      protocolVersion: PROTOCOL_VERSION,
+      wireVersion: WIRE_VERSION,
     };
     const data = encode(msg);
     logNet("send", netPeer.remotePublicKey, msg, data.byteLength);
@@ -899,6 +968,13 @@ export class Replicator {
   // ---------------------------------------------------------------------------
 
   private async handleMessage(fromPubKey: string, msg: Message) {
+    // Refuse a wire-incompatible peer: its ops would mis-decode, so drop
+    // everything except `hello` (which re-runs version negotiation and could
+    // clear the flag if the peer later advertises a compatible version).
+    if (msg.type !== "hello" && this.peers.get(fromPubKey)?.wireIncompatible) {
+      return;
+    }
+
     switch (msg.type) {
       // Handshake
       case "hello":
@@ -968,10 +1044,61 @@ export class Replicator {
     );
   }
 
-  private async handleHello(fromPubKey: string, _msg: HelloMsg) {
+  /**
+   * Record the versions a peer advertised in `hello` and, if either differs
+   * from ours, log it and notify {@link onPeerVersionMismatch} subscribers.
+   * A peer predating version negotiation omits both fields → treated as v1.
+   */
+  private checkPeerVersion(conn: PeerConnection, msg: HelloMsg): void {
+    const remoteProtocolVersion = msg.protocolVersion ?? 1;
+    const remoteWireVersion = msg.wireVersion ?? 1;
+    conn.remoteProtocolVersion = remoteProtocolVersion;
+    conn.remoteWireVersion = remoteWireVersion;
+
+    const protocolMatch = remoteProtocolVersion === PROTOCOL_VERSION;
+    const wireCompatible = remoteWireVersion === WIRE_VERSION;
+    // Refuse data exchange only on wire incompatibility — a protocol-only
+    // mismatch (same wire) still syncs, since unknown ops degrade gracefully.
+    conn.wireIncompatible = !wireCompatible;
+    if (protocolMatch && wireCompatible) return;
+
+    const direction =
+      remoteProtocolVersion > PROTOCOL_VERSION ||
+      remoteWireVersion > WIRE_VERSION
+        ? "peer is newer — an update may be available"
+        : "peer is older";
+    console.warn(
+      `[Sync] version mismatch with ${conn.publicKey.slice(0, 8)}: ` +
+        `protocol ${remoteProtocolVersion} (local ${PROTOCOL_VERSION}), ` +
+        `wire ${remoteWireVersion} (local ${WIRE_VERSION}) — ${direction}` +
+        (wireCompatible ? "" : "; ops may not decode correctly"),
+    );
+
+    const info: PeerVersionInfo = {
+      publicKey: conn.publicKey,
+      remoteProtocolVersion,
+      remoteWireVersion,
+      localProtocolVersion: PROTOCOL_VERSION,
+      localWireVersion: WIRE_VERSION,
+      wireCompatible,
+    };
+    for (const cb of this.versionMismatchListeners) cb(info);
+  }
+
+  private async handleHello(fromPubKey: string, msg: HelloMsg) {
     console.log(`[Sync] hello from ${fromPubKey.slice(0, 8)}`);
     const conn = this.peers.get(fromPubKey);
     if (!conn) return;
+
+    this.checkPeerVersion(conn, msg);
+    if (conn.wireIncompatible) {
+      console.warn(
+        `[Sync] refusing to sync with ${fromPubKey.slice(0, 8)}: incompatible wire version`,
+      );
+      // Still record the contact, but exchange no ops/awareness with it.
+      await this.host.updatePeerLastSeen(fromPubKey);
+      return;
+    }
 
     await this.host.updatePeerLastSeen(fromPubKey);
     await this.recomputeSharedSpaces(conn);
@@ -1382,6 +1509,7 @@ export class Replicator {
 
   /** Send a message directly to a specific connected peer (with logging). */
   private sendDirect(conn: PeerConnection, msg: Message) {
+    if (conn.wireIncompatible) return;
     const data = encode(msg);
     logNet("send", conn.publicKey, msg, data.byteLength);
     conn.netPeer.send(data);
@@ -1390,6 +1518,7 @@ export class Replicator {
   private broadcastToSpacePeers(spaceId: string, msg: Message) {
     const data = encode(msg);
     for (const conn of this.peers.values()) {
+      if (conn.wireIncompatible) continue;
       if (conn.sharedSpaces.has(spaceId)) {
         logNet("send", conn.publicKey, msg, data.byteLength);
         conn.netPeer.send(data);
@@ -1400,6 +1529,7 @@ export class Replicator {
   private sendToPeer(peerId: string, msg: Message) {
     // peerId might be a truncated public key (first 32 chars) — match by prefix
     for (const conn of this.peers.values()) {
+      if (conn.wireIncompatible) continue;
       if (conn.publicKey === peerId || conn.publicKey.startsWith(peerId)) {
         const data = encode(msg);
         logNet("send", conn.publicKey, msg, data.byteLength);
