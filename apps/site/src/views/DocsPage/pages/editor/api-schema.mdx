@@ -8,7 +8,7 @@ import { PropsTable } from "../../docsComponents";
 
 <PropsTable cols={["Block type", "Markdown", "Notes"]} rows={[
   { name: "paragraph", type: "(plain text)", desc: "The default text block." },
-  { name: "heading1 / 2 / 3", type: "# / ## / ###", desc: 'Three heading levels. setBlock("heading", { level }) maps here.' },
+  { name: "heading1 / 2 / 3", type: "# / ## / ###", desc: 'Three heading levels. setNode({ type: "heading", level }) maps here.' },
   { name: "bullet_list", type: "- ", desc: "Unordered list item." },
   { name: "numbered_list", type: "1. ", desc: "Ordered list item." },
   { name: "todo_list", type: "- [ ] ", desc: "Checkable task item." },
@@ -19,15 +19,15 @@ import { PropsTable } from "../../docsComponents";
 
 <h2 id="marks">Built-in inline marks</h2>
 
-Marks are inline formatting carried on runs of text. The CRDT names are `strong`/`emphasis`/`strike` (not bold/italic/strikethrough). The togglable ones flip across the selection with `change((c) => c.toggleMark(name))`; `link` and `math` carry data, so they're applied through `setMarkRange` instead.
+Marks are inline formatting carried on runs of text. The CRDT names are `strong`/`emphasis`/`strike` (not bold/italic/strikethrough). The togglable ones flip across the selection with `change((c) => c.setMark(name))`; `link` and `math` carry data, so they're applied with an explicit range and attrs — `setMark(name, { attrs, range })` — instead.
 
 <PropsTable cols={["Mark", "Markdown", "Togglable", "Notes"]} rows={[
   { name: "strong", type: "**…**", desc: "Yes · bold." },
   { name: "emphasis", type: "*…*", desc: "Yes · italic." },
   { name: "strike", type: "~~…~~", desc: "Yes · strikethrough." },
   { name: "code", type: "`…`", desc: "Yes · inline code span." },
-  { name: "link", type: "[text](url)", desc: "No — carries a url on attrs; applied via setMarkRange." },
-  { name: "math", type: "$…$", desc: "No — a run of LaTeX rendered as a chip; applied via setMarkRange." },
+  { name: "link", type: "[text](url)", desc: "No — carries a url on attrs; applied via setMark(name, { attrs, range })." },
+  { name: "math", type: "$…$", desc: "No — a run of LaTeX rendered as a chip; applied via setMark(name, { attrs, range })." },
 ]} />
 
 <h2 id="extend">Extending</h2>

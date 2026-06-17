@@ -218,11 +218,18 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
       const t = triggerRef.current;
       if (!t) return;
       const cur = editor.getState()?.document.cursor;
-      editor.dispatch(CONVERT_BLOCK, {
-        type: item.type,
-        deleteFrom: t.slashIndex,
-        deleteTo: cur?.position.textIndex,
-      });
+      const blockId = cur
+        ? editor.getState()?.document.page.blocks[cur.position.blockIndex]?.id
+        : undefined;
+      // Strip the typed "/filter" trigger text before converting (one undo step).
+      const strip =
+        blockId && cur
+          ? {
+              from: { block: blockId, offset: t.slashIndex },
+              to: { block: blockId, offset: cur.position.textIndex },
+            }
+          : undefined;
+      editor.dispatch(CONVERT_BLOCK, { type: item.type, strip });
       close();
     },
     [editor, close],

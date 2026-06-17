@@ -12,9 +12,8 @@ import {
 } from "../action-bus";
 import {
   convertBlockAtCursor,
-  getFormatsAtPosition,
+  deleteSelectedText,
   insertText,
-  selectAll,
   toggleFormat,
 } from "../actions/actions";
 import {
@@ -32,6 +31,19 @@ import {
   isInLongPressMode,
 } from "../events/interaction-session";
 import { onFontsReady } from "../fonts";
+import {
+  activeCaretMarks,
+  docMarks,
+  type DocNode,
+  type DocPoint,
+  type DocRange,
+  docSelection,
+  resolveBlockIndex,
+  resolveInlineRange,
+  resolvePoint,
+  selectTarget,
+  toDocNode,
+} from "../positions";
 import {
   clearAllBlockCaches,
   collectOverlays,
@@ -99,7 +111,12 @@ import {
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
 } from "../sync/awareness";
-import { isTextualBlock } from "../sync/block-registry";
+import {
+  canHaveFormats,
+  createDefaultBlock,
+  getBlockFieldNames,
+  isTextualBlock,
+} from "../sync/block-registry";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
 import {
   deleteCharsInRange,
@@ -146,6 +163,12 @@ export interface ChangeTransaction {
  */
 export type MarkName = string;
 
+// The DocPoint / DocRange / DocNode position vocabulary — and the pure resolvers
+// that consume it — live in `../positions` (free functions over EditorState, so
+// they're unit-testable without a canvas). Re-exported here because they're part
+// of the ChangeApi / read-API contract.
+export type { DocNode, DocPoint, DocRange } from "../positions";
+
 /**
  * The single mutation surface, handed to the callback of {@link Editor.change}
  * / {@link Editor.canChange} (and to an {@link EditorAction}). Every method
@@ -153,66 +176,86 @@ export type MarkName = string;
  * callback commits as ONE undoable step — one undo entry, one broadcast, one
  * `on("change")` — regardless of how many methods it calls. A method whose
  * target is missing/invalid is a silent no-op (it queues nothing).
+ *
+ * Every method takes an optional {@link DocPoint}/{@link DocRange} target that
+ * defaults to the live caret/selection, so the common case stays terse
+ * (`insertText("x")`, `setMark("strong")`) while a host plugin can act at an
+ * explicit, CRDT-stable position without reaching into editor internals.
  */
 export interface ChangeApi {
-  /** Toggle an inline mark across the selection (or the pending caret format). */
-  toggleMark(name: MarkName): this;
+  // ── inline ──────────────────────────────────────────────────────────────
   /**
-   * Convert the block at the caret to `type`. Handles every block type —
-   * textual (paragraph/heading/list/code) and void (image/math/line, which clear
-   * their text and get a trailing paragraph). `"heading"` is sugar mapped to
-   * heading1–3 by `level`. `deleteFrom`/`deleteTo` optionally strip an inline
-   * range first (a slash plugin passes its "/filter" trigger range); both
-   * default to the caret, i.e. no deletion.
+   * Insert `text`, replacing `range`. `range` defaults to the live selection —
+   * so `insertText("x")` types at the caret (inheriting the pending caret
+   * format), and an explicit range replaces it. `mark` optionally applies a
+   * single inline mark to the inserted run (its per-mark data rides on
+   * `mark.attrs`). A no-op for a missing/non-textual target.
    */
-  setBlock(
-    type: Block["type"] | "heading",
-    opts?: { level?: number; deleteFrom?: number; deleteTo?: number },
-  ): this;
-  /** Insert text at the caret, replacing any selection. */
-  insertText(text: string): this;
-  /** Select the whole document. */
-  selectAll(): this;
-  /** Set one or more attributes on a block, addressed by id (one `block_set` op
-   * per field; validated against the block type's schema). */
-  setNodeAttrs(blockId: string, attrs: Record<string, unknown>): this;
-  /** Delete a block, addressed by id (tombstoned, so undo can restore it). If it
-   * was the last visible block, an empty paragraph replaces it. */
-  deleteNode(blockId: string): this;
-  /** Replace the inline range `[start, end)` in a block with `text`, optionally
-   * applying a single inline `mark` to the inserted run. Empty `text` deletes. */
-  replaceInlineRange(
-    blockId: string,
-    start: number,
-    end: number,
-    text: string,
-    mark?: Mark,
-  ): this;
-  /** Delete the inline range `[start, end)` in a block, caret where it began. */
-  deleteInlineRange(blockId: string, start: number, end: number): this;
+  insertText(text: string, range?: DocRange, mark?: Mark): this;
   /**
-   * Apply (`active` true, the default) or remove (`active` false) an inline
-   * `mark` over the existing range `[start, end)` in a block, leaving its text
-   * untouched. The mark's per-mark data (e.g. a link's `url`) rides on
-   * `mark.attrs`. This is the general primitive for attrs-carrying marks that
-   * {@link toggleMark} can't apply (links, inline math); combine it with
-   * {@link replaceInlineRange} when the text changes too. A no-op for an empty
-   * range or a missing/non-textual block.
+   * Delete `range` (default: the live selection). Multi-block when it resolves
+   * to the selection; an explicit {@link DocRange} must be within one block. The
+   * caret lands where the range began.
    */
-  setMarkRange(
-    blockId: string,
-    start: number,
-    end: number,
-    mark: Mark,
-    active?: boolean,
+  deleteRange(range?: DocRange): this;
+  /**
+   * Apply, remove, or toggle an inline mark over `range`. With no options it
+   * toggles across the selection (or the pending caret format) — the common
+   * bold/italic case. Pass `active` to force apply (`true`) / remove (`false`),
+   * `attrs` for the mark's per-mark data (e.g. a link's `url`), and `range` to
+   * target an explicit single-block span (default: selection). A no-op for an
+   * empty range or a missing/non-textual block.
+   */
+  setMark(
+    name: MarkName,
+    opts?: { active?: boolean; attrs?: Mark["attrs"]; range?: DocRange },
   ): this;
+
+  // ── block ───────────────────────────────────────────────────────────────
+  /**
+   * Insert a new block at `at` (a block-edge {@link DocPoint}; default: after the
+   * caret block). The block's `type` is required; an `id` is generated when
+   * absent and any extra own attrs are applied as `block_set` ops. Text content
+   * is not seeded — insert an empty block, then fill it.
+   */
+  insertNode(
+    block: Partial<Block> & { type: Block["type"] },
+    at?: DocPoint,
+  ): this;
+  /**
+   * Reconcile the block at `at` (default: caret block) toward `attrs`. `type` is
+   * the attr whose presence triggers a structural conversion — textual
+   * (paragraph/heading/list/code) and void (image/math/line, which clear their
+   * text and get a trailing paragraph); `"heading"` is sugar mapped to heading1–3
+   * by `level`. Other attrs are validated against the block type's schema and set
+   * one `block_set` per field. Folds the former `setBlock` + `setNodeAttrs`.
+   */
+  setNode(
+    attrs: { type?: Block["type"] | "heading"; level?: number } & Record<
+      string,
+      unknown
+    >,
+    at?: DocPoint,
+  ): this;
+  /** Delete the block at `at` (default: caret block); tombstoned so undo can
+   * restore it. If it was the last visible block, an empty paragraph replaces it. */
+  deleteNode(at?: DocPoint): this;
+
+  // ── selection ─────────────────────────────────────────────────────────────
+  /**
+   * Position the caret/selection as part of this change. Composes:
+   * `c.insertText("x").select("end")`. "Select all" is just
+   * `select({ from: "start", to: "end" })`. A collapsed {@link DocRange} (or a
+   * bare {@link DocPoint}) places a caret; a span selects it.
+   */
+  select(target: DocRange): this;
 }
 
 /**
  * A named, reusable document mutation: a function over the {@link ChangeApi}.
  * Pass one (or several) to {@link Editor.run}; they compose into a single
  * undoable step. The host's own actions and the engine built-ins are the same
- * kind of value — `const toggleStrong: EditorAction = (c) => c.toggleMark("strong")`.
+ * kind of value — `const toggleStrong: EditorAction = (c) => c.setMark("strong")`.
  */
 export type EditorAction = (c: ChangeApi) => void;
 
@@ -385,6 +428,25 @@ export interface EditorApi {
   getActiveMarks: () => Set<Mark["type"]>;
   /** True when there is no selection (just a caret, or nothing). */
   isSelectionEmpty: () => boolean;
+  /**
+   * Plain-data view of the block at `at` (default: the caret block), or `null`
+   * when there's no such block. The read counterpart to {@link ChangeApi.setNode}
+   * — a host reads a {@link DocNode}'s id/attrs and hands them straight back to a
+   * mutation without touching {@link EditorApi.getState}.
+   */
+  getNode: (at?: DocPoint) => DocNode | null;
+  /** All visible blocks, in document order, as plain {@link DocNode} data. */
+  getNodes: () => DocNode[];
+  /**
+   * The current selection as a {@link DocRange} — `{ from, to }` of absolute
+   * `{ block, offset }` points, or `"selection"`'s collapsed form (a bare point)
+   * for a caret. `null` when there is no caret/selection. The same currency the
+   * {@link ChangeApi} methods accept.
+   */
+  getSelection: () => DocRange | null;
+  /** Inline marks active over `range` (default: selection) — see
+   * {@link getActiveMarks}, which is this applied to the caret. */
+  getMarks: (range?: DocRange) => Set<MarkName>;
   /**
    * Copy the current selection to the system clipboard and close any open
    * context menu. Resolves to whether the copy succeeded.
@@ -2389,16 +2451,7 @@ export class Editor implements EditorApi {
   private canToggleMark = (name: MarkName): boolean =>
     this._state.marks.get(name)?.togglable === true;
 
-  private blockAction =
-    (params: {
-      type: Block["type"];
-      deleteFrom?: number;
-      deleteTo?: number;
-    }): StateAction =>
-    (s) =>
-      convertBlockAtCursor(s, params);
-
-  // setBlock accepts the concrete block types plus the convenience "heading",
+  // setNode accepts the concrete block types plus the convenience "heading",
   // mapped to heading1/2/3 by `opts.level` (clamped 1–3, the levels that render).
   private resolveBlockType = (
     type: Block["type"] | "heading",
@@ -2416,11 +2469,6 @@ export class Editor implements EditorApi {
     (s) =>
       insertText(s, text);
 
-  private selectAllAction: StateAction = (s) => ({
-    state: selectAll(s),
-    ops: [],
-  });
-
   // Build a ChangeApi over a working-state/ops accumulator. Each method queues
   // a StateAction by threading the accumulator forward, then returns the same
   // builder so calls chain. Nothing is committed here — commitChange does that.
@@ -2434,51 +2482,306 @@ export class Editor implements EditorApi {
       ctx.ops.push(...r.ops);
     };
     const c: ChangeApi = {
-      toggleMark: (name) => {
-        if (this.canToggleMark(name)) apply(this.toggleMarkAction(name));
+      insertText: (text, range, mark) => {
+        // Hot path: typing at the caret / over the selection. The free
+        // `insertText` is selection-aware (multi-block) and inherits the pending
+        // caret format, so keep it byte-identical when no explicit target is given.
+        if ((range === undefined || range === "selection") && !mark) {
+          apply(this.insertTextAction(text));
+        } else {
+          apply((s) => {
+            const r = resolveInlineRange(s, range);
+            // Multi-block / unresolved selection: fall back to the selection-aware
+            // insert (drops the mark — an explicit single-block range carries it).
+            if (!r) return this.insertTextAction(text)(s);
+            return this.replaceInlineRangeAction(
+              r.blockId,
+              r.start,
+              r.end,
+              text,
+              mark,
+            )(s);
+          });
+        }
         return c;
       },
-      setBlock: (type, opts) => {
-        apply(
-          this.blockAction({
-            type: this.resolveBlockType(type, opts),
-            deleteFrom: opts?.deleteFrom,
-            deleteTo: opts?.deleteTo,
-          }),
-        );
+      deleteRange: (range) => {
+        if (range === undefined || range === "selection") {
+          apply((s) => deleteSelectedText(s));
+        } else {
+          apply((s) => {
+            const r = resolveInlineRange(s, range);
+            if (!r || r.start === r.end) return { state: s, ops: [] };
+            return this.deleteInlineRangeAction(r.blockId, r.start, r.end)(s);
+          });
+        }
         return c;
       },
-      insertText: (text) => {
-        apply(this.insertTextAction(text));
+      setMark: (name, opts) => {
+        const isToggle =
+          !opts ||
+          (opts.active === undefined &&
+            opts.attrs === undefined &&
+            (opts.range === undefined || opts.range === "selection"));
+        if (isToggle) {
+          if (this.canToggleMark(name)) apply(this.toggleMarkAction(name));
+        } else {
+          apply((s) => {
+            const r = resolveInlineRange(s, opts?.range);
+            if (!r || r.start === r.end) return { state: s, ops: [] };
+            const mark: Mark = opts?.attrs
+              ? { type: name, attrs: opts.attrs }
+              : { type: name };
+            return this.setMarkRangeAction(
+              r.blockId,
+              r.start,
+              r.end,
+              mark,
+              opts?.active ?? true,
+            )(s);
+          });
+        }
         return c;
       },
-      selectAll: () => {
-        apply(this.selectAllAction);
+      insertNode: (block, at) => {
+        apply(this.insertNodeAction(block, at));
         return c;
       },
-      setNodeAttrs: (blockId, attrs) => {
-        apply(this.setNodeAttrsAction(blockId, attrs));
+      setNode: (attrs, at) => {
+        apply(this.setNodeAction(attrs, at));
         return c;
       },
-      deleteNode: (blockId) => {
-        apply(this.deleteNodeAction(blockId));
+      deleteNode: (at) => {
+        apply((s) => {
+          const idx = resolveBlockIndex(s, at);
+          if (idx < 0) return { state: s, ops: [] };
+          return this.deleteNodeAction(s.document.page.blocks[idx].id)(s);
+        });
         return c;
       },
-      replaceInlineRange: (blockId, start, end, text, mark) => {
-        apply(this.replaceInlineRangeAction(blockId, start, end, text, mark));
-        return c;
-      },
-      deleteInlineRange: (blockId, start, end) => {
-        apply(this.deleteInlineRangeAction(blockId, start, end));
-        return c;
-      },
-      setMarkRange: (blockId, start, end, mark, active = true) => {
-        apply(this.setMarkRangeAction(blockId, start, end, mark, active));
+      select: (target) => {
+        apply((s) => ({ state: selectTarget(s, target), ops: [] }));
         return c;
       },
     };
     return c;
   };
+
+  // Insert a fresh block at `at` (default: after the caret block). The block is
+  // empty of text; its type seeds the default fields, and any caller-supplied
+  // own attrs are synced as block_set ops.
+  private insertNodeAction =
+    (
+      block: Partial<Block> & { type: Block["type"] },
+      at: DocPoint | undefined,
+    ): StateAction =>
+    (s) => {
+      const blocks = s.document.page.blocks;
+      // The anchor block to insert after. A "before" point inserts after the
+      // anchor's predecessor; "after"/default inserts after the anchor itself.
+      const anchor = resolvePoint(s, at ?? "caret");
+      let afterBlockId: string | null;
+      let insertAt: number;
+      if (!anchor) {
+        // Empty doc (or unresolved): insert at the end.
+        afterBlockId = null;
+        insertAt = blocks.length;
+      } else if (
+        typeof at === "object" &&
+        "side" in at &&
+        at.side === "before"
+      ) {
+        // Insert before the anchor → after its previous visible block.
+        let prev = anchor.blockIndex - 1;
+        while (prev >= 0 && blocks[prev].deleted) prev--;
+        afterBlockId = prev >= 0 ? blocks[prev].id : null;
+        insertAt = anchor.blockIndex;
+      } else {
+        afterBlockId = anchor.blockId;
+        insertAt = anchor.blockIndex + 1;
+      }
+
+      const blockId = block.id ?? `b-${s.CRDTbinding.nextId()}`;
+      const seeded = createDefaultBlock(block.type, blockId, afterBlockId);
+      if (!seeded) return { state: s, ops: [] };
+
+      // Caller-supplied own attrs beyond the structural fields become block_set.
+      const reserved = new Set([
+        "id",
+        "type",
+        "afterId",
+        "charRuns",
+        "formats",
+      ]);
+      const extra = Object.entries(block).filter(
+        ([k, v]) => !reserved.has(k) && v !== undefined,
+      );
+      const newBlock = { ...seeded, ...Object.fromEntries(extra) } as Block;
+      invalidateBlockCache(newBlock);
+
+      const newBlocks = [...blocks];
+      newBlocks.splice(insertAt, 0, newBlock);
+
+      const ops: Operation[] = [
+        {
+          op: "block_insert",
+          id: s.CRDTbinding.nextId(),
+          clock: s.CRDTbinding.getClock(),
+          pageId: s.CRDTbinding.pageId,
+          afterBlockId,
+          blockId,
+          blockType: block.type,
+        },
+      ];
+      for (const [field, value] of extra) {
+        ops.push({
+          op: "block_set",
+          id: s.CRDTbinding.nextId(),
+          clock: s.CRDTbinding.getClock(),
+          pageId: s.CRDTbinding.pageId,
+          blockId,
+          field,
+          value,
+        });
+      }
+
+      return {
+        state: {
+          ...s,
+          document: {
+            ...s.document,
+            page: { ...s.document.page, blocks: newBlocks },
+          },
+        },
+        ops,
+      };
+    };
+
+  // setNode: reconcile one block toward `attrs`. A `type` change is structural —
+  // at the caret block it uses the full caret-aware conversion (trailing
+  // paragraph, void-text clearing); elsewhere it does a generic type set. Other
+  // attrs are plain block_set, via setNodeAttrsAction.
+  private setNodeAction =
+    (
+      attrs: { type?: Block["type"] | "heading"; level?: number } & Record<
+        string,
+        unknown
+      >,
+      at: DocPoint | undefined,
+    ): StateAction =>
+    (s) => {
+      const idx = resolveBlockIndex(s, at);
+      if (idx < 0) return { state: s, ops: [] };
+
+      // Pull `type` (and, for the "heading" sugar, `level`) out of the attr bag.
+      const rest: Record<string, unknown> = { ...attrs };
+      const rawType = rest.type as Block["type"] | "heading" | undefined;
+      delete rest.type;
+      let resolvedType: Block["type"] | undefined;
+      if (rawType === "heading") {
+        resolvedType = this.resolveBlockType("heading", {
+          level: rest.level as number | undefined,
+        });
+        delete rest.level;
+      } else if (rawType !== undefined) {
+        resolvedType = rawType;
+      }
+
+      let state = s;
+      const ops: Operation[] = [];
+      if (resolvedType !== undefined) {
+        const caretIdx = s.document.cursor?.position.blockIndex;
+        const r =
+          idx === caretIdx
+            ? convertBlockAtCursor(state, { type: resolvedType })
+            : this.setBlockTypeAction(idx, resolvedType)(state);
+        state = r.state;
+        ops.push(...r.ops);
+      }
+
+      const fields = Object.keys(rest);
+      if (fields.length > 0) {
+        // The block index is stable across the type change (conversion mutates in
+        // place), so re-read the id and apply the remaining attrs.
+        const blockId = state.document.page.blocks[idx]?.id;
+        if (blockId) {
+          const r = this.setNodeAttrsAction(blockId, rest)(state);
+          state = r.state;
+          ops.push(...r.ops);
+        }
+      }
+
+      return { state, ops };
+    };
+
+  // Generic (non-caret) block type change: morph the block in place to the new
+  // type's defaults, preserving text/marks where the target allows, and emit the
+  // type block_set plus the target type's own-field block_sets. No caret UX.
+  private setBlockTypeAction =
+    (blockIndex: number, type: Block["type"]): StateAction =>
+    (s) => {
+      const blocks = s.document.page.blocks;
+      const block = blocks[blockIndex];
+      if (!block || block.deleted) return { state: s, ops: [] };
+
+      const defaults = createDefaultBlock(
+        type,
+        block.id,
+        block.afterId ?? null,
+      );
+      if (!defaults) return { state: s, ops: [] };
+      // Carry the source text/marks over only when both sides are textual;
+      // otherwise the target type's defaults stand (a void block has no text).
+      let newBlock: Block = defaults;
+      if (isTextualBlock(defaults) && isTextualBlock(block)) {
+        newBlock = {
+          ...defaults,
+          charRuns: block.charRuns,
+          formats: canHaveFormats(type) ? block.formats : [],
+        };
+      }
+      invalidateBlockCache(newBlock);
+
+      const newBlocks = [...blocks];
+      newBlocks[blockIndex] = newBlock;
+
+      const ops: Operation[] = [
+        {
+          op: "block_set",
+          id: s.CRDTbinding.nextId(),
+          clock: s.CRDTbinding.getClock(),
+          pageId: s.CRDTbinding.pageId,
+          blockId: block.id,
+          field: "type",
+          value: type,
+        },
+      ];
+      for (const field of getBlockFieldNames(type)) {
+        if (field === "type") continue;
+        const value = (newBlock as unknown as Record<string, unknown>)[field];
+        if (value === undefined) continue;
+        ops.push({
+          op: "block_set",
+          id: s.CRDTbinding.nextId(),
+          clock: s.CRDTbinding.getClock(),
+          pageId: s.CRDTbinding.pageId,
+          blockId: block.id,
+          field,
+          value,
+        });
+      }
+
+      return {
+        state: {
+          ...s,
+          document: {
+            ...s.document,
+            page: { ...s.document.page, blocks: newBlocks },
+          },
+        },
+        ops,
+      };
+    };
 
   // Commit an accumulated batch as ONE undoable step: record undo, broadcast
   // once, re-render, notify. No-op (returns false) when nothing changed.
@@ -2595,27 +2898,27 @@ export class Editor implements EditorApi {
     return false;
   };
 
-  getActiveMarks = (): Set<Mark["type"]> => {
-    const result = new Set<Mark["type"]>();
-    const mode = this._state.ui.activeMarksMode;
-    if (mode.type === "explicit") {
-      for (const f of mode.formats) result.add(f.type);
-      return result;
-    }
-    // "inherit" mode: reflect the formats on the character before the caret.
-    const cursor = this._state.document.cursor;
-    if (!cursor) return result;
-    const block = this._state.document.page.blocks[cursor.position.blockIndex];
-    if (!block || block.deleted) return result;
-    const formats = getFormatsAtPosition(block, cursor.position.textIndex);
-    if (formats) for (const f of formats) result.add(f.type);
-    return result;
-  };
+  getActiveMarks = (): Set<Mark["type"]> => activeCaretMarks(this._state);
 
   isSelectionEmpty = (): boolean => {
     const sel = this._state.document.selection;
     return !sel || sel.isCollapsed;
   };
+
+  getNode = (at?: DocPoint): DocNode | null => {
+    const idx = resolveBlockIndex(this._state, at);
+    if (idx < 0) return null;
+    return toDocNode(this._state.document.page.blocks[idx]);
+  };
+
+  getNodes = (): DocNode[] =>
+    this._state.document.page.blocks
+      .filter((b) => !b.deleted)
+      .map((b) => toDocNode(b));
+
+  getSelection = (): DocRange | null => docSelection(this._state);
+
+  getMarks = (range?: DocRange): Set<MarkName> => docMarks(this._state, range);
 
   copy = async (): Promise<boolean> => {
     const success = await copySelectionToClipboard(this._state);

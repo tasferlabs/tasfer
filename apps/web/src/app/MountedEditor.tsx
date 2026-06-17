@@ -215,10 +215,10 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
           const imageData = await uploadImage(file);
           // Address by id — the upload may have shifted the block index.
           editor.change((c) =>
-            c.setNodeAttrs(block.id, {
-              url: imageData.url,
-              alt: imageData.fileName,
-            }),
+            c.setNode(
+              { url: imageData.url, alt: imageData.fileName },
+              { block: block.id },
+            ),
           );
           editor.setNodeViewState(block.id, null);
           editor.closeActiveMenu();
@@ -228,21 +228,25 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
         }
       }}
       onUrlSubmit={(url) => {
-        const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+        const block = editor
+          .getState()
+          ?.document.page.blocks.find((blk) => blk.id === blockId);
         if (!block || block.deleted || block.type !== "image") return;
 
         // Clear failed cache for this URL to allow retry
         clearFailedImageCache(url);
 
-        editor.change((c) => c.setNodeAttrs(block.id, { url }));
+        editor.change((c) => c.setNode({ url }, { block: block.id }));
         editor.setNodeViewState(block.id, null);
       }}
       onDelete={() => {
         // "Remove Image" deletes the block (was a no-op on the desktop edit
         // path before this migration; the mobile drawer already deleted).
-        const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+        const block = editor
+          .getState()
+          ?.document.page.blocks.find((blk) => blk.id === blockId);
         if (block && !block.deleted)
-          editor.change((c) => c.deleteNode(block.id));
+          editor.change((c) => c.deleteNode({ block: block.id }));
         close();
       }}
       onClose={close}
@@ -277,15 +281,22 @@ const MathEditOverlay: ComponentType<NodeOverlayProps> = ({
       initialLatex={mathBlock?.latex ?? ""}
       displayMode={mathBlock?.displayMode ?? true}
       onSubmit={(latex, displayMode) => {
-        const b = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+        const b = editor
+          .getState()
+          ?.document.page.blocks.find((blk) => blk.id === blockId);
         if (b && !b.deleted && b.type === "math") {
-          editor.change((c) => c.setNodeAttrs(b.id, { latex, displayMode }));
+          editor.change((c) =>
+            c.setNode({ latex, displayMode }, { block: b.id }),
+          );
         }
         editor.closeActiveMenu();
       }}
       onDelete={() => {
-        const b = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
-        if (b && !b.deleted) editor.change((c) => c.deleteNode(b.id));
+        const b = editor
+          .getState()
+          ?.document.page.blocks.find((blk) => blk.id === blockId);
+        if (b && !b.deleted)
+          editor.change((c) => c.deleteNode({ block: b.id }));
         editor.closeActiveMenu();
       }}
       onClose={() => editor.closeActiveMenu()}
@@ -325,21 +336,33 @@ const InlineMathEditOverlay: ComponentType<NodeOverlayProps> = ({
       displayMode={false}
       inline
       onSubmit={(nextLatex) => {
-        const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+        const block = editor
+          .getState()
+          ?.document.page.blocks.find((blk) => blk.id === blockId);
         if (block && !block.deleted) {
           editor.change((c) =>
-            c.replaceInlineRange(block.id, startIndex, endIndex, nextLatex, {
-              type: "math",
-            }),
+            c.insertText(
+              nextLatex,
+              {
+                from: { block: block.id, offset: startIndex },
+                to: { block: block.id, offset: endIndex },
+              },
+              { type: "math" },
+            ),
           );
         }
         editor.closeActiveMenu();
       }}
       onDelete={() => {
-        const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+        const block = editor
+          .getState()
+          ?.document.page.blocks.find((blk) => blk.id === blockId);
         if (block && !block.deleted) {
           editor.change((c) =>
-            c.deleteInlineRange(block.id, startIndex, endIndex),
+            c.deleteRange({
+              from: { block: block.id, offset: startIndex },
+              to: { block: block.id, offset: endIndex },
+            }),
           );
         }
         editor.closeActiveMenu();
@@ -515,16 +538,37 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
       // character ids survive; otherwise replace the run with the new text.
       const oldText = text ?? selectedText ?? "";
       if (newText === oldText) {
-        c.setMarkRange(block.id, startIndex, startIndex + newText.length, link);
+        c.setMark("link", {
+          attrs: link.attrs,
+          range: {
+            from: { block: block.id, offset: startIndex },
+            to: { block: block.id, offset: startIndex + newText.length },
+          },
+        });
       } else {
-        c.replaceInlineRange(block.id, startIndex, endIndex, newText, link);
+        c.insertText(
+          newText,
+          {
+            from: { block: block.id, offset: startIndex },
+            to: { block: block.id, offset: endIndex },
+          },
+          link,
+        );
       }
     });
   const clearLink = () =>
     editor.change((c) => {
-      const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+      const block = editor
+        .getState()
+        ?.document.page.blocks.find((blk) => blk.id === blockId);
       if (!block) return;
-      c.setMarkRange(block.id, startIndex, endIndex, { type: "link" }, false);
+      c.setMark("link", {
+        active: false,
+        range: {
+          from: { block: block.id, offset: startIndex },
+          to: { block: block.id, offset: endIndex },
+        },
+      });
     });
 
   if (isMobile) {
@@ -590,9 +634,11 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
 
   const handleChange = (label: string | null) => {
     const language = CODE_LANGUAGES.find((l) => l.label === label)?.id ?? "";
-    const b = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+    const b = editor
+      .getState()
+      ?.document.page.blocks.find((blk) => blk.id === blockId);
     if (b && !b.deleted && b.type === "code") {
-      editor.change((c) => c.setNodeAttrs(b.id, { language }));
+      editor.change((c) => c.setNode({ language }, { block: b.id }));
     }
   };
 
@@ -1492,10 +1538,10 @@ function EditorSurface({
           URL.revokeObjectURL(block.url);
         }
         mounted.editor.change((c) =>
-          c.setNodeAttrs(block.id, {
-            url: imageData.url,
-            alt: imageData.fileName,
-          }),
+          c.setNode(
+            { url: imageData.url, alt: imageData.fileName },
+            { block: block.id },
+          ),
         );
       } catch (error) {
         console.error("Image paste upload failed:", error);
@@ -1600,16 +1646,17 @@ function EditorSurface({
       undo: () => mounted.editor.undo(),
       redo: () => mounted.editor.redo(),
       setBlockType: (type: string) =>
-        mounted.editor.change((c) => c.setBlock(type as any)),
+        mounted.editor.change((c) => c.setNode({ type: type as any })),
       focus: () => {
         mounted.editor.setFocus(true);
         mounted.editor.setInitialCursor();
       },
       onFormatButtonClick: handleFormatButtonClick,
-      toggleBold: () => mounted.editor.change((c) => c.toggleMark("strong")),
-      toggleItalic: () => mounted.editor.change((c) => c.toggleMark("emphasis")),
-      toggleCode: () => mounted.editor.change((c) => c.toggleMark("code")),
-      toggleStrikethrough: () => mounted.editor.change((c) => c.toggleMark("strike")),
+      toggleBold: () => mounted.editor.change((c) => c.setMark("strong")),
+      toggleItalic: () => mounted.editor.change((c) => c.setMark("emphasis")),
+      toggleCode: () => mounted.editor.change((c) => c.setMark("code")),
+      toggleStrikethrough: () =>
+        mounted.editor.change((c) => c.setMark("strike")),
     };
 
     window.CypherEditorCallbacks = editorMethods;
@@ -2109,7 +2156,7 @@ function EditorSurface({
         await editor.paste();
         break;
       case "selectAll":
-        editor.change((c) => c.selectAll());
+        editor.change((c) => c.select({ from: "start", to: "end" }));
         break;
     }
     // The menu's own onClose (fired right after the item action) clears the
@@ -2255,7 +2302,7 @@ function EditorSurface({
             label: t("contextMenu.bold", "Bold"),
             icon: <Bold size={16} />,
             action: () =>
-              mountedRef.current?.editor.change((c) => c.toggleMark("strong")),
+              mountedRef.current?.editor.change((c) => c.setMark("strong")),
             active: isBold,
           },
           {
@@ -2263,7 +2310,7 @@ function EditorSurface({
             label: t("contextMenu.italic", "Italic"),
             icon: <Italic size={16} />,
             action: () =>
-              mountedRef.current?.editor.change((c) => c.toggleMark("emphasis")),
+              mountedRef.current?.editor.change((c) => c.setMark("emphasis")),
             active: isItalic,
           },
           {
@@ -2271,7 +2318,7 @@ function EditorSurface({
             label: t("contextMenu.code", "Code"),
             icon: <Code size={16} />,
             action: () =>
-              mountedRef.current?.editor.change((c) => c.toggleMark("code")),
+              mountedRef.current?.editor.change((c) => c.setMark("code")),
             active: isCode,
           },
           {
@@ -2279,7 +2326,7 @@ function EditorSurface({
             label: t("contextMenu.strikethrough", "Strikethrough"),
             icon: <Strikethrough size={16} />,
             action: () =>
-              mountedRef.current?.editor.change((c) => c.toggleMark("strike")),
+              mountedRef.current?.editor.change((c) => c.setMark("strike")),
             active: isStrikethrough,
           },
           {
@@ -2486,19 +2533,21 @@ function EditorSurface({
           onUndo={() => mountedRef.current?.editor.undo()}
           onRedo={() => mountedRef.current?.editor.redo()}
           onToggleBold={() =>
-            mountedRef.current?.editor.change((c) => c.toggleMark("strong"))
+            mountedRef.current?.editor.change((c) => c.setMark("strong"))
           }
           onToggleItalic={() =>
-            mountedRef.current?.editor.change((c) => c.toggleMark("emphasis"))
+            mountedRef.current?.editor.change((c) => c.setMark("emphasis"))
           }
           onToggleCode={() =>
-            mountedRef.current?.editor.change((c) => c.toggleMark("code"))
+            mountedRef.current?.editor.change((c) => c.setMark("code"))
           }
           onToggleStrikethrough={() =>
-            mountedRef.current?.editor.change((c) => c.toggleMark("strike"))
+            mountedRef.current?.editor.change((c) => c.setMark("strike"))
           }
           onSetBlockType={(type) =>
-            mountedRef.current?.editor.change((c) => c.setBlock(type as any))
+            mountedRef.current?.editor.change((c) =>
+              c.setNode({ type: type as any }),
+            )
           }
           onDismissKeyboard={() => mountedRef.current?.blurInput()}
         />

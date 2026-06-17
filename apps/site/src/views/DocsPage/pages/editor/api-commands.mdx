@@ -10,31 +10,51 @@ import { Callout, PropsTable } from "../../docsComponents";
 
 ```ts
 // one mark toggle
-editor.change((c) => c.toggleMark("strong"));
+editor.change((c) => c.setMark("strong"));
 
 // several edits, still ONE undo step
 const changed = editor.change((c) =>
-  c.setBlock("heading", { level: 1 }).insertText("Untitled"),
+  c.setNode({ type: "heading", level: 1 }).insertText("Untitled"),
 );
 ```
 
 A method whose target is missing or invalid is a silent no-op — it queues nothing, so a `change` that ends up empty simply returns `false`.
 
+<h2 id="targets">Targets: DocPoint & DocRange</h2>
+
+Every `ChangeApi` method takes an **optional target** that defaults to the live caret/selection — so the common case stays terse (`insertText("x")`, `setMark("strong")`), while a plugin can act at an explicit, CRDT-stable position. The same `DocPoint`/`DocRange` types are what the [read API](/docs/editor/api-editor) returns, so you read a position and hand it straight back to a mutation.
+
+<PropsTable cols={["Type", "Shape", "Notes"]} rows={[
+  { name: "DocPoint", type: '"caret" | "start" | "end" | { block, offset? } | { block, side }', desc: "A single point. Relative anchors resolve against the live state; absolute { block, offset } is stable across concurrent edits — block is a CRDT id, offset is local to that block's text (clamped, defaults to 0). { block, side: \"before\" | \"after\" } is a block edge." },
+  { name: "DocRange", type: '"selection" | DocPoint | { from, to }', desc: "A span. Defaults to the live selection. A bare DocPoint is a collapsed range; { from, to } is explicit and must resolve to a single block for the inline methods (cross-block resolves to a no-op)." },
+]} />
+
+```ts
+// type at the caret (default target)
+editor.change((c) => c.insertText("hi"));
+
+// replace an explicit, single-block range — addressed by stable block id
+editor.change((c) =>
+  c.insertText("world", {
+    from: { block: id, offset: 0 },
+    to: { block: id, offset: 5 },
+  }),
+);
+```
+
 <h2 id="api">The ChangeApi</h2>
 
 <PropsTable cols={["Method", "Signature", "Description"]} rows={[
-  { name: "toggleMark", type: "(name: MarkName) => this", desc: "Add or remove a togglable inline mark across the selection (or the pending caret format): strong, emphasis, strike, code." },
-  { name: "setBlock", type: "(type, attrs?) => this", desc: 'Convert the current block to a textual type — paragraph, heading (with { level: 1|2|3 }), or a list type.' },
-  { name: "insertText", type: "(text: string) => this", desc: "Insert text at the caret, replacing any selection." },
-  { name: "selectAll", type: "() => this", desc: "Select the whole document." },
-  { name: "setNodeAttrs", type: "(blockId, attrs) => this", desc: "Set one or more attributes on a block by id (one block_set op per field, validated against the block type)." },
-  { name: "deleteNode", type: "(blockId) => this", desc: "Delete a block by id (tombstoned, so undo restores it). An empty paragraph replaces the last visible block." },
-  { name: "replaceInlineRange", type: "(blockId, start, end, text, mark?) => this", desc: "Replace the inline range [start, end) with text, optionally applying one inline mark to the inserted run. Empty text deletes." },
-  { name: "deleteInlineRange", type: "(blockId, start, end) => this", desc: "Delete the inline range [start, end), caret where it began." },
-  { name: "setMarkRange", type: "(blockId, start, end, mark, active?) => this", desc: "Apply (default) or remove an inline mark over an existing range, leaving text untouched. The primitive for attrs-carrying marks (link url, inline math) that toggleMark can't apply." },
+  { name: "insertText", type: "(text, range?, mark?) => this", desc: "Insert text, replacing range (default: selection). insertText(\"x\") types at the caret, inheriting the pending caret format; an explicit range replaces it. mark optionally applies one inline mark to the inserted run." },
+  { name: "deleteRange", type: "(range?) => this", desc: "Delete range (default: selection — may span blocks). An explicit DocRange must be within one block; the caret lands where the range began." },
+  { name: "setMark", type: "(name, opts?) => this", desc: "Apply / remove / toggle an inline mark. With no options it toggles across the selection (the bold/italic case). opts: { active?, attrs?, range? } — active forces apply/remove, attrs carries per-mark data (a link url), range targets an explicit single-block span." },
+  { name: "insertNode", type: "(block, at?) => this", desc: "Insert a new block at at (a block-edge DocPoint; default: after the caret block). block.type is required; an id is generated when absent and extra own attrs become block_set ops. Text isn't seeded — insert empty, then fill." },
+  { name: "setNode", type: "(attrs, at?) => this", desc: "Reconcile the block at at (default: caret block) toward attrs. type triggers a structural conversion (heading sugar via level, void blocks clear text + get a trailing paragraph); other attrs are set one block_set per field. Folds the former setBlock + setNodeAttrs." },
+  { name: "deleteNode", type: "(at?) => this", desc: "Delete the block at at (default: caret block); tombstoned, so undo restores it. An empty paragraph replaces the last visible block." },
+  { name: "select", type: "(target) => this", desc: "Position the caret/selection as part of this change. A collapsed target places a caret; a span selects it. Compose: c.insertText(\"x\").select(\"end\"). \"Select all\" is select({ from: \"start\", to: \"end\" })." },
 ]} />
 
-<Callout kind="note" title="Togglable vs data-carrying marks.">`toggleMark` works for the built-in togglable marks (`strong`, `emphasis`, `strike`, `code`) and any custom toggle mark. `link` and `math` are valid marks but carry data (a url / LaTeX) on `mark.attrs`, so they're applied through `setMarkRange` instead — `toggleMark` is a no-op for them.</Callout>
+<Callout kind="note" title="Togglable vs data-carrying marks.">`setMark(name)` with no options toggles the built-in togglable marks (`strong`, `emphasis`, `strike`, `code`) and any custom toggle mark across the selection. `link` and `math` carry data (a url / LaTeX) on `attrs`, so apply them with an explicit range and attrs — `setMark("link", { attrs: { url }, range })` — and remove with `{ active: false, range }`.</Callout>
 
 <h2 id="canchange">canChange(fn) — dry runs</h2>
 
@@ -42,7 +62,7 @@ A method whose target is missing or invalid is a silent no-op — it queues noth
 
 ```ts
 // is there anything to turn into a heading right now?
-const enabled = editor.canChange((c) => c.setBlock("heading", { level: 1 }));
+const enabled = editor.canChange((c) => c.setNode({ type: "heading", level: 1 }));
 toolbarButton.disabled = !enabled;
 ```
 
@@ -53,7 +73,7 @@ An *action* is a reusable mutation: a plain function over the `ChangeApi`, `(c) 
 ```ts
 import type { EditorAction } from "@cypherkit/editor";
 
-const title: EditorAction = (c) => c.setBlock("heading", { level: 1 });
+const title: EditorAction = (c) => c.setNode({ type: "heading", level: 1 });
 const stamp: EditorAction = (c) => c.insertText(" ✶");
 
 editor.run(title, stamp);          // both, one undo step

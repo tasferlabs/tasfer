@@ -79,7 +79,7 @@ function Toolbar({ editor }: { editor: CypherEditor | null }) {
   return (
     <button
       data-active={active.has("strong")}
-      onClick={() => editor?.change((c) => c.toggleMark("strong"))}
+      onClick={() => editor?.change((c) => c.setMark("strong"))}
     >
       Bold
     </button>

@@ -50,7 +50,7 @@ const buttons = [
 for (const b of buttons) {
   const el = document.createElement("button");
   el.textContent = b.label;
-  el.onclick = () => editor.change((c) => c.toggleMark(b.mark));
+  el.onclick = () => editor.change((c) => c.setMark(b.mark));
   toolbar.append(el);
   b.el = el;
 }

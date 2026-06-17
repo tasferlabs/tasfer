@@ -90,6 +90,9 @@ export {
 export type {
   ChangeApi,
   ChangeTransaction,
+  DocNode,
+  DocPoint,
+  DocRange,
   EditorApi as Editor,
   EditorAction,
   EditorEvent,

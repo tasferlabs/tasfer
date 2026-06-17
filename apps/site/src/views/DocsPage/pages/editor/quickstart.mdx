@@ -38,12 +38,12 @@ activeMarks.has("strong");    // is bold active at the cursor?
 You never mutate the document directly. You call `change(fn)`, which hands you a `ChangeApi`: each method queues a transactional edit (it applies cleanly to the CRDT or no-ops) and chains. The whole callback commits as **one undoable step**, and `change` returns whether anything changed.
 
 ```ts
-editor.change((c) => c.toggleMark("strong"));
-editor.change((c) => c.setBlock("heading", { level: 2 }));
+editor.change((c) => c.setMark("strong"));
+editor.change((c) => c.setNode({ type: "heading", level: 2 }));
 
 // several edits, one undo step
 editor.change((c) =>
-  c.toggleMark("strong").toggleMark("emphasis").insertText(" ✶"),
+  c.setMark("strong").setMark("emphasis").insertText(" ✶"),
 );
 ```
 
