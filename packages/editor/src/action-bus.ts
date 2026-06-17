@@ -177,6 +177,19 @@ export interface ActionBus {
     priority?: number,
   ): () => void;
   /**
+   * Register a {@link StateHandler} for a {@link StateAction} — the typed
+   * sibling of {@link register} for the {@link dispatchState} path (the handler
+   * receives the threaded `state` plus the payload and returns a
+   * {@link StateResult}). Same priority / claim semantics; returns an
+   * unsubscribe function. Prefer this over casting a state handler through
+   * {@link register}.
+   */
+  registerState<P>(
+    action: StateAction<P>,
+    handler: StateHandler<P>,
+    priority?: number,
+  ): () => void;
+  /**
    * Run `action`'s handlers high→low priority, stopping at the first that
    * returns `true`. Returns whether any handler claimed it.
    */
@@ -187,12 +200,17 @@ export interface ActionBus {
    * transform — accumulating every emitted op — and return the resulting
    * `{ state, ops }`. This is the pure-functional sibling of {@link dispatch}:
    * the event pipeline calls it with the working state and commits the result.
+   *
+   * `claimed` reports whether a handler claimed the action (`handled: true`), so
+   * the default transform was skipped. Callers that drive platform-specific
+   * fallbacks use it (e.g. the touch tap path runs its own caret placement only
+   * when no node/mark claimed the tap).
    */
   dispatchState<P>(
     action: StateAction<P>,
     state: EditorState,
     ...args: DispatchArgs<P>
-  ): StateResult;
+  ): StateResult & { claimed: boolean };
   /**
    * Registered handlers for `action`, high→low priority. For drivers that
    * invoke handlers with a non-standard signature — mutation actions thread a
@@ -208,26 +226,45 @@ interface Registered {
 
 export function createActionBus(): ActionBus {
   const handlers = new Map<Action<unknown>, Registered[]>();
+  // Shared registration body for both `register` (payload handlers, the
+  // `dispatch` path) and `registerState` (state handlers, the `dispatchState`
+  // path). Both kinds live in one list keyed by action; the dispatch method that
+  // walks them knows which shape to call.
+  const add = (
+    action: Action<unknown>,
+    handler: ActionHandler<unknown>,
+    priority: number,
+  ): (() => void) => {
+    const list = handlers.get(action) ?? [];
+    const entry: Registered = { handler, priority };
+    // Keep the list sorted high→low so dispatch is a straight walk. A new
+    // entry goes before the first strictly-lower one — so equal priorities
+    // preserve registration order (the new one runs after existing peers).
+    const at = list.findIndex((e) => e.priority < priority);
+    if (at === -1) list.push(entry);
+    else list.splice(at, 0, entry);
+    handlers.set(action, list);
+    return () => {
+      const arr = handlers.get(action);
+      if (!arr) return;
+      const i = arr.indexOf(entry);
+      if (i > -1) arr.splice(i, 1);
+    };
+  };
   return {
     register(action, handler, priority = 0) {
-      const list = handlers.get(action) ?? [];
-      const entry: Registered = {
-        handler: handler as ActionHandler<unknown>,
+      return add(
+        action as Action<unknown>,
+        handler as ActionHandler<unknown>,
         priority,
-      };
-      // Keep the list sorted high→low so dispatch is a straight walk. A new
-      // entry goes before the first strictly-lower one — so equal priorities
-      // preserve registration order (the new one runs after existing peers).
-      const at = list.findIndex((e) => e.priority < priority);
-      if (at === -1) list.push(entry);
-      else list.splice(at, 0, entry);
-      handlers.set(action, list);
-      return () => {
-        const arr = handlers.get(action);
-        if (!arr) return;
-        const i = arr.indexOf(entry);
-        if (i > -1) arr.splice(i, 1);
-      };
+      );
+    },
+    registerState(action, handler, priority = 0) {
+      return add(
+        action as Action<unknown>,
+        handler as unknown as ActionHandler<unknown>,
+        priority,
+      );
     },
     dispatch(action, ...args) {
       const list = handlers.get(action);
@@ -264,7 +301,7 @@ export function createActionBus(): ActionBus {
         const r = action.transform(working.state, payload as never);
         working = { state: r.state, ops: working.ops.concat(r.ops) };
       }
-      return working;
+      return { ...working, claimed };
     },
     handlersFor(action) {
       const list = handlers.get(action as Action<unknown>) ?? [];

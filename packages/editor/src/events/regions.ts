@@ -69,6 +69,25 @@ export interface RegionDragSpec {
   /** `p` is null when the release position is unknown (e.g. window-level mouseup). */
   onEnd(p: RegionPoint | null, ctx: RegionCtx): RegionResult;
   onCancel(ctx: RegionCtx): EditorState;
+  /**
+   * Optional: while this drag owns the pointer and edge auto-scroll is active,
+   * the frame loop calls this each tick (before scrolling) to ask whether the
+   * drag wants to block further scrolling — e.g. an image resize stops scrolling
+   * down once the image is at its natural max height. Keeps the auto-scroll
+   * *mechanics* (applyEdgeScroll) in the event layer while the drag owns the
+   * *decision*. `p` is the last pointer position (canvas coords).
+   */
+  onAutoScrollTick?(p: RegionPoint, ctx: RegionCtx): { blockScroll: boolean };
+  /**
+   * Optional: called after the frame loop actually scrolled by `scrollDelta`
+   * (px), so the drag can re-apply itself against the new scroll position
+   * (an image resize re-derives its dimensions). Returns the updated state.
+   */
+  onAutoScrollScrolled?(
+    p: RegionPoint,
+    scrollDelta: number,
+    ctx: RegionCtx,
+  ): EditorState;
 }
 
 export interface Region {

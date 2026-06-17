@@ -40,7 +40,6 @@ import type {
   EditorState,
   EditorStyles,
   NodeOverlay,
-  Operation,
   Position,
   RenderedBlock,
   RenderedLine,
@@ -162,32 +161,6 @@ export interface NodeAtomicHit {
   readonly height: number;
 }
 
-/** Context for {@link Node.onPointerMove} — desktop pointer hover updates. */
-export interface NodePointerMoveCtx {
-  readonly state: EditorState;
-  readonly viewport: ViewportState;
-  /** Pointer position in canvas coordinates. */
-  readonly canvasX: number;
-  readonly canvasY: number;
-  /** The topmost atomic block (any type) under the pointer, or null. */
-  readonly atomicBlock: NodeAtomicHit | null;
-  /** The text caret position under the pointer, or null. */
-  readonly textPosition: Position | null;
-}
-
-/** Context for {@link Node.onTextClick} — a click that resolved to a caret. */
-export interface NodeTextClickCtx {
-  readonly state: EditorState;
-  readonly viewport: ViewportState;
-  /** Pointer position in canvas coordinates. */
-  readonly canvasX: number;
-  readonly canvasY: number;
-  /** The caret position this click resolved to. */
-  readonly position: Position;
-  /** The active menu BEFORE this click (the handler clears it early). */
-  readonly previousMenu: EditorState["ui"]["activeMenu"];
-}
-
 /**
  * Base class for a block type's on-canvas behavior. One instance per type,
  * registered in the node registry. Generic over the concrete block shape so
@@ -247,27 +220,6 @@ export abstract class Node<B extends Block = Block> {
    * bound by id in the event layer, keeping nodes presentation-only.
    */
   regions?(c: NodeRegionCtx): readonly NodeHitRegion[];
-
-  /**
-   * Optional: update this node's hover state on desktop pointer move. The
-   * engine resolves the atomic block + text position under the pointer once and
-   * calls every node's hook, threading state through; a node returns new state,
-   * clearing its own hover when the pointer is not over it. Co-locates hover
-   * detection with the node that owns the hover UI (ImageNode → resize-handle
-   * hover; MathNode → block + inline-math chip hover).
-   */
-  onPointerMove?(c: NodePointerMoveCtx): EditorState;
-
-  /**
-   * Optional: claim a text click before the engine places the caret. Called for
-   * each node with the resolved caret position; returning a result pre-empts the
-   * default caret placement (the engine returns it as-is), returning null falls
-   * through to the next node / default behavior. Used by MathNode to open the
-   * inline-math editor when the click lands on an inline-math chip.
-   */
-  onTextClick?(
-    c: NodeTextClickCtx,
-  ): { state: EditorState; ops: Operation[] } | null;
 
   /**
    * Optional: the host-rendered overlays this block wants right now (an upload

@@ -88,6 +88,11 @@ export function createInitialState(
   for (const node of nodes.nodeList()) {
     node.registerActions?.(actionBus);
   }
+  // Marks register after nodes (claims resolve by priority, not loop order — so
+  // e.g. LinkMark's Ctrl+click at 100 still pre-empts a node click claim at 50).
+  for (const mark of marks.markList()) {
+    mark.registerActions?.(actionBus);
+  }
 
   return {
     CRDTbinding,
@@ -114,7 +119,6 @@ export function createInitialState(
       imageHover: null,
       linkHover: null,
       nodeViewState: {},
-      imageDrag: null,
       selectionHandleDrag: null,
       cursorDrag: null,
       autoCreatedParagraph: null,

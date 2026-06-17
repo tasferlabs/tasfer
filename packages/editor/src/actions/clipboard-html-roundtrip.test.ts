@@ -13,8 +13,8 @@ import type { Block, Page } from "../serlization/loadPage";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { createCRDTbinding } from "../sync/sync";
-import { describe, expect, it } from "vitest";
 import { buildClipboardPayload, parseHTMLToBlocks } from "./clipboard";
+import { describe, expect, it } from "vitest";
 
 function run(text: string) {
   return [{ peerId: "peer", startCounter: 0, text }];

@@ -29,7 +29,8 @@
  * an asset reference becomes (kept as-is, bundle-relative path, data URI).
  */
 
-import { stateAction } from "../action-bus";
+import { type ActionBus, stateAction } from "../action-bus";
+import { POINTER_MOVE, TEXT_CLICK } from "../actions/pointer-actions";
 import { EDGE_SCROLL_THRESHOLD, IMAGE_DEFAULT_HEIGHT } from "../constants";
 import {
   startAutoScroll,
@@ -43,7 +44,6 @@ import type {
   NodeHitRegion,
   NodeLayoutCtx,
   NodePaintCtx,
-  NodePointerMoveCtx,
   NodeRegionCtx,
   Point,
 } from "../rendering/nodes/Node";
@@ -70,7 +70,6 @@ import type {
   CRDTbinding,
   EditorState,
   EditorStyles,
-  ImageDragState,
   ImageHoverState,
   Operation,
   ViewportState,
@@ -280,11 +279,85 @@ export function isImageDefault(block: Image): boolean {
   );
 }
 
+/** The resolved start descriptor of an in-progress resize drag. Lives on the
+ *  captured hit (per-drag, node-owned) — there is no global UI slot for it. */
+interface ImageDragStart {
+  handle: "left" | "right" | "bottom";
+  startX: number;
+  startY: number;
+  startWidth: number | "full";
+  startHeight: number;
+  startObjectFit: "cover" | "contain";
+}
+
 /** Hit data the image-resize region's hitTest returns to its drag spec. */
 interface ImageResizeHit {
   blockIndex: number;
   box: { x: number; y: number; width: number; height: number };
   handle: "left" | "right" | "bottom";
+  /** Filled in `onStart`; read by `onMove`/`onEnd`/`onCancel` + the auto-scroll
+   *  hooks off `ctx.session.captured.hit`. Absent during pure hover hit-tests. */
+  start?: ImageDragStart;
+}
+
+/**
+ * The image node's transient per-block view-state (the value stored at
+ * `ui.nodeViewState[block.id]`). `uploadStatus` is set host-side by the upload
+ * flow; `resizeHandle` is set by the engine while a resize drag is in progress
+ * (which handle is active) so the renderer can highlight it — the render-visible
+ * replacement for the former `ui.imageDrag`. Writers MUST merge (not overwrite)
+ * so the two concerns don't clobber each other.
+ */
+export interface ImageViewState {
+  uploadStatus?: "uploading" | "error";
+  resizeHandle?: "left" | "right" | "bottom";
+}
+
+/** Merge a resize-handle highlight into a block's `nodeViewState` slot (or clear
+ *  it with `handle: null`), preserving any host-set `uploadStatus`. */
+function setImageResizeHandle(
+  state: EditorState,
+  blockId: string,
+  handle: "left" | "right" | "bottom" | null,
+): EditorState {
+  const prev = state.ui.nodeViewState[blockId] as ImageViewState | undefined;
+  const next: ImageViewState = { ...prev };
+  if (handle === null) delete next.resizeHandle;
+  else next.resizeHandle = handle;
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      nodeViewState: { ...state.ui.nodeViewState, [blockId]: next },
+    },
+  };
+}
+
+/**
+ * Whether a bottom-handle resize should stop scrolling down: once a cover-mode
+ * image is at its natural max height, scrolling further would chase its own
+ * resize. Shared by the drag's immediate move and the auto-scroll tick.
+ */
+function shouldBlockBottomScroll(
+  block: Image,
+  start: ImageDragStart,
+  pointerY: number,
+  viewport: ViewportState,
+): boolean {
+  if (start.handle !== "bottom") return false;
+  if ((block.objectFit ?? "cover") !== "cover" || !block.url) return false;
+  const cachedImage = imageCache.get(block.url);
+  if (!cachedImage || !cachedImage.complete) return false;
+  const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
+  const containerWidth =
+    typeof block.width === "number" ? block.width : viewport.width;
+  const maxHeightForRatio = containerWidth / imgAspectRatio;
+  const currentHeight = start.startHeight + (pointerY - start.startY);
+  const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
+  const isNearBottomEdge =
+    pointerY > viewport.height - EDGE_SCROLL_THRESHOLD ||
+    pointerY > viewport.height;
+  return isAtMaxHeight && isNearBottomEdge;
 }
 
 export class ImageNode extends AtomicNode<Image> {
@@ -428,58 +501,43 @@ export class ImageNode extends AtomicNode<Image> {
         },
         drag: {
           onStart(hit, p, ctx) {
-            const { blockIndex, box } = hit as ImageResizeHit;
+            const h = hit as ImageResizeHit;
             // Tolerance 12 covers both pointer types — the hit test already
             // applied the per-pointer slop, this only re-derives the handle.
-            const dragState = startImageHandleDrag(
+            const started = startImageHandleDrag(
               ctx.state,
-              { blockIndex, ...box },
+              { blockIndex: h.blockIndex, ...h.box },
               p.x,
               p.y,
               12,
             );
-            if (!dragState) return null;
+            if (!started) return null;
+            // Stash the resolved start descriptor on the captured hit so the
+            // move/end/auto-scroll handlers read it without a global UI slot.
+            h.start = started.start;
             return {
-              state: withScrollbarInteraction(withStoppedMomentum(dragState)),
+              state: withScrollbarInteraction(
+                withStoppedMomentum(started.state),
+              ),
             };
           },
           onMove(p, ctx) {
             const { state, viewport, session } = ctx;
-            if (!state.ui.imageDrag) return { state };
-            const { blockIndex, handle } = state.ui.imageDrag;
-            const block = state.document.page.blocks[blockIndex];
-            if (!block || block.deleted) return { state };
+            const h = session.captured?.hit as ImageResizeHit | undefined;
+            if (!h?.start) return { state };
+            const block = state.document.page.blocks[h.blockIndex];
+            if (!block || block.deleted || block.type !== "image") {
+              return { state };
+            }
 
             // Bottom handle: once the image is at its natural max height, stop
             // auto-scrolling down (otherwise the drag chases its own scroll).
-            let shouldBlockBottomScroll = false;
-            const objectFit =
-              block.type === "image" ? (block.objectFit ?? "cover") : "cover";
-            if (
-              handle === "bottom" &&
-              objectFit === "cover" &&
-              block.type === "image" &&
-              block.url
-            ) {
-              const cachedImage = imageCache.get(block.url);
-              if (cachedImage && cachedImage.complete) {
-                const imgAspectRatio =
-                  cachedImage.naturalWidth / cachedImage.naturalHeight;
-                const containerWidth =
-                  typeof block.width === "number"
-                    ? block.width
-                    : viewport.width;
-                const maxHeightForRatio = containerWidth / imgAspectRatio;
-                const currentHeight =
-                  state.ui.imageDrag.startHeight +
-                  (p.y - state.ui.imageDrag.startY);
-                const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
-                const isNearBottomEdge =
-                  p.y > viewport.height - EDGE_SCROLL_THRESHOLD ||
-                  p.y > viewport.height;
-                shouldBlockBottomScroll = isAtMaxHeight && isNearBottomEdge;
-              }
-            }
+            const blockBottom = shouldBlockBottomScroll(
+              block,
+              h.start,
+              p.y,
+              viewport,
+            );
 
             // Edge auto-scroll: record the pointer so the frame loop in
             // handleEvents keeps scrolling (and resizing) while the pointer
@@ -490,7 +548,7 @@ export class ImageNode extends AtomicNode<Image> {
               p.y > viewport.height;
             if (
               (isNearTopEdge || isNearBottomEdge) &&
-              !(shouldBlockBottomScroll && isNearBottomEdge)
+              !(blockBottom && isNearBottomEdge)
             ) {
               startAutoScroll(session);
               session.autoScroll.lastPointerX = p.x;
@@ -501,13 +559,22 @@ export class ImageNode extends AtomicNode<Image> {
 
             return {
               state: withScrollbarInteraction(
-                updateImageHandleDrag(state, viewport, p.x, p.y),
+                updateImageHandleDrag(
+                  state,
+                  viewport,
+                  p.x,
+                  p.y,
+                  h.blockIndex,
+                  h.start,
+                ),
               ),
             };
           },
           onEnd(_p, ctx) {
             stopAutoScroll(ctx.session);
-            const result = endImageHandleDrag(ctx.state);
+            const h = ctx.session.captured?.hit as ImageResizeHit | undefined;
+            if (!h?.start) return { state: ctx.state };
+            const result = endImageHandleDrag(ctx.state, h.blockIndex, h.start);
             return {
               state: withScrollbarInteraction(result.state),
               ops: result.ops,
@@ -515,7 +582,46 @@ export class ImageNode extends AtomicNode<Image> {
           },
           onCancel(ctx) {
             stopAutoScroll(ctx.session);
-            return cancelImageHandleDrag(ctx.state);
+            const h = ctx.session.captured?.hit as ImageResizeHit | undefined;
+            if (!h) return ctx.state;
+            return cancelImageHandleDrag(ctx.state, h.blockIndex);
+          },
+          onAutoScrollTick(p, ctx) {
+            const h = ctx.session.captured?.hit as ImageResizeHit | undefined;
+            const block = h
+              ? ctx.state.document.page.blocks[h.blockIndex]
+              : undefined;
+            if (
+              !h?.start ||
+              !block ||
+              block.deleted ||
+              block.type !== "image"
+            ) {
+              return { blockScroll: false };
+            }
+            return {
+              blockScroll: shouldBlockBottomScroll(
+                block,
+                h.start,
+                p.y,
+                ctx.viewport,
+              ),
+            };
+          },
+          onAutoScrollScrolled(p, scrollDelta, ctx) {
+            const h = ctx.session.captured?.hit as ImageResizeHit | undefined;
+            if (!h?.start) return ctx.state;
+            // Shift the drag origin by the scroll so the image keeps resizing
+            // while the viewport scrolls under a stationary pointer.
+            h.start = { ...h.start, startY: h.start.startY - scrollDelta };
+            return updateImageHandleDrag(
+              ctx.state,
+              ctx.viewport,
+              p.x,
+              p.y,
+              h.blockIndex,
+              h.start,
+            );
           },
         },
       },
@@ -523,43 +629,88 @@ export class ImageNode extends AtomicNode<Image> {
   }
 
   /**
-   * Desktop hover: highlight the image (and any resize handle under the
-   * pointer) when the pointer is over an image block; clear otherwise. Owns the
-   * `ui.imageHover` slot — dispatches {@link SET_IMAGE_HOVER}.
+   * Register the image node's pointer/click handlers:
+   *  - `POINTER_MOVE` (observe, priority 0) — highlight the image (and any resize
+   *    handle under the pointer) when over an image block; clear otherwise. Owns
+   *    the `ui.imageHover` slot via {@link SET_IMAGE_HOVER}.
+   *  - `TEXT_CLICK` (claim, priority 50) — a click/tap that resolved to a caret on
+   *    a *trailing* image block (its flow area / below all content, not the image
+   *    visual — that's handled by `activate`) appends a paragraph below it. This is
+   *    the generic replacement for the old `block.type === "image"` branches in
+   *    the touch handler, and brings desktop click to parity with touch.
    */
-  onPointerMove(c: NodePointerMoveCtx): EditorState {
-    const { state, atomicBlock, canvasX, canvasY } = c;
-    const block =
-      atomicBlock &&
-      state.document.page.blocks[atomicBlock.blockIndex]?.type === "image"
-        ? atomicBlock
-        : null;
-    if (!block) {
-      return state.actionBus.dispatchState(SET_IMAGE_HOVER, state, {
-        imageHover: null,
-      }).state;
-    }
-    const imageBlock = state.document.page.blocks[block.blockIndex] as Image;
-    const objectFit = imageBlock.objectFit ?? "cover";
-    const hoveredHandle = getDragHandleAtPoint(
-      canvasX,
-      canvasY,
-      block.x,
-      block.y,
-      block.width,
-      block.height,
-      objectFit,
-    );
-    return state.actionBus.dispatchState(SET_IMAGE_HOVER, state, {
-      imageHover: {
-        blockIndex: block.blockIndex,
-        x: block.x,
-        y: block.y,
-        width: block.width,
-        height: block.height,
-        hoveredHandle,
+  registerActions(bus: ActionBus): void {
+    bus.registerState(
+      POINTER_MOVE,
+      (state, { atomicBlock, canvasX, canvasY }) => {
+        const block =
+          atomicBlock &&
+          state.document.page.blocks[atomicBlock.blockIndex]?.type === "image"
+            ? atomicBlock
+            : null;
+        if (!block) {
+          return {
+            state: state.actionBus.dispatchState(SET_IMAGE_HOVER, state, {
+              imageHover: null,
+            }).state,
+            ops: [],
+          };
+        }
+        const imageBlock = state.document.page.blocks[
+          block.blockIndex
+        ] as Image;
+        const objectFit = imageBlock.objectFit ?? "cover";
+        const hoveredHandle = getDragHandleAtPoint(
+          canvasX,
+          canvasY,
+          block.x,
+          block.y,
+          block.width,
+          block.height,
+          objectFit,
+        );
+        return {
+          state: state.actionBus.dispatchState(SET_IMAGE_HOVER, state, {
+            imageHover: {
+              blockIndex: block.blockIndex,
+              x: block.x,
+              y: block.y,
+              width: block.width,
+              height: block.height,
+              hoveredHandle,
+            },
+          }).state,
+          ops: [],
+        };
       },
-    }).state;
+      0,
+    );
+
+    bus.registerState(
+      TEXT_CLICK,
+      (state, { position }) => {
+        if (state.ui.mode === "readonly") return;
+        const blocks = state.document.page.blocks;
+        const block = blocks[position.blockIndex];
+        if (!block || block.type !== "image") return;
+        // Only the trailing visible block creates a paragraph below it.
+        const visible = state.view.visibleBlocks;
+        const lastVisibleId =
+          visible.length > 0 ? visible[visible.length - 1].id : null;
+        if (!lastVisibleId || block.id !== lastVisibleId) return;
+        const created = state.actionBus.dispatchState(
+          CREATE_PARAGRAPH_BELOW_IMAGE,
+          state,
+          {
+            afterBlock: block,
+            afterBlockIndex: position.blockIndex,
+            binding: state.CRDTbinding,
+          },
+        );
+        return { state: created.state, ops: created.ops, handled: true };
+      },
+      50,
+    );
   }
 
   /**
@@ -790,20 +941,21 @@ export class ImageNode extends AtomicNode<Image> {
   ): void {
     const { state, blockIndex } = c;
     const block = c.block as Image;
-    const shouldRender =
-      ((state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex) ||
-        (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex)) &&
-      !!block.url;
+    // The active resize handle (while dragging) lives in this block's transient
+    // view-state; hover handles live in `ui.imageHover`.
+    const draggingHandle = (
+      state.ui.nodeViewState[block.id] as ImageViewState | undefined
+    )?.resizeHandle;
+    const isHovering =
+      !!state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex;
+    const shouldRender = (isHovering || !!draggingHandle) && !!block.url;
     if (!shouldRender) return;
 
     let hoveredHandle: "left" | "right" | "bottom" | null = null;
-    if (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex) {
-      hoveredHandle = state.ui.imageDrag.handle;
-    } else if (
-      state.ui.imageHover &&
-      state.ui.imageHover.blockIndex === blockIndex
-    ) {
-      hoveredHandle = state.ui.imageHover.hoveredHandle;
+    if (draggingHandle) {
+      hoveredHandle = draggingHandle;
+    } else if (isHovering) {
+      hoveredHandle = state.ui.imageHover!.hoveredHandle;
     }
 
     renderImageDragHandles(
@@ -1049,31 +1201,27 @@ function renderImageDragHandles(
 // reuses this file's local {@link getDragHandleAtPoint}, avoiding a cycle).
 
 /**
- * Begin an image-resize drag: record the resolved drag descriptor in
- * `ui.imageDrag`. The hit test (which handle was grabbed) and the start
- * dimensions depend on the pointer position and rendered geometry, so the
- * caller ({@link startImageHandleDrag}) resolves them and passes the finished
- * {@link ImageDragState} as the payload — keeping the action a pure state set.
- * Pure UI change, no ops.
+ * Begin an image-resize drag: mark which handle of which block is active in the
+ * block's transient view-state so the renderer highlights it. The drag's start
+ * descriptor itself lives on the captured hit (not state) — this action only
+ * records the render-visible highlight. Pure UI change, no ops.
  */
 export const START_IMAGE_HANDLE_DRAG = stateAction<{
-  imageDrag: ImageDragState;
-}>("start-image-handle-drag", (state, { imageDrag }) => ({
-  state: {
-    ...state,
-    ui: {
-      ...state.ui,
-      imageDrag,
-    },
-  },
-  ops: [],
-}));
+  blockIndex: number;
+  handle: "left" | "right" | "bottom";
+}>("start-image-handle-drag", (state, { blockIndex, handle }) => {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block) return { state, ops: [] };
+  return { state: setImageResizeHandle(state, block.id, handle), ops: [] };
+});
 
-/** Payload for {@link UPDATE_IMAGE_HANDLE_DRAG} — the live pointer + viewport. */
-interface UpdateImageDragPayload {
+/** Payload for {@link UPDATE_IMAGE_HANDLE_DRAG} — the live pointer + viewport
+ *  plus the drag's start descriptor (sourced from the captured hit). */
+interface UpdateImageDragPayload extends ImageDragStart {
   viewport: ViewportState;
   canvasX: number;
   canvasY: number;
+  blockIndex: number;
 }
 
 /**
@@ -1081,17 +1229,17 @@ interface UpdateImageDragPayload {
  * applying the resize math (handle direction, full-width snapping, aspect-ratio
  * height capping) and writing the new width/height/objectFit onto the block.
  * Pure block-dimension update — no ops; the final `block_set`s are emitted by
- * {@link END_IMAGE_HANDLE_DRAG} when the drag releases. No-op when no drag is
- * active or the target block is gone / not an image.
+ * {@link END_IMAGE_HANDLE_DRAG} when the drag releases. No-op when the target
+ * block is gone / not an image.
  */
 export const UPDATE_IMAGE_HANDLE_DRAG = stateAction<UpdateImageDragPayload>(
   "update-image-handle-drag",
-  (state, { viewport, canvasX, canvasY }) => {
-    if (!state.ui.imageDrag) {
-      return { state, ops: [] };
-    }
-
-    const {
+  (
+    state,
+    {
+      viewport,
+      canvasX,
+      canvasY,
       blockIndex,
       handle,
       startX,
@@ -1099,7 +1247,8 @@ export const UPDATE_IMAGE_HANDLE_DRAG = stateAction<UpdateImageDragPayload>(
       startWidth,
       startHeight,
       startObjectFit,
-    } = state.ui.imageDrag;
+    },
+  ) => {
     const block = state.document.page.blocks[blockIndex];
     if (!block || block.deleted) return { state, ops: [] };
 
@@ -1256,9 +1405,10 @@ export const UPDATE_IMAGE_HANDLE_DRAG = stateAction<UpdateImageDragPayload>(
 );
 
 /**
- * Finish an image-resize drag: clear `ui.imageDrag` and emit a `block_set` op
- * for each dimension (width / height / objectFit) that actually changed since
- * the drag began.
+ * Finish an image-resize drag: clear the resize-handle highlight and emit a
+ * `block_set` op for each dimension (width / height / objectFit) that actually
+ * changed since the drag began (the start values come from the captured hit via
+ * the payload).
  *
  * The `!== undefined` guards are load-bearing — a defensive resize-math edge
  * case could leave a dimension unset, and emitting `value: undefined`
@@ -1266,16 +1416,15 @@ export const UPDATE_IMAGE_HANDLE_DRAG = stateAction<UpdateImageDragPayload>(
  * reject on every peer, silently desyncing the local image. They are preserved
  * exactly (see `__fuzz__/image-resize-undefined.test.ts`).
  */
-export const END_IMAGE_HANDLE_DRAG = stateAction(
+export const END_IMAGE_HANDLE_DRAG = stateAction<{
+  blockIndex: number;
+  startWidth: number | "full";
+  startHeight: number;
+  startObjectFit: "cover" | "contain";
+}>(
   "end-image-handle-drag",
-  (state) => {
-    if (!state.ui.imageDrag) {
-      return { state, ops: [] };
-    }
-
+  (state, { blockIndex, startWidth, startHeight, startObjectFit }) => {
     const ops: Operation[] = [];
-    const { blockIndex, startWidth, startHeight, startObjectFit } =
-      state.ui.imageDrag;
     const block = state.document.page.blocks[blockIndex];
 
     if (block && block.type === "image") {
@@ -1325,14 +1474,9 @@ export const END_IMAGE_HANDLE_DRAG = stateAction(
       }
     }
 
+    const blockId = state.document.page.blocks[blockIndex]?.id;
     return {
-      state: {
-        ...state,
-        ui: {
-          ...state.ui,
-          imageDrag: null,
-        },
-      },
+      state: blockId ? setImageResizeHandle(state, blockId, null) : state,
       ops,
     };
   },
@@ -1340,26 +1484,16 @@ export const END_IMAGE_HANDLE_DRAG = stateAction(
 
 /**
  * Cancel an image-resize drag (e.g. pointer cancel) without recording undo:
- * clear `ui.imageDrag` and emit no ops. The in-progress dimension changes
- * {@link UPDATE_IMAGE_HANDLE_DRAG} wrote stay on the block but were never
- * committed as ops, mirroring the previous behavior. No-op when no drag is
- * active.
+ * clear the resize-handle highlight and emit no ops. The in-progress dimension
+ * changes {@link UPDATE_IMAGE_HANDLE_DRAG} wrote stay on the block but were
+ * never committed as ops, mirroring the previous behavior.
  */
-export const CANCEL_IMAGE_HANDLE_DRAG = stateAction(
+export const CANCEL_IMAGE_HANDLE_DRAG = stateAction<{ blockIndex: number }>(
   "cancel-image-handle-drag",
-  (state) => {
-    if (!state.ui.imageDrag) {
-      return { state, ops: [] };
-    }
-
+  (state, { blockIndex }) => {
+    const blockId = state.document.page.blocks[blockIndex]?.id;
     return {
-      state: {
-        ...state,
-        ui: {
-          ...state.ui,
-          imageDrag: null,
-        },
-      },
+      state: blockId ? setImageResizeHandle(state, blockId, null) : state,
       ops: [],
     };
   },
@@ -1438,9 +1572,10 @@ export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
 // resize-handle drag logic is co-located with the image block.
 
 /**
- * Start an image drag resize operation. Returns the updated state if a drag
- * handle was hit, or `null` if none was. `extraTolerance` widens the hit area
- * (mouse vs touch).
+ * Start an image drag resize operation. Returns the updated state plus the
+ * resolved `start` descriptor (which the caller stashes on the captured hit), or
+ * `null` if no drag handle was hit. `extraTolerance` widens the hit area (mouse
+ * vs touch).
  */
 export function startImageHandleDrag(
   state: EditorState,
@@ -1454,7 +1589,7 @@ export function startImageHandleDrag(
   canvasX: number,
   canvasY: number,
   extraTolerance: number = 4,
-): EditorState | null {
+): { state: EditorState; start: ImageDragStart } | null {
   const block = state.document.page.blocks[imageBlock.blockIndex];
   if (!block || block.deleted) return null;
   if (block.type !== "image") {
@@ -1474,58 +1609,79 @@ export function startImageHandleDrag(
   );
 
   if (clickedHandle && block.url) {
-    // Start dragging the handle
-    // Use the displayed dimensions (imageBlock.width/height) instead of stored dimensions (block.width/height)
-    // This ensures that resizing works correctly on mobile when the image was resized on desktop
-    // For 'full' width images, we keep them as 'full'
+    // Use the displayed dimensions (imageBlock.width/height) instead of stored
+    // dimensions (block.width/height) so resizing works correctly on mobile when
+    // the image was resized on desktop. For 'full' width images, keep 'full'.
     const storedWidth = block.width ?? "full";
     const startWidth = storedWidth === "full" ? "full" : imageBlock.width;
     const startHeight = imageBlock.height;
 
-    // The handle hit + start dimensions are pointer-derived; resolve them here
-    // and hand the finished drag descriptor to START_IMAGE_HANDLE_DRAG.
-    return state.actionBus.dispatchState(START_IMAGE_HANDLE_DRAG, state, {
-      imageDrag: {
-        blockIndex: imageBlock.blockIndex,
-        handle: clickedHandle,
-        startX: canvasX,
-        startY: canvasY,
-        startWidth,
-        startHeight,
-        startObjectFit: objectFit,
-      },
+    const start: ImageDragStart = {
+      handle: clickedHandle,
+      startX: canvasX,
+      startY: canvasY,
+      startWidth,
+      startHeight,
+      startObjectFit: objectFit,
+    };
+    // Record the render-visible handle highlight; the start descriptor itself
+    // rides on the captured hit (returned to the caller).
+    const next = state.actionBus.dispatchState(START_IMAGE_HANDLE_DRAG, state, {
+      blockIndex: imageBlock.blockIndex,
+      handle: clickedHandle,
     }).state;
+    return { state: next, start };
   }
 
   return null;
 }
 
-/** Update image dimensions during a drag resize. */
+/** Update image dimensions during a drag resize. `start` is the drag's start
+ *  descriptor (from the captured hit). */
 export function updateImageHandleDrag(
   state: EditorState,
   viewport: ViewportState,
   canvasX: number,
   canvasY: number,
+  blockIndex: number,
+  start: ImageDragStart,
 ): EditorState {
   return state.actionBus.dispatchState(UPDATE_IMAGE_HANDLE_DRAG, state, {
     viewport,
     canvasX,
     canvasY,
+    blockIndex,
+    ...start,
   }).state;
 }
 
 /**
  * End an image drag resize operation, returning the `{ state, ops }` with the
- * `block_set` ops for the dimensions that changed.
+ * `block_set` ops for the dimensions that changed. `start` (from the captured
+ * hit) supplies the pre-drag dimensions to diff against.
  */
-export function endImageHandleDrag(state: EditorState): {
+export function endImageHandleDrag(
+  state: EditorState,
+  blockIndex: number,
+  start: ImageDragStart,
+): {
   state: EditorState;
   ops: Operation[];
 } {
-  return state.actionBus.dispatchState(END_IMAGE_HANDLE_DRAG, state);
+  return state.actionBus.dispatchState(END_IMAGE_HANDLE_DRAG, state, {
+    blockIndex,
+    startWidth: start.startWidth,
+    startHeight: start.startHeight,
+    startObjectFit: start.startObjectFit,
+  });
 }
 
 /** Cancel an image drag resize operation (without recording undo). */
-export function cancelImageHandleDrag(state: EditorState): EditorState {
-  return state.actionBus.dispatchState(CANCEL_IMAGE_HANDLE_DRAG, state).state;
+export function cancelImageHandleDrag(
+  state: EditorState,
+  blockIndex: number,
+): EditorState {
+  return state.actionBus.dispatchState(CANCEL_IMAGE_HANDLE_DRAG, state, {
+    blockIndex,
+  }).state;
 }

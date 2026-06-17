@@ -3,10 +3,7 @@ import { getSelectionRange } from "../actions/actions";
 import {
   CONTEXT_MENU_DURATION,
   CURSOR_DRAG_ACTIVATION_DELAY,
-  EDGE_SCROLL_THRESHOLD,
 } from "../constants";
-import { updateImageHandleDrag } from "../rendering/nodes";
-import { imageCache } from "../rendering/renderer";
 import {
   applyMomentum,
   getScrollbarStyles,
@@ -98,7 +95,6 @@ export function handleEvents(
     !session.touch.hasMoved &&
     !session.captured &&
     !session.pendingCapture &&
-    !state.ui.imageDrag &&
     !state.ui.selectionHandleDrag
   ) {
     const timeSinceStart = Date.now() - session.touch.startTime;
@@ -147,9 +143,8 @@ export function handleEvents(
     !session.touch.isLongPress &&
     !session.touch.isCursorDrag && // Don't trigger long press if we're in cursor drag mode
     !session.touch.hasMoved &&
-    !session.captured && // Not while a region drag owns the pointer
+    !session.captured && // Not while a region drag owns the pointer (image resize, …)
     !session.pendingCapture && // ... or is waiting on its hold timer
-    !state.ui.imageDrag && // Don't open context menu if we're dragging an image
     !state.ui.selectionHandleDrag // Don't open context menu if we're dragging a selection handle
   ) {
     const timeSinceStart = Date.now() - session.touch.startTime;
@@ -386,75 +381,45 @@ export function handleEvents(
         },
       };
     }
-  } else if (session.autoScroll.isActive && state.ui.imageDrag) {
-    // Apply auto-scroll for image drag (constant speed, no acceleration)
-    const { blockIndex, handle } = state.ui.imageDrag;
-    const block = state.document.page.blocks[blockIndex];
-    if (!block || block.deleted) return { state, ops: [] };
-    const cursorY = session.autoScroll.lastPointerY;
-
-    // Check if we should block scrolling down (bottom handle + near bottom + at max height)
-    let shouldBlockBottomScroll = false;
-    const objectFit =
-      block.type === "image" ? (block.objectFit ?? "cover") : "cover";
-    if (
-      handle === "bottom" &&
-      objectFit === "cover" &&
-      block.type === "image" &&
-      block.url
-    ) {
-      const cachedImage = imageCache.get(block.url);
-      if (cachedImage && cachedImage.complete) {
-        const imgAspectRatio =
-          cachedImage.naturalWidth / cachedImage.naturalHeight;
-        const containerWidth =
-          typeof block.width === "number" ? block.width : viewport.width;
-        const maxHeightForRatio = containerWidth / imgAspectRatio;
-        // Use startHeight + delta to get current effective height
-        const currentHeight =
-          state.ui.imageDrag.startHeight +
-          (cursorY - state.ui.imageDrag.startY);
-        const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
-        const isNearBottomEdge =
-          cursorY > viewport.height - EDGE_SCROLL_THRESHOLD ||
-          cursorY > viewport.height;
-        shouldBlockBottomScroll = isAtMaxHeight && isNearBottomEdge;
-      }
-    }
-
-    // Stop auto-scroll if we should block bottom scroll
-    if (shouldBlockBottomScroll) {
+  } else if (
+    session.autoScroll.isActive &&
+    session.captured?.region.drag?.onAutoScrollTick
+  ) {
+    // A region drag (e.g. image resize) owns the pointer and participates in edge
+    // auto-scroll. The drag owns the *decision* (whether to keep scrolling, and
+    // how to re-apply itself once scrolled); the event layer keeps the scroll
+    // *mechanics*. No block type named here.
+    const drag = session.captured.region.drag;
+    const onAutoScrollTick = session.captured.region.drag.onAutoScrollTick;
+    const p = {
+      x: session.autoScroll.lastPointerX,
+      y: session.autoScroll.lastPointerY,
+    };
+    const ctx = {
+      state,
+      viewport,
+      documentHeight,
+      session,
+      updateViewport: updateViewportCallback,
+    };
+    const { blockScroll } = onAutoScrollTick(p, ctx);
+    if (blockScroll) {
       stopAutoScroll(session);
     } else {
-      // Constant speed (no acceleration for image drag)
+      // Constant speed (no acceleration for region drags)
       const newScrollY = applyEdgeScroll(
-        cursorY,
+        p.y,
         session,
         viewport,
         documentHeight,
         false,
         updateViewportCallback,
       );
-
-      if (newScrollY !== null) {
-        // Continue updating image drag as we scroll
-        // Adjust startY to account for the scroll so the image continues to resize
-        const scrollAdjustment = newScrollY - viewport.scrollY;
-        state = {
-          ...state,
-          ui: {
-            ...state.ui,
-            imageDrag: {
-              ...state.ui.imageDrag!,
-              startY: state.ui.imageDrag!.startY - scrollAdjustment,
-            },
-          },
-        };
-        state = updateImageHandleDrag(
-          state,
-          viewport,
-          session.autoScroll.lastPointerX,
-          session.autoScroll.lastPointerY,
+      if (newScrollY !== null && drag.onAutoScrollScrolled) {
+        state = drag.onAutoScrollScrolled(
+          p,
+          newScrollY - viewport.scrollY,
+          ctx,
         );
       }
     }
@@ -520,6 +485,7 @@ export function handleEvents(
           viewport,
           event as unknown as MouseEvent,
           containerRect,
+          session,
         );
         break;
       case "mousedown":

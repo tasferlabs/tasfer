@@ -9,8 +9,8 @@
 import type { Block } from "../serlization/loadPage";
 import type { BlockSet } from "../state-types";
 import { createCRDTbinding } from "../sync/sync";
-import { describe, expect, it } from "vitest";
 import { atomicBlockInsertOps } from "./clipboard";
+import { describe, expect, it } from "vitest";
 
 function setFields(block: Block): Record<string, unknown> {
   const binding = createCRDTbinding("page-1", "peer-a");

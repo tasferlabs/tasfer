@@ -420,3 +420,68 @@ describe("dispatchState threading and op accumulation", () => {
     expect(cursorOf(result.state)).toBe(3);
   });
 });
+
+// ─── registerState + claimed flag (the pointer-action dispatch path) ──────────
+
+describe("registerState and the claimed flag", () => {
+  it("registerState handlers run on dispatchState, typed as state handlers", () => {
+    const bus = createActionBus();
+    const cmd = stateAction("move", (state) => ({ state, ops: [] }));
+
+    let sawCursor = -1;
+    bus.registerState(
+      cmd,
+      (state) => {
+        sawCursor = cursorOf(state);
+        return { state: fakeState(cursorOf(state) + 2), ops: [] };
+      },
+      0,
+    );
+
+    const result = bus.dispatchState(cmd, fakeState(5));
+    expect(sawCursor).toBe(5);
+    expect(cursorOf(result.state)).toBe(7);
+  });
+
+  it("claimed is false when the default transform runs (nothing claimed)", () => {
+    const bus = createActionBus();
+    const cmd = stateAction("move", (state) => ({ state, ops: [] }));
+    // A registerState observer that does NOT claim.
+    bus.registerState(cmd, (state) => ({ state, ops: [] }), 0);
+
+    const result = bus.dispatchState(cmd, fakeState(0));
+    expect(result.claimed).toBe(false);
+  });
+
+  it("claimed is true when a handler returns handled:true", () => {
+    const bus = createActionBus();
+    const cmd = stateAction("move", (state) => ({ state, ops: [] }));
+
+    // Mirrors the pointer-action priority scheme: a high-priority claimer
+    // (e.g. LinkMark's Ctrl+click at 100) pre-empts a lower one (a node at 50)
+    // and the default. The caller reads `claimed` to skip its own fallback
+    // (caret placement) — exactly how the click handlers decide.
+    const order: string[] = [];
+    bus.registerState(
+      cmd,
+      (state) => {
+        order.push("node@50");
+        return { state, ops: [], handled: true };
+      },
+      50,
+    );
+    bus.registerState(
+      cmd,
+      (state) => {
+        order.push("link@100");
+        return { state, ops: [], handled: true };
+      },
+      100,
+    );
+
+    const result = bus.dispatchState(cmd, fakeState(0));
+    expect(result.claimed).toBe(true);
+    // Highest priority claims first and stops the lower handler + default.
+    expect(order).toEqual(["link@100"]);
+  });
+});

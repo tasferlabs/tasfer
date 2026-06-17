@@ -38,7 +38,7 @@ import {
   MOVE_TO_NEXT_WORD,
   MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
-import { getCrossedInlineMathSpan } from "../inline-math";
+import { CURSOR_MOVED } from "../actions/pointer-actions";
 import { TOGGLE_BOLD } from "../rendering/marks";
 import {
   INDENT_LIST_ITEM,
@@ -62,22 +62,22 @@ import type {
   MouseEvent,
   ViewportState,
 } from "../state-types";
-import {
-  clearAutoCreatedParagraph,
-  getBlockTextContent,
-  setActiveMenu,
-} from "../state-utils";
+import { clearAutoCreatedParagraph, getBlockTextContent } from "../state-utils";
 import { isPreformattedType, isTextualBlock } from "../sync/block-registry";
 import { redoState, undoState } from "../sync/crdt-undo";
 import type { Operation } from "../sync/sync";
 import { ensureCursorVisible } from "./eventUtils";
+import type { InteractionSession } from "./interaction-session";
 
-// Open the inline-math editor popover when an arrow key crosses an inline
-// math chip (snap fired between opposite boundaries).
-function maybeOpenInlineMathOnArrowCross(
+// After an arrow-key caret move, dispatch CURSOR_MOVED so marks can react to the
+// caret crossing an inline boundary — MathMark opens the inline-math editor when
+// the caret steps across a chip. Gated on staying within the same block (a move
+// to another block isn't a "cross"); the engine names no mark type.
+function dispatchCursorCrossed(
   prevState: EditorState,
   newState: EditorState,
   viewport: ViewportState,
+  direction: "left" | "right",
 ): EditorState {
   const prevCursor = prevState.document.cursor;
   const newCursor = newState.document.cursor;
@@ -85,55 +85,18 @@ function maybeOpenInlineMathOnArrowCross(
   if (prevCursor.position.blockIndex !== newCursor.position.blockIndex) {
     return newState;
   }
-
   const block = newState.document.page.blocks[newCursor.position.blockIndex];
   if (!block || block.deleted) return newState;
 
-  const span = getCrossedInlineMathSpan(
+  return newState.actionBus.dispatchState(CURSOR_MOVED, newState, {
     block,
-    prevCursor.position.textIndex,
-    newCursor.position.textIndex,
-  );
-  if (!span) return newState;
-
-  const coords = getCursorDocumentCoords(
-    newCursor.position,
-    newState,
+    blockIndex: newCursor.position.blockIndex,
+    oldIndex: prevCursor.position.textIndex,
+    newIndex: newCursor.position.textIndex,
+    direction,
     viewport,
-  );
-  if (!coords) return newState;
-
-  // The inline-math edit overlay is host-defined; the `math` mark owns its key.
-  const key = newState.marks.get("math")?.editOverlayKey;
-  if (!key) return newState;
-  const blockId =
-    newState.document.page.blocks[newCursor.position.blockIndex]?.id;
-  if (!blockId) return newState;
-  const withOverlay = setActiveMenu(newState, {
-    type: "overlay",
-    key,
-    blockId,
-    x: coords.x,
-    y: coords.y - viewport.scrollY,
-    data: {
-      startIndex: span.startIndex,
-      endIndex: span.endIndex,
-      latex: span.latex,
-    },
-  });
-  // Highlight the edited chip while the popover is open (engine-owned hover
-  // state; the host overlay reads the range from `data`).
-  return {
-    ...withOverlay,
-    ui: {
-      ...withOverlay.ui,
-      inlineMathHover: {
-        blockIndex: newCursor.position.blockIndex,
-        startIndex: span.startIndex,
-        endIndex: span.endIndex,
-      },
-    },
-  };
+    resolveCoords: (pos) => getCursorDocumentCoords(pos, newState, viewport),
+  }).state;
 }
 
 export function handleKeyDown(
@@ -436,7 +399,7 @@ export function handleKeyDown(
         // off the tracked block.
         newState = selectVisualBlockAfterMove(state, newState);
 
-        newState = maybeOpenInlineMathOnArrowCross(state, newState, viewport);
+        newState = dispatchCursorCrossed(state, newState, viewport, "left");
       }
       break;
     case "ArrowRight":
@@ -548,7 +511,7 @@ export function handleKeyDown(
         // off the tracked block.
         newState = selectVisualBlockAfterMove(state, newState);
 
-        newState = maybeOpenInlineMathOnArrowCross(state, newState, viewport);
+        newState = dispatchCursorCrossed(state, newState, viewport, "right");
       }
       break;
     case "ArrowUp":
@@ -916,11 +879,13 @@ export function handleContextMenu(
   viewport: ViewportState,
   event: MouseEvent,
   containerRect: { left: number; top: number },
+  session: InteractionSession,
 ): EditorState {
   event.preventDefault();
 
-  // Don't open context menu if we're dragging an image
-  if (state.ui.imageDrag) {
+  // Don't open context menu while a region drag owns the pointer (e.g. an
+  // in-progress image resize).
+  if (session.captured) {
     return state;
   }
 

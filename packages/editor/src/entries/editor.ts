@@ -1586,7 +1586,10 @@ export class Editor implements EditorApi {
   // Native cut: copy, then delete the selection through the action pipeline.
   private cutHandler = (e: ClipboardEvent) => {
     if (!this._state.view.isFocused) return;
-    if (this._state.ui.mode === "readonly" || this._state.ui.mode === "suspended")
+    if (
+      this._state.ui.mode === "readonly" ||
+      this._state.ui.mode === "suspended"
+    )
       return;
     if (this._state.ui.composition?.isComposing) return;
 
@@ -1607,7 +1610,10 @@ export class Editor implements EditorApi {
   // existing handlePaste flow (incl. the image-paste callback) runs in-frame.
   private pasteHandler = (e: ClipboardEvent) => {
     if (!this._state.view.isFocused) return;
-    if (this._state.ui.mode === "readonly" || this._state.ui.mode === "suspended")
+    if (
+      this._state.ui.mode === "readonly" ||
+      this._state.ui.mode === "suspended"
+    )
       return;
     e.preventDefault();
     this.pendingClipboardData = this.extractPendingClipboard(e);

@@ -139,8 +139,15 @@ class CypherImageNode extends ImageNode {
 
     // Hover chrome (download / edit buttons) over a non-placeholder image while
     // it's hovered or while its upload menu is open — landed on the image box.
+    // Suppressed while a resize drag is in progress (the engine records the
+    // active handle in this block's transient view-state).
+    const isResizing = !!(
+      state.ui.nodeViewState[block.id] as
+        | { resizeHandle?: "left" | "right" | "bottom" }
+        | undefined
+    )?.resizeHandle;
     const hovered =
-      state.ui.imageHover?.blockIndex === c.blockIndex && !state.ui.imageDrag;
+      state.ui.imageHover?.blockIndex === c.blockIndex && !isResizing;
     if (block.type === "image" && block.url && (hovered || menuOpen)) {
       result.push({
         key: "image-hover",

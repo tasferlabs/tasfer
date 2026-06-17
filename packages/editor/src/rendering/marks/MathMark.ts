@@ -6,6 +6,9 @@
  * the former `batch.isMath` branch out of `renderLine`.
  */
 
+import type { ActionBus } from "../../action-bus";
+import { CURSOR_MOVED } from "../../actions/pointer-actions";
+import { getCrossedInlineMathSpan } from "../../inline-math-spans";
 import { getInlineMathDims, getInlineMathImage } from "../../nodes/math";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import {
@@ -93,5 +96,61 @@ export class MathMark extends Mark {
   readonly codec = MATH_CODEC;
   style(): MarkStyle {
     return {};
+  }
+
+  /**
+   * Observe `CURSOR_MOVED` (priority 0) — when an arrow key steps the caret
+   * across an inline-math chip, open the inline-math editor popover and highlight
+   * the crossed chip. The host owns the overlay (this mark owns its key via
+   * {@link editOverlayKey}); `ui.inlineMathHover` is engine-owned. Observe-only.
+   */
+  registerActions(bus: ActionBus): void {
+    bus.registerState(
+      CURSOR_MOVED,
+      (
+        state,
+        { block, blockIndex, oldIndex, newIndex, viewport, resolveCoords },
+      ) => {
+        const span = getCrossedInlineMathSpan(block, oldIndex, newIndex);
+        if (!span) return { state, ops: [] };
+
+        const coords = resolveCoords({ blockIndex, textIndex: newIndex });
+        if (!coords) return { state, ops: [] };
+
+        const key = state.marks.get("math")?.editOverlayKey;
+        if (!key) return { state, ops: [] };
+
+        // Open the inline-math editor overlay + highlight the crossed chip
+        // (engine-owned hover state). Both are plain `ui` spreads, inlined to
+        // keep this mark free of the `state-utils` import chain.
+        return {
+          state: {
+            ...state,
+            ui: {
+              ...state.ui,
+              activeMenu: {
+                type: "overlay",
+                key,
+                blockId: block.id,
+                x: coords.x,
+                y: coords.y - viewport.scrollY,
+                data: {
+                  startIndex: span.startIndex,
+                  endIndex: span.endIndex,
+                  latex: span.latex,
+                },
+              },
+              inlineMathHover: {
+                blockIndex,
+                startIndex: span.startIndex,
+                endIndex: span.endIndex,
+              },
+            },
+          },
+          ops: [],
+        };
+      },
+      0,
+    );
   }
 }

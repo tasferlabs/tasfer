@@ -28,6 +28,7 @@
  * in `style()` never change advance width, so they stay render-only.
  */
 
+import type { ActionBus } from "../../action-bus";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import type { Mark as MarkData } from "../../serlization/loadPage";
 import type {
@@ -181,6 +182,18 @@ export abstract class Mark {
    * {@link overlays} to render it. Omit if the mark has no edit overlay.
    */
   readonly editOverlayKey?: string;
+
+  /**
+   * Optional: register this mark's action-bus handlers for the instance. Called
+   * once at mount with the per-instance {@link ActionBus} (the inline analogue of
+   * {@link import("../nodes/Node").Node.registerActions}). This is how a mark
+   * contributes pointer/cursor behavior — LinkMark claims Ctrl/Cmd+click
+   * (`TEXT_CLICK`) to open the URL and observes `POINTER_MOVE` to drive its hover
+   * tooltip; MathMark observes `CURSOR_MOVED` to open the inline-math editor when
+   * the caret crosses a chip. The registry is per-editor-instance, so handlers
+   * never leak across editors on the same page.
+   */
+  registerActions?(bus: ActionBus): void;
 }
 
 // ---------------------------------------------------------------------------

@@ -250,17 +250,6 @@ export type ActiveFormatsMode =
 // Drag handle position on an image
 export type DragHandlePosition = "left" | "right" | "bottom" | null;
 
-// Drag state for image resize
-export interface ImageDragState {
-  readonly blockIndex: number;
-  readonly handle: DragHandlePosition;
-  readonly startX: number;
-  readonly startY: number;
-  readonly startWidth: number | "full";
-  readonly startHeight: number;
-  readonly startObjectFit: "cover" | "contain";
-}
-
 // Drag state for selection handle (mobile text selection)
 export interface SelectionHandleDragState {
   readonly handleType: "anchor" | "focus";
@@ -340,7 +329,6 @@ export interface UIState {
   // spinner) without the engine modelling that chrome as a menu/overlay. Set via
   // `editor.setNodeViewState`; not document content, never persisted.
   readonly nodeViewState: Readonly<Record<string, unknown>>;
-  readonly imageDrag: ImageDragState | null; // Active image drag operation
   readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
   readonly cursorDrag: CursorDragState | null; // Active cursor drag for repositioning (mobile)
   readonly autoCreatedParagraph: { blockIndex: number; blockId: string } | null; // Track auto-created paragraphs from arrow up/down on images

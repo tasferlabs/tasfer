@@ -5,6 +5,7 @@ import {
   CURSOR_DRAG_BOUNDARY,
   CURSOR_DRAG_END,
 } from "../action-bus";
+import { TEXT_CLICK } from "../actions/pointer-actions";
 import {
   CLOSE_NODE_OVERLAY,
   FINISH_SELECT_MODE,
@@ -29,7 +30,6 @@ import {
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "../constants";
-import { CREATE_PARAGRAPH_BELOW_IMAGE } from "../rendering/nodes";
 import { endScrollbarDrag } from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
@@ -1008,58 +1008,6 @@ export function handleTouchEnd(
     session.tapTracker.lastTapPosition = tapPosition;
 
     if (position) {
-      // If tapping below all blocks, check if last block is an image and select it
-      const visibleBlocks = state.view.visibleBlocks;
-      const lastVisibleBlockIndex = visibleBlocks.length - 1;
-      if (
-        lastVisibleBlockIndex >= 0 &&
-        position.blockIndex === lastVisibleBlockIndex
-      ) {
-        const lastBlock = state.document.page.blocks[lastVisibleBlockIndex];
-
-        // Calculate if tap is below the last block's content
-        // Use pre-computed viewport.documentHeight instead of iterating through all blocks
-        const totalContentHeight =
-          viewport.documentHeight + styles.canvas.paddingTop;
-        const isTapBelowContent =
-          tapPosition.y > totalContentHeight - viewport.scrollY;
-
-        // If tapping below content and last block is an image, create a new paragraph
-        // Block in readonly mode
-        if (
-          isTapBelowContent &&
-          lastBlock.type === "image" &&
-          state.ui.mode !== "readonly"
-        ) {
-          const created = state.actionBus.dispatchState(
-            CREATE_PARAGRAPH_BELOW_IMAGE,
-            state,
-            {
-              afterBlock: lastBlock,
-              afterBlockIndex: lastVisibleBlockIndex,
-              binding: state.CRDTbinding,
-            },
-          );
-          const finalState = created.state;
-          ops.push(...created.ops);
-
-          session.touch = null;
-          return {
-            state: {
-              ...finalState,
-              view: {
-                ...finalState.view,
-                scrollbar: {
-                  ...finalState.view.scrollbar,
-                  lastInteraction: Date.now(),
-                },
-              },
-            },
-            ops,
-          };
-        }
-      }
-
       // Check if tapped on an image cover block
       const tappedBlock = state.document.page.blocks[position.blockIndex];
       if (!tappedBlock || tappedBlock.deleted) return { state, ops };
@@ -1162,44 +1110,30 @@ export function handleTouchEnd(
             },
             ops,
           };
-        } else if (tappedBlock.type === "image") {
-          // Tapped within an image block's flow area but not on the image
-          // visual. If it's the last block, create a paragraph below so the
-          // user can add content after a trailing image. Image-specific
-          // affordance, owned by CREATE_PARAGRAPH_BELOW_IMAGE.
-          const visibleBlocks = state.view.visibleBlocks;
-          const lastVisibleBlockIndex =
-            visibleBlocks.length > 0
-              ? state.document.page.blocks.findIndex(
-                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id,
-                )
-              : -1;
-          const isLastBlock = position.blockIndex === lastVisibleBlockIndex;
-          // Block paragraph creation in readonly mode
-          if (isLastBlock && state.ui.mode !== "readonly") {
-            const currentBlock =
-              state.document.page.blocks[position.blockIndex];
-            const created = state.actionBus.dispatchState(
-              CREATE_PARAGRAPH_BELOW_IMAGE,
-              state,
-              {
-                afterBlock: currentBlock,
-                afterBlockIndex: position.blockIndex,
-                binding: state.CRDTbinding,
-              },
-            );
-            const finalState = created.state;
-            // Broadcast the operation
-            ops.push(...created.ops);
-
+        } else {
+          // Tapped within an atomic block's flow area but not on its visual
+          // (e.g. below a trailing image). Give nodes a chance to claim the tap
+          // generically — ImageNode appends a paragraph below a trailing image
+          // via its TEXT_CLICK handler. The engine names no block type; if no
+          // handler claims it, fall through to the normal tap handling below.
+          const clicked = state.actionBus.dispatchState(TEXT_CLICK, state, {
+            canvasX: tapPosition.x,
+            canvasY: tapPosition.y,
+            position,
+            previousMenu: state.ui.activeMenu,
+            viewport,
+            modifiers: { ctrlOrMeta: false, shift: false },
+          });
+          if (clicked.claimed) {
+            ops.push(...clicked.ops);
             session.touch = null;
             return {
               state: {
-                ...finalState,
+                ...clicked.state,
                 view: {
-                  ...finalState.view,
+                  ...clicked.state.view,
                   scrollbar: {
-                    ...finalState.view.scrollbar,
+                    ...clicked.state.view.scrollbar,
                     lastInteraction: Date.now(),
                   },
                 },

@@ -11,8 +11,8 @@ import type { Block, Paragraph } from "../serlization/loadPage";
 import type { BlockSet, CursorState, EditorState, Page } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
-import { describe, expect, it } from "vitest";
 import { convertBlockAtCursor } from "./actions";
+import { describe, expect, it } from "vitest";
 
 function paragraph(text: string): Paragraph {
   return {
@@ -35,7 +35,10 @@ function cursorAt(blockIndex: number, textIndex: number): CursorState {
 
 function convert(type: Block["type"]) {
   const state0: EditorState = createInitialState(pageWith(paragraph("hello")));
-  const state = { ...state0, document: { ...state0.document, cursor: cursorAt(0, 5) } };
+  const state = {
+    ...state0,
+    document: { ...state0.document, cursor: cursorAt(0, 5) },
+  };
   const result = convertBlockAtCursor(state, { type });
   const block = result.state.document.page.blocks[0];
   const typeOps = result.ops.filter(
@@ -54,7 +57,9 @@ describe("convertBlockAtCursor — atomic targets", () => {
   it("converts to a math block", () => {
     const { block, typeOps } = convert("math");
     expect(block.type).toBe("math");
-    expect((block as unknown as { displayMode: boolean }).displayMode).toBe(true);
+    expect((block as unknown as { displayMode: boolean }).displayMode).toBe(
+      true,
+    );
     expect(typeOps.map((o) => o.value)).toEqual(["math"]);
   });
 
@@ -98,7 +103,9 @@ describe("convertBlockAtCursor — textual targets", () => {
     const fields = ops
       .filter((o): o is BlockSet => o.op === "block_set")
       .map((o) => o.field);
-    expect(fields).toEqual(expect.arrayContaining(["type", "indent", "checked"]));
+    expect(fields).toEqual(
+      expect.arrayContaining(["type", "indent", "checked"]),
+    );
   });
 
   it("converts to a code block, dropping inline marks and keeping text", () => {

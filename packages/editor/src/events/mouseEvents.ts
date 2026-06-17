@@ -1,4 +1,3 @@
-import { OPEN_LINK } from "../action-bus";
 import {
   CLEAR_SELECTION_IN_PADDING,
   CLEAR_VISUAL_BLOCK_SELECTION,
@@ -9,8 +8,8 @@ import {
   SELECT_VISUAL_BLOCK,
   SELECT_WORD_AT_POINT,
 } from "../actions/mouse-actions";
+import { POINTER_MOVE, TEXT_CLICK } from "../actions/pointer-actions";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
-import { getLinkAtPosition } from "../rendering/marks/LinkMark";
 import {
   getScrollbarStyles,
   isPointInThumb,
@@ -116,37 +115,6 @@ export function handleMouseDown(
     const begin = beginRegionInteraction(claim, point, "mouse", regionCtx);
     if (begin && begin !== "pending") {
       return { state: begin.state, ops: begin.ops ?? [] };
-    }
-  }
-
-  // Check for Ctrl/Action+Click on link to open it
-  const isCtrlOrCmd = event.ctrlKey || event.metaKey;
-  if (isCtrlOrCmd) {
-    const position = getTextPositionFromViewport(
-      canvasX,
-      canvasY,
-      state,
-      viewport,
-    );
-
-    if (position) {
-      const linkData = getLinkAtPosition(position, state);
-      if (linkData) {
-        // Activate the link as a action: the editor's default opens it in a
-        // new tab; a native shell can override OPEN_LINK to route it natively.
-        state.actionBus.dispatch(OPEN_LINK, { url: linkData.url });
-        // Clear any link hover state
-        state = {
-          ...state,
-          ui: {
-            ...state.ui,
-            activeMenu: { type: "none" },
-            isHoveringLinkWithModifier: false,
-          },
-        };
-        // Don't continue with normal click behavior - just return
-        return { state, ops };
-      }
     }
   }
 
@@ -282,26 +250,6 @@ export function handleMouseDown(
     viewport,
   );
 
-  // Let a node claim the click before the caret is placed — e.g. MathNode opens
-  // the inline-math editor when the click lands on an inline-math chip, rather
-  // than dropping the caret into the LaTeX source. The node owns the detection;
-  // we only supply the resolved caret position and the pre-click menu.
-  if (position) {
-    for (const node of state.nodes.nodeList()) {
-      const claimed = node.onTextClick?.({
-        state,
-        viewport,
-        canvasX,
-        canvasY,
-        position,
-        previousMenu,
-      });
-      if (claimed) {
-        return { state: claimed.state, ops: [...ops, ...claimed.ops] };
-      }
-    }
-  }
-
   // If clicking in padding/outside editor area, preserve active selections
   if (!position) {
     // Only clear selection if it's collapsed or doesn't exist
@@ -314,38 +262,6 @@ export function handleMouseDown(
     }
     // Keep active selection and just switch to edit mode
     return { state: updateMode(state, "edit"), ops };
-  }
-
-  // If clicking below all blocks, check if last block is an image and select it
-  const visibleBlocks = state.view.visibleBlocks;
-  const lastVisibleBlockIndex =
-    visibleBlocks.length > 0
-      ? state.document.page.blocks.findIndex(
-          (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id,
-        )
-      : -1;
-  if (
-    lastVisibleBlockIndex >= 0 &&
-    position.blockIndex === lastVisibleBlockIndex
-  ) {
-    const lastBlock = state.document.page.blocks[lastVisibleBlockIndex];
-
-    // Calculate if click is below the last block's content
-    // Use pre-computed documentHeight instead of iterating through all blocks
-    const totalContentHeight = documentHeight + styles.canvas.paddingTop;
-    const isClickBelowContent = canvasY > totalContentHeight - viewport.scrollY;
-
-    // If clicking below content and last block is an image, select it
-    if (isClickBelowContent && !isTextualBlock(lastBlock)) {
-      const imagePosition = { blockIndex: lastVisibleBlockIndex, textIndex: 0 };
-      return {
-        state: state.actionBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
-          position: imagePosition,
-          extend: false,
-        }).state,
-        ops,
-      };
-    }
   }
 
   // Track click for double/triple click detection
@@ -400,8 +316,27 @@ export function handleMouseDown(
     };
   }
 
-  // Set cursor position. If shift is held, extend selection; otherwise start a
-  // new selection and enter select mode (drag-to-select).
+  // A resolved single click. Dispatch the generic TEXT_CLICK: nodes/marks may
+  // claim it (a link Ctrl+click opens the URL, an inline-math chip opens its
+  // editor, a trailing image appends a paragraph). This replaces the old per-node
+  // onTextClick loop.
+  const clicked = state.actionBus.dispatchState(TEXT_CLICK, state, {
+    canvasX,
+    canvasY,
+    position,
+    previousMenu,
+    viewport,
+    modifiers: {
+      ctrlOrMeta: event.ctrlKey || event.metaKey,
+      shift: event.shiftKey,
+    },
+  });
+  if (clicked.claimed) {
+    return { state: clicked.state, ops: [...ops, ...clicked.ops] };
+  }
+
+  // Nothing claimed the click: place the caret. If Shift is held, extend the
+  // selection; otherwise start a new selection and enter select mode.
   return {
     state: state.actionBus.dispatchState(PLACE_CURSOR_AT_POINT, state, {
       position,
@@ -492,146 +427,37 @@ export function handleMouseMove(
   // caret position under the pointer once; nodes read those and set/clear their
   // own hover state (ImageNode → resize-handle hover, MathNode → block +
   // inline-math chip hover).
-  if (!isTouchDevice() && state.ui.mode !== "select") {
-    const atomicBlock = getAtomicBlockAtPoint(
-      canvasX,
-      canvasY,
-      state,
-      viewport,
-    );
-    const textPosition = getTextPositionFromViewport(
-      canvasX,
-      canvasY,
-      state,
-      viewport,
-    );
-    for (const node of state.nodes.nodeList()) {
-      state =
-        node.onPointerMove?.({
-          state,
-          viewport,
-          canvasX,
-          canvasY,
-          atomicBlock,
-          textPosition,
-        }) ?? state;
-    }
-  }
-
   if (state.ui.mode !== "select") {
-    // Check for link hover when not selecting (desktop only)
-    // Don't show tooltip if Ctrl/Action key is held (user wants to click to open)
-    const isCtrlOrCmd = event.ctrlKey || event.metaKey;
-
-    // If Ctrl/Action is held and we have a link hover showing, clear it
-    if (isCtrlOrCmd && state.ui.linkHover) {
-      state = setLinkHover(state, null);
-      return state;
-    }
-
-    // Don't show the link tooltip while a menu is open; clear any stale hover.
-    if (state.ui.activeMenu.type !== "none") {
-      if (state.ui.linkHover) state = setLinkHover(state, null);
-      return state;
-    }
-
     if (!isTouchDevice()) {
-      const position = getTextPositionFromViewport(
+      // Generic desktop pointer-move: node + mark handlers update their own hover
+      // UI off the resolved atomic block / caret position (ImageNode →
+      // resize-handle hover, MathNode → block + inline-math chip hover, LinkMark
+      // → link tooltip). The engine names no block/mark type.
+      const atomicBlock = getAtomicBlockAtPoint(
         canvasX,
         canvasY,
         state,
         viewport,
       );
-
-      let isOverLink = false;
-
-      if (position) {
-        const linkData = getLinkAtPosition(position, state);
-        if (linkData) {
-          isOverLink = true;
-          // If Ctrl/Action is held, show pointer cursor but no tooltip
-          if (isCtrlOrCmd) {
-            state = setLinkHover(state, null);
-            state = {
-              ...state,
-              ui: {
-                ...state.ui,
-                isHoveringLinkWithModifier: true,
-              },
-            };
-          } else {
-            // Normal hover - show tooltip
-            // Calculate screen coordinates for tooltip at the link's start position
-            const linkStartPos = {
-              blockIndex: position.blockIndex,
-              textIndex: linkData.startIndex,
-            };
-            const linkCoords = getCursorDocumentCoords(
-              linkStartPos,
-              state,
-              viewport,
-            );
-
-            if (linkCoords) {
-              // Anchor in canvas/container space (the overlay shifts it into
-              // viewport space by adding containerRect — do NOT bake it in here,
-              // or it gets added twice). `linkCoords` is document space, so
-              // subtract scrollY to land in container space (matching canvasX/Y).
-              state = setLinkHover(state, {
-                position,
-                url: linkData.url,
-                text: linkData.text,
-                x: linkCoords.x,
-                y: linkCoords.y - viewport.scrollY + linkCoords.height,
-                startIndex: linkData.startIndex,
-                endIndex: linkData.endIndex,
-              });
-
-              state = {
-                ...state,
-                ui: {
-                  ...state.ui,
-                  isHoveringLinkWithModifier: false,
-                },
-              };
-            }
-          }
-        }
-      }
-
-      // Handle clearing linkHover when not over a link
-      if (!isOverLink) {
-        if (state.ui.linkHover) {
-          // Check if mouse is over the tooltip area before clearing
-          const tooltipHeight = 120;
-          const tooltipWidth = 300;
-          const hover = state.ui.linkHover;
-
-          const isOverTooltip =
-            event.x >= hover.x &&
-            event.x <= hover.x + tooltipWidth &&
-            event.y >= hover.y &&
-            event.y <= hover.y + tooltipHeight;
-
-          if (!isOverTooltip) {
-            // Clear link hover
-            state = setLinkHover(state, null);
-          }
-        }
-
-        // Clear modifier state if not over a link
-        if (state.ui.isHoveringLinkWithModifier) {
-          state = {
-            ...state,
-            ui: {
-              ...state.ui,
-              isHoveringLinkWithModifier: false,
-            },
-          };
-        }
-      }
+      const textPosition = getTextPositionFromViewport(
+        canvasX,
+        canvasY,
+        state,
+        viewport,
+      );
+      state = state.actionBus.dispatchState(POINTER_MOVE, state, {
+        canvasX,
+        canvasY,
+        atomicBlock,
+        textPosition,
+        pointerX: event.x,
+        pointerY: event.y,
+        viewport,
+        resolveCoords: (pos) => getCursorDocumentCoords(pos, state, viewport),
+        modifiers: { ctrlOrMeta: event.ctrlKey || event.metaKey },
+      }).state;
     } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
-      // Clear link hover on touch devices
+      // Clear any stale link hover on touch devices (link hover is desktop-only).
       state = setLinkHover(state, null);
       state = {
         ...state,
