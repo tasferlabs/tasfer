@@ -6,7 +6,7 @@
  * stacks to measure. We use system fonts here, so there is nothing to download.
  */
 import type { FontStyles } from "@cypherkit/editor";
-import { notifyFontsLoaded } from "@cypherkit/editor/fonts";
+import { notifyFontsLoaded } from "@cypherkit/editor";
 
 export const FONT_STYLES: FontStyles = {
   families: {

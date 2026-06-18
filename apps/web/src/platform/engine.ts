@@ -27,10 +27,10 @@ import type {
   PairCallbacks,
 } from "./types";
 import type { Driver, CryptoDriver } from "./driver";
-import type { HLC } from "@cypherkit/editor/state-types";
+import type { HLC } from "@cypherkit/editor";
 import type { ReplicatorHost } from "./sync";
 import { nanoid } from "nanoid";
-import { resolveBlockOrder } from "@cypherkit/editor/sync/crdt-utils";
+import { resolveBlockOrder } from "@cypherkit/editor/internal";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {

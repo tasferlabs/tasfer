@@ -1,9 +1,13 @@
 /**
- * @cypherkit/editor — public surface.
+ * @cypherkit/editor — the curated public API.
  *
- * Phase 1 of the extraction: this re-exports the headless editor core. Deep
- * subpath imports (e.g. `@cypherkit/editor/sync/awareness`) remain available
- * for now; a curated public API is a follow-up.
+ * This module IS the contract owed to external consumers. The package exposes
+ * exactly two entry points (see `package.json` `exports`): this root, and the
+ * explicitly-unstable `@cypherkit/editor/internal` (engine machinery + host
+ * plumbing, no semver guarantee). The former `./*` wildcard — which made every
+ * source file a frozen public entry point — has been removed. Keep this surface
+ * tight: prefer adding capability as new node/mark types or facets over new
+ * top-level exports, and never re-export engine internals here.
  */
 
 // Mount / lifecycle
@@ -85,8 +89,8 @@ export {
 // Editor instance API. The public `Editor` type is the structural action/
 // lifecycle surface (`EditorApi`) — host code holds the spread `CypherEditor`
 // handle, not a class instance, so the public type must stay interface-shaped.
-// The concrete `Editor` class is reachable via the `@cypherkit/editor/entries/
-// editor` subpath for advanced use (`new Editor(...)`).
+// The concrete `Editor` class is reachable as `EditorClass` from
+// `@cypherkit/editor/internal` for advanced use (`new EditorClass(...)`).
 export type {
   ChangeApi,
   ChangeTransaction,
@@ -103,8 +107,8 @@ export type {
 // Convenience constructor — parse Markdown + mount in a single call, returning
 // one handle that merges the editor action API with the mount lifecycle. The
 // lower-level `mountEditor` (above) stays available for hosts that want the
-// split. (The raw `entries/editor` constructor remains reachable via the
-// `@cypherkit/editor/entries/editor` subpath for advanced use.)
+// split. (The raw `entries/editor` constructor is reachable as `EditorClass`
+// from `@cypherkit/editor/internal` for advanced use.)
 export type { CreateEditorOptions, CypherEditor } from "./entries/create";
 export { createEditor } from "./entries/create";
 
@@ -274,63 +278,34 @@ export {
 // exported as `StoredMark` so the top-level `Mark` can be the rendering base
 // class (the extension point authors subclass); `StoredMark` is the `{ type,
 // attrs }` record a run carries, reachable as `MarkStyleCtx.mark`.
+export type { Block, Page, Mark as StoredMark } from "./serlization/loadPage";
 export type {
-  Block,
-  Char,
-  CharRun,
-  MarkSpan,
-  Page,
-  Mark as StoredMark,
-} from "./serlization/loadPage";
-export type {
-  CRDTbinding,
-  DeepPartial,
   EditorState,
-  EditorStrings,
   EditorStyles,
   EditorTheme,
   FontFamily,
   FontStyles,
   HLC,
-  NodeOverlay,
-  NodeStringsMap,
   Operation,
-  OverlayRect,
   ScrollbarStyles,
   ThemeTokens,
   VersionVector,
-  ViewportState,
 } from "./state-types";
 
-// CRDT sync. For document sync + persistence prefer the high-level `Doc`
-// (`createDoc` above): attach it via `createEditor({ doc })` or
-// `mountEditor(el, blocks, { doc })`, then drive it with `applyUpdate` /
-// `on("update")` / `load`. `createSyncEngine` is the lower-level op-log engine
-// (op creators, version vector, merge) that sits underneath — reach for it
-// directly only for advanced uses such as headless CRDT tooling and the
-// convergence fuzz tests. The binding is the per-instance id/clock/peer-identity
-// source; share one binding across whichever of these you combine.
-export type { SyncEngine } from "./sync/sync";
-export {
-  createCRDTbinding,
-  createSyncEngine,
-  deserializeVV,
-  maxOpIdCounter,
-  maxPageIdCounter,
-  serializeVV,
-} from "./sync/sync";
+// CRDT sync — version-vector codecs the providers exchange on the wire. For
+// document sync + persistence prefer the high-level `Doc` (`createDoc` above):
+// attach it via `createEditor({ doc })` or `mountEditor(el, blocks, { doc })`,
+// then drive it with `applyUpdate` / `on("update")` / `load`. The lower-level
+// op-log engine (`createSyncEngine`/`createCRDTbinding`) lives in
+// `@cypherkit/editor/internal` for advanced headless CRDT tooling.
+export { deserializeVV, serializeVV } from "./sync/sync";
 
 // Fonts — the host registers font families/stacks via the per-instance theme
 // (`EditorTheme.fonts`), loads the faces itself, then calls `notifyFontsLoaded`
 // / `notifyFontsChanged` so the editor flushes its (shared, pure) metrics cache
 // and re-measures. The selected family is `theme.fontFamily` (change it with
 // `editor.setTheme({ fontFamily })`). The editor ships no bundled fonts.
-export {
-  currentFontFamily,
-  notifyFontsChanged,
-  notifyFontsLoaded,
-  onFontsReady,
-} from "./fonts";
+export { notifyFontsChanged, notifyFontsLoaded } from "./fonts";
 
 // Theming — resolve a host `EditorTheme` (semantic `tokens` + deep-partial
 // `styles` overrides + `fonts`) into the full style tree, the neutral default
@@ -372,45 +347,12 @@ export { getInlineMathSpans, type InlineMathSpan } from "./inline-math-spans";
 // The `\` command catalog behind the host's math autocomplete menu.
 export {
   filterMathCommands,
-  MATH_COMMANDS,
   type MathCommand,
   mathCommandCaretOffset,
 } from "./nodes/math-commands";
 
-// Convenience helpers — candidates for future encapsulation behind a richer
-// `Editor`/`Doc` handle. Exposed now so hosts that drive toolbars, link UI, and
-// find can read block/format state without deep imports.
-export { getFormatsAtPosition, getSelectionRange } from "./actions/actions";
-export type { TextualBlock } from "./nodes/TextNode";
-export { getLinkAtPosition } from "./rendering/marks/LinkMark";
-export {
-  getBlockTextContent,
-  getBlockTextLength,
-  isTouchDevice,
-} from "./state-utils";
-export { isTextualBlock } from "./sync/block-registry";
-export {
-  extractTitleFromBlocks,
-  getVisibleTextFromRuns,
-} from "./sync/char-runs";
-export { allCharsHaveFormat } from "./sync/crdt-utils";
-
-// Shared image cache (content-addressed image bitmaps) + a way to clear the
-// failed-load set so a host can retry after fixing a source.
-export { clearFailedImageCache, imageCache } from "./rendering/renderer";
-
-// Touch cursor-magnifier geometry — a host that renders its own magnifier
-// overlay sizes it against the same constants the engine lays out from.
-export {
-  MAGNIFIER_HEIGHT,
-  MAGNIFIER_MIN_OFFSET_Y,
-  MAGNIFIER_POINTER_SIZE,
-  MAGNIFIER_WIDTH,
-} from "./constants";
-
-// Additional state-types used by host overlay/style code.
-export type {
-  CursorDragState,
-  PlaceholderStyles,
-  TextStyle,
-} from "./state-types";
+// Host-convenience helpers (block/format/selection readers), the low-level
+// op-log engine, the image cache, magnifier geometry, and other engine
+// machinery a first-party host needs live in the explicitly-unstable
+// `@cypherkit/editor/internal` entry — they are not part of this public
+// contract. See ./internal.ts.

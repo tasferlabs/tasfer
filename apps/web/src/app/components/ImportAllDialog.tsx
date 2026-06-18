@@ -25,7 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { tokenizePage } from "@cypherkit/editor";
 import { parsePage } from "@cypherkit/editor";
 import { parseFrontmatter } from "@cypherkit/editor";
-import { extractTitleFromBlocks } from "@cypherkit/editor";
+import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
 import { useTranslation } from "react-i18next";
 
 interface ImportAllDialogProps {

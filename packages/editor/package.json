@@ -14,7 +14,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./src/*"
+    "./internal": "./src/internal.ts"
   },
   "peerDependencies": {
     "react": "^19.1.1",

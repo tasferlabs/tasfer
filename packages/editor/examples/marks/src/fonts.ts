@@ -16,7 +16,7 @@
  * and the only extra step is awaiting that face in loadFonts().
  */
 import type { FontStyles } from "@cypherkit/editor";
-import { notifyFontsLoaded } from "@cypherkit/editor/fonts";
+import { notifyFontsLoaded } from "@cypherkit/editor";
 
 // Our font registry. The keys ("sans"/"serif") are arbitrary — they're what
 // you'd pass as `theme.fontFamily` to switch fonts at runtime. Pass this whole

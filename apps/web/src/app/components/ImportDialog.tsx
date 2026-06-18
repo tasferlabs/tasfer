@@ -33,9 +33,9 @@ import { useSpaces } from "../contexts/SpaceContext";
 import {
   extractTitleFromBlocks,
   getVisibleTextFromRuns,
-} from "@cypherkit/editor";
+  isTextualBlock,
+} from "@cypherkit/editor/internal";
 import { type Block } from "@cypherkit/editor";
-import { isTextualBlock } from "@cypherkit/editor";
 
 interface ImportDialogProps {
   open: boolean;
