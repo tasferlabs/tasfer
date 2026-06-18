@@ -5,6 +5,7 @@ import {
   type TextNodeLayout,
 } from "./nodes/TextNode";
 import type { MarkRegistry } from "./rendering/marks";
+import type { NodeRegistry } from "./rendering/nodes/Node";
 import { getBlockHeight } from "./rendering/renderer";
 import { getTextDirection } from "./rtl";
 import type { Block, CharRun, MarkSpan } from "./serlization/loadPage";
@@ -130,9 +131,10 @@ export function getTextIndexAtRelativePosition(
   block?: Block,
   maxWidth?: number,
   styles?: EditorStyles,
+  nodes?: NodeRegistry,
 ): number {
   // If no block info provided, use simple logical positioning
-  if (!block || !maxWidth || !styles) {
+  if (!block || !maxWidth || !styles || !nodes) {
     const lineLength = lineEndIndex - lineStartIndex;
     const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
     return targetIndex;
@@ -155,7 +157,7 @@ export function getTextIndexAtRelativePosition(
   }
 
   // RTL: find the text index that corresponds to the visual position
-  const textStyle = getTextStyle(styles, block.type);
+  const textStyle = getTextStyle(styles, nodes, block.type);
   const fontFamily = currentFontFamily(styles);
   const codePadding = styles.textFormats.code.padding;
 
@@ -764,6 +766,7 @@ export function moveCursorUp(
       currentBlock,
       maxWidth,
       styles,
+      state.nodes,
     );
     return moveCursorToPosition(state, blockIndex, targetTextIndex);
   }
@@ -803,6 +806,7 @@ export function moveCursorUp(
         prevBlock,
         maxWidth,
         styles,
+        state.nodes,
       );
       return moveCursorToPosition(state, prevBlockIndex, targetTextIndex);
     }
@@ -880,6 +884,7 @@ export function moveCursorDown(
       currentBlock,
       maxWidth,
       styles,
+      state.nodes,
     );
     return moveCursorToPosition(state, blockIndex, targetTextIndex);
   }
@@ -919,6 +924,7 @@ export function moveCursorDown(
         nextBlock,
         maxWidth,
         styles,
+        state.nodes,
       );
       return moveCursorToPosition(state, nextBlockIndex, targetTextIndex);
     }

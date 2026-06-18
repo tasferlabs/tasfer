@@ -26,12 +26,6 @@ import { charRunsToChars } from "./sync/char-runs";
 // Re-exported for back-compat with `@cypherkit/editor/fonts` consumers.
 export type { FontFamily };
 
-// Legacy text segment type (for backward compatibility)
-interface TextSegment {
-  content: string;
-  formats?: Mark[];
-}
-
 // A batch of consecutive characters with the same formatting.
 //
 // The batch carries only the metric-affecting facts the measurement engine
@@ -585,38 +579,6 @@ export function measureCharsUpToIndex(
     codePadding,
     marks,
   );
-}
-
-// Measure a single text segment with its formats
-export function measureTextSegment(
-  textSegment: TextSegment,
-  fontSize: number,
-  baseFontWeight: string,
-  fontFamily: FontFamily,
-  fonts: FontStyles,
-  codePadding: number = 0,
-): number {
-  // Determine effective font weight (bold overrides base weight)
-  const effectiveFontWeight = textSegment.formats?.some(
-    (f) => f.type === "strong",
-  )
-    ? "bold"
-    : baseFontWeight;
-
-  let width = measureCtxText(
-    textSegment.content,
-    fontSize,
-    effectiveFontWeight,
-    fontFamily,
-    fonts,
-  );
-
-  // Add code padding if applicable
-  if (textSegment.formats?.some((f) => f.type === "code")) {
-    width += codePadding * 2;
-  }
-
-  return width;
 }
 
 // Wrap CRDT text (Char[] with MarkSpan[]) for rendering

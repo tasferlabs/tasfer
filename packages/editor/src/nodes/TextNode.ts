@@ -87,7 +87,6 @@ import type {
   SelectionState,
   TextStyle,
 } from "../state-types";
-import { getTextStyle } from "../styles";
 import {
   awarenessSelectionToSelection,
   getColorForPeer,
@@ -1000,7 +999,7 @@ export class TextNode extends Node<TextualBlock> {
     },
     marks?: MarkRegistry,
   ): TextNodeLayout {
-    const textStyle = getTextStyle(styles, block.type);
+    const textStyle = this.textStyle(styles, block.type);
     const fontFamily = this.resolveFontFamily(styles);
     const fonts = styles.fonts;
     const codePadding = styles.textFormats.code.padding;

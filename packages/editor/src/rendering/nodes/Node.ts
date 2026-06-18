@@ -46,6 +46,7 @@ import type {
   Position,
   RenderedBlock,
   RenderedLine,
+  TextStyle,
   TypedInputTransform,
   ViewportState,
 } from "../../state-types";
@@ -207,6 +208,21 @@ export abstract class Node<B extends Block = Block> {
 
   /** Draw using a precomputed layout — must NOT re-wrap or re-measure. */
   abstract paint(layout: NodeLayout, c: NodePaintCtx): RenderedBlock;
+
+  /**
+   * Resolve the base text style (font size/weight/color/line-height) for one of
+   * this node's textual block types — consumed by the text-geometry passes
+   * (wrap, measure, caret) via {@link getTextStyle}. The default looks the style
+   * up under the block-type name in `styles.blocks`, which is correct whenever
+   * the theme key equals the type string (`paragraph`, `heading1`, `code`, …). A
+   * node whose theme key differs from its type (the list family: `bullet_list` →
+   * `bulletList`) or which borrows another block's metrics (math borrows the
+   * paragraph style) overrides this. Non-textual nodes (image/line) never receive
+   * a text-geometry pass, so the default's return value is unused for them.
+   */
+  textStyle(styles: EditorStyles, type: B["type"]): TextStyle {
+    return styles.blocks[type as keyof EditorStyles["blocks"]] as TextStyle;
+  }
 
   /**
    * Map a block-local point to a caret position. Default places the caret at
