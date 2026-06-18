@@ -3198,18 +3198,18 @@ export function toggleFormat(
 }
 
 /**
- * Toggle bold formatting on selected text or at cursor position
- * If there's no selection, toggles bold mode for next typed text
+ * Toggle the `strong` (bold) mark on selected text or at cursor position.
+ * If there's no selection, toggles `strong` mode for next typed text.
  */
-export function toggleBold(state: EditorState): ActionResult {
+export function toggleStrong(state: EditorState): ActionResult {
   return toggleFormat(state, "strong");
 }
 
 /**
- * Toggle italic formatting on selected text or at cursor position
- * If there's no selection, toggles italic mode for next typed text
+ * Toggle the `emphasis` (italic) mark on selected text or at cursor position.
+ * If there's no selection, toggles `emphasis` mode for next typed text.
  */
-export function toggleItalic(state: EditorState): ActionResult {
+export function toggleEmphasis(state: EditorState): ActionResult {
   return toggleFormat(state, "emphasis");
 }
 
@@ -3222,10 +3222,10 @@ export function toggleCode(state: EditorState): ActionResult {
 }
 
 /**
- * Toggle strikethrough formatting on selected text or at cursor position
- * If there's no selection, toggles strikethrough mode for next typed text
+ * Toggle the `strike` (strike-through) mark on selected text or at cursor
+ * position. If there's no selection, toggles `strike` mode for next typed text.
  */
-export function toggleStrikethrough(state: EditorState): ActionResult {
+export function toggleStrike(state: EditorState): ActionResult {
   return toggleFormat(state, "strike");
 }
 

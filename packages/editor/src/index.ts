@@ -69,10 +69,10 @@ export {
   MathMark,
   StrikeMark,
   StrongMark,
-  TOGGLE_BOLD,
   TOGGLE_CODE,
-  TOGGLE_ITALIC,
+  TOGGLE_EMPHASIS,
   TOGGLE_STRIKE,
+  TOGGLE_STRONG,
 } from "./rendering/marks";
 
 // Interaction regions are an internal concept — there is no host-level region

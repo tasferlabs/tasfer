@@ -39,7 +39,7 @@ import {
   MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
 import { CURSOR_MOVED } from "../actions/pointer-actions";
-import { TOGGLE_BOLD } from "../rendering/marks";
+import { TOGGLE_STRONG } from "../rendering/marks";
 import {
   INDENT_LIST_ITEM,
   INSERT_TAB,
@@ -198,7 +198,7 @@ export function handleKeyDown(
   // Bold
   if (isCtrl && code === "KeyB") {
     event.preventDefault();
-    const result = state.actionBus.dispatchState(TOGGLE_BOLD, state);
+    const result = state.actionBus.dispatchState(TOGGLE_STRONG, state);
     ops.push(...result.ops);
     return { state: result.state, ops };
   }

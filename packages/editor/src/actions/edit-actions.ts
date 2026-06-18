@@ -118,7 +118,7 @@ export const SPLIT_BLOCK = stateAction("split-block", (state) => {
 });
 
 // The list indent/outdent actions (INDENT_LIST_ITEM / OUTDENT_LIST_ITEM) and the
-// mark toggles (TOGGLE_BOLD, …) are co-located with the node/mark they act on:
+// mark toggles (TOGGLE_STRONG, …) are co-located with the node/mark they act on:
 // see `nodes/ListNode.ts` and `rendering/marks/*Mark.ts`.
 
 // ─── Selection ───────────────────────────────────────────────────────────────

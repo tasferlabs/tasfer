@@ -33,8 +33,8 @@ export { MathMark } from "./MathMark";
 export { StrikeMark } from "./StrikeMark";
 export { StrongMark } from "./StrongMark";
 export {
-  TOGGLE_BOLD,
   TOGGLE_CODE,
-  TOGGLE_ITALIC,
+  TOGGLE_EMPHASIS,
   TOGGLE_STRIKE,
+  TOGGLE_STRONG,
 } from "./toggle-actions";

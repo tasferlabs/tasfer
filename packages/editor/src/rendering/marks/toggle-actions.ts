@@ -13,27 +13,27 @@
 
 import { stateAction } from "../../action-bus";
 import {
-  toggleBold,
+  toggleStrong,
   toggleCode,
-  toggleItalic,
-  toggleStrikethrough,
+  toggleEmphasis,
+  toggleStrike,
 } from "../../actions/actions";
 
 /** Toggle the `strong` (bold) mark over the selection (Ctrl/Cmd+B). */
-export const TOGGLE_BOLD = stateAction("toggle-bold", (state) => {
-  const result = toggleBold(state);
+export const TOGGLE_STRONG = stateAction("toggle-strong", (state) => {
+  const result = toggleStrong(state);
   return { state: result.state, ops: result.ops };
 });
 
 /** Toggle the `emphasis` (italic) mark over the selection (Ctrl/Cmd+I). */
-export const TOGGLE_ITALIC = stateAction("toggle-italic", (state) => {
-  const result = toggleItalic(state);
+export const TOGGLE_EMPHASIS = stateAction("toggle-emphasis", (state) => {
+  const result = toggleEmphasis(state);
   return { state: result.state, ops: result.ops };
 });
 
 /** Toggle the `strike` (strike-through) mark over the selection. */
 export const TOGGLE_STRIKE = stateAction("toggle-strike", (state) => {
-  const result = toggleStrikethrough(state);
+  const result = toggleStrike(state);
   return { state: result.state, ops: result.ops };
 });
 

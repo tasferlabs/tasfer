@@ -4,7 +4,7 @@
  * Both iOS and Android inject `window.CypherBridge` with the same shape.
  * All methods return Promises so consumers never need platform branching.
  *
- * Editor callbacks (undo, redo, toggleBold, etc.) live on a separate
+ * Editor callbacks (undo, redo, toggleStrong, etc.) live on a separate
  * `window.CypherEditorCallbacks` object that the web app assigns and
  * native code calls via evaluateJavaScript.
  */
@@ -64,10 +64,10 @@ export interface CypherEditorCallbacks {
   setBlockType?: (type: string) => void;
   focus?: () => void;
   onFormatButtonClick?: () => boolean;
-  toggleBold?: () => void;
-  toggleItalic?: () => void;
+  toggleStrong?: () => void;
+  toggleEmphasis?: () => void;
   toggleCode?: () => void;
-  toggleStrikethrough?: () => void;
+  toggleStrike?: () => void;
 }
 
 // =============================================================================

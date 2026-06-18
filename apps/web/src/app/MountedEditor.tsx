@@ -1613,11 +1613,10 @@ function EditorSurface({
         mounted.editor.setInitialCursor();
       },
       onFormatButtonClick: handleFormatButtonClick,
-      toggleBold: () => mounted.editor.change((c) => c.setMark("strong")),
-      toggleItalic: () => mounted.editor.change((c) => c.setMark("emphasis")),
+      toggleStrong: () => mounted.editor.change((c) => c.setMark("strong")),
+      toggleEmphasis: () => mounted.editor.change((c) => c.setMark("emphasis")),
       toggleCode: () => mounted.editor.change((c) => c.setMark("code")),
-      toggleStrikethrough: () =>
-        mounted.editor.change((c) => c.setMark("strike")),
+      toggleStrike: () => mounted.editor.change((c) => c.setMark("strike")),
     };
 
     window.CypherEditorCallbacks = editorMethods;
