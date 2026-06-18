@@ -45,8 +45,7 @@ import {
   TODO_LIST_UNCHECKED,
   type TokenType,
 } from "../serlization/tokenizer";
-import type { EditorState, EditorStyles } from "../state-types";
-import { getTextStyle } from "../styles";
+import type { EditorState, EditorStyles, TextStyle } from "../state-types";
 import { isListType } from "../sync/block-registry";
 import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
 
@@ -178,6 +177,16 @@ export class ListNode extends TextNode {
   readonly type: TextualBlock["type"] = "bullet_list";
   readonly types: readonly string[] = LIST_BLOCK_TYPES;
 
+  /** The list family's theme keys are camelCase, not the snake_case block type. */
+  override textStyle(
+    styles: EditorStyles,
+    type: TextualBlock["type"],
+  ): TextStyle {
+    if (type === "numbered_list") return styles.blocks.numberedList;
+    if (type === "todo_list") return styles.blocks.todoList;
+    return styles.blocks.bulletList;
+  }
+
   /** Lists reserve `indent * indentSize` plus a fixed marker gutter. */
   protected leadingInset(
     block: TextualBlock,
@@ -308,7 +317,7 @@ export class ListNode extends TextNode {
             ? c.origin.x + indentOffset + adjustedMaxWidth + 2
             : c.origin.x + indentOffset + 2;
 
-          const textStyle = getTextStyle(styles, block.type);
+          const textStyle = this.textStyle(styles, block.type);
           const fontMetrics = getFontMetrics(
             textStyle.fontSize,
             textStyle.fontWeight,

@@ -6,6 +6,7 @@ import { currentFontFamily, getFontStack } from "./fonts";
 // nodes → TextNode → styles`) that leaves `ListNode extends TextNode` undefined.
 import { isTouchDevice } from "./node-shared";
 import type { NodeRegistry } from "./rendering/nodes/Node";
+import type { Block } from "./serlization/loadPage";
 import type {
   DeepPartial,
   EditorState,
@@ -582,35 +583,22 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
 // the base for the per-render overlay above.
 export const defaultStyles: EditorStyles = resolveTheme();
 
+/**
+ * Resolve the base text style for a textual block, delegating to the node's own
+ * {@link Node.textStyle} facet so the core never enumerates built-in block
+ * types. The block→theme-key mapping (e.g. `bullet_list` → `bulletList`) and any
+ * borrowing (math borrows paragraph) live on each node. Unknown/unregistered
+ * types fall back to the paragraph style.
+ */
 export function getTextStyle(
   styles: EditorStyles,
-  blockType:
-    | "heading1"
-    | "heading2"
-    | "heading3"
-    | "paragraph"
-    | "bullet_list"
-    | "numbered_list"
-    | "todo_list"
-    | "code"
-    | "math",
-) {
-  if (blockType === "bullet_list") {
-    return styles.blocks.bulletList;
-  } else if (blockType === "numbered_list") {
-    return styles.blocks.numberedList;
-  } else if (blockType === "todo_list") {
-    return styles.blocks.todoList;
-  } else if (blockType === "code") {
-    return styles.blocks.code;
-  } else if (blockType === "math") {
-    // A math block is textual (its char-run text is the LaTeX), but the visible
-    // equation renders through the tex bridge, not as wrapped text. The throwaway
-    // text-layout/caret-fallback just needs a valid TextStyle, so borrow the
-    // paragraph's.
-    return styles.blocks.paragraph;
-  }
-  return styles.blocks[blockType];
+  nodes: NodeRegistry,
+  blockType: Block["type"],
+): TextStyle {
+  return (
+    nodes.get(blockType)?.textStyle(styles, blockType) ??
+    styles.blocks.paragraph
+  );
 }
 
 export function applyTextStyle(

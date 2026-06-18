@@ -67,7 +67,7 @@ function getLineHeightAtPosition(
   if (!block) return 16 * 1.6;
   if (!isTextualBlock(block)) return 16 * 1.6;
   const styles = getEditorStyles(state);
-  const textStyle = getTextStyle(styles, block.type);
+  const textStyle = getTextStyle(styles, state.nodes, block.type);
   return textStyle.fontSize * textStyle.lineHeight;
 }
 

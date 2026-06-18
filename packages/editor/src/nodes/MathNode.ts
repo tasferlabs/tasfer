@@ -48,6 +48,7 @@ import type {
   Position,
   RenderedBlock,
   RenderedLine,
+  TextStyle,
   TypedInputTransform,
 } from "../state-types";
 import { isCaretScratchActive, setActiveMenu } from "../state-utils";
@@ -101,6 +102,16 @@ interface MathNodeLayout extends TextNodeLayout {
 export class MathNode extends TextNode {
   readonly type = "math" as const;
   readonly types: readonly string[] = ["math"];
+
+  /**
+   * A math block is textual (its char-run text is the LaTeX), but the visible
+   * equation renders through the tex bridge, not as wrapped text. The throwaway
+   * text-layout/caret fallback just needs a valid TextStyle, so borrow the
+   * paragraph's (there is no dedicated text style for `math`).
+   */
+  override textStyle(styles: EditorStyles): TextStyle {
+    return styles.blocks.paragraph;
+  }
 
   // ── Layout ───────────────────────────────────────────────────────────────
 
