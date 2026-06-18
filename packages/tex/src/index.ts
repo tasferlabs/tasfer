@@ -118,6 +118,11 @@ export type {
   SelectionRect,
 } from "./edit/caret.ts";
 export { unitBefore, unitAfter, type MathUnit } from "./edit/unit.ts";
+export {
+  normalizeLatex,
+  type LatexNormalization,
+  type LatexInsert,
+} from "./edit/normalize.ts";
 export { fontFamily, loadFonts, ALL_VARIANTS } from "./fonts/fonts.ts";
 export type { LoadFontsOptions } from "./fonts/fonts.ts";
 export type {

@@ -22,13 +22,13 @@ import { type ActionBus, type ActionHandler, stateAction } from "../action-bus";
 import { SPLIT_BLOCK } from "../actions/edit-actions";
 import { POINTER_MOVE } from "../actions/pointer-actions";
 import { getInlineMathAtPosition } from "../inline-math";
-import { clearSelection, moveCursorToPosition } from "../selection";
 import type { MarkRegistry } from "../rendering/marks";
 import type {
   BlockRuntimeState,
   NodeLayout,
   NodePaintCtx,
 } from "../rendering/nodes/Node";
+import { clearSelection, moveCursorToPosition } from "../selection";
 import { escapeHtml } from "../serlization/codecs/inline";
 import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
 import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
@@ -42,6 +42,7 @@ import type {
   ActiveMenu,
   CaretDeleteUnit,
   CaretScratch,
+  ContentMaterialization,
   EditorState,
   EditorStyles,
   Operation,
@@ -62,6 +63,7 @@ import {
   mathCaretTokenClamp,
   mathCaretVerticalStep,
   mathDeleteUnit,
+  mathMaterializeAfterInput,
   mathPendingCommandRange,
   mathTransformTypedInput,
 } from "./math";
@@ -499,6 +501,13 @@ export class MathNode extends TextNode {
     input: string,
   ): TypedInputTransform | null {
     return mathTransformTypedInput(block, index, input);
+  }
+
+  materializeAfterInput(
+    block: TextualBlock,
+    index: number,
+  ): ContentMaterialization | null {
+    return mathMaterializeAfterInput(block, index);
   }
 
   armCaretScratch(block: TextualBlock, index: number): CaretScratch | null {

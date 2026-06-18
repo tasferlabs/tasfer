@@ -15,6 +15,7 @@ import type { Block } from "../serlization/loadPage";
 import type {
   CaretDeleteUnit,
   CaretScratch,
+  ContentMaterialization,
   TypedInputTransform,
 } from "../state-types";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
@@ -27,6 +28,7 @@ import {
   layoutMath,
   type MathUnit,
   needsCommandSeparator as texNeedsCommandSeparator,
+  normalizeLatex as texNormalizeLatex,
   pendingCommandRange as texPendingCommandRange,
   toSVG,
   unitAfter as texUnitAfter,
@@ -70,17 +72,18 @@ function chipAt(
   return null;
 }
 
-const pickStop = (
+function pickStop(
   stops: number[],
   origin: number,
   dir: "left" | "right",
-): number | null =>
-  dir === "right"
+): number | null {
+  return dir === "right"
     ? (stops.find((o) => o > origin) ?? null)
     : (stops
         .slice()
         .reverse()
         .find((o) => o < origin) ?? null);
+}
 
 /**
  * The next legal caret index stepping `dir` from `index` in math content — a
@@ -289,6 +292,44 @@ export function mathArmScratch(
   }
   if (latex === null || !mathPendingCommandRange(latex, offset)) return null;
   return { type: "math", blockId: block.id, offset: index };
+}
+
+/**
+ * Materialize any incomplete construct an edit at `index` just created into its
+ * canonical placeholder form — typing `\frac` fills in `\frac{}{}` and drops the
+ * caret in the numerator, the same shape the `\` command menu inserts. The braces
+ * are real source text (so each slot gets a distinct, navigable caret offset);
+ * the host applies the returned inserts as CRDT ops within the same edit, keeping
+ * collaborators consistent. `null` when nothing needs filling (the common case)
+ * or the caret isn't in math content. Idempotent — a fully-braced formula is left
+ * alone, so this never fights a user typing braces manually.
+ */
+export function mathMaterializeAfterInput(
+  block: Block,
+  index: number,
+): ContentMaterialization | null {
+  if (block.type === "math") {
+    const n = texNormalizeLatex(blockLatex(block));
+    if (!n.changed) return null;
+    return { inserts: n.inserts, caret: n.mapCaret(index) };
+  }
+  // Inline chip: the caret is inside the chip (or just past its last char after
+  // typing). The chip's visible chars ARE its LaTeX, so map chip-local offsets
+  // back to block indices via the chip's start.
+  for (const span of getInlineMathSpans(block)) {
+    if (index <= span.startIndex || index > span.endIndex) continue;
+    const local = index - span.startIndex;
+    const n = texNormalizeLatex(span.latex);
+    if (!n.changed) return null;
+    return {
+      inserts: n.inserts.map((i) => ({
+        at: span.startIndex + i.at,
+        text: i.text,
+      })),
+      caret: span.startIndex + n.mapCaret(local),
+    };
+  }
+  return null;
 }
 
 /**

@@ -21,20 +21,22 @@ import {
   mathCaretTokenClamp,
   mathCaretVerticalStep,
   mathDeleteUnit,
+  mathMaterializeAfterInput,
   mathPendingCommandRange,
   mathTransformTypedInput,
 } from "../../nodes/math";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import type { Block } from "../../serlization/loadPage";
-import type {
-  CaretDeleteUnit,
-  CaretScratch,
-  TypedInputTransform,
-} from "../../state-types";
 import {
   INLINE_MATH_END,
   INLINE_MATH_START,
 } from "../../serlization/tokenizer";
+import type {
+  CaretDeleteUnit,
+  CaretScratch,
+  ContentMaterialization,
+  TypedInputTransform,
+} from "../../state-types";
 import {
   Mark,
   type MarkReplacement,
@@ -194,6 +196,15 @@ export class MathMark extends Mark {
     return block.type === "math"
       ? null
       : mathTransformTypedInput(block, index, input);
+  }
+
+  materializeAfterInput(
+    block: Block,
+    index: number,
+  ): ContentMaterialization | null {
+    return block.type === "math"
+      ? null
+      : mathMaterializeAfterInput(block, index);
   }
 
   armCaretScratch(block: Block, index: number): CaretScratch | null {

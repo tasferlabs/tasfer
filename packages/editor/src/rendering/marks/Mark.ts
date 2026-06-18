@@ -34,6 +34,7 @@ import type { Block, Mark as MarkData } from "../../serlization/loadPage";
 import type {
   CaretDeleteUnit,
   CaretScratch,
+  ContentMaterialization,
   EditorState,
   EditorStyles,
   NodeOverlay,
@@ -297,6 +298,13 @@ export abstract class Mark {
     index: number,
     input: string,
   ): TypedInputTransform | null;
+
+  /** Materialize an incomplete construct created by an edit at `index` into its
+   * canonical placeholder form (see {@link ContentMaterialization}), or `null`. */
+  materializeAfterInput?(
+    block: Block,
+    index: number,
+  ): ContentMaterialization | null;
 
   armCaretScratch?(block: Block, index: number): CaretScratch | null;
 }
