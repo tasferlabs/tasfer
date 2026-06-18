@@ -2907,16 +2907,31 @@ export class Editor implements EditorApi {
     return !sel || sel.isCollapsed;
   };
 
+  // Inverse of resolveBlockType: the read API speaks the same "heading" sugar
+  // the write API accepts, so getNode/setNode round-trip. The concrete
+  // heading1/2/3 types (the CRDT/storage form) are projected back to
+  // { type: "heading", attrs: { level } } here, at the public boundary only —
+  // storage, serialization, and the wire format stay discrete.
+  private presentNode = (node: DocNode): DocNode => {
+    const m = /^heading([1-3])$/.exec(node.type);
+    if (!m) return node;
+    return {
+      ...node,
+      type: "heading",
+      attrs: { ...node.attrs, level: Number(m[1]) },
+    };
+  };
+
   getNode = (at?: DocPoint): DocNode | null => {
     const idx = resolveBlockIndex(this._state, at);
     if (idx < 0) return null;
-    return toDocNode(this._state.document.page.blocks[idx]);
+    return this.presentNode(toDocNode(this._state.document.page.blocks[idx]));
   };
 
   getNodes = (): DocNode[] =>
     this._state.document.page.blocks
       .filter((b) => !b.deleted)
-      .map((b) => toDocNode(b));
+      .map((b) => this.presentNode(toDocNode(b)));
 
   getSelection = (): DocRange | null => docSelection(this._state);
 
