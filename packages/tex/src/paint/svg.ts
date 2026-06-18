@@ -79,6 +79,14 @@ function emit(
       }
       break;
     }
+    case "placeholder":
+      // A faint translucent block marking an empty, editable slot.
+      out.push(
+        `<rect x="${fmt(x)}" y="${fmt(y - box.height * fs)}" ` +
+          `width="${fmt(box.width * fs)}" height="${fmt((box.height + box.depth) * fs)}" ` +
+          `fill="${color}" fill-opacity="0.12"/>`,
+      );
+      break;
     case "list":
       for (const child of box.children) {
         emit(child.box, x + child.dx * fs, y + child.dy * fs, fs, color, out);

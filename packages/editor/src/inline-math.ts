@@ -28,30 +28,6 @@ import { isTextualBlock } from "./sync/block-registry";
 export { getCrossedInlineMathSpan, getInlineMathSpans, type InlineMathSpan };
 
 /**
- * An inline-math chip resolved to visible-character indices. `[startIndex,
- * endIndex)` is the caret-edge range: `startIndex` sits before the first LaTeX
- * char, `endIndex` after the last. `latex` is the chip's source text.
- */
-/**
- * Inline math is a single atomic chip — the caret may not sit inside it. If a
- * candidate visible-index landed inside a chip, snap it out to the chip boundary
- * in the requested logical direction. Returns the original index when it did not
- * fall inside a chip.
- */
-export function snapInlineMathPosition(
-  block: Block,
-  textIndex: number,
-  direction: "left" | "right",
-): number {
-  for (const span of getInlineMathSpans(block)) {
-    if (textIndex > span.startIndex && textIndex < span.endIndex) {
-      return direction === "left" ? span.startIndex : span.endIndex;
-    }
-  }
-  return textIndex;
-}
-
-/**
  * Find the inline-math chip covering a caret position. `mode` controls which
  * positions count as covered:
  * - "leftEdge":  position exactly at the chip start

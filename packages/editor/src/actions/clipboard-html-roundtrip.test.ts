@@ -68,7 +68,8 @@ describe("clipboard text/html round-trip", () => {
       id: "m1",
       afterId: "img1",
       type: "math",
-      latex: "x^2 + y^2",
+      charRuns: run("x^2 + y^2"),
+      formats: [],
       displayMode: true,
     } as unknown as Block,
     {
@@ -110,11 +111,12 @@ describe("clipboard text/html round-trip", () => {
     expect(image!.width).toBe(200);
     expect(image!.objectFit).toBe("contain");
 
+    // Math is textual now — its char-run text is the LaTeX.
     const math = blocks.find((b) => b.type === "math") as
-      | (Block & { latex: string; displayMode: boolean })
+      | (Block & { charRuns: CharRun[]; displayMode: boolean })
       | undefined;
     expect(math).toBeDefined();
-    expect(math!.latex).toContain("x^2 + y^2");
+    expect(getVisibleTextFromRuns(math!.charRuns)).toContain("x^2 + y^2");
     expect(math!.displayMode).toBe(true);
 
     const lists = blocks.filter((b) => b.type === "bullet_list") as Array<

@@ -16,7 +16,7 @@ import {
   resolveFontVariant,
 } from "../data/fontMetrics.ts";
 import type { SigmaName } from "../data/constants.ts";
-import type { Node } from "../parse/ast.ts";
+import type { Node, Span } from "../parse/ast.ts";
 import { DISPLAY, SCRIPT, type Style, TEXT } from "../style.ts";
 import {
   type Box,
@@ -28,6 +28,7 @@ import {
   pathBox,
   type PathCmd,
   type Placed,
+  placeholderBox,
   ruleBox,
 } from "./box.ts";
 import { chooseSurd, makeDelimiter, SIZE_TO_MAX_HEIGHT } from "./delimiter.ts";
@@ -67,6 +68,19 @@ function isLimitOp(node: Node): node is Extract<Node, { type: "atom" }> {
   );
 }
 
+// KaTeX's fontMetricsData lists the multi-integral glyphs (∬ \iint, ∭ \iiint)
+// with the advance of a SINGLE integral, but the actual font glyphs draw two/
+// three signs and advance ~2×/3× as wide. In the browser KaTeX flows them by the
+// glyph's natural DOM advance (so scripts sit past the whole operator); on canvas
+// we lay out from the metric table, so without this correction the metric width
+// is too small and the sub/superscripts land in the MIDDLE of the operator
+// instead of to its right. Values are the true font advances per size at 1 em
+// (text = Size1, display = Size2).
+const WIDE_OP_ADVANCE: Record<string, readonly [number, number]> = {
+  "∬": [0.819, 1.084],
+  "∭": [1.166, 1.592],
+};
+
 /** Render a big-operator glyph (Size1, or Size2 in display), centered on the axis. */
 function buildBigOp(
   info: { char: string },
@@ -74,10 +88,132 @@ function buildBigOp(
 ): { glyph: ReturnType<typeof glyphBox>; baseShift: number; slant: number } {
   const large = style.styleSize === 0; // display → larger glyph
   const font = large ? "Size2-Regular" : "Size1-Regular";
-  const glyph = glyphBox(info.char, font, style.sizeMultiplier, null);
+  let glyph = glyphBox(info.char, font, style.sizeMultiplier, null);
+  const wide = WIDE_OP_ADVANCE[info.char];
+  if (wide) {
+    glyph = { ...glyph, width: wide[large ? 1 : 0] * style.sizeMultiplier };
+  }
   const baseShift =
     (glyph.height - glyph.depth) / 2 - sig(style, "axisHeight");
   return { glyph, baseShift, slant: glyph.italic };
+}
+
+// Cyclic (closed-contour) integrals: the glyphs ∯/∰ don't exist in the KaTeX
+// fonts, so — exactly as KaTeX does — render the corresponding plain multiple
+// integral and overlay an oval. Maps the absent char to the glyph to draw plus
+// the oval's [width, height] in em (KaTeX's `svgData`, display Size2 / text
+// Size1), scaled by the size multiplier at layout time.
+const CYCLIC_OPS: Record<string, { char: string; display: [number, number]; text: [number, number] }> = {
+  "∯": { char: "∬", display: [1.472, 0.659], text: [0.957, 0.499] }, // \oiint
+  "∰": { char: "∭", display: [1.98, 0.659], text: [1.304, 0.499] }, // \oiiint
+};
+
+/**
+ * A big operator as a laid-out atom: the glyph centered on the axis, its italic
+ * carried as trailing advance (KaTeX's `margin-right: italic`) so a following
+ * atom clears the lean and Rule 18 staggers the scripts (superscript past the
+ * top-right overhang, subscript back at the glyph edge). Cyclic integrals also
+ * get an overlaid oval. Reported height/depth are the glyph's own (KaTeX leaves
+ * the tiny axis recentering as a visual shift, not a metric change), so a bare
+ * operator's box matches KaTeX exactly.
+ */
+function buildBigOpAtom(
+  info: { char: string },
+  span: Span,
+  style: Style,
+): Built {
+  const cyclic = CYCLIC_OPS[info.char];
+  const { glyph, baseShift } = buildBigOp(
+    { char: cyclic ? cyclic.char : info.char },
+    style,
+  );
+  // Carry the operator's source span on its glyph so the caret layer emits edge
+  // stops for it (a bare `\oint`/`\sum` would otherwise contribute none — the
+  // glyph from buildBigOp is span-less and the wrapper isn't a caret boundary —
+  // leaving the caret invisible and un-landable just after the operator).
+  const children: Placed[] = [{ box: { ...glyph, span }, dx: 0, dy: baseShift }];
+
+  if (cyclic) {
+    const [w, h] = (style.styleSize === 0 ? cyclic.display : cyclic.text).map(
+      (v) => v * style.sizeMultiplier,
+    );
+    // The oval encircles the integral, centered on the math axis (the
+    // operator's vertical center) and on the glyph's slanted ink (whose
+    // horizontal midpoint sits half an italic past the advance center). Drawn
+    // as a stroked ellipse — the canvas-native equivalent of KaTeX's overlaid
+    // SVG ring.
+    const cx = (glyph.width + glyph.italic) / 2;
+    const cy = -sig(style, "axisHeight");
+    children.push({
+      box: ovalPath(w, h, sig(style, "defaultRuleThickness")),
+      dx: cx,
+      dy: cy,
+    });
+  }
+
+  const box = listBox(children, {
+    width: glyph.width + glyph.italic,
+    span,
+    italic: glyph.italic,
+  });
+  return {
+    // NOT a character box: an operator is tall, so Rule 18a drops its scripts
+    // toward the glyph's own top/bottom (spreading an integral's limits along
+    // its slant) rather than parking them near the axis as it would for a
+    // letter. The italic stagger rides on the wrapper's `italic`, independent of
+    // this flag (KaTeX keys the drop off the parse node, the italic off the
+    // built SymbolNode).
+    box: { ...box, height: glyph.height, depth: glyph.depth },
+    klass: "mop",
+    isCharBox: false,
+  };
+}
+
+/**
+ * `\vdots` (and a literal `⋮`) — the vertical-dots glyph stretched to a full
+ * row's height. KaTeX expands it to `{\varvdots\rule{0pt}{15pt}}`: the `⋮`
+ * glyph (its own ~0.9 em height, 0.03 em depth) beside a zero-width invisible
+ * rule 15 pt (= 1.5 em, since ptPerEm = 10) tall. The enclosing group's height
+ * is then the rule's 1.5 em while the depth stays the glyph's 0.03 em, so the
+ * dots reach a full line instead of floating short inside a matrix/cases column.
+ * We reproduce that exactly with the same glyph + invisible rule.
+ */
+function buildVdots(node: Extract<Node, { type: "atom" }>, style: Style): Built {
+  const glyph = glyphBox(
+    node.info.char,
+    resolveFontVariant(node.info),
+    style.sizeMultiplier,
+    node.span,
+  );
+  // \rule{0pt}{15pt}: 15 pt → em via ptPerEm, scaled to the current size. Zero
+  // width and no depth — it only raises the box height to a full row.
+  const ruleHeight = (15 / style.metrics().ptPerEm) * style.sizeMultiplier;
+  const klass = atomClassOf(node.info.group);
+  const box = listBox(
+    [
+      { box: glyph, dx: 0, dy: 0 },
+      { box: ruleBox(0, ruleHeight), dx: 0, dy: 0 },
+    ],
+    { width: glyph.width, klass, span: node.span },
+  );
+  return { box, klass, isCharBox: false };
+}
+
+/**
+ * A stroked ellipse of width `w`, height `h`, centered on its box origin —
+ * approximated by a closed polyline (the path model is line-only). Used to
+ * overlay the ring on a cyclic integral.
+ */
+function ovalPath(w: number, h: number, stroke: number): Box {
+  const rx = w / 2;
+  const ry = h / 2;
+  const SEG = 48;
+  const cmds: PathCmd[] = [];
+  for (let i = 0; i <= SEG; i++) {
+    const t = (i / SEG) * 2 * Math.PI;
+    cmds.push([i === 0 ? "M" : "L", rx * Math.cos(t), ry * Math.sin(t)]);
+  }
+  return pathBox(cmds, { width: w, height: ry, depth: ry }, stroke);
 }
 
 /**
@@ -110,17 +246,52 @@ function interAtomGlue(left: AtomClass, right: AtomClass, style: Style): number 
   return mu * style.metrics().cssEmPerMu * style.sizeMultiplier;
 }
 
+/**
+ * Multi-part constructs whose slots sit on their own rows — they get caret stops
+ * at their outer edges (parent baseline) so the caret can rest beside the whole
+ * construct and step out of it. Inline-flow wrappers (`ord`, `style`, font
+ * commands) are excluded: their content already lives on the parent baseline, so
+ * the inner glyph stops already are the outer ones.
+ */
+const BOUNDARY_CONSTRUCTS = new Set<Node["type"]>([
+  "frac",
+  "sqrt",
+  "supsub",
+  "accent",
+  "overunder",
+  "array",
+  "stack",
+  "leftright",
+  "sizeddelim",
+  "boxed",
+  "not",
+]);
+
 function buildNode(node: Node, style: Style, font?: FontVariant): Built {
+  const built = buildNodeInner(node, style, font);
+  // Tag genuine constructs so the caret layer can offer top-level stops at their
+  // outer edges (see ListBox.boundary). The box already carries `node.span`.
+  if (
+    built.box.type === "list" &&
+    built.box.span &&
+    BOUNDARY_CONSTRUCTS.has(node.type)
+  ) {
+    built.box.boundary = true;
+  }
+  return built;
+}
+
+function buildNodeInner(node: Node, style: Style, font?: FontVariant): Built {
   switch (node.type) {
     case "atom": {
       // Big operators (∑ ∫ ∏ …) render larger and centered on the axis.
       if (node.info.group === "op" && !font) {
-        const { glyph, baseShift } = buildBigOp(node.info, style);
-        const box = listBox([{ box: glyph, dx: 0, dy: baseShift }], {
-          width: glyph.width,
-          span: node.span,
-        });
-        return { box, klass: "mop", isCharBox: true };
+        return buildBigOpAtom(node.info, node.span, style);
+      }
+      // `\vdots` (and a literal `⋮`) gets a full row's height, not the bare
+      // ~0.9 em glyph — so it fills a matrix/cases column. See buildVdots.
+      if (node.info.char === "⋮" && !font) {
+        return buildVdots(node, style);
       }
       // An enclosing font command (`\mathbb`, …) overrides the resolved face.
       const variant = font ?? resolveFontVariant(node.info);
@@ -133,6 +304,11 @@ function buildNode(node: Node, style: Style, font?: FontVariant): Built {
       return { box, klass: atomClassOf(node.info.group), isCharBox: true };
     }
     case "ord": {
+      // An empty group is an editable slot (a deleted-out numerator, an `x^{}`
+      // script): lay out a faint placeholder so the caret has somewhere to land.
+      if (node.body.length === 0) {
+        return emptySlot(node.span, style);
+      }
       const box = buildExpression(node.body, style, font);
       box.span = node.span;
       const isCharBox =
@@ -564,6 +740,23 @@ function cellAlignOffset(
   return (colWidth - cellWidth) / 2;
 }
 
+/**
+ * A faint placeholder for an empty group `{}` — a slot the caret can land in.
+ * Sized to a lowercase letter (x-height tall, ~0.4 em wide) so the slot reads as
+ * a small box. The caret offset sits *between* the braces (`span.start + 1` when
+ * the source has them; the bare insertion point for a brace-less missing arg).
+ */
+function emptySlot(span: Span, style: Style): Built {
+  const m = style.sizeMultiplier;
+  const inside = span.end - span.start >= 2 ? span.start + 1 : span.start;
+  const box = placeholderBox(inside, {
+    width: 0.4 * m,
+    height: sig(style, "xHeight"),
+    depth: 0,
+  });
+  return { box, klass: "mord", isCharBox: false };
+}
+
 /** Build a node that's an argument/base, defaulting to an empty box if null. */
 function buildOrEmpty(node: Node | null, style: Style): Built {
   if (node) return buildNode(node, style);
@@ -615,8 +808,17 @@ function buildSupSub(
   // scriptspace: a font-size-independent gap added after the scripts.
   const scriptspace = 0.05;
   // Subscripts aren't shifted by the base's italic correction; only a single
-  // symbol base carries a meaningful italic to compensate for.
-  const italic = isCharBox && base.type === "glyph" ? base.italic : 0;
+  // symbol base carries a meaningful italic to compensate for. A bare glyph
+  // (a letter) carries it directly; a big-operator glyph is wrapped in a list
+  // to sit on the axis, so its italic rides on the wrapper (set in the op
+  // branch). This is independent of `isCharBox` — KaTeX likewise applies the
+  // italic to any built SymbolNode regardless of the Rule 18a drop decision.
+  const italic =
+    base.type === "glyph"
+      ? base.italic
+      : base.type === "list"
+        ? (base.italic ?? 0)
+        : 0;
   const xHeight = sig(style, "xHeight");
 
   const children: Placed[] = [{ box: base, dx: 0, dy: 0 }];
@@ -636,8 +838,8 @@ function buildSupSub(
         subShift -= psi;
       }
     }
-    children.push({ box: supm, dx: base.width, dy: -supShift });
-    children.push({ box: subm, dx: base.width - italic, dy: subShift });
+    children.push({ box: supm, dx: base.width, dy: -supShift, role: "sup" });
+    children.push({ box: subm, dx: base.width - italic, dy: subShift, role: "sub" });
     width = base.width + Math.max(supm.width, subm.width - italic) + scriptspace;
   } else if (subm) {
     // Rule 18b
@@ -646,12 +848,12 @@ function buildSupSub(
       sig(style, "sub1"),
       subm.height - 0.8 * xHeight,
     );
-    children.push({ box: subm, dx: base.width - italic, dy: subShift });
+    children.push({ box: subm, dx: base.width - italic, dy: subShift, role: "sub" });
     width = base.width + (subm.width - italic) + scriptspace;
   } else if (supm) {
     // Rule 18c, d
     supShift = Math.max(supShift, minSupShift, supm.depth + 0.25 * xHeight);
-    children.push({ box: supm, dx: base.width, dy: -supShift });
+    children.push({ box: supm, dx: base.width, dy: -supShift, role: "sup" });
     width = base.width + supm.width + scriptspace;
   }
 
@@ -689,7 +891,7 @@ function stackLimits(
     );
     // sup baseline sits above the operator's top by `kern`.
     const dy = baseShift - base.height - kern - sup.depth;
-    children.push({ box: sup, dx: (opW - sup.width) / 2 + slant, dy });
+    children.push({ box: sup, dx: (opW - sup.width) / 2 + slant, dy, role: "sup" });
     height = Math.max(height, sup.height - dy) + big5;
     width = Math.max(width, sup.width);
   }
@@ -699,7 +901,7 @@ function stackLimits(
       sig(style, "bigOpSpacing4") - sub.height,
     );
     const dy = baseShift + base.depth + kern + sub.height;
-    children.push({ box: sub, dx: (opW - sub.width) / 2 - slant, dy });
+    children.push({ box: sub, dx: (opW - sub.width) / 2 - slant, dy, role: "sub" });
     depth = Math.max(depth, sub.depth + dy) + big5;
     width = Math.max(width, sub.width);
   }
@@ -788,14 +990,15 @@ function buildText(node: Extract<Node, { type: "text" }>, style: Style): Built {
   return { box, klass: "mord", isCharBox: false };
 }
 
-/** An atom-class override (`\mathbin`, …). `\mathop` also centers on the axis. */
+/**
+ * An atom-class override (`\mathbin`, `\mathrel`, …, `\mathop`). `\mathop` only
+ * reclasses its body as a big operator; it does NOT axis-center it — KaTeX
+ * centers genuine symbol operators (∑, ∫) in the op-atom path, so a symbol body
+ * is already centered here and a grouped body (`\mathop{X}`) stays put, matching
+ * KaTeX (which leaves `\mathop{X}` at its natural height).
+ */
 function buildMClass(node: Extract<Node, { type: "mclass" }>, style: Style): Built {
   const body = buildNode(node.body, style).box;
-  if (node.mclass === "mop") {
-    const shift = (body.height - body.depth) / 2 - sig(style, "axisHeight");
-    const box = listBox([{ box: body, dx: 0, dy: shift }], { width: body.width, span: node.span });
-    return { box, klass: "mop", isCharBox: false };
-  }
   return { box: body, klass: node.mclass, isCharBox: false };
 }
 
@@ -829,7 +1032,10 @@ function buildStack(node: Extract<Node, { type: "stack" }>, style: Style): Built
 
 /** `\boxed` / `\fbox` — body inside a ruled frame (pad 0.3 em + 0.04 em rule). */
 function buildBoxed(node: Extract<Node, { type: "boxed" }>, style: Style): Built {
-  const body = buildNode(node.body, style).box;
+  // `\boxed{#1}` is `\fbox{$\displaystyle #1$}` — the content is set in display
+  // style (so a boxed fraction is full size), while the frame padding stays at
+  // the ambient size.
+  const body = buildNode(node.body, DISPLAY).box;
   const m = style.sizeMultiplier;
   const pad = 0.3 * m;
   const rt = 0.04 * m;
@@ -1038,25 +1244,32 @@ function surdImage(
   style: Style,
 ): { texHeight: number; ruleWidth: number; advanceWidth: number } {
   const rule = style.metrics().sqrtRuleThickness; // 0.04
+  // The surd glyph scales with the current style like every other character —
+  // a radical inside a fraction numerator or a script is at script(script)
+  // size, not full size. KaTeX bakes this via `havingBaseSizing()`; we apply
+  // the style's size multiplier to the returned dimensions directly (and the
+  // glyph-tier threshold is judged in base-size units, `minHeight / m`).
+  const m = style.sizeMultiplier;
   const choice = chooseSurd(minHeight, style);
   if (choice.type === "small") {
-    // Within the small surd, pick the size multiplier by height (makeSqrtImage).
+    // Within the small surd, pick the glyph tier by the (absolute) required
+    // height, exactly as KaTeX's makeSqrtImage does (`height < 1.0`/`< 1.4`).
     const sizeMult = minHeight < 1.0 ? 1.0 : minHeight < 1.4 ? 0.7 : 1.0;
     return {
-      texHeight: 1.0 / sizeMult,
-      ruleWidth: rule * sizeMult,
-      advanceWidth: 0.833 / sizeMult,
+      texHeight: (1.0 / sizeMult) * m,
+      ruleWidth: rule * sizeMult * m,
+      advanceWidth: (0.833 / sizeMult) * m,
     };
   }
   if (choice.type === "large") {
     return {
-      texHeight: SIZE_TO_MAX_HEIGHT[choice.size],
-      ruleWidth: rule,
-      advanceWidth: 1.0,
+      texHeight: SIZE_TO_MAX_HEIGHT[choice.size] * m,
+      ruleWidth: rule * m,
+      advanceWidth: 1.0 * m,
     };
   }
   // Tall: a single stretched surd.
-  return { texHeight: minHeight, ruleWidth: rule, advanceWidth: 1.056 };
+  return { texHeight: minHeight, ruleWidth: rule * m, advanceWidth: 1.056 * m };
 }
 
 /** A radical-sign vector path filling [0, w] × [-height, depth]. */
@@ -1067,11 +1280,14 @@ function surdPath(
   rule: number,
 ): Box {
   const topY = -height + rule / 2; // y of the vinculum centerline
+  // The tall right stroke must rise diagonally from the bottom vertex all the
+  // way to the vinculum join at x = w (where the radicand's overbar begins),
+  // like KaTeX's surd glyph. An early peak followed by a flat run to w would
+  // leave a detached-looking bar stub to the left of the radicand.
   const cmds: PathCmd[] = [
     ["M", 0.0, -height * 0.4],
     ["L", 0.12 * w, -height * 0.32],
     ["L", 0.32 * w, depth - 0.02],
-    ["L", 0.56 * w, topY],
     ["L", w, topY],
   ];
   return pathBox(cmds, { width: w, height, depth }, rule);
@@ -1083,8 +1299,11 @@ function surdPath(
  * (height H above the baseline, no depth), at roughly a macron's elevation.
  */
 function vecPath(sizeMult: number): Box {
+  // Box dimensions match KaTeX's `\vec` staticSvg (svgData.vec = 0.471 × 0.714),
+  // so the accent contributes the same height/depth as KaTeX; the arrow ink sits
+  // near the top of that box, just above the base.
   const w = 0.471 * sizeMult;
-  const H = 0.62 * sizeMult; // top of the arrowhead above the baseline
+  const H = 0.714 * sizeMult; // box height = top of the arrow above the baseline
   const t = 0.048 * sizeMult; // stroke thickness
   const rise = 0.085 * sizeMult; // arrowhead half-spread
   const back = 0.13 * sizeMult; // arrowhead barb length
@@ -1099,16 +1318,34 @@ function vecPath(sizeMult: number): Box {
   return pathBox(cmds, { width: w, height: H, depth: 0 }, t);
 }
 
-/** An unrecognized command — a visible red placeholder, never an error. */
+/**
+ * An unrecognized command — a visible red placeholder, never an error.
+ *
+ * An unknown command (`\al` on the way to `\alpha`) is NOT a construct yet — the
+ * user is still typing it. So each character gets its OWN single-char source
+ * span (`\` `a` `l` → [0,1) [1,2) [2,3)) rather than every glyph carrying the
+ * whole `[0,3)` command span. That makes the caret step through it letter by
+ * letter (instead of snapping to the leading `\`) and a delete remove one
+ * character at a time — exactly like the plain text it effectively is. A
+ * *recognized* command stays one atomic token, as it should. The token text
+ * tiles its source range exactly (`\` + name), so char `i` is at `span.start + i`.
+ */
 function buildUnknown(
   node: Extract<Node, { type: "unknown" }>,
   style: Style,
 ): Built {
   const text = "\\" + node.name;
+  const start = node.span.start;
   const items: HItem[] = [];
-  for (const ch of text) {
+  for (let i = 0; i < text.length; i++) {
     items.push(
-      glyphBox(ch, "Main-Regular", style.sizeMultiplier, node.span, "#c01616"),
+      glyphBox(
+        text[i],
+        "Main-Regular",
+        style.sizeMultiplier,
+        { start: start + i, end: start + i + 1 },
+        "#c01616",
+      ),
     );
   }
   const box = hbox(items, { klass: "mord", span: node.span });

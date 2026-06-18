@@ -24,6 +24,7 @@ import {
   isCharDeleted,
 } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
+import type { MarkRegistry } from "./marks";
 import type { NodeRegionCtx, NodeRegistry } from "./nodes";
 import { getContentWithComposition, TextNode, UnknownNode } from "./nodes";
 import { renderScrollbar } from "./scrollbar";
@@ -50,6 +51,7 @@ function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
 // `views` is the per-instance block view registry (from EditorState.nodes).
 export function getBlockHeight(
   views: NodeRegistry,
+  marks: MarkRegistry,
   block: Block,
   maxWidth: number,
   styles: EditorStyles,
@@ -60,7 +62,7 @@ export function getBlockHeight(
   if (block.cachedHeight !== undefined && block.cachedWidth === maxWidth) {
     height = block.cachedHeight;
   } else {
-    height = calculateBlockHeight(views, block, maxWidth, styles);
+    height = calculateBlockHeight(views, marks, block, maxWidth, styles);
     block.cachedHeight = height;
     block.cachedWidth = maxWidth;
   }
@@ -76,6 +78,7 @@ export function getBlockHeight(
       maxWidth,
       isFirst: first,
       styles,
+      marks,
     });
   }
 
@@ -165,6 +168,7 @@ export function renderPage(
     // Get or calculate block height (cached on the block itself)
     const blockHeight = getBlockHeight(
       state.nodes,
+      state.marks,
       block,
       maxWidth,
       styles,
@@ -240,6 +244,7 @@ export function collectOverlays(
     const block = visibleBlocks[i];
     const height = getBlockHeight(
       state.nodes,
+      state.marks,
       block,
       maxWidth,
       styles,
@@ -255,6 +260,7 @@ export function collectOverlays(
         maxWidth,
         isFirst: i === 0,
         styles,
+        marks: state.marks,
         state,
         viewport,
         origin: { x: styles.canvas.paddingLeft, y },
@@ -318,6 +324,7 @@ export function renderBlock(
       // painting the image too low and floating its overlay/hit box too high.
       isFirst,
       styles,
+      marks: state.marks,
     };
     const layout = view.layout(layoutCtx);
     return view.paint(layout, {
@@ -343,6 +350,7 @@ export { clearFailedImageCache, imageCache } from "../nodes/ImageNode";
 // Calculate block height dynamically based on content and max width
 export function calculateBlockHeight(
   views: NodeRegistry,
+  marks: MarkRegistry,
   block: Block,
   maxWidth: number,
   styles: EditorStyles,
@@ -357,6 +365,7 @@ export function calculateBlockHeight(
     maxWidth,
     isFirst: false,
     styles,
+    marks,
   }).height;
 }
 
@@ -394,6 +403,7 @@ function getBlockTopViewport(
     if (visibleBlock.originalIndex >= blockIndex) break;
     y += getBlockHeight(
       state.nodes,
+      state.marks,
       visibleBlock,
       maxWidth,
       styles,
@@ -435,17 +445,24 @@ function calculateCursorPosition(
   // With composition content the layout is recomputed from the injected chars
   // (exactly as paint() does); otherwise the canonical layout is used.
   const layout = renderChars
-    ? node.computeLayout(block, maxWidth, styles, {
-        chars: renderChars,
-        formats: renderFormats ?? block.formats,
-        compositionRange,
-      })
+    ? node.computeLayout(
+        block,
+        maxWidth,
+        styles,
+        {
+          chars: renderChars,
+          formats: renderFormats ?? block.formats,
+          compositionRange,
+        },
+        state.marks,
+      )
     : node.layout({
         block,
         blockIndex: position.blockIndex,
         maxWidth,
         isFirst: false,
         styles,
+        marks: state.marks,
       });
 
   const targetCursorIndex = Math.min(
@@ -457,13 +474,19 @@ function calculateCursorPosition(
     targetCursorIndex,
     styles.canvas.paddingLeft,
     blockTop,
+    state,
+    block.id,
   );
 
-  // The drawn caret is ascent+descent tall (text height), not full line height.
+  // A caret inside a math chip carries its exact box (sized to the row it sits
+  // on); draw it verbatim. Otherwise the caret is ascent+descent tall (text
+  // height) anchored at the line top, not full line height.
   return {
     x: rect.x,
     y: rect.y,
-    height: layout.fontMetrics.ascent + layout.fontMetrics.descent,
+    height: rect.exact
+      ? rect.height
+      : layout.fontMetrics.ascent + layout.fontMetrics.descent,
   };
 }
 
@@ -824,6 +847,7 @@ export function renderCursorLayer(
 
     const blockHeight = getBlockHeight(
       state.nodes,
+      state.marks,
       visibleBlock,
       maxWidth,
       styles,
@@ -834,6 +858,7 @@ export function renderCursorLayer(
 
   const blockHeight = getBlockHeight(
     state.nodes,
+    state.marks,
     block,
     maxWidth,
     styles,
@@ -948,12 +973,15 @@ function getPositionCoordinates(
     maxWidth,
     isFirst: false,
     styles,
+    marks: state.marks,
   });
   return node.caretRect(
     layout,
     position.textIndex,
     styles.canvas.paddingLeft,
     blockTop,
+    state,
+    block.id,
   );
 }
 

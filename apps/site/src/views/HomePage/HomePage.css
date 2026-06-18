@@ -571,7 +571,7 @@
 }
 .lp-refusal-item {
   display: grid;
-  grid-template-columns: 80px 1fr auto;
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: 24px;
   padding: 26px 0;

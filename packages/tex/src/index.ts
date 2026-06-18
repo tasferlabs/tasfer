@@ -16,6 +16,13 @@ export interface LayoutOptions {
   displayMode?: boolean;
   /** Pixel size of 1 em. Layout is computed in em then reported at this scale. */
   fontSize?: number;
+  /**
+   * Source range of a control word the caller is *still typing* — parsed as a
+   * literal placeholder instead of being resolved, so the whole layout (paint
+   * AND caret geometry derived from it) reflects the in-progress source text.
+   * See {@link ParseOptions.literalRange} / `pendingCommandRange`.
+   */
+  literalRange?: { start: number; end: number };
 }
 
 export interface MathLayout {
@@ -73,7 +80,7 @@ export function isValidLatex(latex: string): boolean {
 export function layoutMath(latex: string, opts: LayoutOptions = {}): MathLayout {
   const fontSize = opts.fontSize ?? 16;
   const displayMode = opts.displayMode ?? false;
-  const ast = parse(latex);
+  const ast = parse(latex, { literalRange: opts.literalRange });
   const box = buildExpression(
     ast.type === "ord" ? ast.body : [ast],
     displayMode ? DISPLAY : TEXT,
@@ -89,7 +96,12 @@ export function layoutMath(latex: string, opts: LayoutOptions = {}): MathLayout 
   };
 }
 
-export { parse } from "./parse/parser.ts";
+export {
+  parse,
+  needsCommandSeparator,
+  pendingCommandRange,
+} from "./parse/parser.ts";
+export type { ParseOptions } from "./parse/parser.ts";
 export type { Node, Span } from "./parse/ast.ts";
 export { paintMath, type PaintOptions } from "./paint/canvas.ts";
 export { toSVG, type ToSvgOptions } from "./paint/svg.ts";
@@ -97,6 +109,7 @@ export {
   caretStops,
   hitTest,
   caretRect,
+  caretVertical,
   selectionRects,
 } from "./edit/caret.ts";
 export type {
@@ -104,7 +117,14 @@ export type {
   CaretRect,
   SelectionRect,
 } from "./edit/caret.ts";
+export { unitBefore, unitAfter, type MathUnit } from "./edit/unit.ts";
 export { fontFamily, loadFonts, ALL_VARIANTS } from "./fonts/fonts.ts";
 export type { LoadFontsOptions } from "./fonts/fonts.ts";
-export type { Box, GlyphBox, RuleBox, ListBox } from "./layout/box.ts";
+export type {
+  Box,
+  GlyphBox,
+  RuleBox,
+  ListBox,
+  PlaceholderBox,
+} from "./layout/box.ts";
 export type { FontVariant } from "./data/fontMetrics.ts";

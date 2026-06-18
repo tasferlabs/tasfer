@@ -48,8 +48,10 @@ import type {
   MarkChipStyle,
   MarkRegistry,
   MarkReplacement,
+  MarkReplacementEdit,
   MarkUnderlineStyle,
 } from "../rendering/marks";
+import { isCaretScratchActive } from "../state-utils";
 import {
   type BlockRuntimeState,
   Node,
@@ -99,6 +101,66 @@ import {
 } from "../sync/char-runs";
 import type { CodeBlock } from "./CodeNode";
 import type { ListBlock } from "./ListNode";
+import type { MathBlock } from "./MathNode";
+
+/**
+ * A replacement-mark run resolved against a resolved `Char[]` view: `[start,
+ * end)` are visible-character indices (the caret-edge range), `text` is the run's
+ * source (the run's visible chars), and `replacement` is the mark's renderer. The
+ * geometry passes use this to let the caret descend INTO a replacement (e.g. an
+ * inline-math chip) — interior indices map to rendered positions via the
+ * replacement's `caretRect`/`hitTest`, with no math-specific knowledge here.
+ */
+interface ReplacementRun {
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+  readonly replacement: MarkReplacement;
+}
+
+/** Replacement-mark runs in a resolved char view, as visible-index runs. */
+function replacementRuns(
+  chars: Char[],
+  formats: MarkSpan[],
+  marks: MarkRegistry,
+): ReplacementRun[] {
+  if (!formats.some((f) => marks.get(f.format.type)?.replacement)) return [];
+  const idToVis = new Map<string, number>();
+  const visChars: string[] = [];
+  let v = 0;
+  for (const c of chars) {
+    if (c.deleted) continue;
+    idToVis.set(c.id, v);
+    visChars.push(c.char);
+    v++;
+  }
+  const runs: ReplacementRun[] = [];
+  for (const f of formats) {
+    const replacement = marks.get(f.format.type)?.replacement;
+    if (!replacement) continue;
+    const s = idToVis.get(f.startCharId);
+    const e = idToVis.get(f.endCharId);
+    if (s === undefined || e === undefined) continue;
+    runs.push({
+      start: s,
+      end: e + 1,
+      text: visChars.slice(s, e + 1).join(""),
+      replacement,
+    });
+  }
+  return runs;
+}
+
+/** The replacement run strictly containing `index` (start < index < end), or null. */
+function enclosingReplacementRun(
+  runs: ReplacementRun[],
+  index: number,
+): ReplacementRun | null {
+  for (const run of runs) {
+    if (index > run.start && index < run.end) return run;
+  }
+  return null;
+}
 
 /**
  * The block types handled by TextNode itself: headings + paragraph.
@@ -131,6 +193,10 @@ export interface TextNodeLayout extends NodeLayout {
   /** Resolved font registry for this instance — used to resolve `fontFamily`
    *  to a CSS stack during measurement (keeps caret/hit-test in sync). */
   readonly fonts: FontStyles;
+  /** Resolved mark registry for this instance — lets caret/hit-test/selection
+   *  measurement reserve a replacement run's rendered width (e.g. an inline-math
+   *  chip), keeping them in sync with wrap + paint. */
+  readonly marks?: MarkRegistry;
   readonly codePadding: number;
   readonly fontMetrics: FontMetrics;
   readonly lineHeight: number;
@@ -173,6 +239,10 @@ export interface RenderLineTextArgs {
   readonly isRTL: boolean;
   readonly requestRedraw: () => void;
   readonly hoveredInlineMath: { startIndex: number; endIndex: number } | null;
+  /** Block text index of the collapsed caret when it's in this block, else null. */
+  readonly caretIndex: number | null;
+  /** Whether a math command is being typed at `caretIndex` (render it literally). */
+  readonly commandEntryActive: boolean;
 }
 
 export interface Heading extends BlockRuntimeState {
@@ -187,7 +257,7 @@ export interface Paragraph extends BlockRuntimeState {
 }
 
 export type TextBlock = Heading | Paragraph;
-export type TextualBlock = TextBlock | ListBlock | CodeBlock;
+export type TextualBlock = TextBlock | ListBlock | CodeBlock | MathBlock;
 
 // ---------------------------------------------------------------------------
 // Composition injection (shared with the renderer's cursor layer)
@@ -294,6 +364,7 @@ function measureLineWidth(
   fontFamily: FontFamily,
   fonts: FontStyles,
   codePadding: number,
+  marks?: MarkRegistry,
 ): number {
   return measureTextUpToIndex(
     chars,
@@ -305,6 +376,7 @@ function measureLineWidth(
     fontFamily,
     fonts,
     codePadding,
+    marks,
   );
 }
 
@@ -354,6 +426,7 @@ function renderCompositionUnderline(
   codePadding: number,
   isRTL: boolean,
   _maxWidth: number,
+  marks?: MarkRegistry,
 ) {
   const underlineStart = Math.max(lineStartIndex, compositionStart);
   const underlineEnd = Math.min(lineEndIndex, compositionEnd);
@@ -369,6 +442,7 @@ function renderCompositionUnderline(
     fontFamily,
     fonts,
     codePadding,
+    marks,
   );
 
   const underlineWidth = measureLineWidth(
@@ -380,6 +454,7 @@ function renderCompositionUnderline(
     fontFamily,
     fonts,
     codePadding,
+    marks,
   );
 
   const underlineY = y + fontMetrics.ascent + 2;
@@ -487,6 +562,8 @@ function renderLine(
   isRTL: boolean,
   requestRedraw: () => void,
   hoveredInlineMath: { startIndex: number; endIndex: number } | null = null,
+  caretIndex: number | null = null,
+  commandEntryActive: boolean = false,
 ) {
   ctx.direction = isRTL ? "rtl" : "ltr";
 
@@ -495,6 +572,7 @@ function renderLine(
     formats,
     lineStartIndex,
     lineEndIndex,
+    marks,
   );
 
   let currentX = x;
@@ -518,7 +596,23 @@ function renderLine(
         hoveredInlineMath !== null &&
         batchVisibleStart >= hoveredInlineMath.startIndex &&
         batchVisibleEnd <= hoveredInlineMath.endIndex;
-      const dims = style.replacement.measure(batch.text, textStyle.fontSize);
+      // Where the collapsed caret sits relative to this run — lets the
+      // replacement adapt to in-progress editing (inline math keeps a command
+      // still being typed as literal source). `editing` is the block-level "caret
+      // scratch armed here" flag; the replacement only acts on it when the caret
+      // is actually in its run (caretOffset set). measure AND paint derive their
+      // geometry from the same `edit`, so reserved width matches drawn glyphs.
+      const caretOffset =
+        caretIndex !== null &&
+        caretIndex >= batchVisibleStart &&
+        caretIndex <= batchVisibleEnd
+          ? caretIndex - batchVisibleStart
+          : undefined;
+      const edit: MarkReplacementEdit = {
+        caretOffset,
+        editing: commandEntryActive,
+      };
+      const dims = style.replacement.measure(batch.text, textStyle.fontSize, edit);
       if (dims) {
         style.replacement.paint({
           ctx,
@@ -530,6 +624,7 @@ function renderLine(
           hovered,
           dims,
           styles,
+          edit,
           requestRedraw,
         });
         currentX += isRTL ? -dims.width : dims.width;
@@ -639,6 +734,7 @@ function computeSelectionRects(
     textStyle,
     fontFamily,
     fonts,
+    marks,
     codePadding,
     lineHeight,
     chars,
@@ -697,6 +793,7 @@ function computeSelectionRects(
             fontFamily,
             fonts,
             codePadding,
+            marks,
           );
           const widthToSelEnd = measureLineWidth(
             chars,
@@ -707,6 +804,7 @@ function computeSelectionRects(
             fontFamily,
             fonts,
             codePadding,
+            marks,
           );
 
           selectionEndX = baseX + maxWidth - widthToSelStart;
@@ -722,6 +820,7 @@ function computeSelectionRects(
               fontFamily,
               fonts,
               codePadding,
+              marks,
             );
           }
           if (end.textIndex < line.endIndex) {
@@ -734,6 +833,7 @@ function computeSelectionRects(
               fontFamily,
               fonts,
               codePadding,
+              marks,
             );
             selectionEndX = selectionStartX + selectedWidth;
           }
@@ -761,6 +861,7 @@ function computeSelectionRects(
             fontFamily,
             fonts,
             codePadding,
+            marks,
           );
 
           selectionEndX = baseX + maxWidth - widthToSelStart;
@@ -776,6 +877,7 @@ function computeSelectionRects(
               fontFamily,
               fonts,
               codePadding,
+              marks,
             );
           }
         }
@@ -795,6 +897,7 @@ function computeSelectionRects(
             fontFamily,
             fonts,
             codePadding,
+            marks,
           );
 
           selectionEndX = baseX + maxWidth;
@@ -812,6 +915,7 @@ function computeSelectionRects(
                 fontFamily,
                 fonts,
                 codePadding,
+                marks,
               );
           }
         }
@@ -871,7 +975,13 @@ export class TextNode extends Node<TextualBlock> {
    * what the height/caret/hit-test/selection passes use.
    */
   layout(c: NodeLayoutCtx): TextNodeLayout {
-    return this.computeLayout(c.block as TextualBlock, c.maxWidth, c.styles);
+    return this.computeLayout(
+      c.block as TextualBlock,
+      c.maxWidth,
+      c.styles,
+      undefined,
+      c.marks,
+    );
   }
 
   /**
@@ -888,6 +998,7 @@ export class TextNode extends Node<TextualBlock> {
       formats: MarkSpan[];
       compositionRange: { start: number; end: number } | null;
     },
+    marks?: MarkRegistry,
   ): TextNodeLayout {
     const textStyle = getTextStyle(styles, block.type);
     const fontFamily = this.resolveFontFamily(styles);
@@ -918,6 +1029,7 @@ export class TextNode extends Node<TextualBlock> {
       fonts,
       codePadding,
       compositionRange,
+      marks,
     );
 
     const fontMetrics = getFontMetrics(
@@ -949,6 +1061,7 @@ export class TextNode extends Node<TextualBlock> {
         fontFamily,
         fonts,
         codePadding,
+        marks,
       );
       lines.push({
         text: wl.text,
@@ -973,6 +1086,7 @@ export class TextNode extends Node<TextualBlock> {
       textStyle,
       fontFamily,
       fonts,
+      marks,
       codePadding,
       fontMetrics,
       lineHeight,
@@ -999,13 +1113,29 @@ export class TextNode extends Node<TextualBlock> {
    * Caret screen rectangle for a text index. `originX` is the block's left edge
    * (canvas paddingLeft), `blockTopY` the block's top in the caller's space.
    * Ported verbatim from getCursorDocumentCoords.
+   *
+   * `exact: true` means `y`/`height` are the *precise* caret box (a caret inside
+   * a math chip, sized to its row) and must be drawn as-is. Without it `height`
+   * is the line height and the renderer draws a text-height caret from `y` (the
+   * line top) — the normal text caret.
+   *
+   * `state`/`blockId` are optional and only used to detect an in-progress edit
+   * (a replacement mark's caret-anchored scratch) at this caret, so the run's
+   * caret tracks the literal source; callers without them (e.g. during
+   * composition) just get the resolved caret.
    */
   caretRect(
     layout: TextNodeLayout,
     textIndex: number,
     originX: number,
     blockTopY: number,
-  ): { x: number; y: number; height: number } {
+    state?: EditorState,
+    blockId?: string,
+  ): { x: number; y: number; height: number; exact?: boolean } {
+    const editing =
+      state != null && blockId != null
+        ? isCaretScratchActive(state, blockId, textIndex)
+        : false;
     const {
       isRTL,
       textStyle,
@@ -1023,6 +1153,59 @@ export class TextNode extends Node<TextualBlock> {
     let currentY = blockTopY + insetY;
     for (const line of layout.lines) {
       if (textIndex >= line.startIndex && textIndex <= line.endIndex) {
+        // Caret *inside* a replacement run (e.g. an inline-math chip): the run
+        // measures as one atomic advance (interior indices all collapse to its
+        // right edge), so place AND size the caret by asking the replacement
+        // instead. Width up to the run's left edge + the glyph-accurate offset/
+        // extent from the replacement. LTR only for now; RTL runs fall through to
+        // the boundary measure below. Needs the registry (on the layout) to find runs.
+        const run =
+          isRTL || !layout.marks
+            ? null
+            : enclosingReplacementRun(
+                replacementRuns(chars, formats, layout.marks),
+                textIndex,
+              );
+        // While an edit is in progress inside this run, read the caret off the
+        // same `edit` the run paints with (a command kept literal, `\in` not ∈)
+        // so it tracks the source the user is entering.
+        const localOffset = run ? textIndex - run.start : 0;
+        const edit: MarkReplacementEdit = { caretOffset: localOffset, editing };
+        const replCaret =
+          run &&
+          run.replacement.caretRect?.(
+            run.text,
+            textStyle.fontSize,
+            localOffset,
+            edit,
+          );
+        if (run && replCaret) {
+          const chipLeft = measureTextUpToIndex(
+            chars,
+            formats,
+            line.startIndex,
+            run.start,
+            textStyle.fontSize,
+            textStyle.fontWeight,
+            fontFamily,
+            fonts,
+            codePadding,
+            layout.marks,
+          );
+          // Anchor the replacement's caret extent at the run baseline so the
+          // caret hugs the row it sits on (short in a subscript, tall across a
+          // numerator) rather than spanning the whole text line. A small pad
+          // keeps it from going razor-thin on short glyphs.
+          const baselineY = currentY + layout.fontMetrics.ascent;
+          const pad = textStyle.fontSize * 0.08;
+          return {
+            x: baseX + chipLeft + replCaret.x,
+            y: baselineY + replCaret.top - pad,
+            height: replCaret.bottom - replCaret.top + pad * 2,
+            exact: true,
+          };
+        }
+
         const widthFromStart = measureTextUpToIndex(
           chars,
           formats,
@@ -1033,6 +1216,7 @@ export class TextNode extends Node<TextualBlock> {
           fontFamily,
           fonts,
           codePadding,
+          layout.marks,
         );
         return {
           x: isRTL
@@ -1056,10 +1240,12 @@ export class TextNode extends Node<TextualBlock> {
   /**
    * Click → caret text index within the block. `x`/`y` are absolute in the
    * caller's coordinate space; `blockTopY` the block's top; `originX` the left
-   * edge (canvas paddingLeft). Ported from getPositionWithinBlock + Line.
+   * edge (canvas paddingLeft). A click can descend into a replacement run (e.g.
+   * an inline-math chip) via its `hitTest`, using the layout's mark registry.
+   * Ported from getPositionWithinBlock + Line.
    */
   positionFromPoint(
-    block: TextualBlock,
+    _block: TextualBlock,
     layout: TextNodeLayout,
     x: number,
     y: number,
@@ -1073,7 +1259,7 @@ export class TextNode extends Node<TextualBlock> {
     for (const line of layout.lines) {
       const lineBottom = currentLineY + lineHeight;
       if (y >= currentLineY && y < lineBottom) {
-        return this.positionWithinLine(block, layout, x, line, baseX);
+        return this.positionWithinLine(layout, x, y, currentLineY, line, baseX);
       }
       currentLineY += lineHeight;
     }
@@ -1081,17 +1267,29 @@ export class TextNode extends Node<TextualBlock> {
     // Below the last line (padding area): use the last line.
     if (layout.lines.length > 0) {
       const last = layout.lines[layout.lines.length - 1];
-      return this.positionWithinLine(block, layout, x, last, baseX);
+      return this.positionWithinLine(
+        layout,
+        x,
+        y,
+        currentLineY - lineHeight,
+        last,
+        baseX,
+      );
     }
 
     return 0;
   }
 
-  // Ported verbatim from getPositionWithinLine (incl. inline-math snapping).
+  // Ported from getPositionWithinLine. A click within a replacement run (e.g. an
+  // inline-math chip) descends into the rendered content via the replacement's
+  // hitTest (boundary snap kept for clicks outside a run). `clickY`/`lineTopY`
+  // give the run-local vertical coordinate the hit-test needs to pick the right
+  // row (a fraction's numerator vs denominator).
   private positionWithinLine(
-    block: TextualBlock,
     layout: TextNodeLayout,
     x: number,
+    clickY: number,
+    lineTopY: number,
     line: RenderedLine,
     baseX: number,
   ): number {
@@ -1118,6 +1316,7 @@ export class TextNode extends Node<TextualBlock> {
       textStyle.fontWeight,
       fontFamily,
       fonts,
+      layout.marks,
     );
 
     const lineWidth = positionWidths[positionWidths.length - 1];
@@ -1167,39 +1366,38 @@ export class TextNode extends Node<TextualBlock> {
         }
       }
 
-      // Inline-math chips are atomic: snap out of the middle of a span.
-      {
-        const visIdxOfId = new Map<string, number>();
-        let v = 0;
-        for (const { id } of iterateVisibleChars(block.charRuns)) {
-          visIdxOfId.set(id, v);
-          v++;
-        }
-        for (const f of block.formats) {
-          if (f.format.type !== "math") continue;
-          const s = visIdxOfId.get(f.startCharId);
-          const e = visIdxOfId.get(f.endCharId);
-          if (s === undefined || e === undefined) continue;
-          if (bestPosition > s && bestPosition < e + 1) {
-            const spanStartLocal = s - lineStartIndex;
-            const spanEndLocal = e + 1 - lineStartIndex;
-            if (
-              spanStartLocal >= 0 &&
-              spanEndLocal <= lineText.length &&
-              spanStartLocal < positionWidths.length &&
-              spanEndLocal < positionWidths.length
-            ) {
-              const spanStartX = positionWidths[spanStartLocal];
-              const spanEndX = positionWidths[spanEndLocal];
-              if (relativeX < spanStartX) {
-                bestPosition = s;
-              } else if (relativeX > spanEndX) {
-                bestPosition = e + 1;
-              }
-            }
-            break;
+      // Replacement runs (e.g. an inline-math chip): a click within the run's
+      // x-range descends into the rendered content via the replacement's
+      // hitTest — the run's visible chars map straight to a block index
+      // (`run.start + offset`). A click outside the run keeps the atomic boundary
+      // snap: the run is one advance, so the nearest-stop loop above can land on
+      // an interior index (they all collapse to the right edge); pull it back to
+      // the near edge. Needs the registry to find runs / their replacements.
+      for (const run of layout.marks
+        ? replacementRuns(chars, formats, layout.marks)
+        : []) {
+        if (!run.replacement.hitTest) continue;
+        const startLocal = run.start - lineStartIndex;
+        if (startLocal < 0 || startLocal + 1 >= positionWidths.length) continue;
+        const chipLeftX = positionWidths[startLocal];
+        const chipRightX = positionWidths[startLocal + 1];
+        if (relativeX <= chipLeftX || relativeX >= chipRightX) {
+          if (bestPosition > run.start && bestPosition < run.end) {
+            bestPosition = relativeX <= chipLeftX ? run.start : run.end;
           }
+          continue;
         }
+        // Run-local y: distance of the click below the run's baseline (the line
+        // baseline = line top + ascent). Lets the hit-test pick a stacked row —
+        // e.g. a click low in a fraction lands in the denominator.
+        const baselineY = lineTopY + layout.fontMetrics.ascent;
+        const offset = run.replacement.hitTest(
+          run.text,
+          textStyle.fontSize,
+          relativeX - chipLeftX,
+          clickY - baselineY,
+        );
+        return run.start + Math.max(0, Math.min(offset, run.text.length));
       }
 
       return bestPosition;
@@ -1247,7 +1445,7 @@ export class TextNode extends Node<TextualBlock> {
     const layout =
       content.compositionRange === null
         ? (passedLayout as TextNodeLayout)
-        : this.computeLayout(block, maxWidth, styles, content);
+        : this.computeLayout(block, maxWidth, styles, content, state.marks);
     const {
       isRTL,
       textStyle,
@@ -1292,6 +1490,23 @@ export class TextNode extends Node<TextualBlock> {
           }
         : null;
 
+    // The collapsed caret's text index when it sits in this block — lets a
+    // replacement run keep in-progress source (a half-typed math command) neutral
+    // until the caret leaves.
+    const cursor = state.document.cursor;
+    const sel = state.document.selection;
+    const caretIndex =
+      cursor &&
+      cursor.position.blockIndex === blockIndex &&
+      (!sel || sel.isCollapsed)
+        ? cursor.position.textIndex
+        : null;
+    // Caret-anchored scratch is armed here (an edit in progress) — a replacement
+    // run renders its in-progress source literally (`\in`, not ∈) until the caret
+    // commits it.
+    const commandEntryActive =
+      caretIndex !== null && isCaretScratchActive(state, block.id, caretIndex);
+
     for (let lineIndex = 0; lineIndex < layout.lines.length; lineIndex++) {
       const lyt = layout.lines[lineIndex];
       const lineStartIndex = lyt.startIndex;
@@ -1331,6 +1546,8 @@ export class TextNode extends Node<TextualBlock> {
         isRTL,
         requestRedraw: c.requestRedraw,
         hoveredInlineMath,
+        caretIndex,
+        commandEntryActive,
       });
 
       if (compositionRange) {
@@ -1355,6 +1572,7 @@ export class TextNode extends Node<TextualBlock> {
             codePadding,
             isRTL,
             maxWidth,
+            state.marks,
           );
         }
       }
@@ -1592,6 +1810,8 @@ export class TextNode extends Node<TextualBlock> {
       p.isRTL,
       p.requestRedraw,
       p.hoveredInlineMath,
+      p.caretIndex,
+      p.commandEntryActive,
     );
   }
 
@@ -1624,6 +1844,7 @@ export class TextNode extends Node<TextualBlock> {
     fonts: FontStyles,
     codePadding: number,
     compositionRange: { start: number; end: number } | null,
+    marks?: MarkRegistry,
   ): WrappedLine[] {
     return wrapText(
       chars,
@@ -1635,6 +1856,7 @@ export class TextNode extends Node<TextualBlock> {
       fonts,
       codePadding,
       compositionRange,
+      marks,
     );
   }
 

@@ -88,6 +88,7 @@ function nodeRegionsAtPoint(p: RegionPoint, ctx: RegionCtx): Region[] {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
       state.nodes,
+      state.marks,
       block,
       maxWidth,
       styles,
@@ -100,6 +101,7 @@ function nodeRegionsAtPoint(p: RegionPoint, ctx: RegionCtx): Region[] {
       maxWidth,
       isFirst: visibleIdx === 0,
       styles,
+      marks: state.marks,
     };
     const origin = { x: styles.canvas.paddingLeft, y: currentY };
 

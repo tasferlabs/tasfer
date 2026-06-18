@@ -30,11 +30,14 @@
 
 import type { ActionBus } from "../../action-bus";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
-import type { Mark as MarkData } from "../../serlization/loadPage";
+import type { Block, Mark as MarkData } from "../../serlization/loadPage";
 import type {
+  CaretDeleteUnit,
+  CaretScratch,
   EditorState,
   EditorStyles,
   NodeOverlay,
+  TypedInputTransform,
   ViewportState,
 } from "../../state-types";
 
@@ -82,6 +85,35 @@ export interface MarkReplacementDims {
   readonly depthBelowBaseline: number;
 }
 
+/**
+ * Where the collapsed caret sits relative to a replacement run, passed to
+ * {@link MarkReplacement.measure}/`paint`/`caretRect` so the replacement can
+ * adapt its rendering to in-progress editing (e.g. inline math keeps a command
+ * still being typed as literal source rather than its resolved symbol). Both
+ * fields are absent/false when the caret isn't in this run.
+ */
+export interface MarkReplacementEdit {
+  /** Caret offset *within this run's text*, or undefined if the caret isn't in it. */
+  readonly caretOffset?: number;
+  /**
+   * Whether caret-anchored scratch is armed at `caretOffset` — i.e. the user is
+   * actively typing here, so an in-progress token should render literally instead
+   * of resolving. `measure` and `paint` MUST derive identical geometry from this
+   * so reserved width matches drawn glyphs.
+   */
+  readonly editing?: boolean;
+}
+
+/** Caret geometry inside a replacement run, from {@link MarkReplacement.caretRect}. */
+export interface MarkReplacementCaret {
+  /** X from the run's left edge, CSS px. */
+  readonly x: number;
+  /** Caret top relative to the text baseline (negative = above), CSS px. */
+  readonly top: number;
+  /** Caret bottom relative to the text baseline (positive = below), CSS px. */
+  readonly bottom: number;
+}
+
 export interface MarkReplacementPaintCtx {
   readonly ctx: CanvasRenderingContext2D;
   /** The run's text (e.g. the LaTeX source for inline math). */
@@ -97,6 +129,8 @@ export interface MarkReplacementPaintCtx {
   /** Size from {@link MarkReplacement.measure} (already computed by the caller). */
   readonly dims: MarkReplacementDims;
   readonly styles: EditorStyles;
+  /** Caret position relative to this run (see {@link MarkReplacementEdit}). */
+  readonly edit?: MarkReplacementEdit;
   /** Ask the renderer for another frame (e.g. after an async glyph decode). */
   readonly requestRedraw: () => void;
 }
@@ -104,13 +138,47 @@ export interface MarkReplacementPaintCtx {
 /**
  * A mark that REPLACES glyph rendering for its run — inline math draws a
  * rendered formula instead of the LaTeX characters. The run measures as an
- * atomic unit (`measure`) and paints itself (`paint`); the normal style/text
- * path is skipped for it.
+ * atomic unit (`measure`) and paints itself (`paint`). It MAY additionally let
+ * the caret descend into the rendered content (`caretRect`/`hitTest`) instead of
+ * treating the run as one opaque advance; a replacement that omits those keeps
+ * the atomic-boundary behavior. The normal style/text path is skipped for the run.
  */
 export interface MarkReplacement {
-  /** Size of the rendered run, or `null` if it can't render (caller falls back to text). */
-  measure(text: string, fontSize: number): MarkReplacementDims | null;
+  /**
+   * Size of the rendered run, or `null` if it can't render (caller falls back to
+   * text). `edit` lets an in-progress token (`\in`) measure as its literal source
+   * rather than its resolved symbol, so the reserved width matches what
+   * {@link paint} draws while it's being typed.
+   */
+  measure(
+    text: string,
+    fontSize: number,
+    edit?: MarkReplacementEdit,
+  ): MarkReplacementDims | null;
   paint(c: MarkReplacementPaintCtx): void;
+  /**
+   * Caret geometry for source `offset` within the run — x from the run's left
+   * edge, top/bottom from the text baseline (+y down) — or `null` if it can't
+   * place an interior caret (caller falls back to the run's boundary). Lets the
+   * caret sit *inside* the rendered content (e.g. a math chip's subscript).
+   */
+  caretRect?(
+    text: string,
+    fontSize: number,
+    offset: number,
+    edit?: MarkReplacementEdit,
+  ): MarkReplacementCaret | null;
+  /**
+   * Source offset nearest a run-local point (`localX` from the left edge,
+   * `localY` from the text baseline, +y down) — lets a click descend into the
+   * rendered content. Omit to keep the run atomic for hit-testing.
+   */
+  hitTest?(
+    text: string,
+    fontSize: number,
+    localX: number,
+    localY: number,
+  ): number;
 }
 
 /**
@@ -194,6 +262,43 @@ export abstract class Mark {
    * never leak across editors on the same page.
    */
   registerActions?(bus: ActionBus): void;
+
+  // ── Caret / edit seam ───────────────────────────────────────────────────────
+  // The inline analogue of the same-named hooks on {@link import("../nodes/Node").Node}:
+  // a mark whose run is **atomic for the caret** (an inline-math chip, whose
+  // visible chars ARE its source) implements these so the generic caret/edit code
+  // steps over / deletes the run as one token. The mark inspects the block's runs
+  // of its own type to decide whether the index is inside one of its spans. All
+  // operate on block-text indices; a mark with no atomic runs returns `null`.
+  // See the Node declarations for the per-hook contract.
+
+  caretStep?(block: Block, index: number, dir: "left" | "right"): number | null;
+
+  caretVerticalStep?(
+    block: Block,
+    index: number,
+    dir: "up" | "down",
+  ): number | null;
+
+  caretTokenClamp?(
+    block: Block,
+    target: number,
+    dir: "left" | "right",
+  ): number | null;
+
+  deleteUnit?(
+    block: Block,
+    index: number,
+    dir: "backward" | "forward",
+  ): CaretDeleteUnit | null;
+
+  transformTypedInput?(
+    block: Block,
+    index: number,
+    input: string,
+  ): TypedInputTransform | null;
+
+  armCaretScratch?(block: Block, index: number): CaretScratch | null;
 }
 
 // ---------------------------------------------------------------------------

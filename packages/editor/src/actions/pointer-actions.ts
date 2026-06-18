@@ -89,6 +89,13 @@ export const POINTER_MOVE = stateAction<{
   canvasX: number;
   canvasY: number;
   textPosition: Position | null;
+  /**
+   * The `originalIndex` of the block actually under the pointer, or `null` in the
+   * empty space above the first / below the last block. Unlike `textPosition`
+   * (which clamps to the nearest block), this is bounds-exact — handlers gate
+   * whole-block hover on it so the effect switches off outside the block.
+   */
+  blockUnderPoint: number | null;
   atomicBlock: NodeAtomicHit | null;
   pointerX: number;
   pointerY: number;

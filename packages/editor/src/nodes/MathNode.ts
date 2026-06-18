@@ -1,166 +1,417 @@
 /**
- * MathNode — the `math` (block-level LaTeX equation) block ported onto
- * AtomicNode.
+ * MathNode — the `math` (display LaTeX equation) block.
  *
- * Rendering goes through `@cypherkit/tex`, the canvas-native LaTeX engine: the
- * equation is laid out synchronously (metrics are a data table) and painted
- * straight onto the canvas with `paintMath`. There is no rasterization, no
- * bitmap cache, and no async render — so the height pass and paint always agree
- * on size, with no reflow once an image decodes (the old MathJax path). Fonts
- * load asynchronously at startup; until then the layout's dimensions are still
- * exact (so the block reserves the right space) and glyphs simply paint in on
- * the host's font-load redraw.
+ * Unlike its former atomic self (a void block whose `latex` was an attribute,
+ * edited through a DOM overlay), the math block is now **textual**: its char-run
+ * text IS the LaTeX, so the caret lives *inside* the equation and editing is
+ * canvas-native — identical to typing in any text block, plus everything the
+ * inline-math chips gained (caret descent, empty-slot boxes, token-aware delete,
+ * the `\` command menu). It extends {@link TextNode} for that whole editing /
+ * cursor / hit-test stack and overrides only what differs: it renders the text
+ * as a centered, display-sized equation via `@cypherkit/tex` (not wrapped text),
+ * and maps the caret to LaTeX offsets through the same tex bridge.
  *
- * Click-to-edit and hover tracking are node contributions registered on the
- * action bus (`registerActions`): a `TEXT_CLICK` handler opens the inline-math
- * editor when a click lands on a chip, and a `POINTER_MOVE` handler owns the
- * block + inline-math hover highlights. The event layer only resolves the
- * pointer's atomic block / caret position and dispatches those actions. The
- * shared selection-overlay machinery is inherited from AtomicNode.
+ * Rendering is synchronous and exact (metrics are a data table), so the height
+ * pass and paint always agree with no async round-trip and no font-load reflow.
  *
  * The serialization methods are this node's markdown/HTML/text round-trip,
- * adapted into a BlockCodec by the schema. HTML output renders through
- * `ctx.renderMathSVG`, injected by the HTML orchestrator.
+ * adapted into a BlockCodec by the schema.
  */
 
-import { layoutMath, type MathLayout, paintMath } from "@cypherkit/tex";
-
-import { type ActionBus, stateAction } from "../action-bus";
-import { POINTER_MOVE, TEXT_CLICK } from "../actions/pointer-actions";
+import { type ActionBus, type ActionHandler, stateAction } from "../action-bus";
+import { SPLIT_BLOCK } from "../actions/edit-actions";
+import { POINTER_MOVE } from "../actions/pointer-actions";
 import { getInlineMathAtPosition } from "../inline-math";
-import { AtomicNode } from "../rendering/nodes/AtomicNode";
+import { clearSelection, moveCursorToPosition } from "../selection";
+import type { MarkRegistry } from "../rendering/marks";
 import type {
   BlockRuntimeState,
-  NodeLayoutCtx,
+  NodeLayout,
   NodePaintCtx,
 } from "../rendering/nodes/Node";
 import { escapeHtml } from "../serlization/codecs/inline";
 import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
-import type { Block } from "../serlization/loadPage";
+import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
 import {
   MATH_BLOCK,
   NEWLINE,
   type TokenType,
   type VisibleToken,
 } from "../serlization/tokenizer";
-import type { ActiveMenu, BlockBounds } from "../state-types";
-import { setActiveMenu } from "../state-utils";
+import type {
+  ActiveMenu,
+  CaretDeleteUnit,
+  CaretScratch,
+  EditorState,
+  EditorStyles,
+  Operation,
+  Position,
+  RenderedBlock,
+  RenderedLine,
+  TypedInputTransform,
+} from "../state-types";
+import { isCaretScratchActive, setActiveMenu } from "../state-utils";
+import {
+  getVisibleTextFromChars,
+  getVisibleTextFromRuns,
+} from "../sync/char-runs";
+import {
+  mathArmScratch,
+  mathCaretStep,
+  mathCaretTokenClamp,
+  mathCaretVerticalStep,
+  mathDeleteUnit,
+  mathPendingCommandRange,
+  mathTransformTypedInput,
+} from "./math";
+import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
+import {
+  caretRect as texCaretRect,
+  hitTest as texHitTest,
+  layoutMath,
+  type MathLayout,
+  paintMath,
+  selectionRects as texSelectionRects,
+} from "@cypherkit/tex";
 
-// Math block - rendered LaTeX equation. Named `MathBlock` (not `Math`) to avoid
-// shadowing the global `Math` object, which this module uses heavily.
+// Math block — a display LaTeX equation. Textual (its char-run text is the
+// LaTeX); named `MathBlock` (not `Math`) to avoid shadowing the global `Math`.
 export interface MathBlock extends BlockRuntimeState {
   type: "math";
-  latex: string;
-  displayMode: boolean; // true = display/block mode, false = inline mode
+  charRuns: CharRun[];
+  /** Always empty — math carries no inline marks — but kept for the textual shape. */
+  formats: MarkSpan[];
+  displayMode: boolean; // always true for a block equation; kept for the codec
 }
 
 // Display-math base font size, in CSS pixels (block equations render a touch
 // larger than body text).
 const BLOCK_MATH_FONT_SIZE = 22;
 
-export class MathNode extends AtomicNode<MathBlock> {
+/** TextNodeLayout augmented with the rendered equation + its placement. */
+interface MathNodeLayout extends TextNodeLayout {
+  /** The laid-out equation, or null when the block is empty. */
+  readonly mathLayout: MathLayout | null;
+  /** Horizontal inset (px from the block's content-left) that centers the math. */
+  readonly mathOffsetX: number;
+  /** Vertical inset (px from the block top) to the math's top edge. */
+  readonly mathTop: number;
+}
+
+export class MathNode extends TextNode {
   readonly type = "math" as const;
+  readonly types: readonly string[] = ["math"];
+
+  // ── Layout ───────────────────────────────────────────────────────────────
 
   /**
-   * The math block's localized canvas strings, owned by the node rather than
-   * the global string table. English defaults; localize per instance via
-   * `theme.nodeStrings.math`. Read with `this.str`.
+   * Reuse TextNode's layout to get a valid `TextNodeLayout` (chars, textStyle,
+   * fonts — everything the editing/caret stack reads), then lay the text out as
+   * an equation and override the block height + record where to center it.
    */
-  readonly strings = {
-    clickToEdit: "Click to add equation",
-    rendering: "Rendering...",
-  } as const;
-
-  // ── Rendering ──────────────────────────────────────────────────────────────
-
-  /**
-   * Lay out the equation (or null when empty). Synchronous and exact — the
-   * engine reads metrics from a data table, so the height pass and paint agree
-   * on size with no async round-trip and no font-load reflow.
-   */
-  private mathLayout(c: NodeLayoutCtx): MathLayout | null {
-    const block = c.block as MathBlock;
-    if (!block.latex) return null;
-    return layoutMath(block.latex, {
-      fontSize: BLOCK_MATH_FONT_SIZE,
-      displayMode: block.displayMode,
-    });
-  }
-
-  /**
-   * Drawn equation height, excluding the block's own top/bottom flow padding.
-   * Falls back to minHeight for an empty block.
-   */
-  private contentHeight(c: NodeLayoutCtx): number {
-    const m = c.styles.blocks.math;
-    const l = this.mathLayout(c);
-    if (l) return Math.max(m.minHeight, l.height + l.depth);
-    return m.minHeight;
-  }
-
-  protected intrinsicHeight(c: NodeLayoutCtx): number {
-    const m = c.styles.blocks.math;
-    return this.contentHeight(c) + m.paddingTop + m.paddingBottom;
-  }
-
-  protected draw(box: BlockBounds, c: NodePaintCtx): void {
-    const block = c.block as MathBlock;
-    const { ctx, state, styles, blockIndex } = c;
+  computeLayout(
+    block: TextualBlock,
+    maxWidth: number,
+    styles: EditorStyles,
+    content?: {
+      chars: Char[];
+      formats: MarkSpan[];
+      compositionRange: { start: number; end: number } | null;
+    },
+    marks?: MarkRegistry,
+  ): MathNodeLayout {
+    const base = super.computeLayout(block, maxWidth, styles, content, marks);
+    const latex = getVisibleTextFromChars(base.chars);
     const m = styles.blocks.math;
-    const { x, y, width } = box;
-    const contentHeight = this.contentHeight(c);
-    const contentY = y + m.paddingTop;
+    const mathLayout = latex
+      ? layoutMath(latex, {
+          fontSize: BLOCK_MATH_FONT_SIZE,
+          displayMode: true,
+        })
+      : null;
+    const mh = mathLayout ? mathLayout.height + mathLayout.depth : 0;
+    const contentH = Math.max(m.minHeight, mh);
+    const height = contentH + m.paddingTop + m.paddingBottom;
+    const mathOffsetX = mathLayout
+      ? Math.max(0, (maxWidth - mathLayout.width) / 2)
+      : 0;
+    const mathTop = m.paddingTop + Math.max(0, (contentH - mh) / 2);
+    // LaTeX is always laid out left-to-right. The base layout derives direction
+    // from the content (TextNode → getTextDirection), which falls back to the UI
+    // default — so in an RTL locale an empty or symbol-only equation would come
+    // back RTL and mirror the caret/geometry. Pin it LTR.
+    return { ...base, isRTL: false, height, mathLayout, mathOffsetX, mathTop };
+  }
 
-    // Hover backdrop over the whole block — signals it is clickable.
-    if (state.ui.hoveredMathBlockIndex === blockIndex && block.latex) {
+  // ── Paint ────────────────────────────────────────────────────────────────
+
+  paint(passedLayout: NodeLayout, c: NodePaintCtx): RenderedBlock {
+    const layout = passedLayout as MathNodeLayout;
+    const { ctx, origin, styles, state, blockIndex } = c;
+    const m = styles.blocks.math;
+    const x = origin.x;
+    const y = origin.y;
+    const width = c.maxWidth;
+
+    const lines: RenderedLine[] = [];
+
+    // An empty equation draws nothing — no placeholder box, no call-to-action.
+    // The centered caret (see `caretRect`) is the only affordance; typing grows
+    // the equation outward from the center. `paintMath` is isolated in
+    // save/restore so none of its canvas-state mutations leak to the next block
+    // (the shared render context is not saved per block).
+    ctx.save();
+
+    // Full-block backdrop when the block is hovered OR active (caret/selection
+    // inside it) — signals the whole block is the editable equation. Drawn for
+    // empty blocks too, so an active empty equation still reads as selected.
+    if (
+      state.ui.hoveredMathBlockIndex === blockIndex ||
+      this.isBlockActive(state, blockIndex)
+    ) {
       ctx.fillStyle = m.hoverBackgroundColor;
       ctx.beginPath();
-      ctx.roundRect(x, y, width, box.height, m.hoverBorderRadius);
+      ctx.roundRect(x, y, width, layout.height, m.hoverBorderRadius);
       ctx.fill();
     }
 
-    if (block.latex) {
-      // Paint the equation centered, directly onto the canvas. `y` passed to
-      // paintMath is the baseline (top of the centered box + its above-baseline
-      // height).
-      const l = this.mathLayout(c)!;
-      const w = l.width;
-      const h = l.height + l.depth;
-      const drawX = x + Math.max(0, (width - w) / 2);
-      const drawTop = contentY + Math.max(0, (contentHeight - h) / 2);
-      paintMath(ctx, l, drawX, drawTop + l.height, {
-        color: styles.blocks.paragraph.color,
-      });
-    } else {
-      // Empty math block — draw the click-to-edit placeholder.
-      ctx.fillStyle = m.placeholder.backgroundColor;
-      ctx.beginPath();
-      ctx.roundRect(x, contentY, width, contentHeight, 6);
-      ctx.fill();
+    if (layout.mathLayout) {
+      const latex = getVisibleTextFromChars(layout.chars);
 
-      ctx.fillStyle = m.placeholder.textColor;
-      ctx.font = "14px system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(
-        this.str(state, "clickToEdit"),
-        x + width / 2,
-        contentY + contentHeight / 2,
+      // Keep a half-typed command (`\al`) in normal color until the caret moves
+      // on (the source index IS the LaTeX offset for a math block). Only while
+      // the collapsed caret is in this block.
+      const sel = state.document.selection;
+      const cursor = state.document.cursor;
+      const caretIndex =
+        cursor &&
+        cursor.position.blockIndex === blockIndex &&
+        (!sel || sel.isCollapsed)
+          ? cursor.position.textIndex
+          : null;
+      const pendingRange =
+        caretIndex !== null
+          ? (mathPendingCommandRange(latex, caretIndex) ?? undefined)
+          : undefined;
+
+      // While that command is actively being typed (command-entry armed at this
+      // exact caret), re-lay it out with the in-progress command kept literal —
+      // so the geometry the caret reads matches what's painted (`\in`, not ∈).
+      const literalRange = this.commandEntryRange(
+        state,
+        c.block.id,
+        caretIndex,
+        pendingRange,
       );
+      const mathLayout = literalRange
+        ? layoutMath(latex, {
+            fontSize: BLOCK_MATH_FONT_SIZE,
+            displayMode: true,
+            literalRange,
+          })
+        : layout.mathLayout;
+      const mathOffsetX = literalRange
+        ? Math.max(0, (width - mathLayout.width) / 2)
+        : layout.mathOffsetX;
+
+      const drawX = x + mathOffsetX;
+      const drawTop = y + layout.mathTop;
+      const baselineY = drawTop + mathLayout.height;
+
+      // Selection highlight UNDER the glyphs — the "select-first" construct
+      // deletion (and any range selection) draws over the rendered formula via
+      // the tex selection rects (x from the math's left edge, y from baseline).
+      const range = this.localSelectionRange(
+        state,
+        blockIndex,
+        layout.chars.length,
+      );
+      if (range) {
+        const rects = texSelectionRects(mathLayout, range.from, range.to);
+        ctx.globalAlpha = styles.selection.opacity;
+        ctx.fillStyle = styles.selection.backgroundColor;
+        for (const r of rects) {
+          ctx.fillRect(drawX + r.x, baselineY + r.y, r.width, r.height);
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      paintMath(ctx, mathLayout, drawX, baselineY, {
+        color: styles.blocks.paragraph.color,
+        pendingRange,
+      });
+      lines.push({
+        text: latex,
+        x: drawX,
+        y: drawTop,
+        width: mathLayout.width,
+        height: mathLayout.height + mathLayout.depth,
+        startIndex: 0,
+        endIndex: latex.length,
+      });
     }
+
+    ctx.restore();
+
+    return {
+      block: c.block,
+      bounds: { x, y, width, height: layout.height },
+      lines,
+    };
+  }
+
+  /**
+   * Whether this block is "active" — it holds the caret, or a (possibly
+   * multi-block) selection overlaps it. Keeps the full-block backdrop lit while
+   * the equation is being edited, mirroring the hover highlight.
+   */
+  private isBlockActive(state: EditorState, blockIndex: number): boolean {
+    const sel = state.document.selection;
+    if (sel) {
+      const lo = Math.min(sel.anchor.blockIndex, sel.focus.blockIndex);
+      const hi = Math.max(sel.anchor.blockIndex, sel.focus.blockIndex);
+      if (blockIndex >= lo && blockIndex <= hi) return true;
+    }
+    return state.document.cursor?.position.blockIndex === blockIndex;
+  }
+
+  /**
+   * The portion of the document selection that falls within THIS block, as a
+   * source range `[from, to)` into the equation's LaTeX (or null when the block
+   * isn't selected). Handles cross-block selections: a block fully spanned maps
+   * to `[0, len]`; an endpoint in another block clamps to this block's edge.
+   */
+  private localSelectionRange(
+    state: EditorState,
+    blockIndex: number,
+    len: number,
+  ): { from: number; to: number } | null {
+    const sel = state.document.selection;
+    if (!sel || sel.isCollapsed) return null;
+    const lo = Math.min(sel.anchor.blockIndex, sel.focus.blockIndex);
+    const hi = Math.max(sel.anchor.blockIndex, sel.focus.blockIndex);
+    if (blockIndex < lo || blockIndex > hi) return null;
+    const at = (p: Position) =>
+      p.blockIndex < blockIndex
+        ? 0
+        : p.blockIndex > blockIndex
+          ? len
+          : p.textIndex;
+    const a = at(sel.anchor);
+    const b = at(sel.focus);
+    const from = Math.max(0, Math.min(a, b));
+    const to = Math.min(len, Math.max(a, b));
+    return from < to ? { from, to } : null;
+  }
+
+  // ── Caret geometry (via the tex bridge, not text lines) ────────────────────
+
+  /** Caret rectangle for a LaTeX offset (the block text index IS the offset). */
+  caretRect(
+    layout: TextNodeLayout,
+    textIndex: number,
+    originX: number,
+    blockTopY: number,
+    state?: EditorState,
+    blockId?: string,
+  ): { x: number; y: number; height: number; exact?: boolean } {
+    const commandEntryActive =
+      state != null && blockId != null
+        ? isCaretScratchActive(state, blockId, textIndex)
+        : false;
+    const l = layout as MathNodeLayout;
+    if (!l.mathLayout) {
+      // Empty block — caret in the horizontal center (the equation grows
+      // outward from here, staying centered), vertically centered in the
+      // content area and sized to the display font.
+      return {
+        x: originX + l.adjustedMaxWidth / 2,
+        y: blockTopY + l.mathTop - BLOCK_MATH_FONT_SIZE / 2,
+        height: BLOCK_MATH_FONT_SIZE,
+        exact: true,
+      };
+    }
+
+    // While a command is actively being typed here, read the caret off a layout
+    // with that command kept literal (`\in`, not ∈) — matching what paint draws
+    // — so the caret tracks the source text the user is entering. Otherwise the
+    // cached (resolved) layout is exact.
+    const latex = getVisibleTextFromChars(l.chars);
+    const literalRange = commandEntryActive
+      ? (mathPendingCommandRange(latex, textIndex) ?? undefined)
+      : undefined;
+    const mathLayout = literalRange
+      ? layoutMath(latex, {
+          fontSize: BLOCK_MATH_FONT_SIZE,
+          displayMode: true,
+          literalRange,
+        })
+      : l.mathLayout;
+    const mathOffsetX = literalRange
+      ? Math.max(0, (l.adjustedMaxWidth - mathLayout.width) / 2)
+      : l.mathOffsetX;
+
+    const baseX = originX + mathOffsetX;
+    const baselineY = blockTopY + l.mathTop + mathLayout.height;
+    const r = texCaretRect(mathLayout, textIndex);
+    if (!r) {
+      return {
+        x: baseX,
+        y: blockTopY + l.mathTop,
+        height: mathLayout.height + mathLayout.depth,
+        exact: true,
+      };
+    }
+    return {
+      x: baseX + r.x,
+      y: baselineY + r.top,
+      height: r.bottom - r.top,
+      exact: true,
+    };
+  }
+
+  /**
+   * The pending-command range to render literally, or undefined — non-undefined
+   * only while command-entry is armed at this exact block + caret (so a finished
+   * command never re-renders literally when the caret later parks at its edge).
+   */
+  private commandEntryRange(
+    state: EditorState,
+    blockId: string,
+    caretIndex: number | null,
+    pendingRange: { start: number; end: number } | undefined,
+  ): { start: number; end: number } | undefined {
+    if (caretIndex === null || !pendingRange) return undefined;
+    return isCaretScratchActive(state, blockId, caretIndex)
+      ? pendingRange
+      : undefined;
+  }
+
+  /** Click → LaTeX offset via the tex hit-test. */
+  positionFromPoint(
+    _block: TextualBlock,
+    layout: TextNodeLayout,
+    x: number,
+    y: number,
+    originX: number,
+    blockTopY: number,
+  ): number {
+    const l = layout as MathNodeLayout;
+    if (!l.mathLayout) return 0;
+    const baseX = originX + l.mathOffsetX;
+    const baselineY = blockTopY + l.mathTop + l.mathLayout.height;
+    return texHitTest(l.mathLayout, x - baseX, y - baselineY);
   }
 
   // ── Serialization ──────────────────────────────────────────────────────────
 
   readonly markdownTokens: readonly TokenType[] = [MATH_BLOCK];
 
-  outputMarkdown(block: MathBlock): string {
-    const b = block;
-    if (!b.latex) return "";
-    if (b.displayMode) {
-      return `$$\n${b.latex}\n$$`;
-    }
-    return `$${b.latex}$`;
+  outputMarkdown(block: TextualBlock): string {
+    const b = block as MathBlock;
+    const latex = getVisibleTextFromRuns(b.charRuns);
+    if (!latex) return "";
+    return `$$\n${latex}\n$$`;
   }
 
   inputMarkdown(ctx: InputCtx): Block {
@@ -171,24 +422,23 @@ export class MathNode extends AtomicNode<MathBlock> {
     const math: MathBlock = {
       id: ctx.nextBlockId(),
       type: "math",
-      latex,
+      charRuns: ctx.rawText(latex),
+      formats: [],
       displayMode: true,
     };
     return math;
   }
 
-  outputHTML(block: MathBlock, ctx: OutputCtx): string {
-    const b = block;
-    if (!b.latex) return "";
+  outputHTML(block: TextualBlock, ctx: OutputCtx): string {
+    const b = block as MathBlock;
+    const latex = getVisibleTextFromRuns(b.charRuns);
+    if (!latex) return "";
     try {
       if (!ctx.renderMathSVG) throw new Error("no math renderer");
-      const svg = ctx.renderMathSVG(b.latex, b.displayMode);
-      if (b.displayMode) {
-        return `<div style="text-align:center;margin:1em 0;">${svg}</div>`;
-      }
-      return `<span style="display:inline-block;vertical-align:middle;">${svg}</span>`;
+      const svg = ctx.renderMathSVG(latex, true);
+      return `<div style="text-align:center;margin:1em 0;">${svg}</div>`;
     } catch {
-      return `<code>${escapeHtml(b.latex)}</code>`;
+      return `<code>${escapeHtml(latex)}</code>`;
     }
   }
 
@@ -196,30 +446,84 @@ export class MathNode extends AtomicNode<MathBlock> {
     return "";
   }
 
+  // ── Caret / edit seam (block equation) ──────────────────────────────────────
+  // The block's char-run text IS the LaTeX, so a block text index is a LaTeX
+  // offset. All delegate to the shared math model in `./math`.
+
+  caretStep(
+    block: TextualBlock,
+    index: number,
+    dir: "left" | "right",
+  ): number | null {
+    return mathCaretStep(block, index, dir);
+  }
+
+  caretVerticalStep(
+    block: TextualBlock,
+    index: number,
+    dir: "up" | "down",
+  ): number | null {
+    return mathCaretVerticalStep(block, index, dir);
+  }
+
+  caretTokenClamp(
+    block: TextualBlock,
+    target: number,
+    dir: "left" | "right",
+  ): number | null {
+    return mathCaretTokenClamp(block, target, dir);
+  }
+
+  deleteUnit(
+    block: TextualBlock,
+    index: number,
+    dir: "backward" | "forward",
+  ): CaretDeleteUnit | null {
+    return mathDeleteUnit(block, index, dir);
+  }
+
+  transformTypedInput(
+    block: TextualBlock,
+    index: number,
+    input: string,
+  ): TypedInputTransform | null {
+    return mathTransformTypedInput(block, index, input);
+  }
+
+  armCaretScratch(block: TextualBlock, index: number): CaretScratch | null {
+    return mathArmScratch(block, index);
+  }
+
   /**
-   * Register the math node's pointer/click handlers:
-   *  - `POINTER_MOVE` (observe, priority 0) — highlight the math block under the
-   *    pointer (full-block backdrop), or the inline-math chip under it when over
-   *    text. Owns `ui.hoveredMathBlockIndex` / `ui.inlineMathHover` via
-   *    {@link SET_MATH_BLOCK_HOVER} / {@link SET_INLINE_MATH_HOVER}.
-   *  - `TEXT_CLICK` (claim, priority 50) — a click on an inline-math chip opens
-   *    the inline-math editor popover (the host `math` mark owns the overlay key)
-   *    instead of placing the caret inside the LaTeX source.
+   * Register the math node's pointer handler:
+   *  - `POINTER_MOVE` (observe, priority 0) — highlight the whole math block
+   *    under the pointer (full-block backdrop, `ui.hoveredMathBlockIndex` via
+   *    {@link SET_MATH_BLOCK_HOVER}), and otherwise the inline-math chip under
+   *    the pointer when over ordinary text (`ui.inlineMathHover` via
+   *    {@link SET_INLINE_MATH_HOVER}).
+   *
+   * Block math is now textual, so a click lands a caret inside the equation (the
+   * caret descends via {@link positionFromPoint} + the tex hit-test) rather than
+   * opening a popover — the same canvas-native editing inline chips already have.
    */
   registerActions(bus: ActionBus): void {
     bus.registerState(
       POINTER_MOVE,
-      (state, { atomicBlock, textPosition, canvasX, viewport }) => {
+      (state, { textPosition, blockUnderPoint, canvasX, viewport }) => {
+        // Whole-block hover: the pointer is genuinely over a (now textual) math
+        // block. Gate on `blockUnderPoint` (bounds-exact), NOT `textPosition`
+        // (which clamps to the last block), so hovering the empty space below a
+        // trailing equation doesn't light it.
         const mathBlockIndex =
-          atomicBlock &&
-          state.document.page.blocks[atomicBlock.blockIndex]?.type === "math"
-            ? atomicBlock.blockIndex
+          blockUnderPoint !== null &&
+          state.document.page.blocks[blockUnderPoint]?.type === "math"
+            ? blockUnderPoint
             : null;
         state = state.actionBus.dispatchState(SET_MATH_BLOCK_HOVER, state, {
           blockIndex: mathBlockIndex,
         }).state;
 
-        // Inline math chip hover — only when not over a block-math backdrop.
+        // Inline-math chip hover — only when not over a block equation.
         let inlineMathHover: InlineMathHover | null = null;
         if (mathBlockIndex === null && textPosition) {
           const inlineMath = getInlineMathAtPosition(
@@ -247,66 +551,54 @@ export class MathNode extends AtomicNode<MathBlock> {
       0,
     );
 
-    bus.registerState(
-      TEXT_CLICK,
-      (state, { position, previousMenu, canvasX, canvasY, viewport }) => {
-        if (state.ui.mode === "readonly") return;
+    // Enter in a block equation must NOT split the LaTeX at the caret (that tears
+    // the formula and reads as deleting it). Instead it finalizes the equation
+    // and starts a fresh paragraph below — the same exit an image/line gives on
+    // Enter. Claims SPLIT_BLOCK only for math blocks; else observes and passes
+    // through to the default block-split (mirrors CodeNode claiming Enter).
+    bus.register(
+      SPLIT_BLOCK,
+      ((state: EditorState) => {
+        const cursor = state.document.cursor;
+        if (!cursor) return;
+        const blockIndex = cursor.position.blockIndex;
+        const block = state.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "math") return;
 
-        const inlineMath = getInlineMathAtPosition(
-          position.blockIndex,
-          position.textIndex,
-          state,
-          "inside",
-          { x: canvasX, viewport },
-        );
-        // The inline-math edit overlay is host-defined; the `math` mark owns its key.
-        const key = inlineMath
-          ? state.marks.get("math")?.editOverlayKey
-          : undefined;
-        if (!inlineMath || !key) return;
-
-        const blockId = state.document.page.blocks[position.blockIndex]?.id;
-        if (!blockId) return;
-
-        // Don't reopen if we just closed the popover for this same block. Claim
-        // it (handled) anyway so the caret doesn't drop into the LaTeX source.
-        if (
-          previousMenu.type === "overlay" &&
-          previousMenu.key === key &&
-          previousMenu.blockId === blockId
-        ) {
-          return { state, ops: [], handled: true };
-        }
-
-        return {
-          state: state.actionBus.dispatchState(
-            OPEN_INLINE_MATH_OVERLAY,
-            state,
-            {
-              overlay: {
-                type: "overlay",
-                key,
-                blockId,
-                x: canvasX,
-                y: canvasY,
-                data: {
-                  startIndex: inlineMath.startIndex,
-                  endIndex: inlineMath.endIndex,
-                  latex: inlineMath.latex,
-                },
-              },
-              hover: {
-                blockIndex: position.blockIndex,
-                startIndex: inlineMath.startIndex,
-                endIndex: inlineMath.endIndex,
-              },
-            },
-          ).state,
-          ops: [],
-          handled: true,
+        const page = state.document.page;
+        const newParagraphId = state.CRDTbinding.nextId();
+        const newParagraph: Block = {
+          id: newParagraphId,
+          afterId: block.id,
+          type: "paragraph",
+          charRuns: [],
+          formats: [],
         };
-      },
-      50,
+        const blocks = [
+          ...page.blocks.slice(0, blockIndex + 1),
+          newParagraph,
+          ...page.blocks.slice(blockIndex + 1),
+        ];
+        const ops: Operation[] = [
+          {
+            op: "block_insert",
+            id: state.CRDTbinding.nextId(),
+            clock: state.CRDTbinding.getClock(),
+            pageId: state.CRDTbinding.pageId,
+            afterBlockId: block.id,
+            blockId: newParagraphId,
+            blockType: "paragraph",
+          },
+        ];
+        let next: EditorState = {
+          ...state,
+          document: { ...state.document, page: { ...page, blocks } },
+        };
+        next = clearSelection(next);
+        next = moveCursorToPosition(next, blockIndex + 1, 0);
+        return { state: next, ops, handled: true };
+      }) as unknown as ActionHandler<void>,
+      0,
     );
   }
 }

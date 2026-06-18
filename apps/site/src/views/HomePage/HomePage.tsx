@@ -8,7 +8,6 @@ import { loadArabicFonts } from "@/lib/fonts";
 import "./HomePage.css";
 
 const REPO_URL = "https://github.com/hamza512b/cypher";
-const APP_VERSION = "v0.4.2";
 // The editor SPA (apps/web) is a separate app served at the app origin — same
 // origin behind the CDN in prod, a different port in dev. "open cypher" must be
 // a full-page navigation (plain <a>), not a next/link client route, or it never
@@ -643,31 +642,13 @@ export default function HomePage() {
     ],
   ];
 
-  const knows: [string, string][] = [
-    [
-      t("home.lp.knows.email.key", "your email address"),
-      t("home.lp.knows.email.val", "never asked"),
-    ],
-    [
-      t("home.lp.knows.name.key", "your name"),
-      t("home.lp.knows.name.val", "never asked"),
-    ],
-    [
-      t("home.lp.knows.docs.key", "your documents"),
-      t("home.lp.knows.docs.val", "never uploaded"),
-    ],
-    [
-      t("home.lp.knows.sync.key", "who you sync with"),
-      t("home.lp.knows.sync.val", "never logged"),
-    ],
-    [
-      t("home.lp.knows.habits.key", "your editing habits"),
-      t("home.lp.knows.habits.val", "never tracked"),
-    ],
-    [
-      t("home.lp.knows.fingerprint.key", "device fingerprint"),
-      t("home.lp.knows.fingerprint.val", "never collected"),
-    ],
+  const knows: string[] = [
+    t("home.lp.knows.email.key", "your email address"),
+    t("home.lp.knows.name.key", "your name"),
+    t("home.lp.knows.docs.key", "your documents"),
+    t("home.lp.knows.sync.key", "who you sync with"),
+    t("home.lp.knows.habits.key", "your editing habits"),
+    t("home.lp.knows.fingerprint.key", "device fingerprint"),
   ];
 
   return (
@@ -742,14 +723,10 @@ export default function HomePage() {
               </a>
             </div>
             <div className="lp-hero-meta">
-              <span className="dot" aria-hidden="true" />
               <span>
-                <strong style={{ color: "var(--fg)", fontWeight: 500 }}>
-                  {APP_VERSION}
-                </strong>{" "}
                 {t(
                   "home.lp.hero.metaTail",
-                  "· AGPL-3.0 app · MIT engine · 0 accounts · 0 trackers · you choose when to share",
+                  "AGPL-3.0 app · MIT engine · 0 accounts · 0 trackers · you choose when to share",
                 )}
               </span>
             </div>
@@ -848,23 +825,6 @@ export default function HomePage() {
           <div className="column-wide">
             <RelayDiagram />
           </div>
-
-          <div className="column-wide">
-            <div className="lp-knows">
-              <h3 className="lp-knows-q">
-                {t("home.lp.knows.qA", "Our file on you.")}{" "}
-                <em>{t("home.lp.knows.qEm", "Read it.")}</em>
-              </h3>
-              <div className="lp-knows-table">
-                {knows.map(([k, v]) => (
-                  <div className="lp-knows-row" key={k}>
-                    <span className="lp-knows-key">{k}</span>
-                    <span className="lp-knows-val zero">{v}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
         </section>
 
         {/* ── Pillars ── */}
@@ -890,7 +850,6 @@ export default function HomePage() {
             <ul className="lp-refusal-list">
               {refusals.map(([n, name, detail]) => (
                 <li className="lp-refusal-item" key={name}>
-                  <span className="lp-refusal-num">{n}</span>
                   <span className="lp-refusal-name">{name}</span>
                   <span className="lp-refusal-detail">{detail}</span>
                 </li>
@@ -1028,12 +987,6 @@ export default function HomePage() {
           <div className="lp-footer-brand">
             <img src="/logo.png" alt="" style={{ width: 18, height: 18 }} />
             <span className="lp-footer-word">Cypher</span>
-            <span style={{ marginLeft: 12 }}>
-              {t(
-                "home.lp.footer.tagline",
-                "— decentralized by design, built in the open.",
-              )}
-            </span>
           </div>
           <div className="lp-footer-links">
             <a href="#premise" onClick={scrollTo("premise")}>

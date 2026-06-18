@@ -3,21 +3,24 @@
 // them, and the node registry imports back into this module, so keeping these off
 // `state-utils` breaks the `ListNode extends TextNode` circular-init hazard.
 import { createActionBus } from "./action-bus";
-import type { MarkRegistry } from "./rendering/marks";
+import type { Mark, MarkRegistry } from "./rendering/marks";
 import { createDefaultMarkRegistry } from "./rendering/marks";
-import type { NodeRegistry } from "./rendering/nodes";
+import type { Node, NodeRegistry } from "./rendering/nodes";
 import { createDefaultNodeRegistry } from "./rendering/nodes";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
 } from "./rendering/scrollbar";
-import { type Page } from "./serlization/loadPage";
+import { type Block, type Page } from "./serlization/loadPage";
 import type {
+  CaretDeleteUnit,
+  CaretScratch,
   CRDTbinding as CRDTbindingType,
   EditorMode,
   EditorState,
   EditorTheme,
   LinkHoverState,
+  TypedInputTransform,
 } from "./state-types";
 import { resolveNodeStrings, resolveTheme } from "./styles";
 
@@ -124,6 +127,7 @@ export function createInitialState(
       autoCreatedParagraph: null,
       inlineMathHover: null,
       hoveredMathBlockIndex: null,
+      caretScratch: null,
       search: { highlights: [], activeIndex: -1 },
     },
     view: {
@@ -231,4 +235,164 @@ export function clearAutoCreatedParagraph(state: EditorState): EditorState {
       autoCreatedParagraph: null,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Caret / edit seam
+//
+// Generic dispatch for the optional caret/edit hooks a node or mark may declare
+// (see Node/Mark `caretStep`, `caretVerticalStep`, `caretTokenClamp`,
+// `deleteUnit`, `transformTypedInput`, `armCaretScratch`). Each helper asks the
+// block's registered node first, then every registered mark, and returns the
+// first non-null answer — so the core caret/edit code (selection, actions) never
+// names a block type: a node/mark whose inline content is atomic for the caret
+// (e.g. math) contributes the behavior, everything else falls through to the
+// plain text path. None of this is a module global — the registries live on
+// `state`.
+// ---------------------------------------------------------------------------
+
+/** First non-null result of `fn` over the block's node, then every mark. */
+function seam<R>(
+  state: EditorState,
+  block: Block,
+  fromNode: (n: Node) => R | null,
+  fromMark: (m: Mark) => R | null,
+): R | null {
+  const node = state.nodes.get(block.type);
+  if (node) {
+    const r = fromNode(node);
+    if (r != null) return r;
+  }
+  for (const mark of state.marks.markList()) {
+    const r = fromMark(mark);
+    if (r != null) return r;
+  }
+  return null;
+}
+
+/**
+ * Next legal caret index stepping `dir` (logical `left`/`right`) from `index`, or
+ * `null` when the step is in plain text (caller does its own ±1). Lets atomic
+ * inline content (a math command/construct) be stepped over as one token.
+ */
+export function caretStep(
+  state: EditorState,
+  block: Block,
+  index: number,
+  dir: "left" | "right",
+): number | null {
+  return seam(
+    state,
+    block,
+    (n) => n.caretStep?.(block, index, dir) ?? null,
+    (m) => m.caretStep?.(block, index, dir) ?? null,
+  );
+}
+
+/**
+ * Vertical caret motion *within* the block (between stacked rows of a formula),
+ * or `null` to leave the block via ordinary line navigation.
+ */
+export function caretVerticalStep(
+  state: EditorState,
+  block: Block,
+  index: number,
+  dir: "up" | "down",
+): number | null {
+  return seam(
+    state,
+    block,
+    (n) => n.caretVerticalStep?.(block, index, dir) ?? null,
+    (m) => m.caretVerticalStep?.(block, index, dir) ?? null,
+  );
+}
+
+/**
+ * Pull a word-navigation target out of the middle of an atomic inline token,
+ * clamping it to the token's near/far edge in travel direction `dir`. Returns
+ * `null` when `target` isn't inside a token (caller uses it unchanged).
+ */
+export function caretTokenClamp(
+  state: EditorState,
+  block: Block,
+  target: number,
+  dir: "left" | "right",
+): number | null {
+  return seam(
+    state,
+    block,
+    (n) => n.caretTokenClamp?.(block, target, dir) ?? null,
+    (m) => m.caretTokenClamp?.(block, target, dir) ?? null,
+  );
+}
+
+/**
+ * The editing unit adjacent to the caret to delete/select (see
+ * {@link CaretDeleteUnit}), or `null` when the caret isn't in atomic content
+ * (caller does its plain character/word delete).
+ */
+export function resolveDeleteUnit(
+  state: EditorState,
+  block: Block,
+  index: number,
+  dir: "backward" | "forward",
+): CaretDeleteUnit | null {
+  return seam(
+    state,
+    block,
+    (n) => n.deleteUnit?.(block, index, dir) ?? null,
+    (m) => m.deleteUnit?.(block, index, dir) ?? null,
+  );
+}
+
+/**
+ * Let a node/mark rewrite a typed string before insertion (e.g. inserting a
+ * command-separating space) and/or veto inline-markdown for this keystroke. Returns
+ * `null` when no node/mark claims it (insert the input verbatim).
+ */
+export function transformTypedInput(
+  state: EditorState,
+  block: Block,
+  index: number,
+  input: string,
+): TypedInputTransform | null {
+  return seam(
+    state,
+    block,
+    (n) => n.transformTypedInput?.(block, index, input) ?? null,
+    (m) => m.transformTypedInput?.(block, index, input) ?? null,
+  );
+}
+
+/**
+ * The caret-anchored scratch a node/mark wants stashed after an edit at `index`
+ * (see {@link CaretScratch}), or `null` for none. Cleared on the next caret move.
+ */
+export function armCaretScratch(
+  state: EditorState,
+  block: Block,
+  index: number,
+): CaretScratch | null {
+  return seam(
+    state,
+    block,
+    (n) => n.armCaretScratch?.(block, index) ?? null,
+    (m) => m.armCaretScratch?.(block, index) ?? null,
+  );
+}
+
+/**
+ * Whether {@link UIState.caretScratch} is armed at exactly `(blockId, offset)` —
+ * i.e. caret-anchored UI is live here. Type-agnostic: the slot is singular and
+ * anchored to the caret, so whatever armed it owns this position. Read by the
+ * content that armed it (e.g. inline/block math, to render an in-progress
+ * command literally) to gate that rendering.
+ */
+export function isCaretScratchActive(
+  state: EditorState,
+  blockId: string,
+  offset: number,
+): boolean {
+  const s = state.ui.caretScratch;
+  return s != null && s.blockId === blockId && s.offset === offset;
 }

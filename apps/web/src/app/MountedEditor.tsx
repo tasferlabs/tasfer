@@ -93,6 +93,7 @@ import { MathBlockEditor } from "../editor/MathBlockEditor";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
+import { MathCommandMenu } from "../editor/MathCommandMenu";
 import { SlashActionMenu } from "../editor/SlashActionMenu";
 import useResponsive from "./hooks/useResponsive";
 import i18next from "i18next";
@@ -143,9 +144,6 @@ function editorNodeStrings(): Record<string, Record<string, string>> {
       clickToRetry: i18next.t("common.clickToRetry"),
       changeImage: i18next.t("image.changeImage"),
     },
-    math: {
-      clickToEdit: i18next.t("math.clickToEdit"),
-    },
   };
 }
 
@@ -184,8 +182,11 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
 }) => {
   const { blockId } = overlay;
   const uploadStatus =
-    (overlay.data as { uploadStatus?: "idle" | "uploading" | "complete" | "error" })
-      ?.uploadStatus ?? "idle";
+    (
+      overlay.data as {
+        uploadStatus?: "idle" | "uploading" | "complete" | "error";
+      }
+    )?.uploadStatus ?? "idle";
 
   const containerRect = portalContainer.getBoundingClientRect();
 
@@ -201,7 +202,9 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
       y={containerRect.top + overlay.rect.y}
       uploadStatus={uploadStatus}
       onUpload={async (file) => {
-        const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+        const block = editor
+          .getState()
+          ?.document.page.blocks.find((blk) => blk.id === blockId);
         if (!block || block.deleted || block.type !== "image") return;
 
         // Clear any failed-cache entry for the URL we're replacing.
@@ -250,56 +253,6 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
         close();
       }}
       onClose={close}
-      collisionBoundary={portalContainer}
-      container={portalContainer}
-    />
-  );
-};
-
-/**
- * Renders the block-math edit popover for a `CypherMathNode`-declared
- * `"math-edit"` overlay slot. Mirrors {@link ImageUploadOverlay}: the
- * descriptor's `rect` is the anchor in canvas/container space, shifted into
- * fixed viewport space; latex/displayMode are read live off the block, and all
- * editing routes through the editor instance so `activeMenu` stays the single
- * source of truth for whether the popover is open.
- */
-const MathEditOverlay: ComponentType<NodeOverlayProps> = ({
-  overlay,
-  editor,
-  portalContainer,
-}) => {
-  const { blockId } = overlay;
-  const containerRect = portalContainer.getBoundingClientRect();
-  const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
-  const mathBlock = block?.type === "math" ? block : undefined;
-
-  return (
-    <MathBlockEditor
-      x={containerRect.left + overlay.rect.x}
-      y={containerRect.top + overlay.rect.y}
-      initialLatex={mathBlock?.latex ?? ""}
-      displayMode={mathBlock?.displayMode ?? true}
-      onSubmit={(latex, displayMode) => {
-        const b = editor
-          .getState()
-          ?.document.page.blocks.find((blk) => blk.id === blockId);
-        if (b && !b.deleted && b.type === "math") {
-          editor.change((c) =>
-            c.setNode({ latex, displayMode }, { block: b.id }),
-          );
-        }
-        editor.closeActiveMenu();
-      }}
-      onDelete={() => {
-        const b = editor
-          .getState()
-          ?.document.page.blocks.find((blk) => blk.id === blockId);
-        if (b && !b.deleted)
-          editor.change((c) => c.deleteNode({ block: b.id }));
-        editor.closeActiveMenu();
-      }}
-      onClose={() => editor.closeActiveMenu()}
       collisionBoundary={portalContainer}
       container={portalContainer}
     />
@@ -391,7 +344,9 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
 }) => {
   const { t } = useTranslation();
   const { blockId } = overlay;
-  const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+  const block = editor
+    .getState()
+    ?.document.page.blocks.find((blk) => blk.id === blockId);
   if (block?.type !== "image" || !block.url) return null;
   const { url, alt } = block;
 
@@ -530,7 +485,9 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
       // newText is required (an empty range/text would shift indices); the
       // caller's UI guards against empty input.
       if (!newText) return;
-      const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+      const block = editor
+        .getState()
+        ?.document.page.blocks.find((blk) => blk.id === blockId);
       if (!block) return;
       const link = { type: "link", attrs: { url: newUrl } };
       // The link's existing text is `text` (edit) or the selected text (create).
@@ -626,7 +583,9 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
 }) => {
   const { t } = useTranslation();
   const { blockId } = overlay;
-  const block = editor.getState()?.document.page.blocks.find((blk) => blk.id === blockId);
+  const block = editor
+    .getState()
+    ?.document.page.blocks.find((blk) => blk.id === blockId);
   if (block?.type !== "code") return null;
 
   const currentLabel = codeLanguageLabel(block.language);
@@ -675,7 +634,6 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
 const NODE_OVERLAYS: Record<string, ComponentType<NodeOverlayProps>> = {
   "image-upload": ImageUploadOverlay,
   "image-hover": ImageHoverOverlay,
-  "math-edit": MathEditOverlay,
   "inline-math-edit": InlineMathEditOverlay,
   "link-tooltip": LinkTooltipOverlay,
   "link-edit": LinkEditOverlay,
@@ -1229,7 +1187,10 @@ function EditorSurface({
     // Hit-test the host menu's items by the raw client point (the menu renders in
     // a portal, so it's a normal DOM hit-test — the same one the engine used to
     // do inline before the menu moved fully host-side).
-    const menuButtonAt = (clientX: number, clientY: number): HTMLElement | null => {
+    const menuButtonAt = (
+      clientX: number,
+      clientY: number,
+    ): HTMLElement | null => {
       const el = document.elementFromPoint(clientX, clientY);
       const button = el?.closest("button[data-context-menu-item-id]");
       return button instanceof HTMLElement ? button : null;
@@ -2432,6 +2393,17 @@ function EditorSurface({
           mountedRef.current.portalContainer,
         )}
 
+      {/* Math `\` command menu — Corca-style autocomplete inside math chips. */}
+      {mountedRef.current?.portalContainer &&
+        mountedRef.current.editor &&
+        createPortal(
+          <MathCommandMenu
+            editor={mountedRef.current.editor}
+            getContainerRect={getSlashContainerRect}
+          />,
+          mountedRef.current.portalContainer,
+        )}
+
       {/* Context menu portal */}
       {contextMenuState && (
         <ContextMenu
@@ -2492,9 +2464,6 @@ function EditorSurface({
           "image-hover"). The suspended-mode signal is the `modalPopoverOpen`
           mirror, derived from the engine's active menu. */}
 
-      {/* Block-math edit popover renders via the node-overlay registry above
-          (CypherMathNode.overlays → NODE_OVERLAYS["math-edit"]). */}
-
       {/* Inline-math edit popover renders via the node-overlay registry above
           (CypherMathMark.overlays → NODE_OVERLAYS["inline-math-edit"]). */}
 
@@ -2502,7 +2471,6 @@ function EditorSurface({
           node-overlay registry above (CypherImageNode.overlays → "image-hover"
           / "image-upload"). The native link drawer renders via the mark-overlay
           registry (CypherLinkMark → "link-edit"). */}
-
 
       {/* Find bar — rendered last so it sits above the canvas container in DOM order */}
       {findBarOpen && (

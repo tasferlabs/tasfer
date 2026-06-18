@@ -47,6 +47,7 @@ export function getAtomicBlockAtPoint(
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
       state.nodes,
+      state.marks,
       block,
       maxWidth,
       styles,
@@ -63,6 +64,7 @@ export function getAtomicBlockAtPoint(
               maxWidth,
               isFirst: visibleIdx === 0,
               styles,
+              marks: state.marks,
             },
             { x: styles.canvas.paddingLeft, y: currentY },
             { x, y },

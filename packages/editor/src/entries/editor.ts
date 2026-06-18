@@ -31,6 +31,7 @@ import {
   isInLongPressMode,
 } from "../events/interaction-session";
 import { onFontsReady } from "../fonts";
+import { getBlockTextContent } from "../node-shared";
 import {
   activeCaretMarks,
   docMarks,
@@ -87,7 +88,6 @@ import type { Operation } from "../state-types";
 import {
   closeActiveMenu,
   createInitialCursorState,
-  getBlockTextContent,
   isTouchDevice,
   setActiveMenu,
   updateMode,
@@ -1091,7 +1091,7 @@ export class Editor implements EditorApi {
       // When hovering over out-of-view peer indicator, use pointer cursor
       this.contentCanvas.style.cursor = "pointer";
     } else if (isHoveringMath) {
-      // Inline math chip / math block — both are clickable
+      // Inline math chip — clickable (opens the chip editor)
       this.contentCanvas.style.cursor = "pointer";
     } else {
       // When hovering over text, use text cursor
@@ -1294,8 +1294,9 @@ export class Editor implements EditorApi {
             this._state.ui.imageHover?.hoveredHandle || null,
             this._state.ui.isHoveringCheckbox,
             this._state.ui.isHoveringPeerIndicator,
-            this._state.ui.inlineMathHover !== null ||
-              this._state.ui.hoveredMathBlockIndex !== null,
+            // Inline chips are clickable (→ pointer); a block equation is
+            // editable text, so it keeps the text caret even while hovered.
+            this._state.ui.inlineMathHover !== null,
           );
 
           this.dirtyLayers.content = false;
@@ -2218,6 +2219,7 @@ export class Editor implements EditorApi {
       // Use getBlockHeight to leverage caching for performance
       const blockHeight = getBlockHeight(
         this._state.nodes,
+        this._state.marks,
         block,
         maxWidth,
         styles,

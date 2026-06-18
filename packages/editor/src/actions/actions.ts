@@ -1,11 +1,11 @@
 import { isCJKCharacter } from "../cjk";
-import { findInlineMathSpan } from "../inline-math";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isBlockRTL } from "../rtl";
-import { moveCursorToPosition } from "../selection";
 import {
   clearSelection,
+  moveCursorToPosition,
   startSelection,
+  updateSelection,
   updateSelectionFocus,
 } from "../selection";
 import {
@@ -29,9 +29,14 @@ import type {
   TextDelete,
 } from "../state-types";
 import {
+  armCaretScratch,
+  caretStep,
+  caretTokenClamp,
   clearAutoCreatedParagraph,
   getBlockTextContent,
   getBlockTextLength,
+  resolveDeleteUnit,
+  transformTypedInput,
   updateMode,
 } from "../state-utils";
 import {
@@ -426,15 +431,15 @@ function applyMarkdownPrefix(
       ops.push(deleteOp);
     }
     (block as any).type = "math";
-    (block as any).latex = "";
     (block as any).displayMode = true;
     (block as any).charRuns = [];
     (block as any).formats = [];
     setBlockField("type", "math");
   } else if (text === "```") {
-    // Code block — three backticks on their own line. Unlike math/line, code is
-    // textual, so the caret stays inside the (now empty) block; the bottom of
-    // insertText clamps the cursor into the cleared block. Drop the three
+    // Code block — three backticks on their own line. Like math (and unlike the
+    // void `line`), code is textual, so the caret stays inside the (now empty)
+    // block; the bottom of insertText clamps the cursor into the cleared block.
+    // Drop the three
     // backticks and morph to a code block; `language` initializes to "" from the
     // code descriptor's defaults on every peer (so only the type op is needed).
     const allCharIds: string[] = [];
@@ -635,6 +640,51 @@ export function getSelectionRange(
   } else {
     return { start: focus, end: anchor };
   }
+}
+
+/**
+ * Act on a resolved editing unit `[from, to)` (from a node/mark's `deleteUnit`
+ * seam) per the selection model: a multi-part construct is SELECTED (so you see
+ * it before the next press deletes it), a plain leaf is deleted outright. This is
+ * the one place the unit delete converges for every direction and content type,
+ * so the only type-specific knowledge upstream is "where is the unit", never "how
+ * do I delete it".
+ */
+function applyDeleteUnit(
+  state: EditorState,
+  blockIndex: number,
+  blockId: string,
+  from: number,
+  to: number,
+  isConstruct: boolean,
+): ActionResult {
+  if (isConstruct) {
+    const selected = updateSelection(state, {
+      anchor: { blockIndex, textIndex: from },
+      focus: { blockIndex, textIndex: to },
+    });
+    return {
+      state: moveCursorToPosition(selected, blockIndex, to, true),
+      ops: [],
+    };
+  }
+  const { newPage, op } = deleteCharsInRange(
+    state.document.page,
+    blockId,
+    from,
+    to,
+    state.CRDTbinding,
+  );
+  invalidateBlockCache(newPage.blocks[blockIndex]);
+  return {
+    state: moveCursorToPosition(
+      { ...state, document: { ...state.document, page: newPage } },
+      blockIndex,
+      from,
+      true,
+    ),
+    ops: [op],
+  };
 }
 
 // Helper function to delete selected text
@@ -997,14 +1047,16 @@ export function insertText(state: EditorState, input: string): ActionResult {
     return { state, ops };
   }
 
-  // Inline math chips are atomic: typing while the caret is strictly inside a
-  // math span would mix new chars into the LaTeX source (visible chars between
-  // startCharId/endCharId ARE the LaTeX) and corrupt the formula. Block here;
-  // the user can navigate to either edge or click the chip to open the math
-  // editor. Insertions at the edges (textIndex === spanStart or === spanEnd)
-  // are allowed — those are "type before/after the chip".
-  if (findInlineMathSpan(oldBlock, textIndex, "inside")) {
-    return { state, ops };
+  // Give the block's node/mark a chance to rewrite the typed input and/or veto
+  // inline-markdown for this keystroke (the caret may be inside atomic inline
+  // content). E.g. inline/block math inserts a command-separating space (`\oint`
+  // + `x` → `\oint x` → ∮x, never the unknown `\ointx`) and, inside a chip, asks
+  // markdown auto-format to stand down so a stray `$`/`*` can't reinterpret it.
+  let suppressInlineMarkdown = false;
+  const typed = transformTypedInput(state, oldBlock, textIndex, input);
+  if (typed) {
+    input = typed.input;
+    suppressInlineMarkdown = typed.suppressMarkdown ?? false;
   }
 
   // Use CRDT helper to insert chars and generate operation atomically
@@ -1049,7 +1101,7 @@ export function insertText(state: EditorState, input: string): ActionResult {
     input === "*" || input === "`" || input === "~" || input === "$";
   let finalTextIndex = newTextIndex;
 
-  if (isClosingDelimiter && !inCodeBlock) {
+  if (isClosingDelimiter && !inCodeBlock && !suppressInlineMarkdown) {
     const markdownResult = detectAndApplyInlineMarkdown(
       pageAcc,
       oldBlock.id,
@@ -1129,49 +1181,25 @@ export function insertText(state: EditorState, input: string): ActionResult {
     document: { ...state.document, page: pageAcc },
   };
 
-  // If applyMarkdownPrefix converted this into a math block (e.g. user typed `$$`),
-  // advance the cursor to the next block (creating one if needed) — math blocks
-  // are non-textual, so the caret can't sit inside them.
-  if ((blockCopy.type as string) === "math") {
-    if (blockIndex + 1 >= pageAcc.blocks.length) {
-      const newParagraphId = state.CRDTbinding.nextId();
-      const newParagraph: Block = {
-        id: newParagraphId,
-        afterId: blockCopy.id,
-        type: "paragraph",
-        charRuns: [],
-        formats: [],
-      };
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        afterBlockId: blockCopy.id,
-        blockId: newParagraphId,
-        blockType: "paragraph",
-      };
-      ops.push(blockInsertOp);
-
-      const blocksWithNewParagraph = [...pageAcc.blocks, newParagraph];
-      newState = {
-        ...newState,
-        document: {
-          ...newState.document,
-          page: { ...pageAcc, blocks: blocksWithNewParagraph },
-        },
-      };
-    }
-    newState = moveCursorToPosition(newState, blockIndex + 1, 0);
-    newState = clearAutoCreatedParagraph(newState);
-    newState = updateMode(newState, "edit");
-    return { state: newState, ops };
-  }
+  // (Math blocks are textual now: the caret stays INSIDE the equation, so there
+  // is no special "jump to the next block" after a `$$` conversion — the cleared
+  // block clamps the cursor to offset 0 below, exactly like the ``` code path.)
 
   // Preserve active formats when moving cursor after typing
   newState = moveCursorToPosition(newState, blockIndex, finalTextIndex, true);
   newState = clearAutoCreatedParagraph(newState);
   newState = updateMode(newState, "edit");
+
+  // Let the block's node/mark stash caret-anchored scratch for this edit (the
+  // move above cleared any prior scratch). E.g. inline/block math arms literal
+  // rendering of a command still being typed (`\in` not ∈) until the caret moves.
+  const editedBlock = newState.document.page.blocks[blockIndex];
+  if (editedBlock && !editedBlock.deleted) {
+    const scratch = armCaretScratch(newState, editedBlock, finalTextIndex);
+    if (scratch) {
+      newState = { ...newState, ui: { ...newState.ui, caretScratch: scratch } };
+    }
+  }
 
   return { state: newState, ops };
 }
@@ -1218,32 +1246,22 @@ export function deleteText(state: EditorState): ActionResult {
     return { state, ops };
   }
 
-  // Inline math is atomic: backspace at the right edge of a math chip deletes
-  // the whole chip in one go rather than chipping characters off the LaTeX.
-  if (textIndex > 0) {
-    const mathSpan = findInlineMathSpan(oldBlock, textIndex, "rightEdge");
-    if (mathSpan) {
-      const { newPage, op } = deleteCharsInRange(
-        state.document.page,
-        oldBlock.id,
-        mathSpan.startIndex,
-        mathSpan.endIndex,
-        state.CRDTbinding,
-      );
-      ops.push(op);
-      invalidateBlockCache(newPage.blocks[blockIndex]);
-      let newState: EditorState = {
-        ...state,
-        document: { ...state.document, page: newPage },
-      };
-      newState = moveCursorToPosition(
-        newState,
-        blockIndex,
-        mathSpan.startIndex,
-        true,
-      );
-      return { state: newState, ops };
-    }
+  // Atomic inline content (a math equation/chip) deletes by *unit*, not by
+  // character: the block's node/mark resolves the unit before the caret and the
+  // selection model acts on it — a construct is SELECTED (the next Backspace,
+  // seeing a non-collapsed selection, deletes it at the top of deleteText), a
+  // leaf is deleted now. `null` (plain text, or nothing before the caret) falls
+  // through to the normal character backspace / block-start merge below.
+  const backUnit = resolveDeleteUnit(state, oldBlock, textIndex, "backward");
+  if (backUnit) {
+    return applyDeleteUnit(
+      state,
+      blockIndex,
+      oldBlock.id,
+      backUnit.from,
+      backUnit.to,
+      backUnit.isConstruct,
+    );
   }
 
   if (textIndex > 0) {
@@ -1569,32 +1587,20 @@ export function deleteForward(state: EditorState): ActionResult {
 
   const oldText = getBlockTextContent(oldBlock);
 
-  // Inline math is atomic: forward delete at the left edge of a math chip
-  // removes the whole chip rather than chipping off the first LaTeX char.
-  if (textIndex < oldText.length) {
-    const mathSpan = findInlineMathSpan(oldBlock, textIndex, "leftEdge");
-    if (mathSpan) {
-      const { newPage, op } = deleteCharsInRange(
-        state.document.page,
-        oldBlock.id,
-        mathSpan.startIndex,
-        mathSpan.endIndex,
-        state.CRDTbinding,
-      );
-      ops.push(op);
-      invalidateBlockCache(newPage.blocks[blockIndex]);
-      let newState: EditorState = {
-        ...state,
-        document: { ...state.document, page: newPage },
-      };
-      newState = moveCursorToPosition(
-        newState,
-        blockIndex,
-        mathSpan.startIndex,
-        true,
-      );
-      return { state: newState, ops };
-    }
+  // Mirror of backspace: atomic inline content (a math equation/chip) forward-
+  // deletes by *unit*. The block's node/mark resolves the unit after the caret;
+  // `null` (plain text, or nothing after the caret) falls through to the normal
+  // character delete / block-merge below.
+  const fwdUnit = resolveDeleteUnit(state, oldBlock, textIndex, "forward");
+  if (fwdUnit) {
+    return applyDeleteUnit(
+      state,
+      blockIndex,
+      oldBlock.id,
+      fwdUnit.from,
+      fwdUnit.to,
+      fwdUnit.isConstruct,
+    );
   }
 
   if (textIndex < oldText.length) {
@@ -1869,6 +1875,22 @@ function findWordDeleteBoundaryRight(text: string, index: number): number {
 }
 
 // Move cursor to previous word boundary
+/**
+ * Keep a word-movement `target` out of the middle of an atomic inline token by
+ * routing it through the block's `caretTokenClamp` seam (e.g. a math block is one
+ * "word" — jump to its near/far edge; a target inside an inline-math chip clamps
+ * to the chip's edge). Returns `target` unchanged when nothing claims it. This is
+ * what stops Ctrl+←/→ from parking the caret at `\in|t`.
+ */
+function snapWordTarget(
+  state: EditorState,
+  block: Block,
+  target: number,
+  dir: "left" | "right",
+): number {
+  return caretTokenClamp(state, block, target, dir) ?? target;
+}
+
 export function moveToPreviousWord(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
 
@@ -1896,7 +1918,12 @@ export function moveToPreviousWord(state: EditorState): EditorState {
   if (isRTL) {
     // In RTL, "previous word" (Ctrl+Left) should move visually left, which is logically forward
     if (textIndex < text.length) {
-      const newIndex = findWordBoundary(text, textIndex, "right");
+      const newIndex = snapWordTarget(
+        state,
+        block,
+        findWordBoundary(text, textIndex, "right"),
+        "right",
+      );
       return moveCursorToPosition(state, blockIndex, newIndex);
     } else {
       // Move to start of next visible block
@@ -1911,7 +1938,12 @@ export function moveToPreviousWord(state: EditorState): EditorState {
   } else {
     // LTR behavior (original)
     if (textIndex > 0) {
-      const newIndex = findWordBoundary(text, textIndex, "left");
+      const newIndex = snapWordTarget(
+        state,
+        block,
+        findWordBoundary(text, textIndex, "left"),
+        "left",
+      );
       return moveCursorToPosition(state, blockIndex, newIndex);
     } else {
       // Move to end of previous visible block
@@ -1958,7 +1990,12 @@ export function moveToNextWord(state: EditorState): EditorState {
   if (isRTL) {
     // In RTL, "next word" (Ctrl+Right) should move visually right, which is logically backward
     if (textIndex > 0) {
-      const newIndex = findWordBoundary(text, textIndex, "left");
+      const newIndex = snapWordTarget(
+        state,
+        block,
+        findWordBoundary(text, textIndex, "left"),
+        "left",
+      );
       return moveCursorToPosition(state, blockIndex, newIndex);
     } else {
       // Move to end of previous visible block
@@ -1975,7 +2012,12 @@ export function moveToNextWord(state: EditorState): EditorState {
   } else {
     // LTR behavior (original)
     if (textIndex < text.length) {
-      const newIndex = findWordBoundary(text, textIndex, "right");
+      const newIndex = snapWordTarget(
+        state,
+        block,
+        findWordBoundary(text, textIndex, "right"),
+        "right",
+      );
       return moveCursorToPosition(state, blockIndex, newIndex);
     } else {
       // Move to start of next visible block
@@ -2021,8 +2063,17 @@ export function deleteWordForward(state: EditorState): ActionResult {
   const oldText = getBlockTextContent(oldBlock);
 
   if (textIndex < oldText.length) {
-    // Delete word forward within the current line using CRDT helper
-    const endIndex = findWordDeleteBoundaryRight(oldText, textIndex);
+    // Delete word forward within the current line. Mirrors the backward case:
+    // the boundary snaps to the next legal caret stop in atomic inline content
+    // and never reaches into the middle of an inline-math chip from plain text.
+    const endIndex =
+      caretStep(state, oldBlock, textIndex, "right") ??
+      snapWordTarget(
+        state,
+        oldBlock,
+        findWordDeleteBoundaryRight(oldText, textIndex),
+        "right",
+      );
     const { newPage, op } = deleteCharsInRange(
       state.document.page,
       oldBlock.id,
@@ -2127,8 +2178,18 @@ export function deleteWordBackward(state: EditorState): ActionResult {
   const oldText = getBlockTextContent(oldBlock);
 
   if (textIndex > 0) {
-    // Delete word backward within the current line using CRDT helper
-    const startIndex = findWordDeleteBoundaryLeft(oldText, textIndex);
+    // Delete word backward within the current line. In atomic inline content the
+    // boundary snaps to the previous legal caret stop (a whole command/construct
+    // unit), and a word delete in plain text never reaches into the middle of an
+    // inline-math chip — so Ctrl+Backspace can't chop `\int` into `\in`.
+    const startIndex =
+      caretStep(state, oldBlock, textIndex, "left") ??
+      snapWordTarget(
+        state,
+        oldBlock,
+        findWordDeleteBoundaryLeft(oldText, textIndex),
+        "left",
+      );
     const { newPage, op } = deleteCharsInRange(
       state.document.page,
       oldBlock.id,
@@ -2399,6 +2460,10 @@ export function splitBlock(state: EditorState): ActionResult {
 
   const { blockIndex: blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
+
+  // (A block equation must not split its LaTeX on Enter — it finalizes and starts
+  // a fresh paragraph below. That's a node-specific exit, so it lives in the
+  // MathNode SPLIT_BLOCK handler, not here; this function stays type-agnostic.)
 
   // Handle Enter key on selected visual block (image/math/line): create new paragraph below
   if (state.document.selection && !state.document.selection.isCollapsed) {

@@ -17,18 +17,32 @@ import type {
 } from "./ast.ts";
 import { type Token, tokenize } from "./lexer.ts";
 
-export function parse(src: string): Node {
-  return new Parser(src).parseRoot();
+export interface ParseOptions {
+  /**
+   * Source range of a control word the caller marks as "still being typed"
+   * (its `\` sits at `literalRange.start`). That one command is parsed as a
+   * literal `unknown` placeholder instead of being resolved — so a command en
+   * route to a longer one (`\in` heading to `\int`) renders as its source text
+   * rather than briefly flashing the `\in` symbol mid-type. Resolve it with
+   * {@link pendingCommandRange}; everything else parses normally.
+   */
+  literalRange?: { start: number; end: number };
+}
+
+export function parse(src: string, opts: ParseOptions = {}): Node {
+  return new Parser(src, opts).parseRoot();
 }
 
 class Parser {
   private readonly toks: Token[];
   private pos = 0;
   private readonly len: number;
+  private readonly literalRange?: { start: number; end: number };
 
-  constructor(src: string) {
+  constructor(src: string, opts: ParseOptions = {}) {
     this.toks = tokenize(src);
     this.len = src.length;
+    this.literalRange = opts.literalRange;
   }
 
   private peek(): Token {
@@ -99,30 +113,66 @@ class Parser {
     return "."; // missing delimiter → null delimiter
   }
 
-  /** A base atom plus any trailing ^/_ scripts. */
+  /** A base atom plus any trailing ^/_ scripts (and `'` primes). */
   private parseAtomWithScripts(): Node | null {
     const base = this.parseAtom();
     this.skipSpace();
     let k = this.peek().kind;
-    if (k !== "sup" && k !== "sub") return base;
+    if (k !== "sup" && k !== "sub" && !this.isPrime()) return base;
 
     let sup: Node | null = null;
     let sub: Node | null = null;
+    let hadExplicitSup = false;
     const start = base ? base.span.start : this.peek().start;
     let end = base ? base.span.end : start;
 
-    while (k === "sup" || k === "sub") {
-      const marker = this.next(); // ^ or _
-      const arg = this.parseArg();
-      end = arg.span.end;
-      // A repeated script (x^a^b) keeps the first, tolerating the error.
-      if (marker.kind === "sup") sup = sup ?? arg;
-      else sub = sub ?? arg;
+    // Append `arg` to the superscript, concatenating into an ord group so a
+    // prime run and a following `^` share one superscript (`x'^2`), in source
+    // order — mirroring KaTeX's prime handling.
+    const appendSup = (arg: Node): void => {
+      if (!sup) {
+        sup = arg;
+        return;
+      }
+      const body = sup.type === "ord" ? [...sup.body] : [sup];
+      body.push(arg);
+      sup = { type: "ord", body, span: { start: sup.span.start, end: arg.span.end } };
+    };
+
+    while (k === "sup" || k === "sub" || this.isPrime()) {
+      if (this.isPrime()) {
+        // A run of `'` becomes prime superscripts (TeX's `x'` ⇒ `x^{\prime}`).
+        while (this.isPrime()) {
+          const p = this.next();
+          end = p.end;
+          appendSup({ type: "atom", info: mathSymbols["\\prime"], span: span(p) });
+        }
+      } else {
+        const marker = this.next(); // ^ or _
+        const arg = this.parseArg();
+        end = arg.span.end;
+        if (marker.kind === "sup") {
+          // First explicit `^` joins any primes; a repeated one (x^a^b) keeps
+          // the first, tolerating the error.
+          if (!hadExplicitSup) {
+            appendSup(arg);
+            hadExplicitSup = true;
+          }
+        } else {
+          sub = sub ?? arg;
+        }
+      }
       this.skipSpace();
       k = this.peek().kind;
     }
 
     return { type: "supsub", base, sup, sub, span: { start, end } };
+  }
+
+  /** The next token is a `'` prime mark. */
+  private isPrime(): boolean {
+    const t = this.peek();
+    return t.kind === "char" && t.value === "'";
   }
 
   /** A single base unit: a group, a symbol, or a command. */
@@ -155,6 +205,16 @@ class Parser {
   private parseCommand(): Node {
     const cmd = this.next();
     const name = cmd.value;
+
+    // A command the caller marked as "still being typed" (its `\` sits at
+    // literalRange.start): emit a literal `unknown` placeholder rather than
+    // resolving it, so an in-progress command shows as source text (`\in`)
+    // instead of flashing its symbol (∈) on the way to `\int`. Deletion and
+    // caret navigation parse WITHOUT this flag, so a committed command stays a
+    // single atomic token — this only changes how the in-progress one renders.
+    if (this.literalRange && cmd.start === this.literalRange.start) {
+      return { type: "unknown", name, span: span(cmd) };
+    }
 
     if (name === "begin") return this.parseEnvironment(cmd);
 
@@ -768,6 +828,106 @@ const DOTS: Record<string, { char: string; group: "inner" | "textord" }> = {
   dots: { char: "…", group: "inner" },
   ldots: { char: "…", group: "inner" },
 };
+
+/**
+ * Every recognized command *name* (no backslash) — the union of every command
+ * table above, the inline-handled control words in `parseCommand`, and the
+ * symbol table. This is the authoritative "is this a real command" oracle used
+ * by {@link needsCommandSeparator} to tell a complete command from one the user
+ * is still typing.
+ */
+const KNOWN_COMMAND_NAMES: ReadonlySet<string> = new Set<string>([
+  ...Object.keys(DELIM_SIZES),
+  ...Object.keys(SPACES),
+  ...ACCENTS,
+  ...OVER_UNDER,
+  ...Object.keys(MATH_OPERATORS),
+  ...Object.keys(MATH_FONTS),
+  ...Object.keys(FRAC_FORMS),
+  ...Object.keys(INFIX_FORMS),
+  ...Object.keys(TEXT_FONTS),
+  ...Object.keys(MCLASS_FORMS),
+  ...Object.keys(PHANTOM_FORMS),
+  ...Object.keys(STYLE_SWITCHES),
+  ...Object.keys(SPACE_WIDTHS),
+  ...Object.keys(LENGTH_KERNS),
+  ...Object.keys(BLACKBOARD),
+  ...Object.keys(SYMBOL_ALIASES),
+  ...Object.keys(LOGIC_RELS),
+  ...Object.keys(DOTS),
+  // Symbol commands (`\alpha`, `\oint`, …) — keys are backslash-prefixed; the
+  // bare literal-char keys (`+`, `=`) aren't command names, so keep only `\…`.
+  ...Object.keys(mathSymbols)
+    .filter((k) => k.startsWith("\\"))
+    .map((k) => k.slice(1)),
+  // Control words handled by inline branches in `parseCommand`.
+  "begin", "end", "not", "neq", "ne", "notin",
+  "operatorname", "operatornamewithlimits",
+  "overset", "underset", "stackrel", "boxed", "fbox", "mathstrut",
+  "bmod", "pmod", "mod", "pod", "colon", "imath", "jmath",
+  "frac", "sqrt", "left", "right",
+]);
+
+/** Whether `name` could still grow into a known command (`inf` → `infty`). */
+function isCommandNamePrefix(name: string): boolean {
+  for (const n of KNOWN_COMMAND_NAMES) {
+    if (n.length > name.length && n.startsWith(name)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether typing `char` at `offset` into `latex` should be separated from a
+ * preceding control word by a space.
+ *
+ * In LaTeX a control word swallows following letters, so typing `x` right after
+ * a complete `\oint` would silently corrupt it into the unknown `\ointx`. A live
+ * editor uses this to insert a space instead (`\oint x` → ∮x), so the letter
+ * becomes a new atom. Returns false while the user is still typing the command
+ * itself: when the run to the left isn't a complete command yet (`\al`), or when
+ * extending it stays a known command or could grow into one (`\in`+`f` → `\inf`,
+ * still en route to `\infty`) — so command typing, including prefix-sharing
+ * names, is never interrupted. Only letters trigger it; digits/symbols already
+ * terminate a control word on their own.
+ */
+export function needsCommandSeparator(
+  latex: string,
+  offset: number,
+  char: string,
+): boolean {
+  if (!/^[a-zA-Z]$/.test(char)) return false;
+  // Walk back over the letters immediately before the caret to the `\`.
+  let i = offset;
+  while (i > 0 && /[a-zA-Z]/.test(latex[i - 1])) i--;
+  // Must sit right after a control word: a `\` that isn't the second half of a
+  // line-break `\\` (whose trailing letters are ordinary atoms, not a command).
+  if (i === 0 || latex[i - 1] !== "\\" || latex[i - 2] === "\\") return false;
+  const name = latex.slice(i, offset);
+  if (!KNOWN_COMMAND_NAMES.has(name)) return false; // still typing the command
+  const extended = name + char;
+  // Still a command (or on the way to a longer one) → keep typing it.
+  return !KNOWN_COMMAND_NAMES.has(extended) && !isCommandNamePrefix(extended);
+}
+
+/**
+ * The source range of a `\`+letters control word ending *exactly* at `caret` —
+ * the command the user is currently typing — or null if the caret isn't at the
+ * trailing edge of such a run. A live editor uses this to render an in-progress
+ * command (`\al` on the way to `\alpha`) in the normal text color rather than
+ * the red "unknown command" placeholder: it isn't an error yet, just unfinished.
+ * Once the caret moves off the run (or it's completed/committed) the range no
+ * longer matches and the red shows. Mirrors {@link needsCommandSeparator}'s
+ * back-scan, including the line-break `\\` guard.
+ */
+export function pendingCommandRange(
+  latex: string,
+  caret: number,
+): { start: number; end: number } | null {
+  let i = caret;
+  while (i > 0 && /[a-zA-Z]/.test(latex[i - 1])) i--;
+  if (i === 0 || latex[i - 1] !== "\\" || latex[i - 2] === "\\") return null;
+  return { start: i - 1, end: caret };
+}
 
 /**
  * Resolve an infix fraction operator (`a \over b`) against the surrounding node

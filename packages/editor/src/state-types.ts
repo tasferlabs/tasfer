@@ -303,6 +303,42 @@ export interface ImageHoverState {
   readonly hoveredHandle: DragHandlePosition; // Track which drag handle is being hovered
 }
 
+/**
+ * Caret-anchored scratch stashed by a node/mark in {@link UIState.caretScratch}.
+ * `type` is the owning node/mark type (for debugging / future multi-owner use);
+ * `blockId`/`offset` anchor it to a caret position. It's "active" only while the
+ * caret stays at that exact spot (see `isCaretScratchActive`); any caret move
+ * clears the whole slot.
+ */
+export interface CaretScratch {
+  readonly type: string;
+  readonly blockId: string;
+  readonly offset: number;
+}
+
+/**
+ * The editing unit adjacent to a caret, resolved by a node/mark's `deleteUnit`
+ * seam — a `[from, to)` block-text range plus whether it's a multi-part construct
+ * (selected first, deleted on the next press) versus a plain leaf (deleted now).
+ * The engine applies it uniformly; the node/mark only says *what* the unit is.
+ */
+export interface CaretDeleteUnit {
+  readonly from: number;
+  readonly to: number;
+  readonly isConstruct: boolean;
+}
+
+/**
+ * The result of a node/mark's `transformTypedInput` seam: the (possibly rewritten)
+ * string to insert, and whether inline-markdown auto-format should be skipped for
+ * this keystroke (e.g. a `$`/`*` typed inside an inline-math chip must not be
+ * reinterpreted as markdown).
+ */
+export interface TypedInputTransform {
+  readonly input: string;
+  readonly suppressMarkdown?: boolean;
+}
+
 // UI State - Transient interaction state (menus, popovers, mode)
 export interface UIState {
   readonly mode: EditorMode;
@@ -317,6 +353,17 @@ export interface UIState {
     readonly endIndex: number;
   } | null;
   readonly hoveredMathBlockIndex: number | null;
+  /**
+   * Ephemeral, caret-anchored scratch owned by a node/mark (keyed by its `type`).
+   * Set by a node/mark right after an edit (via the `armCaretScratch` seam) to
+   * stash UI that's valid *only while the caret stays put*, and reset to `null`
+   * by {@link updateCursor} on ANY caret move — so the engine never interprets
+   * the value, it only clears it. Inline/block math uses it for in-progress
+   * command rendering (`\in` heading to `\int` draws as literal source instead of
+   * its symbol until the caret commits it). Purely cosmetic; never persisted,
+   * never in undo.
+   */
+  readonly caretScratch: CaretScratch | null;
   readonly composition: CompositionState | null;
   readonly activeMarksMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)

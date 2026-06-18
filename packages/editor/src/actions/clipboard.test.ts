@@ -71,17 +71,9 @@ describe("atomicBlockInsertOps", () => {
     });
   });
 
-  it("emits latex + displayMode for math", () => {
-    const math = {
-      id: "m1",
-      afterId: null,
-      type: "math",
-      latex: "x^2",
-      displayMode: false,
-    } as unknown as Block;
-
-    expect(setFields(math)).toEqual({ latex: "x^2", displayMode: false });
-  });
+  // (Math is no longer atomic — it's a textual block whose char-run text IS the
+  // LaTeX, so it copies through the textual char-run path, not
+  // atomicBlockInsertOps.)
 
   it("emits only a block_insert for a line (no fields)", () => {
     const line = {

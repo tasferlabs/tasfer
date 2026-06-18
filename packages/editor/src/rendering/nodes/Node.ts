@@ -35,14 +35,18 @@ import type {
 } from "../../serlization/codecs/types";
 import type { Block } from "../../serlization/loadPage";
 import type { TokenType } from "../../serlization/tokenizer";
+import type { MarkRegistry } from "../marks";
 import type {
   BlockBounds,
+  CaretDeleteUnit,
+  CaretScratch,
   EditorState,
   EditorStyles,
   NodeOverlay,
   Position,
   RenderedBlock,
   RenderedLine,
+  TypedInputTransform,
   ViewportState,
 } from "../../state-types";
 import type { AwarenessState } from "../../sync/awareness";
@@ -72,6 +76,12 @@ export interface NodeLayoutCtx {
   /** First block gets special treatment (e.g. full-bleed image padding). */
   readonly isFirst: boolean;
   readonly styles: EditorStyles;
+  /**
+   * The per-instance mark registry — lets the layout/measurement pass reserve a
+   * replacement run's rendered width (e.g. an inline-math chip) via the mark's
+   * `replacement.measure`, instead of measuring its source as plain text.
+   */
+  readonly marks: MarkRegistry;
 }
 
 /** Everything paint() needs on top of layout context. */
@@ -251,6 +261,72 @@ export abstract class Node<B extends Block = Block> {
    * handlers never leak across editors on the same page.
    */
   registerActions?(bus: ActionBus): void;
+
+  // ── Caret / edit seam ───────────────────────────────────────────────────────
+  // Optional hooks for a node whose content is **atomic for the caret** — a unit
+  // (a command, a construct) the caret must step over and the editor must delete
+  // whole, rather than character-by-character. Implement these and the generic
+  // caret/edit code (selection, actions) routes through them automatically (via
+  // the `state-utils` seam helpers), so it never special-cases the block type.
+  // A node that leaves them unset behaves as ordinary editable text. All operate
+  // on block-text indices; `dir` is logical (`left`/`right` = decrement/increment).
+
+  /**
+   * The next legal caret stop stepping `dir` from `index`, or `null` to use the
+   * default ±1 step. Lets a multi-character token (`\int`) be one stop, never
+   * landing the caret inside it.
+   */
+  caretStep?(block: B, index: number, dir: "left" | "right"): number | null;
+
+  /**
+   * Vertical caret motion *within* this block (between stacked rows — a fraction's
+   * numerator ↔ denominator, a base ↔ its script), or `null` to leave the block
+   * via ordinary line navigation.
+   */
+  caretVerticalStep?(
+    block: B,
+    index: number,
+    dir: "up" | "down",
+  ): number | null;
+
+  /**
+   * Pull a word-navigation `target` out of the middle of an atomic token, snapping
+   * it to the token's edge in travel direction `dir`; `null` if `target` isn't
+   * inside a token (caller uses it unchanged). Keeps Ctrl+←/→ off mid-token.
+   */
+  caretTokenClamp?(
+    block: B,
+    target: number,
+    dir: "left" | "right",
+  ): number | null;
+
+  /**
+   * The editing unit adjacent to the caret to delete (backward) or forward-delete,
+   * or `null` for a plain character delete. A construct is selected first then
+   * deleted; a leaf is deleted now (see {@link CaretDeleteUnit}).
+   */
+  deleteUnit?(
+    block: B,
+    index: number,
+    dir: "backward" | "forward",
+  ): CaretDeleteUnit | null;
+
+  /**
+   * Rewrite a typed string before insertion at `index` and/or veto inline-markdown
+   * for this keystroke, or `null` to insert it verbatim (see
+   * {@link TypedInputTransform}).
+   */
+  transformTypedInput?(
+    block: B,
+    index: number,
+    input: string,
+  ): TypedInputTransform | null;
+
+  /**
+   * The caret-anchored scratch to stash after an edit lands the caret at `index`
+   * (see {@link CaretScratch}), or `null` for none. Cleared on the next caret move.
+   */
+  armCaretScratch?(block: B, index: number): CaretScratch | null;
 
   // ── Serialization facet ────────────────────────────────────────────────────
   // A node owns its own markdown/HTML/text round-trip, so a block type's

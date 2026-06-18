@@ -137,8 +137,6 @@ const objectFitField = propField(
   (value) => value === "cover" || value === "contain",
 );
 
-const latexField = propField("latex", (value) => typeof value === "string");
-
 const displayModeField = propField(
   "displayMode",
   (value) => typeof value === "boolean",
@@ -214,6 +212,19 @@ const VISUAL_CAPS: BlockCapabilities = {
 // hit-test purposes) but carry NO inline marks — formatting toggles are gated
 // off by `hasFormats: false`, so bold/italic/etc. never apply inside code.
 const CODE_CAPS: BlockCapabilities = {
+  hasText: true,
+  hasFormats: false,
+  indentable: false,
+  togglable: false,
+  preformatted: true,
+};
+
+// Math blocks are textual too — their char-run text IS the LaTeX, so the caret
+// lives inside the equation (canvas-native editing). Like code, they carry NO
+// inline marks (`hasFormats: false`): the whole content is one equation rendered
+// through the tex bridge, not bold/italic-able text. `preformatted` keeps the
+// LaTeX verbatim (no markdown auto-format) the way code keeps source verbatim.
+const MATH_CAPS: BlockCapabilities = {
   hasText: true,
   hasFormats: false,
   indentable: false,
@@ -342,16 +353,16 @@ const lineDescriptor = {
 
 const mathDescriptor = {
   type: "math",
-  capabilities: VISUAL_CAPS,
+  capabilities: MATH_CAPS,
   defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "math",
-    latex: "",
+    charRuns: [],
+    formats: [],
     displayMode: true,
   }),
   fields: {
     type: typeField,
-    latex: latexField,
     displayMode: displayModeField,
   },
 } satisfies BlockTypeDescriptor;

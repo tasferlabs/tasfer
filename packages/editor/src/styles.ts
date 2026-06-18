@@ -592,7 +592,8 @@ export function getTextStyle(
     | "bullet_list"
     | "numbered_list"
     | "todo_list"
-    | "code",
+    | "code"
+    | "math",
 ) {
   if (blockType === "bullet_list") {
     return styles.blocks.bulletList;
@@ -602,6 +603,12 @@ export function getTextStyle(
     return styles.blocks.todoList;
   } else if (blockType === "code") {
     return styles.blocks.code;
+  } else if (blockType === "math") {
+    // A math block is textual (its char-run text is the LaTeX), but the visible
+    // equation renders through the tex bridge, not as wrapped text. The throwaway
+    // text-layout/caret-fallback just needs a valid TextStyle, so borrow the
+    // paragraph's.
+    return styles.blocks.paragraph;
   }
   return styles.blocks[blockType];
 }

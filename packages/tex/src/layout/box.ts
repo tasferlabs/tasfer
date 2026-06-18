@@ -72,10 +72,37 @@ export interface PathBox extends Dim {
   readonly strokeWidth?: number;
 }
 
+/**
+ * An empty editable slot — the numerator of `\frac{}{b}`, the script of `x^{}`,
+ * a blank matrix cell. Drawn as a faint box (so the user sees a target) and,
+ * crucially, it carries the source `offset` *inside* the empty braces so the
+ * caret can land and type there (an empty group otherwise lays out to nothing,
+ * leaving the slot invisible and unreachable). Live-editing only — well-formed
+ * read-only math has no empty groups.
+ */
+export interface PlaceholderBox extends Dim {
+  readonly type: "placeholder";
+  /** Source offset the caret sits at (between the empty group's braces). */
+  readonly offset: number;
+}
+
+/**
+ * The slot a placed child occupies within a multi-part construct, when that
+ * matters for caret navigation. Only super/subscripts are tagged: they stack
+ * vertically at the same column AS the base sits between them on the baseline,
+ * so pure geometry would step ↓ from a superscript onto the base rather than
+ * across to the subscript. The tag lets {@link caretVertical} connect the two
+ * script slots structurally (a fraction needs no tag — nothing sits on the
+ * baseline between its halves, so geometry already links them).
+ */
+export type SlotRole = "sup" | "sub";
+
 export interface Placed {
   readonly box: Box;
   readonly dx: number;
   readonly dy: number;
+  /** Which script slot of the enclosing construct this child is, if any. */
+  readonly role?: SlotRole;
 }
 
 /** A composite: children placed at explicit offsets from this box's origin. */
@@ -84,9 +111,24 @@ export interface ListBox extends Dim {
   readonly children: Placed[];
   klass?: AtomClass;
   span?: Span | null;
+  /**
+   * When set, this box is a multi-part construct (fraction, root, script, …)
+   * whose inner caret stops sit on their own rows — so it also contributes caret
+   * stops at its OUTER left/right edges on the parent baseline. Those are the
+   * top-level positions beside the construct: the caret can sit just before/after
+   * a `\frac` (and step out of it) even when nothing else follows on the line.
+   */
+  boundary?: boolean;
+  /**
+   * Italic correction carried from a single wrapped symbol (a big-operator
+   * glyph) so a following sub/superscript can offset by it exactly as it would
+   * for a bare glyph base — the op glyph is wrapped in a list (to shift it onto
+   * the axis), which would otherwise hide its italic from Rule 18.
+   */
+  italic?: number;
 }
 
-export type Box = GlyphBox | RuleBox | PathBox | ListBox;
+export type Box = GlyphBox | RuleBox | PathBox | ListBox | PlaceholderBox;
 
 /** A glyph box for `char` in `variant`, drawn at `size` em (root-absolute). */
 export function glyphBox(
@@ -131,6 +173,11 @@ export function ruleBox(width: number, height: number, depth = 0): RuleBox {
   return { type: "rule", width, height, depth };
 }
 
+/** A faint, caret-landable box for an empty slot at source `offset`. */
+export function placeholderBox(offset: number, dim: Dim): PlaceholderBox {
+  return { type: "placeholder", offset, ...dim };
+}
+
 export function pathBox(
   commands: PathCmd[],
   dim: Dim,
@@ -142,7 +189,12 @@ export function pathBox(
 /** Compose placed children into a list box, deriving its dimensions. */
 export function listBox(
   children: Placed[],
-  opts: { width?: number; klass?: AtomClass; span?: Span | null } = {},
+  opts: {
+    width?: number;
+    klass?: AtomClass;
+    span?: Span | null;
+    italic?: number;
+  } = {},
 ): ListBox {
   let height = 0;
   let depth = 0;
@@ -160,6 +212,7 @@ export function listBox(
     depth,
     klass: opts.klass,
     span: opts.span,
+    italic: opts.italic,
   };
 }
 

@@ -11,7 +11,7 @@
  */
 
 import { containsCJK, isCJKCharacter } from "./cjk";
-import { getInlineMathDims } from "./nodes/math";
+import type { MarkRegistry, MarkReplacement } from "./rendering/marks";
 import type { Char, CharRun, Mark, MarkSpan } from "./serlization/loadPage";
 // Formatted text measurement - handles Char[] with MarkSpan[]
 import { markKey } from "./serlization/loadPage";
@@ -34,16 +34,31 @@ interface TextSegment {
 
 // A batch of consecutive characters with the same formatting.
 //
-// The batch carries only the metric-affecting flags the measurement engine
-// needs — `isBold` (weight) and `isMath` (atomic inline-math width). The
-// *visual* mark channels (italic, code chip, link, strike, color) are resolved
-// from `formats` through the per-instance MarkRegistry at paint time, so they
-// don't live here.
+// The batch carries only the metric-affecting facts the measurement engine
+// needs — `isBold` (weight) and `replacement` (a mark that renders its run as an
+// atomic non-text unit, e.g. inline math, so its width is the rendered width).
+// The *visual* mark channels (italic, code chip, link, strike, color) are
+// resolved from `formats` through the per-instance MarkRegistry at paint time,
+// so they don't live here.
 export interface TextBatch {
   text: string;
   formats: Mark[];
   isBold: boolean;
-  isMath: boolean;
+  /** The replacement renderer for this run, or null for plain text. */
+  replacement: MarkReplacement | null;
+}
+
+/** The first of `formats` that renders as a replacement, or null. */
+function replacementFor(
+  formats: Mark[],
+  marks: MarkRegistry | undefined,
+): MarkReplacement | null {
+  if (!marks) return null;
+  for (const f of formats) {
+    const r = marks.get(f.type)?.replacement;
+    if (r) return r;
+  }
+  return null;
 }
 
 // Line wrapping result with information about consumed characters
@@ -319,6 +334,7 @@ export function batchChars(
   formats: MarkSpan[],
   startIndex: number,
   endIndex: number,
+  marks?: MarkRegistry,
 ): TextBatch[] {
   const batches: TextBatch[] = [];
   let currentBatch: TextBatch | null = null;
@@ -347,14 +363,14 @@ export function batchChars(
       // Same formatting, append to current batch
       currentBatch.text += char.char;
     } else {
-      // Different formatting, start new batch. Only the metric-affecting flags
-      // (bold weight, atomic inline-math) are precomputed; visual channels are
+      // Different formatting, start new batch. Only the metric-affecting facts
+      // (bold weight, replacement renderer) are precomputed; visual channels are
       // resolved from `formats` via the MarkRegistry at paint time.
       currentBatch = {
         text: char.char,
         formats: charFormats,
         isBold: charFormats.some((f) => f.type === "strong"),
-        isMath: charFormats.some((f) => f.type === "math"),
+        replacement: replacementFor(charFormats, marks),
       };
       batches.push(currentBatch);
     }
@@ -376,8 +392,8 @@ export function measureBatchedText(
   let width = 0;
 
   for (const batch of batches) {
-    if (batch.isMath) {
-      const dims = getInlineMathDims(batch.text, fontSize);
+    if (batch.replacement) {
+      const dims = batch.replacement.measure(batch.text, fontSize);
       if (dims) {
         width += dims.width;
         continue;
@@ -424,6 +440,7 @@ export function measureCRDTPositions(
   baseFontWeight: string,
   fontFamily: FontFamily,
   fonts: FontStyles,
+  marks?: MarkRegistry,
 ): number[] {
   const lineLength = endIndex - startIndex;
   const positions: number[] = new Array(lineLength + 1);
@@ -442,6 +459,8 @@ export function measureCRDTPositions(
       baseFontWeight,
       fontFamily,
       fonts,
+      0,
+      marks,
     );
   }
 
@@ -460,18 +479,19 @@ export function measureTextUpToIndex(
   fontFamily: FontFamily,
   fonts: FontStyles,
   _codePadding: number = 0,
+  marks?: MarkRegistry,
 ): number {
   // Use batched measurement to preserve Arabic ligatures
-  const batches = batchChars(chars, formats, startIndex, endIndex);
+  const batches = batchChars(chars, formats, startIndex, endIndex, marks);
 
-  // Inline-math atomic-span fixup. batchCRDTChars can produce a math batch
-  // whose text is a *partial* slice of the span's LaTeX (when the requested
-  // range cuts mid-span). measureBatchedText would then run MathJax on
-  // unparseable input. Rewrite each math batch to match the wrap convention:
-  // the span's first char carries the full SVG width, every other char in
-  // the span carries 0. This keeps measurement consistent with rendering and
-  // wrapping, so the cursor x stays aligned with the rendered chip.
-  if (batches.some((b) => b.isMath)) {
+  // Replacement-span atomic fixup. batchChars can produce a replacement batch
+  // whose text is a *partial* slice of the span's source (when the requested
+  // range cuts mid-span). measure() would then run on unparseable input. Rewrite
+  // each replacement batch to match the wrap convention: the span's first char
+  // carries the full rendered width, every other char in the span carries 0.
+  // This keeps measurement consistent with rendering and wrapping, so the cursor
+  // x stays aligned with the rendered run.
+  if (batches.some((b) => b.replacement)) {
     const visIdxOfId = new Map<string, number>();
     const visibleChars: string[] = [];
     {
@@ -484,21 +504,21 @@ export function measureTextUpToIndex(
       }
     }
 
-    type MathSpan = {
+    type ReplSpan = {
       startVisIdx: number;
       endVisIdx: number;
-      latex: string;
+      text: string;
     };
-    const mathSpans: MathSpan[] = [];
+    const replSpans: ReplSpan[] = [];
     for (const f of formats) {
-      if (f.format.type !== "math") continue;
+      if (!marks?.get(f.format.type)?.replacement) continue;
       const s = visIdxOfId.get(f.startCharId);
       const e = visIdxOfId.get(f.endCharId);
       if (s === undefined || e === undefined) continue;
-      mathSpans.push({
+      replSpans.push({
         startVisIdx: s,
         endVisIdx: e,
-        latex: visibleChars.slice(s, e + 1).join(""),
+        text: visibleChars.slice(s, e + 1).join(""),
       });
     }
 
@@ -507,20 +527,19 @@ export function measureTextUpToIndex(
       const batchStart = visIdx;
       const batchEnd = batchStart + batch.text.length;
       visIdx = batchEnd;
-      if (!batch.isMath) continue;
-      const span = mathSpans.find(
+      if (!batch.replacement) continue;
+      const span = replSpans.find(
         (s) => s.startVisIdx <= batchStart && s.endVisIdx >= batchEnd - 1,
       );
       if (!span) continue;
       if (batchStart === span.startVisIdx) {
-        // First char of the span is included → contribute full SVG width.
-        // Use the full LaTeX so getInlineMathDims hits the cache key used
-        // by the renderer.
-        batch.text = span.latex;
+        // First char of the span is included → contribute full rendered width.
+        // Use the full source so measure() hits the cache key used by paint.
+        batch.text = span.text;
       } else {
         // Past the first char of the span → contribute 0 width.
         batch.text = "";
-        batch.isMath = false;
+        batch.replacement = null;
       }
     }
   }
@@ -548,6 +567,7 @@ export function measureCharsUpToIndex(
   fontFamily: FontFamily,
   fonts: FontStyles,
   codePadding: number = 0,
+  marks?: MarkRegistry,
 ): number {
   // Convert charRuns to Char[] for compatibility with existing measurement code
   const chars = charRunsToChars(charRuns);
@@ -563,6 +583,7 @@ export function measureCharsUpToIndex(
     fontFamily,
     fonts,
     codePadding,
+    marks,
   );
 }
 
@@ -610,6 +631,7 @@ export function wrapText(
   fonts: FontStyles,
   _codePadding: number = 0,
   _compositionRange: { start: number; end: number } | null = null,
+  marks?: MarkRegistry,
 ): WrappedLine[] {
   // Get visible text
   const visibleChars = chars.filter((c) => !c.deleted);
@@ -640,17 +662,18 @@ export function wrapText(
       : baseFontWeight;
   };
 
-  // Pre-compute inline-math span ranges (visible indices) and their rendered
-  // widths. The math chip is drawn as a single SVG image whose width is the
-  // rendered width — not the sum of the source LaTeX character widths — so
-  // wrapping must treat the span as an atomic unit at the rendered width.
-  // We attribute the full span width to the first char and 0 to the rest,
-  // which makes the span effectively non-breakable (subsequent 0-width chars
-  // can never trigger a wrap on their own).
-  const mathSpanFirstWidth = new Map<number, number>();
-  const mathSpanIsTail = new Set<number>();
+  // Pre-compute replacement-span ranges (visible indices) and their rendered
+  // widths. A replacement run (e.g. an inline-math chip) is drawn as a single
+  // atomic unit whose width is the rendered width — not the sum of its source
+  // character widths — so wrapping must treat the span as one unit at the
+  // rendered width. We attribute the full span width to the first char and 0 to
+  // the rest, making the span effectively non-breakable (subsequent 0-width
+  // chars can never trigger a wrap on their own).
+  const replSpanFirstWidth = new Map<number, number>();
+  const replSpanIsTail = new Set<number>();
   for (const span of formats) {
-    if (span.format.type !== "math") continue;
+    const replacement = marks?.get(span.format.type)?.replacement;
+    if (!replacement) continue;
     const startOrig = chars.findIndex((c) => c.id === span.startCharId);
     const endOrig = chars.findIndex((c) => c.id === span.endCharId);
     if (startOrig === -1 || endOrig === -1) continue;
@@ -662,15 +685,15 @@ export function wrapText(
       if (orig === endOrig) endVis = i;
     }
     if (startVis === -1 || endVis === -1) continue;
-    const latex = visibleChars
+    const text = visibleChars
       .slice(startVis, endVis + 1)
       .map((c) => c.char)
       .join("");
-    const dims = getInlineMathDims(latex, fontSize);
+    const dims = replacement.measure(text, fontSize);
     if (!dims) continue; // fall through to plain-text widths on render error
-    mathSpanFirstWidth.set(startVis, dims.width);
+    replSpanFirstWidth.set(startVis, dims.width);
     for (let i = startVis + 1; i <= endVis; i++) {
-      mathSpanIsTail.add(i);
+      replSpanIsTail.add(i);
     }
   }
 
@@ -691,13 +714,13 @@ export function wrapText(
     const isSpace = char === " ";
 
     // Measure this single character (O(1) per character).
-    // Inline math: first char of the span carries the full rendered width;
-    // remaining chars in the span carry 0 width so the span is atomic.
+    // Replacement span: first char carries the full rendered width; remaining
+    // chars carry 0 width so the span is atomic and never breaks mid-run.
     let charWidth: number;
-    const mathFirstWidth = mathSpanFirstWidth.get(visibleIndex);
-    if (mathFirstWidth !== undefined) {
-      charWidth = mathFirstWidth;
-    } else if (mathSpanIsTail.has(visibleIndex)) {
+    const replFirstWidth = replSpanFirstWidth.get(visibleIndex);
+    if (replFirstWidth !== undefined) {
+      charWidth = replFirstWidth;
+    } else if (replSpanIsTail.has(visibleIndex)) {
       charWidth = 0;
     } else {
       const fontWeight = getFontWeightAtIndex(visibleIndex);

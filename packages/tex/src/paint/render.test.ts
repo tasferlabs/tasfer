@@ -85,6 +85,49 @@ const RENDER_CORPUS: [string, boolean][] = [
   ["\\alpha\\beta\\gamma\\delta", false],
 ];
 
+/** Whether the inked pixels skew red (mean R clearly above mean G/B). */
+function inkIsReddish(data: Uint8ClampedArray, w: number, h: number): boolean {
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let i = 0; i < w * h; i++) {
+    const a = data[i * 4 + 3];
+    if (a > 16) {
+      r += data[i * 4];
+      g += data[i * 4 + 1];
+      b += data[i * 4 + 2];
+      n++;
+    }
+  }
+  if (n === 0) return false;
+  return r / n > g / n + 40 && r / n > b / n + 40;
+}
+
+function renderUnknownIsRed(pendingRange?: { start: number; end: number }) {
+  // `\al` is an unrecognized command (lays out as a red placeholder); its source
+  // is [0,3), so a pending range of {0,3} means "still being typed".
+  const m = layoutMath("\\al", { fontSize: FS, displayMode: false });
+  const cw = Math.ceil(m.width) + MARGIN * 2;
+  const ch = Math.ceil(m.height + m.depth) + MARGIN * 2;
+  const canvas = createCanvas(cw, ch);
+  const ctx = canvas.getContext("2d");
+  paintMath(ctx as unknown as CanvasRenderingContext2D, m, MARGIN, MARGIN + m.height, {
+    color: "#000000",
+    pendingRange,
+  });
+  return inkIsReddish(ctx.getImageData(0, 0, cw, ch).data, cw, ch);
+}
+
+describe("unknown-command error color is suppressed while typing", () => {
+  it("renders red when not in a pending range", () => {
+    expect(renderUnknownIsRed(undefined)).toBe(true);
+  });
+  it("suppresses red across the whole in-progress command", () => {
+    expect(renderUnknownIsRed({ start: 0, end: 3 })).toBe(false);
+  });
+  it("keeps red when the pending range doesn't cover it", () => {
+    expect(renderUnknownIsRed({ start: 5, end: 8 })).toBe(true);
+  });
+});
+
 describe("paint lands within the layout box", () => {
   for (const [expr, dm] of RENDER_CORPUS) {
     it(`${dm ? "[display] " : ""}${expr}`, () => {

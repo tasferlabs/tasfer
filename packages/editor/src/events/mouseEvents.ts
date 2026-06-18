@@ -17,6 +17,7 @@ import {
   updateScrollFromWheel,
 } from "../rendering/scrollbar";
 import {
+  getBlockIndexAtPoint,
   getCursorDocumentCoords,
   getTextPositionFromViewport,
 } from "../selection";
@@ -445,11 +446,13 @@ export function handleMouseMove(
         state,
         viewport,
       );
+      const blockUnderPoint = getBlockIndexAtPoint(canvasY, state, viewport);
       state = state.actionBus.dispatchState(POINTER_MOVE, state, {
         canvasX,
         canvasY,
         atomicBlock,
         textPosition,
+        blockUnderPoint,
         pointerX: event.x,
         pointerY: event.y,
         viewport,

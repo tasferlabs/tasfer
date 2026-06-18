@@ -366,6 +366,16 @@ export {
 
 // Inline-math rendering — render a LaTeX run to an SVG string, and validate it.
 export { isValidLatex, renderToSVG } from "./nodes/math";
+// Inline-math chip detection (host UI building math chrome reads these to know
+// when the caret is inside a chip and to recover the chip's LaTeX/offsets).
+export { getInlineMathSpans, type InlineMathSpan } from "./inline-math-spans";
+// The `\` command catalog behind the host's math autocomplete menu.
+export {
+  filterMathCommands,
+  MATH_COMMANDS,
+  type MathCommand,
+  mathCommandCaretOffset,
+} from "./nodes/math-commands";
 
 // Convenience helpers — candidates for future encapsulation behind a richer
 // `Editor`/`Doc` handle. Exposed now so hosts that drive toolbars, link UI, and

@@ -1,10 +1,10 @@
 import { currentFontFamily, measureCharsUpToIndex } from "./fonts";
-import { snapInlineMathPosition } from "./inline-math";
 import {
   getContentWithComposition,
   TextNode,
   type TextNodeLayout,
 } from "./nodes/TextNode";
+import type { MarkRegistry } from "./rendering/marks";
 import { getBlockHeight } from "./rendering/renderer";
 import { getTextDirection } from "./rtl";
 import type { Block, CharRun, MarkSpan } from "./serlization/loadPage";
@@ -17,6 +17,9 @@ import type {
   ViewportState,
 } from "./state-types";
 import {
+  caretStep,
+  caretTokenClamp,
+  caretVerticalStep,
   createInitialCursorState,
   getBlockTextContent,
   getBlockTextLength,
@@ -52,8 +55,16 @@ function layoutFor(
   blockIndex: number,
   maxWidth: number,
   styles: EditorStyles,
+  marks: MarkRegistry,
 ): TextNodeLayout {
-  return node.layout({ block, blockIndex, maxWidth, isFirst: false, styles });
+  return node.layout({
+    block,
+    blockIndex,
+    maxWidth,
+    isFirst: false,
+    styles,
+    marks,
+  });
 }
 
 /** Top Y of a block in document space (origin at canvas paddingTop). */
@@ -68,7 +79,7 @@ function getBlockTopDocument(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
     if (block.originalIndex >= blockIndex) break;
-    y += getBlockHeight(state.nodes, block, maxWidth, styles, visibleIdx === 0);
+    y += getBlockHeight(state.nodes, state.marks, block, maxWidth, styles, visibleIdx === 0);
   }
   return y;
 }
@@ -197,7 +208,7 @@ export function getCursorDocumentCoords(
   const node = textNodeFor(state, block);
   if (!node) return null;
 
-  const layout = layoutFor(node, block, position.blockIndex, maxWidth, styles);
+  const layout = layoutFor(node, block, position.blockIndex, maxWidth, styles, state.marks);
   const blockTop = getBlockTopDocument(
     state,
     position.blockIndex,
@@ -209,6 +220,8 @@ export function getCursorDocumentCoords(
     position.textIndex,
     styles.canvas.paddingLeft,
     blockTop,
+    state,
+    block.id,
   );
 }
 
@@ -318,6 +331,7 @@ function getPositionFromPaddingClick(
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
       state.nodes,
+      state.marks,
       block,
       maxWidth,
       styles,
@@ -337,6 +351,7 @@ function getPositionFromPaddingClick(
         block.originalIndex,
         maxWidth,
         styles,
+        state.marks,
       );
 
       // LTR: left → start, right → end. RTL: left → end, right → start.
@@ -420,6 +435,7 @@ export function getTextPositionFromViewport(
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
       state.nodes,
+      state.marks,
       block,
       maxWidth,
       styles,
@@ -439,6 +455,7 @@ export function getTextPositionFromViewport(
         block.originalIndex,
         maxWidth,
         styles,
+        state.marks,
       );
       const textIndex = node.positionFromPoint(
         block,
@@ -482,6 +499,43 @@ export function getTextPositionFromViewport(
     };
   }
 
+  return null;
+}
+
+/**
+ * The `originalIndex` of the visible block whose vertical bounds contain canvas-y
+ * `y`, or `null` when `y` is above the first block or below the last. Unlike
+ * {@link getTextPositionFromViewport}, this does NOT clamp to the nearest block —
+ * used for hover affordances that must switch OFF in the empty space below the
+ * last block (e.g. the math-block backdrop).
+ */
+export function getBlockIndexAtPoint(
+  y: number,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+): number | null {
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const visibleBlocks = state.view.visibleBlocks;
+
+  for (let i = 0; i < visibleBlocks.length; i++) {
+    const block = visibleBlocks[i];
+    const blockHeight = getBlockHeight(
+      state.nodes,
+      state.marks,
+      block,
+      maxWidth,
+      styles,
+      i === 0,
+    );
+    if (y >= currentY && y < currentY + blockHeight) {
+      return block.originalIndex;
+    }
+    if (currentY > viewport.height) break;
+    currentY += blockHeight;
+  }
   return null;
 }
 
@@ -588,6 +642,7 @@ export function isPointWithinSelectionRects(
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
       state.nodes,
+      state.marks,
       block,
       maxWidth,
       styles,
@@ -613,6 +668,7 @@ export function isPointWithinSelectionRects(
         block.originalIndex,
         maxWidth,
         styles,
+        state.marks,
       );
       const rects = node.selectionRects(
         layout,
@@ -672,6 +728,12 @@ export function moveCursorUp(
     return state;
   }
 
+  // In-block vertical navigation (e.g. inside a formula): a node/mark whose
+  // content stacks rows first moves between those rows; only when there is no row
+  // above does it fall through to changing text lines.
+  const vUp = caretVerticalStep(state, currentBlock, textIndex, "up");
+  if (vUp !== null) return moveCursorToPosition(state, blockIndex, vUp);
+
   const node = textNodeFor(state, currentBlock);
   if (!node) return state;
 
@@ -680,7 +742,7 @@ export function moveCursorUp(
     ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
     : 800; // Default fallback
 
-  const layout = layoutFor(node, currentBlock, blockIndex, maxWidth, styles);
+  const layout = layoutFor(node, currentBlock, blockIndex, maxWidth, styles, state.marks);
   const lineIdx = lineIndexAt(layout, textIndex);
   if (lineIdx === -1) return state;
 
@@ -730,6 +792,7 @@ export function moveCursorUp(
       prevBlockIndex,
       maxWidth,
       styles,
+      state.marks,
     );
     if (prevLayout.lines.length > 0) {
       const lastLine = prevLayout.lines[prevLayout.lines.length - 1];
@@ -781,6 +844,12 @@ export function moveCursorDown(
     return state;
   }
 
+  // In-block vertical navigation (e.g. inside a formula): a node/mark whose
+  // content stacks rows first moves between those rows; only when there is no row
+  // below does it fall through to changing text lines.
+  const vDown = caretVerticalStep(state, currentBlock, textIndex, "down");
+  if (vDown !== null) return moveCursorToPosition(state, blockIndex, vDown);
+
   const node = textNodeFor(state, currentBlock);
   if (!node) return state;
 
@@ -789,7 +858,7 @@ export function moveCursorDown(
     ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
     : 800; // Default fallback
 
-  const layout = layoutFor(node, currentBlock, blockIndex, maxWidth, styles);
+  const layout = layoutFor(node, currentBlock, blockIndex, maxWidth, styles, state.marks);
   const lineIdx = lineIndexAt(layout, textIndex);
   if (lineIdx === -1) return state;
 
@@ -839,6 +908,7 @@ export function moveCursorDown(
       nextBlockIndex,
       maxWidth,
       styles,
+      state.marks,
     );
     if (nextLayout.lines.length > 0) {
       const firstLine = nextLayout.lines[0];
@@ -1043,8 +1113,16 @@ export function updateCursor(
   state: EditorState,
   position: Position | null,
 ): EditorState {
+  // Any caret move invalidates caret-anchored node/mark scratch (e.g. math's
+  // in-progress command rendering, `\in`→∈): clear it so a finished value never
+  // lingers once the caret leaves the spot that armed it. The owning node/mark
+  // re-arms it after its own edit when still warranted (see `armCaretScratch`).
+  const ui = state.ui.caretScratch
+    ? { ...state.ui, caretScratch: null }
+    : state.ui;
   return {
     ...state,
+    ui,
     document: {
       ...state.document,
       cursor: position
@@ -1212,12 +1290,10 @@ export function moveCursorLeft(state: EditorState): EditorState {
     const currentBlockLength = getBlockTextLength(currentBlock);
 
     if (textIndex < currentBlockLength) {
-      const snapped = snapInlineMathPosition(
-        currentBlock,
-        textIndex + 1,
-        "right",
-      );
-      return moveCursorToPosition(state, blockIndex, snapped);
+      // Logical forward; clamp out of any atomic inline token (e.g. a math chip).
+      const target = textIndex + 1;
+      const snapped = caretTokenClamp(state, currentBlock, target, "right");
+      return moveCursorToPosition(state, blockIndex, snapped ?? target);
     } else {
       // Moving to next visible block
       const nextBlockIndex = findNextVisibleBlockIndex(
@@ -1251,12 +1327,11 @@ export function moveCursorLeft(state: EditorState): EditorState {
   } else {
     // LTR text: visual left is logical backward (decrement)
     if (textIndex > 0) {
-      const snapped = snapInlineMathPosition(
-        currentBlock,
-        textIndex - 1,
-        "left",
-      );
-      return moveCursorToPosition(state, blockIndex, snapped);
+      // Step one position left. In atomic inline content (a math command/
+      // construct) the caret snaps to the previous legal stop rather than landing
+      // inside `\int`; in plain text it's a normal one-character step.
+      const snapped = caretStep(state, currentBlock, textIndex, "left");
+      return moveCursorToPosition(state, blockIndex, snapped ?? textIndex - 1);
     } else {
       // Moving to previous visible block
       const prevBlockIndex = findPreviousVisibleBlockIndex(
@@ -1331,12 +1406,10 @@ export function moveCursorRight(state: EditorState): EditorState {
   if (isRTL) {
     // In RTL text, visual right is logical backward (decrement)
     if (textIndex > 0) {
-      const snapped = snapInlineMathPosition(
-        currentBlock,
-        textIndex - 1,
-        "left",
-      );
-      return moveCursorToPosition(state, blockIndex, snapped);
+      // Logical backward; clamp out of any atomic inline token (e.g. a math chip).
+      const target = textIndex - 1;
+      const snapped = caretTokenClamp(state, currentBlock, target, "left");
+      return moveCursorToPosition(state, blockIndex, snapped ?? target);
     } else {
       // Moving to previous visible block
       const prevBlockIndex = findPreviousVisibleBlockIndex(
@@ -1371,12 +1444,11 @@ export function moveCursorRight(state: EditorState): EditorState {
   } else {
     // LTR text: visual right is logical forward (increment)
     if (textIndex < currentBlockLength) {
-      const snapped = snapInlineMathPosition(
-        currentBlock,
-        textIndex + 1,
-        "right",
-      );
-      return moveCursorToPosition(state, blockIndex, snapped);
+      // Step one position right. In atomic inline content (a math command/
+      // construct) the caret snaps to the next legal stop rather than landing
+      // inside `\int`; in plain text it's a normal one-character step.
+      const snapped = caretStep(state, currentBlock, textIndex, "right");
+      return moveCursorToPosition(state, blockIndex, snapped ?? textIndex + 1);
     } else {
       // Moving to next visible block
       const nextBlockIndex = findNextVisibleBlockIndex(

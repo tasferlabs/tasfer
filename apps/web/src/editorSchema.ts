@@ -23,38 +23,6 @@ import { getPlatform } from "@/platform";
 import { CodeNode } from "@cypherkit/editor/nodes/CodeNode";
 
 /**
- * The app's math node: the built-in {@link MathNode} rendering, plus the
- * block-math edit popover declared as a host overlay slot. When the active menu
- * targets this block, it declares a `"math-edit"` slot; the web app maps that
- * key to the React `MathBlockEditor` (see `NODE_OVERLAYS` in MountedEditor).
- * The engine stays framework-free — it only locates the slot at the anchor.
- */
-class CypherMathNode extends MathNode {
-  // Clicking a math block opens the block-math editor overlay.
-  override activate(_c: NodeActivateCtx): NodeActivation | null {
-    return { key: "math-edit" };
-  }
-
-  override overlays(c: NodeRegionCtx): readonly NodeOverlay[] {
-    const menu = c.state.ui.activeMenu;
-    if (
-      menu.type !== "overlay" ||
-      menu.key !== "math-edit" ||
-      menu.blockId !== c.block.id
-    ) {
-      return [];
-    }
-    return [
-      {
-        key: "math-edit",
-        blockId: c.block.id,
-        rect: { x: menu.x, y: menu.y },
-      },
-    ];
-  }
-}
-
-/**
  * The app's inline-math mark: the built-in {@link MathMark} rendering, plus the
  * inline-math edit popover declared as a host overlay slot. Inline math is a
  * run of `math`-marked characters inside a text block, so the editing chrome
@@ -270,7 +238,7 @@ export const appSchema = new Schema(
   [
     new LineNode(),
     new CypherImageNode(),
-    new CypherMathNode(),
+    new MathNode(),
     new TextNode(),
     new ListNode(),
     new CodeNode(),
