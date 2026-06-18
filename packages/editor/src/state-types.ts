@@ -339,6 +339,20 @@ export interface TypedInputTransform {
   readonly suppressMarkdown?: boolean;
 }
 
+/**
+ * The result of a node/mark's `materializeAfterInput` seam: placeholder text to
+ * splice into the block right after a user edit (e.g. typing `\frac` fills in its
+ * `{}{}` slots), plus where the caret should end up. Each insert's `at` is an
+ * index into the block's CURRENT text; the host applies them as real CRDT ops
+ * (right-to-left to keep indices valid) within the same edit, so the materialized
+ * braces sync to collaborators. `caret` is the final caret index after all inserts
+ * are applied.
+ */
+export interface ContentMaterialization {
+  readonly inserts: readonly { readonly at: number; readonly text: string }[];
+  readonly caret: number;
+}
+
 // UI State - Transient interaction state (menus, popovers, mode)
 export interface UIState {
   readonly mode: EditorMode;

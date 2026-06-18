@@ -15,6 +15,7 @@ import { type Block, type Page } from "./serlization/loadPage";
 import type {
   CaretDeleteUnit,
   CaretScratch,
+  ContentMaterialization,
   CRDTbinding as CRDTbindingType,
   EditorMode,
   EditorState,
@@ -361,6 +362,25 @@ export function transformTypedInput(
     block,
     (n) => n.transformTypedInput?.(block, index, input) ?? null,
     (m) => m.transformTypedInput?.(block, index, input) ?? null,
+  );
+}
+
+/**
+ * Content normalization a node/mark wants applied after a user edit landed the
+ * caret at `index` — materializing an incomplete construct into canonical form
+ * (e.g. typing `\frac` fills its `{}{}` slots; see {@link ContentMaterialization}).
+ * `null` when nothing needs filling.
+ */
+export function materializeAfterInput(
+  state: EditorState,
+  block: Block,
+  index: number,
+): ContentMaterialization | null {
+  return seam(
+    state,
+    block,
+    (n) => n.materializeAfterInput?.(block, index) ?? null,
+    (m) => m.materializeAfterInput?.(block, index) ?? null,
   );
 }
 

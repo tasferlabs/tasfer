@@ -35,11 +35,11 @@ import type {
 } from "../../serlization/codecs/types";
 import type { Block } from "../../serlization/loadPage";
 import type { TokenType } from "../../serlization/tokenizer";
-import type { MarkRegistry } from "../marks";
 import type {
   BlockBounds,
   CaretDeleteUnit,
   CaretScratch,
+  ContentMaterialization,
   EditorState,
   EditorStyles,
   NodeOverlay,
@@ -50,6 +50,7 @@ import type {
   ViewportState,
 } from "../../state-types";
 import type { AwarenessState } from "../../sync/awareness";
+import type { MarkRegistry } from "../marks";
 
 /** Result of the shared layout pass. Cacheable on `block.cachedHeight`. */
 export interface NodeLayout {
@@ -321,6 +322,20 @@ export abstract class Node<B extends Block = Block> {
     index: number,
     input: string,
   ): TypedInputTransform | null;
+
+  /**
+   * Normalize the block's content right after a user edit landed the caret at
+   * `index` — materializing an incomplete construct into its canonical form (e.g.
+   * typing `\frac` fills in `\frac{}{}` and moves the caret into the numerator).
+   * Returns the placeholder insertions + final caret (see
+   * {@link ContentMaterialization}), or `null` to leave the content as typed. The
+   * inserts are applied as real ops in the same edit, so the change stays
+   * consistent across collaborators.
+   */
+  materializeAfterInput?(
+    block: B,
+    index: number,
+  ): ContentMaterialization | null;
 
   /**
    * The caret-anchored scratch to stash after an edit lands the caret at `index`
