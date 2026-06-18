@@ -6,9 +6,7 @@
  * with its own storage and networking strategy.
  */
 
-import type { Block } from "@cypherkit/editor/serlization/loadPage";
-import type { HLC, Operation } from "@cypherkit/editor/state-types";
-import type { AwarenessState } from "@cypherkit/editor/sync/awareness";
+import type { AwarenessState, Block, HLC, Operation } from "@cypherkit/editor";
 
 // =============================================================================
 // Data Types

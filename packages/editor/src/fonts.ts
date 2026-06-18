@@ -23,7 +23,7 @@ import type {
 } from "./state-types";
 import { charRunsToChars } from "./sync/char-runs";
 
-// Re-exported for back-compat with `@cypherkit/editor/fonts` consumers.
+// Re-exported so the package root can surface `FontFamily`.
 export type { FontFamily };
 
 // Legacy text segment type (for backward compatibility)

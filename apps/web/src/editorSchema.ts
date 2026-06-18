@@ -12,15 +12,14 @@ import {
   MathNode,
   type NodeActivateCtx,
   type NodeActivation,
-  type NodeOverlay,
   type NodeRegionCtx,
   Schema,
   StrikeMark,
   StrongMark,
   TextNode,
 } from "@cypherkit/editor";
+import { CodeNode, type NodeOverlay } from "@cypherkit/editor/internal";
 import { getPlatform } from "@/platform";
-import { CodeNode } from "@cypherkit/editor/nodes/CodeNode";
 
 /**
  * The app's inline-math mark: the built-in {@link MathMark} rendering, plus the

@@ -17,7 +17,7 @@ import i18next from "i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
 import type { Block } from "@cypherkit/editor";
-import { extractTitleFromBlocks } from "@cypherkit/editor";
+import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
 import { getPlatform } from "@/platform";
 import {
   useGetCalendarPages,

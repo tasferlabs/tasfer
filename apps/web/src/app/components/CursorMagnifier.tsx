@@ -4,8 +4,8 @@ import {
   MAGNIFIER_MIN_OFFSET_Y,
   MAGNIFIER_POINTER_SIZE,
   MAGNIFIER_WIDTH,
-} from "@cypherkit/editor";
-import type { CursorDragState } from "@cypherkit/editor";
+} from "@cypherkit/editor/internal";
+import type { CursorDragState } from "@cypherkit/editor/internal";
 
 interface CursorMagnifierProps {
   cursorDrag: CursorDragState | null;

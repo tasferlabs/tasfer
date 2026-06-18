@@ -18,16 +18,7 @@ import {
   OPEN_CONTEXT_MENU,
   OPEN_LINK,
   REGION_DRAG_START,
-  allCharsHaveFormat,
-  clearFailedImageCache,
   createDoc,
-  getBlockTextContent,
-  getBlockTextLength,
-  getFormatsAtPosition,
-  getLinkAtPosition,
-  getSelectionRange,
-  isTextualBlock,
-  isTouchDevice,
   mergeRegister,
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
@@ -35,16 +26,27 @@ import {
   type AwarenessState,
   type AwarenessUser,
   type Block,
-  type CursorDragState,
   type Doc,
   type EditorState,
-  type EditorStrings,
   type MountedEditor as MountedEditorInstance,
-  type NodeOverlay,
   type Operation,
+} from "@cypherkit/editor";
+import {
+  allCharsHaveFormat,
+  clearFailedImageCache,
+  getBlockTextContent,
+  getBlockTextLength,
+  getFormatsAtPosition,
+  getLinkAtPosition,
+  getSelectionRange,
+  isTextualBlock,
+  isTouchDevice,
+  type CursorDragState,
+  type EditorStrings,
+  type NodeOverlay,
   type PlaceholderStyles,
   type TextStyle,
-} from "@cypherkit/editor";
+} from "@cypherkit/editor/internal";
 import { useEditor } from "@cypherkit/react";
 import {
   appSchema,
@@ -53,10 +55,7 @@ import {
   openLinkEditMenu,
 } from "../editorSchema";
 import { getPlatform } from "@/platform";
-import {
-  CODE_LANGUAGES,
-  codeLanguageLabel,
-} from "@cypherkit/editor/nodes/code-highlight";
+import { CODE_LANGUAGES, codeLanguageLabel } from "@cypherkit/editor/internal";
 import {
   Bold,
   Clipboard,

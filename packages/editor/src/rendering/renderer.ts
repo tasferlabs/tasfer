@@ -338,9 +338,8 @@ export function renderBlock(
   }
 } // Calculate position from mouse coordinates dynamically
 
-// The image cache lives with the image block (./blocks/ImageNode).
-// Re-exported here so existing deep imports from
-// `@cypherkit/editor/rendering/renderer` keep resolving.
+// The image cache lives with the image block (./nodes/ImageNode). Re-exported
+// here so `@cypherkit/editor/internal` can surface it for hosts.
 export { clearFailedImageCache, imageCache } from "../nodes/ImageNode";
 
 // renderLineBlock / renderMathBlock were removed: the `line` and `math` blocks

@@ -17,12 +17,12 @@ import {
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Block } from "@cypherkit/editor";
-import type { TextualBlock } from "@cypherkit/editor";
 import type { AwarenessUser } from "@cypherkit/editor";
+import type { TextualBlock } from "@cypherkit/editor/internal";
 import {
   extractTitleFromBlocks,
   getVisibleTextFromRuns,
-} from "@cypherkit/editor";
+} from "@cypherkit/editor/internal";
 import {
   formatDatePreferred,
   formatTimePreferred,
@@ -77,7 +77,7 @@ import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useResponsive from "../hooks/useResponsive";
 import style from "./EditorPage.module.css";
-import { isTextualBlock } from "@cypherkit/editor";
+import { isTextualBlock } from "@cypherkit/editor/internal";
 
 // Helper function to count words from blocks
 function countWordsFromBlocks(blocks: Block[]): number {

@@ -21,7 +21,7 @@
  * a <link>) and the only extra step is awaiting that face in loadFonts().
  */
 import type { FontStyles } from "@cypherkit/editor";
-import { notifyFontsLoaded } from "@cypherkit/editor/fonts";
+import { notifyFontsLoaded } from "@cypherkit/editor";
 
 // Our font registry. The keys ("sans"/"serif"/"mono") are arbitrary — they are
 // exactly the values a theme passes as `theme.fontFamily`. Pass this whole

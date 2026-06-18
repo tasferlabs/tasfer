@@ -3,14 +3,16 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   type Editor,
   filterMathCommands,
-  getBlockTextContent,
   getInlineMathSpans,
-  isTouchDevice,
   type MathCommand,
   mathCommandCaretOffset,
   renderToSVG,
   TEXT_INPUT,
 } from "@cypherkit/editor";
+import {
+  getBlockTextContent,
+  isTouchDevice,
+} from "@cypherkit/editor/internal";
 import { ScrollArea } from "../components/ui/scroll-area";
 
 interface MathCommandMenuProps {
