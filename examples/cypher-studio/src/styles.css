@@ -1,0 +1,423 @@
+/* ── Cypher Studio — a dark markdown IDE ──────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #0a0e14;
+  color: #c4ccd6;
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.studio {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Top menu bar ─────────────────────────────────────────────────────────── */
+
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 10px 18px;
+  background: #0d131b;
+  border-bottom: 1px solid #1a2230;
+}
+
+.topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar__logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: linear-gradient(150deg, #39c5cf, #2b8f97);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #04181a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.topbar__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #e7edf4;
+}
+
+.topbar__menus {
+  display: flex;
+  gap: 20px;
+  font-size: 13.5px;
+  color: #8b95a5;
+}
+
+.topbar__menu {
+  cursor: default;
+}
+
+/* ── Tool strip + tabs ────────────────────────────────────────────────────── */
+
+.tabsbar {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  background: #0c1118;
+  border-bottom: 1px solid #1a2230;
+}
+
+.tabsbar__tools {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 18px;
+  color: #5a6576;
+}
+
+.tabsbar__tabs {
+  display: flex;
+  align-items: stretch;
+  border-left: 1px solid #1a2230;
+}
+
+.tabsbar__tab {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 18px;
+  border-right: 1px solid #1a2230;
+  color: #8b95a5;
+  font-size: 13.5px;
+}
+
+.tabsbar__tab--active {
+  background: #0a0e14;
+  border-top: 2px solid #39c5cf;
+  color: #e7edf4;
+}
+
+.tabsbar__ext {
+  color: #58c7ff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+
+.tabsbar__ext--dim {
+  color: #5a6576;
+}
+
+.tabsbar__close {
+  color: #5a6576;
+  margin-left: 6px;
+}
+
+/* ── Body row ─────────────────────────────────────────────────────────────── */
+
+.studio__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* ── File tree ────────────────────────────────────────────────────────────── */
+
+.tree {
+  flex: none;
+  width: 262px;
+  background: #0c1118;
+  border-right: 1px solid #1a2230;
+  padding: 16px 12px;
+  font-size: 13.5px;
+  color: #9aa6b6;
+  overflow: auto;
+}
+
+.tree__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #11161d;
+  border: 1px solid #1f2731;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 16px;
+  color: #5a6576;
+}
+
+.tree__root {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #c4ccd6;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+
+.tree__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tree__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+
+.tree__row--folder {
+  color: #c4ccd6;
+}
+
+.tree__row--nested {
+  padding-left: 30px;
+}
+
+.tree__row--active {
+  background: #161d27;
+  border: 1px solid #233042;
+  border-radius: 8px;
+  color: #e7edf4;
+  font-weight: 600;
+  padding: 7px 8px;
+  margin-top: 4px;
+}
+
+.tree__caret {
+  color: #5a6576;
+}
+
+.tree__ext {
+  color: #58c7ff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+
+.tree__ext--dim {
+  color: #9aa6b6;
+}
+
+.tree__ext--amber {
+  color: #e0b341;
+}
+
+/* ── Editor pane ──────────────────────────────────────────────────────────── */
+
+.pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0a0e14;
+}
+
+.pane__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 28px;
+  border-bottom: 1px solid #161d27;
+  font-size: 13px;
+  color: #8b95a5;
+}
+
+.pane__sep {
+  color: #3a4452;
+}
+
+.pane__file {
+  color: #c4ccd6;
+}
+
+.pane__badge {
+  margin-left: auto;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #39c5cf;
+  border: 1px solid #1f3a3d;
+  background: #0e1c1d;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+.pane__editor {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The editor canvas is transparent — the dark pane background shows through. */
+.pane__editor canvas {
+  background: transparent;
+}
+
+.pane__status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 9px 20px;
+  background: #0d131b;
+  border-top: 1px solid #161d27;
+  font-size: 12px;
+  color: #6b7585;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.pane__status-sync {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #39c5cf;
+}
+
+.pane__status-sync--off {
+  color: #6b7585;
+}
+
+.pane__status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.pane__status-spacer {
+  flex: 1 1 auto;
+}
+
+/* ── Right panel: outline + peers ─────────────────────────────────────────── */
+
+.right {
+  flex: none;
+  width: 250px;
+  background: #0c1118;
+  border-left: 1px solid #1a2230;
+  padding: 18px 16px;
+  font-size: 13px;
+  color: #8b95a5;
+  overflow: auto;
+}
+
+.right__heading {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5a6576;
+  margin-bottom: 12px;
+}
+
+.right__heading + .right__peers,
+.right__outline + .right__heading {
+  margin-top: 26px;
+}
+
+.right__outline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.right__outline-item {
+  padding: 6px 9px;
+  border-radius: 7px;
+  color: #9aa6b6;
+}
+
+.right__outline-item--l2 {
+  padding-left: 20px;
+}
+
+.right__outline-item--l3 {
+  padding-left: 32px;
+  color: #6b7585;
+}
+
+.right__outline-item--active {
+  background: #11161d;
+  color: #e7edf4;
+  border-left: 2px solid #39c5cf;
+}
+
+.right__outline-empty {
+  padding: 6px 9px;
+  color: #5a6576;
+  font-style: italic;
+}
+
+.right__peers {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.right__peer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.right__peer--off {
+  opacity: 0.6;
+}
+
+.right__avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.right__peer-name {
+  color: #c4ccd6;
+}
+
+.right__peer-dot {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #39c5cf;
+}
+
+.right__peer-dot--off {
+  background: #3a4452;
+}
+
+/* Collapse side panels on smaller screens so the editor stays usable. */
+@media (max-width: 1100px) {
+  .right {
+    display: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .tree {
+    display: none;
+  }
+}
