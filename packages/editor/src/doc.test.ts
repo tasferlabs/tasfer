@@ -6,12 +6,12 @@
  */
 
 import { createDoc, type DocUpdate, PERSISTED_DOC_VERSION } from "./doc";
-import { IncompatibleDocVersionError } from "./errors";
 import { loadPage } from "./serlization/loadPage";
 import { serializeToMarkdown } from "./serlization/serializer";
 import type { Operation } from "./state-types";
 import { rebuildState } from "./sync/reducer";
 import { createCRDTbinding, createSyncEngine, serializeVV } from "./sync/sync";
+import { InvariantError } from "@shared/invariant";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -134,7 +134,7 @@ describe("createDoc", () => {
     expect(events).toHaveLength(0);
   });
 
-  it("rejects a persisted blob from a newer format version with a typed error", () => {
+  it("rejects a persisted blob from a newer format version", () => {
     // Simulate bytes written by a future app version (envelope bumped to v2).
     const future = new TextEncoder().encode(
       JSON.stringify({
@@ -146,19 +146,17 @@ describe("createDoc", () => {
         ops: [],
       }),
     );
-    expect(() => createDoc(future)).toThrow(IncompatibleDocVersionError);
-    try {
-      createDoc(future);
-    } catch (e) {
-      expect(e).toBeInstanceOf(IncompatibleDocVersionError);
-      expect((e as IncompatibleDocVersionError).version).toBe(2);
-      expect((e as IncompatibleDocVersionError).supportedVersion).toBe(
-        PERSISTED_DOC_VERSION,
-      );
-    }
-    // A missing/malformed version field reports `undefined`, not a crash.
+    expect(() => createDoc(future)).toThrow(InvariantError);
+    // The message names the offending version and the one this build reads.
+    expect(() => createDoc(future)).toThrow(
+      `unsupported format version 2 (this build reads v${PERSISTED_DOC_VERSION})`,
+    );
+    // A missing/malformed version field is reported as such, not a crash.
     const malformed = new TextEncoder().encode(JSON.stringify({ pageId: "p" }));
-    expect(() => createDoc(malformed)).toThrow(IncompatibleDocVersionError);
+    expect(() => createDoc(malformed)).toThrow(InvariantError);
+    expect(() => createDoc(malformed)).toThrow(
+      "missing or malformed version field",
+    );
   });
 
   it("converges on a cross-origin dependent insert delivered out of order", () => {

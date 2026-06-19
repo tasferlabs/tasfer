@@ -5,7 +5,7 @@
  *  - Non-trivial geometry (centering, full-width bleed, drawn rect ≠ flow box),
  *    computed ONCE in `geometry()` and shared by the height pass and paint —
  *    the layout/paint split removes the duplication that previously existed
- *    between renderImageBlock and calculateBlockHeight.
+ *    between renderImageBlock and the height pass.
  *  - `paintBox()` override: the painted/selected rect differs from the flow box.
  *  - `adjustFlowHeight()`: a first full-width image bleeds into the top padding,
  *    so it advances the document by less than it draws.
@@ -78,8 +78,8 @@ import { updateMode } from "../state-utils";
 import { getEditorStyles } from "../styles";
 
 // Image block — an embedded image.
-// Note: cachedHeight/cachedWidth (from BlockRuntimeState) are transient runtime
-// state, not persisted.
+// Note: cachedLayout (from BlockRuntimeState) is transient runtime state, not
+// persisted.
 export interface Image extends BlockRuntimeState {
   type: "image";
   url: string;
@@ -823,9 +823,8 @@ export class ImageNode extends AtomicNode<Image> {
           loadImage(block.url, (url) => this.resolveUrl(url))
             .then(() => {
               // The decoded size may differ from the placeholder — drop the
-              // cached height so it recomputes, then ask for a repaint.
-              block.cachedHeight = undefined;
-              block.cachedWidth = undefined;
+              // cached layout so it recomputes, then ask for a repaint.
+              invalidateBlockCache(block);
               c.requestRedraw();
             })
             .catch((error) => {

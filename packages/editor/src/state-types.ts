@@ -340,9 +340,10 @@ export interface TypedInputTransform {
 }
 
 /**
- * The result of a node/mark's `materializeAfterInput` seam: placeholder text to
- * splice into the block right after a user edit (e.g. typing `\frac` fills in its
- * `{}{}` slots), plus where the caret should end up. Each insert's `at` is an
+ * Placeholder text a node/mark wants spliced into the block right after a user
+ * edit (e.g. typing `\frac` fills in its `{}{}` slots), plus where the caret
+ * should end up — what its `TEXT_INPUTTED` observer returns. Each insert's `at`
+ * is an
  * index into the block's CURRENT text; the host applies them as real CRDT ops
  * (right-to-left to keep indices valid) within the same edit, so the materialized
  * braces sync to collaborators. `caret` is the final caret index after all inserts
@@ -369,7 +370,7 @@ export interface UIState {
   readonly hoveredMathBlockIndex: number | null;
   /**
    * Ephemeral, caret-anchored scratch owned by a node/mark (keyed by its `type`).
-   * Set by a node/mark right after an edit (via the `armCaretScratch` seam) to
+   * Set by a node/mark right after an edit (in its `TEXT_INPUTTED` observer) to
    * stash UI that's valid *only while the caret stays put*, and reset to `null`
    * by {@link updateCursor} on ANY caret move — so the engine never interprets
    * the value, it only clears it. Inline/block math uses it for in-progress

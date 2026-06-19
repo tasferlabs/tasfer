@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from "react";
+import { invariant } from "@shared/invariant";
 import type { FontFamily } from "@cypherkit/editor";
 import useLocalStorage from "../hooks/useLocalStorage";
 import type { AwarenessUser } from "@cypherkit/editor";
@@ -108,9 +109,7 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
 export const usePageSettings = (): PageSettingsContextType => {
   const context = useContext(PageSettingsContext);
-  if (!context) {
-    throw new Error("usePageSettings must be used within a PageSettingsProvider");
-  }
+  invariant(context, "usePageSettings must be used within a PageSettingsProvider");
   return context;
 };
 

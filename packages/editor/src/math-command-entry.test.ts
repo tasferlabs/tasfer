@@ -12,11 +12,11 @@
  */
 import { insertText } from "./actions/actions";
 import { moveCursorToPosition, updateCursor } from "./selection";
+import type { EditorState } from "./state-types";
 import { createInitialState, isCaretScratchActive } from "./state-utils";
 import { getVisibleTextFromRuns } from "./sync/char-runs";
 import { insertCharsAtPosition } from "./sync/crdt-utils";
 import { createCRDTbinding, createSyncEngine } from "./sync/sync";
-import type { EditorState } from "./state-types";
 import { describe, expect, it } from "vitest";
 
 /** A block-equation editor state holding `latex`, with the caret at `caret`. */
@@ -36,8 +36,11 @@ function mathState(latex: string, caret: number) {
   return { state, blockId };
 }
 
-const latexOf = (state: EditorState, blockIndex = 0) =>
-  getVisibleTextFromRuns(state.document.page.blocks[blockIndex].charRuns);
+function latexOf(state: EditorState, blockIndex = 0) {
+  return getVisibleTextFromRuns(
+    state.document.page.blocks[blockIndex].charRuns,
+  );
+}
 
 describe("math command-entry flag", () => {
   it("arms while a command is being typed toward a longer one", () => {

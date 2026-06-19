@@ -1,3 +1,4 @@
+import { TEXT_INPUTTED } from "../action-bus";
 import { isCJKCharacter } from "../cjk";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isBlockRTL } from "../rtl";
@@ -29,13 +30,11 @@ import type {
   TextDelete,
 } from "../state-types";
 import {
-  armCaretScratch,
   caretStep,
   caretTokenClamp,
   clearAutoCreatedParagraph,
   getBlockTextContent,
   getBlockTextLength,
-  materializeAfterInput,
   resolveDeleteUnit,
   transformTypedInput,
   updateMode,
@@ -1060,6 +1059,14 @@ export function insertText(state: EditorState, input: string): ActionResult {
     suppressInlineMarkdown = typed.suppressMarkdown ?? false;
   }
 
+  // Nothing left to insert — either the keystroke was empty or a node's
+  // transformTypedInput swallowed it (e.g. an atomic chip vetoing the char).
+  // Return whatever ops the selection-deletion above produced; don't ask the
+  // CRDT layer to insert an empty run.
+  if (input.length === 0) {
+    return { state, ops };
+  }
+
   // Use CRDT helper to insert chars and generate operation atomically
   const { newPage: pageAfterInsert, op } = insertCharsAtPosition(
     state.document.page,
@@ -1191,56 +1198,18 @@ export function insertText(state: EditorState, input: string): ActionResult {
   newState = clearAutoCreatedParagraph(newState);
   newState = updateMode(newState, "edit");
 
-  // Let the block's node/mark materialize an incomplete construct this edit just
-  // completed (e.g. typing `\frac` fills in `\frac{}{}` and lands the caret in the
-  // numerator). The placeholder braces go in as real CRDT ops within this same
-  // edit, so each slot gains a distinct, navigable source offset and collaborators
-  // stay consistent. Idempotent — a no-op unless something actually needs filling.
-  {
-    const editedBlock = newState.document.page.blocks[blockIndex];
-    const mat =
-      editedBlock && !editedBlock.deleted
-        ? materializeAfterInput(newState, editedBlock, finalTextIndex)
-        : null;
-    if (mat && mat.inserts.length > 0) {
-      let pageAfterMat = newState.document.page;
-      // Right-to-left keeps each earlier `at` valid as later inserts shift text.
-      for (const ins of [...mat.inserts].sort((a, b) => b.at - a.at)) {
-        const { newPage, op } = insertCharsAtPosition(
-          pageAfterMat,
-          editedBlock!.id,
-          ins.at,
-          ins.text,
-          state.CRDTbinding,
-        );
-        pageAfterMat = newPage;
-        ops.push(op);
-      }
-      invalidateBlockCache(pageAfterMat.blocks[blockIndex]);
-      newState = {
-        ...newState,
-        document: { ...newState.document, page: pageAfterMat },
-      };
-      finalTextIndex = mat.caret;
-      newState = moveCursorToPosition(
-        newState,
-        blockIndex,
-        finalTextIndex,
-        true,
-      );
-    }
-  }
-
-  // Let the block's node/mark stash caret-anchored scratch for this edit (the
-  // move above cleared any prior scratch). E.g. inline/block math arms literal
-  // rendering of a command still being typed (`\in` not ∈) until the caret moves.
-  const editedBlock = newState.document.page.blocks[blockIndex];
-  if (editedBlock && !editedBlock.deleted) {
-    const scratch = armCaretScratch(newState, editedBlock, finalTextIndex);
-    if (scratch) {
-      newState = { ...newState, ui: { ...newState.ui, caretScratch: scratch } };
-    }
-  }
+  // Post-insert normalization: a node/mark observes TEXT_INPUTTED to materialize
+  // an incomplete construct this edit just completed (e.g. `\frac` → `\frac{}{}`,
+  // landing the caret in the numerator) and/or arm caret-anchored scratch. The
+  // dispatch runs INSIDE this same edit transform, so any placeholder ops an
+  // observer emits join this transaction's `ops` (one CRDT change / undo entry /
+  // broadcast) — and a block whose node/mark has nothing to fill is untouched.
+  const settled = newState.actionBus.dispatchState(TEXT_INPUTTED, newState, {
+    blockIndex,
+    textIndex: finalTextIndex,
+  });
+  newState = settled.state;
+  ops.push(...settled.ops);
 
   return { state: newState, ops };
 }

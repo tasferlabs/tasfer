@@ -25,6 +25,8 @@ export { mountEditor } from "./entries/mount";
 export {
   AtomicNode,
   CANCEL_IMAGE_HANDLE_DRAG,
+  type CaretModel,
+  type CaretMotion,
   CREATE_PARAGRAPH_BELOW_IMAGE,
   createDefaultNodeRegistry,
   createNodeRegistry,
@@ -42,13 +44,13 @@ export {
   type NodePointerType,
   type NodeRegionCtx,
   NodeRegistry,
-  OPEN_INLINE_MATH_OVERLAY,
   OUTDENT_LIST_ITEM,
   SET_IMAGE_HOVER,
   SET_INLINE_MATH_HOVER,
   SET_MATH_BLOCK_HOVER,
   START_IMAGE_HANDLE_DRAG,
   TextNode,
+  type TextSpan,
   TOGGLE_TODO_CHECKED,
   UPDATE_IMAGE_HANDLE_DRAG,
 } from "./rendering/nodes";
@@ -120,8 +122,11 @@ export { createEditor } from "./entries/create";
 export type { CreateDocOptions, Doc, DocUpdate } from "./doc";
 export { createDoc, PERSISTED_DOC_VERSION } from "./doc";
 
-// Error types — every editor-thrown error extends `EditorError`; see ./errors.
-export { EditorError, IncompatibleDocVersionError } from "./errors";
+// Internal-assertion helper, shared across the codebase. A violated invariant
+// signals a bug (a guarantee the editor's own code should uphold), so
+// `InvariantError` is a plain `Error` that escapes any host catch meant for
+// recoverable failures.
+export { invariant, InvariantError } from "@shared/invariant";
 
 // Schema & extensibility — declare custom block types (`defineNode`) and inline
 // marks (`defineMark`), bundle them with `baseSchema.extend(...)`, and pass the
@@ -190,6 +195,7 @@ export {
   REGION_DRAG_START,
   stateAction,
   TEXT_INPUT,
+  TEXT_INPUTTED,
 } from "./action-bus";
 // Editor keyboard actions — named cursor-movement / selection-extension
 // actions migrated out of the event handlers (see `actions/keyboard-actions.ts`).

@@ -2,6 +2,27 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important: Not Released Yet — Breaking Changes Are OK
+
+Nothing has shipped. There are no external consumers, no published `@cypherkit/*`
+packages in the wild, no users with persisted data, and no old peers on the
+network. So **breaking changes are fine** — prefer the clean design over a
+backwards-compatible one:
+
+- Reshape/rename public APIs, types, and `NodeLayout`/schema surfaces freely when
+  it makes the code better; don't add optional fields or shims purely to avoid
+  breaking external custom nodes or hosts.
+- Reshape op/wire/CRDT/persistence formats, the `Operation`/`SpaceOperation`
+  unions, and snapshot/`encodeState` shapes when it improves the design.
+- Don't spend effort on cross-version/cross-peer compatibility or migrations for
+  their own sake.
+
+(The "Backwards compatibility (cross-peer)" and public-API-contract sections
+below describe how to handle compatibility **once we have released**. Until then,
+treat them as aspirational, not binding — favor the right design now.) Just make
+sure the codebase is internally consistent: update every call site, test, and the
+docs to match.
+
 ## Important: Root Cause Analysis
 
 Do NOT jump to the first solution that comes to mind. Before implementing a fix or change, take a step back and consider:
@@ -333,7 +354,7 @@ Spaces are CRDT-replicated collections: `space_set`, `member_add`, `member_remov
 Because the app is P2P and local-first there is **no central server to migrate and no flag day** — at any moment peers running different app versions sync with each other (an offline device can deliver months-old ops to a freshly-updated peer, and vice-versa). So compatibility must be _bidirectional_: old code must tolerate new data **and** new code must tolerate old data. These are hard invariants, not guidelines:
 
 - **The `Operation` union (`state-types.ts`) is append-only.** Never reshape, rename a field on, or repurpose an existing op type — an old peer would mis-parse or silently drop it. Add capability as new _fields_ on existing ops (old peers ignore unknown fields), or as new _block/mark types_ (which degrade gracefully), in preference to new op types.
-- **Received unknown data is preserved, never rejected.** Unknown op types no-op in `reducer.applyOp`'s `default` case but stay in the log + version vector; unknown block types stay in the log and render as `UnknownNode` ("Unsupported block"); unknown marks are dropped from _display/export_ only. A v1 peer must carry a v2 peer's content through a `Doc.encodeState()` round-trip untouched — never drop unknown ops from the log, or re-saving silently deletes the newer peer's content. (Rule of thumb: reject only data you wrote locally — e.g. the `PersistedDocV1` envelope in `doc.ts`, whose `PERSISTED_DOC_VERSION` check throws a typed, catchable `IncompatibleDocVersionError` so a host can degrade gracefully rather than crash; tolerate everything from the network.)
+- **Received unknown data is preserved, never rejected.** Unknown op types no-op in `reducer.applyOp`'s `default` case but stay in the log + version vector; unknown block types stay in the log and render as `UnknownNode` ("Unsupported block"); unknown marks are dropped from _display/export_ only. A v1 peer must carry a v2 peer's content through a `Doc.encodeState()` round-trip untouched — never drop unknown ops from the log, or re-saving silently deletes the newer peer's content. (Rule of thumb: reject only data you wrote locally — e.g. the `PersistedDocV1` envelope in `doc.ts`, whose `PERSISTED_DOC_VERSION` check fails an `invariant` when the blob is from an unreadable (newer) format; tolerate everything from the network.)
 - **Never change CRDT merge semantics in place.** Convergence holds only if every peer runs the same merge function. A different concurrent-insert ordering = permanent divergence. Gate any semantic change behind a protocol-version bump.
 - **Versions are negotiated in the `hello` handshake.** `PROTOCOL_VERSION` (sync.ts — message/op/CRDT semantics) and `WIRE_VERSION` (wire-codec.ts — byte-level op encoding) are exchanged on connect; `Replicator.onPeerVersionMismatch` surfaces a mismatch to the host. A **wire-incompatible** peer (different `WIRE_VERSION`) is _refused_ — the replicator exchanges no ops/awareness with it in either direction, since its ops can't be reliably decoded (`PeerConnection.wireIncompatible`). A **protocol-only** mismatch (same wire) still syncs — that's forward-compat by design. Bump `WIRE_VERSION` only when `compressOp`/`expandOp` change incompatibly; bump `PROTOCOL_VERSION` on any protocol-level change, and only emit new-protocol ops to peers whose negotiated version supports them.
 - **Snapshots are derived, never authoritative.** The op log is the source of truth; a snapshot is a rebuildable cache (`opCount` staleness check). Snapshot-format changes are low-risk _as long as the op-log format stays stable_ — spend the compatibility budget on ops, not snapshots.
@@ -359,6 +380,7 @@ The app is fully internationalized using i18next + react-i18next. **All user-fac
 - Inline math is a run of LaTeX characters carrying the `math` mark (rendered as a chip); block math is the `math` block type
 - RTL text (Arabic, Hebrew) supported with bidirectional rendering
 - IME/composition input handled specially for CJK languages
+- **Internal assertions use `invariant`** (`import { invariant } from "@shared/invariant"`) — a Lexical-style "can't happen unless there's a bug" backstop that throws a plain `InvariantError`. Use it for violated preconditions / unreachable branches, NOT for conditions a user/host/network can legitimately produce (bad input, missing asset) — those deserve a normal recoverable `Error`. There is no separate editor error hierarchy.
 
 ## Ports
 

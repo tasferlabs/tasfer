@@ -9,6 +9,8 @@
  * re-renders every time the cursor blinks (every 530ms).
  */
 
+import { invariant } from "@shared/invariant";
+
 export interface CanvasLayers {
   content: {
     canvas: HTMLCanvasElement;
@@ -55,9 +57,7 @@ export function createCanvasLayers(
     canvas.height = height * dpr;
 
     const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      throw new Error(`Failed to get 2D context for ${id}`);
-    }
+    invariant(ctx, "layers: failed to get a 2D context for layer %s", id);
 
     // Scale context to match DPR (so we can draw in CSS pixels)
     ctx.scale(dpr, dpr);

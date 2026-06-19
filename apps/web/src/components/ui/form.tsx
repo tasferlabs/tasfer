@@ -10,6 +10,7 @@ import {
   type FieldValues,
 } from "react-hook-form"
 import { Slot } from "radix-ui"
+import { invariant } from "@shared/invariant"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 
@@ -45,9 +46,7 @@ const useFormField = () => {
 
   const fieldState = getFieldState(fieldContext.name, formState)
 
-  if (!fieldContext) {
-    throw new Error("useFormField should be used within <FormField>")
-  }
+  invariant(fieldContext, "useFormField should be used within <FormField>")
 
   const { id } = itemContext
 

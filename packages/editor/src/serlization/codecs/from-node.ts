@@ -15,6 +15,7 @@
 import type { Block } from "../loadPage";
 import type { TokenType } from "../tokenizer";
 import type { BlockCodec, InputCtx, OutputCtx, ParsedTag } from "./types";
+import { invariant } from "@shared/invariant";
 
 /** The serialization slice of a Node — just what {@link codecFromNode} reads. */
 export interface SerializableNode {
@@ -33,12 +34,17 @@ export interface SerializableNode {
 /** Build the {@link BlockCodec} for a node from its serialization methods. */
 export function codecFromNode(node: SerializableNode): BlockCodec {
   const { outputMarkdown, outputHTML, outputText } = node;
-  if (!outputMarkdown || !outputHTML || !outputText) {
-    throw new Error(
-      `Block type "${node.type}" is missing a serialization output method ` +
-        `(needs outputMarkdown, outputHTML, outputText).`,
-    );
-  }
+  const missing = [
+    !outputMarkdown && "outputMarkdown",
+    !outputHTML && "outputHTML",
+    !outputText && "outputText",
+  ].filter((m): m is string => Boolean(m));
+  invariant(
+    outputMarkdown && outputHTML && outputText,
+    'Block type "%s" implements its own serialization but is missing %s. A serializing node must provide all of outputMarkdown, outputHTML, outputText.',
+    node.type,
+    missing.join(", "),
+  );
   return {
     types: node.types ?? [node.type],
     markdown: {

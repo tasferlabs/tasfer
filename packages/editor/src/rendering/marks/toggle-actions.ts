@@ -13,10 +13,10 @@
 
 import { stateAction } from "../../action-bus";
 import {
-  toggleStrong,
   toggleCode,
   toggleEmphasis,
   toggleStrike,
+  toggleStrong,
 } from "../../actions/actions";
 
 /** Toggle the `strong` (bold) mark over the selection (Ctrl/Cmd+B). */

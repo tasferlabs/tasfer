@@ -397,6 +397,26 @@ export const TEXT_INPUT = action<{
 }>("text-input");
 
 /**
+ * Post-insert normalization — dispatched by the insert pipeline *after* the
+ * typed op is applied and the caret settled at `textIndex` in `blockIndex`, and
+ * crucially *inside the same edit transform*, so any ops an observer emits join
+ * the one CRDT change / undo entry / broadcast. A node/mark observes this (in
+ * `registerActions`) to materialize an incomplete construct it just completed
+ * (`\frac` → `\frac{}{}`, dropping the caret in the first slot) and/or arm
+ * caret-anchored scratch — the *effect* half of the caret/edit seam, the
+ * counterpart to the pure *query* hooks on its `CaretModel`. Default is
+ * identity; observers thread `{ state, ops }` like any {@link StateAction}.
+ *
+ * This is the engine's analogue of a post-edit normalization pass (ProseMirror's
+ * `appendTransaction`, Lexical's node transforms): the core stays type-agnostic
+ * — it only dispatches; the node/mark decides what, if anything, to fill in.
+ */
+export const TEXT_INPUTTED = stateAction<{
+  blockIndex: number;
+  textIndex: number;
+}>("text-inputted", (state) => ({ state, ops: [] }));
+
+/**
  * The editor wants a context menu shown — emitted on desktop right-click and on
  * touch long-press / cursor-hold. `x`/`y` are canvas coordinates (the host adds
  * its container rect to position the menu); `hasSelection` lets the host build

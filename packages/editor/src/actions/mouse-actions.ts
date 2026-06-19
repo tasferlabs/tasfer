@@ -160,5 +160,5 @@ export const OPEN_BLOCK_OVERLAY = stateAction<{
 
 // The node-specific hover/overlay actions are co-located with the node they act
 // on: image hover (SET_IMAGE_HOVER) lives in `nodes/ImageNode.ts`; the math
-// click/hover actions (OPEN_INLINE_MATH_OVERLAY, SET_MATH_BLOCK_HOVER,
-// SET_INLINE_MATH_HOVER) live in `nodes/MathNode.ts`.
+// hover actions (SET_MATH_BLOCK_HOVER, SET_INLINE_MATH_HOVER) live in
+// `nodes/MathNode.ts`.

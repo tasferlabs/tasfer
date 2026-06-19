@@ -1,4 +1,5 @@
 import React from "react";
+import { invariant } from "@shared/invariant";
 import { useGetSpaces, type ISpace } from "../api/spaces.api";
 
 interface SpaceContextValue {
@@ -36,6 +37,6 @@ export function SpaceProvider({ children }: { children: React.ReactNode }) {
 
 export function useSpaces(): SpaceContextValue {
   const ctx = React.useContext(SpaceContext);
-  if (!ctx) throw new Error("useSpaces must be used within SpaceProvider");
+  invariant(ctx, "useSpaces must be used within SpaceProvider");
   return ctx;
 }

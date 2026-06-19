@@ -37,9 +37,6 @@ import type { Block } from "../../serlization/loadPage";
 import type { TokenType } from "../../serlization/tokenizer";
 import type {
   BlockBounds,
-  CaretDeleteUnit,
-  CaretScratch,
-  ContentMaterialization,
   EditorState,
   EditorStyles,
   NodeOverlay,
@@ -47,24 +44,39 @@ import type {
   RenderedBlock,
   RenderedLine,
   TextStyle,
-  TypedInputTransform,
   ViewportState,
 } from "../../state-types";
 import type { AwarenessState } from "../../sync/awareness";
 import type { MarkRegistry } from "../marks";
+import type { CaretModel } from "./caret-model";
 
-/** Result of the shared layout pass. Cacheable on `block.cachedHeight`. */
+/** Result of the shared layout pass. Cacheable on `block.cachedLayout`. */
 export interface NodeLayout {
   /** Total vertical space the block occupies, including its own padding. */
   readonly height: number;
   /** Text line boxes for hit-testing/caret math. Empty for atomic blocks. */
   readonly lines: readonly RenderedLine[];
+  /**
+   * Content width (canvas minus page padding) this layout was computed for —
+   * the layout's provenance, and the key `memoizeNodeLayout` reuses it under.
+   * Every `layout()` builds this from its `maxWidth`, so a holder of any layout
+   * knows the width it is valid for.
+   */
+  readonly maxWidth: number;
 }
 
 export interface BlockRuntimeState {
   id: string;
-  cachedHeight?: number; // Cached rendered height
-  cachedWidth?: number; // Width at which height was cached
+  // Cached canonical (no-composition) layout — the SINGLE render-cache slot. The
+  // full layout pass is the most expensive per-block operation (text measurement
+  // is ~O(n²) for a large block) and is otherwise recomputed independently by the
+  // height pass, paint, every hit-test on pointer move, and the caret/selection
+  // passes. Memoizing the whole layout (height derived from `cachedLayout.height`,
+  // and the width it was computed for carried on `cachedLayout.maxWidth` rather
+  // than a sibling field) collapses all of those into one computation per
+  // content/width change. Invalidated by `invalidateBlockCache`, and stripped
+  // before persistence (it is a large, per-canvas-width render hint).
+  cachedLayout?: NodeLayout;
   deleted?: boolean;
   afterId?: string | null;
 }
@@ -279,85 +291,17 @@ export abstract class Node<B extends Block = Block> {
    */
   registerActions?(bus: ActionBus): void;
 
-  // ── Caret / edit seam ───────────────────────────────────────────────────────
-  // Optional hooks for a node whose content is **atomic for the caret** — a unit
-  // (a command, a construct) the caret must step over and the editor must delete
-  // whole, rather than character-by-character. Implement these and the generic
-  // caret/edit code (selection, actions) routes through them automatically (via
-  // the `state-utils` seam helpers), so it never special-cases the block type.
-  // A node that leaves them unset behaves as ordinary editable text. All operate
-  // on block-text indices; `dir` is logical (`left`/`right` = decrement/increment).
-
   /**
-   * The next legal caret stop stepping `dir` from `index`, or `null` to use the
-   * default ±1 step. Lets a multi-character token (`\int`) be one stop, never
-   * landing the caret inside it.
+   * Optional: how this node's structured inline content behaves under the caret
+   * (an atomic token to step over, a construct to navigate). Declaring it routes
+   * the generic caret/edit code (selection, edit actions) through
+   * {@link CaretModel}, so the core never special-cases the block type; a node
+   * that leaves it unset behaves as ordinary editable text. The common case is
+   * just `caret.atomicSpans`. This is the *query* half — the *effect* half
+   * (materializing an incomplete construct after an edit) is a push, observed as
+   * the `TEXT_INPUTTED` action in {@link registerActions}. See {@link CaretModel}.
    */
-  caretStep?(block: B, index: number, dir: "left" | "right"): number | null;
-
-  /**
-   * Vertical caret motion *within* this block (between stacked rows — a fraction's
-   * numerator ↔ denominator, a base ↔ its script), or `null` to leave the block
-   * via ordinary line navigation.
-   */
-  caretVerticalStep?(
-    block: B,
-    index: number,
-    dir: "up" | "down",
-  ): number | null;
-
-  /**
-   * Pull a word-navigation `target` out of the middle of an atomic token, snapping
-   * it to the token's edge in travel direction `dir`; `null` if `target` isn't
-   * inside a token (caller uses it unchanged). Keeps Ctrl+←/→ off mid-token.
-   */
-  caretTokenClamp?(
-    block: B,
-    target: number,
-    dir: "left" | "right",
-  ): number | null;
-
-  /**
-   * The editing unit adjacent to the caret to delete (backward) or forward-delete,
-   * or `null` for a plain character delete. A construct is selected first then
-   * deleted; a leaf is deleted now (see {@link CaretDeleteUnit}).
-   */
-  deleteUnit?(
-    block: B,
-    index: number,
-    dir: "backward" | "forward",
-  ): CaretDeleteUnit | null;
-
-  /**
-   * Rewrite a typed string before insertion at `index` and/or veto inline-markdown
-   * for this keystroke, or `null` to insert it verbatim (see
-   * {@link TypedInputTransform}).
-   */
-  transformTypedInput?(
-    block: B,
-    index: number,
-    input: string,
-  ): TypedInputTransform | null;
-
-  /**
-   * Normalize the block's content right after a user edit landed the caret at
-   * `index` — materializing an incomplete construct into its canonical form (e.g.
-   * typing `\frac` fills in `\frac{}{}` and moves the caret into the numerator).
-   * Returns the placeholder insertions + final caret (see
-   * {@link ContentMaterialization}), or `null` to leave the content as typed. The
-   * inserts are applied as real ops in the same edit, so the change stays
-   * consistent across collaborators.
-   */
-  materializeAfterInput?(
-    block: B,
-    index: number,
-  ): ContentMaterialization | null;
-
-  /**
-   * The caret-anchored scratch to stash after an edit lands the caret at `index`
-   * (see {@link CaretScratch}), or `null` for none. Cleared on the next caret move.
-   */
-  armCaretScratch?(block: B, index: number): CaretScratch | null;
+  readonly caret?: CaretModel<B>;
 
   // ── Serialization facet ────────────────────────────────────────────────────
   // A node owns its own markdown/HTML/text round-trip, so a block type's

@@ -23,6 +23,7 @@
  *   ← { type: "relay",     from, data }
  */
 
+import { invariant } from "@shared/invariant";
 import type { NetworkDriver, NetworkTopic, NetworkPeer } from "../driver";
 
 // =============================================================================
@@ -858,9 +859,7 @@ class WebRtcNetworkDriver implements NetworkDriver {
     const hex = Array.from(topic).map((b) => b.toString(16).padStart(2, "0")).join("");
     if (this.topics.has(hex)) return this.topics.get(hex)!;
 
-    if (!this.localPeerId) {
-      throw new Error("NetworkDriver: setLocalId() must be called before join()");
-    }
+    invariant(this.localPeerId, "NetworkDriver: setLocalId() must be called before join()");
 
     await this.ensureTurnCredentials();
 

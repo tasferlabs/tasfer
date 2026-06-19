@@ -52,7 +52,6 @@ export {
 } from "../../nodes/ListNode";
 export {
   MathNode,
-  OPEN_INLINE_MATH_OVERLAY,
   SET_INLINE_MATH_HOVER,
   SET_MATH_BLOCK_HOVER,
 } from "../../nodes/MathNode";
@@ -63,6 +62,7 @@ export {
   type TextNodeLayout,
 } from "../../nodes/TextNode";
 export { AtomicNode } from "./AtomicNode";
+export type { CaretModel, CaretMotion, TextSpan } from "./caret-model";
 export {
   Node,
   type NodeActivateCtx,

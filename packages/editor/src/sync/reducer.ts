@@ -446,8 +446,8 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
             ...newBlock,
             charRuns: block.charRuns,
             formats: block.formats,
-            cachedHeight: block.cachedHeight,
-            cachedWidth: block.cachedWidth,
+            // The morph changes the block type (e.g. paragraph → heading), so the
+            // old layout cache is invalid for the new type — let it recompute.
           }
         : newBlock;
 
@@ -602,9 +602,13 @@ export function getVisibleBlocks(
  * Returns blocks for saving. Tombstones (deleted blocks/chars) are preserved
  * to support offline sync - peers need tombstone info to properly merge.
  * Pruning of old tombstones can be done separately.
+ *
+ * The ephemeral render cache (`cachedLayout`) is stripped: it is a large,
+ * per-canvas-width measured-layout object — invalid across sessions/screen sizes
+ * and far too heavy to persist.
  */
 export function cleanSnapshotForSave(blocks: Block[]): Block[] {
-  return blocks;
+  return blocks.map(({ cachedLayout: _l, ...rest }) => rest as Block);
 }
 
 // Helper functions to find next/previous visible block

@@ -4,6 +4,7 @@ import * as React from "react"
 import { Popover } from "radix-ui"
 import { Command } from "cmdk"
 
+import { invariant } from "@shared/invariant"
 import { cn } from "@/lib/utils"
 import { CheckIcon, ChevronDownIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -25,7 +26,7 @@ const ComboboxContext = React.createContext<ComboboxContextValue | null>(null)
 
 function useComboboxContext() {
   const ctx = React.useContext(ComboboxContext)
-  if (!ctx) throw new Error("Combobox components must be used within <Combobox>")
+  invariant(ctx, "Combobox components must be used within <Combobox>")
   return ctx
 }
 

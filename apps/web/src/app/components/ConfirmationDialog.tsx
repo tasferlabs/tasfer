@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { createContext, useCallback, useContext, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { invariant } from "@shared/invariant";
 
 interface DialogContextProps {
   getConfirmation: ({
@@ -97,9 +98,7 @@ export function ConfirmationDialogProvider({ children }: { children: React.React
 
 export function useConfirmation() {
   const context = useContext(DialogContext);
-  if (context === undefined) {
-    throw new Error("useConfirmation must be used within a ConfirmationDialogProvider");
-  }
+  invariant(context, "useConfirmation must be used within a ConfirmationDialogProvider");
   return context;
 }
 

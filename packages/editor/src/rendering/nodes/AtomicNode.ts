@@ -12,6 +12,7 @@
  * renderImageBlock / renderMathBlock; this folds it into one place.
  */
 
+import { memoizeNodeLayout } from "../../node-shared";
 import type { Image } from "../../nodes/ImageNode";
 import type { Line } from "../../nodes/LineNode";
 import type { MathBlock } from "../../nodes/MathNode";
@@ -85,7 +86,14 @@ export abstract class AtomicNode<B extends Block = Block> extends Node<B> {
   }
 
   layout(c: NodeLayoutCtx): NodeLayout {
-    return { height: this.intrinsicHeight(c), lines: [] };
+    // Memoized like text blocks (see memoizeNodeLayout): keeps repeated height
+    // passes / hit-tests from re-running intrinsicHeight (e.g. an image's
+    // geometry lookup or a math block's LaTeX layout) every frame and move.
+    return memoizeNodeLayout(c.block, c.maxWidth, () => ({
+      height: this.intrinsicHeight(c),
+      lines: [],
+      maxWidth: c.maxWidth,
+    }));
   }
 
   paint(layout: NodeLayout, c: NodePaintCtx): RenderedBlock {

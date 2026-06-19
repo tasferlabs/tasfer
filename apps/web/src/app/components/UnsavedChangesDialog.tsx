@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { invariant } from "@shared/invariant";
 
 interface UnsavedChangesDialogContextProps {
   showUnsavedChangesDialog: () => Promise<boolean>;
@@ -86,10 +87,9 @@ export function UnsavedChangesDialogProvider({
 
 export function useUnsavedChangesDialog() {
   const context = useContext(UnsavedChangesDialogContext);
-  if (context === undefined) {
-    throw new Error(
-      "useUnsavedChangesDialog must be used within a UnsavedChangesDialogProvider"
-    );
-  }
+  invariant(
+    context,
+    "useUnsavedChangesDialog must be used within a UnsavedChangesDialogProvider"
+  );
   return context;
 }

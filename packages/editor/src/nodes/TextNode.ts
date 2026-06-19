@@ -43,7 +43,11 @@ import {
   type WrappedLine,
   wrapText,
 } from "../fonts";
-import { getBlockTextContent, isTouchDevice } from "../node-shared";
+import {
+  getBlockTextContent,
+  isTouchDevice,
+  memoizeNodeLayout,
+} from "../node-shared";
 import type {
   MarkChipStyle,
   MarkRegistry,
@@ -51,7 +55,6 @@ import type {
   MarkReplacementEdit,
   MarkUnderlineStyle,
 } from "../rendering/marks";
-import { isCaretScratchActive } from "../state-utils";
 import {
   type BlockRuntimeState,
   Node,
@@ -87,6 +90,7 @@ import type {
   SelectionState,
   TextStyle,
 } from "../state-types";
+import { isCaretScratchActive } from "../state-utils";
 import {
   awarenessSelectionToSelection,
   getColorForPeer,
@@ -611,7 +615,11 @@ function renderLine(
         caretOffset,
         editing: commandEntryActive,
       };
-      const dims = style.replacement.measure(batch.text, textStyle.fontSize, edit);
+      const dims = style.replacement.measure(
+        batch.text,
+        textStyle.fontSize,
+        edit,
+      );
       if (dims) {
         style.replacement.paint({
           ctx,
@@ -974,12 +982,19 @@ export class TextNode extends Node<TextualBlock> {
    * what the height/caret/hit-test/selection passes use.
    */
   layout(c: NodeLayoutCtx): TextNodeLayout {
-    return this.computeLayout(
-      c.block as TextualBlock,
-      c.maxWidth,
-      c.styles,
-      undefined,
-      c.marks,
+    // Memoized (see memoizeNodeLayout): the same unchanged block is laid out many
+    // times per frame and per pointer move — height pass, paint, hit-testing,
+    // caret/selection — and each layout does ~O(n²) text measurement for a large
+    // block. Composition (IME) goes through computeLayout directly with a content
+    // override, so it never reads or pollutes this canonical cache.
+    return memoizeNodeLayout(c.block, c.maxWidth, () =>
+      this.computeLayout(
+        c.block as TextualBlock,
+        c.maxWidth,
+        c.styles,
+        undefined,
+        c.marks,
+      ),
     );
   }
 
@@ -1081,6 +1096,7 @@ export class TextNode extends Node<TextualBlock> {
     return {
       height,
       lines,
+      maxWidth,
       isRTL,
       textStyle,
       fontFamily,

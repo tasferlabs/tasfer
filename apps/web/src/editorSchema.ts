@@ -22,34 +22,6 @@ import { CodeNode, type NodeOverlay } from "@cypherkit/editor/internal";
 import { getPlatform } from "@/platform";
 
 /**
- * The app's inline-math mark: the built-in {@link MathMark} rendering, plus the
- * inline-math edit popover declared as a host overlay slot. Inline math is a
- * run of `math`-marked characters inside a text block, so the editing chrome
- * belongs to the mark — not to any block node. Activating a chip opens the
- * generic `"inline-math-edit"` overlay (see {@link MathMark.editOverlayKey}),
- * carrying the run's range + latex; the web app maps that key to the React
- * `MathBlockEditor` (see `NODE_OVERLAYS` in MountedEditor).
- */
-class CypherMathMark extends MathMark {
-  override readonly editOverlayKey = "inline-math-edit";
-
-  override overlays(c: MarkOverlayCtx): readonly NodeOverlay[] {
-    const menu = c.state.ui.activeMenu;
-    if (menu.type !== "overlay" || menu.key !== "inline-math-edit") {
-      return [];
-    }
-    return [
-      {
-        key: "inline-math-edit",
-        blockId: menu.blockId,
-        rect: { x: menu.x, y: menu.y },
-        data: menu.data,
-      },
-    ];
-  }
-}
-
-/**
  * The app's image node: this device stores images by content hash (not as a
  * loadable URL), so the block's `url` is a content-addressed reference. The
  * engine never resolves assets itself — we override `resolveUrl` to map that
@@ -248,6 +220,6 @@ export const appSchema = new Schema(
     new StrikeMark(),
     new CodeMark(),
     new CypherLinkMark(),
-    new CypherMathMark(),
+    new MathMark(),
   ],
 );

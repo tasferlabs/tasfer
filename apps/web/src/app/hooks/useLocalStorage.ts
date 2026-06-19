@@ -1,4 +1,5 @@
 import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
+import { invariant } from "@shared/invariant";
 
 const useLocalStorage = <T>(
   key: string,
@@ -9,9 +10,7 @@ const useLocalStorage = <T>(
   if (!isClient) {
     return [initialValue as T, () => {}];
   }
-  if (!key) {
-    throw new Error("useLocalStorage key may not be falsy");
-  }
+  invariant(key, "useLocalStorage key may not be falsy");
   const [data, setData] = useState<T>(
     JSON.parse(localStorage.getItem(key) ?? JSON.stringify(initialValue)) ??
       initialValue

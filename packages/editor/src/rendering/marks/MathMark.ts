@@ -9,34 +9,21 @@
  * text color and it stays crisp at any DPI.
  */
 
-import type { ActionBus } from "../../action-bus";
-import { CURSOR_MOVED } from "../../actions/pointer-actions";
-import { getCrossedInlineMathSpan } from "../../inline-math-spans";
 import {
   getInlineMathCaretRect,
   getInlineMathDims,
   getInlineMathOffsetAtX,
-  mathArmScratch,
-  mathCaretStep,
-  mathCaretTokenClamp,
-  mathCaretVerticalStep,
+  mathCaretMove,
   mathDeleteUnit,
-  mathMaterializeAfterInput,
   mathPendingCommandRange,
   mathTransformTypedInput,
 } from "../../nodes/math";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
-import type { Block } from "../../serlization/loadPage";
 import {
   INLINE_MATH_END,
   INLINE_MATH_START,
 } from "../../serlization/tokenizer";
-import type {
-  CaretDeleteUnit,
-  CaretScratch,
-  ContentMaterialization,
-  TypedInputTransform,
-} from "../../state-types";
+import type { CaretModel } from "../nodes/caret-model";
 import {
   Mark,
   type MarkReplacement,
@@ -149,121 +136,24 @@ export class MathMark extends Mark {
     return {};
   }
 
-  // ── Caret / edit seam (inline chip) ─────────────────────────────────────────
+  // ── Caret model (inline chip) ───────────────────────────────────────────────
   // A chip's visible chars ARE its LaTeX, so a chip-local offset is
-  // `blockIndex − span.startIndex`. The shared math model in `nodes/math` finds
-  // the chip the index sits in and answers per-chip; a block equation is the
-  // MathNode's concern, so these decline it (the seam consults the node first
-  // anyway — this is just belt-and-braces).
-
-  caretStep(block: Block, index: number, dir: "left" | "right"): number | null {
-    return block.type === "math" ? null : mathCaretStep(block, index, dir);
-  }
-
-  caretVerticalStep(
-    block: Block,
-    index: number,
-    dir: "up" | "down",
-  ): number | null {
-    return block.type === "math"
-      ? null
-      : mathCaretVerticalStep(block, index, dir);
-  }
-
-  caretTokenClamp(
-    block: Block,
-    target: number,
-    dir: "left" | "right",
-  ): number | null {
-    return block.type === "math"
-      ? null
-      : mathCaretTokenClamp(block, target, dir);
-  }
-
-  deleteUnit(
-    block: Block,
-    index: number,
-    dir: "backward" | "forward",
-  ): CaretDeleteUnit | null {
-    return block.type === "math" ? null : mathDeleteUnit(block, index, dir);
-  }
-
-  transformTypedInput(
-    block: Block,
-    index: number,
-    input: string,
-  ): TypedInputTransform | null {
-    return block.type === "math"
-      ? null
-      : mathTransformTypedInput(block, index, input);
-  }
-
-  materializeAfterInput(
-    block: Block,
-    index: number,
-  ): ContentMaterialization | null {
-    return block.type === "math"
-      ? null
-      : mathMaterializeAfterInput(block, index);
-  }
-
-  armCaretScratch(block: Block, index: number): CaretScratch | null {
-    return block.type === "math" ? null : mathArmScratch(block, index);
-  }
-
-  /**
-   * Observe `CURSOR_MOVED` (priority 0) — when an arrow key steps the caret
-   * across an inline-math chip, open the inline-math editor popover and highlight
-   * the crossed chip. The host owns the overlay (this mark owns its key via
-   * {@link editOverlayKey}); `ui.inlineMathHover` is engine-owned. Observe-only.
-   */
-  registerActions(bus: ActionBus): void {
-    bus.registerState(
-      CURSOR_MOVED,
-      (
-        state,
-        { block, blockIndex, oldIndex, newIndex, viewport, resolveCoords },
-      ) => {
-        const span = getCrossedInlineMathSpan(block, oldIndex, newIndex);
-        if (!span) return { state, ops: [] };
-
-        const coords = resolveCoords({ blockIndex, textIndex: newIndex });
-        if (!coords) return { state, ops: [] };
-
-        const key = state.marks.get("math")?.editOverlayKey;
-        if (!key) return { state, ops: [] };
-
-        // Open the inline-math editor overlay + highlight the crossed chip
-        // (engine-owned hover state). Both are plain `ui` spreads, inlined to
-        // keep this mark free of the `state-utils` import chain.
-        return {
-          state: {
-            ...state,
-            ui: {
-              ...state.ui,
-              activeMenu: {
-                type: "overlay",
-                key,
-                blockId: block.id,
-                x: coords.x,
-                y: coords.y - viewport.scrollY,
-                data: {
-                  startIndex: span.startIndex,
-                  endIndex: span.endIndex,
-                  latex: span.latex,
-                },
-              },
-              inlineMathHover: {
-                blockIndex,
-                startIndex: span.startIndex,
-                endIndex: span.endIndex,
-              },
-            },
-          },
-          ops: [],
-        };
-      },
-      0,
-    );
-  }
+  // `blockIndex − span.startIndex`. The chip isn't an opaque atom — the caret
+  // descends into it — so it overrides `move`/`deleteUnit` (the shared math model
+  // in `nodes/math` finds the chip the index sits in and answers per-chip) rather
+  // than declaring `atomicSpans`. A block equation is the MathNode's concern, so
+  // these decline it (`block.type === "math"` → null; the seam consults the node
+  // first anyway — belt-and-braces). The post-edit *effect* (materialize a
+  // construct / arm scratch) is owned by MathNode's TEXT_INPUTTED observer, which
+  // covers inline chips too — so there is none here.
+  readonly caret: CaretModel = {
+    move: (block, index, motion) =>
+      block.type === "math" ? null : mathCaretMove(block, index, motion),
+    deleteUnit: (block, index, dir) =>
+      block.type === "math" ? null : mathDeleteUnit(block, index, dir),
+    transformInput: (block, index, input) =>
+      block.type === "math"
+        ? null
+        : mathTransformTypedInput(block, index, input),
+  };
 }

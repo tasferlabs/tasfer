@@ -88,10 +88,10 @@ import { useTranslation } from "react-i18next";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
-import { MathBlockEditor } from "../editor/MathBlockEditor";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
+import { InlineMathOverlay } from "../editor/InlineMathOverlay";
 import { MathCommandMenu } from "../editor/MathCommandMenu";
 import { SlashActionMenu } from "../editor/SlashActionMenu";
 import useResponsive from "./hooks/useResponsive";
@@ -252,78 +252,6 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
         close();
       }}
       onClose={close}
-      collisionBoundary={portalContainer}
-      container={portalContainer}
-    />
-  );
-};
-
-/**
- * Renders the inline-math edit popover for a `CypherMathMark`-declared
- * `"inline-math-edit"` overlay slot. Inline math is a run of `math`-marked
- * characters in a text block, so the slot comes from the mark, and its `data`
- * carries the run's range + latex. Editing routes through the editor instance
- * (replace/delete the inline range, exit on arrow keys) so the engine's
- * `activeMenu` stays the single source of truth for whether it's open.
- */
-const InlineMathEditOverlay: ComponentType<NodeOverlayProps> = ({
-  overlay,
-  editor,
-  portalContainer,
-  refocus,
-}) => {
-  const { blockId } = overlay;
-  const { startIndex, endIndex, latex } = overlay.data as {
-    startIndex: number;
-    endIndex: number;
-    latex: string;
-  };
-  const containerRect = portalContainer.getBoundingClientRect();
-
-  return (
-    <MathBlockEditor
-      x={containerRect.left + overlay.rect.x}
-      y={containerRect.top + overlay.rect.y}
-      initialLatex={latex}
-      displayMode={false}
-      inline
-      onSubmit={(nextLatex) => {
-        const block = editor
-          .getState()
-          ?.document.page.blocks.find((blk) => blk.id === blockId);
-        if (block && !block.deleted) {
-          editor.change((c) =>
-            c.insertText(
-              nextLatex,
-              {
-                from: { block: block.id, offset: startIndex },
-                to: { block: block.id, offset: endIndex },
-              },
-              { type: "math" },
-            ),
-          );
-        }
-        editor.closeActiveMenu();
-      }}
-      onDelete={() => {
-        const block = editor
-          .getState()
-          ?.document.page.blocks.find((blk) => blk.id === blockId);
-        if (block && !block.deleted) {
-          editor.change((c) =>
-            c.deleteRange({
-              from: { block: block.id, offset: startIndex },
-              to: { block: block.id, offset: endIndex },
-            }),
-          );
-        }
-        editor.closeActiveMenu();
-      }}
-      onClose={() => editor.closeActiveMenu()}
-      onExitArrow={(direction) => {
-        editor.exitInlineMath(blockId, startIndex, endIndex, direction);
-        refocus();
-      }}
       collisionBoundary={portalContainer}
       container={portalContainer}
     />
@@ -633,7 +561,6 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
 const NODE_OVERLAYS: Record<string, ComponentType<NodeOverlayProps>> = {
   "image-upload": ImageUploadOverlay,
   "image-hover": ImageHoverOverlay,
-  "inline-math-edit": InlineMathEditOverlay,
   "link-tooltip": LinkTooltipOverlay,
   "link-edit": LinkEditOverlay,
   "code-language": CodeLanguageOverlay,
@@ -1675,7 +1602,8 @@ function EditorSurface({
       //   - link edit / create      → CypherLinkMark  → "link-edit"
       //   - image upload/edit popover→ CypherImageNode → "image-upload"
       //   - image hover buttons      → CypherImageNode → "image-hover"
-      //   - block / inline math      → CypherMathNode / CypherMathMark
+      // (Math edits in place on the canvas; the inline-math WYSIWYG mirror is a
+      //  standalone portal — InlineMathOverlay — not a registry overlay.)
       // The only mirror kept here is the suspended-mode signal: a text-input
       // popover (image upload or link edit) is open.
       const popoverOpen =
@@ -2402,6 +2330,18 @@ function EditorSurface({
           mountedRef.current.portalContainer,
         )}
 
+      {/* WYSIWYG inline-math overlay — a roomy, live mirror of the inline-math
+          chip the caret is inside (the on-line chip is tiny to edit in). */}
+      {mountedRef.current?.portalContainer &&
+        mountedRef.current.editor &&
+        createPortal(
+          <InlineMathOverlay
+            editor={mountedRef.current.editor}
+            getContainerRect={getSlashContainerRect}
+          />,
+          mountedRef.current.portalContainer,
+        )}
+
       {/* Context menu portal */}
       {contextMenuState && (
         <ContextMenu
@@ -2462,8 +2402,8 @@ function EditorSurface({
           "image-hover"). The suspended-mode signal is the `modalPopoverOpen`
           mirror, derived from the engine's active menu. */}
 
-      {/* Inline-math edit popover renders via the node-overlay registry above
-          (CypherMathMark.overlays → NODE_OVERLAYS["inline-math-edit"]). */}
+      {/* The inline-math WYSIWYG mirror renders as a standalone portal
+          (InlineMathOverlay, above), not via the node-overlay registry. */}
 
       {/* Image hover buttons + native image drawer render via the
           node-overlay registry above (CypherImageNode.overlays → "image-hover"

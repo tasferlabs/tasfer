@@ -30,17 +30,14 @@
 
 import type { ActionBus } from "../../action-bus";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
-import type { Block, Mark as MarkData } from "../../serlization/loadPage";
+import type { Mark as MarkData } from "../../serlization/loadPage";
 import type {
-  CaretDeleteUnit,
-  CaretScratch,
-  ContentMaterialization,
   EditorState,
   EditorStyles,
   NodeOverlay,
-  TypedInputTransform,
   ViewportState,
 } from "../../state-types";
+import type { CaretModel } from "../nodes/caret-model";
 
 /** A rounded-rect background drawn behind a mark's glyphs (code, inline math). */
 export interface MarkChipStyle {
@@ -244,15 +241,6 @@ export abstract class Mark {
   overlays?(c: MarkOverlayCtx): readonly NodeOverlay[];
 
   /**
-   * If set, the host overlay key the engine opens when the user activates a run
-   * of this mark (e.g. clicking an inline-math chip opens its editor). The engine
-   * detects the activation and relays this key through `openOverlay` with the
-   * run's range as `data`; it never names the overlay itself. Pair with
-   * {@link overlays} to render it. Omit if the mark has no edit overlay.
-   */
-  readonly editOverlayKey?: string;
-
-  /**
    * Optional: register this mark's action-bus handlers for the instance. Called
    * once at mount with the per-instance {@link ActionBus} (the inline analogue of
    * {@link import("../nodes/Node").Node.registerActions}). This is how a mark
@@ -264,49 +252,16 @@ export abstract class Mark {
    */
   registerActions?(bus: ActionBus): void;
 
-  // ── Caret / edit seam ───────────────────────────────────────────────────────
-  // The inline analogue of the same-named hooks on {@link import("../nodes/Node").Node}:
-  // a mark whose run is **atomic for the caret** (an inline-math chip, whose
-  // visible chars ARE its source) implements these so the generic caret/edit code
-  // steps over / deletes the run as one token. The mark inspects the block's runs
-  // of its own type to decide whether the index is inside one of its spans. All
-  // operate on block-text indices; a mark with no atomic runs returns `null`.
-  // See the Node declarations for the per-hook contract.
-
-  caretStep?(block: Block, index: number, dir: "left" | "right"): number | null;
-
-  caretVerticalStep?(
-    block: Block,
-    index: number,
-    dir: "up" | "down",
-  ): number | null;
-
-  caretTokenClamp?(
-    block: Block,
-    target: number,
-    dir: "left" | "right",
-  ): number | null;
-
-  deleteUnit?(
-    block: Block,
-    index: number,
-    dir: "backward" | "forward",
-  ): CaretDeleteUnit | null;
-
-  transformTypedInput?(
-    block: Block,
-    index: number,
-    input: string,
-  ): TypedInputTransform | null;
-
-  /** Materialize an incomplete construct created by an edit at `index` into its
-   * canonical placeholder form (see {@link ContentMaterialization}), or `null`. */
-  materializeAfterInput?(
-    block: Block,
-    index: number,
-  ): ContentMaterialization | null;
-
-  armCaretScratch?(block: Block, index: number): CaretScratch | null;
+  /**
+   * Optional: how this mark's run behaves under the caret when it is **atomic**
+   * (an inline-math chip, whose visible chars ARE its source) — the inline
+   * analogue of {@link import("../nodes/Node").Node.caret}. The common case is
+   * `caret.atomicSpans` returning the mark's own runs; the mark inspects the
+   * block's runs of its own type to answer per-run. A mark with no atomic runs
+   * omits `caret`. The *effect* half (materializing a construct after an edit)
+   * is observed as the `TEXT_INPUTTED` action in {@link registerActions}.
+   */
+  readonly caret?: CaretModel;
 }
 
 // ---------------------------------------------------------------------------

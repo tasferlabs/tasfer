@@ -30,6 +30,7 @@ import {
   type InputCtx,
   type ParsedTag,
 } from "./serlization/codecs";
+import { codecFromNode } from "./serlization/codecs/from-node";
 import { escapeAttr } from "./serlization/codecs/inline";
 import type { MarkCodec } from "./serlization/codecs/mark-codec";
 import { asBlock, type Block, type CustomBlock } from "./serlization/loadPage";
@@ -43,6 +44,7 @@ import {
   type DataSchema,
   type MarkSpec,
 } from "./sync/schema";
+import { invariant } from "@shared/invariant";
 
 /** A full block spec: the canvas-free facets plus the rendering Node. */
 export interface BlockSpec extends BlockSpecCore {
@@ -115,8 +117,16 @@ export class Schema {
         }),
       ),
       // Strip the render facet — DataSchema stays canvas-free (mirrors how the
-      // block path drops `node` before reaching `this.data.extend`).
-      marks: markDefs.map(({ type, codec }): MarkSpec => ({ type, codec })),
+      // block path drops `node` before reaching `this.data.extend`). The codec
+      // is resolved from the render Mark when present (the Mark is the single
+      // source of truth for its facets); `defineMark`'s `codec` is the fallback
+      // only for a data-only mark with no render instance to carry it.
+      marks: markDefs.map(
+        (mark): MarkSpec => ({
+          type: mark.type,
+          codec: resolveMarkCodec(mark),
+        }),
+      ),
     });
     const nodes = [...this.nodes, ...specs.map((spec) => spec.node)];
     // Fold each custom mark's render facet into the rendering list (built-ins +
@@ -131,6 +141,31 @@ export class Schema {
     ];
     return new Schema(data, nodes, marks);
   }
+}
+
+/**
+ * Resolve a custom mark's serialization codec, keeping the {@link Mark} instance
+ * the single source of truth for its facets (mirrors how `baseDataSchema` reads
+ * `mark.codec` off the built-in mark instances). The render Mark's `codec` wins;
+ * `defineMark`'s `codec` is the fallback for a *data-only* mark with no render
+ * instance to carry one. Throws on an ambiguous setup — two disagreeing codecs,
+ * or a render Mark whose `type` doesn't match the declared type — so a second
+ * source of truth can't silently creep back in.
+ */
+function resolveMarkCodec(mark: MarkDef): MarkCodec | undefined {
+  invariant(
+    !mark.render || mark.render.type === mark.type,
+    'defineMark("%s") was given a render Mark of type "%s" — the declared type and the Mark\'s type must match.',
+    mark.type,
+    mark.render?.type ?? "",
+  );
+  const renderCodec = mark.render?.codec;
+  invariant(
+    !(renderCodec && mark.codec && renderCodec !== mark.codec),
+    'Mark "%s" declares a codec on both its render Mark and its defineMark config, and they differ. Keep the codec on the Mark (the single source of truth) and drop the defineMark codec.',
+    mark.type,
+  );
+  return renderCodec ?? mark.codec;
 }
 
 /**
@@ -172,8 +207,11 @@ export interface DefineMarkConfig {
    */
   readonly render?: Mark;
   /**
-   * Markdown/HTML round-trip. Omit and the mark survives only via the CRDT (the
-   * source of truth) — it's dropped on markdown export. Provide a codec to give
+   * Markdown/HTML round-trip for a *data-only* mark (one with no `render` Mark).
+   * When `render` is supplied, its `codec` is authoritative and this is ignored
+   * (set both to disagreeing codecs and `extend()` throws) — the Mark instance is
+   * the single source of truth for its facets. Omit on a data-only mark and it
+   * survives only via the CRDT, dropped on markdown export; provide one to give
    * it delimiters (`==text==`) and an HTML tag.
    */
   readonly codec?: MarkCodec;
@@ -219,9 +257,11 @@ export interface DefineNodeConfig {
   /** A custom Node to render with, instead of the generated BoxNode. */
   node?: Node;
   /**
-   * Markdown output. Defaults to the generic `<x-type …attrs>` round-trip that
-   * `parseMarkdown` (also generated) reads back. Override only if you also
-   * ensure the result re-parses.
+   * Markdown output for the generic box/config style. Defaults to the generic
+   * `<x-type …attrs>` round-trip that `parseMarkdown` (also generated) reads
+   * back. Override only if you also ensure the result re-parses. Rejected when
+   * the supplied `node` implements its own serialization methods — that node is
+   * the source of truth, so the two can't both be set.
    */
   toMarkdown?: (block: CustomBlock) => string;
   /** HTML output. Defaults to the same generic tag. */
@@ -286,12 +326,33 @@ export function defineNode(
   );
 }
 
+/** Whether a node carries its own markdown/HTML/text round-trip methods. */
+function nodeHasSerialization(node: Node): boolean {
+  return Boolean(
+    node.outputMarkdown ||
+    node.outputHTML ||
+    node.outputText ||
+    node.inputMarkdown ||
+    node.inputMarkdownTag ||
+    node.markdownTokens ||
+    node.htmlTags,
+  );
+}
+
 /**
- * Build the leaf {@link BlockSpec} (descriptor + generic round-trip codec) for
+ * Build the leaf {@link BlockSpec} (descriptor + serialization codec) for
  * `type`, rendered by the supplied `node`. Shared by `defineNode` (which picks
  * a BoxNode or `config.node`) and class-first registration (which passes the
  * Node subclass instance). The `render`/`node` fields of `config` are ignored
  * here — node selection is the caller's job.
+ *
+ * The codec follows the node: a node that implements its own serialization
+ * methods (`outputMarkdown`/`inputMarkdown`/…) IS the source of truth, adapted
+ * via {@link codecFromNode} exactly as the built-in nodes are in `baseDataSchema`.
+ * Only when the node provides none do we synthesize the generic `<x-type … />`
+ * round-trip (the BoxNode / config style). Supplying both a serializing node and
+ * a `defineNode` `toMarkdown`/`toHtml`/`toText` override is rejected, so the node
+ * can't be quietly overruled by a second source.
  */
 function buildLeafSpec(
   type: string,
@@ -300,7 +361,6 @@ function buildLeafSpec(
 ): BlockSpec {
   const attrs = config.attrs ?? {};
   const attrNames = Object.keys(attrs);
-  const tagName = `x-${type.toLowerCase()}`;
 
   // ── CRDT descriptor ───────────────────────────────────────────────────────
   const fields: Record<string, FieldDescriptor> = {
@@ -335,10 +395,40 @@ function buildLeafSpec(
     // same self-only behavior the old `textPreservingMorphs: [type]` gave.
   };
 
-  // ── Serialization codec (generic HTML-tag round-trip) ─────────────────────
-  // Self-closing tag (like the built-in <img/>): a single token the
-  // tokenizer/parser round-trips, vs an open+close pair that would leave the
-  // closing tag as a stray paragraph.
+  // ── Serialization codec ───────────────────────────────────────────────────
+  // A node that owns its round-trip is the source of truth (adapted the same
+  // way `baseDataSchema` adapts the built-ins). Otherwise synthesize the generic
+  // HTML-tag round-trip from the declared attrs.
+  let codec: BlockCodec;
+  if (nodeHasSerialization(node)) {
+    invariant(
+      !(config.toMarkdown || config.toHtml || config.toText),
+      'Block type "%s" supplies its own serialization methods AND a defineNode toMarkdown/toHtml/toText override. Remove one so the node stays the single source of truth for its serialization.',
+      type,
+    );
+    // Node implements the full optional serialization slice that `codecFromNode`
+    // reads; a partial set (e.g. outputMarkdown without outputHTML) throws there.
+    codec = codecFromNode(node);
+  } else {
+    codec = buildGenericTagCodec(type, config, attrs, attrNames);
+  }
+
+  return { type, descriptor, codec, node };
+}
+
+/**
+ * The generic `<x-type … />` markdown/HTML round-trip for a leaf node that
+ * brings no serialization of its own (the BoxNode / config style). A
+ * self-closing tag (like the built-in `<img/>`) round-trips as a single token,
+ * vs an open+close pair that would leave the closing tag as a stray paragraph.
+ */
+function buildGenericTagCodec(
+  type: string,
+  config: DefineNodeConfig,
+  attrs: Record<string, AttrSpec>,
+  attrNames: readonly string[],
+): BlockCodec {
+  const tagName = `x-${type.toLowerCase()}`;
   const renderTag = (block: Block): string => {
     const b = block as unknown as Record<string, unknown>;
     let out = `<${tagName}`;
@@ -350,7 +440,7 @@ function buildLeafSpec(
     return `${out} />`;
   };
 
-  const codec: BlockCodec = {
+  return {
     types: [type],
     markdown: {
       output: config.toMarkdown
@@ -386,6 +476,4 @@ function buildLeafSpec(
         : () => "",
     },
   };
-
-  return { type, descriptor, codec, node };
 }

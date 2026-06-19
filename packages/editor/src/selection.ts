@@ -80,7 +80,14 @@ function getBlockTopDocument(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
     if (block.originalIndex >= blockIndex) break;
-    y += getBlockHeight(state.nodes, state.marks, block, maxWidth, styles, visibleIdx === 0);
+    y += getBlockHeight(
+      state.nodes,
+      state.marks,
+      block,
+      maxWidth,
+      styles,
+      visibleIdx === 0,
+    );
   }
   return y;
 }
@@ -210,7 +217,14 @@ export function getCursorDocumentCoords(
   const node = textNodeFor(state, block);
   if (!node) return null;
 
-  const layout = layoutFor(node, block, position.blockIndex, maxWidth, styles, state.marks);
+  const layout = layoutFor(
+    node,
+    block,
+    position.blockIndex,
+    maxWidth,
+    styles,
+    state.marks,
+  );
   const blockTop = getBlockTopDocument(
     state,
     position.blockIndex,
@@ -744,7 +758,14 @@ export function moveCursorUp(
     ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
     : 800; // Default fallback
 
-  const layout = layoutFor(node, currentBlock, blockIndex, maxWidth, styles, state.marks);
+  const layout = layoutFor(
+    node,
+    currentBlock,
+    blockIndex,
+    maxWidth,
+    styles,
+    state.marks,
+  );
   const lineIdx = lineIndexAt(layout, textIndex);
   if (lineIdx === -1) return state;
 
@@ -862,7 +883,14 @@ export function moveCursorDown(
     ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
     : 800; // Default fallback
 
-  const layout = layoutFor(node, currentBlock, blockIndex, maxWidth, styles, state.marks);
+  const layout = layoutFor(
+    node,
+    currentBlock,
+    blockIndex,
+    maxWidth,
+    styles,
+    state.marks,
+  );
   const lineIdx = lineIndexAt(layout, textIndex);
   if (lineIdx === -1) return state;
 
@@ -1122,7 +1150,8 @@ export function updateCursor(
   // Any caret move invalidates caret-anchored node/mark scratch (e.g. math's
   // in-progress command rendering, `\in`→∈): clear it so a finished value never
   // lingers once the caret leaves the spot that armed it. The owning node/mark
-  // re-arms it after its own edit when still warranted (see `armCaretScratch`).
+  // re-arms it after its own edit when still warranted (in its `TEXT_INPUTTED`
+  // observer).
   const ui = state.ui.caretScratch
     ? { ...state.ui, caretScratch: null }
     : state.ui;

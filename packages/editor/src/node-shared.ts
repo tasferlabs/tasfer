@@ -11,12 +11,40 @@
  * re-exports them, so existing importers are unaffected.
  */
 
+import type { NodeLayout } from "./rendering/nodes/Node";
 import type { Block } from "./serlization/loadPage";
 import { isTextualBlock } from "./sync/block-registry";
 import {
   getVisibleLengthFromRuns,
   getVisibleTextFromRuns,
 } from "./sync/char-runs";
+
+/**
+ * Memoize a node's canonical layout on the block, keyed by content width. This
+ * is the single source of the layout cache: every `Node.layout()` routes its
+ * compute through here, so the height pass, paint, hit-testing and the caret/
+ * selection passes all share ONE computation per content/width change instead
+ * of each re-running the (expensive) layout. The cache is keyed on `maxWidth`
+ * only — `isFirst` never affects `layout()` output (the full-bleed-first-image
+ * adjustment lives in `adjustFlowHeight`, applied separately) — and is cleared
+ * by `invalidateBlockCache` whenever the block's content, styles, or theme
+ * change.
+ */
+export function memoizeNodeLayout<T extends NodeLayout>(
+  block: Block,
+  maxWidth: number,
+  compute: () => T,
+): T {
+  if (block.cachedLayout && block.cachedLayout.maxWidth === maxWidth) {
+    return block.cachedLayout as T;
+  }
+  // The computed layout carries its own `maxWidth` (set by every `layout()`),
+  // which is both the layout's provenance and the single cache key — so the block
+  // needs no sibling `cachedWidth`.
+  const layout = compute();
+  block.cachedLayout = layout;
+  return layout;
+}
 
 /** Visible (non-deleted) text of a textual block; "" for non-textual blocks. */
 export function getBlockTextContent(block: Block): string {

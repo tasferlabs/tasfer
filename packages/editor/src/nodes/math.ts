@@ -11,6 +11,7 @@
  * React edit overlay and HTML export), and a validity check.
  */
 import { getInlineMathSpans, type InlineMathSpan } from "../inline-math-spans";
+import type { CaretMotion } from "../rendering/nodes/caret-model";
 import type { Block } from "../serlization/loadPage";
 import type {
   CaretDeleteUnit,
@@ -159,6 +160,33 @@ export function mathCaretTokenClamp(
   const span = chipAt(block, target, "inside");
   if (!span) return null;
   return dir === "right" ? span.endIndex : span.startIndex;
+}
+
+/**
+ * Resolve a unified {@link CaretMotion} for math content — the one `move` the
+ * `CaretModel` exposes, routing each motion to the corresponding step helper
+ * (horizontal token-step, word-step to a chip edge, vertical row-step). Shared
+ * by MathNode (block equations) and MathMark (inline chips).
+ */
+export function mathCaretMove(
+  block: Block,
+  index: number,
+  motion: CaretMotion,
+): number | null {
+  switch (motion) {
+    case "charLeft":
+      return mathCaretStep(block, index, "left");
+    case "charRight":
+      return mathCaretStep(block, index, "right");
+    case "wordLeft":
+      return mathCaretTokenClamp(block, index, "left");
+    case "wordRight":
+      return mathCaretTokenClamp(block, index, "right");
+    case "up":
+      return mathCaretVerticalStep(block, index, "up");
+    case "down":
+      return mathCaretVerticalStep(block, index, "down");
+  }
 }
 
 /**

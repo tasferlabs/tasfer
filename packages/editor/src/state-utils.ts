@@ -5,7 +5,12 @@
 import { createActionBus } from "./action-bus";
 import type { Mark, MarkRegistry } from "./rendering/marks";
 import { createDefaultMarkRegistry } from "./rendering/marks";
-import type { Node, NodeRegistry } from "./rendering/nodes";
+import type {
+  CaretModel,
+  Node,
+  NodeRegistry,
+  TextSpan,
+} from "./rendering/nodes";
 import { createDefaultNodeRegistry } from "./rendering/nodes";
 import {
   createInitialMomentumState,
@@ -14,8 +19,6 @@ import {
 import { type Block, type Page } from "./serlization/loadPage";
 import type {
   CaretDeleteUnit,
-  CaretScratch,
-  ContentMaterialization,
   CRDTbinding as CRDTbindingType,
   EditorMode,
   EditorState,
@@ -241,15 +244,22 @@ export function clearAutoCreatedParagraph(state: EditorState): EditorState {
 // ---------------------------------------------------------------------------
 // Caret / edit seam
 //
-// Generic dispatch for the optional caret/edit hooks a node or mark may declare
-// (see Node/Mark `caretStep`, `caretVerticalStep`, `caretTokenClamp`,
-// `deleteUnit`, `transformTypedInput`, `armCaretScratch`). Each helper asks the
-// block's registered node first, then every registered mark, and returns the
-// first non-null answer — so the core caret/edit code (selection, actions) never
-// names a block type: a node/mark whose inline content is atomic for the caret
-// (e.g. math) contributes the behavior, everything else falls through to the
-// plain text path. None of this is a module global — the registries live on
-// `state`.
+// Generic dispatch for the optional caret queries a node or mark may declare on
+// its {@link CaretModel} (`caret`): motion, word-nav, delete, typed-input
+// rewrite. Each helper asks the block's registered node first, then every
+// registered mark, and returns the first non-null answer — so the core
+// caret/edit code (selection, actions) never names a block type: a node/mark
+// whose inline content is atomic for the caret (e.g. math) contributes the
+// behavior, everything else falls through to the plain text path. None of this
+// is a module global — the registries live on `state`.
+//
+// Each query consults the explicit `caret` method first (`move` / `deleteUnit`),
+// then — for what a flat token can express (step / word-nav / whole-token
+// delete) — falls back to deriving the answer from the declarative
+// `caret.atomicSpans`, so a simple chip can implement just `atomicSpans`. (The
+// *effect* half of the old seam — materializing a construct / arming caret
+// scratch after an edit — is no longer here: it's the `TEXT_INPUTTED` action a
+// node/mark observes in `registerActions`.)
 // ---------------------------------------------------------------------------
 
 /** First non-null result of `fn` over the block's node, then every mark. */
@@ -271,6 +281,51 @@ function seam<R>(
   return null;
 }
 
+// ── Declarative-tier derivations from `caret.atomicSpans` ──────────────────
+// The common case ("this span is one atomic token") needs no explicit methods:
+// these derive horizontal step / word-nav / whole-token delete from the spans.
+// An explicit `caret.move`/`deleteUnit` takes precedence (the lambdas try it
+// first via `??`).
+
+/** The atomic span strictly containing `index` (`start < index < end`), or null. */
+function activeSpan(
+  caret: CaretModel | undefined,
+  block: Block,
+  index: number,
+): TextSpan | null {
+  if (!caret?.atomicSpans) return null;
+  for (const s of caret.atomicSpans(block)) {
+    if (index > s.start && index < s.end) return s;
+  }
+  return null;
+}
+
+/** Step/snap over a containing span to its near edge in travel direction `dir`. */
+function edgeFromSpans(
+  caret: CaretModel | undefined,
+  block: Block,
+  index: number,
+  dir: "left" | "right",
+): number | null {
+  const s = activeSpan(caret, block, index);
+  return s ? (dir === "left" ? s.start : s.end) : null;
+}
+
+/** Whole-token delete when the caret sits on a span's edge facing the delete. */
+function deleteUnitFromSpans(
+  caret: CaretModel | undefined,
+  block: Block,
+  index: number,
+  dir: "backward" | "forward",
+): CaretDeleteUnit | null {
+  if (!caret?.atomicSpans) return null;
+  for (const s of caret.atomicSpans(block)) {
+    const onEdge = dir === "backward" ? index === s.end : index === s.start;
+    if (onEdge) return { from: s.start, to: s.end, isConstruct: false };
+  }
+  return null;
+}
+
 /**
  * Next legal caret index stepping `dir` (logical `left`/`right`) from `index`, or
  * `null` when the step is in plain text (caller does its own ±1). Lets atomic
@@ -282,11 +337,16 @@ export function caretStep(
   index: number,
   dir: "left" | "right",
 ): number | null {
+  const motion = dir === "left" ? "charLeft" : "charRight";
   return seam(
     state,
     block,
-    (n) => n.caretStep?.(block, index, dir) ?? null,
-    (m) => m.caretStep?.(block, index, dir) ?? null,
+    (n) =>
+      n.caret?.move?.(block, index, motion) ??
+      edgeFromSpans(n.caret, block, index, dir),
+    (m) =>
+      m.caret?.move?.(block, index, motion) ??
+      edgeFromSpans(m.caret, block, index, dir),
   );
 }
 
@@ -303,8 +363,8 @@ export function caretVerticalStep(
   return seam(
     state,
     block,
-    (n) => n.caretVerticalStep?.(block, index, dir) ?? null,
-    (m) => m.caretVerticalStep?.(block, index, dir) ?? null,
+    (n) => n.caret?.move?.(block, index, dir) ?? null,
+    (m) => m.caret?.move?.(block, index, dir) ?? null,
   );
 }
 
@@ -319,11 +379,16 @@ export function caretTokenClamp(
   target: number,
   dir: "left" | "right",
 ): number | null {
+  const motion = dir === "left" ? "wordLeft" : "wordRight";
   return seam(
     state,
     block,
-    (n) => n.caretTokenClamp?.(block, target, dir) ?? null,
-    (m) => m.caretTokenClamp?.(block, target, dir) ?? null,
+    (n) =>
+      n.caret?.move?.(block, target, motion) ??
+      edgeFromSpans(n.caret, block, target, dir),
+    (m) =>
+      m.caret?.move?.(block, target, motion) ??
+      edgeFromSpans(m.caret, block, target, dir),
   );
 }
 
@@ -341,8 +406,12 @@ export function resolveDeleteUnit(
   return seam(
     state,
     block,
-    (n) => n.deleteUnit?.(block, index, dir) ?? null,
-    (m) => m.deleteUnit?.(block, index, dir) ?? null,
+    (n) =>
+      n.caret?.deleteUnit?.(block, index, dir) ??
+      deleteUnitFromSpans(n.caret, block, index, dir),
+    (m) =>
+      m.caret?.deleteUnit?.(block, index, dir) ??
+      deleteUnitFromSpans(m.caret, block, index, dir),
   );
 }
 
@@ -360,44 +429,8 @@ export function transformTypedInput(
   return seam(
     state,
     block,
-    (n) => n.transformTypedInput?.(block, index, input) ?? null,
-    (m) => m.transformTypedInput?.(block, index, input) ?? null,
-  );
-}
-
-/**
- * Content normalization a node/mark wants applied after a user edit landed the
- * caret at `index` — materializing an incomplete construct into canonical form
- * (e.g. typing `\frac` fills its `{}{}` slots; see {@link ContentMaterialization}).
- * `null` when nothing needs filling.
- */
-export function materializeAfterInput(
-  state: EditorState,
-  block: Block,
-  index: number,
-): ContentMaterialization | null {
-  return seam(
-    state,
-    block,
-    (n) => n.materializeAfterInput?.(block, index) ?? null,
-    (m) => m.materializeAfterInput?.(block, index) ?? null,
-  );
-}
-
-/**
- * The caret-anchored scratch a node/mark wants stashed after an edit at `index`
- * (see {@link CaretScratch}), or `null` for none. Cleared on the next caret move.
- */
-export function armCaretScratch(
-  state: EditorState,
-  block: Block,
-  index: number,
-): CaretScratch | null {
-  return seam(
-    state,
-    block,
-    (n) => n.armCaretScratch?.(block, index) ?? null,
-    (m) => m.armCaretScratch?.(block, index) ?? null,
+    (n) => n.caret?.transformInput?.(block, index, input) ?? null,
+    (m) => m.caret?.transformInput?.(block, index, input) ?? null,
   );
 }
 

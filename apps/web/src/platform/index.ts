@@ -5,6 +5,7 @@
  * and wraps it in the shared Engine. All app code imports from here.
  */
 
+import { invariant } from "@shared/invariant";
 import type { Platform } from "./types";
 import { Engine } from "./engine";
 import { Replicator } from "./sync";
@@ -161,8 +162,6 @@ async function _initPlatformInner(): Promise<Platform> {
  * Throws if not initialized.
  */
 export function getPlatform(): Platform {
-  if (!_platform) {
-    throw new Error("Platform not initialized. Call initPlatform() first.");
-  }
+  invariant(_platform, "Platform not initialized. Call initPlatform() first.");
   return _platform;
 }

@@ -6,6 +6,7 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
+import { invariant } from "@shared/invariant";
 import { useVersionCheck, type VersionInfo } from "../hooks/useVersionCheck";
 import { serviceWorkerBridge } from "@/serviceWorkerBridge";
 import type { ClientPlatform } from "@/platform";
@@ -187,8 +188,6 @@ export function VersionProvider({ children }: { children: ReactNode }) {
 
 export function useVersion() {
   const context = useContext(VersionContext);
-  if (!context) {
-    throw new Error("useVersion must be used within a VersionProvider");
-  }
+  invariant(context, "useVersion must be used within a VersionProvider");
   return context;
 }

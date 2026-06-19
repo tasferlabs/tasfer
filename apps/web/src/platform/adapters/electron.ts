@@ -8,6 +8,7 @@
  * This is just the thin driver — all business logic is in Engine.
  */
 
+import { invariant } from "@shared/invariant";
 import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver, CryptoDriver } from "../driver";
 import { createWebRtcNetworkDriver } from "./webrtc";
 
@@ -22,7 +23,7 @@ interface ElectronBridge {
 
 function getBridge(): ElectronBridge {
   const bridge = (window as any).cypher as ElectronBridge | undefined;
-  if (!bridge) throw new Error("Electron bridge not available");
+  invariant(bridge, "Electron bridge not available");
   return bridge;
 }
 

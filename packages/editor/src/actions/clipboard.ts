@@ -851,6 +851,13 @@ function insertBlocksAtCursor(
     const pasteBlock = blocks[0];
     const pasteText = getVisibleTextFromRuns(pasteBlock.charRuns);
 
+    // Nothing to paste (e.g. an empty source block): keep any selection-delete
+    // ops already collected and leave the caret in place — don't insert an empty
+    // run or run the format/autolink passes over zero chars.
+    if (pasteText.length === 0) {
+      return { state: clearSelection(newState), ops };
+    }
+
     // Insert the pasted text at cursor position
     const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
       newState.document.page,
@@ -1107,15 +1114,24 @@ function insertBlocksAtCursor(
       // Merge first pasted block's content with current block
       const firstPastedText = getVisibleTextFromRuns(firstPastedBlock.charRuns);
       const beforeLength = beforeChars.filter((c) => !c.deleted).length;
-      const { newPage: pageAfterFirstInsert, op: firstInsertOp } =
-        insertCharsAtPosition(
-          pasteWorkPage,
-          currentBlock.id,
-          beforeLength,
-          firstPastedText,
-          state.CRDTbinding,
-        );
-      pasteWorkPage = pageAfterFirstInsert;
+      // Skip the insert when the first pasted block contributes no visible chars
+      // (e.g. an empty source block) — inserting an empty run would throw in the
+      // CRDT layer. The current block then just keeps its before-cursor content,
+      // and the format pass below finds no inserted chars to map onto.
+      let firstInsertedCharRuns: CharRun[] = [];
+      if (firstPastedText.length > 0) {
+        const { newPage: pageAfterFirstInsert, op: firstInsertOp } =
+          insertCharsAtPosition(
+            pasteWorkPage,
+            currentBlock.id,
+            beforeLength,
+            firstPastedText,
+            state.CRDTbinding,
+          );
+        pasteWorkPage = pageAfterFirstInsert;
+        ops.push(firstInsertOp);
+        firstInsertedCharRuns = firstInsertOp.charRuns;
+      }
       const firstBlockInPage = pasteWorkPage.blocks.find(
         (b) => b.id === currentBlock.id,
       );
@@ -1123,11 +1139,6 @@ function insertBlocksAtCursor(
         firstBlockInPage && isTextualBlock(firstBlockInPage)
           ? firstBlockInPage.charRuns
           : [];
-      const firstBlockChars: Char[] = [];
-      for (const { id, char } of iterateVisibleChars(firstBlockCharRuns)) {
-        firstBlockChars.push({ id, char, deleted: false });
-      }
-      ops.push(firstInsertOp);
 
       // Apply formats from first pasted block to inserted chars
       let firstBlockFormats = beforeFormats;
@@ -1147,7 +1158,7 @@ function insertBlocksAtCursor(
         );
 
         if (pasteStartIdx !== -1 && pasteEndIdx !== -1) {
-          const insertedChars = charRunsToChars(firstInsertOp.charRuns);
+          const insertedChars = charRunsToChars(firstInsertedCharRuns);
           const newStartCharId = insertedChars[pasteStartIdx]?.id;
           const newEndCharId = insertedChars[pasteEndIdx]?.id;
 

@@ -26,6 +26,7 @@ import type {
   SpaceInvite,
   PairCallbacks,
 } from "./types";
+import { invariant } from "@shared/invariant";
 import type { Driver, CryptoDriver } from "./driver";
 import type { HLC } from "@cypherkit/editor";
 import type { ReplicatorHost } from "./sync";
@@ -651,7 +652,7 @@ export class Engine implements Platform {
       invite: SpaceInvite,
       callbacks?: PairCallbacks,
     ): Promise<void> => {
-      if (!this.replicator) throw new Error("Replicator not initialized");
+      invariant(this.replicator, "Replicator not initialized");
       const identity = await this.identity.get();
       const privateKey = await this.getPrivateKey();
       const space = await this.spaces.get(invite.spaceId);
@@ -706,7 +707,7 @@ export class Engine implements Platform {
       invite: SpaceInvite,
       callbacks?: PairCallbacks,
     ): Promise<void> => {
-      if (!this.replicator) throw new Error("Replicator not initialized");
+      invariant(this.replicator, "Replicator not initialized");
       const identity = await this.identity.get();
       const privateKey = await this.getPrivateKey();
 
@@ -1439,22 +1440,22 @@ export class Engine implements Platform {
 
   sync: Platform["sync"] = {
     async joinRoom() {
-      throw new Error("Sync not initialized");
+      invariant(false, "Sync not initialized");
     },
     async leaveRoom() {
-      throw new Error("Sync not initialized");
+      invariant(false, "Sync not initialized");
     },
     sendOperations() {
-      throw new Error("Sync not initialized");
+      invariant(false, "Sync not initialized");
     },
     sendSyncRequest() {
-      throw new Error("Sync not initialized");
+      invariant(false, "Sync not initialized");
     },
     sendSyncResponse() {
-      throw new Error("Sync not initialized");
+      invariant(false, "Sync not initialized");
     },
     sendAwareness() {
-      throw new Error("Sync not initialized");
+      invariant(false, "Sync not initialized");
     },
     onPageEvents() {
       return () => {};
@@ -1597,11 +1598,10 @@ export class Engine implements Platform {
           "SELECT COUNT(*) as cnt FROM ops WHERE scope_id = ?",
           [pageId],
         );
-        // Strip ephemeral render cache before persisting — cachedHeight/cachedWidth
-        // are per-canvas-width hints that are invalid across sessions and screen sizes.
-        const cleanBlocks = blocks.map(
-          ({ cachedHeight: _h, cachedWidth: _w, ...b }) => b,
-        );
+        // Strip ephemeral render cache before persisting — cachedLayout is a
+        // large, per-canvas-width measured-layout object, invalid across sessions
+        // and screen sizes.
+        const cleanBlocks = blocks.map(({ cachedLayout: _l, ...b }) => b);
         const data = new TextEncoder().encode(
           JSON.stringify({ opCount: cnt, blocks: cleanBlocks }),
         );

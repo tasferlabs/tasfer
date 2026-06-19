@@ -21,7 +21,6 @@
  */
 
 import { baseDataSchema } from "./baseDataSchema";
-import { IncompatibleDocVersionError } from "./errors";
 import { type Block, loadPage, type Page } from "./serlization/loadPage";
 import { serializeToMarkdown } from "./serlization/serializer";
 import type {
@@ -47,6 +46,7 @@ import {
   maxOpIdCounter,
   maxPageIdCounter,
 } from "./sync/sync";
+import { invariant } from "@shared/invariant";
 
 /** An applied batch of operations, delivered to `Doc.on("update")` listeners. */
 export interface DocUpdate {
@@ -73,8 +73,8 @@ export interface CreateDocOptions {
   blocks?: Block[];
   /**
    * Restore a doc persisted with `encodeState()`. Takes precedence over
-   * `markdown`/`blocks`/`ops`. Throws {@link IncompatibleDocVersionError} if
-   * the blob's format version is unreadable by this build — see `createDoc`.
+   * `markdown`/`blocks`/`ops`. Throws if the blob's format version is
+   * unreadable by this build — see `createDoc`.
    */
   bytes?: Uint8Array;
   /**
@@ -211,12 +211,14 @@ function decodePersisted(bytes: Uint8Array): PersistedDocV1 {
     typeof parsed === "object" && parsed !== null
       ? (parsed as { v?: unknown }).v
       : undefined;
-  if (v !== PERSISTED_DOC_VERSION) {
-    throw new IncompatibleDocVersionError(
-      typeof v === "number" ? v : undefined,
-      PERSISTED_DOC_VERSION,
-    );
-  }
+  invariant(
+    v === PERSISTED_DOC_VERSION,
+    "createDoc: cannot read persisted document — %s (this build reads v%s)",
+    typeof v === "number"
+      ? `unsupported format version ${v}`
+      : "missing or malformed version field",
+    PERSISTED_DOC_VERSION,
+  );
   return parsed as PersistedDocV1;
 }
 
@@ -226,12 +228,10 @@ function decodePersisted(bytes: Uint8Array): PersistedDocV1 {
  * Accepts persisted bytes directly (`createDoc(savedBytes)`) or an options
  * object — see {@link CreateDocOptions}.
  *
- * @throws {IncompatibleDocVersionError} when restoring from `bytes` (either
- *   form) and the blob's format version isn't one this build can read — e.g.
- *   it was written by a newer app version. Wrap byte-restores in try/catch and
- *   handle this case (prompt to update) rather than letting it crash; do NOT
- *   fall back to a fresh doc and re-persist, or you overwrite the newer data.
- *   The non-`bytes` forms (markdown/blocks/ops) never throw it.
+ * @throws {InvariantError} when restoring from `bytes` (either form) and the
+ *   blob's format version isn't one this build can read — e.g. it was written
+ *   by a newer app version. The non-`bytes` forms (markdown/blocks/ops) never
+ *   throw it.
  */
 export function createDoc(input?: CreateDocOptions | Uint8Array): Doc {
   const options: CreateDocOptions =

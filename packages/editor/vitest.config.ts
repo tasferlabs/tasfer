@@ -5,6 +5,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@cypherkit/tex": resolve(__dirname, "../tex/src"),
+      "@shared": resolve(__dirname, "../../shared"),
     },
   },
   test: {

@@ -47,7 +47,9 @@ function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
   return chars;
 }
 
-// Helper to get or calculate block height, storing it on the block.
+// Helper to get a block's flow height. The base height comes from the block's
+// layout, which is memoized on the block (see Node.layout / memoizeNodeLayout),
+// so repeated height passes / hit-tests don't re-run the expensive layout.
 // `views` is the per-instance block view registry (from EditorState.nodes).
 export function getBlockHeight(
   views: NodeRegistry,
@@ -57,21 +59,20 @@ export function getBlockHeight(
   styles: EditorStyles,
   first: boolean,
 ): number {
-  // Calculate the base height (with caching)
-  let height: number;
-  if (block.cachedHeight !== undefined && block.cachedWidth === maxWidth) {
-    height = block.cachedHeight;
-  } else {
-    height = calculateBlockHeight(views, marks, block, maxWidth, styles);
-    block.cachedHeight = height;
-    block.cachedWidth = maxWidth;
-  }
+  const view = views.get(block.type) ?? new UnknownNode();
+  const height = view.layout({
+    block,
+    blockIndex: 0,
+    maxWidth,
+    isFirst: false,
+    styles,
+    marks,
+  }).height;
 
   // Some blocks (e.g. a first full-width image) bleed into the top padding and
   // therefore advance the flow by less than their drawn height. The per-type
   // rule lives on the block view rather than in a type switch here.
-  const view = views.get(block.type);
-  if (view?.adjustFlowHeight) {
+  if (view.adjustFlowHeight) {
     return view.adjustFlowHeight(height, {
       block,
       blockIndex: 0,
@@ -121,8 +122,7 @@ export function invalidateAffectedBlocks(
 
 // Invalidate cache for specific block (when content changes)
 export function invalidateBlockCache(block: Block) {
-  block.cachedHeight = undefined;
-  block.cachedWidth = undefined;
+  block.cachedLayout = undefined;
 }
 
 // Clear all block caches in a page (for window resize)
@@ -345,28 +345,6 @@ export { clearFailedImageCache, imageCache } from "../nodes/ImageNode";
 // renderLineBlock / renderMathBlock were removed: the `line` and `math` blocks
 // now live in rendering/nodes/{LineNode,MathNode}.ts and render via
 // the Node registry.
-
-// Calculate block height dynamically based on content and max width
-export function calculateBlockHeight(
-  views: NodeRegistry,
-  marks: MarkRegistry,
-  block: Block,
-  maxWidth: number,
-  styles: EditorStyles,
-): number {
-  // The height pass reuses the same layout() the painter uses, so
-  // wrapping/sizing never drifts. Unknown types fall back to the placeholder
-  // node so they reserve their on-screen space in the document flow.
-  const view = views.get(block.type) ?? new UnknownNode();
-  return view.layout({
-    block,
-    blockIndex: 0,
-    maxWidth,
-    isFirst: false,
-    styles,
-    marks,
-  }).height;
-}
 
 // Check if a block is visible in the viewport
 function isBlockVisible(

@@ -27,6 +27,7 @@ import {
 } from "./char-runs";
 import { compareBlocks, extractCounter, extractPeerId } from "./id";
 import { applyOp } from "./reducer";
+import { invariant } from "@shared/invariant";
 
 /**
  * Convert a Position (index-based) to a CRDTPosition (ID-based).
@@ -343,6 +344,14 @@ export interface FormatCharsResult {
 }
 /**
  * Insert text at a position in a block's visible content.
+ *
+ * Precondition: `text` is non-empty. An empty insert has no meaningful op to
+ * emit (the result type promises one), so "nothing to insert" is the caller's
+ * to handle by skipping the call — every caller guards on `text.length` before
+ * invoking. The check below is a defensive backstop against a future caller
+ * forgetting and silently logging/broadcasting an empty `text_insert` op; it is
+ * not a user-reachable error, so it stays an `invariant` (a bug backstop)
+ * rather than a recoverable, host-catchable error.
  */
 
 export function insertCharsAtPosition(
@@ -352,9 +361,11 @@ export function insertCharsAtPosition(
   text: string,
   binding: CRDTbinding,
 ): InsertCharsResult {
-  if (text.length === 0) {
-    throw new Error("Cannot insert empty text");
-  }
+  invariant(
+    text.length > 0,
+    "insertCharsAtPosition: empty text in block %s (caller must guard)",
+    blockId,
+  );
 
   const block = page.blocks.find((b) => b.id === blockId);
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;

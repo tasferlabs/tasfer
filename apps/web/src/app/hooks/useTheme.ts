@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { invariant } from "@shared/invariant";
 
 export type Theme = "light" | "dark" | "system";
 
@@ -100,9 +101,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
 export const useTheme = (): ThemeContextType => {
   const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error("useTheme must be used within a ThemeProvider");
-  }
+  invariant(context, "useTheme must be used within a ThemeProvider");
   return context;
 };
 

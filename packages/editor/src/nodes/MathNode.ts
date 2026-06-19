@@ -18,16 +18,24 @@
  * adapted into a BlockCodec by the schema.
  */
 
-import { type ActionBus, type ActionHandler, stateAction } from "../action-bus";
+import {
+  type ActionBus,
+  type ActionHandler,
+  stateAction,
+  type StateResult,
+  TEXT_INPUTTED,
+} from "../action-bus";
 import { SPLIT_BLOCK } from "../actions/edit-actions";
 import { POINTER_MOVE } from "../actions/pointer-actions";
 import { getInlineMathAtPosition } from "../inline-math";
 import type { MarkRegistry } from "../rendering/marks";
+import type { CaretModel } from "../rendering/nodes/caret-model";
 import type {
   BlockRuntimeState,
   NodeLayout,
   NodePaintCtx,
 } from "../rendering/nodes/Node";
+import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import { escapeHtml } from "../serlization/codecs/inline";
 import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
@@ -39,10 +47,6 @@ import {
   type VisibleToken,
 } from "../serlization/tokenizer";
 import type {
-  ActiveMenu,
-  CaretDeleteUnit,
-  CaretScratch,
-  ContentMaterialization,
   EditorState,
   EditorStyles,
   Operation,
@@ -50,18 +54,16 @@ import type {
   RenderedBlock,
   RenderedLine,
   TextStyle,
-  TypedInputTransform,
 } from "../state-types";
-import { isCaretScratchActive, setActiveMenu } from "../state-utils";
+import { isCaretScratchActive } from "../state-utils";
 import {
   getVisibleTextFromChars,
   getVisibleTextFromRuns,
 } from "../sync/char-runs";
+import { insertCharsAtPosition } from "../sync/crdt-utils";
 import {
   mathArmScratch,
-  mathCaretStep,
-  mathCaretTokenClamp,
-  mathCaretVerticalStep,
+  mathCaretMove,
   mathDeleteUnit,
   mathMaterializeAfterInput,
   mathPendingCommandRange,
@@ -459,60 +461,19 @@ export class MathNode extends TextNode {
     return "";
   }
 
-  // ── Caret / edit seam (block equation) ──────────────────────────────────────
+  // ── Caret model (block equation) ────────────────────────────────────────────
   // The block's char-run text IS the LaTeX, so a block text index is a LaTeX
-  // offset. All delegate to the shared math model in `./math`.
-
-  caretStep(
-    block: TextualBlock,
-    index: number,
-    dir: "left" | "right",
-  ): number | null {
-    return mathCaretStep(block, index, dir);
-  }
-
-  caretVerticalStep(
-    block: TextualBlock,
-    index: number,
-    dir: "up" | "down",
-  ): number | null {
-    return mathCaretVerticalStep(block, index, dir);
-  }
-
-  caretTokenClamp(
-    block: TextualBlock,
-    target: number,
-    dir: "left" | "right",
-  ): number | null {
-    return mathCaretTokenClamp(block, target, dir);
-  }
-
-  deleteUnit(
-    block: TextualBlock,
-    index: number,
-    dir: "backward" | "forward",
-  ): CaretDeleteUnit | null {
-    return mathDeleteUnit(block, index, dir);
-  }
-
-  transformTypedInput(
-    block: TextualBlock,
-    index: number,
-    input: string,
-  ): TypedInputTransform | null {
-    return mathTransformTypedInput(block, index, input);
-  }
-
-  materializeAfterInput(
-    block: TextualBlock,
-    index: number,
-  ): ContentMaterialization | null {
-    return mathMaterializeAfterInput(block, index);
-  }
-
-  armCaretScratch(block: TextualBlock, index: number): CaretScratch | null {
-    return mathArmScratch(block, index);
-  }
+  // offset. The equation isn't an opaque atom — the caret descends into it — so
+  // it overrides `move`/`deleteUnit` (delegating to the shared math model in
+  // `./math`) rather than declaring `atomicSpans`. The post-edit *effects*
+  // (materialize a construct, arm caret scratch) are the TEXT_INPUTTED observer
+  // in `registerActions`, not part of the caret model.
+  readonly caret: CaretModel<TextualBlock> = {
+    move: (block, index, motion) => mathCaretMove(block, index, motion),
+    deleteUnit: (block, index, dir) => mathDeleteUnit(block, index, dir),
+    transformInput: (block, index, input) =>
+      mathTransformTypedInput(block, index, input),
+  };
 
   /**
    * Register the math node's pointer handler:
@@ -620,7 +581,78 @@ export class MathNode extends TextNode {
       }) as unknown as ActionHandler<void>,
       0,
     );
+
+    // Post-insert normalization (the *effect* half of the caret/edit seam, the
+    // counterpart to the pure queries on `edit`). After a keystroke settles, fill
+    // an incomplete construct it just completed (`\frac` → `\frac{}{}`, caret to
+    // the numerator) and arm caret scratch for an in-progress command (`\in`
+    // rendered literally until the caret moves). One observer covers BOTH a block
+    // equation and an inline chip — `normalizeMathInput` resolves which (or
+    // neither) from the block + caret and no-ops on non-math content — so this is
+    // the single home for what used to be split between this node's and MathMark's
+    // `materializeAfterInput`/`armCaretScratch`. Observes (no `handled`) so it
+    // composes with any other node/mark's normalizer.
+    bus.registerState(TEXT_INPUTTED, (state, { blockIndex, textIndex }) =>
+      normalizeMathInput(state, blockIndex, textIndex),
+    );
   }
+}
+
+/**
+ * Materialize an incomplete math construct, then arm caret-anchored scratch,
+ * after an edit landed the caret at `(blockIndex, textIndex)` — the body of
+ * MathNode's TEXT_INPUTTED observer (covering block equations AND inline chips,
+ * since the shared math model resolves either from the block + caret). The
+ * placeholder braces are inserted as real CRDT ops, returned in the threaded
+ * `{ state, ops }` so the caller folds them into the same edit (one undo entry,
+ * consistent across collaborators). A no-op — state unchanged, no ops — unless
+ * the caret sits in math content with something to fill, so it's safe to run on
+ * every keystroke regardless of block type.
+ */
+function normalizeMathInput(
+  state: EditorState,
+  blockIndex: number,
+  textIndex: number,
+): StateResult {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return { state, ops: [] };
+
+  let next = state;
+  const ops: Operation[] = [];
+  let caret = textIndex;
+
+  const mat = mathMaterializeAfterInput(block, textIndex);
+  if (mat && mat.inserts.length > 0) {
+    let page = next.document.page;
+    // Right-to-left keeps each earlier `at` valid as later inserts shift text.
+    for (const ins of [...mat.inserts].sort((a, b) => b.at - a.at)) {
+      if (ins.text.length === 0) continue; // empty placeholder = nothing to insert
+      const { newPage, op } = insertCharsAtPosition(
+        page,
+        block.id,
+        ins.at,
+        ins.text,
+        next.CRDTbinding,
+      );
+      page = newPage;
+      ops.push(op);
+    }
+    invalidateBlockCache(page.blocks[blockIndex]);
+    next = { ...next, document: { ...next.document, page } };
+    caret = mat.caret;
+    next = moveCursorToPosition(next, blockIndex, caret, true);
+  }
+
+  // Arm scratch against the post-materialize content at the (possibly moved) caret.
+  const editedBlock = next.document.page.blocks[blockIndex];
+  const scratch =
+    editedBlock && !editedBlock.deleted
+      ? mathArmScratch(editedBlock, caret)
+      : null;
+  if (scratch) {
+    next = { ...next, ui: { ...next.ui, caretScratch: scratch } };
+  }
+  return { state: next, ops };
 }
 
 // ─── Math actions ────────────────────────────────────────────────────────────
@@ -636,26 +668,6 @@ interface InlineMathHover {
   startIndex: number;
   endIndex: number;
 }
-
-/**
- * Open the inline-math edit popover for a clicked chip and highlight that chip
- * while the popover is open. The handler resolves the overlay menu (host `math`
- * mark's key + the chip's range as `data`) and the matching hover range. Pure,
- * no ops.
- */
-export const OPEN_INLINE_MATH_OVERLAY = stateAction<{
-  overlay: Extract<ActiveMenu, { type: "overlay" }>;
-  hover: InlineMathHover;
-}>("open-inline-math-overlay", (state, { overlay, hover }) => {
-  const withOverlay = setActiveMenu(state, overlay);
-  return {
-    state: {
-      ...withOverlay,
-      ui: { ...withOverlay.ui, inlineMathHover: hover },
-    },
-    ops: [],
-  };
-});
 
 /** Set or clear the hovered block-math index (full-block backdrop). Pure, no ops. */
 export const SET_MATH_BLOCK_HOVER = stateAction<{ blockIndex: number | null }>(

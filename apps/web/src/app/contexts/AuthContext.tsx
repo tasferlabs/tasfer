@@ -1,4 +1,5 @@
 import React from "react";
+import { invariant } from "@shared/invariant";
 import { type AuthUser, getMe } from "../api/auth.api";
 
 interface AuthState {
@@ -51,6 +52,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth(): AuthContextValue {
   const ctx = React.useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  invariant(ctx, "useAuth must be used within AuthProvider");
   return ctx;
 }

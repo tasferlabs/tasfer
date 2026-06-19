@@ -3,16 +3,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   type Editor,
   filterMathCommands,
-  getInlineMathSpans,
   type MathCommand,
   mathCommandCaretOffset,
   renderToSVG,
   TEXT_INPUT,
 } from "@cypherkit/editor";
-import {
-  getBlockTextContent,
-  isTouchDevice,
-} from "@cypherkit/editor/internal";
+import { getBlockTextContent, isTouchDevice } from "@cypherkit/editor/internal";
 import { ScrollArea } from "../components/ui/scroll-area";
 
 interface MathCommandMenuProps {
@@ -30,13 +26,17 @@ interface Trigger {
 
 /**
  * Math `\` command menu — a Corca-style autocomplete that pops up when you type
- * `\` *inside* an inline-math chip. Self-contained host chrome (the engine has no
- * notion of it): it observes {@link TEXT_INPUT} to edge-trigger on a `\` typed
- * inside a chip, recomputes the query/anchor from editor state on every change,
+ * `\` inside a **block** equation. Self-contained host chrome (the engine has no
+ * notion of it): it observes {@link TEXT_INPUT} to edge-trigger on a `\` typed in
+ * a math block, recomputes the query/anchor from editor state on every change,
  * renders each candidate as live math (via {@link renderToSVG} — empty `{}`
  * slots show as faint placeholder boxes), and on select replaces the typed
  * `\query` with the construct and drops the caret in its first slot. Renders
  * nothing while closed.
+ *
+ * Inline-math chips reuse the same list — {@link MathCommandPalette} — but
+ * docked inside the WYSIWYG overlay (see `InlineMathOverlay`), so this floating
+ * controller deliberately handles block equations only.
  */
 export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
   editor,
@@ -105,19 +105,9 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       ) {
         return close();
       }
-      // In a block equation the whole block is the chip (no span anchors to
-      // protect), so any `\…` run triggers. For an inline chip the `\` and caret
-      // must both sit STRICTLY inside one span — the `\` past the first char, the
-      // caret before the last — so replacing `[backslash, caret)` on select
-      // stays interior and never deletes a span anchor char (which would orphan
-      // the chip). That's also why you can't start a command at a chip's edge.
-      if (block.type !== "math") {
-        const chip = getInlineMathSpans(block).find(
-          (s) =>
-            s.startIndex < t.backslashIndex && t.backslashIndex < s.endIndex,
-        );
-        if (!chip || caretIndex >= chip.endIndex) return close();
-      }
+      // This floating menu is for block equations only — inline chips dock the
+      // palette inside their overlay — so bail if we somehow left the block.
+      if (block.type !== "math") return close();
 
       // A LaTeX command name is letters only — a space/brace/digit ends it.
       const query = text.slice(t.backslashIndex + 1, caretIndex);
@@ -145,18 +135,12 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       TEXT_INPUT,
       ({ text, blockIndex, textIndex }) => {
         if (text !== "\\" || isTouchDevice()) return;
+        // Block equations only (their whole text IS the LaTeX, so a `\` anywhere
+        // triggers). Inline chips get their `\` menu docked inside the WYSIWYG
+        // overlay (see InlineMathOverlay), not this floating one.
         const block = editor.getState()?.document.page.blocks[blockIndex];
-        if (!block) return;
-        // A block equation is itself one big chip (its whole text IS the LaTeX),
-        // so a `\` anywhere in it triggers; an inline chip needs the `\` strictly
-        // inside the span.
-        const inside =
-          block.type === "math" ||
-          getInlineMathSpans(block).some(
-            (s) => s.startIndex < textIndex && textIndex < s.endIndex,
-          );
-        if (inside)
-          triggerRef.current = { blockIndex, backslashIndex: textIndex };
+        if (block?.type !== "math") return;
+        triggerRef.current = { blockIndex, backslashIndex: textIndex };
       },
     );
     const offSub = editor.subscribe(recompute);
@@ -193,14 +177,77 @@ const MathCommandList: React.FC<MathCommandListProps> = ({
   onSelect,
   onClose,
 }) => {
-  const selectedRef = useRef<HTMLButtonElement>(null);
-
   const maxHeight = useMemo(() => {
     const viewportHeight =
       typeof window !== "undefined" ? window.innerHeight : 800;
     const available = viewportHeight - y - 20 - 5;
     return Math.max(180, Math.min(420, available));
   }, [y]);
+
+  return (
+    <Popover.Root open={true} onOpenChange={(open) => !open && onClose()}>
+      <Popover.Anchor
+        style={{
+          position: "fixed",
+          left: `${x}px`,
+          top: `${y}px`,
+          width: 1,
+          height: 1,
+        }}
+      />
+      <Popover.Portal>
+        <Popover.Content
+          className="z-50 select-none"
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <MathCommandPalette
+            query={query}
+            onSelect={onSelect}
+            onClose={onClose}
+            maxHeight={maxHeight}
+            className="bg-popover rounded-xl shadow-xl border border-border/50 min-w-[340px] max-w-[420px] overflow-hidden"
+          />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+};
+
+interface MathCommandPaletteProps {
+  query: string;
+  onSelect: (cmd: MathCommand) => void;
+  /** Dismiss the palette (Escape / no match / caret left the `\` run). */
+  onClose: () => void;
+  /** Max scroll height of the list, px. */
+  maxHeight: number;
+  /**
+   * Styling for the list's root container. The floating menu supplies the full
+   * popover box; the docked overlay supplies a separator instead (its parent is
+   * already the box).
+   */
+  className?: string;
+}
+
+/**
+ * The `\`-command list itself — filtering, keyboard nav (Arrow to move,
+ * Enter/Tab to select, Escape/←→ to dismiss), live-math previews, and
+ * auto-dismiss when nothing matches. Presentational and position-free, so it
+ * renders both as the floating block-equation menu (wrapped in a Popover by
+ * {@link MathCommandList}) and docked inside the inline-math WYSIWYG overlay.
+ * Renders nothing when no command matches the query.
+ */
+export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
+  query,
+  onSelect,
+  onClose,
+  maxHeight,
+  className,
+}) => {
+  const selectedRef = useRef<HTMLButtonElement>(null);
 
   // Filter + pre-render each candidate's preview SVG (cheap, but memoized so
   // typing a letter doesn't re-render every row's math from scratch).
@@ -279,63 +326,43 @@ const MathCommandList: React.FC<MathCommandListProps> = ({
   if (items.length === 0) return null;
 
   return (
-    <Popover.Root open={true} onOpenChange={(open) => !open && onClose()}>
-      <Popover.Anchor
-        style={{
-          position: "fixed",
-          left: `${x}px`,
-          top: `${y}px`,
-          width: 1,
-          height: 1,
-        }}
-      />
-      <Popover.Portal>
-        <Popover.Content
-          className="bg-popover rounded-xl shadow-xl border border-border/50 min-w-[340px] max-w-[420px] z-50 select-none overflow-hidden"
-          side="bottom"
-          align="start"
-          sideOffset={6}
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          onCloseAutoFocus={(e) => e.preventDefault()}
-        >
-          <ScrollArea style={{ maxHeight }}>
-            <div className="p-1.5">
-              {items.map(({ cmd, svg }, index) => {
-                const isSelected = index === selectedIndex;
-                return (
-                  <button
-                    key={cmd.id}
-                    ref={isSelected ? selectedRef : null}
-                    className={`w-full px-2.5 py-2 flex items-center gap-3 rounded-lg transition-colors ${
-                      isSelected ? "bg-accent" : "hover:bg-accent/50"
-                    }`}
-                    onClick={() => onSelect(cmd)}
-                    onMouseDown={(e) => e.preventDefault()}
-                  >
-                    <span
-                      className="flex h-9 w-[116px] flex-shrink-0 items-center overflow-hidden text-popover-foreground [&>svg]:h-auto [&>svg]:max-h-9 [&>svg]:w-auto [&>svg]:max-w-full"
-                      // The preview is engine-rendered SVG (trusted, no user input).
-                      dangerouslySetInnerHTML={{ __html: svg }}
-                    />
-                    <span
-                      className={`flex-1 text-start text-sm truncate ${
-                        isSelected
-                          ? "text-foreground font-medium"
-                          : "text-popover-foreground"
-                      }`}
-                    >
-                      {cmd.name}
-                    </span>
-                    <span className="flex-shrink-0 text-xs text-muted-foreground/70 font-mono">
-                      \{cmd.id}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </ScrollArea>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+    <div className={className}>
+      <ScrollArea style={{ maxHeight }}>
+        <div className="p-1.5">
+          {items.map(({ cmd, svg }, index) => {
+            const isSelected = index === selectedIndex;
+            return (
+              <button
+                key={cmd.id}
+                ref={isSelected ? selectedRef : null}
+                className={`w-full px-2.5 py-2 flex items-center gap-3 rounded-lg transition-colors ${
+                  isSelected ? "bg-accent" : "hover:bg-accent/50"
+                }`}
+                onClick={() => onSelect(cmd)}
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                <span
+                  className="flex h-9 w-[116px] flex-shrink-0 items-center overflow-hidden text-popover-foreground [&>svg]:h-auto [&>svg]:max-h-9 [&>svg]:w-auto [&>svg]:max-w-full"
+                  // The preview is engine-rendered SVG (trusted, no user input).
+                  dangerouslySetInnerHTML={{ __html: svg }}
+                />
+                <span
+                  className={`flex-1 text-start text-sm truncate ${
+                    isSelected
+                      ? "text-foreground font-medium"
+                      : "text-popover-foreground"
+                  }`}
+                >
+                  {cmd.name}
+                </span>
+                <span className="flex-shrink-0 text-xs text-muted-foreground/70 font-mono">
+                  \{cmd.id}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </ScrollArea>
+    </div>
   );
 };

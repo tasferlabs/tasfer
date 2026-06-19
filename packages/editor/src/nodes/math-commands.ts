@@ -236,7 +236,12 @@ const COMMANDS: readonly MathCommand[] = [
   },
 
   // Structures
-  { id: "boxed", name: "Boxed", keywords: ["box", "frame", "border"], latex: "\\boxed{}" },
+  {
+    id: "boxed",
+    name: "Boxed",
+    keywords: ["box", "frame", "border"],
+    latex: "\\boxed{}",
+  },
   {
     id: "overbrace",
     name: "Overbrace",
@@ -436,18 +441,63 @@ const COMMANDS: readonly MathCommand[] = [
   { id: "cos", name: "Cosine", keywords: ["cos", "trig"], latex: "\\cos" },
   { id: "tan", name: "Tangent", keywords: ["tan", "trig"], latex: "\\tan" },
   { id: "sec", name: "Secant", keywords: ["sec", "trig"], latex: "\\sec" },
-  { id: "csc", name: "Cosecant", keywords: ["csc", "cosec", "trig"], latex: "\\csc" },
+  {
+    id: "csc",
+    name: "Cosecant",
+    keywords: ["csc", "cosec", "trig"],
+    latex: "\\csc",
+  },
   { id: "cot", name: "Cotangent", keywords: ["cot", "trig"], latex: "\\cot" },
-  { id: "sinh", name: "Hyperbolic sine", keywords: ["sinh", "hyperbolic"], latex: "\\sinh" },
-  { id: "cosh", name: "Hyperbolic cosine", keywords: ["cosh", "hyperbolic"], latex: "\\cosh" },
-  { id: "tanh", name: "Hyperbolic tangent", keywords: ["tanh", "hyperbolic"], latex: "\\tanh" },
+  {
+    id: "sinh",
+    name: "Hyperbolic sine",
+    keywords: ["sinh", "hyperbolic"],
+    latex: "\\sinh",
+  },
+  {
+    id: "cosh",
+    name: "Hyperbolic cosine",
+    keywords: ["cosh", "hyperbolic"],
+    latex: "\\cosh",
+  },
+  {
+    id: "tanh",
+    name: "Hyperbolic tangent",
+    keywords: ["tanh", "hyperbolic"],
+    latex: "\\tanh",
+  },
   { id: "log", name: "Logarithm", keywords: ["log"], latex: "\\log" },
   { id: "ln", name: "Natural log", keywords: ["ln", "log"], latex: "\\ln" },
-  { id: "exp", name: "Exponential", keywords: ["exp", "exponential"], latex: "\\exp" },
-  { id: "max", name: "Maximum", keywords: ["max", "maximum"], latex: "\\max_{}" },
-  { id: "min", name: "Minimum", keywords: ["min", "minimum"], latex: "\\min_{}" },
-  { id: "det", name: "Determinant", keywords: ["det", "determinant"], latex: "\\det" },
-  { id: "gcd", name: "GCD", keywords: ["gcd", "greatest", "divisor"], latex: "\\gcd" },
+  {
+    id: "exp",
+    name: "Exponential",
+    keywords: ["exp", "exponential"],
+    latex: "\\exp",
+  },
+  {
+    id: "max",
+    name: "Maximum",
+    keywords: ["max", "maximum"],
+    latex: "\\max_{}",
+  },
+  {
+    id: "min",
+    name: "Minimum",
+    keywords: ["min", "minimum"],
+    latex: "\\min_{}",
+  },
+  {
+    id: "det",
+    name: "Determinant",
+    keywords: ["det", "determinant"],
+    latex: "\\det",
+  },
+  {
+    id: "gcd",
+    name: "GCD",
+    keywords: ["gcd", "greatest", "divisor"],
+    latex: "\\gcd",
+  },
 
   // Greek — lowercase
   { id: "alpha", name: "Alpha", keywords: ["greek"], latex: "\\alpha" },
@@ -512,7 +562,12 @@ const COMMANDS: readonly MathCommand[] = [
     latex: "\\Lambda",
   },
   { id: "Xi", name: "Xi (uppercase)", keywords: ["greek"], latex: "\\Xi" },
-  { id: "Pi", name: "Pi (uppercase)", keywords: ["greek", "product"], latex: "\\Pi" },
+  {
+    id: "Pi",
+    name: "Pi (uppercase)",
+    keywords: ["greek", "product"],
+    latex: "\\Pi",
+  },
   {
     id: "Sigma",
     name: "Sigma (uppercase)",
