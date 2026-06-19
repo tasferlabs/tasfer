@@ -47,6 +47,7 @@ import type {
   NodeRegionCtx,
   Point,
 } from "../rendering/nodes/Node";
+import { hitRegion } from "../rendering/nodes/Node";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import { escapeAttr } from "../serlization/codecs/inline";
@@ -478,11 +479,11 @@ export class ImageNode extends AtomicNode<Image> {
    */
   regions(c: NodeRegionCtx): readonly NodeHitRegion[] {
     return [
-      {
+      hitRegion({
         id: "image-resize",
         priority: 60,
         modes: ["edit", "select"],
-        hitTest: (p, pointerType) => {
+        hitTest: (p, pointerType): ImageResizeHit | null => {
           const block = c.block as Image;
           if (!block.url) return null;
           const box = this.hitTestBox(c, c.origin, p);
@@ -500,8 +501,7 @@ export class ImageNode extends AtomicNode<Image> {
           return handle ? { blockIndex: c.blockIndex, box, handle } : null;
         },
         drag: {
-          onStart(hit, p, ctx) {
-            const h = hit as ImageResizeHit;
+          onStart(h, p, ctx) {
             // Tolerance 12 covers both pointer types — the hit test already
             // applied the per-pointer slop, this only re-derives the handle.
             const started = startImageHandleDrag(
@@ -624,7 +624,7 @@ export class ImageNode extends AtomicNode<Image> {
             );
           },
         },
-      },
+      }),
     ];
   }
 

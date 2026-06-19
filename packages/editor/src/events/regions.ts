@@ -50,7 +50,7 @@ export type RegionResult = {
   ops?: Operation[];
 } | null;
 
-export interface RegionDragSpec {
+export interface RegionDragSpec<H = unknown> {
   /**
    * Touch only: the pointer must be held still this long (ms) before the drag
    * activates. While pending, the touch behaves normally (scroll/tap); moving
@@ -63,8 +63,13 @@ export interface RegionDragSpec {
    * — the engine no longer fires haptics itself.
    */
   activationIntensity?: "light" | "medium" | "heavy";
-  /** Return null to decline — the pointer falls through uncaptured. */
-  onStart(hit: unknown, p: RegionPoint, ctx: RegionCtx): RegionResult;
+  /**
+   * `hit` is the payload this drag's region returned from `hitTest` (typed `H`
+   * when the region is built via {@link import("../rendering/nodes/Node").hitRegion};
+   * `unknown` for the type-erased event-layer registry). Return null to decline —
+   * the pointer falls through uncaptured.
+   */
+  onStart(hit: H, p: RegionPoint, ctx: RegionCtx): RegionResult;
   onMove(p: RegionPoint, ctx: RegionCtx): RegionResult;
   /** `p` is null when the release position is unknown (e.g. window-level mouseup). */
   onEnd(p: RegionPoint | null, ctx: RegionCtx): RegionResult;

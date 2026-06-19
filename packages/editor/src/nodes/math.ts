@@ -192,10 +192,12 @@ export function mathCaretMove(
 /**
  * The math editing unit adjacent to the caret to delete/select. In a block
  * equation it's the unit before/after the caret. In a chip it's the chip's own
- * unit, except two cases delete the WHOLE chip (so its span never loses a leading
- * anchor char and strands the rest): the caret sits just past the chip (atomic
- * from outside), or the unit reaches the chip's first/last char. `null` when the
- * caret isn't in math content.
+ * unit — including the unit at the chip's first/last char, which deletes just
+ * that unit and leaves the rest of the chip a valid span (`getInlineMathSpans`
+ * resolves endpoints tolerantly, so dropping a leading/trailing anchor char no
+ * longer strands the rest). The one whole-chip case is the caret sitting just
+ * past the chip, where it's atomic from outside. `null` when the caret isn't in
+ * math content.
  */
 export function mathDeleteUnit(
   block: Block,
@@ -225,11 +227,10 @@ export function mathDeleteUnit(
     if (inside) {
       const u = mathUnitBefore(inside.latex, index - inside.startIndex);
       if (u) {
-        const reachesStart = u.start <= 0;
         return {
-          from: reachesStart ? inside.startIndex : inside.startIndex + u.start,
-          to: reachesStart ? inside.endIndex : inside.startIndex + u.end,
-          isConstruct: reachesStart ? false : u.isConstruct,
+          from: inside.startIndex + u.start,
+          to: inside.startIndex + u.end,
+          isConstruct: u.isConstruct,
         };
       }
     }
@@ -252,11 +253,10 @@ export function mathDeleteUnit(
   if (inside) {
     const u = mathUnitAfter(inside.latex, index - inside.startIndex);
     if (u) {
-      const reachesEnd = u.end >= inside.latex.length;
       return {
-        from: reachesEnd ? inside.startIndex : inside.startIndex + u.start,
-        to: reachesEnd ? inside.endIndex : inside.startIndex + u.end,
-        isConstruct: reachesEnd ? false : u.isConstruct,
+        from: inside.startIndex + u.start,
+        to: inside.startIndex + u.end,
+        isConstruct: u.isConstruct,
       };
     }
   }

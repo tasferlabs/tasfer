@@ -16,7 +16,7 @@
 
 import type { Block } from "./serlization/loadPage";
 import { isTextualBlock } from "./sync/block-registry";
-import { iterateVisibleChars } from "./sync/char-runs";
+import { iterateAllChars } from "./sync/char-runs";
 
 export interface InlineMathSpan {
   startIndex: number;
@@ -27,28 +27,51 @@ export interface InlineMathSpan {
 export function getInlineMathSpans(block: Block): InlineMathSpan[] {
   if (!isTextualBlock(block)) return [];
 
-  // Build a visible-index view of the block's chars: index → id (to locate the
-  // span's tagged start/end chars) and index → char (to recover the LaTeX).
-  const visibleIds: string[] = [];
-  const visibleChars: string[] = [];
-  for (const { id, char } of iterateVisibleChars(block.charRuns)) {
-    visibleIds.push(id);
-    visibleChars.push(char);
+  // Resolve the span's tagged endpoints *tolerantly*: a format span anchors to
+  // exact char IDs, but those chars can be tombstoned (deleting a chip's leading
+  // char makes `startCharId` a tombstone) while interior chars survive. Matching
+  // the render path (`isCharInSpan` finds the anchor over ALL chars, not just
+  // visible ones), we key off document-order ordinals so a span resolves to its
+  // surviving visible chars instead of vanishing when an endpoint is deleted.
+  const ordinal = new Map<string, number>(); // char id → document-order position
+  const visibleOrd: number[] = []; // ordinal of each visible char, ascending
+  const visibleChars: string[] = []; // visible chars, to recover the LaTeX
+  let ord = 0;
+  for (const { id, char, deleted } of iterateAllChars(block.charRuns)) {
+    ordinal.set(id, ord);
+    if (!deleted) {
+      visibleOrd.push(ord);
+      visibleChars.push(char);
+    }
+    ord++;
   }
 
   const spans: InlineMathSpan[] = [];
   for (const span of block.formats) {
     if (span.format.type !== "math") continue;
-    const startIdx = visibleIds.indexOf(span.startCharId);
-    const endIdx = visibleIds.indexOf(span.endCharId);
-    if (startIdx === -1 || endIdx === -1) continue;
+    const startOrd = ordinal.get(span.startCharId);
+    const endOrd = ordinal.get(span.endCharId);
+    if (startOrd === undefined || endOrd === undefined) continue;
 
-    // Caret-edge range is [startIdx, endIdx + 1): startIdx before the first
-    // char, endIdx + 1 after the last.
+    // Visible chars whose ordinal falls within the (possibly tombstoned)
+    // endpoint range [startOrd, endOrd]. `visibleOrd` ascends, so the first such
+    // index opens the span and the last closes it.
+    let startIndex = -1;
+    let endIndex = -1;
+    for (let vi = 0; vi < visibleOrd.length; vi++) {
+      if (visibleOrd[vi] < startOrd) continue;
+      if (visibleOrd[vi] > endOrd) break;
+      if (startIndex === -1) startIndex = vi;
+      endIndex = vi;
+    }
+    if (startIndex === -1) continue; // every char in the span is deleted
+
+    // Caret-edge range is [startIndex, endIndex + 1): startIndex before the
+    // first surviving char, endIndex + 1 after the last.
     spans.push({
-      startIndex: startIdx,
-      endIndex: endIdx + 1,
-      latex: visibleChars.slice(startIdx, endIdx + 1).join(""),
+      startIndex,
+      endIndex: endIndex + 1,
+      latex: visibleChars.slice(startIndex, endIndex + 1).join(""),
     });
   }
   return spans;

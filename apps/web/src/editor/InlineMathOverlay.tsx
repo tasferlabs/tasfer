@@ -58,6 +58,14 @@ interface OpenChip {
   latex: string;
   /** Caret offset within the chip (`cursorTextIndex − startIndex`). */
   offset: number;
+  /**
+   * Whether a `\command` is actively being *entered* at the caret (the engine's
+   * caret-scratch is armed here). Mirrors `MathMark`/`MathNode`'s
+   * `commandEntryActive` gate: only then is a `\`-run kept as literal source
+   * (`\al`). Merely resting the caret at the trailing edge of a COMPLETE command
+   * (`\eta`) must still render the glyph η, not the source.
+   */
+  commandEntry: boolean;
   /** Screen anchor (chip's start, below the line). */
   screenX: number;
   screenY: number;
@@ -76,6 +84,7 @@ function chipsEqual(a: OpenChip | null, b: OpenChip | null): boolean {
     a.endIndex === b.endIndex &&
     a.latex === b.latex &&
     a.offset === b.offset &&
+    a.commandEntry === b.commandEntry &&
     a.screenX === b.screenX &&
     a.screenY === b.screenY
   );
@@ -148,6 +157,15 @@ export const InlineMathOverlay: React.FC<InlineMathOverlayProps> = ({
       const rect = getContainerRect();
       if (!coords || !rect) return;
 
+      // Command-entry is armed only by typing (a caret move clears the scratch),
+      // so this is true exactly while the user is entering a `\command` here —
+      // the same gate the on-canvas chip uses to keep a `\`-run literal.
+      const scratch = st.ui.caretScratch;
+      const commandEntry =
+        scratch != null &&
+        scratch.blockId === block.id &&
+        scratch.offset === textIndex;
+
       const next: OpenChip = {
         blockIndex,
         blockId: block.id,
@@ -155,6 +173,7 @@ export const InlineMathOverlay: React.FC<InlineMathOverlayProps> = ({
         endIndex: span.endIndex,
         latex: span.latex,
         offset: textIndex - span.startIndex,
+        commandEntry,
         screenX: rect.left + coords.x,
         screenY: rect.top + coords.y + coords.height,
       };
@@ -246,10 +265,19 @@ const InlineMathCanvas: React.FC<{
 }> = ({ chip, caretColor, onClickOffset, commandSlot }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // A half-typed `\command` stays literal (`\in`, not ∈) — exactly as the on-canvas
-  // chip painter (MathMark) does, so the magnified view matches the small chip.
-  const pendingRange =
+  // Two distinct uses of the `\command` run at the caret, mirroring MathMark:
+  //  • literalRange — keep the run as literal SOURCE (`\al`, not the glyph). Only
+  //    while a command is actively being entered (`chip.commandEntry`); otherwise
+  //    resting the caret right after a COMPLETE command (`\eta`) would wrongly
+  //    show its source instead of η.
+  //  • pendingRange — a COLOR hint so an unknown half-typed command's glyphs paint
+  //    in normal text color (not the red placeholder); harmless for known
+  //    commands. Derived from the caret whenever the caret is in the run, exactly
+  //    as MathMark's paint does.
+  const commandRange =
     mathPendingCommandRange(chip.latex, chip.offset) ?? undefined;
+  const literalRange = chip.commandEntry ? commandRange : undefined;
+  const pendingRange = commandRange;
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
@@ -258,7 +286,7 @@ const InlineMathCanvas: React.FC<{
     const layout = layoutMath(chip.latex, {
       fontSize: FONT_SIZE,
       displayMode: false,
-      literalRange: pendingRange,
+      literalRange,
     });
 
     const cssWidth = Math.ceil(layout.width + PAD_X * 2);
@@ -286,7 +314,7 @@ const InlineMathCanvas: React.FC<{
       chip.latex,
       FONT_SIZE,
       chip.offset,
-      pendingRange,
+      literalRange,
     );
     if (caret) {
       ctx.fillStyle = caretColor;
@@ -297,7 +325,7 @@ const InlineMathCanvas: React.FC<{
         caret.bottom - caret.top,
       );
     }
-  }, [chip.latex, chip.offset, pendingRange, caretColor]);
+  }, [chip.latex, chip.offset, literalRange, pendingRange, caretColor]);
 
   // Repaint after EVERY render (no dep array). The canvas can be (re)mounted or
   // repositioned by Radix — e.g. its measure-then-position on open, or a reflow
@@ -323,7 +351,7 @@ const InlineMathCanvas: React.FC<{
       const layout = layoutMath(chip.latex, {
         fontSize: FONT_SIZE,
         displayMode: false,
-        literalRange: pendingRange,
+        literalRange,
       });
       const baselineY = PAD_Y + layout.height;
       const offset = getInlineMathOffsetAtX(
@@ -334,7 +362,7 @@ const InlineMathCanvas: React.FC<{
       );
       onClickOffset(offset);
     },
-    [chip.latex, pendingRange, onClickOffset],
+    [chip.latex, literalRange, onClickOffset],
   );
 
   return (

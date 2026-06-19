@@ -64,6 +64,7 @@ export {
 export { AtomicNode } from "./AtomicNode";
 export type { CaretModel, CaretMotion, TextSpan } from "./caret-model";
 export {
+  hitRegion,
   Node,
   type NodeActivateCtx,
   type NodeActivation,

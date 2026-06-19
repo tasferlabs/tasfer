@@ -152,28 +152,52 @@ export interface NodeRegionCtx extends NodeLayoutCtx {
  * (e.g. ImageNode's resize-handle drag) rather than splitting geometry here and
  * behavior into a binding table in the event layer. Geometry-only regions (no
  * `onTap`/`drag`) are still bound by id (e.g. the todo checkbox).
+ *
+ * Generic over `H`, the hit-payload type: whatever {@link hitTest} returns is
+ * exactly what {@link onTap} and {@link drag}'s `onStart` receive, so a node
+ * author never casts the hit. Build a region with the {@link hitRegion} helper
+ * to infer `H` from `hitTest`'s return; `regions()` then erases it back to
+ * `unknown` for the heterogeneous event-layer registry (safe because the region
+ * is internally consistent).
  */
-export interface NodeHitRegion {
+export interface NodeHitRegion<H = unknown> {
   /** Stable id the event layer binds behavior to (e.g. "todo-checkbox"). */
   id: string;
   /**
    * Hit data (forwarded to the bound behavior) or null. The point is in
    * canvas coordinates; apply pointer-type hit slop here.
    */
-  hitTest(p: Point, pointerType: NodePointerType): unknown | null;
+  hitTest(p: Point, pointerType: NodePointerType): H | null;
   /** Higher wins when several regions contain the point. Defaults to 0. */
   priority?: number;
   /** Editor modes this region is active in. Defaults to ["edit", "select"]. */
   modes?: readonly ("edit" | "select" | "readonly")[];
-  /** Tap behavior (carried with the region). */
+  /** Tap behavior (carried with the region); `hit` is this region's payload. */
   onTap?(
-    hit: unknown,
+    hit: H,
     p: RegionPoint,
     tapCount: number,
     ctx: RegionCtx,
   ): RegionResult;
   /** Drag behavior (carried with the region). */
-  drag?: RegionDragSpec;
+  drag?: RegionDragSpec<H>;
+}
+
+/**
+ * Identity helper that infers a hit region's payload type `H` from its
+ * `hitTest` return, so `onTap`/`drag.onStart` receive that exact type with no
+ * cast. Wrap each region literal a node's {@link Node.regions} returns:
+ *
+ *   hitRegion({
+ *     id: "image-resize",
+ *     hitTest: (p, pt): ImageResizeHit | null => …,
+ *     drag: { onStart(hit) { …  hit is ImageResizeHit … } },
+ *   })
+ *
+ * The result is assignable to the erased `NodeHitRegion` the array returns.
+ */
+export function hitRegion<H>(region: NodeHitRegion<H>): NodeHitRegion<H> {
+  return region;
 }
 
 /** An atomic block (image/math/line) resolved under the pointer. */
@@ -232,9 +256,18 @@ export abstract class Node<B extends Block = Block> {
    * `bulletList`) or which borrows another block's metrics (math borrows the
    * paragraph style) overrides this. Non-textual nodes (image/line) never receive
    * a text-geometry pass, so the default's return value is unused for them.
+   *
+   * When the theme has no entry under `type` (a custom textual node that forgot
+   * to register a theme key, or whose key differs without overriding this), the
+   * default falls back to the paragraph style rather than returning `undefined`
+   * typed as a `TextStyle` — so a missing key yields valid metrics instead of a
+   * later deref. The lookup is by string, hence the index signature.
    */
   textStyle(styles: EditorStyles, type: B["type"]): TextStyle {
-    return styles.blocks[type as keyof EditorStyles["blocks"]] as TextStyle;
+    const style = styles.blocks[type as keyof EditorStyles["blocks"]] as
+      | TextStyle
+      | undefined;
+    return style ?? styles.blocks.paragraph;
   }
 
   /**

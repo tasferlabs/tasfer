@@ -31,6 +31,7 @@ export {
   createDefaultNodeRegistry,
   createNodeRegistry,
   END_IMAGE_HANDLE_DRAG,
+  hitRegion,
   ImageNode,
   INDENT_LIST_ITEM,
   LineNode,
