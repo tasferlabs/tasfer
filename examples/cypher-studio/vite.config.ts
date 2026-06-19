@@ -14,6 +14,8 @@ export default defineConfig({
       "@cypherkit/editor": resolve(repoRoot, "packages/editor/src"),
       "@cypherkit/tex": resolve(repoRoot, "packages/tex/src"),
       "@cypherkit/react": resolve(repoRoot, "packages/react/src"),
+      // editor's source imports the repo-root shared invariant helper.
+      "@shared": resolve(repoRoot, "shared"),
       "@": resolve(__dirname, "src"),
     },
   },

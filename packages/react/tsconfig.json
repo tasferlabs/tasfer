@@ -13,14 +13,16 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "jsx": "react-jsx",
+    // Resolve sibling @cypherkit packages from their built dist declarations
+    // (react re-exports editor types that reference @cypherkit/tex). Build them
+    // in dependency order: tex and editor before this. React's own types come
+    // from the locally-installed @types/react(-dom) devDependencies.
     "paths": {
       "*": ["./*"],
-      "@cypherkit/editor": ["../editor/src/index.ts"],
-      "@cypherkit/editor/*": ["../editor/src/*"],
-      "react": ["../../apps/web/node_modules/@types/react"],
-      "react/*": ["../../apps/web/node_modules/@types/react/*"],
-      "react-dom": ["../../apps/web/node_modules/@types/react-dom"],
-      "react-dom/*": ["../../apps/web/node_modules/@types/react-dom/*"]
+      "@cypherkit/editor": ["../editor/dist/index.d.mts"],
+      "@cypherkit/editor/*": ["../editor/dist/*"],
+      "@cypherkit/tex": ["../tex/dist/index.d.mts"],
+      "@cypherkit/tex/*": ["../tex/dist/*"]
     }
   },
   "include": ["src"]

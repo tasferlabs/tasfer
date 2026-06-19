@@ -5,6 +5,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
@@ -12,11 +14,23 @@
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
+  "sideEffects": false,
+  "files": ["dist"],
   "exports": {
-    ".": "./src/index.ts",
-    "./internal": "./src/internal.ts"
+    ".": {
+      "import": { "types": "./dist/index.d.mts", "default": "./dist/index.mjs" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+    },
+    "./*": {
+      "import": { "types": "./dist/*.d.mts", "default": "./dist/*.mjs" },
+      "require": { "types": "./dist/*.d.cts", "default": "./dist/*.cjs" }
+    }
   },
   "peerDependencies": {
+    "@cypherkit/tex": "*",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "typescript": "^5.9.3"
@@ -29,6 +43,7 @@
     "eslint-plugin-simple-import-sort": "^13.0.0",
     "eslint-plugin-unused-imports": "^4.4.1",
     "prettier": "^3.8.3",
+    "tsdown": "^0.22.3",
     "typescript-eslint": "^8.0.0",
     "vitest": "^4.1.8"
   },

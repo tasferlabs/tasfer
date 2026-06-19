@@ -12,12 +12,14 @@
     "skipLibCheck": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    // Resolve sibling @cypherkit packages from their built dist declarations.
+    // Build them in dependency order: editor and provider-core before this.
     "paths": {
       "*": ["./*"],
-      "@cypherkit/editor": ["../editor/src/index.ts"],
-      "@cypherkit/editor/*": ["../editor/src/*"],
-      "@cypherkit/provider-core": ["../provider-core/src/index.ts"],
-      "@cypherkit/provider-core/*": ["../provider-core/src/*"]
+      "@cypherkit/editor": ["../editor/dist/index.d.mts"],
+      "@cypherkit/editor/*": ["../editor/dist/*"],
+      "@cypherkit/provider-core": ["../provider-core/dist/index.d.mts"],
+      "@cypherkit/provider-core/*": ["../provider-core/dist/*"]
     }
   },
   "include": ["src"]

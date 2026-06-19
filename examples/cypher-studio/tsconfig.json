@@ -29,6 +29,7 @@
       "@cypherkit/tex/*": ["../../packages/tex/src/*"],
       "@cypherkit/react": ["../../packages/react/src/index.ts"],
       "@cypherkit/react/*": ["../../packages/react/src/*"],
+      "@shared/*": ["../../shared/*"],
       "@/*": ["./src/*"],
       "react": ["./node_modules/@types/react"],
       "react/*": ["./node_modules/@types/react/*"],
