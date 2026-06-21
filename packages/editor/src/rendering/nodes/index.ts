@@ -37,6 +37,7 @@ import {
   TOGGLE_TODO_CHECKED,
 } from "../../nodes/ListNode";
 import {
+  EXIT_INLINE_MATH,
   MathNode,
   SET_INLINE_MATH_HOVER,
   SET_MATH_BLOCK_HOVER,
@@ -68,6 +69,7 @@ export {
   TOGGLE_TODO_CHECKED,
 } from "../../nodes/ListNode";
 export {
+  EXIT_INLINE_MATH,
   MathNode,
   SET_INLINE_MATH_HOVER,
   SET_MATH_BLOCK_HOVER,
@@ -101,9 +103,11 @@ export { UnknownNode } from "./UnknownNode";
  * The built-in node commands, grouped — exposed at the package root as
  * `NodeActions`. Each is co-located with the node it acts on (list
  * indent/outdent + todo checkbox on `ListNode`, image hover + resize-handle drag
- * + paragraph-below on `ImageNode`, math hover on `MathNode`) and aggregated
- * here, the node registry's wiring point. Mostly intimate node-internal geometry;
- * the list/checkbox commands are the plausibly host-bindable members.
+ * + paragraph-below on `ImageNode`, math hover + inline-math caret-exit on
+ * `MathNode`) and aggregated here, the node registry's wiring point. Mostly
+ * intimate node-internal geometry; the list/checkbox commands and the
+ * `EXIT_INLINE_MATH` caret-exit (which a host's inline-math popover dispatches)
+ * are the plausibly host-bindable members.
  */
 export const NodeActions = {
   INDENT_LIST_ITEM,
@@ -117,6 +121,7 @@ export const NodeActions = {
   CREATE_PARAGRAPH_BELOW_IMAGE,
   SET_MATH_BLOCK_HOVER,
   SET_INLINE_MATH_HOVER,
+  EXIT_INLINE_MATH,
 } as const;
 
 /**

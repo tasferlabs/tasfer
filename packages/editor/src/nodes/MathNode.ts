@@ -36,7 +36,12 @@ import type {
   NodePaintCtx,
 } from "../rendering/nodes/Node";
 import { invalidateBlockCache } from "../rendering/renderer";
-import { clearSelection, moveCursorToPosition } from "../selection";
+import {
+  clearSelection,
+  moveCursorLeft,
+  moveCursorRight,
+  moveCursorToPosition,
+} from "../selection";
 import { escapeHtml } from "../serlization/codecs/inline";
 import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
 import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
@@ -55,7 +60,7 @@ import type {
   RenderedLine,
   TextStyle,
 } from "../state-types";
-import { isCaretScratchActive } from "../state-utils";
+import { closeActiveMenu, isCaretScratchActive } from "../state-utils";
 import {
   getVisibleTextFromChars,
   getVisibleTextFromRuns,
@@ -707,3 +712,47 @@ export const SET_INLINE_MATH_HOVER = stateAction<{
     ops: [],
   };
 });
+
+/**
+ * Move the caret out of the inline-math chip `[startIndex, endIndex)` in
+ * `blockId`, toward `direction`, and dismiss the chip's transient UI (any open
+ * menu + the edit-highlight `inlineMathHover`). A pure cursor move — no ops.
+ *
+ * This is the inline-math counterpart to the caret-exit a host needs when the
+ * user arrows/Escapes out of the WYSIWYG popover that mirrors the chip. It lives
+ * here with the math node (not as a method on the generic editor handle) and is
+ * fired by the host via `editor.dispatch(NodeActions.EXIT_INLINE_MATH, …)`, like
+ * every other node/mark behavior. The caret is placed on the exiting edge and
+ * then stepped one position further with the caret-model-aware
+ * {@link moveCursorLeft} / {@link moveCursorRight}, so the chip's own snap can't
+ * pull it back inside.
+ */
+export const EXIT_INLINE_MATH = stateAction<{
+  blockId: string;
+  startIndex: number;
+  endIndex: number;
+  direction: "left" | "right";
+}>(
+  "exit-inline-math",
+  (state, { blockId, startIndex, endIndex, direction }) => {
+    const blockIndex = state.document.page.blocks.findIndex(
+      (b) => b.id === blockId,
+    );
+    if (blockIndex === -1) return { state, ops: [] };
+
+    let next = closeActiveMenu(state);
+    // Clear the edit highlight that lit the chip while the popover was open.
+    if (next.ui.inlineMathHover) {
+      next = { ...next, ui: { ...next.ui, inlineMathHover: null } };
+    }
+
+    // Place the caret on the side we're exiting toward, then step out one
+    // position so the chip's snap doesn't pull us back inside.
+    next =
+      direction === "left"
+        ? moveCursorLeft(moveCursorToPosition(next, blockIndex, startIndex))
+        : moveCursorRight(moveCursorToPosition(next, blockIndex, endIndex));
+
+    return { state: next, ops: [] };
+  },
+);

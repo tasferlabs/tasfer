@@ -5,6 +5,7 @@ import {
   DEFAULT_ACTION_PRIORITY,
   type DispatchArgs,
   isMutationAction,
+  isStateAction,
   type MutationAction,
   type MutationHandler,
   OPEN_CONTEXT_MENU,
@@ -58,11 +59,7 @@ import {
   getCursorDocumentCoords,
   scrollToMakeCursorVisible,
 } from "../selection";
-import {
-  moveCursorLeft,
-  moveCursorRight,
-  moveCursorToPosition,
-} from "../selection";
+import { moveCursorToPosition } from "../selection";
 import { isCursorBlinking } from "../selection";
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
@@ -384,10 +381,18 @@ export interface EditorApi {
     priority?: number,
   ): () => void;
   /**
-   * Dispatch a action through this editor's bus. For a plain action, returns
-   * whether a handler claimed it. For a mutation action (see `action`), the
-   * default plus all observers run inside ONE undoable transaction and the
-   * return value is whether the document changed (see {@link Editor.registerAction}).
+   * Dispatch a action through this editor's bus — the single entry point for all
+   * three action kinds (see `action` / `stateAction`):
+   * - **plain action** — runs its handlers; returns whether one claimed it.
+   * - **mutation action** — the default plus all observers run inside ONE
+   *   undoable transaction; returns whether the document changed.
+   * - **state action** — its observers and (unless one claims it) its default
+   *   transform run as one committed step, recorded to undo and broadcast when it
+   *   emits ops; returns whether the editor state changed. This is how a host
+   *   fires a node/mark's lower-level state behavior (e.g. a math chip's
+   *   `EXIT_INLINE_MATH` caret exit) at the live editor.
+   *
+   * @see {@link Editor.registerAction}
    */
   dispatch<P>(action: Action<P>, ...args: DispatchArgs<P>): boolean;
   /** Serialize the current document to a Markdown string. */
@@ -523,16 +528,6 @@ export interface EditorApi {
    * produces no CRDT op.
    */
   setNodeViewState: (blockId: string, data: unknown | null) => void;
-  /** Close the inline-math edit popover and move the caret past the chip in the
-   * given visual direction. Used when the user arrows out of the popover input.
-   * The block is addressed by stable `blockId` (resolved to an index internally),
-   * matching the document-mutating ChangeApi. */
-  exitInlineMath: (
-    blockId: string,
-    startIndex: number,
-    endIndex: number,
-    direction: "left" | "right",
-  ) => void;
   /**
    * Close whichever menu/overlay is currently open (slash menu, host overlay…)
    * and notify subscribers.
@@ -2418,6 +2413,22 @@ export class Editor implements EditorApi, EditorWiring {
   };
 
   dispatch = <P>(action: Action<P>, ...args: DispatchArgs<P>): boolean => {
+    // State action: thread the working state through its observers plus (unless
+    // one claims it) its pure default transform, then commit the result — undo +
+    // broadcast if it emitted ops, render + notify either way. This is the live-
+    // editor entry point for the bus's lower-level kind (a cursor/selection move
+    // that emits no ops, like a math chip's caret exit). Returns whether the
+    // state actually changed.
+    if (isStateAction(action)) {
+      const prev = this._state;
+      const result = this._state.actionBus.dispatchState(
+        action,
+        this._state,
+        ...args,
+      );
+      this.executeAction(result);
+      return result.state !== prev;
+    }
     // Plain action: route straight through the bus (handler walk, override on
     // first `true`). Returns whether a handler claimed it.
     if (!isMutationAction(action)) {
@@ -3331,40 +3342,6 @@ export class Editor implements EditorApi, EditorWiring {
 
       return { state: movedState, ops: [op] };
     };
-
-  exitInlineMath = (
-    blockId: string,
-    startIndex: number,
-    endIndex: number,
-    direction: "left" | "right",
-  ): void => {
-    const blockIndex = this._state.document.page.blocks.findIndex(
-      (b) => b.id === blockId,
-    );
-    if (blockIndex === -1) return;
-    this._state = closeActiveMenu(this._state);
-    // Clear the edit highlight set when the popover opened.
-    if (this._state.ui.inlineMathHover) {
-      this._state = {
-        ...this._state,
-        ui: { ...this._state.ui, inlineMathHover: null },
-      };
-    }
-
-    // Place the caret on the side we're exiting toward, then step out one
-    // position so snapInlineMathPosition doesn't pull us back into the chip.
-    if (direction === "left") {
-      this._state = moveCursorToPosition(this._state, blockIndex, startIndex);
-      this._state = moveCursorLeft(this._state);
-    } else {
-      this._state = moveCursorToPosition(this._state, blockIndex, endIndex);
-      this._state = moveCursorRight(this._state);
-    }
-
-    const currentState = this._state;
-    this.scheduleRender();
-    this.listeners.forEach((listener) => listener(currentState));
-  };
 
   closeActiveMenu = (): void => {
     this._state = closeActiveMenu(this._state);

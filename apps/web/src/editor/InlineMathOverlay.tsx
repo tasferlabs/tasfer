@@ -11,6 +11,7 @@ import {
   getInlineMathSpans,
   type MathCommand,
   mathCommandCaretOffset,
+  NodeActions,
 } from "@cypherkit/editor";
 import {
   getEditorStyles,
@@ -193,12 +194,12 @@ export const InlineMathOverlay: React.FC<InlineMathOverlayProps> = ({
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();
-      editor.exitInlineMath(
-        chip.blockId,
-        chip.startIndex,
-        chip.endIndex,
-        "right",
-      );
+      editor.dispatch(NodeActions.EXIT_INLINE_MATH, {
+        blockId: chip.blockId,
+        startIndex: chip.startIndex,
+        endIndex: chip.endIndex,
+        direction: "right",
+      });
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
