@@ -1,5 +1,7 @@
 import {
   createEditor,
+  type CreateEditorBaseOptions,
+  type CreateEditorContent,
   type CreateEditorOptions,
   type CypherEditor,
 } from "@cypherkit/editor";
@@ -10,8 +12,15 @@ import type { RefObject } from "react";
  * Options for {@link useEditor}: every {@link CreateEditorOptions} field except
  * `element`, which the hook owns (it mounts the canvas into a `<div>` it manages
  * through `containerRef`).
+ *
+ * Built by omitting `element` from the *base* options and re-intersecting the
+ * {@link CreateEditorContent} union — NOT `Omit<CreateEditorOptions, "element">`,
+ * because `Omit` over a union collapses it (`keyof` a union is the intersection
+ * of its members' keys), which would silently drop the value/blocks/doc
+ * exclusivity at the React layer.
  */
-export type UseEditorOptions = Omit<CreateEditorOptions, "element">;
+export type UseEditorOptions = Omit<CreateEditorBaseOptions, "element"> &
+  CreateEditorContent;
 
 /**
  * Return value of {@link useEditor}.
