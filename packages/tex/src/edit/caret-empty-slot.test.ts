@@ -6,8 +6,8 @@
  * on the slot's own row (a numerator above the bar, a superscript raised off the
  * baseline), which both places the caret correctly and lets ↑/↓ reach it.
  */
-import { caretStops, caretVertical, hitTest } from "./caret.ts";
-import { layoutMath } from "../index.ts";
+import { caretStops, caretVertical, hitTest } from "./caret";
+import { layoutMath } from "../index";
 import { describe, expect, it } from "vitest";
 
 const FS = 16;

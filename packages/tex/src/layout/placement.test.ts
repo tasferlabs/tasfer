@@ -9,8 +9,8 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { Box } from "./box.ts";
-import { layoutMath } from "../index.ts";
+import type { Box } from "./box";
+import { layoutMath } from "../index";
 
 /** Depth-first walk yielding every box with its absolute x/y (em). */
 function* walk(box: Box, x = 0, y = 0): Generator<{ box: Box; x: number; y: number }> {

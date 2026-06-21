@@ -9,15 +9,15 @@ import {
   type AtomClass,
   SPACINGS,
   TIGHT_SPACINGS,
-} from "../data/constants.ts";
+} from "../data/constants";
 import {
   atomClassOf,
   type FontVariant,
   resolveFontVariant,
-} from "../data/fontMetrics.ts";
-import type { SigmaName } from "../data/constants.ts";
-import type { Node, Span } from "../parse/ast.ts";
-import { DISPLAY, SCRIPT, type Style, TEXT } from "../style.ts";
+} from "../data/fontMetrics";
+import type { SigmaName } from "../data/constants";
+import type { Node, Span } from "../parse/ast";
+import { DISPLAY, SCRIPT, type Style, TEXT } from "../style";
 import {
   type Box,
   glyphBox,
@@ -30,10 +30,10 @@ import {
   type Placed,
   placeholderBox,
   ruleBox,
-} from "./box.ts";
-import { chooseSurd, makeDelimiter, SIZE_TO_MAX_HEIGHT } from "./delimiter.ts";
-import { SCRIPTSCRIPT } from "../style.ts";
-import { mathSymbols } from "../data/symbols.ts";
+} from "./box";
+import { chooseSurd, makeDelimiter, SIZE_TO_MAX_HEIGHT } from "./delimiter";
+import { SCRIPTSCRIPT } from "../style";
+import { mathSymbols } from "../data/symbols";
 
 interface Built {
   box: Box;

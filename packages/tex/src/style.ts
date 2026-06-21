@@ -12,7 +12,7 @@ import {
   SIZE_STYLE_MAP,
   sizeColumn,
   type SizeColumn,
-} from "./data/constants.ts";
+} from "./data/constants";
 
 // Style ids.
 const D = 0;

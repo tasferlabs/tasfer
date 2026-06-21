@@ -5,9 +5,9 @@
  * of the way while a command (including a prefix-sharing one) is still typed.
  */
 import { describe, expect, it } from "vitest";
-import { needsCommandSeparator, parse, pendingCommandRange } from "./parser.ts";
-import type { Node } from "./ast.ts";
-import { layoutMath } from "../index.ts";
+import { needsCommandSeparator, parse, pendingCommandRange } from "./parser";
+import type { Node } from "./ast";
+import { layoutMath } from "../index";
 
 /** Names of every `unknown` (unresolved/literal) command anywhere in the tree. */
 function unknownNames(node: Node): string[] {

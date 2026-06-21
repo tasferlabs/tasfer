@@ -7,9 +7,9 @@
  * renders correctly wherever those `@font-face`s are available (the app loads
  * them via `loadFonts`).
  */
-import type { Box } from "../layout/box.ts";
-import { fontFamily } from "../fonts/fonts.ts";
-import type { MathLayout } from "../index.ts";
+import type { Box } from "../layout/box";
+import { fontFamily } from "../fonts/fonts";
+import type { MathLayout } from "../index";
 
 export interface ToSvgOptions {
   color?: string;

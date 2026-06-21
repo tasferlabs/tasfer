@@ -5,7 +5,7 @@
  * Command names group as one unit, so a unit never chips `\sin` into `\si`/`\s`.
  */
 import { describe, expect, it } from "vitest";
-import { unitAfter, unitBefore } from "./unit.ts";
+import { unitAfter, unitBefore } from "./unit";
 
 /** Convenience: unit on each side as a tuple for terse assertions. */
 function back(latex: string, offset: number) {

@@ -5,8 +5,8 @@
  * renders down in the denominator / up on the script row instead of beside the
  * whole construct — and pressing → never reaches a top-level position.
  */
-import { caretRect, caretStops, caretVertical } from "./caret.ts";
-import { layoutMath } from "../index.ts";
+import { caretRect, caretStops, caretVertical } from "./caret";
+import { layoutMath } from "../index";
 import { describe, expect, it } from "vitest";
 
 const FS = 16;

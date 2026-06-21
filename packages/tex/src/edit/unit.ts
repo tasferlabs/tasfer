@@ -19,8 +19,8 @@
  * chips a command into a broken `\si`/`\s` — the token-granularity the inline
  * chips need falls out of the same descent, no separate lexer pass required.
  */
-import type { Node } from "../parse/ast.ts";
-import { parse } from "../parse/parser.ts";
+import type { Node } from "../parse/ast";
+import { parse } from "../parse/parser";
 
 /** The resolved editing unit adjacent to a caret. */
 export interface MathUnit {

@@ -4,12 +4,19 @@
  * Pipeline: `latex → parse → layout → MathLayout`, then `paintMath` draws the
  * layout onto a canvas. `layoutMath` is synchronous and returns exact pixel
  * dimensions (metrics are a data table, not an async measurement).
+ *
+ * This module IS the curated public contract: it deals in `latex` strings and
+ * the opaque `MathLayout` handle (which you create with `layoutMath` and hand
+ * straight to `paintMath` / the caret helpers without inspecting). The brittle
+ * internals it's built on — the laid-out box tree and the parse AST — live in
+ * the explicitly-unstable `@cypherkit/tex/internal` entry (see ./internal.ts),
+ * mirroring `@cypherkit/editor`. Keep this surface tight.
  */
-import { buildExpression } from "./layout/build.ts";
-import type { Box } from "./layout/box.ts";
-import type { Node } from "./parse/ast.ts";
-import { parse } from "./parse/parser.ts";
-import { DISPLAY, TEXT } from "./style.ts";
+import { buildExpression } from "./layout/build";
+import type { Box } from "./layout/box";
+import type { Node } from "./parse/ast";
+import { parse } from "./parse/parser";
+import { DISPLAY, TEXT } from "./style";
 
 export interface LayoutOptions {
   /** Display style (centered, full-size operators) vs inline text style. */
@@ -96,40 +103,32 @@ export function layoutMath(latex: string, opts: LayoutOptions = {}): MathLayout 
   };
 }
 
-export {
-  parse,
-  needsCommandSeparator,
-  pendingCommandRange,
-} from "./parse/parser.ts";
-export type { ParseOptions } from "./parse/parser.ts";
-export type { Node, Span } from "./parse/ast.ts";
-export { paintMath, type PaintOptions } from "./paint/canvas.ts";
-export { toSVG, type ToSvgOptions } from "./paint/svg.ts";
+export { needsCommandSeparator, pendingCommandRange } from "./parse/parser";
+export { paintMath, type PaintOptions } from "./paint/canvas";
+export { toSVG, type ToSvgOptions } from "./paint/svg";
 export {
   caretStops,
   hitTest,
   caretRect,
   caretVertical,
   selectionRects,
-} from "./edit/caret.ts";
+} from "./edit/caret";
 export type {
   CaretStop,
   CaretRect,
   SelectionRect,
-} from "./edit/caret.ts";
-export { unitBefore, unitAfter, type MathUnit } from "./edit/unit.ts";
+} from "./edit/caret";
+export { unitBefore, unitAfter, type MathUnit } from "./edit/unit";
 export {
   normalizeLatex,
   type LatexNormalization,
   type LatexInsert,
-} from "./edit/normalize.ts";
-export { fontFamily, loadFonts, ALL_VARIANTS } from "./fonts/fonts.ts";
-export type { LoadFontsOptions } from "./fonts/fonts.ts";
-export type {
-  Box,
-  GlyphBox,
-  RuleBox,
-  ListBox,
-  PlaceholderBox,
-} from "./layout/box.ts";
-export type { FontVariant } from "./data/fontMetrics.ts";
+} from "./edit/normalize";
+export { fontFamily, loadFonts, ALL_VARIANTS } from "./fonts/fonts";
+export type { LoadFontsOptions } from "./fonts/fonts";
+export type { FontVariant } from "./data/fontMetrics";
+
+// The laid-out box tree (`Box`/`GlyphBox`/`RuleBox`/`ListBox`/`PlaceholderBox`),
+// the parse AST (`Node`/`Span`), and `parse`/`ParseOptions` are brittle engine
+// internals, not a stable contract — they live in `@cypherkit/tex/internal`.
+// At the root, the box tree is reachable only as the opaque `MathLayout.box`.

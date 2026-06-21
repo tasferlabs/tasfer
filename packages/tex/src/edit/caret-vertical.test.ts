@@ -7,8 +7,8 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { caretRect, caretVertical } from "./caret.ts";
-import { layoutMath } from "../index.ts";
+import { caretRect, caretVertical } from "./caret";
+import { layoutMath } from "../index";
 
 const FS = 16;
 

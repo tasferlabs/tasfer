@@ -20,8 +20,8 @@
  * already gives for its braced entries. Idempotent: a fully-braced formula
  * (`\frac{}{}`) is returned unchanged.
  */
-import type { Node } from "../parse/ast.ts";
-import { parse } from "../parse/parser.ts";
+import type { Node } from "../parse/ast";
+import { parse } from "../parse/parser";
 
 /** A single placeholder insertion: `text` to splice in at source index `at`. */
 export interface LatexInsert {

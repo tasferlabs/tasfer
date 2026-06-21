@@ -9,8 +9,8 @@
  * (fractions, scripts, radicals) need no special handling — their inner glyphs
  * already carry spans, so the caret naturally descends into them.
  */
-import type { Box, SlotRole } from "../layout/box.ts";
-import type { MathLayout } from "../index.ts";
+import type { Box, SlotRole } from "../layout/box";
+import type { MathLayout } from "../index";
 
 export interface CaretStop {
   /** Offset into the source LaTeX string. */

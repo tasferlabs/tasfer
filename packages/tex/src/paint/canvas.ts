@@ -5,9 +5,9 @@
  * cache: color is just `fillStyle`, and high-DPI is whatever transform the
  * caller already set on the context.
  */
-import type { Box } from "../layout/box.ts";
-import { fontFamily } from "../fonts/fonts.ts";
-import type { MathLayout } from "../index.ts";
+import type { Box } from "../layout/box";
+import { fontFamily } from "../fonts/fonts";
+import type { MathLayout } from "../index";
 
 export interface PaintOptions {
   /** Base text color (CSS string). Per-glyph colors override it. */

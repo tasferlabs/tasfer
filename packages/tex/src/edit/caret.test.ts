@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { caretRect, caretStops, hitTest, layoutMath, selectionRects } from "../index.ts";
+import { caretRect, caretStops, hitTest, layoutMath, selectionRects } from "../index";
 
 describe("caret model", () => {
   it("produces stops at source-offset boundaries", () => {

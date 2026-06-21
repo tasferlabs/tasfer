@@ -8,7 +8,7 @@
 import katexDefault from "katex";
 import { describe, expect, it } from "vitest";
 
-import { layoutMath } from "../index.ts";
+import { layoutMath } from "../index";
 
 // `__renderToDomTree` is a KaTeX internal (not in its public types) that returns
 // the built tree with numeric `height`/`depth` in em — exactly our oracle.

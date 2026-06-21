@@ -26,7 +26,7 @@
 import katexDefault from "katex";
 import { describe, expect, it } from "vitest";
 
-import { layoutMath } from "../index.ts";
+import { layoutMath } from "../index";
 
 const katex = katexDefault as unknown as {
   __renderToDomTree(

@@ -5,9 +5,9 @@
  * real position. The transform is pure, idempotent, and reports the insertions
  * + caret remap a host needs to apply it as a consistent edit.
  */
-import { normalizeLatex } from "./normalize.ts";
-import { caretStops } from "./caret.ts";
-import { layoutMath } from "../index.ts";
+import { normalizeLatex } from "./normalize";
+import { caretStops } from "./caret";
+import { layoutMath } from "../index";
 import { describe, expect, it } from "vitest";
 
 describe("normalizeLatex", () => {

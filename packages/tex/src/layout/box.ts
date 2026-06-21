@@ -8,12 +8,12 @@
  * DOWN (canvas-friendly). A child is positioned by `(dx, dy)` where `dy` shifts
  * its baseline below the parent baseline (negative = up, as for a superscript).
  */
-import type { AtomClass } from "../data/constants.ts";
+import type { AtomClass } from "../data/constants";
 import {
   type FontVariant,
   getCharacterMetrics,
-} from "../data/fontMetrics.ts";
-import type { Span } from "../parse/ast.ts";
+} from "../data/fontMetrics";
+import type { Span } from "../parse/ast";
 
 export interface Dim {
   width: number;

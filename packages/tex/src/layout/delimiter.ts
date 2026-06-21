@@ -5,14 +5,14 @@
  * math axis. The extensible middle is a single repeat glyph scaled vertically
  * (KaTeX stretches an SVG path; on canvas we just scale the glyph).
  */
-import { mathSymbols } from "../data/symbols.ts";
-import { type FontVariant, getCharacterMetrics } from "../data/fontMetrics.ts";
+import { mathSymbols } from "../data/symbols";
+import { type FontVariant, getCharacterMetrics } from "../data/fontMetrics";
 import {
   SCRIPT,
   SCRIPTSCRIPT,
   type Style,
   TEXT,
-} from "../style.ts";
+} from "../style";
 import {
   type Box,
   glyphBox,
@@ -20,7 +20,7 @@ import {
   listBox,
   type Placed,
   scaledGlyph,
-} from "./box.ts";
+} from "./box";
 
 const LAP = 0.008; // overlap between stacked pieces, in em
 export const SIZE_TO_MAX_HEIGHT = [0, 1.2, 1.8, 2.4, 3.0];

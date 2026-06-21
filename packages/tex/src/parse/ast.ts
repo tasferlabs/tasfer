@@ -3,7 +3,7 @@
  * end)` range of the source LaTeX it came from — which is the spine of live
  * editing (hit-testing and caret placement map screen ↔ source through it).
  */
-import type { SymbolInfo } from "../data/symbols.ts";
+import type { SymbolInfo } from "../data/symbols";
 
 /** Half-open source range `[start, end)` into the original LaTeX string. */
 export interface Span {

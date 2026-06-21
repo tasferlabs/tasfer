@@ -2,9 +2,9 @@
  * Per-glyph metric lookup and the mapping from a symbol's logical font/group to
  * a concrete font face. The metric table is vendored from KaTeX (MIT).
  */
-import type { AtomClass } from "./constants.ts";
+import type { AtomClass } from "./constants";
 import fontMetricsData from "./fontMetricsData.js";
-import type { SymbolInfo, SymGroup } from "./symbols.ts";
+import type { SymbolInfo, SymGroup } from "./symbols";
 
 /** A concrete font face — matches both a metric-table key and a WOFF2 basename. */
 export type FontVariant =

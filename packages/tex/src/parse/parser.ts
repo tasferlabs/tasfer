@@ -7,15 +7,15 @@
  * unknown commands become visible `unknown` placeholders, so a live preview can
  * render the valid part of every intermediate string.
  */
-import { mathSymbols, type SymbolInfo } from "../data/symbols.ts";
+import { mathSymbols, type SymbolInfo } from "../data/symbols";
 import type {
   MClassNode,
   Node,
   PhantomNode,
   Span,
   StyleNode,
-} from "./ast.ts";
-import { type Token, tokenize } from "./lexer.ts";
+} from "./ast";
+import { type Token, tokenize } from "./lexer";
 
 export interface ParseOptions {
   /**

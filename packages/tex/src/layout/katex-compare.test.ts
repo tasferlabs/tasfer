@@ -19,11 +19,11 @@
 import katexDefault from "katex";
 import { describe, expect, it } from "vitest";
 
-import { layoutMath } from "../index.ts";
-import { parse } from "../parse/parser.ts";
-import { buildExpression } from "./build.ts";
-import { DISPLAY } from "../style.ts";
-import type { Box } from "./box.ts";
+import { layoutMath } from "../index";
+import { parse } from "../parse/parser";
+import { buildExpression } from "./build";
+import { DISPLAY } from "../style";
+import type { Box } from "./box";
 
 const katex = katexDefault as unknown as {
   __renderToDomTree(

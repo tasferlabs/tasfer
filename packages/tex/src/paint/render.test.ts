@@ -19,8 +19,8 @@ import { dirname, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { ALL_VARIANTS, fontFamily } from "../fonts/fonts.ts";
-import { layoutMath, paintMath } from "../index.ts";
+import { ALL_VARIANTS, fontFamily } from "../fonts/fonts";
+import { layoutMath, paintMath } from "../index";
 
 const FONT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../fonts");
 const FS = 40; // render font size (px)

@@ -4,7 +4,7 @@
  * bold shapes are baked into the font files, so we never rely on the browser's
  * synthetic style matching. `ctx.font` then only needs the family name.
  */
-import type { FontVariant } from "../data/fontMetrics.ts";
+import type { FontVariant } from "../data/fontMetrics";
 
 const FAMILY_PREFIX = "CypherTeX_";
 
