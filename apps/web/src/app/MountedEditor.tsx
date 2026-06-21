@@ -217,7 +217,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
           const imageData = await uploadImage(file);
           // Address by id — the upload may have shifted the block index.
           editor.change((c) =>
-            c.setNode(
+            c.setBlock(
               { url: imageData.url, alt: imageData.fileName },
               { block: block.id },
             ),
@@ -238,7 +238,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
         // Clear failed cache for this URL to allow retry
         clearFailedImageCache(url);
 
-        editor.change((c) => c.setNode({ url }, { block: block.id }));
+        editor.change((c) => c.setBlock({ url }, { block: block.id }));
         editor.setNodeViewState(block.id, null);
       }}
       onDelete={() => {
@@ -248,7 +248,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
           .getState()
           ?.document.page.blocks.find((blk) => blk.id === blockId);
         if (block && !block.deleted)
-          editor.change((c) => c.deleteNode({ block: block.id }));
+          editor.change((c) => c.deleteBlock({ block: block.id }));
         close();
       }}
       onClose={close}
@@ -501,7 +501,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
  * Renders the language picker for a `CodeNode`-declared `"code-language"` slot.
  * The descriptor anchors a 1×1 point at the block box's top-right corner; the
  * chip insets itself from there. The current language is read live off the block
- * and a selection is written back via `setNodeAttrs` (a `language` block_set op),
+ * and a selection is written back via `setBlock` (a `language` block_set op),
  * so the document stays the single source of truth — no React-side state.
  */
 const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
@@ -524,7 +524,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
       .getState()
       ?.document.page.blocks.find((blk) => blk.id === blockId);
     if (b && !b.deleted && b.type === "code") {
-      editor.change((c) => c.setNode({ language }, { block: b.id }));
+      editor.change((c) => c.setBlock({ language }, { block: b.id }));
     }
   };
 
@@ -1425,7 +1425,7 @@ function EditorSurface({
           URL.revokeObjectURL(block.url);
         }
         mounted.editor.change((c) =>
-          c.setNode(
+          c.setBlock(
             { url: imageData.url, alt: imageData.fileName },
             { block: block.id },
           ),
@@ -1533,7 +1533,7 @@ function EditorSurface({
       undo: () => mounted.editor.undo(),
       redo: () => mounted.editor.redo(),
       setBlockType: (type: string) =>
-        mounted.editor.change((c) => c.setNode({ type: type as any })),
+        mounted.editor.change((c) => c.setBlock({ type: type as any })),
       focus: () => {
         mounted.editor.setFocus(true);
         mounted.editor.setInitialCursor();
@@ -2452,7 +2452,7 @@ function EditorSurface({
           }
           onSetBlockType={(type) =>
             mountedRef.current?.editor.change((c) =>
-              c.setNode({ type: type as any }),
+              c.setBlock({ type: type as any }),
             )
           }
           onDismissKeyboard={() => mountedRef.current?.blurInput()}

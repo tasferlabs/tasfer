@@ -34,8 +34,8 @@ import { onFontsReady } from "../fonts";
 import { getBlockTextContent } from "../node-shared";
 import {
   activeCaretMarks,
+  type BlockData,
   docMarks,
-  type DocNode,
   type DocPoint,
   type DocRange,
   docSelection,
@@ -43,7 +43,7 @@ import {
   resolveInlineRange,
   resolvePoint,
   selectTarget,
-  toDocNode,
+  toBlockData,
 } from "../positions";
 import {
   clearAllBlockCaches,
@@ -163,11 +163,11 @@ export interface ChangeTransaction {
  */
 export type MarkName = string;
 
-// The DocPoint / DocRange / DocNode position vocabulary — and the pure resolvers
+// The DocPoint / DocRange / BlockData position vocabulary — and the pure resolvers
 // that consume it — live in `../positions` (free functions over EditorState, so
 // they're unit-testable without a canvas). Re-exported here because they're part
 // of the ChangeApi / read-API contract.
-export type { DocNode, DocPoint, DocRange } from "../positions";
+export type { BlockData, DocPoint, DocRange } from "../positions";
 
 /**
  * The single mutation surface, handed to the callback of {@link Editor.change}
@@ -218,7 +218,7 @@ export interface ChangeApi {
    * absent and any extra own attrs are applied as `block_set` ops. Text content
    * is not seeded — insert an empty block, then fill it.
    */
-  insertNode(
+  insertBlock(
     block: Partial<Block> & { type: Block["type"] },
     at?: DocPoint,
   ): this;
@@ -228,9 +228,10 @@ export interface ChangeApi {
    * (paragraph/heading/list/code) and void (image/math/line, which clear their
    * text and get a trailing paragraph); `"heading"` is sugar mapped to heading1–3
    * by `level`. Other attrs are validated against the block type's schema and set
-   * one `block_set` per field. Folds the former `setBlock` + `setNodeAttrs`.
+   * one `block_set` per field — structural conversion and plain attr edits fold
+   * into this one call.
    */
-  setNode(
+  setBlock(
     attrs: { type?: Block["type"] | "heading"; level?: number } & Record<
       string,
       unknown
@@ -239,7 +240,7 @@ export interface ChangeApi {
   ): this;
   /** Delete the block at `at` (default: caret block); tombstoned so undo can
    * restore it. If it was the last visible block, an empty paragraph replaces it. */
-  deleteNode(at?: DocPoint): this;
+  deleteBlock(at?: DocPoint): this;
 
   // ── selection ─────────────────────────────────────────────────────────────
   /**
@@ -433,13 +434,13 @@ export interface EditorApi {
   isSelectionEmpty: () => boolean;
   /**
    * Plain-data view of the block at `at` (default: the caret block), or `null`
-   * when there's no such block. The read counterpart to {@link ChangeApi.setNode}
-   * — a host reads a {@link DocNode}'s id/attrs and hands them straight back to a
+   * when there's no such block. The read counterpart to {@link ChangeApi.setBlock}
+   * — a host reads a {@link BlockData}'s id/attrs and hands them straight back to a
    * mutation without touching {@link EditorApi.getState}.
    */
-  getNode: (at?: DocPoint) => DocNode | null;
-  /** All visible blocks, in document order, as plain {@link DocNode} data. */
-  getNodes: () => DocNode[];
+  getBlock: (at?: DocPoint) => BlockData | null;
+  /** All visible blocks, in document order, as plain {@link BlockData} data. */
+  getBlocks: () => BlockData[];
   /**
    * The current selection as a {@link DocRange} — `{ from, to }` of absolute
    * `{ block, offset }` points, or `"selection"`'s collapsed form (a bare point)
@@ -2469,7 +2470,7 @@ export class Editor implements EditorApi, EditorWiring {
   private canToggleMark = (name: MarkName): boolean =>
     this._state.marks.get(name)?.togglable === true;
 
-  // setNode accepts the concrete block types plus the convenience "heading",
+  // setBlock accepts the concrete block types plus the convenience "heading",
   // mapped to heading1/2/3 by `opts.level` (clamped 1–3, the levels that render).
   private resolveBlockType = (
     type: Block["type"] | "heading",
@@ -2561,19 +2562,19 @@ export class Editor implements EditorApi, EditorWiring {
         }
         return c;
       },
-      insertNode: (block, at) => {
-        apply(this.insertNodeAction(block, at));
+      insertBlock: (block, at) => {
+        apply(this.insertBlockAction(block, at));
         return c;
       },
-      setNode: (attrs, at) => {
-        apply(this.setNodeAction(attrs, at));
+      setBlock: (attrs, at) => {
+        apply(this.setBlockAction(attrs, at));
         return c;
       },
-      deleteNode: (at) => {
+      deleteBlock: (at) => {
         apply((s) => {
           const idx = resolveBlockIndex(s, at);
           if (idx < 0) return { state: s, ops: [] };
-          return this.deleteNodeAction(s.document.page.blocks[idx].id)(s);
+          return this.deleteBlockAction(s.document.page.blocks[idx].id)(s);
         });
         return c;
       },
@@ -2588,7 +2589,7 @@ export class Editor implements EditorApi, EditorWiring {
   // Insert a fresh block at `at` (default: after the caret block). The block is
   // empty of text; its type seeds the default fields, and any caller-supplied
   // own attrs are synced as block_set ops.
-  private insertNodeAction =
+  private insertBlockAction =
     (
       block: Partial<Block> & { type: Block["type"] },
       at: DocPoint | undefined,
@@ -2675,11 +2676,11 @@ export class Editor implements EditorApi, EditorWiring {
       };
     };
 
-  // setNode: reconcile one block toward `attrs`. A `type` change is structural —
+  // setBlock: reconcile one block toward `attrs`. A `type` change is structural —
   // at the caret block it uses the full caret-aware conversion (trailing
   // paragraph, void-text clearing); elsewhere it does a generic type set. Other
-  // attrs are plain block_set, via setNodeAttrsAction.
-  private setNodeAction =
+  // attrs are plain block_set, via setBlockAttrsAction.
+  private setBlockAction =
     (
       attrs: { type?: Block["type"] | "heading"; level?: number } & Record<
         string,
@@ -2723,7 +2724,7 @@ export class Editor implements EditorApi, EditorWiring {
         // place), so re-read the id and apply the remaining attrs.
         const blockId = state.document.page.blocks[idx]?.id;
         if (blockId) {
-          const r = this.setNodeAttrsAction(blockId, rest)(state);
+          const r = this.setBlockAttrsAction(blockId, rest)(state);
           state = r.state;
           ops.push(...r.ops);
         }
@@ -2924,11 +2925,11 @@ export class Editor implements EditorApi, EditorWiring {
   };
 
   // Inverse of resolveBlockType: the read API speaks the same "heading" sugar
-  // the write API accepts, so getNode/setNode round-trip. The concrete
+  // the write API accepts, so getBlock/setBlock round-trip. The concrete
   // heading1/2/3 types (the CRDT/storage form) are projected back to
   // { type: "heading", attrs: { level } } here, at the public boundary only —
   // storage, serialization, and the wire format stay discrete.
-  private presentNode = (node: DocNode): DocNode => {
+  private presentBlock = (node: BlockData): BlockData => {
     const m = /^heading([1-3])$/.exec(node.type);
     if (!m) return node;
     return {
@@ -2938,16 +2939,18 @@ export class Editor implements EditorApi, EditorWiring {
     };
   };
 
-  getNode = (at?: DocPoint): DocNode | null => {
+  getBlock = (at?: DocPoint): BlockData | null => {
     const idx = resolveBlockIndex(this._state, at);
     if (idx < 0) return null;
-    return this.presentNode(toDocNode(this._state.document.page.blocks[idx]));
+    return this.presentBlock(
+      toBlockData(this._state.document.page.blocks[idx]),
+    );
   };
 
-  getNodes = (): DocNode[] =>
+  getBlocks = (): BlockData[] =>
     this._state.document.page.blocks
       .filter((b) => !b.deleted)
-      .map((b) => this.presentNode(toDocNode(b)));
+      .map((b) => this.presentBlock(toBlockData(b)));
 
   getSelection = (): DocRange | null => docSelection(this._state);
 
@@ -3100,7 +3103,7 @@ export class Editor implements EditorApi, EditorWiring {
     this.listeners.forEach((listener) => listener(currentState));
   };
 
-  private setNodeAttrsAction =
+  private setBlockAttrsAction =
     (blockId: string, attrs: Record<string, unknown>): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
@@ -3161,7 +3164,7 @@ export class Editor implements EditorApi, EditorWiring {
     this.listeners.forEach((listener) => listener(currentState));
   };
 
-  private deleteNodeAction =
+  private deleteBlockAction =
     (blockId: string): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;

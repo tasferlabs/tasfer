@@ -15,7 +15,7 @@ import {
   resolveInlineRange,
   resolvePoint,
   selectTarget,
-  toDocNode,
+  toBlockData,
 } from "./positions";
 import type { Block, Paragraph } from "./serlization/loadPage";
 import type {
@@ -209,14 +209,14 @@ describe("resolveBlockIndex", () => {
   });
 });
 
-describe("toDocNode", () => {
+describe("toBlockData", () => {
   it("projects id/type/text and the block's own attrs, excluding plumbing", () => {
     const todo = {
       ...para("t1", "buy milk"),
       type: "todo_list",
       checked: true,
     } as Block;
-    const node = toDocNode(todo);
+    const node = toBlockData(todo);
     expect(node).toEqual({
       id: "t1",
       type: "todo_list",

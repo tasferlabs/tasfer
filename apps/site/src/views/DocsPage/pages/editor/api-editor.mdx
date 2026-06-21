@@ -25,19 +25,19 @@ const editor = createEditor(options: CreateEditorOptions): CypherEditor;
 
 <h2 id="reading">Reading state</h2>
 
-The editor never hands you a mutable store. `state` is a fresh, immutable snapshot rebuilt on every read; `getMarkdown()` projects the current document to text. The `getNode`/`getSelection` family returns plain data in the **same `DocPoint`/`DocRange` vocabulary the [ChangeApi](/docs/editor/api-commands#targets) accepts** — so you read a position and hand it straight back to a mutation, without ever reaching into `getState()`.
+The editor never hands you a mutable store. `state` is a fresh, immutable snapshot rebuilt on every read; `getMarkdown()` projects the current document to text. The `getBlock`/`getSelection` family returns plain data in the **same `DocPoint`/`DocRange` vocabulary the [ChangeApi](/docs/editor/api-commands#targets) accepts** — so you read a position and hand it straight back to a mutation, without ever reaching into `getState()`.
 
 <PropsTable cols={["Member", "Type", "Description"]} rows={[
   { name: "state", type: "{ selection, activeMarks, doc }", desc: "Immutable snapshot. selection.empty is true for a bare caret; activeMarks is a Set of mark names active at the caret. Rebuilt every read." },
   { name: "doc", type: "Doc", desc: "The underlying CRDT document. Pass this to a provider to sync, or call doc.encodeState() to persist." },
-  { name: "getNode(at?)", type: "(at?: DocPoint) => DocNode | null", desc: "Plain-data view { id, type, text, attrs } of the block at at (default: caret block). The read counterpart to setNode." },
-  { name: "getNodes()", type: "() => DocNode[]", desc: "All visible blocks, in document order, as plain DocNode data." },
+  { name: "getBlock(at?)", type: "(at?: DocPoint) => BlockData | null", desc: "Plain-data view { id, type, text, attrs } of the block at at (default: caret block). The read counterpart to setBlock." },
+  { name: "getBlocks()", type: "() => BlockData[]", desc: "All visible blocks, in document order, as plain BlockData." },
   { name: "getSelection()", type: "() => DocRange | null", desc: "The current selection as a DocRange of absolute { block, offset } points (a bare point for a caret), or null when there's no caret. The same currency the ChangeApi accepts." },
   { name: "getMarks(range?)", type: "(range?: DocRange) => Set<string>", desc: "Inline marks active over range (default: selection). getActiveMarks is this applied to the caret." },
   { name: "getActiveMarks()", type: "() => Set<string>", desc: "The inline marks that will apply to text typed at the caret. Same set as state.activeMarks; handy for lighting up a toolbar." },
   { name: "isSelectionEmpty()", type: "() => boolean", desc: "True when there's just a caret (or nothing) — no range selected." },
   { name: "getMarkdown()", type: "() => string", desc: "Serialise the current document to markdown." },
-  { name: "getState()", type: "() => EditorState | null", desc: "Escape hatch to the raw internal state. Prefer state / the getNode family for UI binding." },
+  { name: "getState()", type: "() => EditorState | null", desc: "Escape hatch to the raw internal state. Prefer state / the getBlock family for UI binding." },
   { name: "portalContainer", type: "HTMLDivElement", desc: "Mount point for host overlays (slash menu, link editor) that float over the canvas." },
 ]} />
 
@@ -60,7 +60,7 @@ editor.change((c) => c.setMark("strong"));
 
 // several edits, one undo step
 editor.change((c) =>
-  c.setNode({ type: "heading", level: 1 }).insertText("Untitled"),
+  c.setBlock({ type: "heading", level: 1 }).insertText("Untitled"),
 );
 ```
 

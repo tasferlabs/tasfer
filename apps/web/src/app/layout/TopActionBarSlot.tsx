@@ -19,8 +19,8 @@ const SlotContext = createContext<SlotContextValue>({
  * properly cleaned up on HMR and component unmount.
  */
 export function TopActionBarSlotProvider({ children }: { children: React.ReactNode }) {
-  const [node, setNode] = useState<HTMLDivElement | null>(null);
-  const ref = useCallback((el: HTMLDivElement | null) => setNode(el), []);
+  const [node, setBlock] = useState<HTMLDivElement | null>(null);
+  const ref = useCallback((el: HTMLDivElement | null) => setBlock(el), []);
 
   return (
     <SlotContext.Provider value={{ node, ref }}>

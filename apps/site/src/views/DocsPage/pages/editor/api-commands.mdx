@@ -14,7 +14,7 @@ editor.change((c) => c.setMark("strong"));
 
 // several edits, still ONE undo step
 const changed = editor.change((c) =>
-  c.setNode({ type: "heading", level: 1 }).insertText("Untitled"),
+  c.setBlock({ type: "heading", level: 1 }).insertText("Untitled"),
 );
 ```
 
@@ -48,9 +48,9 @@ editor.change((c) =>
   { name: "insertText", type: "(text, range?, mark?) => this", desc: "Insert text, replacing range (default: selection). insertText(\"x\") types at the caret, inheriting the pending caret format; an explicit range replaces it. mark optionally applies one inline mark to the inserted run." },
   { name: "deleteRange", type: "(range?) => this", desc: "Delete range (default: selection — may span blocks). An explicit DocRange must be within one block; the caret lands where the range began." },
   { name: "setMark", type: "(name, opts?) => this", desc: "Apply / remove / toggle an inline mark. With no options it toggles across the selection (the bold/italic case). opts: { active?, attrs?, range? } — active forces apply/remove, attrs carries per-mark data (a link url), range targets an explicit single-block span." },
-  { name: "insertNode", type: "(block, at?) => this", desc: "Insert a new block at at (a block-edge DocPoint; default: after the caret block). block.type is required; an id is generated when absent and extra own attrs become block_set ops. Text isn't seeded — insert empty, then fill." },
-  { name: "setNode", type: "(attrs, at?) => this", desc: "Reconcile the block at at (default: caret block) toward attrs. type triggers a structural conversion (heading sugar via level, void blocks clear text + get a trailing paragraph); other attrs are set one block_set per field. Folds the former setBlock + setNodeAttrs." },
-  { name: "deleteNode", type: "(at?) => this", desc: "Delete the block at at (default: caret block); tombstoned, so undo restores it. An empty paragraph replaces the last visible block." },
+  { name: "insertBlock", type: "(block, at?) => this", desc: "Insert a new block at at (a block-edge DocPoint; default: after the caret block). block.type is required; an id is generated when absent and extra own attrs become block_set ops. Text isn't seeded — insert empty, then fill." },
+  { name: "setBlock", type: "(attrs, at?) => this", desc: "Reconcile the block at at (default: caret block) toward attrs. type triggers a structural conversion (heading sugar via level, void blocks clear text + get a trailing paragraph); other attrs are set one block_set per field — structural conversion and plain attr edits fold into this one call." },
+  { name: "deleteBlock", type: "(at?) => this", desc: "Delete the block at at (default: caret block); tombstoned, so undo restores it. An empty paragraph replaces the last visible block." },
   { name: "select", type: "(target) => this", desc: "Position the caret/selection as part of this change. A collapsed target places a caret; a span selects it. Compose: c.insertText(\"x\").select(\"end\"). \"Select all\" is select({ from: \"start\", to: \"end\" })." },
 ]} />
 
@@ -62,7 +62,7 @@ editor.change((c) =>
 
 ```ts
 // is there anything to turn into a heading right now?
-const enabled = editor.canChange((c) => c.setNode({ type: "heading", level: 1 }));
+const enabled = editor.canChange((c) => c.setBlock({ type: "heading", level: 1 }));
 toolbarButton.disabled = !enabled;
 ```
 
@@ -73,7 +73,7 @@ An *action* is a reusable mutation: a plain function over the `ChangeApi`, `(c) 
 ```ts
 import type { EditorAction } from "@cypherkit/editor";
 
-const title: EditorAction = (c) => c.setNode({ type: "heading", level: 1 });
+const title: EditorAction = (c) => c.setBlock({ type: "heading", level: 1 });
 const stamp: EditorAction = (c) => c.insertText(" ✶");
 
 editor.run(title, stamp);          // both, one undo step

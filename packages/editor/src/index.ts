@@ -80,9 +80,9 @@ export {
 // The concrete `Editor` class is reachable as `EditorClass` from
 // `@cypherkit/editor/internal` for advanced use (`new EditorClass(...)`).
 export type {
+  BlockData,
   ChangeApi,
   ChangeTransaction,
-  DocNode,
   DocPoint,
   DocRange,
   EditorApi as Editor,

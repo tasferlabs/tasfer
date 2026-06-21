@@ -259,7 +259,7 @@ export class CodeNode extends TextNode {
    * stays framework-free — it only locates the slot; the host maps the
    * `"code-language"` key to a React component (see `NODE_OVERLAYS` in
    * MountedEditor) that reads the block's `language` live and writes it back via
-   * `setNodeAttrs`. Emitted for every visible code block so the tag is always
+   * `setBlock`. Emitted for every visible code block so the tag is always
    * available, not just while editing.
    */
   overlays(c: NodeRegionCtx): readonly NodeOverlay[] {

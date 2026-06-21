@@ -1,5 +1,5 @@
 /**
- * Document positions — the `DocPoint`/`DocRange`/`DocNode` vocabulary shared by
+ * Document positions — the `DocPoint`/`DocRange`/`BlockData` vocabulary shared by
  * the write surface ({@link ChangeApi}) and the read API, plus the **pure**
  * resolvers that turn them into the concrete coordinates the CRDT helpers need.
  *
@@ -55,7 +55,7 @@ export type DocRange =
  * block/node. `text` is the visible text (empty for non-textual blocks); `attrs`
  * is the block's own type-specific fields (url, level, checked, …).
  */
-export interface DocNode {
+export interface BlockData {
   readonly id: string;
   readonly type: string;
   readonly text: string;
@@ -207,7 +207,7 @@ export function selectTarget(s: EditorState, target: DocRange): EditorState {
 // Plain-data projection of a block — the read API never hands out the internal
 // block. `attrs` is the block's own type-specific fields (everything but the
 // structural id/type/text/linked-list plumbing).
-export function toDocNode(block: Block): DocNode {
+export function toBlockData(block: Block): BlockData {
   const reserved = new Set([
     "id",
     "type",

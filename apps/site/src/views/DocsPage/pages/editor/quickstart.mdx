@@ -39,7 +39,7 @@ You never mutate the document directly. You call `change(fn)`, which hands you a
 
 ```ts
 editor.change((c) => c.setMark("strong"));
-editor.change((c) => c.setNode({ type: "heading", level: 2 }));
+editor.change((c) => c.setBlock({ type: "heading", level: 2 }));
 
 // several edits, one undo step
 editor.change((c) =>

@@ -41,7 +41,7 @@ import {
 
 /**
  * Convert the block at the caret to a different type — the dispatchable
- * **command** form of {@link ChangeApi.setNode}. Its default mutation routes
+ * **command** form of {@link ChangeApi.setBlock}. Its default mutation routes
  * through the unified change API (one undoable step), so a host drives block
  * changes by dispatching this rather than calling a bespoke method, and other
  * handlers can observe/override it. `strip` optionally deletes an inline range
@@ -52,7 +52,7 @@ export const CONVERT_BLOCK = action<{
   strip?: DocRange;
 }>("convert-block", (c: ChangeApi, { type, strip }) => {
   if (strip) c.deleteRange(strip);
-  c.setNode({ type });
+  c.setBlock({ type });
 });
 
 // ─── Text input ──────────────────────────────────────────────────────────────
