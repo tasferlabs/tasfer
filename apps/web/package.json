@@ -1,11 +1,14 @@
 {
   "name": "cypher",
+  "license": "AGPL-3.0-or-later",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "dev:host": "vite --host",
+    "gen:licenses": "node scripts/gen-third-party-licenses.mjs",
+    "prebuild": "node scripts/gen-third-party-licenses.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "serve": "node server.js",

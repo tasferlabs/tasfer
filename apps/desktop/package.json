@@ -1,6 +1,7 @@
 {
   "name": "cypher-desktop",
   "version": "1.0.0",
+  "license": "AGPL-3.0-or-later",
   "description": "Cypher desktop application",
   "homepage": "https://github.com/hamza512b/cypher",
   "author": {

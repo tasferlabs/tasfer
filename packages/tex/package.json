@@ -8,7 +8,7 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",
   "sideEffects": false,
-  "files": ["dist"],
+  "files": ["dist", "NOTICE"],
   "exports": {
     ".": {
       "import": { "types": "./dist/index.d.mts", "default": "./dist/index.mjs" },

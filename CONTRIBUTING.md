@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Cypher! This guide will help you 
 
 ### Reporting Bugs
 
-Before filing a bug, please search [existing issues](https://github.com/hamza512b/cypher/issues) to avoid duplicates.
+All bug reports are welcome — no issue is too small. Before filing one, please search [existing issues](https://github.com/hamza512b/cypher/issues) to avoid duplicates.
 
 When reporting a bug, include:
 
@@ -33,94 +33,56 @@ Open an issue with the **feature request** template. Describe the problem you're
 - Keep PRs focused on a single change
 - Write a clear description of what changed and why
 - Reference any related issues
-- Make sure the app builds (run the build in `apps/web`)
-- Add translations for any new user-facing strings (see [i18n](#internationalization))
+- Make sure the app builds — `npm run build` in `apps/web` (this is the canonical
+  typecheck; it also compiles the aliased `@cypherkit/*` source)
+- If you touched the editor engine, run the tests — `npm test` in `packages/editor`
 
 ## Development Setup
 
 ### Prerequisites
 
 - Node.js 22+
-- A package manager — pnpm, npm, yarn, or bun
+- npm (the repo uses `package-lock.json` lockfiles)
 
 ### Getting Started
 
-<details open>
-<summary><strong>pnpm</strong></summary>
+There is **no root `package.json`** and no workspace tool — each app and package
+manages its own dependencies and is built and run from its own directory. Install
+and run the part you're working on:
 
 ```bash
 git clone https://github.com/<your-fork>/cypher.git
-cd cypher
-pnpm install
-cd apps/web
-pnpm dev
-```
-
-</details>
-
-<details>
-<summary><strong>npm</strong></summary>
-
-```bash
-git clone https://github.com/<your-fork>/cypher.git
-cd cypher
+cd cypher/apps/web
 npm install
-cd apps/web
 npm run dev
 ```
 
-</details>
-
-<details>
-<summary><strong>yarn</strong></summary>
-
-```bash
-git clone https://github.com/<your-fork>/cypher.git
-cd cypher
-yarn
-cd apps/web
-yarn dev
-```
-
-</details>
-
-<details>
-<summary><strong>bun</strong></summary>
-
-```bash
-git clone https://github.com/<your-fork>/cypher.git
-cd cypher
-bun install
-cd apps/web
-bun dev
-```
-
-</details>
-
 The web app runs at `http://localhost:4000`.
+
+To work on the editor engine (or another package), install its dependencies from
+that package's own directory, e.g. `cd packages/editor && npm install`. The web
+app consumes `@cypherkit/editor`, `@cypherkit/tex`, and `@cypherkit/react` as raw
+TypeScript source via path aliases, so engine changes show up in `apps/web`
+without a separate build step.
 
 ### Project Structure
 
 ```
 apps/
-├── web/        # Main React SPA (Vite + React 19 + TypeScript)
-├── desktop/    # Electron wrapper
-├── live/       # Signaling server (Cloudflare Worker)
+├── web/        # Main React SPA (Vite + React 19 + TypeScript) — the first host
+├── desktop/    # Electron wrapper (IPC to native APIs)
+├── live/       # WebRTC signaling relay (Cloudflare Worker)
+├── site/       # Marketing site + docs (Next.js)
 ├── ios/        # iOS (Capacitor)
 └── android/    # Android (Capacitor)
-shared/         # Shared types and utilities
+packages/       # the @cypherkit/* ecosystem — the product core, published for external consumers
+├── editor/             # @cypherkit/editor — headless canvas + CRDT editor engine
+├── tex/                # @cypherkit/tex — canvas-native LaTeX math layout & rendering
+├── react/              # @cypherkit/react — React 19 bindings (useEditor, <Editor>)
+└── provider-*/         # sync transports: -core, -indexeddb, -relay, -webrtc
+examples/       # example apps built on @cypherkit/* (cypher-studio, foolscap)
+shared/         # small shared utilities (e.g. invariant)
 ```
-
-### Key Areas
-
-| Area | Path | Notes |
-|---|---|---|
-| Canvas engine | `apps/web/src/editor/` | Rendering, events, selection |
-| CRDT | `apps/web/src/editor/sync/` | RGA, HLC, operation log |
-| Platform layer | `apps/web/src/platform/` | Cross-platform abstraction |
-| React UI | `apps/web/src/app/` | Components, pages, hooks |
-| Desktop | `apps/desktop/src/` | Electron IPC layer |
-| Signaling | `apps/live/src/` | WebRTC relay |
 
 ## Internationalization
 
@@ -128,12 +90,15 @@ All user-facing strings must use i18next — never hardcode text in components.
 
 - Translation files: `apps/web/public/app/locales/{lang}/translation.json`
 - In React: `const { t } = useTranslation()` then `t("key")`
-- When adding new strings, add the key to **all** locale files
 
 ## Code Style
 
 - TypeScript throughout
-- No linting or formatting tools are configured yet — just be consistent with the surrounding code
+- The `@cypherkit/*` packages have ESLint + Prettier configured — run `npm run lint`
+  and `npm run format` from the package you touched (custom rules live in
+  `eslint-rules/`)
+- No global mutable state — the editor must support multiple instances on one page,
+  so keep all state per-instance (enforced by the `no-global-mutable-state` rule)
 - Prefer small, focused functions
 - Avoid unnecessary abstractions
 
@@ -144,4 +109,15 @@ All user-facing strings must use i18next — never hardcode text in components.
 
 ## License
 
-By contributing to Cypher, you agree that your contributions will be licensed under the [AGPL-3.0 License](LICENSE).
+Cypher is dual-licensed by directory — see [LICENSING.md](LICENSING.md) for the
+full breakdown:
+
+- **`packages/*` and `examples/*` are MIT.** Contributions there are accepted
+  under the [MIT License](LICENSE-MIT).
+- **`apps/*` are AGPL-3.0-or-later _and_ offered commercially.** Because the apps
+  are dual-licensed (the maintainer ships proprietary App Store / Play Store and
+  paid builds alongside the AGPL source), contributions to `apps/*` are accepted
+  under a **Contributor License Agreement (CLA)** that grants the project owner
+  the right to relicense your contribution, including under proprietary terms. A
+  simple sign-off ("I have read and agree to the CLA") is required on pull
+  requests that touch `apps/*`.
