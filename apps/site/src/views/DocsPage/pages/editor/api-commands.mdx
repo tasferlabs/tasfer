@@ -66,21 +66,6 @@ const enabled = editor.canChange((c) => c.setBlock({ type: "heading", level: 1 }
 toolbarButton.disabled = !enabled;
 ```
 
-<h2 id="run">run(...actions) — composing named edits</h2>
-
-An *action* is a reusable mutation: a plain function over the `ChangeApi`, `(c) => void`. `run` composes one or more actions into a single undoable step — the same one-transaction guarantee as `change`, but factored into named, shareable values.
-
-```ts
-import type { EditorAction } from "@cypherkit/editor";
-
-const title: EditorAction = (c) => c.setBlock({ type: "heading", level: 1 });
-const stamp: EditorAction = (c) => c.insertText(" ✶");
-
-editor.run(title, stamp);          // both, one undo step
-```
-
-`run` accepts inline `EditorAction` functions and void-payload `MutationAction` constants (below). Unlike `dispatch`, it composes the raw mutations only — it does **not** fire a mutation action's registered observers.
-
 <h2 id="history">Undo & redo</h2>
 
 History is local and CRDT-aware: it converts between index positions and CRDT ids so it stays correct after a remote merge. Edits that arrive from a peer never enter your undo stack.
@@ -114,4 +99,4 @@ const off = editor.registerAction(OPEN_LINK, ({ url }) => {
 
 Dispatch one yourself with `editor.dispatch(action, payload)`. For a plain action the return value is whether a handler claimed it; for a `MutationAction` it's whether the document changed.
 
-<Callout kind="note" title="One bus, several entry points.">`change`/`run` are the ergonomic surface for *your own* edits; the action bus is for *named, hookable* behaviour the engine also dispatches (slash menu, link clicks, native gestures). They bottom out in the same single-transaction machinery.</Callout>
+<Callout kind="note" title="Two entry points, one machinery.">`change` is the ergonomic surface for *your own* edits; the action bus (`dispatch` / `registerAction`) is for *named, hookable* behaviour the engine also dispatches (slash menu, link clicks, native gestures). A `MutationAction` you dispatch runs its default plus every observer inside one transaction — the same single-undo-step, single-broadcast machinery `change` uses. (There's no separate `run` helper: composing several edits is just one `change` callback.)</Callout>

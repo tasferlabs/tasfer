@@ -50,7 +50,6 @@ You never mutate the document directly — you describe edits through the `Chang
 <PropsTable cols={["Method", "Signature", "Description"]} rows={[
   { name: "change", type: "(fn: (c: ChangeApi) => void) => boolean", desc: "Apply mutations as ONE undoable step. The callback's methods chain. Returns whether anything changed." },
   { name: "canChange", type: "(fn) => boolean", desc: "Dry-run a change: would those mutations change anything right now? (For enabling a toolbar button.)" },
-  { name: "run", type: "(...actions) => boolean", desc: "Compose named/inline actions into one undoable step — sugar over change." },
   { name: "setMarkdown", type: "(md: string) => void", desc: "Replace the whole document with markdown. One undoable, broadcast transaction." },
   { name: "undo / redo", type: "() => boolean", desc: "Step local history. Remote edits never enter your undo stack." },
 ]} />

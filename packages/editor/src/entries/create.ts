@@ -201,7 +201,7 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
   };
 
   const handle: CypherEditor = {
-    // Spread the core editor action surface (change, run, undo, on,
+    // Spread the core editor action surface (change, dispatch, undo, on,
     // getMarkdown, …) onto the returned handle. (The doc↔editor wiring methods
     // are engine-internal — kept off the public `CypherEditor`/`EditorApi`
     // type; hosts sync through `doc` exclusively.)

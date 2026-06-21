@@ -25,6 +25,7 @@ import {
   pasteFromSystemClipboard,
 } from "../actions/clipboard";
 import { COPY, CUT } from "../actions/input-actions";
+import { IS_DEV } from "../env";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
 import { handleEvents } from "../events/events";
 import {
@@ -251,9 +252,11 @@ export interface ChangeApi {
 
 /**
  * A named, reusable document mutation: a function over the {@link ChangeApi}.
- * Pass one (or several) to {@link Editor.run}; they compose into a single
- * undoable step. The host's own actions and the engine built-ins are the same
- * kind of value — `const toggleStrong: EditorAction = (c) => c.setMark("strong")`.
+ * Register one under a name in the schema's `actions` (or bind it to a keyboard
+ * `shortcut`) to invoke it by name — it commits as a single undoable step, just
+ * like a {@link Editor.change} callback. The host's own actions and the engine
+ * built-ins are the same kind of value —
+ * `const toggleStrong: EditorAction = (c) => c.setMark("strong")`.
  */
 export type EditorAction = (c: ChangeApi) => void;
 
@@ -413,18 +416,6 @@ export interface EditorApi {
   change: (fn: (c: ChangeApi) => void) => boolean;
   /** Dry-run a {@link change}: would the queued mutations change anything now? */
   canChange: (fn: (c: ChangeApi) => void) => boolean;
-  /**
-   * Run one or more actions, composed into a single undoable step (sugar over
-   * {@link change}). Each entry is an inline {@link EditorAction}, a
-   * {@link MutationAction} (its `mutate` is composed in; only void-payload ones
-   * fit here), or the name of a action declared on the schema
-   * (`schema.actions`); an unknown name is a no-op. Returns whether anything
-   * changed. Unlike {@link dispatch}, `run` composes raw mutations — it does
-   * not fire a mutation action's registered observers.
-   */
-  run: (
-    ...actions: (string | EditorAction | MutationAction<void>)[]
-  ) => boolean;
   /** Step local history backward; returns whether it changed the document. */
   undo: () => boolean;
   /** Step local history forward; returns whether it changed the document. */
@@ -736,8 +727,8 @@ export class Editor implements EditorApi, EditorWiring {
   // Click handler for focusing input (stored for cleanup)
   private canvasClickHandler: (() => void) | null = null;
 
-  // Named actions (from the schema), resolvable by name in `run`/shortcuts.
-  // A value is either a raw EditorAction or a listenable MutationAction.
+  // Named actions (from the schema), resolvable by name from a keyboard
+  // `shortcut`. A value is either a raw EditorAction or a listenable MutationAction.
   private schemaActions: Readonly<
     Record<string, EditorAction | MutationAction<void>>
   > = {};
@@ -2845,29 +2836,35 @@ export class Editor implements EditorApi, EditorWiring {
     return ctx.state !== this._state || ctx.ops.length > 0;
   };
 
-  run = (
-    ...actions: (string | EditorAction | MutationAction<void>)[]
-  ): boolean =>
-    this.change((c) => {
-      for (const cmd of actions) {
-        const fn = this.resolveAction(cmd);
-        if (fn) fn(c);
-      }
-    });
+  // Names already warned about, so a typo bound to a per-keystroke shortcut
+  // doesn't flood the console with the same message. Per-instance (no module
+  // global), like every other piece of editor state.
+  private readonly warnedUnknownActions = new Set<string>();
 
-  // Resolve a action reference to a raw mutation `(c) => void`. A string names
-  // a schema action; a MutationAction contributes its `mutate` (payload void);
-  // an EditorAction is already the right shape.
-  private resolveAction = (
-    cmd: string | EditorAction | MutationAction<void>,
-  ): EditorAction | undefined => {
-    if (typeof cmd === "string") {
-      const named = this.schemaActions[cmd];
-      return named && isMutationAction(named)
-        ? (c) => named.mutate(c, undefined)
-        : named;
+  // Look a schema-action name up in the per-instance registry. The single place
+  // a keyboard `shortcut` resolves a *name*, so it's the one place to catch the
+  // silent-no-op footgun: an unknown name resolves to `undefined` and is
+  // skipped, which makes a typo vanish. In dev we warn once per name (listing
+  // what *is* registered); in production it stays a quiet no-op. A non-string
+  // shortcut target (an inline `EditorAction` / `MutationAction`) never reaches
+  // here — it can't be mistyped.
+  private lookupSchemaAction = (
+    name: string,
+  ): EditorAction | MutationAction<void> | undefined => {
+    const named = this.schemaActions[name];
+    if (!named && IS_DEV && !this.warnedUnknownActions.has(name)) {
+      this.warnedUnknownActions.add(name);
+      const available = Object.keys(this.schemaActions);
+      console.warn(
+        `[@cypherkit/editor] shortcut referenced unknown action name ${JSON.stringify(
+          name,
+        )} — no action by that name is registered on the schema, so it was skipped. ` +
+          (available.length
+            ? `Registered action names: ${available.join(", ")}.`
+            : `This editor's schema registers no named actions (declare them via the schema's \`actions\`).`),
+      );
     }
-    return isMutationAction(cmd) ? (c) => cmd.mutate(c, undefined) : cmd;
+    return named;
   };
 
   // Match a KeyboardEvent against a combo string like "mod+shift+b" (mod = ⌘
@@ -2920,7 +2917,7 @@ export class Editor implements EditorApi, EditorWiring {
     for (const [combo, target] of Object.entries(this.schemaShortcuts)) {
       if (!this.matchesShortcut(e, combo)) continue;
       const resolved =
-        typeof target === "string" ? this.schemaActions[target] : target;
+        typeof target === "string" ? this.lookupSchemaAction(target) : target;
       if (resolved && isMutationAction(resolved)) this.dispatch(resolved);
       else if (resolved) this.change((c) => resolved(c));
       return true;

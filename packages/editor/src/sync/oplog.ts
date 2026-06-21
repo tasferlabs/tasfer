@@ -38,13 +38,12 @@
  */
 
 import { baseDataSchema } from "../baseDataSchema";
+import { IS_DEV } from "../env";
 import type { Operation, OpLog, VersionVector } from "../state-types";
 import { compareHLC } from "./hlc";
 import { extractCounter, extractPeerId } from "./id";
 import { applyOp, createEmptyPageState, rebuildState } from "./reducer";
 import type { DataSchema } from "./schema";
-
-const IS_DEV = typeof import.meta !== "undefined" && !!import.meta.env?.DEV;
 
 /**
  * Create an empty operation log for a page.
