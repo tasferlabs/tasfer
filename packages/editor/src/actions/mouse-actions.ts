@@ -162,3 +162,21 @@ export const OPEN_BLOCK_OVERLAY = stateAction<{
 // on: image hover (SET_IMAGE_HOVER) lives in `nodes/ImageNode.ts`; the math
 // hover actions (SET_MATH_BLOCK_HOVER, SET_INLINE_MATH_HOVER) live in
 // `nodes/MathNode.ts`.
+
+/**
+ * The desktop pointer event-layer actions, grouped — exposed at the package root
+ * as `MouseActions`. These are intimate caret-placement / selection geometry the
+ * mouse handlers dispatch while resolving a click; few hosts will ever bind them
+ * (the high-level hooks a host wants — `OPEN_LINK`, `OPEN_CONTEXT_MENU` — stay
+ * flat on the root). Grouped so that intimacy is visible at the call site.
+ */
+export const MouseActions = {
+  PLACE_CURSOR_AT_POINT,
+  PLACE_CURSOR_IN_SIDE_PADDING,
+  SELECT_WORD_AT_POINT,
+  SELECT_LINE_AT_POINT,
+  SELECT_VISUAL_BLOCK,
+  CLEAR_VISUAL_BLOCK_SELECTION,
+  CLEAR_SELECTION_IN_PADDING,
+  OPEN_BLOCK_OVERLAY,
+} as const;

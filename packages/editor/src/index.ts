@@ -24,16 +24,12 @@ export { mountEditor } from "./entries/mount";
 // assembling a custom `nodes` list — they hold no per-editor state.
 export {
   AtomicNode,
-  CANCEL_IMAGE_HANDLE_DRAG,
   type CaretModel,
   type CaretMotion,
-  CREATE_PARAGRAPH_BELOW_IMAGE,
   createDefaultNodeRegistry,
   createNodeRegistry,
-  END_IMAGE_HANDLE_DRAG,
   hitRegion,
   ImageNode,
-  INDENT_LIST_ITEM,
   LineNode,
   ListNode,
   MathNode,
@@ -45,15 +41,8 @@ export {
   type NodePointerType,
   type NodeRegionCtx,
   NodeRegistry,
-  OUTDENT_LIST_ITEM,
-  SET_IMAGE_HOVER,
-  SET_INLINE_MATH_HOVER,
-  SET_MATH_BLOCK_HOVER,
-  START_IMAGE_HANDLE_DRAG,
   TextNode,
   type TextSpan,
-  TOGGLE_TODO_CHECKED,
-  UPDATE_IMAGE_HANDLE_DRAG,
 } from "./rendering/nodes";
 
 // Inline marks. `Mark` is the base class to subclass for a custom mark's
@@ -76,10 +65,6 @@ export {
   MathMark,
   StrikeMark,
   StrongMark,
-  TOGGLE_CODE,
-  TOGGLE_EMPHASIS,
-  TOGGLE_STRIKE,
-  TOGGLE_STRONG,
 } from "./rendering/marks";
 
 // Interaction regions are an internal concept — there is no host-level region
@@ -198,88 +183,30 @@ export {
   TEXT_INPUT,
   TEXT_INPUTTED,
 } from "./action-bus";
-// Editor keyboard actions — named cursor-movement / selection-extension
-// actions migrated out of the event handlers (see `actions/keyboard-actions.ts`).
-export {
-  EXTEND_SELECTION_DOWN,
-  EXTEND_SELECTION_END,
-  EXTEND_SELECTION_HOME,
-  EXTEND_SELECTION_LEFT,
-  EXTEND_SELECTION_PAGE_DOWN,
-  EXTEND_SELECTION_PAGE_UP,
-  EXTEND_SELECTION_RIGHT,
-  EXTEND_SELECTION_UP,
-  EXTEND_SELECTION_WORD_LEFT,
-  EXTEND_SELECTION_WORD_RIGHT,
-  MOVE_CURSOR_DOWN,
-  MOVE_CURSOR_LEFT,
-  MOVE_CURSOR_PAGE_DOWN,
-  MOVE_CURSOR_PAGE_UP,
-  MOVE_CURSOR_RIGHT,
-  MOVE_CURSOR_UP,
-  MOVE_TO_DOCUMENT_END,
-  MOVE_TO_DOCUMENT_START,
-  MOVE_TO_LINE_END,
-  MOVE_TO_LINE_START,
-  MOVE_TO_NEXT_WORD,
-  MOVE_TO_PREVIOUS_WORD,
-} from "./actions/keyboard-actions";
-// Editor edit actions — named content-mutating / selection-clearing actions
-// (insert, delete, split, format, indent, clear) migrated out of the event
-// handlers (see `actions/edit-actions.ts`).
-export {
-  CLEAR_SELECTION,
-  CONVERT_BLOCK,
-  DELETE_BACKWARD,
-  DELETE_FORWARD,
-  DELETE_WORD_BACKWARD,
-  DELETE_WORD_FORWARD,
-  INSERT_TEXT,
-  SELECT_ALL,
-  SPLIT_BLOCK,
-} from "./actions/edit-actions";
-// Editor mouse actions — named click / selection / hover actions migrated out
-// of the mouse event handlers (see `actions/mouse-actions.ts`).
-export {
-  CLEAR_SELECTION_IN_PADDING,
-  CLEAR_VISUAL_BLOCK_SELECTION,
-  OPEN_BLOCK_OVERLAY,
-  PLACE_CURSOR_AT_POINT,
-  PLACE_CURSOR_IN_SIDE_PADDING,
-  SELECT_LINE_AT_POINT,
-  SELECT_VISUAL_BLOCK,
-  SELECT_WORD_AT_POINT,
-} from "./actions/mouse-actions";
-// Editor touch actions — named tap / long-press / visual-block actions migrated
-// out of the touch event handlers (see `actions/touch-actions.ts`).
-export {
-  CLOSE_NODE_OVERLAY,
-  FINISH_SELECT_MODE,
-  OPEN_CONTEXT_MENU_AT,
-  OPEN_NODE_OVERLAY,
-  TAP_CLEAR_VISUAL_BLOCK_SELECTION,
-  TAP_ON_SELECTION,
-  TAP_OUTSIDE_CONTENT,
-  TAP_PLACE_CURSOR,
-  TAP_SELECT_LINE,
-  TAP_SELECT_VISUAL_BLOCK,
-  TAP_SELECT_WORD,
-  TAP_SIDE_PADDING,
-  TAP_TOP_PADDING,
-} from "./actions/touch-actions";
-// Editor input actions — named IME-composition / clipboard (copy / cut / paste)
-// actions migrated out of the input event handlers (see
-// `actions/input-actions.ts`). The image-resize-handle drag actions moved to
-// the node they act on (see `nodes/ImageNode.ts` → `*_IMAGE_HANDLE_DRAG`,
-// re-exported below via `./rendering/nodes`).
-export {
-  COMPOSITION_END,
-  COMPOSITION_START,
-  COMPOSITION_UPDATE,
-  COPY,
-  CUT,
-  PASTE,
-} from "./actions/input-actions";
+// ── Action namespaces ────────────────────────────────────────────────────────
+// The editor's dispatchable actions, grouped into namespaced objects by the
+// subsystem that owns each set, so the package root stays a tight handful of
+// names instead of ~60 loose constants. Every member is the same
+// reference-identified `Action` the engine dispatches internally; a host drives
+// or observes one through `editor.dispatch` / `editor.registerAction`
+// (`editor.dispatch(EditActions.SELECT_ALL)`,
+// `editor.dispatch(MarkActions.TOGGLE_STRONG)`,
+// `editor.dispatch(KeyboardActions.MOVE_CURSOR_LEFT, { viewport })`). The
+// grouping also makes each set's altitude legible: `KeyboardActions` /
+// `EditActions` / `MarkActions` are a stable command vocabulary (key remaps,
+// command palettes, toolbars), whereas `MouseActions` / `TouchActions` /
+// `NodeActions` are intimate event-layer and node-internal geometry few hosts
+// will ever bind. The frequently-bound core signals (`OPEN_LINK`, the
+// context-menu family, `CURSOR_DRAG_*`, `REGION_DRAG_START`, `TEXT_INPUT` /
+// `TEXT_INPUTTED`) stay flat above — they are the centerpiece host-integration
+// hooks, not part of this long tail.
+export { EditActions } from "./actions/edit-actions";
+export { InputActions } from "./actions/input-actions";
+export { KeyboardActions } from "./actions/keyboard-actions";
+export { MouseActions } from "./actions/mouse-actions";
+export { TouchActions } from "./actions/touch-actions";
+export { MarkActions } from "./rendering/marks";
+export { NodeActions } from "./rendering/nodes";
 
 // Core document model + CRDT operation types. The stored-mark CRDT record is
 // exported as `StoredMark` so the top-level `Mark` can be the rendering base

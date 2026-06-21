@@ -20,7 +20,7 @@ import React, {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { CONVERT_BLOCK, type Editor, TEXT_INPUT } from "@cypherkit/editor";
+import { EditActions, type Editor, TEXT_INPUT } from "@cypherkit/editor";
 import {
   getBlockTextContent,
   isTouchDevice,
@@ -43,7 +43,7 @@ export type SlashBlockType =
 
 /**
  * One entry in the slash menu. Pure host UI — the engine has no notion of it.
- * `type` is the block this entry inserts (via the CONVERT_BLOCK command).
+ * `type` is the block this entry inserts (via the `EditActions.CONVERT_BLOCK` command).
  */
 export interface SlashItem {
   id: string;
@@ -175,7 +175,7 @@ function useCategoryLabels(): Record<string, string> {
   );
 }
 interface SlashActionMenuProps {
-  /** The editor this menu observes for `/` input and drives via CONVERT_BLOCK. */
+  /** The editor this menu observes for `/` input and drives via `EditActions.CONVERT_BLOCK`. */
   editor: Editor;
   /** The editor surface's viewport rect, for translating caret coords to screen. */
   getContainerRect: () => DOMRect | null | undefined;
@@ -187,7 +187,7 @@ interface SlashActionMenuProps {
  * edge-trigger opening on a typed `/` (so it won't reopen on later keystrokes
  * once dismissed with the `/` still in the text), recomputes the filter/anchor
  * from editor state on every change via `subscribe`, and applies the chosen
- * block through the {@link CONVERT_BLOCK} command + unified change API. Renders
+ * block through the {@link EditActions.CONVERT_BLOCK} command + unified change API. Renders
  * nothing while closed.
  */
 export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
@@ -227,7 +227,7 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
               to: { block: blockId, offset: cur.position.textIndex },
             }
           : undefined;
-      editor.dispatch(CONVERT_BLOCK, { type: item.type, strip });
+      editor.dispatch(EditActions.CONVERT_BLOCK, { type: item.type, strip });
       close();
     },
     [editor, close],

@@ -236,6 +236,23 @@ export const PASTE = stateAction<PastePayload>(
 );
 
 /**
+ * The text-input event-layer actions, grouped — exposed at the package root as
+ * `InputActions`: the IME composition lifecycle (`COMPOSITION_*`) plus the
+ * clipboard commands (`COPY` / `CUT` / `PASTE`). The composition steps are
+ * intimate event-layer plumbing; the clipboard trio is a plausible host command
+ * (an Edit menu / toolbar button) — both dispatched by the engine's own input
+ * handlers via the same references.
+ */
+export const InputActions = {
+  COMPOSITION_START,
+  COMPOSITION_UPDATE,
+  COMPOSITION_END,
+  COPY,
+  CUT,
+  PASTE,
+} as const;
+
+/**
  * Run the clipboard paste once and return the `{ state, ops }` plus the
  * `pastedImageBlockIndex` the host needs (the part a {@link StateResult} can't
  * carry). The handler calls this, then dispatches {@link PASTE} with the

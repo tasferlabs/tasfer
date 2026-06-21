@@ -300,6 +300,29 @@ export const FINISH_SELECT_MODE = stateAction("finish-select-mode", (state) => {
   return { state: next, ops: [] };
 });
 
+/**
+ * The touch event-layer actions, grouped — exposed at the package root as
+ * `TouchActions`. These are intimate tap / long-press / visual-block geometry the
+ * touch FSM dispatches while resolving a gesture; few hosts will ever bind them
+ * (the high-level touch hooks a host wants — `OPEN_CONTEXT_MENU`, `CURSOR_DRAG_*`
+ * — stay flat on the root). Grouped so that intimacy is visible at the call site.
+ */
+export const TouchActions = {
+  TAP_PLACE_CURSOR,
+  TAP_SELECT_WORD,
+  TAP_SELECT_LINE,
+  TAP_SELECT_VISUAL_BLOCK,
+  TAP_CLEAR_VISUAL_BLOCK_SELECTION,
+  TAP_ON_SELECTION,
+  TAP_OUTSIDE_CONTENT,
+  TAP_TOP_PADDING,
+  TAP_SIDE_PADDING,
+  OPEN_NODE_OVERLAY,
+  CLOSE_NODE_OVERLAY,
+  OPEN_CONTEXT_MENU_AT,
+  FINISH_SELECT_MODE,
+} as const;
+
 /** Whether the spanned block of the current selection is a non-textual visual
  * block — used by the handler to gate {@link CLEAR_VISUAL_BLOCK_SELECTION}. */
 export function isVisualBlockSelection(
