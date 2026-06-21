@@ -15,9 +15,11 @@ import {
   CURSOR_DRAG_BOUNDARY,
   CURSOR_DRAG_END,
   CURSOR_DRAG_START,
+  IMAGE_PASTE,
   OPEN_CONTEXT_MENU,
   OPEN_LINK,
   REGION_DRAG_START,
+  SCROLL,
   createDoc,
   mergeRegister,
   positionToAwarenessCursor,
@@ -1220,8 +1222,9 @@ function EditorSurface({
       requestAnimationFrame(() => setReadyPageId(pageId));
     }
 
-    // Wire up scroll callback
-    mounted.editor.onScroll((scrollY) => {
+    // Observe scroll position (a node could claim SCROLL to override page
+    // scrolling; the host just tracks the offset to position floating UI).
+    mounted.editor.registerAction(SCROLL, ({ scrollY }) => {
       onScrollRef.current?.(scrollY);
     });
 
@@ -1411,28 +1414,32 @@ function EditorSurface({
       roomBroadcastAwareness(state);
     }, localUserRef.current);
 
-    // Handle pasted image files (e.g. screenshots) — upload and update block URL
-    mounted.editor.onImagePaste(async (file, blockId) => {
-      try {
-        const imageData = await uploadImage(file);
-        // Resolve the block by id — the index may have shifted during the upload.
-        const block = mounted.editor
-          .getState()
-          ?.document.page.blocks.find((b) => b.id === blockId);
-        if (!block || block.deleted || block.type !== "image") return;
-        // Revoke the temporary blob URL we were displaying.
-        if (block.url?.startsWith("blob:")) {
-          URL.revokeObjectURL(block.url);
+    // Handle pasted image files (e.g. screenshots) — upload and update block URL.
+    // Observe-only (returns void): a custom image node could register higher and
+    // return true to claim IMAGE_PASTE and handle its own upload.
+    mounted.editor.registerAction(IMAGE_PASTE, ({ file, blockId }) => {
+      void (async () => {
+        try {
+          const imageData = await uploadImage(file);
+          // Resolve the block by id — the index may have shifted during upload.
+          const block = mounted.editor
+            .getState()
+            ?.document.page.blocks.find((b) => b.id === blockId);
+          if (!block || block.deleted || block.type !== "image") return;
+          // Revoke the temporary blob URL we were displaying.
+          if (block.url?.startsWith("blob:")) {
+            URL.revokeObjectURL(block.url);
+          }
+          mounted.editor.change((c) =>
+            c.setBlock(
+              { url: imageData.url, alt: imageData.fileName },
+              { block: block.id },
+            ),
+          );
+        } catch (error) {
+          console.error("Image paste upload failed:", error);
         }
-        mounted.editor.change((c) =>
-          c.setBlock(
-            { url: imageData.url, alt: imageData.fileName },
-            { block: block.id },
-          ),
-        );
-      } catch (error) {
-        console.error("Image paste upload failed:", error);
-      }
+      })();
     });
 
     // Handle format button clicks from native

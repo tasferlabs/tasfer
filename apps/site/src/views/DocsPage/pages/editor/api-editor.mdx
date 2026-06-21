@@ -87,6 +87,15 @@ const off = editor.registerAction(OPEN_LINK, ({ url }) => {
 off();
 ```
 
+A handful of built-in actions are dispatched by the engine for hosts (and custom nodes) to observe or override:
+
+<PropsTable cols={["Action", "Payload", "Dispatched when"]} rows={[
+  { name: "OPEN_LINK", type: "{ url }", desc: "A link mark was activated (Cmd/Ctrl-click). Claim it to route the URL yourself; the default opens a new tab." },
+  { name: "IMAGE_PASTE", type: "ImagePasteEvent", desc: "An image file was pasted and a block inserted ({ file, blockId }). Observe at priority 0 to upload the file and rewrite the block url; a custom image node can claim it to handle its own upload." },
+  { name: "SCROLL", type: "{ scrollY, deltaY }", desc: "User input (wheel / touch / momentum) is about to scroll the viewport. Observe to track the offset (e.g. position floating UI); a node under the pointer can return true to claim it and override page scrolling. Programmatic scrolls (scrollToPosition, clear) bypass it." },
+  { name: "OPEN_CONTEXT_MENU", type: "{ x, y, hasSelection }", desc: "A context menu was requested (right-click / long-press). Claim it to render your own menu." },
+]} />
+
 <h2 id="selection">Selection, focus & clipboard</h2>
 
 <PropsTable cols={["Method", "Signature", "Description"]} rows={[

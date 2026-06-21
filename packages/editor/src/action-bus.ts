@@ -417,6 +417,42 @@ export const TEXT_INPUTTED = stateAction<{
 }>("text-inputted", (state) => ({ state, ops: [] }));
 
 /**
+ * Payload for {@link IMAGE_PASTE}: the pasted file and the stable id of the
+ * image block created to hold it.
+ */
+export interface ImagePasteEvent {
+  /** The pasted image file. */
+  readonly file: File;
+  /** Stable id of the image block created for this paste. */
+  readonly blockId: string;
+}
+
+/**
+ * An image file was pasted from the clipboard (e.g. a screenshot) and a fresh
+ * image block was inserted to hold it. The block is identified by stable
+ * `blockId` (not a positional index) so a handler's async upload resolves the
+ * right block even if remote edits shift indices while the upload is in flight.
+ * A host observes this at priority `0` to upload the file and rewrite the
+ * block's url; a custom image node can register higher and return `true` to
+ * claim the paste and handle the upload itself. Observe-only by default (the
+ * engine has already inserted the block).
+ */
+export const IMAGE_PASTE = action<ImagePasteEvent>("image-paste");
+
+/**
+ * The viewport is about to scroll from user input (wheel, touch-drag, or
+ * momentum) — dispatched at the scroll funnel *before* the offset is applied,
+ * so a node the pointer is over (e.g. a drawing board) can return `true` to
+ * claim the scroll and keep the page from moving, handling the delta itself. If
+ * unclaimed, the editor applies the scroll. `scrollY` is the proposed new
+ * (clamped) offset; `deltaY` is the change from the current offset. Hosts that
+ * only need to track the offset (e.g. to position floating UI) observe at
+ * priority `0`. Programmatic scrolls (`scrollToPosition`, document clear) assign
+ * the viewport directly and bypass this funnel — only user input is claimable.
+ */
+export const SCROLL = action<{ scrollY: number; deltaY: number }>("scroll");
+
+/**
  * The editor wants a context menu shown — emitted on desktop right-click and on
  * touch long-press / cursor-hold. `x`/`y` are canvas coordinates (the host adds
  * its container rect to position the menu); `hasSelection` lets the host build

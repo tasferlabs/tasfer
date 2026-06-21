@@ -4,12 +4,14 @@ import {
   CLOSE_CONTEXT_MENU,
   DEFAULT_ACTION_PRIORITY,
   type DispatchArgs,
+  IMAGE_PASTE,
   isMutationAction,
   isStateAction,
   type MutationAction,
   type MutationHandler,
   OPEN_CONTEXT_MENU,
   OPEN_LINK,
+  SCROLL,
 } from "../action-bus";
 import {
   convertBlockAtCursor,
@@ -543,15 +545,6 @@ export interface EditorApi {
   setRemoteAwareness: (peerId: string, state: AwarenessState | null) => void;
   /** Get all remote awareness states */
   getRemoteAwareness: () => Map<string, AwarenessState>;
-  /** Set callback for when an image file is pasted from clipboard. The freshly
-   * inserted image block is identified by stable `blockId` (not a positional
-   * index) so the host's async upload resolves the right block even if remote
-   * edits shift indices while the upload is in flight. */
-  onImagePaste: (
-    callback: ((file: File, blockId: string) => void) | null,
-  ) => void;
-  /** Set callback for scroll position changes */
-  onScroll: (callback: ((scrollY: number) => void) | null) => void;
   /** Get current scroll position */
   getScrollY: () => number;
   /** Set search highlights for find-in-document. Blocks are addressed by stable
@@ -702,14 +695,6 @@ export class Editor implements EditorApi, EditorWiring {
   private readonly SENTINEL = " "; // NBSP (stable in contenteditable; a plain space can be trimmed)
   private isMirrorUpdating = false;
   private lastSelectionSig: string | null = null;
-
-  // Callback for when an image file is pasted (set by external code to handle async upload)
-  private onImagePasteCallback: ((file: File, blockId: string) => void) | null =
-    null;
-
-  // Callback for scroll position changes
-  private onScrollCallback: ((scrollY: number) => void) | null = null;
-  private lastReportedScrollY = 0;
 
   // Guards async work that settles after destroy() from poking a torn-down loop.
   private destroyed = false;
@@ -1162,10 +1147,11 @@ export class Editor implements EditorApi, EditorWiring {
         }
       }
 
-      // Trigger image paste callback if an image file was pasted
+      // Dispatch the IMAGE_PASTE action if an image file was pasted. A node may
+      // claim it (return true) to handle its own upload; the host observes it at
+      // priority 0 to upload + rewrite the block url.
       if (
         this.pendingClipboardData?.imageFile &&
-        this.onImagePasteCallback &&
         handleEventsResult.pastedImageBlockIndex !== undefined
       ) {
         const file = this.pendingClipboardData.imageFile;
@@ -1173,8 +1159,9 @@ export class Editor implements EditorApi, EditorWiring {
         // Resolve to a stable id now (index is valid at this tick) so the host's
         // async upload addresses the right block even if it shifts meanwhile.
         const pastedBlock = this._state.document.page.blocks[blockIndex];
-        // Call async — don't block the render loop
-        if (pastedBlock) this.onImagePasteCallback(file, pastedBlock.id);
+        if (pastedBlock) {
+          this.dispatch(IMAGE_PASTE, { file, blockId: pastedBlock.id });
+        }
       }
 
       // Clear clipboard data after it's been used
@@ -1351,15 +1338,6 @@ export class Editor implements EditorApi, EditorWiring {
         if (stateChanged) {
           const currentState = this._state;
           this.listeners.forEach((listener) => listener(currentState));
-        }
-
-        // Notify scroll callback if scrollY changed
-        if (
-          this.onScrollCallback &&
-          this.viewport.scrollY !== this.lastReportedScrollY
-        ) {
-          this.lastReportedScrollY = this.viewport.scrollY;
-          this.onScrollCallback(this.viewport.scrollY);
         }
       }
     } finally {
@@ -2193,7 +2171,26 @@ export class Editor implements EditorApi, EditorWiring {
   updateViewport = (newViewport: Partial<ViewportState>): void => {
     const oldWidth = this.viewport.width;
 
-    this.viewport = { ...this.viewport, ...newViewport };
+    // A user-input scroll funnels through here (wheel/touch/momentum all commit
+    // their offset via this callback). Dispatch SCROLL *before* applying it so a
+    // node the pointer is over (e.g. a drawing board) can return true to claim
+    // the scroll and keep the page from moving; if claimed, drop the offset
+    // change but keep any other batched viewport fields (e.g. a resize). Hosts
+    // tracking the offset observe at priority 0. Programmatic scrolls assign
+    // this.viewport directly and bypass this funnel, so they aren't claimable.
+    let patch = newViewport;
+    if (
+      patch.scrollY !== undefined &&
+      patch.scrollY !== this.viewport.scrollY &&
+      this.dispatch(SCROLL, {
+        scrollY: patch.scrollY,
+        deltaY: patch.scrollY - this.viewport.scrollY,
+      })
+    ) {
+      patch = { ...patch, scrollY: this.viewport.scrollY };
+    }
+
+    this.viewport = { ...this.viewport, ...patch };
 
     // Invalidate cached bounding rect since viewport dimensions changed
     this.invalidateRectCache();
@@ -3624,16 +3621,6 @@ export class Editor implements EditorApi, EditorWiring {
 
   collectOverlays = (): NodeOverlay[] =>
     collectOverlays(this._state, this.viewport, getEditorStyles(this._state));
-
-  onImagePaste = (
-    callback: ((file: File, blockId: string) => void) | null,
-  ): void => {
-    this.onImagePasteCallback = callback;
-  };
-
-  onScroll = (callback: ((scrollY: number) => void) | null): void => {
-    this.onScrollCallback = callback;
-  };
 
   getScrollY = (): number => this.viewport.scrollY;
 
