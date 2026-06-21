@@ -1,7 +1,6 @@
 import { createDoc, type Doc } from "../doc";
 import { baseSchema, type Schema } from "../schema";
 import { type Block, loadPage } from "../serlization/loadPage";
-import type { Operation } from "../state-types";
 import type { EditorApi, EditorStateSnapshot } from "./editor";
 import { mountEditor, type MountEditorOptions } from "./mount";
 
@@ -48,19 +47,10 @@ export interface CypherEditor extends EditorApi {
   /**
    * The CRDT document this editor renders and edits — the one passed via
    * `CreateEditorOptions.doc`, or a private one created on mount. Sync and
-   * persistence go through it: `doc.applyUpdate(ops)` for inbound ops,
-   * `doc.on("update", …)` for outbound, `doc.encodeState()` to persist.
-   * (The legacy `setBroadcast`/`applyRemoteOperations` shims below still work
-   * but are routed through the doc; prefer the doc API in new code.)
+   * persistence go through it exclusively: `doc.applyUpdate(ops)` for inbound
+   * ops, `doc.on("update", …)` for outbound, `doc.encodeState()` to persist.
    */
   readonly doc: Doc;
-  /**
-   * Apply remote operations to the document.
-   * @deprecated Use the doc directly: `editor.doc.applyUpdate(ops)`. Kept as a
-   * thin alias that routes through the doc so the log/version vector stay
-   * consistent and the editor re-renders.
-   */
-  applyRemoteOperations: (ops: Operation[]) => void;
   /**
    * Read-only state snapshot for UI binding: `{ selection, activeMarks, doc }`.
    * The raw internal {@link EditorState} stays available via {@link getState}.
@@ -141,9 +131,6 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
   });
   const { editor } = mounted;
 
-  // Unsubscriber for the host-facing legacy `setBroadcast` shim below.
-  let offHostBroadcast: (() => void) | null = null;
-
   const focus = (at?: "start" | "end") => {
     mounted.refocus();
     if (at) editor.setCaret(at);
@@ -151,8 +138,6 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
   };
 
   const destroy = () => {
-    offHostBroadcast?.();
-    offHostBroadcast = null;
     // mounted.destroy() detaches the doc↔editor wiring it installed.
     mounted.destroy();
     // A doc passed in by the host outlives the editor; a private one doesn't.
@@ -161,7 +146,9 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
 
   const handle: CypherEditor = {
     // Spread the core editor action surface (change, run, undo, on,
-    // getMarkdown, sync methods, …) onto the returned handle.
+    // getMarkdown, …) onto the returned handle. (The doc↔editor wiring methods
+    // are engine-internal — kept off the public `CypherEditor`/`EditorApi`
+    // type; hosts sync through `doc` exclusively.)
     ...editor,
     // Re-expose `state` as a live getter: object spread above evaluates the
     // core getter once and would otherwise freeze it to a stale snapshot.
@@ -179,25 +166,6 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     // (mounted.destroy calls the original editor.destroy internally — the
     // spread copies a reference, it isn't reassigned, so there's no recursion.)
     destroy,
-    // ── Legacy sync surface, rerouted through the doc ─────────────────────
-    // mountEditor owns the editor's broadcast slot (the doc↔editor wiring);
-    // a host must not reinstall it there or the doc would disconnect. So a host
-    // `setBroadcast` becomes a doc subscription over this editor's own local
-    // batches — same observable behavior as before. Prefer the doc API
-    // (`editor.doc.on("update", …)`) in new code.
-    setBroadcast: (fn) => {
-      offHostBroadcast?.();
-      offHostBroadcast = fn
-        ? doc.on("update", (u) => {
-            if (u.local) fn(u.ops);
-          })
-        : null;
-    },
-    // Routed through the doc so its log/version-vector stay consistent (the
-    // doc's update event then applies the ops to the editor, deduplicated).
-    applyRemoteOperations: (ops: Operation[]) => {
-      doc.applyUpdate(ops, "applyRemoteOperations");
-    },
   };
 
   if (autofocus) focus();

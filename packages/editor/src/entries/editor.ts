@@ -272,9 +272,12 @@ export interface EditorStateSnapshot {
 }
 
 /**
- * The public action/lifecycle surface implemented by {@link Editor}. Kept as a
- * standalone interface so the rich documentation lives in one place and the
- * class is compile-checked (`class Editor implements EditorApi`) against it.
+ * The public action/lifecycle surface implemented by {@link Editor} — the
+ * contract owed to external consumers. Kept as a standalone interface so the
+ * rich documentation lives in one place and the class is compile-checked
+ * (`class Editor implements EditorApi`) against it. Engine-internal doc↔editor
+ * wiring lives on the separate {@link EditorWiring} interface, not here, so it
+ * never appears in the type a consumer holds.
  */
 export interface EditorApi {
   /**
@@ -542,24 +545,8 @@ export interface EditorApi {
    * itself. Read by the focus backstops and the touch FSM.
    */
   isHostMenuCapturing: () => boolean;
-  /**
-   * Adopt a remotely-merged page (the doc→editor channel). Pass the merged
-   * `remoteOps` so `on("change")` listeners fire with `isRemote: true` and the
-   * applied ops.
-   * @internal — wiring detail driven by an attached `Doc` (see `mountEditor`'s
-   * `doc` option). Hosts apply remote ops via `doc.applyUpdate` and never call
-   * this directly.
-   */
-  updatePageFromSync: (page: Page, remoteOps?: readonly Operation[]) => void;
   /** Restore from snapshot - generates and broadcasts operations */
   restoreFromSnapshot: (blocks: Block[]) => void;
-  /**
-   * Set the function that receives this editor's locally-produced ops.
-   * @internal — wiring detail set by `mountEditor` to feed an attached `Doc`
-   * (`doc._ingestLocal`). Hosts observe local ops via `doc.on("update")`, not
-   * by installing a callback here.
-   */
-  setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
   /** Set callback for broadcasting awareness state changes */
   setAwarenessBroadcast: (
     fn: ((state: AwarenessState) => void) | null,
@@ -594,6 +581,35 @@ export interface EditorApi {
   scrollToPosition: (position: { blockId: string; textIndex: number }) => void;
 }
 
+/**
+ * The doc↔editor wiring channel — the private plumbing `mountEditor` uses to
+ * bind an attached {@link Doc} to an {@link Editor} (local edits → doc via
+ * {@link setBroadcast}, merged doc updates → editor via {@link updatePageFromSync}).
+ *
+ * Deliberately NOT part of {@link EditorApi}: these are engine internals with no
+ * semver guarantee. `Editor` implements both interfaces, so the concrete class
+ * (reachable as `EditorClass` from `@cypherkit/editor/internal`) carries them
+ * while the public action/lifecycle type a consumer holds stays free of wiring.
+ * A `@internal` JSDoc tag does not remove a member from a type — separating the
+ * interfaces does. Hosts sync through the `Doc` API (`doc.applyUpdate` /
+ * `doc.on("update")`), never by calling these directly.
+ */
+export interface EditorWiring {
+  /**
+   * Adopt a remotely-merged page (the doc→editor channel). Pass the merged
+   * `remoteOps` so `on("change")` listeners fire with `isRemote: true` and the
+   * applied ops. Driven by an attached `Doc` (see `mountEditor`'s `doc` option).
+   */
+  updatePageFromSync: (page: Page, remoteOps?: readonly Operation[]) => void;
+  /**
+   * Set the function that receives this editor's locally-produced ops. Set by
+   * `mountEditor` to feed an attached `Doc` (`doc._ingestLocal`); pass `null` to
+   * detach. Hosts observe local ops via `doc.on("update")`, not by installing a
+   * callback here.
+   */
+  setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
+}
+
 type AwarenessBroadcastFn = (state: AwarenessState) => void;
 
 // A pure (state) => ActionResult transform. Named distinctly from the
@@ -610,7 +626,7 @@ type StateAction = (s: EditorState) => ActionResult;
  * state is per-instance — no module-level globals — so multiple editors can
  * coexist on one page.
  */
-export class Editor implements EditorApi {
+export class Editor implements EditorApi, EditorWiring {
   // ── Canvas / input surface ────────────────────────────────────────────────
   private readonly contentCtx: CanvasRenderingContext2D;
   private readonly cursorCtx: CanvasRenderingContext2D;

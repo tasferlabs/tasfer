@@ -17,6 +17,11 @@
 // Hosts hold the spread `CypherEditor` handle (root); the concrete class is
 // here for advanced `new Editor(...)` construction. The public action/lifecycle
 // type is the interface-shaped `Editor` (= `EditorApi`) at the root.
+//
+// `EditorWiring` is the doc↔editor wiring channel (`updatePageFromSync` /
+// `setBroadcast`) the concrete class also implements — engine-internal plumbing
+// `mountEditor` drives, kept off the public `EditorApi` contract.
+export type { EditorWiring } from "./entries/editor";
 export { Editor as EditorClass } from "./entries/editor";
 
 // ── Low-level CRDT op-log engine ─────────────────────────────────────────────
