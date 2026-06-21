@@ -13,9 +13,9 @@ const editor = createEditor(options: CreateEditorOptions): CypherEditor;
 
 <PropsTable rows={[
   { name: "element", type: "HTMLElement", required: true, desc: "The host element the canvas mounts into. Sized to fill it, so give it a height." },
-  { name: "value", type: "string", desc: "Initial document as markdown. Ignored when doc or blocks is provided." },
-  { name: "blocks", type: "Block[]", desc: "Pre-parsed blocks to mount (e.g. restored from a snapshot). Takes precedence over value." },
-  { name: "doc", type: "Doc", desc: "An existing CRDT document to edit (see createDoc). Takes precedence over blocks/value; sync and persistence flow through it." },
+  { name: "value", type: "string", desc: "Initial document as markdown. One of three mutually exclusive content sources (value / blocks / doc) — the options type accepts at most one; passing two is a type error (and throws at runtime)." },
+  { name: "blocks", type: "Block[]", desc: "Pre-parsed blocks to mount (e.g. restored from a snapshot). Mutually exclusive with value/doc — passing two is a type error (and throws at runtime)." },
+  { name: "doc", type: "Doc", desc: "An existing CRDT document to edit (see createDoc). Mutually exclusive with blocks/value; sync and persistence flow through it." },
   { name: "schema", type: "Schema", desc: "Allowed nodes & marks. Defaults to baseSchema. Ignored when doc is supplied (the doc carries its own data schema)." },
   { name: "theme", type: "EditorTheme", desc: "Canvas color tokens, styles, and fonts. Defaults to the neutral palette." },
   { name: "editable", type: "boolean", desc: "Set false for a read-only renderer. Default true." },

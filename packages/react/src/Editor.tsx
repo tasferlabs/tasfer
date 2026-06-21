@@ -7,8 +7,12 @@ import { useEditor, type UseEditorOptions } from "./useEditor";
  * Props for the {@link Editor} component: every {@link CreateEditorOptions}
  * field except `element` (the component renders and owns the host `<div>`), plus
  * styling hooks and a one-shot ready callback.
+ *
+ * A type alias rather than an `interface extends UseEditorOptions` because the
+ * content sources make `UseEditorOptions` a discriminated union, which an
+ * interface can't extend — intersecting preserves the union's exclusivity.
  */
-export interface EditorProps extends UseEditorOptions {
+export type EditorProps = UseEditorOptions & {
   /** Class name forwarded to the host `<div>`. */
   className?: string;
   /**
@@ -22,7 +26,7 @@ export interface EditorProps extends UseEditorOptions {
    * to grab the imperative handle (focus, change, event subscriptions, …).
    */
   onReady?: (editor: CypherEditor) => void;
-}
+};
 
 /**
  * A thin React wrapper over {@link useEditor} that renders the host element and

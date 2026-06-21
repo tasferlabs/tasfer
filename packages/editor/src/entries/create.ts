@@ -4,25 +4,56 @@ import { type Block, loadPage } from "../serlization/loadPage";
 import type { EditorApi, EditorStateSnapshot } from "./editor";
 import { mountEditor, type MountEditorOptions } from "./mount";
 
-export interface CreateEditorOptions extends MountEditorOptions {
+/**
+ * The three mutually exclusive content sources for {@link createEditor}. Supply
+ * **at most one** of `value` / `blocks` / `doc` — the discriminated union makes
+ * passing two a compile-time error (and `createEditor` also throws at runtime,
+ * to backstop untyped JS callers). Passing none yields a blank document.
+ *
+ * The `?: never` siblings on each variant are what enforce the exclusivity: if
+ * you set `doc`, TypeScript narrows to the third variant, where `value`/`blocks`
+ * are typed `never` and so can't also be set.
+ */
+export type CreateEditorContent =
+  | {
+      /** Initial document as a Markdown string. */
+      value?: string;
+      blocks?: never;
+      doc?: never;
+    }
+  | {
+      /**
+       * Pre-parsed blocks to mount instead of `value` (e.g. restored from a
+       * snapshot).
+       */
+      blocks: Block[];
+      value?: never;
+      doc?: never;
+    }
+  | {
+      /**
+       * Attach an existing CRDT document (see `createDoc`). The editor renders
+       * and edits this doc: its local edits flow into the doc, and updates
+       * applied to the doc from elsewhere (`doc.applyUpdate`) flow into the
+       * editor. A doc already carries its content, and supersedes
+       * `crdtBinding`/`pageId` (it carries its own identity). When omitted, a
+       * private doc is created from `blocks`/`value` and exposed as
+       * `editor.doc`.
+       */
+      doc: Doc;
+      value?: never;
+      blocks?: never;
+    };
+
+/**
+ * The non-content {@link createEditor} options, shared by every
+ * {@link CreateEditorContent} variant. (`doc` is omitted from the inherited
+ * `MountEditorOptions` here because it's one of the content sources above — the
+ * union owns it so the exclusivity holds.)
+ */
+export type CreateEditorBaseOptions = Omit<MountEditorOptions, "doc"> & {
   /** The host element the canvas mounts into. Sized to fill this element. */
   element: HTMLElement;
-  /** Initial document as a Markdown string. Ignored when `blocks` is provided. */
-  value?: string;
-  /**
-   * Pre-parsed blocks to mount instead of `value` (e.g. restored from a
-   * snapshot). Takes precedence over `value`.
-   */
-  blocks?: Block[];
-  /**
-   * Attach an existing CRDT document (see `createDoc`). The editor renders
-   * and edits this doc: its local edits flow into the doc, and updates
-   * applied to the doc from elsewhere (`doc.applyUpdate`) flow into the
-   * editor. Takes precedence over `blocks`/`value`/`crdtBinding`/`pageId`.
-   * When omitted, a private doc is created from `blocks`/`value` and exposed
-   * as `editor.doc`.
-   */
-  doc?: Doc;
   /**
    * The block/mark types this editor understands (see `defineNode` /
    * `baseSchema.extend`). Drives parsing, serialization, CRDT validation, and
@@ -33,7 +64,13 @@ export interface CreateEditorOptions extends MountEditorOptions {
   schema?: Schema;
   /** Focus the editor and drop a caret in on mount. Default false. */
   autofocus?: boolean;
-}
+};
+
+/**
+ * Options for {@link createEditor}: the {@link CreateEditorBaseOptions} plus at
+ * most one of the {@link CreateEditorContent} sources.
+ */
+export type CreateEditorOptions = CreateEditorBaseOptions & CreateEditorContent;
 
 /**
  * The handle returned by {@link createEditor}: the full {@link Editor} action
@@ -104,11 +141,30 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     ...mountOptions
   } = options;
 
-  // The doc is the source of truth the editor renders. An explicit `doc`
-  // wins; otherwise a private one is created from `blocks`/`value` (loadPage
-  // always returns ≥1 block, so an empty/omitted string is a valid blank
-  // document). The doc carries the data half of the schema so its reducer and
-  // markdown projection honor custom block types.
+  // Content comes from exactly one source — `value` (markdown), `blocks`
+  // (pre-parsed), or `doc` (an existing CRDT document). They don't layer:
+  // supplying more than one is a host mistake (one would silently win and the
+  // rest vanish). The `CreateEditorContent` union already rejects this at
+  // compile time for TypeScript callers; this runtime check backstops untyped
+  // JS callers (and `as`-casts), rejecting it loudly rather than guessing.
+  if (
+    (value !== undefined ? 1 : 0) +
+      (blocks !== undefined ? 1 : 0) +
+      (docOption !== undefined ? 1 : 0) >
+    1
+  ) {
+    throw new Error(
+      "createEditor: pass at most one content source — `value`, `blocks`, or " +
+        "`doc`. A `doc` already carries its content; `blocks`/`value` seed a " +
+        "fresh one.",
+    );
+  }
+
+  // The doc is the source of truth the editor renders. An explicit `doc` is
+  // used as-is; otherwise a private one is created from `blocks`/`value`
+  // (loadPage always returns ≥1 block, so an empty/omitted string is a valid
+  // blank document). The doc carries the data half of the schema so its reducer
+  // and markdown projection honor custom block types.
   const doc =
     docOption ??
     createDoc({

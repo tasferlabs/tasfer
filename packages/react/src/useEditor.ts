@@ -74,7 +74,16 @@ export function useEditor(options: UseEditorOptions): UseEditorResult {
     const element = containerRef.current;
     if (!element) return;
 
-    const instance = createEditor({ ...optionsRef.current, element });
+    // `optionsRef.current` is a `UseEditorOptions` — itself the discriminated
+    // content-source union, so the caller already satisfied the
+    // value/blocks/doc exclusivity at their own call site. Object-spreading a
+    // union widens away the discriminant (TS can no longer prove which variant
+    // survived `{ ...x }`), so we reassert the type here. `createEditor`'s
+    // runtime guard still backstops a genuinely-conflicting object.
+    const instance = createEditor({
+      ...optionsRef.current,
+      element,
+    } as CreateEditorOptions);
     setEditor(instance);
 
     return () => {

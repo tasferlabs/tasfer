@@ -97,7 +97,12 @@ export type {
 // lower-level `mountEditor` (above) stays available for hosts that want the
 // split. (The raw `entries/editor` constructor is reachable as `EditorClass`
 // from `@cypherkit/editor/internal` for advanced use.)
-export type { CreateEditorOptions, CypherEditor } from "./entries/create";
+export type {
+  CreateEditorBaseOptions,
+  CreateEditorContent,
+  CreateEditorOptions,
+  CypherEditor,
+} from "./entries/create";
 export { createEditor } from "./entries/create";
 
 // CRDT document — the editor-independent source of truth. Create one with
