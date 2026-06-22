@@ -136,7 +136,6 @@ export function createInitialState(
     },
     view: {
       isFocused: false,
-      isWindowFocused: true,
       clickTracker: {
         count: 0,
         lastClickTime: 0,
@@ -171,16 +170,6 @@ export function updateMode(state: EditorState, mode: EditorMode): EditorState {
   return {
     ...state,
     ui: { ...state.ui, mode },
-  };
-}
-
-export function updateWindowFocused(
-  state: EditorState,
-  isWindowFocused: boolean,
-): EditorState {
-  return {
-    ...state,
-    view: { ...state.view, isWindowFocused },
   };
 }
 

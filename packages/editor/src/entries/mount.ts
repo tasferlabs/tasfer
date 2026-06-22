@@ -590,17 +590,6 @@ export function mountEditor(
   hiddenInput.addEventListener("focus", handleInputFocus);
   hiddenInput.addEventListener("blur", handleInputBlur);
 
-  const handleWindowFocus = () => {
-    editor.setWindowFocused(true);
-  };
-
-  const handleWindowBlur = () => {
-    editor.setWindowFocused(false);
-  };
-
-  window.addEventListener("focus", handleWindowFocus);
-  window.addEventListener("blur", handleWindowBlur);
-
   // Theme reactivity (e.g. dark-mode toggle) is the host's responsibility: the
   // engine no longer reads the DOM for styling, so the host watches its own
   // theme source and calls `editor.setTheme(...)`. (Was a MutationObserver on
@@ -631,8 +620,6 @@ export function mountEditor(
       clearTimeout(blurTimeoutId);
       blurTimeoutId = null;
     }
-    window.removeEventListener("focus", handleWindowFocus);
-    window.removeEventListener("blur", handleWindowBlur);
     document.removeEventListener("mousedown", handleDocumentClick);
     document.removeEventListener("touchstart", handleDocumentClick);
     document.removeEventListener("focusin", handleDocumentFocusIn);

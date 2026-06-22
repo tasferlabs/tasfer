@@ -534,8 +534,8 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
   const resolved = state?.resolvedStyles ?? defaultStyles;
 
   // Window focus defaults to true when unknown so selection renders focused.
-  const isWindowFocused = state?.view.isWindowFocused ?? true;
-  const useFocusedSelection = isWindowFocused || isTouchDevice();
+  const isFocused = state?.view.isFocused ?? true;
+  const useFocusedSelection = isFocused || isTouchDevice();
 
   // Horizontal padding: explicit override (legacy `padding` option or
   // `theme.styles.canvas.padding*`, both folded into `theme.styles.canvas`)

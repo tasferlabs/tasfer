@@ -387,7 +387,6 @@ export interface UIState {
 // View State - Ephemeral view properties
 export interface ViewState {
   readonly isFocused: boolean;
-  readonly isWindowFocused: boolean; // Whether the browser window has focus (affects selection color); set by mount focus/blur handlers
   readonly clickTracker: ClickTracker;
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;

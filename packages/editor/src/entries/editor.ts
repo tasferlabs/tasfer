@@ -95,7 +95,6 @@ import {
   isTouchDevice,
   setActiveMenu,
   updateMode,
-  updateWindowFocused,
 } from "../state-utils";
 import {
   getEditorStyles,
@@ -690,7 +689,6 @@ export interface EditorWiring {
    * Update browser-window focus (affects selection color); re-renders. Driven by
    * `mountEditor`'s window focus/blur listeners — not a host-facing control.
    */
-  setWindowFocused: (focused: boolean) => void;
   /**
    * Whether a host pointer-capturing menu (the context menu) is currently open.
    * The engine maintains this from the menu's `OPEN_CONTEXT_MENU` /
@@ -1219,7 +1217,6 @@ export class Editor implements EditorApi, EditorWiring {
         ) {
           this.dirtyLayers.content = true;
         }
-
       }
 
       // Check if cursor blink state changed (for cursor animation)
@@ -2157,7 +2154,6 @@ export class Editor implements EditorApi, EditorWiring {
       this.hiddenInput.removeEventListener("cut", this.cutHandler);
       this.hiddenInput.removeEventListener("paste", this.pasteHandler);
     }
-
   };
 
   updateViewport = (newViewport: Partial<ViewportState>): void => {
@@ -3336,14 +3332,6 @@ export class Editor implements EditorApi, EditorWiring {
 
   isHostMenuCapturing = (): boolean => this.session.hostMenuCapturing;
 
-  setWindowFocused = (focused: boolean): void => {
-    if (this._state.view.isWindowFocused === focused) return;
-    this._state = updateWindowFocused(this._state, focused);
-    // Selection color depends on window focus; scheduleRender marks the content
-    // layer dirty so it repaints with the focused/unfocused selection style.
-    this.scheduleRender();
-  };
-
   updatePageFromSync = (
     page: Page,
     remoteOps: readonly Operation[] = [],
@@ -3614,10 +3602,7 @@ export class Editor implements EditorApi, EditorWiring {
       ...this._state,
       ui: {
         ...this._state.ui,
-        decorations: removeDecorationLayer(
-          this._state.ui.decorations,
-          layer,
-        ),
+        decorations: removeDecorationLayer(this._state.ui.decorations, layer),
       },
     };
     this.scheduleRender();
