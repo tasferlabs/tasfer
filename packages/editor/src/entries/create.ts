@@ -191,8 +191,8 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
 
   const focus = (at?: "start" | "end") => {
     mounted.refocus();
-    if (at) editor.host.setCaret(at);
-    else editor.host.setInitialCursor();
+    // Explicit `at` forces the caret; otherwise seed one only if none exists.
+    editor.host.setCaret(at ?? "start", { onlyIfUnset: !at });
   };
 
   const destroy = () => {

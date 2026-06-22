@@ -41,7 +41,6 @@ import {
   allCharsHaveFormat,
   clearFailedImageCache,
   getBlockTextContent,
-  getBlockTextLength,
   getFormatsAtPosition,
   getLinkAtPosition,
   getSelectionRange,
@@ -1630,7 +1629,7 @@ function EditorSurface({
         mounted.editor.change((c) => c.setBlock({ type: type as any })),
       focus: () => {
         mounted.editor.setFocus(true);
-        mounted.editor.host.setInitialCursor();
+        mounted.editor.host.setCaret("start", { onlyIfUnset: true });
       },
       onFormatButtonClick: handleFormatButtonClick,
       toggleStrong: () => mounted.editor.change((c) => c.setMark("strong")),
@@ -1876,28 +1875,24 @@ function EditorSurface({
         const saved = loadCursorPosition(pageId);
         const editorState = mounted.editor.getState();
 
-        if (saved && editorState) {
-          const blocks = editorState.document.page.blocks;
-          // Clamp blockIndex to valid range
-          let blockIndex = Math.min(saved.blockIndex, blocks.length - 1);
-          if (blockIndex < 0) blockIndex = 0;
+        // Resolve the saved index to a stable block id; setCaret clamps the
+        // offset to the block's length for us.
+        const blocks = editorState?.document.page.blocks ?? [];
+        const block =
+          blocks[Math.min(Math.max(saved?.blockIndex ?? 0, 0), blocks.length - 1)];
 
-          // Clamp textIndex to valid range for the target block
-          const block = blocks[blockIndex];
-          const maxTextIndex = block ? getBlockTextLength(block) : 0;
-          const textIndex = Math.min(saved.textIndex, maxTextIndex);
-
-          mounted.editor.host.restoreCursorAndSelection(
-            { position: { blockIndex, textIndex }, lastUpdate: Date.now() },
-            null,
-          );
+        if (saved && block) {
+          mounted.editor.host.setCaret({
+            block: block.id,
+            offset: saved.textIndex,
+          });
 
           // Restore scroll position
           if (saved.scrollY > 0) {
             mounted.editor.view.updateViewport({ scrollY: saved.scrollY });
           }
         } else {
-          mounted.editor.host.setInitialCursor();
+          mounted.editor.host.setCaret("start", { onlyIfUnset: true });
         }
       }, 0);
     }
@@ -2052,34 +2047,12 @@ function EditorSurface({
       );
       const match = findMatches[index];
       if (match) {
-        // restoreCursorAndSelection works in positional coordinates, so resolve
-        // the match's stable block id to a current index at navigation time.
-        const blockIndex =
-          mountedRef.current.editor
-            .getState()
-            ?.document.page.blocks.findIndex((b) => b.id === match.blockId) ??
-          -1;
-        if (blockIndex !== -1) {
-          mountedRef.current.editor.host.restoreCursorAndSelection(
-            {
-              position: {
-                blockIndex,
-                textIndex: match.endIndex,
-              },
-              lastUpdate: Date.now(),
-            },
-            {
-              anchor: {
-                blockIndex,
-                textIndex: match.startIndex,
-              },
-              focus: { blockIndex, textIndex: match.endIndex },
-              isForward: true,
-              isCollapsed: false,
-              lastUpdate: Date.now(),
-            },
-          );
-        }
+        // setSelection speaks DocPoints, so the match's stable block id selects
+        // the span directly — no index resolution needed.
+        mountedRef.current.editor.host.setSelection({
+          from: { block: match.blockId, offset: match.startIndex },
+          to: { block: match.blockId, offset: match.endIndex },
+        });
         mountedRef.current.editor.view.scrollToPosition({
           blockId: match.blockId,
           textIndex: match.startIndex,

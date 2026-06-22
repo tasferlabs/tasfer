@@ -516,7 +516,7 @@ export function mountEditor(
     // Sentinel content/caret is seeded by the engine (resetSentinel) on the
     // render frame triggered by setFocus — mount.ts no longer touches it.
     editor.setFocus(true);
-    editor.setInitialCursor();
+    editor.setCaret("start", { onlyIfUnset: true });
   };
 
   // Primary focus-out signal: the hidden input owns DOM focus, so its native

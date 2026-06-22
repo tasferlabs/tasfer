@@ -92,7 +92,6 @@ import type {
 import type { Operation } from "../state-types";
 import {
   closeActiveMenu,
-  createInitialCursorState,
   isTouchDevice,
   setActiveMenu,
   updateMode,
@@ -410,26 +409,31 @@ export interface EditorViewApi {
  */
 export interface EditorHostApi {
   /**
-   * Place the caret at the document start if there is no cursor yet — a no-op
-   * otherwise, or when the document has no visible blocks.
+   * Place a collapsed caret at a {@link DocPoint} (default `"start"`), clearing
+   * any selection, returning to `edit` mode, and notifying subscribers. The
+   * point speaks the same stable vocabulary as the read/write API — `"start"`/
+   * `"end"`, or an absolute `{ block, offset }`. Forces the caret to move unless
+   * `onlyIfUnset` is passed, in which case it is a no-op when a cursor already
+   * exists (seed-an-initial-caret). No-op when the point can't be resolved
+   * (empty doc, unknown block).
    */
-  setInitialCursor: () => void;
-  /** Place the caret at the document start or end (forces a new caret). */
-  setCaret: (at: "start" | "end") => void;
+  setCaret: (
+    point?: Exclude<DocPoint, "caret">,
+    opts?: { onlyIfUnset?: boolean },
+  ) => void;
+  /**
+   * Place a selection spanning a {@link DocRange}, returning to `edit` mode and
+   * notifying subscribers — e.g. to reveal a search match. A collapsed range (a
+   * bare {@link DocPoint}) drops a caret; `{ from, to }` selects the span. No-op
+   * when the range can't be resolved.
+   */
+  setSelection: (range: DocRange) => void;
   /**
    * Switch the interaction mode: `edit` (normal), `select` (selection-only, e.g.
    * mobile), or `suspended` (read-only; also halts scroll momentum). Notifies
    * subscribers.
    */
   setMode: (mode: "edit" | "select" | "suspended") => void;
-  /**
-   * Restore a previously captured cursor and selection (and return to `edit`
-   * mode) — e.g. after the host temporarily moved focus away. Notifies subscribers.
-   */
-  restoreCursorAndSelection: (
-    cursor: EditorState["document"]["cursor"],
-    selection: EditorState["document"]["selection"],
-  ) => void;
   /**
    * Collect the node-declared overlay descriptors for the on-screen blocks
    * (see {@link NodeOverlay}). The host maps each `key` to a component and
@@ -2257,36 +2261,40 @@ export class Editor implements EditorApi, EditorWiring {
     }
   };
 
-  setInitialCursor = (): void => {
-    // Only set cursor if there isn't one already
-    if (
-      !this._state.document.cursor &&
-      this._state.view.visibleBlocks.length > 0
-    ) {
-      this._state = createInitialCursorState(this._state);
-      this.scheduleRender();
-    }
+  // Place a collapsed caret at a DocPoint (default the document start), clearing
+  // any selection. Pass `onlyIfUnset` to make it a no-op when a cursor already
+  // exists (the "seed an initial caret" case, e.g. on first focus); omit it to
+  // force the move.
+  setCaret = (
+    point: Exclude<DocPoint, "caret"> = "start",
+    opts?: { onlyIfUnset?: boolean },
+  ): void => {
+    if (opts?.onlyIfUnset && this._state.document.cursor) return;
+    const resolved = resolvePoint(this._state, point);
+    if (!resolved) return;
+    this._state = updateMode(
+      updateSelection(
+        updateCursor(this._state, {
+          blockIndex: resolved.blockIndex,
+          textIndex: resolved.offset,
+        }),
+        null,
+      ),
+      "edit",
+    );
+    const currentState = this._state;
+    this.scheduleRender();
+    this.listeners.forEach((listener) => listener(currentState));
   };
 
-  // Force the caret to the document start or end (used by `focus(at)`).
-  setCaret = (at: "start" | "end"): void => {
-    const visible = this._state.view.visibleBlocks;
-    if (visible.length === 0) return;
-    const blocks = this._state.document.page.blocks;
-    const target = at === "start" ? visible[0] : visible[visible.length - 1];
-    const blockIndex = blocks.findIndex((b) => b.id === target.id);
-    if (blockIndex === -1) return;
-    const textIndex =
-      at === "start" ? 0 : getBlockTextContent(blocks[blockIndex]).length;
-    this._state = {
-      ...this._state,
-      document: {
-        ...this._state.document,
-        cursor: { position: { blockIndex, textIndex }, lastUpdate: Date.now() },
-        selection: null,
-      },
-    };
+  // Place a selection spanning a DocRange (a bare point drops a caret). Shares
+  // the `selectTarget` resolver with `ChangeApi.select`, but stands alone — no
+  // ops, no undo entry — for host-driven cursor/selection placement.
+  setSelection = (range: DocRange): void => {
+    this._state = updateMode(selectTarget(this._state, range), "edit");
+    const currentState = this._state;
     this.scheduleRender();
+    this.listeners.forEach((listener) => listener(currentState));
   };
 
   // Internal: viewport coords for an index-space {@link Position} (the
@@ -3087,28 +3095,6 @@ export class Editor implements EditorApi, EditorWiring {
     this.listeners.forEach((listener) => listener(currentState));
   };
 
-  restoreCursorAndSelection = (
-    cursor: EditorState["document"]["cursor"],
-    selection: EditorState["document"]["selection"],
-  ): void => {
-    this._state = updateMode(
-      updateSelection(
-        updateCursor(this._state, cursor?.position || null),
-        selection
-          ? {
-              anchor: selection.anchor,
-              focus: selection.focus,
-              initialBoundary: selection.initialBoundary || null,
-            }
-          : null,
-      ),
-      "edit",
-    );
-    const currentState = this._state;
-    this.scheduleRender();
-    this.listeners.forEach((listener) => listener(currentState));
-  };
-
   private setBlockAttrsAction =
     (blockId: string, attrs: Record<string, unknown>): StateAction =>
     (s) => {
@@ -3673,10 +3659,9 @@ export class Editor implements EditorApi, EditorWiring {
   };
 
   host: EditorHostApi = {
-    setInitialCursor: this.setInitialCursor,
     setCaret: this.setCaret,
+    setSelection: this.setSelection,
     setMode: this.setMode,
-    restoreCursorAndSelection: this.restoreCursorAndSelection,
     collectOverlays: this.collectOverlays,
     openOverlay: this.openOverlay,
     setNodeViewState: this.setNodeViewState,
