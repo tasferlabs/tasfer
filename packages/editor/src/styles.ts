@@ -18,7 +18,6 @@ import type {
   TextStyle,
   ThemeTokens,
 } from "./state-types";
-import { DEFAULT_AWARENESS_COLORS } from "./sync/awareness";
 
 /**
  * English defaults for the cross-node canvas strings (block placeholders). The
@@ -92,8 +91,6 @@ export const DEFAULT_TOKENS: ThemeTokens = {
   scrollbarThumb: "rgba(128,128,128,0.5)",
   scrollbarThumbHover: "rgba(128,128,128,0.7)",
   scrollbarThumbActive: "rgba(128,128,128,0.9)",
-  searchHighlight: "#facc15",
-  searchHighlightActive: "#f97316",
   unknownBlockBackground: "rgba(127,127,127,0.06)",
   unknownBlockBorder: "rgba(127,127,127,0.4)",
   unknownBlockText: "rgba(127,127,127,0.8)",
@@ -382,7 +379,6 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       labelFontSize: 10,
       labelPadding: 2,
       labelBorderRadius: 2,
-      palette: DEFAULT_AWARENESS_COLORS,
     },
     selection: {
       // Focused variant; `getEditorStyles` swaps in `unfocusedBackgroundColor`
@@ -493,12 +489,6 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         offsetX: 0, // Distance from the left edge (before indent)
         textGap: 2, // Gap between marker and text
       },
-    },
-    search: {
-      activeColor: t.searchHighlightActive,
-      activeOpacity: 0.5,
-      inactiveColor: t.searchHighlight,
-      inactiveOpacity: 0.35,
     },
     scrollbar: {
       // Colors come from tokens…

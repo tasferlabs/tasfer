@@ -167,22 +167,6 @@ export {
   getVisibleTextFromBlock,
 } from "./reducer";
 
-// Re-export awareness
-export type {
-  AwarenessCursor,
-  AwarenessSelection,
-  AwarenessState,
-  AwarenessUser,
-} from "./awareness";
-export {
-  awarenessCursorToPosition,
-  awarenessSelectionToSelection,
-  DEFAULT_AWARENESS_COLORS,
-  getColorForPeer,
-  positionToAwarenessCursor,
-  selectionToAwarenessSelection,
-} from "./awareness";
-
 type StateChangeListener = (state: Page) => void;
 
 /**

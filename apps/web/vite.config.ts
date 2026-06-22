@@ -46,6 +46,10 @@ export default defineConfig({
       "@cypherkit/editor": resolve(__dirname, "../../packages/editor/src"),
       "@cypherkit/tex": resolve(__dirname, "../../packages/tex/src"),
       "@cypherkit/react": resolve(__dirname, "../../packages/react/src"),
+      "@cypherkit/provider-core": resolve(
+        __dirname,
+        "../../packages/provider-core/src",
+      ),
       "@": "/src",
       "@shared": resolve(__dirname, "../../shared"),
     },

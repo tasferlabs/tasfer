@@ -6,7 +6,7 @@
  *   intrinsicHeight(c) — how tall is this block at the given width?
  *   draw(box, c)       — paint the visual content inside `box`
  *
- * Everything else — the selection-overlay boilerplate (remote awareness +
+ * Everything else — the selection-overlay boilerplate (range decorations +
  * local selection), bounds construction, empty line list — is handled here.
  * That overlay logic is currently copy-pasted into renderLineBlock /
  * renderImageBlock / renderMathBlock; this folds it into one place.
@@ -18,7 +18,7 @@ import type { Line } from "../../nodes/LineNode";
 import type { MathBlock } from "../../nodes/MathNode";
 import type { Block } from "../../serlization/loadPage";
 import type { BlockBounds, RenderedBlock } from "../../state-types";
-import { awarenessSelectionToSelection } from "../../sync/awareness";
+import { allDecorations, rangeDecorationToSelection } from "../decorations";
 import {
   Node,
   type NodeLayout,
@@ -105,7 +105,7 @@ export abstract class AtomicNode<B extends Block = Block> extends Node<B> {
     c.ctx.save();
     this.draw(box, c);
     c.ctx.restore();
-    this.paintRemoteSelections(box, c);
+    this.paintRangeDecorations(box, c);
     this.paintLocalSelection(box, c);
     this.drawChrome(box, c);
 
@@ -120,22 +120,21 @@ export abstract class AtomicNode<B extends Block = Block> extends Node<B> {
 
   // -- shared selection-overlay machinery (was duplicated per visual block) --
 
-  private paintRemoteSelections(box: BlockBounds, c: NodePaintCtx): void {
-    const { awareness, state, ctx, blockIndex } = c;
-    if (!awareness || awareness.size === 0) return;
+  private paintRangeDecorations(box: BlockBounds, c: NodePaintCtx): void {
+    const { state, ctx, blockIndex } = c;
 
-    for (const [, a] of awareness) {
-      if (!a.selection) continue;
-      const selection = awarenessSelectionToSelection(
-        a.selection,
+    for (const deco of allDecorations(state.ui.decorations)) {
+      if (deco.kind !== "range") continue;
+      const selection = rangeDecorationToSelection(
+        deco.range,
         state.document.page,
       );
-      if (!selection) continue;
+      if (!selection || selection.isCollapsed) continue;
 
       if (this.coversBlock(selection, blockIndex)) {
         ctx.save();
-        ctx.fillStyle = a.user.color;
-        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = deco.color;
+        ctx.globalAlpha = deco.opacity ?? 0.2;
         ctx.fillRect(box.x, box.y, box.width, box.height);
         ctx.restore();
       }

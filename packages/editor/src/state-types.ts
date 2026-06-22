@@ -1,4 +1,5 @@
 import type { ActionBus } from "./action-bus";
+import type { DecorationLayers } from "./rendering/decorations";
 import type { MarkRegistry } from "./rendering/marks/Mark";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
@@ -269,30 +270,6 @@ export interface CursorDragState {
   readonly lastPosition: Position | null; // Last cursor position (for haptic on change)
 }
 
-/**
- * A single find-in-document match range. Set by the host's FindBar via
- * `editor.setSearchHighlights`, consumed at paint time by the text block view
- * and the scrollbar markers. Lives on per-instance UI state (not a module
- * global) so multiple editors on one page don't clobber each other's find
- * results, and is deliberately NOT part of DocumentState (never enters
- * undo/redo).
- *
- * The block is addressed by stable `blockId`, not a positional index: the host
- * computes matches in one tick but they're consumed at paint time (potentially
- * many frames later), during which a concurrent remote edit could shift block
- * indices. The id is resolved to the current index at paint time.
- */
-export interface SearchHighlight {
-  readonly blockId: string;
-  readonly startIndex: number;
-  readonly endIndex: number;
-}
-
-export interface SearchState {
-  readonly highlights: readonly SearchHighlight[];
-  readonly activeIndex: number; // -1 when no match is active
-}
-
 // Image Hover State - Not a menu, just visual feedback
 export interface ImageHoverState {
   readonly blockIndex: number;
@@ -394,7 +371,11 @@ export interface UIState {
   readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
   readonly cursorDrag: CursorDragState | null; // Active cursor drag for repositioning (mobile)
   readonly autoCreatedParagraph: { blockIndex: number; blockId: string } | null; // Track auto-created paragraphs from arrow up/down on images
-  readonly search: SearchState; // Find-in-document highlights (set by host FindBar, painted by text view + scrollbar)
+  // Ephemeral, range-anchored overlays the renderer paints on top of the
+  // document without them being content (find highlights, remote cursors). Keyed
+  // by an opaque layer name; never persisted, never in undo. See
+  // `rendering/decorations.ts`.
+  readonly decorations: DecorationLayers;
 }
 
 // View State - Ephemeral view properties
@@ -697,21 +678,16 @@ export interface RenderedLine {
 }
 
 // Style Configuration
-/** Styling for remote peers' presence (caret flag label + color palette). */
+/** Styling for a caret decoration's name flag (e.g. a remote peer's label). */
 export interface RemoteCursorStyles {
-  /** Label text on a remote peer's cursor flag. */
+  /** Label text on a caret flag. */
   readonly labelTextColor: string;
-  /** Font size (px) of the name label drawn above a remote caret. */
+  /** Font size (px) of the name label drawn above a caret. */
   readonly labelFontSize: number;
   /** Inner padding (px) around the name-label text. */
   readonly labelPadding: number;
   /** Corner radius (px) of the name-label background. */
   readonly labelBorderRadius: number;
-  /**
-   * Color palette used to assign a remote peer a color when its awareness state
-   * carries no explicit `color`. Defaults to the built-in awareness palette.
-   */
-  readonly palette: readonly string[];
 }
 
 export interface EditorStyles {
@@ -731,7 +707,6 @@ export interface EditorStyles {
   readonly textFormats: TextFormatStyles;
   readonly imageResize: ImageResizeStyles;
   readonly list: ListStyles;
-  readonly search: SearchStyles;
   readonly scrollbar: ScrollbarStyles;
   readonly unknownBlock: UnknownBlockStyles;
 }
@@ -834,14 +809,6 @@ export interface CursorStyles {
   readonly handleStemHeight: number;
 }
 
-/** Find-in-document highlight fills (active match vs the rest). */
-export interface SearchStyles {
-  readonly activeColor: string;
-  readonly activeOpacity: number;
-  readonly inactiveColor: string;
-  readonly inactiveOpacity: number;
-}
-
 /**
  * Scrollbar appearance — colors plus geometry/timing, all overridable per
  * instance through `theme.styles.scrollbar` (e.g.
@@ -891,7 +858,8 @@ export interface SelectionStyles {
   /** Selection fill used when the browser window is blurred (desktop only). */
   readonly unfocusedBackgroundColor: string;
   readonly opacity: number;
-  /** Opacity of remote peers' selection fills (their color comes from awareness). */
+  /** Default opacity for a range decoration's fill when it sets none (e.g. a
+   * remote peer's selection; its color comes from the decoration). */
   readonly remoteOpacity: number;
   readonly handles: SelectionHandleStyles;
 }
@@ -1115,10 +1083,6 @@ export interface ThemeTokens {
   readonly scrollbarThumbHover: string;
   /** Scrollbar thumb (dragging). */
   readonly scrollbarThumbActive: string;
-  /** Find-in-document highlight (non-active matches). */
-  readonly searchHighlight: string;
-  /** Find-in-document highlight (the active match). */
-  readonly searchHighlightActive: string;
   /** Fallback box fill for unrenderable blocks. */
   readonly unknownBlockBackground: string;
   /** Fallback box border for unrenderable blocks. */

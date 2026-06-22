@@ -56,6 +56,10 @@ import type {
   MarkUnderlineStyle,
 } from "../rendering/marks";
 import {
+  allDecorations,
+  rangeDecorationToSelection,
+} from "../rendering/decorations";
+import {
   type BlockRuntimeState,
   Node,
   type NodeLayout,
@@ -87,14 +91,9 @@ import type {
   Position,
   RenderedBlock,
   RenderedLine,
-  SelectionState,
   TextStyle,
 } from "../state-types";
 import { isCaretScratchActive } from "../state-utils";
-import {
-  awarenessSelectionToSelection,
-  getColorForPeer,
-} from "../sync/awareness";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   charRunsToChars,
@@ -1450,7 +1449,6 @@ export class TextNode extends Node<TextualBlock> {
     const { ctx, state, styles, blockIndex, maxWidth } = c;
     const x = c.origin.x;
     const y = c.origin.y;
-    const remoteAwareness = c.awareness;
 
     // Resolve composition content. When no IME composition is active in this
     // block, the registry-provided layout (plain content) is exactly what we
@@ -1603,50 +1601,26 @@ export class TextNode extends Node<TextualBlock> {
       });
     }
 
-    // Search highlights (behind selections).
-    const { highlights, activeIndex } = state.ui.search;
-    if (highlights.length > 0) {
-      const blockHighlights = highlights.filter((h) => h.blockId === block.id);
-      for (const h of blockHighlights) {
-        const isActive = highlights.indexOf(h) === activeIndex;
-        const rects = this.selectionRects(
-          layout,
-          {
-            anchor: { blockIndex, textIndex: h.startIndex },
-            focus: { blockIndex, textIndex: h.endIndex },
-            isForward: true,
-          },
-          blockIndex,
-          x,
-          y,
-        );
-        this.fillRects(
-          ctx,
-          rects,
-          isActive ? styles.search.activeColor : styles.search.inactiveColor,
-          isActive
-            ? styles.search.activeOpacity
-            : styles.search.inactiveOpacity,
-        );
-      }
+    // Range decorations (find highlights, etc. — behind the local selection).
+    // Generic, host-supplied overlays; the engine paints them with the same
+    // selection-rect machinery it uses for the local selection, and knows
+    // nothing about what produced them.
+    for (const deco of allDecorations(state.ui.decorations)) {
+      if (deco.kind !== "range") continue;
+      const sel = rangeDecorationToSelection(deco.range, state.document.page);
+      if (!sel || sel.isCollapsed) continue;
+      const rects = this.selectionRects(layout, sel, blockIndex, x, y);
+      if (rects.length === 0) continue;
+      this.fillRects(
+        ctx,
+        rects,
+        deco.color,
+        deco.opacity ?? styles.selection.remoteOpacity,
+      );
     }
 
-    // Remote selections (behind local selection).
-    if (remoteAwareness && remoteAwareness.size > 0) {
-      for (const [, awareness] of remoteAwareness) {
-        if (!awareness.selection) continue;
-        const sel: SelectionState | null = awarenessSelectionToSelection(
-          awareness.selection,
-          state.document.page,
-        );
-        if (!sel || sel.isCollapsed) continue;
-        const rects = this.selectionRects(layout, sel, blockIndex, x, y);
-        const peerColor =
-          awareness.user.color ||
-          getColorForPeer(awareness.user.peerId, styles.remoteCursor.palette);
-        this.fillRects(ctx, rects, peerColor, styles.selection.remoteOpacity);
-      }
-    }
+    // (Remote selections are now range decorations, painted above with all
+    // other range decorations — no peer-specific path here.)
 
     // Local selection.
     if (state.document.selection && !state.document.selection.isCollapsed) {

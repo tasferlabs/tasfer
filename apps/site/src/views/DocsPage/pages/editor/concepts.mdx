@@ -34,3 +34,21 @@ Browser `contenteditable` is a thirty-year-old API that every editor team eventu
 ```
 
 You can hold a `Doc` with no editor (e.g. on a server, to render markdown), and you can hold an editor with no provider (single-player). The layers are independent on purpose.
+
+<h2 id="decorations">Decorations</h2>
+
+A **decoration** is the engine's one generic overlay primitive: an ephemeral, range-anchored thing the editor paints on top of the document without it being content. Decorations never enter the CRDT, the op log, or undo/redo. There are two shapes — a **range** (a translucent fill over a text span) and a **caret** (a thin caret, optionally with a label flag).
+
+The engine has no built-in notion of "search" or "peers" — both are just producers of decorations. You feed them in per layer:
+
+```ts
+editor.setDecorations("search", matches.map((m) => ({
+  kind: "range",
+  range: { from: { block: m.blockId, offset: m.start }, to: { block: m.blockId, offset: m.end } },
+  color: "#facc15",
+  gutter: true, // also mark it on the scrollbar
+})));
+editor.clearDecorations("search");
+```
+
+Coordinates are stable block-id + offset, so a decoration survives concurrent edits between when you compute it and when it paints. Remote cursors are exactly this — see [Presence & remote cursors](/docs/editor/collaboration#presence).

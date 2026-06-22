@@ -6,7 +6,8 @@
  * with its own storage and networking strategy.
  */
 
-import type { AwarenessState, Block, HLC, Operation } from "@cypherkit/editor";
+import type { Block, HLC, Operation } from "@cypherkit/editor";
+import type { AwarenessState } from "@cypherkit/provider-core/cursors";
 
 // =============================================================================
 // Data Types

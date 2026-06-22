@@ -31,16 +31,29 @@ const net = createRelayProvider({
 
 <h2 id="presence">Presence & remote cursors</h2>
 
-Presence is ephemeral state that travels alongside the document but is never persisted — who is here, where their cursor is, what color to draw them. The editor renders remote carets on the canvas for you once you publish presence.
+Presence is ephemeral state that travels alongside the document but is never persisted — who is here, where their cursor is, what color to draw them. The protocol just routes whatever object you publish:
 
 ```ts
 net.presence.set({ name: "Ada", color: "#1db984" });
 
-// the editor draws remote carets automatically; subscribe for a UI list.
 // each entry is { peerId, state } — the state is what that peer published:
 net.presence.on("change", (peers) => {
   avatars.render(peers.map((p) => p.state.name));
 });
 ```
+
+The editor engine itself has no concept of "peers" — it paints generic [decorations](/docs/editor/concepts#decorations) you feed it. To turn presence into remote carets and selections, bind the two together with the helper from `@cypherkit/provider-core/cursors`:
+
+```ts
+import { bindPresenceCursors } from "@cypherkit/provider-core/cursors";
+
+// publishes your selection on every change, and renders every peer's cursor
+// as a `presence:<peerId>` decoration layer. Returns an unsubscribe.
+const stop = bindPresenceCursors(editor, net, {
+  user: { peerId, name: "Ada", color: "#1db984" },
+});
+```
+
+Syncing presence over your own transport instead of a provider? Call the pure mappers directly — `selectionToCursorPresence(editor.getSelection(), user)` to publish, and `cursorPresenceToDecorations(peerId, state)` → `editor.setDecorations(\`presence:\${peerId}\`, …)` to display.
 
 <Callout kind="note" title="Offline is not a special case.">Disconnect, edit for an hour on a plane, reconnect — the CRDT merges your changes with everyone else's deterministically. There is no "resolve conflicts" dialog because there are no conflicts to resolve.</Callout>

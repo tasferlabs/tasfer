@@ -22,17 +22,21 @@ import {
   SCROLL,
   createDoc,
   mergeRegister,
-  positionToAwarenessCursor,
-  selectionToAwarenessSelection,
   serializeVV,
-  type AwarenessState,
-  type AwarenessUser,
   type Block,
+  type Decoration,
   type Doc,
   type EditorState,
   type MountedEditor as MountedEditorInstance,
   type Operation,
 } from "@cypherkit/editor";
+import {
+  cursorPresenceToDecorations,
+  positionToAwarenessCursor,
+  selectionToAwarenessSelection,
+  type AwarenessState,
+  type AwarenessUser,
+} from "@cypherkit/provider-core/cursors";
 import {
   allCharsHaveFormat,
   clearFailedImageCache,
@@ -730,6 +734,73 @@ interface MountedEditorProps {
   onScroll?: (scrollY: number) => void;
 }
 
+// Find-in-document highlight colors (host-owned now that the engine paints
+// generic decorations rather than knowing about "search"). Active match is
+// emphasized; both opt into a scrollbar gutter marker.
+const SEARCH_HIGHLIGHT_COLOR = "#facc15";
+const SEARCH_HIGHLIGHT_ACTIVE_COLOR = "#f97316";
+const SEARCH_HIGHLIGHT_OPACITY = 0.35;
+const SEARCH_HIGHLIGHT_ACTIVE_OPACITY = 0.5;
+
+/** Build the find-decoration list for a set of matches and the active index. */
+function searchDecorations(
+  matches: { blockId: string; startIndex: number; endIndex: number }[],
+  activeIndex: number,
+): Decoration[] {
+  return matches.map((m, i) => {
+    const isActive = i === activeIndex;
+    return {
+      kind: "range",
+      range: {
+        from: { block: m.blockId, offset: m.startIndex },
+        to: { block: m.blockId, offset: m.endIndex },
+      },
+      color: isActive ? SEARCH_HIGHLIGHT_ACTIVE_COLOR : SEARCH_HIGHLIGHT_COLOR,
+      opacity: isActive
+        ? SEARCH_HIGHLIGHT_ACTIVE_OPACITY
+        : SEARCH_HIGHLIGHT_OPACITY,
+      gutter: true,
+    };
+  });
+}
+
+/**
+ * Map a peer's awareness (this app's presence wire shape) to editor decorations
+ * via the shared `@cypherkit/provider-core/cursors` mapper. The editor knows
+ * only generic decorations; presence-as-cursors lives here + in the provider.
+ */
+function awarenessToDecorations(
+  peerId: string,
+  state: AwarenessState,
+): Decoration[] {
+  return cursorPresenceToDecorations(peerId, {
+    user: {
+      peerId: state.user.peerId,
+      name: state.user.name,
+      avatar: state.user.avatar,
+      color: state.user.color,
+    },
+    caret: state.cursor
+      ? { block: state.cursor.blockId, offset: state.cursor.textIndex }
+      : null,
+    selection: state.selection
+      ? {
+          from: {
+            block: state.selection.anchor.blockId,
+            offset: state.selection.anchor.textIndex,
+          },
+          to: {
+            block: state.selection.focus.blockId,
+            offset: state.selection.focus.textIndex,
+          },
+        }
+      : null,
+  });
+}
+
+/** Decoration layer name for a remote peer's cursor/selection. */
+const presenceLayer = (peerId: string) => `presence:${peerId}`;
+
 /**
  * Public mount component. Remounts the inner {@link EditorSurface} whenever the
  * page (or read-only mode) changes: the surface mounts its editor once via
@@ -886,6 +957,9 @@ function EditorSurface({
   const onRoomJoinedRef = useRef<((hasOtherPeers: boolean) => void) | null>(
     null,
   );
+  // Tracks remote peers' identities (for the active-users avatar list), now that
+  // the editor no longer stores awareness — it only renders decorations.
+  const remoteUsersRef = useRef<Map<string, AwarenessUser>>(new Map());
 
   // Use the P2P room subscription (WebRTC DataChannels)
   const {
@@ -1355,24 +1429,30 @@ function EditorSurface({
     };
 
     onRoomAwarenessRef.current = (awarenesspeerId, state) => {
-      mounted.editor.setRemoteAwareness(awarenesspeerId, state);
-
-      if (onAwarenessChange) {
-        const remoteAwareness = mounted.editor.getRemoteAwareness();
-        const users = Array.from(remoteAwareness.values()).map((s) => s.user);
-        onAwarenessChange(users);
+      if (state) {
+        mounted.editor.setDecorations(
+          presenceLayer(awarenesspeerId),
+          awarenessToDecorations(awarenesspeerId, state),
+        );
+        remoteUsersRef.current.set(awarenesspeerId, state.user);
+      } else {
+        mounted.editor.clearDecorations(presenceLayer(awarenesspeerId));
+        remoteUsersRef.current.delete(awarenesspeerId);
       }
+
+      onAwarenessChange?.(Array.from(remoteUsersRef.current.values()));
     };
 
     onRoomAwarenessStatesRef.current = (states) => {
       for (const [awarenesspeerId, state] of Object.entries(states)) {
-        mounted.editor.setRemoteAwareness(awarenesspeerId, state);
+        mounted.editor.setDecorations(
+          presenceLayer(awarenesspeerId),
+          awarenessToDecorations(awarenesspeerId, state),
+        );
+        remoteUsersRef.current.set(awarenesspeerId, state.user);
       }
 
-      if (onAwarenessChange) {
-        const users = Object.values(states).map((s) => s.user);
-        onAwarenessChange(users);
-      }
+      onAwarenessChange?.(Array.from(remoteUsersRef.current.values()));
     };
 
     // Handle room join/rejoin - request VV-based sync from peers
@@ -1407,12 +1487,31 @@ function EditorSurface({
     // subscription above — the editor feeds its local ops into the doc, and the
     // doc fans them out to peers + SQLite + the snapshot.
 
-    // Connect editor's awareness broadcast to room
-    // Guard: don't broadcast before P2P identity loads (localUserRef starts as { peerId: "", color: "" })
-    mounted.editor.setAwarenessBroadcast((state: AwarenessState) => {
+    // Publish our cursor/selection to the room whenever it moves. The editor no
+    // longer owns awareness — it just emits "selectionchange"; we convert the
+    // current selection to this app's awareness wire shape and broadcast it.
+    // Guard: don't broadcast before P2P identity loads (localUserRef starts as
+    // { peerId: "", color: "" }).
+    const publishLocalAwareness = () => {
       if (!localUserRef.current.peerId) return;
-      roomBroadcastAwareness(state);
-    }, localUserRef.current);
+      const editorState = mounted.editor.getState();
+      if (!editorState) return;
+      const { page, cursor, selection } = editorState.document;
+      roomBroadcastAwareness({
+        user: localUserRef.current,
+        cursor: cursor ? positionToAwarenessCursor(cursor.position, page) : null,
+        selection:
+          selection && !selection.isCollapsed
+            ? selectionToAwarenessSelection(selection, page)
+            : null,
+        lastUpdate: Date.now(),
+      });
+    };
+    const offSelectionChange = mounted.editor.on(
+      "selectionchange",
+      publishLocalAwareness,
+    );
+    publishLocalAwareness();
 
     // Handle pasted image files (e.g. screenshots) — upload and update block URL.
     // Observe-only (returns void): a custom image node could register higher and
@@ -1819,6 +1918,7 @@ function EditorSurface({
       unsubscribe();
       disposeActions();
       offDocUpdate();
+      offSelectionChange();
       themeObserver.disconnect();
       offFontRegistry();
 
@@ -1849,18 +1949,12 @@ function EditorSurface({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
-  // Update editor's awareness user when localUser becomes available
-  // (without re-mounting the entire editor)
+  // Re-publish our awareness when localUser becomes available, so connected
+  // peers overwrite any stale entry they stored before our identity finished
+  // loading (color: ""). The ongoing broadcast is driven by the editor's
+  // "selectionchange" subscription wired in the mount effect above.
   useEffect(() => {
     if (mountedRef.current && localUser.peerId) {
-      mountedRef.current.editor.setAwarenessBroadcast(
-        (state: AwarenessState) => {
-          roomBroadcastAwareness(state);
-        },
-        localUser,
-      );
-      // Re-broadcast current cursor state so connected peers overwrite any stale
-      // awareness entry they stored before our identity finished loading (color: "").
       const editorState = mountedRef.current.editor.getState();
       if (editorState) {
         const { page, cursor, selection } = editorState.document;
@@ -1904,7 +1998,7 @@ function EditorSurface({
     if (!text || !mountedRef.current) {
       setFindMatches([]);
       setFindActiveIndex(0);
-      mountedRef.current?.editor.clearSearchHighlights();
+      mountedRef.current?.editor.clearDecorations("search");
       return;
     }
 
@@ -1939,9 +2033,9 @@ function EditorSurface({
     setFindMatches(matches);
     const newActiveIndex = matches.length > 0 ? 0 : -1;
     setFindActiveIndex(newActiveIndex >= 0 ? newActiveIndex : 0);
-    mountedRef.current.editor.setSearchHighlights(
-      matches,
-      newActiveIndex >= 0 ? newActiveIndex : -1,
+    mountedRef.current.editor.setDecorations(
+      "search",
+      searchDecorations(matches, newActiveIndex >= 0 ? newActiveIndex : -1),
     );
     // Scroll to first match
     if (matches.length > 0) {
@@ -1964,7 +2058,10 @@ function EditorSurface({
     (index: number) => {
       if (findMatches.length === 0 || !mountedRef.current) return;
       setFindActiveIndex(index);
-      mountedRef.current.editor.setSearchHighlights(findMatches, index);
+      mountedRef.current.editor.setDecorations(
+        "search",
+        searchDecorations(findMatches, index),
+      );
       const match = findMatches[index];
       if (match) {
         // restoreCursorAndSelection works in positional coordinates, so resolve
@@ -2021,7 +2118,7 @@ function EditorSurface({
     setFindSearchText("");
     setFindMatches([]);
     setFindActiveIndex(0);
-    mountedRef.current?.editor.clearSearchHighlights();
+    mountedRef.current?.editor.clearDecorations("search");
     // Refocus editor
 
     mountedRef.current?.editor.setFocus(true);

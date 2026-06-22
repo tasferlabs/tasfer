@@ -1,4 +1,4 @@
-import type { AwarenessUser } from "@cypherkit/editor";
+import type { AwarenessUser } from "@cypherkit/provider-core/cursors";
 import style from '../layout/Layout.module.css';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { useAssetUrl } from '../api/images.api';

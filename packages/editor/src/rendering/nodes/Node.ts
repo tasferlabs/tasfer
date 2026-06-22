@@ -46,7 +46,6 @@ import type {
   TextStyle,
   ViewportState,
 } from "../../state-types";
-import type { AwarenessState } from "../../sync/awareness";
 import type { MarkRegistry } from "../marks";
 import type { CaretModel } from "./caret-model";
 
@@ -104,7 +103,6 @@ export interface NodePaintCtx extends NodeLayoutCtx {
   readonly state: EditorState;
   /** Top-left origin of the block's content box in canvas space. */
   readonly origin: { readonly x: number; readonly y: number };
-  readonly awareness?: Map<string, AwarenessState>;
   /**
    * Ask the host to schedule another render frame. Injected by the renderer so
    * a block can repaint itself after async work (e.g. image decode) completes,

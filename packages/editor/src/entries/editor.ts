@@ -49,6 +49,11 @@ import {
   selectTarget,
   toBlockData,
 } from "../positions";
+import type { Decoration } from "../rendering/decorations";
+import {
+  removeDecorationLayer,
+  setDecorationLayer,
+} from "../rendering/decorations";
 import {
   clearAllBlockCaches,
   collectOverlays,
@@ -99,18 +104,6 @@ import {
   resolveNodeStrings,
   resolveTheme,
 } from "../styles";
-import type {
-  AwarenessCursor,
-  AwarenessSelection,
-  AwarenessState,
-  AwarenessUser,
-} from "../sync/awareness";
-import {
-  awarenessCursorsEqual,
-  awarenessSelectionsEqual,
-  positionToAwarenessCursor,
-  selectionToAwarenessSelection,
-} from "../sync/awareness";
 import {
   canHaveFormats,
   createDefaultBlock,
@@ -321,8 +314,8 @@ export interface EditorApi {
    */
   readonly state: EditorStateSnapshot;
   /**
-   * Tear down the editor: cancel the render loop, remove every canvas/input/
-   * window event listener, and clear awareness timers. For an editor created via
+   * Tear down the editor: cancel the render loop and remove every canvas/input/
+   * window event listener. For an editor created via
    * `createEditor`, call `CypherEditor.destroy` instead — it supersedes this and
    * also tears down the mount.
    */
@@ -565,26 +558,19 @@ export interface EditorApi {
   isHostMenuCapturing: () => boolean;
   /** Restore from snapshot - generates and broadcasts operations */
   restoreFromSnapshot: (blocks: Block[]) => void;
-  /** Set callback for broadcasting awareness state changes */
-  setAwarenessBroadcast: (
-    fn: ((state: AwarenessState) => void) | null,
-    user?: AwarenessUser,
-  ) => void;
-  /** Update a remote peer's awareness state */
-  setRemoteAwareness: (peerId: string, state: AwarenessState | null) => void;
-  /** Get all remote awareness states */
-  getRemoteAwareness: () => Map<string, AwarenessState>;
   /** Get current scroll position */
   getScrollY: () => number;
-  /** Set search highlights for find-in-document. Blocks are addressed by stable
-   * `blockId` (resolved to indices at paint time) so highlights stay correct
-   * across concurrent remote edits between search and paint. */
-  setSearchHighlights: (
-    highlights: { blockId: string; startIndex: number; endIndex: number }[],
-    activeIndex: number,
-  ) => void;
-  /** Clear all search highlights */
-  clearSearchHighlights: () => void;
+  /**
+   * Replace the decorations in one layer — the engine's generic, ephemeral
+   * overlay primitive (find highlights, remote cursors, …). `layer` is an opaque
+   * key (e.g. `"search"`, `"presence:<peerId>"`); decorations in different layers
+   * never clobber each other. Passing an empty array clears the layer. Points are
+   * addressed by stable block id (resolved to indices at paint time) so they stay
+   * correct across concurrent remote edits between producing and painting. Not
+   * document content — never persisted, never in undo. */
+  setDecorations: (layer: string, decorations: readonly Decoration[]) => void;
+  /** Clear one decoration layer. */
+  clearDecorations: (layer: string) => void;
   /** Scroll viewport to make a position visible. The block is addressed by
    * stable `blockId` (resolved to an index internally). */
   scrollToPosition: (position: { blockId: string; textIndex: number }) => void;
@@ -618,8 +604,6 @@ export interface EditorWiring {
    */
   setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
 }
-
-type AwarenessBroadcastFn = (state: AwarenessState) => void;
 
 // A pure (state) => ActionResult transform. Named distinctly from the
 // action-bus `Action` type (imported above), which is a different concept.
@@ -665,24 +649,6 @@ export class Editor implements EditorApi, EditorWiring {
   // ({ isRemote, ops }); this is distinct from the state-diff subscribe() path
   // that backs selectionchange/focus/blur.
   private readonly changeListeners: ((tx: ChangeTransaction) => void)[] = [];
-
-  // Awareness state for remote peers
-  private readonly remoteAwareness: Map<string, AwarenessState> = new Map();
-  private awarenessBroadcastFn: AwarenessBroadcastFn | null = null;
-
-  // Idle timeout for filtering inactive peers from UI (10 seconds)
-  private readonly AWARENESS_IDLE_TIMEOUT = 10000;
-  // Stale timeout for removing peers from memory (30 seconds)
-  private readonly AWARENESS_STALE_TIMEOUT = 30000;
-  // Cleanup interval for stale awareness states (runs every 10 seconds)
-  private readonly awarenessCleanupInterval: ReturnType<typeof setInterval>;
-
-  // Local user info for awareness
-  private localUser: AwarenessUser | null = null;
-
-  // Track last broadcast awareness state to avoid redundant broadcasts
-  private lastBroadcastCursor: AwarenessCursor | null = null;
-  private lastBroadcastSelection: AwarenessSelection | null = null;
 
   // Cache for canvas bounding rect to avoid getBoundingClientRect in render loop
   private cachedRect = { left: 0, top: 0 };
@@ -812,11 +778,6 @@ export class Editor implements EditorApi, EditorWiring {
       Infinity,
     );
 
-    this.awarenessCleanupInterval = setInterval(
-      this.cleanupStaleAwareness,
-      10000,
-    );
-
     // Initialize the editor and start the render loop.
     this.scheduleRender(); // Schedule initial render
     this.renderLoop();
@@ -915,43 +876,6 @@ export class Editor implements EditorApi, EditorWiring {
     });
   }
 
-  /**
-   * Get remote awareness states, filtering out idle peers.
-   * Peers who haven't sent updates within AWARENESS_IDLE_TIMEOUT are excluded.
-   */
-  private getActiveRemoteAwareness = (): Map<string, AwarenessState> => {
-    const now = Date.now();
-    const active = new Map<string, AwarenessState>();
-
-    for (const [peerId, state] of this.remoteAwareness) {
-      if (now - state.lastUpdate <= this.AWARENESS_IDLE_TIMEOUT) {
-        active.set(peerId, state);
-      }
-    }
-
-    return active;
-  };
-
-  /**
-   * Cleanup stale awareness states from memory.
-   * Removes peers who haven't sent updates within AWARENESS_STALE_TIMEOUT.
-   */
-  private cleanupStaleAwareness = (): void => {
-    const now = Date.now();
-    let hasChanges = false;
-
-    for (const [peerId, state] of this.remoteAwareness) {
-      if (now - state.lastUpdate > this.AWARENESS_STALE_TIMEOUT) {
-        this.remoteAwareness.delete(peerId);
-        hasChanges = true;
-      }
-    }
-
-    if (hasChanges) {
-      this.scheduleRender();
-    }
-  };
-
   // Change-event funnel: notify "change" listeners with a ChangeTransaction.
   private emitChange = (ops: readonly Operation[], isRemote: boolean): void => {
     if (ops.length === 0 || this.changeListeners.length === 0) return;
@@ -966,51 +890,6 @@ export class Editor implements EditorApi, EditorWiring {
     if (ops.length === 0) return;
     this.broadcastFn?.(ops);
     this.emitChange(ops, false);
-  };
-
-  /**
-   * Broadcast local awareness state (cursor/selection) to peers.
-   * Called when cursor or selection changes.
-   * Only broadcasts if the position has actually changed.
-   */
-  private broadcastAwareness = (): void => {
-    if (!this.awarenessBroadcastFn || !this.localUser) return;
-
-    const page = this._state.document.page;
-    const cursor = this._state.document.cursor;
-    const selection = this._state.document.selection;
-
-    // Convert cursor to awareness cursor (uses block IDs for stability)
-    const awarenessCursor = cursor
-      ? positionToAwarenessCursor(cursor.position, page)
-      : null;
-
-    // Convert selection to awareness selection
-    const awarenessSelection =
-      selection && !selection.isCollapsed
-        ? selectionToAwarenessSelection(selection, page)
-        : null;
-
-    // Skip broadcast if cursor and selection haven't changed
-    if (
-      awarenessCursorsEqual(awarenessCursor, this.lastBroadcastCursor) &&
-      awarenessSelectionsEqual(awarenessSelection, this.lastBroadcastSelection)
-    ) {
-      return;
-    }
-
-    // Update last broadcast state
-    this.lastBroadcastCursor = awarenessCursor;
-    this.lastBroadcastSelection = awarenessSelection;
-
-    const awarenessState: AwarenessState = {
-      user: this.localUser,
-      cursor: awarenessCursor,
-      selection: awarenessSelection,
-      lastUpdate: Date.now(),
-    };
-
-    this.awarenessBroadcastFn(awarenessState);
   };
 
   /**
@@ -1245,14 +1124,6 @@ export class Editor implements EditorApi, EditorWiring {
           this.dirtyLayers.content = true;
         }
 
-        // Broadcast awareness when cursor or selection changes
-        if (
-          prevState.document.cursor?.position !==
-            this._state.document.cursor?.position ||
-          prevState.document.selection !== this._state.document.selection
-        ) {
-          this.broadcastAwareness();
-        }
       }
 
       // Check if cursor blink state changed (for cursor animation)
@@ -1301,7 +1172,6 @@ export class Editor implements EditorApi, EditorWiring {
             this.viewport,
             this.visibility,
             undefined,
-            this.getActiveRemoteAwareness(),
             this.requestRedraw,
           );
 
@@ -1329,7 +1199,6 @@ export class Editor implements EditorApi, EditorWiring {
             this._state,
             this.viewport,
             getEditorStyles(this._state),
-            this.getActiveRemoteAwareness(),
           );
           this.dirtyLayers.cursor = false;
         }
@@ -2193,8 +2062,6 @@ export class Editor implements EditorApi, EditorWiring {
       this.hiddenInput.removeEventListener("paste", this.pasteHandler);
     }
 
-    // Clean up awareness cleanup interval
-    clearInterval(this.awarenessCleanupInterval);
   };
 
   updateViewport = (newViewport: Partial<ViewportState>): void => {
@@ -3609,37 +3476,6 @@ export class Editor implements EditorApi, EditorWiring {
     this.broadcastFn = fn;
   };
 
-  setAwarenessBroadcast = (
-    fn: AwarenessBroadcastFn | null,
-    user?: AwarenessUser,
-  ): void => {
-    this.awarenessBroadcastFn = fn;
-    if (user) {
-      this.localUser = user;
-    }
-    // Broadcast initial awareness state when connected
-    if (fn && this.localUser) {
-      this.broadcastAwareness();
-    }
-  };
-
-  setRemoteAwareness = (
-    peerId: string,
-    awarenessState: AwarenessState | null,
-  ): void => {
-    if (awarenessState === null) {
-      this.remoteAwareness.delete(peerId);
-    } else {
-      this.remoteAwareness.set(peerId, awarenessState);
-    }
-    // Trigger re-render to show updated remote cursors
-    this.scheduleRender();
-  };
-
-  getRemoteAwareness = (): Map<string, AwarenessState> => {
-    return this.getActiveRemoteAwareness();
-  };
-
   setTheme = (patch: EditorTheme): void => {
     const nextTheme = mergeTheme(this._state.theme, patch);
     this._state = {
@@ -3675,25 +3511,35 @@ export class Editor implements EditorApi, EditorWiring {
 
   getScrollY = (): number => this.viewport.scrollY;
 
-  setSearchHighlights = (
-    highlights: {
-      blockId: string;
-      startIndex: number;
-      endIndex: number;
-    }[],
-    activeIndex: number,
+  setDecorations = (
+    layer: string,
+    decorations: readonly Decoration[],
   ): void => {
     this._state = {
       ...this._state,
-      ui: { ...this._state.ui, search: { highlights, activeIndex } },
+      ui: {
+        ...this._state.ui,
+        decorations: setDecorationLayer(
+          this._state.ui.decorations,
+          layer,
+          decorations,
+        ),
+      },
     };
     this.scheduleRender();
   };
 
-  clearSearchHighlights = (): void => {
+  clearDecorations = (layer: string): void => {
+    if (!(layer in this._state.ui.decorations)) return;
     this._state = {
       ...this._state,
-      ui: { ...this._state.ui, search: { highlights: [], activeIndex: -1 } },
+      ui: {
+        ...this._state.ui,
+        decorations: removeDecorationLayer(
+          this._state.ui.decorations,
+          layer,
+        ),
+      },
     };
     this.scheduleRender();
   };

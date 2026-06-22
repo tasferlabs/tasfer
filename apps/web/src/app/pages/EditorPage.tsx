@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Block } from "@cypherkit/editor";
-import type { AwarenessUser } from "@cypherkit/editor";
+import type { AwarenessUser } from "@cypherkit/provider-core/cursors";
 import type { TextualBlock } from "@cypherkit/editor/internal";
 import {
   extractTitleFromBlocks,

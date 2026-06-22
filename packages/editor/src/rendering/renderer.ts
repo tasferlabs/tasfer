@@ -10,13 +10,12 @@ import type {
   EditorState,
   EditorStyles,
   NodeOverlay,
+  Position,
   RenderedBlock,
   ViewportState,
 } from "../state-types";
 import { isTouchDevice } from "../state-utils";
 import { getEditorStyles } from "../styles";
-import type { AwarenessState } from "../sync/awareness";
-import { awarenessCursorToPosition, getColorForPeer } from "../sync/awareness";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   getCharIdFromRun,
@@ -24,8 +23,14 @@ import {
   isCharDeleted,
 } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
+import {
+  allDecorations,
+  type CaretDecoration,
+  resolveDecorationPoint,
+} from "./decorations";
 import type { MarkRegistry } from "./marks";
 import type { NodeRegionCtx, NodeRegistry } from "./nodes";
+import type { TextualBlock } from "../nodes/TextNode";
 import { getContentWithComposition, TextNode, UnknownNode } from "./nodes";
 import { renderScrollbar } from "./scrollbar";
 
@@ -138,7 +143,6 @@ export function renderPage(
   viewport: ViewportState,
   visibility: { start: number; end: number },
   styles: EditorStyles = getEditorStyles(state),
-  remoteAwareness: Map<string, AwarenessState>,
   requestRedraw: () => void,
 ) {
   // Save context state
@@ -193,7 +197,6 @@ export function renderPage(
         currentY,
         maxWidth,
         styles,
-        remoteAwareness,
         requestRedraw,
       );
       renderedBlocks.push(renderedBlock);
@@ -211,7 +214,7 @@ export function renderPage(
   renderSelectionHandles(ctx, state, viewport, styles);
 
   // Render scrollbar
-  renderScrollbar(ctx, viewport, documentHeight, state, remoteAwareness);
+  renderScrollbar(ctx, viewport, documentHeight, state);
 
   // Restore context state (undo scaling)
   ctx.restore();
@@ -303,7 +306,6 @@ export function renderBlock(
   y: number,
   maxWidth: number,
   styles: EditorStyles = getEditorStyles(state),
-  remoteAwareness?: Map<string, AwarenessState>,
   requestRedraw: () => void = () => {},
 ): RenderedBlock {
   // Blocks dispatch to their registered node. A block type with no registered
@@ -332,7 +334,6 @@ export function renderBlock(
       ctx,
       state,
       origin: { x, y },
-      awareness: remoteAwareness,
       requestRedraw,
     });
   }
@@ -468,11 +469,33 @@ function calculateCursorPosition(
 }
 
 /**
- * Render remote user cursors.
- * Each cursor is drawn with the peer's color.
+ * A caret decoration resolved to a live position — the internal currency the
+ * caret-decoration renderer works in. Built from {@link CaretDecoration}s on
+ * `state.ui.decorations` (remote peer cursors are just caret decorations a host
+ * or provider feeds in); the renderer itself knows nothing about "peers".
  */
+interface ResolvedCaret {
+  decoration: CaretDecoration;
+  position: Position;
+  block: TextualBlock;
+}
+
+/** Resolve every caret decoration to a paintable position in a textual block. */
+function collectCaretDecorations(state: EditorState): ResolvedCaret[] {
+  const out: ResolvedCaret[] = [];
+  for (const deco of allDecorations(state.ui.decorations)) {
+    if (deco.kind !== "caret") continue;
+    const position = resolveDecorationPoint(deco.point, state.document.page);
+    if (!position) continue;
+    const block = state.document.page.blocks[position.blockIndex];
+    if (!block || block.deleted || !isTextualBlock(block)) continue;
+    out.push({ decoration: deco, position, block });
+  }
+  return out;
+}
+
 interface OutOfViewPeer {
-  awareness: AwarenessState;
+  caret: ResolvedCaret;
   direction: "above" | "below";
   x: number;
   blockIndex: number;
@@ -524,7 +547,8 @@ function renderOutOfViewIndicators(
 
   // Render indicators for peers above viewport
   abovePeers.forEach((peer, i) => {
-    const initial = peer.awareness.user.name?.charAt(0).toUpperCase() || "?";
+    const initial =
+      peer.caret.decoration.label?.text.charAt(0).toUpperCase() || "?";
     const textWidth = ctx.measureText(initial).width;
     const pillWidth = textWidth + pillPadding * 2;
 
@@ -542,9 +566,7 @@ function renderOutOfViewIndicators(
     });
 
     // Draw chevron pointing up
-    ctx.fillStyle =
-      peer.awareness.user.color ||
-      getColorForPeer(peer.awareness.user.peerId, styles.remoteCursor.palette);
+    ctx.fillStyle = peer.caret.decoration.color;
     ctx.beginPath();
     ctx.moveTo(x + pillWidth / 2, y - chevronSize);
     ctx.lineTo(x + pillWidth / 2 - chevronSize, y);
@@ -570,7 +592,8 @@ function renderOutOfViewIndicators(
 
   // Render indicators for peers below viewport
   belowPeers.forEach((peer, i) => {
-    const initial = peer.awareness.user.name?.charAt(0).toUpperCase() || "?";
+    const initial =
+      peer.caret.decoration.label?.text.charAt(0).toUpperCase() || "?";
     const textWidth = ctx.measureText(initial).width;
     const pillWidth = textWidth + pillPadding * 2;
 
@@ -588,9 +611,7 @@ function renderOutOfViewIndicators(
     });
 
     // Draw pill background
-    ctx.fillStyle =
-      peer.awareness.user.color ||
-      getColorForPeer(peer.awareness.user.peerId, styles.remoteCursor.palette);
+    ctx.fillStyle = peer.caret.decoration.color;
     ctx.beginPath();
     ctx.roundRect(x, y, pillWidth, pillHeight, pillHeight / 2);
     ctx.fill();
@@ -615,32 +636,19 @@ function renderOutOfViewIndicators(
   });
 }
 
-function renderRemoteCursors(
+function renderCaretDecorations(
   ctx: CanvasRenderingContext2D,
   session: InteractionSession,
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles,
-  remoteAwareness: Map<string, AwarenessState>,
+  carets: ResolvedCaret[],
 ) {
   const outOfViewPeers: OutOfViewPeer[] = [];
 
-  for (const [peerId, awareness] of remoteAwareness) {
-    // Skip if no cursor
-    if (!awareness.cursor) continue;
-
-    // Skip if there is a selection (show selection highlight, not caret)
-    if (awareness.selection) continue;
-
-    // Convert awareness cursor (blockId) to editor position (blockIndex)
-    const position = awarenessCursorToPosition(
-      awareness.cursor,
-      state.document.page,
-    );
-    if (!position) continue;
-
-    const block = state.document.page.blocks[position.blockIndex];
-    if (!block || block.deleted || !isTextualBlock(block)) continue;
+  for (const caret of carets) {
+    const { position, block, decoration } = caret;
+    const caretColor = decoration.color;
 
     const cursorPos = calculateCursorPosition(
       position,
@@ -654,7 +662,7 @@ function renderRemoteCursors(
     // Check if cursor is out of viewport (account for top padding where tags may overlay)
     if (cursorPos.y + cursorPos.height < styles.canvas.paddingTop) {
       outOfViewPeers.push({
-        awareness,
+        caret,
         direction: "above",
         x: cursorPos.x,
         blockIndex: position.blockIndex,
@@ -664,7 +672,7 @@ function renderRemoteCursors(
     }
     if (cursorPos.y > viewport.height) {
       outOfViewPeers.push({
-        awareness,
+        caret,
         direction: "below",
         x: cursorPos.x,
         blockIndex: position.blockIndex,
@@ -673,12 +681,8 @@ function renderRemoteCursors(
       continue;
     }
 
-    // Draw the remote cursor with the peer's color (falling back to the themed
-    // palette when the peer supplied none).
-    const peerColor =
-      awareness.user.color ||
-      getColorForPeer(peerId, styles.remoteCursor.palette);
-    ctx.fillStyle = peerColor;
+    // Draw the caret in the decoration's color.
+    ctx.fillStyle = caretColor;
     ctx.fillRect(
       cursorPos.x,
       cursorPos.y,
@@ -687,12 +691,12 @@ function renderRemoteCursors(
     );
 
     // Optionally draw a name label above the cursor
-    if (awareness.user.name) {
+    const labelText = decoration.label?.text;
+    if (labelText) {
       const labelPadding = styles.remoteCursor.labelPadding;
       const labelFontSize = styles.remoteCursor.labelFontSize;
       ctx.font = `${labelFontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
-      const labelWidth =
-        ctx.measureText(awareness.user.name).width + labelPadding * 2;
+      const labelWidth = ctx.measureText(labelText).width + labelPadding * 2;
       const labelHeight = labelFontSize + labelPadding * 2;
 
       // Detect RTL to position label on the correct side of cursor
@@ -718,7 +722,7 @@ function renderRemoteCursors(
       }
 
       // Draw label background
-      ctx.fillStyle = peerColor;
+      ctx.fillStyle = caretColor;
       ctx.beginPath();
       ctx.roundRect(
         labelX,
@@ -730,11 +734,11 @@ function renderRemoteCursors(
       ctx.fill();
 
       // Draw label text with correct direction
-      const nameDirection = getTextDirection(awareness.user.name);
+      const nameDirection = getTextDirection(labelText);
       ctx.fillStyle = styles.remoteCursor.labelTextColor;
       ctx.direction = nameDirection;
       ctx.fillText(
-        awareness.user.name,
+        labelText,
         nameDirection === "rtl"
           ? labelX + labelWidth - labelPadding
           : labelX + labelPadding,
@@ -769,7 +773,6 @@ export function renderCursorLayer(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
-  remoteAwareness?: Map<string, AwarenessState>,
 ) {
   // Save context state
   ctx.save();
@@ -778,9 +781,11 @@ export function renderCursorLayer(
   // Note: Context is already scaled by DPR in layers.ts, so use CSS pixels here
   ctx.clearRect(0, 0, viewport.width, viewport.height);
 
-  // Render remote cursors first (so they appear behind local cursor)
-  if (remoteAwareness && remoteAwareness.size > 0) {
-    renderRemoteCursors(ctx, session, state, viewport, styles, remoteAwareness);
+  // Render caret decorations (e.g. remote peer cursors) first, so they appear
+  // behind the local cursor.
+  const carets = collectCaretDecorations(state);
+  if (carets.length > 0) {
+    renderCaretDecorations(ctx, session, state, viewport, styles, carets);
   }
 
   // Only render if cursor exists, editor is focused, and cursor is visible (not blinking)

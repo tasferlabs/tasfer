@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback } from "react";
 import { invariant } from "@shared/invariant";
 import type { FontFamily } from "@cypherkit/editor";
 import useLocalStorage from "../hooks/useLocalStorage";
-import type { AwarenessUser } from "@cypherkit/editor";
+import type { AwarenessUser } from "@cypherkit/provider-core/cursors";
 import type { Block } from "@cypherkit/editor";
 
 export type FontStyle = "default" | "serif";

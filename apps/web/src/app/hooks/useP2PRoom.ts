@@ -10,8 +10,11 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { getPlatform } from "@/platform";
 import type { ConnectionState, SyncEvents } from "@/platform/types";
 import type { Operation } from "@cypherkit/editor";
-import type { AwarenessState, AwarenessUser } from "@cypherkit/editor";
-import { getColorForPeer } from "@cypherkit/editor";
+import {
+  getColorForPeer,
+  type AwarenessState,
+  type AwarenessUser,
+} from "@cypherkit/provider-core/cursors";
 
 // =============================================================================
 // Types

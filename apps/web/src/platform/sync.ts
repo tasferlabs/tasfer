@@ -64,7 +64,8 @@ import type {
   Peer,
   PeerVersionInfo,
 } from "./types";
-import type { AwarenessState, Operation } from "@cypherkit/editor";
+import type { Operation } from "@cypherkit/editor";
+import type { AwarenessState } from "@cypherkit/provider-core/cursors";
 import {
   BINARY_ASSET_TAG,
   hexToBytes,

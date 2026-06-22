@@ -3,15 +3,14 @@ import { getDefaultDirection } from "../rtl";
 import type {
   EditorState,
   ScrollbarStyles,
-  SearchHighlight,
   ViewportState,
 } from "../state-types";
 import { getEditorStyles } from "../styles";
 import {
-  awarenessCursorToPosition,
-  type AwarenessState,
-  getColorForPeer,
-} from "../sync/awareness";
+  allDecorations,
+  type RangeDecoration,
+  resolveDecorationPoint,
+} from "./decorations";
 import { getBlockHeight } from "./renderer";
 
 export interface ScrollbarState {
@@ -206,7 +205,6 @@ export function renderScrollbar(
   viewport: ViewportState,
   documentHeight: number,
   state: EditorState,
-  remoteAwareness: Map<string, AwarenessState>,
   styles = getScrollbarStyles(state),
 ): void {
   // Don't render if document fits in viewport
@@ -292,14 +290,9 @@ export function renderScrollbar(
 
   ctx.restore();
 
-  // Render peer markers on scrollbar
-  if (remoteAwareness && remoteAwareness.size > 0) {
-    const peerMarkers = calculatePeerMarkers(
-      remoteAwareness,
-      state,
-      viewport,
-      documentHeight,
-    );
+  // Render markers on the scrollbar for caret decorations (e.g. remote peers).
+  const peerMarkers = calculateCaretMarkers(state, viewport, documentHeight);
+  if (peerMarkers.length > 0) {
     renderScrollbarPeerMarkers(
       ctx,
       viewport,
@@ -311,17 +304,18 @@ export function renderScrollbar(
     );
   }
 
-  // Render search match markers on scrollbar
-  const { highlights: searchHighlights, activeIndex: activeSearchIndex } =
-    state.ui.search;
-  if (searchHighlights.length > 0) {
-    renderScrollbarSearchMarkers(
+  // Render gutter markers for decorations that opted in (e.g. find matches).
+  const gutterDecorations: RangeDecoration[] = [];
+  for (const deco of allDecorations(state.ui.decorations)) {
+    if (deco.kind === "range" && deco.gutter) gutterDecorations.push(deco);
+  }
+  if (gutterDecorations.length > 0) {
+    renderScrollbarDecorationMarkers(
       ctx,
       state,
       viewport,
       documentHeight,
-      searchHighlights,
-      activeSearchIndex,
+      gutterDecorations,
       styles,
       scale,
     );
@@ -609,19 +603,20 @@ export function renderScrollbarPeerMarkers(
 }
 
 /**
- * Render search match markers on the scrollbar track.
+ * Render gutter markers on the scrollbar track for decorations that opted in
+ * (`gutter: true`) — generic; the scrollbar knows nothing about "search". Each
+ * marker is placed at its span's start block and drawn in the decoration's color.
  */
-function renderScrollbarSearchMarkers(
+function renderScrollbarDecorationMarkers(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
   viewport: ViewportState,
   documentHeight: number,
-  highlights: readonly SearchHighlight[],
-  activeIndex: number,
+  decorations: readonly RangeDecoration[],
   styles: ScrollbarStyles = getScrollbarStyles(),
   scale: number = 1,
 ): void {
-  if (documentHeight <= viewport.height || highlights.length === 0) {
+  if (documentHeight <= viewport.height || decorations.length === 0) {
     return;
   }
 
@@ -663,18 +658,14 @@ function renderScrollbarSearchMarkers(
 
   ctx.save();
 
-  for (let i = 0; i < highlights.length; i++) {
-    const h = highlights[i];
-    const blockDocY = blockYMap.get(h.blockId);
+  for (const deco of decorations) {
+    const blockDocY = blockYMap.get(deco.range.from.block);
     if (blockDocY === undefined) continue;
 
     const ratio = Math.max(0, Math.min(1, blockDocY / documentHeight));
     const y = trackY + ratio * trackHeight - markerHeight / 2;
 
-    const isActive = i === activeIndex;
-    ctx.fillStyle = isActive
-      ? "rgba(255, 150, 50, 0.95)"
-      : "rgba(255, 200, 50, 0.8)";
+    ctx.fillStyle = deco.color;
     ctx.beginPath();
     ctx.roundRect(trackX, y, markerWidth, markerHeight, markerHeight / 2);
     ctx.fill();
@@ -749,11 +740,11 @@ export function applyMomentum(
 }
 
 /**
- * Calculate peer marker positions for the scrollbar.
- * Returns ratios (0-1) representing each peer's position in the document.
+ * Calculate scrollbar marker positions for caret decorations (e.g. remote peer
+ * cursors). Returns ratios (0-1) representing each caret's position in the
+ * document, in the decoration's color.
  */
-function calculatePeerMarkers(
-  remoteAwareness: Map<string, AwarenessState>,
+function calculateCaretMarkers(
   state: EditorState,
   viewport: ViewportState,
   documentHeight: number,
@@ -763,13 +754,10 @@ function calculatePeerMarkers(
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
-  for (const [peerId, awareness] of remoteAwareness) {
-    if (!awareness.cursor) continue;
+  for (const deco of allDecorations(state.ui.decorations)) {
+    if (deco.kind !== "caret") continue;
 
-    const position = awarenessCursorToPosition(
-      awareness.cursor,
-      state.document.page,
-    );
+    const position = resolveDecorationPoint(deco.point, state.document.page);
     if (!position) continue;
 
     const block = state.document.page.blocks[position.blockIndex];
@@ -794,10 +782,7 @@ function calculatePeerMarkers(
 
     // Calculate ratio
     const ratio = Math.max(0, Math.min(1, documentY / documentHeight));
-    const color =
-      awareness.user.color ||
-      getColorForPeer(peerId, styles.remoteCursor.palette);
-    markers.push({ color, ratio });
+    markers.push({ color: deco.color, ratio });
   }
 
   return markers;

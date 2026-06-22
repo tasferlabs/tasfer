@@ -132,7 +132,7 @@ export function createInitialState(
       inlineMathHover: null,
       hoveredMathBlockIndex: null,
       caretScratch: null,
-      search: { highlights: [], activeIndex: -1 },
+      decorations: {},
     },
     view: {
       isFocused: false,

@@ -271,15 +271,17 @@ export type { PageMetadata } from "./serlization/serializer";
 export { serializeToMarkdown } from "./serlization/serializer";
 export { default as tokenizePage } from "./serlization/tokenizer";
 
-// Awareness / presence — stable per-peer color, and converters from an editor
-// cursor/selection into the awareness wire shape a host broadcasts to peers.
-export type { AwarenessState, AwarenessUser } from "./sync/awareness";
-export {
-  DEFAULT_AWARENESS_COLORS,
-  getColorForPeer,
-  positionToAwarenessCursor,
-  selectionToAwarenessSelection,
-} from "./sync/awareness";
+// Decorations — the generic, ephemeral overlay primitive (find highlights,
+// remote cursors, …). Produced by the host/providers and fed in via
+// `editor.setDecorations(layer, …)`; never document content.
+export type {
+  CaretDecoration,
+  Decoration,
+  DecorationLayers,
+  DecorationPoint,
+  DecorationRange,
+  RangeDecoration,
+} from "./rendering/decorations";
 
 // Inline-math rendering — render a LaTeX run to an SVG string, and validate it.
 export { isValidLatex, renderToSVG } from "./nodes/math";
