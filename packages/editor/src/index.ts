@@ -88,7 +88,9 @@ export type {
   EditorApi as Editor,
   EditorAction,
   EditorEvent,
+  EditorHostApi,
   EditorStateSnapshot,
+  EditorViewApi,
   MarkName,
 } from "./entries/editor";
 

@@ -354,17 +354,141 @@ export interface EditorStateSnapshot {
 }
 
 /**
+ * The viewport/geometry & ephemeral-paint facet of {@link EditorApi}, reached as
+ * `editor.view`. Read-mostly host plumbing: where the caret/blocks sit on screen,
+ * scroll position, and the generic decoration layers (find highlights, remote
+ * cursors). Public and semver-stable — providers depend on the decoration
+ * members (see `@cypherkit/provider-core/cursors`) — but kept off the flat root
+ * so the everyday content/command surface stays small.
+ */
+export interface EditorViewApi {
+  /**
+   * Map a document point to viewport (screen) coordinates — `{ x, y, height }`
+   * with scroll applied — or `null` when the point isn't laid out (or can't be
+   * resolved). Takes the same public {@link DocPoint} vocabulary the read/write
+   * API speaks: an absolute `{ block, offset }` (the stable, CRDT-id form), or a
+   * relative `"caret"`/`"start"`/`"end"`. This is the anchoring primitive a host
+   * menu/typeahead builds on: e.g. a slash plugin anchors at the `/` position so
+   * its popover stays put as the caret moves through the filter text; pass
+   * `"caret"` to anchor an IME/autocomplete overlay to the current caret.
+   */
+  coordsAtPos: (point: DocPoint) => {
+    x: number;
+    y: number;
+    height: number;
+  } | null;
+  /**
+   * Merge a partial viewport patch (e.g. width/height on a container resize) and
+   * re-render. A width change clears cached block layout, since it affects text
+   * wrapping and document height.
+   */
+  updateViewport: (viewport: Partial<ViewportState>) => void;
+  /** Get current scroll position. */
+  getScrollY: () => number;
+  /** Scroll viewport to make a position visible. The block is addressed by
+   * stable `blockId` (resolved to an index internally). */
+  scrollToPosition: (position: { blockId: string; textIndex: number }) => void;
+  /**
+   * Replace the decorations in one layer — the engine's generic, ephemeral
+   * overlay primitive (find highlights, remote cursors, …). `layer` is an opaque
+   * key (e.g. `"search"`, `"presence:<peerId>"`); decorations in different layers
+   * never clobber each other. Passing an empty array clears the layer. Points are
+   * addressed by stable block id (resolved to indices at paint time) so they stay
+   * correct across concurrent remote edits between producing and painting. Not
+   * document content — never persisted, never in undo. */
+  setDecorations: (layer: string, decorations: readonly Decoration[]) => void;
+  /** Clear one decoration layer. */
+  clearDecorations: (layer: string) => void;
+}
+
+/**
+ * The chrome-lifecycle facet of {@link EditorApi}, reached as `editor.host`.
+ * The surface a host builds rich UI chrome on: node-declared overlays, the
+ * opaque per-block view-state channel, menu lifecycle, interaction mode, and
+ * cursor/snapshot restore. Public and semver-stable, but kept off the flat root
+ * since most consumers (and the React bindings) never touch it.
+ */
+export interface EditorHostApi {
+  /**
+   * Place the caret at the document start if there is no cursor yet — a no-op
+   * otherwise, or when the document has no visible blocks.
+   */
+  setInitialCursor: () => void;
+  /** Place the caret at the document start or end (forces a new caret). */
+  setCaret: (at: "start" | "end") => void;
+  /**
+   * Switch the interaction mode: `edit` (normal), `select` (selection-only, e.g.
+   * mobile), or `suspended` (read-only; also halts scroll momentum). Notifies
+   * subscribers.
+   */
+  setMode: (mode: "edit" | "select" | "suspended") => void;
+  /**
+   * Restore a previously captured cursor and selection (and return to `edit`
+   * mode) — e.g. after the host temporarily moved focus away. Notifies subscribers.
+   */
+  restoreCursorAndSelection: (
+    cursor: EditorState["document"]["cursor"],
+    selection: EditorState["document"]["selection"],
+  ) => void;
+  /**
+   * Collect the node-declared overlay descriptors for the on-screen blocks
+   * (see {@link NodeOverlay}). The host maps each `key` to a component and
+   * mounts it at the descriptor's `rect`; recompute on state/scroll changes.
+   * Empty unless a registered node implements `overlays()`.
+   */
+  collectOverlays: () => NodeOverlay[];
+  /**
+   * Open a host-defined overlay (popover/drawer/tooltip). The single generic
+   * primitive every host overlay flows through: the engine stores `{ key, data }`
+   * opaquely and never names a specific overlay. The node/mark that declares the
+   * overlay in `overlays()` reads it back by `key`; a typed opener co-located
+   * with that owner (e.g. `openLinkEditMenu` in the host schema) builds the
+   * payload and calls this. Use {@link closeActiveMenu} to dismiss.
+   */
+  openOverlay: (overlay: {
+    key: string;
+    blockId: string;
+    x: number;
+    y: number;
+    data?: unknown;
+  }) => void;
+  /**
+   * Set (or clear, with `null`) transient per-block canvas view-state, keyed by
+   * `blockId`. The opaque payload is read by the node that paints the block — the
+   * generic channel for ephemeral chrome like an image's upload spinner, so the
+   * engine never models that chrome as a menu/overlay. Not document content;
+   * produces no CRDT op.
+   */
+  setNodeViewState: (blockId: string, data: unknown | null) => void;
+  /**
+   * Close whichever menu/overlay is currently open (slash menu, host overlay…)
+   * and notify subscribers.
+   */
+  closeActiveMenu: () => void;
+  /** Restore from snapshot - generates and broadcasts operations */
+  restoreFromSnapshot: (blocks: Block[]) => void;
+}
+
+/**
  * The public action/lifecycle surface implemented by {@link Editor} — the
  * contract owed to external consumers. Kept as a standalone interface so the
  * rich documentation lives in one place and the class is compile-checked
- * (`class Editor implements EditorApi`) against it. Engine-internal doc↔editor
- * wiring lives on the separate {@link EditorWiring} interface, not here, so it
- * never appears in the type a consumer holds.
+ * (`class Editor implements EditorApi`) against it.
+ *
+ * Organized by audience: the flat members here are the everyday
+ * content/command/query surface; geometry & decorations live on the
+ * {@link EditorViewApi} `view` facet and chrome-building plumbing on the
+ * {@link EditorHostApi} `host` facet. Engine-internal doc↔editor wiring and
+ * mount-only window plumbing live on the separate {@link EditorWiring}
+ * interface, so neither appears in the type a consumer holds.
  */
 export interface EditorApi {
   /**
    * The raw internal {@link EditorState} (escape hatch), or `null` before any
-   * state exists. Prefer {@link state} for UI binding.
+   * state exists. Prefer {@link state} for UI binding, {@link getBlock}/
+   * {@link getBlockById}/{@link getSelection} for content reads, and the
+   * {@link view} facet for geometry — reach for this only when a needed read has
+   * no typed accessor.
    */
   getState: () => EditorState | null;
   /**
@@ -372,6 +496,10 @@ export interface EditorApi {
    * For the raw internal {@link EditorState} (escape hatch), use {@link getState}.
    */
   readonly state: EditorStateSnapshot;
+  /** Geometry & ephemeral-paint facet — see {@link EditorViewApi}. */
+  readonly view: EditorViewApi;
+  /** Chrome-lifecycle facet — see {@link EditorHostApi}. */
+  readonly host: EditorHostApi;
   /**
    * Tear down the editor: cancel the render loop and remove every canvas/input/
    * window event listener. For an editor created via
@@ -380,51 +508,11 @@ export interface EditorApi {
    */
   destroy: () => void;
   /**
-   * Merge a partial viewport patch (e.g. width/height on a container resize) and
-   * re-render. A width change clears cached block layout, since it affects text
-   * wrapping and document height.
-   */
-  updateViewport: (viewport: Partial<ViewportState>) => void;
-  /**
    * Set logical focus, keeping DOM focus on the input surface in lockstep so it
    * keeps receiving keystrokes/IME. Pass `shouldClearSelection` to drop the
    * selection. Fires `on("focus")`/`on("blur")` on an actual transition.
    */
   setFocus: (focused: boolean, shouldClearSelection?: boolean) => void;
-  /**
-   * Place the caret at the document start if there is no cursor yet — a no-op
-   * otherwise, or when the document has no visible blocks.
-   */
-  setInitialCursor: () => void;
-  /** Place the caret at the document start or end (forces a new caret). */
-  setCaret: (at: "start" | "end") => void;
-  /** Update browser-window focus (affects selection color); re-renders. */
-  setWindowFocused: (focused: boolean) => void;
-  /**
-   * Map a document point to viewport (screen) coordinates — `{ x, y, height }`
-   * with scroll applied — or `null` when the point isn't laid out (or can't be
-   * resolved). Takes the same public {@link DocPoint} vocabulary the read/write
-   * API speaks: an absolute `{ block, offset }` (the stable, CRDT-id form), or a
-   * relative `"caret"`/`"start"`/`"end"`. This is the anchoring primitive a host
-   * menu/typeahead builds on: e.g. a slash plugin anchors at the `/` position so
-   * its popover stays put as the caret moves through the filter text.
-   * {@link getCursorScreenPosition} is just this applied to the current caret.
-   */
-  coordsAtPos: (point: DocPoint) => {
-    x: number;
-    y: number;
-    height: number;
-  } | null;
-  /**
-   * The caret's position in viewport (screen) coordinates — `{ x, y, height }`
-   * with scroll applied — or `null` when there is no caret or it isn't laid out.
-   * Use to anchor a host overlay (IME, autocomplete) to the caret.
-   */
-  getCursorScreenPosition: () => {
-    x: number;
-    y: number;
-    height: number;
-  } | null;
   /**
    * Subscribe to state changes: the listener receives the full {@link
    * EditorState} after each render-loop diff and on direct notifications (focus,
@@ -518,6 +606,13 @@ export interface EditorApi {
    * mutation without touching {@link EditorApi.getState}.
    */
   getBlock: (at?: DocPoint) => BlockData | null;
+  /**
+   * Plain-data view of the block with the given stable id, or `null` when no
+   * present block has it. Sugar for `getBlock({ block: id, offset: 0 })` — the
+   * common host pattern of "find the block this overlay/menu targets" without
+   * scanning {@link EditorApi.getState}'s raw block array.
+   */
+  getBlockById: (id: string) => BlockData | null;
   /** All visible blocks, in document order, as plain {@link BlockData} data. */
   getBlocks: () => BlockData[];
   /**
@@ -551,27 +646,6 @@ export interface EditorApi {
    */
   clearSelection: () => void;
   /**
-   * Switch the interaction mode: `edit` (normal), `select` (selection-only, e.g.
-   * mobile), or `suspended` (read-only; also halts scroll momentum). Notifies
-   * subscribers.
-   */
-  setMode: (mode: "edit" | "select" | "suspended") => void;
-  /**
-   * Restore a previously captured cursor and selection (and return to `edit`
-   * mode) — e.g. after the host temporarily moved focus away. Notifies subscribers.
-   */
-  restoreCursorAndSelection: (
-    cursor: EditorState["document"]["cursor"],
-    selection: EditorState["document"]["selection"],
-  ) => void;
-  /**
-   * Collect the node-declared overlay descriptors for the on-screen blocks
-   * (see {@link NodeOverlay}). The host maps each `key` to a component and
-   * mounts it at the descriptor's `rect`; recompute on state/scroll changes.
-   * Empty unless a registered node implements `overlays()`.
-   */
-  collectOverlays: () => NodeOverlay[];
-  /**
    * Update this instance's theme. The patch is deep-merged onto the current
    * theme (tokens/fonts/strings shallow-merged, `styles` deep-merged), re-
    * resolved into the full style tree, and the editor re-renders. Use for live
@@ -579,60 +653,6 @@ export interface EditorApi {
    * dark-mode toggle calls `setTheme({ tokens })`.
    */
   setTheme: (patch: EditorTheme) => void;
-  /**
-   * Open a host-defined overlay (popover/drawer/tooltip). The single generic
-   * primitive every host overlay flows through: the engine stores `{ key, data }`
-   * opaquely and never names a specific overlay. The node/mark that declares the
-   * overlay in `overlays()` reads it back by `key`; a typed opener co-located
-   * with that owner (e.g. `openLinkEditMenu` in the host schema) builds the
-   * payload and calls this. Use {@link closeActiveMenu} to dismiss.
-   */
-  openOverlay: (overlay: {
-    key: string;
-    blockId: string;
-    x: number;
-    y: number;
-    data?: unknown;
-  }) => void;
-  /**
-   * Set (or clear, with `null`) transient per-block canvas view-state, keyed by
-   * `blockId`. The opaque payload is read by the node that paints the block — the
-   * generic channel for ephemeral chrome like an image's upload spinner, so the
-   * engine never models that chrome as a menu/overlay. Not document content;
-   * produces no CRDT op.
-   */
-  setNodeViewState: (blockId: string, data: unknown | null) => void;
-  /**
-   * Close whichever menu/overlay is currently open (slash menu, host overlay…)
-   * and notify subscribers.
-   */
-  closeActiveMenu: () => void;
-  /**
-   * Whether a host pointer-capturing menu (the context menu) is currently open.
-   * The engine maintains this from the menu's {@link OPEN_CONTEXT_MENU} /
-   * {@link CLOSE_CONTEXT_MENU} lifecycle actions — a host shows its menu and
-   * dispatches `CLOSE_CONTEXT_MENU` to dismiss it, never writing the flag
-   * itself. Read by the focus backstops and the touch FSM.
-   */
-  isHostMenuCapturing: () => boolean;
-  /** Restore from snapshot - generates and broadcasts operations */
-  restoreFromSnapshot: (blocks: Block[]) => void;
-  /** Get current scroll position */
-  getScrollY: () => number;
-  /**
-   * Replace the decorations in one layer — the engine's generic, ephemeral
-   * overlay primitive (find highlights, remote cursors, …). `layer` is an opaque
-   * key (e.g. `"search"`, `"presence:<peerId>"`); decorations in different layers
-   * never clobber each other. Passing an empty array clears the layer. Points are
-   * addressed by stable block id (resolved to indices at paint time) so they stay
-   * correct across concurrent remote edits between producing and painting. Not
-   * document content — never persisted, never in undo. */
-  setDecorations: (layer: string, decorations: readonly Decoration[]) => void;
-  /** Clear one decoration layer. */
-  clearDecorations: (layer: string) => void;
-  /** Scroll viewport to make a position visible. The block is addressed by
-   * stable `blockId` (resolved to an index internally). */
-  scrollToPosition: (position: { blockId: string; textIndex: number }) => void;
 }
 
 /**
@@ -662,6 +682,19 @@ export interface EditorWiring {
    * callback here.
    */
   setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
+  /**
+   * Update browser-window focus (affects selection color); re-renders. Driven by
+   * `mountEditor`'s window focus/blur listeners — not a host-facing control.
+   */
+  setWindowFocused: (focused: boolean) => void;
+  /**
+   * Whether a host pointer-capturing menu (the context menu) is currently open.
+   * The engine maintains this from the menu's `OPEN_CONTEXT_MENU` /
+   * `CLOSE_CONTEXT_MENU` lifecycle actions — a host shows its menu and dispatches
+   * `CLOSE_CONTEXT_MENU` to dismiss it, never writing the flag itself. Read by
+   * `mountEditor`'s focus backstops and the touch FSM.
+   */
+  isHostMenuCapturing: () => boolean;
 }
 
 // A pure (state) => ActionResult transform. Named distinctly from the
@@ -2288,16 +2321,6 @@ export class Editor implements EditorApi, EditorWiring {
     });
   };
 
-  getCursorScreenPosition = (): {
-    x: number;
-    y: number;
-    height: number;
-  } | null => {
-    const cursor = this._state.document.cursor;
-    if (!cursor) return null;
-    return this.coordsAtIndexPosition(cursor.position);
-  };
-
   subscribe = (listener: (state: EditorState) => void): (() => void) => {
     this.listeners.push(listener);
     return () => {
@@ -2926,6 +2949,9 @@ export class Editor implements EditorApi, EditorWiring {
       toBlockData(this._state.document.page.blocks[idx]),
     );
   };
+
+  getBlockById = (id: string): BlockData | null =>
+    this.getBlock({ block: id, offset: 0 });
 
   getBlocks = (): BlockData[] =>
     this._state.document.page.blocks
@@ -3628,5 +3654,33 @@ export class Editor implements EditorApi, EditorWiring {
       this.viewport = { ...this.viewport, scrollY: newScrollY };
       this.scheduleRender();
     }
+  };
+
+  // ── Public facets ──────────────────────────────────────────────────────────
+  // `view` / `host` bundle the geometry and chrome members off the flat root
+  // (see EditorViewApi / EditorHostApi). The implementations stay as the
+  // instance arrow-fields above — already `this`-bound, so referencing them here
+  // is safe; engine-internal callers (mountEditor, createEditor) use the
+  // flat fields directly. Declared last so every referenced field is initialized
+  // by the time these initializers run.
+  view: EditorViewApi = {
+    coordsAtPos: this.coordsAtPos,
+    updateViewport: this.updateViewport,
+    getScrollY: this.getScrollY,
+    scrollToPosition: this.scrollToPosition,
+    setDecorations: this.setDecorations,
+    clearDecorations: this.clearDecorations,
+  };
+
+  host: EditorHostApi = {
+    setInitialCursor: this.setInitialCursor,
+    setCaret: this.setCaret,
+    setMode: this.setMode,
+    restoreCursorAndSelection: this.restoreCursorAndSelection,
+    collectOverlays: this.collectOverlays,
+    openOverlay: this.openOverlay,
+    setNodeViewState: this.setNodeViewState,
+    closeActiveMenu: this.closeActiveMenu,
+    restoreFromSnapshot: this.restoreFromSnapshot,
   };
 }

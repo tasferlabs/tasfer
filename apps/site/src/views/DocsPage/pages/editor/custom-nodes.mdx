@@ -91,7 +91,7 @@ The host drives them through one registry — no per-type `if` ladder. Recompute
 ```tsx
 const OVERLAYS = { "callout-editor": CalloutEditor };
 
-editor.collectOverlays().forEach((o) => {
+editor.host.collectOverlays().forEach((o) => {
   const Comp = OVERLAYS[o.key];
   if (Comp) mountAt(o.rect, <Comp overlay={o} editor={editor} />);
 });

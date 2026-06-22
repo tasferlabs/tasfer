@@ -261,7 +261,7 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
         return;
       }
       const filter = text.slice(t.slashIndex + 1, cursorIndex);
-      const coords = editor.coordsAtPos({
+      const coords = editor.view.coordsAtPos({
         block: block.id,
         offset: t.slashIndex,
       });

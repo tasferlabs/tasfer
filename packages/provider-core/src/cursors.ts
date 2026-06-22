@@ -3,7 +3,7 @@
  * decorations.
  *
  * The editor engine has no concept of "presence" or "peers": it paints generic
- * {@link Decoration}s fed in via `editor.setDecorations(layer, …)`. This module
+ * {@link Decoration}s fed in via `editor.view.setDecorations(layer, …)`. This module
  * is the bridge — it maps a peer's {@link CursorPresence} (the cursor/selection
  * shape a host publishes through a provider's presence channel) to decorations,
  * and {@link bindPresenceCursors} wires both directions for a {@link Provider}.
@@ -12,7 +12,7 @@
  *   - **pure mappers** ({@link cursorPresenceToDecorations},
  *     {@link selectionToCursorPresence}) + {@link getColorForPeer} — transport
  *     agnostic; a host syncing presence over its own pipe can call these
- *     directly and feed the result to `editor.setDecorations`.
+ *     directly and feed the result to `editor.view.setDecorations`.
  *   - **{@link bindPresenceCursors}** — the convenience binder for a Provider:
  *     publishes the local selection on every `selectionchange`, and turns every
  *     remote peer's presence into a `presence:<peerId>` decoration layer.
@@ -150,7 +150,7 @@ const REMOTE_SELECTION_OPACITY = 0.3;
 /**
  * Map a peer's presence to the decorations that render it: a selection fill when
  * the peer has a selection, otherwise a labeled caret. Pure — feed the result to
- * `editor.setDecorations("presence:<peerId>", …)`.
+ * `editor.view.setDecorations("presence:<peerId>", …)`.
  */
 export function cursorPresenceToDecorations(
   peerId: string,
@@ -262,7 +262,7 @@ export function bindPresenceCursors(
   const shownPeers = new Set<string>();
 
   const clearPeer = (peerId: string) => {
-    editor.clearDecorations(presenceLayer(peerId));
+    editor.view.clearDecorations(presenceLayer(peerId));
     shownPeers.delete(peerId);
     const timer = idleTimers.get(peerId);
     if (timer) clearTimeout(timer);
@@ -277,7 +277,7 @@ export function bindPresenceCursors(
         peerId,
         state as unknown as CursorPresence,
       );
-      editor.setDecorations(presenceLayer(peerId), decorations);
+      editor.view.setDecorations(presenceLayer(peerId), decorations);
       shownPeers.add(peerId);
 
       const prev = idleTimers.get(peerId);

@@ -191,8 +191,8 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
 
   const focus = (at?: "start" | "end") => {
     mounted.refocus();
-    if (at) editor.setCaret(at);
-    else editor.setInitialCursor();
+    if (at) editor.host.setCaret(at);
+    else editor.host.setInitialCursor();
   };
 
   const destroy = () => {

@@ -668,7 +668,7 @@ function normalizeMathInput(
 // All are pure — they touch overlay/hover UI state and emit no ops.
 
 /** An inline-math chip's highlight range (engine-owned hover state). */
-interface InlineMathHover {
+export interface InlineMathHover {
   blockIndex: number;
   startIndex: number;
   endIndex: number;

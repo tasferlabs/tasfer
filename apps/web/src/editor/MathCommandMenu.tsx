@@ -113,7 +113,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       const query = text.slice(t.backslashIndex + 1, caretIndex);
       if (!/^[a-zA-Z]*$/.test(query)) return close();
 
-      const coords = editor.coordsAtPos({
+      const coords = editor.view.coordsAtPos({
         block: block.id,
         offset: t.backslashIndex,
       });

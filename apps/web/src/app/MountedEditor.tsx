@@ -196,7 +196,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
   const containerRect = portalContainer.getBoundingClientRect();
 
   const close = () => {
-    editor.closeActiveMenu();
+    editor.host.closeActiveMenu();
     // Restore the native/mobile toolbar after the drawer dismisses.
     if (window.CypherBridge) refocus();
   };
@@ -207,17 +207,16 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
       y={containerRect.top + overlay.rect.y}
       uploadStatus={uploadStatus}
       onUpload={async (file) => {
-        const block = editor
-          .getState()
-          ?.document.page.blocks.find((blk) => blk.id === blockId);
-        if (!block || block.deleted || block.type !== "image") return;
+        const block = editor.getBlockById(blockId);
+        if (!block || block.type !== "image") return;
 
         // Clear any failed-cache entry for the URL we're replacing.
-        if (block.url) {
-          clearFailedImageCache(block.url);
+        const currentUrl = block.attrs.url;
+        if (typeof currentUrl === "string") {
+          clearFailedImageCache(currentUrl);
         }
 
-        editor.setNodeViewState(block.id, { uploadStatus: "uploading" });
+        editor.host.setNodeViewState(block.id, { uploadStatus: "uploading" });
 
         try {
           const imageData = await uploadImage(file);
@@ -228,33 +227,28 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
               { block: block.id },
             ),
           );
-          editor.setNodeViewState(block.id, null);
-          editor.closeActiveMenu();
+          editor.host.setNodeViewState(block.id, null);
+          editor.host.closeActiveMenu();
         } catch (error) {
           console.error("Image upload failed:", error);
-          editor.setNodeViewState(block.id, { uploadStatus: "error" });
+          editor.host.setNodeViewState(block.id, { uploadStatus: "error" });
         }
       }}
       onUrlSubmit={(url) => {
-        const block = editor
-          .getState()
-          ?.document.page.blocks.find((blk) => blk.id === blockId);
-        if (!block || block.deleted || block.type !== "image") return;
+        const block = editor.getBlockById(blockId);
+        if (!block || block.type !== "image") return;
 
         // Clear failed cache for this URL to allow retry
         clearFailedImageCache(url);
 
         editor.change((c) => c.setBlock({ url }, { block: block.id }));
-        editor.setNodeViewState(block.id, null);
+        editor.host.setNodeViewState(block.id, null);
       }}
       onDelete={() => {
         // "Remove Image" deletes the block (was a no-op on the desktop edit
         // path before this migration; the mobile drawer already deleted).
-        const block = editor
-          .getState()
-          ?.document.page.blocks.find((blk) => blk.id === blockId);
-        if (block && !block.deleted)
-          editor.change((c) => c.deleteBlock({ block: block.id }));
+        const block = editor.getBlockById(blockId);
+        if (block) editor.change((c) => c.deleteBlock({ block: block.id }));
         close();
       }}
       onClose={close}
@@ -277,11 +271,11 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
 }) => {
   const { t } = useTranslation();
   const { blockId } = overlay;
-  const block = editor
-    .getState()
-    ?.document.page.blocks.find((blk) => blk.id === blockId);
-  if (block?.type !== "image" || !block.url) return null;
-  const { url, alt } = block;
+  const block = editor.getBlockById(blockId);
+  if (block?.type !== "image" || typeof block.attrs.url !== "string")
+    return null;
+  const url = block.attrs.url;
+  const alt = typeof block.attrs.alt === "string" ? block.attrs.alt : undefined;
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
@@ -409,7 +403,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
   const y = containerRect.top + overlay.rect.y;
 
   const close = () => {
-    editor.closeActiveMenu();
+    editor.host.closeActiveMenu();
     // Restore the native/mobile toolbar after the drawer dismisses.
     if (window.CypherBridge) refocus();
   };
@@ -418,9 +412,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
       // newText is required (an empty range/text would shift indices); the
       // caller's UI guards against empty input.
       if (!newText) return;
-      const block = editor
-        .getState()
-        ?.document.page.blocks.find((blk) => blk.id === blockId);
+      const block = editor.getBlockById(blockId);
       if (!block) return;
       const link = { type: "link", attrs: { url: newUrl } };
       // The link's existing text is `text` (edit) or the selected text (create).
@@ -448,9 +440,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
     });
   const clearLink = () =>
     editor.change((c) => {
-      const block = editor
-        .getState()
-        ?.document.page.blocks.find((blk) => blk.id === blockId);
+      const block = editor.getBlockById(blockId);
       if (!block) return;
       c.setMark("link", {
         active: false,
@@ -516,20 +506,19 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
 }) => {
   const { t } = useTranslation();
   const { blockId } = overlay;
-  const block = editor
-    .getState()
-    ?.document.page.blocks.find((blk) => blk.id === blockId);
+  const block = editor.getBlockById(blockId);
   if (block?.type !== "code") return null;
 
-  const currentLabel = codeLanguageLabel(block.language);
+  const language = block.attrs.language;
+  const currentLabel = codeLanguageLabel(
+    typeof language === "string" ? language : undefined,
+  );
   const items = CODE_LANGUAGES.map((l) => l.label);
 
   const handleChange = (label: string | null) => {
     const language = CODE_LANGUAGES.find((l) => l.label === label)?.id ?? "";
-    const b = editor
-      .getState()
-      ?.document.page.blocks.find((blk) => blk.id === blockId);
-    if (b && !b.deleted && b.type === "code") {
+    const b = editor.getBlockById(blockId);
+    if (b && b.type === "code") {
       editor.change((c) => c.setBlock({ language }, { block: b.id }));
     }
   };
@@ -1118,7 +1107,7 @@ function EditorSurface({
         saveCursorPosition(pageId, {
           blockIndex: editorState.document.cursor.position.blockIndex,
           textIndex: editorState.document.cursor.position.textIndex,
-          scrollY: mountedRef.current?.editor.getScrollY() ?? 0,
+          scrollY: mountedRef.current?.editor.view.getScrollY() ?? 0,
         });
       }
     };
@@ -1310,7 +1299,7 @@ function EditorSurface({
       const unsubscribe = mounted.editor.subscribe(() => {
         // Node-declared overlay slots (engine, framework-free) → host registry.
         // Recollected each tick; only pushed to React state when the set changes.
-        const newOverlays = mounted.editor.collectOverlays();
+        const newOverlays = mounted.editor.host.collectOverlays();
         if (!nodeOverlaysEqual(newOverlays, lastNodeOverlaysRef.current)) {
           lastNodeOverlaysRef.current = newOverlays;
           setNodeOverlays(newOverlays);
@@ -1356,7 +1345,7 @@ function EditorSurface({
     // Expose restore function to parent
     if (onRestoreReady) {
       onRestoreReady((blocks: Block[]) => {
-        mounted.editor.restoreFromSnapshot(blocks);
+        mounted.editor.host.restoreFromSnapshot(blocks);
       });
     }
 
@@ -1430,13 +1419,13 @@ function EditorSurface({
 
     onRoomAwarenessRef.current = (awarenesspeerId, state) => {
       if (state) {
-        mounted.editor.setDecorations(
+        mounted.editor.view.setDecorations(
           presenceLayer(awarenesspeerId),
           awarenessToDecorations(awarenesspeerId, state),
         );
         remoteUsersRef.current.set(awarenesspeerId, state.user);
       } else {
-        mounted.editor.clearDecorations(presenceLayer(awarenesspeerId));
+        mounted.editor.view.clearDecorations(presenceLayer(awarenesspeerId));
         remoteUsersRef.current.delete(awarenesspeerId);
       }
 
@@ -1445,7 +1434,7 @@ function EditorSurface({
 
     onRoomAwarenessStatesRef.current = (states) => {
       for (const [awarenesspeerId, state] of Object.entries(states)) {
-        mounted.editor.setDecorations(
+        mounted.editor.view.setDecorations(
           presenceLayer(awarenesspeerId),
           awarenessToDecorations(awarenesspeerId, state),
         );
@@ -1521,13 +1510,12 @@ function EditorSurface({
         try {
           const imageData = await uploadImage(file);
           // Resolve the block by id — the index may have shifted during upload.
-          const block = mounted.editor
-            .getState()
-            ?.document.page.blocks.find((b) => b.id === blockId);
-          if (!block || block.deleted || block.type !== "image") return;
+          const block = mounted.editor.getBlockById(blockId);
+          if (!block || block.type !== "image") return;
           // Revoke the temporary blob URL we were displaying.
-          if (block.url?.startsWith("blob:")) {
-            URL.revokeObjectURL(block.url);
+          const displayedUrl = block.attrs.url;
+          if (typeof displayedUrl === "string" && displayedUrl.startsWith("blob:")) {
+            URL.revokeObjectURL(displayedUrl);
           }
           mounted.editor.change((c) =>
             c.setBlock(
@@ -1642,7 +1630,7 @@ function EditorSurface({
         mounted.editor.change((c) => c.setBlock({ type: type as any })),
       focus: () => {
         mounted.editor.setFocus(true);
-        mounted.editor.setInitialCursor();
+        mounted.editor.host.setInitialCursor();
       },
       onFormatButtonClick: handleFormatButtonClick,
       toggleStrong: () => mounted.editor.change((c) => c.setMark("strong")),
@@ -1694,7 +1682,7 @@ function EditorSurface({
 
       // Node-declared overlay slots (engine, framework-free) → host registry.
       // Recollected each tick; only pushed to React state when the set changes.
-      const newOverlays = mounted.editor.collectOverlays();
+      const newOverlays = mounted.editor.host.collectOverlays();
       if (!nodeOverlaysEqual(newOverlays, lastNodeOverlaysRef.current)) {
         lastNodeOverlaysRef.current = newOverlays;
         setNodeOverlays(newOverlays);
@@ -1899,17 +1887,17 @@ function EditorSurface({
           const maxTextIndex = block ? getBlockTextLength(block) : 0;
           const textIndex = Math.min(saved.textIndex, maxTextIndex);
 
-          mounted.editor.restoreCursorAndSelection(
+          mounted.editor.host.restoreCursorAndSelection(
             { position: { blockIndex, textIndex }, lastUpdate: Date.now() },
             null,
           );
 
           // Restore scroll position
           if (saved.scrollY > 0) {
-            mounted.editor.updateViewport({ scrollY: saved.scrollY });
+            mounted.editor.view.updateViewport({ scrollY: saved.scrollY });
           }
         } else {
-          mounted.editor.setInitialCursor();
+          mounted.editor.host.setInitialCursor();
         }
       }, 0);
     }
@@ -1998,7 +1986,7 @@ function EditorSurface({
     if (!text || !mountedRef.current) {
       setFindMatches([]);
       setFindActiveIndex(0);
-      mountedRef.current?.editor.clearDecorations("search");
+      mountedRef.current?.editor.view.clearDecorations("search");
       return;
     }
 
@@ -2033,13 +2021,13 @@ function EditorSurface({
     setFindMatches(matches);
     const newActiveIndex = matches.length > 0 ? 0 : -1;
     setFindActiveIndex(newActiveIndex >= 0 ? newActiveIndex : 0);
-    mountedRef.current.editor.setDecorations(
+    mountedRef.current.editor.view.setDecorations(
       "search",
       searchDecorations(matches, newActiveIndex >= 0 ? newActiveIndex : -1),
     );
     // Scroll to first match
     if (matches.length > 0) {
-      mountedRef.current.editor.scrollToPosition({
+      mountedRef.current.editor.view.scrollToPosition({
         blockId: matches[0].blockId,
         textIndex: matches[0].startIndex,
       });
@@ -2058,7 +2046,7 @@ function EditorSurface({
     (index: number) => {
       if (findMatches.length === 0 || !mountedRef.current) return;
       setFindActiveIndex(index);
-      mountedRef.current.editor.setDecorations(
+      mountedRef.current.editor.view.setDecorations(
         "search",
         searchDecorations(findMatches, index),
       );
@@ -2072,7 +2060,7 @@ function EditorSurface({
             ?.document.page.blocks.findIndex((b) => b.id === match.blockId) ??
           -1;
         if (blockIndex !== -1) {
-          mountedRef.current.editor.restoreCursorAndSelection(
+          mountedRef.current.editor.host.restoreCursorAndSelection(
             {
               position: {
                 blockIndex,
@@ -2092,7 +2080,7 @@ function EditorSurface({
             },
           );
         }
-        mountedRef.current.editor.scrollToPosition({
+        mountedRef.current.editor.view.scrollToPosition({
           blockId: match.blockId,
           textIndex: match.startIndex,
         });
@@ -2118,7 +2106,7 @@ function EditorSurface({
     setFindSearchText("");
     setFindMatches([]);
     setFindActiveIndex(0);
-    mountedRef.current?.editor.clearDecorations("search");
+    mountedRef.current?.editor.view.clearDecorations("search");
     // Refocus editor
 
     mountedRef.current?.editor.setFocus(true);
@@ -2372,12 +2360,12 @@ function EditorSurface({
     if (modalPopoverOpen) {
       // Set editor to suspended mode when popover opens (only if not already suspended)
       if (currentState.ui.mode !== "suspended") {
-        mountedRef.current.editor.setMode("suspended");
+        mountedRef.current.editor.host.setMode("suspended");
       }
     } else {
       // Restore to edit mode when popover closes (only if currently suspended)
       if (currentState.ui.mode === "suspended") {
-        mountedRef.current.editor.setMode("edit");
+        mountedRef.current.editor.host.setMode("edit");
       }
     }
   }, [modalPopoverOpen]);

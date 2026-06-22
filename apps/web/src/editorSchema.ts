@@ -44,7 +44,7 @@ class CypherImageNode extends ImageNode {
   /**
    * Declare the image upload/edit popover as a host overlay slot whenever the
    * active menu targets this block. The engine collects this through
-   * `editor.collectOverlays()` and stays framework-free; the web app maps the
+   * `editor.host.collectOverlays()` and stays framework-free; the web app maps the
    * `"image-upload"` key to the React `ImageUploadPopover` (see `NODE_OVERLAYS`
    * in MountedEditor). The anchor is the canvas/container-space point the menu
    * was opened at; the upload status rides along as the overlay payload.
@@ -113,7 +113,7 @@ export function openImageUploadMenu(
   x: number,
   y: number,
 ): void {
-  editor.openOverlay({ key: "image-upload", blockId, x, y });
+  editor.host.openOverlay({ key: "image-upload", blockId, x, y });
 }
 
 /**
@@ -181,7 +181,7 @@ export function openLinkEditMenu(
   args: LinkEditOverlayData & { x: number; y: number },
 ): void {
   const { x, y, blockId, ...data } = args;
-  editor.openOverlay({
+  editor.host.openOverlay({
     key: "link-edit",
     blockId,
     x,

@@ -1216,7 +1216,7 @@ export const START_IMAGE_HANDLE_DRAG = stateAction<{
 
 /** Payload for {@link UPDATE_IMAGE_HANDLE_DRAG} — the live pointer + viewport
  *  plus the drag's start descriptor (sourced from the captured hit). */
-interface UpdateImageDragPayload extends ImageDragStart {
+export interface UpdateImageDragPayload extends ImageDragStart {
   viewport: ViewportState;
   canvasX: number;
   canvasY: number;
