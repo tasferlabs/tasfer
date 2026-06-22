@@ -84,6 +84,28 @@ export function recordUndoOps(
  * Returns the updated state and the inverse operations that were applied
  * (already stamped with fresh id/clock, ready to be broadcast to peers).
  */
+/**
+ * Whether {@link undoState} would currently change the document: there is at
+ * least one undo group from this peer with non-empty captured inverses. Empty
+ * groups are skipped by `undoState`, so they don't count — this predicate
+ * matches what an actual undo would do. Cheap enough to read on every render
+ * (it backs `editor.state.canUndo`).
+ */
+export function canUndoState(state: EditorState): boolean {
+  const peerId = state.CRDTbinding.getPeerId();
+  return state.undoManager.undoStack.some(
+    (g) => g.peerId === peerId && g.inverses.length > 0,
+  );
+}
+
+/** Whether {@link redoState} would currently change the document — there is a
+ * redo group from this peer (redo groups always carry operations). Backs
+ * `editor.state.canRedo`. */
+export function canRedoState(state: EditorState): boolean {
+  const peerId = state.CRDTbinding.getPeerId();
+  return state.undoManager.redoStack.some((g) => g.peerId === peerId);
+}
+
 export function undoState(state: EditorState): {
   state: EditorState;
   ops: Operation[];

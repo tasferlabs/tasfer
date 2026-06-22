@@ -89,8 +89,10 @@ export interface CypherEditor extends EditorApi {
    */
   readonly doc: Doc;
   /**
-   * Read-only state snapshot for UI binding: `{ selection, activeMarks, doc }`.
-   * The raw internal {@link EditorState} stays available via {@link getState}.
+   * Read-only state snapshot for UI binding: the engine's
+   * {@link EditorStateSnapshot} (selection, active marks, caret block type,
+   * undo/redo readiness, focus) plus the attached `doc`. The raw internal
+   * {@link EditorState} stays available via {@link getState}.
    */
   readonly state: EditorStateSnapshot & { readonly doc: Doc };
   /** Container to mount React popovers/overlays into (slash menu, link editor). */
@@ -208,7 +210,7 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     ...editor,
     // Re-expose `state` as a live getter: object spread above evaluates the
     // core getter once and would otherwise freeze it to a stale snapshot.
-    // Adds `doc` so the documented `{ selection, activeMarks, doc }` shape works.
+    // Adds `doc` to the engine snapshot to complete the documented shape.
     get state() {
       return { ...editor.state, doc };
     },

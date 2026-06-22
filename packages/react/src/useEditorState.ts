@@ -1,18 +1,18 @@
-import type { CypherEditor, Doc } from "@cypherkit/editor";
+import type { Doc, EditorStateSnapshot } from "@cypherkit/editor";
+import type { CypherEditor } from "@cypherkit/editor";
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
 /**
- * Live editor-state snapshot returned by {@link useEditorState}: the same shape
- * as `editor.state`, surfaced reactively. `null` when no editor is attached yet.
+ * Live editor-state snapshot returned by {@link useEditorState}: the engine's
+ * `editor.state` ({@link EditorStateSnapshot} — selection, active marks, the
+ * caret block type, undo/redo readiness, focus) plus the attached `doc`,
+ * surfaced reactively. Defined as an intersection so it stays in lockstep with
+ * the engine snapshot. `null` when no editor is attached yet.
  */
-export interface EditorStateValue {
-  /** The current selection. `empty` is true for a bare caret (or no caret). */
-  readonly selection: { readonly empty: boolean };
-  /** Inline marks active at the caret / across the selection. */
-  readonly activeMarks: ReadonlySet<string>;
+export type EditorStateValue = EditorStateSnapshot & {
   /** The CRDT document the editor renders and edits. */
   readonly doc: Doc;
-}
+};
 
 /**
  * Subscribe to a {@link CypherEditor}'s state and re-render on changes.

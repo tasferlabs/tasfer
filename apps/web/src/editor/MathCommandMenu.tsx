@@ -114,8 +114,8 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       if (!/^[a-zA-Z]*$/.test(query)) return close();
 
       const coords = editor.coordsAtPos({
-        blockIndex: t.blockIndex,
-        textIndex: t.backslashIndex,
+        block: block.id,
+        offset: t.backslashIndex,
       });
       const rect = getContainerRect();
       if (!coords || !rect) return;

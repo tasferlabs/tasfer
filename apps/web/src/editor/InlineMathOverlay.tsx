@@ -152,8 +152,8 @@ export const InlineMathOverlay: React.FC<InlineMathOverlayProps> = ({
       if (!span) return setChip(null);
 
       const coords = editor.coordsAtPos({
-        blockIndex,
-        textIndex: span.startIndex,
+        block: block.id,
+        offset: span.startIndex,
       });
       const rect = getContainerRect();
       if (!coords || !rect) return;

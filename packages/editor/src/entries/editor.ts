@@ -117,7 +117,13 @@ import {
   getBlockFieldNames,
   isTextualBlock,
 } from "../sync/block-registry";
-import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
+import {
+  canRedoState,
+  canUndoState,
+  recordUndoOps,
+  redoState,
+  undoState,
+} from "../sync/crdt-undo";
 import {
   deleteCharsInRange,
   insertCharsAtPosition,
@@ -268,10 +274,31 @@ export type EditorAction = (c: ChangeApi) => void;
  * destructure and hold for the duration of one read.
  */
 export interface EditorStateSnapshot {
-  /** The current selection. `empty` is true for a bare caret (or no caret). */
-  readonly selection: { readonly empty: boolean };
+  /**
+   * The current selection: `empty` is true for a bare caret (or no caret), and
+   * `range` is the selection as a {@link DocRange} (a collapsed point for a
+   * caret), or `null` when there is no caret/selection — the same currency the
+   * {@link ChangeApi} methods accept, surfaced reactively.
+   */
+  readonly selection: {
+    readonly empty: boolean;
+    readonly range: DocRange | null;
+  };
   /** Inline marks active at the caret / across the selection. */
   readonly activeMarks: ReadonlySet<Mark["type"]>;
+  /**
+   * The block type at the caret — with `heading` sugar applied (`"heading"`,
+   * not `heading1/2/3`), matching {@link ChangeApi.setBlock} — or `null` when
+   * there is no caret/block. Lets a block-type dropdown light up reactively
+   * without an imperative {@link EditorApi.getBlock} read.
+   */
+  readonly activeBlockType: string | null;
+  /** Whether {@link EditorApi.undo} would currently change the document. */
+  readonly canUndo: boolean;
+  /** Whether {@link EditorApi.redo} would currently change the document. */
+  readonly canRedo: boolean;
+  /** Whether the editor currently has focus. */
+  readonly isFocused: boolean;
 }
 
 /**
@@ -322,14 +349,16 @@ export interface EditorApi {
   /** Update browser-window focus (affects selection color); re-renders. */
   setWindowFocused: (focused: boolean) => void;
   /**
-   * Map an arbitrary document position to viewport (screen) coordinates —
-   * `{ x, y, height }` with scroll applied — or `null` when the position isn't
-   * laid out. This is the anchoring primitive a host menu/typeahead builds on:
-   * e.g. a slash plugin anchors at the `/` position so its popover stays put as
-   * the caret moves through the filter text. {@link getCursorScreenPosition} is
-   * just this applied to the current caret.
+   * Map a document point to viewport (screen) coordinates — `{ x, y, height }`
+   * with scroll applied — or `null` when the point isn't laid out (or can't be
+   * resolved). Takes the same public {@link DocPoint} vocabulary the read/write
+   * API speaks: an absolute `{ block, offset }` (the stable, CRDT-id form), or a
+   * relative `"caret"`/`"start"`/`"end"`. This is the anchoring primitive a host
+   * menu/typeahead builds on: e.g. a slash plugin anchors at the `/` position so
+   * its popover stays put as the caret moves through the filter text.
+   * {@link getCursorScreenPosition} is just this applied to the current caret.
    */
-  coordsAtPos: (position: Position) => {
+  coordsAtPos: (point: DocPoint) => {
     x: number;
     y: number;
     height: number;
@@ -2301,7 +2330,10 @@ export class Editor implements EditorApi, EditorWiring {
     this.scheduleRender();
   };
 
-  coordsAtPos = (
+  // Internal: viewport coords for an index-space {@link Position} (the
+  // renderer's currency). The public `coordsAtPos` resolves a DocPoint down to
+  // this; `getCursorScreenPosition` feeds the live caret position directly.
+  private coordsAtIndexPosition = (
     position: Position,
   ): { x: number; y: number; height: number } | null => {
     const coords = getCursorDocumentCoords(
@@ -2319,13 +2351,25 @@ export class Editor implements EditorApi, EditorWiring {
     };
   };
 
+  coordsAtPos = (
+    point: DocPoint,
+  ): { x: number; y: number; height: number } | null => {
+    const resolved = resolvePoint(this._state, point);
+    if (!resolved) return null;
+    return this.coordsAtIndexPosition({
+      blockIndex: resolved.blockIndex,
+      textIndex: resolved.offset,
+    });
+  };
+
   getCursorScreenPosition = (): {
     x: number;
     y: number;
     height: number;
   } | null => {
-    if (!this._state.document.cursor) return null;
-    return this.coordsAtPos(this._state.document.cursor.position);
+    const cursor = this._state.document.cursor;
+    if (!cursor) return null;
+    return this.coordsAtIndexPosition(cursor.position);
   };
 
   subscribe = (listener: (state: EditorState) => void): (() => void) => {
@@ -3614,8 +3658,15 @@ export class Editor implements EditorApi, EditorWiring {
 
   get state(): EditorStateSnapshot {
     return {
-      selection: { empty: this.isSelectionEmpty() },
+      selection: {
+        empty: this.isSelectionEmpty(),
+        range: this.getSelection(),
+      },
       activeMarks: this.getActiveMarks(),
+      activeBlockType: this.getBlock()?.type ?? null,
+      canUndo: canUndoState(this._state),
+      canRedo: canRedoState(this._state),
+      isFocused: this._state.view.isFocused,
     };
   }
 
