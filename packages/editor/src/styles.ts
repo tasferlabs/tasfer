@@ -4,7 +4,7 @@ import { currentFontFamily, getFontStack } from "./fonts";
 // registry, and the node views import `styles`, so importing `isTouchDevice`
 // from `state-utils` here would close a circular init (`styles → state-utils →
 // nodes → TextNode → styles`) that leaves `ListNode extends TextNode` undefined.
-import { isTouchDevice } from "./node-shared";
+import { isTouchDevice, mergeBlockStyle } from "./node-shared";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { Block } from "./serlization/loadPage";
 import type {
@@ -583,12 +583,12 @@ export const defaultStyles: EditorStyles = resolveTheme();
 export function getTextStyle(
   styles: EditorStyles,
   nodes: NodeRegistry,
-  blockType: Block["type"],
+  block: Block,
 ): TextStyle {
-  return (
-    nodes.get(blockType)?.textStyle(styles, blockType) ??
-    styles.blocks.paragraph
-  );
+  const base =
+    nodes.get(block.type)?.textStyle(styles, block.type) ??
+    styles.blocks.paragraph;
+  return mergeBlockStyle(base, block.style);
 }
 
 export function applyTextStyle(

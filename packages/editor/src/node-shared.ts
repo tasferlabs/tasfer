@@ -13,11 +13,46 @@
 
 import type { NodeLayout } from "./rendering/nodes/Node";
 import type { Block } from "./serlization/loadPage";
+import type { TextStyle } from "./state-types";
 import { isTextualBlock } from "./sync/block-registry";
 import {
   getVisibleLengthFromRuns,
   getVisibleTextFromRuns,
 } from "./sync/char-runs";
+
+/**
+ * Apply a block's own `style` overrides (layer 3 of the style cascade) on top of
+ * a resolved per-type {@link TextStyle}. The honored keys and their expected
+ * types are NOT hardcoded — they are derived from `base`, the resolved style
+ * itself: a key in the open `style` bag overrides only when it is one `base`
+ * carries AND its value matches that key's resolved type (so an untrusted bag —
+ * from the network or a consumer — can't poison a `TextStyle` with a wrong-typed
+ * value). A key `base` lacks is ignored here; a custom node that understands it
+ * reads `block.style` itself. An absent, `null`, or wrong-typed value means "no
+ * override". When `TextStyle` grows a field, this needs no change.
+ *
+ * This is the SINGLE merge point: every text-geometry pass (wrap/measure via the
+ * node's `layout`, caret/selection, hit-testing) goes through it (`getTextStyle`
+ * and the text nodes both call it), so the caret can never drift from the glyphs
+ * a style override paints.
+ */
+export function mergeBlockStyle(
+  base: TextStyle,
+  style: Record<string, unknown> | undefined,
+): TextStyle {
+  if (!style) return base;
+  const baseRecord = base as unknown as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...baseRecord };
+  let changed = false;
+  for (const key of Object.keys(baseRecord)) {
+    const override = style[key];
+    if (override != null && typeof override === typeof baseRecord[key]) {
+      merged[key] = override;
+      changed = true;
+    }
+  }
+  return changed ? (merged as unknown as TextStyle) : base;
+}
 
 /**
  * Memoize a node's canonical layout on the block, keyed by content width. This

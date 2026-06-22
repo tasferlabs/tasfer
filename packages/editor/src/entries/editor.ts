@@ -108,7 +108,12 @@ import {
   canHaveFormats,
   createDefaultBlock,
   getBlockFieldNames,
+  isPlainStyleObject,
+  isStyleField,
   isTextualBlock,
+  readBlockStyle,
+  styleField,
+  styleKeyOf,
 } from "../sync/block-registry";
 import {
   canRedoState,
@@ -126,6 +131,55 @@ import { applyOps } from "../sync/reducer";
 import { generateRestoreOperations } from "../sync/snapshot-diff";
 import { getVisibleBlocks } from "../sync/sync";
 import type { CanvasLayers } from "./layers";
+
+// ── Per-block style: write-API expansion ─────────────────────────────────────
+// A write-API attr bag may carry a nested `style` object (e.g.
+// `setBlock({ style: { color: "red" } })`). It fans out to one `style.<key>`
+// (field, value) pair per property — each an independent LWW register so
+// concurrent edits to different style properties merge — while other attrs pass
+// through unchanged. These are the (field, value) pairs that become block_set
+// ops, and the matching local block patch.
+
+/** Expand an attr bag's nested `style` object into `style.<key>` field pairs. */
+function styleAwareEntries(
+  attrs: Record<string, unknown>,
+): Array<[string, unknown]> {
+  const entries: Array<[string, unknown]> = [];
+  for (const [field, value] of Object.entries(attrs)) {
+    if (field === "style" && isPlainStyleObject(value)) {
+      for (const [key, v] of Object.entries(value)) {
+        entries.push([styleField(key), v]);
+      }
+    } else {
+      entries.push([field, value]);
+    }
+  }
+  return entries;
+}
+
+/**
+ * Apply expanded (field, value) pairs to a block for the optimistic local
+ * update, nesting `style.<key>` fields back into the block's `style` bag (the
+ * batched mirror of the reducer's per-op write).
+ */
+function applyAttrEntries<B extends Block>(
+  block: B,
+  entries: Array<[string, unknown]>,
+): B {
+  const flat: Record<string, unknown> = {};
+  let style: Record<string, unknown> | undefined;
+  for (const [field, value] of entries) {
+    if (isStyleField(field)) {
+      style = {
+        ...(style ?? readBlockStyle(block)),
+        [styleKeyOf(field)]: value,
+      };
+    } else {
+      flat[field] = value;
+    }
+  }
+  return { ...block, ...flat, ...(style ? { style } : {}) } as B;
+}
 
 /**
  * Events for the convenience {@link Editor.on} subscription:
@@ -214,8 +268,10 @@ export interface ChangeApi {
   /**
    * Insert a new block at `at` (a block-edge {@link DocPoint}; default: after the
    * caret block). The block's `type` is required; an `id` is generated when
-   * absent and any extra own attrs are applied as `block_set` ops. Text content
-   * is not seeded — insert an empty block, then fill it.
+   * absent and any extra own attrs are applied as `block_set` ops — a nested
+   * `style` object seeds per-block visual overrides, fanned out per property the
+   * same way {@link setBlock} does. Text content is not seeded — insert an empty
+   * block, then fill it.
    */
   insertBlock(
     block: Partial<Block> & { type: Block["type"] },
@@ -227,8 +283,11 @@ export interface ChangeApi {
    * (paragraph/heading/list/code) and void (image/math/line, which clear their
    * text and get a trailing paragraph); `"heading"` is sugar mapped to heading1–3
    * by `level`. Other attrs are validated against the block type's schema and set
-   * one `block_set` per field — structural conversion and plain attr edits fold
-   * into this one call.
+   * one `block_set` per field. A nested `style` object sets per-block visual
+   * overrides (`setBlock({ style: { color: "#f00" } })`) — each property fans out
+   * to its own `style.<key>` `block_set` so concurrent edits to different
+   * properties merge; `null` clears a key. Structural conversion, plain attr
+   * edits, and style all fold into this one call.
    */
   setBlock(
     attrs: { type?: Block["type"] | "heading"; level?: number } & Record<
@@ -2542,10 +2601,15 @@ export class Editor implements EditorApi, EditorWiring {
         "charRuns",
         "formats",
       ]);
-      const extra = Object.entries(block).filter(
-        ([k, v]) => !reserved.has(k) && v !== undefined,
+      const extra = Object.fromEntries(
+        Object.entries(block).filter(
+          ([k, v]) => !reserved.has(k) && v !== undefined,
+        ),
       );
-      const newBlock = { ...seeded, ...Object.fromEntries(extra) } as Block;
+      // A nested `style` object fans out to per-property `style.<key>` ops, same
+      // as setBlock (each an independent LWW register).
+      const entries = styleAwareEntries(extra);
+      const newBlock = applyAttrEntries(seeded, entries);
       invalidateBlockCache(newBlock);
 
       const newBlocks = [...blocks];
@@ -2562,7 +2626,7 @@ export class Editor implements EditorApi, EditorWiring {
           blockType: block.type,
         },
       ];
-      for (const [field, value] of extra) {
+      for (const [field, value] of entries) {
         ops.push({
           op: "block_set",
           id: s.CRDTbinding.nextId(),
@@ -3027,29 +3091,32 @@ export class Editor implements EditorApi, EditorWiring {
       const block = blocks[blockIndex];
       if (!block || block.deleted) return { state: s, ops: [] };
 
-      const fields = Object.keys(attrs);
-      if (fields.length === 0) return { state: s, ops: [] };
+      // A nested `style` object fans out to one `style.<key>` op per property
+      // (each an independent LWW register); other attrs map to one op each.
+      const entries = styleAwareEntries(attrs);
+      if (entries.length === 0) return { state: s, ops: [] };
 
-      const updatedBlock = { ...block, ...attrs } as typeof block;
+      const updatedBlock = applyAttrEntries(block, entries);
       // Layout caches are keyed by content; an attr change (image URL, math
-      // latex, …) can change a block's measured height, so drop its cache.
+      // latex, a style font size, …) can change a block's measured height, so
+      // drop its cache.
       invalidateBlockCache(updatedBlock);
 
       const newBlocks = [...blocks];
       newBlocks[blockIndex] = updatedBlock;
 
-      // Each attribute is a block_set op. The field/value are validated against
-      // the block type's registered schema when the op is applied, so this stays
-      // generic — the editor needs no per-block-type knowledge here.
-      const ops: Operation[] = fields.map(
-        (field): Operation => ({
+      // Each (field, value) is a block_set op. The field/value are validated
+      // against the block type's registered schema when the op is applied, so
+      // this stays generic — the editor needs no per-block-type knowledge here.
+      const ops: Operation[] = entries.map(
+        ([field, value]): Operation => ({
           op: "block_set",
           id: s.CRDTbinding.nextId(),
           clock: s.CRDTbinding.getClock(),
           pageId: s.CRDTbinding.pageId,
           blockId,
           field,
-          value: attrs[field],
+          value,
         }),
       );
 

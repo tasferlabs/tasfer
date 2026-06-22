@@ -78,6 +78,16 @@ export interface BlockRuntimeState {
   cachedLayout?: NodeLayout;
   deleted?: boolean;
   afterId?: string | null;
+  /**
+   * Per-block visual style overrides — an open bag of `property → value`, layer
+   * 3 of the style cascade (node default ◁ theme `styles.blocks[type]` ◁ this).
+   * Each property syncs as its own `style.<key>` `block_set` (independent LWW),
+   * via the style-namespace helpers in `sync/block-registry`. The keys a
+   * built-in {@link TextStyle} carries are honored by the text nodes; a custom
+   * node may read and paint any other key it understands. A `null` value means
+   * "no override".
+   */
+  style?: Record<string, unknown>;
 }
 
 /** Geometry + styles available without a canvas (measurement, height passes). */

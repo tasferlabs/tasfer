@@ -33,6 +33,8 @@ const editor = createEditor({
 
 <Callout kind="note" title="tokens vs styles.">`tokens` are the semantic colors (text, heading, cursor, selection, link, `codeBackground`, …). For finer control — per-block font sizes, canvas padding, scrollbar geometry — pass a deep-partial `styles` object that overrides any individual leaf of the resolved style tree. `resolveTheme`, `mergeTheme`, and `DEFAULT_TOKENS` are exported for hosts that want to precompute or inspect the result.</Callout>
 
+<Callout kind="note" title="Theme is per-type; blocks can override per-instance.">The `styles.blocks` here is the static, document-wide layer — it styles every block of a type the same way. To style one individual block, set its own `style` bag through `setBlock({ style: { … } })` (see [Commands](/docs/editor/api-commands)). The cascade is: node default ◁ this theme ◁ the block's own `style`.</Callout>
+
 <h2 id="live">Updating the theme live</h2>
 
 `editor.setTheme(patch)` deep-merges a patch onto the current theme and repaints — the one path for a runtime theme change, e.g. a dark-mode toggle:
