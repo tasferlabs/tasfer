@@ -25,7 +25,7 @@ import {
   toggleTodoChecked,
 } from "../actions/actions";
 import { currentFontFamily, getFontMetrics, getFontStack } from "../fonts";
-import { getBlockTextContent } from "../node-shared";
+import { getBlockTextContent, mergeBlockStyle } from "../node-shared";
 import type {
   BlockRuntimeState,
   NodeHitRegion,
@@ -317,7 +317,10 @@ export class ListNode extends TextNode {
             ? c.origin.x + indentOffset + adjustedMaxWidth + 2
             : c.origin.x + indentOffset + 2;
 
-          const textStyle = this.textStyle(styles, block.type);
+          const textStyle = mergeBlockStyle(
+            this.textStyle(styles, block.type),
+            block.style,
+          );
           const fontMetrics = getFontMetrics(
             textStyle.fontSize,
             textStyle.fontWeight,

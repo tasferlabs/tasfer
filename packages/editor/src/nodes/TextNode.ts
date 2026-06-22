@@ -47,6 +47,7 @@ import {
   getBlockTextContent,
   isTouchDevice,
   memoizeNodeLayout,
+  mergeBlockStyle,
 } from "../node-shared";
 import type {
   MarkChipStyle,
@@ -1014,7 +1015,10 @@ export class TextNode extends Node<TextualBlock> {
     },
     marks?: MarkRegistry,
   ): TextNodeLayout {
-    const textStyle = this.textStyle(styles, block.type);
+    const textStyle = mergeBlockStyle(
+      this.textStyle(styles, block.type),
+      block.style,
+    );
     const fontFamily = this.resolveFontFamily(styles);
     const fonts = styles.fonts;
     const codePadding = styles.textFormats.code.padding;

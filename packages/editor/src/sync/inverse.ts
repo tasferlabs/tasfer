@@ -29,7 +29,10 @@ import type {
 import {
   getBlockDescriptor,
   getBlockFieldNames,
+  isStyleField,
   isTextualBlock,
+  readBlockStyle,
+  styleKeyOf,
 } from "./block-registry";
 import {
   charRunsToChars,
@@ -278,6 +281,10 @@ function invertBlockDelete(
     initialProps[fieldName] =
       descriptor.fields[fieldName].extractForInverse(block);
   }
+  // Style is an open bag, not a descriptor field, so capture it whole here so an
+  // undeleted block keeps its per-block style overrides.
+  const style = readBlockStyle(block);
+  if (Object.keys(style).length > 0) initialProps.style = { ...style };
 
   return {
     op: "block_insert",
@@ -309,6 +316,12 @@ function invertBlockSet(
   let previousValue: unknown;
   if (op.field === "type") {
     previousValue = block.type;
+  } else if (isStyleField(op.field)) {
+    // A style key the block had not set inverts to `null` ("no override"), not
+    // `undefined` — a `block_set` whose value is `undefined` is a defined no-op,
+    // so it could never clear the key on undo.
+    const prev = readBlockStyle(block)[styleKeyOf(op.field)];
+    previousValue = prev === undefined ? null : prev;
   } else {
     const fieldDesc = descriptor?.fields[op.field];
     previousValue = fieldDesc ? fieldDesc.extractForInverse(block) : undefined;

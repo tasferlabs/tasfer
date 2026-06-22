@@ -22,7 +22,12 @@ import type {
   TextDelete,
   TextInsert,
 } from "../state-types";
-import { isTextualBlock } from "./block-registry";
+import {
+  isStyleField,
+  isTextualBlock,
+  readBlockStyle,
+  styleKeyOf,
+} from "./block-registry";
 import {
   charRunsToChars,
   deleteFromRuns,
@@ -460,10 +465,21 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
     };
   }
 
-  const updatedBlock: Block = {
-    ...block,
-    [op.field]: op.value,
-  } as Block;
+  // A `style.<key>` field sets one property inside the block's `style` bag (an
+  // independent LWW register per key) rather than a top-level field. Dropping
+  // the layout cache here covers the remote path: the spread carries the old
+  // block's `cachedLayout`, but a style change (font size/line height) can
+  // change measured height.
+  const updatedBlock: Block = isStyleField(op.field)
+    ? ({
+        ...block,
+        style: { ...readBlockStyle(block), [styleKeyOf(op.field)]: op.value },
+        cachedLayout: undefined,
+      } as Block)
+    : ({
+        ...block,
+        [op.field]: op.value,
+      } as Block);
 
   const newBlocks = [...state.blocks];
   newBlocks[blockIndex] = updatedBlock;

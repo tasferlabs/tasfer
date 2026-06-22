@@ -60,6 +60,12 @@ export interface BlockProps {
   latex?: string;
   /** Math block display mode (true = display/block, false = inline) */
   displayMode?: boolean;
+  /**
+   * Per-block visual style overrides (see `BlockRuntimeState.style`). Synced
+   * per-property as `style.<key>` `block_set` ops; carried whole only here, so a
+   * block can be created or restored (block_insert initialProps) with style.
+   */
+  style?: Record<string, unknown>;
 }
 
 /**

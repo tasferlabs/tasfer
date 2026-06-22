@@ -164,7 +164,7 @@ export function getTextIndexAtRelativePosition(
   }
 
   // RTL: find the text index that corresponds to the visual position
-  const textStyle = getTextStyle(styles, nodes, block.type);
+  const textStyle = getTextStyle(styles, nodes, block);
   const fontFamily = currentFontFamily(styles);
   const codePadding = styles.textFormats.code.padding;
 

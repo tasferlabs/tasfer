@@ -500,9 +500,85 @@ export function validateBlockField(
   field: string,
   value: unknown,
 ): boolean {
+  if (isStyleField(field)) return isValidStyleValue(value);
   const descriptor = REGISTRY[type]?.fields[field];
   if (!descriptor) return false;
   return descriptor.validate(value);
+}
+
+// =============================================================================
+// Per-block style namespace
+//
+// A block carries arbitrary visual overrides in `block.style` — an open bag of
+// `key → value`. Each property syncs as its OWN `block_set` whose `field` is
+// namespaced `style.<key>`, so concurrent edits to *different* properties are
+// independent LWW registers and merge instead of clobbering. The reducer,
+// inverse, snapshot/import, and the write API all route the `style.` namespace
+// through these helpers — no block type is ever named, so every block (built-in
+// or custom) can carry style and any node may choose to honor it.
+// =============================================================================
+
+export const STYLE_FIELD_PREFIX = "style.";
+
+/** Whether a `block_set` field addresses a per-block style property. */
+export function isStyleField(field: string): boolean {
+  return field.startsWith(STYLE_FIELD_PREFIX);
+}
+
+/** The wire field name for a style property key (`color` → `style.color`). */
+export function styleField(key: string): string {
+  return STYLE_FIELD_PREFIX + key;
+}
+
+/** The style property key a `style.<key>` field addresses. */
+export function styleKeyOf(field: string): string {
+  return field.slice(STYLE_FIELD_PREFIX.length);
+}
+
+/** A block's own style bag, or an empty object when it has none. */
+export function readBlockStyle(block: Block): Record<string, unknown> {
+  const style = (block as { style?: unknown }).style;
+  return isPlainStyleObject(style) ? style : {};
+}
+
+/** A plain (non-array) object usable as a style bag. */
+export function isPlainStyleObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+/**
+ * Whether `value` is a legal style-property value. Deliberately permissive — the
+ * style vocabulary is open (a host paints whatever keys it understands) — but
+ * JSON-serializable, so it round-trips through the wire/snapshot untouched.
+ * `null` is allowed and means "no override" (a render merge skips it); it is the
+ * sentinel an inverse uses to clear a key the block had not previously set,
+ * since a `block_set` whose `value` is `undefined` is a defined no-op.
+ */
+export function isValidStyleValue(value: unknown): boolean {
+  if (value === null) return true;
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return true;
+    case "number":
+      return Number.isFinite(value);
+    case "object": {
+      if (Array.isArray(value)) return value.every(isValidStyleValue);
+      if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+      return Object.values(value as Record<string, unknown>).every(
+        isValidStyleValue,
+      );
+    }
+    default:
+      return false; // undefined, function, symbol, bigint
+  }
 }
 
 export function getBlockFieldNames(type: string): readonly string[] {

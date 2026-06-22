@@ -19,6 +19,8 @@ import {
   getBlockDescriptor,
   getBlockFieldNames,
   isTextualBlock,
+  readBlockStyle,
+  styleField,
 } from "./block-registry";
 import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
 
@@ -179,6 +181,22 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
           field: fieldName,
           from: snapshotVal,
           to: currentVal,
+        });
+      }
+    }
+
+    // Per-block style is an open bag (not a descriptor field), so diff it by key.
+    const curStyle = readBlockStyle(current);
+    const snapStyle = readBlockStyle(snapshot);
+    for (const key of new Set([
+      ...Object.keys(curStyle),
+      ...Object.keys(snapStyle),
+    ])) {
+      if (curStyle[key] !== snapStyle[key]) {
+        propsChanged.push({
+          field: styleField(key),
+          from: snapStyle[key],
+          to: curStyle[key],
         });
       }
     }
@@ -366,6 +384,23 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
           value: currentVal,
         } as BlockSet);
       }
+    }
+
+    // Per-block style is type-agnostic (it rides on every block, custom or
+    // built-in), so fan it out independently of the descriptor-field loop above
+    // — one `style.<key>` op per overridden property. `null` is a cleared
+    // override and carries nothing to restore.
+    for (const [key, value] of Object.entries(readBlockStyle(block))) {
+      if (value === null) continue;
+      ops.push({
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId,
+        blockId: newBlockId,
+        field: styleField(key),
+        value,
+      } as BlockSet);
     }
 
     lastInsertedBlockId = newBlockId;

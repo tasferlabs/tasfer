@@ -25,7 +25,11 @@ import type { BlockCodec } from "../serlization/codecs";
 import type { MarkCodec } from "../serlization/codecs/mark-codec";
 import type { Block } from "../serlization/loadPage";
 import type { TokenType } from "../serlization/tokenizer";
-import type { BlockTypeDescriptor } from "./block-registry";
+import {
+  isStyleField,
+  isValidStyleValue,
+  type BlockTypeDescriptor,
+} from "./block-registry";
 
 /**
  * The CRDT + serialization facets of one block type, bundled. The rendering
@@ -186,6 +190,10 @@ export class DataSchema {
   }
 
   validateField(type: string, field: string, value: unknown): boolean {
+    // Per-block style is an open vocabulary under the `style.` namespace —
+    // validated by value (JSON-serializable), not against a per-type descriptor,
+    // so every block type can carry style without enumerating keys.
+    if (isStyleField(field)) return isValidStyleValue(value);
     const descriptor = this.getDescriptor(type);
     if (!descriptor) return false;
     const fieldDescriptor = descriptor.fields[field];
