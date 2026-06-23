@@ -918,6 +918,14 @@ export function needsCommandSeparator(
  * Once the caret moves off the run (or it's completed/committed) the range no
  * longer matches and the red shows. Mirrors {@link needsCommandSeparator}'s
  * back-scan, including the line-break `\\` guard.
+ *
+ * A run that is ALREADY a complete command with nowhere left to grow (`\frac`,
+ * `\alpha` — known, and not a prefix of any longer command) is *not* pending: it
+ * has resolved. Rendering it literally would parse it as an `unknown` placeholder
+ * and orphan its arguments — `\frac{dy}{dx}` would de-structure into the literal
+ * `\frac` followed by bare `dy`/`dx` groups (`\fracdydx`). Only an incomplete run
+ * (`\fra`) or one still en route to a longer command (`\in`→`\int`) is pending,
+ * exactly mirroring {@link needsCommandSeparator}'s "still typing" condition.
  */
 export function pendingCommandRange(
   latex: string,
@@ -926,6 +934,9 @@ export function pendingCommandRange(
   let i = caret;
   while (i > 0 && /[a-zA-Z]/.test(latex[i - 1])) i--;
   if (i === 0 || latex[i - 1] !== "\\" || latex[i - 2] === "\\") return null;
+  const name = latex.slice(i, caret);
+  // A complete command that can't grow into a longer one is done, not pending.
+  if (KNOWN_COMMAND_NAMES.has(name) && !isCommandNamePrefix(name)) return null;
   return { start: i - 1, end: caret };
 }
 
