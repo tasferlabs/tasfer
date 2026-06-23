@@ -92,6 +92,36 @@ describe("pendingCommandRange", () => {
     // "a\alb" — caret right after `\al` (offset 4).
     expect(pendingCommandRange("a\\al", 4)).toEqual({ start: 1, end: 4 });
   });
+
+  it("is null for a complete command that can't grow into a longer one", () => {
+    // `\frac` is a finished command (not a prefix of anything longer): the caret
+    // parked at its trailing edge is NOT typing it. Were it flagged literal, the
+    // parser would orphan its `{}{}` arguments and `\frac{dy}{dx}` would
+    // de-structure into `\fracdydx`. `\alpha`/`\sum` are likewise terminal.
+    expect(pendingCommandRange("\\frac{dy}{dx}", 5)).toBeNull();
+    expect(pendingCommandRange("\\alpha", 6)).toBeNull();
+    expect(pendingCommandRange("\\sum", 4)).toBeNull();
+  });
+
+  it("stays pending for a complete command still en route to a longer one", () => {
+    // `\in` is a real relation (∈) but also a prefix of `\int`/`\infty`, so the
+    // caret at its edge could still be mid-type — keep it literal.
+    expect(pendingCommandRange("\\in", 3)).toEqual({ start: 0, end: 3 });
+  });
+});
+
+describe("parse — a complete construct survives the caret at its command edge", () => {
+  it("does not de-structure `\\frac{dy}{dx}` into `\\fracdydx`", () => {
+    // End-to-end: the renderer derives literalRange from pendingCommandRange.
+    // With the caret right after `\frac`, that range is null, so the fraction
+    // parses as one `frac` node rather than a literal `\frac` + bare `dy`/`dx`.
+    const range = pendingCommandRange("\\frac{dy}{dx}", 5) ?? undefined;
+    const root = parse("\\frac{dy}{dx}", { literalRange: range });
+    expect(root.type === "ord" && root.body.map((n) => n.type)).toEqual([
+      "frac",
+    ]);
+    expect(unknownNames(root)).toEqual([]);
+  });
 });
 
 describe("parse literalRange — in-progress command stays literal", () => {
