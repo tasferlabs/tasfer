@@ -4,6 +4,8 @@ import {
   type CreateEditorContent,
   type CreateEditorOptions,
   type CypherEditor,
+  type BaseSchemaDefinition,
+  type SchemaDefinition,
 } from "@cypherkit/editor";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
@@ -19,13 +21,16 @@ import type { RefObject } from "react";
  * of its members' keys), which would silently drop the markdown/blocks/doc
  * exclusivity at the React layer.
  */
-export type UseEditorOptions = Omit<CreateEditorBaseOptions, "element"> &
-  CreateEditorContent;
+export type UseEditorOptions<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> = Omit<CreateEditorBaseOptions<D>, "element"> & CreateEditorContent<D>;
 
 /**
  * Return value of {@link useEditor}.
  */
-export interface UseEditorResult {
+export interface UseEditorResult<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> {
   /**
    * Attach to the host element the editor mounts into:
    * `<div ref={containerRef} />`. The editor sizes itself to fill this element,
@@ -38,7 +43,7 @@ export interface UseEditorResult {
    * initial render, and on the server). Drive imperative changes through this —
    * `editor.setTheme(...)`, `editor.setMarkdown(...)`, `editor.change(...)`, etc.
    */
-  editor: CypherEditor | null;
+  editor: CypherEditor<D> | null;
 }
 
 // `useLayoutEffect` warns when run on the server (no DOM). The editor only ever
@@ -69,9 +74,11 @@ const useIsomorphicLayoutEffect =
  *   return <div ref={containerRef} style={{ height: "100%" }} />;
  * }
  */
-export function useEditor(options: UseEditorOptions): UseEditorResult {
+export function useEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
+  options: UseEditorOptions<D>,
+): UseEditorResult<D> {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [editor, setEditor] = useState<CypherEditor | null>(null);
+  const [editor, setEditor] = useState<CypherEditor<D> | null>(null);
 
   // Hold the latest options in a ref so the mount-only effect reads current
   // values at create time without listing `options` in its deps (which would
@@ -92,7 +99,7 @@ export function useEditor(options: UseEditorOptions): UseEditorResult {
     const instance = createEditor({
       ...optionsRef.current,
       element,
-    } as CreateEditorOptions);
+    } as CreateEditorOptions<D>);
     setEditor(instance);
 
     return () => {

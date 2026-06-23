@@ -2,7 +2,11 @@
 
 import { Callout } from "../../docsComponents";
 
-<p className="dx-lede">The schema declares what your document is made of. Extend it to add new block types (*nodes*) and inline formatting (*marks*) — a callout block, an @-mention, a highlight.</p>
+<p className="dx-lede">
+  The schema declares what your document is made of. Extend it to add new block
+  types (*nodes*) and inline formatting (*marks*) — a callout block, an
+  @-mention, a highlight.
+</p>
 
 <h2 id="node">Define a node</h2>
 
@@ -35,7 +39,9 @@ class CalloutNode extends AtomicNode {
   // Attrs + serialization, read when the class is registered directly.
   static nodeConfig = { attrs: { tone: { default: "note" } } };
 
-  protected intrinsicHeight() { return 48; }
+  protected intrinsicHeight() {
+    return 48;
+  }
   protected draw(box, c) {
     c.ctx.fillStyle = "rgba(29,185,132,0.10)";
     c.ctx.fillRect(box.x, box.y, box.width, 48);
@@ -69,19 +75,22 @@ createEditor({
 
 <h2 id="overlays">Node-owned UI (overlay slots)</h2>
 
-A node can ask the host to float real UI — a popover, an inline editor — over one of its blocks, without the engine ever importing your UI framework. `overlays()` returns renderer-agnostic *descriptors* (identity + geometry, derived from the block's data and the current UI state); the host maps each `key` to a component and mounts it at the descriptor's `rect`.
+A node can ask the host to float real UI — a popover, an inline editor — over one of its blocks, without the engine ever importing your UI framework. `overlays()` returns renderer-agnostic _descriptors_ (identity + geometry, derived from the block's data and the current UI state); the host maps each `key` to a component and mounts it at the descriptor's `rect`.
 
 ```ts
 class CalloutNode extends AtomicNode {
   readonly type = "callout";
   overlays(c) {
     // Show an editor overlay while this block holds the caret.
-    if (c.state.document.cursor?.position.blockIndex !== c.blockIndex) return [];
-    return [{
-      key: "callout-editor",
-      blockIndex: c.blockIndex,
-      rect: { x: c.origin.x, y: c.origin.y, width: c.maxWidth, height: 48 },
-    }];
+    if (c.state.document.cursor?.position.blockIndex !== c.blockIndex)
+      return [];
+    return [
+      {
+        key: "callout-editor",
+        blockIndex: c.blockIndex,
+        rect: { x: c.origin.x, y: c.origin.y, width: c.maxWidth, height: 48 },
+      },
+    ];
   }
 }
 ```
@@ -97,7 +106,11 @@ editor.host.collectOverlays().forEach((o) => {
 });
 ```
 
-<Callout kind="note" title="The engine stays headless.">`overlays()` returns data, never JSX — so the same node works in a React host, a vanilla-DOM host, or none at all. It's the seam the built-in image and math popovers are migrating onto.</Callout>
+<Callout kind="note" title="The engine stays headless.">
+  `overlays()` returns data, never JSX — so the same node works in a React host,
+  a vanilla-DOM host, or none at all. It's the seam the built-in image and math
+  popovers are migrating onto.
+</Callout>
 
 <h2 id="mark">Define a mark</h2>
 
@@ -111,14 +124,14 @@ const highlight = defineMark("highlight");
 
 // full — on-canvas paint + a `==text==` round-trip
 const marked = defineMark("highlight", {
-  render: new HighlightMark(),       // a Mark subclass; style() returns the paint
-  codec: highlightCodec,             // delimiters + HTML tag
+  render: new HighlightMark(), // a Mark subclass; style() returns the paint
+  codec: highlightCodec, // delimiters + HTML tag
 });
 ```
 
 <h2 id="register">Register them</h2>
 
-`extend` returns a *new* immutable schema — the base is never mutated, so two editors on one page can run different schemas.
+`extend` returns a _new_ immutable schema — the base is never mutated, so two editors on one page can run different schemas.
 
 ```ts
 import { createEditor, baseSchema } from "@cypherkit/editor";
@@ -133,6 +146,24 @@ const editor = createEditor({ element, schema });
 // The doc carries the data half of the schema, so persistence and markdown
 // round-trip the custom block losslessly:
 editor.getMarkdown(); // …  <x-callout tone="warn" />  …
+
+// The inferred schema type also reaches every editor operation:
+editor.change((c) => {
+  c.insertBlock({ type: "callout", tone: "note" });
+  c.setBlock({ type: "callout", tone: "warning" });
+  // c.setBlock({ type: "calluot" }); // TypeScript error
+});
+
+const block = editor.query.block();
+if (block?.type === "callout") {
+  block.attrs.tone; // inferred from defineNode
+}
 ```
 
-<Callout kind="tip" title="Schema changes are CRDT-safe.">Blocks are addressed by type *name* in the replicated log, so a peer running the same schema merges your callouts cleanly. A peer that *doesn't* have the type doesn't crash or lose data — it keeps the ops and renders an "unsupported block" placeholder until it's upgraded. Ship schema changes to all peers together, the way you'd ship a database migration.</Callout>
+<Callout kind="tip" title="Schema changes are CRDT-safe.">
+  Blocks are addressed by type *name* in the replicated log, so a peer running
+  the same schema merges your callouts cleanly. A peer that *doesn't* have the
+  type doesn't crash or lose data — it keeps the ops and renders an "unsupported
+  block" placeholder until it's upgraded. Ship schema changes to all peers
+  together, the way you'd ship a database migration.
+</Callout>

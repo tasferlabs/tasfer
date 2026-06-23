@@ -2,70 +2,164 @@
 
 import { PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">A `Schema` declares what a document is made of: the block types and inline marks the editor understands. The default `baseSchema` covers every built-in type; derive your own with `baseSchema.extend(...)`.</p>
+<p className="dx-lede">
+  A `Schema` declares what a document is made of: the block types and inline
+  marks the editor understands. The default `baseSchema` covers every built-in
+  type; derive your own with `baseSchema.extend(...)`.
+</p>
 
 <h2 id="base">Built-in block types</h2>
 
-<PropsTable cols={["Block type", "Markdown", "Notes"]} rows={[
-  { name: "paragraph", type: "(plain text)", desc: "The default text block." },
-  { name: "heading1 / 2 / 3", type: "# / ## / ###", desc: 'Three heading levels. setBlock({ type: "heading", level }) maps here.' },
-  { name: "bullet_list", type: "- ", desc: "Unordered list item." },
-  { name: "numbered_list", type: "1. ", desc: "Ordered list item." },
-  { name: "todo_list", type: "- [ ] ", desc: "Checkable task item." },
-  { name: "image", type: "![alt](url)", desc: "Leaf. attrs: width, height, objectFit, alt." },
-  { name: "line", type: "---", desc: 'Leaf horizontal divider (the classic "hr").' },
-  { name: "math", type: "$$ … $$", desc: "Leaf block-level math." },
-]} />
+<PropsTable
+  cols={["Block type", "Markdown", "Notes"]}
+  rows={[
+    {
+      name: "paragraph",
+      type: "(plain text)",
+      desc: "The default text block.",
+    },
+    {
+      name: "heading1 / 2 / 3",
+      type: "# / ## / ###",
+      desc: 'Three heading levels. setBlock({ type: "heading", level }) maps here.',
+    },
+    { name: "bullet_list", type: "- ", desc: "Unordered list item." },
+    { name: "numbered_list", type: "1. ", desc: "Ordered list item." },
+    { name: "todo_list", type: "- [ ] ", desc: "Checkable task item." },
+    {
+      name: "image",
+      type: "![alt](url)",
+      desc: "Leaf. attrs: width, height, objectFit, alt.",
+    },
+    {
+      name: "line",
+      type: "---",
+      desc: 'Leaf horizontal divider (the classic "hr").',
+    },
+    { name: "math", type: "$$ … $$", desc: "Leaf block-level math." },
+  ]}
+/>
 
 <h2 id="marks">Built-in inline marks</h2>
 
 Marks are inline formatting carried on runs of text. The CRDT names are `strong`/`emphasis`/`strike` (not bold/italic/strikethrough). The togglable ones flip across the selection with `change((c) => c.setMark(name))`; `link` and `math` carry data, so they're applied with an explicit range and attrs — `setMark(name, { attrs, range })` — instead.
 
-<PropsTable cols={["Mark", "Markdown", "Togglable", "Notes"]} rows={[
-  { name: "strong", type: "**…**", desc: "Yes · bold." },
-  { name: "emphasis", type: "*…*", desc: "Yes · italic." },
-  { name: "strike", type: "~~…~~", desc: "Yes · strikethrough." },
-  { name: "code", type: "`…`", desc: "Yes · inline code span." },
-  { name: "link", type: "[text](url)", desc: "No — carries a url on attrs; applied via setMark(name, { attrs, range })." },
-  { name: "math", type: "$…$", desc: "No — a run of LaTeX rendered as a chip; applied via setMark(name, { attrs, range })." },
-]} />
+<PropsTable
+  cols={["Mark", "Markdown", "Togglable", "Notes"]}
+  rows={[
+    { name: "strong", type: "**…**", desc: "Yes · bold." },
+    { name: "emphasis", type: "*…*", desc: "Yes · italic." },
+    { name: "strike", type: "~~…~~", desc: "Yes · strikethrough." },
+    { name: "code", type: "`…`", desc: "Yes · inline code span." },
+    {
+      name: "link",
+      type: "[text](url)",
+      desc: "No — carries a url on attrs; applied via setMark(name, { attrs, range }).",
+    },
+    {
+      name: "math",
+      type: "$…$",
+      desc: "No — a run of LaTeX rendered as a chip; applied via setMark(name, { attrs, range }).",
+    },
+  ]}
+/>
 
 <h2 id="extend">Extending</h2>
 
-`extend` takes *arrays* of node and mark specs and returns a new, immutable schema — the base is never mutated, so two editors on one page can run different schemas:
+`extend` takes _arrays_ of node and mark specs and returns a new, immutable schema — the base is never mutated, so two editors on one page can run different schemas:
 
 ```ts
 import { baseSchema, defineNode, defineMark } from "@cypherkit/editor";
 
 const schema = baseSchema.extend({
   nodes: [defineNode("callout", { attrs: { tone: { default: "note" } } })],
-  marks: [defineMark("highlight")],
+  marks: [defineMark("highlight", { attrs: { color: { default: "yellow" } } })],
 });
+```
+
+The schema's type is inferred and carried through `Doc`, `Editor`, the React
+bindings, `ChangeApi`, and `query`. You do not pass a generic manually:
+
+```ts
+const editor = createEditor({ element, schema });
+
+editor.change((c) => {
+  c.setBlock({ type: "callout", tone: "note" });
+  c.setMark("highlight", { attrs: { color: "orange" } });
+
+  c.setBlock({ type: "calluot" }); // TypeScript error: unknown block
+  c.setMark("higlight"); // TypeScript error: unknown mark
+});
+
+const block = editor.query.block();
+if (block?.type === "callout") {
+  block.attrs.tone; // string
+}
 ```
 
 <h2 id="definenode">defineNode(type, config)</h2>
 
 Declares a custom block type. v1 custom nodes are leaf (`content: "none"`) void blocks that round-trip through a generic `<x-type …attrs>` tag, so no tokenizer changes are needed.
 
-<PropsTable cols={["Field", "Type", "Description"]} rows={[
-  { name: "attrs", type: "Record<string, AttrSpec>", desc: "Declared attributes, each replicated as a top-level field (via block_set) with a { default }." },
-  { name: "render", type: "BoxRenderStyle", desc: "Declarative paint for the built-in box renderer — background, borderLeft, label. Ignored when node is supplied." },
-  { name: "node", type: "Node", desc: "A custom canvas Node to render with, instead of the generated box. Owns its own draw/hit-test/overlays." },
-  { name: "toMarkdown / toHtml / toText", type: "(block) => string", desc: "Override the default generic-tag serialization. Override toMarkdown only if you ensure the result re-parses." },
-]} />
+<PropsTable
+  cols={["Field", "Type", "Description"]}
+  rows={[
+    {
+      name: "attrs",
+      type: "Record<string, AttrSpec>",
+      desc: "Declared attributes, each replicated as a top-level field (via block_set). TypeScript infers primitive types from default and narrower unions from a type-guard validate function.",
+    },
+    {
+      name: "render",
+      type: "BoxRenderStyle",
+      desc: "Declarative paint for the built-in box renderer — background, borderLeft, label. Ignored when node is supplied.",
+    },
+    {
+      name: "node",
+      type: "Node",
+      desc: "A custom canvas Node to render with, instead of the generated box. Owns its own draw/hit-test/overlays.",
+    },
+    {
+      name: "toMarkdown / toHtml / toText",
+      type: "(block) => string",
+      desc: "Override the default generic-tag serialization. Override toMarkdown only if you ensure the result re-parses.",
+    },
+  ]}
+/>
 
 <h2 id="definemark">defineMark(type, config?)</h2>
 
 Declares a custom inline mark. With no config it registers a replicated, togglable format name; the optional fields add paint and serialization.
 
-<PropsTable cols={["Field", "Type", "Description"]} rows={[
-  { name: "render", type: "Mark", desc: "A Mark subclass instance — its style() returns the on-canvas paint (color, chip, underline). Omit and the mark replicates but paints as plain text." },
-  { name: "codec", type: "MarkCodec", desc: "Markdown/HTML round-trip — delimiters (==text==) and an HTML tag. Omit and the mark survives via the CRDT but is dropped on markdown export." },
-]} />
+<PropsTable
+  cols={["Field", "Type", "Description"]}
+  rows={[
+    {
+      name: "render",
+      type: "Mark",
+      desc: "A Mark subclass instance — its style() returns the on-canvas paint (color, chip, underline). Omit and the mark replicates but paints as plain text.",
+    },
+    {
+      name: "codec",
+      type: "MarkCodec",
+      desc: "Markdown/HTML round-trip — delimiters (==text==) and an HTML tag. Omit and the mark survives via the CRDT but is dropped on markdown export.",
+    },
+    {
+      name: "attrs",
+      type: "Record<string, AttrSpec>",
+      desc: "Compile-time declaration of data carried by mark.attrs. It types setMark(name, { attrs }) and query.marks().",
+    },
+  ]}
+/>
 
 ```ts
 const schema = baseSchema.extend({
-  marks: [defineMark("highlight", { render: new HighlightMark(), codec: highlightCodec })],
+  marks: [
+    defineMark("highlight", {
+      render: new HighlightMark(),
+      codec: highlightCodec,
+    }),
+  ],
 });
 ```
 

@@ -14,6 +14,7 @@
 
 import { defaultMarks } from "./rendering/marks/builtins";
 import { defaultNodes } from "./rendering/nodes";
+import type { BaseSchemaDefinition } from "./schema-types";
 import { codecFromNode } from "./serlization/codecs/from-node";
 import type { Block } from "./serlization/loadPage";
 import { BLOCK_REGISTRY } from "./sync/block-registry";
@@ -51,7 +52,7 @@ function buildBaseMarkSpecs(): MarkSpec[] {
  * The default schema: every built-in block and mark type. Immutable — derive
  * variants with `baseDataSchema.extend(...)`, never mutate this.
  */
-export const baseDataSchema: DataSchema = new DataSchema(
+export const baseDataSchema: DataSchema<BaseSchemaDefinition> = new DataSchema(
   buildBaseBlockSpecs(),
   buildBaseMarkSpecs(),
 );

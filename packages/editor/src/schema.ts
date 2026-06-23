@@ -25,6 +25,12 @@ import { defaultMarks, Mark } from "./rendering/marks";
 import { defaultNodes } from "./rendering/nodes";
 import { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
 import { Node } from "./rendering/nodes/Node";
+import type {
+  BaseSchemaDefinition,
+  InferAttrs,
+  MergeSchema,
+  SchemaDefinition,
+} from "./schema-types";
 import {
   type BlockCodec,
   type InputCtx,
@@ -47,7 +53,10 @@ import {
 import { invariant } from "@shared/invariant";
 
 /** A full block spec: the canvas-free facets plus the rendering Node. */
-export interface BlockSpec extends BlockSpecCore {
+export interface BlockSpec<
+  T extends string = string,
+  A extends Record<string, unknown> = Record<string, unknown>,
+> extends BlockSpecCore<T, A> {
   readonly node: Node;
 }
 
@@ -58,7 +67,10 @@ export interface BlockSpec extends BlockSpecCore {
  * `DataSchema`. Omit `render` for a data-only mark (it replicates and serializes
  * but paints as plain text).
  */
-export interface MarkDef extends MarkSpec {
+export interface MarkDef<
+  T extends string = string,
+  A extends Record<string, unknown> = Record<string, unknown>,
+> extends MarkSpec<T, A> {
   readonly render?: Mark;
 }
 
@@ -82,18 +94,39 @@ export interface SchemaExtension {
   readonly marks?: readonly MarkDef[];
 }
 
+type UnionToIntersection<U> = (
+  U extends unknown ? (value: U) => void : never
+) extends (value: infer I) => void
+  ? I
+  : never;
+
+type NodeEntryDefinition<N> =
+  N extends BlockSpec<infer T, infer A> ? { readonly [K in T]: A } : {};
+
+type MarkEntryDefinition<M> =
+  M extends MarkDef<infer T, infer A> ? { readonly [K in T]: A } : {};
+
+type ExtensionDefinition<E extends SchemaExtension> = {
+  readonly blocks: E["nodes"] extends readonly (infer N)[]
+    ? UnionToIntersection<NodeEntryDefinition<N>>
+    : {};
+  readonly marks: E["marks"] extends readonly (infer M)[]
+    ? UnionToIntersection<MarkEntryDefinition<M>>
+    : {};
+};
+
 /**
  * An immutable editor schema: the data facets (`data`) plus the nodes the
  * editor renders (`nodes`). Build the default with `baseSchema`, derive
  * variants with `extend()`.
  */
-export class Schema {
-  readonly data: DataSchema;
+export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
+  readonly data: DataSchema<D>;
   readonly nodes: readonly Node[];
   readonly marks: readonly Mark[];
 
   constructor(
-    data: DataSchema,
+    data: DataSchema<D>,
     nodes: readonly Node[],
     marks: readonly Mark[],
   ) {
@@ -103,7 +136,9 @@ export class Schema {
   }
 
   /** Derive a new schema with extra custom node and mark types. */
-  extend(ext: SchemaExtension): Schema {
+  extend<const E extends SchemaExtension>(
+    ext: E,
+  ): Schema<MergeSchema<D, ExtensionDefinition<E>>> {
     // Normalize both authoring styles (a prebuilt BlockSpec, or a bare Node
     // subclass instance registered directly) to a single BlockSpec list.
     const specs = ext.nodes?.map(toBlockSpec) ?? [];
@@ -127,7 +162,7 @@ export class Schema {
           codec: resolveMarkCodec(mark),
         }),
       ),
-    });
+    }) as DataSchema<MergeSchema<D, ExtensionDefinition<E>>>;
     const nodes = [...this.nodes, ...specs.map((spec) => spec.node)];
     // Fold each custom mark's render facet into the rendering list (built-ins +
     // custom), so `createEditor({ schema })` paints them with no separate
@@ -190,7 +225,7 @@ function toBlockSpec(entry: BlockSpec | Node): BlockSpec {
  * `defaultMarks()` (the single source of truth for the built-in set), so this
  * never drifts from them. Immutable; derive variants with `baseSchema.extend(...)`.
  */
-export const baseSchema: Schema = new Schema(
+export const baseSchema: Schema<BaseSchemaDefinition> = new Schema(
   baseDataSchema,
   defaultNodes(),
   defaultMarks(),
@@ -198,7 +233,9 @@ export const baseSchema: Schema = new Schema(
 
 // ─── defineMark ──────────────────────────────────────────────────────────────
 
-export interface DefineMarkConfig {
+export interface DefineMarkConfig<
+  A extends Record<string, unknown> = Record<string, never>,
+> {
   /**
    * On-canvas appearance — a {@link Mark} subclass instance. Omit and the mark
    * still replicates and serializes, but paints as plain text. Folded into the
@@ -215,6 +252,12 @@ export interface DefineMarkConfig {
    * it delimiters (`==text==`) and an HTML tag.
    */
   readonly codec?: MarkCodec;
+  /**
+   * Compile-time declaration of data carried in `mark.attrs`. Runtime mark
+   * validation remains owned by the mark/action using it; this declaration
+   * makes `ChangeApi.setMark` and `query.marks` schema-aware.
+   */
+  readonly attrs?: A;
 }
 
 /**
@@ -227,31 +270,33 @@ export interface DefineMarkConfig {
  *   });
  *   const editor = createEditor({ element, schema }); // paints, no `marks` option
  */
-export function defineMark(
-  type: string,
-  config: DefineMarkConfig = {},
-): MarkDef {
+export function defineMark<
+  const T extends string,
+  const A extends Record<string, unknown> = Record<string, never>,
+>(type: T, config: DefineMarkConfig<A> = {}): MarkDef<T, InferAttrs<A>> {
   return { type, codec: config.codec, render: config.render };
 }
 
 // ─── defineNode ──────────────────────────────────────────────────────────────
 
 /** One declared attribute of a custom node. */
-export interface AttrSpec {
+export interface AttrSpec<T = unknown> {
   /** Default value, applied when the block is created. */
-  default?: unknown;
+  default?: T;
   /** Validate a value before a `block_set` is accepted. Default: string/number/boolean. */
   validate?: (value: unknown) => boolean;
 }
 
-export interface DefineNodeConfig {
+export interface DefineNodeConfig<
+  A extends Record<string, AttrSpec> = Record<string, AttrSpec>,
+> {
   /**
    * What the node contains. v1 supports only `"none"` (a leaf void block).
    * Declared explicitly so the value reads as a deliberate choice.
    */
   content?: "none";
   /** Declared attributes (replicated as top-level fields via `block_set`). */
-  attrs?: Record<string, AttrSpec>;
+  attrs?: A;
   /** Style for the generated {@link BoxNode}. Ignored when `node` is supplied. */
   render?: BoxRenderStyle;
   /** A custom Node to render with, instead of the generated BoxNode. */
@@ -315,10 +360,10 @@ function coerceAttr(raw: string, def: unknown): unknown {
  *   const schema = baseSchema.extend({ nodes: [new Callout()] });
  *   ```
  */
-export function defineNode(
-  type: string,
-  config: DefineNodeConfig = {},
-): BlockSpec {
+export function defineNode<
+  const T extends string,
+  const A extends Record<string, AttrSpec> = Record<string, never>,
+>(type: T, config: DefineNodeConfig<A> = {}): BlockSpec<T, InferAttrs<A>> {
   return buildLeafSpec(
     type,
     config,
@@ -354,12 +399,12 @@ function nodeHasSerialization(node: Node): boolean {
  * a `defineNode` `toMarkdown`/`toHtml`/`toText` override is rejected, so the node
  * can't be quietly overruled by a second source.
  */
-function buildLeafSpec(
-  type: string,
-  config: DefineNodeConfig,
+function buildLeafSpec<T extends string, A extends Record<string, AttrSpec>>(
+  type: T,
+  config: DefineNodeConfig<A>,
   node: Node,
-): BlockSpec {
-  const attrs = config.attrs ?? {};
+): BlockSpec<T, InferAttrs<A>> {
+  const attrs: Record<string, AttrSpec> = config.attrs ?? {};
   const attrNames = Object.keys(attrs);
 
   // ── CRDT descriptor ───────────────────────────────────────────────────────

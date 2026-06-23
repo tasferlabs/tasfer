@@ -9,6 +9,7 @@ import {
   createNodeRegistry,
   type Node,
 } from "../rendering/nodes";
+import type { BaseSchemaDefinition, SchemaDefinition } from "../schema-types";
 import { type Block, type Page } from "../serlization/loadPage";
 import type {
   BlockStyles,
@@ -31,15 +32,17 @@ import {
   resizeCanvasLayers,
 } from "./layers";
 
-export interface MountedEditor {
-  readonly editor: EditorApi;
+export interface MountedEditor<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> {
+  readonly editor: EditorApi<D>;
   /**
    * The CRDT document this editor renders, when one was supplied via
    * {@link MountEditorOptions.doc}. Sync and persistence go through it
    * (`doc.applyUpdate` inbound, `doc.on("update")` outbound, `doc.load` for
    * persisted tail ops). Undefined for standalone editors mounted without a doc.
    */
-  readonly doc?: Doc;
+  readonly doc?: Doc<D>;
   /** Container for React portals (e.g., slash action menu) */
   readonly portalContainer: HTMLDivElement;
   /** Refocus the hidden input (useful after closing drawers/modals) */
@@ -100,7 +103,9 @@ export type PlaceholderOption =
   | string
   | Partial<Record<PlaceholderBlockType, string>>;
 
-export interface MountEditorOptions {
+export interface MountEditorOptions<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> {
   /** Whether the document can be edited. Default `true`; `false` mounts a
    *  read-only renderer (no caret edits, no sync writes). */
   editable?: boolean;
@@ -188,7 +193,7 @@ export interface MountEditorOptions {
    * the doc. The caller owns the doc's lifetime — `mountEditor`'s `destroy`
    * detaches its listener but does not destroy the doc.
    */
-  doc?: Doc;
+  doc?: Doc<D>;
 }
 
 /**
@@ -247,7 +252,9 @@ function placeholderOptionToStyle(
  * single {@link EditorTheme}, with an explicit `options.theme` merged on top
  * (so it wins).
  */
-function optionsToTheme(options?: MountEditorOptions): EditorTheme {
+function optionsToTheme<D extends SchemaDefinition>(
+  options?: MountEditorOptions<D>,
+): EditorTheme {
   if (!options) return {};
   // Merge placeholderOverrides (styles) with the top-level `placeholder`
   // option, which sets empty-block ghost text per block type (or generically).
@@ -278,11 +285,11 @@ function optionsToTheme(options?: MountEditorOptions): EditorTheme {
  * Mounts the canvas editor from a pre-loaded snapshot (Block[]) instead of parsing markdown.
  * This is used when loading pages with snapshot storage.
  */
-export function mountEditor(
+export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   container: HTMLElement,
   blocks: Block[], //NOTE - Should be called state
-  options?: MountEditorOptions,
-): MountedEditor {
+  options?: MountEditorOptions<D>,
+): MountedEditor<D> {
   // Resolve the host's styling into one theme (legacy options folded in). It
   // becomes per-instance state via createInitialState below — no style globals.
   // The font registry rides on the theme too (resolved into EditorStyles.fonts
@@ -603,7 +610,7 @@ export function mountEditor(
   };
 
   return {
-    editor,
+    editor: editor as unknown as EditorApi<D>,
     doc,
     refocus,
     blurInput,

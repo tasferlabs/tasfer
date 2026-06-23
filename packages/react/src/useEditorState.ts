@@ -1,5 +1,10 @@
-import type { Doc, EditorStateSnapshot } from "@cypherkit/editor";
-import type { CypherEditor } from "@cypherkit/editor";
+import type {
+  BaseSchemaDefinition,
+  CypherEditor,
+  Doc,
+  EditorStateSnapshot,
+  SchemaDefinition,
+} from "@cypherkit/editor";
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
 /**
@@ -9,9 +14,11 @@ import { useCallback, useRef, useSyncExternalStore } from "react";
  * surfaced reactively. Defined as an intersection so it stays in lockstep with
  * the engine snapshot. `null` when no editor is attached yet.
  */
-export type EditorStateValue = EditorStateSnapshot & {
+export type EditorStateValue<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> = EditorStateSnapshot & {
   /** The CRDT document the editor renders and edits. */
-  readonly doc: Doc;
+  readonly doc: Doc<D>;
 };
 
 /**
@@ -32,16 +39,16 @@ export type EditorStateValue = EditorStateSnapshot & {
  * const state = useEditorState(editor);
  * const isBold = state?.activeMarks.has("strong") ?? false;
  */
-export function useEditorState(
-  editor: CypherEditor | null,
-): EditorStateValue | null {
+export function useEditorState<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+>(editor: CypherEditor<D> | null): EditorStateValue<D> | null {
   // The last snapshot handed to React. Refreshed inside the subscribe callbacks
   // (and lazily in getSnapshot when the editor identity changes) so that
   // getSnapshot returns a stable reference between events.
-  const snapshotRef = useRef<EditorStateValue | null>(null);
+  const snapshotRef = useRef<EditorStateValue<D> | null>(null);
   // The editor the cached snapshot belongs to, so a swapped editor invalidates
   // a stale cache instead of leaking the previous instance's state.
-  const editorRef = useRef<CypherEditor | null>(null);
+  const editorRef = useRef<CypherEditor<D> | null>(null);
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
@@ -66,7 +73,7 @@ export function useEditorState(
     [editor],
   );
 
-  const getSnapshot = useCallback((): EditorStateValue | null => {
+  const getSnapshot = useCallback((): EditorStateValue<D> | null => {
     if (!editor) return null;
     // Recompute once when the cache is empty or belongs to a different editor;
     // otherwise return the stable cached reference so React doesn't loop.
@@ -92,9 +99,11 @@ export function useEditorState(
  * const { editor } = useEditor({ markdown: "# Title" });
  * const markdown = useEditorMarkdown(editor); // "# Title", updates as you type
  */
-export function useEditorMarkdown(editor: CypherEditor | null): string {
+export function useEditorMarkdown<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+>(editor: CypherEditor<D> | null): string {
   const markdownRef = useRef<string>("");
-  const editorRef = useRef<CypherEditor | null>(null);
+  const editorRef = useRef<CypherEditor<D> | null>(null);
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {

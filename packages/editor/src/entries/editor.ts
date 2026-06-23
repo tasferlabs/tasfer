@@ -37,12 +37,11 @@ import {
 import { onFontsReady } from "../fonts";
 import { getBlockTextContent } from "../node-shared";
 import {
-  type BlockData,
+  type BlockData as RuntimeBlockData,
   docMarks,
   type DocPoint,
   type DocRange,
   docSelection,
-  type MarkInfo,
   queryMarkInfos,
   resolveBlockIndex,
   resolveBlockSpan,
@@ -64,6 +63,17 @@ import {
   renderCursorLayer,
   renderPage,
 } from "../rendering/renderer";
+import type {
+  AnySchemaDefinition,
+  BaseSchemaDefinition,
+  BlockAttrs,
+  BlockName,
+  MarkAttrs,
+  MarkNameOf,
+  SchemaBlockData,
+  SchemaDefinition,
+  SchemaMarkInfo,
+} from "../schema-types";
 import {
   getCursorCoordinatesWithComposition,
   getCursorDocumentCoords,
@@ -217,13 +227,40 @@ export interface ChangeTransaction {
  * Typed as `string` rather than a closed union so custom marks are accepted;
  * the name is validated against the schema at call time.
  */
-export type MarkName = string;
+export type MarkName<S extends SchemaDefinition = AnySchemaDefinition> =
+  MarkNameOf<S>;
 
 // The DocPoint / DocRange / BlockData position vocabulary — and the pure resolvers
 // that consume it — live in `../positions` (free functions over EditorState, so
 // they're unit-testable without a canvas). Re-exported here because they're part
 // of the ChangeApi / read-API contract.
-export type { BlockData, DocPoint, DocRange, MarkInfo } from "../positions";
+export type { DocPoint, DocRange } from "../positions";
+export type BlockData<S extends SchemaDefinition = BaseSchemaDefinition> =
+  SchemaBlockData<S>;
+export type MarkInfo<S extends SchemaDefinition = BaseSchemaDefinition> =
+  SchemaMarkInfo<S>;
+
+type BlockInsertInput<S extends SchemaDefinition, T extends BlockName<S>> = {
+  readonly id?: string;
+  readonly type: T;
+  readonly style?: Record<string, unknown>;
+} & Partial<BlockAttrs<S, T>>;
+
+type BlockPatch<S extends SchemaDefinition> = {
+  [T in BlockName<S>]: Partial<BlockAttrs<S, T>> & { readonly type?: never };
+}[BlockName<S>];
+
+type RuntimeBlockInput = {
+  id?: string;
+  type: string;
+  [key: string]: unknown;
+};
+
+type RuntimeBlockPatch = {
+  type?: string;
+  level?: number;
+  [key: string]: unknown;
+};
 
 /**
  * The single mutation surface, handed to the callback of {@link Editor.change}
@@ -238,7 +275,7 @@ export type { BlockData, DocPoint, DocRange, MarkInfo } from "../positions";
  * (`insertText("x")`, `setMark("strong")`) while a host plugin can act at an
  * explicit, CRDT-stable position without reaching into editor internals.
  */
-export interface ChangeApi {
+export interface ChangeApi<S extends SchemaDefinition = AnySchemaDefinition> {
   // ── inline ──────────────────────────────────────────────────────────────
   /**
    * Insert `text`, replacing `range`. `range` defaults to the live selection —
@@ -262,9 +299,13 @@ export interface ChangeApi {
    * target an explicit single-block span (default: selection). A no-op for an
    * empty range or a missing/non-textual block.
    */
-  setMark(
-    name: MarkName,
-    opts?: { active?: boolean; attrs?: Mark["attrs"]; range?: DocRange },
+  setMark<T extends MarkNameOf<S>>(
+    name: T,
+    opts?: {
+      active?: boolean;
+      attrs?: MarkAttrs<S, T>;
+      range?: DocRange;
+    },
   ): this;
 
   // ── block ───────────────────────────────────────────────────────────────
@@ -276,8 +317,8 @@ export interface ChangeApi {
    * same way {@link setBlock} does. Text content is not seeded — insert an empty
    * block, then fill it.
    */
-  insertBlock(
-    block: Partial<Block> & { type: Block["type"] },
+  insertBlock<T extends BlockName<S>>(
+    block: BlockInsertInput<S, T>,
     at?: DocPoint,
   ): this;
   /**
@@ -292,13 +333,15 @@ export interface ChangeApi {
    * properties merge; `null` clears a key. Structural conversion, plain attr
    * edits, and style all fold into this one call.
    */
-  setBlock(
-    attrs: { type?: Block["type"] | "heading"; level?: number } & Record<
-      string,
-      unknown
-    >,
+  setBlock<T extends BlockName<S>>(
+    attrs: { readonly type: T } & Partial<BlockAttrs<S, T>>,
     at?: DocPoint,
   ): this;
+  setBlock(
+    attrs: { readonly type: "heading"; readonly level?: 1 | 2 | 3 },
+    at?: DocPoint,
+  ): this;
+  setBlock(attrs: BlockPatch<S>, at?: DocPoint): this;
   /** Delete the block at `at` (default: caret block); tombstoned so undo can
    * restore it. If it was the last visible block, an empty paragraph replaces it. */
   deleteBlock(at?: DocPoint): this;
@@ -321,7 +364,9 @@ export interface ChangeApi {
  * built-ins are the same kind of value —
  * `const toggleStrong: EditorAction = (c) => c.setMark("strong")`.
  */
-export type EditorAction = (c: ChangeApi) => void;
+export type EditorAction<S extends SchemaDefinition = AnySchemaDefinition> = (
+  c: ChangeApi<S>,
+) => void;
 
 /**
  * Read-only snapshot of editor state for UI binding (see {@link Editor.state}).
@@ -490,7 +535,7 @@ export interface EditorHostApi {
  * {@link EditorStateSnapshot.selection} (`editor.state.selection.range`), the
  * one place that value lives.
  */
-export interface QueryApi {
+export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
   /**
    * Plain-data view of the single block at `at` (default: the caret block), or
    * `null` when there's no such block. Address a specific block by id with
@@ -499,7 +544,7 @@ export interface QueryApi {
    * The point counterpart to {@link blocks}: this takes a {@link DocPoint} and
    * returns one block, that takes a {@link DocRange} and returns the span.
    */
-  block(at?: DocPoint): BlockData | null;
+  block(at?: DocPoint): BlockData<S> | null;
   /**
    * The visible blocks the `range` touches, in document order — the same
    * {@link DocRange} the {@link ChangeApi} methods speak. Defaults to the
@@ -509,7 +554,7 @@ export interface QueryApi {
    * `{ from: "start", to: "end" }`. A collapsed range (or bare point) yields the
    * one block there; empty when the range can't be resolved.
    */
-  blocks(range?: DocRange): BlockData[];
+  blocks(range?: DocRange): BlockData<S>[];
   /**
    * The mark runs present at `at` (default: caret) — the data-carrying read for
    * "what link/math/custom-mark is under the caret". Each {@link MarkInfo}
@@ -522,7 +567,7 @@ export interface QueryApi {
    * (intersection across a span) and includes pending caret toggles, which this
    * point read deliberately does not.
    */
-  marks(at?: DocPoint): MarkInfo[];
+  marks(at?: DocPoint): MarkInfo<S>[];
 }
 
 /**
@@ -539,7 +584,7 @@ export interface QueryApi {
  * mount-only window plumbing live on the separate {@link EditorWiring}
  * interface, so neither appears in the type a consumer holds.
  */
-export interface EditorApi {
+export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
   /**
    * Read-only state snapshot for UI binding: `{ selection, activeMarks,
    * canUndo, canRedo, isFocused, mode, caretScratchActive }`.
@@ -552,7 +597,7 @@ export interface EditorApi {
    */
   readonly state: EditorStateSnapshot;
   /** Content read facet (the mirror of {@link change}) — see {@link QueryApi}. */
-  readonly query: QueryApi;
+  readonly query: QueryApi<S>;
   /** Geometry & ephemeral-paint facet — see {@link EditorViewApi}. */
   readonly view: EditorViewApi;
   /** Chrome-lifecycle facet — see {@link EditorHostApi}. */
@@ -644,9 +689,9 @@ export interface EditorApi {
    * together — one undo entry, one broadcast, one `on("change")`. Returns
    * whether anything actually changed.
    */
-  change: (fn: (c: ChangeApi) => void) => boolean;
+  change: (fn: (c: ChangeApi<S>) => void) => boolean;
   /** Dry-run a {@link change}: would the queued mutations change anything now? */
-  canChange: (fn: (c: ChangeApi) => void) => boolean;
+  canChange: (fn: (c: ChangeApi<S>) => void) => boolean;
   /** Step local history backward; returns whether it changed the document. */
   undo: () => boolean;
   /** Step local history forward; returns whether it changed the document. */
@@ -771,7 +816,7 @@ type StateAction = (s: EditorState) => ActionResult;
  * state is per-instance — no module-level globals — so multiple editors can
  * coexist on one page.
  */
-export class Editor implements EditorApi, EditorWiring {
+export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // ── Canvas / input surface ────────────────────────────────────────────────
   private readonly contentCtx: CanvasRenderingContext2D;
   private readonly cursorCtx: CanvasRenderingContext2D;
@@ -2630,11 +2675,11 @@ export class Editor implements EditorApi, EditorWiring {
         }
         return c;
       },
-      insertBlock: (block, at) => {
+      insertBlock: (block: RuntimeBlockInput, at?: DocPoint) => {
         apply(this.insertBlockAction(block, at));
         return c;
       },
-      setBlock: (attrs, at) => {
+      setBlock: (attrs: RuntimeBlockPatch, at?: DocPoint) => {
         apply(this.setBlockAction(attrs, at));
         return c;
       },
@@ -2658,10 +2703,7 @@ export class Editor implements EditorApi, EditorWiring {
   // empty of text; its type seeds the default fields, and any caller-supplied
   // own attrs are synced as block_set ops.
   private insertBlockAction =
-    (
-      block: Partial<Block> & { type: Block["type"] },
-      at: DocPoint | undefined,
-    ): StateAction =>
+    (block: RuntimeBlockInput, at: DocPoint | undefined): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
       // The anchor block to insert after. A "before" point inserts after the
@@ -2754,22 +2796,16 @@ export class Editor implements EditorApi, EditorWiring {
   // paragraph, void-text clearing); elsewhere it does a generic type set. Other
   // attrs are plain block_set, via setBlockAttrsAction.
   private setBlockAction =
-    (
-      attrs: { type?: Block["type"] | "heading"; level?: number } & Record<
-        string,
-        unknown
-      >,
-      at: DocPoint | undefined,
-    ): StateAction =>
+    (attrs: RuntimeBlockPatch, at: DocPoint | undefined): StateAction =>
     (s) => {
       const idx = resolveBlockIndex(s, at);
       if (idx < 0) return { state: s, ops: [] };
 
       // Pull `type` (and, for the "heading" sugar, `level`) out of the attr bag.
       const rest: Record<string, unknown> = { ...attrs };
-      const rawType = rest.type as Block["type"] | "heading" | undefined;
+      const rawType = rest.type as string | undefined;
       delete rest.type;
-      let resolvedType: Block["type"] | undefined;
+      let resolvedType: string | undefined;
       if (rawType === "heading") {
         resolvedType = this.resolveBlockType("heading", {
           level: rest.level as number | undefined,
@@ -2785,7 +2821,9 @@ export class Editor implements EditorApi, EditorWiring {
         const caretIdx = s.document.cursor?.position.blockIndex;
         const r =
           idx === caretIdx
-            ? convertBlockAtCursor(state, { type: resolvedType })
+            ? convertBlockAtCursor(state, {
+                type: resolvedType as Block["type"],
+              })
             : this.setBlockTypeAction(idx, resolvedType)(state);
         state = r.state;
         ops.push(...r.ops);
@@ -2810,7 +2848,7 @@ export class Editor implements EditorApi, EditorWiring {
   // type's defaults, preserving text/marks where the target allows, and emit the
   // type block_set plus the target type's own-field block_sets. No caret UX.
   private setBlockTypeAction =
-    (blockIndex: number, type: Block["type"]): StateAction =>
+    (blockIndex: number, type: string): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
       const block = blocks[blockIndex];
@@ -3005,7 +3043,7 @@ export class Editor implements EditorApi, EditorWiring {
   // heading1/2/3 types (the CRDT/storage form) are projected back to
   // { type: "heading", attrs: { level } } here, at the public boundary only —
   // storage, serialization, and the wire format stay discrete.
-  private presentBlock = (node: BlockData): BlockData => {
+  private presentBlock = (node: RuntimeBlockData): RuntimeBlockData => {
     const m = /^heading([1-3])$/.exec(node.type);
     if (!m) return node;
     return {
@@ -3015,7 +3053,7 @@ export class Editor implements EditorApi, EditorWiring {
     };
   };
 
-  private queryBlock = (at?: DocPoint): BlockData | null => {
+  private queryBlock = (at?: DocPoint): RuntimeBlockData | null => {
     const idx = resolveBlockIndex(this._state, at);
     if (idx < 0) return null;
     return this.presentBlock(
@@ -3023,11 +3061,11 @@ export class Editor implements EditorApi, EditorWiring {
     );
   };
 
-  private queryBlocks = (range?: DocRange): BlockData[] => {
+  private queryBlocks = (range?: DocRange): RuntimeBlockData[] => {
     const span = resolveBlockSpan(this._state, range);
     if (!span) return [];
     const blocks = this._state.document.page.blocks;
-    const result: BlockData[] = [];
+    const result: RuntimeBlockData[] = [];
     for (let i = span.startIndex; i <= span.endIndex; i++) {
       const b = blocks[i];
       if (b && !b.deleted) result.push(this.presentBlock(toBlockData(b)));
@@ -3732,7 +3770,7 @@ export class Editor implements EditorApi, EditorWiring {
   // is safe; engine-internal callers (mountEditor, createEditor) use the
   // flat fields directly. Declared last so every referenced field is initialized
   // by the time these initializers run.
-  query: QueryApi = {
+  query: QueryApi<AnySchemaDefinition> = {
     block: this.queryBlock,
     blocks: this.queryBlocks,
     marks: (at?: DocPoint) => queryMarkInfos(this._state, at),

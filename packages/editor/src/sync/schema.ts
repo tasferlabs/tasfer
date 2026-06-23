@@ -21,14 +21,19 @@
  * schema; nothing is ever mutated in place.
  */
 
+import type {
+  AnySchemaDefinition,
+  MergeSchema,
+  SchemaDefinition,
+} from "../schema-types";
 import type { BlockCodec } from "../serlization/codecs";
 import type { MarkCodec } from "../serlization/codecs/mark-codec";
 import type { Block } from "../serlization/loadPage";
 import type { TokenType } from "../serlization/tokenizer";
 import {
+  type BlockTypeDescriptor,
   isStyleField,
   isValidStyleValue,
-  type BlockTypeDescriptor,
 } from "./block-registry";
 
 /**
@@ -36,17 +41,27 @@ import {
  * facet (the canvas Node) is added separately by the full Schema so this stays
  * canvas-free.
  */
-export interface BlockSpecCore {
-  readonly type: string;
+export interface BlockSpecCore<
+  T extends string = string,
+  A extends Record<string, unknown> = Record<string, unknown>,
+> {
+  readonly type: T;
   readonly descriptor: BlockTypeDescriptor;
   readonly codec: BlockCodec;
+  /** @internal Phantom carrier for the block's public attribute type. */
+  readonly _attrs?: A;
 }
 
 /** A declared inline mark (bold, a custom highlight, …). */
-export interface MarkSpec {
-  readonly type: string;
+export interface MarkSpec<
+  T extends string = string,
+  A extends Record<string, unknown> = Record<string, unknown>,
+> {
+  readonly type: T;
   /** Markdown serialization facet — wrap on output, paired tokens on input. */
   readonly codec?: MarkCodec;
+  /** @internal Phantom carrier for the mark's public attribute type. */
+  readonly _attrs?: A;
 }
 
 export interface DataSchemaExtension {
@@ -54,11 +69,32 @@ export interface DataSchemaExtension {
   readonly marks?: readonly MarkSpec[];
 }
 
+type UnionToIntersection<U> = (
+  U extends unknown ? (value: U) => void : never
+) extends (value: infer I) => void
+  ? I
+  : never;
+
+type BlockEntryDefinition<B> =
+  B extends BlockSpecCore<infer T, infer A> ? { readonly [K in T]: A } : {};
+
+type MarkEntryDefinition<M> =
+  M extends MarkSpec<infer T, infer A> ? { readonly [K in T]: A } : {};
+
+export type DataSchemaExtensionDefinition<E extends DataSchemaExtension> = {
+  readonly blocks: E["blocks"] extends readonly (infer B)[]
+    ? UnionToIntersection<BlockEntryDefinition<B>>
+    : {};
+  readonly marks: E["marks"] extends readonly (infer M)[]
+    ? UnionToIntersection<MarkEntryDefinition<M>>
+    : {};
+};
+
 /**
  * Immutable per-instance schema (canvas-free). Build the default with
  * `baseDataSchema`; derive variants with `extend()`.
  */
-export class DataSchema {
+export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   private readonly blocks: ReadonlyMap<string, BlockSpecCore>;
   private readonly marks: ReadonlyMap<string, MarkSpec>;
   /** Block-start token → codec, derived from each block's markdown.tokens. */
@@ -212,7 +248,9 @@ export class DataSchema {
    * key collision, so a host can override a built-in. The receiver is never
    * mutated.
    */
-  extend(ext: DataSchemaExtension): DataSchema {
+  extend<const E extends DataSchemaExtension>(
+    ext: E,
+  ): DataSchema<MergeSchema<D, DataSchemaExtensionDefinition<E>>> {
     const blocks = [...this.blockSpecs(), ...(ext.blocks ?? [])];
     const marks = [...this.markSpecs(), ...(ext.marks ?? [])];
     return new DataSchema(blocks, marks);

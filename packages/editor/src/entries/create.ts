@@ -1,6 +1,7 @@
 import { createDoc, type Doc } from "../doc";
 import type { DocPoint } from "../positions";
 import { baseSchema, type Schema } from "../schema";
+import type { BaseSchemaDefinition, SchemaDefinition } from "../schema-types";
 import { type Block, loadPage } from "../serlization/loadPage";
 import type { EditorApi, EditorStateSnapshot } from "./editor";
 import { mountEditor, type MountEditorOptions } from "./mount";
@@ -16,7 +17,9 @@ import { mountEditor, type MountEditorOptions } from "./mount";
  * you set `doc`, TypeScript narrows to the third variant, where
  * `markdown`/`blocks` are typed `never` and so can't also be set.
  */
-export type CreateEditorContent =
+export type CreateEditorContent<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> =
   | {
       /** Initial document as a Markdown string. */
       markdown?: string;
@@ -42,7 +45,7 @@ export type CreateEditorContent =
        * private doc is created from `blocks`/`markdown` and exposed as
        * `editor.doc`.
        */
-      doc: Doc;
+      doc: Doc<D>;
       markdown?: never;
       blocks?: never;
     };
@@ -53,7 +56,9 @@ export type CreateEditorContent =
  * `MountEditorOptions` here because it's one of the content sources above — the
  * union owns it so the exclusivity holds.)
  */
-export type CreateEditorBaseOptions = Omit<MountEditorOptions, "doc"> & {
+export type CreateEditorBaseOptions<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> = Omit<MountEditorOptions<D>, "doc"> & {
   /** The host element the canvas mounts into. Sized to fill this element. */
   element: HTMLElement;
   /**
@@ -63,7 +68,7 @@ export type CreateEditorBaseOptions = Omit<MountEditorOptions, "doc"> & {
    * `doc` is supplied (the doc already carries its own schema) — but the
    * `nodes` still take effect for rendering; pass a matching schema to both.
    */
-  schema?: Schema;
+  schema?: Schema<D>;
   /** Focus the editor and drop a caret in on mount. Default false. */
   autofocus?: boolean;
 };
@@ -72,7 +77,9 @@ export type CreateEditorBaseOptions = Omit<MountEditorOptions, "doc"> & {
  * Options for {@link createEditor}: the {@link CreateEditorBaseOptions} plus at
  * most one of the {@link CreateEditorContent} sources.
  */
-export type CreateEditorOptions = CreateEditorBaseOptions & CreateEditorContent;
+export type CreateEditorOptions<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> = CreateEditorBaseOptions<D> & CreateEditorContent<D>;
 
 /**
  * The handle returned by {@link createEditor}: the full {@link Editor} action
@@ -82,14 +89,16 @@ export type CreateEditorOptions = CreateEditorBaseOptions & CreateEditorContent;
  * listeners, the portal, and the render loop — so always call it when removing
  * the editor (it supersedes the core `Editor.destroy`).
  */
-export interface CypherEditor extends EditorApi {
+export interface CypherEditor<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> extends EditorApi<D> {
   /**
    * The CRDT document this editor renders and edits — the one passed via
    * `CreateEditorOptions.doc`, or a private one created on mount. Sync and
    * persistence go through it exclusively: `doc.applyUpdate(ops)` for inbound
    * ops, `doc.on("update", …)` for outbound, `doc.encodeState()` to persist.
    */
-  readonly doc: Doc;
+  readonly doc: Doc<D>;
   /**
    * Read-only state snapshot for UI binding: the engine's
    * {@link EditorStateSnapshot} (selection, active marks, caret block type,
@@ -98,7 +107,7 @@ export interface CypherEditor extends EditorApi {
    * needs it diffs via the internal `subscribeRaw` (see
    * `@cypherkit/editor/internal`).
    */
-  readonly state: EditorStateSnapshot & { readonly doc: Doc };
+  readonly state: EditorStateSnapshot & { readonly doc: Doc<D> };
   /** Container to mount React popovers/overlays into (slash menu, link editor). */
   readonly portalContainer: HTMLDivElement;
   /**
@@ -138,7 +147,9 @@ export interface CypherEditor extends EditorApi {
  * // …later
  * editor.destroy();
  */
-export function createEditor(options: CreateEditorOptions): CypherEditor {
+export function createEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
+  options: CreateEditorOptions<D>,
+): CypherEditor<D> {
   const {
     element,
     markdown,
@@ -173,16 +184,16 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
   // (loadPage always returns ≥1 block, so an empty/omitted string is a valid
   // blank document). The doc carries the data half of the schema so its reducer
   // and markdown projection honor custom block types.
-  const doc =
+  const doc: Doc<D> =
     docOption ??
-    createDoc({
+    createDoc<D>({
       blocks: blocks ?? loadPage(markdown ?? "", schema.data).blocks,
       pageId: mountOptions.pageId,
       schema: schema.data,
     });
   const ownsDoc = !docOption;
 
-  const mounted = mountEditor(element, doc.getRawBlocks(), {
+  const mounted = mountEditor<D>(element, doc.getRawBlocks(), {
     ...mountOptions,
     // Render with the schema's nodes (built-ins + any custom), unless the host
     // passed an explicit `nodes` list (which then wins).
@@ -211,7 +222,7 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     if (ownsDoc) doc.destroy();
   };
 
-  const handle: CypherEditor = {
+  const handle: CypherEditor<D> = {
     // Spread the core editor action surface (change, dispatch, undo, on,
     // getMarkdown, …) onto the returned handle. (The doc↔editor wiring methods
     // are engine-internal — kept off the public `CypherEditor`/`EditorApi`

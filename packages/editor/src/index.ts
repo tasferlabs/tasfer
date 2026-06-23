@@ -142,12 +142,31 @@ export type {
 } from "./schema";
 export { baseSchema, defineMark, defineNode, Schema } from "./schema";
 export type {
+  AnySchemaDefinition,
+  BaseSchemaDefinition,
+  BlockAttrs,
+  BlockDataFor,
+  BlockName,
+  MarkAttrs,
+  MarkInfoFor,
+  MarkNameOf,
+  MergeSchema,
+  SchemaBlockData,
+  SchemaDefinition,
+  SchemaMarkInfo,
+} from "./schema-types";
+export type {
   MarkCodec,
   MarkHtmlCodec,
   MarkHtmlCtx,
 } from "./serlization/codecs/mark-codec";
 export type { CustomBlock } from "./serlization/loadPage";
-export type { BlockSpecCore, DataSchema, MarkSpec } from "./sync/schema";
+export type {
+  BlockSpecCore,
+  DataSchema,
+  DataSchemaExtensionDefinition,
+  MarkSpec,
+} from "./sync/schema";
 
 // Action bus — declare imperative actions (`action`) that hosts hook
 // via `editor.registerAction` (override by returning `true`, or observe by

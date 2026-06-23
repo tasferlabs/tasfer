@@ -21,6 +21,7 @@
  */
 
 import { baseDataSchema } from "./baseDataSchema";
+import type { BaseSchemaDefinition, SchemaDefinition } from "./schema-types";
 import { type Block, loadPage, type Page } from "./serlization/loadPage";
 import { serializeToMarkdown } from "./serlization/serializer";
 import type {
@@ -66,7 +67,9 @@ export interface DocUpdate {
   local: boolean;
 }
 
-export interface CreateDocOptions {
+export interface CreateDocOptions<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> {
   /** Initial content as Markdown. Ignored when `blocks` or `bytes` is given. */
   markdown?: string;
   /** Initial content as pre-parsed blocks (e.g. a persisted snapshot). */
@@ -97,10 +100,12 @@ export interface CreateDocOptions {
    * set; pass `someSchema.data` (or any `DataSchema`) to support custom block
    * types. Must match the schema the markdown/blocks were authored with.
    */
-  schema?: DataSchema;
+  schema?: DataSchema<D>;
 }
 
-export interface Doc {
+export interface Doc<D extends SchemaDefinition = BaseSchemaDefinition> {
+  /** @internal Phantom carrier preserving the schema type across APIs. */
+  readonly __schemaType?: D;
   /** This replica's peer identity (stamped on every local op). */
   readonly peerId: string;
   /** The page id stamped on operations. */
@@ -241,8 +246,10 @@ function decodePersisted(bytes: Uint8Array): PersistedDocV1 {
  *   by a newer app version. The non-`bytes` forms (markdown/blocks/ops) never
  *   throw it.
  */
-export function createDoc(input?: CreateDocOptions | Uint8Array): Doc {
-  const options: CreateDocOptions =
+export function createDoc<D extends SchemaDefinition = BaseSchemaDefinition>(
+  input?: CreateDocOptions<D> | Uint8Array,
+): Doc<D> {
+  const options: CreateDocOptions<D> =
     input instanceof Uint8Array ? { bytes: input } : (input ?? {});
 
   const persisted = options.bytes ? decodePersisted(options.bytes) : null;
