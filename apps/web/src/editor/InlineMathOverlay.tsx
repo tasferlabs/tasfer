@@ -272,25 +272,25 @@ const InlineMathCanvas: React.FC<{
     chip.commandEntry,
   );
 
+  // Resolve the canvas box during render so the DOM mounts at its final size.
+  // If width/height are assigned only inside the layout effect, the browser
+  // first exposes the canvas default (300×150) to Radix. Radix positions that
+  // larger popover, then observes this resize and performs a second layout.
+  const layout = layoutMath(chip.latex, {
+    fontSize: FONT_SIZE,
+    displayMode: false,
+    literalRange,
+  });
+  const cssWidth = Math.ceil(layout.width + PAD_X * 2);
+  const cssHeight = Math.ceil(layout.height + layout.depth + PAD_Y * 2);
+  const baselineY = PAD_Y + layout.height;
+  const dpr = window.devicePixelRatio || 1;
+  const bitmapWidth = Math.ceil(cssWidth * dpr);
+  const bitmapHeight = Math.ceil(cssHeight * dpr);
+
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    const layout = layoutMath(chip.latex, {
-      fontSize: FONT_SIZE,
-      displayMode: false,
-      literalRange,
-    });
-
-    const cssWidth = Math.ceil(layout.width + PAD_X * 2);
-    const cssHeight = Math.ceil(layout.height + layout.depth + PAD_Y * 2);
-    const baselineY = PAD_Y + layout.height;
-
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = cssWidth * dpr;
-    canvas.height = cssHeight * dpr;
-    canvas.style.width = `${cssWidth}px`;
-    canvas.style.height = `${cssHeight}px`;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -318,7 +318,18 @@ const InlineMathCanvas: React.FC<{
         caret.bottom - caret.top,
       );
     }
-  }, [chip.latex, chip.offset, literalRange, pendingRange, caretColor]);
+  }, [
+    baselineY,
+    caretColor,
+    chip.latex,
+    chip.offset,
+    cssHeight,
+    cssWidth,
+    dpr,
+    layout,
+    literalRange,
+    pendingRange,
+  ]);
 
   // Repaint after EVERY render (no dep array). The canvas can be (re)mounted or
   // repositioned by Radix — e.g. its measure-then-position on open, or a reflow
@@ -392,6 +403,9 @@ const InlineMathCanvas: React.FC<{
         >
           <canvas
             ref={canvasRef}
+            width={bitmapWidth}
+            height={bitmapHeight}
+            style={{ width: cssWidth, height: cssHeight }}
             onClick={handleClick}
             className="block cursor-text"
           />
