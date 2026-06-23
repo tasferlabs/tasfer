@@ -374,6 +374,52 @@ export function mathPendingCommandRange(
   return texPendingCommandRange(latex, caret);
 }
 
+/** A source range `[start, end)` in a LaTeX string. */
+export interface MathSourceRange {
+  start: number;
+  end: number;
+}
+
+/**
+ * The two `\command`-run ranges every math painter needs, derived once from the
+ * caret. Block equations, inline chips, and the host's magnified overlay all need
+ * the same pair, computed identically — this is the single source so they can't
+ * drift (the three used to re-derive it independently):
+ *
+ *  - `pendingRange` — the half-typed command run the caret sits in (`\al`). The
+ *    renderer paints its glyphs in normal text color instead of the red
+ *    "unknown command" placeholder: the command is in progress, not an error.
+ *    Present whenever the caret is inside such a run, regardless of edit mode.
+ *  - `literalRange` — the run to lay out as literal SOURCE (`\al`, not the glyph),
+ *    so the painted geometry matches the source the caret is stepping through.
+ *    Set only while a command is *actively being entered* (`commandEntryActive`);
+ *    merely resting the caret at the trailing edge of a COMPLETE command (`\eta`)
+ *    must still render the glyph η. It is always a subset of `pendingRange`.
+ *
+ * `caretOffset` is the caret's offset into `latex` (chip-local for a chip), or
+ * `null` when the caret isn't in this math content — both ranges are then
+ * undefined.
+ */
+export interface MathCommandRanges {
+  literalRange: MathSourceRange | undefined;
+  pendingRange: MathSourceRange | undefined;
+}
+
+export function mathCommandRanges(
+  latex: string,
+  caretOffset: number | null,
+  commandEntryActive: boolean,
+): MathCommandRanges {
+  const pendingRange =
+    caretOffset != null
+      ? (mathPendingCommandRange(latex, caretOffset) ?? undefined)
+      : undefined;
+  return {
+    pendingRange,
+    literalRange: commandEntryActive ? pendingRange : undefined,
+  };
+}
+
 /**
  * Whether typing `char` at `offset` in a math source should be separated from a
  * preceding command by a space — so a letter typed right after a complete

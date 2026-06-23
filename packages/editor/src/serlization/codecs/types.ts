@@ -52,6 +52,15 @@ export interface OutputCtx {
    * HTML orchestrator so codec modules never import the MathJax bundle.
    */
   readonly renderMathSVG?: (latex: string, displayMode: boolean) => string;
+  /**
+   * When true, a node/mark that normally emits a *rendered replacement* in HTML
+   * (math → an SVG image) should instead emit its editable SOURCE. Set on the
+   * clipboard `text/html` payload so copied math lands as LaTeX (`$$…$$`) in
+   * external apps that prefer HTML over plain text, rather than a non-editable
+   * image. Left false for file/PDF export, where the rendered formula is wanted.
+   * Plain nodes ignore it.
+   */
+  readonly preferSource?: boolean;
 }
 
 /** An HTML tag encountered in markdown input, pre-parsed by the orchestrator. */

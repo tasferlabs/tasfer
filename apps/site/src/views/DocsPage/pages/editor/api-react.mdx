@@ -15,7 +15,7 @@ import { Editor, useEditor, useEditorState } from "@cypherkit/react";
 A drop-in component that renders the host element for you and reports the live editor through `onReady`. It takes every `createEditor` option except `element`, plus the props below.
 
 <PropsTable rows={[
-  { name: "...options", type: "UseEditorOptions", desc: "Every createEditor option except element — value, doc, schema, theme, placeholder, autofocus, editable." },
+  { name: "...options", type: "UseEditorOptions", desc: "Every createEditor option except element — markdown, doc, schema, theme, placeholder, autofocus, editable." },
   { name: "className", type: "string", desc: "Forwarded to the host <div>." },
   { name: "style", type: "CSSProperties", desc: "Forwarded to the host <div>. The div must be sized — give it a height here or via className." },
   { name: "onReady", type: "(editor: CypherEditor) => void", desc: "Called once per editor instance with the live handle. Wire events / persistence here." },
@@ -27,7 +27,7 @@ import { Editor } from "@cypherkit/react";
 function App() {
   return (
     <Editor
-      value="# Hello"
+      markdown="# Hello"
       autofocus
       style={{ height: "100vh" }}
       onReady={(editor) =>
@@ -52,7 +52,7 @@ import { useEditor } from "@cypherkit/react";
 import { useEffect } from "react";
 
 function Notes() {
-  const { containerRef, editor } = useEditor({ value: "# Hello" });
+  const { containerRef, editor } = useEditor({ markdown: "# Hello" });
 
   useEffect(() => {
     if (editor) editor.focus("end");

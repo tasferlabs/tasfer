@@ -69,9 +69,9 @@ import { insertCharsAtPosition } from "../sync/crdt-utils";
 import {
   mathArmScratch,
   mathCaretMove,
+  mathCommandRanges,
   mathDeleteUnit,
   mathMaterializeAfterInput,
-  mathPendingCommandRange,
   mathTransformTypedInput,
 } from "./math";
 import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
@@ -200,7 +200,10 @@ export class MathNode extends TextNode {
 
       // Keep a half-typed command (`\al`) in normal color until the caret moves
       // on (the source index IS the LaTeX offset for a math block). Only while
-      // the collapsed caret is in this block.
+      // the collapsed caret is in this block. While that command is actively
+      // being typed (command-entry scratch armed at this exact caret), the layout
+      // is re-laid out below with the in-progress command kept literal — so the
+      // geometry the caret reads matches what's painted (`\in`, not ∈).
       const sel = state.document.selection;
       const cursor = state.document.cursor;
       const caretIndex =
@@ -209,19 +212,13 @@ export class MathNode extends TextNode {
         (!sel || sel.isCollapsed)
           ? cursor.position.textIndex
           : null;
-      const pendingRange =
-        caretIndex !== null
-          ? (mathPendingCommandRange(latex, caretIndex) ?? undefined)
-          : undefined;
-
-      // While that command is actively being typed (command-entry armed at this
-      // exact caret), re-lay it out with the in-progress command kept literal —
-      // so the geometry the caret reads matches what's painted (`\in`, not ∈).
-      const literalRange = this.commandEntryRange(
-        state,
-        c.block.id,
+      const commandEntryActive =
+        caretIndex !== null &&
+        isCaretScratchActive(state, c.block.id, caretIndex);
+      const { literalRange, pendingRange } = mathCommandRanges(
+        latex,
         caretIndex,
-        pendingRange,
+        commandEntryActive,
       );
       const mathLayout = literalRange
         ? layoutMath(latex, {
@@ -357,9 +354,11 @@ export class MathNode extends TextNode {
     // — so the caret tracks the source text the user is entering. Otherwise the
     // cached (resolved) layout is exact.
     const latex = getVisibleTextFromChars(l.chars);
-    const literalRange = commandEntryActive
-      ? (mathPendingCommandRange(latex, textIndex) ?? undefined)
-      : undefined;
+    const { literalRange } = mathCommandRanges(
+      latex,
+      textIndex,
+      commandEntryActive,
+    );
     const mathLayout = literalRange
       ? layoutMath(latex, {
           fontSize: BLOCK_MATH_FONT_SIZE,
@@ -388,23 +387,6 @@ export class MathNode extends TextNode {
       height: r.bottom - r.top,
       exact: true,
     };
-  }
-
-  /**
-   * The pending-command range to render literally, or undefined — non-undefined
-   * only while command-entry is armed at this exact block + caret (so a finished
-   * command never re-renders literally when the caret later parks at its edge).
-   */
-  private commandEntryRange(
-    state: EditorState,
-    blockId: string,
-    caretIndex: number | null,
-    pendingRange: { start: number; end: number } | undefined,
-  ): { start: number; end: number } | undefined {
-    if (caretIndex === null || !pendingRange) return undefined;
-    return isCaretScratchActive(state, blockId, caretIndex)
-      ? pendingRange
-      : undefined;
   }
 
   /** Click → LaTeX offset via the tex hit-test. */
@@ -453,6 +435,12 @@ export class MathNode extends TextNode {
     const b = block as MathBlock;
     const latex = getVisibleTextFromRuns(b.charRuns);
     if (!latex) return "";
+    // The clipboard prefers source: emit the `$$…$$` LaTeX so a copied equation
+    // pastes as editable math into LaTeX/markdown-aware apps (and as readable
+    // source elsewhere), instead of the non-editable SVG that file export wants.
+    if (ctx.preferSource) {
+      return `<div style="text-align:center;margin:1em 0;">$$${escapeHtml(latex)}$$</div>`;
+    }
     try {
       if (!ctx.renderMathSVG) throw new Error("no math renderer");
       const svg = ctx.renderMathSVG(latex, true);

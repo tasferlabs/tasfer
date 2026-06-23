@@ -455,9 +455,17 @@ function decodeClipboardMarkdown(base64: string): string {
  * export fragment (each block's `html.output` — no per-block-type logic here);
  * it is prefixed with the Cypher-origin marker carrying `markdown` for lossless
  * internal paste.
+ *
+ * `preferSource` makes math serialize as its `$$…$$` / `$…$` LaTeX rather than a
+ * rendered SVG: external apps prefer `text/html` over the plain-text flavor, so
+ * without this a copied equation lands as a non-editable image. File export
+ * (which wants the rendered formula) leaves the flag off.
  */
 function blocksToHTML(blocks: Block[], markdown: string): string {
-  return encodeClipboardMarkdown(markdown) + serializeToHTMLFragment(blocks);
+  return (
+    encodeClipboardMarkdown(markdown) +
+    serializeToHTMLFragment(blocks, { preferSource: true })
+  );
 }
 
 /**

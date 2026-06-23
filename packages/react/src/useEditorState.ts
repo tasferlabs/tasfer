@@ -28,7 +28,7 @@ export type EditorStateValue = EditorStateSnapshot & {
  * reference each call and loop forever.
  *
  * @example
- * const { editor } = useEditor({ value: "**bold**" });
+ * const { editor } = useEditor({ markdown: "**bold**" });
  * const state = useEditorState(editor);
  * const isBold = state?.activeMarks.has("strong") ?? false;
  */
@@ -89,7 +89,7 @@ export function useEditorState(
  * `getSnapshot` stays referentially stable between edits.
  *
  * @example
- * const { editor } = useEditor({ value: "# Title" });
+ * const { editor } = useEditor({ markdown: "# Title" });
  * const markdown = useEditorMarkdown(editor); // "# Title", updates as you type
  */
 export function useEditorMarkdown(editor: CypherEditor | null): string {

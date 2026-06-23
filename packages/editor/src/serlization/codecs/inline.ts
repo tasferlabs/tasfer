@@ -153,6 +153,7 @@ export function inlineToHtml(
   formats: MarkSpan[],
   schema: DataSchema,
   renderMathSVG?: (latex: string, displayMode: boolean) => string,
+  preferSource?: boolean,
 ): string {
   const segments = groupSegments(charRuns, formats);
   return segments
@@ -165,6 +166,7 @@ export function inlineToHtml(
         escapeHtml,
         escapeAttr,
         renderMathSVG,
+        preferSource,
       };
       const entries = seg.formats
         .map((mark) => ({ html: schema.getMarkCodec(mark.type)?.html, mark }))

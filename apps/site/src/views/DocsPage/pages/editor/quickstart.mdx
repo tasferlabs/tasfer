@@ -12,7 +12,7 @@ An editor is created from markdown, a CRDT document, or nothing at all. These th
 import { createEditor, createDoc } from "@cypherkit/editor";
 
 // from a markdown string
-createEditor({ element, value: "# Title" });
+createEditor({ element, markdown: "# Title" });
 
 // from an existing CRDT document (e.g. restored from disk)
 const doc = createDoc(savedBytes);

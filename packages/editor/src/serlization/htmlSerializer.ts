@@ -42,6 +42,13 @@ interface RenderOptions {
   imageUrlMap?: Map<string, string>;
   /** Block/mark types in play. Defaults to the built-in set. */
   schema?: DataSchema;
+  /**
+   * Emit editable source instead of rendered replacements (math → `$$…$$`
+   * rather than an SVG). Set by the clipboard path so copied math pastes as
+   * LaTeX into external apps; left off for file export (which wants the
+   * rendered formula). See {@link OutputCtx.preferSource}.
+   */
+  preferSource?: boolean;
 }
 
 interface ListGroup {
@@ -97,9 +104,16 @@ export function serializeToHTMLFragment(
   const ctx: OutputCtx = {
     format: "html",
     inline: (charRuns, formats) =>
-      inlineToHtml(charRuns, formats, schema, renderToSVG),
+      inlineToHtml(
+        charRuns,
+        formats,
+        schema,
+        renderToSVG,
+        options.preferSource,
+      ),
     mapAssetUrl: (url) => options.imageUrlMap?.get(url) ?? url,
     renderMathSVG: renderToSVG,
+    preferSource: options.preferSource,
   };
 
   const parts: string[] = [];

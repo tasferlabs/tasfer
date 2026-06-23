@@ -18,7 +18,7 @@
  * import { Editor, useEditorState } from "@cypherkit/react";
  *
  * function App() {
- *   return <Editor value="# Hello" autofocus style={{ height: "100vh" }} />;
+ *   return <Editor markdown="# Hello" autofocus style={{ height: "100vh" }} />;
  * }
  */
 

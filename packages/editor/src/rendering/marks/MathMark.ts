@@ -14,8 +14,8 @@ import {
   getInlineMathDims,
   getInlineMathOffsetAtX,
   mathCaretMove,
+  mathCommandRanges,
   mathDeleteUnit,
-  mathPendingCommandRange,
   mathTransformTypedInput,
 } from "../../nodes/math";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
@@ -42,6 +42,9 @@ const MATH_CODEC: MarkCodec = {
     priority: 0,
     replace: true,
     render: (_inner, _mark, ctx) => {
+      // The clipboard prefers source: emit the `$…$` LaTeX so a copied chip
+      // pastes as editable inline math, instead of the SVG file export wants.
+      if (ctx.preferSource) return `$${ctx.escapeHtml(ctx.text)}$`;
       try {
         if (!ctx.renderMathSVG) throw new Error("no math renderer");
         return ctx.renderMathSVG(ctx.text, false);
@@ -53,30 +56,30 @@ const MATH_CODEC: MarkCodec = {
 };
 
 /**
- * Source range of a COMPLETE command to keep as literal text — non-undefined
- * only while command-entry is armed at the caret inside this chip (so a finished
- * `\in` shows `\in`, not ∈, until the caret commits it). `measure`/`paint`/
- * `caretRect` all derive it from the same `edit`, so their geometry agrees.
+ * The `\command`-run ranges (literal + pending) for this chip, derived from the
+ * caret in `edit`. The chip is "command-entry active" exactly while `edit.editing`
+ * is set; `edit.caretOffset` is the chip-local caret. `measure`/`paint`/`caretRect`
+ * all derive from the same `edit`, so their geometry agrees. Shared with the block
+ * equation and the host overlay via {@link mathCommandRanges}.
  */
-function literalRangeFor(
-  text: string,
-  edit: MarkReplacementEdit | undefined,
-): { start: number; end: number } | undefined {
-  return edit?.editing && edit.caretOffset != null
-    ? (mathPendingCommandRange(text, edit.caretOffset) ?? undefined)
-    : undefined;
+function commandRangesFor(text: string, edit: MarkReplacementEdit | undefined) {
+  return mathCommandRanges(text, edit?.caretOffset ?? null, !!edit?.editing);
 }
 
 const inlineMathReplacement: MarkReplacement = {
   measure(text, fontSize, edit) {
-    return getInlineMathDims(text, fontSize, literalRangeFor(text, edit));
+    return getInlineMathDims(
+      text,
+      fontSize,
+      commandRangesFor(text, edit).literalRange,
+    );
   },
   caretRect(text, fontSize, offset, edit) {
     return getInlineMathCaretRect(
       text,
       fontSize,
       offset,
-      literalRangeFor(text, edit),
+      commandRangesFor(text, edit).literalRange,
     );
   },
   hitTest(text, fontSize, localX, localY) {
@@ -108,18 +111,15 @@ const inlineMathReplacement: MarkReplacement = {
     // glyphs simply don't paint (dimensions are already exact), and the host's
     // font-load redraw fills them in. Lay out with the same `literalRange` the
     // caller measured with, so a command being typed (`\in`) is drawn as literal
-    // source — at exactly the width reserved for it — instead of flashing ∈.
+    // source — at exactly the width reserved for it — instead of flashing ∈. The
+    // `pendingRange` keeps a half-typed command (`\al`) from flashing red until
+    // the caret moves on.
+    const { literalRange, pendingRange } = commandRangesFor(text, edit);
     const layout = layoutMath(text, {
       fontSize,
       displayMode: false,
-      literalRange: literalRangeFor(text, edit),
+      literalRange,
     });
-    // While the caret is inside this chip, keep a half-typed command (`\al`)
-    // from flashing red until the caret moves on.
-    const pendingRange =
-      edit?.caretOffset != null
-        ? (mathPendingCommandRange(text, edit.caretOffset) ?? undefined)
-        : undefined;
     paintMath(ctx, layout, drawX, y, {
       color: styles.blocks.paragraph.color,
       pendingRange,

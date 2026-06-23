@@ -39,7 +39,7 @@ export type EditorProps = UseEditorOptions & {
  *
  * @example
  * <Editor
- *   value="# Hello"
+ *   markdown="# Hello"
  *   autofocus
  *   className="prose"
  *   style={{ height: "100vh" }}

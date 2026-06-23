@@ -97,6 +97,8 @@ export {
   getInlineMathCaretRect,
   getInlineMathOffsetAtX,
   type InlineMathCaretRect,
+  mathCommandRanges,
+  type MathCommandRanges,
   mathPendingCommandRange,
 } from "./nodes/math";
 

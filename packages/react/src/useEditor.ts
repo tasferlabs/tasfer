@@ -16,7 +16,7 @@ import type { RefObject } from "react";
  * Built by omitting `element` from the *base* options and re-intersecting the
  * {@link CreateEditorContent} union — NOT `Omit<CreateEditorOptions, "element">`,
  * because `Omit` over a union collapses it (`keyof` a union is the intersection
- * of its members' keys), which would silently drop the value/blocks/doc
+ * of its members' keys), which would silently drop the markdown/blocks/doc
  * exclusivity at the React layer.
  */
 export type UseEditorOptions = Omit<CreateEditorBaseOptions, "element"> &
@@ -62,7 +62,7 @@ const useIsomorphicLayoutEffect =
  *
  * @example
  * function MyEditor() {
- *   const { containerRef, editor } = useEditor({ value: "# Hello" });
+ *   const { containerRef, editor } = useEditor({ markdown: "# Hello" });
  *   useEffect(() => {
  *     if (editor) editor.focus("end");
  *   }, [editor]);
@@ -85,7 +85,7 @@ export function useEditor(options: UseEditorOptions): UseEditorResult {
 
     // `optionsRef.current` is a `UseEditorOptions` — itself the discriminated
     // content-source union, so the caller already satisfied the
-    // value/blocks/doc exclusivity at their own call site. Object-spreading a
+    // markdown/blocks/doc exclusivity at their own call site. Object-spreading a
     // union widens away the discriminant (TS can no longer prove which variant
     // survived `{ ...x }`), so we reassert the type here. `createEditor`'s
     // runtime guard still backstops a genuinely-conflicting object.

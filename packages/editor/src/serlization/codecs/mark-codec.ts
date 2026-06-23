@@ -26,6 +26,12 @@ export interface MarkHtmlCtx {
   readonly escapeAttr: (s: string) => string;
   /** Inline math renderer, when the host supplied one. */
   readonly renderMathSVG?: (latex: string, displayMode: boolean) => string;
+  /**
+   * Consumer prefers editable source over a rendered replacement — see
+   * {@link import("./types").OutputCtx.preferSource}. A replacement mark (inline
+   * math) emits its `$…$` source instead of an SVG when set.
+   */
+  readonly preferSource?: boolean;
 }
 
 export interface MarkHtmlCodec {

@@ -7,28 +7,29 @@ import { mountEditor, type MountEditorOptions } from "./mount";
 
 /**
  * The three mutually exclusive content sources for {@link createEditor}. Supply
- * **at most one** of `value` / `blocks` / `doc` — the discriminated union makes
- * passing two a compile-time error (and `createEditor` also throws at runtime,
- * to backstop untyped JS callers). Passing none yields a blank document.
+ * **at most one** of `markdown` / `blocks` / `doc` — the discriminated union
+ * makes passing two a compile-time error (and `createEditor` also throws at
+ * runtime, to backstop untyped JS callers). Passing none yields a blank
+ * document.
  *
  * The `?: never` siblings on each variant are what enforce the exclusivity: if
- * you set `doc`, TypeScript narrows to the third variant, where `value`/`blocks`
- * are typed `never` and so can't also be set.
+ * you set `doc`, TypeScript narrows to the third variant, where
+ * `markdown`/`blocks` are typed `never` and so can't also be set.
  */
 export type CreateEditorContent =
   | {
       /** Initial document as a Markdown string. */
-      value?: string;
+      markdown?: string;
       blocks?: never;
       doc?: never;
     }
   | {
       /**
-       * Pre-parsed blocks to mount instead of `value` (e.g. restored from a
+       * Pre-parsed blocks to mount instead of `markdown` (e.g. restored from a
        * snapshot).
        */
       blocks: Block[];
-      value?: never;
+      markdown?: never;
       doc?: never;
     }
   | {
@@ -38,11 +39,11 @@ export type CreateEditorContent =
        * applied to the doc from elsewhere (`doc.applyUpdate`) flow into the
        * editor. A doc already carries its content, and supersedes
        * `crdtBinding`/`pageId` (it carries its own identity). When omitted, a
-       * private doc is created from `blocks`/`value` and exposed as
+       * private doc is created from `blocks`/`markdown` and exposed as
        * `editor.doc`.
        */
       doc: Doc;
-      value?: never;
+      markdown?: never;
       blocks?: never;
     };
 
@@ -127,7 +128,7 @@ export interface CypherEditor extends EditorApi {
  * @example
  * const editor = createEditor({
  *   element: document.querySelector("#editor")!,
- *   value: "# Hello\n\nStart typing — **markdown** shortcuts work.",
+ *   markdown: "# Hello\n\nStart typing — **markdown** shortcuts work.",
  *   autofocus: true,
  * });
  *
@@ -138,7 +139,7 @@ export interface CypherEditor extends EditorApi {
 export function createEditor(options: CreateEditorOptions): CypherEditor {
   const {
     element,
-    value,
+    markdown,
     blocks,
     doc: docOption,
     schema = baseSchema,
@@ -146,34 +147,34 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     ...mountOptions
   } = options;
 
-  // Content comes from exactly one source — `value` (markdown), `blocks`
-  // (pre-parsed), or `doc` (an existing CRDT document). They don't layer:
-  // supplying more than one is a host mistake (one would silently win and the
-  // rest vanish). The `CreateEditorContent` union already rejects this at
-  // compile time for TypeScript callers; this runtime check backstops untyped
+  // Content comes from exactly one source — `markdown` (a markdown string),
+  // `blocks` (pre-parsed), or `doc` (an existing CRDT document). They don't
+  // layer: supplying more than one is a host mistake (one would silently win
+  // and the rest vanish). The `CreateEditorContent` union already rejects this
+  // at compile time for TypeScript callers; this runtime check backstops untyped
   // JS callers (and `as`-casts), rejecting it loudly rather than guessing.
   if (
-    (value !== undefined ? 1 : 0) +
+    (markdown !== undefined ? 1 : 0) +
       (blocks !== undefined ? 1 : 0) +
       (docOption !== undefined ? 1 : 0) >
     1
   ) {
     throw new Error(
-      "createEditor: pass at most one content source — `value`, `blocks`, or " +
-        "`doc`. A `doc` already carries its content; `blocks`/`value` seed a " +
-        "fresh one.",
+      "createEditor: pass at most one content source — `markdown`, `blocks`, " +
+        "or `doc`. A `doc` already carries its content; `blocks`/`markdown` " +
+        "seed a fresh one.",
     );
   }
 
   // The doc is the source of truth the editor renders. An explicit `doc` is
-  // used as-is; otherwise a private one is created from `blocks`/`value`
+  // used as-is; otherwise a private one is created from `blocks`/`markdown`
   // (loadPage always returns ≥1 block, so an empty/omitted string is a valid
   // blank document). The doc carries the data half of the schema so its reducer
   // and markdown projection honor custom block types.
   const doc =
     docOption ??
     createDoc({
-      blocks: blocks ?? loadPage(value ?? "", schema.data).blocks,
+      blocks: blocks ?? loadPage(markdown ?? "", schema.data).blocks,
       pageId: mountOptions.pageId,
       schema: schema.data,
     });
