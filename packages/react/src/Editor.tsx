@@ -6,8 +6,7 @@ import { useEditor, type UseEditorOptions } from "./useEditor";
 /**
  * Props for the {@link Editor} component: every {@link CreateEditorOptions}
  * field except `element` (the component renders and owns the host `<div>`), plus
- * styling hooks, a one-shot ready callback, and the controlled-component sugar
- * (`value` / `onChange`).
+ * styling hooks, an `onChange` edit callback, and a one-shot ready callback.
  *
  * A type alias rather than an `interface extends UseEditorOptions` because the
  * content sources make `UseEditorOptions` a discriminated union, which an
@@ -15,20 +14,14 @@ import { useEditor, type UseEditorOptions } from "./useEditor";
  */
 export type EditorProps = UseEditorOptions & {
   /**
-   * Controlled markdown, the React-idiomatic sugar. It seeds the initial content
-   * (when no `markdown` / `blocks` / `doc` is given) and is pushed into the
-   * editor whenever it changes after mount — so `<Editor value={md} onChange={setMd} />`
-   * behaves like a controlled `<textarea>`. Echoing `onChange`'s own output back
-   * into `value` is a no-op, so it never fights the caret on a keystroke. For a
-   * large or collaborative document, prefer the uncontrolled `markdown` plus the
-   * imperative handle — pushing a fresh `value` reloads the document.
-   */
-  value?: string;
-  /**
-   * Called with the document's markdown after every change — local edits, paste,
-   * undo, or a remote sync. The controlled-input partner of `value`. For finer
-   * control (the {@link import("@cypherkit/editor").ChangeTransaction}, or to
-   * ignore remote edits via `tx.isRemote`) subscribe through `onReady` instead.
+   * Notify-only callback fired with the document's serialized markdown after
+   * every change — local edits, paste, undo, or a remote sync. It is sugar over
+   * `editor.on("change", …)` and never pushes content back into the editor, so
+   * it can't fight the caret. The document is owned by the CRDT, not by a prop:
+   * to *replace* content at runtime, call `editor.setMarkdown(...)` (or any
+   * `editor.change(...)`) on the handle from `onReady`. For finer control — the
+   * {@link import("@cypherkit/editor").ChangeTransaction}, or ignoring remote
+   * edits via `tx.isRemote` — subscribe through `onReady` instead.
    */
   onChange?: (markdown: string) => void;
   /** Class name forwarded to the host `<div>`. */
@@ -50,41 +43,22 @@ export type EditorProps = UseEditorOptions & {
  * A thin React wrapper over {@link useEditor} that renders the host element and
  * mounts the canvas editor into it.
  *
- * Most options are read once at mount (see {@link useEditor}); change the editor
- * at runtime through the handle delivered by `onReady`, not by re-passing props.
- * The exception is the controlled `value` / `onChange` sugar, which stays in sync
- * by design. The host `<div>` must be sized — pass a height via `style` or
- * `className`.
+ * Editor options are read once at mount (see {@link useEditor}); change the
+ * editor at runtime through the handle delivered by `onReady`, not by re-passing
+ * props. `onChange` is the one live prop, but it's notify-only — it reports
+ * edits and never drives content. The host `<div>` must be sized — pass a height
+ * via `style` or `className`.
  *
  * @example
- * // Uncontrolled: seed once, react to edits.
- * <Editor markdown="# Hello" onChange={save} style={{ height: "100vh" }} />
- *
- * @example
- * // Controlled, like a textarea.
- * const [md, setMd] = useState("# Hello");
- * <Editor value={md} onChange={setMd} style={{ height: "100vh" }} />
+ * <Editor
+ *   markdown="# Hello"
+ *   onChange={save}
+ *   style={{ height: "100vh" }}
+ *   onReady={(editor) => editor.focus("end")}
+ * />
  */
 export function Editor(props: EditorProps): React.JSX.Element {
-  const { className, style, onReady, value, onChange, ...rest } = props;
-
-  // `value` is the controlled-markdown sugar: when no explicit content source is
-  // given, it seeds the initial document. (After mount it's pushed in via the
-  // effect below.) Reading the content source off the discriminated union needs a
-  // loose view — a plain runtime presence check is all we want.
-  const content = rest as {
-    markdown?: unknown;
-    blocks?: unknown;
-    doc?: unknown;
-  };
-  const hasExplicitContent =
-    content.markdown !== undefined ||
-    content.blocks !== undefined ||
-    content.doc !== undefined;
-  const options = (
-    value !== undefined && !hasExplicitContent ? { ...rest, markdown: value } : rest
-  ) as UseEditorOptions;
-
+  const { className, style, onReady, onChange, ...options } = props;
   const { containerRef, editor } = useEditor(options);
 
   // Keep the callbacks in refs so the change subscription is wired exactly once
@@ -94,36 +68,19 @@ export function Editor(props: EditorProps): React.JSX.Element {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
-  // The markdown we believe the editor currently holds — what we last emitted to
-  // `onChange` or last pushed via `value`. It's how the controlled loop is broken:
-  // when `value` comes back equal to this, there's nothing to do.
-  const lastMarkdownRef = useRef(value);
-
   useEffect(() => {
     if (!editor) return;
     onReadyRef.current?.(editor);
     return editor.on("change", () => {
-      const markdown = editor.getMarkdown();
-      lastMarkdownRef.current = markdown;
-      onChangeRef.current?.(markdown);
+      // Serialize only when someone is listening: `getMarkdown()` walks the
+      // whole document, and the subscription is wired even when `onChange` is
+      // absent (it may be supplied on a later render, read here through the ref).
+      const cb = onChangeRef.current;
+      if (cb) cb(editor.getMarkdown());
     });
     // Wire once per editor instance: `onReady`/`onChange` are read through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
-
-  // Controlled `value`: push it in only when it differs from what the editor is
-  // already showing. Echoing our own `onChange` output back is therefore a no-op,
-  // so this never resets the caret on a keystroke; a genuinely new `value`
-  // (programmatic reset, loading another document) reloads the editor.
-  useEffect(() => {
-    if (!editor || value === undefined || value === lastMarkdownRef.current) return;
-    if (value === editor.getMarkdown()) {
-      lastMarkdownRef.current = value;
-      return;
-    }
-    lastMarkdownRef.current = value;
-    editor.setMarkdown(value);
-  }, [editor, value]);
 
   return <div ref={containerRef} className={className} style={style} />;
 }
