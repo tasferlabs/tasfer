@@ -10,6 +10,7 @@
  */
 
 import { getFormatsAtPosition, getSelectionRange } from "./actions/actions";
+import { resolveMarkRuns } from "./inline-math-spans";
 import { getBlockTextContent, getBlockTextLength } from "./node-shared";
 import {
   moveCursorToPosition,
@@ -60,6 +61,26 @@ export interface BlockData {
   readonly type: string;
   readonly text: string;
   readonly attrs: Record<string, unknown>;
+}
+
+/**
+ * A mark present at a point, returned by the read API's `marks(at)` — the
+ * data-carrying counterpart to the name-only active-marks set. `attrs` is the
+ * mark's data (`{ url }` for a link, `{}` for a toggle mark); `block` + `from`/
+ * `to` are the contiguous run's single-block, caret-edge span (`to` is after the
+ * last char); `text` is that run's text (a link's text, a math chip's LaTeX). A
+ * host reads the link/math under the caret from here without touching internal
+ * state. Offsets are flat numbers (not a {@link DocRange}) since a run is always
+ * within one block — build a `DocRange` as `{ from: { block, offset: from }, … }`
+ * if a {@link ChangeApi} call needs one.
+ */
+export interface MarkInfo {
+  readonly name: string;
+  readonly attrs: Record<string, unknown>;
+  readonly block: string;
+  readonly from: number;
+  readonly to: number;
+  readonly text: string;
 }
 
 /** A {@link DocPoint} resolved to concrete coordinates. */
@@ -318,6 +339,37 @@ export function docMarks(
       )
     )
       result.add(mark.type);
+  }
+  return result;
+}
+
+/**
+ * The mark runs present at a point (default: caret) — backs the read API's
+ * `marks(at)`. A run covers offset `O` when `from <= O < to` (left-inclusive,
+ * matching where a mark visually applies); a consumer wanting strictly-inside
+ * (e.g. an inline-math chip) narrows on the returned `range`. Returns the actual
+ * runs only — pending caret toggles (Ctrl+B with no text yet) live in the
+ * name-only active-marks set, not here.
+ */
+export function queryMarkInfos(
+  s: EditorState,
+  at: DocPoint = "caret",
+): MarkInfo[] {
+  const p = resolvePoint(s, at);
+  if (!p) return [];
+  const block = s.document.page.blocks[p.blockIndex];
+  if (!block || block.deleted) return [];
+  const result: MarkInfo[] = [];
+  for (const run of resolveMarkRuns(block)) {
+    if (p.offset < run.startIndex || p.offset >= run.endIndex) continue;
+    result.push({
+      name: run.name,
+      attrs: run.attrs,
+      block: p.blockId,
+      from: run.startIndex,
+      to: run.endIndex,
+      text: run.text,
+    });
   }
   return result;
 }

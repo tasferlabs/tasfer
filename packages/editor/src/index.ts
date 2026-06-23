@@ -91,6 +91,7 @@ export type {
   EditorHostApi,
   EditorStateSnapshot,
   EditorViewApi,
+  MarkInfo,
   MarkName,
   QueryApi,
 } from "./entries/editor";

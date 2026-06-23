@@ -39,7 +39,6 @@ import {
 import {
   allCharsHaveFormat,
   clearFailedImageCache,
-  getBlockTextContent,
   getFormatsAtPosition,
   getLinkAtPosition,
   getSelectionRange,
@@ -648,8 +647,9 @@ const CURSOR_STORAGE_KEY = "cypher:cursor-positions";
 const MAX_STORED_PAGES = 50;
 
 interface StoredCursorPosition {
-  blockIndex: number;
-  textIndex: number;
+  /** Stable CRDT block id (not an index — survives concurrent edits). */
+  block: string;
+  offset: number;
   scrollY: number;
 }
 
@@ -1066,23 +1066,26 @@ function EditorSurface({
   // Persist cursor position + (for HMR) live blocks on unmount, while the editor
   // is still alive. As a layout-effect cleanup declared after useEditor, it runs
   // in the commit phase before useEditor's own layout cleanup destroys the
-  // editor — so getState()/getScrollY() still return live state here.
+  // editor — so editor.state / the doc still return live data here.
   useLayoutEffect(() => {
     if (readonly) return;
     return () => {
-      const editorState = mountedRef.current?.editor.getState();
-      if (!editorState) return;
-      if (editorState.document.page?.blocks) {
-        liveBlocksRef.current = {
-          blocks: editorState.document.page.blocks as Block[],
-          pageId,
-        };
+      const editorApi = mountedRef.current?.editor;
+      if (!editorApi) return;
+      const blocks = docRef.current?.getRawBlocks();
+      if (blocks) {
+        liveBlocksRef.current = { blocks, pageId };
       }
-      if (editorState.document.cursor) {
+      const range = editorApi.state.selection.range;
+      const caret =
+        range && typeof range === "object" && "offset" in range
+          ? { block: range.block, offset: range.offset ?? 0 }
+          : null;
+      if (caret) {
         saveCursorPosition(pageId, {
-          blockIndex: editorState.document.cursor.position.blockIndex,
-          textIndex: editorState.document.cursor.position.textIndex,
-          scrollY: mountedRef.current?.editor.view.getScrollY() ?? 0,
+          block: caret.block,
+          offset: caret.offset,
+          scrollY: editorApi.view.getScrollY(),
         });
       }
     };
@@ -1471,9 +1474,6 @@ function EditorSurface({
     // Handle format button clicks from native
     // Returns true if handled, false if native should open block menu
     const handleFormatButtonClick = (): boolean => {
-      const state = mounted.editor.getState();
-      if (!state) return false;
-
       const containerRect = wrapperRef.current?.getBoundingClientRect();
       if (!containerRect) return false;
 
@@ -1485,14 +1485,18 @@ function EditorSurface({
       const menuX = containerRect.width / 2;
       const menuY = 100;
 
+      const editorApi = mounted.editor;
+      const range = editorApi.state.selection.range;
+      const selection =
+        range && typeof range === "object" && "from" in range ? range : null;
+
       if (iconType === "image") {
         // Open the image upload/edit menu for the selected image — rendered as a
         // drawer on mobile by the CypherImageNode "image-upload" overlay.
-        if (state.document.selection && !state.document.selection.isCollapsed) {
-          const { anchor } = state.document.selection;
-          const block = state.document.page.blocks[anchor.blockIndex];
+        if (selection) {
+          const block = editorApi.query.block(selection.from);
           if (block && block.type === "image") {
-            openImageUploadMenu(mounted.editor, block.id, menuX, menuY);
+            openImageUploadMenu(editorApi, block.id, menuX, menuY);
             return true;
           }
         }
@@ -1500,58 +1504,45 @@ function EditorSurface({
       } else if (iconType === "link") {
         // Open the link edit/create menu — rendered as a drawer on mobile by the
         // CypherLinkMark "link-edit" overlay.
-        if (state.document.cursor) {
-          const linkData = getLinkAtPosition(
-            state.document.cursor.position,
-            state,
-          );
 
-          if (linkData) {
-            // Editing existing link
-            const linkBlockId =
-              state.document.page.blocks[
-                state.document.cursor.position.blockIndex
-              ]?.id;
-            if (!linkBlockId) return false;
-            openLinkEditMenu(mounted.editor, {
-              blockId: linkBlockId,
-              startIndex: linkData.startIndex,
-              endIndex: linkData.endIndex,
-              url: linkData.url,
-              text: linkData.text,
+        // Editing an existing link under the caret.
+        const link = editorApi.query.marks().find((m) => m.name === "link");
+        if (link) {
+          openLinkEditMenu(editorApi, {
+            blockId: link.block,
+            startIndex: link.from,
+            endIndex: link.to,
+            url: (link.attrs.url as string | undefined) ?? "",
+            text: link.text,
+            x: menuX,
+            y: menuY,
+          });
+          return true;
+        }
+
+        // Creating a new link from a selection.
+        if (
+          selection &&
+          typeof selection.from === "object" &&
+          typeof selection.to === "object"
+        ) {
+          const { from, to } = selection;
+          const block = editorApi.query.block(from);
+          if (block && block.type !== "image") {
+            const startIndex = "offset" in from ? from.offset ?? 0 : 0;
+            const endIndex = "offset" in to ? to.offset ?? 0 : 0;
+            const selectedText = block.text.substring(startIndex, endIndex);
+            openLinkEditMenu(editorApi, {
+              blockId: block.id,
+              startIndex,
+              endIndex,
+              url: "",
+              text: "",
+              selectedText,
               x: menuX,
               y: menuY,
             });
             return true;
-          } else if (
-            state.document.selection &&
-            !state.document.selection.isCollapsed
-          ) {
-            // Creating new link from selection
-            const range = getSelectionRange(state);
-            if (range) {
-              const { start, end } = range;
-              const block = state.document.page.blocks[start.blockIndex];
-              if (block && block.type !== "image") {
-                const text = getBlockTextContent(block);
-                const selectedText = text.substring(
-                  start.textIndex,
-                  end.textIndex,
-                );
-
-                openLinkEditMenu(mounted.editor, {
-                  blockId: block.id,
-                  startIndex: start.textIndex,
-                  endIndex: end.textIndex,
-                  url: "",
-                  text: "",
-                  selectedText,
-                  x: menuX,
-                  y: menuY,
-                });
-                return true;
-              }
-            }
           }
         }
         return false;
@@ -1811,29 +1802,17 @@ function EditorSurface({
       setTimeout(() => {
         mounted.editor.setFocus(true);
 
-        // Try to restore saved cursor position, fall back to initial
+        // Try to restore the saved caret by stable block id; setCaret clamps the
+        // offset and no-ops if the block is gone, so the onlyIfUnset start seed
+        // below is the fallback (saved missing, or its block no longer exists).
         const saved = loadCursorPosition(pageId);
-        const editorState = mounted.editor.getState();
-
-        // Resolve the saved index to a stable block id; setCaret clamps the
-        // offset to the block's length for us.
-        const blocks = editorState?.document.page.blocks ?? [];
-        const block =
-          blocks[Math.min(Math.max(saved?.blockIndex ?? 0, 0), blocks.length - 1)];
-
-        if (saved && block) {
-          mounted.editor.setCaret({
-            block: block.id,
-            offset: saved.textIndex,
-          });
-
-          // Restore scroll position
+        if (saved) {
+          mounted.editor.setCaret({ block: saved.block, offset: saved.offset });
           if (saved.scrollY > 0) {
             mounted.editor.view.updateViewport({ scrollY: saved.scrollY });
           }
-        } else {
-          mounted.editor.setCaret("start", { onlyIfUnset: true });
         }
+        mounted.editor.setCaret("start", { onlyIfUnset: true });
       }, 0);
     }
 

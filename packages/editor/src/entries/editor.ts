@@ -42,6 +42,8 @@ import {
   type DocPoint,
   type DocRange,
   docSelection,
+  type MarkInfo,
+  queryMarkInfos,
   resolveBlockIndex,
   resolveBlockSpan,
   resolveInlineRange,
@@ -94,6 +96,7 @@ import type {
 import type { Operation } from "../state-types";
 import {
   closeActiveMenu,
+  isCaretScratchActive,
   isTouchDevice,
   setActiveMenu,
   updateMode,
@@ -220,7 +223,7 @@ export type MarkName = string;
 // that consume it — live in `../positions` (free functions over EditorState, so
 // they're unit-testable without a canvas). Re-exported here because they're part
 // of the ChangeApi / read-API contract.
-export type { BlockData, DocPoint, DocRange } from "../positions";
+export type { BlockData, DocPoint, DocRange, MarkInfo } from "../positions";
 
 /**
  * The single mutation surface, handed to the callback of {@link Editor.change}
@@ -355,10 +358,18 @@ export interface EditorStateSnapshot {
    * The current interaction mode: `edit` (normal), `select` (selection-only,
    * e.g. mobile), `suspended` (read-only; momentum halted), or `readonly`. The
    * read counterpart to {@link EditorHostApi.setMode} — lets host chrome gate
-   * behavior on mode (e.g. suspend while a modal popover is open) without an
-   * imperative {@link EditorApi.getState} read.
+   * behavior on mode (e.g. suspend while a modal popover is open) without
+   * reaching into raw state.
    */
   readonly mode: EditorMode;
+  /**
+   * Whether the caret sits in a node/mark's caret-anchored command-entry scratch
+   * — e.g. typing a `\command` inside a math chip, kept literal until confirmed.
+   * Gates host chrome that mirrors that in-progress entry (the inline-math
+   * `\command` palette). Type-agnostic: true whenever any owner armed the slot at
+   * the current caret.
+   */
+  readonly caretScratchActive: boolean;
 }
 
 /**
@@ -478,10 +489,10 @@ export interface EditorHostApi {
  * the {@link ChangeApi} write surface. Every method speaks the same
  * {@link DocPoint}/{@link DocRange} vocabulary and defaults to the live
  * caret/selection, so a read pairs symmetrically with its write:
- * `query.block(at)` ↔ `c.setBlock(attrs, at)`, `query.marks(range)` ↔
+ * `query.block(at)` ↔ `c.setBlock(attrs, at)`, `query.marks(at)` ↔
  * `c.setMark(name, { range })`. A host reads a {@link BlockData}'s id/attrs here
- * and hands them straight back to a {@link Editor.change} without touching
- * {@link EditorApi.getState}. The selection itself — the caret/anchor `DocRange`
+ * and hands them straight back to a {@link Editor.change} without reaching into
+ * raw state. The selection itself — the caret/anchor `DocRange`
  * with offsets — is read off the reactive snapshot at
  * {@link EditorStateSnapshot.selection} (`editor.state.selection.range`), the
  * one place that value lives.
@@ -491,7 +502,7 @@ export interface QueryApi {
    * Plain-data view of the single block at `at` (default: the caret block), or
    * `null` when there's no such block. Address a specific block by id with
    * `block({ block: id })` (the common "find the block this overlay/menu
-   * targets" pattern) — no scan of {@link EditorApi.getState}'s raw block array.
+   * targets" pattern) — no scan of a raw block array.
    * The point counterpart to {@link blocks}: this takes a {@link DocPoint} and
    * returns one block, that takes a {@link DocRange} and returns the span.
    */
@@ -507,12 +518,18 @@ export interface QueryApi {
    */
   blocks(range?: DocRange): BlockData[];
   /**
-   * Inline marks active over `range` (default: selection). A collapsed range (or
-   * the bare caret) yields the formats that will apply to text typed there —
-   * explicit toggled formats, or those inherited from the preceding character —
-   * handy for lighting up a toolbar.
+   * The mark runs present at `at` (default: caret) — the data-carrying read for
+   * "what link/math/custom-mark is under the caret". Each {@link MarkInfo}
+   * carries the mark's `attrs` (a link's `{ url }`), the contiguous `range` of
+   * that run, and its `text` (a link's text, a math chip's LaTeX). A run covers
+   * the point when `from <= offset < to`; narrow on `range` for strictly-inside.
+   *
+   * For "is bold active here?" toolbar highlighting use the name-only
+   * {@link EditorStateSnapshot.activeMarks} set instead — it is selection-aware
+   * (intersection across a span) and includes pending caret toggles, which this
+   * point read deliberately does not.
    */
-  marks(range?: DocRange): Set<MarkName>;
+  marks(at?: DocPoint): MarkInfo[];
 }
 
 /**
@@ -531,15 +548,12 @@ export interface QueryApi {
  */
 export interface EditorApi {
   /**
-   * The raw internal {@link EditorState} (escape hatch), or `null` before any
-   * state exists. Prefer {@link state} for UI binding, the {@link query} facet
-   * for content reads, and the {@link view} facet for geometry — reach for this
-   * only when a needed read has no typed accessor.
-   */
-  getState: () => EditorState | null;
-  /**
-   * Read-only state snapshot for UI binding: `{ selection, activeMarks }`.
-   * For the raw internal {@link EditorState} (escape hatch), use {@link getState}.
+   * Read-only state snapshot for UI binding: `{ selection, activeMarks,
+   * activeBlockType, canUndo, canRedo, isFocused, mode, caretScratchActive }`.
+   * The typed read surface for chrome — pair it with the {@link query} facet for
+   * content reads and the {@link view} facet for geometry. (The raw internal
+   * `EditorState` is no longer exposed imperatively; the reactive
+   * {@link subscribe}/{@link on} listeners still deliver it for advanced diffing.)
    */
   readonly state: EditorStateSnapshot;
   /** Content read facet (the mirror of {@link change}) — see {@link QueryApi}. */
@@ -2116,10 +2130,6 @@ export class Editor implements EditorApi, EditorWiring {
     this.rectNeedsUpdate = true;
   };
 
-  getState = (): EditorState | null => {
-    return this._state;
-  };
-
   destroy = (): void => {
     this.destroyed = true;
 
@@ -3005,9 +3015,6 @@ export class Editor implements EditorApi, EditorWiring {
     return result;
   };
 
-  private queryMarks = (range?: DocRange): Set<MarkName> =>
-    docMarks(this._state, range);
-
   copy = async (
     docRange?: DocRange | null,
     selectRange?: boolean,
@@ -3630,14 +3637,23 @@ export class Editor implements EditorApi, EditorWiring {
           this._state.document.selection.isCollapsed,
         range: docSelection(this._state),
       },
-      activeMarks: this.queryMarks(),
+      activeMarks: docMarks(this._state, undefined),
       activeBlockType: this.queryBlock()?.type ?? null,
       canUndo: canUndoState(this._state),
       canRedo: canRedoState(this._state),
       isFocused: this._state.view.isFocused,
       mode: this._state.ui.mode,
+      caretScratchActive: this.queryCaretScratchActive(),
     };
   }
+
+  // Whether caret-anchored command-entry scratch is armed at the live caret.
+  private queryCaretScratchActive = (): boolean => {
+    const caret = resolvePoint(this._state, "caret");
+    return caret
+      ? isCaretScratchActive(this._state, caret.blockId, caret.offset)
+      : false;
+  };
 
   collectOverlays = (): NodeOverlay[] =>
     collectOverlays(this._state, this.viewport, getEditorStyles(this._state));
@@ -3700,7 +3716,7 @@ export class Editor implements EditorApi, EditorWiring {
   query: QueryApi = {
     block: this.queryBlock,
     blocks: this.queryBlocks,
-    marks: this.queryMarks,
+    marks: (at?: DocPoint) => queryMarkInfos(this._state, at),
   };
 
   view: EditorViewApi = {

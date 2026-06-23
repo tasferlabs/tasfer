@@ -9,7 +9,6 @@ import React, {
 import {
   type Editor,
   EXIT_INLINE_MATH,
-  getInlineMathSpans,
   type MathCommand,
   mathCommandCaretOffset,
 } from "@cypherkit/editor";
@@ -32,8 +31,8 @@ import { MathCommandPalette } from "./MathCommandMenu";
  * the SAME formula large — a second, magnified view of the chip, NOT a raw-LaTeX
  * textarea. It is a pure mirror: it never steals keyboard focus (every keystroke
  * keeps flowing to the main editor and drives the in-place edit), it re-paints
- * from `editor.getState()` on every tick, and a click in it just moves the
- * editor's caret. So it stays perfectly in sync with the small chip.
+ * from `editor.query.marks()` / `editor.state` on every tick, and a click in it
+ * just moves the editor's caret. So it stays perfectly in sync with the chip.
  *
  * Self-contained host chrome (mirrors {@link import("./MathCommandMenu")}): the
  * engine has no notion of it. It opens whenever the caret sits strictly inside a
@@ -49,7 +48,6 @@ interface InlineMathOverlayProps {
 
 /** The chip the caret is inside, resolved live from editor state. */
 interface OpenChip {
-  blockIndex: number;
   blockId: string;
   /** Caret-edge range of the chip within the block's text. */
   startIndex: number;
@@ -135,45 +133,44 @@ export const InlineMathOverlay: React.FC<InlineMathOverlayProps> = ({
   // here without any explicit open/close signal.
   useEffect(() => {
     const recompute = () => {
-      const st = editor.getState();
-      const cur = st?.document.cursor;
-      if (!st || !cur) return setChip(null);
+      // Collapsed caret only — a selection isn't "inside a chip".
+      const range = editor.state.selection.range;
+      const caret =
+        range && typeof range === "object" && "offset" in range
+          ? { block: range.block, offset: range.offset ?? 0 }
+          : null;
+      if (!caret) return setChip(null);
 
-      const { blockIndex, textIndex } = cur.position;
-      const block = st.document.page.blocks[blockIndex];
-      if (!block) return setChip(null);
-
-      // Strictly inside a chip — the boundaries are "just outside", where the
-      // caret has left the chip and the overlay should be closed.
-      const span = getInlineMathSpans(block).find(
-        (s) => textIndex > s.startIndex && textIndex < s.endIndex,
-      );
-      if (!span) return setChip(null);
+      // The math chip the caret is *strictly* inside — boundaries are "just
+      // outside", where the caret has left the chip and the overlay should close.
+      // query.marks covers [from, to); the strict check excludes the from edge.
+      const chipRun = editor.query
+        .marks(caret)
+        .find((m) => m.name === "math");
+      if (
+        !chipRun ||
+        caret.offset <= chipRun.from ||
+        caret.offset >= chipRun.to
+      ) {
+        return setChip(null);
+      }
 
       const coords = editor.view.coordsAtPos({
-        block: block.id,
-        offset: span.startIndex,
+        block: chipRun.block,
+        offset: chipRun.from,
       });
       const rect = getContainerRect();
       if (!coords || !rect) return;
 
-      // Command-entry is armed only by typing (a caret move clears the scratch),
-      // so this is true exactly while the user is entering a `\command` here —
-      // the same gate the on-canvas chip uses to keep a `\`-run literal.
-      const scratch = st.ui.caretScratch;
-      const commandEntry =
-        scratch != null &&
-        scratch.blockId === block.id &&
-        scratch.offset === textIndex;
-
       const next: OpenChip = {
-        blockIndex,
-        blockId: block.id,
-        startIndex: span.startIndex,
-        endIndex: span.endIndex,
-        latex: span.latex,
-        offset: textIndex - span.startIndex,
-        commandEntry,
+        blockId: chipRun.block,
+        startIndex: chipRun.from,
+        endIndex: chipRun.to,
+        latex: chipRun.text,
+        offset: caret.offset - chipRun.from,
+        // Whether a `\command` is being entered here (engine caret-scratch armed
+        // at the caret) — keeps a `\`-run literal. A caret move clears it.
+        commandEntry: editor.state.caretScratchActive,
         screenX: rect.left + coords.x,
         screenY: rect.top + coords.y + coords.height,
       };

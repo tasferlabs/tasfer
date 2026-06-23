@@ -133,7 +133,10 @@ async function main() {
       `Replica B — ${countWords(editorB.getMarkdown())} words · ${docB.getOperations().length} ops`;
     byId("status-sync").textContent =
       editorA.getMarkdown() === editorB.getMarkdown() ? "✓ converged" : "… syncing";
-    boldBtn.classList.toggle("is-active", editorA.query.marks().has("strong"));
+    boldBtn.classList.toggle(
+      "is-active",
+      editorA.state.activeMarks.has("strong"),
+    );
   };
 
   // Provider connectivity → status line.

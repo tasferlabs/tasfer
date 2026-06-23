@@ -24,18 +24,39 @@ export interface InlineMathSpan {
   latex: string;
 }
 
-export function getInlineMathSpans(block: Block): InlineMathSpan[] {
+/**
+ * A single mark's contiguous run resolved to caret-edge offsets — the
+ * mark-agnostic generalization of {@link InlineMathSpan} that backs
+ * `query.marks`. `startIndex`/`endIndex` are the caret-edge range (`endIndex` is
+ * after the last surviving char); `text` is the run's visible text; `attrs` is
+ * the mark's data (`{ url }` for a link, `{}` for a toggle mark).
+ */
+export interface MarkRunData {
+  readonly name: string;
+  readonly attrs: Record<string, unknown>;
+  readonly startIndex: number;
+  readonly endIndex: number;
+  readonly text: string;
+}
+
+/**
+ * Resolve every mark run in a block to caret-edge offsets — the single source of
+ * truth for "where does each mark render", shared by the inline-math chips and
+ * `query.marks`.
+ *
+ * Endpoints are resolved *tolerantly*: a format span anchors to exact char IDs,
+ * but those chars can be tombstoned (deleting a chip's leading char makes
+ * `startCharId` a tombstone) while interior chars survive. Matching the render
+ * path (`isCharInSpan` finds the anchor over ALL chars, not just visible ones),
+ * we key off document-order ordinals so a span resolves to its surviving visible
+ * chars instead of vanishing when an endpoint is deleted.
+ */
+export function resolveMarkRuns(block: Block): MarkRunData[] {
   if (!isTextualBlock(block)) return [];
 
-  // Resolve the span's tagged endpoints *tolerantly*: a format span anchors to
-  // exact char IDs, but those chars can be tombstoned (deleting a chip's leading
-  // char makes `startCharId` a tombstone) while interior chars survive. Matching
-  // the render path (`isCharInSpan` finds the anchor over ALL chars, not just
-  // visible ones), we key off document-order ordinals so a span resolves to its
-  // surviving visible chars instead of vanishing when an endpoint is deleted.
   const ordinal = new Map<string, number>(); // char id → document-order position
   const visibleOrd: number[] = []; // ordinal of each visible char, ascending
-  const visibleChars: string[] = []; // visible chars, to recover the LaTeX
+  const visibleChars: string[] = []; // visible chars, to recover the run text
   let ord = 0;
   for (const { id, char, deleted } of iterateAllChars(block.charRuns)) {
     ordinal.set(id, ord);
@@ -46,9 +67,8 @@ export function getInlineMathSpans(block: Block): InlineMathSpan[] {
     ord++;
   }
 
-  const spans: InlineMathSpan[] = [];
+  const runs: MarkRunData[] = [];
   for (const span of block.formats) {
-    if (span.format.type !== "math") continue;
     const startOrd = ordinal.get(span.startCharId);
     const endOrd = ordinal.get(span.endCharId);
     if (startOrd === undefined || endOrd === undefined) continue;
@@ -68,13 +88,25 @@ export function getInlineMathSpans(block: Block): InlineMathSpan[] {
 
     // Caret-edge range is [startIndex, endIndex + 1): startIndex before the
     // first surviving char, endIndex + 1 after the last.
-    spans.push({
+    runs.push({
+      name: span.format.type,
+      attrs: span.format.attrs ?? {},
       startIndex,
       endIndex: endIndex + 1,
-      latex: visibleChars.slice(startIndex, endIndex + 1).join(""),
+      text: visibleChars.slice(startIndex, endIndex + 1).join(""),
     });
   }
-  return spans;
+  return runs;
+}
+
+export function getInlineMathSpans(block: Block): InlineMathSpan[] {
+  return resolveMarkRuns(block)
+    .filter((r) => r.name === "math")
+    .map((r) => ({
+      startIndex: r.startIndex,
+      endIndex: r.endIndex,
+      latex: r.text,
+    }));
 }
 
 /**
