@@ -38,6 +38,7 @@ import {
   getOpsSince,
   isOpKnown,
   mergeOps,
+  registerAppliedOps,
   serializeVV,
 } from "./sync/oplog";
 import { cleanSnapshotForSave } from "./sync/reducer";
@@ -372,16 +373,11 @@ export function createDoc<D extends SchemaDefinition = BaseSchemaDefinition>(
 
     load(ops: Operation[]): void {
       if (ops.length === 0) return;
-      // Append in HLC order. appendOp dedups via the version vector and updates
-      // both the VV and the materialized state per op (idempotent here, since
-      // these ops already produced the seeded blocks). No emit: an attached
-      // editor already renders this content.
-      const sorted = [...ops].sort((a, b) => compareHLC(a.clock, b.clock));
-      for (const op of sorted) {
-        opLog = appendOp(opLog, op, schema);
-      }
-      page = opLog.state;
-      advanceBindingPast(sorted);
+      // The seeded snapshot already contains these operations. Register their
+      // log/VV metadata in bulk without replaying the reducer or replacing the
+      // snapshot-backed page.
+      opLog = registerAppliedOps(opLog, ops);
+      advanceBindingPast(ops);
     },
 
     on(event: "update", callback: (update: DocUpdate) => void): () => void {

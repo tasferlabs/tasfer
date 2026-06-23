@@ -302,6 +302,29 @@ describe("createDoc", () => {
     expect(doc.getOperations()).toHaveLength(2);
   });
 
+  it("load() preserves the seeded snapshot instead of rebuilding it", () => {
+    const binding = createCRDTbinding("page-1", "p-snapshot");
+    const engine = createSyncEngine(binding);
+    const blockInsert = engine.createBlockInsert(null, "paragraph");
+    engine.emit([blockInsert]);
+    const textInsert = engine.insertText(blockInsert.blockId, 0, "body");
+    engine.emit([textInsert]);
+    const ops = [blockInsert, textInsert];
+
+    const folded = createDoc({ pageId: "page-1", ops });
+    const snapshotBlocks = structuredClone(folded.getRawBlocks());
+    const doc = createDoc({ pageId: "page-1", blocks: snapshotBlocks });
+    const seededBlocks = doc.getRawBlocks();
+
+    doc.load(ops);
+
+    // Snapshot hydration must only populate log metadata. Keeping the exact
+    // array proves no reducer replay rebuilt the materialized document.
+    expect(doc.getRawBlocks()).toBe(seededBlocks);
+    expect(doc.getRawBlocks()).toEqual(snapshotBlocks);
+    expect(doc.getOperations()).toHaveLength(2);
+  });
+
   it("load() advances the binding so later local ops stay causally ahead", () => {
     // After loading persisted ops, a NEW local op from the same doc must
     // out-order (HLC) and out-counter (id) everything loaded — otherwise RGA

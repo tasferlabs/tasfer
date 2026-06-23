@@ -133,6 +133,40 @@ export function appendOp(
 }
 
 /**
+ * Register operations that are already reflected in the log's materialized
+ * state. This is the snapshot hydration path: it updates the operation log and
+ * version vector without applying the operations to `state` again.
+ *
+ * The input must obey the same per-origin ordering invariant as `mergeOps`.
+ */
+export function registerAppliedOps(log: OpLog, ops: Operation[]): OpLog {
+  if (ops.length === 0) return log;
+  if (IS_DEV) assertPerOriginOrder(ops);
+
+  const versionVector = new Map(log.versionVector);
+  const fresh: Operation[] = [];
+
+  for (const op of ops) {
+    const peerId = extractPeerId(op.id);
+    const counter = extractCounter(op.id);
+    const known = versionVector.get(peerId) ?? -1;
+    if (counter <= known) continue;
+
+    fresh.push(op);
+    versionVector.set(peerId, counter);
+  }
+
+  if (fresh.length === 0) return log;
+  fresh.sort((a, b) => compareHLC(a.clock, b.clock));
+
+  return {
+    ...log,
+    operations: mergeSortedOps(log.operations, fresh),
+    versionVector,
+  };
+}
+
+/**
  * Merge remote operations into the log.
  *
  * Fast path (every new op sorts strictly after every existing op): fold
