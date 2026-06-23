@@ -93,8 +93,8 @@ Subscribe to what the editor does. Every listener returns an unsubscribe functio
 
 <PropsTable cols={["Event", "Fires when", "Payload"]} rows={[
   { name: "change", type: "ChangeTransaction", desc: "The document changed — typing, paste, undo, or a remote sync. Payload: { isRemote, ops }." },
-  { name: "selectionchange", type: "EditorState", desc: "The caret or selection moved, without a document edit." },
-  { name: "focus / blur", type: "EditorState", desc: "The canvas gained or lost focus." },
+  { name: "selectionchange", type: "EditorStateSnapshot", desc: "The caret or selection moved, without a document edit." },
+  { name: "focus / blur", type: "EditorStateSnapshot", desc: "The canvas gained or lost focus." },
 ]} />
 
 Connection status and peer count are **not** editor events — they live on the provider (`provider.on("sync")`), because the provider owns the transport. See [Collaboration](/docs/editor/collaboration).

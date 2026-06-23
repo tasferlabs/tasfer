@@ -28,7 +28,7 @@ const editor = createEditor(options: CreateEditorOptions): CypherEditor;
 The editor never hands you a mutable store. `state` is a fresh, immutable snapshot rebuilt on every read; `getMarkdown()` projects the current document to text. The **`query` facet** is the read mirror of [`change`](/docs/editor/api-commands#targets): every method speaks the **same `DocPoint`/`DocRange` vocabulary the [ChangeApi](/docs/editor/api-commands#targets) accepts** and defaults to the live caret/selection. `block`/`blocks` mirror `change`'s point-vs-range split — `query.block(at)` pairs with `setBlock(attrs, at)`, and `query.blocks(range)` reads the span the selection covers. So you read a position and hand it straight back to a mutation without ever reaching into raw state. The selection itself (the caret/anchor `DocRange` with offsets) lives on the reactive snapshot at `state.selection.range`.
 
 <PropsTable cols={["Member", "Type", "Description"]} rows={[
-  { name: "state", type: "{ selection, activeMarks, activeBlockType, canUndo, canRedo, isFocused, mode, caretScratchActive, doc }", desc: "Immutable snapshot. selection.range is the current selection as a DocRange (a bare point for a caret), or null; selection.empty is true for a bare caret; activeMarks is a Set of mark names active at the caret/selection (use this for toolbar highlighting). Rebuilt every read." },
+  { name: "state", type: "{ selection, activeMarks, canUndo, canRedo, isFocused, mode, caretScratchActive, doc }", desc: "Immutable snapshot. selection.range is the current selection as a DocRange (a bare point for a caret), or null; selection.empty is true for a bare caret; activeMarks is a Set of mark names active at the caret/selection (use this for toolbar highlighting). Rebuilt every read." },
   { name: "doc", type: "Doc", desc: "The underlying CRDT document. Pass this to a provider to sync, or call doc.encodeState() to persist." },
   { name: "query.block(at?)", type: "(at?: DocPoint) => BlockData | null", desc: "Plain-data view { id, type, text, attrs } of the single block at at (default: caret block). The point counterpart to query.blocks and the read counterpart to setBlock. Address a block by id with query.block({ block: id }) — the common 'find the block this overlay targets' read." },
   { name: "query.blocks(range?)", type: "(range?: DocRange) => BlockData[]", desc: "The visible blocks the range touches, in document order (default: the selection — equivalently blocks(state.selection.range)). Narrow to a span without fetch-then-filter; for the whole document pass { from: 'start', to: 'end' }." },
@@ -130,12 +130,12 @@ The everyday content/command/query surface lives flat on the handle. Two further
 
 <h2 id="events">Events</h2>
 
-`on(event, cb)` subscribes and returns an unsubscribe function. The `change` listener receives a `ChangeTransaction` (`{ isRemote, ops }`); the others receive the internal `EditorState`.
+`on(event, cb)` subscribes and returns an unsubscribe function. The `change` listener receives a `ChangeTransaction` (`{ isRemote, ops }`); the others receive an `EditorStateSnapshot` — the same immutable value as `editor.state`.
 
 <PropsTable cols={["Event", "Fires when", "Payload"]} rows={[
   { name: "change", type: "ChangeTransaction", desc: "The document changed — typing, paste, undo, or a remote sync. { isRemote, ops }." },
-  { name: "selectionchange", type: "EditorState", desc: "The caret or selection moved, with no document edit." },
-  { name: "focus / blur", type: "EditorState", desc: "The canvas gained or lost focus." },
+  { name: "selectionchange", type: "EditorStateSnapshot", desc: "The caret or selection moved, with no document edit." },
+  { name: "focus / blur", type: "EditorStateSnapshot", desc: "The canvas gained or lost focus." },
 ]} />
 
 ```ts

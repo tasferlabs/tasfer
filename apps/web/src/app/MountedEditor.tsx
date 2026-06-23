@@ -26,7 +26,6 @@ import {
   type Block,
   type Decoration,
   type Doc,
-  type EditorState,
   type MountedEditor as MountedEditorInstance,
   type Operation,
 } from "@cypherkit/editor";
@@ -37,15 +36,12 @@ import {
   type CursorUser,
 } from "@cypherkit/provider-core/cursors";
 import {
-  allCharsHaveFormat,
   clearFailedImageCache,
-  getFormatsAtPosition,
-  getLinkAtPosition,
-  getSelectionRange,
   isTextualBlock,
   isTouchDevice,
   type CursorDragState,
   type EditorStrings,
+  type EditorWiring,
   type NodeOverlay,
   type PlaceholderStyles,
   type TextStyle,
@@ -692,7 +688,7 @@ interface MountedEditorProps {
   /** Called when content changes locally (for saving). */
   onContentChange?: (blocks: Block[]) => void;
   /** Callback for all content updates (local and remote) - used for word count, etc. */
-  onContentUpdate?: (blocks: (Block & { originalIndex: number })[]) => void;
+  onContentUpdate?: (blocks: Block[]) => void;
   autoFocus?: boolean;
   /** Unique page ID for CRDT sync - if provided, enables live collaboration */
   pageId: string;
@@ -852,10 +848,6 @@ function EditorSurface({
   }, [setOnOpenFind]);
 
   const lastContextMenuStateRef = useRef<typeof contextMenuState>(null);
-  const lastSerializedBlocksRef = useRef<
-    EditorState["document"]["page"]["blocks"] | null
-  >(null);
-  const editorInitializedRef = useRef(false);
   // Preserve live editor content across HMR re-mounts (refs survive Fast Refresh)
   const liveBlocksRef = useRef<{ blocks: Block[]; pageId: string } | null>(
     null,
@@ -1117,10 +1109,6 @@ function EditorSurface({
     mountedRef.current = mounted;
     const doc = editor.doc;
     const native = getBridge();
-
-    // Reset serialization tracking and initialization flag for this mount.
-    lastSerializedBlocksRef.current = null;
-    editorInitializedRef.current = false;
 
     // Haptics + native link-opening are editor actions now:
     // the engine dispatches semantic actions and we map them to the
@@ -1571,200 +1559,81 @@ function EditorSurface({
 
     window.CypherEditorCallbacks = editorMethods;
 
-    // Subscribe to editor state changes for slash action and context menu
-    const handleStateChange = (state: EditorState) => {
-      // Notify parent of content changes if callback is provided
-      // Only serialize when blocks actually change (not on cursor blink, UI changes, etc.)
-      if (
-        (onContentChangeRef.current || onContentUpdateRef.current) &&
-        state.document.page?.blocks
-      ) {
-        const currentBlocks = state.document.page.blocks;
-
-        // On first state change, store the initial blocks and notify for read-only callbacks
-        // Skip onContentChange to prevent overwriting backend content with empty state on mount
-        if (!editorInitializedRef.current) {
-          lastSerializedBlocksRef.current = currentBlocks;
-          editorInitializedRef.current = true;
-          // Still call onContentUpdate for read-only purposes (word count, export)
-          onContentUpdateRef.current?.(state.view.visibleBlocks);
-          return;
-        }
-
-        // Check if blocks reference has changed (indicates actual content modification)
-        if (currentBlocks !== lastSerializedBlocksRef.current) {
-          lastSerializedBlocksRef.current = currentBlocks;
-
-          // Notify of all content updates (local and remote) - used for word count, etc.
-          onContentUpdateRef.current?.(state.view.visibleBlocks);
-
-          // Only trigger saves for local user-initiated changes, not remote peer updates
-          // Remote peers handle saving their own changes
-          if (!isApplyingRemoteOpsRef.current) {
-            // Close find bar when user starts editing
-            if (findBarOpenRef.current) handleFindCloseRef.current?.();
-          }
-          if (!isApplyingRemoteOpsRef.current && onContentChangeRef.current) {
-            onContentChangeRef.current(currentBlocks as Block[]);
-          }
-        }
+    // Content lifecycle rides the public `on("change")` op channel — `tx.isRemote`
+    // tells local edits from sync, so no raw state is needed. `getRawBlocks()` is
+    // the full CRDT array (incl. tombstones, matching the old `page.blocks`);
+    // filtering tombstones yields the visible set word-count/export consumes.
+    const emitContentUpdate = () => {
+      onContentUpdateRef.current?.(doc.getRawBlocks().filter((b) => !b.deleted));
+    };
+    // `on("change")` doesn't fire on mount, so seed the initial word count once.
+    emitContentUpdate();
+    const offContent = mounted.editor.on("change", (tx) => {
+      emitContentUpdate();
+      // Saves + find-bar close only for local edits; remote peers save their own.
+      if (!tx.isRemote) {
+        if (findBarOpenRef.current) handleFindCloseRef.current?.();
+        onContentChangeRef.current?.(doc.getRawBlocks());
       }
+    });
 
+    // Per-tick UI chrome, derived purely from the public snapshot + query +
+    // collected overlays. Fires on any state change — including scroll, so
+    // overlay rects and the toolbar stay in sync as the document moves.
+    const offUi = mounted.editor.subscribe((snapshot) => {
       // Node-declared overlay slots (engine, framework-free) → host registry.
-      // Recollected each tick; only pushed to React state when the set changes.
+      // Only pushed to React state when the set changes.
       const newOverlays = mounted.editor.host.collectOverlays();
       if (!nodeOverlaysEqual(newOverlays, lastNodeOverlaysRef.current)) {
         lastNodeOverlaysRef.current = newOverlays;
         setNodeOverlays(newOverlays);
       }
-      // The context menu is host-owned via the OPEN_CONTEXT_MENU action
-      // (registered above), no longer derived from editor state here.
+      // Suspend the canvas while a text-input popover (image upload or link
+      // edit) is open. Those popovers surface as node/mark overlays, so detect
+      // them by key here rather than reaching into the engine's active-menu
+      // state. (link-tooltip / image-hover are non-modal and don't suspend.)
+      setModalPopoverOpen(
+        newOverlays.some(
+          (o) => o.key === "image-upload" || o.key === "link-edit",
+        ),
+      );
 
-      // These all render via the node/mark overlay registry now, driven by the
-      // engine's active menu (collectOverlays → NODE_OVERLAYS):
-      //   - link hover tooltip      → CypherLinkMark  → "link-tooltip"
-      //   - link edit / create      → CypherLinkMark  → "link-edit"
-      //   - image upload/edit popover→ CypherImageNode → "image-upload"
-      //   - image hover buttons      → CypherImageNode → "image-hover"
-      // (Math edits in place on the canvas; the inline-math WYSIWYG mirror is a
-      //  standalone portal — InlineMathOverlay — not a registry overlay.)
-      // The only mirror kept here is the suspended-mode signal: a text-input
-      // popover (image upload or link edit) is open.
-      const popoverOpen =
-        state.ui.activeMenu.type === "overlay" &&
-        (state.ui.activeMenu.key === "image-upload" ||
-          state.ui.activeMenu.key === "link-edit");
-      setModalPopoverOpen(popoverOpen);
-
-      // Update cursor drag state for magnifier
-      const newCursorDragState = state.ui.cursorDrag ?? null;
-      if (!shallowEqual(newCursorDragState, lastCursorDragStateRef.current)) {
-        lastCursorDragStateRef.current = newCursorDragState;
-        setCursorDragState(newCursorDragState);
+      // Toolbar icon: image block selected → "image"; a link under the caret or
+      // a single-block text selection → "link"; a selection spanning blocks →
+      // "none"; otherwise "format".
+      const range = snapshot.selection.range;
+      const span =
+        range && typeof range === "object" && "from" in range ? range : null;
+      // A selection's endpoints are always absolute `{ block, offset }` points
+      // (docSelection resolves them), but DocPoint's type also admits string
+      // anchors — narrow to the object form before reading the block id.
+      const blockOf = (p: typeof range): string | null =>
+        p && typeof p === "object" && "block" in p ? p.block : null;
+      let iconType: "link" | "image" | "format" | "none";
+      if (span) {
+        const fromBlock = blockOf(span.from);
+        const toBlock = blockOf(span.to);
+        if (fromBlock && toBlock && fromBlock !== toBlock) {
+          iconType = "none";
+        } else if (
+          fromBlock &&
+          mounted.editor.query.block({ block: fromBlock })?.type === "image"
+        ) {
+          iconType = "image";
+        } else {
+          iconType = "link";
+        }
+      } else if (mounted.editor.query.marks().some((m) => m.name === "link")) {
+        iconType = "link";
+      } else {
+        iconType = "format";
       }
-
-      // Update toolbar icon based on selection state
-      const determineToolbarIcon = (): "link" | "image" | "format" | "none" => {
-        // Check if an image block is selected
-        if (state.document.selection && !state.document.selection.isCollapsed) {
-          const { anchor, focus } = state.document.selection;
-          // If selection is on a single block
-          if (anchor.blockIndex === focus.blockIndex) {
-            const block = state.document.page.blocks[anchor.blockIndex];
-            if (block && block.type === "image") {
-              return "image";
-            }
-          } else {
-            // Selection spans multiple blocks - don't show any icon
-            return "none";
-          }
-        }
-
-        // Check if cursor is in a link or text is selected
-        if (state.document.cursor) {
-          const linkData = getLinkAtPosition(
-            state.document.cursor.position,
-            state,
-          );
-          if (linkData) {
-            return "link";
-          }
-        }
-
-        // Check if there's a text selection (show link icon to allow creating links)
-        if (state.document.selection && !state.document.selection.isCollapsed) {
-          const range = getSelectionRange(state);
-          if (range) {
-            const { start, end } = range;
-            // Only show link icon if selection is within a single block
-            if (start.blockIndex === end.blockIndex) {
-              const block = state.document.page.blocks[start.blockIndex];
-              if (block && block.type !== "image") {
-                return "link";
-              }
-            }
-          }
-        }
-
-        return "format";
-      };
-
-      const iconType = determineToolbarIcon();
-
-      // Update the ref so format button handler knows current icon
       currentIconTypeRef.current = iconType;
 
-      // Send formatting state to native bridge
-      // When there's a selection, check if ALL chars have the format
-      const range = getSelectionRange(state);
-      let isBold: boolean;
-      let isItalic: boolean;
-      let isCode: boolean;
-      let isStrikethrough: boolean;
-
-      if (range && range.start.blockIndex === range.end.blockIndex) {
-        // Single block selection: check if all chars have each format
-        const block = state.document.page.blocks[range.start.blockIndex];
-        if (isTextualBlock(block)) {
-          isBold = allCharsHaveFormat(
-            block.charRuns,
-            block.formats,
-            range.start.textIndex,
-            range.end.textIndex,
-            "strong",
-          );
-          isItalic = allCharsHaveFormat(
-            block.charRuns,
-            block.formats,
-            range.start.textIndex,
-            range.end.textIndex,
-            "emphasis",
-          );
-          isCode = allCharsHaveFormat(
-            block.charRuns,
-            block.formats,
-            range.start.textIndex,
-            range.end.textIndex,
-            "code",
-          );
-          isStrikethrough = allCharsHaveFormat(
-            block.charRuns,
-            block.formats,
-            range.start.textIndex,
-            range.end.textIndex,
-            "strike",
-          );
-        } else {
-          isBold = isItalic = isCode = isStrikethrough = false;
-        }
-      } else {
-        // No selection or multi-block: use cursor position
-        const getActiveMarks = () => {
-          if (state.ui.activeMarksMode.type === "explicit") {
-            return state.ui.activeMarksMode.formats;
-          }
-          if (state.document.cursor) {
-            const { blockIndex, textIndex } = state.document.cursor.position;
-            const block = state.document.page.blocks[blockIndex];
-            return getFormatsAtPosition(block, textIndex) || [];
-          }
-          return [];
-        };
-        const activeMarks = getActiveMarks();
-        isBold = activeMarks.some((f) => f.type === "strong");
-        isItalic = activeMarks.some((f) => f.type === "emphasis");
-        isCode = activeMarks.some((f) => f.type === "code");
-        isStrikethrough = activeMarks.some((f) => f.type === "strike");
-      }
-
-      // Update mobile toolbar state
-      const cursorBlockIndex = state.document.cursor?.position.blockIndex;
-      const cursorBlock =
-        cursorBlockIndex !== undefined
-          ? state.document.page.blocks[cursorBlockIndex]
-          : null;
-      const rawBlockType = cursorBlock?.type ?? "paragraph";
-      // Map editor block types to MobileBlockType
+      // Mobile toolbar — entirely from the snapshot/query. `activeMarks` is the
+      // selection-aware (intersection across the span + pending caret toggles)
+      // mark set, so it replaces the old per-char format scan.
+      const rawBlockType = mounted.editor.query.block()?.type ?? "paragraph";
       const MOBILE_BLOCK_TYPES: readonly MobileBlockType[] = [
         "paragraph",
         "heading1",
@@ -1783,18 +1652,30 @@ function EditorSurface({
         : "paragraph";
 
       setMobileToolbar({
-        canUndo: state.undoManager.undoStack.length > 0,
-        canRedo: state.undoManager.redoStack.length > 0,
-        isBold,
-        isItalic,
-        isCode,
-        isStrikethrough,
+        canUndo: snapshot.canUndo,
+        canRedo: snapshot.canRedo,
+        isBold: snapshot.activeMarks.has("strong"),
+        isItalic: snapshot.activeMarks.has("emphasis"),
+        isCode: snapshot.activeMarks.has("code"),
+        isStrikethrough: snapshot.activeMarks.has("strike"),
         blockType,
-        isEditorFocused: state.view.isFocused,
+        isEditorFocused: snapshot.isFocused,
       });
-    };
+    });
 
-    const unsubscribe = mounted.editor.subscribe(handleStateChange);
+    // The touch cursor-drag magnifier needs continuous per-tick drag geometry
+    // (`ui.cursorDrag`) the public snapshot doesn't model — the one remaining
+    // raw-state read, taken via the internal EditorWiring firehose (no semver
+    // guarantee), not the public EditorApi.
+    const offMagnifier = (
+      mounted.editor as unknown as EditorWiring
+    ).subscribeRaw((state) => {
+      const next = state.ui.cursorDrag ?? null;
+      if (!shallowEqual(next, lastCursorDragStateRef.current)) {
+        lastCursorDragStateRef.current = next;
+        setCursorDragState(next);
+      }
+    });
 
     // Auto-focus the editor when requested
     if (autoFocus) {
@@ -1817,7 +1698,9 @@ function EditorSurface({
     }
 
     return () => {
-      unsubscribe();
+      offContent();
+      offUi();
+      offMagnifier();
       disposeActions();
       offDocUpdate();
       offSelectionChange();

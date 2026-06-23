@@ -341,13 +341,6 @@ export interface EditorStateSnapshot {
   };
   /** Inline marks active at the caret / across the selection. */
   readonly activeMarks: ReadonlySet<Mark["type"]>;
-  /**
-   * The block type at the caret — with `heading` sugar applied (`"heading"`,
-   * not `heading1/2/3`), matching {@link ChangeApi.setBlock} — or `null` when
-   * there is no caret/block. Lets a block-type dropdown light up reactively
-   * without an imperative {@link EditorApi.getBlock} read.
-   */
-  readonly activeBlockType: string | null;
   /** Whether {@link EditorApi.undo} would currently change the document. */
   readonly canUndo: boolean;
   /** Whether {@link EditorApi.redo} would currently change the document. */
@@ -549,11 +542,13 @@ export interface QueryApi {
 export interface EditorApi {
   /**
    * Read-only state snapshot for UI binding: `{ selection, activeMarks,
-   * activeBlockType, canUndo, canRedo, isFocused, mode, caretScratchActive }`.
+   * canUndo, canRedo, isFocused, mode, caretScratchActive }`.
    * The typed read surface for chrome — pair it with the {@link query} facet for
-   * content reads and the {@link view} facet for geometry. (The raw internal
-   * `EditorState` is no longer exposed imperatively; the reactive
-   * {@link subscribe}/{@link on} listeners still deliver it for advanced diffing.)
+   * content reads and the {@link view} facet for geometry. The raw internal
+   * `EditorState` is not exposed through this public contract — both
+   * {@link subscribe} and {@link on} now deliver this snapshot. A first-party
+   * host that genuinely needs raw state for advanced diffing reaches it via the
+   * internal `subscribeRaw` (see `@cypherkit/editor/internal`).
    */
   readonly state: EditorStateSnapshot;
   /** Content read facet (the mirror of {@link change}) — see {@link QueryApi}. */
@@ -576,22 +571,25 @@ export interface EditorApi {
    */
   setFocus: (focused: boolean, shouldClearSelection?: boolean) => void;
   /**
-   * Subscribe to state changes: the listener receives the full {@link
-   * EditorState} after each render-loop diff and on direct notifications (focus,
-   * mode, undo…). Returns an unsubscribe function. For a filtered, self-
-   * describing alternative see {@link on}.
+   * Subscribe to state changes: the listener receives a fresh
+   * {@link EditorStateSnapshot} after each render-loop diff and on direct
+   * notifications (focus, mode, undo…). Fires on any state change — including
+   * scroll/viewport ticks the filtered {@link on} events don't cover — so it's
+   * the right hook for chrome that must reposition as the document moves (e.g. a
+   * popover anchored to a caret coordinate). Returns an unsubscribe function. For
+   * a filtered, self-describing alternative see {@link on}.
    */
-  subscribe: (listener: (state: EditorState) => void) => () => void;
+  subscribe: (listener: (snapshot: EditorStateSnapshot) => void) => () => void;
   /**
    * Convenience event subscription — a thin, self-describing filter over
    * {@link Editor.subscribe} (see {@link EditorEvent}). Returns an unsubscribe
    * function. The `"change"` listener receives a {@link ChangeTransaction}
-   * (`{ isRemote, ops }`); the others receive the {@link EditorState}.
+   * (`{ isRemote, ops }`); the others receive a fresh {@link EditorStateSnapshot}.
    */
   on(event: "change", callback: (tx: ChangeTransaction) => void): () => void;
   on(
     event: "selectionchange" | "focus" | "blur",
-    callback: (state: EditorState) => void,
+    callback: (snapshot: EditorStateSnapshot) => void,
   ): () => void;
   /**
    * Observe or override a mutation action (see `action`). The handler runs
@@ -735,6 +733,16 @@ export interface EditorWiring {
    * callback here.
    */
   setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
+  /**
+   * Raw state firehose — the listener receives the full internal
+   * {@link EditorState} after each render-loop diff and on direct notifications.
+   * The public {@link EditorApi.subscribe} is the snapshot-delivering wrapper
+   * over this; `subscribeRaw` is the unstable escape hatch for a first-party host
+   * that needs internal state the snapshot doesn't model (e.g. `ui.cursorDrag`,
+   * `ui.activeMenu`, per-char formats). No semver guarantee — reachable via
+   * `EditorClass` from `@cypherkit/editor/internal`, never `EditorApi`.
+   */
+  subscribeRaw: (listener: (state: EditorState) => void) => () => void;
   /**
    * Update browser-window focus (affects selection color); re-renders. Driven by
    * `mountEditor`'s window focus/blur listeners — not a host-facing control.
@@ -2377,7 +2385,11 @@ export class Editor implements EditorApi, EditorWiring {
     });
   };
 
-  subscribe = (listener: (state: EditorState) => void): (() => void) => {
+  // Raw state firehose (EditorWiring) — the internal primitive every public
+  // subscription wraps. Engine code (`on`) and a first-party host reaching in via
+  // `EditorClass` diff the full EditorState here; the public `subscribe`/`on`
+  // never expose it.
+  subscribeRaw = (listener: (state: EditorState) => void): (() => void) => {
     this.listeners.push(listener);
     return () => {
       const index = this.listeners.indexOf(listener);
@@ -2387,11 +2399,18 @@ export class Editor implements EditorApi, EditorWiring {
     };
   };
 
+  // Public subscription: deliver the EditorStateSnapshot, never raw state. The
+  // raw arg is ignored — at notify time `this._state` is the just-applied state,
+  // so the `state` getter builds the snapshot for it.
+  subscribe = (
+    listener: (snapshot: EditorStateSnapshot) => void,
+  ): (() => void) => this.subscribeRaw(() => listener(this.state));
+
   on: EditorApi["on"] = (
     event: EditorEvent,
     callback:
       | ((tx: ChangeTransaction) => void)
-      | ((state: EditorState) => void),
+      | ((snapshot: EditorStateSnapshot) => void),
   ): (() => void) => {
     // "change" rides the dedicated op channel (emitChange) so it can carry the
     // ChangeTransaction { isRemote, ops }, rather than the state-diff path.
@@ -2405,10 +2424,11 @@ export class Editor implements EditorApi, EditorWiring {
     }
 
     // selectionchange / focus / blur are pure state transitions — classify them
-    // by diffing the snapshot captured at subscription time on each notification.
-    const cb = callback as (state: EditorState) => void;
+    // by diffing raw state (the internal firehose) against the value captured at
+    // subscription time, then hand the listener the public snapshot.
+    const cb = callback as (snapshot: EditorStateSnapshot) => void;
     let prev = this._state;
-    return this.subscribe((next) => {
+    return this.subscribeRaw((next) => {
       const pageChanged = prev.document.page !== next.document.page;
       const selectionChanged =
         prev.document.cursor?.position !== next.document.cursor?.position ||
@@ -2419,13 +2439,13 @@ export class Editor implements EditorApi, EditorWiring {
 
       switch (event) {
         case "selectionchange":
-          if (selectionChanged && !pageChanged) cb(next);
+          if (selectionChanged && !pageChanged) cb(this.state);
           break;
         case "focus":
-          if (focusGained) cb(next);
+          if (focusGained) cb(this.state);
           break;
         case "blur":
-          if (focusLost) cb(next);
+          if (focusLost) cb(this.state);
           break;
       }
     });
@@ -3638,7 +3658,6 @@ export class Editor implements EditorApi, EditorWiring {
         range: docSelection(this._state),
       },
       activeMarks: docMarks(this._state, undefined),
-      activeBlockType: this.queryBlock()?.type ?? null,
       canUndo: canUndoState(this._state),
       canRedo: canRedoState(this._state),
       isFocused: this._state.view.isFocused,
