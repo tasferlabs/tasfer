@@ -182,18 +182,18 @@ export class MathNode extends TextNode {
     // (the shared render context is not saved per block).
     ctx.save();
 
-    // Full-block backdrop when the block is hovered OR active (caret/selection
-    // inside it) — signals the whole block is the editable equation. Drawn for
-    // empty blocks too, so an active empty equation still reads as selected.
-    if (
+    // Keep the same full-block surface as a code block at rest so an equation
+    // reads as a distinct editable block. Hover and active states use the
+    // stronger math interaction color.
+    const emphasized =
       state.ui.hoveredMathBlockIndex === blockIndex ||
-      this.isBlockActive(state, blockIndex)
-    ) {
-      ctx.fillStyle = m.hoverBackgroundColor;
-      ctx.beginPath();
-      ctx.roundRect(x, y, width, layout.height, m.hoverBorderRadius);
-      ctx.fill();
-    }
+      this.isBlockActive(state, blockIndex);
+    ctx.fillStyle = emphasized
+      ? m.hoverBackgroundColor
+      : styles.blocks.code.backgroundColor;
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, layout.height, m.hoverBorderRadius);
+    ctx.fill();
 
     if (layout.mathLayout) {
       const latex = getVisibleTextFromChars(layout.chars);
