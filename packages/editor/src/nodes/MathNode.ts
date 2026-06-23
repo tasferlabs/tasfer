@@ -721,7 +721,7 @@ export const SET_INLINE_MATH_HOVER = stateAction<{
  * This is the inline-math counterpart to the caret-exit a host needs when the
  * user arrows/Escapes out of the WYSIWYG popover that mirrors the chip. It lives
  * here with the math node (not as a method on the generic editor handle) and is
- * fired by the host via `editor.dispatch(NodeActions.EXIT_INLINE_MATH, …)`, like
+ * fired by the host via `editor.dispatch(EXIT_INLINE_MATH, …)`, like
  * every other node/mark behavior. The caret is placed on the exiting edge and
  * then stepped one position further with the caret-model-aware
  * {@link moveCursorLeft} / {@link moveCursorRight}, so the chip's own snap can't

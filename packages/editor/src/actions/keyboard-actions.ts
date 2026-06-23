@@ -429,34 +429,3 @@ export const EXTEND_SELECTION_END = stateAction<{ isCtrl: boolean }>(
     return { state: base, ops: [] };
   },
 );
-
-/**
- * The keyboard command vocabulary, grouped — exposed at the package root as
- * `KeyboardActions`. A host rebinding keys or wiring a command palette
- * dispatches/observes these (`editor.dispatch(KeyboardActions.MOVE_CURSOR_LEFT)`);
- * the engine's own key handlers dispatch the same references internally.
- */
-export const KeyboardActions = {
-  MOVE_CURSOR_LEFT,
-  MOVE_CURSOR_RIGHT,
-  MOVE_CURSOR_UP,
-  MOVE_CURSOR_DOWN,
-  MOVE_CURSOR_PAGE_UP,
-  MOVE_CURSOR_PAGE_DOWN,
-  MOVE_TO_PREVIOUS_WORD,
-  MOVE_TO_NEXT_WORD,
-  MOVE_TO_LINE_START,
-  MOVE_TO_LINE_END,
-  MOVE_TO_DOCUMENT_START,
-  MOVE_TO_DOCUMENT_END,
-  EXTEND_SELECTION_LEFT,
-  EXTEND_SELECTION_RIGHT,
-  EXTEND_SELECTION_UP,
-  EXTEND_SELECTION_DOWN,
-  EXTEND_SELECTION_PAGE_UP,
-  EXTEND_SELECTION_PAGE_DOWN,
-  EXTEND_SELECTION_WORD_LEFT,
-  EXTEND_SELECTION_WORD_RIGHT,
-  EXTEND_SELECTION_HOME,
-  EXTEND_SELECTION_END,
-} as const;

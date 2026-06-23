@@ -20,28 +20,10 @@
 // TextNode directly) guarantees TextNode evaluates first regardless of the order
 // here, so these stay alphabetized.
 import { CodeNode } from "../../nodes/CodeNode";
-import {
-  CANCEL_IMAGE_HANDLE_DRAG,
-  CREATE_PARAGRAPH_BELOW_IMAGE,
-  END_IMAGE_HANDLE_DRAG,
-  ImageNode,
-  SET_IMAGE_HOVER,
-  START_IMAGE_HANDLE_DRAG,
-  UPDATE_IMAGE_HANDLE_DRAG,
-} from "../../nodes/ImageNode";
+import { ImageNode } from "../../nodes/ImageNode";
 import { LineNode } from "../../nodes/LineNode";
-import {
-  INDENT_LIST_ITEM,
-  ListNode,
-  OUTDENT_LIST_ITEM,
-  TOGGLE_TODO_CHECKED,
-} from "../../nodes/ListNode";
-import {
-  EXIT_INLINE_MATH,
-  MathNode,
-  SET_INLINE_MATH_HOVER,
-  SET_MATH_BLOCK_HOVER,
-} from "../../nodes/MathNode";
+import { ListNode } from "../../nodes/ListNode";
+import { MathNode } from "../../nodes/MathNode";
 import { TextNode } from "../../nodes/TextNode";
 import { Node, NodeRegistry } from "./Node";
 
@@ -98,31 +80,6 @@ export {
   type Point,
 } from "./Node";
 export { UnknownNode } from "./UnknownNode";
-
-/**
- * The built-in node commands, grouped — exposed at the package root as
- * `NodeActions`. Each is co-located with the node it acts on (list
- * indent/outdent + todo checkbox on `ListNode`, image hover + resize-handle drag
- * + paragraph-below on `ImageNode`, math hover + inline-math caret-exit on
- * `MathNode`) and aggregated here, the node registry's wiring point. Mostly
- * intimate node-internal geometry; the list/checkbox commands and the
- * `EXIT_INLINE_MATH` caret-exit (which a host's inline-math popover dispatches)
- * are the plausibly host-bindable members.
- */
-export const NodeActions = {
-  INDENT_LIST_ITEM,
-  OUTDENT_LIST_ITEM,
-  TOGGLE_TODO_CHECKED,
-  SET_IMAGE_HOVER,
-  START_IMAGE_HANDLE_DRAG,
-  UPDATE_IMAGE_HANDLE_DRAG,
-  END_IMAGE_HANDLE_DRAG,
-  CANCEL_IMAGE_HANDLE_DRAG,
-  CREATE_PARAGRAPH_BELOW_IMAGE,
-  SET_MATH_BLOCK_HOVER,
-  SET_INLINE_MATH_HOVER,
-  EXIT_INLINE_MATH,
-} as const;
 
 /**
  * The built-in nodes. Each is constructed fresh here (the built-in nodes are

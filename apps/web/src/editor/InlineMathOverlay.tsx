@@ -8,10 +8,10 @@ import React, {
 } from "react";
 import {
   type Editor,
+  EXIT_INLINE_MATH,
   getInlineMathSpans,
   type MathCommand,
   mathCommandCaretOffset,
-  NodeActions,
 } from "@cypherkit/editor";
 import {
   getEditorStyles,
@@ -194,7 +194,7 @@ export const InlineMathOverlay: React.FC<InlineMathOverlayProps> = ({
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();
-      editor.dispatch(NodeActions.EXIT_INLINE_MATH, {
+      editor.dispatch(EXIT_INLINE_MATH, {
         blockId: chip.blockId,
         startIndex: chip.startIndex,
         endIndex: chip.endIndex,
