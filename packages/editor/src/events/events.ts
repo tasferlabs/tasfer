@@ -16,7 +16,12 @@ import {
 import { getTextPositionFromViewport } from "../selection";
 import { updateCursor } from "../selection";
 import { startSelection, updateSelectionFocus } from "../selection";
-import type { EditorState, MouseEvent, ViewportState } from "../state-types";
+import type {
+  EditorState,
+  MouseEvent,
+  ViewportState,
+  VisibleBlockRange,
+} from "../state-types";
 import type { Operation } from "../state-types";
 import { closeActiveMenu, updateMode } from "../state-utils";
 import { applyEdgeScroll } from "./autoScroll";
@@ -47,7 +52,7 @@ import {
 export function handleEvents(
   state: EditorState,
   viewport: ViewportState,
-  visibility: { start: number; end: number },
+  visibility: VisibleBlockRange,
   events: Event[],
   documentHeight: number,
   containerRect: { left: number; top: number },
@@ -441,6 +446,7 @@ export function handleEvents(
           containerRect,
           documentHeight,
           session,
+          visibility,
           updateViewportCallback,
         );
         state = mouseDownResult.state;
@@ -457,6 +463,7 @@ export function handleEvents(
           containerRect,
           documentHeight,
           session,
+          visibility,
           updateViewportCallback,
         );
         break;
@@ -485,6 +492,7 @@ export function handleEvents(
           viewport,
           event,
           updateViewportCallback,
+          visibility,
         );
         state = keyResult.state;
         collectedOps.push(...keyResult.ops);

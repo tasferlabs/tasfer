@@ -27,6 +27,7 @@ import type {
   TextInsert,
 } from "../state-types";
 import { getBlockTextLength } from "../state-utils";
+import { findBlock } from "../sync/block-lookup";
 import {
   getBlockDescriptor,
   getBlockFieldNames,
@@ -151,7 +152,7 @@ function autoLinkInRange(
   // need to check are stable across the URL loop; only the accumulated link
   // ops we ourselves emit need to be considered. Hoist the initial lookup
   // out of the loop and track newly-added links locally.
-  const initialBlock = page.blocks.find((b) => b.id === blockId);
+  const initialBlock = findBlock(page, blockId);
   if (!initialBlock || !isTextualBlock(initialBlock)) {
     return { newPage: page, ops: [] };
   }

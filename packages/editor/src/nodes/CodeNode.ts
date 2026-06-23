@@ -105,6 +105,14 @@ export class CodeNode extends TextNode {
   readonly type = "code" as const;
   readonly types: readonly string[] = ["code"];
 
+  protected estimateLayoutMaxWidth(
+    _block: TextualBlock,
+    maxWidth: number,
+    styles: EditorStyles,
+  ): number {
+    return maxWidth - styles.blocks.code.paddingX;
+  }
+
   // ── Layout ────────────────────────────────────────────────────────────────
 
   /**

@@ -24,7 +24,11 @@
  */
 
 import { REGION_DRAG_START } from "../action-bus";
-import type { EditorState, ViewportState } from "../state-types";
+import type {
+  EditorState,
+  ViewportState,
+  VisibleBlockRange,
+} from "../state-types";
 import type { Operation } from "../sync/sync";
 import type { InteractionSession } from "./interaction-session";
 
@@ -40,6 +44,7 @@ export interface RegionCtx {
   readonly state: EditorState;
   readonly viewport: ViewportState;
   readonly documentHeight: number;
+  readonly visibility?: VisibleBlockRange;
   readonly session: InteractionSession;
   readonly updateViewport?: (viewport: Partial<ViewportState>) => void;
 }

@@ -50,6 +50,7 @@ import {
   selectTarget,
   toBlockData,
 } from "../positions";
+import { BlockHeightIndex } from "../rendering/block-height-index";
 import type { Decoration } from "../rendering/decorations";
 import {
   removeDecorationLayer,
@@ -58,7 +59,8 @@ import {
 import {
   clearAllBlockCaches,
   collectOverlays,
-  getBlockHeight,
+  getEstimatedBlockHeight,
+  getIndexedCursorViewportCoords,
   invalidateBlockCache,
   renderCursorLayer,
   renderPage,
@@ -76,7 +78,6 @@ import type {
 } from "../schema-types";
 import {
   getCursorCoordinatesWithComposition,
-  getCursorDocumentCoords,
   scrollToMakeCursorVisible,
 } from "../selection";
 import { moveCursorToPosition } from "../selection";
@@ -102,6 +103,7 @@ import type {
   NodeOverlay,
   Position,
   ViewportState,
+  VisibleBlockRange,
 } from "../state-types";
 import type { Operation } from "../state-types";
 import {
@@ -117,6 +119,7 @@ import {
   resolveNodeStrings,
   resolveTheme,
 } from "../styles";
+import { findBlockIndex } from "../sync/block-lookup";
 import {
   canHaveFormats,
   createDefaultBlock,
@@ -455,7 +458,10 @@ export interface EditorViewApi {
    * public {@link DocPoint} vocabulary as {@link coordsAtPos}: an absolute
    * `{ block, offset }` (the stable, CRDT-id form), or a relative
    * `"caret"`/`"start"`/`"end"`. */
-  scrollToPosition: (point: DocPoint) => void;
+  scrollToPosition: (
+    point: DocPoint,
+    options?: { viewportOffsetY?: number },
+  ) => void;
   /**
    * Replace the decorations in one layer — the engine's generic, ephemeral
    * overlay primitive (find highlights, remote cursors, …). `layer` is an opaque
@@ -836,7 +842,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   private animationFrameId: number | null = null;
   private documentHeight = 0;
-  private visibility = { start: 0, end: 0 };
+  private visibility: VisibleBlockRange = { start: 0, end: 0, startY: 0 };
   private isRendering = false;
 
   // Broadcast function for sending operations to peers
@@ -860,6 +866,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // Cache for document height (expensive to calculate)
   private cachedDocumentHeight = 0;
   private documentHeightDirty = true;
+  private readonly blockHeights = new BlockHeightIndex();
+  private pendingViewportAnchor: {
+    position: Position;
+    viewportOffsetY: number;
+    remainingCorrections: number;
+  } | null = null;
 
   private lastCursorBlinkState = false; // Track cursor blink state changes
 
@@ -938,6 +950,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     this._state = initialState;
     this.viewport = viewportProp;
+    this.rebuildBlockHeightIndex();
 
     // Built-in action defaults. These sit below any host handler (registered
     // via editor.registerAction) on the bus, so a host can override them by
@@ -1069,6 +1082,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // so text measurements use the correct font metrics
     onFontsReady(() => {
       clearAllBlockCaches(this._state.document.page.blocks);
+      this.documentHeightDirty = true;
+      this.rebuildBlockHeightIndex();
       this.scheduleRender();
     });
   }
@@ -1206,6 +1221,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         this.dirtyLayers.content = true;
         this.dirtyLayers.cursor = true;
         this.documentHeightDirty = true;
+        this.reconcileBlockHeightIndex();
         this.lastRenderedPageRef = this._state.document.page;
       }
 
@@ -1285,6 +1301,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
           this.dirtyLayers.content = true;
           this.dirtyLayers.cursor = true; // Cursor position may have changed
           this.documentHeightDirty = true; // Blocks changed, need to recalculate height
+          this.reconcileBlockHeightIndex();
         }
 
         // Check if selection changed (requires content layer update)
@@ -1343,6 +1360,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         this.dirtyLayers.content || this.dirtyLayers.cursor;
 
       if (needsAnyRender) {
+        let viewportChangedAfterPaint = false;
         // Render content layer if dirty (expensive)
         if (this.dirtyLayers.content) {
           // Recalculate document height only when needed
@@ -1357,7 +1375,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             this.cachedDocumentHeight - this.viewport.height,
           );
           if (this.viewport.scrollY > maxScroll) {
-            this.viewport = { ...this.viewport, scrollY: maxScroll };
+            this.applyProgrammaticScroll(maxScroll);
           }
 
           // Render the page content (text, blocks, selection, scrollbar)
@@ -1369,7 +1387,39 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             this.visibility,
             undefined,
             this.requestRedraw,
+            this.blockHeights,
           );
+          this.cachedDocumentHeight = this.documentHeight;
+          this.viewport = {
+            ...this.viewport,
+            documentHeight: this.documentHeight,
+          };
+
+          const anchor = this.pendingViewportAnchor;
+          if (anchor) {
+            const coords = this.coordsAtIndexPosition(anchor.position);
+            const delta = coords ? coords.y - anchor.viewportOffsetY : 0;
+            if (coords && Math.abs(delta) > 0.5) {
+              const maxScroll = Math.max(
+                0,
+                this.documentHeight - this.viewport.height,
+              );
+              const scrollY = Math.max(
+                0,
+                Math.min(maxScroll, this.viewport.scrollY + delta),
+              );
+              viewportChangedAfterPaint = scrollY !== this.viewport.scrollY;
+              this.applyProgrammaticScroll(scrollY);
+            }
+            anchor.remainingCorrections--;
+            if (
+              !viewportChangedAfterPaint ||
+              anchor.remainingCorrections <= 0 ||
+              !coords
+            ) {
+              this.pendingViewportAnchor = null;
+            }
+          }
 
           // Update cursor style based on scrollbar hover and drag state
           this.updateCursorStyle(
@@ -1384,17 +1434,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             this._state.ui.inlineMathHover !== null,
           );
 
-          this.dirtyLayers.content = false;
+          this.dirtyLayers.content = viewportChangedAfterPaint;
+          if (viewportChangedAfterPaint) this.dirtyLayers.cursor = true;
         }
 
         // Render cursor layer if dirty (very cheap!)
-        if (this.dirtyLayers.cursor) {
+        if (this.dirtyLayers.cursor && !viewportChangedAfterPaint) {
           renderCursorLayer(
             this.cursorCtx,
             this.session,
             this._state,
             this.viewport,
             getEditorStyles(this._state),
+            this.blockHeights,
           );
           this.dirtyLayers.cursor = false;
         }
@@ -1403,17 +1455,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         if (
           this.hiddenInput &&
           this._state.document.cursor &&
-          this._state.view.isFocused
+          this._state.view.isFocused &&
+          !viewportChangedAfterPaint
         ) {
-          const cursorCoords = getCursorCoordinatesWithComposition(
-            this._state,
-            this.viewport,
-          );
+          const isComposing = this._state.ui.composition?.isComposing;
+          const cursorCoords = isComposing
+            ? getCursorCoordinatesWithComposition(this._state, this.viewport)
+            : this.coordsAtIndexPosition(this._state.document.cursor.position);
           if (cursorCoords) {
             this.hiddenInput.style.left = `${cursorCoords.x}px`;
-            this.hiddenInput.style.top = `${
-              cursorCoords.y - this.viewport.scrollY + cursorCoords.height
-            }px`;
+            const viewportY = isComposing
+              ? cursorCoords.y - this.viewport.scrollY
+              : cursorCoords.y;
+            this.hiddenInput.style.top = `${viewportY + cursorCoords.height}px`;
           }
         }
 
@@ -2272,12 +2326,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.dispatch(SCROLL, {
         scrollY: patch.scrollY,
         deltaY: patch.scrollY - this.viewport.scrollY,
+        source: "user",
       })
     ) {
       patch = { ...patch, scrollY: this.viewport.scrollY };
     }
 
     this.viewport = { ...this.viewport, ...patch };
+    if (patch.scrollY !== undefined) this.pendingViewportAnchor = null;
 
     // Invalidate cached bounding rect since viewport dimensions changed
     this.invalidateRectCache();
@@ -2286,6 +2342,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (this.viewport.width !== oldWidth) {
       clearAllBlockCaches(this._state.document.page.blocks);
       this.documentHeightDirty = true; // Width change affects text wrapping and height
+      this.rebuildBlockHeightIndex();
     }
 
     // Schedule render for viewport changes
@@ -2294,30 +2351,59 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private calculateDocumentHeight = (): number => {
-    // Calculate total document height based on all blocks
     const styles = getEditorStyles(this._state);
-    const maxWidth = this.viewport.width - 2 * styles.canvas.paddingLeft;
-    let totalHeight = styles.canvas.paddingTop;
+    const documentHeight =
+      styles.canvas.paddingTop +
+      this.blockHeights.totalHeight() +
+      styles.canvas.paddingBottom;
+    this.viewport = { ...this.viewport, documentHeight };
+    return documentHeight;
+  };
 
-    const visibleBlocks = this._state.view.visibleBlocks;
-    for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-      const block = visibleBlocks[visibleIdx];
+  /**
+   * Apply an engine-driven viewport change and notify observers after it has
+   * taken effect. Unlike the user-input scroll funnel, programmatic scrolling
+   * cannot be claimed by an action handler.
+   */
+  private applyProgrammaticScroll = (scrollY: number): void => {
+    const previousScrollY = this.viewport.scrollY;
+    if (scrollY === previousScrollY) return;
+    this.viewport = { ...this.viewport, scrollY };
+    const event = {
+      scrollY,
+      deltaY: scrollY - previousScrollY,
+      source: "programmatic",
+    } as const;
+    this._state.actionBus.notify(SCROLL, event);
+  };
 
-      // Use getBlockHeight to leverage caching for performance
-      const blockHeight = getBlockHeight(
+  private rebuildBlockHeightIndex = (): void => {
+    this.updateBlockHeightIndex("rebuild");
+  };
+
+  private reconcileBlockHeightIndex = (): void => {
+    this.updateBlockHeightIndex("reconcile");
+  };
+
+  private updateBlockHeightIndex = (mode: "rebuild" | "reconcile"): void => {
+    const styles = getEditorStyles(this._state);
+    const maxWidth =
+      this.viewport.width -
+      (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+    const estimate = (
+      block: Block & { originalIndex: number },
+      index: number,
+    ) =>
+      getEstimatedBlockHeight(
         this._state.nodes,
         this._state.marks,
         block,
+        block.originalIndex,
         maxWidth,
         styles,
-        visibleIdx === 0,
+        index === 0,
       );
-      totalHeight += blockHeight;
-    }
-
-    const documentHeight = totalHeight + styles.canvas.paddingBottom;
-    this.viewport = { ...this.viewport, documentHeight };
-    return documentHeight;
+    this.blockHeights[mode](this._state.view.visibleBlocks, estimate);
   };
 
   setFocus = (
@@ -2404,19 +2490,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private coordsAtIndexPosition = (
     position: Position,
   ): { x: number; y: number; height: number } | null => {
-    const coords = getCursorDocumentCoords(
+    return getIndexedCursorViewportCoords(
       position,
       this._state,
       this.viewport,
       getEditorStyles(this._state),
+      this.blockHeights,
     );
-    if (!coords) return null;
-
-    return {
-      x: coords.x,
-      y: coords.y - this.viewport.scrollY,
-      height: coords.height,
-    };
   };
 
   coordsAtPos = (
@@ -3172,7 +3252,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     ): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
-      const blockIndex = blocks.findIndex((b) => b.id === blockId);
+      const blockIndex = findBlockIndex(s.document.page, blockId);
       const block = blocks[blockIndex];
       if (!block || block.deleted || !isTextualBlock(block))
         return { state: s, ops: [] };
@@ -3223,7 +3303,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     (blockId: string, attrs: Record<string, unknown>): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
-      const blockIndex = blocks.findIndex((b) => b.id === blockId);
+      const blockIndex = findBlockIndex(s.document.page, blockId);
       const block = blocks[blockIndex];
       if (!block || block.deleted) return { state: s, ops: [] };
 
@@ -3287,7 +3367,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     (blockId: string): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
-      const blockIndex = blocks.findIndex((b) => b.id === blockId);
+      const blockIndex = findBlockIndex(s.document.page, blockId);
       const block = blocks[blockIndex];
       if (!block || block.deleted) return { state: s, ops: [] };
 
@@ -3368,7 +3448,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     ): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
-      const blockIndex = blocks.findIndex((b) => b.id === blockId);
+      const blockIndex = findBlockIndex(s.document.page, blockId);
       const block = blocks[blockIndex];
       if (!block || block.deleted || !isTextualBlock(block))
         return { state: s, ops: [] };
@@ -3426,7 +3506,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     (blockId: string, start: number, end: number): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
-      const blockIndex = blocks.findIndex((b) => b.id === blockId);
+      const blockIndex = findBlockIndex(s.document.page, blockId);
       const block = blocks[blockIndex];
       if (!block || block.deleted || !isTextualBlock(block))
         return { state: s, ops: [] };
@@ -3659,7 +3739,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     // Mark document height as dirty and reset scroll to top
     this.documentHeightDirty = true;
-    this.viewport = { ...this.viewport, scrollY: 0 };
+    this.applyProgrammaticScroll(0);
 
     // Re-render and notify listeners
     const currentState = this._state;
@@ -3684,6 +3764,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // the document height recomputes with the new styles.
     clearAllBlockCaches(this._state.document.page.blocks);
     this.documentHeightDirty = true;
+    this.rebuildBlockHeightIndex();
     this.scheduleRender();
   };
 
@@ -3713,7 +3794,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   collectOverlays = (): NodeOverlay[] =>
-    collectOverlays(this._state, this.viewport, getEditorStyles(this._state));
+    collectOverlays(
+      this._state,
+      this.viewport,
+      getEditorStyles(this._state),
+      this.blockHeights,
+    );
 
   getScrollY = (): number => this.viewport.scrollY;
 
@@ -3749,16 +3835,49 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.scheduleRender();
   };
 
-  scrollToPosition = (point: DocPoint): void => {
+  scrollToPosition = (
+    point: DocPoint,
+    options?: { viewportOffsetY?: number },
+  ): void => {
     const resolved = resolvePoint(this._state, point);
     if (!resolved) return;
+    if (options?.viewportOffsetY !== undefined) {
+      const current = this.coordsAtIndexPosition({
+        blockIndex: resolved.blockIndex,
+        textIndex: resolved.offset,
+      });
+      if (current) {
+        const maxScroll = Math.max(
+          0,
+          this.calculateDocumentHeight() - this.viewport.height,
+        );
+        const scrollY = Math.max(
+          0,
+          Math.min(
+            maxScroll,
+            this.viewport.scrollY + current.y - options.viewportOffsetY,
+          ),
+        );
+        this.applyProgrammaticScroll(scrollY);
+        this.pendingViewportAnchor = {
+          position: {
+            blockIndex: resolved.blockIndex,
+            textIndex: resolved.offset,
+          },
+          viewportOffsetY: options.viewportOffsetY,
+          remainingCorrections: 3,
+        };
+        this.scheduleRender();
+        return;
+      }
+    }
     const newScrollY = scrollToMakeCursorVisible(
       { blockIndex: resolved.blockIndex, textIndex: resolved.offset },
       this._state,
       this.viewport,
     );
     if (newScrollY !== null) {
-      this.viewport = { ...this.viewport, scrollY: newScrollY };
+      this.applyProgrammaticScroll(newScrollY);
       this.scheduleRender();
     }
   };

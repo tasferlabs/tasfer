@@ -634,6 +634,14 @@ export interface ViewportState {
   readonly documentHeight: number;
 }
 
+/** Exact viewport range produced by the latest content paint. */
+export interface VisibleBlockRange {
+  start: number;
+  end: number;
+  /** Viewport-space top of `start`, including scroll offset. */
+  startY: number;
+}
+
 export interface TouchState {
   readonly startY: number;
   readonly startScrollY: number;

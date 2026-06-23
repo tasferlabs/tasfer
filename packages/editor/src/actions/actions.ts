@@ -39,6 +39,7 @@ import {
   transformTypedInput,
   updateMode,
 } from "../state-utils";
+import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import {
   canHaveFormats,
   createDefaultBlock,
@@ -133,7 +134,7 @@ function autoLinkAtCursor(
   const detected = detectUrlBeforeCursor(text, cursorIndex);
   if (!detected) return null;
 
-  const block = page.blocks.find((b) => b.id === blockId);
+  const block = findBlock(page, blockId);
   if (!block || !isTextualBlock(block)) return null;
   const charRuns = block.charRuns;
 
@@ -206,7 +207,7 @@ function detectAndApplyInlineMarkdown(
   newTextIndex: number;
   ops: Operation[];
 } | null {
-  const block = page.blocks.find((b) => b.id === blockId);
+  const block = findBlock(page, blockId);
   if (!block || !isTextualBlock(block)) return null;
   const fullText = getVisibleTextFromRuns(block.charRuns);
 
@@ -537,7 +538,7 @@ function mergeBlocksOps(
       for (const { id } of iterateVisibleChars(source.charRuns)) {
         sourceIds.push(id);
       }
-      const targetAfter = pageAcc.blocks.find((b) => b.id === target.id);
+      const targetAfter = findBlock(pageAcc, target.id);
       const targetIdsAll: string[] = [];
       if (targetAfter && isTextualBlock(targetAfter)) {
         for (const { id } of iterateVisibleChars(targetAfter.charRuns)) {
@@ -603,7 +604,7 @@ function mergeBlocksOps(
   // numbered list). Clone before passing to applyMarkdownPrefix — that
   // function mutates its argument in place; we don't want that bleeding into
   // pageAcc. The ops it returns are applied via applyOps for parity.
-  const targetAfterMerge = pageAcc.blocks.find((b) => b.id === target.id);
+  const targetAfterMerge = findBlock(pageAcc, target.id);
   if (
     targetAfterMerge &&
     !targetAfterMerge.deleted &&
@@ -2683,8 +2684,8 @@ export function splitBlock(state: EditorState): ActionResult {
       ops.push(insertOp);
     }
 
-    const block1Index = pageAcc.blocks.findIndex((b) => b.id === oldBlock.id);
-    const block2Index = pageAcc.blocks.findIndex((b) => b.id === newBlockId);
+    const block1Index = findBlockIndex(pageAcc, oldBlock.id);
+    const block2Index = findBlockIndex(pageAcc, newBlockId);
     if (block1Index !== -1) invalidateBlockCache(pageAcc.blocks[block1Index]);
     if (block2Index !== -1) invalidateBlockCache(pageAcc.blocks[block2Index]);
 
@@ -2759,7 +2760,7 @@ export function splitBlock(state: EditorState): ActionResult {
   //    block_set in step 3.
   const typeBeforeMarkdown = blockCopy1Type;
   if (blockCopy1Type === "paragraph") {
-    const currentBlock1 = pageAcc.blocks.find((b) => b.id === oldBlock.id);
+    const currentBlock1 = findBlock(pageAcc, oldBlock.id);
     if (currentBlock1 && isTextualBlock(currentBlock1)) {
       const mutableClone = { ...currentBlock1, type: blockCopy1Type } as Block;
       const { ops: prefixOps } = applyMarkdownPrefix(
@@ -2825,7 +2826,7 @@ export function splitBlock(state: EditorState): ActionResult {
   // 6. Transfer format spans covering the after-cursor range onto block 2.
   //    Match each original MarkSpan against the inserted chars, emit one
   //    mark_set per overlap, then apply them to pageAcc in one batch.
-  const block2 = pageAcc.blocks.find((b) => b.id === newBlockId);
+  const block2 = findBlock(pageAcc, newBlockId);
   const block2CharRuns: CharRun[] =
     block2 && isTextualBlock(block2) ? block2.charRuns : [];
   if (afterCharsText.length > 0 && currentBlock.formats.length > 0) {
@@ -2890,8 +2891,8 @@ export function splitBlock(state: EditorState): ActionResult {
   // 7. Invalidate render caches on the final pageAcc blocks (NOT on any
   //    intermediate clone — invalidateBlockCache mutates the block ref
   //    in place, and only the rendered ref's caches need clearing).
-  const block1Final = pageAcc.blocks.find((b) => b.id === oldBlock.id);
-  const block2Final = pageAcc.blocks.find((b) => b.id === newBlockId);
+  const block1Final = findBlock(pageAcc, oldBlock.id);
+  const block2Final = findBlock(pageAcc, newBlockId);
   if (block1Final) invalidateBlockCache(block1Final);
   if (block2Final) invalidateBlockCache(block2Final);
 

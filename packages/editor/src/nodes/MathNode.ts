@@ -34,6 +34,7 @@ import type { CaretModel } from "../rendering/nodes/caret-model";
 import type {
   BlockRuntimeState,
   NodeLayout,
+  NodeLayoutCtx,
   NodePaintCtx,
 } from "../rendering/nodes/Node";
 import { invalidateBlockCache } from "../rendering/renderer";
@@ -127,6 +128,11 @@ export class MathNode extends TextNode {
    */
   override textStyle(styles: EditorStyles): TextStyle {
     return styles.blocks.paragraph;
+  }
+
+  estimateHeight(c: NodeLayoutCtx): number {
+    const m = c.styles.blocks.math;
+    return m.minHeight + m.paddingTop + m.paddingBottom;
   }
 
   // ── Layout ───────────────────────────────────────────────────────────────

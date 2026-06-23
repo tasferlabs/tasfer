@@ -16,6 +16,7 @@ import type {
   Position,
 } from "../state-types";
 import type { MarkSet, TextDelete, TextInsert } from "../state-types";
+import { findBlock } from "./block-lookup";
 import { isTextualBlock } from "./block-registry";
 import {
   findCharInRuns,
@@ -303,19 +304,21 @@ export function resolveBlockOrder(blocks: Block[]): Block[] {
   const ordered: Block[] = [];
   const visited = new Set<string>();
 
-  function visit(afterId: string | null) {
-    const blocksHere = afterMap.get(afterId) || [];
+  // Use an explicit stack instead of recursion. Imported documents can contain
+  // tens of thousands of blocks in one linear chain, which otherwise exceeds
+  // the JavaScript call-stack limit while preserving perfectly valid order.
+  const stack = [...(afterMap.get(null) || [])].reverse();
+  while (stack.length > 0) {
+    const block = stack.pop()!;
+    if (visited.has(block.id)) continue;
+    visited.add(block.id);
+    ordered.push(block);
 
-    for (const block of blocksHere) {
-      if (visited.has(block.id)) continue;
-      visited.add(block.id);
-
-      ordered.push(block);
-      visit(block.id);
+    const children = afterMap.get(block.id) || [];
+    for (let i = children.length - 1; i >= 0; i--) {
+      stack.push(children[i]);
     }
   }
-
-  visit(null);
 
   // Emit orphans (afterId points at a block not in the input) at the end
   // in deterministic ID order so peers don't silently lose them.
@@ -367,7 +370,7 @@ export function insertCharsAtPosition(
     blockId,
   );
 
-  const block = page.blocks.find((b) => b.id === blockId);
+  const block = findBlock(page, blockId);
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
   const afterCharId = getCharIdAtVisiblePosition(charRuns, position);
 
@@ -410,7 +413,7 @@ export function deleteCharsInRange(
   endIndex: number,
   binding: CRDTbinding,
 ): DeleteCharsResult {
-  const block = page.blocks.find((b) => b.id === blockId);
+  const block = findBlock(page, blockId);
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
   const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
 
@@ -438,7 +441,7 @@ export function markCharsInRange(
   value: boolean,
   binding: CRDTbinding,
 ): FormatCharsResult {
-  const block = page.blocks.find((b) => b.id === blockId);
+  const block = findBlock(page, blockId);
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
   const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
 

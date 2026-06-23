@@ -26,6 +26,7 @@
 
 import type { Page } from "../serlization/loadPage";
 import type { Position, SelectionState } from "../state-types";
+import { findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleLengthFromRuns } from "../sync/char-runs";
 
@@ -95,7 +96,9 @@ export function removeDecorationLayer(
 }
 
 /** Iterate every decoration across all layers (layer order is insertion order). */
-export function* allDecorations(layers: DecorationLayers): Iterable<Decoration> {
+export function* allDecorations(
+  layers: DecorationLayers,
+): Iterable<Decoration> {
   for (const layer of Object.keys(layers)) {
     yield* layers[layer];
   }
@@ -119,7 +122,7 @@ export function resolveDecorationPoint(
   point: DecorationPoint,
   page: Page,
 ): Position | null {
-  const blockIndex = page.blocks.findIndex((b) => b.id === point.block);
+  const blockIndex = findBlockIndex(page, point.block);
   if (blockIndex === -1) return null;
 
   const block = page.blocks[blockIndex];

@@ -647,6 +647,8 @@ interface StoredCursorPosition {
   block: string;
   offset: number;
   scrollY: number;
+  /** Caret Y within the viewport, used to restore without laying out prior blocks. */
+  viewportOffsetY?: number;
 }
 
 function saveCursorPosition(pageId: string, position: StoredCursorPosition) {
@@ -1081,10 +1083,12 @@ function EditorSurface({
           ? { block: range.block, offset: range.offset ?? 0 }
           : null;
       if (caret) {
+        const caretCoords = editorApi.view.coordsAtPos("caret");
         saveCursorPosition(pageId, {
           block: caret.block,
           offset: caret.offset,
           scrollY: editorApi.view.getScrollY(),
+          viewportOffsetY: caretCoords?.y,
         });
       }
     };
@@ -1457,7 +1461,10 @@ function EditorSurface({
           if (!block || block.type !== "image") return;
           // Revoke the temporary blob URL we were displaying.
           const displayedUrl = block.attrs.url;
-          if (typeof displayedUrl === "string" && displayedUrl.startsWith("blob:")) {
+          if (
+            typeof displayedUrl === "string" &&
+            displayedUrl.startsWith("blob:")
+          ) {
             URL.revokeObjectURL(displayedUrl);
           }
           mounted.editor.change((c) =>
@@ -1530,8 +1537,8 @@ function EditorSurface({
           const { from, to } = selection;
           const block = editorApi.query.block(from);
           if (block && block.type !== "image") {
-            const startIndex = "offset" in from ? from.offset ?? 0 : 0;
-            const endIndex = "offset" in to ? to.offset ?? 0 : 0;
+            const startIndex = "offset" in from ? (from.offset ?? 0) : 0;
+            const endIndex = "offset" in to ? (to.offset ?? 0) : 0;
             const selectedText = block.text.substring(startIndex, endIndex);
             openLinkEditMenu(editorApi, {
               blockId: block.id,
@@ -1577,7 +1584,9 @@ function EditorSurface({
     // the full CRDT array (incl. tombstones, matching the old `page.blocks`);
     // filtering tombstones yields the visible set word-count/export consumes.
     const emitContentUpdate = () => {
-      onContentUpdateRef.current?.(doc.getRawBlocks().filter((b) => !b.deleted));
+      onContentUpdateRef.current?.(
+        doc.getRawBlocks().filter((b) => !b.deleted),
+      );
     };
     // `on("change")` doesn't fire on mount, so seed the initial word count once.
     emitContentUpdate();
@@ -1678,28 +1687,31 @@ function EditorSurface({
 
     // Auto-focus the editor when requested
     if (autoFocus) {
-      // Use a small timeout to ensure the editor is fully initialized
-      setTimeout(() => {
-        mounted.editor.setFocus(true);
+      mounted.editor.setFocus(true);
 
-        // Try to restore the saved caret by stable block id; setCaret clamps the
-        // offset and no-ops if the block is gone, so the onlyIfUnset start seed
-        // below is the fallback (saved missing, or its block no longer exists).
-        const saved = loadCursorPosition(pageId);
-        if (saved) {
-          mounted.editor.setCaret({ block: saved.block, offset: saved.offset });
-          if (saved.scrollY > 0) {
-            mounted.editor.view.updateViewport({ scrollY: saved.scrollY });
-          }
+      // Restore by stable block id and viewport-relative anchor. The height
+      // index can jump to this block using estimates, so opening near the end
+      // no longer requires measuring every preceding block first. Older saved
+      // entries fall back to their raw scroll offset.
+      const saved = loadCursorPosition(pageId);
+      if (saved) {
+        mounted.editor.setCaret({ block: saved.block, offset: saved.offset });
+        if (saved.viewportOffsetY !== undefined) {
+          mounted.editor.view.scrollToPosition(
+            { block: saved.block, offset: saved.offset },
+            { viewportOffsetY: saved.viewportOffsetY },
+          );
+        } else if (saved.scrollY > 0) {
+          mounted.editor.view.updateViewport({ scrollY: saved.scrollY });
         }
-        mounted.editor.setCaret("start", { onlyIfUnset: true });
-
-        // Programmatic cursor restoration updates the viewport directly and
-        // does not dispatch SCROLL. Seed host overlays with the restored offset
-        // so they do not flash at the top of an already-scrolled document.
-        onScrollRef.current?.(mounted.editor.view.getScrollY());
-      }, 0);
+      }
+      mounted.editor.setCaret("start", { onlyIfUnset: true });
     }
+
+    // Programmatic cursor restoration updates the viewport directly and does
+    // not dispatch SCROLL. Seed host overlays with the restored offset so they
+    // do not flash at the top of an already-scrolled document on first paint.
+    onScrollRef.current?.(mounted.editor.view.getScrollY());
 
     return () => {
       offContent();

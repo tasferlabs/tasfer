@@ -15,12 +15,13 @@ import type {
   ViewportState,
 } from "../state-types";
 import { defaultStyles } from "../styles";
+import { BlockHeightIndex } from "./block-height-index";
 import type { MarkStyle } from "./marks";
 import { Mark, type MarkOverlayCtx, MarkRegistry } from "./marks";
 import { AtomicNode } from "./nodes/AtomicNode";
 import type { NodeRegionCtx } from "./nodes/Node";
 import { NodeRegistry } from "./nodes/Node";
-import { collectOverlays } from "./renderer";
+import { collectOverlays, getEstimatedBlockHeight } from "./renderer";
 import { describe, expect, it } from "vitest";
 
 /** A minimal custom atomic node that declares one overlay at its block rect. */
@@ -96,6 +97,35 @@ const viewport: ViewportState = {
 };
 
 describe("collectOverlays", () => {
+  it("delegates estimates to the registered custom node", () => {
+    let exactLayoutCalls = 0;
+    class EstimatedNode extends OverlayTestNode {
+      estimateHeight(): number {
+        return 73;
+      }
+      protected intrinsicHeight(): number {
+        exactLayoutCalls++;
+        return 100;
+      }
+    }
+
+    const registry = new NodeRegistry().register(new EstimatedNode());
+    const marks = new MarkRegistry();
+    const block = blockOf("overlay-test", "b1", 0);
+    const estimated = getEstimatedBlockHeight(
+      registry,
+      marks,
+      block,
+      0,
+      400,
+      defaultStyles,
+      true,
+    );
+
+    expect(estimated).toBe(73);
+    expect(exactLayoutCalls).toBe(0);
+  });
+
   it("returns a node's declared overlay at the block's on-screen rect", () => {
     const registry = new NodeRegistry().register(new OverlayTestNode());
     const state = stateWith(registry, [blockOf("overlay-test", "b1", 0)]);
@@ -147,6 +177,42 @@ describe("collectOverlays", () => {
     // Scroll the single 100px block far above the viewport top.
     const scrolled: ViewportState = { ...viewport, scrollY: 2000 };
     expect(collectOverlays(state, scrolled, defaultStyles)).toEqual([]);
+  });
+
+  it("uses the height index to skip layout for blocks before the viewport", () => {
+    let layoutCalls = 0;
+    class CountingNode extends OverlayTestNode {
+      protected intrinsicHeight(): number {
+        layoutCalls++;
+        return 100;
+      }
+    }
+
+    const registry = new NodeRegistry().register(new CountingNode());
+    const visibleBlocks = Array.from({ length: 1000 }, (_, index) =>
+      blockOf("overlay-test", `b${index}`, index),
+    );
+    const state = stateWith(registry, visibleBlocks);
+    const heightIndex = new BlockHeightIndex();
+    heightIndex.rebuild(visibleBlocks, () => 100);
+    const target = 900;
+    const scrolled = {
+      ...viewport,
+      scrollY:
+        defaultStyles.canvas.paddingTop +
+        heightIndex.offsetOfVisibleIndex(target),
+    };
+
+    const overlays = collectOverlays(
+      state,
+      scrolled,
+      defaultStyles,
+      heightIndex,
+    );
+
+    const firstIndex = Number(overlays[0]?.blockId.slice(1));
+    expect(firstIndex).toBeGreaterThanOrEqual(target - 2);
+    expect(layoutCalls).toBeLessThan(20);
   });
 
   it("collects overlays declared by registered marks", () => {

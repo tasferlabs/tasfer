@@ -19,6 +19,7 @@ import {
 } from "./selection";
 import type { Block } from "./serlization/loadPage";
 import type { EditorState } from "./state-types";
+import { findBlockIndex } from "./sync/block-lookup";
 import { isTextualBlock } from "./sync/block-registry";
 import { allCharsHaveFormat } from "./sync/crdt-utils";
 
@@ -126,7 +127,7 @@ export function resolvePoint(
     }
     return null;
   }
-  const blockIndex = blocks.findIndex((b) => b.id === p.block);
+  const blockIndex = findBlockIndex(s.document.page, p.block);
   const b = blocks[blockIndex];
   if (!b || b.deleted) return null;
   if ("side" in p) {

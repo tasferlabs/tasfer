@@ -8,7 +8,11 @@ import {
   getCursorDocumentCoords,
   scrollToMakeCursorVisible,
 } from "../selection";
-import type { EditorState, ViewportState } from "../state-types";
+import type {
+  EditorState,
+  ViewportState,
+  VisibleBlockRange,
+} from "../state-types";
 import { getEditorStyles } from "../styles";
 
 export function isTouchDevice(): boolean {
@@ -29,6 +33,7 @@ export function getAtomicBlockAtPoint(
   state: EditorState,
   viewport: ViewportState,
   type?: string,
+  visibility?: VisibleBlockRange,
 ): {
   blockIndex: number;
   x: number;
@@ -37,13 +42,19 @@ export function getAtomicBlockAtPoint(
   height: number;
 } | null {
   const styles = getEditorStyles(state);
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  let currentY =
+    visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
   const visibleBlocks = state.view.visibleBlocks;
 
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+  const startIndex = visibility?.start ?? 0;
+  for (
+    let visibleIdx = startIndex;
+    visibleIdx < visibleBlocks.length;
+    visibleIdx++
+  ) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
       state.nodes,
@@ -104,6 +115,7 @@ export function ensureCursorVisible(
   oldState: EditorState,
   viewport: ViewportState,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
+  visibility?: VisibleBlockRange,
 ): void {
   if (
     newState !== oldState &&
@@ -114,6 +126,8 @@ export function ensureCursorVisible(
       newState.document.cursor.position,
       newState,
       viewport,
+      undefined,
+      visibility,
     );
     if (newScrollY !== null) {
       updateViewportCallback({ scrollY: newScrollY });

@@ -49,6 +49,10 @@ import {
   memoizeNodeLayout,
   mergeBlockStyle,
 } from "../node-shared";
+import {
+  allDecorations,
+  rangeDecorationToSelection,
+} from "../rendering/decorations";
 import type {
   MarkChipStyle,
   MarkRegistry,
@@ -56,10 +60,6 @@ import type {
   MarkReplacementEdit,
   MarkUnderlineStyle,
 } from "../rendering/marks";
-import {
-  allDecorations,
-  rangeDecorationToSelection,
-} from "../rendering/decorations";
 import {
   type BlockRuntimeState,
   Node,
@@ -976,6 +976,58 @@ export class TextNode extends Node<TextualBlock> {
   // wide (not the "paragraph" literal) so ListNode can override both.
   readonly type: TextualBlock["type"] = "paragraph";
   readonly types: readonly string[] = TEXT_BLOCK_TYPES;
+
+  /**
+   * Cheap pre-layout height. The estimate is deliberately owned by the text
+   * node so custom text families inherit it and can override the same geometry
+   * hooks (`textStyle`, `leadingInset`, `contentInsetY`) as exact layout.
+   */
+  estimateHeight(c: NodeLayoutCtx): number {
+    const block = c.block as TextualBlock;
+    const textStyle = mergeBlockStyle(
+      this.textStyle(c.styles, block.type),
+      block.style,
+    );
+    const layoutMaxWidth = this.estimateLayoutMaxWidth(
+      block,
+      c.maxWidth,
+      c.styles,
+    );
+    const { indentOffset, markerWidth } = this.leadingInset(block, c.styles);
+    const usableWidth = Math.max(
+      1,
+      layoutMaxWidth - indentOffset - markerWidth,
+    );
+    const averageGlyphWidth = textStyle.fontSize * 0.55;
+    const charsPerLine = Math.max(
+      1,
+      Math.floor(usableWidth / averageGlyphWidth),
+    );
+    const text = getVisibleTextFromRuns(block.charRuns);
+    const hardLines = text.split("\n");
+    let estimatedLines = 0;
+    for (const line of hardLines) {
+      estimatedLines += Math.max(1, Math.ceil(line.length / charsPerLine));
+    }
+    return (
+      this.contentInsetY(block, c.styles) +
+      estimatedLines * textStyle.fontSize * textStyle.lineHeight +
+      textStyle.paddingBottom
+    );
+  }
+
+  /**
+   * Width handed to the shared text layout before leading insets are removed.
+   * CodeNode overrides this because its right-side container padding is applied
+   * before TextNode's left-side leading inset.
+   */
+  protected estimateLayoutMaxWidth(
+    _block: TextualBlock,
+    maxWidth: number,
+    _styles: EditorStyles,
+  ): number {
+    return maxWidth;
+  }
 
   /**
    * The canonical text layout. Plain block content (no composition) — that is

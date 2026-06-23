@@ -24,7 +24,12 @@ import {
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
 import { updateSelectionFocus } from "../selection";
-import type { EditorState, MouseEvent, ViewportState } from "../state-types";
+import type {
+  EditorState,
+  MouseEvent,
+  ViewportState,
+  VisibleBlockRange,
+} from "../state-types";
 import {
   clearAutoCreatedParagraph,
   closeActiveMenu,
@@ -60,6 +65,7 @@ export function handleMouseDown(
   containerRect: { left: number; top: number },
   documentHeight: number,
   session: InteractionSession,
+  visibility: VisibleBlockRange,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
@@ -107,6 +113,7 @@ export function handleMouseDown(
     state,
     viewport,
     documentHeight,
+    visibility,
     session,
     updateViewport: updateViewportCallback,
   };
@@ -123,7 +130,14 @@ export function handleMouseDown(
   // type-agnostic pass: `getAtomicBlockAtPoint` hit-tests any AtomicNode, and
   // the node decides what a click means via its `activate` hook. A block type
   // gets click-to-open + click-to-select with no code here.
-  const atomicBlock = getAtomicBlockAtPoint(canvasX, canvasY, state, viewport);
+  const atomicBlock = getAtomicBlockAtPoint(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    undefined,
+    visibility,
+  );
   if (atomicBlock) {
     const block = state.document.page.blocks[atomicBlock.blockIndex];
     if (!block || block.deleted) return { state, ops };
@@ -230,6 +244,8 @@ export function handleMouseDown(
       canvasY,
       state,
       viewport,
+      undefined,
+      visibility,
     );
 
     if (paddingPosition) {
@@ -249,6 +265,8 @@ export function handleMouseDown(
     canvasY,
     state,
     viewport,
+    undefined,
+    visibility,
   );
 
   // If clicking in padding/outside editor area, preserve active selections
@@ -353,6 +371,7 @@ export function handleMouseMove(
   containerRect: { left: number; top: number },
   documentHeight: number,
   session: InteractionSession,
+  visibility: VisibleBlockRange,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): EditorState {
   const canvasX = event.x - containerRect.left;
@@ -399,6 +418,7 @@ export function handleMouseMove(
     viewport,
     documentHeight,
     session,
+    visibility,
     updateViewport: updateViewportCallback,
   });
   const isOverCheckbox = hoverClaim?.region.id === "todo-checkbox";
@@ -439,14 +459,24 @@ export function handleMouseMove(
         canvasY,
         state,
         viewport,
+        undefined,
+        visibility,
       );
       const textPosition = getTextPositionFromViewport(
         canvasX,
         canvasY,
         state,
         viewport,
+        undefined,
+        visibility,
       );
-      const blockUnderPoint = getBlockIndexAtPoint(canvasY, state, viewport);
+      const blockUnderPoint = getBlockIndexAtPoint(
+        canvasY,
+        state,
+        viewport,
+        undefined,
+        visibility,
+      );
       state = state.actionBus.dispatchState(POINTER_MOVE, state, {
         canvasX,
         canvasY,
@@ -476,6 +506,8 @@ export function handleMouseMove(
     canvasY,
     state,
     viewport,
+    undefined,
+    visibility,
   );
 
   if (!position) return state;

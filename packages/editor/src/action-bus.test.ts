@@ -119,6 +119,25 @@ describe("dispatch priority and override/observe semantics", () => {
     expect(seen).toEqual(["high"]);
   });
 
+  it("notify reaches every observer even when one returns true", () => {
+    const bus = createActionBus();
+    const event = action<{ value: number }>("event");
+    const seen: string[] = [];
+
+    bus.register(event, () => void seen.push("host"), 0);
+    bus.register(
+      event,
+      ({ value }) => {
+        seen.push(`plugin:${value}`);
+        return true;
+      },
+      10,
+    );
+
+    bus.notify(event, { value: 7 });
+    expect(seen).toEqual(["plugin:7", "host"]);
+  });
+
   it("false/void observes and lets propagation continue", () => {
     const bus = createActionBus();
     const cmd = action("c");

@@ -16,6 +16,7 @@ import type {
   PartialSelectionState,
   Position,
   ViewportState,
+  VisibleBlockRange,
 } from "./state-types";
 import {
   caretStep,
@@ -74,10 +75,19 @@ function getBlockTopDocument(
   blockIndex: number,
   maxWidth: number,
   styles: EditorStyles,
+  viewport?: ViewportState,
+  visibility?: VisibleBlockRange,
 ): number {
-  let y = styles.canvas.paddingTop;
   const visibleBlocks = state.view.visibleBlocks;
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+  const canStartFromPaintedRange =
+    !!viewport &&
+    !!visibility &&
+    visibleBlocks[visibility.start]?.originalIndex <= blockIndex;
+  let visibleIdx = canStartFromPaintedRange ? visibility.start : 0;
+  let y = canStartFromPaintedRange
+    ? visibility.startY + viewport.scrollY
+    : styles.canvas.paddingTop;
+  for (; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
     if (block.originalIndex >= blockIndex) break;
     y += getBlockHeight(
@@ -207,6 +217,7 @@ export function getCursorDocumentCoords(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
 ): { x: number; y: number; height: number } | null {
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
@@ -230,6 +241,8 @@ export function getCursorDocumentCoords(
     position.blockIndex,
     maxWidth,
     styles,
+    viewport,
+    visibility,
   );
   return node.caretRect(
     layout,
@@ -292,8 +305,15 @@ export function getCursorYPosition(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
 ): { top: number; bottom: number } | null {
-  const coords = getCursorDocumentCoords(position, state, viewport, styles);
+  const coords = getCursorDocumentCoords(
+    position,
+    state,
+    viewport,
+    styles,
+    visibility,
+  );
   if (!coords) return null;
   return {
     top: coords.y,
@@ -306,8 +326,15 @@ export function scrollToMakeCursorVisible(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
 ): number | null {
-  const cursorPos = getCursorYPosition(position, state, viewport, styles);
+  const cursorPos = getCursorYPosition(
+    position,
+    state,
+    viewport,
+    styles,
+    visibility,
+  );
   if (!cursorPos) return null;
 
   const margin = 40;
@@ -338,12 +365,18 @@ function getPositionFromPaddingClick(
   maxWidth: number,
   startY: number,
   styles: EditorStyles,
+  visibility?: VisibleBlockRange,
 ): Position | null {
-  let currentY = startY;
+  let currentY = visibility?.startY ?? startY;
 
   const visibleBlocks = state.view.visibleBlocks;
 
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+  const startIndex = visibility?.start ?? 0;
+  for (
+    let visibleIdx = startIndex;
+    visibleIdx < visibleBlocks.length;
+    visibleIdx++
+  ) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
       state.nodes,
@@ -420,8 +453,10 @@ export function getTextPositionFromViewport(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
 ): Position | null {
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  let currentY =
+    visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
@@ -439,6 +474,7 @@ export function getTextPositionFromViewport(
       maxWidth,
       currentY,
       styles,
+      visibility,
     );
   }
 
@@ -447,7 +483,12 @@ export function getTextPositionFromViewport(
   const visibleBlocks = state.view.visibleBlocks;
   const allBlocks = state.document.page.blocks;
 
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+  const startIndex = visibility?.start ?? 0;
+  for (
+    let visibleIdx = startIndex;
+    visibleIdx < visibleBlocks.length;
+    visibleIdx++
+  ) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
       state.nodes,
@@ -530,13 +571,16 @@ export function getBlockIndexAtPoint(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
 ): number | null {
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  let currentY =
+    visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   const visibleBlocks = state.view.visibleBlocks;
 
-  for (let i = 0; i < visibleBlocks.length; i++) {
+  const startIndex = visibility?.start ?? 0;
+  for (let i = startIndex; i < visibleBlocks.length; i++) {
     const block = visibleBlocks[i];
     const blockHeight = getBlockHeight(
       state.nodes,

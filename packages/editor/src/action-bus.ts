@@ -195,6 +195,12 @@ export interface ActionBus {
    */
   dispatch<P>(action: Action<P>, ...args: DispatchArgs<P>): boolean;
   /**
+   * Notify every handler high→low priority, ignoring handled return values.
+   * Use for events that describe state already applied and therefore cannot be
+   * overridden, such as programmatic viewport changes.
+   */
+  notify<P>(action: Action<P>, ...args: DispatchArgs<P>): void;
+  /**
    * Run a {@link StateAction}: thread `state` through its observers (high→low
    * priority) and, unless one claims it (`handled: true`), its default
    * transform — accumulating every emitted op — and return the resulting
@@ -276,6 +282,12 @@ export function createActionBus(): ActionBus {
         if (handler(payload) === true) return true;
       }
       return false;
+    },
+    notify(action, ...args) {
+      const list = handlers.get(action);
+      if (!list || list.length === 0) return;
+      const payload = (args as unknown[])[0];
+      for (const { handler } of list.slice()) handler(payload);
     },
     dispatchState(action, state, ...args) {
       const payload = (args as unknown[])[0];
@@ -468,10 +480,17 @@ export const IMAGE_PASTE = action<ImagePasteEvent>("image-paste");
  * unclaimed, the editor applies the scroll. `scrollY` is the proposed new
  * (clamped) offset; `deltaY` is the change from the current offset. Hosts that
  * only need to track the offset (e.g. to position floating UI) observe at
- * priority `0`. Programmatic scrolls (`scrollToPosition`, document clear) assign
- * the viewport directly and bypass this funnel — only user input is claimable.
+ * priority `0`.
+ *
+ * Programmatic scrolls (`scrollToPosition`, anchor correction, document clear)
+ * are dispatched after the viewport changes with `source: "programmatic"`.
+ * Their handler return values are ignored, so only user input is claimable.
  */
-export const SCROLL = action<{ scrollY: number; deltaY: number }>("scroll");
+export const SCROLL = action<{
+  scrollY: number;
+  deltaY: number;
+  source: "user" | "programmatic";
+}>("scroll");
 
 /**
  * The editor wants a context menu shown — emitted on desktop right-click and on

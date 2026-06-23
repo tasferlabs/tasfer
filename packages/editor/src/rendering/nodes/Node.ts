@@ -251,6 +251,16 @@ export abstract class Node<B extends Block = Block> {
    */
   abstract layout(c: NodeLayoutCtx): NodeLayout;
 
+  /**
+   * Cheap height used before a block enters the measured viewport. Nodes that
+   * can estimate without performing canonical layout should override this.
+   * The safe default is exact layout, preserving correctness for custom nodes
+   * that have not opted into lazy estimation.
+   */
+  estimateHeight(c: NodeLayoutCtx): number {
+    return this.layout(c).height;
+  }
+
   /** Draw using a precomputed layout — must NOT re-wrap or re-measure. */
   abstract paint(layout: NodeLayout, c: NodePaintCtx): RenderedBlock;
 

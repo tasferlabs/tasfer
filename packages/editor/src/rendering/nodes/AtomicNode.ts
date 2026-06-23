@@ -38,6 +38,10 @@ export abstract class AtomicNode<B extends Block = Block> extends Node<B> {
    */
   protected abstract intrinsicHeight(c: NodeLayoutCtx): number;
 
+  estimateHeight(c: NodeLayoutCtx): number {
+    return this.intrinsicHeight(c);
+  }
+
   /** Draw the visual content into `box` (the painted rect). */
   protected abstract draw(box: BlockBounds, c: NodePaintCtx): void;
 

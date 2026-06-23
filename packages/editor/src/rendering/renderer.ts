@@ -3,6 +3,7 @@ import type {
   InteractionSession,
 } from "../events/interaction-session";
 import { currentFontFamily, getFontStack } from "../fonts";
+import type { TextualBlock } from "../nodes/TextNode";
 import { getTextDirection } from "../rtl";
 import { isCursorBlinking } from "../selection";
 import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
@@ -13,9 +14,11 @@ import type {
   Position,
   RenderedBlock,
   ViewportState,
+  VisibleBlockRange,
 } from "../state-types";
 import { isTouchDevice } from "../state-utils";
 import { getEditorStyles } from "../styles";
+import { findBlock } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   getCharIdFromRun,
@@ -23,6 +26,7 @@ import {
   isCharDeleted,
 } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
+import type { BlockHeightIndex } from "./block-height-index";
 import {
   allDecorations,
   type CaretDecoration,
@@ -30,7 +34,6 @@ import {
 } from "./decorations";
 import type { MarkRegistry } from "./marks";
 import type { NodeRegionCtx, NodeRegistry } from "./nodes";
-import type { TextualBlock } from "../nodes/TextNode";
 import { getContentWithComposition, TextNode, UnknownNode } from "./nodes";
 import { renderScrollbar } from "./scrollbar";
 
@@ -92,6 +95,33 @@ export function getBlockHeight(
 }
 
 /**
+ * Cheap flow-height estimate supplied by the registered node. The generic
+ * engine knows nothing about block types; custom nodes participate by
+ * overriding `Node.estimateHeight`.
+ */
+export function getEstimatedBlockHeight(
+  views: NodeRegistry,
+  marks: MarkRegistry,
+  block: Block,
+  blockIndex: number,
+  maxWidth: number,
+  styles: EditorStyles,
+  first: boolean,
+): number {
+  const view = views.get(block.type) ?? new UnknownNode();
+  const ctx = {
+    block,
+    blockIndex,
+    maxWidth,
+    isFirst: first,
+    styles,
+    marks,
+  };
+  const height = view.estimateHeight(ctx);
+  return view.adjustFlowHeight ? view.adjustFlowHeight(height, ctx) : height;
+}
+
+/**
  * Invalidate cache for affected blocks based on CRDT operations.
  */
 export function invalidateAffectedBlocks(
@@ -118,7 +148,7 @@ export function invalidateAffectedBlocks(
 
   // Invalidate cache for affected blocks
   for (const blockId of affectedBlockIds) {
-    const block = state.document.page.blocks.find((b) => b.id === blockId);
+    const block = findBlock(state.document.page, blockId);
     if (block) {
       invalidateBlockCache(block);
     }
@@ -141,9 +171,10 @@ export function renderPage(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
   viewport: ViewportState,
-  visibility: { start: number; end: number },
+  visibility: VisibleBlockRange,
   styles: EditorStyles = getEditorStyles(state),
   requestRedraw: () => void,
+  heightIndex?: BlockHeightIndex,
 ) {
   // Save context state
   ctx.save();
@@ -156,17 +187,35 @@ export function renderPage(
   // Note: Context is already scaled by DPR in layers.ts, so use CSS pixels here
   ctx.clearRect(0, 0, viewport.width, viewport.height);
 
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const renderedBlocks: RenderedBlock[] = [];
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  const documentHeight = viewport.documentHeight;
 
   // Render each visible block
   const visibleBlocks = state.view.visibleBlocks;
   let foundVisibleBlock = false;
+  const startIndex =
+    heightIndex && visibleBlocks.length > 0
+      ? Math.max(
+          0,
+          heightIndex.visibleIndexAtOffset(
+            viewport.scrollY - styles.canvas.paddingTop,
+          ) - 1,
+        )
+      : 0;
+  let currentY =
+    styles.canvas.paddingTop -
+    viewport.scrollY +
+    (heightIndex?.offsetOfVisibleIndex(startIndex) ?? 0);
+  visibility.start = startIndex;
+  visibility.end = startIndex;
+  visibility.startY = currentY;
 
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+  for (
+    let visibleIdx = startIndex;
+    visibleIdx < visibleBlocks.length;
+    visibleIdx++
+  ) {
     const block = visibleBlocks[visibleIdx];
 
     // Get or calculate block height (cached on the block itself)
@@ -178,11 +227,13 @@ export function renderPage(
       styles,
       visibleIdx === 0,
     );
+    heightIndex?.setExactHeight(visibleIdx, blockHeight);
 
     // Only render if block is visible in viewport
     if (isBlockVisible(currentY, blockHeight, viewport)) {
       if (!foundVisibleBlock) {
         visibility.start = visibleIdx;
+        visibility.startY = currentY;
         foundVisibleBlock = true;
       }
       visibility.end = visibleIdx;
@@ -206,6 +257,12 @@ export function renderPage(
     }
     currentY += blockHeight;
   }
+
+  const documentHeight = heightIndex
+    ? styles.canvas.paddingTop +
+      heightIndex.totalHeight() +
+      styles.canvas.paddingBottom
+    : viewport.documentHeight;
 
   // Add extra padding on mobile devices for keyboard space
   // documentHeight += styles.canvas.paddingBottom;
@@ -237,13 +294,26 @@ export function collectOverlays(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  heightIndex?: BlockHeightIndex,
 ): NodeOverlay[] {
   const overlays: NodeOverlay[] = [];
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  let y = styles.canvas.paddingTop - viewport.scrollY;
   const visibleBlocks = state.view.visibleBlocks;
-  for (let i = 0; i < visibleBlocks.length; i++) {
+  const startIndex =
+    heightIndex && visibleBlocks.length > 0
+      ? Math.max(
+          0,
+          heightIndex.visibleIndexAtOffset(
+            viewport.scrollY - styles.canvas.paddingTop,
+          ) - 1,
+        )
+      : 0;
+  let y =
+    styles.canvas.paddingTop -
+    viewport.scrollY +
+    (heightIndex?.offsetOfVisibleIndex(startIndex) ?? 0);
+  for (let i = startIndex; i < visibleBlocks.length; i++) {
     const block = visibleBlocks[i];
     const height = getBlockHeight(
       state.nodes,
@@ -253,6 +323,7 @@ export function collectOverlays(
       styles,
       i === 0,
     );
+    heightIndex?.setExactHeight(i, height);
     const node = state.nodes.get(block.type);
     // Only ask blocks that are actually within the viewport — an off-screen
     // overlay would mount a portal nobody can see.
@@ -272,6 +343,7 @@ export function collectOverlays(
         overlays.push(normalizeOverlay(o));
     }
     y += height;
+    if (y > viewport.height) break;
   }
   // Inline marks declare overlays too (e.g. inline-math's editor). A mark isn't
   // tied to one block, so each registered mark is consulted once; it reads the
@@ -373,7 +445,12 @@ function getBlockTopViewport(
   maxWidth: number,
   viewport: ViewportState,
   styles: EditorStyles,
+  heightIndex?: BlockHeightIndex,
 ): number {
+  const indexedOffset = heightIndex?.offsetOfOriginalIndex(blockIndex);
+  if (indexedOffset !== undefined && indexedOffset !== null) {
+    return styles.canvas.paddingTop - viewport.scrollY + indexedOffset;
+  }
   let y = styles.canvas.paddingTop - viewport.scrollY;
   const visibleBlocks = state.view.visibleBlocks;
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
@@ -405,6 +482,7 @@ function calculateCursorPosition(
   compositionRange: { start: number; end: number } | null = null,
   renderChars?: Char[],
   renderFormats?: MarkSpan[],
+  heightIndex?: BlockHeightIndex,
 ): { x: number; y: number; height: number } | null {
   if (!isTextualBlock(block)) return null;
   const node = state.nodes.get(block.type);
@@ -418,6 +496,7 @@ function calculateCursorPosition(
     maxWidth,
     viewport,
     styles,
+    heightIndex,
   );
 
   // With composition content the layout is recomputed from the injected chars
@@ -466,6 +545,47 @@ function calculateCursorPosition(
       ? rect.height
       : layout.fontMetrics.ascent + layout.fontMetrics.descent,
   };
+}
+
+/**
+ * Resolve caret coordinates using indexed prefix heights. Only the target block
+ * is laid out exactly; blocks before it remain cheap estimates.
+ */
+export function getIndexedCursorViewportCoords(
+  position: Position,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles,
+  heightIndex: BlockHeightIndex,
+): { x: number; y: number; height: number } | null {
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return null;
+  const visibleIndex = heightIndex.visibleIndexOfOriginal(position.blockIndex);
+  if (visibleIndex === null) return null;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  heightIndex.setExactHeight(
+    visibleIndex,
+    getBlockHeight(
+      state.nodes,
+      state.marks,
+      block,
+      maxWidth,
+      styles,
+      visibleIndex === 0,
+    ),
+  );
+  return calculateCursorPosition(
+    position,
+    block,
+    state,
+    viewport,
+    styles,
+    null,
+    undefined,
+    undefined,
+    heightIndex,
+  );
 }
 
 /**
@@ -643,6 +763,7 @@ function renderCaretDecorations(
   viewport: ViewportState,
   styles: EditorStyles,
   carets: ResolvedCaret[],
+  heightIndex?: BlockHeightIndex,
 ) {
   const outOfViewPeers: OutOfViewPeer[] = [];
 
@@ -656,6 +777,10 @@ function renderCaretDecorations(
       state,
       viewport,
       styles,
+      null,
+      undefined,
+      undefined,
+      heightIndex,
     );
     if (!cursorPos) continue;
 
@@ -773,6 +898,7 @@ export function renderCursorLayer(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  heightIndex?: BlockHeightIndex,
 ) {
   // Save context state
   ctx.save();
@@ -785,7 +911,15 @@ export function renderCursorLayer(
   // behind the local cursor.
   const carets = collectCaretDecorations(state);
   if (carets.length > 0) {
-    renderCaretDecorations(ctx, session, state, viewport, styles, carets);
+    renderCaretDecorations(
+      ctx,
+      session,
+      state,
+      viewport,
+      styles,
+      carets,
+      heightIndex,
+    );
   }
 
   // Only render if cursor exists, editor is focused, and cursor is visible (not blinking)
@@ -820,22 +954,31 @@ export function renderCursorLayer(
   // Optimization: Skip rendering if cursor block is completely outside viewport
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const visibleBlocks = state.view.visibleBlocks;
-
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-    const visibleBlock = visibleBlocks[visibleIdx];
-    if (visibleBlock.originalIndex >= cursorBlockIndex) break;
-
-    const blockHeight = getBlockHeight(
-      state.nodes,
-      state.marks,
-      visibleBlock,
-      maxWidth,
-      styles,
-      visibleIdx === 0,
+  const cursorVisibleIndex =
+    heightIndex?.visibleIndexOfOriginal(cursorBlockIndex) ??
+    visibleBlocks.findIndex(
+      (visibleBlock) => visibleBlock.originalIndex === cursorBlockIndex,
     );
-    currentY += blockHeight;
+  let currentY =
+    styles.canvas.paddingTop -
+    viewport.scrollY +
+    (heightIndex && cursorVisibleIndex >= 0
+      ? heightIndex.offsetOfVisibleIndex(cursorVisibleIndex)
+      : 0);
+  if (!heightIndex) {
+    for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+      const visibleBlock = visibleBlocks[visibleIdx];
+      if (visibleBlock.originalIndex >= cursorBlockIndex) break;
+      currentY += getBlockHeight(
+        state.nodes,
+        state.marks,
+        visibleBlock,
+        maxWidth,
+        styles,
+        visibleIdx === 0,
+      );
+    }
   }
 
   const blockHeight = getBlockHeight(
@@ -844,8 +987,11 @@ export function renderCursorLayer(
     block,
     maxWidth,
     styles,
-    visibleBlocks.length - 1 === cursorBlockIndex,
+    cursorVisibleIndex === 0,
   );
+  if (cursorVisibleIndex >= 0) {
+    heightIndex?.setExactHeight(cursorVisibleIndex, blockHeight);
+  }
   if (currentY + blockHeight < 0 || currentY > viewport.height) {
     // Cursor block is not visible in viewport
     ctx.restore();
@@ -882,6 +1028,7 @@ export function renderCursorLayer(
     compositionRange,
     renderChars,
     renderFormats,
+    heightIndex,
   );
 
   if (!cursorPos) {

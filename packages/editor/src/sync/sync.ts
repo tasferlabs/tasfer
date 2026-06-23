@@ -22,6 +22,7 @@ import type {
   TextInsert,
   VersionVector,
 } from "../state-types";
+import { findBlock } from "./block-lookup";
 import { isTextualBlock } from "./block-registry";
 import { getCharIdsInRangeFromRuns } from "./char-runs";
 import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
@@ -600,7 +601,7 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
     createBlockSet: createBlockSetOp,
 
     insertText(blockId: string, position: number, text: string): TextInsert {
-      const block = getState().blocks.find((b) => b.id === blockId);
+      const block = findBlock(getState(), blockId);
       const afterCharId = block ? findCharIdAtPosition(block, position) : null;
 
       const chars: Char[] = Array.from(text).map((char) => ({
@@ -617,7 +618,7 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
       startIndex: number,
       endIndex: number,
     ): TextDelete {
-      const block = getState().blocks.find((b) => b.id === blockId);
+      const block = findBlock(getState(), blockId);
       const charIds =
         block && isTextualBlock(block)
           ? getCharIdsInRangeFromRuns(block.charRuns, startIndex, endIndex)
@@ -633,7 +634,7 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
       format: Mark,
       value: boolean,
     ): MarkSet {
-      const block = getState().blocks.find((b) => b.id === blockId);
+      const block = findBlock(getState(), blockId);
       const charIds =
         block && isTextualBlock(block)
           ? getCharIdsInRangeFromRuns(block.charRuns, startIndex, endIndex)
@@ -651,7 +652,7 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
     },
 
     toggleTodo(blockId: string): BlockSet {
-      const block = getState().blocks.find((b) => b.id === blockId);
+      const block = findBlock(getState(), blockId);
       const currentChecked =
         block && "checked" in block ? block.checked : false;
 

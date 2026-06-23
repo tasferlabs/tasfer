@@ -61,6 +61,7 @@ import type {
   KeyboardEvent,
   MouseEvent,
   ViewportState,
+  VisibleBlockRange,
 } from "../state-types";
 import { clearAutoCreatedParagraph, getBlockTextContent } from "../state-utils";
 import { isPreformattedType, isTextualBlock } from "../sync/block-registry";
@@ -104,6 +105,7 @@ export function handleKeyDown(
   viewport: ViewportState,
   event: Event,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
+  visibility?: VisibleBlockRange,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   const keyEvent = event as unknown as KeyboardEvent;
@@ -179,12 +181,24 @@ export function handleKeyDown(
   // Use code instead of key for keyboard layout independence
   if (isCtrl && code === "KeyZ" && !keyEvent.shiftKey) {
     const result = undoState(state);
-    ensureCursorVisible(result.state, state, viewport, updateViewportCallback);
+    ensureCursorVisible(
+      result.state,
+      state,
+      viewport,
+      updateViewportCallback,
+      visibility,
+    );
     return { state: result.state, ops: result.ops };
   }
   if (isCtrl && (code === "KeyY" || (keyEvent.shiftKey && code === "KeyZ"))) {
     const result = redoState(state);
-    ensureCursorVisible(result.state, state, viewport, updateViewportCallback);
+    ensureCursorVisible(
+      result.state,
+      state,
+      viewport,
+      updateViewportCallback,
+      visibility,
+    );
     return { state: result.state, ops: result.ops };
   }
 
@@ -224,6 +238,7 @@ export function handleKeyDown(
             state,
             viewport,
             updateViewportCallback,
+            visibility,
           );
           return { state: newState, ops };
         } else {
@@ -236,6 +251,7 @@ export function handleKeyDown(
             state,
             viewport,
             updateViewportCallback,
+            visibility,
           );
           return { state: newState, ops };
         }
@@ -248,7 +264,13 @@ export function handleKeyDown(
         const result = state.actionBus.dispatchState(INSERT_TAB, state);
         const newState = result.state;
         ops.push(...result.ops);
-        ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+        ensureCursorVisible(
+          newState,
+          state,
+          viewport,
+          updateViewportCallback,
+          visibility,
+        );
         return { state: newState, ops };
       }
     }
@@ -866,6 +888,8 @@ export function handleKeyDown(
       newState.document.cursor.position,
       newState,
       viewport,
+      undefined,
+      visibility,
     );
     if (newScrollY !== null) {
       updateViewportCallback({ scrollY: newScrollY });

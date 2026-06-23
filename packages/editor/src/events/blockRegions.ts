@@ -79,12 +79,18 @@ function bindNodeRegion(hitRegion: NodeHitRegion): Region | null {
 function nodeRegionsAtPoint(p: RegionPoint, ctx: RegionCtx): Region[] {
   const { state, viewport } = ctx;
   const styles = getEditorStyles(state);
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
   const visibleBlocks = state.view.visibleBlocks;
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+  const startIndex = ctx.visibility?.start ?? 0;
+  let currentY =
+    ctx.visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
+  for (
+    let visibleIdx = startIndex;
+    visibleIdx < visibleBlocks.length;
+    visibleIdx++
+  ) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
       state.nodes,

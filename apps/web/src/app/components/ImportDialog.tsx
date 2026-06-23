@@ -258,7 +258,8 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
             onOpenChange(false);
           }
         }
-      } catch {
+      } catch (error) {
+        console.error("Failed to parse imported file:", error);
         setError(t("error.failedToParseFile", "Failed to parse the file"));
       }
     },

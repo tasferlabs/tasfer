@@ -22,6 +22,7 @@ import type {
   TextDelete,
   TextInsert,
 } from "../state-types";
+import { findBlock, findBlockIndex } from "./block-lookup";
 import {
   isStyleField,
   isTextualBlock,
@@ -59,22 +60,6 @@ export function createEmptyBlock(
   schema: DataSchema = baseDataSchema,
 ): Block | undefined {
   return schema.createDefaultBlock(type, id, afterId);
-}
-
-/**
- * Find a block by ID in the state.
- * Returns undefined if not found.
- */
-function findBlock(state: Page, blockId: string): Block | undefined {
-  return state.blocks.find((b) => b.id === blockId);
-}
-
-/**
- * Find block index by ID in the state.
- * Returns -1 if not found.
- */
-function findBlockIndex(state: Page, blockId: string): number {
-  return state.blocks.findIndex((b) => b.id === blockId);
 }
 
 /**

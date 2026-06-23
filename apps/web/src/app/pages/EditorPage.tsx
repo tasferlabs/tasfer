@@ -312,8 +312,10 @@ export default function EditorPage() {
           setLocalPermission(perm);
           setPermission(perm);
           setIsLoading(false);
-          // Update initial word count from blocks
-          setWordCount(countWordsFromBlocks(blocks));
+          // Word count is intentionally deferred through the existing
+          // debounced update path. Large documents should become interactive
+          // before this full-content scan runs.
+          debouncedWordCountUpdate(blocks);
           // Expand all ancestor pages in the sidebar tree
           if (page.parents && page.parents.length > 0) {
             treeExpand.expandMany(page.parents.map((p) => p.id));
@@ -333,7 +335,7 @@ export default function EditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, setWordCount]);
+  }, [id, debouncedWordCountUpdate]);
 
   // Debounced save callback - only called for local user-initiated changes
   // Remote peer updates are NOT persisted by this user; peers handle saving their own changes

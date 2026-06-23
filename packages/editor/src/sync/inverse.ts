@@ -26,6 +26,7 @@ import type {
   TextDelete,
   TextInsert,
 } from "../state-types";
+import { findBlock } from "./block-lookup";
 import {
   getBlockDescriptor,
   getBlockFieldNames,
@@ -94,7 +95,7 @@ function invertTextDelete(
   pageBefore: Page,
   binding: CRDTbinding,
 ): TextInsert | null {
-  const block = pageBefore.blocks.find((b) => b.id === op.blockId);
+  const block = findBlock(pageBefore, op.blockId);
 
   if (!block) return null;
   if (block.deleted) return null;
@@ -155,7 +156,7 @@ function invertFormatSet(
   pageBefore: Page,
   binding: CRDTbinding,
 ): MarkSet[] {
-  const block = pageBefore.blocks.find((b) => b.id === op.blockId);
+  const block = findBlock(pageBefore, op.blockId);
   if (!block || block.deleted || !isTextualBlock(block)) return [];
 
   // Look up the prior value of `op.format.type` on each affected char.
@@ -309,7 +310,7 @@ function invertBlockSet(
   pageBefore: Page,
   binding: CRDTbinding,
 ): BlockSet | null {
-  const block = pageBefore.blocks.find((b) => b.id === op.blockId);
+  const block = findBlock(pageBefore, op.blockId);
   if (!block || block.deleted) return null;
 
   const descriptor = getBlockDescriptor(block.type);
