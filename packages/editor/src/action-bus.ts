@@ -358,8 +358,29 @@ export function mergeRegister(...disposers: Disposer[]): Disposer {
  */
 export const OPEN_LINK = action<{ url: string }>("open-link");
 
+/**
+ * Raw finger geometry a touch cursor-drag emits. The caret's own pixel location
+ * is NOT here — a host loupe anchors its body to the caret via
+ * `editor.view.coordsAtPos("caret")`. This carries only what the caret can't
+ * give: the finger's `touchX` (to aim the loupe's pointer at the finger) and
+ * `touchRadiusY` (to clear the fingertip when placing the loupe above the line).
+ */
+export interface CursorDragInfo {
+  /** Finger contact X (canvas/viewport coords). */
+  readonly touchX: number;
+  /** Finger contact Y (canvas/viewport coords). */
+  readonly touchY: number;
+  /** Finger contact radius X (px) for finger-aware placement; 0 if unknown. */
+  readonly touchRadiusX: number;
+  /** Finger contact radius Y (px) for finger-aware placement; 0 if unknown. */
+  readonly touchRadiusY: number;
+}
+
 /** A touch cursor-drag gesture began. Observe-only (no editor default). */
-export const CURSOR_DRAG_START = action("cursor-drag-start");
+export const CURSOR_DRAG_START = action<CursorDragInfo>("cursor-drag-start");
+
+/** The touch-dragged caret moved (per-tick finger geometry). Observe-only. */
+export const CURSOR_DRAG_MOVE = action<CursorDragInfo>("cursor-drag-move");
 
 /** The touch-dragged caret crossed a character/line boundary. Observe-only. */
 export const CURSOR_DRAG_BOUNDARY = action("cursor-drag-boundary");

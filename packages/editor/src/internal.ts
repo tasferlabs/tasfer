@@ -43,7 +43,6 @@ export { resolveBlockOrder } from "./sync/crdt-utils";
 // ── Host-overlay state-types ─────────────────────────────────────────────────
 // Ephemeral view/overlay shapes a host reads when rendering its own chrome.
 export type {
-  CursorDragState,
   DeepPartial,
   EditorStrings,
   NodeOverlay,
@@ -75,14 +74,6 @@ export { allCharsHaveFormat } from "./sync/crdt-utils";
 // Shared image cache (content-addressed bitmaps) + failed-load reset.
 export { clearFailedImageCache, imageCache } from "./rendering/renderer";
 
-// Touch cursor-magnifier geometry — for a host rendering its own magnifier.
-export {
-  MAGNIFIER_HEIGHT,
-  MAGNIFIER_MIN_OFFSET_Y,
-  MAGNIFIER_POINTER_SIZE,
-  MAGNIFIER_WIDTH,
-} from "./constants";
-
 // Full `\`-command catalog behind a host's math autocomplete (the curated
 // `filterMathCommands`/`MathCommand` live at the root).
 export { MATH_COMMANDS } from "./nodes/math-commands";
@@ -97,8 +88,8 @@ export {
   getInlineMathCaretRect,
   getInlineMathOffsetAtX,
   type InlineMathCaretRect,
-  mathCommandRanges,
   type MathCommandRanges,
+  mathCommandRanges,
   mathPendingCommandRange,
 } from "./nodes/math";
 

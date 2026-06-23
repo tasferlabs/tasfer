@@ -1,14 +1,33 @@
 import { useEffect, useRef } from "react";
-import {
-  MAGNIFIER_HEIGHT,
-  MAGNIFIER_MIN_OFFSET_Y,
-  MAGNIFIER_POINTER_SIZE,
-  MAGNIFIER_WIDTH,
-} from "@cypherkit/editor/internal";
-import type { CursorDragState } from "@cypherkit/editor/internal";
+
+// Loupe geometry — owned entirely by the host. The engine knows nothing about a
+// magnifier; it only emits the cursor-drag gesture (CURSOR_DRAG_* actions).
+const MAGNIFIER_WIDTH = 168;
+const MAGNIFIER_HEIGHT = 72;
+const MAGNIFIER_RADIUS = 12; // rounded-rect corner radius
+const MAGNIFIER_MIN_OFFSET_Y = 44; // minimum gap above the finger (fallback when no radius)
 
 interface CursorMagnifierProps {
-  cursorDrag: CursorDragState | null;
+  /** Whether a cursor-drag gesture is active (CURSOR_DRAG_START..END). */
+  active: boolean;
+  /**
+   * Live caret coords (viewport space, with scroll applied) — `editor.view
+   * .coordsAtPos("caret")`. The loupe centers horizontally on the caret (iOS-
+   * style: it glides along the line as the caret snaps) and zooms around it. Read
+   * every frame, after the engine has committed the dragged caret move.
+   */
+  getCaretCoords: () => { x: number; y: number; height: number } | null;
+  /**
+   * Latest raw finger geometry from the CURSOR_DRAG_* payload. The loupe sits a
+   * short gap above the finger: `touchY` is the vertical anchor and
+   * `touchRadiusY` sizes the fingertip clearance.
+   */
+  getTouch: () => {
+    touchX: number;
+    touchY: number;
+    touchRadiusX: number;
+    touchRadiusY: number;
+  };
   contentCanvas: HTMLCanvasElement | null;
   cursorCanvas: HTMLCanvasElement | null;
   containerRect: DOMRect | null;
@@ -36,35 +55,35 @@ function computeZoom(lineHeight: number): number {
 }
 
 /**
- * Compute Y offset above the touch point based on the finger's contact radius.
- * When the browser reports a touch radius, use it to clear the finger;
- * otherwise fall back to a reasonable minimum.
+ * Gap above the finger, sized from the finger's contact radius so the loupe
+ * clears the fingertip. Falls back to a reasonable minimum when no radius is
+ * reported.
  */
 function computeOffsetY(touchRadiusY: number): number {
-  if (touchRadiusY > 0) {
-    // Place the magnifier above the full finger contact area + a small gap
-    return touchRadiusY * 2 + 12;
-  }
+  if (touchRadiusY > 0) return touchRadiusY + 12;
   return MAGNIFIER_MIN_OFFSET_Y;
 }
 
-const TOTAL_HEIGHT = MAGNIFIER_HEIGHT + MAGNIFIER_POINTER_SIZE;
-
 export function CursorMagnifier({
-  cursorDrag,
+  active,
+  getCaretCoords,
+  getTouch,
   contentCanvas,
   cursorCanvas,
   containerRect,
 }: CursorMagnifierProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
-  const cursorDragRef = useRef(cursorDrag);
-  cursorDragRef.current = cursorDrag;
-
-  const isActive = cursorDrag?.isActive ?? false;
+  const getCaretCoordsRef = useRef(getCaretCoords);
+  getCaretCoordsRef.current = getCaretCoords;
+  const getTouchRef = useRef(getTouch);
+  getTouchRef.current = getTouch;
+  const containerRectRef = useRef(containerRect);
+  containerRectRef.current = containerRect;
 
   useEffect(() => {
-    if (!isActive || !contentCanvas) {
+    if (!active || !contentCanvas) {
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = 0;
@@ -83,10 +102,38 @@ export function CursorMagnifier({
     if (!ctx) return;
 
     const draw = () => {
-      const drag = cursorDragRef.current;
-      if (!drag?.isActive) return;
+      const wrapper = wrapperRef.current;
+      const rect = containerRectRef.current;
+      // Pull the caret's live pixel location — resolved here (post-commit) so the
+      // loupe tracks the current caret, anchored to the character being placed.
+      const caret = getCaretCoordsRef.current();
+      if (!wrapper || !rect || !caret) {
+        rafRef.current = requestAnimationFrame(draw);
+        return;
+      }
 
-      const zoom = computeZoom(drag.lineHeight);
+      const touch = getTouchRef.current();
+
+      // Body: horizontally centered on the caret (so it stays fixed to the
+      // character), vertically anchored just above the finger so it sits a short,
+      // constant gap from the thumb. Flips below when there's no room above;
+      // clamped horizontally to the viewport.
+      const fingerY = rect.top + touch.touchY;
+      const offsetY = computeOffsetY(touch.touchRadiusY);
+      let left = rect.left + caret.x - MAGNIFIER_WIDTH / 2;
+      let top = fingerY - offsetY - MAGNIFIER_HEIGHT;
+      if (top < 0) {
+        top = fingerY + offsetY;
+      }
+      left = Math.max(
+        4,
+        Math.min(window.innerWidth - MAGNIFIER_WIDTH - 4, left),
+      );
+      wrapper.style.left = `${left}px`;
+      wrapper.style.top = `${top}px`;
+
+      const lineHeight = caret.height;
+      const zoom = computeZoom(lineHeight);
 
       ctx.clearRect(0, 0, magnifierCanvas.width, magnifierCanvas.height);
       ctx.save();
@@ -96,7 +143,7 @@ export function CursorMagnifier({
       ctx.fillStyle = getBackgroundColor();
       ctx.fillRect(0, 0, MAGNIFIER_WIDTH, MAGNIFIER_HEIGHT);
 
-      // Source region: centered on cursor position in the content canvas
+      // Source region: centered on the caret position in the content canvas
       const sourceWidth = MAGNIFIER_WIDTH / zoom;
       const sourceHeight = MAGNIFIER_HEIGHT / zoom;
       const sw = sourceWidth * dpr;
@@ -106,9 +153,9 @@ export function CursorMagnifier({
       // the canvas bounds (iOS-style: stops panning at edges)
       const cw = contentCanvas.width;
       const ch = contentCanvas.height;
-      const cx = Math.max(sw / 2, Math.min(cw - sw / 2, drag.cursorX * dpr));
-      // cursorY is the top of the line; center on the cursor's vertical midpoint
-      const cursorMidY = (drag.cursorY + drag.lineHeight / 2) * dpr;
+      const cx = Math.max(sw / 2, Math.min(cw - sw / 2, caret.x * dpr));
+      // caret.y is the top of the line; center on the cursor's vertical midpoint
+      const cursorMidY = (caret.y + lineHeight / 2) * dpr;
       const cy = Math.max(sh / 2, Math.min(ch - sh / 2, cursorMidY));
       const sx = cx - sw / 2;
       const sy = cy - sh / 2;
@@ -116,16 +163,28 @@ export function CursorMagnifier({
       // Composite content layer
       ctx.drawImage(
         contentCanvas,
-        sx, sy, sw, sh,
-        0, 0, MAGNIFIER_WIDTH, MAGNIFIER_HEIGHT,
+        sx,
+        sy,
+        sw,
+        sh,
+        0,
+        0,
+        MAGNIFIER_WIDTH,
+        MAGNIFIER_HEIGHT,
       );
 
       // Composite cursor layer on top
       if (cursorCanvas) {
         ctx.drawImage(
           cursorCanvas,
-          sx, sy, sw, sh,
-          0, 0, MAGNIFIER_WIDTH, MAGNIFIER_HEIGHT,
+          sx,
+          sy,
+          sw,
+          sh,
+          0,
+          0,
+          MAGNIFIER_WIDTH,
+          MAGNIFIER_HEIGHT,
         );
       }
 
@@ -142,104 +201,38 @@ export function CursorMagnifier({
         rafRef.current = 0;
       }
     };
-  }, [isActive, contentCanvas, cursorCanvas]);
+  }, [active, contentCanvas, cursorCanvas]);
 
-  if (!cursorDrag?.isActive || !containerRect) return null;
-
-  const offsetY = computeOffsetY(cursorDrag.touchRadiusY);
-
-  // Position magnifier centered on touch X, above the finger
-  let left = containerRect.left + cursorDrag.touchX - MAGNIFIER_WIDTH / 2;
-  let top =
-    containerRect.top + cursorDrag.touchY - offsetY - TOTAL_HEIGHT;
-
-  // If too close to top, flip below finger
-  if (top < 0) {
-    top = containerRect.top + cursorDrag.touchY + offsetY;
-  }
-
-  // Clamp horizontally to viewport
-  left = Math.max(4, Math.min(window.innerWidth - MAGNIFIER_WIDTH - 4, left));
-
-  const borderColor = getBorderColor();
+  if (!active) return null;
 
   return (
     <div
+      ref={wrapperRef}
       style={{
         position: "fixed",
-        left,
-        top,
+        // Start off-screen; the RAF sets the real position before first paint.
+        left: -9999,
+        top: -9999,
         width: MAGNIFIER_WIDTH,
-        height: TOTAL_HEIGHT,
+        height: MAGNIFIER_HEIGHT,
         pointerEvents: "none",
         zIndex: 9999,
         willChange: "transform",
+        borderRadius: MAGNIFIER_RADIUS,
+        border: `1px solid ${getBorderColor()}`,
+        overflow: "hidden",
         filter:
           "drop-shadow(0 1px 4px rgba(0, 0, 0, 0.18)) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.12))",
       }}
     >
-      {/* Outer shape acts as border */}
-      <div
+      <canvas
+        ref={canvasRef}
         style={{
           width: MAGNIFIER_WIDTH,
-          height: TOTAL_HEIGHT,
-          clipPath: `path('${buildLoupePath(MAGNIFIER_WIDTH, TOTAL_HEIGHT, 12, MAGNIFIER_POINTER_SIZE)}')`,
-          background: borderColor,
+          height: MAGNIFIER_HEIGHT,
+          display: "block",
         }}
-      >
-        {/* Inner content inset by border width */}
-        <div
-          style={{
-            position: "absolute",
-            top: 0.5,
-            left: 0.5,
-            width: MAGNIFIER_WIDTH - 1,
-            height: TOTAL_HEIGHT - 0.5,
-            clipPath: `path('${buildLoupePath(MAGNIFIER_WIDTH - 1, TOTAL_HEIGHT - 0.5, 11.5, MAGNIFIER_POINTER_SIZE - 0.5)}')`,
-            overflow: "hidden",
-          }}
-        >
-          <canvas
-            ref={canvasRef}
-            style={{
-              width: MAGNIFIER_WIDTH - 1,
-              height: MAGNIFIER_HEIGHT - 0.5,
-              display: "block",
-            }}
-          />
-        </div>
-      </div>
+      />
     </div>
   );
-}
-
-/**
- * Build an SVG path for the iOS-style loupe shape:
- * rounded rectangle with a small triangular pointer at bottom center.
- */
-function buildLoupePath(
-  w: number,
-  h: number,
-  r: number,
-  pointerH: number,
-): string {
-  const bodyH = h - pointerH;
-  const pw = pointerH * 1.4; // pointer half-width
-  const cx = w / 2;
-
-  return [
-    `M ${r} 0`,
-    `L ${w - r} 0`,
-    `Q ${w} 0 ${w} ${r}`,
-    `L ${w} ${bodyH - r}`,
-    `Q ${w} ${bodyH} ${w - r} ${bodyH}`,
-    `L ${cx + pw} ${bodyH}`,
-    `L ${cx} ${h}`,
-    `L ${cx - pw} ${bodyH}`,
-    `L ${r} ${bodyH}`,
-    `Q 0 ${bodyH} 0 ${bodyH - r}`,
-    `L 0 ${r}`,
-    `Q 0 0 ${r} 0`,
-    `Z`,
-  ].join(" ");
 }

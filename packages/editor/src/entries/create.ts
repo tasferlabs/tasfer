@@ -94,7 +94,9 @@ export interface CypherEditor extends EditorApi {
    * Read-only state snapshot for UI binding: the engine's
    * {@link EditorStateSnapshot} (selection, active marks, caret block type,
    * undo/redo readiness, focus) plus the attached `doc`. The raw internal
-   * {@link EditorState} stays available via {@link getState}.
+   * `EditorState` is not exposed on this public handle; a first-party host that
+   * needs it diffs via the internal `subscribeRaw` (see
+   * `@cypherkit/editor/internal`).
    */
   readonly state: EditorStateSnapshot & { readonly doc: Doc };
   /** Container to mount React popovers/overlays into (slash menu, link editor). */

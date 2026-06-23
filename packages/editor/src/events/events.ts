@@ -1,4 +1,8 @@
-import { CURSOR_DRAG_START, OPEN_CONTEXT_MENU } from "../action-bus";
+import {
+  CURSOR_DRAG_MOVE,
+  CURSOR_DRAG_START,
+  OPEN_CONTEXT_MENU,
+} from "../action-bus";
 import { getSelectionRange } from "../actions/actions";
 import {
   CONTEXT_MENU_DURATION,
@@ -9,17 +13,12 @@ import {
   getScrollbarStyles,
   updateScrollbarFadeOpacity,
 } from "../rendering/scrollbar";
-import {
-  getCursorDocumentCoords,
-  getTextPositionFromViewport,
-} from "../selection";
+import { getTextPositionFromViewport } from "../selection";
 import { updateCursor } from "../selection";
 import { startSelection, updateSelectionFocus } from "../selection";
 import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import type { Operation } from "../state-types";
 import { closeActiveMenu, updateMode } from "../state-utils";
-import { getEditorStyles, getTextStyle } from "../styles";
-import { isTextualBlock } from "../sync/block-registry";
 import { applyEdgeScroll } from "./autoScroll";
 import {
   handleCompositionEnd,
@@ -44,20 +43,6 @@ import {
   handleTouchMove,
   handleTouchStart,
 } from "./touchEvents";
-
-/** Get rendered line height (px) for the block at the given index. */
-function getBlockLineHeight(
-  state: EditorState,
-  blockIndex: number | undefined,
-): number {
-  if (blockIndex == null) return 16 * 1.6;
-  const block = state.document.page.blocks[blockIndex];
-  if (!block) return 16 * 1.6;
-  if (!isTextualBlock(block)) return 16 * 1.6;
-  const styles = getEditorStyles(state);
-  const textStyle = getTextStyle(styles, state.nodes, block);
-  return textStyle.fontSize * textStyle.lineHeight;
-}
 
 export function handleEvents(
   state: EditorState,
@@ -100,40 +85,12 @@ export function handleEvents(
     const timeSinceStart = Date.now() - session.touch.startTime;
     if (timeSinceStart >= CURSOR_DRAG_ACTIVATION_DELAY) {
       session.touch.isCursorDrag = true;
-      state.actionBus.dispatch(CURSOR_DRAG_START);
-
-      // Get cursor coordinates for initial magnifier position
-      const cursorCoords = state.document.cursor
-        ? getCursorDocumentCoords(
-            state.document.cursor.position,
-            state,
-            viewport,
-          )
-        : null;
-
-      state = {
-        ...state,
-        ui: {
-          ...state.ui,
-          cursorDrag: {
-            isActive: true,
-            touchX: session.touch.currentTouchX,
-            touchY: session.touch.currentTouchY,
-            cursorX: cursorCoords
-              ? cursorCoords.x
-              : session.touch.currentTouchX,
-            cursorY: cursorCoords
-              ? cursorCoords.y - viewport.scrollY
-              : session.touch.currentTouchY,
-            touchRadiusY: session.touch.touchRadiusY,
-            lineHeight: getBlockLineHeight(
-              state,
-              state.document.cursor?.position?.blockIndex,
-            ),
-            lastPosition: state.document.cursor?.position ?? null,
-          },
-        },
-      };
+      state.actionBus.dispatch(CURSOR_DRAG_START, {
+        touchX: session.touch.currentTouchX,
+        touchY: session.touch.currentTouchY,
+        touchRadiusX: session.touch.touchRadiusX,
+        touchRadiusY: session.touch.touchRadiusY,
+      });
     }
   }
 
@@ -359,27 +316,12 @@ export function handleEvents(
     if (position) {
       state = updateCursor(state, position);
 
-      const cursorCoords = getCursorDocumentCoords(position, state, viewport);
-      state = {
-        ...state,
-        ui: {
-          ...state.ui,
-          cursorDrag: {
-            isActive: true,
-            touchX: session.touch.currentTouchX,
-            touchY: session.touch.currentTouchY,
-            cursorX: cursorCoords
-              ? cursorCoords.x
-              : session.touch.currentTouchX,
-            cursorY: cursorCoords
-              ? cursorCoords.y - viewport.scrollY
-              : session.touch.currentTouchY,
-            touchRadiusY: session.touch.touchRadiusY,
-            lineHeight: getBlockLineHeight(state, position.blockIndex),
-            lastPosition: position,
-          },
-        },
-      };
+      state.actionBus.dispatch(CURSOR_DRAG_MOVE, {
+        touchX: session.touch.currentTouchX,
+        touchY: session.touch.currentTouchY,
+        touchRadiusX: session.touch.touchRadiusX,
+        touchRadiusY: session.touch.touchRadiusY,
+      });
     }
   } else if (
     session.autoScroll.isActive &&

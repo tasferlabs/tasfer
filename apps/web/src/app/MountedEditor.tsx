@@ -14,6 +14,7 @@ import {
   CONTEXT_MENU_RELEASE,
   CURSOR_DRAG_BOUNDARY,
   CURSOR_DRAG_END,
+  CURSOR_DRAG_MOVE,
   CURSOR_DRAG_START,
   IMAGE_PASTE,
   OPEN_CONTEXT_MENU,
@@ -24,6 +25,7 @@ import {
   mergeRegister,
   serializeVV,
   type Block,
+  type CursorDragInfo,
   type Decoration,
   type Doc,
   type MountedEditor as MountedEditorInstance,
@@ -39,9 +41,7 @@ import {
   clearFailedImageCache,
   isTextualBlock,
   isTouchDevice,
-  type CursorDragState,
   type EditorStrings,
-  type EditorWiring,
   type NodeOverlay,
   type PlaceholderStyles,
   type TextStyle,
@@ -97,7 +97,7 @@ import useResponsive from "./hooks/useResponsive";
 import i18next from "i18next";
 import { cssVarsToTheme, readEditorTokens } from "../editorTheme";
 import { getAppFontRegistry, onAppFontRegistryChange } from "../fonts";
-import { cn, shallowEqual } from "../lib/utils";
+import { cn } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import {
   fontStyleToFamily,
@@ -820,10 +820,17 @@ function EditorSurface({
   // the suspended-mode signal, derived from the engine's active menu.
   const [modalPopoverOpen, setModalPopoverOpen] = useState(false);
 
-  // Cursor drag state (for mobile magnifier)
-  const [cursorDragState, setCursorDragState] =
-    useState<CursorDragState | null>(null);
-  const lastCursorDragStateRef = useRef<CursorDragState | null>(null);
+  // Whether the mobile cursor-drag magnifier is showing. Bracketed by the
+  // engine's CURSOR_DRAG_START/END actions; the loupe anchors its body to the
+  // caret (resolving live coords itself) and reads the latest finger geometry
+  // below for the pointer aim + fingertip clearance.
+  const [magnifierActive, setMagnifierActive] = useState(false);
+  const latestTouchRef = useRef<CursorDragInfo>({
+    touchX: 0,
+    touchY: 0,
+    touchRadiusX: 0,
+    touchRadiusY: 0,
+  });
 
   // Node-declared overlay slots (engine, framework-free) collected each state
   // tick and rendered via NODE_OVERLAYS. The ref dedupes equivalent collections
@@ -1159,15 +1166,21 @@ function EditorSurface({
     // twice). Both cleanup paths (readonly early-return + the main one) call
     // disposeActions().
     const disposeActions = mergeRegister(
-      mounted.editor.registerAction(CURSOR_DRAG_START, () =>
-        fireHaptic("light"),
-      ),
+      mounted.editor.registerAction(CURSOR_DRAG_START, (info) => {
+        fireHaptic("light");
+        latestTouchRef.current = info;
+        setMagnifierActive(true);
+      }),
+      mounted.editor.registerAction(CURSOR_DRAG_MOVE, (info) => {
+        latestTouchRef.current = info;
+      }),
       mounted.editor.registerAction(CURSOR_DRAG_BOUNDARY, () =>
         fireHaptic("light"),
       ),
-      mounted.editor.registerAction(CURSOR_DRAG_END, () =>
-        fireHaptic("medium"),
-      ),
+      mounted.editor.registerAction(CURSOR_DRAG_END, () => {
+        fireHaptic("medium");
+        setMagnifierActive(false);
+      }),
       mounted.editor.registerAction(REGION_DRAG_START, ({ intensity }) =>
         fireHaptic(intensity),
       ),
@@ -1663,20 +1676,6 @@ function EditorSurface({
       });
     });
 
-    // The touch cursor-drag magnifier needs continuous per-tick drag geometry
-    // (`ui.cursorDrag`) the public snapshot doesn't model — the one remaining
-    // raw-state read, taken via the internal EditorWiring firehose (no semver
-    // guarantee), not the public EditorApi.
-    const offMagnifier = (
-      mounted.editor as unknown as EditorWiring
-    ).subscribeRaw((state) => {
-      const next = state.ui.cursorDrag ?? null;
-      if (!shallowEqual(next, lastCursorDragStateRef.current)) {
-        lastCursorDragStateRef.current = next;
-        setCursorDragState(next);
-      }
-    });
-
     // Auto-focus the editor when requested
     if (autoFocus) {
       // Use a small timeout to ensure the editor is fully initialized
@@ -1700,7 +1699,6 @@ function EditorSurface({
     return () => {
       offContent();
       offUi();
-      offMagnifier();
       disposeActions();
       offDocUpdate();
       offSelectionChange();
@@ -2274,10 +2272,14 @@ function EditorSurface({
       )}
 
       {/* Cursor magnifier for mobile cursor drag repositioning */}
-      {cursorDragState?.isActive &&
+      {magnifierActive &&
         createPortal(
           <CursorMagnifier
-            cursorDrag={cursorDragState}
+            active={magnifierActive}
+            getCaretCoords={() =>
+              mountedRef.current?.editor.view.coordsAtPos("caret") ?? null
+            }
+            getTouch={() => latestTouchRef.current}
             contentCanvas={
               wrapperRef.current?.querySelector<HTMLCanvasElement>(
                 "#content-layer",

@@ -43,6 +43,7 @@ export interface TouchState {
   isTouchingSelection: boolean;
   isTouchingCursor: boolean;
   isCursorDrag: boolean;
+  touchRadiusX: number;
   touchRadiusY: number;
   isTwoFingerScroll?: boolean;
 }

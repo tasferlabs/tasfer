@@ -738,8 +738,8 @@ export interface EditorWiring {
    * {@link EditorState} after each render-loop diff and on direct notifications.
    * The public {@link EditorApi.subscribe} is the snapshot-delivering wrapper
    * over this; `subscribeRaw` is the unstable escape hatch for a first-party host
-   * that needs internal state the snapshot doesn't model (e.g. `ui.cursorDrag`,
-   * `ui.activeMenu`, per-char formats). No semver guarantee — reachable via
+   * that needs internal state the snapshot doesn't model (e.g. `ui.activeMenu`,
+   * per-char formats). No semver guarantee — reachable via
    * `EditorClass` from `@cypherkit/editor/internal`, never `EditorApi`.
    */
   subscribeRaw: (listener: (state: EditorState) => void) => () => void;

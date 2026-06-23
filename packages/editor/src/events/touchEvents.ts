@@ -4,6 +4,7 @@ import {
   CONTEXT_MENU_RELEASE,
   CURSOR_DRAG_BOUNDARY,
   CURSOR_DRAG_END,
+  CURSOR_DRAG_MOVE,
 } from "../action-bus";
 import { TEXT_CLICK } from "../actions/pointer-actions";
 import {
@@ -40,7 +41,7 @@ import { updateCursor } from "../selection";
 import { startSelection } from "../selection";
 import type { EditorState, ViewportState } from "../state-types";
 import { closeActiveMenu, updateMode } from "../state-utils";
-import { getEditorStyles, getTextStyle } from "../styles";
+import { getEditorStyles } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
 import { hitTestAllRegions } from "./blockRegions";
@@ -57,19 +58,6 @@ import {
   routeCapturedEnd,
   routeCapturedMove,
 } from "./regions";
-
-/** Get rendered line height (px) for the block at the given position. */
-function getLineHeightAtPosition(
-  state: EditorState,
-  blockIndex: number,
-): number {
-  const block = state.document.page.blocks[blockIndex];
-  if (!block) return 16 * 1.6;
-  if (!isTextualBlock(block)) return 16 * 1.6;
-  const styles = getEditorStyles(state);
-  const textStyle = getTextStyle(styles, state.nodes, block);
-  return textStyle.fontSize * textStyle.lineHeight;
-}
 
 export function handleTouchStart(
   state: EditorState,
@@ -109,6 +97,7 @@ export function handleTouchStart(
       isTouchingSelection: false,
       isTouchingCursor: false,
       isCursorDrag: false,
+      touchRadiusX: 0,
       touchRadiusY: 0,
       isTwoFingerScroll: true,
     };
@@ -182,6 +171,7 @@ export function handleTouchStart(
         isTouchingSelection: false,
         isTouchingCursor: false,
         isCursorDrag: false,
+        touchRadiusX: touch.radiusX ?? 0,
         touchRadiusY: touch.radiusY ?? 0,
       };
     } else {
@@ -226,6 +216,7 @@ export function handleTouchStart(
         isTouchingSelection,
         isTouchingCursor,
         isCursorDrag: false,
+        touchRadiusX: touch.radiusX ?? 0,
         touchRadiusY: touch.radiusY ?? 0,
       };
     }
@@ -446,6 +437,7 @@ export function handleTouchMove(
       session.touch.lastTime = currentTime;
       session.touch.currentTouchX = canvasX;
       session.touch.currentTouchY = canvasY;
+      session.touch.touchRadiusX = touch.radiusX ?? session.touch.touchRadiusX;
       session.touch.touchRadiusY = touch.radiusY ?? session.touch.touchRadiusY;
 
       // Check for edge scrolling during cursor drag
@@ -476,7 +468,7 @@ export function handleTouchMove(
       );
 
       if (newPosition) {
-        const prevPosition = state.ui.cursorDrag?.lastPosition;
+        const prevPosition = state.document.cursor?.position;
         // Trigger haptic when cursor crosses a character or line boundary
         if (
           prevPosition &&
@@ -488,35 +480,12 @@ export function handleTouchMove(
 
         state = updateCursor(state, newPosition);
 
-        // Update cursorDrag state with new touch position and cursor coords
-        const cursorCoords = getCursorDocumentCoords(
-          newPosition,
-          state,
-          viewport,
-        );
-
-        const touchRadiusY = event.touches[0]?.radiusY ?? 0;
-        state = {
-          ...state,
-          ui: {
-            ...state.ui,
-            cursorDrag: {
-              isActive: true,
-              touchX: canvasX,
-              touchY: canvasY,
-              cursorX: cursorCoords ? cursorCoords.x : canvasX,
-              cursorY: cursorCoords
-                ? cursorCoords.y - viewport.scrollY
-                : canvasY,
-              touchRadiusY,
-              lineHeight: getLineHeightAtPosition(
-                state,
-                newPosition.blockIndex,
-              ),
-              lastPosition: newPosition,
-            },
-          },
-        };
+        state.actionBus.dispatch(CURSOR_DRAG_MOVE, {
+          touchX: canvasX,
+          touchY: canvasY,
+          touchRadiusX: event.touches[0]?.radiusX ?? 0,
+          touchRadiusY: event.touches[0]?.radiusY ?? 0,
+        });
       }
 
       return {
@@ -760,10 +729,6 @@ export function handleTouchEnd(
 
     let newState: EditorState = {
       ...state,
-      ui: {
-        ...state.ui,
-        cursorDrag: null,
-      },
       view: {
         ...state.view,
         scrollbar: {
@@ -1316,15 +1281,9 @@ export function handleTouchCancel(
     };
   }
 
-  // End cursor drag if active
-  if (state.ui.cursorDrag) {
-    state = {
-      ...state,
-      ui: {
-        ...state.ui,
-        cursorDrag: null,
-      },
-    };
+  // End cursor drag if active — let observers (e.g. a host magnifier) tear down.
+  if (session.touch?.isCursorDrag) {
+    state.actionBus.dispatch(CURSOR_DRAG_END);
   }
 
   // If we were in long press text selection mode, exit select mode
