@@ -65,7 +65,7 @@ import type {
   PeerVersionInfo,
 } from "./types";
 import type { Operation } from "@cypherkit/editor";
-import type { AwarenessState } from "@cypherkit/provider-core/cursors";
+import type { CursorPresence } from "@cypherkit/provider-core/cursors";
 import {
   BINARY_ASSET_TAG,
   hexToBytes,
@@ -214,14 +214,14 @@ interface RoomPeersMsg {
   type: "room-peers";
   pageId: string;
   peers: { peerId: string; user?: RoomUser }[];
-  awarenessStates?: Record<string, AwarenessState>;
+  awarenessStates?: Record<string, CursorPresence>;
 }
 /** Carries a single peer's ephemeral awareness state (cursor position, selection, scroll) to all other peers in the same room. Sent on every local cursor/selection change. */
 interface AwarenessMsg {
   type: "awareness";
   pageId: string;
   peerId: string;
-  state: AwarenessState;
+  state: CursorPresence;
 }
 /** Fallback per-page sync request for editors that open after the initial catch-up handshake. Includes the requester's current version vector so the responder can send only the missing ops. */
 interface SyncReqMsg {
@@ -308,7 +308,7 @@ interface RoomState {
   localUser?: RoomUser;
   callbacks: Partial<SyncEvents>;
   remotePeers: Map<string, RoomUser | undefined>;
-  awarenessStates: Map<string, AwarenessState>;
+  awarenessStates: Map<string, CursorPresence>;
 }
 
 /** Holds all state for an in-progress device-pairing flow. A pairing session is created when the user generates or scans an invite code and is torn down once both sides have exchanged proofs and stored each other as trusted peers. */
@@ -412,7 +412,7 @@ export class Replicator {
   /** Per-room awareness throttle state (50 ms leading+trailing) */
   private awarenessThrottle = new Map<
     string,
-    { timer: ReturnType<typeof setTimeout> | null; pending: AwarenessState | null }
+    { timer: ReturnType<typeof setTimeout> | null; pending: CursorPresence | null }
   >();
 
   /** Connection state */
@@ -631,7 +631,7 @@ export class Replicator {
     }
   }
 
-  sendAwareness(roomId: string, state: AwarenessState): void {
+  sendAwareness(roomId: string, state: CursorPresence): void {
     const room = this.rooms.get(roomId);
     if (!room || !room.spaceId) return;
 
@@ -659,7 +659,7 @@ export class Replicator {
     }
   }
 
-  private _broadcastAwareness(room: RoomState, roomId: string, state: AwarenessState): void {
+  private _broadcastAwareness(room: RoomState, roomId: string, state: CursorPresence): void {
     this.broadcastToSpacePeers(room.spaceId, {
       type: "awareness",
       pageId: roomId,

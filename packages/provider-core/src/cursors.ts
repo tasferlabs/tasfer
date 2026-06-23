@@ -18,8 +18,7 @@
  *     remote peer's presence into a `presence:<peerId>` decoration layer.
  */
 
-import type { Decoration, DocRange, Editor, Page } from "@cypherkit/editor";
-import type { Position, SelectionState } from "@cypherkit/editor/state-types";
+import type { Decoration, DocRange, Editor } from "@cypherkit/editor";
 import type { Presence, Provider, RemotePresence } from "./types";
 
 // =============================================================================
@@ -62,61 +61,12 @@ export function getColorForPeer(
 }
 
 // =============================================================================
-// Awareness — a richer presence shape (block-id anchored cursor + selection +
-// identity) that a host can broadcast over its own transport. Lives here, not in
-// the editor: the engine has no presence concept, it only paints decorations.
+// Presence — a block-id-anchored cursor/selection + identity a host broadcasts
+// over its own transport. Lives here, not in the editor: the engine has no
+// presence concept, it only paints decorations. The shape is DocRange-native
+// (see CursorPoint/CursorPresence below) so it maps straight from
+// `editor.state.selection.range` with no index→id conversion.
 // =============================================================================
-
-/** Identity + appearance for a peer's awareness. */
-export interface AwarenessUser {
-  readonly peerId: string;
-  readonly name?: string;
-  readonly avatar?: string | null;
-  readonly color: string;
-  readonly deviceType?: string;
-}
-
-/** A cursor position addressed by stable block id. */
-export interface AwarenessCursor {
-  readonly blockId: string;
-  readonly textIndex: number;
-}
-
-/** A selection range addressed by stable block ids. */
-export interface AwarenessSelection {
-  readonly anchor: AwarenessCursor;
-  readonly focus: AwarenessCursor;
-  readonly isForward: boolean;
-}
-
-/** A peer's complete awareness payload. */
-export interface AwarenessState {
-  readonly user: AwarenessUser;
-  readonly cursor: AwarenessCursor | null;
-  readonly selection: AwarenessSelection | null;
-  readonly lastUpdate: number;
-}
-
-/** Convert an editor {@link Position} to a block-id-anchored awareness cursor. */
-export function positionToAwarenessCursor(
-  position: Position,
-  page: Page,
-): AwarenessCursor | null {
-  const block = page.blocks[position.blockIndex];
-  if (!block || block.deleted) return null;
-  return { blockId: block.id, textIndex: position.textIndex };
-}
-
-/** Convert an editor {@link SelectionState} to a block-id-anchored selection. */
-export function selectionToAwarenessSelection(
-  selection: SelectionState,
-  page: Page,
-): AwarenessSelection | null {
-  const anchor = positionToAwarenessCursor(selection.anchor, page);
-  const focus = positionToAwarenessCursor(selection.focus, page);
-  if (!anchor || !focus) return null;
-  return { anchor, focus, isForward: selection.isForward };
-}
 
 /** A stable point: CRDT block id + offset into that block's text. */
 export interface CursorPoint {
@@ -131,6 +81,8 @@ export interface CursorUser {
   readonly avatar?: string | null;
   /** Explicit color; falls back to a deterministic per-peer color. */
   readonly color?: string;
+  /** Optional device hint (e.g. "laptop"/"phone") for a presence UI. */
+  readonly deviceType?: string;
 }
 
 /**

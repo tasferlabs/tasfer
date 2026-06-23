@@ -12,8 +12,8 @@ import type { ConnectionState, SyncEvents } from "@/platform/types";
 import type { Operation } from "@cypherkit/editor";
 import {
   getColorForPeer,
-  type AwarenessState,
-  type AwarenessUser,
+  type CursorPresence,
+  type CursorUser,
 } from "@cypherkit/provider-core/cursors";
 
 // =============================================================================
@@ -40,13 +40,13 @@ export interface RoomConfig {
     operations: Operation[],
     versionVector: Record<string, number>,
   ) => void;
-  onAwarenessUpdate?: (peerId: string, state: AwarenessState | null) => void;
-  onAwarenessStates?: (states: Record<string, AwarenessState>) => void;
+  onAwarenessUpdate?: (peerId: string, state: CursorPresence | null) => void;
+  onAwarenessStates?: (states: Record<string, CursorPresence>) => void;
 }
 
 export interface UseP2PRoomReturn {
   broadcast: (operations: Operation[]) => void;
-  broadcastAwareness: (state: AwarenessState) => void;
+  broadcastAwareness: (state: CursorPresence) => void;
   sendSyncRequest: (
     versionVector: Record<string, number>,
   ) => void;
@@ -58,7 +58,7 @@ export interface UseP2PRoomReturn {
   peerCount: number;
   syncState: SyncState;
   peerId: string;
-  localUser: AwarenessUser;
+  localUser: CursorUser;
 }
 
 // =============================================================================
@@ -73,7 +73,7 @@ export function useP2PRoom(
   const [peerCount, setPeerCount] = useState(0);
   const [syncState, setSyncState] = useState<SyncState>({ status: "disconnected" });
   const [peerId, setPeerId] = useState("");
-  const [localUser, setLocalUser] = useState<AwarenessUser>({ peerId: "", color: "" });
+  const [localUser, setLocalUser] = useState<CursorUser>({ peerId: "", color: "" });
 
   const configRef = useRef(config);
   configRef.current = config;
@@ -126,9 +126,8 @@ export function useP2PRoom(
                 color: user.color || getColorForPeer(user.name || joinedPeerId),
                 deviceType: user.deviceType,
               },
-              cursor: null,
+              caret: null,
               selection: null,
-              lastUpdate: Date.now(),
             });
           }
           // Notify MountedEditor so it can re-broadcast awareness to the new peer
@@ -229,7 +228,7 @@ export function useP2PRoom(
   );
 
   const broadcastAwareness = useCallback(
-    (state: AwarenessState) => {
+    (state: CursorPresence) => {
       if (!roomId) return;
       try {
         getPlatform().sync.sendAwareness(roomId, state);

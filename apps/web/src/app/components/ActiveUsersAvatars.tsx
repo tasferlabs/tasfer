@@ -1,4 +1,7 @@
-import type { AwarenessUser } from "@cypherkit/provider-core/cursors";
+import {
+  type CursorUser,
+  getColorForPeer,
+} from "@cypherkit/provider-core/cursors";
 import style from '../layout/Layout.module.css';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { useAssetUrl } from '../api/images.api';
@@ -18,14 +21,15 @@ function DeviceIcon({ deviceType }: { deviceType?: string }) {
 }
 
 interface ActiveUsersAvatarsProps {
-  users: AwarenessUser[];
+  users: CursorUser[];
 }
 
-function UserAvatarItem({ user, onClick }: { user: AwarenessUser; onClick: () => void }) {
+function UserAvatarItem({ user, onClick }: { user: CursorUser; onClick: () => void }) {
   const avatarUrl = useAssetUrl(user.avatar);
   const initials = user.name
     ? user.name.charAt(0).toUpperCase()
     : user.peerId.charAt(0).toUpperCase();
+  const color = user.color ?? getColorForPeer(user.name || user.peerId);
 
   return (
     <Tooltip>
@@ -33,9 +37,9 @@ function UserAvatarItem({ user, onClick }: { user: AwarenessUser; onClick: () =>
         <div
           className={style.userAvatar}
           style={{
-            ['--avatar-color' as string]: user.color,
+            ['--avatar-color' as string]: color,
             ['--avatar-color-text' as string]: '#ffffff',
-            borderColor: user.color,
+            borderColor: color,
           }}
           onClick={onClick}
         >
@@ -57,7 +61,7 @@ function UserAvatarItem({ user, onClick }: { user: AwarenessUser; onClick: () =>
 }
 
 export function ActiveUsersAvatars({ users }: ActiveUsersAvatarsProps) {
-  const [previewUser, setPreviewUser] = useState<AwarenessUser | null>(null);
+  const [previewUser, setPreviewUser] = useState<CursorUser | null>(null);
   const previewAvatarUrl = useAssetUrl(previewUser?.avatar);
 
   if (users.length === 0) return null;

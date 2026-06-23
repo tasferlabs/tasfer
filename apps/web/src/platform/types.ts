@@ -7,7 +7,7 @@
  */
 
 import type { Block, HLC, Operation } from "@cypherkit/editor";
-import type { AwarenessState } from "@cypherkit/provider-core/cursors";
+import type { CursorPresence } from "@cypherkit/provider-core/cursors";
 
 // =============================================================================
 // Data Types
@@ -301,10 +301,10 @@ export interface SyncEvents {
   /** Initial peer list when joining a room */
   onRoomPeers: (
     peers: string[],
-    awarenessStates?: Record<string, AwarenessState>,
+    awarenessStates?: Record<string, CursorPresence>,
   ) => void;
   /** Awareness update from a peer */
-  onAwareness: (peerId: string, state: AwarenessState) => void;
+  onAwareness: (peerId: string, state: CursorPresence) => void;
   /** Error in sync */
   onError: (message: string) => void;
 }
@@ -491,7 +491,7 @@ export interface Platform {
       targetPeerId?: string,
     ): void;
     /** Send awareness update */
-    sendAwareness(roomId: string, state: AwarenessState): void;
+    sendAwareness(roomId: string, state: CursorPresence): void;
     /** Subscribe to page lifecycle events */
     onPageEvents(callbacks: Partial<PageEvents>): () => void;
     /** Get current connection state */

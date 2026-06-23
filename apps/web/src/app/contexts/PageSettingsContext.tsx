@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback } from "react";
 import { invariant } from "@shared/invariant";
 import type { FontFamily } from "@cypherkit/editor";
 import useLocalStorage from "../hooks/useLocalStorage";
-import type { AwarenessUser } from "@cypherkit/provider-core/cursors";
+import type { CursorUser } from "@cypherkit/provider-core/cursors";
 import type { Block } from "@cypherkit/editor";
 
 export type FontStyle = "default" | "serif";
@@ -18,8 +18,8 @@ interface PageSettingsContextType {
   setShowWordCount: (show: boolean) => void;
   wordCount: number;
   setWordCount: (count: number) => void;
-  activeUsers: AwarenessUser[];
-  setActiveUsers: (users: AwarenessUser[]) => void;
+  activeUsers: CursorUser[];
+  setActiveUsers: (users: CursorUser[]) => void;
   // Snapshot restore
   pageId: string | null;
   setPageId: (pageId: string | null) => void;
@@ -50,7 +50,7 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [showWordCount, setShowWordCountState] = useLocalStorage<boolean>("pageSettings.showWordCount", false);
   const [wordCount, setWordCount] = useState(0);
-  const [activeUsers, setActiveUsers] = useState<AwarenessUser[]>([]);
+  const [activeUsers, setActiveUsers] = useState<CursorUser[]>([]);
   // Snapshot restore state
   const [pageId, setPageId] = useState<string | null>(null);
   const [currentBlocks, setCurrentBlocks] = useState<Block[]>([]);

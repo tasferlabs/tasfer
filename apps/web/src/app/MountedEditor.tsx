@@ -32,10 +32,9 @@ import {
 } from "@cypherkit/editor";
 import {
   cursorPresenceToDecorations,
-  positionToAwarenessCursor,
-  selectionToAwarenessSelection,
-  type AwarenessState,
-  type AwarenessUser,
+  selectionToCursorPresence,
+  type CursorPresence,
+  type CursorUser,
 } from "@cypherkit/provider-core/cursors";
 import {
   allCharsHaveFormat,
@@ -702,7 +701,7 @@ interface MountedEditorProps {
   /** Callback when sync state changes */
   onSyncStateChange?: (state: SyncState) => void;
   /** Callback when active users change */
-  onAwarenessChange?: (users: AwarenessUser[]) => void;
+  onAwarenessChange?: (users: CursorUser[]) => void;
   /** Callback when restore function is ready */
   onRestoreReady?: (restoreFn: (blocks: Block[]) => void) => void;
   /** When true, editor is read-only - no editing, no CRDT sync, no native bridge updates */
@@ -749,40 +748,6 @@ function searchDecorations(
         : SEARCH_HIGHLIGHT_OPACITY,
       gutter: true,
     };
-  });
-}
-
-/**
- * Map a peer's awareness (this app's presence wire shape) to editor decorations
- * via the shared `@cypherkit/provider-core/cursors` mapper. The editor knows
- * only generic decorations; presence-as-cursors lives here + in the provider.
- */
-function awarenessToDecorations(
-  peerId: string,
-  state: AwarenessState,
-): Decoration[] {
-  return cursorPresenceToDecorations(peerId, {
-    user: {
-      peerId: state.user.peerId,
-      name: state.user.name,
-      avatar: state.user.avatar,
-      color: state.user.color,
-    },
-    caret: state.cursor
-      ? { block: state.cursor.blockId, offset: state.cursor.textIndex }
-      : null,
-    selection: state.selection
-      ? {
-          from: {
-            block: state.selection.anchor.blockId,
-            offset: state.selection.anchor.textIndex,
-          },
-          to: {
-            block: state.selection.focus.blockId,
-            offset: state.selection.focus.textIndex,
-          },
-        }
-      : null,
   });
 }
 
@@ -947,19 +912,19 @@ function EditorSurface({
     ((ops: Operation[], vv: Record<string, number>) => void) | null
   >(null);
   const onRoomAwarenessRef = useRef<
-    ((awarenesspeerId: string, state: AwarenessState | null) => void) | null
+    ((awarenesspeerId: string, state: CursorPresence | null) => void) | null
   >(null);
   const onRoomFirstPeerRef = useRef<(() => void) | null>(null);
   const onRoomPeerJoinedRef = useRef<((peerId: string) => void) | null>(null);
   const onRoomAwarenessStatesRef = useRef<
-    ((states: Record<string, AwarenessState>) => void) | null
+    ((states: Record<string, CursorPresence>) => void) | null
   >(null);
   const onRoomJoinedRef = useRef<((hasOtherPeers: boolean) => void) | null>(
     null,
   );
   // Tracks remote peers' identities (for the active-users avatar list), now that
   // the editor no longer stores awareness — it only renders decorations.
-  const remoteUsersRef = useRef<Map<string, AwarenessUser>>(new Map());
+  const remoteUsersRef = useRef<Map<string, CursorUser>>(new Map());
 
   // Use the P2P room subscription (WebRTC DataChannels)
   const {
@@ -982,7 +947,7 @@ function EditorSurface({
         [],
       ),
       onAwarenessUpdate: useCallback(
-        (pId: string, state: AwarenessState | null) => {
+        (pId: string, state: CursorPresence | null) => {
           onRoomAwarenessRef.current?.(pId, state);
         },
         [],
@@ -994,7 +959,7 @@ function EditorSurface({
         onRoomPeerJoinedRef.current?.(pId);
       }, []),
       onAwarenessStates: useCallback(
-        (states: Record<string, AwarenessState>) => {
+        (states: Record<string, CursorPresence>) => {
           onRoomAwarenessStatesRef.current?.(states);
         },
         [],
@@ -1408,29 +1373,14 @@ function EditorSurface({
 
     // When a new peer joins our room, re-broadcast our awareness so they see our cursor
     onRoomPeerJoinedRef.current = (_joinedPeerId) => {
-      if (!localUserRef.current.peerId) return;
-      const editorState = mounted.editor.getState();
-      if (editorState) {
-        const { page, cursor, selection } = editorState.document;
-        roomBroadcastAwareness({
-          user: localUserRef.current,
-          cursor: cursor
-            ? positionToAwarenessCursor(cursor.position, page)
-            : null,
-          selection:
-            selection && !selection.isCollapsed
-              ? selectionToAwarenessSelection(selection, page)
-              : null,
-          lastUpdate: Date.now(),
-        });
-      }
+      publishLocalAwareness();
     };
 
     onRoomAwarenessRef.current = (awarenesspeerId, state) => {
       if (state) {
         mounted.editor.view.setDecorations(
           presenceLayer(awarenesspeerId),
-          awarenessToDecorations(awarenesspeerId, state),
+          cursorPresenceToDecorations(awarenesspeerId, state),
         );
         remoteUsersRef.current.set(awarenesspeerId, state.user);
       } else {
@@ -1445,7 +1395,7 @@ function EditorSurface({
       for (const [awarenesspeerId, state] of Object.entries(states)) {
         mounted.editor.view.setDecorations(
           presenceLayer(awarenesspeerId),
-          awarenessToDecorations(awarenesspeerId, state),
+          cursorPresenceToDecorations(awarenesspeerId, state),
         );
         remoteUsersRef.current.set(awarenesspeerId, state.user);
       }
@@ -1463,21 +1413,7 @@ function EditorSurface({
         });
 
         // Broadcast current awareness state so peers see our cursor
-        const editorState = mounted.editor.getState();
-        if (editorState) {
-          const { page, cursor, selection } = editorState.document;
-          roomBroadcastAwareness({
-            user: localUserRef.current,
-            cursor: cursor
-              ? positionToAwarenessCursor(cursor.position, page)
-              : null,
-            selection:
-              selection && !selection.isCollapsed
-                ? selectionToAwarenessSelection(selection, page)
-                : null,
-            lastUpdate: Date.now(),
-          });
-        }
+        publishLocalAwareness();
       }
     };
 
@@ -1492,18 +1428,12 @@ function EditorSurface({
     // { peerId: "", color: "" }).
     const publishLocalAwareness = () => {
       if (!localUserRef.current.peerId) return;
-      const editorState = mounted.editor.getState();
-      if (!editorState) return;
-      const { page, cursor, selection } = editorState.document;
-      roomBroadcastAwareness({
-        user: localUserRef.current,
-        cursor: cursor ? positionToAwarenessCursor(cursor.position, page) : null,
-        selection:
-          selection && !selection.isCollapsed
-            ? selectionToAwarenessSelection(selection, page)
-            : null,
-        lastUpdate: Date.now(),
-      });
+      roomBroadcastAwareness(
+        selectionToCursorPresence(
+          mounted.editor.state.selection.range,
+          localUserRef.current,
+        ),
+      );
     };
     const offSelectionChange = mounted.editor.on(
       "selectionchange",
@@ -1948,21 +1878,12 @@ function EditorSurface({
   // "selectionchange" subscription wired in the mount effect above.
   useEffect(() => {
     if (mountedRef.current && localUser.peerId) {
-      const editorState = mountedRef.current.editor.getState();
-      if (editorState) {
-        const { page, cursor, selection } = editorState.document;
-        roomBroadcastAwareness({
-          user: localUser,
-          cursor: cursor
-            ? positionToAwarenessCursor(cursor.position, page)
-            : null,
-          selection:
-            selection && !selection.isCollapsed
-              ? selectionToAwarenessSelection(selection, page)
-              : null,
-          lastUpdate: Date.now(),
-        });
-      }
+      roomBroadcastAwareness(
+        selectionToCursorPresence(
+          mountedRef.current.editor.state.selection.range,
+          localUser,
+        ),
+      );
     }
   }, [localUser, roomBroadcastAwareness]);
 
