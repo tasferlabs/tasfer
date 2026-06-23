@@ -1693,6 +1693,11 @@ function EditorSurface({
           }
         }
         mounted.editor.setCaret("start", { onlyIfUnset: true });
+
+        // Programmatic cursor restoration updates the viewport directly and
+        // does not dispatch SCROLL. Seed host overlays with the restored offset
+        // so they do not flash at the top of an already-scrolled document.
+        onScrollRef.current?.(mounted.editor.view.getScrollY());
       }, 0);
     }
 
