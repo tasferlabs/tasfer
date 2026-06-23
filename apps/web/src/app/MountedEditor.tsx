@@ -790,6 +790,16 @@ function awarenessToDecorations(
 const presenceLayer = (peerId: string) => `presence:${peerId}`;
 
 /**
+ * Approximate height of the floating {@link MobileKeyboardToolbar}. When the
+ * soft keyboard is open we shrink the editor container by the keyboard height
+ * plus this offset so the caret stays clear of both the keyboard and the
+ * toolbar that floats just above it. (Keyboard-aware sizing is the host's
+ * concern, not the engine's — the editor just renders into whatever size its
+ * container reports via ResizeObserver.)
+ */
+const KEYBOARD_TOOLBAR_HEIGHT = 48;
+
+/**
  * Public mount component. Remounts the inner {@link EditorSurface} whenever the
  * page (or read-only mode) changes: the surface mounts its editor once via
  * `useEditor` (a mount-once hook), so a fresh `key` is how we recreate the
@@ -909,12 +919,14 @@ function EditorSurface({
   });
   const { isKeyboardOpen, keyboardHeight } = useKeyboardOpen();
 
-  // Forward the authoritative keyboard height into the canvas resize logic.
-  // mount.ts no longer uses window.visualViewport directly because it is
-  // unreliable on iOS (resize:"none") and Android (edge-to-edge mode).
-  useEffect(() => {
-    mountedRef.current?.setKeyboardHeight(keyboardHeight);
-  }, [keyboardHeight]);
+  // Shrink the editor container while the soft keyboard is open so the caret
+  // stays above the keyboard and the floating toolbar. The engine resizes its
+  // canvas to match the container (ResizeObserver), so this is purely a host
+  // layout concern — kept out of the engine on purpose.
+  const keyboardInset =
+    isTouchDevice() && isKeyboardOpen
+      ? keyboardHeight + KEYBOARD_TOOLBAR_HEIGHT
+      : 0;
 
   // Push the selected font family (serif/sans page setting) into the live
   // editor as a theme change — no full re-mount, no module global.
@@ -1067,7 +1079,6 @@ function EditorSurface({
       portalContainer: editor.portalContainer,
       refocus: editor.refocus,
       blurInput: editor.blur,
-      setKeyboardHeight: editor.setKeyboardHeight,
       destroy: editor.destroy,
     };
   } else if (!editor) {
@@ -1133,7 +1144,6 @@ function EditorSurface({
             portalContainer: editor.portalContainer,
             refocus: editor.refocus,
             blurInput: editor.blur,
-            setKeyboardHeight: editor.setKeyboardHeight,
             destroy: editor.destroy,
           };
     mountedRef.current = mounted;
@@ -2356,6 +2366,14 @@ function EditorSurface({
         "relative w-full h-full overflow-hidden focus:outline-none",
         className,
       )}
+      // While the soft keyboard is open, cap the height so the canvas (which
+      // tracks this element via ResizeObserver) ends above the keyboard and the
+      // floating MobileKeyboardToolbar.
+      style={
+        keyboardInset > 0
+          ? { height: `max(100px, calc(100% - ${keyboardInset}px))` }
+          : undefined
+      }
       // The editable surface and its ARIA semantics (role="textbox",
       // aria-label, aria-multiline) now live on the engine's contenteditable
       // input element; this wrapper is just a layout container.

@@ -75,20 +75,7 @@ let cachedWindowWidth: number | null = null;
 // eslint-disable-next-line local/no-global-mutable-state -- window dimension used to invalidate the shared safe-area cache.
 let cachedWindowHeight: number | null = null;
 
-// Track keyboard state - when keyboard is open, don't apply safe area inset.
-// eslint-disable-next-line local/no-global-mutable-state -- one soft keyboard per page; a window/OS-level fact shared by every instance.
-let isKeyboardOpen = false;
-
-export function setKeyboardOpen(open: boolean): void {
-  isKeyboardOpen = open;
-}
-
 export function getSafeAreaBottom(): number {
-  // Don't apply safe area when keyboard is open (keyboard covers the home indicator area)
-  if (isKeyboardOpen) {
-    return 0;
-  }
-
   if (typeof window === "undefined") {
     return 0;
   }

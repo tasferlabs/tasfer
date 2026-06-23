@@ -106,8 +106,6 @@ export interface CypherEditor extends EditorApi {
   blur: () => void;
   /** Refocus the hidden input (e.g. after closing a dialog or drawer). */
   refocus: () => void;
-  /** Feed the current soft-keyboard height (px) for mobile layout. */
-  setKeyboardHeight: (height: number) => void;
   /** Full teardown: canvas layers, global listeners, portal, render loop. */
   destroy: () => void;
 }
@@ -217,7 +215,6 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     doc,
     portalContainer: mounted.portalContainer,
     refocus: mounted.refocus,
-    setKeyboardHeight: mounted.setKeyboardHeight,
     focus,
     blur: mounted.blurInput,
     // Override the core `editor.destroy` with the full mount teardown.

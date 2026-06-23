@@ -9,7 +9,6 @@ import {
   createNodeRegistry,
   type Node,
 } from "../rendering/nodes";
-import { setKeyboardOpen } from "../rendering/scrollbar";
 import { type Block, type Page } from "../serlization/loadPage";
 import type {
   BlockStyles,
@@ -47,8 +46,6 @@ export interface MountedEditor {
   refocus: () => void;
   /** Blur the hidden input to dismiss the soft keyboard */
   blurInput: () => void;
-  /** Notify the canvas of the current soft-keyboard height (px). Call whenever the keyboard appears, disappears, or changes size. */
-  setKeyboardHeight: (height: number) => void;
   destroy: () => void;
 }
 
@@ -428,43 +425,16 @@ export function mountEditor(
     });
   }
 
-  // Height reserved by the React keyboard toolbar when keyboard is open
-  const KEYBOARD_TOOLBAR_HEIGHT = 48;
-
-  let keyboardHeight = 0;
   let baseWidth = initial.width;
   let baseHeight = initial.height;
 
-  const resizeCanvasForKeyboard = () => {
-    const isKbOpen = keyboardHeight > 50;
-    const toolbarOffset =
-      isKbOpen && isTouchDevice() ? KEYBOARD_TOOLBAR_HEIGHT : 0;
-    const availableHeight = Math.max(
-      baseHeight - keyboardHeight - toolbarOffset,
-      100,
-    );
+  const resizeCanvas = () => {
     canvasContainer.style.width = `${baseWidth}px`;
-    canvasContainer.style.height = `${availableHeight}px`;
+    canvasContainer.style.height = `${baseHeight}px`;
     portalContainer.style.width = `${baseWidth}px`;
-    portalContainer.style.height = `${availableHeight}px`;
-    resizeCanvasLayers(layers, baseWidth, availableHeight);
-    editor.updateViewport({ width: baseWidth, height: availableHeight });
-  };
-
-  // setKeyboardHeight is called by the React component (MountedEditor.tsx) via
-  // useKeyboardOpen(), which uses platform-native sources:
-  //   iOS  — @capacitor/keyboard keyboardWillShow/Hide events
-  //   Android — native postMessage from MainActivity
-  //   Web/desktop — window.visualViewport resize events
-  // This avoids relying on window.visualViewport directly here, which is
-  // unreliable on iOS (resize:"none" keeps the viewport unchanged) and Android
-  // (edge-to-edge mode makes innerHeight - visualViewport.height inaccurate).
-  const setKeyboardHeight = (height: number) => {
-    const wasOpen = keyboardHeight > 50;
-    const isOpen = height > 50;
-    keyboardHeight = height;
-    if (wasOpen !== isOpen) setKeyboardOpen(isOpen);
-    resizeCanvasForKeyboard();
+    portalContainer.style.height = `${baseHeight}px`;
+    resizeCanvasLayers(layers, baseWidth, baseHeight);
+    editor.updateViewport({ width: baseWidth, height: baseHeight });
   };
 
   let destroyed = false;
@@ -473,7 +443,7 @@ export function mountEditor(
     const rect = container.getBoundingClientRect();
     baseWidth = Math.max(rect.width, 1);
     baseHeight = Math.max(rect.height, 1);
-    resizeCanvasForKeyboard();
+    resizeCanvas();
   });
   resizeObserver.observe(container);
 
@@ -641,7 +611,6 @@ export function mountEditor(
     doc,
     refocus,
     blurInput,
-    setKeyboardHeight,
     destroy,
     portalContainer,
   };
