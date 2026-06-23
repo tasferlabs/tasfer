@@ -111,8 +111,6 @@ export interface CypherEditor extends EditorApi {
   ) => void;
   /** Blur the editor / dismiss the soft keyboard. */
   blur: () => void;
-  /** Feed the current soft-keyboard height (px) for mobile layout. */
-  setKeyboardHeight: (height: number) => void;
   /** Full teardown: canvas layers, global listeners, portal, render loop. */
   destroy: () => void;
 }
@@ -224,7 +222,6 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     },
     doc,
     portalContainer: mounted.portalContainer,
-    setKeyboardHeight: mounted.setKeyboardHeight,
     focus,
     blur: mounted.blurInput,
     // Override the core `editor.destroy` with the full mount teardown.
