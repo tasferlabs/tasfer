@@ -383,9 +383,11 @@ export interface EditorViewApi {
   updateViewport: (viewport: Partial<ViewportState>) => void;
   /** Get current scroll position. */
   getScrollY: () => number;
-  /** Scroll viewport to make a position visible. The block is addressed by
-   * stable `blockId` (resolved to an index internally). */
-  scrollToPosition: (position: { blockId: string; textIndex: number }) => void;
+  /** Scroll the viewport to make a document point visible. Speaks the same
+   * public {@link DocPoint} vocabulary as {@link coordsAtPos}: an absolute
+   * `{ block, offset }` (the stable, CRDT-id form), or a relative
+   * `"caret"`/`"start"`/`"end"`. */
+  scrollToPosition: (point: DocPoint) => void;
   /**
    * Replace the decorations in one layer — the engine's generic, ephemeral
    * overlay primitive (find highlights, remote cursors, …). `layer` is an opaque
@@ -3652,16 +3654,11 @@ export class Editor implements EditorApi, EditorWiring {
     this.scheduleRender();
   };
 
-  scrollToPosition = (position: {
-    blockId: string;
-    textIndex: number;
-  }): void => {
-    const blockIndex = this._state.document.page.blocks.findIndex(
-      (b) => b.id === position.blockId,
-    );
-    if (blockIndex === -1) return;
+  scrollToPosition = (point: DocPoint): void => {
+    const resolved = resolvePoint(this._state, point);
+    if (!resolved) return;
     const newScrollY = scrollToMakeCursorVisible(
-      { blockIndex, textIndex: position.textIndex },
+      { blockIndex: resolved.blockIndex, textIndex: resolved.offset },
       this._state,
       this.viewport,
     );

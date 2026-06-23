@@ -2033,8 +2033,8 @@ function EditorSurface({
     // Scroll to first match
     if (matches.length > 0) {
       mountedRef.current.editor.view.scrollToPosition({
-        blockId: matches[0].blockId,
-        textIndex: matches[0].startIndex,
+        block: matches[0].blockId,
+        offset: matches[0].startIndex,
       });
     }
   }, []);
@@ -2064,8 +2064,8 @@ function EditorSurface({
           to: { block: match.blockId, offset: match.endIndex },
         });
         mountedRef.current.editor.view.scrollToPosition({
-          blockId: match.blockId,
-          textIndex: match.startIndex,
+          block: match.blockId,
+          offset: match.startIndex,
         });
       }
     },
