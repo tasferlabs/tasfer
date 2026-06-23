@@ -1,7 +1,7 @@
 {/* @cypherkit/editor docs — Installation. */}
 
 import { Icons } from "../../docsIcons";
-import { Callout, Card, CardGrid, InstallTabs, LicenseCard } from "../../docsComponents";
+import { Callout, Card, CardGrid, FrameworkTabs, InstallTabs, LicenseCard } from "../../docsComponents";
 
 <p className="dx-lede">`@cypherkit/editor` is a CRDT-first canvas editor for the web — the same engine that powers the Cypher app, published as a standalone, framework-agnostic package. **It renders to a canvas, models your document as a conflict-free replicated data type, and never assumes a server exists.**</p>
 
@@ -25,7 +25,9 @@ The core package has **zero runtime dependencies**. The CRDT, the canvas rendere
 
 <h2 id="first">A thirty-second editor</h2>
 
-Mount an editor into any element. This is the smallest thing that works — an editable document with markdown shortcuts, history, and a blinking cursor:
+The smallest thing that works — an editable document with markdown shortcuts, history, and a blinking cursor. In plain JS you mount the engine into an element you own; in React you render the `<Editor>` component, which owns and sizes its host for you and reports edits through `onChange`. Flip the tab:
+
+<FrameworkTabs>
 
 ```ts file="main.ts"
 import { createEditor } from "@cypherkit/editor";
@@ -41,6 +43,24 @@ editor.on("change", () => {
   localStorage.setItem("draft", editor.getMarkdown());
 });
 ```
+
+```tsx file="App.tsx"
+import { Editor } from "@cypherkit/react";
+
+export default function App() {
+  return (
+    <Editor
+      markdown={"# Hello\n\nStart typing — *markdown* shortcuts just work."}
+      autofocus
+      style={{ height: "70vh" }}
+      // Read it back as plain markdown on every edit:
+      onChange={(markdown) => localStorage.setItem("draft", markdown)}
+    />
+  );
+}
+```
+
+</FrameworkTabs>
 
 <Callout kind="tip" title="That document is already a CRDT.">Even with no provider attached, the editor's value is backed by a replicated data structure. Wiring up sync later is additive — you never rewrite your document model to "make it collaborative."</Callout>
 

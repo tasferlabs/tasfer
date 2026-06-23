@@ -3,11 +3,12 @@
 import {
   Children,
   createContext,
+  isValidElement,
   useContext,
+  useEffect,
   useId,
   useMemo,
   useState,
-  type ReactElement,
   type ReactNode,
   type AnchorHTMLAttributes,
 } from "react";
@@ -189,17 +190,44 @@ export function Code({
    The docs articles write code samples as markdown fences (```ts file="main.ts");
    mdx-components maps `pre` here. The meta string survives as data-meta thanks
    to the rehypeCodeMeta plugin in next.config.ts. */
+interface Fence {
+  code: string;
+  lang: string;
+  file?: string;
+  terminal: boolean;
+}
+
+/** Pull `{ code, lang, file, terminal }` out of a markdown fence. Handles both
+ *  shapes the parser hands us: a bare `<code>` element (what `CodeFence` gets as
+ *  its child), and a `<pre>`/CodeFence wrapper around it (what `FrameworkTabs`
+ *  gets as each of its children). It descends until it reaches the element whose
+ *  child is the code string — the `<code>` carrying the `language-*` class and
+ *  `data-meta`. */
+function readFence(node: ReactNode): Fence | null {
+  let el: ReactNode = node;
+  for (let depth = 0; depth < 3 && isValidElement(el); depth++) {
+    const props = el.props as {
+      className?: string;
+      children?: ReactNode;
+      "data-meta"?: string;
+    };
+    if (typeof props.children === "string") {
+      const lang = /language-([^\s]+)/.exec(props.className ?? "")?.[1] ?? "text";
+      const meta = props["data-meta"] ?? "";
+      const file = /file="([^"]*)"/.exec(meta)?.[1];
+      return { code: props.children, lang, file, terminal: /\bterminal\b/.test(meta) };
+    }
+    el = props.children;
+  }
+  return null;
+}
+
 export function CodeFence({ children }: { children?: ReactNode }) {
-  const child = Children.only(children) as ReactElement<{
-    className?: string;
-    children?: ReactNode;
-    "data-meta"?: string;
-  }>;
-  const lang = /language-([^\s]+)/.exec(child.props.className ?? "")?.[1] ?? "text";
-  const meta = child.props["data-meta"] ?? "";
-  const file = /file="([^"]*)"/.exec(meta)?.[1];
-  const code = typeof child.props.children === "string" ? child.props.children : "";
-  return <Code code={code} lang={lang} file={file} terminal={/\bterminal\b/.test(meta)} />;
+  const fence = readFence(Children.only(children));
+  if (!fence) return null;
+  return (
+    <Code code={fence.code} lang={fence.lang} file={fence.file} terminal={fence.terminal} />
+  );
 }
 
 /* ── install tabs (npm / pnpm / yarn / bun) ──
@@ -305,6 +333,146 @@ export function InstallTabs({
           <span className="tok-prompt">$ </span>
           {tint(cmds[mgr], "bash", id + mgr)}
         </code>
+      </pre>
+    </div>
+  );
+}
+
+/* ── library / framework switch (plain JS / React) ──
+   Mirrors the package-manager switcher exactly: the choice lives on the code blocks
+   themselves. Every <FrameworkTabs> renders a [JavaScript | React] tab pair in its
+   header and shows the matching snippet; picking one switches every other block on
+   the page in sync and persists the choice to localStorage. <FrameworkProvider>
+   holds that shared selection in React context (no module globals). Default is plain
+   JS — a React user flips one tab and reads the whole getting-started path in React. */
+export type Framework = "js" | "react";
+const FRAMEWORKS: Framework[] = ["js", "react"];
+const FRAMEWORK_LS_KEY = "cy-framework";
+
+function readFramework(): Framework {
+  try {
+    const v = localStorage.getItem(FRAMEWORK_LS_KEY) as Framework | null;
+    return v && FRAMEWORKS.includes(v) ? v : "js";
+  } catch {
+    return "js";
+  }
+}
+function writeFramework(fw: Framework) {
+  try {
+    localStorage.setItem(FRAMEWORK_LS_KEY, fw);
+  } catch {
+    /* ignore */
+  }
+}
+
+interface FrameworkStore {
+  framework: Framework;
+  setFramework(fw: Framework): void;
+}
+const FrameworkContext = createContext<FrameworkStore | null>(null);
+
+/** Shares the selected framework across every FrameworkTabs rendered beneath it, so
+ *  picking a tab in one block switches them all. State starts at the "js" default and
+ *  reads the stored preference after mount, so the server-rendered HTML and the first
+ *  client render agree (no hydration mismatch); a returning React user sees one "js"
+ *  frame before it resolves. */
+export function FrameworkProvider({ children }: { children: ReactNode }) {
+  const [framework, setFw] = useState<Framework>("js");
+  useEffect(() => {
+    setFw(readFramework());
+  }, []);
+  const store = useMemo<FrameworkStore>(
+    () => ({
+      framework,
+      setFramework: (fw) => {
+        setFw(fw);
+        writeFramework(fw);
+      },
+    }),
+    [framework],
+  );
+  return (
+    <FrameworkContext.Provider value={store}>{children}</FrameworkContext.Provider>
+  );
+}
+
+/** Read/flip the active framework. Falls back to local state + localStorage when no
+ *  FrameworkProvider is mounted, so it's safe anywhere (mirrors InstallTabs). */
+export function useFramework(): FrameworkStore {
+  const ctx = useContext(FrameworkContext);
+  const [localFw, setLocalFw] = useState<Framework>("js");
+  useEffect(() => {
+    if (!ctx) setLocalFw(readFramework());
+  }, [ctx]);
+  const fallback = useMemo<FrameworkStore>(
+    () => ({
+      framework: localFw,
+      setFramework: (fw) => {
+        setLocalFw(fw);
+        writeFramework(fw);
+      },
+    }),
+    [localFw],
+  );
+  return ctx ?? fallback;
+}
+
+const FRAMEWORK_LABELS: Record<Framework, string> = {
+  js: "JavaScript",
+  react: "React",
+};
+
+/** A code block with a [JavaScript | React] tab pair in its header — the package
+ *  manager switcher, but for framework variants. Authored in MDX as two fences, plain
+ *  JS first and React second:
+ *
+ *      <FrameworkTabs>
+ *
+ *      ```ts file="main.ts"
+ *      …vanilla…
+ *      ```
+ *
+ *      ```tsx file="App.tsx"
+ *      …react…
+ *      ```
+ *
+ *      </FrameworkTabs>
+ *
+ *  All blocks share the selection via FrameworkProvider, so flipping one flips them
+ *  all; the file label tracks the active variant. */
+export function FrameworkTabs({ children }: { children?: ReactNode }) {
+  const id = useId();
+  const { framework, setFramework } = useFramework();
+  const fences = Children.toArray(children)
+    .map(readFence)
+    .filter((f): f is Fence => f !== null);
+  const byFw: Record<Framework, Fence | undefined> = {
+    js: fences[0],
+    react: fences[1] ?? fences[0],
+  };
+  const active = byFw[framework] ?? fences[0];
+  if (!active) return null;
+  const trimmed = active.code.replace(/^\n/, "").replace(/\s+$/, "");
+  return (
+    <div className="dx-code">
+      <div className="dx-code-head">
+        <div className="dx-code-tabs">
+          {FRAMEWORKS.map((fw) => (
+            <button
+              key={fw}
+              className={"dx-code-tab" + (fw === framework ? " is-active" : "")}
+              onClick={() => setFramework(fw)}
+            >
+              {FRAMEWORK_LABELS[fw]}
+            </button>
+          ))}
+        </div>
+        <span className="dx-code-spacer" />
+        {active.file ? <span className="dx-code-file">{active.file}</span> : null}
+        <CopyBtn text={trimmed} />
+      </div>
+      <pre>
+        <code>{tint(trimmed, active.lang, id + framework)}</code>
       </pre>
     </div>
   );

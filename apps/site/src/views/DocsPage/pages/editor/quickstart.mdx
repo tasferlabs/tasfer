@@ -1,12 +1,14 @@
 {/* @cypherkit/editor docs — Quick start. */}
 
-import { PropsTable } from "../../docsComponents";
+import { FrameworkTabs, PropsTable } from "../../docsComponents";
 
 <p className="dx-lede">Four things make up the whole surface area: the **value** you put in, the **state** you read out, the **commands** you dispatch, and the **events** you listen to. Learn these and you know the editor.</p>
 
 <h2 id="value">1 — Value in</h2>
 
 An editor is created from markdown, a CRDT document, or nothing at all. These three are equivalent starting points:
+
+<FrameworkTabs>
 
 ```ts
 import { createEditor, createDoc } from "@cypherkit/editor";
@@ -22,9 +24,31 @@ createEditor({ element, doc });
 createEditor({ element });
 ```
 
+```tsx
+import { Editor, useEditor } from "@cypherkit/react";
+import { createDoc } from "@cypherkit/editor";
+
+// from a markdown string
+<Editor markdown="# Title" />;
+
+// from an existing CRDT document (e.g. restored from disk)
+const doc = createDoc(savedBytes);
+<Editor doc={doc} />;
+
+// empty
+<Editor />;
+
+// …or, for full control over the host element, the hook form:
+const { containerRef, editor } = useEditor({ markdown: "# Title" });
+```
+
+</FrameworkTabs>
+
 <h2 id="state">2 — State out</h2>
 
-`editor.state` is an immutable snapshot. Read it whenever you need to know what is selected, what marks are active, or render your own UI from it. It never changes underneath you — each edit produces a new snapshot.
+Read what's selected and which marks are active from an immutable snapshot — `editor.state` directly, or `useEditorState(editor)` in React, which returns the same shape and re-renders your component each time it changes. It never changes underneath you; each edit produces a new snapshot.
+
+<FrameworkTabs>
 
 ```ts
 const { selection, activeMarks, doc } = editor.state;
@@ -32,6 +56,18 @@ const { selection, activeMarks, doc } = editor.state;
 selection.empty;              // true when it's just a caret
 activeMarks.has("strong");    // is bold active at the cursor?
 ```
+
+```tsx
+import { useEditorState } from "@cypherkit/react";
+
+const state = useEditorState(editor);   // null until the editor exists
+const active = state?.activeMarks ?? new Set();
+
+state?.selection.empty;   // true when it's just a caret
+active.has("strong");     // is bold active at the cursor?
+```
+
+</FrameworkTabs>
 
 <h2 id="commands">3 — Changes</h2>
 
@@ -47,6 +83,8 @@ editor.change((c) =>
 );
 ```
 
+Changes are framework-neutral — in React you call `change` on the same handle (the `editor` from `useEditor`, or the one `onReady` gives you), straight from an `onClick`. There's no separate React command API.
+
 The full `ChangeApi`, dry runs (`canChange`), and the action bus are on [Changes & actions](/docs/editor/api-commands).
 
 <h2 id="events">4 — Events</h2>
@@ -61,6 +99,10 @@ Subscribe to what the editor does. Every listener returns an unsubscribe functio
 
 Connection status and peer count are **not** editor events — they live on the provider (`provider.on("sync")`), because the provider owns the transport. See [Collaboration](/docs/editor/collaboration).
 
+Subscribe with `editor.on` directly, or — in React — from a `useEffect` keyed on the editor, returning the unsubscribe to clean up. For UI that re-renders on edits, prefer `useEditorState` / `useEditorMarkdown` over wiring `on` by hand.
+
+<FrameworkTabs>
+
 ```ts
 const off = editor.on("change", (tx) => {
   if (tx.isRemote) return;          // ignore edits that came from a peer
@@ -69,3 +111,16 @@ const off = editor.on("change", (tx) => {
 // later
 off();
 ```
+
+```tsx
+useEffect(() => {
+  if (!editor) return;
+  // editor.on returns its unsubscribe fn — return it to clean up
+  return editor.on("change", (tx) => {
+    if (tx.isRemote) return;          // ignore edits that came from a peer
+    console.log("local edit:", tx.ops.length, "ops");
+  });
+}, [editor]);
+```
+
+</FrameworkTabs>

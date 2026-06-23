@@ -54,6 +54,6 @@ const stop = bindPresenceCursors(editor, net, {
 });
 ```
 
-Syncing presence over your own transport instead of a provider? Call the pure mappers directly — `selectionToCursorPresence(editor.state.selection.range, user)` to publish, and `cursorPresenceToDecorations(peerId, state)` → `editor.view.setDecorations(\`presence:\${peerId}\`, …)` to display.
+Syncing presence over your own transport instead of a provider? Call the pure mappers directly — `selectionToCursorPresence(editor.state.selection.range, user)` to publish, and `cursorPresenceToDecorations(peerId, state)` → ``editor.view.setDecorations(`presence:${peerId}`, …)`` to display.
 
 <Callout kind="note" title="Offline is not a special case.">Disconnect, edit for an hour on a plane, reconnect — the CRDT merges your changes with everyone else's deterministically. There is no "resolve conflicts" dialog because there are no conflicts to resolve.</Callout>
