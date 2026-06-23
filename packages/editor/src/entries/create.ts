@@ -179,7 +179,7 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     });
   const ownsDoc = !docOption;
 
-  const mounted = mountEditor(element, doc.getBlocks(), {
+  const mounted = mountEditor(element, doc.getRawBlocks(), {
     ...mountOptions,
     // Render with the schema's nodes (built-ins + any custom), unless the host
     // passed an explicit `nodes` list (which then wins).

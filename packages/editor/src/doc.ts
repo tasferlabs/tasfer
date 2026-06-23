@@ -106,8 +106,16 @@ export interface Doc {
   /** The page id stamped on operations. */
   readonly pageId: string;
 
-  /** Current blocks, including tombstones (`deleted: true`). */
-  getBlocks(): Block[];
+  /**
+   * The raw, fully-merged CRDT block array — **including tombstones**
+   * (`deleted: true`) — with no text extraction or type sugar. This is the
+   * canonical storage/sync state, stable across peers.
+   *
+   * For a filtered, presentation-ready read (tombstones removed, `.text`
+   * materialized, heading sugar applied, range-addressable), use an attached
+   * editor's `query.blocks(range)` instead.
+   */
+  getRawBlocks(): Block[];
   /** Markdown projection of the current document. */
   getMarkdown(): string;
 
@@ -167,11 +175,11 @@ export interface Doc {
    */
   readonly _binding: CRDTbinding;
   /**
-   * The live, fully-merged page (the same object backing `getBlocks`). An
+   * The live, fully-merged page (the same object backing `getRawBlocks`). An
    * attached editor adopts this via `updatePageFromSync` so it renders the
    * canonically-merged state — not an incremental fold that could drop a
    * dependent op.
-   * @internal — wiring detail for `createEditor`; use `getBlocks` instead.
+   * @internal — wiring detail for `createEditor`; use `getRawBlocks` instead.
    */
   _getPage(): Page;
   /**
@@ -335,7 +343,7 @@ export function createDoc(input?: CreateDocOptions | Uint8Array): Doc {
     },
     pageId,
 
-    getBlocks(): Block[] {
+    getRawBlocks(): Block[] {
       return page.blocks;
     },
 

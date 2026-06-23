@@ -77,8 +77,8 @@ describe("per-block style — CRDT convergence", () => {
     b.applyUpdate([insertBlock, align, color]);
 
     const expected = { color: "#f00", textAlign: "center" };
-    expect(styleOf(a.getBlocks(), "blk")).toEqual(expected);
-    expect(styleOf(b.getBlocks(), "blk")).toEqual(styleOf(a.getBlocks(), "blk"));
+    expect(styleOf(a.getRawBlocks(), "blk")).toEqual(expected);
+    expect(styleOf(b.getRawBlocks(), "blk")).toEqual(styleOf(a.getRawBlocks(), "blk"));
 
     a.destroy();
     b.destroy();
@@ -93,8 +93,8 @@ describe("per-block style — CRDT convergence", () => {
     const b = emptyDoc();
     b.applyUpdate([insertBlock, blue, red]);
 
-    expect(styleOf(a.getBlocks(), "blk").color).toBe("#00f");
-    expect(styleOf(b.getBlocks(), "blk").color).toBe("#00f");
+    expect(styleOf(a.getRawBlocks(), "blk").color).toBe("#00f");
+    expect(styleOf(b.getRawBlocks(), "blk").color).toBe("#00f");
 
     a.destroy();
     b.destroy();
@@ -111,7 +111,7 @@ describe("per-block style — CRDT convergence", () => {
     doc.destroy();
 
     const restored = createDoc(bytes);
-    expect(styleOf(restored.getBlocks(), "blk")).toEqual({
+    expect(styleOf(restored.getRawBlocks(), "blk")).toEqual({
       color: "#f00",
       textAlign: "center",
     });
@@ -132,7 +132,7 @@ describe("per-block style — CRDT convergence", () => {
         initialProps: { style: { color: "#0f0" } },
       },
     ]);
-    expect(styleOf(doc.getBlocks(), "blk2")).toEqual({ color: "#0f0" });
+    expect(styleOf(doc.getRawBlocks(), "blk2")).toEqual({ color: "#0f0" });
     doc.destroy();
   });
 });

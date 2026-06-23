@@ -118,7 +118,7 @@ describe("forward compatibility with newer-peer ops", () => {
     const doc = emptyDoc();
     doc.applyUpdate(ALL_OPS);
 
-    const blocks = visible(doc.getBlocks());
+    const blocks = visible(doc.getRawBlocks());
     const known = blocks.find((b) => b.id === "blk-known");
     expect(known?.type).toBe("paragraph");
     expect(
@@ -178,8 +178,8 @@ describe("forward compatibility with newer-peer ops", () => {
 
     expect(opIds(b.getOperations())).toEqual(opIds(a.getOperations()));
     expect(b.getOperations()).toHaveLength(ALL_OPS.length); // no duplicates
-    expect(visible(b.getBlocks()).map((blk) => blk.id)).toEqual(
-      visible(a.getBlocks()).map((blk) => blk.id),
+    expect(visible(b.getRawBlocks()).map((blk) => blk.id)).toEqual(
+      visible(a.getRawBlocks()).map((blk) => blk.id),
     );
 
     a.destroy();

@@ -46,13 +46,13 @@ describe("createDoc", () => {
 
   it("creates an empty editable doc by default", () => {
     const doc = createDoc();
-    expect(doc.getBlocks().length).toBeGreaterThan(0);
+    expect(doc.getRawBlocks().length).toBeGreaterThan(0);
     expect(doc.getMarkdown().trim()).toBe("");
   });
 
   it("ops-only init starts truly empty (no starter paragraph)", () => {
     const doc = createDoc({ pageId: "page-1", ops: [] });
-    expect(doc.getBlocks()).toHaveLength(0);
+    expect(doc.getRawBlocks()).toHaveLength(0);
   });
 
   it("converges regardless of cross-peer delivery order, and dedupes", () => {
@@ -240,7 +240,7 @@ describe("createDoc", () => {
       pageId: "page-1",
       ops: [blockInsert, textInsert],
     });
-    const snapshotBlocks = structuredClone(base.getBlocks());
+    const snapshotBlocks = structuredClone(base.getRawBlocks());
 
     // An op produced after the snapshot was taken.
     const tail = engine.insertText(
@@ -277,7 +277,7 @@ describe("createDoc", () => {
 
     // Canonical fold of those ops == the "snapshot" the app would have persisted.
     const folded = createDoc({ pageId: "page-1", ops });
-    const snapshotBlocks = structuredClone(folded.getBlocks());
+    const snapshotBlocks = structuredClone(folded.getRawBlocks());
 
     // Seed a fresh doc from the snapshot (empty log/VV), then load the ops.
     const doc = createDoc({ pageId: "page-1", blocks: snapshotBlocks });
@@ -289,7 +289,7 @@ describe("createDoc", () => {
     // No emit — an attached editor already renders these blocks.
     expect(events).toHaveLength(0);
     // Re-folding already-applied ops is idempotent: content is unchanged.
-    expect(doc.getBlocks()).toEqual(snapshotBlocks);
+    expect(doc.getRawBlocks()).toEqual(snapshotBlocks);
     expect(doc.getMarkdown()).toContain("persisted body");
     // The op log + version vector now reflect every loaded op …
     expect(doc.getOperations()).toHaveLength(2);
@@ -317,7 +317,7 @@ describe("createDoc", () => {
     const folded = createDoc({ pageId: "page-1", ops });
     const doc = createDoc({
       pageId: "page-1",
-      blocks: structuredClone(folded.getBlocks()),
+      blocks: structuredClone(folded.getRawBlocks()),
     });
     doc.load(ops);
 

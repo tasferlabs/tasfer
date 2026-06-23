@@ -183,7 +183,7 @@ export interface MountEditorOptions {
    * Attach an existing CRDT document (see `createDoc`). The editor renders and
    * edits this doc: local edits flow into it (`doc._ingestLocal`), and updates
    * applied from elsewhere (`doc.applyUpdate`) flow back into the editor. When
-   * present, the editor mounts from `doc.getBlocks()` and uses `doc._binding`
+   * present, the editor mounts from `doc.getRawBlocks()` and uses `doc._binding`
    * as its id/clock source, so `blocks`/`crdtBinding`/`pageId` are derived from
    * the doc. The caller owns the doc's lifetime — `mountEditor`'s `destroy`
    * detaches its listener but does not destroy the doc.
@@ -295,7 +295,7 @@ export function mountEditor(
   const page: Page = {
     id: doc?.pageId ?? options?.pageId ?? "",
     title: "",
-    blocks: doc ? doc.getBlocks() : blocks,
+    blocks: doc ? doc.getRawBlocks() : blocks,
   };
 
   // Create a container for the layered canvases

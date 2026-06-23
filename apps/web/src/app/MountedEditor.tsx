@@ -1284,7 +1284,7 @@ function EditorSurface({
 
     // True if snapshot has any block with actual text (not just the auto-generated empty init block).
     // Used to decide whether to show the spinner overlay until local ops are confirmed loaded.
-    const snapshotHasContent = doc.getBlocks().some((b) => {
+    const snapshotHasContent = doc.getRawBlocks().some((b) => {
       if (isTextualBlock(b)) return b.charRuns.some((r) => r.text.length > 0);
       return true; // image and line blocks are always real content
     });
@@ -1378,7 +1378,7 @@ function EditorSurface({
         roomBroadcast(u.ops);
         platform.ops.persist(pageId, u.ops);
       }
-      saveSnapshot(doc.getBlocks());
+      saveSnapshot(doc.getRawBlocks());
     });
 
     // Apply remote ops through the doc. applyUpdate dedups via the version

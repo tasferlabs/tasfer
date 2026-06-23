@@ -39,7 +39,7 @@ describe("custom node round-trip", () => {
       markdown: `# Title\n\n<x-callout tone="warn" />`,
       schema: schema.data,
     });
-    const blocks = doc.getBlocks().filter((b) => !b.deleted);
+    const blocks = doc.getRawBlocks().filter((b) => !b.deleted);
     const calloutBlock = blocks.find(isCallout);
     expect(calloutBlock).toBeDefined();
     expect(attrs(calloutBlock).tone).toBe("warn");
@@ -56,7 +56,7 @@ describe("custom node round-trip", () => {
       markdown: `<x-callout />`,
       schema: schema.data,
     });
-    expect(attrs(doc.getBlocks().find(isCallout)).tone).toBe("note");
+    expect(attrs(doc.getRawBlocks().find(isCallout)).tone).toBe("note");
   });
 
   it("validates a custom attr via block_set", () => {
@@ -64,7 +64,7 @@ describe("custom node round-trip", () => {
       markdown: `<x-callout tone="note" />`,
       schema: schema.data,
     });
-    const id = doc.getBlocks().find(isCallout)!.id;
+    const id = doc.getRawBlocks().find(isCallout)!.id;
     doc.applyUpdate(
       [
         {
@@ -79,7 +79,7 @@ describe("custom node round-trip", () => {
       ],
       "test",
     );
-    expect(attrs(doc.getBlocks().find((b) => b.id === id)).tone).toBe("danger");
+    expect(attrs(doc.getRawBlocks().find((b) => b.id === id)).tone).toBe("danger");
   });
 });
 
@@ -89,7 +89,7 @@ describe("unknown block type degrades, never crashes", () => {
     // replica that only has the base schema. It must not throw, and must not
     // materialize a block it can't model.
     const doc = createDoc({ markdown: "# Hi" /* base schema */ });
-    const before = doc.getBlocks().length;
+    const before = doc.getRawBlocks().length;
     const op: BlockInsert = {
       op: "block_insert",
       id: "p2:5",
@@ -101,12 +101,12 @@ describe("unknown block type degrades, never crashes", () => {
     };
     expect(() => doc.applyUpdate([op], "remote")).not.toThrow();
     // No materialized block for the unknown type.
-    expect(doc.getBlocks().some((b) => b.id === "b-callout")).toBe(false);
-    expect(doc.getBlocks().length).toBe(before);
+    expect(doc.getRawBlocks().some((b) => b.id === "b-callout")).toBe(false);
+    expect(doc.getRawBlocks().length).toBe(before);
   });
 
   it("applyOp on an unknown type via the base schema is a no-op, not a throw", () => {
-    const page = createDoc({ markdown: "x" }).getBlocks();
+    const page = createDoc({ markdown: "x" }).getRawBlocks();
     const op: BlockInsert = {
       op: "block_insert",
       id: "p3:1",
