@@ -42,17 +42,3 @@ export const TOGGLE_CODE = stateAction("toggle-code", (state) => {
   const result = toggleCode(state);
   return { state: result.state, ops: result.ops };
 });
-
-/**
- * The built-in mark toggles, grouped — exposed at the package root as
- * `MarkActions`. This is the one toolbar vocabulary the engine and a host share
- * (named after the CRDT marks `strong`/`emphasis`/`strike`/`code`, not
- * bold/italic), so a host wiring formatting buttons dispatches
- * `editor.dispatch(MarkActions.TOGGLE_STRONG)`.
- */
-export const MarkActions = {
-  TOGGLE_STRONG,
-  TOGGLE_EMPHASIS,
-  TOGGLE_STRIKE,
-  TOGGLE_CODE,
-} as const;

@@ -135,25 +135,6 @@ export const CLEAR_SELECTION = stateAction("clear-selection", (state) => ({
   ops: [],
 }));
 
-/**
- * The content-editing command vocabulary, grouped — exposed at the package root
- * as `EditActions`. A host wiring a toolbar / command palette dispatches these
- * (`editor.dispatch(EditActions.SELECT_ALL)`); the engine's own edit handlers
- * dispatch the same references internally. (The list indent/checkbox commands
- * live with their node under `NodeActions`; the mark toggles under `MarkActions`.)
- */
-export const EditActions = {
-  INSERT_TEXT,
-  DELETE_BACKWARD,
-  DELETE_FORWARD,
-  DELETE_WORD_BACKWARD,
-  DELETE_WORD_FORWARD,
-  SPLIT_BLOCK,
-  CONVERT_BLOCK,
-  SELECT_ALL,
-  CLEAR_SELECTION,
-} as const;
-
 // ─── Shared arrow-key edge helpers ───────────────────────────────────────────
 //
 // The six non-shift arrow/page branches in `keysEvents.ts` (ArrowLeft,
