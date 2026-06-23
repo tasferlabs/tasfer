@@ -19,7 +19,7 @@
 
 import { type ActionBus, type ActionHandler, stateAction } from "../action-bus";
 import { insertText } from "../actions/actions";
-import { SPLIT_BLOCK } from "../actions/edit-actions";
+import { SELECT_ALL, SPLIT_BLOCK } from "../actions/edit-actions";
 import {
   type FontFamily,
   getFontStack,
@@ -32,6 +32,7 @@ import type {
   NodePaintCtx,
   NodeRegionCtx,
 } from "../rendering/nodes/Node";
+import { moveCursorToPosition } from "../selection";
 import { escapeAttr, escapeHtml } from "../serlization/codecs/inline";
 import type { InputCtx } from "../serlization/codecs/types";
 import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
@@ -47,9 +48,11 @@ import type {
   EditorStyles,
   FontStyles,
   NodeOverlay,
+  Position,
   RenderedBlock,
   TextStyle,
 } from "../state-types";
+import { updateMode } from "../state-utils";
 import { CODE_FONT_FAMILY } from "../styles";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { type CodeToken, highlightLine } from "./code-highlight";
@@ -277,6 +280,56 @@ export class CodeNode extends TextNode {
   // ── Editing affordances (action bus) ─────────────────────────────────────────
 
   registerActions(bus: ActionBus): void {
+    // First Ctrl/Cmd+A selects this code block's complete source. If that exact
+    // range is already selected, pass the next press through to the editor's
+    // normal whole-document selection.
+    bus.registerState(
+      SELECT_ALL,
+      (state) => {
+        const cursor = state.document.cursor;
+        if (!cursor) return;
+        const blockIndex = cursor.position.blockIndex;
+        const block = state.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "code") return;
+
+        const length = getVisibleTextFromRuns(block.charRuns).length;
+        const selection = state.document.selection;
+        const alreadySelected =
+          selection !== null &&
+          selection.anchor.blockIndex === blockIndex &&
+          selection.focus.blockIndex === blockIndex &&
+          Math.min(selection.anchor.textIndex, selection.focus.textIndex) ===
+            0 &&
+          Math.max(selection.anchor.textIndex, selection.focus.textIndex) ===
+            length;
+        if (alreadySelected) return;
+
+        const start: Position = { blockIndex, textIndex: 0 };
+        const end: Position = { blockIndex, textIndex: length };
+        let next = moveCursorToPosition(state, blockIndex, length);
+        next = {
+          ...next,
+          document: {
+            ...next.document,
+            selection: {
+              anchor: start,
+              focus: end,
+              isForward: true,
+              isCollapsed: false,
+              lastUpdate: Date.now(),
+              initialBoundary: { start, end },
+            },
+          },
+        };
+        return {
+          state: updateMode(next, "select"),
+          ops: [],
+          handled: true,
+        };
+      },
+      50,
+    );
+
     // Enter in a code block inserts a literal newline instead of splitting the
     // block. Returns `handled: true` only for code blocks; otherwise observes and
     // passes through to the default block-split transform.

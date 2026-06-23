@@ -25,7 +25,8 @@ import {
   type StateResult,
   TEXT_INPUTTED,
 } from "../action-bus";
-import { SPLIT_BLOCK } from "../actions/edit-actions";
+import { SELECT_ALL, SPLIT_BLOCK } from "../actions/edit-actions";
+import { SELECT_WORD_AT_POINT } from "../actions/mouse-actions";
 import { POINTER_MOVE } from "../actions/pointer-actions";
 import { getInlineMathAtPosition } from "../inline-math";
 import type { MarkRegistry } from "../rendering/marks";
@@ -60,7 +61,11 @@ import type {
   RenderedLine,
   TextStyle,
 } from "../state-types";
-import { closeActiveMenu, isCaretScratchActive } from "../state-utils";
+import {
+  closeActiveMenu,
+  isCaretScratchActive,
+  updateMode,
+} from "../state-utils";
 import {
   getVisibleTextFromChars,
   getVisibleTextFromRuns,
@@ -73,6 +78,8 @@ import {
   mathDeleteUnit,
   mathMaterializeAfterInput,
   mathTransformTypedInput,
+  mathUnitAfter,
+  mathUnitBefore,
 } from "./math";
 import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
 import {
@@ -481,6 +488,74 @@ export class MathNode extends TextNode {
    * opening a popover — the same canvas-native editing inline chips already have.
    */
   registerActions(bus: ActionBus): void {
+    // Scope the first Ctrl/Cmd+A to the active equation. Once that exact range
+    // is already selected, leave the action unclaimed so its normal default
+    // expands to the whole document on the second press.
+    bus.registerState(
+      SELECT_ALL,
+      (state) => {
+        const cursor = state.document.cursor;
+        if (!cursor) return;
+        const blockIndex = cursor.position.blockIndex;
+        const block = state.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "math") return;
+
+        const length = getVisibleTextFromRuns(block.charRuns).length;
+        const selection = state.document.selection;
+        const alreadySelected =
+          selection !== null &&
+          selection.anchor.blockIndex === blockIndex &&
+          selection.focus.blockIndex === blockIndex &&
+          Math.min(selection.anchor.textIndex, selection.focus.textIndex) ===
+            0 &&
+          Math.max(selection.anchor.textIndex, selection.focus.textIndex) ===
+            length;
+        if (alreadySelected) return;
+
+        return {
+          state: selectMathRange(state, blockIndex, 0, length),
+          ops: [],
+          handled: true,
+        };
+      },
+      50,
+    );
+
+    // Desktop double-click normally selects a prose "word". LaTeX source words
+    // are the wrong abstraction here (`frac` without its slash/arguments, for
+    // example), so claim the action for block equations and select the complete
+    // structural unit adjacent to the rendered caret instead. Prefer a
+    // construct over a leaf when the hit-test lands on their shared boundary:
+    // double-clicking a numerator glyph should highlight its enclosing fraction,
+    // not just the source character.
+    bus.registerState(
+      SELECT_WORD_AT_POINT,
+      (state, { position }) => {
+        const block = state.document.page.blocks[position.blockIndex];
+        if (!block || block.deleted || block.type !== "math") return;
+        const latex = getVisibleTextFromRuns(block.charRuns);
+        const before = mathUnitBefore(latex, position.textIndex);
+        const after = mathUnitAfter(latex, position.textIndex);
+        const unit =
+          [before, after].find((candidate) => candidate?.isConstruct) ??
+          after ??
+          before;
+        if (!unit) return { state, ops: [], handled: true };
+
+        return {
+          state: selectMathRange(
+            state,
+            position.blockIndex,
+            unit.start,
+            unit.end,
+          ),
+          ops: [],
+          handled: true,
+        };
+      },
+      50,
+    );
+
     bus.registerState(
       POINTER_MOVE,
       (state, { textPosition, blockUnderPoint, canvasX, viewport }) => {
@@ -589,6 +664,33 @@ export class MathNode extends TextNode {
       normalizeMathInput(state, blockIndex, textIndex),
     );
   }
+}
+
+/** Select `[from, to)` within one math block and remember its gesture boundary. */
+function selectMathRange(
+  state: EditorState,
+  blockIndex: number,
+  from: number,
+  to: number,
+): EditorState {
+  const start: Position = { blockIndex, textIndex: from };
+  const end: Position = { blockIndex, textIndex: to };
+  let next = moveCursorToPosition(state, blockIndex, to);
+  next = {
+    ...next,
+    document: {
+      ...next.document,
+      selection: {
+        anchor: start,
+        focus: end,
+        isForward: true,
+        isCollapsed: false,
+        lastUpdate: Date.now(),
+        initialBoundary: { start, end },
+      },
+    },
+  };
+  return updateMode(next, "select");
 }
 
 /**

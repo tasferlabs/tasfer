@@ -1,5 +1,5 @@
 import { insertText } from "../actions/actions";
-import { SPLIT_BLOCK } from "../actions/edit-actions";
+import { SELECT_ALL, SPLIT_BLOCK } from "../actions/edit-actions";
 import { loadPage } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type { CursorState, EditorState, Page } from "../state-types";
@@ -125,6 +125,59 @@ describe("CodeNode editing actions", () => {
 
     const block = result.state.document.page.blocks[0] as CodeBlock;
     expect(getVisibleTextFromRuns(block.charRuns)).toBe("x  ");
+  });
+
+  it("selects only the active code block on the first Ctrl/Cmd+A", () => {
+    const code = "const x = 1;\nreturn x;";
+    const paragraph = {
+      id: "p-1",
+      afterId: "code-1",
+      deleted: false as const,
+      type: "paragraph" as const,
+      charRuns: [{ peerId: "peer", startCounter: 50, text: "after" }],
+      formats: [],
+    };
+    const state0 = createInitialState(pageWith(codeBlock(code), paragraph));
+    const state = withCursor(state0, cursorAt(0, 8));
+
+    const result = state.actionBus.dispatchState(SELECT_ALL, state);
+
+    expect(result.claimed).toBe(true);
+    expect(result.state.document.selection?.anchor).toEqual({
+      blockIndex: 0,
+      textIndex: 0,
+    });
+    expect(result.state.document.selection?.focus).toEqual({
+      blockIndex: 0,
+      textIndex: code.length,
+    });
+  });
+
+  it("selects the whole document on the second Ctrl/Cmd+A", () => {
+    const code = "let x = 1;";
+    const paragraph = {
+      id: "p-1",
+      afterId: "code-1",
+      deleted: false as const,
+      type: "paragraph" as const,
+      charRuns: [{ peerId: "peer", startCounter: 50, text: "after" }],
+      formats: [],
+    };
+    const state0 = createInitialState(pageWith(codeBlock(code), paragraph));
+    const state = withCursor(state0, cursorAt(0, 4));
+
+    const first = state.actionBus.dispatchState(SELECT_ALL, state);
+    const second = first.state.actionBus.dispatchState(SELECT_ALL, first.state);
+
+    expect(second.claimed).toBe(false);
+    expect(second.state.document.selection?.anchor).toEqual({
+      blockIndex: 0,
+      textIndex: 0,
+    });
+    expect(second.state.document.selection?.focus).toEqual({
+      blockIndex: 1,
+      textIndex: 5,
+    });
   });
 });
 
