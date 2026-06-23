@@ -14,10 +14,9 @@ import {
   mathCommandCaretOffset,
 } from "@cypherkit/editor";
 import {
-  getEditorStyles,
   getInlineMathCaretRect,
   getInlineMathOffsetAtX,
-  mathPendingCommandRange,
+  mathCommandRanges,
   onFontsReady,
 } from "@cypherkit/editor/internal";
 import { layoutMath, paintMath } from "@cypherkit/tex";
@@ -227,8 +226,7 @@ export const InlineMathOverlay: React.FC<InlineMathOverlayProps> = ({
   };
 
   // Match the on-canvas caret: same theme-resolved cursor color the engine paints.
-  const caretColor = getEditorStyles(editor.getState() ?? undefined).cursor
-    .color;
+  const caretColor = editor.view.getStyles().cursor.color;
 
   return (
     <InlineMathCanvas
@@ -266,19 +264,16 @@ const InlineMathCanvas: React.FC<{
 }> = ({ chip, caretColor, onClickOffset, commandSlot }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Two distinct uses of the `\command` run at the caret, mirroring MathMark:
-  //  • literalRange — keep the run as literal SOURCE (`\al`, not the glyph). Only
-  //    while a command is actively being entered (`chip.commandEntry`); otherwise
-  //    resting the caret right after a COMPLETE command (`\eta`) would wrongly
-  //    show its source instead of η.
-  //  • pendingRange — a COLOR hint so an unknown half-typed command's glyphs paint
-  //    in normal text color (not the red placeholder); harmless for known
-  //    commands. Derived from the caret whenever the caret is in the run, exactly
-  //    as MathMark's paint does.
-  const commandRange =
-    mathPendingCommandRange(chip.latex, chip.offset) ?? undefined;
-  const literalRange = chip.commandEntry ? commandRange : undefined;
-  const pendingRange = commandRange;
+  // The literal/pending `\command` ranges at the caret — the SAME pair the
+  // on-canvas chip (`MathMark`) and block equation (`MathNode`) derive, via the
+  // shared `mathCommandRanges`, so this mirror stays pixel-consistent with them.
+  // `chip.commandEntry` is the command-entry-active gate (a command is being
+  // entered here, not merely resting at a complete command's edge).
+  const { literalRange, pendingRange } = mathCommandRanges(
+    chip.latex,
+    chip.offset,
+    chip.commandEntry,
+  );
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;

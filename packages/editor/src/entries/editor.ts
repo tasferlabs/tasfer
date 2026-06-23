@@ -85,6 +85,7 @@ import type {
   ActiveMenu,
   EditorMode,
   EditorState,
+  EditorStyles,
   EditorTheme,
   NodeOverlay,
   Position,
@@ -392,6 +393,15 @@ export interface EditorViewApi {
   updateViewport: (viewport: Partial<ViewportState>) => void;
   /** Get current scroll position. */
   getScrollY: () => number;
+  /**
+   * The fully-resolved {@link EditorStyles} the engine currently paints with —
+   * the host {@link EditorTheme} (tokens + overrides + window-focus state)
+   * collapsed into concrete values. A host drawing chrome that must visually
+   * match the canvas (e.g. an overlay caret using the same cursor color) reads
+   * it here instead of re-resolving the theme itself. Recomputed per call, so
+   * it reflects the latest {@link EditorApi.setTheme}/focus state.
+   */
+  getStyles: () => EditorStyles;
   /** Scroll the viewport to make a document point visible. Speaks the same
    * public {@link DocPoint} vocabulary as {@link coordsAtPos}: an absolute
    * `{ block, offset }` (the stable, CRDT-id form), or a relative
@@ -3634,6 +3644,8 @@ export class Editor implements EditorApi, EditorWiring {
 
   getScrollY = (): number => this.viewport.scrollY;
 
+  getStyles = (): EditorStyles => getEditorStyles(this._state);
+
   setDecorations = (
     layer: string,
     decorations: readonly Decoration[],
@@ -3695,6 +3707,7 @@ export class Editor implements EditorApi, EditorWiring {
     coordsAtPos: this.coordsAtPos,
     updateViewport: this.updateViewport,
     getScrollY: this.getScrollY,
+    getStyles: this.getStyles,
     scrollToPosition: this.scrollToPosition,
     setDecorations: this.setDecorations,
     clearDecorations: this.clearDecorations,

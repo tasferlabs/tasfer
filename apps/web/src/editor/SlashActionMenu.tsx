@@ -21,10 +21,7 @@ import React, {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { CONVERT_BLOCK, type Editor, TEXT_INPUT } from "@cypherkit/editor";
-import {
-  getBlockTextContent,
-  isTouchDevice,
-} from "@cypherkit/editor/internal";
+import { isTouchDevice } from "@cypherkit/editor/internal";
 import { ScrollArea } from "../components/ui/scroll-area";
 
 /** Block types the slash menu can insert. Assignable to the engine's `Block["type"]`. */
@@ -197,7 +194,7 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
   // Open trigger lives in a ref (mutated synchronously inside the TEXT_INPUT
   // handler, before the `/` commits) so the very next `subscribe` tick — which
   // fires after the commit — sees it and computes the anchor/filter.
-  const triggerRef = useRef<{ blockIndex: number; slashIndex: number } | null>(
+  const triggerRef = useRef<{ blockId: string; slashIndex: number } | null>(
     null,
   );
   const [menu, setMenu] = useState<{
@@ -215,16 +212,17 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
     (item: SlashItem) => {
       const t = triggerRef.current;
       if (!t) return;
-      const cur = editor.getState()?.document.cursor;
-      const blockId = cur
-        ? editor.getState()?.document.page.blocks[cur.position.blockIndex]?.id
-        : undefined;
+      const range = editor.state.selection.range;
+      const caretIndex =
+        range && typeof range === "object" && "offset" in range
+          ? range.offset ?? 0
+          : null;
       // Strip the typed "/filter" trigger text before converting (one undo step).
       const strip =
-        blockId && cur
+        caretIndex !== null
           ? {
-              from: { block: blockId, offset: t.slashIndex },
-              to: { block: blockId, offset: cur.position.textIndex },
+              from: { block: t.blockId, offset: t.slashIndex },
+              to: { block: t.blockId, offset: caretIndex },
             }
           : undefined;
       editor.dispatch(CONVERT_BLOCK, { type: item.type, strip });
@@ -237,23 +235,22 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
     const recompute = () => {
       const t = triggerRef.current;
       if (!t) return;
-      const st = editor.getState();
-      const cur = st?.document.cursor;
-      if (!st || !cur) {
+      const range = editor.state.selection.range;
+      if (!range || typeof range !== "object" || !("offset" in range)) {
         close();
         return;
       }
-      const block = st.document.page.blocks[t.blockIndex];
+      const block = editor.query.block(range);
       if (!block) {
         close();
         return;
       }
-      const text = getBlockTextContent(block);
-      const cursorIndex = cur.position.textIndex;
+      const text = block.text;
+      const cursorIndex = range.offset ?? 0;
       // Close when the caret has left the slash run: different block, moved at
       // or before the `/`, or the `/` itself was deleted.
       if (
-        cur.position.blockIndex !== t.blockIndex ||
+        block.id !== t.blockId ||
         cursorIndex <= t.slashIndex ||
         text[t.slashIndex] !== "/"
       ) {
@@ -281,9 +278,12 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
     // are computed on the next `subscribe` tick.
     const offInput = editor.registerAction(
       TEXT_INPUT,
-      ({ text, blockIndex, textIndex }) => {
+      ({ text, textIndex }) => {
         if (text !== "/" || isTouchDevice()) return;
-        triggerRef.current = { blockIndex, slashIndex: textIndex };
+        // The `/` was just typed at the caret, so the caret block IS the block.
+        const block = editor.query.block();
+        if (!block) return;
+        triggerRef.current = { blockId: block.id, slashIndex: textIndex };
       },
     );
     const offSub = editor.subscribe(recompute);

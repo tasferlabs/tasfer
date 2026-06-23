@@ -8,7 +8,7 @@ import {
   renderToSVG,
   TEXT_INPUT,
 } from "@cypherkit/editor";
-import { getBlockTextContent, isTouchDevice } from "@cypherkit/editor/internal";
+import { isTouchDevice } from "@cypherkit/editor/internal";
 import { ScrollArea } from "../components/ui/scroll-area";
 
 interface MathCommandMenuProps {
@@ -20,7 +20,7 @@ interface MathCommandMenuProps {
 
 /** The `\`-trigger run we're tracking: the block + the index of the `\`. */
 interface Trigger {
-  blockIndex: number;
+  blockId: string;
   backslashIndex: number;
 }
 
@@ -59,22 +59,22 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
   const select = React.useCallback(
     (cmd: MathCommand) => {
       const t = triggerRef.current;
-      if (!t) return;
-      const st = editor.getState();
-      const cur = st?.document.cursor;
-      const blockId = st?.document.page.blocks[t.blockIndex]?.id;
-      if (!st || !cur || !blockId) return;
-      const caretIndex = cur.position.textIndex;
+      const range = editor.state.selection.range;
+      const caretIndex =
+        range && typeof range === "object" && "offset" in range
+          ? range.offset ?? 0
+          : null;
+      if (!t || caretIndex === null) return;
       // Replace the typed "\query" with the construct (one undo step). No mark is
       // passed: the run is inserted strictly inside the existing math span, so
       // it's covered positionally — keeping the chip a single, well-anchored span.
       editor.change((c) => {
         c.insertText(cmd.latex, {
-          from: { block: blockId, offset: t.backslashIndex },
-          to: { block: blockId, offset: caretIndex },
+          from: { block: t.blockId, offset: t.backslashIndex },
+          to: { block: t.blockId, offset: caretIndex },
         });
         c.select({
-          block: blockId,
+          block: t.blockId,
           offset: t.backslashIndex + mathCommandCaretOffset(cmd.latex),
         });
       });
@@ -87,19 +87,19 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
     const recompute = () => {
       const t = triggerRef.current;
       if (!t) return;
-      const st = editor.getState();
-      const cur = st?.document.cursor;
-      if (!st || !cur) return close();
-
-      const block = st.document.page.blocks[t.blockIndex];
+      const range = editor.state.selection.range;
+      if (!range || typeof range !== "object" || !("offset" in range)) {
+        return close();
+      }
+      const block = editor.query.block(range);
       if (!block) return close();
 
-      const text = getBlockTextContent(block);
-      const caretIndex = cur.position.textIndex;
+      const text = block.text;
+      const caretIndex = range.offset ?? 0;
       // Close when the caret left the `\` run: different block, moved at/before
       // the `\`, or the `\` itself was deleted.
       if (
-        cur.position.blockIndex !== t.blockIndex ||
+        block.id !== t.blockId ||
         caretIndex <= t.backslashIndex ||
         text[t.backslashIndex] !== "\\"
       ) {
@@ -133,14 +133,15 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
     // are computed on the next `subscribe` tick.
     const offInput = editor.registerAction(
       TEXT_INPUT,
-      ({ text, blockIndex, textIndex }) => {
+      ({ text, textIndex }) => {
         if (text !== "\\" || isTouchDevice()) return;
         // Block equations only (their whole text IS the LaTeX, so a `\` anywhere
         // triggers). Inline chips get their `\` menu docked inside the WYSIWYG
-        // overlay (see InlineMathOverlay), not this floating one.
-        const block = editor.getState()?.document.page.blocks[blockIndex];
+        // overlay (see InlineMathOverlay), not this floating one. The `\` was
+        // just typed at the caret, so the caret block IS the trigger block.
+        const block = editor.query.block();
         if (block?.type !== "math") return;
-        triggerRef.current = { blockIndex, backslashIndex: textIndex };
+        triggerRef.current = { blockId: block.id, backslashIndex: textIndex };
       },
     );
     const offSub = editor.subscribe(recompute);
