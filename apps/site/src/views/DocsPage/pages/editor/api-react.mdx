@@ -8,35 +8,45 @@ import { Callout, PropsTable } from "../../docsComponents";
 import { Editor, useEditor, useEditorState } from "@cypherkit/react";
 ```
 
-<Callout kind="note" title="Options are read once.">Editor options are read at mount only. Reconfigure at runtime through the imperative `CypherEditor` handle (`setTheme`, `setMarkdown`, `change`, …) — not by re-passing props.</Callout>
+<Callout kind="note" title="Options are read once.">Editor options are read at mount only. Reconfigure at runtime through the imperative `CypherEditor` handle (`setTheme`, `setMarkdown`, `change`, …) — not by re-passing props. The one exception is `<Editor>`'s controlled `value` / `onChange`, which stay in sync by design.</Callout>
 
 <h2 id="component">&lt;Editor /&gt;</h2>
 
-A drop-in component that renders the host element for you and reports the live editor through `onReady`. It takes every `createEditor` option except `element`, plus the props below.
+A drop-in component that renders the host element for you and reports the live editor through `onReady`. It takes every `createEditor` option except `element`, plus the props below — including `value` / `onChange`, the controlled-component sugar.
 
 <PropsTable rows={[
   { name: "...options", type: "UseEditorOptions", desc: "Every createEditor option except element — markdown, doc, schema, theme, placeholder, autofocus, editable." },
+  { name: "value", type: "string", desc: "Controlled markdown, like a <textarea>. Seeds the initial content (when no markdown/doc/blocks is given) and is pushed in when it changes after mount. Echoing onChange's output back is a no-op, so it never fights the caret." },
+  { name: "onChange", type: "(markdown: string) => void", desc: "Called with the document's markdown after every change — local, paste, undo, or remote. For the raw ChangeTransaction (or to ignore remote via tx.isRemote), subscribe through onReady instead." },
   { name: "className", type: "string", desc: "Forwarded to the host <div>." },
   { name: "style", type: "CSSProperties", desc: "Forwarded to the host <div>. The div must be sized — give it a height here or via className." },
   { name: "onReady", type: "(editor: CypherEditor) => void", desc: "Called once per editor instance with the live handle. Wire events / persistence here." },
 ]} />
 
 ```tsx
+import { useState } from "react";
 import { Editor } from "@cypherkit/react";
 
+// Controlled — drive it like a textarea.
 function App() {
+  const [md, setMd] = useState("# Hello");
+  return <Editor value={md} onChange={setMd} autofocus style={{ height: "100vh" }} />;
+}
+
+// Uncontrolled — seed once, react to edits, reach for the handle when you need it.
+function App2() {
   return (
     <Editor
       markdown="# Hello"
-      autofocus
+      onChange={save}
       style={{ height: "100vh" }}
-      onReady={(editor) =>
-        editor.on("change", () => save(editor.getMarkdown()))
-      }
+      onReady={(editor) => editor.focus("end")}
     />
   );
 }
 ```
+
+<Callout kind="tip" title="Controlled, without the cursor jumps.">Pushing a fresh `value` reloads the document, so for a large or collaborative editor prefer the uncontrolled `markdown` + `onChange` (or the imperative handle). Either way `onChange` reports the canonical markdown the editor serialized — including remote edits.</Callout>
 
 <h2 id="useeditor">useEditor(options)</h2>
 
