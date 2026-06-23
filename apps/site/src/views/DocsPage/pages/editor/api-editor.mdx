@@ -112,7 +112,7 @@ The everyday content/command/query surface lives flat on the handle. Two further
   { name: "view.coordsAtPos", type: "(point: DocPoint) => { x, y, height } | null", desc: "Map a document point to viewport coordinates (scroll applied). Pass 'caret' to anchor an overlay to the caret. The anchoring primitive for menus/typeaheads." },
   { name: "view.updateViewport", type: "(patch: Partial<ViewportState>) => void", desc: "Merge a viewport patch (e.g. width/height on container resize) and re-render." },
   { name: "view.getScrollY", type: "() => number", desc: "Current scroll position." },
-  { name: "view.scrollToPosition", type: "(p: { blockId, textIndex }) => void", desc: "Scroll to make a position visible. The block is addressed by stable id." },
+  { name: "view.scrollToPosition", type: "(point: DocPoint) => void", desc: "Scroll to make a document point visible. Speaks the same DocPoint vocabulary as coordsAtPos." },
   { name: "view.setDecorations", type: "(layer: string, decos: readonly Decoration[]) => void", desc: "Replace one decoration layer — the generic ephemeral overlay (find highlights, remote cursors). Layers are opaque keys; empty array clears. Not document content." },
   { name: "view.clearDecorations", type: "(layer: string) => void", desc: "Clear one decoration layer." },
   { name: "host.setMode", type: "(mode: 'edit'|'select'|'suspended') => void", desc: "Switch interaction mode — normal, selection-only (mobile), or read-only." },
