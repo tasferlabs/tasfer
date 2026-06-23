@@ -83,6 +83,7 @@ import { serializeToMarkdown } from "../serlization/serializer";
 import type {
   ActionResult,
   ActiveMenu,
+  EditorMode,
   EditorState,
   EditorTheme,
   NodeOverlay,
@@ -349,6 +350,14 @@ export interface EditorStateSnapshot {
   readonly canRedo: boolean;
   /** Whether the editor currently has focus. */
   readonly isFocused: boolean;
+  /**
+   * The current interaction mode: `edit` (normal), `select` (selection-only,
+   * e.g. mobile), `suspended` (read-only; momentum halted), or `readonly`. The
+   * read counterpart to {@link EditorHostApi.setMode} — lets host chrome gate
+   * behavior on mode (e.g. suspend while a modal popover is open) without an
+   * imperative {@link EditorApi.getState} read.
+   */
+  readonly mode: EditorMode;
 }
 
 /**
@@ -3614,6 +3623,7 @@ export class Editor implements EditorApi, EditorWiring {
       canUndo: canUndoState(this._state),
       canRedo: canRedoState(this._state),
       isFocused: this._state.view.isFocused,
+      mode: this._state.ui.mode,
     };
   }
 

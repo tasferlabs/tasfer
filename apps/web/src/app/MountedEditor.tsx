@@ -1995,9 +1995,6 @@ function EditorSurface({
       return;
     }
 
-    const state = mountedRef.current.editor.getState();
-    if (!state) return;
-
     const matches: {
       blockId: string;
       startIndex: number;
@@ -2005,9 +2002,11 @@ function EditorSurface({
     }[] = [];
     const lowerSearch = text.toLowerCase();
 
-    for (const block of state.document.page.blocks) {
-      if (block.deleted) continue;
-      const content = getBlockTextContent(block).toLowerCase();
+    for (const block of mountedRef.current.editor.query.blocks({
+      from: "start",
+      to: "end",
+    })) {
+      const content = block.text.toLowerCase();
       if (!content) continue;
 
       let pos = 0;
@@ -2168,15 +2167,10 @@ function EditorSurface({
 
     // Add Download item when cursor is on an image block with a url
     {
-      const state = mountedRef.current?.editor.getState();
-      const blockIndex = state?.document.cursor?.position.blockIndex;
-      const block =
-        blockIndex !== undefined
-          ? state?.document.page.blocks[blockIndex]
-          : undefined;
-      if (block && block.type === "image" && block.url) {
-        const url = block.url;
-        const alt = block.alt;
+      const block = mountedRef.current?.editor.query.block();
+      if (block && block.type === "image" && block.attrs.url) {
+        const url = block.attrs.url as string;
+        const alt = block.attrs.alt as string | undefined;
         items.push({
           id: "downloadImage",
           label: t("contextMenu.downloadImage", "Download image"),
@@ -2190,69 +2184,13 @@ function EditorSurface({
 
     // Add Format submenu for desktop when text is selected (not in readonly mode)
     if (hasSelection && !isTouchDevice() && !readonly) {
-      // Get active formats from current selection
-      // When there's a selection, check if ALL chars have the format
-      const state = mountedRef.current?.editor.getState();
-      let isBold = false;
-      let isItalic = false;
-      let isCode = false;
-      let isStrikethrough = false;
-
-      if (state) {
-        const range = getSelectionRange(state);
-        if (range && range.start.blockIndex === range.end.blockIndex) {
-          // Single block selection: check if all chars have each format
-          const block = state.document.page.blocks[range.start.blockIndex];
-          if (isTextualBlock(block)) {
-            isBold = allCharsHaveFormat(
-              block.charRuns,
-              block.formats,
-              range.start.textIndex,
-              range.end.textIndex,
-              "strong",
-            );
-            isItalic = allCharsHaveFormat(
-              block.charRuns,
-              block.formats,
-              range.start.textIndex,
-              range.end.textIndex,
-              "emphasis",
-            );
-            isCode = allCharsHaveFormat(
-              block.charRuns,
-              block.formats,
-              range.start.textIndex,
-              range.end.textIndex,
-              "code",
-            );
-            isStrikethrough = allCharsHaveFormat(
-              block.charRuns,
-              block.formats,
-              range.start.textIndex,
-              range.end.textIndex,
-              "strike",
-            );
-          }
-        } else {
-          // No selection or multi-block: use cursor position
-          const getActiveMarks = () => {
-            if (state.ui.activeMarksMode.type === "explicit") {
-              return state.ui.activeMarksMode.formats;
-            }
-            if (state.document.cursor) {
-              const { blockIndex, textIndex } = state.document.cursor.position;
-              const block = state.document.page.blocks[blockIndex];
-              return getFormatsAtPosition(block, textIndex) || [];
-            }
-            return [];
-          };
-          const activeMarks = getActiveMarks();
-          isBold = activeMarks.some((f) => f.type === "strong");
-          isItalic = activeMarks.some((f) => f.type === "emphasis");
-          isCode = activeMarks.some((f) => f.type === "code");
-          isStrikethrough = activeMarks.some((f) => f.type === "strike");
-        }
-      }
+      // The marks active across the selection (the canonical "all chars carry
+      // it" reading, with explicit/caret-inherited formats folded in).
+      const marks = mountedRef.current?.editor.state.activeMarks;
+      const isBold = marks?.has("strong") ?? false;
+      const isItalic = marks?.has("emphasis") ?? false;
+      const isCode = marks?.has("code") ?? false;
+      const isStrikethrough = marks?.has("strike") ?? false;
 
       items.push({
         id: "format",
@@ -2296,27 +2234,38 @@ function EditorSurface({
             label: t("contextMenu.link", "Link"),
             icon: <Link size={16} />,
             action: () => {
-              const currentState = mountedRef.current?.editor.getState();
-              if (!currentState) return;
-              const range = getSelectionRange(currentState);
-              if (!range) return;
-              const { start, end } = range;
-              const block = currentState.document.page.blocks[start.blockIndex];
-              if (!block || block.type === "image") return;
-              const text = getBlockTextContent(block);
-              const selectedText = text.substring(
-                start.textIndex,
-                end.textIndex,
-              );
-              const containerRect = wrapperRef.current?.getBoundingClientRect();
               const mountedEditor = mountedRef.current?.editor;
-              if (!containerRect || !mountedEditor) return;
+              const range = mountedEditor?.state.selection.range;
+              // A non-collapsed selection resolves to a { from, to } of absolute
+              // { block, offset } points; narrow off the wide DocRange union.
+              if (
+                !mountedEditor ||
+                !range ||
+                typeof range !== "object" ||
+                !("from" in range)
+              )
+                return;
+              const { from, to } = range;
+              if (
+                typeof from !== "object" ||
+                "side" in from ||
+                typeof to !== "object" ||
+                "side" in to
+              )
+                return;
+              const startIndex = from.offset ?? 0;
+              const endIndex = to.offset ?? 0;
+              const block = mountedEditor.query.block(from);
+              if (!block || block.type === "image") return;
+              const selectedText = block.text.substring(startIndex, endIndex);
+              const containerRect = wrapperRef.current?.getBoundingClientRect();
+              if (!containerRect) return;
               // Open the link create menu — rendered as a drawer on mobile by
               // the CypherLinkMark "link-edit" overlay.
               openLinkEditMenu(mountedEditor, {
-                blockId: block.id,
-                startIndex: start.textIndex,
-                endIndex: end.textIndex,
+                blockId: from.block,
+                startIndex,
+                endIndex,
                 url: "",
                 text: "",
                 selectedText,
@@ -2337,17 +2286,16 @@ function EditorSurface({
   useEffect(() => {
     if (!mountedRef.current?.editor) return;
 
-    const currentState = mountedRef.current.editor.getState();
-    if (!currentState) return;
+    const mode = mountedRef.current.editor.state.mode;
 
     if (modalPopoverOpen) {
       // Set editor to suspended mode when popover opens (only if not already suspended)
-      if (currentState.ui.mode !== "suspended") {
+      if (mode !== "suspended") {
         mountedRef.current.editor.host.setMode("suspended");
       }
     } else {
       // Restore to edit mode when popover closes (only if currently suspended)
-      if (currentState.ui.mode === "suspended") {
+      if (mode === "suspended") {
         mountedRef.current.editor.host.setMode("edit");
       }
     }

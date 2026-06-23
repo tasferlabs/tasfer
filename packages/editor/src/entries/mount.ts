@@ -496,11 +496,7 @@ export function mountEditor(
     if (editor.isHostMenuCapturing()) {
       return;
     }
-    if (
-      isTouchDevice() &&
-      isTouchActive &&
-      editor.getState()?.ui.mode === "select"
-    ) {
+    if (isTouchDevice() && isTouchActive && editor.state.mode === "select") {
       return;
     }
     const relatedTarget = e.relatedTarget as globalThis.Node | null;
@@ -513,7 +509,7 @@ export function mountEditor(
         setTimeout(() => {
           if (
             document.activeElement !== hiddenInput &&
-            editor.getState()?.view.isFocused &&
+            editor.state.isFocused &&
             !document.querySelector("[cmdk-dialog]")
           ) {
             hiddenInput.focus({ preventScroll: true });
@@ -546,7 +542,7 @@ export function mountEditor(
   // the true target, so we can still detect focus landing outside the editor.
   const handleDocumentFocusIn = (e: FocusEvent) => {
     if (isInsideEditor(e.target as globalThis.Node | null)) return;
-    if (editor.getState()?.view.isFocused) {
+    if (editor.state.isFocused) {
       editor.setFocus(false);
     }
   };
