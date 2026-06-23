@@ -183,6 +183,39 @@ export function resolveBlockIndex(
   return p ? p.blockIndex : -1;
 }
 
+// Resolve a DocRange to the inclusive [startIndex, endIndex] span of blocks it
+// touches (the block-level analogue of resolveInlineRange — which collapses to a
+// single block). Default / "selection" → the blocks the live selection/caret
+// covers; a bare point → its one block; { from, to } → from..to inclusive. The
+// whole document is { from: "start", to: "end" }. null when unresolvable.
+// Indices are into the raw block array (may include tombstones); the caller
+// slices and drops deleted blocks.
+export function resolveBlockSpan(
+  s: EditorState,
+  range: DocRange | undefined,
+): { startIndex: number; endIndex: number } | null {
+  if (range === undefined || range === "selection") {
+    const sel = getSelectionRange(s);
+    if (sel)
+      return { startIndex: sel.start.blockIndex, endIndex: sel.end.blockIndex };
+    const caret = resolvePoint(s, "caret");
+    return caret
+      ? { startIndex: caret.blockIndex, endIndex: caret.blockIndex }
+      : null;
+  }
+  if (typeof range === "object" && "from" in range) {
+    const a = resolvePoint(s, range.from);
+    const b = resolvePoint(s, range.to);
+    if (!a || !b) return null;
+    return {
+      startIndex: Math.min(a.blockIndex, b.blockIndex),
+      endIndex: Math.max(a.blockIndex, b.blockIndex),
+    };
+  }
+  const p = resolvePoint(s, range);
+  return p ? { startIndex: p.blockIndex, endIndex: p.blockIndex } : null;
+}
+
 // Place a caret (collapsed target) or selection (span) for `select`.
 export function selectTarget(s: EditorState, target: DocRange): EditorState {
   if (typeof target === "object" && "from" in target) {

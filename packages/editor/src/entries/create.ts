@@ -1,4 +1,5 @@
 import { createDoc, type Doc } from "../doc";
+import type { DocPoint } from "../positions";
 import { baseSchema, type Schema } from "../schema";
 import { type Block, loadPage } from "../serlization/loadPage";
 import type { EditorApi, EditorStateSnapshot } from "./editor";
@@ -98,14 +99,18 @@ export interface CypherEditor extends EditorApi {
   /** Container to mount React popovers/overlays into (slash menu, link editor). */
   readonly portalContainer: HTMLDivElement;
   /**
-   * Focus the editor. With no argument, places a caret only if there isn't one
-   * yet; pass `"start"` / `"end"` to force the caret to the document boundary.
+   * Focus the editor: restore DOM focus to the input surface, then drop a caret.
+   * An alias for {@link EditorApi.setCaret} — it takes the same
+   * {@link DocPoint} (default `"start"`) and `{ onlyIfUnset }` options and
+   * delegates to it, additionally re-focusing the hidden input so the editor
+   * receives keystrokes.
    */
-  focus: (at?: "start" | "end") => void;
+  focus: (
+    point?: Exclude<DocPoint, "caret">,
+    opts?: { onlyIfUnset?: boolean },
+  ) => void;
   /** Blur the editor / dismiss the soft keyboard. */
   blur: () => void;
-  /** Refocus the hidden input (e.g. after closing a dialog or drawer). */
-  refocus: () => void;
   /** Feed the current soft-keyboard height (px) for mobile layout. */
   setKeyboardHeight: (height: number) => void;
   /** Full teardown: canvas layers, global listeners, portal, render loop. */
@@ -189,10 +194,13 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
   });
   const { editor } = mounted;
 
-  const focus = (at?: "start" | "end") => {
+  // Alias for `setCaret` that also restores DOM focus to the input surface.
+  const focus = (
+    point?: Exclude<DocPoint, "caret">,
+    opts?: { onlyIfUnset?: boolean },
+  ) => {
     mounted.refocus();
-    // Explicit `at` forces the caret; otherwise seed one only if none exists.
-    editor.host.setCaret(at ?? "start", { onlyIfUnset: !at });
+    editor.setCaret(point, opts);
   };
 
   const destroy = () => {
@@ -216,7 +224,6 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     },
     doc,
     portalContainer: mounted.portalContainer,
-    refocus: mounted.refocus,
     setKeyboardHeight: mounted.setKeyboardHeight,
     focus,
     blur: mounted.blurInput,

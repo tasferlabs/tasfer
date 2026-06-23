@@ -37,13 +37,13 @@ import {
 import { onFontsReady } from "../fonts";
 import { getBlockTextContent } from "../node-shared";
 import {
-  activeCaretMarks,
   type BlockData,
   docMarks,
   type DocPoint,
   type DocRange,
   docSelection,
   resolveBlockIndex,
+  resolveBlockSpan,
   resolveInlineRange,
   resolvePoint,
   selectTarget,
@@ -403,30 +403,10 @@ export interface EditorViewApi {
  * The chrome-lifecycle facet of {@link EditorApi}, reached as `editor.host`.
  * The surface a host builds rich UI chrome on: node-declared overlays, the
  * opaque per-block view-state channel, menu lifecycle, interaction mode, and
- * cursor/snapshot restore. Public and semver-stable, but kept off the flat root
+ * snapshot restore. Public and semver-stable, but kept off the flat root
  * since most consumers (and the React bindings) never touch it.
  */
 export interface EditorHostApi {
-  /**
-   * Place a collapsed caret at a {@link DocPoint} (default `"start"`), clearing
-   * any selection, returning to `edit` mode, and notifying subscribers. The
-   * point speaks the same stable vocabulary as the read/write API — `"start"`/
-   * `"end"`, or an absolute `{ block, offset }`. Forces the caret to move unless
-   * `onlyIfUnset` is passed, in which case it is a no-op when a cursor already
-   * exists (seed-an-initial-caret). No-op when the point can't be resolved
-   * (empty doc, unknown block).
-   */
-  setCaret: (
-    point?: Exclude<DocPoint, "caret">,
-    opts?: { onlyIfUnset?: boolean },
-  ) => void;
-  /**
-   * Place a selection spanning a {@link DocRange}, returning to `edit` mode and
-   * notifying subscribers — e.g. to reveal a search match. A collapsed range (a
-   * bare {@link DocPoint}) drops a caret; `{ from, to }` selects the span. No-op
-   * when the range can't be resolved.
-   */
-  setSelection: (range: DocRange) => void;
   /**
    * Switch the interaction mode: `edit` (normal), `select` (selection-only, e.g.
    * mobile), or `suspended` (read-only; also halts scroll momentum). Notifies
@@ -473,14 +453,57 @@ export interface EditorHostApi {
 }
 
 /**
+ * The read facet of {@link EditorApi}, reached as `editor.query` — the mirror of
+ * the {@link ChangeApi} write surface. Every method speaks the same
+ * {@link DocPoint}/{@link DocRange} vocabulary and defaults to the live
+ * caret/selection, so a read pairs symmetrically with its write:
+ * `query.block(at)` ↔ `c.setBlock(attrs, at)`, `query.marks(range)` ↔
+ * `c.setMark(name, { range })`. A host reads a {@link BlockData}'s id/attrs here
+ * and hands them straight back to a {@link Editor.change} without touching
+ * {@link EditorApi.getState}. The selection itself — the caret/anchor `DocRange`
+ * with offsets — is read off the reactive snapshot at
+ * {@link EditorStateSnapshot.selection} (`editor.state.selection.range`), the
+ * one place that value lives.
+ */
+export interface QueryApi {
+  /**
+   * Plain-data view of the single block at `at` (default: the caret block), or
+   * `null` when there's no such block. Address a specific block by id with
+   * `block({ block: id })` (the common "find the block this overlay/menu
+   * targets" pattern) — no scan of {@link EditorApi.getState}'s raw block array.
+   * The point counterpart to {@link blocks}: this takes a {@link DocPoint} and
+   * returns one block, that takes a {@link DocRange} and returns the span.
+   */
+  block(at?: DocPoint): BlockData | null;
+  /**
+   * The visible blocks the `range` touches, in document order — the same
+   * {@link DocRange} the {@link ChangeApi} methods speak. Defaults to the
+   * **selection**, so `blocks()` is "the blocks under the caret/selection"
+   * (equivalently `blocks(editor.state.selection.range)`). Narrow to any span
+   * without fetching-then-filtering; for the whole document pass
+   * `{ from: "start", to: "end" }`. A collapsed range (or bare point) yields the
+   * one block there; empty when the range can't be resolved.
+   */
+  blocks(range?: DocRange): BlockData[];
+  /**
+   * Inline marks active over `range` (default: selection). A collapsed range (or
+   * the bare caret) yields the formats that will apply to text typed there —
+   * explicit toggled formats, or those inherited from the preceding character —
+   * handy for lighting up a toolbar.
+   */
+  marks(range?: DocRange): Set<MarkName>;
+}
+
+/**
  * The public action/lifecycle surface implemented by {@link Editor} — the
  * contract owed to external consumers. Kept as a standalone interface so the
  * rich documentation lives in one place and the class is compile-checked
  * (`class Editor implements EditorApi`) against it.
  *
  * Organized by audience: the flat members here are the everyday
- * content/command/query surface; geometry & decorations live on the
- * {@link EditorViewApi} `view` facet and chrome-building plumbing on the
+ * content/command surface; content reads live on the {@link QueryApi} `query`
+ * facet (the mirror of {@link change}), geometry & decorations on the
+ * {@link EditorViewApi} `view` facet, and chrome-building plumbing on the
  * {@link EditorHostApi} `host` facet. Engine-internal doc↔editor wiring and
  * mount-only window plumbing live on the separate {@link EditorWiring}
  * interface, so neither appears in the type a consumer holds.
@@ -488,10 +511,9 @@ export interface EditorHostApi {
 export interface EditorApi {
   /**
    * The raw internal {@link EditorState} (escape hatch), or `null` before any
-   * state exists. Prefer {@link state} for UI binding, {@link getBlock}/
-   * {@link getBlockById}/{@link getSelection} for content reads, and the
-   * {@link view} facet for geometry — reach for this only when a needed read has
-   * no typed accessor.
+   * state exists. Prefer {@link state} for UI binding, the {@link query} facet
+   * for content reads, and the {@link view} facet for geometry — reach for this
+   * only when a needed read has no typed accessor.
    */
   getState: () => EditorState | null;
   /**
@@ -499,6 +521,8 @@ export interface EditorApi {
    * For the raw internal {@link EditorState} (escape hatch), use {@link getState}.
    */
   readonly state: EditorStateSnapshot;
+  /** Content read facet (the mirror of {@link change}) — see {@link QueryApi}. */
+  readonly query: QueryApi;
   /** Geometry & ephemeral-paint facet — see {@link EditorViewApi}. */
   readonly view: EditorViewApi;
   /** Chrome-lifecycle facet — see {@link EditorHostApi}. */
@@ -595,59 +619,50 @@ export interface EditorApi {
   /** Step local history forward; returns whether it changed the document. */
   redo: () => boolean;
   /**
-   * The inline formats that will apply to text typed at the caret — explicit
-   * toggled formats, or those inherited from the character before it. Handy for
-   * lighting up a toolbar.
+   * Place a collapsed caret at a {@link DocPoint} (default `"start"`), clearing
+   * any selection, returning to `edit` mode, and notifying subscribers. The
+   * point speaks the same stable vocabulary as the read/write API — `"start"`/
+   * `"end"`, or an absolute `{ block, offset }`. Forces the caret to move unless
+   * `onlyIfUnset` is passed, in which case it is a no-op when a cursor already
+   * exists (seed-an-initial-caret). No-op when the point can't be resolved
+   * (empty doc, unknown block). The selection it produces is read back at
+   * {@link EditorStateSnapshot.selection} (`editor.state.selection.range`).
    */
-  getActiveMarks: () => Set<Mark["type"]>;
-  /** True when there is no selection (just a caret, or nothing). */
-  isSelectionEmpty: () => boolean;
+  setCaret: (
+    point?: Exclude<DocPoint, "caret">,
+    opts?: { onlyIfUnset?: boolean },
+  ) => void;
   /**
-   * Plain-data view of the block at `at` (default: the caret block), or `null`
-   * when there's no such block. The read counterpart to {@link ChangeApi.setBlock}
-   * — a host reads a {@link BlockData}'s id/attrs and hands them straight back to a
-   * mutation without touching {@link EditorApi.getState}.
+   * Place a selection spanning a {@link DocRange}, returning to `edit` mode and
+   * notifying subscribers — e.g. to reveal a search match. A collapsed range (a
+   * bare {@link DocPoint}) drops a caret; `{ from, to }` selects the span. No-op
+   * when the range can't be resolved. Pass `null` to clear both the selection
+   * and the caret — removing all selection/cursor visuals — and notify
+   * subscribers.
    */
-  getBlock: (at?: DocPoint) => BlockData | null;
+  setSelection: (range: DocRange | null) => void;
   /**
-   * Plain-data view of the block with the given stable id, or `null` when no
-   * present block has it. Sugar for `getBlock({ block: id, offset: 0 })` — the
-   * common host pattern of "find the block this overlay/menu targets" without
-   * scanning {@link EditorApi.getState}'s raw block array.
+   * Copy a {@link DocRange} to the system clipboard and close any open context
+   * menu. With no `docRange` (or `null`) it copies the current selection.
+   * `selectRange` (default `false`) also moves the editor's selection to
+   * `docRange` after copying; otherwise the current selection is left untouched
+   * (copy is non-destructive). Resolves to whether the copy succeeded.
    */
-  getBlockById: (id: string) => BlockData | null;
-  /** All visible blocks, in document order, as plain {@link BlockData} data. */
-  getBlocks: () => BlockData[];
+  copy: (docRange?: DocRange | null, selectRange?: boolean) => Promise<boolean>;
   /**
-   * The current selection as a {@link DocRange} — `{ from, to }` of absolute
-   * `{ block, offset }` points, or `"selection"`'s collapsed form (a bare point)
-   * for a caret. `null` when there is no caret/selection. The same currency the
-   * {@link ChangeApi} methods accept.
+   * Cut a {@link DocRange} to the system clipboard (one undoable step) and close
+   * any open context menu. With no `docRange` (or `null`) it cuts the current
+   * selection. `selectRange` (default `false`) leaves the caret collapsed at the
+   * cut point (where the removed content was); otherwise the caller's original
+   * caret/selection is restored after the cut. Resolves to whether anything was
+   * cut.
    */
-  getSelection: () => DocRange | null;
-  /** Inline marks active over `range` (default: selection) — see
-   * {@link getActiveMarks}, which is this applied to the caret. */
-  getMarks: (range?: DocRange) => Set<MarkName>;
-  /**
-   * Copy the current selection to the system clipboard and close any open
-   * context menu. Resolves to whether the copy succeeded.
-   */
-  copy: () => Promise<boolean>;
-  /**
-   * Cut the current selection to the system clipboard (one undoable step) and
-   * close any open context menu. Resolves to whether anything was cut.
-   */
-  cut: () => Promise<boolean>;
+  cut: (docRange?: DocRange | null, selectRange?: boolean) => Promise<boolean>;
   /**
    * Paste from the system clipboard at the caret/selection (one undoable step)
    * and close any open context menu. Resolves to whether anything was pasted.
    */
   paste: () => Promise<boolean>;
-  /**
-   * Clear both the selection and the caret — removing all selection/cursor
-   * visuals — and notify subscribers.
-   */
-  clearSelection: () => void;
   /**
    * Update this instance's theme. The patch is deep-merged onto the current
    * theme (tokens/fonts/strings shallow-merged, `styles` deep-merged), re-
@@ -2286,8 +2301,14 @@ export class Editor implements EditorApi, EditorWiring {
   // Place a selection spanning a DocRange (a bare point drops a caret). Shares
   // the `selectTarget` resolver with `ChangeApi.select`, but stands alone — no
   // ops, no undo entry — for host-driven cursor/selection placement.
-  setSelection = (range: DocRange): void => {
-    this._state = updateMode(selectTarget(this._state, range), "edit");
+  setSelection = (range: DocRange | null): void => {
+    if (range === null) {
+      // Clear both the selection and the caret — removing all visual
+      // indicators — then notify subscribers.
+      this._state = updateCursor(clearSelection(this._state), null);
+    } else {
+      this._state = updateMode(selectTarget(this._state, range), "edit");
+    }
     const currentState = this._state;
     this.scheduleRender();
     this.listeners.forEach((listener) => listener(currentState));
@@ -2924,15 +2945,12 @@ export class Editor implements EditorApi, EditorWiring {
     return false;
   };
 
-  getActiveMarks = (): Set<Mark["type"]> => activeCaretMarks(this._state);
-
-  isSelectionEmpty = (): boolean => {
-    const sel = this._state.document.selection;
-    return !sel || sel.isCollapsed;
-  };
+  // ── Query facet impls ──────────────────────────────────────────────────────
+  // Bound instance fields bundled into the public `query` facet below (the read
+  // mirror of `change`). Private — the surface a consumer holds is `query.*`.
 
   // Inverse of resolveBlockType: the read API speaks the same "heading" sugar
-  // the write API accepts, so getBlock/setBlock round-trip. The concrete
+  // the write API accepts, so query.block/setBlock round-trip. The concrete
   // heading1/2/3 types (the CRDT/storage form) are projected back to
   // { type: "heading", attrs: { level } } here, at the public boundary only —
   // storage, serialization, and the wire format stay discrete.
@@ -2946,7 +2964,7 @@ export class Editor implements EditorApi, EditorWiring {
     };
   };
 
-  getBlock = (at?: DocPoint): BlockData | null => {
+  private queryBlock = (at?: DocPoint): BlockData | null => {
     const idx = resolveBlockIndex(this._state, at);
     if (idx < 0) return null;
     return this.presentBlock(
@@ -2954,31 +2972,64 @@ export class Editor implements EditorApi, EditorWiring {
     );
   };
 
-  getBlockById = (id: string): BlockData | null =>
-    this.getBlock({ block: id, offset: 0 });
+  private queryBlocks = (range?: DocRange): BlockData[] => {
+    const span = resolveBlockSpan(this._state, range);
+    if (!span) return [];
+    const blocks = this._state.document.page.blocks;
+    const result: BlockData[] = [];
+    for (let i = span.startIndex; i <= span.endIndex; i++) {
+      const b = blocks[i];
+      if (b && !b.deleted) result.push(this.presentBlock(toBlockData(b)));
+    }
+    return result;
+  };
 
-  getBlocks = (): BlockData[] =>
-    this._state.document.page.blocks
-      .filter((b) => !b.deleted)
-      .map((b) => this.presentBlock(toBlockData(b)));
+  private queryMarks = (range?: DocRange): Set<MarkName> =>
+    docMarks(this._state, range);
 
-  getSelection = (): DocRange | null => docSelection(this._state);
-
-  getMarks = (range?: DocRange): Set<MarkName> => docMarks(this._state, range);
-
-  copy = async (): Promise<boolean> => {
-    const success = await copySelectionToClipboard(this._state);
-    this._state = closeActiveMenu(this._state);
+  copy = async (
+    docRange?: DocRange | null,
+    selectRange?: boolean,
+  ): Promise<boolean> => {
+    // `docRange` resolves to a working state whose selection is the requested
+    // range; without it, copy the live selection. Copy is non-destructive, so
+    // the live selection only moves when `selectRange` is set.
+    const working =
+      docRange != null ? selectTarget(this._state, docRange) : this._state;
+    const success = await copySelectionToClipboard(working);
+    const moveSelection = success && docRange != null && !!selectRange;
+    this._state = closeActiveMenu(
+      moveSelection ? updateMode(working, "edit") : this._state,
+    );
     this.scheduleRender();
+    if (moveSelection) {
+      const currentState = this._state;
+      this.listeners.forEach((listener) => listener(currentState));
+    }
     return success;
   };
 
-  cut = async (): Promise<boolean> => {
-    const result = await cutSelectionToClipboard(this._state);
+  cut = async (
+    docRange?: DocRange | null,
+    selectRange?: boolean,
+  ): Promise<boolean> => {
+    // Capture the live selection before cutting so we can restore it when the
+    // caller cut an explicit range but did not ask to move the caret there.
+    const originalSelection =
+      docRange != null && !selectRange ? docSelection(this._state) : null;
+    const working =
+      docRange != null ? selectTarget(this._state, docRange) : this._state;
+    const result = await cutSelectionToClipboard(working);
     if (result.success && result.result) {
-      this.executeAction(result.result);
-      this._state = closeActiveMenu(this._state);
-      this.scheduleRender();
+      // `deleteSelectedText` collapses the caret at the cut point. Restore the
+      // pre-cut selection (block-id anchored, offset-clamped) when requested.
+      const finalState = originalSelection
+        ? selectTarget(result.result.state, originalSelection)
+        : result.result.state;
+      this.executeAction({
+        state: closeActiveMenu(finalState),
+        ops: result.result.ops,
+      });
       return true;
     }
     this._state = closeActiveMenu(this._state);
@@ -3058,15 +3109,6 @@ export class Editor implements EditorApi, EditorWiring {
         ops: [op],
       };
     };
-
-  clearSelection = (): void => {
-    this._state = clearSelection(this._state);
-    // Also clear cursor to remove all visual indicators
-    this._state = updateCursor(this._state, null);
-    const currentState = this._state;
-    this.scheduleRender();
-    this.listeners.forEach((listener) => listener(currentState));
-  };
 
   setMode = (mode: "edit" | "select" | "suspended"): void => {
     this._state = updateMode(this._state, mode);
@@ -3562,11 +3604,13 @@ export class Editor implements EditorApi, EditorWiring {
   get state(): EditorStateSnapshot {
     return {
       selection: {
-        empty: this.isSelectionEmpty(),
-        range: this.getSelection(),
+        empty:
+          !this._state.document.selection ||
+          this._state.document.selection.isCollapsed,
+        range: docSelection(this._state),
       },
-      activeMarks: this.getActiveMarks(),
-      activeBlockType: this.getBlock()?.type ?? null,
+      activeMarks: this.queryMarks(),
+      activeBlockType: this.queryBlock()?.type ?? null,
       canUndo: canUndoState(this._state),
       canRedo: canRedoState(this._state),
       isFocused: this._state.view.isFocused,
@@ -3634,6 +3678,12 @@ export class Editor implements EditorApi, EditorWiring {
   // is safe; engine-internal callers (mountEditor, createEditor) use the
   // flat fields directly. Declared last so every referenced field is initialized
   // by the time these initializers run.
+  query: QueryApi = {
+    block: this.queryBlock,
+    blocks: this.queryBlocks,
+    marks: this.queryMarks,
+  };
+
   view: EditorViewApi = {
     coordsAtPos: this.coordsAtPos,
     updateViewport: this.updateViewport,
@@ -3644,8 +3694,6 @@ export class Editor implements EditorApi, EditorWiring {
   };
 
   host: EditorHostApi = {
-    setCaret: this.setCaret,
-    setSelection: this.setSelection,
     setMode: this.setMode,
     collectOverlays: this.collectOverlays,
     openOverlay: this.openOverlay,

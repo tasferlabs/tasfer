@@ -104,7 +104,7 @@ async function main() {
     el.addEventListener("mousedown", (e) => e.preventDefault());
     el.addEventListener("click", () => {
       run();
-      editorA.refocus();
+      editorA.focus();
     });
   };
   keepFocus("bold", () => editorA.change((c) => c.toggleMark("strong")));
@@ -133,7 +133,7 @@ async function main() {
       `Replica B — ${countWords(editorB.getMarkdown())} words · ${docB.getOperations().length} ops`;
     byId("status-sync").textContent =
       editorA.getMarkdown() === editorB.getMarkdown() ? "✓ converged" : "… syncing";
-    boldBtn.classList.toggle("is-active", editorA.getActiveMarks().has("strong"));
+    boldBtn.classList.toggle("is-active", editorA.query.marks().has("strong"));
   };
 
   // Provider connectivity → status line.

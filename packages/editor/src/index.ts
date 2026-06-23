@@ -92,6 +92,7 @@ export type {
   EditorStateSnapshot,
   EditorViewApi,
   MarkName,
+  QueryApi,
 } from "./entries/editor";
 
 // Convenience constructor — parse Markdown + mount in a single call, returning

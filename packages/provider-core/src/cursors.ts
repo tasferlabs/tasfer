@@ -187,7 +187,7 @@ export function cursorPresenceToDecorations(
 
 /**
  * Build a {@link CursorPresence} from an editor's current selection (a
- * {@link DocRange}, as returned by `editor.getSelection()`) plus the local
+ * {@link DocRange}, as read from `editor.state.selection.range`) plus the local
  * user's identity. A collapsed selection (bare point) becomes a caret; a span
  * becomes a selection.
  */
@@ -248,7 +248,7 @@ export function bindPresenceCursors(
   // Outbound: publish the local selection as presence.
   const publish = () => {
     presence.set(
-      selectionToCursorPresence(editor.getSelection(), user) as unknown as Record<
+      selectionToCursorPresence(editor.state.selection.range, user) as unknown as Record<
         string,
         unknown
       >,

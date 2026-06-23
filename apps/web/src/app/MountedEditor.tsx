@@ -206,7 +206,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
       y={containerRect.top + overlay.rect.y}
       uploadStatus={uploadStatus}
       onUpload={async (file) => {
-        const block = editor.getBlockById(blockId);
+        const block = editor.query.block({ block: blockId });
         if (!block || block.type !== "image") return;
 
         // Clear any failed-cache entry for the URL we're replacing.
@@ -234,7 +234,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
         }
       }}
       onUrlSubmit={(url) => {
-        const block = editor.getBlockById(blockId);
+        const block = editor.query.block({ block: blockId });
         if (!block || block.type !== "image") return;
 
         // Clear failed cache for this URL to allow retry
@@ -246,7 +246,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
       onDelete={() => {
         // "Remove Image" deletes the block (was a no-op on the desktop edit
         // path before this migration; the mobile drawer already deleted).
-        const block = editor.getBlockById(blockId);
+        const block = editor.query.block({ block: blockId });
         if (block) editor.change((c) => c.deleteBlock({ block: block.id }));
         close();
       }}
@@ -270,7 +270,7 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
 }) => {
   const { t } = useTranslation();
   const { blockId } = overlay;
-  const block = editor.getBlockById(blockId);
+  const block = editor.query.block({ block: blockId });
   if (block?.type !== "image" || typeof block.attrs.url !== "string")
     return null;
   const url = block.attrs.url;
@@ -365,7 +365,7 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
           }
         }}
         onEdit={() => {
-          editor.clearSelection();
+          editor.setSelection(null);
           openLinkEditMenu(editor, {
             blockId,
             startIndex,
@@ -411,7 +411,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
       // newText is required (an empty range/text would shift indices); the
       // caller's UI guards against empty input.
       if (!newText) return;
-      const block = editor.getBlockById(blockId);
+      const block = editor.query.block({ block: blockId });
       if (!block) return;
       const link = { type: "link", attrs: { url: newUrl } };
       // The link's existing text is `text` (edit) or the selected text (create).
@@ -439,7 +439,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
     });
   const clearLink = () =>
     editor.change((c) => {
-      const block = editor.getBlockById(blockId);
+      const block = editor.query.block({ block: blockId });
       if (!block) return;
       c.setMark("link", {
         active: false,
@@ -505,7 +505,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
 }) => {
   const { t } = useTranslation();
   const { blockId } = overlay;
-  const block = editor.getBlockById(blockId);
+  const block = editor.query.block({ block: blockId });
   if (block?.type !== "code") return null;
 
   const language = block.attrs.language;
@@ -516,7 +516,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
 
   const handleChange = (label: string | null) => {
     const language = CODE_LANGUAGES.find((l) => l.label === label)?.id ?? "";
-    const b = editor.getBlockById(blockId);
+    const b = editor.query.block({ block: blockId });
     if (b && b.type === "code") {
       editor.change((c) => c.setBlock({ language }, { block: b.id }));
     }
@@ -1065,7 +1065,7 @@ function EditorSurface({
       editor,
       doc: editor.doc,
       portalContainer: editor.portalContainer,
-      refocus: editor.refocus,
+      refocus: () => editor.focus(),
       blurInput: editor.blur,
       setKeyboardHeight: editor.setKeyboardHeight,
       destroy: editor.destroy,
@@ -1131,7 +1131,7 @@ function EditorSurface({
             editor,
             doc: editor.doc,
             portalContainer: editor.portalContainer,
-            refocus: editor.refocus,
+            refocus: () => editor.focus(),
             blurInput: editor.blur,
             setKeyboardHeight: editor.setKeyboardHeight,
             destroy: editor.destroy,
@@ -1509,7 +1509,7 @@ function EditorSurface({
         try {
           const imageData = await uploadImage(file);
           // Resolve the block by id — the index may have shifted during upload.
-          const block = mounted.editor.getBlockById(blockId);
+          const block = mounted.editor.query.block({ block: blockId });
           if (!block || block.type !== "image") return;
           // Revoke the temporary blob URL we were displaying.
           const displayedUrl = block.attrs.url;
@@ -1629,7 +1629,7 @@ function EditorSurface({
         mounted.editor.change((c) => c.setBlock({ type: type as any })),
       focus: () => {
         mounted.editor.setFocus(true);
-        mounted.editor.host.setCaret("start", { onlyIfUnset: true });
+        mounted.editor.setCaret("start", { onlyIfUnset: true });
       },
       onFormatButtonClick: handleFormatButtonClick,
       toggleStrong: () => mounted.editor.change((c) => c.setMark("strong")),
@@ -1882,7 +1882,7 @@ function EditorSurface({
           blocks[Math.min(Math.max(saved?.blockIndex ?? 0, 0), blocks.length - 1)];
 
         if (saved && block) {
-          mounted.editor.host.setCaret({
+          mounted.editor.setCaret({
             block: block.id,
             offset: saved.textIndex,
           });
@@ -1892,7 +1892,7 @@ function EditorSurface({
             mounted.editor.view.updateViewport({ scrollY: saved.scrollY });
           }
         } else {
-          mounted.editor.host.setCaret("start", { onlyIfUnset: true });
+          mounted.editor.setCaret("start", { onlyIfUnset: true });
         }
       }, 0);
     }
@@ -2049,7 +2049,7 @@ function EditorSurface({
       if (match) {
         // setSelection speaks DocPoints, so the match's stable block id selects
         // the span directly — no index resolution needed.
-        mountedRef.current.editor.host.setSelection({
+        mountedRef.current.editor.setSelection({
           from: { block: match.blockId, offset: match.startIndex },
           to: { block: match.blockId, offset: match.endIndex },
         });

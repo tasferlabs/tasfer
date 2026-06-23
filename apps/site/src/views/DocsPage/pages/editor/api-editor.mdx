@@ -25,20 +25,16 @@ const editor = createEditor(options: CreateEditorOptions): CypherEditor;
 
 <h2 id="reading">Reading state</h2>
 
-The editor never hands you a mutable store. `state` is a fresh, immutable snapshot rebuilt on every read; `getMarkdown()` projects the current document to text. The `getBlock`/`getSelection` family returns plain data in the **same `DocPoint`/`DocRange` vocabulary the [ChangeApi](/docs/editor/api-commands#targets) accepts** — so you read a position and hand it straight back to a mutation, without ever reaching into `getState()`.
+The editor never hands you a mutable store. `state` is a fresh, immutable snapshot rebuilt on every read; `getMarkdown()` projects the current document to text. The **`query` facet** is the read mirror of [`change`](/docs/editor/api-commands#targets): every method speaks the **same `DocPoint`/`DocRange` vocabulary the [ChangeApi](/docs/editor/api-commands#targets) accepts** and defaults to the live caret/selection. `block`/`blocks` mirror `change`'s point-vs-range split — `query.block(at)` pairs with `setBlock(attrs, at)`, and `query.blocks(range)` reads the span the selection covers. So you read a position and hand it straight back to a mutation without ever reaching into `getState()`. The selection itself (the caret/anchor `DocRange` with offsets) lives on the reactive snapshot at `state.selection.range`.
 
 <PropsTable cols={["Member", "Type", "Description"]} rows={[
-  { name: "state", type: "{ selection, activeMarks, doc }", desc: "Immutable snapshot. selection.empty is true for a bare caret; activeMarks is a Set of mark names active at the caret. Rebuilt every read." },
+  { name: "state", type: "{ selection, activeMarks, doc }", desc: "Immutable snapshot. selection.range is the current selection as a DocRange (a bare point for a caret), or null; selection.empty is true for a bare caret; activeMarks is a Set of mark names active at the caret. Rebuilt every read." },
   { name: "doc", type: "Doc", desc: "The underlying CRDT document. Pass this to a provider to sync, or call doc.encodeState() to persist." },
-  { name: "getBlock(at?)", type: "(at?: DocPoint) => BlockData | null", desc: "Plain-data view { id, type, text, attrs } of the block at at (default: caret block). The read counterpart to setBlock." },
-  { name: "getBlockById(id)", type: "(id: string) => BlockData | null", desc: "Plain-data view of the block with the given stable id, or null when none present has it. Sugar for getBlock({ block: id, offset: 0 }) — the common 'find the block this overlay targets' read." },
-  { name: "getBlocks()", type: "() => BlockData[]", desc: "All visible blocks, in document order, as plain BlockData." },
-  { name: "getSelection()", type: "() => DocRange | null", desc: "The current selection as a DocRange of absolute { block, offset } points (a bare point for a caret), or null when there's no caret. The same currency the ChangeApi accepts." },
-  { name: "getMarks(range?)", type: "(range?: DocRange) => Set<string>", desc: "Inline marks active over range (default: selection). getActiveMarks is this applied to the caret." },
-  { name: "getActiveMarks()", type: "() => Set<string>", desc: "The inline marks that will apply to text typed at the caret. Same set as state.activeMarks; handy for lighting up a toolbar." },
-  { name: "isSelectionEmpty()", type: "() => boolean", desc: "True when there's just a caret (or nothing) — no range selected." },
+  { name: "query.block(at?)", type: "(at?: DocPoint) => BlockData | null", desc: "Plain-data view { id, type, text, attrs } of the single block at at (default: caret block). The point counterpart to query.blocks and the read counterpart to setBlock. Address a block by id with query.block({ block: id }) — the common 'find the block this overlay targets' read." },
+  { name: "query.blocks(range?)", type: "(range?: DocRange) => BlockData[]", desc: "The visible blocks the range touches, in document order (default: the selection — equivalently blocks(state.selection.range)). Narrow to a span without fetch-then-filter; for the whole document pass { from: 'start', to: 'end' }." },
+  { name: "query.marks(range?)", type: "(range?: DocRange) => Set<string>", desc: "Inline marks active over range (default: selection). With a collapsed range / bare caret, the formats that will apply to text typed there — same set as state.activeMarks; handy for lighting up a toolbar." },
   { name: "getMarkdown()", type: "() => string", desc: "Serialise the current document to markdown." },
-  { name: "getState()", type: "() => EditorState | null", desc: "Escape hatch to the raw internal state. Prefer state / the getBlock family for UI binding." },
+  { name: "getState()", type: "() => EditorState | null", desc: "Escape hatch to the raw internal state. Prefer state / the query facet for UI binding." },
   { name: "portalContainer", type: "HTMLDivElement", desc: "Mount point for host overlays (slash menu, link editor) that float over the canvas." },
 ]} />
 
@@ -102,8 +98,10 @@ A handful of built-in actions are dispatched by the engine for hosts (and custom
 <PropsTable cols={["Method", "Signature", "Description"]} rows={[
   { name: "focus", type: "(at?: 'start'|'end') => void", desc: "Focus the editor. With no argument, places a caret only if there isn't one; pass a boundary to force it there." },
   { name: "blur", type: "() => void", desc: "Blur the editor and dismiss the soft keyboard." },
-  { name: "clearSelection", type: "() => void", desc: "Drop both the selection and the caret, removing all selection visuals." },
-  { name: "copy / cut / paste", type: "() => Promise<boolean>", desc: "Clipboard ops against the current selection. cut/paste are one undoable step. Resolve to whether they did anything." },
+  { name: "setCaret", type: "(point?: DocPoint, opts?: { onlyIfUnset }) => void", desc: "Place a collapsed caret at a DocPoint (default 'start'), clearing any selection and returning to edit mode. onlyIfUnset makes it a no-op when a cursor already exists. No-op when the point can't be resolved." },
+  { name: "setSelection", type: "(range: DocRange | null) => void", desc: "Place a selection spanning a DocRange (a bare DocPoint drops a caret). Pass null to clear both the selection and the caret, removing all selection visuals. Returns to edit mode; no-op when the range can't be resolved." },
+  { name: "copy / cut", type: "(docRange?, selectRange?) => Promise<boolean>", desc: "Copy/cut a DocRange (default: current selection). selectRange moves the selection to that range (copy) / leaves the caret at the cut point (cut); otherwise the selection is left/restored. cut is one undoable step." },
+  { name: "paste", type: "() => Promise<boolean>", desc: "Paste the system clipboard at the caret/selection — one undoable step. Resolves to whether it did anything." },
 ]} />
 
 <h2 id="facets">View & host facets</h2>
@@ -118,13 +116,10 @@ The everyday content/command/query surface lives flat on the handle. Two further
   { name: "view.setDecorations", type: "(layer: string, decos: readonly Decoration[]) => void", desc: "Replace one decoration layer — the generic ephemeral overlay (find highlights, remote cursors). Layers are opaque keys; empty array clears. Not document content." },
   { name: "view.clearDecorations", type: "(layer: string) => void", desc: "Clear one decoration layer." },
   { name: "host.setMode", type: "(mode: 'edit'|'select'|'suspended') => void", desc: "Switch interaction mode — normal, selection-only (mobile), or read-only." },
-  { name: "host.setInitialCursor", type: "() => void", desc: "Place the caret at the document start if there's no cursor yet (no-op otherwise)." },
-  { name: "host.setCaret", type: "(at: 'start'|'end') => void", desc: "Force a new caret at the document start or end." },
   { name: "host.collectOverlays", type: "() => NodeOverlay[]", desc: "Node-declared overlay descriptors for on-screen blocks. Map each key to a component and mount it at the descriptor's rect; recompute on state/scroll." },
   { name: "host.openOverlay", type: "(o: { key, blockId, x, y, data? }) => void", desc: "Open a host-defined overlay. The engine stores { key, data } opaquely; the declaring node/mark reads it back by key. Dismiss with closeActiveMenu." },
   { name: "host.setNodeViewState", type: "(blockId: string, data: unknown | null) => void", desc: "Set/clear transient per-block canvas view-state (e.g. an upload spinner). Read by the painting node; not document content, no CRDT op." },
   { name: "host.closeActiveMenu", type: "() => void", desc: "Close whichever menu/overlay is open and notify subscribers." },
-  { name: "host.restoreCursorAndSelection", type: "(cursor, selection) => void", desc: "Restore a previously captured cursor/selection and return to edit mode." },
   { name: "host.restoreFromSnapshot", type: "(blocks: Block[]) => void", desc: "Replace the document from a block snapshot, generating and broadcasting ops." },
 ]} />
 
