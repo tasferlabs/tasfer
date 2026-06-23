@@ -11,6 +11,7 @@
  * non-partially-deletable token.
  */
 import { insertText } from "./actions/actions";
+import { mathArmScratch } from "./nodes/math";
 import { moveCursorToPosition, updateCursor } from "./selection";
 import type { EditorState } from "./state-types";
 import { createInitialState, isCaretScratchActive } from "./state-utils";
@@ -59,6 +60,31 @@ describe("math command-entry flag", () => {
     const after = insertText(state, "y").state;
     expect(latexOf(after)).toBe("xy");
     expect(after.ui.caretScratch).toBeNull();
+  });
+
+  it("does NOT arm when the caret rests INSIDE a complete command", () => {
+    // Regression: place the caret before a `\frac{dy}{dx}` chip and type a char,
+    // and the caret can land between the `\` and the end of `\frac`. Arming there
+    // would render the resolved fraction as the literal source `\fracdydx` (the
+    // command de-structures, orphaning its `{dy}{dx}` args). A complete command is
+    // never "being typed", so no interior offset arms scratch.
+    const { state } = mathState("\\frac{dy}{dx}", 0);
+    const block = state.document.page.blocks[0];
+    for (let offset = 0; offset <= "\\frac{dy}{dx}".length; offset++) {
+      expect(mathArmScratch(block, offset)).toBeNull();
+    }
+  });
+
+  it("still arms for a genuinely in-progress command (`\\fra` → `\\frac`)", () => {
+    // The counterpart: an INCOMPLETE run must stay flagged so it renders literally
+    // while typed — the fix narrows only complete commands, not in-progress ones.
+    const { state, blockId } = mathState("\\fra", 4);
+    const block = state.document.page.blocks[0];
+    expect(mathArmScratch(block, 4)).toEqual({
+      type: "math",
+      blockId,
+      offset: 4,
+    });
   });
 
   it("clears on any caret move (the command commits)", () => {

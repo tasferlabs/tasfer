@@ -103,6 +103,21 @@ describe("pendingCommandRange", () => {
     expect(pendingCommandRange("\\sum", 4)).toBeNull();
   });
 
+  it("is null for a caret resting INSIDE a complete command, not just at its edge", () => {
+    // Regression: the caret can land between the `\` and the end of `\frac` (e.g.
+    // place it before the chip, then type a char). The completeness check must
+    // weigh the WHOLE `\frac`, not the prefix up to the caret (`\`, `\f`, `\fr`,
+    // `\fra`) — otherwise each interior offset looks like an in-progress command
+    // and the fraction flashes literally as `\fracdydx`.
+    for (let caret = 1; caret <= 5; caret++) {
+      expect(pendingCommandRange("\\frac{dy}{dx}", caret)).toBeNull();
+    }
+    // `\alpha` likewise: every interior caret resolves, none is pending.
+    for (let caret = 1; caret <= 6; caret++) {
+      expect(pendingCommandRange("\\alpha", caret)).toBeNull();
+    }
+  });
+
   it("stays pending for a complete command still en route to a longer one", () => {
     // `\in` is a real relation (∈) but also a prefix of `\int`/`\infty`, so the
     // caret at its edge could still be mid-type — keep it literal.
@@ -121,6 +136,62 @@ describe("parse — a complete construct survives the caret at its command edge"
       "frac",
     ]);
     expect(unknownNames(root)).toEqual([]);
+  });
+
+  it("survives the caret resting INSIDE the command too", () => {
+    // The reported bug: caret between the `\` and the end of `\frac`. Every such
+    // offset must still parse as one `frac`, never the literal `\fracdydx`.
+    for (let caret = 1; caret <= 5; caret++) {
+      const range = pendingCommandRange("\\frac{dy}{dx}", caret) ?? undefined;
+      const root = parse("\\frac{dy}{dx}", { literalRange: range });
+      expect(root.type === "ord" && root.body.map((n) => n.type)).toEqual([
+        "frac",
+      ]);
+      expect(unknownNames(root)).toEqual([]);
+    }
+  });
+
+  it("typing a `\\` right before an existing `\\frac` keeps the fraction whole", () => {
+    // The reported bug: caret before a `\frac{dy}{dx}` construct, type `\`. The
+    // source becomes `\\frac{dy}{dx}` and `\\` would lex as a LINE BREAK, leaving
+    // `frac{dy}{dx}` to de-structure into the literal `\fracdydx`. The freshly
+    // typed `\` is command-entry (its `\` at offset 0), so the lexer must keep it
+    // from merging: the in-progress `\` stays a standalone literal and the next
+    // `\` still opens an intact `\frac`.
+    const range = pendingCommandRange("\\\\frac{dy}{dx}", 1)!; // caret after typed \
+    expect(range).toEqual({ start: 0, end: 1 });
+    const root = parse("\\\\frac{dy}{dx}", { literalRange: range });
+    expect(root.type === "ord" && root.body.map((n) => n.type)).toEqual([
+      "unknown", // the in-progress `\`
+      "frac", // the still-intact fraction
+    ]);
+    // The only literal is the in-progress `\` (empty name); `frac` is NOT literal.
+    expect(unknownNames(root)).toEqual([""]);
+  });
+
+  it("keeps a stray `\\` VISIBLE (and the construct whole) even with no command-entry", () => {
+    // After the caret moves on, the typed `\` is no longer command-entry — but it
+    // must NOT silently vanish into a `\\` line break and de-structure the
+    // fraction. Outside a row environment `\\` never merges: the stray `\` shows
+    // as a literal backslash and `\frac{dy}{dx}` stays one `frac`.
+    const root = parse("\\\\frac{dy}{dx}");
+    expect(root.type === "ord" && root.body.map((n) => n.type)).toEqual([
+      "unknown", // the stray `\`, rendered as a visible literal backslash
+      "frac", // the intact fraction
+    ]);
+    expect(unknownNames(root)).toEqual([""]);
+  });
+
+  it("`\\\\` is STILL a row separator inside a tabular environment", () => {
+    // The split is scoped to outside-environment `\\`. A matrix/aligned/cases row
+    // break must keep working — `\begin{matrix}a\\b\end{matrix}` is two rows.
+    const root = parse("\\begin{matrix}a\\\\b\\end{matrix}") as Extract<
+      Node,
+      { type: "ord" }
+    >;
+    const arr = root.body[0];
+    expect(arr.type).toBe("array");
+    expect(arr.type === "array" && arr.rows.length).toBe(2); // a | b
   });
 });
 

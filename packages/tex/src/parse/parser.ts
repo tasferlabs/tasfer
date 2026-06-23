@@ -40,7 +40,10 @@ class Parser {
   private readonly literalRange?: { start: number; end: number };
 
   constructor(src: string, opts: ParseOptions = {}) {
-    this.toks = tokenize(src);
+    // Pass the in-progress command's `\` offset so the lexer keeps it from
+    // merging with a following `\command` into a `\\` line break (which would
+    // de-structure the construct — see `tokenize`).
+    this.toks = tokenize(src, opts.literalRange?.start);
     this.len = src.length;
     this.literalRange = opts.literalRange;
   }
@@ -926,6 +929,14 @@ export function needsCommandSeparator(
  * `\frac` followed by bare `dy`/`dx` groups (`\fracdydx`). Only an incomplete run
  * (`\fra`) or one still en route to a longer command (`\in`→`\int`) is pending,
  * exactly mirroring {@link needsCommandSeparator}'s "still typing" condition.
+ *
+ * The completeness check weighs the WHOLE control word — letters on both sides of
+ * the caret — not just the prefix typed up to it. A caret resting *inside* a
+ * finished command (`\fr|ac`, e.g. after the caret is placed before the chip and
+ * a char is typed) still sees the full `\frac` and resolves; checking only the
+ * prefix `\fr` would mistake it for an in-progress command and flash the whole
+ * `\frac{dy}{dx}` literally as `\fracdydx`. The returned range still ends at the
+ * caret — only the resolved-vs-pending decision consults the trailing letters.
  */
 export function pendingCommandRange(
   latex: string,
@@ -934,7 +945,11 @@ export function pendingCommandRange(
   let i = caret;
   while (i > 0 && /[a-zA-Z]/.test(latex[i - 1])) i--;
   if (i === 0 || latex[i - 1] !== "\\" || latex[i - 2] === "\\") return null;
-  const name = latex.slice(i, caret);
+  // The full control word spans the letter run on BOTH sides of the caret, so a
+  // caret parked inside a complete command resolves it instead of going literal.
+  let j = caret;
+  while (j < latex.length && /[a-zA-Z]/.test(latex[j])) j++;
+  const name = latex.slice(i, j);
   // A complete command that can't grow into a longer one is done, not pending.
   if (KNOWN_COMMAND_NAMES.has(name) && !isCommandNamePrefix(name)) return null;
   return { start: i - 1, end: caret };

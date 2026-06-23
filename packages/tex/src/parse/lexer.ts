@@ -27,10 +27,31 @@ export interface Token {
 const isLetter = (c: string) => (c >= "a" && c <= "z") || (c >= "A" && c <= "Z");
 const isSpace = (c: string) => c === " " || c === "\t" || c === "\n" || c === "\r";
 
-export function tokenize(src: string): Token[] {
+/**
+ * `\\` is a row separator ONLY inside a tabular environment (`matrix`, `cases`,
+ * `aligned`, …) — that's the only place the parser consumes it (`parseEnvironment`
+ * splits rows on `dbackslash`). Outside one it has no meaning and used to be
+ * silently dropped, which made a stray `\` typed before a construct vanish AND
+ * de-structure it: `\frac{dy}{dx}` with a `\` typed in front lexes the `\\` as a
+ * line break, orphaning `frac{dy}{dx}` into the literal `\fracdydx`.
+ *
+ * So the lexer tracks `\begin`/`\end` depth and only emits `dbackslash` inside an
+ * environment. Outside one, a `\\` does NOT merge: the first `\` becomes a
+ * standalone (empty-named) command — rendered as a visible literal backslash —
+ * and the second `\` still opens its command, so the stray backslash shows and
+ * the construct stays whole.
+ *
+ * `literalStart` is the source offset of a `\` the caller is actively typing as a
+ * new command (command-entry caret just past it — see `pendingCommandRange`). It
+ * forces the same no-merge behavior even INSIDE an environment, so typing `\`
+ * before a `\frac` in a matrix cell doesn't momentarily read as a row break.
+ */
+export function tokenize(src: string, literalStart?: number): Token[] {
   const tokens: Token[] = [];
   let i = 0;
   const n = src.length;
+  // `\begin`/`\end` nesting depth — `\\` is a row separator only while inside one.
+  let envDepth = 0;
 
   while (i < n) {
     const start = i;
@@ -43,8 +64,11 @@ export function tokenize(src: string): Token[] {
     }
 
     if (c === "\\") {
-      // \\  → line break
-      if (src[i + 1] === "\\") {
+      // \\  → row break, but ONLY inside an environment and not for the
+      // command-entry `\` being typed. Otherwise keep the two `\`s separate (see
+      // `tokenize` docs): a stray `\` stays a visible literal backslash and a
+      // following \command stays intact instead of de-structuring.
+      if (src[i + 1] === "\\" && envDepth > 0 && start !== literalStart) {
         i += 2;
         tokens.push({ kind: "dbackslash", value: "\\\\", start, end: i });
         continue;
@@ -53,15 +77,15 @@ export function tokenize(src: string): Token[] {
       i++; // consume backslash
       if (i < n && isLetter(src[i])) {
         while (i < n && isLetter(src[i])) i++;
-      } else if (i < n) {
-        i++; // single non-letter command char
+      } else if (i < n && src[i] !== "\\") {
+        i++; // single non-letter command char — but never a following \, which
+        // begins its own command (an empty-named \ shows as a literal backslash).
       }
-      tokens.push({
-        kind: "command",
-        value: src.slice(start + 1, i),
-        start,
-        end: i,
-      });
+      const value = src.slice(start + 1, i);
+      // Track environment nesting so the `\\` rule above knows where it is.
+      if (value === "begin") envDepth++;
+      else if (value === "end" && envDepth > 0) envDepth--;
+      tokens.push({ kind: "command", value, start, end: i });
       continue;
     }
 
