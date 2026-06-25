@@ -673,6 +673,8 @@ export interface RenderedLine {
   readonly y: number;
   readonly width: number;
   readonly height: number;
+  /** Text baseline measured from the line's top edge. */
+  readonly baselineOffset?: number;
   readonly startIndex: number;
   readonly endIndex: number;
 }

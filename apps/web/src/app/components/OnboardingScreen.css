@@ -687,6 +687,11 @@
   font-size: 13px;
   color: var(--destructive);
 }
+.ob-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--destructive);
+}
 
 /* ── camera drawer (bottom sheet hosting the QR scanner) ───────────────── */
 .ob-scrim {

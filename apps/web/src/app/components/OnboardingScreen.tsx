@@ -12,52 +12,51 @@
  * mirror (the export/sync itself is wired up separately).
  */
 
+import {
+    getSyncFolderName,
+    isSyncFolderSupported,
+    pickSyncFolder,
+} from "@/lib/syncFolder";
 import type { DeviceType, SpaceInvite } from "@/platform/types";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Box,
-  Camera,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Fingerprint,
-  Folder,
-  FolderOpen,
-  ImagePlus,
-  Loader2,
-  Lock,
-  Moon,
-  Plus,
-  QrCode,
-  Share2,
-  ShieldCheck,
-  Sun,
-  Upload,
-  User,
-  Users,
-  X,
+    Box,
+    Camera,
+    Check,
+    ChevronDown,
+    ChevronRight,
+    Copy,
+    Fingerprint,
+    Folder,
+    FolderOpen,
+    ImagePlus,
+    Loader2,
+    Lock,
+    Moon,
+    Plus,
+    QrCode,
+    Share2,
+    ShieldCheck,
+    Sun,
+    Upload,
+    User,
+    Users,
+    X,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { updateProfile } from "../api/auth.api";
 import { uploadImage, useAssetUrl } from "../api/images.api";
 import {
-  cancelPairing,
-  useAcceptInvite,
-  useCreateSpace,
+    cancelPairing,
+    useAcceptInvite,
+    useCreateSpace,
 } from "../api/spaces.api";
-import {
-  getSyncFolderName,
-  isSyncFolderSupported,
-  pickSyncFolder,
-} from "@/lib/syncFolder";
 import { useAuth } from "../contexts/AuthContext";
-import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
 import { useTheme } from "../hooks/useTheme";
 import { AvatarCropDialog } from "./AvatarCropDialog";
-import { QRScannerView } from "./QRScannerView";
 import "./OnboardingScreen.css";
+import { QRScannerView } from "./QRScannerView";
 
 const STEPS = ["folder", "identity", "profile", "space"] as const;
 type Step = (typeof STEPS)[number];
@@ -269,7 +268,9 @@ function IdentityStep({
         onClick={copy}
       >
         <Copy size={14} strokeWidth={1.5} />
-        {copied ? t("share.copied", "Copied") : t("onboarding.copyKey", "Copy key")}
+        {copied
+          ? t("share.copied", "Copied")
+          : t("onboarding.copyKey", "Copy key")}
       </button>
 
       <ul className="ob-bullets">
@@ -384,10 +385,7 @@ function ProfileStep({
       </p>
 
       <div className="ob-collapse">
-        <button
-          className="ob-collapse-head"
-          onClick={() => setOpen((o) => !o)}
-        >
+        <button className="ob-collapse-head" onClick={() => setOpen((o) => !o)}>
           <User size={18} strokeWidth={1.5} />
           <div>
             <div className="ob-collapse-title">
@@ -396,7 +394,10 @@ function ProfileStep({
             <div className="ob-collapse-sub">
               {name.trim()
                 ? name.trim()
-                : t("onboarding.optionalForShared", "Optional · for shared spaces")}
+                : t(
+                    "onboarding.optionalForShared",
+                    "Optional · for shared spaces",
+                  )}
             </div>
           </div>
           <ChevronDown
@@ -408,7 +409,9 @@ function ProfileStep({
         {open && (
           <div className="ob-collapse-body">
             <div className="ob-avatar-row">
-              <div className={`ob-avatar${avatarUrl || initial ? "" : " empty"}`}>
+              <div
+                className={`ob-avatar${avatarUrl || initial ? "" : " empty"}`}
+              >
                 {avatarUrl ? (
                   <img src={avatarUrl} alt="" />
                 ) : initial ? (
@@ -551,15 +554,18 @@ function SpaceCreate({ setView }: { setView: (v: SpaceView) => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [org, setOrg] = useState("");
+  const [createError, setCreateError] = useState("");
 
   const { mutate: createSpace, isPending: isCreating } = useCreateSpace({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["spaces"] });
     },
+    onError: (err) => setCreateError(err.message),
   });
 
   function handleCreate() {
     // Space name is optional in the flow; fall back to a sensible default.
+    setCreateError("");
     createSpace({ name: org.trim() || t("common.personal", "Personal") });
   }
 
@@ -601,6 +607,12 @@ function SpaceCreate({ setView }: { setView: (v: SpaceView) => void }) {
           )}
         </span>
       </div>
+
+      {createError && (
+        <p className="ob-error" role="alert">
+          {createError}
+        </p>
+      )}
 
       <div className="ob-actions">
         <button
@@ -833,12 +845,16 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
           >
             <Upload size={22} strokeWidth={1.5} />
             <span className="ob-import-title">
-              {fileName || t("onboarding.chooseInviteFile", "Choose an invite file")}
+              {fileName ||
+                t("onboarding.chooseInviteFile", "Choose an invite file")}
             </span>
             <span className="ob-import-sub">
               {fileName
                 ? t("onboarding.tapToRemove", "Tap to remove")
-                : t("onboarding.cypherInviteHint", "A .cypherinvite file from your peer")}
+                : t(
+                    "onboarding.cypherInviteHint",
+                    "A .cypherinvite file from your peer",
+                  )}
             </span>
           </button>
           <input
@@ -977,8 +993,6 @@ function ThemeToggle() {
 /* ── root ──────────────────────────────────────────────────────────────── */
 export function OnboardingScreen() {
   const { user } = useAuth();
-  const { keyboardHeight } = useKeyboardOpen();
-
   const [step, setStep] = useState<Step>("folder");
   // Persisted folder name (the writable handle lives in IndexedDB via syncFolder).
   const [folder, setFolder] = useState(() => getSyncFolderName() ?? "");
@@ -988,10 +1002,7 @@ export function OnboardingScreen() {
   const go = (s: Step) => setStep(s);
 
   return (
-    <div
-      className="ob-wrap"
-      style={{ paddingBottom: `calc(32px + ${keyboardHeight}px)` }}
-    >
+    <div className="ob-wrap">
       {/* Electron: fixed drag region at top so the window can be moved */}
       <div
         className="fixed inset-x-0 top-0 h-12 z-50"

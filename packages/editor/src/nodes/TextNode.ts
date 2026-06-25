@@ -743,7 +743,6 @@ function computeSelectionRects(
     fonts,
     marks,
     codePadding,
-    lineHeight,
     chars,
     formats,
   } = layout;
@@ -774,8 +773,8 @@ function computeSelectionRects(
     return rects;
   }
 
-  layout.lines.forEach((line, lineIndex) => {
-    const lineY = blockTopY + lineIndex * lineHeight;
+  layout.lines.forEach((line) => {
+    const lineY = blockTopY + line.y;
     let selectionStartX = baseX;
     let selectionEndX = baseX + line.width;
     let shouldRender = false;
@@ -934,7 +933,7 @@ function computeSelectionRects(
         x: selectionStartX,
         y: lineY,
         width: selectionEndX - selectionStartX,
-        height: lineHeight,
+        height: line.height,
       });
     }
   });
@@ -1108,7 +1107,13 @@ export class TextNode extends Node<TextualBlock> {
       fonts,
     );
     const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
-    const textHeight = fontMetrics.ascent + fontMetrics.descent;
+    const textAscent = Number.isFinite(fontMetrics.ascent)
+      ? fontMetrics.ascent
+      : textStyle.fontSize * 0.8;
+    const textDescent = Number.isFinite(fontMetrics.descent)
+      ? fontMetrics.descent
+      : textStyle.fontSize * 0.2;
+    const replacements = marks ? replacementRuns(chars, formats, marks) : [];
 
     // Build line boxes with the exact startIndex/endIndex accounting (including
     // consumed wrap spaces) used by every downstream pass. x/y are relative.
@@ -1117,6 +1122,7 @@ export class TextNode extends Node<TextualBlock> {
     // paint pass and the document-space caret pass), so x stays 0 here.
     const lines: RenderedLine[] = [];
     let textIndex = 0;
+    let lineY = 0;
     for (let i = 0; i < wrapped.length; i++) {
       const wl = wrapped[i];
       const lineStartIndex = textIndex;
@@ -1132,21 +1138,32 @@ export class TextNode extends Node<TextualBlock> {
         codePadding,
         marks,
       );
+      let ascent = textAscent;
+      let descent = textDescent;
+      for (const run of replacements) {
+        if (run.start < lineStartIndex || run.end > lineEndIndex) continue;
+        const dims = run.replacement.measure(run.text, textStyle.fontSize);
+        if (!dims) continue;
+        ascent = Math.max(ascent, dims.height - dims.depthBelowBaseline);
+        descent = Math.max(descent, dims.depthBelowBaseline);
+      }
+      const actualLineHeight = Math.max(lineHeight, ascent + descent);
       lines.push({
         text: wl.text,
         x: 0,
-        y: i * lineHeight,
+        y: lineY,
         width,
-        height: textHeight,
+        height: actualLineHeight,
+        baselineOffset: ascent,
         startIndex: lineStartIndex,
         endIndex: lineEndIndex,
       });
+      lineY += actualLineHeight;
       textIndex += wl.text.length;
       if (wl.consumedSpace) textIndex += 1;
     }
 
-    const height =
-      insetY + wrapped.length * lineHeight + textStyle.paddingBottom;
+    const height = insetY + lineY + textStyle.paddingBottom;
 
     return {
       height,
@@ -1219,10 +1236,13 @@ export class TextNode extends Node<TextualBlock> {
       insetY,
     } = layout;
     const baseX = this.baseX(layout, originX);
+    const textAscent = Number.isFinite(layout.fontMetrics.ascent)
+      ? layout.fontMetrics.ascent
+      : textStyle.fontSize * 0.8;
 
-    let currentY = blockTopY + insetY;
     for (const line of layout.lines) {
       if (textIndex >= line.startIndex && textIndex <= line.endIndex) {
+        const currentY = blockTopY + insetY + line.y;
         // Caret *inside* a replacement run (e.g. an inline-math chip): the run
         // measures as one atomic advance (interior indices all collapse to its
         // right edge), so place AND size the caret by asking the replacement
@@ -1266,7 +1286,8 @@ export class TextNode extends Node<TextualBlock> {
           // caret hugs the row it sits on (short in a subscript, tall across a
           // numerator) rather than spanning the whole text line. A small pad
           // keeps it from going razor-thin on short glyphs.
-          const baselineY = currentY + layout.fontMetrics.ascent;
+          const baselineY =
+            currentY + (line.baselineOffset ?? layout.fontMetrics.ascent);
           const pad = textStyle.fontSize * 0.08;
           return {
             x: baseX + chipLeft + replCaret.x,
@@ -1292,18 +1313,23 @@ export class TextNode extends Node<TextualBlock> {
           x: isRTL
             ? baseX + adjustedMaxWidth - widthFromStart
             : baseX + widthFromStart,
-          y: currentY,
-          height: lineHeight,
+          y: currentY + (line.baselineOffset ?? textAscent) - textAscent,
+          height: line.height,
         };
       }
-      currentY += lineHeight;
     }
 
     // Empty block or caret at the very end.
+    const lastLine = layout.lines[layout.lines.length - 1];
+    const currentY = lastLine
+      ? blockTopY + insetY + lastLine.y
+      : blockTopY + insetY;
     return {
       x: isRTL ? baseX + adjustedMaxWidth : baseX,
-      y: currentY,
-      height: lineHeight,
+      y: lastLine
+        ? currentY + (lastLine.baselineOffset ?? textAscent) - textAscent
+        : currentY,
+      height: lastLine?.height ?? lineHeight,
     };
   }
 
@@ -1322,16 +1348,14 @@ export class TextNode extends Node<TextualBlock> {
     originX: number,
     blockTopY: number,
   ): number {
-    const { lineHeight } = layout;
     const baseX = this.baseX(layout, originX);
 
-    let currentLineY = blockTopY + layout.insetY;
     for (const line of layout.lines) {
-      const lineBottom = currentLineY + lineHeight;
+      const currentLineY = blockTopY + layout.insetY + line.y;
+      const lineBottom = currentLineY + line.height;
       if (y >= currentLineY && y < lineBottom) {
         return this.positionWithinLine(layout, x, y, currentLineY, line, baseX);
       }
-      currentLineY += lineHeight;
     }
 
     // Below the last line (padding area): use the last line.
@@ -1341,7 +1365,7 @@ export class TextNode extends Node<TextualBlock> {
         layout,
         x,
         y,
-        currentLineY - lineHeight,
+        blockTopY + layout.insetY + last.y,
         last,
         baseX,
       );
@@ -1460,7 +1484,8 @@ export class TextNode extends Node<TextualBlock> {
         // Run-local y: distance of the click below the run's baseline (the line
         // baseline = line top + ascent). Lets the hit-test pick a stacked row —
         // e.g. a click low in a fraction lands in the denominator.
-        const baselineY = lineTopY + layout.fontMetrics.ascent;
+        const baselineY =
+          lineTopY + (line.baselineOffset ?? layout.fontMetrics.ascent);
         const offset = run.replacement.hitTest(
           run.text,
           textStyle.fontSize,
@@ -1521,7 +1546,6 @@ export class TextNode extends Node<TextualBlock> {
       fontFamily,
       fonts,
       fontMetrics,
-      lineHeight,
       codePadding,
       indentOffset,
       markerWidth,
@@ -1580,7 +1604,8 @@ export class TextNode extends Node<TextualBlock> {
       const lyt = layout.lines[lineIndex];
       const lineStartIndex = lyt.startIndex;
       const lineEndIndex = lyt.endIndex;
-      const currentY = y + insetY + lineIndex * lineHeight;
+      const currentY = y + insetY + lyt.y;
+      const baselineY = currentY + (lyt.baselineOffset ?? fontMetrics.ascent);
       const renderX = isRTL ? adjustedX + adjustedMaxWidth : adjustedX;
 
       if (lineIndex === 0) {
@@ -1590,7 +1615,7 @@ export class TextNode extends Node<TextualBlock> {
           ctx,
           block,
           markerX,
-          currentY,
+          baselineY - fontMetrics.ascent,
           layout,
           styles,
           state,
@@ -1607,7 +1632,7 @@ export class TextNode extends Node<TextualBlock> {
         lineEndIndex,
         lineText: lyt.text,
         x: renderX,
-        baselineY: currentY + fontMetrics.ascent,
+        baselineY,
         textStyle,
         fontFamily,
         styles,
@@ -1633,7 +1658,7 @@ export class TextNode extends Node<TextualBlock> {
             compositionRange.start,
             compositionRange.end,
             renderX,
-            currentY,
+            baselineY - fontMetrics.ascent,
             textStyle,
             fontFamily,
             fonts,
@@ -1652,6 +1677,7 @@ export class TextNode extends Node<TextualBlock> {
         y: currentY,
         width: lyt.width,
         height: lyt.height,
+        baselineOffset: lyt.baselineOffset,
         startIndex: lineStartIndex,
         endIndex: lineEndIndex,
       });
@@ -1722,7 +1748,7 @@ export class TextNode extends Node<TextualBlock> {
       x: adjustedX,
       y,
       width: adjustedMaxWidth,
-      height: layout.wrapped.length * lineHeight,
+      height: layout.height - insetY - textStyle.paddingBottom,
     };
 
     return { block, bounds, lines: renderedLines };

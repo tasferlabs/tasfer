@@ -23,7 +23,7 @@ import type {
   TextStyle,
   ViewportState,
 } from "../state-types";
-import { createInitialState, isTouchDevice } from "../state-utils";
+import { createInitialState } from "../state-utils";
 import { mergeTheme } from "../styles";
 import { Editor, type EditorApi } from "./editor";
 import {
@@ -454,114 +454,7 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   });
   resizeObserver.observe(container);
 
-  // Single predicate for "does this node belong to this editor instance?" —
-  // shared by every focus-out path so their decisions can't drift. Covers the
-  // canvas surface (which contains the hidden input) and any editor chrome the
-  // host portals elsewhere, tagged with [data-editor-overlay] (e.g. the mobile
-  // keyboard toolbar or popovers). Per-instance closure — no module globals.
-  const isInsideEditor = (node: globalThis.Node | null): boolean => {
-    if (!node) return false;
-    if (canvasContainer.contains(node)) return true;
-    return (
-      node instanceof HTMLElement &&
-      node.closest("[data-editor-overlay]") !== null
-    );
-  };
-
-  // Backstop #1: a pointerdown on a target the browser won't focus (plain page
-  // chrome, non-focusable divs) never moves DOM focus, so the hidden input's
-  // native blur below never fires — this releases logical focus for that case.
-  const handleDocumentClick = (e: MouseEvent | TouchEvent) => {
-    if (isInsideEditor(e.target as globalThis.Node | null)) return;
-    if (editor.isHostMenuCapturing()) {
-      return;
-    }
-    editor.setFocus(false, true);
-    if (e instanceof TouchEvent) {
-      hiddenInput.blur();
-    }
-  };
-
   let blurTimeoutId: number | null = null;
-  let isTouchActive = false;
-
-  const handleInputFocus = () => {
-    if (blurTimeoutId !== null) {
-      clearTimeout(blurTimeoutId);
-      blurTimeoutId = null;
-    }
-    // Sentinel content/caret is seeded by the engine (resetSentinel) on the
-    // render frame triggered by setFocus — mount.ts no longer touches it.
-    editor.setFocus(true);
-    editor.setCaret("start", { onlyIfUnset: true });
-  };
-
-  // Primary focus-out signal: the hidden input owns DOM focus, so its native
-  // blur is the source of truth for losing focus. The two document-level
-  // backstop handlers cover the cases this event can't see.
-  const handleInputBlur = (e: FocusEvent) => {
-    if (editor.isHostMenuCapturing()) {
-      return;
-    }
-    if (isTouchDevice() && isTouchActive && editor.state.mode === "select") {
-      return;
-    }
-    const relatedTarget = e.relatedTarget as globalThis.Node | null;
-
-    if (isTouchDevice()) {
-      if (relatedTarget && container.contains(relatedTarget)) {
-        return;
-      }
-      if (!relatedTarget) {
-        setTimeout(() => {
-          if (
-            document.activeElement !== hiddenInput &&
-            editor.state.isFocused &&
-            !document.querySelector("[cmdk-dialog]")
-          ) {
-            hiddenInput.focus({ preventScroll: true });
-          }
-        }, 0);
-        return;
-      }
-    }
-    if (isTouchDevice()) {
-      editor.setFocus(false, true);
-    } else {
-      editor.setFocus(false);
-    }
-  };
-
-  const handleTouchStart = () => {
-    isTouchActive = true;
-  };
-
-  const handleTouchEnd = () => {
-    setTimeout(() => {
-      isTouchActive = false;
-    }, 10);
-  };
-
-  // Backstop #2: when focus moves to a real element outside the editor (e.g. a
-  // dialog input) we must release focus so keystrokes don't get processed here.
-  // The hidden input's native blur normally covers this, but some touch browsers
-  // fire that blur with a null relatedTarget; focusin bubbles to document with
-  // the true target, so we can still detect focus landing outside the editor.
-  const handleDocumentFocusIn = (e: FocusEvent) => {
-    if (isInsideEditor(e.target as globalThis.Node | null)) return;
-    if (editor.state.isFocused) {
-      editor.setFocus(false);
-    }
-  };
-
-  document.addEventListener("mousedown", handleDocumentClick);
-  document.addEventListener("touchstart", handleDocumentClick);
-  document.addEventListener("focusin", handleDocumentFocusIn);
-  container.addEventListener("touchstart", handleTouchStart);
-  container.addEventListener("touchend", handleTouchEnd);
-  container.addEventListener("touchcancel", handleTouchEnd);
-  hiddenInput.addEventListener("focus", handleInputFocus);
-  hiddenInput.addEventListener("blur", handleInputBlur);
 
   // Theme reactivity (e.g. dark-mode toggle) is the host's responsibility: the
   // engine no longer reads the DOM for styling, so the host watches its own
@@ -593,14 +486,6 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
       clearTimeout(blurTimeoutId);
       blurTimeoutId = null;
     }
-    document.removeEventListener("mousedown", handleDocumentClick);
-    document.removeEventListener("touchstart", handleDocumentClick);
-    document.removeEventListener("focusin", handleDocumentFocusIn);
-    container.removeEventListener("touchstart", handleTouchStart);
-    container.removeEventListener("touchend", handleTouchEnd);
-    container.removeEventListener("touchcancel", handleTouchEnd);
-    hiddenInput.removeEventListener("focus", handleInputFocus);
-    hiddenInput.removeEventListener("blur", handleInputBlur);
     contentCanvas.removeEventListener("selectstart", preventSelectStart);
     contentCanvas.removeEventListener("dragstart", preventDragStart);
     destroyCanvasLayers(layers);

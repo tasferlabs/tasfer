@@ -1,28 +1,30 @@
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
+import { ActionCenter } from "../components/ActionCenter";
+import { AddSpaceDialog } from "../components/AddSpaceDialog";
+import { BottomToolDock } from "../components/BottomToolDock";
 import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
 import { DevToolbar } from "../components/DevToolbar";
+import { EditGroupDialog } from "../components/EditGroupDialog";
+import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import { OnboardingScreen } from "../components/OnboardingScreen";
-import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
-import { ActionCenter } from "../components/ActionCenter";
-import UpdatePopup from "../components/UpdatePopup";
 import PeerVersionPopup from "../components/PeerVersionPopup";
+import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
+import { WordCountOverlay } from "../components/WordCountOverlay";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
-import { TreeExpandProvider } from "../contexts/TreeExpandContext";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
+import { TreeExpandProvider } from "../contexts/TreeExpandContext";
 import { useVersion } from "../contexts/VersionContext";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useResponsive from "../hooks/useResponsive";
 import ForceUpdatePage from "../pages/ForceUpdatePage";
-import { AddSpaceDialog } from "../components/AddSpaceDialog";
-import { EditGroupDialog } from "../components/EditGroupDialog";
-import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import { FloatingSidebar } from "./FloatingSidebar";
 import style from "./Layout.module.css";
 import { ResizableSidebar } from "./ResizableSidebar";
 import { TopActionBar } from "./TopActionBar";
 import { TopActionBarSlotProvider } from "./TopActionBarSlot";
+
 export default function Layout() {
   const { isLoading, meetsMinimum } = useVersion();
 
@@ -40,41 +42,48 @@ export default function Layout() {
   }
 
   return (
-      <TopActionBarSlotProvider>
+    <TopActionBarSlotProvider>
       <SpaceProvider>
-      <TreeExpandProvider>
-      <SidebarPanelProvider>
-      <PageSettingsProvider>
-        <ConfirmationDialogProvider>
-          <UnsavedChangesDialogProvider>
-            <LayoutInner needsForceUpdate={needsForceUpdate} />
-          </UnsavedChangesDialogProvider>
-        </ConfirmationDialogProvider>
-      </PageSettingsProvider>
-      </SidebarPanelProvider>
-      </TreeExpandProvider>
+        <TreeExpandProvider>
+          <SidebarPanelProvider>
+            <PageSettingsProvider>
+              <ConfirmationDialogProvider>
+                <UnsavedChangesDialogProvider>
+                  <LayoutInner needsForceUpdate={needsForceUpdate} />
+                </UnsavedChangesDialogProvider>
+              </ConfirmationDialogProvider>
+            </PageSettingsProvider>
+          </SidebarPanelProvider>
+        </TreeExpandProvider>
       </SpaceProvider>
-      </TopActionBarSlotProvider>
+    </TopActionBarSlotProvider>
   );
 }
 
 function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
   const [resizableOpen, setResizableOpen] = useLocalStorage(
     "resizable-sidebar-open",
-    true
+    true,
   );
   const [floatingOpen, setFloatingOpen] = useLocalStorage(
     "floating-sidebar-open",
-    false
+    false,
   );
   const [showAddSpace, setShowAddSpace] = React.useState(false);
-  const [groupSettingsId, setGroupSettingsId] = React.useState<string | null>(null);
-  const [inviteMembersId, setInviteMembersId] = React.useState<string | null>(null);
+  const [groupSettingsId, setGroupSettingsId] = React.useState<string | null>(
+    null,
+  );
+  const [inviteMembersId, setInviteMembersId] = React.useState<string | null>(
+    null,
+  );
   const isMobile = useResponsive("(max-width: 768px)");
   const { spaces, isLoading: spacesLoading } = useSpaces();
 
   // Remember the last visited route so we can restore it on next visit
   const location = useLocation();
+  const isPageRoute =
+    location.pathname === "/page" || location.pathname.startsWith("/page/");
+
   React.useEffect(() => {
     const path = location.pathname;
     if (path === "/") return;
@@ -92,11 +101,26 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
 
   return (
     <>
-      <div className={style.appContainer} inert={needsForceUpdate ? (true as unknown as boolean) : undefined}>
+      <div
+        className={style.appContainer}
+        inert={needsForceUpdate ? (true as unknown as boolean) : undefined}
+      >
         {isMobile ? (
-          <FloatingSidebar open={!!floatingOpen} setOpen={setFloatingOpen} onAddSpace={() => setShowAddSpace(true)} onSpaceSettings={setGroupSettingsId} onInviteMembers={setInviteMembersId} />
+          <FloatingSidebar
+            open={!!floatingOpen}
+            setOpen={setFloatingOpen}
+            onAddSpace={() => setShowAddSpace(true)}
+            onSpaceSettings={setGroupSettingsId}
+            onInviteMembers={setInviteMembersId}
+          />
         ) : (
-          <ResizableSidebar open={!!resizableOpen} setOpen={setResizableOpen} onAddSpace={() => setShowAddSpace(true)} onSpaceSettings={setGroupSettingsId} onInviteMembers={setInviteMembersId} />
+          <ResizableSidebar
+            open={!!resizableOpen}
+            setOpen={setResizableOpen}
+            onAddSpace={() => setShowAddSpace(true)}
+            onSpaceSettings={setGroupSettingsId}
+            onInviteMembers={setInviteMembersId}
+          />
         )}
 
         {!(isMobile && floatingOpen) && (
@@ -115,18 +139,24 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
       <EditGroupDialog
         spaceId={groupSettingsId || ""}
         open={!!groupSettingsId}
-        onOpenChange={(open) => setGroupSettingsId(open ? groupSettingsId : null)}
+        onOpenChange={(open) =>
+          setGroupSettingsId(open ? groupSettingsId : null)
+        }
         openInviteMembers={setInviteMembersId}
       />
       <InviteMembersDialog
         spaceId={inviteMembersId || ""}
         open={!!inviteMembersId}
-        onOpenChange={(open) => setInviteMembersId(open ? inviteMembersId : null)}
+        onOpenChange={(open) =>
+          setInviteMembersId(open ? inviteMembersId : null)
+        }
       />
       <ActionCenter />
-      <UpdatePopup />
       <PeerVersionPopup />
-      <DevToolbar />
+      <BottomToolDock>
+        <DevToolbar />
+        {isPageRoute && <WordCountOverlay />}
+      </BottomToolDock>
       {needsForceUpdate && <ForceUpdatePage />}
     </>
   );

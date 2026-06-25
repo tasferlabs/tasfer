@@ -1,5 +1,7 @@
 import * as Popover from "@radix-ui/react-popover";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   type Editor,
   filterMathCommands,
@@ -8,7 +10,14 @@ import {
   renderToSVG,
   TEXT_INPUT,
 } from "@cypherkit/editor";
-import { isTouchDevice } from "@cypherkit/editor/internal";
+import useResponsive from "../app/hooks/useResponsive";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "../components/ui/drawer";
+import { Input } from "../components/ui/input";
 import { ScrollArea } from "../components/ui/scroll-area";
 
 interface MathCommandMenuProps {
@@ -42,6 +51,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
   editor,
   getContainerRect,
 }) => {
+  const useDrawer = useResponsive("(pointer: coarse)");
   // Open trigger lives in a ref (set synchronously inside the TEXT_INPUT handler,
   // before the `\` commits) so the next `subscribe` tick computes the anchor.
   const triggerRef = useRef<Trigger | null>(null);
@@ -128,13 +138,14 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       );
     };
 
-    // Edge-trigger the open on a `\` typed *inside* a chip (desktop only — the
-    // menu is keyboard-driven). The `\` isn't committed yet, so the anchor/query
-    // are computed on the next `subscribe` tick.
+    // Edge-trigger the open on a `\` typed inside a block equation. The `\`
+    // isn't committed yet, so the anchor/query are computed on the next
+    // `subscribe` tick. Desktop keeps typing into the equation; touch devices
+    // move search input into a drawer once it opens.
     const offInput = editor.registerAction(
       TEXT_INPUT,
       ({ text, textIndex }) => {
-        if (text !== "\\" || isTouchDevice()) return;
+        if (text !== "\\") return;
         // Block equations only (their whole text IS the LaTeX, so a `\` anywhere
         // triggers). Inline chips get their `\` menu docked inside the WYSIWYG
         // overlay (see InlineMathOverlay), not this floating one. The `\` was
@@ -152,6 +163,18 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
   }, [editor, getContainerRect, close]);
 
   if (!menu) return null;
+  if (useDrawer) {
+    return (
+      <MathCommandDrawer
+        query={menu.query}
+        onSelect={select}
+        onClose={() => {
+          close();
+          editor.focus();
+        }}
+      />
+    );
+  }
   return (
     <MathCommandList
       x={menu.x}
@@ -231,6 +254,12 @@ interface MathCommandPaletteProps {
    * already the box).
    */
   className?: string;
+  /** Whether an unmatched query dismisses the surrounding surface. */
+  autoCloseOnEmpty?: boolean;
+  /** Content shown when an unmatched query has no results. */
+  emptyState?: React.ReactNode;
+  /** Whether this palette owns global arrow/Enter/Escape navigation. */
+  captureKeyboardNavigation?: boolean;
 }
 
 /**
@@ -247,6 +276,9 @@ export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
   onClose,
   maxHeight,
   className,
+  autoCloseOnEmpty = true,
+  emptyState = null,
+  captureKeyboardNavigation = true,
 }) => {
   const selectedRef = useRef<HTMLButtonElement>(null);
 
@@ -275,6 +307,7 @@ export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
   // Capture-phase keydown — fires before the engine's handler, so we claim
   // Arrow/Enter/Escape for the menu and let every other key type the query.
   useEffect(() => {
+    if (!captureKeyboardNavigation) return;
     const onKeyDown = (e: KeyboardEvent) => {
       switch (e.key) {
         case "ArrowDown":
@@ -312,19 +345,21 @@ export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, []);
+  }, [captureKeyboardNavigation]);
 
   // Auto-close when nothing matches.
   useEffect(() => {
-    if (query && items.length === 0) onClose();
-  }, [query, items.length, onClose]);
+    if (autoCloseOnEmpty && query && items.length === 0) onClose();
+  }, [autoCloseOnEmpty, query, items.length, onClose]);
 
   // Keep the highlighted row in view.
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return emptyState ? <div className={className}>{emptyState}</div> : null;
+  }
 
   return (
     <div className={className}>
@@ -365,5 +400,88 @@ export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
         </div>
       </ScrollArea>
     </div>
+  );
+};
+
+interface MathCommandDrawerProps {
+  query?: string;
+  onSelect: (cmd: MathCommand) => void;
+  onClose: () => void;
+}
+
+/**
+ * Touch-first math construct picker. Search is intentionally local to the
+ * drawer: typing a natural-language query must not write partial LaTeX into the
+ * equation. The document changes only after a construct is selected.
+ */
+export const MathCommandDrawer: React.FC<MathCommandDrawerProps> = ({
+  query = "",
+  onSelect,
+  onClose,
+}) => {
+  const { t } = useTranslation();
+  const [search, setSearch] = useState(query);
+
+  useEffect(() => setSearch(query), [query]);
+
+  return (
+    <Drawer
+      open={true}
+      onOpenChange={(open) => !open && onClose()}
+      modal={true}
+      dismissible={true}
+      shouldScaleBackground={false}
+    >
+      <DrawerContent
+        data-editor-overlay
+        className="h-[min(78vh,640px)] overflow-hidden"
+      >
+        <div className="mx-auto flex h-full w-full max-w-lg flex-col">
+          <DrawerHeader className="pb-2">
+            <DrawerTitle>
+              {t("editor.math.chooseConstruct", "Choose a math construct")}
+            </DrawerTitle>
+          </DrawerHeader>
+          <div className="relative px-4 pb-3">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Escape") onClose();
+              }}
+              placeholder={t(
+                "editor.math.searchConstructs",
+                "Search fractions, roots, symbols…",
+              )}
+              aria-label={t(
+                "editor.math.searchConstructs",
+                "Search fractions, roots, symbols…",
+              )}
+              className="h-11 ps-10"
+              autoFocus
+            />
+          </div>
+          <MathCommandPalette
+            query={search}
+            onSelect={onSelect}
+            onClose={onClose}
+            maxHeight={520}
+            autoCloseOnEmpty={false}
+            captureKeyboardNavigation={false}
+            className="min-h-0 flex-1 overflow-hidden border-t border-border/50"
+            emptyState={
+              <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                {t("editor.math.noConstructs", "No matching constructs")}
+              </div>
+            }
+          />
+        </div>
+      </DrawerContent>
+    </Drawer>
   );
 };

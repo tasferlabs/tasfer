@@ -407,12 +407,11 @@ function getPositionFromPaddingClick(
       const pick = (line: { startIndex: number; endIndex: number }): number =>
         isLeftPadding === layout.isRTL ? line.endIndex : line.startIndex;
 
-      let lineY = currentY;
       for (const line of layout.lines) {
-        if (y >= lineY && y < lineY + layout.lineHeight) {
+        const lineY = currentY + layout.insetY + line.y;
+        if (y >= lineY && y < lineY + line.height) {
           return { blockIndex: block.originalIndex, textIndex: pick(line) };
         }
-        lineY += layout.lineHeight;
       }
 
       // Click is in the block's bottom padding — use the last line.

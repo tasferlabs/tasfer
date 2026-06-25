@@ -2752,7 +2752,6 @@ export function DevToolbar() {
           exit={{ y: 12, opacity: 0, scale: 0.95 }}
           transition={{ type: "spring", damping: 30, stiffness: 500 }}
           className={cn(
-            "fixed bottom-3 end-3 z-40",
             "bg-popover/95 backdrop-blur-xl",
             "border border-border rounded-full",
             "shadow-lg font-sans",

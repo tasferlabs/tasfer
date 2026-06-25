@@ -68,7 +68,6 @@ import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
 import { SnapshotRestore } from "../components/SnapshotRestore";
-import { WordCountOverlay } from "../components/WordCountOverlay";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useTreeExpand } from "../contexts/TreeExpandContext";
@@ -548,7 +547,6 @@ export default function EditorPage() {
           }}
         />
       </div>
-      <WordCountOverlay />
     </div>
   );
 }

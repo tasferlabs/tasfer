@@ -7,6 +7,14 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
+import { Input } from "@/components/ui/input";
+import { getPlatform } from "@/platform";
 import { getBridge } from "@/platform/bridge";
 import {
   CLOSE_CONTEXT_MENU,
@@ -21,6 +29,7 @@ import {
   OPEN_LINK,
   REGION_DRAG_START,
   SCROLL,
+  TEXT_INPUT,
   createDoc,
   mergeRegister,
   serializeVV,
@@ -32,13 +41,9 @@ import {
   type Operation,
 } from "@cypherkit/editor";
 import {
-  cursorPresenceToDecorations,
-  selectionToCursorPresence,
-  type CursorPresence,
-  type CursorUser,
-} from "@cypherkit/provider-core/cursors";
-import {
+  CODE_LANGUAGES,
   clearFailedImageCache,
+  codeLanguageLabel,
   isTextualBlock,
   isTouchDevice,
   type EditorStrings,
@@ -46,17 +51,18 @@ import {
   type PlaceholderStyles,
   type TextStyle,
 } from "@cypherkit/editor/internal";
-import { useEditor } from "@cypherkit/react";
 import {
-  appSchema,
-  type LinkEditOverlayData,
-  openImageUploadMenu,
-  openLinkEditMenu,
-} from "../editorSchema";
-import { getPlatform } from "@/platform";
-import { CODE_LANGUAGES, codeLanguageLabel } from "@cypherkit/editor/internal";
+  cursorPresenceToDecorations,
+  selectionToCursorPresence,
+  type CursorPresence,
+  type CursorUser,
+} from "@cypherkit/provider-core/cursors";
+import { useEditor } from "@cypherkit/react";
+import i18next from "i18next";
 import {
   Bold,
+  Check,
+  ChevronDown,
   Clipboard,
   Code,
   Copy,
@@ -65,6 +71,7 @@ import {
   Italic,
   Link,
   Scissors,
+  Search,
   Strikethrough,
   Type,
 } from "lucide-react";
@@ -72,37 +79,46 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentType,
 } from "react";
-import { CursorMagnifier } from "./components/CursorMagnifier";
-import {
-  MobileKeyboardToolbar,
-  type BlockType as MobileBlockType,
-} from "./components/MobileKeyboardToolbar";
-import { useKeyboardOpen } from "./hooks/useKeyboardOpen";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
+import { InlineMathOverlay } from "../editor/InlineMathOverlay";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
-import { InlineMathOverlay } from "../editor/InlineMathOverlay";
 import { MathCommandMenu } from "../editor/MathCommandMenu";
 import { SlashActionMenu } from "../editor/SlashActionMenu";
-import useResponsive from "./hooks/useResponsive";
-import i18next from "i18next";
+import {
+  appSchema,
+  openImageUploadMenu,
+  openLinkEditMenu,
+  type LinkEditOverlayData,
+} from "../editorSchema";
 import { cssVarsToTheme, readEditorTokens } from "../editorTheme";
 import { getAppFontRegistry, onAppFontRegistryChange } from "../fonts";
 import { cn } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
+import { CursorMagnifier } from "./components/CursorMagnifier";
+import { MobileKeyboardToolbar } from "./components/MobileKeyboardToolbar";
 import {
   fontStyleToFamily,
   usePageSettings,
 } from "./contexts/PageSettingsContext";
+import useResponsive from "./hooks/useResponsive";
+import {
+  createMobileToolbarModel,
+  isMobileToolbarBlockType,
+  type MobileToolbarAction,
+  type MobileToolbarBlockType,
+  type MobileToolbarModel,
+} from "./mobileToolbar";
 import { EditorLoadingState } from "./pages/EditorPage";
 
 /**
@@ -498,6 +514,9 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   editor,
 }) => {
   const { t } = useTranslation();
+  const isMobile = useResponsive("(max-width: 768px)");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const { blockId } = overlay;
   const block = editor.query.block({ block: blockId });
   if (block?.type !== "code") return null;
@@ -509,12 +528,118 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   const items = CODE_LANGUAGES.map((l) => l.label);
 
   const handleChange = (label: string | null) => {
-    const language = CODE_LANGUAGES.find((l) => l.label === label)?.id ?? "";
+    const nextLanguage =
+      CODE_LANGUAGES.find((l) => l.label === label)?.id ?? "";
     const b = editor.query.block({ block: blockId });
     if (b && b.type === "code") {
-      editor.change((c) => c.setBlock({ language }, { block: b.id }));
+      editor.change((c) =>
+        c.setBlock({ language: nextLanguage }, { block: b.id }),
+      );
     }
   };
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredLanguages = CODE_LANGUAGES.filter((option) => {
+    if (!normalizedSearch) return true;
+    return [option.label, option.id, ...(option.aliases ?? [])].some((value) =>
+      value.toLowerCase().includes(normalizedSearch),
+    );
+  });
+
+  const triggerClassName =
+    "h-7 w-auto gap-1 rounded-md border-border/60 bg-background/80 px-2 shadow-none backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors";
+
+  if (isMobile) {
+    return (
+      <div
+        style={{
+          position: "absolute",
+          right: "8px",
+          top: "8px",
+          pointerEvents: "auto",
+        }}
+      >
+        <Button
+          type="button"
+          variant="outline"
+          className={triggerClassName}
+          aria-label={t("code.selectLanguage", "Select language")}
+          title={t("code.selectLanguage", "Select language")}
+          onClick={() => setDrawerOpen(true)}
+        >
+          <span className="max-w-28 truncate">{currentLabel}</span>
+          <ChevronDown className="size-4 shrink-0" />
+        </Button>
+        <Drawer
+          open={drawerOpen}
+          onOpenChange={(open) => {
+            setDrawerOpen(open);
+            if (!open) setSearch("");
+          }}
+          modal={true}
+          dismissible={true}
+          shouldScaleBackground={false}
+        >
+          <DrawerContent
+            data-editor-overlay
+            className="h-[min(72vh,560px)] overflow-hidden"
+          >
+            <div className="mx-auto flex h-full w-full max-w-lg flex-col">
+              <DrawerHeader className="pb-2">
+                <DrawerTitle>
+                  {t("code.selectLanguage", "Select language")}
+                </DrawerTitle>
+              </DrawerHeader>
+              <div className="relative px-4 pb-3">
+                <Search
+                  aria-hidden="true"
+                  className="pointer-events-none absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={t("editor.search", "Search...")}
+                  aria-label={t("editor.search", "Search...")}
+                  className="h-11 ps-10"
+                />
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/50 p-2">
+                {filteredLanguages.length > 0 ? (
+                  filteredLanguages.map((option) => (
+                    <Button
+                      key={option.id}
+                      type="button"
+                      variant="ghost"
+                      className="h-11 w-full justify-start gap-3 px-3"
+                      onClick={() => {
+                        handleChange(option.label);
+                        setDrawerOpen(false);
+                        setSearch("");
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "size-4 shrink-0",
+                          currentLabel === option.label
+                            ? "opacity-100"
+                            : "opacity-0",
+                        )}
+                      />
+                      <span>{option.label}</span>
+                    </Button>
+                  ))
+                ) : (
+                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    {t("common.noResults", "No results")}
+                  </div>
+                )}
+              </div>
+            </div>
+          </DrawerContent>
+        </Drawer>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -527,7 +652,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
     >
       <Combobox items={items} value={currentLabel} onValueChange={handleChange}>
         <ComboboxInput
-          className="h-7 w-auto gap-1 rounded-md border-border/60 bg-background/80 px-2 shadow-none backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          className={triggerClassName}
           placeholder={t("code.plainText", "Plain Text")}
           aria-label={t("code.selectLanguage", "Select language")}
           title={t("code.selectLanguage", "Select language")}
@@ -753,14 +878,58 @@ function searchDecorations(
 const presenceLayer = (peerId: string) => `presence:${peerId}`;
 
 /**
- * Approximate height of the floating {@link MobileKeyboardToolbar}. When the
- * soft keyboard is open we shrink the editor container by the keyboard height
- * plus this offset so the caret stays clear of both the keyboard and the
- * toolbar that floats just above it. (Keyboard-aware sizing is the host's
- * concern, not the engine's — the editor just renders into whatever size its
- * container reports via ResizeObserver.)
+ * Height reserved for the focus-driven {@link MobileKeyboardToolbar}, excluding
+ * any Android IME inset reported separately by the native host.
  */
 const KEYBOARD_TOOLBAR_HEIGHT = 48;
+
+interface KeyboardHeightMessage {
+  type: "keyboard-height-changed";
+  height: number;
+  isOpen: boolean;
+}
+
+function isKeyboardHeightMessage(data: unknown): data is KeyboardHeightMessage {
+  if (typeof data !== "object" || data === null) return false;
+
+  const message = data as Partial<KeyboardHeightMessage>;
+  return (
+    message.type === "keyboard-height-changed" &&
+    typeof message.height === "number" &&
+    Number.isFinite(message.height) &&
+    message.height >= 0 &&
+    typeof message.isOpen === "boolean"
+  );
+}
+
+// ---------------------------------------------------------------------------
+// iOS native keyboard accessory toolbar
+// ---------------------------------------------------------------------------
+// On iOS the formatting toolbar is a native `inputAccessoryView` (see
+// apps/ios/App/App/KeyboardAccessoryView.swift) glued to the keyboard by UIKit,
+// instead of the in-webview React {@link MobileKeyboardToolbar} (which Android
+// and the web still use). The web side here only mirrors toolbar state to native
+// and exposes an action dispatcher the native bar calls back into.
+
+/** True when running inside the native iOS (Capacitor/WKWebView) shell. */
+const IS_IOS_NATIVE =
+  (
+    window as { Capacitor?: { getPlatform?: () => string } }
+  ).Capacitor?.getPlatform?.() === "ios";
+
+/** Post a message to the native `KeyboardToolbar` WKScriptMessageHandler. No-op
+ * off iOS / when the handler isn't registered. */
+function postKeyboardToolbar(model: MobileToolbarModel): void {
+  (
+    window as {
+      webkit?: {
+        messageHandlers?: {
+          KeyboardToolbar?: { postMessage(m: unknown): void };
+        };
+      };
+    }
+  ).webkit?.messageHandlers?.KeyboardToolbar?.postMessage(model);
+}
 
 /**
  * Public mount component. Remounts the inner {@link EditorSurface} whenever the
@@ -879,20 +1048,148 @@ function EditorSurface({
     isBold: false,
     isItalic: false,
     isCode: false,
+    canOpenMathCommands: false,
     isStrikethrough: false,
-    blockType: "paragraph" as MobileBlockType,
-    isEditorFocused: false,
+    blockType: "paragraph" as MobileToolbarBlockType,
   });
-  const { isKeyboardOpen, keyboardHeight } = useKeyboardOpen();
 
-  // Shrink the editor container while the soft keyboard is open so the caret
-  // stays above the keyboard and the floating toolbar. The engine resizes its
-  // canvas to match the container (ResizeObserver), so this is purely a host
-  // layout concern — kept out of the engine on purpose.
-  const keyboardInset =
-    isTouchDevice() && isKeyboardOpen
-      ? keyboardHeight + KEYBOARD_TOOLBAR_HEIGHT
-      : 0;
+  // Android edge-to-edge WebViews retain their full viewport when the IME opens.
+  // MainActivity reports the IME inset so fixed UI can stay above it. On iOS the
+  // native WebView resize keeps this at zero.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Whether the soft keyboard is currently open. This — not editor focus — drives
+  // the mobile toolbar so it rides the keyboard (Notion-style): it appears when
+  // the keyboard opens and disappears the instant it closes, including external
+  // dismissals (Android back button, iOS swipe-down) that leave the editor still
+  // logically focused. The signal source differs per platform; see the effects
+  // below. Once a native source reports, the visualViewport fallback is ignored.
+  const hasNativeKeyboardRef = useRef(false);
+
+  // Android: MainActivity posts the IME inset (resize:"native" is a no-op on the
+  // edge-to-edge WebView), carrying both the height for positioning and an isOpen
+  // flag so position and visibility stay in lockstep.
+  useEffect(() => {
+    const handleKeyboardHeight = (event: MessageEvent) => {
+      if (event.source !== window || !isKeyboardHeightMessage(event.data)) {
+        return;
+      }
+
+      hasNativeKeyboardRef.current = true;
+      setKeyboardHeight(event.data.isOpen ? event.data.height : 0);
+    };
+
+    window.addEventListener("message", handleKeyboardHeight);
+    return () => window.removeEventListener("message", handleKeyboardHeight);
+  }, []);
+
+  const dismissMobileKeyboard = useCallback(() => {
+    setKeyboardHeight(0);
+    mountedRef.current?.editor?.blur();
+
+    // Dismissing the keyboard via a toolbar tap makes the browser dispatch a
+    // synthetic "ghost" click ~300ms later. It lands on the editor canvas, which
+    // the engine treats as a request to focus — re-opening the keyboard we just
+    // dismissed. Swallow that single click in the capture phase before it can
+    // reach the canvas's listener. This is a host keyboard concern, so it lives
+    // here rather than inside the host-agnostic editor engine.
+    let timer = 0;
+    const cleanup = () => {
+      window.removeEventListener("click", swallowGhostClick, true);
+      window.clearTimeout(timer);
+    };
+    const swallowGhostClick = (event: MouseEvent) => {
+      if ((event.target as HTMLElement | null)?.tagName === "CANVAS") {
+        event.stopPropagation();
+      }
+      cleanup();
+    };
+    timer = window.setTimeout(cleanup, 700);
+    window.addEventListener("click", swallowGhostClick, true);
+  }, []);
+
+  const handleMobileToolbarAction = useCallback(
+    (action: MobileToolbarAction) => {
+      const editor = mountedRef.current?.editor;
+      if (!editor) return;
+
+      switch (action.type) {
+        case "undo":
+          editor.undo();
+          break;
+        case "redo":
+          editor.redo();
+          break;
+        case "toggle-bold":
+          editor.change((change) => change.setMark("strong"));
+          break;
+        case "toggle-italic":
+          editor.change((change) => change.setMark("emphasis"));
+          break;
+        case "toggle-code":
+          editor.change((change) => change.setMark("code"));
+          break;
+        case "open-math-commands": {
+          const range = editor.state.selection.range;
+          if (
+            !range ||
+            typeof range !== "object" ||
+            !("offset" in range) ||
+            !editor.state.selection.empty
+          ) {
+            break;
+          }
+
+          const block = editor.query.block(range);
+          const caretOffset = range.offset ?? 0;
+          const insideInlineMath = editor.query
+            .marks(range)
+            .some(
+              (mark) =>
+                mark.name === "math" &&
+                caretOffset > mark.from &&
+                caretOffset < mark.to,
+            );
+          if (block?.type !== "math" && !insideInlineMath) break;
+
+          // Match a typed backslash: notify command-menu observers before the
+          // edit commits, then let the normal insertion pipeline update the
+          // equation and trigger a subscription tick that opens the palette.
+          editor.dispatch(TEXT_INPUT, {
+            text: "\\",
+            blockIndex: 0,
+            textIndex: caretOffset,
+          });
+          editor.change((change) => change.insertText("\\"));
+          editor.focus();
+          break;
+        }
+        case "toggle-strikethrough":
+          editor.change((change) => change.setMark("strike"));
+          break;
+        case "set-block":
+          editor.change((change) =>
+            change.setBlock({ type: action.blockType as never }),
+          );
+          break;
+        case "dismiss":
+          dismissMobileKeyboard();
+          break;
+      }
+    },
+    [dismissMobileKeyboard],
+  );
+
+  useEffect(() => {
+    if (!IS_IOS_NATIVE) return;
+    const win = window as unknown as {
+      __cypherKeyboardAction?: (action: MobileToolbarAction) => void;
+    };
+    win.__cypherKeyboardAction = handleMobileToolbarAction;
+    return () => {
+      delete win.__cypherKeyboardAction;
+    };
+  }, [handleMobileToolbarAction]);
 
   // Push the selected font family (serif/sans page setting) into the live
   // editor as a theme change — no full re-mount, no module global.
@@ -1034,7 +1331,38 @@ function EditorSurface({
       nodeStrings: editorNodeStrings(),
     },
   });
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  // The existing native iOS accessory and the Android React toolbar consume the
+  // exact same model. Only transport and rendering differ.
+  const lastNativeToolbarRef = useRef("");
+  const mobileToolbarModel = useMemo(
+    () =>
+      createMobileToolbarModel(
+        {
+          visible: !readonly && keyboardOpen,
+          bottomInset: keyboardHeight,
+          ...mobileToolbar,
+        },
+        (key, fallback) => t(key, fallback ?? key),
+      ),
+    [keyboardHeight, keyboardOpen, mobileToolbar, readonly, t],
+  );
+  useEffect(() => {
+    if (!IS_IOS_NATIVE) return;
+    const serialized = JSON.stringify(mobileToolbarModel);
+    if (serialized === lastNativeToolbarRef.current) return;
+    lastNativeToolbarRef.current = serialized;
+    postKeyboardToolbar(mobileToolbarModel);
+  }, [mobileToolbarModel]);
 
+  useEffect(() => {
+    const offFocus = editor?.on("focus", () => setKeyboardOpen(true));
+    const offBlur = editor?.on("blur", () => setKeyboardOpen(false));
+    return () => {
+      offFocus?.();
+      offBlur?.();
+    };
+  }, [editor]);
   // Bridge the hook's CypherEditor into the MountedEditorInstance shape the
   // wiring effect + portals below were written against. Rebuilt only when the
   // editor identity changes (once per mount), so the reference stays stable.
@@ -1567,7 +1895,7 @@ function EditorSurface({
       setBlockType: (type: string) =>
         mounted.editor.change((c) => c.setBlock({ type: type as any })),
       focus: () => {
-        mounted.editor.setFocus(true);
+        mounted.editor.focus();
         mounted.editor.setCaret("start", { onlyIfUnset: true });
       },
       onFormatButtonClick: handleFormatButtonClick,
@@ -1656,22 +1984,31 @@ function EditorSurface({
       // selection-aware (intersection across the span + pending caret toggles)
       // mark set, so it replaces the old per-char format scan.
       const rawBlockType = mounted.editor.query.block()?.type ?? "paragraph";
-      const MOBILE_BLOCK_TYPES: readonly MobileBlockType[] = [
-        "paragraph",
-        "heading1",
-        "heading2",
-        "heading3",
-        "bullet_list",
-        "numbered_list",
-        "todo_list",
-        "image",
-        "line",
-      ];
-      const blockType: MobileBlockType = MOBILE_BLOCK_TYPES.includes(
-        rawBlockType as MobileBlockType,
+      const blockType: MobileToolbarBlockType = isMobileToolbarBlockType(
+        rawBlockType,
       )
-        ? (rawBlockType as MobileBlockType)
+        ? rawBlockType
         : "paragraph";
+      const selectionRange = snapshot.selection.range;
+      const caretOffset =
+        selectionRange &&
+        typeof selectionRange === "object" &&
+        "offset" in selectionRange
+          ? (selectionRange.offset ?? 0)
+          : null;
+      const insideInlineMath =
+        caretOffset !== null &&
+        mounted.editor.query
+          .marks()
+          .some(
+            (mark) =>
+              mark.name === "math" &&
+              caretOffset > mark.from &&
+              caretOffset < mark.to,
+          );
+      const canOpenMathCommands =
+        snapshot.selection.empty &&
+        (rawBlockType === "math" || insideInlineMath);
 
       setMobileToolbar({
         canUndo: snapshot.canUndo,
@@ -1679,15 +2016,15 @@ function EditorSurface({
         isBold: snapshot.activeMarks.has("strong"),
         isItalic: snapshot.activeMarks.has("emphasis"),
         isCode: snapshot.activeMarks.has("code"),
+        canOpenMathCommands,
         isStrikethrough: snapshot.activeMarks.has("strike"),
         blockType,
-        isEditorFocused: snapshot.isFocused,
       });
     });
 
     // Auto-focus the editor when requested
     if (autoFocus) {
-      mounted.editor.setFocus(true);
+      mounted.editor.focus();
 
       // Restore by stable block id and viewport-relative anchor. The height
       // index can jump to this block using estimates, so opening near the end
@@ -1889,7 +2226,7 @@ function EditorSurface({
     mountedRef.current?.editor.view.clearDecorations("search");
     // Refocus editor
 
-    mountedRef.current?.editor.setFocus(true);
+    mountedRef.current?.editor.focus();
   }, []);
   handleFindCloseRef.current = handleFindClose;
 
@@ -2112,12 +2449,12 @@ function EditorSurface({
         "relative w-full h-full overflow-hidden focus:outline-none",
         className,
       )}
-      // While the soft keyboard is open, cap the height so the canvas (which
-      // tracks this element via ResizeObserver) ends above the keyboard and the
-      // floating MobileKeyboardToolbar.
+      // Cap the canvas above the toolbar and the Android IME inset, when present.
       style={
-        keyboardInset > 0
-          ? { height: `max(100px, calc(100% - ${keyboardInset}px))` }
+        keyboardHeight > 0
+          ? {
+              height: `max(100px, calc(100% - ${keyboardHeight + KEYBOARD_TOOLBAR_HEIGHT}px))`,
+            }
           : undefined
       }
       // The editable surface and its ARIA semantics (role="textbox",
@@ -2252,39 +2589,15 @@ function EditorSurface({
         />
       )}
 
-      {/* Mobile keyboard toolbar — always mounted while editor is focused on touch so
-          the slide-in/out animation can play. Visibility is driven by isKeyboardOpen. */}
-      {!readonly && mobileToolbar.isEditorFocused && isTouchDevice() && (
+      {/* Rides the soft keyboard: shown while it is open, gone the instant it
+          closes (incl. external dismissals), regardless of editor focus.
+          Android uses the reported IME inset; iOS resizes the native WebView.
+          On iOS this is replaced by the native inputAccessoryView toolbar, so the
+          React bar renders on Android/web only. */}
+      {mobileToolbarModel.visible && isTouchDevice() && !IS_IOS_NATIVE && (
         <MobileKeyboardToolbar
-          isVisible={isKeyboardOpen}
-          keyboardHeight={keyboardHeight}
-          canUndo={mobileToolbar.canUndo}
-          canRedo={mobileToolbar.canRedo}
-          isBold={mobileToolbar.isBold}
-          isItalic={mobileToolbar.isItalic}
-          isCode={mobileToolbar.isCode}
-          isStrikethrough={mobileToolbar.isStrikethrough}
-          currentBlockType={mobileToolbar.blockType}
-          onUndo={() => mountedRef.current?.editor.undo()}
-          onRedo={() => mountedRef.current?.editor.redo()}
-          onToggleBold={() =>
-            mountedRef.current?.editor.change((c) => c.setMark("strong"))
-          }
-          onToggleItalic={() =>
-            mountedRef.current?.editor.change((c) => c.setMark("emphasis"))
-          }
-          onToggleCode={() =>
-            mountedRef.current?.editor.change((c) => c.setMark("code"))
-          }
-          onToggleStrikethrough={() =>
-            mountedRef.current?.editor.change((c) => c.setMark("strike"))
-          }
-          onSetBlockType={(type) =>
-            mountedRef.current?.editor.change((c) =>
-              c.setBlock({ type: type as any }),
-            )
-          }
-          onDismissKeyboard={() => mountedRef.current?.blurInput()}
+          model={mobileToolbarModel}
+          onAction={handleMobileToolbarAction}
         />
       )}
 

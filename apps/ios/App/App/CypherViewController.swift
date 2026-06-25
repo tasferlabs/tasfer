@@ -112,15 +112,18 @@ class CypherViewController: CAPBridgeViewController {
         let clipboardBridge = ClipboardBridge()
         let storageBridge = StorageBridge()
         let imagePickerCoordinator = ImagePickerCoordinator()
+        let keyboardToolbarBridge = KeyboardToolbarBridge()
         clipboardBridge.imagePickerCoordinator = imagePickerCoordinator
 
         userContentController.add(clipboardBridge, name: "IOSBridge")
         userContentController.add(storageBridge, name: "Storage")
+        userContentController.add(keyboardToolbarBridge, name: "KeyboardToolbar")
 
         // Store references so they aren't deallocated
         self._clipboardBridge = clipboardBridge
         self._storageBridge = storageBridge
         self._imagePickerCoordinator = imagePickerCoordinator
+        self._keyboardToolbarBridge = keyboardToolbarBridge
 
         // Create the web view — use our subclass to suppress the native input accessory bar
         // (the up/down/checkmark row) so only our custom MobileKeyboardToolbar is shown.
@@ -157,6 +160,7 @@ class CypherViewController: CAPBridgeViewController {
         imagePickerCoordinator.webView = webView
         storageBridge.webView = webView
         storageBridge.presentingViewController = self
+        keyboardToolbarBridge.webView = webView
 
         // Set presenting view controller for image picker
         imagePickerCoordinator.presentingViewController = self
@@ -174,6 +178,7 @@ class CypherViewController: CAPBridgeViewController {
     private var _clipboardBridge: ClipboardBridge?
     private var _storageBridge: StorageBridge?
     private var _imagePickerCoordinator: ImagePickerCoordinator?
+    private var _keyboardToolbarBridge: KeyboardToolbarBridge?
 }
 
 private extension UIColor {

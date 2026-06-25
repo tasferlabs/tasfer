@@ -26,6 +26,8 @@ export interface CypherBridge {
 
   editor: {
     setColorScheme(scheme: "light" | "dark"): Promise<void>;
+    /** Atomically clear native WebView focus and hide the Android IME. */
+    dismissKeyboard?(): Promise<void>;
   };
 
   navigation: {

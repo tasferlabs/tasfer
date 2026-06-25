@@ -19,7 +19,11 @@ import {
   onFontsReady,
 } from "@cypherkit/editor/internal";
 import { layoutMath, paintMath } from "@cypherkit/tex";
-import { MathCommandPalette } from "./MathCommandMenu";
+import useResponsive from "../app/hooks/useResponsive";
+import {
+  MathCommandDrawer,
+  MathCommandPalette,
+} from "./MathCommandMenu";
 
 /**
  * WYSIWYG inline-math overlay — a roomy, live mirror of the inline-math chip the
@@ -111,6 +115,7 @@ export const InlineMathOverlay: React.FC<InlineMathOverlayProps> = ({
   editor,
   getContainerRect,
 }) => {
+  const useCommandDrawer = useResponsive("(pointer: coarse)");
   const [chip, setChip] = useState<OpenChip | null>(null);
   // The `\`-command run that was dismissed (Escape / ←→), keyed by its chip-local
   // backslash position so it re-opens on a fresh `\` but stays closed otherwise.
@@ -220,36 +225,52 @@ export const InlineMathOverlay: React.FC<InlineMathOverlayProps> = ({
       });
     });
     setDismissedAt(null);
+    editor.focus();
+  };
+
+  const dismissCommand = () => {
+    if (!activeCmd) return;
+    setDismissedAt(activeCmd.backslashLocal);
+    if (useCommandDrawer) editor.focus();
   };
 
   // Match the on-canvas caret: same theme-resolved cursor color the engine paints.
   const caretColor = editor.view.getStyles().cursor.color;
 
   return (
-    <InlineMathCanvas
-      chip={chip}
-      caretColor={caretColor}
-      onClickOffset={(offset) => {
-        editor.change((c) =>
-          c.select({ block: chip.blockId, offset: chip.startIndex + offset }),
-        );
-        // The click lived in the popover (a portal outside the editor), so make
-        // sure DOM focus is back on the input surface — otherwise typing/delete
-        // would no-op after a mirror click.
-        editor.setFocus(true);
-      }}
-      commandSlot={
-        commandOpen && activeCmd ? (
-          <MathCommandPalette
-            query={activeCmd.query}
-            onSelect={onCommandSelect}
-            onClose={() => setDismissedAt(activeCmd.backslashLocal)}
-            maxHeight={280}
-            className="mt-1.5 border-t border-border/40 pt-1.5 min-w-[300px]"
-          />
-        ) : null
-      }
-    />
+    <>
+      <InlineMathCanvas
+        chip={chip}
+        caretColor={caretColor}
+        onClickOffset={(offset) => {
+          editor.change((c) =>
+            c.select({ block: chip.blockId, offset: chip.startIndex + offset }),
+          );
+          // The click lived in the popover (a portal outside the editor), so make
+          // sure DOM focus is back on the input surface — otherwise typing/delete
+          // would no-op after a mirror click.
+          editor.focus();
+        }}
+        commandSlot={
+          commandOpen && activeCmd && !useCommandDrawer ? (
+            <MathCommandPalette
+              query={activeCmd.query}
+              onSelect={onCommandSelect}
+              onClose={dismissCommand}
+              maxHeight={280}
+              className="mt-1.5 border-t border-border/40 pt-1.5 min-w-[300px]"
+            />
+          ) : null
+        }
+      />
+      {commandOpen && activeCmd && useCommandDrawer ? (
+        <MathCommandDrawer
+          query={activeCmd.query}
+          onSelect={onCommandSelect}
+          onClose={dismissCommand}
+        />
+      ) : null}
+    </>
   );
 };
 

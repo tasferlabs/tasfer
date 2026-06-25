@@ -14,153 +14,91 @@ import {
   Minus,
   Pilcrow,
   Redo2,
+  Slash,
   Strikethrough,
   Undo2,
   X,
 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
+import type {
+  MobileToolbarAction,
+  MobileToolbarIcon,
+  MobileToolbarModel,
+} from "../mobileToolbar";
 
-export type BlockType =
-  | "paragraph"
-  | "heading1"
-  | "heading2"
-  | "heading3"
-  | "bullet_list"
-  | "numbered_list"
-  | "todo_list"
-  | "image"
-  | "line";
-
-const BLOCK_TYPES: { type: BlockType; labelKey: string; icon: React.ReactNode }[] =
-  [
-    { type: "paragraph", labelKey: "common.text", icon: <Pilcrow className="size-4" /> },
-    {
-      type: "heading1",
-      labelKey: "blocks.heading1",
-      icon: <Heading1 className="size-4" />,
-    },
-    {
-      type: "heading2",
-      labelKey: "blocks.heading2",
-      icon: <Heading2 className="size-4" />,
-    },
-    {
-      type: "heading3",
-      labelKey: "blocks.heading3",
-      icon: <Heading3 className="size-4" />,
-    },
-    {
-      type: "bullet_list",
-      labelKey: "blocks.bulletList",
-      icon: <List className="size-4" />,
-    },
-    {
-      type: "numbered_list",
-      labelKey: "blocks.numberedList",
-      icon: <ListOrdered className="size-4" />,
-    },
-    {
-      type: "todo_list",
-      labelKey: "blocks.todoList",
-      icon: <ListChecks className="size-4" />,
-    },
-    {
-      type: "image",
-      labelKey: "blocks.image",
-      icon: <Image className="size-4" />,
-    },
-    { type: "line", labelKey: "blocks.divider", icon: <Minus className="size-4" /> },
-  ];
+const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
+  undo: <Undo2 className="size-5" />,
+  redo: <Redo2 className="size-5" />,
+  bold: <Bold className="size-5" />,
+  italic: <Italic className="size-5" />,
+  code: <Code className="size-5" />,
+  math_command: <Slash className="size-5 -scale-x-100" />,
+  strikethrough: <Strikethrough className="size-5" />,
+  paragraph: <Pilcrow className="size-4" />,
+  heading1: <Heading1 className="size-4" />,
+  heading2: <Heading2 className="size-4" />,
+  heading3: <Heading3 className="size-4" />,
+  list: <List className="size-4" />,
+  list_ordered: <ListOrdered className="size-4" />,
+  list_todo: <ListChecks className="size-4" />,
+  image: <Image className="size-4" />,
+  line: <Minus className="size-4" />,
+  keyboard_dismiss: <X className="size-5" />,
+};
 
 interface MobileKeyboardToolbarProps {
-  isVisible: boolean;
-  keyboardHeight: number;
-  canUndo: boolean;
-  canRedo: boolean;
-  isBold: boolean;
-  isItalic: boolean;
-  isCode: boolean;
-  isStrikethrough: boolean;
-  currentBlockType: BlockType;
-  onUndo: () => void;
-  onRedo: () => void;
-  onToggleBold: () => void;
-  onToggleItalic: () => void;
-  onToggleCode: () => void;
-  onToggleStrikethrough: () => void;
-  onSetBlockType: (type: BlockType) => void;
-  onDismissKeyboard: () => void;
+  model: MobileToolbarModel;
+  onAction: (action: MobileToolbarAction) => void;
 }
 
 export function MobileKeyboardToolbar({
-  isVisible,
-  keyboardHeight,
-  canUndo,
-  canRedo,
-  isBold,
-  isItalic,
-  isCode,
-  isStrikethrough,
-  currentBlockType,
-  onUndo,
-  onRedo,
-  onToggleBold,
-  onToggleItalic,
-  onToggleCode,
-  onToggleStrikethrough,
-  onSetBlockType,
-  onDismissKeyboard,
+  model,
+  onAction,
 }: MobileKeyboardToolbarProps) {
-  const { t } = useTranslation();
-  const [blockPickerOpen, setBlockPickerOpen] = useState(false);
-
-  const currentBlock = BLOCK_TYPES.find((b) => b.type === currentBlockType);
-
-  const handleBlockTypeSelect = (type: BlockType) => {
-    onSetBlockType(type);
-    setBlockPickerOpen(false);
-  };
-
-  // Slide in from below on show, slide out on hide.
-  // iOS (KeyboardResize.Native): keyboardHeight is always 0 — bottom stays fixed,
-  // and translateY slides the bar up from just below the viewport edge.
-  // Android: bottom jumps to keyboardHeight in one message, both properties
-  // transition together so the bar rises with the keyboard.
-  const easing = "cubic-bezier(0.4, 0, 0.2, 1)";
-  const duration = isVisible ? "320ms" : "240ms";
-  const style = {
-    bottom: keyboardHeight,
-    transform: isVisible ? "translateY(0)" : "translateY(100%)",
-    transition: `transform ${duration} ${easing}, bottom ${duration} ${easing}`,
-    willChange: "transform",
-  };
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const openMenu = model.items.find(
+    (item) => item.kind === "menu" && item.id === openMenuId,
+  );
 
   return (
     <div
       data-editor-overlay
-      style={style}
-      className="fixed left-0 right-0 z-50 flex flex-col"
+      className="fixed bottom-0 left-0 right-0 z-50 flex flex-col"
+      style={{ bottom: `${model.bottomInset}px` }}
       onTouchStart={(e) => e.stopPropagation()}
     >
-      {/* Block type picker row — shown above toolbar when active */}
-      {blockPickerOpen && (
+      {openMenu?.kind === "menu" && (
         <div className="flex flex-row overflow-x-auto border-t border-border bg-background px-2 py-1.5 gap-1 no-scrollbar">
-          {BLOCK_TYPES.map((block) => (
+          {openMenu.options.map((option) => (
             <button
-              key={block.type}
-              onClick={() => handleBlockTypeSelect(block.type)}
+              key={option.id}
+              onPointerDown={(e) => {
+                // Handle touch before the button can take focus and dismiss the
+                // soft keyboard. Ignore non-primary mouse buttons.
+                if (!e.isPrimary || e.button !== 0) return;
+                e.preventDefault();
+                onAction(option.action);
+                setOpenMenuId(null);
+              }}
+              onClick={(e) => {
+                // Preserve activation from a physical keyboard. Pointer
+                // activation has already run in onPointerDown.
+                if (e.detail === 0) {
+                  onAction(option.action);
+                  setOpenMenuId(null);
+                }
+              }}
               className={cn(
                 "flex flex-col items-center justify-center gap-0.5 rounded-md px-3 py-2 min-w-[52px]",
                 "transition-colors",
-                currentBlockType === block.type
+                openMenu.selected === option.id
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground active:bg-muted",
               )}
             >
-              {block.icon}
+              {ICONS[option.icon]}
               <span className="text-[10px] leading-none whitespace-nowrap">
-                {t(block.labelKey)}
+                {option.label}
               </span>
             </button>
           ))}
@@ -169,98 +107,56 @@ export function MobileKeyboardToolbar({
 
       {/* Main toolbar row */}
       <div className="flex flex-row items-center border-t border-border bg-background h-12">
-        {/* Undo / Redo */}
-        <ToolbarButton
-          onPress={onUndo}
-          disabled={!canUndo}
-          aria-label={t("editor.undo", "Undo")}
-        >
-          <Undo2 className="size-5" />
-        </ToolbarButton>
-        <ToolbarButton
-          onPress={onRedo}
-          disabled={!canRedo}
-          aria-label={t("editor.redo", "Redo")}
-        >
-          <Redo2 className="size-5" />
-        </ToolbarButton>
+        {model.items.map((item) => {
+          if (item.kind === "divider") return <Divider key={item.id} />;
+          if (item.kind === "spacer")
+            return <div key={item.id} className="flex-1" />;
+          if (item.kind === "menu") {
+            const open = openMenuId === item.id;
+            return (
+              <button
+                key={item.id}
+                onPointerDown={(e) => {
+                  if (!e.isPrimary || e.button !== 0) return;
+                  e.preventDefault();
+                  setOpenMenuId(open ? null : item.id);
+                }}
+                onClick={(e) => {
+                  if (e.detail === 0) {
+                    setOpenMenuId(open ? null : item.id);
+                  }
+                }}
+                className={cn(
+                  "flex flex-row items-center gap-1 px-3 h-full transition-colors",
+                  open
+                    ? "text-primary"
+                    : "text-muted-foreground active:bg-muted",
+                )}
+                aria-label={item.label}
+              >
+                {ICONS[item.icon]}
+                <ChevronDown
+                  className={cn(
+                    "size-3.5 transition-transform",
+                    open && "rotate-180",
+                  )}
+                />
+              </button>
+            );
+          }
 
-        <Divider />
-
-        {/* Formatting */}
-        <ToolbarButton
-          onPress={onToggleBold}
-          active={isBold}
-          aria-label={t("editor.bold", "Bold")}
-        >
-          <Bold className="size-5" />
-        </ToolbarButton>
-        <ToolbarButton
-          onPress={onToggleItalic}
-          active={isItalic}
-          aria-label={t("editor.italic", "Italic")}
-        >
-          <Italic className="size-5" />
-        </ToolbarButton>
-        <ToolbarButton
-          onPress={onToggleCode}
-          active={isCode}
-          aria-label={t("editor.code", "Code")}
-        >
-          <Code className="size-5" />
-        </ToolbarButton>
-        <ToolbarButton
-          onPress={onToggleStrikethrough}
-          active={isStrikethrough}
-          aria-label={t("editor.strikethrough", "Strikethrough")}
-        >
-          <Strikethrough className="size-5" />
-        </ToolbarButton>
-
-        <Divider />
-
-        {/* Block type picker toggle */}
-        <button
-          onPointerDown={(e) => {
-            e.preventDefault();
-            setBlockPickerOpen((open) => !open);
-          }}
-          className={cn(
-            "flex flex-row items-center gap-1 px-3 h-full",
-            "transition-colors",
-            blockPickerOpen
-              ? "text-primary"
-              : "text-muted-foreground active:bg-muted",
-          )}
-          aria-label={t("editor.blockType", "Block type")}
-        >
-          {currentBlock?.icon}
-          <ChevronDown
-            className={cn(
-              "size-3.5 transition-transform",
-              blockPickerOpen && "rotate-180",
-            )}
-          />
-        </button>
-
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        <Divider />
-
-        {/* Dismiss keyboard — no preventDefault so the input blurs and the keyboard closes */}
-        <button
-          onPointerDown={() => {
-            onDismissKeyboard();
-            if (document.activeElement instanceof HTMLElement) {
-              document.activeElement.blur();
-            }
-          }}
-          className="flex items-center justify-center w-11 h-full transition-colors text-muted-foreground active:bg-muted"
-          aria-label={t("editor.dismissKeyboard", "Dismiss keyboard")}
-        >
-          <X className="size-5" />
-        </button>
+          return (
+            <ToolbarButton
+              key={item.id}
+              onPress={() => onAction(item.action)}
+              disabled={!item.enabled}
+              active={item.active}
+              aria-label={item.label}
+            >
+              {ICONS[item.icon]}
+            </ToolbarButton>
+          );
+        })}
       </div>
     </div>
   );
@@ -288,9 +184,15 @@ function ToolbarButton({
   return (
     <button
       onPointerDown={(e) => {
-        // Prevent the hidden input from losing focus (which would hide the keyboard)
+        if (!e.isPrimary || e.button !== 0) return;
+        // Keep toolbar controls from becoming the active element. Formatting
+        // actions preserve the editor focus, while dismiss explicitly blurs the
+        // hidden input without causing the viewport to jump to this button.
         e.preventDefault();
         if (!disabled) onPress();
+      }}
+      onClick={(e) => {
+        if (e.detail === 0 && !disabled) onPress();
       }}
       disabled={disabled}
       className={cn(
@@ -307,7 +209,5 @@ function ToolbarButton({
 }
 
 function Divider() {
-  return (
-    <div className="w-px h-6 bg-border mx-0.5 shrink-0" />
-  );
+  return <div className="w-px h-6 bg-border mx-0.5 shrink-0" />;
 }

@@ -616,11 +616,15 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    */
   destroy: () => void;
   /**
-   * Set logical focus, keeping DOM focus on the input surface in lockstep so it
-   * keeps receiving keystrokes/IME. Pass `shouldClearSelection` to drop the
-   * selection. Fires `on("focus")`/`on("blur")` on an actual transition.
+   * Focus the editor and its hidden input surface so it can receive keyboard
+   * and IME input. Does not create, clear, or reposition the model selection.
    */
-  setFocus: (focused: boolean, shouldClearSelection?: boolean) => void;
+  focus: () => void;
+  /**
+   * Blur the editor and its hidden input surface, clearing the model selection
+   * and dismissing the soft keyboard.
+   */
+  blur: () => void;
   /**
    * Subscribe to state changes: the listener receives a fresh
    * {@link EditorStateSnapshot} after each render-loop diff and on direct
@@ -994,14 +998,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     // Add click/mousedown handler to canvas as fallback for focusing input
     this.canvasClickHandler = () => {
-      // Don't focus input in readonly mode (prevents keyboard from opening)
-      if (this.hiddenInput && !this._state.ui.isReadonlyBase) {
-        try {
-          this.hiddenInput.focus({ preventScroll: true });
-        } catch {
-          // Ignore
-        }
-      }
+      this.focus();
     };
     if (!isTouchDevice()) {
       this.contentCanvas.addEventListener("mousedown", this.canvasClickHandler);
@@ -1040,9 +1037,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // Invalidate rect cache when canvas position might change
     window.addEventListener("resize", this.invalidateRectCache);
     window.addEventListener("scroll", this.invalidateRectCache, true);
+    window.addEventListener("focus", this.browserFocusHandler);
+    window.addEventListener("blur", this.browserBlurHandler);
 
     // Set up input-surface handlers (keyboard, mobile, IME, clipboard).
     if (this.hiddenInput) {
+      this.hiddenInput.addEventListener("focus", this.browserFocusHandler);
+      this.hiddenInput.addEventListener("blur", this.browserBlurHandler);
       this.hiddenInput.addEventListener("input", this.hiddenInputHandler);
       this.hiddenInput.addEventListener(
         "keydown",
@@ -1578,6 +1579,38 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
   };
 
+  private applyBrowserFocus = (focused: boolean) => {
+    const focusChanged = this._state.view.isFocused !== focused;
+    const shouldClearSelection =
+      !focused && this._state.document.selection !== null;
+    if (!focusChanged && !shouldClearSelection) return;
+
+    if (focusChanged) {
+      this._state = updateFocus(this._state, focused);
+    }
+    if (shouldClearSelection) {
+      this._state = clearSelection(this._state);
+    }
+
+    this.scheduleRender();
+    const currentState = this._state;
+    this.listeners.forEach((listener) => listener(currentState));
+  };
+
+  private syncBrowserFocus = () => {
+    this.applyBrowserFocus(
+      document.hasFocus() && document.activeElement === this.hiddenInput,
+    );
+  };
+
+  private browserFocusHandler = () => {
+    this.syncBrowserFocus();
+  };
+
+  private browserBlurHandler = () => {
+    this.applyBrowserFocus(false);
+  };
+
   // Handle touchstart - track for tap detection
   private touchStartHandler = (e: TouchEvent) => {
     // Store touch start info for tap detection
@@ -1616,19 +1649,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       !hasContextMenu &&
       !this._state.ui.isReadonlyBase
     ) {
-      try {
-        this.hiddenInput.focus({ preventScroll: true });
-        // Some browsers need click as well
-        if (document.activeElement !== this.hiddenInput) {
-          const prevPointerEvents = this.hiddenInput.style.pointerEvents;
-          this.hiddenInput.style.pointerEvents = "auto";
-          this.hiddenInput.focus({ preventScroll: true });
-          this.hiddenInput.click();
-          this.hiddenInput.style.pointerEvents = prevPointerEvents;
-        }
-      } catch (err) {
-        console.warn("Failed to focus hidden input:", err);
-      }
+      this.focus();
     }
   };
 
@@ -2283,9 +2304,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.contentCanvas.removeEventListener("touchcancel", this.eventsHandler);
     window.removeEventListener("resize", this.invalidateRectCache);
     window.removeEventListener("scroll", this.invalidateRectCache, true);
+    window.removeEventListener("focus", this.browserFocusHandler);
+    window.removeEventListener("blur", this.browserBlurHandler);
 
     // Clean up input-surface handlers
     if (this.hiddenInput) {
+      this.hiddenInput.removeEventListener("focus", this.browserFocusHandler);
+      this.hiddenInput.removeEventListener("blur", this.browserBlurHandler);
       this.hiddenInput.removeEventListener("input", this.hiddenInputHandler);
       this.hiddenInput.removeEventListener(
         "keydown",
@@ -2405,41 +2430,30 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       );
     this.blockHeights[mode](this._state.view.visibleBlocks, estimate);
   };
-
-  setFocus = (
-    focused: boolean,
-    shouldClearSelection: boolean = false,
-  ): void => {
-    const wasFocused = this._state.view.isFocused;
-    this._state = updateFocus(this._state, focused);
-    if (shouldClearSelection) {
-      this._state = clearSelection(this._state);
+  blur = () => {
+    try {
+      this.hiddenInput?.blur();
+    } catch {
+      // Ignore — blur can throw if the element is detached mid-teardown.
     }
-    // Keep DOM focus on the input surface in lockstep with logical focus. Since
-    // keyboard input is no longer captured on `window`, the surface must own DOM
-    // focus to receive keystrokes/IME. (The 'focus' event re-enters setFocus,
-    // but the transition guard below makes that idempotent.)
-    if (
-      focused &&
-      this.hiddenInput &&
-      !this._state.ui.isReadonlyBase &&
-      document.activeElement !== this.hiddenInput
-    ) {
+    this.syncBrowserFocus();
+  };
+  focus = () => {
+    if (this.hiddenInput) {
+      const prevPointerEvents = this.hiddenInput.style.pointerEvents;
       try {
         this.hiddenInput.focus({ preventScroll: true });
+        // Some browsers need click as well
+        this.hiddenInput.style.pointerEvents = "auto";
+        this.hiddenInput.focus({ preventScroll: true });
+        this.hiddenInput.click();
       } catch {
         // Ignore — focus can throw if the element is detached mid-teardown.
+      } finally {
+        this.hiddenInput.style.pointerEvents = prevPointerEvents;
       }
     }
-    this.scheduleRender(); // Schedule render when focus changes
-    // Focus is applied here, outside the render-frame diff, so the render loop
-    // won't notify subscribers about it. Emit directly on an actual transition
-    // — this is what makes editor.on("focus"/"blur") fire (and follows the same
-    // direct-notify pattern as undo/selectAll/setMode).
-    if (this._state.view.isFocused !== wasFocused) {
-      const currentState = this._state;
-      this.listeners.forEach((listener) => listener(currentState));
-    }
+    this.syncBrowserFocus();
   };
 
   // Place a collapsed caret at a DocPoint (default the document start), clearing

@@ -21,7 +21,6 @@ import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
 } from "../selection";
-import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
 import { updateSelectionFocus } from "../selection";
 import type {
@@ -85,8 +84,6 @@ export function handleMouseDown(
   if (wasMenuOpen) {
     state = closeActiveMenu(state);
   }
-
-  state = updateFocus(state, true);
 
   // Clear auto-created paragraph tracking on mouse click
   state = clearAutoCreatedParagraph(state);

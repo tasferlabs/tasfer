@@ -87,8 +87,7 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
                     renderer.render(html: html)
                     return // async
                 } else {
-                    errorMsg = "PDF export requires iOS 14 or later"
-                }
+                 }
             } else {
                 errorMsg = "Invalid html"
             }

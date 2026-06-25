@@ -9,6 +9,7 @@
  */
 
 import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver, CryptoDriver } from "../driver";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { createWebRtcNetworkDriver } from "./webrtc";
 
 // These modules are only available when running as a Capacitor app.
@@ -278,45 +279,78 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
+// RFC 8410 PKCS#8 prefix for a raw 32-byte Ed25519 private key. Keeping the
+// fallback key in PKCS#8 form makes identities portable to WebCrypto-capable
+// WebViews after an OS update.
+const ED25519_PKCS8_PREFIX = "302e020100300506032b657004220420";
+
+function ed25519SeedFromPrivateKey(privateKey: string): Uint8Array {
+  if (privateKey.length === 64) return hexToBytes(privateKey);
+  if (
+    privateKey.length === ED25519_PKCS8_PREFIX.length + 64 &&
+    privateKey.startsWith(ED25519_PKCS8_PREFIX)
+  ) {
+    return hexToBytes(privateKey.slice(ED25519_PKCS8_PREFIX.length));
+  }
+  throw new Error("Unsupported Ed25519 private key format");
+}
+
 class WebCryptoDriver implements CryptoDriver {
   async generateKeypair(): Promise<{ publicKey: string; privateKey: string }> {
-    const keyPair = await crypto.subtle.generateKey(
-      { name: "Ed25519" } as any,
-      true,
-      ["sign", "verify"],
-    );
-    const publicKeyRaw = await crypto.subtle.exportKey("raw", keyPair.publicKey);
-    const privateKeyRaw = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
-    return {
-      publicKey: bytesToHex(new Uint8Array(publicKeyRaw)),
-      privateKey: bytesToHex(new Uint8Array(privateKeyRaw)),
-    };
+    try {
+      const keyPair = await crypto.subtle.generateKey(
+        { name: "Ed25519" } as any,
+        true,
+        ["sign", "verify"],
+      );
+      const publicKeyRaw = await crypto.subtle.exportKey("raw", keyPair.publicKey);
+      const privateKeyRaw = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+      return {
+        publicKey: bytesToHex(new Uint8Array(publicKeyRaw)),
+        privateKey: bytesToHex(new Uint8Array(privateKeyRaw)),
+      };
+    } catch {
+      // Ed25519 is still missing in some Android System WebView versions.
+      const seed = ed25519.utils.randomPrivateKey();
+      return {
+        publicKey: bytesToHex(ed25519.getPublicKey(seed)),
+        privateKey: ED25519_PKCS8_PREFIX + bytesToHex(seed),
+      };
+    }
   }
 
   async sign(privateKey: string, message: Uint8Array): Promise<string> {
-    const keyData = hexToBytes(privateKey);
-    const key = await crypto.subtle.importKey(
-      "pkcs8",
-      keyData.buffer as ArrayBuffer,
-      { name: "Ed25519" } as any,
-      false,
-      ["sign"],
-    );
-    const signature = await crypto.subtle.sign("Ed25519" as any, key, message.buffer as ArrayBuffer);
-    return bytesToHex(new Uint8Array(signature));
+    try {
+      const keyData = hexToBytes(privateKey);
+      const key = await crypto.subtle.importKey(
+        "pkcs8",
+        keyData.buffer as ArrayBuffer,
+        { name: "Ed25519" } as any,
+        false,
+        ["sign"],
+      );
+      const signature = await crypto.subtle.sign("Ed25519" as any, key, message.buffer as ArrayBuffer);
+      return bytesToHex(new Uint8Array(signature));
+    } catch {
+      return bytesToHex(ed25519.sign(message, ed25519SeedFromPrivateKey(privateKey)));
+    }
   }
 
   async verify(publicKey: string, signature: string, message: Uint8Array): Promise<boolean> {
-    const keyData = hexToBytes(publicKey);
-    const key = await crypto.subtle.importKey(
-      "raw",
-      keyData.buffer as ArrayBuffer,
-      { name: "Ed25519" } as any,
-      false,
-      ["verify"],
-    );
-    const sig = hexToBytes(signature);
-    return crypto.subtle.verify("Ed25519" as any, key, sig.buffer as ArrayBuffer, message.buffer as ArrayBuffer);
+    try {
+      const keyData = hexToBytes(publicKey);
+      const key = await crypto.subtle.importKey(
+        "raw",
+        keyData.buffer as ArrayBuffer,
+        { name: "Ed25519" } as any,
+        false,
+        ["verify"],
+      );
+      const sig = hexToBytes(signature);
+      return crypto.subtle.verify("Ed25519" as any, key, sig.buffer as ArrayBuffer, message.buffer as ArrayBuffer);
+    } catch {
+      return ed25519.verify(hexToBytes(signature), message, hexToBytes(publicKey));
+    }
   }
 }
 

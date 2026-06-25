@@ -125,6 +125,21 @@ export function openImageUploadMenu(
  */
 class CypherLinkMark extends LinkMark {
   override overlays(c: MarkOverlayCtx): readonly NodeOverlay[] {
+    const menu = c.state.ui.activeMenu;
+    // The edit popover must take precedence over the hover tooltip. Opening the
+    // popover does not synchronously clear linkHover, so checking hover first
+    // leaves the tooltip mounted until the pointer moves again.
+    if (menu.type === "overlay" && menu.key === "link-edit") {
+      return [
+        {
+          key: "link-edit",
+          blockId: menu.blockId,
+          rect: { x: menu.x, y: menu.y },
+          data: menu.data,
+        },
+      ];
+    }
+
     const { linkHover } = c.state.ui;
     if (linkHover) {
       const blockId =
@@ -140,17 +155,6 @@ class CypherLinkMark extends LinkMark {
             startIndex: linkHover.startIndex,
             endIndex: linkHover.endIndex,
           },
-        },
-      ];
-    }
-    const menu = c.state.ui.activeMenu;
-    if (menu.type === "overlay" && menu.key === "link-edit") {
-      return [
-        {
-          key: "link-edit",
-          blockId: menu.blockId,
-          rect: { x: menu.x, y: menu.y },
-          data: menu.data,
         },
       ];
     }

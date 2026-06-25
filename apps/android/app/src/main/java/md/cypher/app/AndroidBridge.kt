@@ -11,6 +11,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Base64
+import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import org.json.JSONArray
@@ -66,6 +67,21 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     @JavascriptInterface
     fun setColorScheme(colorScheme: String) {
         (context as? MainActivity)?.onWebColorSchemeChanged(colorScheme)
+    }
+
+    @JavascriptInterface
+    fun dismissKeyboard() {
+        (context as? MainActivity)?.runOnUiThread {
+            val inputMethodManager =
+                context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            // The caller already blurred the contenteditable in JS, so the IME just
+            // needs to be torn down. Do NOT clearFocus() the WebView here: with
+            // adjustResize + edge-to-edge the WebView is the only focusable view, so
+            // clearing its focus makes the framework immediately re-grant focus to
+            // it, and Chromium re-shows the soft keyboard for its last-focused
+            // editable — the keyboard closes briefly and then pops back up.
+            inputMethodManager.hideSoftInputFromWindow(webView.windowToken, 0)
+        }
     }
 
     @JavascriptInterface

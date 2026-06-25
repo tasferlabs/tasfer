@@ -4,7 +4,6 @@ import type { PeerVersionInfo } from "@/platform/types";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
 
 /**
  * Notifies the user about a version mismatch with a connected device. Two
@@ -30,7 +29,6 @@ interface Notice {
 
 export default function PeerVersionPopup() {
   const { t } = useTranslation();
-  const { isKeyboardOpen } = useKeyboardOpen();
   const [notice, setNotice] = useState<Notice | null>(null);
   // Protocol versions whose "info" notice the user already dismissed — so we
   // don't re-nag on every reconnect to a peer on that same newer version.
@@ -49,7 +47,8 @@ export default function PeerVersionPopup() {
         // only once per newer version. (A newer-peer-but-older case isn't ours
         // to act on.)
         if (next.remoteProtocolVersion <= next.localProtocolVersion) return;
-        if (dismissedInfoVersions.current.has(next.remoteProtocolVersion)) return;
+        if (dismissedInfoVersions.current.has(next.remoteProtocolVersion))
+          return;
         // Never let an info notice clobber an active blocking one.
         setNotice((cur) =>
           cur?.severity === "blocking" ? cur : { info: next, severity: "info" },
@@ -68,7 +67,7 @@ export default function PeerVersionPopup() {
     setNotice(null);
   };
 
-  const showPopup = notice !== null && !isKeyboardOpen;
+  const showPopup = notice !== null;
   const isInfo = notice?.severity === "info";
   // For the blocking case, our app is behind when the peer's wire is newer.
   const localOutdated = notice

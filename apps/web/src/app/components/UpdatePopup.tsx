@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useVersion } from "../contexts/VersionContext";
-import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
 
 export default function UpdatePopup() {
   const { t } = useTranslation();
@@ -15,7 +14,6 @@ export default function UpdatePopup() {
     performUpdate,
   } = useVersion();
   const [isUpdating, setIsUpdating] = useState(false);
-  const { isKeyboardOpen } = useKeyboardOpen();
 
   const handleUpdate = async () => {
     setIsUpdating(true);
@@ -26,8 +24,7 @@ export default function UpdatePopup() {
   // - No update available
   // - User dismissed this update
   // - Minimum version not met (ForceUpdatePage handles this)
-  // - Keyboard is open (avoid covering content while typing)
-  const showPopup = updateAvailable && !updateDismissed && meetsMinimum && !isKeyboardOpen;
+  const showPopup = updateAvailable && !updateDismissed && meetsMinimum;
 
   const popupVariants = {
     hidden: { y: 80, opacity: 0 },

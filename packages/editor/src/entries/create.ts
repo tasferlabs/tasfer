@@ -111,17 +111,14 @@ export interface CypherEditor<
   /** Container to mount React popovers/overlays into (slash menu, link editor). */
   readonly portalContainer: HTMLDivElement;
   /**
-   * Focus the editor: restore DOM focus to the input surface, then drop a caret.
-   * An alias for {@link EditorApi.setCaret} — it takes the same
-   * {@link DocPoint} (default `"start"`) and `{ onlyIfUnset }` options and
-   * delegates to it, additionally re-focusing the hidden input so the editor
-   * receives keystrokes.
+   * Focus the editor and its hidden input surface so it can receive keyboard
+   * and IME input. Does not create, clear, or reposition the model selection.
    */
-  focus: (
-    point?: Exclude<DocPoint, "caret">,
-    opts?: { onlyIfUnset?: boolean },
-  ) => void;
-  /** Blur the editor / dismiss the soft keyboard. */
+  focus: () => void;
+  /**
+   * Blur the editor and its hidden input surface, clearing the model selection
+   * and dismissing the soft keyboard.
+   */
   blur: () => void;
   /** Full teardown: canvas layers, global listeners, portal, render loop. */
   destroy: () => void;
@@ -236,8 +233,6 @@ export function createEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     },
     doc,
     portalContainer: mounted.portalContainer,
-    focus,
-    blur: mounted.blurInput,
     // Override the core `editor.destroy` with the full mount teardown.
     // (mounted.destroy calls the original editor.destroy internally — the
     // spread copies a reference, it isn't reassigned, so there's no recursion.)

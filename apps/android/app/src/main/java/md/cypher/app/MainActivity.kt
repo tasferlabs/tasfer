@@ -272,7 +272,8 @@ class MainActivity : BridgeActivity() {
                         trigger: function(s) { nb.haptic(s); return Promise.resolve(); }
                     },
                     editor: {
-                        setColorScheme: function(s) { nb.setColorScheme(s); return Promise.resolve(); }
+                        setColorScheme: function(s) { nb.setColorScheme(s); return Promise.resolve(); },
+                        dismissKeyboard: function() { nb.dismissKeyboard(); return Promise.resolve(); }
                     },
                     navigation: {
                         openUrl: function(u) { nb.openUrl(u); return Promise.resolve(); },
@@ -351,7 +352,7 @@ class MainActivity : BridgeActivity() {
             val density = resources.displayMetrics.density
 
             // Update physical keyboard heuristic from IME height
-            val isKeyboardVisible = ime.bottom > bottomInset
+            val isKeyboardVisible = windowInsets.isVisible(WindowInsetsCompat.Type.ime())
             if (isKeyboardVisible) {
                 val keyboardHeightDp = (ime.bottom - bottomInset) / density
                 val isSoftKeyboard = keyboardHeightDp > 100
@@ -380,7 +381,7 @@ class MainActivity : BridgeActivity() {
 
             loadingScreen.setPadding(0, topInset, 0, bottomInset)
 
-            WindowInsetsCompat.CONSUMED
+            windowInsets
         }
     }
 
