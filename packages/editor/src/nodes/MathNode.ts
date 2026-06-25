@@ -25,7 +25,11 @@ import {
   type StateResult,
   TEXT_INPUTTED,
 } from "../action-bus";
-import { SELECT_ALL, SPLIT_BLOCK } from "../actions/edit-actions";
+import {
+  DELETE_BACKWARD,
+  SELECT_ALL,
+  SPLIT_BLOCK,
+} from "../actions/edit-actions";
 import { SELECT_WORD_AT_POINT } from "../actions/mouse-actions";
 import { POINTER_MOVE } from "../actions/pointer-actions";
 import { getInlineMathAtPosition } from "../inline-math";
@@ -71,7 +75,7 @@ import {
   getVisibleTextFromChars,
   getVisibleTextFromRuns,
 } from "../sync/char-runs";
-import { insertCharsAtPosition } from "../sync/crdt-utils";
+import { insertCharsAtPosition, markCharsInRange } from "../sync/crdt-utils";
 import {
   mathArmScratch,
   mathCaretMove,
@@ -494,6 +498,76 @@ export class MathNode extends TextNode {
    * opening a popover — the same canvas-native editing inline chips already have.
    */
   registerActions(bus: ActionBus): void {
+    // Backspace at the start of a display equation demotes the same node to a
+    // paragraph and preserves its LaTeX as inline math. Claim DELETE_BACKWARD
+    // directly rather than the cross-block join action so this also works when
+    // the equation is the first visible block.
+    bus.registerState(
+      DELETE_BACKWARD,
+      (state) => {
+        const cursor = state.document.cursor;
+        if (!cursor || cursor.position.textIndex !== 0) return;
+        if (state.ui.composition) return;
+        if (state.document.selection && !state.document.selection.isCollapsed) {
+          return;
+        }
+
+        const blockIndex = cursor.position.blockIndex;
+        const block = state.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "math") return;
+
+        const paragraph: Block = {
+          id: block.id,
+          afterId: block.afterId ?? null,
+          type: "paragraph",
+          charRuns: block.charRuns,
+          formats: [],
+        };
+        invalidateBlockCache(paragraph);
+
+        const blocks = [...state.document.page.blocks];
+        blocks[blockIndex] = paragraph;
+        let page = { ...state.document.page, blocks };
+        const ops: Operation[] = [
+          {
+            op: "block_set",
+            id: state.CRDTbinding.nextId(),
+            clock: state.CRDTbinding.getClock(),
+            pageId: state.CRDTbinding.pageId,
+            blockId: block.id,
+            field: "type",
+            value: "paragraph",
+          },
+        ];
+
+        const latexLength = getVisibleTextFromRuns(block.charRuns).length;
+        if (latexLength > 0) {
+          const marked = markCharsInRange(
+            page,
+            block.id,
+            0,
+            latexLength,
+            { type: "math" },
+            true,
+            state.CRDTbinding,
+          );
+          page = marked.newPage;
+          ops.push(marked.op);
+          invalidateBlockCache(page.blocks[blockIndex]);
+        }
+
+        return {
+          state: {
+            ...state,
+            document: { ...state.document, page },
+          },
+          ops,
+          handled: true,
+        };
+      },
+      50,
+    );
+
     // Scope the first Ctrl/Cmd+A to the active equation. Once that exact range
     // is already selected, leave the action unclaimed so its normal default
     // expands to the whole document on the second press.

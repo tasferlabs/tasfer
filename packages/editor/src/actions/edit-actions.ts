@@ -19,20 +19,25 @@
  * one implementation without changing behavior.
  */
 
-import { action, stateAction } from "../action-bus";
+import { action, stateAction, type StateResult } from "../action-bus";
 import type { ChangeApi, DocRange } from "../entries/editor";
+import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
 import { clearSelection, moveCursorToPosition } from "../selection";
-import type { Block } from "../serlization/loadPage";
+import type { Block, Mark } from "../serlization/loadPage";
 import type { EditorState, Operation } from "../state-types";
 import { clearAutoCreatedParagraph, getBlockTextContent } from "../state-utils";
+import { findBlock } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
+import { markCharsInRange } from "../sync/crdt-utils";
+import { findPreviousVisibleBlockIndex } from "../sync/reducer";
 import {
   deleteForward,
   deleteText,
   deleteWordBackward,
   deleteWordForward,
   insertText,
+  mergeBlocksOps,
   selectAll,
   splitBlock,
 } from "./actions";
@@ -76,9 +81,145 @@ export const INSERT_TEXT = stateAction<{ text: string }>(
 // as the inline handler did, so the tracking can't outlive the block it points
 // at.
 
+/**
+ * Stable context for a backward deletion at a block boundary. IDs let handlers
+ * re-resolve against the threaded state; indexes are included for convenient
+ * cursor and view decisions.
+ */
+export interface BlockBoundaryContext {
+  readonly currentBlockId: string;
+  readonly currentBlockIndex: number;
+  readonly previousBlockId: string;
+  readonly previousBlockIndex: number;
+}
+
+function backwardBoundaryContext(
+  state: EditorState,
+): BlockBoundaryContext | null {
+  const cursor = state.document.cursor;
+  if (
+    !cursor ||
+    cursor.position.textIndex !== 0 ||
+    state.ui.composition ||
+    (state.document.selection && !state.document.selection.isCollapsed)
+  ) {
+    return null;
+  }
+
+  const currentBlockIndex = cursor.position.blockIndex;
+  const currentBlock = state.document.page.blocks[currentBlockIndex];
+  if (!currentBlock || currentBlock.deleted) return null;
+  const previousBlockIndex = findPreviousVisibleBlockIndex(
+    state.document.page.blocks,
+    currentBlockIndex,
+  );
+  if (previousBlockIndex === null) return null;
+  const previousBlock = state.document.page.blocks[previousBlockIndex];
+  if (!previousBlock || previousBlock.deleted) return null;
+
+  return {
+    currentBlockId: currentBlock.id,
+    currentBlockIndex,
+    previousBlockId: previousBlock.id,
+    previousBlockIndex,
+  };
+}
+
+function sameBoundary(
+  left: BlockBoundaryContext | null,
+  right: BlockBoundaryContext,
+): boolean {
+  return (
+    left !== null &&
+    left.currentBlockId === right.currentBlockId &&
+    left.currentBlockIndex === right.currentBlockIndex &&
+    left.previousBlockId === right.previousBlockId &&
+    left.previousBlockIndex === right.previousBlockIndex
+  );
+}
+
+/**
+ * Semantic boundary action emitted by Backspace at offset zero when a previous
+ * visible block exists. Nodes and consumers may claim this to define their own
+ * cross-block behavior; the default preserves the editor's generic merge,
+ * outdent, conversion, and atomic-block handling.
+ */
+export const JOIN_WITH_PREVIOUS_BLOCK = stateAction<BlockBoundaryContext>(
+  "join-with-previous-block",
+  (state, boundary) => {
+    // The action is public and may be dispatched directly. Reject stale or
+    // fabricated contexts instead of letting its fallback delete unrelated
+    // content after the document or caret has moved.
+    if (!sameBoundary(backwardBoundaryContext(state), boundary)) {
+      return { state, ops: [] };
+    }
+    const result = deleteText(state);
+    return { state: result.state, ops: result.ops };
+  },
+);
+
+/**
+ * Default reusable implementation for a node that joins into the previous
+ * block. Passing a mark converts all transferred content to that inline form.
+ */
+export function joinWithPreviousBlock(
+  state: EditorState,
+  boundary: BlockBoundaryContext,
+  mark?: Mark,
+): StateResult | null {
+  if (!sameBoundary(backwardBoundaryContext(state), boundary)) return null;
+  const source = findBlock(state.document.page, boundary.currentBlockId);
+  const target = findBlock(state.document.page, boundary.previousBlockId);
+  if (!source || source.deleted || !target || target.deleted) return null;
+  if (!isTextualBlock(source) || !isTextualBlock(target)) return null;
+
+  const joined = mergeBlocksOps(
+    state.document.page,
+    source,
+    target,
+    state.CRDTbinding,
+    false,
+  );
+  let newPage = joined.newPage;
+  const ops = [...joined.ops];
+  if (mark && joined.insertedRange) {
+    const { blockId, from, to } = joined.insertedRange;
+    const marked = markCharsInRange(
+      newPage,
+      blockId,
+      from,
+      to,
+      mark,
+      true,
+      state.CRDTbinding,
+    );
+    newPage = marked.newPage;
+    ops.push(marked.op);
+  }
+
+  const survivingBlockIndex = newPage.blocks.findIndex(
+    (block) => block.id === target.id && !block.deleted,
+  );
+  if (survivingBlockIndex === -1) return null;
+  const survivingBlock = newPage.blocks[survivingBlockIndex];
+  invalidateBlockCache(survivingBlock);
+  const next = moveCursorToPosition(
+    {
+      ...state,
+      document: { ...state.document, page: newPage },
+    },
+    survivingBlockIndex,
+    joined.joinPoint,
+  );
+  return { state: next, ops };
+}
+
 /** Delete backward one position / the selection (Backspace). */
 export const DELETE_BACKWARD = stateAction("delete-backward", (state) => {
-  const result = deleteText(state);
+  const boundary = backwardBoundaryContext(state);
+  const result = boundary
+    ? state.actionBus.dispatchState(JOIN_WITH_PREVIOUS_BLOCK, state, boundary)
+    : deleteText(state);
   return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
 });
 

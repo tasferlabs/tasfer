@@ -224,12 +224,16 @@ const CODE_CAPS: BlockCapabilities = {
 // inline marks (`hasFormats: false`): the whole content is one equation rendered
 // through the tex bridge, not bold/italic-able text. `preformatted` keeps the
 // LaTeX verbatim (no markdown auto-format) the way code keeps source verbatim.
+// Unlike code, math participates in the text morph group: converting between a
+// display equation and rich text must preserve its CRDT char runs. Callers clear
+// or add marks explicitly as part of the same operation batch.
 const MATH_CAPS: BlockCapabilities = {
   hasText: true,
   hasFormats: false,
   indentable: false,
   togglable: false,
   preformatted: true,
+  morphGroup: "text",
 };
 
 // Each descriptor uses `satisfies BlockTypeDescriptor` so it is checked against

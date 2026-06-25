@@ -2443,10 +2443,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const prevPointerEvents = this.hiddenInput.style.pointerEvents;
       try {
         this.hiddenInput.focus({ preventScroll: true });
-        // Some browsers need click as well
-        this.hiddenInput.style.pointerEvents = "auto";
-        this.hiddenInput.focus({ preventScroll: true });
-        this.hiddenInput.click();
+        if (
+          document.hasFocus() &&
+          document.activeElement === this.hiddenInput
+        ) {
+          // Some browsers need click as well
+          this.hiddenInput.style.pointerEvents = "auto";
+          this.hiddenInput.focus({ preventScroll: true });
+          this.hiddenInput.click();
+        }
       } catch {
         // Ignore — focus can throw if the element is detached mid-teardown.
       } finally {

@@ -492,94 +492,86 @@ function applyMarkdownPrefix(
  * this returns. The surviving block keeps target's id and original array
  * position; source is tombstoned at its original position.
  */
-function mergeBlocksOps(
+export function mergeBlocksOps(
   page: Page,
   source: Block,
   target: Block,
   binding: CRDTbinding,
-): { newPage: Page; ops: Operation[] } {
+  applyMarkdown: boolean = true,
+): {
+  newPage: Page;
+  ops: Operation[];
+  joinPoint: number;
+  insertedRange: { blockId: string; from: number; to: number } | null;
+} {
   const ops: Operation[] = [];
   let pageAcc = page;
+  const joinPoint = isTextualBlock(target)
+    ? getVisibleLength(target.charRuns)
+    : 0;
+  let insertedRange: { blockId: string; from: number; to: number } | null =
+    null;
 
   // Non-textual source can't contribute content; just tombstone it.
-  if (!isTextualBlock(source) || !isTextualBlock(target)) {
-    const delOp: Operation = {
-      op: "block_delete",
-      id: binding.nextId(),
-      clock: binding.getClock(),
-      pageId: binding.pageId,
-      blockId: source.id,
-    };
-    ops.push(delOp);
-    pageAcc = applyOps(pageAcc, [delOp]);
-    return { newPage: pageAcc, ops };
-  }
+  if (isTextualBlock(source) && isTextualBlock(target)) {
+    const sourceText = getVisibleTextFromRuns(source.charRuns);
 
-  const sourceText = getVisibleTextFromRuns(source.charRuns);
+    if (sourceText.length > 0) {
+      const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
+        pageAcc,
+        target.id,
+        joinPoint,
+        sourceText,
+        binding,
+      );
+      pageAcc = pageAfterInsert;
+      ops.push(insertOp);
+      insertedRange = {
+        blockId: target.id,
+        from: joinPoint,
+        to: joinPoint + sourceText.length,
+      };
 
-  if (sourceText.length > 0) {
-    const targetLen = getVisibleLength(target.charRuns);
-    const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
-      pageAcc,
-      target.id,
-      targetLen,
-      sourceText,
-      binding,
-    );
-    pageAcc = pageAfterInsert;
-    ops.push(insertOp);
-
-    // Re-target source's format spans onto the freshly-inserted chars in
-    // target. We map source char ids → new target char ids by visible
-    // position (insertCharsAtPosition appended the new chars at the end of
-    // target, so they're the trailing sourceText.length visible chars).
-    if (source.formats.length > 0) {
-      const sourceIds: string[] = [];
-      for (const { id } of iterateVisibleChars(source.charRuns)) {
-        sourceIds.push(id);
-      }
+      // Re-target source's format spans onto the freshly-inserted chars.
+      const sourceIds = [...iterateVisibleChars(source.charRuns)].map(
+        ({ id }) => id,
+      );
       const targetAfter = findBlock(pageAcc, target.id);
-      const targetIdsAll: string[] = [];
-      if (targetAfter && isTextualBlock(targetAfter)) {
-        for (const { id } of iterateVisibleChars(targetAfter.charRuns)) {
-          targetIdsAll.push(id);
-        }
-      }
-      const newIds = targetIdsAll.slice(-sourceText.length);
+      const targetIds =
+        targetAfter && isTextualBlock(targetAfter)
+          ? [...iterateVisibleChars(targetAfter.charRuns)].map(({ id }) => id)
+          : [];
+      const insertedIds = targetIds.slice(-sourceText.length);
 
-      if (sourceIds.length === newIds.length) {
-        const sourceToNew = new Map<string, string>();
+      if (sourceIds.length === insertedIds.length) {
+        const sourceToInserted = new Map<string, string>();
         for (let i = 0; i < sourceIds.length; i++) {
-          sourceToNew.set(sourceIds[i], newIds[i]);
+          sourceToInserted.set(sourceIds[i], insertedIds[i]);
         }
 
         const formatOps: MarkSet[] = [];
         for (const span of source.formats) {
-          const coveredNewIds: string[] = [];
-          for (const oldId of sourceIds) {
-            if (
+          const coveredIds = sourceIds
+            .filter((id) =>
               isCharIdInRange(
                 source.charRuns,
-                oldId,
+                id,
                 span.startCharId,
                 span.endCharId,
-              )
-            ) {
-              coveredNewIds.push(sourceToNew.get(oldId)!);
-            }
-          }
-          if (coveredNewIds.length > 0) {
-            formatOps.push({
-              op: "mark_set",
-              id: binding.nextId(),
-              clock: binding.getClock(),
-              pageId: binding.pageId,
-              blockId: target.id,
-              charIds: coveredNewIds,
-              format: span.format,
-              value: true,
-            });
-          }
+              ),
+            )
+            .map((id) => sourceToInserted.get(id)!);
+          if (coveredIds.length === 0) continue;
+          formatOps.push({
+            op: "mark_set",
+            id: binding.nextId(),
+            clock: binding.getClock(),
+            pageId: binding.pageId,
+            blockId: target.id,
+            charIds: coveredIds,
+            format: span.format,
+            value: true,
+          });
         }
         if (formatOps.length > 0) {
           ops.push(...formatOps);
@@ -589,15 +581,15 @@ function mergeBlocksOps(
     }
   }
 
-  const delOp: Operation = {
+  const deleteOp: Operation = {
     op: "block_delete",
     id: binding.nextId(),
     clock: binding.getClock(),
     pageId: binding.pageId,
     blockId: source.id,
   };
-  ops.push(delOp);
-  pageAcc = applyOps(pageAcc, [delOp]);
+  ops.push(deleteOp);
+  pageAcc = applyOps(pageAcc, [deleteOp]);
 
   // Post-merge markdown detection on the surviving paragraph (e.g. backspacing
   // such that target's text now starts with "1. " should convert it to a
@@ -606,6 +598,7 @@ function mergeBlocksOps(
   // pageAcc. The ops it returns are applied via applyOps for parity.
   const targetAfterMerge = findBlock(pageAcc, target.id);
   if (
+    applyMarkdown &&
     targetAfterMerge &&
     !targetAfterMerge.deleted &&
     targetAfterMerge.type === "paragraph" &&
@@ -619,7 +612,7 @@ function mergeBlocksOps(
     }
   }
 
-  return { newPage: pageAcc, ops };
+  return { newPage: pageAcc, ops, joinPoint, insertedRange };
 }
 
 // Helper function to get selection range in proper order (start to end)

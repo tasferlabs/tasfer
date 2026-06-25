@@ -68,28 +68,23 @@ export function MobileKeyboardToolbar({
       onTouchStart={(e) => e.stopPropagation()}
     >
       {openMenu?.kind === "menu" && (
-        <div className="flex flex-row overflow-x-auto border-t border-border bg-background px-2 py-1.5 gap-1 no-scrollbar">
+        <div className="flex w-full min-w-0 flex-row touch-pan-x overflow-x-auto overscroll-x-contain border-t border-border bg-background px-2 py-1.5 gap-1 no-scrollbar">
           {openMenu.options.map((option) => (
             <button
               key={option.id}
-              onPointerDown={(e) => {
-                // Handle touch before the button can take focus and dismiss the
-                // soft keyboard. Ignore non-primary mouse buttons.
-                if (!e.isPrimary || e.button !== 0) return;
+              onMouseDown={(e) => {
+                // Prevent the compatibility mouse event from moving focus away
+                // from the editor without cancelling Android's touch-pan
+                // gesture on the horizontal scroller.
+                e.preventDefault();
+              }}
+              onClick={(e) => {
                 e.preventDefault();
                 onAction(option.action);
                 setOpenMenuId(null);
               }}
-              onClick={(e) => {
-                // Preserve activation from a physical keyboard. Pointer
-                // activation has already run in onPointerDown.
-                if (e.detail === 0) {
-                  onAction(option.action);
-                  setOpenMenuId(null);
-                }
-              }}
               className={cn(
-                "flex flex-col items-center justify-center gap-0.5 rounded-md px-3 py-2 min-w-[52px]",
+                "flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-md px-3 py-2 min-w-[52px]",
                 "transition-colors",
                 openMenu.selected === option.id
                   ? "bg-primary text-primary-foreground"

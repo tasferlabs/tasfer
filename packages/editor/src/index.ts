@@ -231,6 +231,7 @@ export {
 // `TEXT_INPUT` / `TEXT_INPUTTED`) are exported flat above alongside them.
 
 // Content-editing commands.
+export type { BlockBoundaryContext } from "./actions/edit-actions";
 export {
   CLEAR_SELECTION,
   CONVERT_BLOCK,
@@ -239,6 +240,8 @@ export {
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
   INSERT_TEXT,
+  JOIN_WITH_PREVIOUS_BLOCK,
+  joinWithPreviousBlock,
   SELECT_ALL,
   SPLIT_BLOCK,
 } from "./actions/edit-actions";
