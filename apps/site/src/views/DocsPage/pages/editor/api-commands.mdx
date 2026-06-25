@@ -20,6 +20,8 @@ const changed = editor.change((c) =>
 
 A method whose target is missing or invalid is a silent no-op — it queues nothing, so a `change` that ends up empty simply returns `false`.
 
+<Callout kind="note" title="change() is the transaction.">If you're coming from ProseMirror or CodeMirror: `change()` is this editor's transaction. There's no separate `transaction` / `transact` object to build and apply — the callback *is* the transaction boundary. Every edit queued inside one `change()` commits atomically: one undo entry, one broadcast, one `change` event carrying a single [`ChangeTransaction`](/docs/editor/api-editor#events) (`{ isRemote, ops }`) with the whole batch of CRDT ops. Edits in separate `change()` calls are separate transactions.</Callout>
+
 <h2 id="targets">Targets: DocPoint & DocRange</h2>
 
 Every `ChangeApi` method takes an **optional target** that defaults to the live caret/selection — so the common case stays terse (`insertText("x")`, `setMark("strong")`), while a plugin can act at an explicit, CRDT-stable position. The same `DocPoint`/`DocRange` types are what the [read API](/docs/editor/api-editor) returns, so you read a position and hand it straight back to a mutation.
