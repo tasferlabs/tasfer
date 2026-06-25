@@ -381,7 +381,14 @@ class MainActivity : BridgeActivity() {
 
             loadingScreen.setPadding(0, topInset, 0, bottomInset)
 
-            windowInsets
+            // Consume the insets so the framework doesn't propagate the IME inset
+            // to the WebView and pan the document to reveal the focused
+            // contenteditable when the keyboard opens/closes. We read everything we
+            // need above and apply the loading-screen padding manually; no other
+            // view has its own inset listener, so there's nothing downstream to
+            // starve. The web layer compensates for the keyboard via the reported
+            // height. (The app shell is also scroll-locked in CSS as a backstop.)
+            WindowInsetsCompat.CONSUMED
         }
     }
 

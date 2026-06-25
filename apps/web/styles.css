@@ -188,8 +188,26 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* App shell: the document viewport itself must never scroll — every route
+     scrolls inside its own panel (the editor canvas, settings/calendar lists).
+     Pinning html/body/#root stops the Android WebView from panning the whole
+     page to reveal the focused contenteditable when the soft keyboard opens or
+     closes, which otherwise left the editor scrolled past its content ("over
+     the allowed space"). overscroll-behavior also kills rubber-band on iOS. */
+  html {
+    height: 100%;
+    overflow: hidden;
+  }
   body {
     @apply bg-background text-foreground;
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  #root {
+    height: 100%;
+    overflow: hidden;
   }
 }
 
