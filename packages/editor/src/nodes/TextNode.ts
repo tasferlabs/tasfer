@@ -105,6 +105,7 @@ import {
 import type { CodeBlock } from "./CodeNode";
 import type { ListBlock } from "./ListNode";
 import type { MathBlock } from "./MathNode";
+import type { QuoteBlock } from "./QuoteNode";
 
 /**
  * A replacement-mark run resolved against a resolved `Char[]` view: `[start,
@@ -260,7 +261,12 @@ export interface Paragraph extends BlockRuntimeState {
 }
 
 export type TextBlock = Heading | Paragraph;
-export type TextualBlock = TextBlock | ListBlock | CodeBlock | MathBlock;
+export type TextualBlock =
+  | TextBlock
+  | ListBlock
+  | CodeBlock
+  | MathBlock
+  | QuoteBlock;
 
 // ---------------------------------------------------------------------------
 // Composition injection (shared with the renderer's cursor layer)
@@ -1732,7 +1738,7 @@ export class TextNode extends Node<TextualBlock> {
       !hasActiveSelection &&
       state.ui.mode === "edit"
     ) {
-      renderPlaceholder(
+      this.paintPlaceholder(
         ctx,
         adjustedX,
         y + insetY + fontMetrics.ascent,
@@ -1945,6 +1951,20 @@ export class TextNode extends Node<TextualBlock> {
     _state: EditorState,
     _blockIndex: number,
   ): void {}
+
+  /** Draw placeholder ghost text using the editor's shared placeholder style. */
+  protected paintPlaceholder(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    styles: EditorStyles,
+    textStyle: TextStyle,
+    text: string,
+    isRTL: boolean,
+    maxWidth: number,
+  ): void {
+    renderPlaceholder(ctx, x, y, styles, textStyle, text, isRTL, maxWidth);
+  }
 
   /** Placeholder text shown when the block is empty and focused. */
   protected placeholderText(

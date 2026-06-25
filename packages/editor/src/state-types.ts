@@ -158,6 +158,25 @@ export interface BlockSet extends BaseOp {
 }
 
 /**
+ * Move an existing block to a new position in the document.
+ *
+ * Blocks are ordered as an RGA linked list keyed on each block's `afterId`
+ * (its predecessor anchor; null = head). A move repositions `blockId` to sit
+ * immediately after `afterBlockId`. The op carries only the moved block and its
+ * new anchor — the neighbour re-anchoring needed to close the old gap and open
+ * the new one is derived deterministically from current state at apply time
+ * (see `applyBlockMove`), so the op stays minimal and converges under
+ * concurrency.
+ */
+export interface BlockMove extends BaseOp {
+  op: "block_move";
+  /** Block to move */
+  blockId: string;
+  /** New predecessor anchor (null = head of document) */
+  afterBlockId: string | null;
+}
+
+/**
  * Union of all operation types.
  */
 export type Operation =
@@ -166,7 +185,8 @@ export type Operation =
   | MarkSet
   | BlockInsert
   | BlockDelete
-  | BlockSet;
+  | BlockSet
+  | BlockMove;
 
 /**
  * Version vector tracking seen operations per peer.
@@ -387,8 +407,8 @@ export interface ViewState {
  * the block placeholders, `placeholderOverrides` (more specific) wins over
  * `strings`.
  *
- * Strings that belong to a single block type (image upload/status labels, the
- * math placeholder, …) are NOT here — they live on the owning {@link Node} as
+ * Strings that belong to a single block type (image upload/status labels, …)
+ * are NOT here — they live on the owning {@link Node} as
  * its `strings` catalog and are overridden per type via
  * {@link EditorTheme.nodeStrings}. This interface is only the strings with no
  * single owning node.
@@ -403,6 +423,7 @@ export interface EditorStrings {
   readonly placeholderParagraphTouch: string;
   readonly placeholderListItem: string;
   readonly placeholderTodoItem: string;
+  readonly placeholderMath: string;
 }
 
 /**
@@ -759,6 +780,22 @@ export interface BlockStyles {
   readonly numberedList: TextStyle;
   readonly todoList: TextStyle;
   readonly code: CodeBlockStyle;
+  readonly quote: QuoteBlockStyle;
+}
+
+export interface QuoteBlockStyle extends TextStyle {
+  readonly backgroundColor: string;
+  readonly backgroundOpacity: number;
+  readonly accentColor: string;
+  readonly accentWidth: number;
+  readonly accentGap: number;
+  readonly borderRadius: number;
+  readonly paddingX: number;
+  readonly paddingY: number;
+  readonly glyphSize: number;
+  readonly glyphWeight: string;
+  readonly glyphOpacity: number;
+  readonly glyphOffsetY: number;
 }
 
 /**
@@ -892,6 +929,9 @@ export interface PlaceholderStyles {
     readonly text: string;
   };
   readonly todoItem: {
+    readonly text: string;
+  };
+  readonly math: {
     readonly text: string;
   };
   readonly color: string;

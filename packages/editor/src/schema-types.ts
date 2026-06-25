@@ -32,6 +32,7 @@ export interface BaseSchemaDefinition extends SchemaDefinition {
     readonly code: Record<string, unknown>;
     readonly image: Record<string, unknown>;
     readonly math: Record<string, unknown>;
+    readonly quote: Record<string, unknown>;
     readonly line: Record<string, unknown>;
   };
   readonly marks: {

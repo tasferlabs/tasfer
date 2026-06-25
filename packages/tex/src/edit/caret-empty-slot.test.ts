@@ -34,6 +34,28 @@ describe("empty-slot caret stops", () => {
     expect(hitTest(layout, slot.x, (slot.top + slot.bottom) / 2)).toBe(6);
   });
 
+  it("enlarges an empty slot's hit target without changing its visual box", () => {
+    const layout = layoutMath("\\frac{}{b}", { fontSize: FS });
+    const slot = caretStops(layout).find((s) => s.offset === 6)!;
+
+    expect(
+      hitTest(layout, slot.x + 16, (slot.top + slot.bottom) / 2, {
+        placeholderTargetSize: 44,
+      }),
+    ).toBe(6);
+  });
+
+  it("does not let an enlarged empty numerator steal a denominator click", () => {
+    const layout = layoutMath("\\frac{}{b}", { fontSize: FS });
+    const den = caretStops(layout).find((s) => s.offset === 8)!;
+
+    expect(
+      hitTest(layout, den.x, (den.top + den.bottom) / 2, {
+        placeholderTargetSize: 44,
+      }),
+    ).toBe(8);
+  });
+
   it("↑ from the denominator reaches the empty numerator slot", () => {
     const layout = layoutMath("\\frac{}{b}", { fontSize: FS });
     const den = caretStops(layout).find((s) => s.offset === 8)!;

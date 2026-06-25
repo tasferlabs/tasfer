@@ -7,7 +7,7 @@
  * the plain-text representation is node-owned too — no per-type switch.
  */
 
-import { baseDataSchema } from "../baseDataSchema";
+import { getBaseDataSchema } from "../baseDataSchema";
 import type { DataSchema } from "../sync/schema";
 import type { OutputCtx } from "./codecs";
 import { inlineToText } from "./codecs/inline";
@@ -22,7 +22,7 @@ export function serializeToText(
   blocks: Block[],
   options: TextSerializeOptions = {},
 ): string {
-  const schema = options.schema ?? baseDataSchema;
+  const schema = options.schema ?? getBaseDataSchema();
   const live = blocks.filter((block) => !block.deleted);
   if (live.length === 0) return "";
 

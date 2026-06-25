@@ -1,5 +1,9 @@
 import { insertText } from "../actions/actions";
-import { SELECT_ALL, SPLIT_BLOCK } from "../actions/edit-actions";
+import {
+  DELETE_BACKWARD,
+  SELECT_ALL,
+  SPLIT_BLOCK,
+} from "../actions/edit-actions";
 import { loadPage } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type { CursorState, EditorState, Page } from "../state-types";
@@ -96,6 +100,39 @@ describe("CodeNode editing actions", () => {
     const block = result.state.document.page.blocks[0] as CodeBlock;
     expect(block.type).toBe("code");
     expect(getVisibleTextFromRuns(block.charRuns)).toBe("ab\n");
+  });
+
+  it("Backspace at the start of an empty code block exits to a paragraph", () => {
+    const lead = {
+      id: "p-0",
+      afterId: null,
+      deleted: false as const,
+      type: "paragraph" as const,
+      charRuns: [{ peerId: "peer", startCounter: 0, text: "Lead" }],
+      formats: [],
+    };
+    const empty = { ...codeBlock(""), id: "code-2", afterId: "p-0" as const };
+    const state0 = createInitialState(pageWith(lead, empty));
+    const state = withCursor(state0, cursorAt(1, 0));
+
+    const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+    const live = result.state.document.page.blocks.filter((b) => !b.deleted);
+
+    // Demoted in place; the previous paragraph is left untouched (no merge).
+    expect(live.map((b) => b.type)).toEqual(["paragraph", "paragraph"]);
+    expect(getVisibleTextFromRuns((live[0] as TextualBlock).charRuns)).toBe(
+      "Lead",
+    );
+  });
+
+  it("Backspace leaves a non-empty code block to default handling", () => {
+    const state0 = createInitialState(pageWith(codeBlock("hi")));
+    const state = withCursor(state0, cursorAt(0, 0));
+
+    const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+    const block = result.state.document.page.blocks[0];
+
+    expect(block.type).toBe("code");
   });
 
   it("Enter still splits a normal paragraph (regression)", () => {

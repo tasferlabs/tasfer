@@ -19,6 +19,7 @@ import type {
   ContentMaterialization,
   TypedInputTransform,
 } from "../state-types";
+import { isTouchDevice } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import {
   caretRect as texCaretRect,
@@ -564,7 +565,9 @@ export function getInlineMathOffsetAtX(
 ): number {
   if (!latex) return 0;
   const l = layoutMath(latex, { fontSize, displayMode: false });
-  return texHitTest(l, localX, localY);
+  return texHitTest(l, localX, localY, {
+    placeholderTargetSize: isTouchDevice() ? 44 : 24,
+  });
 }
 
 /**

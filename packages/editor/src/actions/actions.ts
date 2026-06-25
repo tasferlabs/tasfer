@@ -24,6 +24,7 @@ import type {
 } from "../state-types";
 import type {
   BlockInsert,
+  BlockMove,
   BlockSet,
   MarkSet,
   Operation,
@@ -69,6 +70,7 @@ import {
   selectionRangeToCRDT,
 } from "../sync/crdt-utils";
 import {
+  applyOp,
   applyOps,
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
@@ -2696,9 +2698,13 @@ export function splitBlock(state: EditorState): ActionResult {
     };
   }
 
-  // Handle heading and paragraph blocks (non-list text blocks)
+  // Handle non-list text blocks. Headings have their familiar asymmetric split
+  // policy; every other textual type preserves its registered type by default.
+  // Node-specific handlers can still claim SPLIT_BLOCK for special exits
+  // (MathNode, CodeNode, QuoteNode). Falling back to "paragraph" here used to
+  // silently erase any new textual node type on Enter.
   let blockCopy1Type: Block["type"];
-  let blockCopy2Type: "heading1" | "heading2" | "heading3" | "paragraph";
+  let blockCopy2Type: Block["type"];
 
   if (originalType.startsWith("heading")) {
     const headingType = originalType as "heading1" | "heading2" | "heading3";
@@ -2720,9 +2726,10 @@ export function splitBlock(state: EditorState): ActionResult {
       blockCopy2Type = headingType;
     }
   } else {
-    // For paragraphs, preserve the type
-    blockCopy1Type = "paragraph";
-    blockCopy2Type = "paragraph";
+    // Paragraphs and extensible textual nodes preserve their type. A node that
+    // wants different boundary behavior claims SPLIT_BLOCK in registerActions.
+    blockCopy1Type = originalType;
+    blockCopy2Type = originalType;
   }
 
   // Split the text content. Every modification below routes through ops
@@ -3609,6 +3616,61 @@ export function outdentListItem(state: EditorState): ActionResult {
       document: { ...state.document, page: newPage },
     },
     ops,
+  };
+}
+
+/**
+ * Move a block to sit immediately after `afterBlockId` (null = head of the
+ * document), emitting a single `block_move` CRDT op.
+ *
+ * Pure `(state) => { state, ops }` transform. Guards refuse to emit when the
+ * move would be a no-op or would corrupt order; the actual re-anchoring lives
+ * in the reducer (`applyBlockMove`), and the local page is derived by replaying
+ * the emitted op through `applyOp` so local emit and remote apply can never
+ * drift.
+ */
+export function moveBlock(
+  state: EditorState,
+  blockId: string,
+  afterBlockId: string | null,
+): ActionResult {
+  const page = state.document.page;
+
+  const block = findBlock(page, blockId);
+  if (!block || block.deleted) return { state, ops: [] };
+
+  // A block cannot follow itself.
+  if (afterBlockId === blockId) return { state, ops: [] };
+
+  // Refuse to anchor to a target that does not exist (or is tombstoned): the
+  // block would silently jump to the end of the document as an orphan.
+  if (afterBlockId !== null) {
+    const target = findBlock(page, afterBlockId);
+    if (!target || target.deleted) return { state, ops: [] };
+  }
+
+  // Already anchored where requested — nothing to do. This matches
+  // `applyBlockMove`'s own no-op condition, so we never emit an op the reducer
+  // would ignore.
+  if ((block.afterId ?? null) === afterBlockId) return { state, ops: [] };
+
+  const op: BlockMove = {
+    op: "block_move",
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+    blockId,
+    afterBlockId,
+  };
+
+  const newPage = applyOp(page, op);
+
+  return {
+    state: {
+      ...state,
+      document: { ...state.document, page: newPage },
+    },
+    ops: [op],
   };
 }
 

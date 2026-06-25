@@ -19,7 +19,11 @@
 
 import { type ActionBus, type ActionHandler, stateAction } from "../action-bus";
 import { insertText } from "../actions/actions";
-import { SELECT_ALL, SPLIT_BLOCK } from "../actions/edit-actions";
+import {
+  registerEmptyBlockBackspaceExit,
+  SELECT_ALL,
+  SPLIT_BLOCK,
+} from "../actions/edit-actions";
 import {
   type FontFamily,
   getFontStack,
@@ -288,6 +292,10 @@ export class CodeNode extends TextNode {
   // ── Editing affordances (action bus) ─────────────────────────────────────────
 
   registerActions(bus: ActionBus): void {
+    // Backspace at the start of an empty code block exits to a paragraph rather
+    // than merging into the previous block (shared custom-block behavior).
+    registerEmptyBlockBackspaceExit(bus, this.types);
+
     // First Ctrl/Cmd+A selects this code block's complete source. If that exact
     // range is already selected, pass the next press through to the editor's
     // normal whole-document selection.

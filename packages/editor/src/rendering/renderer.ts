@@ -141,6 +141,7 @@ export function invalidateAffectedBlocks(
         break;
       case "block_insert":
       case "block_delete":
+      case "block_move":
         affectedBlockIds.add(op.blockId);
         break;
     }

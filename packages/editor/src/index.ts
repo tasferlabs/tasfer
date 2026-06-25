@@ -41,6 +41,7 @@ export {
   type NodePointerType,
   type NodeRegionCtx,
   NodeRegistry,
+  QuoteNode,
   TextNode,
   type TextSpan,
 } from "./rendering/nodes";
@@ -129,7 +130,13 @@ export { invariant, InvariantError } from "@shared/invariant";
 // The canvas-free `DataSchema` (`schema.data`) carries the CRDT + serialization
 // facets; the full `Schema` adds the rendering nodes. v1 custom nodes are leaf
 // void blocks that round-trip through a generic `<x-type …>` HTML tag.
-export { baseDataSchema } from "./baseDataSchema";
+// `baseDataSchema` is built lazily in its module to stay clear of the
+// node-registry init cycle (see baseDataSchema.ts); the package entry is a safe
+// eager position to materialize the public singleton — nothing imports this
+// barrel during module init, so the node graph is fully evaluated by here.
+export { getBaseDataSchema } from "./baseDataSchema";
+import { getBaseDataSchema as resolveBaseDataSchema } from "./baseDataSchema";
+export const baseDataSchema = resolveBaseDataSchema();
 export { UnknownNode } from "./rendering/nodes";
 export { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
 export type {
@@ -242,6 +249,9 @@ export {
   INSERT_TEXT,
   JOIN_WITH_PREVIOUS_BLOCK,
   joinWithPreviousBlock,
+  MOVE_BLOCK,
+  moveBlock,
+  registerEmptyBlockBackspaceExit,
   SELECT_ALL,
   SPLIT_BLOCK,
 } from "./actions/edit-actions";

@@ -20,7 +20,7 @@
  * block-containing custom nodes are future steps — see docs/editor/custom-nodes.
  */
 
-import { baseDataSchema } from "./baseDataSchema";
+import { getBaseDataSchema } from "./baseDataSchema";
 import { defaultMarks, Mark } from "./rendering/marks";
 import { defaultNodes } from "./rendering/nodes";
 import { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
@@ -226,7 +226,7 @@ function toBlockSpec(entry: BlockSpec | Node): BlockSpec {
  * never drifts from them. Immutable; derive variants with `baseSchema.extend(...)`.
  */
 export const baseSchema: Schema<BaseSchemaDefinition> = new Schema(
-  baseDataSchema,
+  getBaseDataSchema(),
   defaultNodes(),
   defaultMarks(),
 );

@@ -140,6 +140,7 @@ function editorStrings(): EditorStrings {
     placeholderParagraphTouch: i18next.t("editor.typeSomething"),
     placeholderListItem: i18next.t("blocks.listItem"),
     placeholderTodoItem: i18next.t("blocks.todoItem"),
+    placeholderMath: i18next.t("editor.math.placeholder"),
   };
 }
 
@@ -157,6 +158,12 @@ function editorNodeStrings(): Record<string, Record<string, string>> {
       uploadFailed: i18next.t("error.failedToUploadImage"),
       clickToRetry: i18next.t("common.clickToRetry"),
       changeImage: i18next.t("image.changeImage"),
+    },
+    quote: {
+      placeholder: i18next.t(
+        "blocks.quotePlaceholder",
+        "Write something worth remembering…",
+      ),
     },
   };
 }

@@ -48,6 +48,16 @@ export interface CaretStop {
    */
   readonly slot?: SlotRole;
   readonly construct?: number;
+  /** Visual bounds of an empty editable slot, used to enlarge its hit target. */
+  readonly placeholder?: {
+    readonly left: number;
+    readonly right: number;
+  };
+}
+
+export interface HitTestOptions {
+  /** Minimum width and height, in CSS pixels, of an empty-slot hit target. */
+  readonly placeholderTargetSize?: number;
 }
 
 export interface CaretRect {
@@ -115,7 +125,14 @@ function walk(
       const top = y - box.height * fs;
       const bottom = y + box.depth * fs;
       out.push({ offset: box.span.start, x, y, top, bottom, ...ctx });
-      out.push({ offset: box.span.end, x: x + box.width * fs, y, top, bottom, ...ctx });
+      out.push({
+        offset: box.span.end,
+        x: x + box.width * fs,
+        y,
+        top,
+        bottom,
+        ...ctx,
+      });
     }
     return;
   }
@@ -129,6 +146,7 @@ function walk(
       y,
       top,
       bottom,
+      placeholder: { left: x, right: x + box.width * fs },
       ...ctx,
     });
     return;
@@ -145,7 +163,15 @@ function walk(
       const childCtx: SlotCtx = child.role
         ? { slot: child.role, construct }
         : ctx;
-      walk(child.box, x + child.dx * fs, y + child.dy * fs, fs, out, gen, childCtx);
+      walk(
+        child.box,
+        x + child.dx * fs,
+        y + child.dy * fs,
+        fs,
+        out,
+        gen,
+        childCtx,
+      );
     }
     // …then add the construct's OUTER-edge stops on the parent baseline — the
     // top-level positions beside the whole construct, so the caret can sit just
@@ -175,7 +201,12 @@ function walk(
  * band contains `y` (so a click in a numerator lands in the numerator), then
  * falls back to the horizontally-closest stop overall.
  */
-export function hitTest(layout: MathLayout, x: number, y: number): number {
+export function hitTest(
+  layout: MathLayout,
+  x: number,
+  y: number,
+  options: HitTestOptions = {},
+): number {
   const stops = caretStops(layout);
   if (stops.length === 0) return 0;
 
@@ -183,6 +214,11 @@ export function hitTest(layout: MathLayout, x: number, y: number): number {
   let bestDist = Infinity;
   let bestInBand: CaretStop | null = null;
   let bestBandDist = Infinity;
+  let bestGlyphInBand: CaretStop | null = null;
+  let bestGlyphBandDist = Infinity;
+  let bestPlaceholder: CaretStop | null = null;
+  let bestPlaceholderDist = Infinity;
+  const placeholderTargetSize = options.placeholderTargetSize ?? 0;
 
   for (const s of stops) {
     const dist = Math.abs(s.x - x);
@@ -194,12 +230,50 @@ export function hitTest(layout: MathLayout, x: number, y: number): number {
       bestBandDist = dist;
       bestInBand = s;
     }
+    if (
+      !s.placeholder &&
+      !s.boundary &&
+      y >= s.top &&
+      y <= s.bottom &&
+      dist < bestGlyphBandDist
+    ) {
+      bestGlyphBandDist = dist;
+      bestGlyphInBand = s;
+    }
+    if (s.placeholder && placeholderTargetSize > 0) {
+      const width = s.placeholder.right - s.placeholder.left;
+      const height = s.bottom - s.top;
+      const hitWidth = Math.max(width, placeholderTargetSize);
+      const hitHeight = Math.max(height, placeholderTargetSize);
+      const dx = Math.abs(x - s.x);
+      const dy = Math.abs(y - (s.top + s.bottom) / 2);
+      if (
+        dx <= hitWidth / 2 &&
+        dy <= hitHeight / 2 &&
+        Math.hypot(dx, dy) < bestPlaceholderDist
+      ) {
+        bestPlaceholderDist = Math.hypot(dx, dy);
+        bestPlaceholder = s;
+      }
+    }
+  }
+
+  // A directly-hit glyph/row still wins when it is closer than an overlapping
+  // enlarged empty-slot target (important for tightly stacked fractions).
+  if (
+    bestPlaceholder &&
+    (!bestGlyphInBand || bestPlaceholderDist < bestGlyphBandDist)
+  ) {
+    return bestPlaceholder.offset;
   }
   return (bestInBand ?? best!).offset;
 }
 
 /** Caret geometry for a source `offset`, or null if the layout has no stops. */
-export function caretRect(layout: MathLayout, offset: number): CaretRect | null {
+export function caretRect(
+  layout: MathLayout,
+  offset: number,
+): CaretRect | null {
   const stops = caretStops(layout);
   if (stops.length === 0) return null;
   let best = stops[0];

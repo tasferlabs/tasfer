@@ -8,7 +8,7 @@
  * context — keeping the heavy ../nodes/math import out of the parser/codec chain.
  */
 
-import { baseDataSchema } from "../baseDataSchema";
+import { getBaseDataSchema } from "../baseDataSchema";
 import { renderToSVG } from "../nodes/math";
 import { isTextualBlock } from "../sync/block-registry";
 import { iterateVisibleChars } from "../sync/char-runs";
@@ -24,6 +24,7 @@ const STYLES = `
   h2 { font-size: 1.5em; margin: 0.83em 0; }
   h3 { font-size: 1.17em; margin: 1em 0; }
   p { margin: 0.6em 0; }
+  blockquote { margin: 1em 0; padding: 0.8em 1em; border-left: 4px solid #10b981; border-radius: 8px; background: #f4f4f5; }
   hr { border: none; border-top: 1px solid #ccc; margin: 1.5em 0; }
   code { font-family: 'SF Mono', Menlo, Consolas, monospace; background: #f4f4f4; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
   a { color: #2563eb; }
@@ -95,7 +96,7 @@ export function serializeToHTMLFragment(
   blocks: Block[],
   options: RenderOptions = {},
 ): string {
-  const schema = options.schema ?? baseDataSchema;
+  const schema = options.schema ?? getBaseDataSchema();
   const live = blocks.filter((b) => !b.deleted);
   while (live.length > 0 && isEmptyTextualBlock(live[0])) live.shift();
   while (live.length > 0 && isEmptyTextualBlock(live[live.length - 1]))

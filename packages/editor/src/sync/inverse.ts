@@ -20,6 +20,7 @@ import type { CRDTbinding } from "../state-types";
 import type {
   BlockDelete,
   BlockInsert,
+  BlockMove,
   BlockSet,
   MarkSet,
   Operation,
@@ -340,6 +341,34 @@ function invertBlockSet(
 }
 
 /**
+ * Compute the inverse of a block move operation.
+ *
+ * A move re-anchors the block plus up to two neighbours, but it is fully
+ * reversible by a single move back to the block's ORIGINAL anchor: replaying
+ * `applyBlockMove(blockId -> originalAfter)` re-derives the neighbour edits
+ * from current state and restores the exact prior chain (the moved block's
+ * follower and the destination's follower both snap back). The original anchor
+ * is read from `pageBefore`.
+ */
+function invertBlockMove(
+  op: BlockMove,
+  pageBefore: Page,
+  binding: CRDTbinding,
+): BlockMove | null {
+  const block = findBlock(pageBefore, op.blockId);
+  if (!block) return null;
+
+  return {
+    op: "block_move",
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: op.pageId,
+    blockId: op.blockId,
+    afterBlockId: block.afterId ?? null,
+  };
+}
+
+/**
  * Compute the inverse(s) of a single op against the page state before that
  * op was applied. Returns an empty array when the op cannot be inverted
  * (e.g. the original op was a no-op already).
@@ -371,6 +400,10 @@ export function invertOperation(
     }
     case "block_set": {
       const inv = invertBlockSet(op, pageBefore, binding);
+      return inv ? [inv] : [];
+    }
+    case "block_move": {
+      const inv = invertBlockMove(op, pageBefore, binding);
       return inv ? [inv] : [];
     }
     default:

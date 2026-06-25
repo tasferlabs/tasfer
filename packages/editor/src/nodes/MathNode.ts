@@ -32,6 +32,7 @@ import {
 } from "../actions/edit-actions";
 import { SELECT_WORD_AT_POINT } from "../actions/mouse-actions";
 import { POINTER_MOVE } from "../actions/pointer-actions";
+import { measureCtxText } from "../fonts";
 import { getInlineMathAtPosition } from "../inline-math";
 import type { MarkRegistry } from "../rendering/marks";
 import type { CaretModel } from "../rendering/nodes/caret-model";
@@ -69,6 +70,7 @@ import type {
 import {
   closeActiveMenu,
   isCaretScratchActive,
+  isTouchDevice,
   updateMode,
 } from "../state-utils";
 import {
@@ -109,6 +111,8 @@ export interface MathBlock extends BlockRuntimeState {
 // Display-math base font size, in CSS pixels (block equations render a touch
 // larger than body text).
 const BLOCK_MATH_FONT_SIZE = 22;
+const MATH_PLACEHOLDER_FONT_SIZE = 14;
+const MATH_PLACEHOLDER_FONT_WEIGHT = "400";
 
 /** TextNodeLayout augmented with the rendered equation + its placement. */
 interface MathNodeLayout extends TextNodeLayout {
@@ -118,6 +122,8 @@ interface MathNodeLayout extends TextNodeLayout {
   readonly mathOffsetX: number;
   /** Vertical inset (px from the block top) to the math's top edge. */
   readonly mathTop: number;
+  /** Width of the centered empty-block placeholder, used to align the caret. */
+  readonly placeholderWidth: number;
 }
 
 export class MathNode extends TextNode {
@@ -173,11 +179,26 @@ export class MathNode extends TextNode {
       ? Math.max(0, (maxWidth - mathLayout.width) / 2)
       : 0;
     const mathTop = m.paddingTop + Math.max(0, (contentH - mh) / 2);
+    const placeholderWidth = measureCtxText(
+      styles.placeholder.math.text,
+      MATH_PLACEHOLDER_FONT_SIZE,
+      MATH_PLACEHOLDER_FONT_WEIGHT,
+      base.fontFamily,
+      base.fonts,
+    );
     // LaTeX is always laid out left-to-right. The base layout derives direction
     // from the content (TextNode → getTextDirection), which falls back to the UI
     // default — so in an RTL locale an empty or symbol-only equation would come
     // back RTL and mirror the caret/geometry. Pin it LTR.
-    return { ...base, isRTL: false, height, mathLayout, mathOffsetX, mathTop };
+    return {
+      ...base,
+      isRTL: false,
+      height,
+      mathLayout,
+      mathOffsetX,
+      mathTop,
+      placeholderWidth,
+    };
   }
 
   // ── Paint ────────────────────────────────────────────────────────────────
@@ -192,11 +213,9 @@ export class MathNode extends TextNode {
 
     const lines: RenderedLine[] = [];
 
-    // An empty equation draws nothing — no placeholder box, no call-to-action.
-    // The centered caret (see `caretRect`) is the only affordance; typing grows
-    // the equation outward from the center. `paintMath` is isolated in
-    // save/restore so none of its canvas-state mutations leak to the next block
-    // (the shared render context is not saved per block).
+    // `paintMath` is isolated in save/restore so none of its canvas-state
+    // mutations leak to the next block (the shared render context is not saved
+    // per block).
     ctx.save();
 
     // Keep the same full-block surface as a code block at rest so an equation
@@ -212,7 +231,34 @@ export class MathNode extends TextNode {
     ctx.roundRect(x, y, width, layout.height, m.hoverBorderRadius);
     ctx.fill();
 
-    if (layout.mathLayout) {
+    if (!layout.mathLayout) {
+      const selection = state.document.selection;
+      const showPlaceholder =
+        state.document.cursor?.position.blockIndex === blockIndex &&
+        (!selection || selection.isCollapsed) &&
+        !state.ui.composition &&
+        state.ui.mode === "edit";
+      if (showPlaceholder) {
+        const textStyle: TextStyle = {
+          ...this.textStyle(styles),
+          fontSize: MATH_PLACEHOLDER_FONT_SIZE,
+          fontWeight: MATH_PLACEHOLDER_FONT_WEIGHT,
+        };
+        ctx.save();
+        ctx.textAlign = "center";
+        this.paintPlaceholder(
+          ctx,
+          x + width / 2,
+          y + layout.height / 2 + textStyle.fontSize * 0.35,
+          styles,
+          textStyle,
+          styles.placeholder.math.text,
+          false,
+          width,
+        );
+        ctx.restore();
+      }
+    } else {
       const latex = getVisibleTextFromChars(layout.chars);
 
       // Keep a half-typed command (`\al`) in normal color until the caret moves
@@ -355,11 +401,10 @@ export class MathNode extends TextNode {
         : false;
     const l = layout as MathNodeLayout;
     if (!l.mathLayout) {
-      // Empty block — caret in the horizontal center (the equation grows
-      // outward from here, staying centered), vertically centered in the
-      // content area and sized to the display font.
+      // The placeholder remains centered, while the caret sits at its leading
+      // edge like a normal empty input.
       return {
-        x: originX + l.adjustedMaxWidth / 2,
+        x: originX + Math.max(0, (l.adjustedMaxWidth - l.placeholderWidth) / 2),
         y: blockTopY + l.mathTop - BLOCK_MATH_FONT_SIZE / 2,
         height: BLOCK_MATH_FONT_SIZE,
         exact: true,
@@ -419,7 +464,9 @@ export class MathNode extends TextNode {
     if (!l.mathLayout) return 0;
     const baseX = originX + l.mathOffsetX;
     const baselineY = blockTopY + l.mathTop + l.mathLayout.height;
-    return texHitTest(l.mathLayout, x - baseX, y - baselineY);
+    return texHitTest(l.mathLayout, x - baseX, y - baselineY, {
+      placeholderTargetSize: isTouchDevice() ? 44 : 24,
+    });
   }
 
   // ── Serialization ──────────────────────────────────────────────────────────

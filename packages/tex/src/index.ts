@@ -69,7 +69,11 @@ export function isValidLatex(latex: string): boolean {
     else if (n.type === "overunder") visit(n.body);
     else if (n.type === "mathfont") visit(n.body);
     else if (n.type === "not") visit(n.base);
-    else if (n.type === "mclass" || n.type === "boxed" || n.type === "phantom") {
+    else if (
+      n.type === "mclass" ||
+      n.type === "boxed" ||
+      n.type === "phantom"
+    ) {
       visit(n.body);
     } else if (n.type === "stack") {
       visit(n.script);
@@ -84,7 +88,10 @@ export function isValidLatex(latex: string): boolean {
 }
 
 /** Parse and lay out `latex`. Never throws; invalid input renders partially. */
-export function layoutMath(latex: string, opts: LayoutOptions = {}): MathLayout {
+export function layoutMath(
+  latex: string,
+  opts: LayoutOptions = {},
+): MathLayout {
   const fontSize = opts.fontSize ?? 16;
   const displayMode = opts.displayMode ?? false;
   const ast = parse(latex, { literalRange: opts.literalRange });
@@ -116,6 +123,7 @@ export {
 export type {
   CaretStop,
   CaretRect,
+  HitTestOptions,
   SelectionRect,
 } from "./edit/caret";
 export { unitBefore, unitAfter, type MathUnit } from "./edit/unit";

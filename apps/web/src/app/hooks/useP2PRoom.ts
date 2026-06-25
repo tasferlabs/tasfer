@@ -47,9 +47,7 @@ export interface RoomConfig {
 export interface UseP2PRoomReturn {
   broadcast: (operations: Operation[]) => void;
   broadcastAwareness: (state: CursorPresence) => void;
-  sendSyncRequest: (
-    versionVector: Record<string, number>,
-  ) => void;
+  sendSyncRequest: (versionVector: Record<string, number>) => void;
   sendSyncResponse: (
     operations: Operation[],
     versionVector: Record<string, number>,
@@ -65,15 +63,46 @@ export interface UseP2PRoomReturn {
 // Hook
 // =============================================================================
 
+// The device peer id derives from the persistent device keypair, but
+// `platform.identity.get()` is async — so on first render `peerId` is unknown.
+// That id is the origin half of every CRDT op id (`peerId:counter`); a doc
+// created before it resolves binds to an empty origin, which COLLIDES across
+// peers and silently drops ops (peers diverge). Cache the resolved id so later
+// visits read it synchronously and the doc never has to be created with "".
+// (First-ever visit still resolves async; the editor binding's own guard
+// generates a unique id for that one session, so no collision either way.)
+const PEER_ID_CACHE_KEY = "cypher.devicePeerId";
+
+function readCachedPeerId(): string {
+  try {
+    return localStorage.getItem(PEER_ID_CACHE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function cachePeerId(peerId: string): void {
+  try {
+    localStorage.setItem(PEER_ID_CACHE_KEY, peerId);
+  } catch {
+    // Private mode / storage disabled — the async resolve still sets state.
+  }
+}
+
 export function useP2PRoom(
   roomId: string | null,
   config: RoomConfig,
   spaceId?: string,
 ): UseP2PRoomReturn {
   const [peerCount, setPeerCount] = useState(0);
-  const [syncState, setSyncState] = useState<SyncState>({ status: "disconnected" });
-  const [peerId, setPeerId] = useState("");
-  const [localUser, setLocalUser] = useState<CursorUser>({ peerId: "", color: "" });
+  const [syncState, setSyncState] = useState<SyncState>({
+    status: "disconnected",
+  });
+  const [peerId, setPeerId] = useState(readCachedPeerId);
+  const [localUser, setLocalUser] = useState<CursorUser>({
+    peerId: "",
+    color: "",
+  });
 
   const configRef = useRef(config);
   configRef.current = config;
@@ -101,8 +130,15 @@ export function useP2PRoom(
       if (cancelled) return;
 
       const myPeerId = identity.publicKey.slice(0, 32);
+      cachePeerId(myPeerId);
       setPeerId(myPeerId);
-      setLocalUser({ peerId: myPeerId, name: identity.name, avatar: identity.avatar, color: getColorForPeer(identity.name || myPeerId), deviceType: identity.deviceType });
+      setLocalUser({
+        peerId: myPeerId,
+        name: identity.name,
+        avatar: identity.avatar,
+        color: getColorForPeer(identity.name || myPeerId),
+        deviceType: identity.deviceType,
+      });
 
       setSyncState({ status: "connecting" });
 
@@ -164,7 +200,11 @@ export function useP2PRoom(
       await platform.sync.joinRoom(
         roomId,
         myPeerId,
-        { name: identity.name, avatar: identity.avatar, deviceType: identity.deviceType },
+        {
+          name: identity.name,
+          avatar: identity.avatar,
+          deviceType: identity.deviceType,
+        },
         callbacks,
         spaceId,
       );
@@ -222,7 +262,9 @@ export function useP2PRoom(
       if (!roomId || operations.length === 0) return;
       try {
         getPlatform().sync.sendOperations(roomId, operations);
-      } catch { /* not initialized */ }
+      } catch {
+        /* not initialized */
+      }
     },
     [roomId],
   );
@@ -232,19 +274,21 @@ export function useP2PRoom(
       if (!roomId) return;
       try {
         getPlatform().sync.sendAwareness(roomId, state);
-      } catch { /* not initialized */ }
+      } catch {
+        /* not initialized */
+      }
     },
     [roomId],
   );
 
   const sendSyncRequest = useCallback(
-    (
-      versionVector: Record<string, number>,
-    ) => {
+    (versionVector: Record<string, number>) => {
       if (!roomId) return;
       try {
         getPlatform().sync.sendSyncRequest(roomId, versionVector);
-      } catch { /* not initialized */ }
+      } catch {
+        /* not initialized */
+      }
     },
     [roomId],
   );
@@ -257,8 +301,15 @@ export function useP2PRoom(
     ) => {
       if (!roomId) return;
       try {
-        getPlatform().sync.sendSyncResponse(roomId, operations, versionVector, targetPeerId);
-      } catch { /* not initialized */ }
+        getPlatform().sync.sendSyncResponse(
+          roomId,
+          operations,
+          versionVector,
+          targetPeerId,
+        );
+      } catch {
+        /* not initialized */
+      }
     },
     [roomId],
   );

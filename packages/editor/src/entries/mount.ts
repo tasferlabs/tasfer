@@ -92,7 +92,8 @@ export type PlaceholderBlockType =
   | "heading3"
   | "bullet_list"
   | "numbered_list"
-  | "todo_list";
+  | "todo_list"
+  | "math";
 
 /**
  * Placeholder ghost text for empty blocks: either one generic string applied to
@@ -216,6 +217,7 @@ function placeholderOptionToStyle(
           bullet_list: placeholder,
           numbered_list: placeholder,
           todo_list: placeholder,
+          math: placeholder,
         }
       : placeholder;
 
@@ -243,6 +245,7 @@ function placeholderOptionToStyle(
     ...(byType.todo_list !== undefined
       ? { todoItem: { text: byType.todo_list } }
       : {}),
+    ...(byType.math !== undefined ? { math: { text: byType.math } } : {}),
   };
 }
 

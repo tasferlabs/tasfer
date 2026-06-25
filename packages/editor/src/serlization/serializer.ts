@@ -6,7 +6,7 @@
  * item's number depends on its neighbors), and the trailing-newline rule.
  */
 
-import { baseDataSchema } from "../baseDataSchema";
+import { getBaseDataSchema } from "../baseDataSchema";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import type { DataSchema } from "../sync/schema";
 import type { OutputCtx } from "./codecs";
@@ -51,7 +51,7 @@ export function serializeToMarkdown(
   metadata?: PageMetadata,
   options?: MarkdownSerializeOptions,
 ): string {
-  const schema = options?.schema ?? baseDataSchema;
+  const schema = options?.schema ?? getBaseDataSchema();
 
   // Filter out deleted blocks (CRDT tombstones)
   blocks = blocks.filter((block) => !block.deleted);

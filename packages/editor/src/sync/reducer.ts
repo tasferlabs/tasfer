@@ -5,7 +5,7 @@
  * This is the core of the CRDT engine - all state changes flow through here.
  */
 
-import { baseDataSchema } from "../baseDataSchema";
+import { getBaseDataSchema } from "../baseDataSchema";
 import {
   type Block,
   type Char,
@@ -15,6 +15,7 @@ import {
 import type {
   BlockDelete,
   BlockInsert,
+  BlockMove,
   BlockSet,
   BlockType,
   MarkSet,
@@ -24,6 +25,7 @@ import type {
 } from "../state-types";
 import { findBlock, findBlockIndex } from "./block-lookup";
 import {
+  canHaveFormats,
   isStyleField,
   isTextualBlock,
   readBlockStyle,
@@ -57,7 +59,7 @@ export function createEmptyBlock(
   id: string,
   afterId: string | null,
   type: string,
-  schema: DataSchema = baseDataSchema,
+  schema: DataSchema = getBaseDataSchema(),
 ): Block | undefined {
   return schema.createDefaultBlock(type, id, afterId);
 }
@@ -435,7 +437,12 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
         ? {
             ...newBlock,
             charRuns: block.charRuns,
-            formats: block.formats,
+            // Marks only carry over when the target type can hold them. Morphing
+            // a formatted paragraph into math or code (hasFormats: false) must
+            // drop the spans — the originating peer's convert action already does
+            // (`canHaveFormats(type) ? formats : []`), so preserving them here
+            // would diverge: that peer sees no marks, remote peers keep them.
+            formats: canHaveFormats(newType) ? block.formats : [],
             // The morph changes the block type (e.g. paragraph → heading), so the
             // old layout cache is invalid for the new type — let it recompute.
           }
@@ -476,12 +483,77 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
 }
 
 /**
+ * Apply a block move operation.
+ *
+ * Repositions `op.blockId` to sit immediately after `op.afterBlockId` (null =
+ * head). Because `afterId` anchors a block to its PREDECESSOR, a correct move
+ * is three re-anchor edits, all derived from the CURRENT state so every peer
+ * computes them identically:
+ *
+ *   1. the moved block            -> afterId = new target
+ *   2. the moved block's followers -> afterId = the moved block's OLD anchor
+ *      (closes the gap the block left behind)
+ *   3. the target's followers      -> afterId = the moved block
+ *      (opens a gap at the destination so the block lands directly after it)
+ *
+ * Each branch reads the ORIGINAL `afterId` (a single `.map`, no in-place
+ * mutation), so edit ordering is irrelevant and the result is a pure function
+ * of `(state, op)`. Final order is rebuilt via `resolveBlockOrder` rather than
+ * spliced, keeping the incremental-merge and full-rebuild paths byte-identical.
+ *
+ * Apply stays total and defensive: a self-targeting or unknown-block op is a
+ * no-op here so a malformed/remote op converges identically everywhere (the
+ * action layer additionally refuses to emit such ops).
+ */
+function applyBlockMove(state: Page, op: BlockMove): Page {
+  // A block cannot follow itself — that would orphan it. No-op defensively.
+  if (op.afterBlockId === op.blockId) {
+    return state;
+  }
+
+  const block = findBlock(state, op.blockId);
+  if (!block) {
+    return state;
+  }
+
+  const oldAfter = block.afterId ?? null;
+  const target = op.afterBlockId;
+
+  // Already in place: the block's anchor is the target and nothing else
+  // re-anchors. Avoids a pointless array rebuild on idempotent replays.
+  if (oldAfter === target) {
+    return state;
+  }
+
+  const newBlocks = state.blocks.map((blk) => {
+    if (blk.id === op.blockId) {
+      return { ...blk, afterId: target };
+    }
+    if (blk.afterId === op.blockId) {
+      // Close the gap the moved block left behind.
+      return { ...blk, afterId: oldAfter };
+    }
+    if (blk.afterId === target) {
+      // Open a gap at the destination so the moved block lands directly after
+      // the target, ahead of the target's former followers.
+      return { ...blk, afterId: op.blockId };
+    }
+    return blk;
+  });
+
+  return {
+    ...state,
+    blocks: resolveBlockOrder(newBlocks),
+  };
+}
+
+/**
  * Apply a single operation to the state.
  */
 export function applyOp(
   state: Page,
   op: Operation,
-  schema: DataSchema = baseDataSchema,
+  schema: DataSchema = getBaseDataSchema(),
 ): Page {
   switch (op.op) {
     case "text_insert":
@@ -496,6 +568,8 @@ export function applyOp(
       return applyBlockDelete(state, op);
     case "block_set":
       return applyBlockSet(state, op, schema);
+    case "block_move":
+      return applyBlockMove(state, op);
     default:
       // Unknown operation type
       return state;
@@ -511,7 +585,7 @@ export function applyOp(
 export function applyOps(
   state: Page,
   ops: Operation[],
-  schema: DataSchema = baseDataSchema,
+  schema: DataSchema = getBaseDataSchema(),
 ): Page {
   let result = state;
   for (const op of ops) {
@@ -531,7 +605,7 @@ export function applyOps(
 export function rebuildState(
   pageId: string,
   ops: Operation[],
-  schema: DataSchema = baseDataSchema,
+  schema: DataSchema = getBaseDataSchema(),
 ): Page {
   // Sort operations by HLC
   const sorted = [...ops].sort((a, b) => compareHLC(a.clock, b.clock));

@@ -42,7 +42,8 @@ type OpKind =
   | "mark_set"
   | "block_insert"
   | "block_delete"
-  | "block_set";
+  | "block_set"
+  | "block_move";
 
 const OP_WEIGHTS: Array<[OpKind, number]> = [
   ["text_insert", 0.35],
@@ -51,6 +52,7 @@ const OP_WEIGHTS: Array<[OpKind, number]> = [
   ["block_insert", 0.15],
   ["block_delete", 0.05],
   ["block_set", 0.1],
+  ["block_move", 0.08],
 ];
 
 interface PendingOp {
@@ -231,17 +233,30 @@ function tryGenerateOp(
         block.type === "paragraph" ||
         block.type === "heading1" ||
         block.type === "heading2" ||
-        block.type === "heading3"
+        block.type === "heading3" ||
+        block.type === "math"
       ) {
         const newType = rng.pick([
           "paragraph",
           "heading1",
           "heading2",
           "heading3",
+          "math",
         ] as const);
         return engine.createBlockSet(block.id, "type", newType);
       }
       return null;
+    }
+    case "block_move": {
+      const block = pickLiveBlock(state, rng);
+      if (!block) return null;
+      // Move to the head sometimes; otherwise after any block (possibly a
+      // tombstone, which the reducer handles). Two peers picking each other's
+      // block exercises the cycle path.
+      const target =
+        rng.next() < 0.2 ? null : (pickAnyBlock(state, rng)?.id ?? null);
+      if (target === block.id) return null;
+      return engine.createBlockMove(block.id, target);
     }
   }
 }

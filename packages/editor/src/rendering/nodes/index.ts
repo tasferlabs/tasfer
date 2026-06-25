@@ -24,6 +24,7 @@ import { ImageNode } from "../../nodes/ImageNode";
 import { LineNode } from "../../nodes/LineNode";
 import { ListNode } from "../../nodes/ListNode";
 import { MathNode } from "../../nodes/MathNode";
+import { QuoteNode } from "../../nodes/QuoteNode";
 import { TextNode } from "../../nodes/TextNode";
 import { Node, NodeRegistry } from "./Node";
 
@@ -56,6 +57,7 @@ export {
   SET_INLINE_MATH_HOVER,
   SET_MATH_BLOCK_HOVER,
 } from "../../nodes/MathNode";
+export { type QuoteBlock, QuoteNode } from "../../nodes/QuoteNode";
 export {
   getContentWithComposition,
   TEXT_BLOCK_TYPES,
@@ -96,6 +98,7 @@ export function defaultNodes(): Node[] {
     new LineNode(),
     new ImageNode(),
     new MathNode(),
+    new QuoteNode(),
     new CodeNode(),
     new TextNode(),
     new ListNode(),

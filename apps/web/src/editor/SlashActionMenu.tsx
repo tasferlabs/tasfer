@@ -9,6 +9,7 @@ import {
   List,
   ListOrdered,
   Minus,
+  Quote,
   Sigma,
   Type,
 } from "lucide-react";
@@ -34,6 +35,7 @@ export type SlashBlockType =
   | "image"
   | "math"
   | "code"
+  | "quote"
   | "bullet_list"
   | "numbered_list"
   | "todo_list";
@@ -89,7 +91,28 @@ function useSlashActions(): SlashItem[] {
         label: t("common.text", "Text"),
         description: t("blocks.desc.regularText", "Regular text."),
         icon: <Type size={18} />,
-        keywords: ["text", t("blocks.textKw", "text"), "paragraph", t("blocks.paragraphKw", "paragraph"), "p"],
+        keywords: [
+          "text",
+          t("blocks.textKw", "text"),
+          "paragraph",
+          t("blocks.paragraphKw", "paragraph"),
+          "p",
+        ],
+        category: "basic" as const,
+      },
+      {
+        id: "quote",
+        type: "quote" as const,
+        label: t("blocks.quote", "Quote"),
+        description: t("blocks.desc.quote", "Highlight a memorable passage."),
+        icon: <Quote size={18} />,
+        keywords: [
+          "quote",
+          t("blocks.quoteKw", "quote"),
+          "blockquote",
+          "citation",
+          ">",
+        ],
         category: "basic" as const,
       },
       {
@@ -98,7 +121,18 @@ function useSlashActions(): SlashItem[] {
         label: t("blocks.divider", "Divider"),
         description: t("blocks.desc.divider", "Horizontal line divider."),
         icon: <Minus size={18} />,
-        keywords: ["line", t("blocks.lineKw", "line"), "divider", t("blocks.dividerKw", "divider"), "hr", "horizontal", t("blocks.horizontalKw", "horizontal"), "separator", t("blocks.separatorKw", "separator"), "---"],
+        keywords: [
+          "line",
+          t("blocks.lineKw", "line"),
+          "divider",
+          t("blocks.dividerKw", "divider"),
+          "hr",
+          "horizontal",
+          t("blocks.horizontalKw", "horizontal"),
+          "separator",
+          t("blocks.separatorKw", "separator"),
+          "---",
+        ],
         category: "basic" as const,
       },
       {
@@ -107,7 +141,17 @@ function useSlashActions(): SlashItem[] {
         label: t("blocks.image", "Image"),
         description: t("image.addSuitable", "Add a suitable image."),
         icon: <Image size={18} />,
-        keywords: ["image", t("blocks.imageKw", "image"), "img", "picture", t("blocks.pictureKw", "picture"), "photo", t("blocks.photoKw", "photo"), "upload", t("blocks.uploadKw", "upload")],
+        keywords: [
+          "image",
+          t("blocks.imageKw", "image"),
+          "img",
+          "picture",
+          t("blocks.pictureKw", "picture"),
+          "photo",
+          t("blocks.photoKw", "photo"),
+          "upload",
+          t("blocks.uploadKw", "upload"),
+        ],
         category: "media" as const,
       },
       {
@@ -116,7 +160,16 @@ function useSlashActions(): SlashItem[] {
         label: t("blocks.math", "Math Equation"),
         description: t("blocks.desc.math", "LaTeX math expression."),
         icon: <Sigma size={18} />,
-        keywords: ["math", t("blocks.mathKw", "math"), "equation", t("blocks.equationKw", "equation"), "latex", "formula", t("blocks.formulaKw", "formula"), "$$"],
+        keywords: [
+          "math",
+          t("blocks.mathKw", "math"),
+          "equation",
+          t("blocks.equationKw", "equation"),
+          "latex",
+          "formula",
+          t("blocks.formulaKw", "formula"),
+          "$$",
+        ],
         category: "media" as const,
       },
       {
@@ -125,16 +178,36 @@ function useSlashActions(): SlashItem[] {
         label: t("blocks.code", "Code"),
         description: t("blocks.desc.code", "Editable code block."),
         icon: <Code2 size={18} />,
-        keywords: ["code", t("blocks.codeKw", "code"), "snippet", t("blocks.snippetKw", "snippet"), "monospace", "```", "pre"],
+        keywords: [
+          "code",
+          t("blocks.codeKw", "code"),
+          "snippet",
+          t("blocks.snippetKw", "snippet"),
+          "monospace",
+          "```",
+          "pre",
+        ],
         category: "media" as const,
       },
       {
         id: "bullet_list",
         type: "bullet_list" as const,
         label: t("blocks.bulletList", "Bullet List"),
-        description: t("blocks.desc.bulletList", "Create a simple bullet list."),
+        description: t(
+          "blocks.desc.bulletList",
+          "Create a simple bullet list.",
+        ),
         icon: <List size={18} />,
-        keywords: ["bullet", t("blocks.bulletKw", "bullet"), "list", t("blocks.listKw", "list"), "ul", "-", "unordered", t("blocks.unorderedKw", "unordered")],
+        keywords: [
+          "bullet",
+          t("blocks.bulletKw", "bullet"),
+          "list",
+          t("blocks.listKw", "list"),
+          "ul",
+          "-",
+          "unordered",
+          t("blocks.unorderedKw", "unordered"),
+        ],
         category: "lists" as const,
       },
       {
@@ -143,7 +216,16 @@ function useSlashActions(): SlashItem[] {
         label: t("blocks.numberedList", "Numbered List"),
         description: t("blocks.desc.numberedList", "Create a numbered list."),
         icon: <ListOrdered size={18} />,
-        keywords: ["numbered", t("blocks.numberedKw", "numbered"), "list", t("blocks.listKw", "list"), "ol", "1.", "ordered", t("blocks.orderedKw", "ordered")],
+        keywords: [
+          "numbered",
+          t("blocks.numberedKw", "numbered"),
+          "list",
+          t("blocks.listKw", "list"),
+          "ol",
+          "1.",
+          "ordered",
+          t("blocks.orderedKw", "ordered"),
+        ],
         category: "lists" as const,
       },
       {
@@ -152,7 +234,17 @@ function useSlashActions(): SlashItem[] {
         label: t("blocks.todoList", "To-do List"),
         description: t("blocks.desc.todoList", "Track tasks with a checklist."),
         icon: <LayoutList size={18} />,
-        keywords: ["todo", t("blocks.todoKw", "todo"), "task", t("calendar.taskKw", "task"), "check", t("blocks.checkKw", "check"), "checkbox", t("blocks.checkboxKw", "checkbox"), "[]"],
+        keywords: [
+          "todo",
+          t("blocks.todoKw", "todo"),
+          "task",
+          t("calendar.taskKw", "task"),
+          "check",
+          t("blocks.checkKw", "check"),
+          "checkbox",
+          t("blocks.checkboxKw", "checkbox"),
+          "[]",
+        ],
         category: "lists" as const,
       },
     ],
@@ -215,7 +307,7 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
       const range = editor.state.selection.range;
       const caretIndex =
         range && typeof range === "object" && "offset" in range
-          ? range.offset ?? 0
+          ? (range.offset ?? 0)
           : null;
       // Strip the typed "/filter" trigger text before converting (one undo step).
       const strip =
@@ -344,8 +436,8 @@ const SlashMenuList: React.FC<SlashMenuListProps> = ({
         cmd.label.toLowerCase().includes(lowerFilter) ||
         cmd.description.toLowerCase().includes(lowerFilter) ||
         cmd.keywords?.some((keyword) =>
-          keyword.toLowerCase().startsWith(lowerFilter)
-        )
+          keyword.toLowerCase().startsWith(lowerFilter),
+        ),
     );
   }, [filter, slashActions]);
 

@@ -6,11 +6,13 @@
  * and subscribing to state changes.
  */
 
+import { IS_DEV } from "../env";
 import type { Block, Char, CharRun, Mark, Page } from "../serlization/loadPage";
 import type { CRDTbinding } from "../state-types";
 import type {
   BlockDelete,
   BlockInsert,
+  BlockMove,
   BlockProps,
   BlockSet,
   BlockType,
@@ -59,7 +61,22 @@ export function createCRDTbinding(
   pageId: string,
   peerId?: string,
 ): CRDTbinding {
-  const actualPeerId = peerId ?? generatePeerId();
+  // A binding's peerId is the origin half of every op id (`peerId:counter`) and
+  // the key the version vector tracks per-origin counters under. An EMPTY peerId
+  // is catastrophic, not cosmetic: two peers that both edit as "" share one VV
+  // bucket, their op ids collide (`:5` vs `:5`), and `isOpKnown` silently drops
+  // whichever arrives second — peers permanently diverge. `??` only defaults on
+  // null/undefined, so a caller passing "" (e.g. an async device identity that
+  // hasn't resolved yet) would slip through; guard the empty string too. This
+  // is an invariant the binding owns, not a caller-compat shim: a CRDT origin id
+  // must be non-empty and unique.
+  const actualPeerId = peerId && peerId.length > 0 ? peerId : generatePeerId();
+  if (IS_DEV && peerId !== undefined && actualPeerId !== peerId) {
+    console.error(
+      `[createCRDTbinding] empty peerId for page ${pageId}; generated "${actualPeerId}" instead. ` +
+        `Pass a stable, non-empty peer id (an empty origin id collides across peers and drops ops).`,
+    );
+  }
   const idGen = createIdGenerator(actualPeerId);
   let hlc = createHLC(actualPeerId);
 
@@ -137,6 +154,7 @@ export function maxOpIdCounter(ops: readonly Operation[]): number {
 export type {
   BlockDelete,
   BlockInsert,
+  BlockMove,
   BlockProps,
   BlockSet,
   BlockType,
@@ -247,6 +265,8 @@ export interface SyncEngine {
   ): BlockInsert;
   createBlockDelete(blockId: string): BlockDelete;
   createBlockSet(blockId: string, field: string, value: unknown): BlockSet;
+  /** Move a block to sit immediately after `afterBlockId` (null = head). */
+  createBlockMove(blockId: string, afterBlockId: string | null): BlockMove;
 
   // Convenience methods (position/range based).
   /** Insert text at a visible position in a block (char IDs auto-generated). */
@@ -500,6 +520,18 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
     };
   }
 
+  function createBlockMove(
+    blockId: string,
+    afterBlockId: string | null,
+  ): BlockMove {
+    return {
+      ...createBaseOp(),
+      op: "block_move",
+      blockId,
+      afterBlockId,
+    };
+  }
+
   return {
     getPeerId(): string {
       return binding.getPeerId();
@@ -599,6 +631,7 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
     createBlockInsert,
     createBlockDelete,
     createBlockSet: createBlockSetOp,
+    createBlockMove,
 
     insertText(blockId: string, position: number, text: string): TextInsert {
       const block = findBlock(getState(), blockId);

@@ -37,7 +37,7 @@
  * already provides ordering.
  */
 
-import { baseDataSchema } from "../baseDataSchema";
+import { getBaseDataSchema } from "../baseDataSchema";
 import { IS_DEV } from "../env";
 import type { Operation, OpLog, VersionVector } from "../state-types";
 import { compareHLC } from "./hlc";
@@ -96,7 +96,7 @@ export function isOpKnown(vv: VersionVector, op: Operation): boolean {
 export function appendOp(
   log: OpLog,
   op: Operation,
-  schema: DataSchema = baseDataSchema,
+  schema: DataSchema = getBaseDataSchema(),
 ): OpLog {
   // Check if operation already exists
   if (isOpKnown(log.versionVector, op)) {
@@ -186,7 +186,7 @@ export function registerAppliedOps(log: OpLog, ops: Operation[]): OpLog {
 export function mergeOps(
   log: OpLog,
   ops: Operation[],
-  schema: DataSchema = baseDataSchema,
+  schema: DataSchema = getBaseDataSchema(),
 ): OpLog {
   if (IS_DEV) assertPerOriginOrder(ops);
 

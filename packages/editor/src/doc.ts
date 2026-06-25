@@ -20,7 +20,7 @@
  * it just applied).
  */
 
-import { baseDataSchema } from "./baseDataSchema";
+import { getBaseDataSchema } from "./baseDataSchema";
 import type { BaseSchemaDefinition, SchemaDefinition } from "./schema-types";
 import { type Block, loadPage, type Page } from "./serlization/loadPage";
 import { serializeToMarkdown } from "./serlization/serializer";
@@ -257,7 +257,7 @@ export function createDoc<D extends SchemaDefinition = BaseSchemaDefinition>(
 
   const pageId = options.pageId ?? persisted?.pageId ?? "";
   const binding = createCRDTbinding(pageId, options.peerId);
-  const schema = options.schema ?? baseDataSchema;
+  const schema = options.schema ?? getBaseDataSchema();
 
   let opLog: OpLog = createOpLog(pageId);
   // The materialized document. Kept identical to `opLog.state` at all times —

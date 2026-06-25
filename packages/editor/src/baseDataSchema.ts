@@ -48,14 +48,31 @@ function buildBaseMarkSpecs(): MarkSpec[] {
   );
 }
 
+// The default schema is built lazily on first use rather than at module-eval.
+// Constructing it calls `defaultNodes()` (instantiating every built-in node),
+// and the sync core (`sync/reducer`, `sync/oplog`) imports this module for its
+// default `schema` parameter. Those modules sit on the node-registry import
+// cycle (node → reducer → baseDataSchema → defaultNodes → node), so building the
+// schema eagerly here would call `defaultNodes()` mid-cycle — before every node
+// class has finished evaluating — and crash with a temporal-dead-zone error.
+// Deferring construction to first call breaks that: by the time anything reads
+// the schema, the module graph is fully initialized. The instance is cached, so
+// it stays the single immutable default. The public `baseDataSchema` value is
+// re-exposed from the package entry (`index.ts`), a safe eager position no
+// internal module imports during init.
+// eslint-disable-next-line local/no-global-mutable-state -- write-once cache of the instance-independent default schema (formerly a module-level `const`); shared by every editor, never mutated after first build, so two instances can't collide.
+let cachedBaseDataSchema: DataSchema<BaseSchemaDefinition> | null = null;
+
 /**
  * The default schema: every built-in block and mark type. Immutable — derive
- * variants with `baseDataSchema.extend(...)`, never mutate this.
+ * variants with `getBaseDataSchema().extend(...)`, never mutate it.
  */
-export const baseDataSchema: DataSchema<BaseSchemaDefinition> = new DataSchema(
-  buildBaseBlockSpecs(),
-  buildBaseMarkSpecs(),
-);
+export function getBaseDataSchema(): DataSchema<BaseSchemaDefinition> {
+  return (cachedBaseDataSchema ??= new DataSchema(
+    buildBaseBlockSpecs(),
+    buildBaseMarkSpecs(),
+  ));
+}
 
 /**
  * Collect every asset reference owned by the given blocks (deleted blocks
@@ -68,7 +85,7 @@ export function collectAssetRefs(blocks: Block[]): string[] {
   const refs: string[] = [];
   for (const block of blocks) {
     if (block.deleted) continue;
-    const codec = baseDataSchema.getCodec(block.type);
+    const codec = getBaseDataSchema().getCodec(block.type);
     if (!codec?.assetRefs) continue;
     for (const ref of codec.assetRefs(block)) {
       if (!ref || seen.has(ref)) continue;

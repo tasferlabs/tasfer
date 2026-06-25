@@ -9,7 +9,7 @@
  * chaining.
  */
 
-import { baseDataSchema } from "../baseDataSchema";
+import { getBaseDataSchema } from "../baseDataSchema";
 import { extractCounter, extractPeerId } from "../sync/id";
 import type { DataSchema } from "../sync/schema";
 import type { InputCtx, ParsedTag } from "./codecs";
@@ -132,7 +132,7 @@ function generateEmptyTree(): Page {
 
 export default function parsePage(
   tokens: Token[],
-  schema: DataSchema = baseDataSchema,
+  schema: DataSchema = getBaseDataSchema(),
 ): Page {
   const tree = generateEmptyTree();
 

@@ -30,6 +30,7 @@ export const INDENT = "indent";
 export const HORIZONTAL_RULE = "horizontal_rule";
 export const MATH_BLOCK = "math_block";
 export const CODE_BLOCK = "code_block";
+export const QUOTE = "quote";
 export const INLINE_MATH_START = "inline_math_start";
 export const INLINE_MATH_END = "inline_math_end";
 export const NEWLINE = "newline";
@@ -65,6 +66,7 @@ type VisibleTokenType =
   | "horizontal_rule"
   | "math_block"
   | "code_block"
+  | "quote"
   | FormatTokenType
   | ListTokenType;
 export type TokenType = VisibleTokenType | "newline";
@@ -123,6 +125,9 @@ export default function tokenizePage(content: string) {
     } else if (state.startOfLine && tryTokenizeList(state, tokens)) {
       // List was tokenized, continue
       state.startOfLine = false;
+    } else if (state.startOfLine && tryTokenizeQuote(state, tokens)) {
+      // Block quote marker was tokenized; parse the rest as inline content.
+      state.startOfLine = false;
     } else if (state.startOfLine && tryTokenizeMathBlock(state, tokens)) {
       // Math block was tokenized, continue
     } else if (state.startOfLine && tryTokenizeCodeBlock(state, tokens)) {
@@ -132,6 +137,13 @@ export default function tokenizePage(content: string) {
     }
   }
   return tokens;
+}
+
+function tryTokenizeQuote(state: TokenizerState, tokens: Token[]): boolean {
+  if (current(state) !== ">") return false;
+  tokens.push({ type: QUOTE, content: ">" });
+  next(state, peek(state) === " " ? 2 : 1);
+  return true;
 }
 // Try to tokenize horizontal rule (--- or more dashes at start of line)
 // Returns true if horizontal rule was found and tokenized

@@ -251,6 +251,18 @@ const paragraphDescriptor = {
   fields: { type: typeField },
 } satisfies BlockTypeDescriptor;
 
+const quoteDescriptor = {
+  type: "quote",
+  capabilities: TEXTUAL_CAPS,
+  defaults: (id: string, afterId: string | null): Block => ({
+    ...makeBase(id, afterId),
+    type: "quote",
+    charRuns: [],
+    formats: [],
+  }),
+  fields: { type: typeField },
+} satisfies BlockTypeDescriptor;
+
 const heading1Descriptor = {
   type: "heading1",
   capabilities: HEADING_CAPS,
@@ -396,6 +408,7 @@ const codeDescriptor = {
 // separate hand-listed enumeration to keep in sync.
 export const BLOCK_REGISTRY = {
   paragraph: paragraphDescriptor,
+  quote: quoteDescriptor,
   heading1: heading1Descriptor,
   heading2: heading2Descriptor,
   heading3: heading3Descriptor,

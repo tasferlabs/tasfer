@@ -3,6 +3,7 @@ export type MobileToolbarBlockType =
   | "heading1"
   | "heading2"
   | "heading3"
+  | "quote"
   | "bullet_list"
   | "numbered_list"
   | "todo_list"
@@ -21,6 +22,7 @@ export type MobileToolbarIcon =
   | "heading1"
   | "heading2"
   | "heading3"
+  | "quote"
   | "list"
   | "list_ordered"
   | "list_todo"
@@ -97,6 +99,7 @@ const BLOCKS: ReadonlyArray<{
   { type: "heading1", icon: "heading1", labelKey: "blocks.heading1" },
   { type: "heading2", icon: "heading2", labelKey: "blocks.heading2" },
   { type: "heading3", icon: "heading3", labelKey: "blocks.heading3" },
+  { type: "quote", icon: "quote", labelKey: "blocks.quote" },
   { type: "bullet_list", icon: "list", labelKey: "blocks.bulletList" },
   {
     type: "numbered_list",
@@ -139,12 +142,24 @@ export function createMobileToolbarModel(
     visible: state.visible,
     bottomInset: state.bottomInset,
     items: [
-      button("undo", "undo", t("editor.undo", "Undo"), { type: "undo" }, {
-        enabled: state.canUndo,
-      }),
-      button("redo", "redo", t("editor.redo", "Redo"), { type: "redo" }, {
-        enabled: state.canRedo,
-      }),
+      button(
+        "undo",
+        "undo",
+        t("editor.undo", "Undo"),
+        { type: "undo" },
+        {
+          enabled: state.canUndo,
+        },
+      ),
+      button(
+        "redo",
+        "redo",
+        t("editor.redo", "Redo"),
+        { type: "redo" },
+        {
+          enabled: state.canRedo,
+        },
+      ),
       { kind: "divider", id: "history-divider" },
       button(
         "bold",

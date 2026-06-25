@@ -19,7 +19,12 @@
  * one implementation without changing behavior.
  */
 
-import { action, stateAction, type StateResult } from "../action-bus";
+import {
+  action,
+  type ActionBus,
+  stateAction,
+  type StateResult,
+} from "../action-bus";
 import type { ChangeApi, DocRange } from "../entries/editor";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
@@ -29,8 +34,9 @@ import type { EditorState, Operation } from "../state-types";
 import { clearAutoCreatedParagraph, getBlockTextContent } from "../state-utils";
 import { findBlock } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
+import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { markCharsInRange } from "../sync/crdt-utils";
-import { findPreviousVisibleBlockIndex } from "../sync/reducer";
+import { applyOps, findPreviousVisibleBlockIndex } from "../sync/reducer";
 import {
   deleteForward,
   deleteText,
@@ -38,6 +44,7 @@ import {
   deleteWordForward,
   insertText,
   mergeBlocksOps,
+  moveBlock,
   selectAll,
   splitBlock,
 } from "./actions";
@@ -223,6 +230,58 @@ export const DELETE_BACKWARD = stateAction("delete-backward", (state) => {
   return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
 });
 
+/**
+ * Make Backspace at the very start of an *empty* block exit it to a plain
+ * paragraph instead of merging it into the previous block. Custom text blocks
+ * (quote, code, …) opt in from their own `registerActions` by passing the block
+ * types they own; once a block has content the normal cross-block join applies.
+ *
+ * Claims {@link DELETE_BACKWARD} directly at priority 50 (ahead of the default
+ * boundary join) so it also fires when the block is the first visible one and
+ * has no previous block to merge into.
+ */
+export function registerEmptyBlockBackspaceExit(
+  bus: ActionBus,
+  types: readonly string[],
+): void {
+  bus.registerState(
+    DELETE_BACKWARD,
+    (state) => {
+      const cursor = state.document.cursor;
+      if (!cursor || cursor.position.textIndex !== 0) return;
+      if (state.ui.composition) return;
+      if (state.document.selection && !state.document.selection.isCollapsed) {
+        return;
+      }
+
+      const blockIndex = cursor.position.blockIndex;
+      const block = state.document.page.blocks[blockIndex];
+      if (!block || block.deleted || !isTextualBlock(block)) return;
+      if (!types.includes(block.type)) return;
+      if (getVisibleTextFromRuns(block.charRuns).length !== 0) return;
+
+      const op: Operation = {
+        op: "block_set",
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
+        blockId: block.id,
+        field: "type",
+        value: "paragraph",
+      };
+      const page = applyOps(state.document.page, [op]);
+      invalidateBlockCache(page.blocks[blockIndex]);
+      const next = clearSelection(state);
+      return {
+        state: { ...next, document: { ...next.document, page } },
+        ops: [op],
+        handled: true,
+      };
+    },
+    50,
+  );
+}
+
 /** Delete backward to the previous word boundary (Ctrl/Cmd+Backspace). */
 export const DELETE_WORD_BACKWARD = stateAction(
   "delete-word-backward",
@@ -257,6 +316,23 @@ export const SPLIT_BLOCK = stateAction("split-block", (state) => {
   const result = splitBlock(state);
   return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
 });
+
+/**
+ * Reposition a block to sit immediately after `afterBlockId` (null = head),
+ * emitting a single `block_move` CRDT op. The dispatchable form of
+ * {@link moveBlock} so hosts/plugins (e.g. a drag-to-reorder gesture) can drive
+ * and observe block moves without reaching into the engine.
+ */
+export const MOVE_BLOCK = stateAction<{
+  blockId: string;
+  afterBlockId: string | null;
+}>("move-block", (state, { blockId, afterBlockId }) =>
+  moveBlock(state, blockId, afterBlockId),
+);
+
+// Re-exported alongside its StateAction so a host can call the pure transform
+// directly, mirroring `joinWithPreviousBlock` / `JOIN_WITH_PREVIOUS_BLOCK`.
+export { moveBlock } from "./actions";
 
 // The list indent/outdent actions (INDENT_LIST_ITEM / OUTDENT_LIST_ITEM) and the
 // mark toggles (TOGGLE_STRONG, …) are co-located with the node/mark they act on:

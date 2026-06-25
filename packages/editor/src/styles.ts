@@ -34,6 +34,7 @@ const DEFAULT_STRINGS: EditorStrings = {
   placeholderParagraphTouch: "Type something awesome...",
   placeholderListItem: "List item",
   placeholderTodoItem: "To-do item",
+  placeholderMath: "Type an equation, or type '\\' for commands…",
 };
 
 /**
@@ -315,6 +316,25 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
           function: t.codeFunction,
         },
       },
+      quote: {
+        fontSize: 18,
+        fontWeight: "normal",
+        color: t.text,
+        lineHeight: 1.65,
+        paddingBottom: 18,
+        backgroundColor: t.muted,
+        backgroundOpacity: 0.58,
+        accentColor: t.primary,
+        accentWidth: 4,
+        accentGap: 18,
+        borderRadius: 10,
+        paddingX: 16,
+        paddingY: 18,
+        glyphSize: 40,
+        glyphWeight: "700",
+        glyphOpacity: 0.2,
+        glyphOffsetY: 3,
+      },
       line: {
         height: 32, // Total block height
         lineHeight: 1, // Thickness of the line
@@ -405,6 +425,7 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       },
       listItem: { text: strings.placeholderListItem },
       todoItem: { text: strings.placeholderTodoItem },
+      math: { text: strings.placeholderMath },
       color: t.placeholder,
     },
     textFormats: {
