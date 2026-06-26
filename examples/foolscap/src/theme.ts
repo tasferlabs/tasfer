@@ -2,7 +2,7 @@ import type { EditorTheme } from "@cypherkit/editor";
 
 /**
  * Foolscap's look as a single `EditorTheme` value — warm paper, an old-style
- * serif body, an amber caret. Because the canvas is transparent (the engine
+ * serif body, a terracotta caret. Because the canvas is transparent (the engine
  * clears each frame and lets CSS own the backdrop), the paper/gradient lives in
  * the stylesheet; the tokens here only color the *content* the engine paints.
  */
@@ -17,24 +17,24 @@ export const foolscapTheme: EditorTheme = {
     defaultFamily: "spectral",
   },
   tokens: {
-    text: "#2c2722",
-    heading: "#23201b",
-    background: "#f4ecdc",
-    placeholder: "#bcae90",
-    cursor: "#b07d3c",
-    selection: "rgba(176,125,60,0.20)",
-    selectionUnfocused: "rgba(176,125,60,0.10)",
+    text: "#201d18",
+    heading: "#181610",
+    background: "#f3efe6",
+    placeholder: "#b8b09e",
+    cursor: "#c0522f",
+    selection: "rgba(192,82,47,0.20)",
+    selectionUnfocused: "rgba(192,82,47,0.10)",
     link: "#9a5b2c",
     linkHover: "#7d4a22",
-    codeBackground: "#efe5d0",
+    codeBackground: "#ece7da",
     codeText: "#8a5a2b",
   },
   styles: {
     blocks: {
-      paragraph: { fontSize: 20, lineHeight: 1.85, color: "#2c2722" },
-      heading1: { fontSize: 38, fontWeight: "600", color: "#23201b", lineHeight: 1.2 },
-      heading2: { fontSize: 28, fontWeight: "600", color: "#23201b" },
-      heading3: { fontSize: 22, fontWeight: "600", color: "#23201b" },
+      paragraph: { fontSize: 20, lineHeight: 1.85, color: "#201d18" },
+      heading1: { fontSize: 38, fontWeight: "600", color: "#181610", lineHeight: 1.2 },
+      heading2: { fontSize: 28, fontWeight: "600", color: "#181610" },
+      heading3: { fontSize: 22, fontWeight: "600", color: "#181610" },
     },
     // The editor lives inside an already-narrow centered column, so it needs
     // only a little breathing room of its own.

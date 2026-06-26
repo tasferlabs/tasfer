@@ -26,7 +26,7 @@ export function WritingStage({ value, words, goal, status, clockLabel, onReady }
           <div className="stage__ring" title={`${pct}% of today's goal`}>
             <div
               className="stage__ring-dial"
-              style={{ background: `conic-gradient(#b07d3c ${pct}%, #e3d7bd 0)` }}
+              style={{ background: `conic-gradient(#c0522f ${pct}%, #e4ddcd 0)` }}
             >
               <div className="stage__ring-hole" />
             </div>

@@ -20,7 +20,7 @@ export function WaveIcon() {
 
 export function ClockIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#caa86e" strokeWidth="1.8">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e2926a" strokeWidth="1.8">
       <circle cx="12" cy="13" r="8" />
       <path d="M12 9v4l2.5 2M9 2h6" strokeLinecap="round" />
     </svg>

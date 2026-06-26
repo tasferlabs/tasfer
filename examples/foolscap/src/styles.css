@@ -1,12 +1,12 @@
 /* ── Foolscap — a distraction-free writing studio ─────────────────────────── */
 
 :root {
-  --paper: #f4ecdc;
-  --ink: #2c2722;
-  --rule: #e3d7bd;
-  --amber: #b07d3c;
-  --muted: #8a7d64;
-  --faint: #a3957a;
+  --paper: #f3efe6;
+  --ink: #201d18;
+  --rule: #e4ddcd;
+  --amber: #c0522f;
+  --muted: #8c8473;
+  --faint: #a79f8d;
 }
 
 * {
@@ -38,7 +38,7 @@ body {
 .rail {
   flex: none;
   width: 248px;
-  background: #efe5d0;
+  background: #ece7da;
   border-right: 1px solid var(--rule);
   display: flex;
   flex-direction: column;
@@ -120,7 +120,7 @@ body {
 }
 
 .rail__chapter--active {
-  background: #f8f2e4;
+  background: #faf7f0;
   border-left: 2px solid var(--amber);
   padding: 9px 10px;
 }
@@ -135,7 +135,7 @@ body {
 }
 
 .rail__chapter--muted {
-  color: #bcae90;
+  color: #b8b09e;
 }
 
 .rail__goal {
@@ -180,7 +180,7 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  background: radial-gradient(120% 80% at 50% 0%, #fbf6ea 0%, #f4ecdc 70%);
+  background: radial-gradient(120% 80% at 50% 0%, #fbf8f2 0%, #f3efe6 70%);
 }
 
 .stage__topbar {
@@ -218,7 +218,7 @@ body {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #f6f1e7;
+  background: #f7f3eb;
   margin: 5px;
 }
 
@@ -231,7 +231,7 @@ body {
 .stage__divider {
   width: 1px;
   height: 22px;
-  background: #e0d4ba;
+  background: #e4ddcd;
 }
 
 .stage__icon {
@@ -261,7 +261,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #bcae90;
+  color: #b8b09e;
   text-align: center;
   margin-bottom: 18px;
 }
@@ -271,7 +271,7 @@ body {
   margin: 0 0 18px;
   font-size: 38px;
   font-weight: 600;
-  color: #23201b;
+  color: #181610;
   text-align: center;
   letter-spacing: -0.01em;
 }
@@ -292,8 +292,8 @@ body {
   right: -256px;
   top: 300px;
   width: 218px;
-  background: #fffaf0;
-  border: 1px solid #ecdcbf;
+  background: #ffffff;
+  border: 1px solid #e8e0d1;
   border-radius: 10px;
   padding: 12px 13px;
   box-shadow: 0 6px 18px rgba(120, 90, 40, 0.12);
@@ -324,7 +324,7 @@ body {
 .stage__margin-note-body {
   font-size: 13px;
   line-height: 1.5;
-  color: #5c5340;
+  color: #565044;
 }
 
 /* Margin note only fits when there is room beside the column. */
@@ -342,8 +342,8 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: #2c2722;
-  color: #f3ead7;
+  background: #201d18;
+  color: #f4e6db;
   border-radius: 30px;
   padding: 11px 20px;
   box-shadow: 0 14px 36px rgba(40, 30, 15, 0.32);
@@ -359,14 +359,14 @@ body {
 .stage__capsule-divider {
   width: 1px;
   height: 16px;
-  background: #4a443b;
+  background: #423d35;
 }
 
 .stage__capsule-saved {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: #caa86e;
+  color: #e2926a;
 }
 
 .stage__tnum {
@@ -377,10 +377,10 @@ body {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #7fbf8f;
+  background: #6fb083;
   transition: background 0.3s ease;
 }
 
 .stage__dot--busy {
-  background: #caa86e;
+  background: #e2926a;
 }
