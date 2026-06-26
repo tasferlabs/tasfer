@@ -330,6 +330,7 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         borderRadius: 10,
         paddingX: 16,
         paddingY: 18,
+        joinedPaddingY: 7,
         glyphSize: 40,
         glyphWeight: "700",
         glyphOpacity: 0.2,

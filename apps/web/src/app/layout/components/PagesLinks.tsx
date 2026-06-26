@@ -40,9 +40,6 @@ export default function PagesLinks({
         />
       ))}
 
-      {/* Empty space for breath room for dragging if it is nested*/}
-      {parentsStack.length > 0 && <div className={style.emptySpace} />}
-
       {pages?.length === 0 && !!parentId && (
         <>
           <div className={style.empty}>

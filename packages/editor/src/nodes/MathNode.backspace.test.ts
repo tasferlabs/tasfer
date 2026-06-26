@@ -135,3 +135,46 @@ describe("backspace at the start of a math block", () => {
     );
   });
 });
+
+describe("backspace from following text into a math block", () => {
+  it("selects the math block first, then deletes it on the next Backspace", () => {
+    const after: Paragraph = {
+      id: "paragraph-2",
+      afterId: "math-1",
+      type: "paragraph",
+      charRuns: [{ peerId: "seed", startCounter: 200, text: "after" }],
+      formats: [],
+    };
+    const state = stateWithCursor(
+      {
+        id: "page-1",
+        title: "",
+        blocks: [mathBlock("x^2"), after],
+      },
+      { position: { blockIndex: 1, textIndex: 0 }, lastUpdate: 0 },
+    );
+
+    const selected = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+
+    expect(selected.ops).toHaveLength(0);
+    expect(selected.state.document.page.blocks[0].type).toBe("math");
+    expect(selected.state.document.selection).toMatchObject({
+      anchor: { blockIndex: 0, textIndex: 0 },
+      focus: { blockIndex: 0, textIndex: 0 },
+      isCollapsed: false,
+    });
+
+    const deleted = selected.state.actionBus.dispatchState(
+      DELETE_BACKWARD,
+      selected.state,
+    );
+
+    expect(deleted.ops[0].op).toBe("block_delete");
+    expect(deleted.state.document.page.blocks[0].deleted).toBe(true);
+    expect(
+      deleted.state.document.page.blocks
+        .filter((block) => !block.deleted)
+        .map((block) => block.type),
+    ).toEqual(["paragraph"]);
+  });
+});

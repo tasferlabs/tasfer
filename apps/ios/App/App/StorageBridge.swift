@@ -73,7 +73,7 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
             } else {
                 errorMsg = "Invalid data or fileName"
             }
-
+            
         case "htmlToPdf":
             if let html = body["html"] as? String {
                 if #available(iOS 14.0, *) {

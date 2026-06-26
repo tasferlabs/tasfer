@@ -353,6 +353,8 @@ export function SidebarContent({
     // Scenario 4: Drop on pages area
     else if (overData?.type === "pages-area") {
       const targetParentId = overData.parentId;
+      const targetOrder =
+        typeof overData.order === "number" ? overData.order : undefined;
 
       if (isDescendant(activeData.id, targetParentId)) {
         return;
@@ -362,7 +364,17 @@ export function SidebarContent({
         movePage({
           id: activeData.id,
           parentId: targetParentId,
+          order: targetOrder,
           spaceId: spaceIdParam,
+        });
+      } else if (
+        overData.lastPageId !== activeData.id &&
+        targetOrder !== undefined &&
+        targetOrder !== activeData.order
+      ) {
+        reorderPage({
+          id: activeData.id,
+          order: targetOrder,
         });
       }
     }

@@ -61,7 +61,27 @@ export function readEditorTokens(): Partial<ThemeTokens> {
   return tokens;
 }
 
+function readTodoCheckboxBorderColor(tokens: Partial<ThemeTokens>): string {
+  if (
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark")
+  ) {
+    return "oklch(1 0 0 / 34%)";
+  }
+  return tokens.border ?? "oklch(0.92 0.004 286.32)";
+}
+
 /** Build an `EditorTheme` from the current CSS variables (for `mountEditor`). */
 export function cssVarsToTheme(): EditorTheme {
-  return { tokens: readEditorTokens() };
+  const tokens = readEditorTokens();
+  return {
+    tokens,
+    styles: {
+      list: {
+        todo: {
+          checkboxBorderColor: readTodoCheckboxBorderColor(tokens),
+        },
+      },
+    },
+  };
 }

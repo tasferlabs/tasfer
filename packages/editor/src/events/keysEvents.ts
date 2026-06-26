@@ -8,8 +8,9 @@ import {
   DELETE_FORWARD,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
+  escapeAboveSelfContainedBlock,
+  escapeBelowSelfContainedBlock,
   INSERT_TEXT,
-  removeAutoCreatedParagraph,
   SELECT_ALL,
   selectVisualBlockAfterMove,
   SPLIT_BLOCK,
@@ -63,7 +64,7 @@ import type {
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
-import { clearAutoCreatedParagraph, getBlockTextContent } from "../state-utils";
+import { getBlockTextContent } from "../state-utils";
 import { isPreformattedType, isTextualBlock } from "../sync/block-registry";
 import { redoState, undoState } from "../sync/crdt-undo";
 import type { Operation } from "../sync/sync";
@@ -337,24 +338,8 @@ export function handleKeyDown(
             firstVisibleBlock && currentBlock.id === firstVisibleBlock.id
           );
 
-          // Create a new paragraph above the visual block (no tracking on
-          // ArrowLeft).
-          const edge = createParagraphAbove(
-            state,
-            isFirstBlock,
-            currentBlock,
-            false,
-          );
-          if (edge.kind === "break") {
-            newState = edge.state;
-            ops.push(...edge.ops);
-            break;
-          }
-        }
-
-        // Check if we should remove an auto-created paragraph (RTL: left = forward)
-        {
-          const edge = removeAutoCreatedParagraph(state, "rtl");
+          // Create a new paragraph above a leading visual block (image/line).
+          const edge = createParagraphAbove(state, isFirstBlock, currentBlock);
           if (edge.kind === "break") {
             newState = edge.state;
             ops.push(...edge.ops);
@@ -419,7 +404,7 @@ export function handleKeyDown(
         // If we moved to a visual block (image/line), select it; otherwise leave
         // just cursor. Also clears auto-created paragraph tracking if we moved
         // off the tracked block.
-        newState = selectVisualBlockAfterMove(state, newState);
+        newState = selectVisualBlockAfterMove(newState);
 
         newState = dispatchCursorCrossed(state, newState, viewport, "left");
       }
@@ -459,18 +444,8 @@ export function handleKeyDown(
           const isLastBlock =
             state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          // Create a new paragraph below the visual block.
+          // Create a new paragraph below a trailing visual block (image/line).
           const edge = createParagraphBelow(state, isLastBlock, currentBlock);
-          if (edge.kind === "break") {
-            newState = edge.state;
-            ops.push(...edge.ops);
-            break;
-          }
-        }
-
-        // Check if we should remove an auto-created paragraph (LTR: right = forward)
-        {
-          const edge = removeAutoCreatedParagraph(state, "ltr");
           if (edge.kind === "break") {
             newState = edge.state;
             ops.push(...edge.ops);
@@ -531,7 +506,7 @@ export function handleKeyDown(
         // If we moved to a visual block (image/line), select it; otherwise leave
         // just cursor. Also clears auto-created paragraph tracking if we moved
         // off the tracked block.
-        newState = selectVisualBlockAfterMove(state, newState);
+        newState = selectVisualBlockAfterMove(newState);
 
         newState = dispatchCursorCrossed(state, newState, viewport, "right");
       }
@@ -557,16 +532,24 @@ export function handleKeyDown(
             ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
 
-          // Create a new paragraph above the visual block (track it on ArrowUp).
-          const edge = createParagraphAbove(
-            state,
-            isFirstBlock,
-            currentBlock,
-            true,
-          );
+          // Create a new paragraph above a leading visual block (image/line), or
+          // escape a leading self-contained text block (code/math/quote) when the
+          // caret is on its first line, instead of clamping inside it.
+          const edge = createParagraphAbove(state, isFirstBlock, currentBlock);
           if (edge.kind === "break") {
             newState = edge.state;
             ops.push(...edge.ops);
+            break;
+          }
+          const textEdge = escapeAboveSelfContainedBlock(
+            state,
+            isFirstBlock,
+            currentBlock,
+            viewport,
+          );
+          if (textEdge.kind === "break") {
+            newState = textEdge.state;
+            ops.push(...textEdge.ops);
             break;
           }
         }
@@ -583,9 +566,8 @@ export function handleKeyDown(
         }
 
         // If we moved to a visual block (image/line), select it; otherwise leave
-        // just cursor. Also clears auto-created paragraph tracking if we moved
-        // off the tracked block.
-        newState = selectVisualBlockAfterMove(state, newState);
+        // just cursor.
+        newState = selectVisualBlockAfterMove(newState);
       }
       break;
     case "ArrowDown":
@@ -601,16 +583,6 @@ export function handleKeyDown(
         newState = moved.state;
         ops.push(...moved.ops);
       } else {
-        // Check if we should remove an auto-created paragraph
-        {
-          const edge = removeAutoCreatedParagraph(state, null);
-          if (edge.kind === "break") {
-            newState = edge.state;
-            ops.push(...edge.ops);
-            break;
-          }
-        }
-
         // Check if we're on a visual block (image/line) at the end of the page
         if (state.document.cursor) {
           const currentBlock =
@@ -627,11 +599,24 @@ export function handleKeyDown(
           const isLastBlock =
             state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          // Create a new paragraph below the visual block.
+          // Create a new paragraph below a trailing visual block (image/line),
+          // or escape a trailing self-contained text block (code/math/quote)
+          // when the caret is on its last line, instead of clamping inside it.
           const edge = createParagraphBelow(state, isLastBlock, currentBlock);
           if (edge.kind === "break") {
             newState = edge.state;
             ops.push(...edge.ops);
+            break;
+          }
+          const textEdge = escapeBelowSelfContainedBlock(
+            state,
+            isLastBlock,
+            currentBlock,
+            viewport,
+          );
+          if (textEdge.kind === "break") {
+            newState = textEdge.state;
+            ops.push(...textEdge.ops);
             break;
           }
         }
@@ -648,9 +633,8 @@ export function handleKeyDown(
         }
 
         // If we moved to a visual block (image/line), select it; otherwise leave
-        // just cursor. Also clears auto-created paragraph tracking if we moved
-        // off the tracked block.
-        newState = selectVisualBlockAfterMove(state, newState);
+        // just cursor.
+        newState = selectVisualBlockAfterMove(newState);
       }
       break;
     case "PageUp":
@@ -674,16 +658,24 @@ export function handleKeyDown(
             ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
 
-          // Create a new paragraph above the visual block (track it on PageUp).
-          const edge = createParagraphAbove(
-            state,
-            isFirstBlock,
-            currentBlock,
-            true,
-          );
+          // Create a new paragraph above a leading visual block (image/line), or
+          // escape a leading self-contained text block (code/math/quote) when the
+          // caret is on its first line, instead of clamping inside it.
+          const edge = createParagraphAbove(state, isFirstBlock, currentBlock);
           if (edge.kind === "break") {
             newState = edge.state;
             ops.push(...edge.ops);
+            break;
+          }
+          const textEdge = escapeAboveSelfContainedBlock(
+            state,
+            isFirstBlock,
+            currentBlock,
+            viewport,
+          );
+          if (textEdge.kind === "break") {
+            newState = textEdge.state;
+            ops.push(...textEdge.ops);
             break;
           }
         }
@@ -699,9 +691,8 @@ export function handleKeyDown(
         }
 
         // If we moved to a visual block (image/line), select it; otherwise leave
-        // just cursor. Also clears auto-created paragraph tracking if we moved
-        // off the tracked block.
-        newState = selectVisualBlockAfterMove(state, newState);
+        // just cursor.
+        newState = selectVisualBlockAfterMove(newState);
       }
       break;
     case "PageDown":
@@ -717,16 +708,6 @@ export function handleKeyDown(
         newState = moved.state;
         ops.push(...moved.ops);
       } else {
-        // Check if we should remove an auto-created paragraph
-        {
-          const edge = removeAutoCreatedParagraph(state, null);
-          if (edge.kind === "break") {
-            newState = edge.state;
-            ops.push(...edge.ops);
-            break;
-          }
-        }
-
         // Check if we're on a visual block (image/line) at the end of the page
         if (state.document.cursor) {
           const currentBlock =
@@ -743,11 +724,24 @@ export function handleKeyDown(
           const isLastBlock =
             state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          // Create a new paragraph below the visual block.
+          // Create a new paragraph below a trailing visual block (image/line),
+          // or escape a trailing self-contained text block (code/math/quote)
+          // when the caret is on its last line, instead of clamping inside it.
           const edge = createParagraphBelow(state, isLastBlock, currentBlock);
           if (edge.kind === "break") {
             newState = edge.state;
             ops.push(...edge.ops);
+            break;
+          }
+          const textEdge = escapeBelowSelfContainedBlock(
+            state,
+            isLastBlock,
+            currentBlock,
+            viewport,
+          );
+          if (textEdge.kind === "break") {
+            newState = textEdge.state;
+            ops.push(...textEdge.ops);
             break;
           }
         }
@@ -765,7 +759,7 @@ export function handleKeyDown(
         // If we moved to a visual block (image/line), select it; otherwise leave
         // just cursor. Also clears auto-created paragraph tracking if we moved
         // off the tracked block.
-        newState = selectVisualBlockAfterMove(state, newState);
+        newState = selectVisualBlockAfterMove(newState);
       }
       break;
     case "Home":
@@ -846,9 +840,6 @@ export function handleKeyDown(
       });
       newState = result.state;
       ops.push(...result.ops);
-      // Clear auto-created paragraph tracking on space (already cleared in
-      // insertText on its main paths, but for safety on its early-return guards)
-      newState = clearAutoCreatedParagraph(newState);
       break;
     }
     default:

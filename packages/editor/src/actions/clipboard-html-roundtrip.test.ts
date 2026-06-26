@@ -98,6 +98,23 @@ describe("clipboard text/html round-trip", () => {
     expect(payload!.html).toContain("<h1>");
   });
 
+  it("keeps task-list markdown out of the plain-text payload", () => {
+    const page = pageWith({
+      id: "todo1",
+      afterId: null,
+      type: "todo_list",
+      charRuns: run("Follow up"),
+      formats: [],
+      checked: false,
+      indent: 0,
+    } as unknown as Block);
+    const payload = buildClipboardPayload(selectAll(page));
+
+    expect(payload).not.toBeNull();
+    expect(payload!.markdown).toBe("- [ ] Follow up");
+    expect(payload!.plainText).toBe("[ ] Follow up");
+  });
+
   it("round-trips image sizing, block math, and list indent losslessly", () => {
     const payload = buildClipboardPayload(selectAll(source));
     const binding = createCRDTbinding("page-2", "peer-b");

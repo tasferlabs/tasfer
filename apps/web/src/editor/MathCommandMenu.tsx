@@ -25,6 +25,12 @@ interface MathCommandMenuProps {
   editor: Editor;
   /** The editor surface's viewport rect, for translating caret coords to screen. */
   getContainerRect: () => DOMRect | null | undefined;
+  /**
+   * When true, this floating menu stays inert. Used on the in-webview platforms
+   * (Android/web touch) where the docked math toolbar row supersedes it; the
+   * native iOS accessory and fine-pointer web keep using this menu.
+   */
+  disabled?: boolean;
 }
 
 /** The `\`-trigger run we're tracking: the block + the index of the `\`. */
@@ -35,21 +41,24 @@ interface Trigger {
 
 /**
  * Math `\` command menu — a Corca-style autocomplete that pops up when you type
- * `\` inside a **block** equation. Self-contained host chrome (the engine has no
- * notion of it): it observes {@link TEXT_INPUT} to edge-trigger on a `\` typed in
- * a math block, recomputes the query/anchor from editor state on every change,
- * renders each candidate as live math (via {@link renderToSVG} — empty `{}`
- * slots show as faint placeholder boxes), and on select replaces the typed
- * `\query` with the construct and drops the caret in its first slot. Renders
- * nothing while closed.
+ * `\` inside a math context: a **block** equation OR an **inline** math chip
+ * (edited in place on the canvas — no mirror popover). Self-contained host chrome
+ * (the engine has no notion of it): it observes {@link TEXT_INPUT} to edge-trigger
+ * on a `\`, recomputes the query/anchor from editor state on every change, renders
+ * each candidate as live math (via {@link renderToSVG} — empty `{}` slots show as
+ * faint placeholder boxes), and on select replaces the typed `\query` with the
+ * construct and drops the caret in its first slot. Renders nothing while closed.
  *
- * Inline-math chips reuse the same list — {@link MathCommandPalette} — but
- * docked inside the WYSIWYG overlay (see `InlineMathOverlay`), so this floating
- * controller deliberately handles block equations only.
+ * The two contexts share everything: the `\query` run, its replacement on select
+ * (an interior `insertText` that keeps a chip a single well-anchored span), and
+ * the anchor (`coordsAtPos` at the `\`). They differ only in the gate below —
+ * a block equation is the whole block's LaTeX, whereas a chip is a math-mark span
+ * the `\` must sit strictly inside.
  */
 export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
   editor,
   getContainerRect,
+  disabled = false,
 }) => {
   const useDrawer = useResponsive("(pointer: coarse)");
   // Open trigger lives in a ref (set synchronously inside the TEXT_INPUT handler,
@@ -94,6 +103,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
   );
 
   useEffect(() => {
+    if (disabled) return;
     const recompute = () => {
       const t = triggerRef.current;
       if (!t) return;
@@ -115,9 +125,20 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       ) {
         return close();
       }
-      // This floating menu is for block equations only — inline chips dock the
-      // palette inside their overlay — so bail if we somehow left the block.
-      if (block.type !== "math") return close();
+      // The `\` run must be in a math context. A block equation qualifies whole
+      // (its text IS the LaTeX). Otherwise the `\` must sit strictly inside an
+      // inline math chip (a "math" mark run): past the chip's first char — so
+      // replacing `[backslash, caret)` on select never eats the span's start
+      // anchor — with the caret still within the chip. Query at the backslash
+      // (always interior) rather than the caret, whose right edge is exclusive.
+      if (block.type !== "math") {
+        const chip = editor.query
+          .marks({ block: block.id, offset: t.backslashIndex })
+          .find((m) => m.name === "math");
+        if (!chip || t.backslashIndex <= chip.from || caretIndex > chip.to) {
+          return close();
+        }
+      }
 
       // A LaTeX command name is letters only — a space/brace/digit ends it.
       const query = text.slice(t.backslashIndex + 1, caretIndex);
@@ -138,20 +159,19 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       );
     };
 
-    // Edge-trigger the open on a `\` typed inside a block equation. The `\`
-    // isn't committed yet, so the anchor/query are computed on the next
-    // `subscribe` tick. Desktop keeps typing into the equation; touch devices
-    // move search input into a drawer once it opens.
+    // Edge-trigger the open on any `\`. The `\` isn't committed yet, so the
+    // anchor/query — and the math-context gate (block equation vs. inside an
+    // inline chip) — are decided in `recompute` on the next `subscribe` tick,
+    // which closes again immediately for a `\` typed in plain prose. Desktop
+    // keeps typing into the math; touch devices move search into a drawer.
     const offInput = editor.registerAction(
       TEXT_INPUT,
       ({ text, textIndex }) => {
         if (text !== "\\") return;
-        // Block equations only (their whole text IS the LaTeX, so a `\` anywhere
-        // triggers). Inline chips get their `\` menu docked inside the WYSIWYG
-        // overlay (see InlineMathOverlay), not this floating one. The `\` was
-        // just typed at the caret, so the caret block IS the trigger block.
+        // The `\` was just typed at the caret, so the caret block IS the trigger
+        // block; `recompute` validates the math context.
         const block = editor.query.block();
-        if (block?.type !== "math") return;
+        if (!block) return;
         triggerRef.current = { blockId: block.id, backslashIndex: textIndex };
       },
     );
@@ -160,9 +180,9 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       offInput();
       offSub();
     };
-  }, [editor, getContainerRect, close]);
+  }, [editor, getContainerRect, close, disabled]);
 
-  if (!menu) return null;
+  if (disabled || !menu) return null;
   if (useDrawer) {
     return (
       <MathCommandDrawer

@@ -1,5 +1,6 @@
 import { useDroppable, useDndContext } from "@dnd-kit/core";
 import clsx from "clsx";
+import { useGetPages } from "../../api/pages.api";
 import style from "../Layout.module.css";
 import PagesLinks, { type IParentsStack } from "./PagesLinks";
 
@@ -21,6 +22,8 @@ export function PagesArea({
   color?: string | null;
 }) {
   const { active } = useDndContext();
+  const { data: pages } = useGetPages(spaceId ?? null, parentId);
+  const lastPage = pages?.at(-1);
 
   // Check if this pages area should be disabled
   const isInvalidTarget = () => {
@@ -48,6 +51,8 @@ export function PagesArea({
       accepts: ["pageLink"],
       parentsStack,
       spaceId,
+      order: lastPage ? lastPage.order + 1 : 1,
+      lastPageId: lastPage?.id ?? null,
     },
   });
 

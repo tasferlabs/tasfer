@@ -25,12 +25,15 @@ import {
   CURSOR_DRAG_MOVE,
   CURSOR_DRAG_START,
   IMAGE_PASTE,
+  INDENT_LIST_ITEM,
   OPEN_CONTEXT_MENU,
   OPEN_LINK,
+  OUTDENT_LIST_ITEM,
   REGION_DRAG_START,
   SCROLL,
   TEXT_INPUT,
   createDoc,
+  mathCommandCaretOffset,
   mergeRegister,
   serializeVV,
   type Block,
@@ -89,7 +92,6 @@ import { useTranslation } from "react-i18next";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
-import { InlineMathOverlay } from "../editor/InlineMathOverlay";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
@@ -101,7 +103,7 @@ import {
   openLinkEditMenu,
   type LinkEditOverlayData,
 } from "../editorSchema";
-import { cssVarsToTheme, readEditorTokens } from "../editorTheme";
+import { cssVarsToTheme } from "../editorTheme";
 import { getAppFontRegistry, onAppFontRegistryChange } from "../fonts";
 import { cn } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
@@ -113,11 +115,14 @@ import {
 } from "./contexts/PageSettingsContext";
 import useResponsive from "./hooks/useResponsive";
 import {
+  activeBlockMathCommand,
   createMobileToolbarModel,
   isMobileToolbarBlockType,
+  mathChipAssetName,
   type MobileToolbarAction,
   type MobileToolbarBlockType,
-  type MobileToolbarModel,
+  type MobileToolbarMathContext,
+  type NativeMobileToolbarModel,
 } from "./mobileToolbar";
 import { EditorLoadingState } from "./pages/EditorPage";
 
@@ -925,8 +930,10 @@ const IS_IOS_NATIVE =
   ).Capacitor?.getPlatform?.() === "ios";
 
 /** Post a message to the native `KeyboardToolbar` WKScriptMessageHandler. No-op
- * off iOS / when the handler isn't registered. */
-function postKeyboardToolbar(model: MobileToolbarModel): void {
+ * off iOS / when the handler isn't registered. The native accessory consumes the
+ * flat `items` (plus a compact `mathRow` in math context) and has no use for the
+ * web-only `layout`. */
+function postKeyboardToolbar(model: NativeMobileToolbarModel): void {
   (
     window as {
       webkit?: {
@@ -1058,6 +1065,10 @@ function EditorSurface({
     canOpenMathCommands: false,
     isStrikethrough: false,
     blockType: "paragraph" as MobileToolbarBlockType,
+    listIndent: 0,
+    todoChecked: false,
+    codeLanguage: "",
+    math: null as MobileToolbarMathContext | null,
   });
 
   // Android edge-to-edge WebViews retain their full viewport when the IME opens.
@@ -1171,6 +1182,54 @@ function EditorSurface({
           editor.focus();
           break;
         }
+        case "insert-math-command": {
+          // Tapping a chip in the contextual math row. Mirror the `\` menu's
+          // insert: when a `\command` is being typed, replace it; otherwise drop
+          // the construct at the caret. Either way leave the caret in the first
+          // `{}` slot. Works in both math contexts the row shows in: a block
+          // equation, or strictly inside an inline chip (its LaTeX lives in the
+          // block text, so the offsets below are block-relative either way).
+          const range = editor.state.selection.range;
+          if (
+            !range ||
+            typeof range !== "object" ||
+            !("offset" in range) ||
+            !editor.state.selection.empty
+          ) {
+            break;
+          }
+          const block = editor.query.block(range);
+          if (!block) break;
+          const caretOffset = range.offset ?? 0;
+          const insideInlineMath = editor.query
+            .marks(range)
+            .some(
+              (mark) =>
+                mark.name === "math" &&
+                caretOffset > mark.from &&
+                caretOffset < mark.to,
+            );
+          if (block.type !== "math" && !insideInlineMath) break;
+          const active = activeBlockMathCommand(block.text, caretOffset);
+          const caret = mathCommandCaretOffset(action.latex);
+          editor.change((change) => {
+            if (active) {
+              change.insertText(action.latex, {
+                from: { block: block.id, offset: active.backslashIndex },
+                to: { block: block.id, offset: caretOffset },
+              });
+              change.select({
+                block: block.id,
+                offset: active.backslashIndex + caret,
+              });
+            } else {
+              change.insertText(action.latex);
+              change.select({ block: block.id, offset: caretOffset + caret });
+            }
+          });
+          editor.focus();
+          break;
+        }
         case "toggle-strikethrough":
           editor.change((change) => change.setMark("strike"));
           break;
@@ -1179,6 +1238,33 @@ function EditorSurface({
             change.setBlock({ type: action.blockType as never }),
           );
           break;
+        case "indent-list":
+          editor.dispatch(INDENT_LIST_ITEM);
+          editor.focus();
+          break;
+        case "outdent-list":
+          editor.dispatch(OUTDENT_LIST_ITEM);
+          editor.focus();
+          break;
+        case "toggle-todo": {
+          const block = editor.query.block();
+          if (block?.type !== "todo_list") break;
+          const checked = (block as { checked?: boolean }).checked ?? false;
+          editor.change((change) =>
+            change.setBlock({ checked: !checked }, { block: block.id }),
+          );
+          editor.focus();
+          break;
+        }
+        case "set-code-language": {
+          const block = editor.query.block();
+          if (block?.type !== "code") break;
+          editor.change((change) =>
+            change.setBlock({ language: action.language }, { block: block.id }),
+          );
+          editor.focus();
+          break;
+        }
         case "dismiss":
           dismissMobileKeyboard();
           break;
@@ -1356,11 +1442,34 @@ function EditorSurface({
   );
   useEffect(() => {
     if (!IS_IOS_NATIVE) return;
-    const serialized = JSON.stringify(mobileToolbarModel);
+    // The native accessory renders the flat `items` and ignores the in-webview
+    // `layout` — except the math chip row, which it can't draw from `layout`'s
+    // live SVG chips. So in math context we hand it a compact `mathRow` keyed to
+    // the pre-rendered glyph assets; everywhere else `layout` is simply dropped.
+    const { layout, ...rest } = mobileToolbarModel;
+    const nativeModel: NativeMobileToolbarModel =
+      layout.middle.kind === "math"
+        ? {
+            ...rest,
+            mathRow: {
+              query: layout.middle.query,
+              chips: layout.middle.chips.map((chip) => ({
+                asset: mathChipAssetName(chip.id),
+                latex: chip.latex,
+                name: chip.name,
+              })),
+              noMatchLabel: t(
+                "editor.math.noConstructs",
+                "No matching constructs",
+              ),
+            },
+          }
+        : rest;
+    const serialized = JSON.stringify(nativeModel);
     if (serialized === lastNativeToolbarRef.current) return;
     lastNativeToolbarRef.current = serialized;
-    postKeyboardToolbar(mobileToolbarModel);
-  }, [mobileToolbarModel]);
+    postKeyboardToolbar(nativeModel);
+  }, [mobileToolbarModel, t]);
 
   useEffect(() => {
     const offFocus = editor?.on("focus", () => setKeyboardOpen(true));
@@ -1575,10 +1684,10 @@ function EditorSurface({
       }),
     );
 
-    // Re-push theme tokens whenever the document root's class changes (the
-    // dark-mode toggle swaps the `.dark` class, which flips the CSS variables).
+    // Re-push the CSS-driven editor theme whenever the document root's class
+    // changes. Dark-mode flips both color tokens and targeted style overrides.
     const themeObserver = new MutationObserver(() => {
-      mounted.editor.setTheme({ tokens: readEditorTokens() });
+      mounted.editor.setTheme(cssVarsToTheme());
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
@@ -2017,6 +2126,34 @@ function EditorSurface({
         snapshot.selection.empty &&
         (rawBlockType === "math" || insideInlineMath);
 
+      // Contextual math row. Present whenever the caret rests in math — a block
+      // equation or strictly inside an inline chip — so it supersedes the touch
+      // `\` drawer in both. The chip's LaTeX lives literally in the block text,
+      // so the same `\command` detection works for either. `query` is the
+      // in-progress `\command`, or null while browsing.
+      let math: MobileToolbarMathContext | null = null;
+      if (
+        snapshot.selection.empty &&
+        (rawBlockType === "math" || insideInlineMath) &&
+        caretOffset !== null
+      ) {
+        const mathText = mounted.editor.query.block()?.text ?? "";
+        const active = activeBlockMathCommand(mathText, caretOffset);
+        math = { query: active ? active.query : null };
+      }
+
+      // Structural context for the list/code contextual rows. The fields are
+      // read off the current block; they default to inert values off-context so
+      // the layout builder simply falls back to the formatting row.
+      const contextBlock = mounted.editor.query.block() as
+        | { indent?: number; checked?: boolean; language?: string }
+        | undefined;
+      const listIndent = contextBlock?.indent ?? 0;
+      const todoChecked =
+        rawBlockType === "todo_list" && !!contextBlock?.checked;
+      const codeLanguage =
+        rawBlockType === "code" ? (contextBlock?.language ?? "") : "";
+
       setMobileToolbar({
         canUndo: snapshot.canUndo,
         canRedo: snapshot.canRedo,
@@ -2026,6 +2163,10 @@ function EditorSurface({
         canOpenMathCommands,
         isStrikethrough: snapshot.activeMarks.has("strike"),
         blockType,
+        listIndent,
+        todoChecked,
+        codeLanguage,
+        math,
       });
     });
 
@@ -2499,18 +2640,7 @@ function EditorSurface({
           <MathCommandMenu
             editor={mountedRef.current.editor}
             getContainerRect={getSlashContainerRect}
-          />,
-          mountedRef.current.portalContainer,
-        )}
-
-      {/* WYSIWYG inline-math overlay — a roomy, live mirror of the inline-math
-          chip the caret is inside (the on-line chip is tiny to edit in). */}
-      {mountedRef.current?.portalContainer &&
-        mountedRef.current.editor &&
-        createPortal(
-          <InlineMathOverlay
-            editor={mountedRef.current.editor}
-            getContainerRect={getSlashContainerRect}
+            disabled={isTouchDevice() && !IS_IOS_NATIVE}
           />,
           mountedRef.current.portalContainer,
         )}
@@ -2575,8 +2705,9 @@ function EditorSurface({
           "image-hover"). The suspended-mode signal is the `modalPopoverOpen`
           mirror, derived from the engine's active menu. */}
 
-      {/* The inline-math WYSIWYG mirror renders as a standalone portal
-          (InlineMathOverlay, above), not via the node-overlay registry. */}
+      {/* Inline math is edited in place on the canvas — the chip itself renders
+          large enough to read/edit (see MathMark's INLINE_MATH_SCALE), so there
+          is no separate mirror popover. */}
 
       {/* Image hover buttons + native image drawer render via the
           node-overlay registry above (CypherImageNode.overlays → "image-hover"

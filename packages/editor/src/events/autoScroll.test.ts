@@ -79,12 +79,12 @@ describe("edgeScrollDelta", () => {
     );
   });
 
-  it("ramps up over time when accelerating, capped at EDGE_SCROLL_MAX_SPEED", () => {
+  it("ramps up over time when accelerating, with a very high safety cap", () => {
     const atStart = edgeScrollDelta(-5, VIEWPORT_HEIGHT, accelerated(0));
     const later = edgeScrollDelta(-5, VIEWPORT_HEIGHT, accelerated(2000));
     expect(Math.abs(later)).toBeGreaterThan(Math.abs(atStart));
 
-    // The time multiplier alone never exceeds MAX/BASE
+    // The time multiplier alone never exceeds the high safety cap.
     const muchLater = edgeScrollDelta(
       EDGE_SCROLL_THRESHOLD / 2,
       VIEWPORT_HEIGHT,

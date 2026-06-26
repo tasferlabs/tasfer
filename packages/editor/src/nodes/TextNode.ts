@@ -1017,7 +1017,7 @@ export class TextNode extends Node<TextualBlock> {
     return (
       this.contentInsetY(block, c.styles) +
       estimatedLines * textStyle.fontSize * textStyle.lineHeight +
-      textStyle.paddingBottom
+      this.contentPaddingBottom(block, c.styles, textStyle)
     );
   }
 
@@ -1169,7 +1169,8 @@ export class TextNode extends Node<TextualBlock> {
       if (wl.consumedSpace) textIndex += 1;
     }
 
-    const height = insetY + lineY + textStyle.paddingBottom;
+    const height =
+      insetY + lineY + this.contentPaddingBottom(block, styles, textStyle);
 
     return {
       height,
@@ -1900,6 +1901,21 @@ export class TextNode extends Node<TextualBlock> {
    */
   protected contentInsetY(_block: TextualBlock, _styles: EditorStyles): number {
     return 0;
+  }
+
+  /**
+   * Trailing vertical space after the last line, baked into the layout height.
+   * Defaults to the resolved style's `paddingBottom`; the bottom-edge analogue
+   * of {@link contentInsetY}. A node overrides it to vary that space by context
+   * (QuoteNode shrinks it where it joins the next quote), with the block's
+   * neighbour hints (`block.nextType`) available for the decision.
+   */
+  protected contentPaddingBottom(
+    _block: TextualBlock,
+    _styles: EditorStyles,
+    textStyle: TextStyle,
+  ): number {
+    return textStyle.paddingBottom;
   }
 
   /**

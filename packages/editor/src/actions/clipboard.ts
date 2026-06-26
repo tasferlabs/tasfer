@@ -511,15 +511,14 @@ export async function copySelectionToClipboard(
     const payload = buildClipboardPayload(state);
     if (!payload) return false;
 
-    const { markdown, html } = payload;
+    const { plainText, html } = payload;
 
     if (navigator.clipboard && navigator.clipboard.write) {
       const clipboardItems = [
         new ClipboardItem({
-          // text/plain carries the markdown (formatted) variant so the
-          // markdown-aware paste path round-trips formatting when text/html
-          // isn't used by the target.
-          "text/plain": new Blob([markdown], { type: "text/plain" }),
+          // text/plain is for external/plain paste targets. Rich Cypher
+          // round-trips use text/html, whose hidden marker carries markdown.
+          "text/plain": new Blob([plainText], { type: "text/plain" }),
           "text/html": new Blob([html], { type: "text/html" }),
         }),
       ];
@@ -527,7 +526,7 @@ export async function copySelectionToClipboard(
       await navigator.clipboard.write(clipboardItems);
       return true;
     } else if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(markdown);
+      await navigator.clipboard.writeText(plainText);
       return true;
     }
 

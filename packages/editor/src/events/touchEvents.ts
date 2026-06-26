@@ -6,6 +6,10 @@ import {
   CURSOR_DRAG_END,
   CURSOR_DRAG_MOVE,
 } from "../action-bus";
+import {
+  createParagraphAboveOnClick,
+  createParagraphBelowOnClick,
+} from "../actions/edit-actions";
 import { TEXT_CLICK } from "../actions/pointer-actions";
 import {
   CLOSE_NODE_OVERLAY,
@@ -866,9 +870,19 @@ export function handleTouchEnd(
     const isTapInTopPadding =
       tapPosition.y < styles.canvas.paddingTop - viewport.scrollY;
 
-    // If tapping in top padding, clear selection
+    // If tapping in top padding, start a fresh paragraph above a leading
+    // self-contained block (code/math/quote); otherwise clear selection.
     if (isTapInTopPadding) {
-      state = state.actionBus.dispatchState(TAP_TOP_PADDING, state).state;
+      const edge =
+        state.ui.mode !== "readonly"
+          ? createParagraphAboveOnClick(state, tapPosition.y, viewport)
+          : { kind: "fallthrough" as const };
+      if (edge.kind === "break") {
+        state = edge.state;
+        ops.push(...edge.ops);
+      } else {
+        state = state.actionBus.dispatchState(TAP_TOP_PADDING, state).state;
+      }
 
       session.touch = null;
       return {
@@ -1170,11 +1184,22 @@ export function handleTouchEnd(
         }).state;
       }
 
-      // Single tap outside selection: position cursor and close context menu
+      // Single tap outside selection: position cursor and close context menu.
+      // A tap in the empty area below a trailing self-contained block
+      // (code/math/quote) starts a fresh paragraph there instead.
       else {
-        state = state.actionBus.dispatchState(TAP_PLACE_CURSOR, state, {
-          position,
-        }).state;
+        const edge =
+          state.ui.mode !== "readonly"
+            ? createParagraphBelowOnClick(state, tapPosition.y, viewport)
+            : { kind: "fallthrough" as const };
+        if (edge.kind === "break") {
+          state = edge.state;
+          ops.push(...edge.ops);
+        } else {
+          state = state.actionBus.dispatchState(TAP_PLACE_CURSOR, state, {
+            position,
+          }).state;
+        }
       }
     } else {
       // Tapping outside editor area (padding/margins) - clear selection and close menus

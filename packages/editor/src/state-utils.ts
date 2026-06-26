@@ -127,7 +127,6 @@ export function createInitialState(
       linkHover: null,
       nodeViewState: {},
       selectionHandleDrag: null,
-      autoCreatedParagraph: null,
       inlineMathHover: null,
       hoveredMathBlockIndex: null,
       caretScratch: null,
@@ -215,18 +214,6 @@ export function setActiveMenu(
 
 export function closeActiveMenu(state: EditorState): EditorState {
   return setActiveMenu(state, { type: "none" });
-}
-
-// Clear auto-created paragraph tracking
-export function clearAutoCreatedParagraph(state: EditorState): EditorState {
-  if (!state.ui.autoCreatedParagraph) return state;
-  return {
-    ...state,
-    ui: {
-      ...state.ui,
-      autoCreatedParagraph: null,
-    },
-  };
 }
 
 // ---------------------------------------------------------------------------

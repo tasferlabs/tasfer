@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import type { Block } from "@cypherkit/editor";
-import { ChevronRight, FileText, Layers, RotateCcw } from "lucide-react";
+import { ChevronRight, FileText, GitFork, Layers, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { MountedEditor } from "../MountedEditor";
 
@@ -14,12 +14,16 @@ interface SnapshotPreviewProps {
   };
   onBack: () => void;
   onRestore: () => void;
+  onFork: () => void;
+  isForking?: boolean;
 }
 
 export function SnapshotPreview({
   snapshot,
   onBack,
   onRestore,
+  onFork,
+  isForking,
 }: SnapshotPreviewProps) {
   const { t } = useTranslation();
 
@@ -36,10 +40,23 @@ export function SnapshotPreview({
       </div>
 
       <div className="flex items-center gap-4 justify-between p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t">
-        <Button onClick={onRestore} size={"lg"}>
-          <RotateCcw className="h-3.5 w-3.5 me-1.5" />
-          {t("common.restore", "Restore")}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={onRestore} size={"lg"}>
+            <RotateCcw className="h-3.5 w-3.5 me-1.5" />
+            {t("common.restore", "Restore")}
+          </Button>
+          <Button
+            onClick={onFork}
+            size={"lg"}
+            variant="outline"
+            disabled={isForking}
+          >
+            <GitFork className="h-3.5 w-3.5 me-1.5" />
+            {isForking
+              ? t("snapshot.forking", "Forking...")
+              : t("snapshot.fork", "Fork")}
+          </Button>
+        </div>
 
         <div className="flex items-center justify-between gap-2 flex-1">
           <div className="flex items-center gap-4">

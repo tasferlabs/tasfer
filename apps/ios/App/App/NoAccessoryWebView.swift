@@ -217,17 +217,28 @@ final class KeyboardAccessoryView: UIView {
         button.widthAnchor.constraint(equalToConstant: 44).isActive = true
         button.heightAnchor.constraint(equalToConstant: 40).isActive = true
         button.showsMenuAsPrimaryAction = true
+        // The accessory sits at the bottom of the screen, so this menu opens
+        // upward. UIKit's default `.automatic` element order reverses the items
+        // when a menu presents above its anchor — which flips the usage-ordered
+        // options the web app sends (most- to least-common). The clean fix,
+        // `preferredElementOrder = .fixed`, needs the iOS 16 SDK; this target
+        // still builds against iOS 15, so instead pre-reverse the options here.
+        // `.automatic` then reverses them back, leaving the menu reading
+        // top-to-bottom in the same order as the in-webview bar.
         button.menu = UIMenu(
             title: "",
-            children: rawOptions.compactMap { option -> UIAction? in
+            children: rawOptions.reversed().compactMap { option -> UIAction? in
                 guard let id = option["id"] as? String,
-                    let icon = option["icon"] as? String,
                     let label = option["label"] as? String,
                     let action = option["action"] as? [String: Any]
                 else { return nil }
+                // The icon is optional: language options are label-only.
+                let image = (option["icon"] as? String).flatMap {
+                    UIImage(named: $0)?.withRenderingMode(.alwaysTemplate)
+                }
                 return UIAction(
                     title: label,
-                    image: UIImage(named: icon)?.withRenderingMode(.alwaysTemplate),
+                    image: image,
                     state: id == selected ? .on : .off
                 ) { [weak self] _ in self?.dispatch(action) }
             })
@@ -251,6 +262,118 @@ final class KeyboardAccessoryView: UIView {
         return container
     }
 
+    // MARK: Math chip row
+
+    /// The contextual math row: a pinned `\`-query prefix (live state), the
+    /// matching construct chips (pre-rendered glyph assets), or a clear "no
+    /// match" when a typed command resolves to nothing. Mirrors the web bar.
+    private func addMathChips(_ mathRow: [String: Any], to stack: UIStackView) {
+        let query = mathRow["query"] as? String
+        let chips = mathRow["chips"] as? [[String: Any]] ?? []
+
+        if let query = query {
+            stack.addArrangedSubview(makeQueryLabel("\\" + query))
+        }
+
+        if chips.isEmpty {
+            let text = mathRow["noMatchLabel"] as? String ?? ""
+            stack.addArrangedSubview(makeMutedLabel(text))
+            return
+        }
+
+        for (index, chip) in chips.enumerated() {
+            guard let asset = chip["asset"] as? String,
+                let latex = chip["latex"] as? String
+            else { continue }
+            // In the live state the leftmost chip is the top match.
+            let highlighted = query != nil && index == 0
+            stack.addArrangedSubview(
+                makeChipButton(
+                    asset: asset,
+                    latex: latex,
+                    name: chip["name"] as? String ?? "",
+                    highlighted: highlighted))
+        }
+    }
+
+    private func makeChipButton(
+        asset: String,
+        latex: String,
+        name: String,
+        highlighted: Bool
+    ) -> UIButton {
+        let glyphHeight: CGFloat = 22
+        let button = UIButton(type: .system)
+        let image = UIImage(named: asset)?.withRenderingMode(.alwaysTemplate)
+        button.setImage(image, for: .normal)
+        button.accessibilityLabel = name
+        button.tintColor = highlighted ? activeTint : normalTint
+        button.imageView?.contentMode = .scaleAspectFit
+        button.contentEdgeInsets = UIEdgeInsets(top: 9, left: 10, bottom: 9, right: 10)
+        button.translatesAutoresizingMaskIntoConstraints = false
+
+        // Uniform glyph height; width follows the asset's aspect ratio so a tall
+        // construct (a fraction) and a small one (a Greek letter) read alike.
+        let size = image?.size ?? CGSize(width: glyphHeight, height: glyphHeight)
+        let aspect = size.height > 0 ? size.width / size.height : 1
+        NSLayoutConstraint.activate([
+            button.heightAnchor.constraint(equalToConstant: 40),
+            button.widthAnchor.constraint(equalToConstant: max(44, glyphHeight * aspect + 20)),
+        ])
+
+        if highlighted {
+            button.backgroundColor = activeTint.withAlphaComponent(0.14)
+            button.layer.cornerRadius = 8
+        }
+
+        button.addAction(
+            UIAction { [weak self] _ in
+                self?.dispatch(["type": "insert-math-command", "latex": latex])
+            }, for: .touchUpInside)
+        return button
+    }
+
+    private func makeQueryLabel(_ text: String) -> UIView {
+        let label = UILabel()
+        label.text = text
+        label.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        label.textColor = normalTint
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.setContentHuggingPriority(.required, for: .horizontal)
+
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.backgroundColor = UIColor(named: "Muted") ?? .secondarySystemFill
+        container.layer.cornerRadius = 6
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            container.heightAnchor.constraint(equalToConstant: 26),
+        ])
+        return container
+    }
+
+    private func makeMutedLabel(_ text: String) -> UIView {
+        let label = UILabel()
+        label.text = text
+        label.font = .systemFont(ofSize: 14)
+        label.textColor = normalTint
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            container.heightAnchor.constraint(equalToConstant: 40),
+        ])
+        return container
+    }
+
     /// Rebuild from the same renderer-neutral object used by Android.
     func applyModel(_ model: [String: Any]) {
         guard model["version"] as? Int == 1,
@@ -260,6 +383,10 @@ final class KeyboardAccessoryView: UIView {
         removeArrangedSubviews(from: row)
         removeArrangedSubviews(from: fixedRow)
 
+        // Present in math context only. The native bar can't draw the web bar's
+        // live SVG chip row, so it renders pre-baked glyph assets instead.
+        let mathRow = model["mathRow"] as? [String: Any]
+
         var addRemainingItemsToFixedRow = false
         for item in items {
             guard let kind = item["kind"] as? String else { continue }
@@ -268,6 +395,13 @@ final class KeyboardAccessoryView: UIView {
             }
 
             let destination = addRemainingItemsToFixedRow ? fixedRow : row
+
+            // The math-command button's slot becomes the contextual chip row.
+            if item["id"] as? String == "math-command", let mathRow = mathRow {
+                addMathChips(mathRow, to: destination)
+                continue
+            }
+
             switch kind {
             case "button":
                 guard let icon = item["icon"] as? String,

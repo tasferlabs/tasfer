@@ -66,24 +66,42 @@ function commandRangesFor(text: string, edit: MarkReplacementEdit | undefined) {
   return mathCommandRanges(text, edit?.caretOffset ?? null, !!edit?.editing);
 }
 
+/**
+ * Inline chips render this much larger than the surrounding text so the formula
+ * stays legible and editable directly in the line — taking the space it needs
+ * despite being inline. This replaces the old magnified mirror popover: rather
+ * than a separate, larger copy of the chip, the chip itself is drawn large and
+ * the line grows around it.
+ *
+ * Applied identically across `measure`, `caretRect`, `hitTest`, and `paint`, so
+ * the reserved width, expanded line height, painted glyphs, caret geometry, and
+ * click hit-testing all agree on one size. It is the single tunable knob.
+ */
+const INLINE_MATH_SCALE = 1.4;
+
 const inlineMathReplacement: MarkReplacement = {
   measure(text, fontSize, edit) {
     return getInlineMathDims(
       text,
-      fontSize,
+      fontSize * INLINE_MATH_SCALE,
       commandRangesFor(text, edit).literalRange,
     );
   },
   caretRect(text, fontSize, offset, edit) {
     return getInlineMathCaretRect(
       text,
-      fontSize,
+      fontSize * INLINE_MATH_SCALE,
       offset,
       commandRangesFor(text, edit).literalRange,
     );
   },
   hitTest(text, fontSize, localX, localY) {
-    return getInlineMathOffsetAtX(text, fontSize, localX, localY);
+    return getInlineMathOffsetAtX(
+      text,
+      fontSize * INLINE_MATH_SCALE,
+      localX,
+      localY,
+    );
   },
   paint({ ctx, text, x, y, fontSize, isRTL, hovered, dims, styles, edit }) {
     const mathStyle = styles.textFormats.inlineMath;
@@ -116,7 +134,7 @@ const inlineMathReplacement: MarkReplacement = {
     // the caret moves on.
     const { literalRange, pendingRange } = commandRangesFor(text, edit);
     const layout = layoutMath(text, {
-      fontSize,
+      fontSize: fontSize * INLINE_MATH_SCALE,
       displayMode: false,
       literalRange,
     });

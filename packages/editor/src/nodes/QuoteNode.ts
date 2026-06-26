@@ -109,10 +109,27 @@ export class QuoteNode extends TextNode {
   }
 
   protected override contentInsetY(
-    _block: TextualBlock,
+    block: TextualBlock,
     styles: EditorStyles,
   ): number {
-    return styles.blocks.quote.paddingY;
+    const quote = styles.blocks.quote;
+    // A quote that follows another quote tightens its top inset, so the shared
+    // edge reads as one card with reduced internal spacing rather than two full
+    // pads stacked. `prevType` is the neighbour hint stamped by getVisibleBlocks;
+    // a flip clears this block's layout cache, so the reduced inset recomputes.
+    return block.prevType === "quote" ? quote.joinedPaddingY : quote.paddingY;
+  }
+
+  protected override contentPaddingBottom(
+    block: TextualBlock,
+    styles: EditorStyles,
+  ): number {
+    const quote = styles.blocks.quote;
+    // Mirror of contentInsetY for the bottom edge: a quote followed by a quote
+    // shrinks its trailing space so the two halves of the seam are symmetric.
+    return block.nextType === "quote"
+      ? quote.joinedPaddingY
+      : quote.paddingBottom;
   }
 
   override paint(passedLayout: NodeLayout, c: NodePaintCtx): RenderedBlock {

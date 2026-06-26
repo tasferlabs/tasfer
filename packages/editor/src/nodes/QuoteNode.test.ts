@@ -1,10 +1,12 @@
 import { DELETE_BACKWARD, SPLIT_BLOCK } from "../actions/edit-actions";
+import { getBlockHeight } from "../rendering/renderer";
 import { serializeToHTMLFragment } from "../serlization/htmlSerializer";
 import type { Block } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type { CursorState, EditorState, Page } from "../state-types";
 import { createInitialState } from "../state-utils";
+import { getEditorStyles } from "../styles";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { type QuoteBlock, quoteJoinFlags } from "./QuoteNode";
 import { describe, expect, it } from "vitest";
@@ -82,6 +84,78 @@ describe("quoteJoinFlags (consecutive-quote coupling)", () => {
     expect(quoteJoinFlags(blocks, 2).joinTop).toBe(true);
   });
 });
+
+describe("consecutive-quote spacing", () => {
+  const WIDTH = 600;
+
+  // Height of one quote in a freshly-built page, with neighbour hints stamped by
+  // createInitialState's getVisibleBlocks pass.
+  function heightOf(blockIndex: number, ...quotes: QuoteBlock[]): number {
+    const state = createInitialState(pageWith(...quotes));
+    const styles = getEditorStyles(state);
+    return getBlockHeight(
+      state.nodes,
+      state.marks,
+      state.document.page.blocks[blockIndex],
+      WIDTH,
+      styles,
+      false,
+    );
+  }
+
+  const q = getEditorStyles(createInitialState(pageWith(quoteBlock("A"))))
+    .blocks.quote;
+  const topInsetSaving = q.paddingY - q.joinedPaddingY;
+  const bottomSaving = q.paddingBottom - q.joinedPaddingY;
+
+  it("keeps a standalone quote at full height", () => {
+    const solo = heightOf(0, quoteBlock("A"));
+    expect(solo).toBeGreaterThan(0);
+    // A quote between two paragraphs joins nothing, so same as solo.
+    const flanked = createInitialState(
+      pageWith(
+        paragraphBlock("p0"),
+        quoteBlock("A", "q1"),
+        paragraphBlock("p2"),
+      ),
+    );
+    const styles = getEditorStyles(flanked);
+    const h = getBlockHeight(
+      flanked.nodes,
+      flanked.marks,
+      flanked.document.page.blocks[1],
+      WIDTH,
+      styles,
+      false,
+    );
+    expect(h).toBe(solo);
+  });
+
+  it("shrinks the shared edge of consecutive quotes", () => {
+    const solo = heightOf(0, quoteBlock("A"));
+    const first = heightOf(0, quoteBlock("A", "q0"), quoteBlock("A", "q1"));
+    const second = heightOf(1, quoteBlock("A", "q0"), quoteBlock("A", "q1"));
+
+    // First of the run reduces only its bottom; second reduces only its top.
+    expect(solo - first).toBe(bottomSaving);
+    expect(solo - second).toBe(topInsetSaving);
+  });
+
+  it("shrinks both edges of a quote bracketed by quotes", () => {
+    const solo = heightOf(0, quoteBlock("A"));
+    const middle = heightOf(
+      1,
+      quoteBlock("A", "q0"),
+      quoteBlock("A", "q1"),
+      quoteBlock("A", "q2"),
+    );
+    expect(solo - middle).toBe(topInsetSaving + bottomSaving);
+  });
+});
+
+function paragraphBlock(id: string): Block {
+  return { id, type: "paragraph", charRuns: [], formats: [] };
+}
 
 function quoteBlock(text: string, id = "quote-1"): QuoteBlock {
   return {

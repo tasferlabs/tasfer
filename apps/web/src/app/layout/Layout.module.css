@@ -579,7 +579,14 @@
 }
 
 .appSidebarPages {
-  padding-block: 0;
+  /*
+   * Vertical room for the first/last item's drop indicators. The `before` zone
+   * sits at top: -4px and the `after` zone at bottom: -4px, so at the very top
+   * and bottom of a list they overhang the content box. Without this padding,
+   * `overflow: hidden` clips those indicators: the drop still registers but its
+   * preview line is never painted. Must be >= the 4px indicator overhang.
+   */
+  padding-block: 6px;
   padding-inline: 1rem 0.25rem;
   flex: 1 1 auto;
   border-radius: 4px;

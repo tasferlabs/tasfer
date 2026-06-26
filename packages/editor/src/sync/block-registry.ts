@@ -52,6 +52,17 @@ export interface BlockCapabilities {
    */
   readonly preformatted?: boolean;
   /**
+   * Self-contained block you "fall out of" at the document edge. When the caret
+   * is on the block's first/last line and the block is the first/last in the
+   * document, a vertical caret move (ArrowUp/Down, PageUp/Down) or a click in the
+   * empty area above/below it starts a fresh paragraph there and places the caret
+   * in it, instead of clamping to the block's own text. Set on code / math /
+   * quote; left off for paragraph / heading / list, whose edge lines are ordinary
+   * continuable text. Visual void blocks (image / line) get the same effect via
+   * the non-textual branch and don't set this.
+   */
+  readonly selfContained?: boolean;
+  /**
    * Text-morph compatibility group. A block can be morphed to another via
    * `block_set { field: "type" }` without orphaning CRDT-tracked content
    * (charRuns/formats) exactly when both share the same non-empty `morphGroup`
@@ -178,6 +189,14 @@ const HEADING_CAPS: BlockCapabilities = {
   isHeading: true,
 };
 
+// A quote is ordinary rich text in a card, but it reads as a self-contained
+// block: at the document's end you "fall out of" it into a fresh paragraph
+// rather than continuing inside the card.
+const QUOTE_CAPS: BlockCapabilities = {
+  ...TEXTUAL_CAPS,
+  selfContained: true,
+};
+
 const BULLET_CAPS: BlockCapabilities = {
   hasText: true,
   hasFormats: true,
@@ -217,6 +236,7 @@ const CODE_CAPS: BlockCapabilities = {
   indentable: false,
   togglable: false,
   preformatted: true,
+  selfContained: true,
 };
 
 // Math blocks are textual too — their char-run text IS the LaTeX, so the caret
@@ -233,6 +253,7 @@ const MATH_CAPS: BlockCapabilities = {
   indentable: false,
   togglable: false,
   preformatted: true,
+  selfContained: true,
   morphGroup: "text",
 };
 
@@ -253,7 +274,7 @@ const paragraphDescriptor = {
 
 const quoteDescriptor = {
   type: "quote",
-  capabilities: TEXTUAL_CAPS,
+  capabilities: QUOTE_CAPS,
   defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "quote",
@@ -465,6 +486,17 @@ export function isTextualBlock(block: Block): block is TextualBlock {
 
 export function canHaveFormats(type: string): boolean {
   return REGISTRY[type]?.capabilities.hasFormats ?? false;
+}
+
+/**
+ * Whether a vertical caret move or a click past the edge of this block should
+ * escape into a fresh paragraph above/below it rather than land inside the block
+ * (see {@link BlockCapabilities.selfContained}). True for code / math / quote;
+ * false for ordinary text blocks. Visual void blocks are handled by the
+ * non-textual branch and report false here.
+ */
+export function isSelfContained(block: Block): boolean {
+  return REGISTRY[block.type]?.capabilities.selfContained ?? false;
 }
 
 export function isIndentable(type: string): boolean {

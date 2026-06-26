@@ -135,6 +135,80 @@ describe("CodeNode editing actions", () => {
     expect(block.type).toBe("code");
   });
 
+  it("Backspace from following text selects a previous code block before deleting it", () => {
+    const code = codeBlock("const x = 1;");
+    const paragraph = {
+      id: "p-1",
+      afterId: "code-1",
+      deleted: false as const,
+      type: "paragraph" as const,
+      charRuns: [{ peerId: "peer", startCounter: 50, text: "after" }],
+      formats: [],
+    };
+    const state0 = createInitialState(pageWith(code, paragraph));
+    const state = withCursor(state0, cursorAt(1, 0));
+
+    const selected = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+
+    expect(selected.ops).toHaveLength(0);
+    expect(selected.state.document.page.blocks[0].type).toBe("code");
+    expect(selected.state.document.page.blocks[0].deleted).toBe(false);
+    expect(selected.state.document.selection).toMatchObject({
+      anchor: { blockIndex: 0, textIndex: 0 },
+      focus: { blockIndex: 0, textIndex: 0 },
+      isCollapsed: false,
+    });
+
+    const deleted = selected.state.actionBus.dispatchState(
+      DELETE_BACKWARD,
+      selected.state,
+    );
+
+    expect(deleted.ops[0].op).toBe("block_delete");
+    expect(deleted.state.document.page.blocks[0].deleted).toBe(true);
+    expect(
+      deleted.state.document.page.blocks.filter((block) => !block.deleted),
+    ).toHaveLength(1);
+  });
+
+  it("Backspace from an empty following text block removes it and selects previous empty code", () => {
+    const code = codeBlock("");
+    const paragraph = {
+      id: "p-1",
+      afterId: "code-1",
+      deleted: false as const,
+      type: "paragraph" as const,
+      charRuns: [],
+      formats: [],
+    };
+    const state0 = createInitialState(pageWith(code, paragraph));
+    const state = withCursor(state0, cursorAt(1, 0));
+
+    const selected = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+
+    expect(selected.ops.map((op) => op.op)).toEqual(["block_delete"]);
+    expect(selected.state.document.page.blocks[1].deleted).toBe(true);
+    expect(selected.state.document.selection).toMatchObject({
+      anchor: { blockIndex: 0, textIndex: 0 },
+      focus: { blockIndex: 0, textIndex: 0 },
+      isCollapsed: false,
+    });
+
+    const deleted = selected.state.actionBus.dispatchState(
+      DELETE_BACKWARD,
+      selected.state,
+    );
+    const live = deleted.state.document.page.blocks.filter(
+      (block) => !block.deleted,
+    );
+
+    expect(deleted.ops.map((op) => op.op)).toEqual([
+      "block_delete",
+      "block_insert",
+    ]);
+    expect(live.map((block) => block.type)).toEqual(["paragraph"]);
+  });
+
   it("Enter still splits a normal paragraph (regression)", () => {
     const paragraph = {
       id: "p-1",

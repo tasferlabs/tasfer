@@ -599,6 +599,54 @@ export function getBlockIndexAtPoint(
 }
 
 /**
+ * Whether canvas-y `y` lands in the empty area *below* the last visible block
+ * (not merely below the fold). Used to distinguish a click in the trailing
+ * whitespace from a click on the block's own last line — only the former
+ * escapes a self-contained block into a fresh paragraph. Returns `false` when
+ * there are no visible blocks.
+ */
+export function isPointBelowContent(
+  y: number,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+): boolean {
+  const visibleBlocks = state.view.visibleBlocks;
+  if (visibleBlocks.length === 0) return false;
+
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  for (let i = 0; i < visibleBlocks.length; i++) {
+    currentY += getBlockHeight(
+      state.nodes,
+      state.marks,
+      visibleBlocks[i],
+      maxWidth,
+      styles,
+      i === 0,
+    );
+  }
+  return y >= currentY;
+}
+
+/**
+ * Whether canvas-y `y` lands in the empty area *above* the first block (the top
+ * padding). Mirror of {@link isPointBelowContent} for the upward escape — only a
+ * click above the content escapes a self-contained first block into a paragraph
+ * above. Returns `false` when there are no visible blocks.
+ */
+export function isPointAboveContent(
+  y: number,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+): boolean {
+  if (state.view.visibleBlocks.length === 0) return false;
+  return y < styles.canvas.paddingTop - viewport.scrollY;
+}
+
+/**
  * Get selection handle positions for mobile selection dragging.
  * Returns coordinates for both anchor and focus handles.
  * The anchor handle appears at the start of selection, focus at the end.
@@ -1010,6 +1058,90 @@ export function moveCursorDown(
     blockIndex,
     getBlockTextLength(currentBlock),
   );
+}
+
+/**
+ * Whether the caret sits on the last visual line of its (textual) block, so a
+ * downward move would leave the block. Mirrors {@link moveCursorDown}'s last-line
+ * test: an in-block vertical step (e.g. a formula row below) or any line below
+ * the caret's line means it is not yet at the bottom. Non-textual blocks have no
+ * line concept and report `false` (their escape is driven by the visual-block
+ * branch instead). Used to gate "escape into a trailing paragraph" at the
+ * document edge for self-contained blocks (code / math / quote).
+ */
+export function caretAtBlockBottom(
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+): boolean {
+  if (!state.document.cursor) return false;
+
+  const { blockIndex, textIndex } = state.document.cursor.position;
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return false;
+
+  // A row below within the block's own content (e.g. inside a formula) means the
+  // caret can still descend without leaving the block.
+  if (caretVerticalStep(state, block, textIndex, "down") !== null) return false;
+
+  const node = textNodeFor(state, block);
+  if (!node) return true;
+
+  const maxWidth = viewport
+    ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
+    : 800;
+  const layout = layoutFor(
+    node,
+    block,
+    blockIndex,
+    maxWidth,
+    styles,
+    state.marks,
+  );
+  const lineIdx = lineIndexAt(layout, textIndex);
+  if (lineIdx === -1) return true;
+  return lineIdx >= layout.lines.length - 1;
+}
+
+/**
+ * Mirror of {@link caretAtBlockBottom} for upward moves: whether the caret sits
+ * on the *first* visual line of its (textual) block, so an upward move would
+ * leave the block. A row above within the block's own content (e.g. a formula
+ * row) or any line above the caret's line means it is not yet at the top.
+ * Non-textual blocks report `false`. Used to gate "escape into a paragraph
+ * above" at the document start for self-contained blocks (code / math / quote).
+ */
+export function caretAtBlockTop(
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+): boolean {
+  if (!state.document.cursor) return false;
+
+  const { blockIndex, textIndex } = state.document.cursor.position;
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return false;
+
+  // A row above within the block's own content means the caret can still ascend
+  // without leaving the block.
+  if (caretVerticalStep(state, block, textIndex, "up") !== null) return false;
+
+  const node = textNodeFor(state, block);
+  if (!node) return true;
+
+  const maxWidth = viewport
+    ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
+    : 800;
+  const layout = layoutFor(
+    node,
+    block,
+    blockIndex,
+    maxWidth,
+    styles,
+    state.marks,
+  );
+  const lineIdx = lineIndexAt(layout, textIndex);
+  return lineIdx <= 0;
 }
 /**
  * Move cursor up by one page

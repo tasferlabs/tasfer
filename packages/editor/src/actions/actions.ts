@@ -33,7 +33,6 @@ import type {
 import {
   caretStep,
   caretTokenClamp,
-  clearAutoCreatedParagraph,
   getBlockTextContent,
   getBlockTextLength,
   resolveDeleteUnit,
@@ -695,24 +694,21 @@ export function deleteSelectedText(state: EditorState): ActionResult {
   if (!range) return { state, ops: [] };
 
   const ops: Operation[] = [];
-
-  // SAFETY: Convert selection to CRDT and back for validation against concurrent updates
-  const crdtRange = selectionRangeToCRDT(state.document.page, range);
-  if (!crdtRange) return { state, ops: [] };
-
-  const freshRange = crdtToSelectionRange(state.document.page, crdtRange);
-  if (!freshRange) return { state, ops: [] };
-
-  const { start, end } = freshRange;
+  let { start, end } = range;
 
   if (start.blockIndex === end.blockIndex) {
     // Single block selection
     const block = state.document.page.blocks[start.blockIndex];
     if (!block || block.deleted) return { state, ops: [] };
 
-    // Handle visual (image/line/math) block deletion
-    if (!isTextualBlock(block)) {
-      // Delete the visual block — tombstone (don't splice) so undo can find it
+    // Handle whole-block deletion. Non-text visual blocks and contained textual
+    // blocks (code/math) use anchor === focus with isCollapsed=false to mean the
+    // block itself is selected, not an empty character range.
+    if (
+      start.textIndex === end.textIndex &&
+      (!isTextualBlock(block) || isPreformattedType(block.type))
+    ) {
+      // Delete the selected block — tombstone (don't splice) so undo can find it
       const blockDeleteOp: Operation = {
         op: "block_delete",
         id: state.CRDTbinding.nextId(),
@@ -722,8 +718,9 @@ export function deleteSelectedText(state: EditorState): ActionResult {
       };
       ops.push(blockDeleteOp);
 
-      const visibleBlocks = state.view.visibleBlocks;
-      const wasOnlyVisibleBlock = visibleBlocks.length === 1;
+      const wasOnlyVisibleBlock =
+        state.document.page.blocks.filter((candidate) => !candidate.deleted)
+          .length === 1;
 
       // Tombstone the deleted block in place
       const tombstonedBlocks = [...state.document.page.blocks];
@@ -787,6 +784,17 @@ export function deleteSelectedText(state: EditorState): ActionResult {
       return { state: newState, ops };
     }
 
+    // SAFETY: Convert selection to CRDT and back for validation against
+    // concurrent updates. Whole-block selections are handled above because an
+    // anchor === focus selection has no character range to convert.
+    const crdtRange = selectionRangeToCRDT(state.document.page, range);
+    if (!crdtRange) return { state, ops: [] };
+
+    const freshRange = crdtToSelectionRange(state.document.page, crdtRange);
+    if (!freshRange) return { state, ops: [] };
+    start = freshRange.start;
+    end = freshRange.end;
+
     // Handle text block deletion using CRDT helper
     const { newPage: pageAfterDelete, op } = deleteCharsInRange(
       state.document.page,
@@ -823,6 +831,16 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     newState = clearSelection(newState);
     return { state: newState, ops };
   } else {
+    // SAFETY: Convert selection to CRDT and back for validation against
+    // concurrent updates.
+    const crdtRange = selectionRangeToCRDT(state.document.page, range);
+    if (!crdtRange) return { state, ops: [] };
+
+    const freshRange = crdtToSelectionRange(state.document.page, crdtRange);
+    if (!freshRange) return { state, ops: [] };
+    start = freshRange.start;
+    end = freshRange.end;
+
     // Multi-block selection
     const startBlock = state.document.page.blocks[start.blockIndex];
     const endBlock = state.document.page.blocks[end.blockIndex];
@@ -1191,7 +1209,6 @@ export function insertText(state: EditorState, input: string): ActionResult {
 
   // Preserve active formats when moving cursor after typing
   newState = moveCursorToPosition(newState, blockIndex, finalTextIndex, true);
-  newState = clearAutoCreatedParagraph(newState);
   newState = updateMode(newState, "edit");
 
   // Post-insert normalization: a node/mark observes TEXT_INPUTTED to materialize

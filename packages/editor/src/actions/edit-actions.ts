@@ -14,9 +14,10 @@
  *
  * This module also exports the shared arrow-key edge helpers
  * ({@link selectVisualBlockAfterMove}, {@link createParagraphAbove},
- * {@link createParagraphBelow}, {@link removeAutoCreatedParagraph}) that the six
- * arrow/page branches used to copy-paste verbatim — extracted so all six share
- * one implementation without changing behavior.
+ * {@link createParagraphBelow}, and the self-contained-block escapes
+ * {@link escapeAboveSelfContainedBlock} / {@link escapeBelowSelfContainedBlock})
+ * that the arrow/page branches used to copy-paste verbatim — extracted so they
+ * share one implementation.
  */
 
 import {
@@ -27,13 +28,23 @@ import {
 } from "../action-bus";
 import type { ChangeApi, DocRange } from "../entries/editor";
 import { invalidateBlockCache } from "../rendering/renderer";
-import { getTextDirection } from "../rtl";
-import { clearSelection, moveCursorToPosition } from "../selection";
+import {
+  caretAtBlockBottom,
+  caretAtBlockTop,
+  clearSelection,
+  isPointAboveContent,
+  isPointBelowContent,
+  moveCursorToPosition,
+} from "../selection";
 import type { Block, Mark } from "../serlization/loadPage";
-import type { EditorState, Operation } from "../state-types";
-import { clearAutoCreatedParagraph, getBlockTextContent } from "../state-utils";
+import type { EditorState, Operation, ViewportState } from "../state-types";
+import { getBlockTextContent } from "../state-utils";
 import { findBlock } from "../sync/block-lookup";
-import { isTextualBlock } from "../sync/block-registry";
+import {
+  isPreformattedType,
+  isSelfContained,
+  isTextualBlock,
+} from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { markCharsInRange } from "../sync/crdt-utils";
 import { applyOps, findPreviousVisibleBlockIndex } from "../sync/reducer";
@@ -160,10 +171,68 @@ export const JOIN_WITH_PREVIOUS_BLOCK = stateAction<BlockBoundaryContext>(
     if (!sameBoundary(backwardBoundaryContext(state), boundary)) {
       return { state, ops: [] };
     }
+    const selected = selectPreviousContainedBlockAtBoundary(state, boundary);
+    if (selected) return selected;
     const result = deleteText(state);
     return { state: result.state, ops: result.ops };
   },
 );
+
+function selectPreviousContainedBlockAtBoundary(
+  state: EditorState,
+  boundary: BlockBoundaryContext,
+): StateResult | null {
+  const currentBlock = state.document.page.blocks[boundary.currentBlockIndex];
+  const previousBlock = state.document.page.blocks[boundary.previousBlockIndex];
+  if (
+    !currentBlock ||
+    currentBlock.deleted ||
+    !previousBlock ||
+    previousBlock.deleted ||
+    !isTextualBlock(currentBlock) ||
+    !isPreformattedType(previousBlock.type)
+  ) {
+    return null;
+  }
+
+  const ops: Operation[] = [];
+  let next = state;
+  if (getBlockTextContent(currentBlock).length === 0) {
+    const blockDeleteOp: Operation = {
+      op: "block_delete",
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
+      blockId: currentBlock.id,
+    };
+    ops.push(blockDeleteOp);
+    next = {
+      ...next,
+      document: {
+        ...next.document,
+        page: applyOps(next.document.page, [blockDeleteOp]),
+      },
+    };
+  }
+
+  const position = { blockIndex: boundary.previousBlockIndex, textIndex: 0 };
+  next = moveCursorToPosition(next, position.blockIndex, position.textIndex);
+  next = {
+    ...next,
+    document: {
+      ...next.document,
+      selection: {
+        anchor: position,
+        focus: position,
+        isForward: true,
+        isCollapsed: false,
+        lastUpdate: Date.now(),
+      },
+    },
+  };
+
+  return { state: next, ops };
+}
 
 /**
  * Default reusable implementation for a node that joins into the previous
@@ -227,7 +296,7 @@ export const DELETE_BACKWARD = stateAction("delete-backward", (state) => {
   const result = boundary
     ? state.actionBus.dispatchState(JOIN_WITH_PREVIOUS_BLOCK, state, boundary)
     : deleteText(state);
-  return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
+  return { state: result.state, ops: result.ops };
 });
 
 /**
@@ -287,14 +356,14 @@ export const DELETE_WORD_BACKWARD = stateAction(
   "delete-word-backward",
   (state) => {
     const result = deleteWordBackward(state);
-    return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
+    return { state: result.state, ops: result.ops };
   },
 );
 
 /** Delete forward one position / the selection (Delete). */
 export const DELETE_FORWARD = stateAction("delete-forward", (state) => {
   const result = deleteForward(state);
-  return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
+  return { state: result.state, ops: result.ops };
 });
 
 /** Delete forward to the next word boundary (Ctrl/Cmd+Delete). */
@@ -302,19 +371,16 @@ export const DELETE_WORD_FORWARD = stateAction(
   "delete-word-forward",
   (state) => {
     const result = deleteWordForward(state);
-    return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
+    return { state: result.state, ops: result.ops };
   },
 );
 
 // ─── Block structure ─────────────────────────────────────────────────────────
 
-/**
- * Split the current block at the caret (Enter), then clear the auto-created
- * paragraph tracking just as the inline handler did.
- */
+/** Split the current block at the caret (Enter). */
 export const SPLIT_BLOCK = stateAction("split-block", (state) => {
   const result = splitBlock(state);
-  return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
+  return { state: result.state, ops: result.ops };
 });
 
 /**
@@ -361,19 +427,10 @@ export const CLEAR_SELECTION = stateAction("clear-selection", (state) => ({
 // block" or selection direction is derived) and act on the result.
 
 /**
- * After a caret move, run the two trailing effects every non-shift arrow/page
- * branch shared:
- *  1. if the caret landed on a visual (non-textual) block, select that block;
- *  2. clear auto-created-paragraph tracking if the caret moved off the tracked
- *     block.
- *
- * `prevState` is the pre-move state (the source of `autoCreatedParagraph`);
- * `newState` is the post-move state. Pure cursor/selection effect — no ops.
+ * After a caret move, if the caret landed on a visual (non-textual) block,
+ * select that block. Pure cursor/selection effect — no ops.
  */
-export function selectVisualBlockAfterMove(
-  prevState: EditorState,
-  newState: EditorState,
-): EditorState {
+export function selectVisualBlockAfterMove(newState: EditorState): EditorState {
   if (newState.document.cursor) {
     const targetBlock =
       newState.document.page.blocks[
@@ -398,16 +455,6 @@ export function selectVisualBlockAfterMove(
         },
       };
     }
-
-    // Clear auto-created paragraph tracking only if we moved away from it
-    if (
-      prevState.ui.autoCreatedParagraph &&
-      newState.document.cursor &&
-      newState.document.cursor.position.blockIndex !==
-        prevState.ui.autoCreatedParagraph.blockIndex
-    ) {
-      newState = clearAutoCreatedParagraph(newState);
-    }
   }
   return newState;
 }
@@ -424,30 +471,83 @@ export type EdgeOutcome =
   | { kind: "fallthrough" };
 
 /**
- * Auto-create an empty paragraph *above* a visual block sitting at the document
- * edge, then move the caret into it. Shared by ArrowLeft (no tracking),
- * ArrowUp / PageUp (tracking). The caller passes:
- *  - `isFirstBlock` — its own notion of "the visual block is first" (ArrowLeft
- *    compares ids against the first visible block; ArrowUp/PageUp test index 0);
- *  - `currentBlock` — the block the caret is on;
- *  - `track` — whether to record the new paragraph in `autoCreatedParagraph`
- *    (ArrowUp/PageUp do; ArrowLeft does not).
+ * Auto-create an empty paragraph *above* a *visual* block sitting at the document
+ * edge, then move the caret into it. Shared, identically, by ArrowLeft, ArrowUp
+ * and PageUp. `isFirstBlock` / `currentBlock` are the caller's edge test (ArrowLeft
+ * compares ids against the first visible block; ArrowUp/PageUp test index 0).
  *
+ * Only visual void blocks (image / line) escape here, so it applies to horizontal
+ * *and* vertical moves alike. The vertical-only escape for self-contained text
+ * blocks (code / math / quote) lives in {@link escapeAboveSelfContainedBlock}.
  * Returns `fallthrough` unless the edge applies.
  */
 export function createParagraphAbove(
   state: EditorState,
   isFirstBlock: boolean,
   currentBlock: Block | undefined,
-  track: boolean,
 ): EdgeOutcome {
   if (!(isFirstBlock && currentBlock && !isTextualBlock(currentBlock))) {
     return { kind: "fallthrough" };
   }
+  return prependLeadingParagraph(state);
+}
 
+/**
+ * Append an empty paragraph after `afterBlock` (assumed to be the last block),
+ * move the caret into it, and emit the `block_insert`. The shared body behind
+ * every "escape into a trailing paragraph" edge; callers do the gating. Always
+ * returns `break`.
+ */
+function appendTrailingParagraph(
+  state: EditorState,
+  afterBlock: Block,
+): EdgeOutcome {
   const ops: Operation[] = [];
 
-  // Create a new paragraph above the visual block
+  const newParagraphId = state.CRDTbinding.nextId();
+  const newParagraph: Block = {
+    id: newParagraphId,
+    afterId: afterBlock.id,
+    type: "paragraph",
+    charRuns: [],
+    formats: [],
+  };
+
+  const blockInsertOp: Operation = {
+    op: "block_insert",
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+    afterBlockId: afterBlock.id,
+    blockId: newParagraphId,
+    blockType: "paragraph",
+  };
+
+  const newBlocks = [...state.document.page.blocks, newParagraph];
+  const newPage = { ...state.document.page, blocks: newBlocks };
+
+  let newState: EditorState = {
+    ...state,
+    document: { ...state.document, page: newPage },
+  };
+  newState = clearSelection(newState);
+  newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
+
+  // Broadcast the operation
+  ops.push(blockInsertOp);
+
+  return { kind: "break", state: newState, ops };
+}
+
+/**
+ * Prepend an empty paragraph at the head of the document (before the current
+ * first block), move the caret into it, and emit the `block_insert`. The
+ * upward-escape counterpart to {@link appendTrailingParagraph}; callers do the
+ * gating. Always returns `break`.
+ */
+function prependLeadingParagraph(state: EditorState): EdgeOutcome {
+  const ops: Operation[] = [];
+
   const newParagraphId = state.CRDTbinding.nextId();
   const newParagraph: Block = {
     id: newParagraphId,
@@ -470,38 +570,30 @@ export function createParagraphAbove(
   const newBlocks = [newParagraph, ...state.document.page.blocks];
   const newPage = { ...state.document.page, blocks: newBlocks };
 
-  let newState: EditorState = track
-    ? {
-        ...state,
-        document: { ...state.document, page: newPage },
-        ui: {
-          ...state.ui,
-          autoCreatedParagraph: {
-            blockIndex: 0,
-            blockId: newParagraph.id,
-          },
-        },
-      }
-    : {
-        ...state,
-        document: { ...state.document, page: newPage },
-      };
+  let newState: EditorState = {
+    ...state,
+    document: { ...state.document, page: newPage },
+  };
+  newState = clearSelection(newState);
+  newState = moveCursorToPosition(newState, 0, 0);
 
   // Broadcast the operation
   ops.push(blockInsertOp);
-
-  newState = clearSelection(newState);
-  newState = moveCursorToPosition(newState, 0, 0);
 
   return { kind: "break", state: newState, ops };
 }
 
 /**
- * Auto-create an empty paragraph *below* a visual block sitting at the document
- * edge, then move the caret into it. Shared, identically, by ArrowRight,
+ * Auto-create an empty paragraph *below* a *visual* block sitting at the
+ * document edge, then move the caret into it. Shared, identically, by ArrowRight,
  * ArrowDown and PageDown (none of which set tracking). `isLastBlock` /
- * `currentBlock` are the caller's edge test. Returns `fallthrough` unless the
- * edge applies.
+ * `currentBlock` are the caller's edge test.
+ *
+ * Only visual void blocks (image / line) — which have no continuable text —
+ * escape here, so it applies to horizontal *and* vertical moves alike. The
+ * vertical-only escape for self-contained text blocks (code / math / quote)
+ * lives in {@link escapeBelowSelfContainedBlock}. Returns `fallthrough` unless
+ * the edge applies.
  */
 export function createParagraphBelow(
   state: EditorState,
@@ -511,133 +603,117 @@ export function createParagraphBelow(
   if (!(isLastBlock && currentBlock && !isTextualBlock(currentBlock))) {
     return { kind: "fallthrough" };
   }
-
-  const ops: Operation[] = [];
-
-  // Create a new paragraph below the visual block
-  const newParagraphId = state.CRDTbinding.nextId();
-  const newParagraph: Block = {
-    id: newParagraphId,
-    afterId: currentBlock.id,
-    type: "paragraph",
-    charRuns: [],
-    formats: [],
-  };
-
-  const blockInsertOp: Operation = {
-    op: "block_insert",
-    id: state.CRDTbinding.nextId(),
-    clock: state.CRDTbinding.getClock(),
-    pageId: state.CRDTbinding.pageId,
-    afterBlockId: currentBlock.id,
-    blockId: newParagraphId,
-    blockType: "paragraph",
-  };
-
-  const newBlocks = [...state.document.page.blocks, newParagraph];
-  const newPage = { ...state.document.page, blocks: newBlocks };
-
-  let newState: EditorState = {
-    ...state,
-    document: { ...state.document, page: newPage },
-  };
-  newState = clearSelection(newState);
-  newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
-
-  // Broadcast the operation
-  ops.push(blockInsertOp);
-
-  return { kind: "break", state: newState, ops };
+  return appendTrailingParagraph(state, currentBlock);
 }
 
 /**
- * Remove the empty auto-created paragraph the caret is sitting on, then move to
- * (and select) the visual block that was below it. Shared by ArrowLeft,
- * ArrowRight, ArrowDown and PageDown.
- *
- * `requireDirection` gates the emptiness check on the paragraph's text
- * direction: ArrowLeft passes `"rtl"` (left = forward in RTL), ArrowRight passes
- * `"ltr"` (right = forward in LTR), and ArrowDown / PageDown pass `null` (no
- * direction constraint). Returns `fallthrough` unless the paragraph matches.
+ * Vertical-move counterpart to {@link createParagraphBelow} for *text* blocks:
+ * when the caret is on the last line of a trailing self-contained block
+ * (`selfContained` — code / math / quote), ArrowDown / PageDown start a fresh
+ * paragraph below and move into it instead of clamping to the block's end. The
+ * last-line gate (`viewport` sizes the line layout) means an inner ArrowDown
+ * still steps between the block's own lines first. Kept separate from the
+ * horizontal escape so ArrowRight inside such a block keeps moving through its
+ * text. Returns `fallthrough` unless the edge applies.
  */
-export function removeAutoCreatedParagraph(
+export function escapeBelowSelfContainedBlock(
   state: EditorState,
-  requireDirection: "rtl" | "ltr" | null,
+  isLastBlock: boolean,
+  currentBlock: Block | undefined,
+  viewport: ViewportState,
 ): EdgeOutcome {
-  if (!(state.ui.autoCreatedParagraph && state.document.cursor)) {
+  if (
+    !(
+      isLastBlock &&
+      currentBlock &&
+      isTextualBlock(currentBlock) &&
+      isSelfContained(currentBlock) &&
+      caretAtBlockBottom(state, viewport)
+    )
+  ) {
+    return { kind: "fallthrough" };
+  }
+  return appendTrailingParagraph(state, currentBlock);
+}
+
+/**
+ * Upward mirror of {@link escapeBelowSelfContainedBlock}: when the caret is on
+ * the first line of a leading self-contained block (`selfContained` — code /
+ * math / quote), ArrowUp / PageUp start a fresh paragraph above and move into it
+ * instead of clamping to the block's start. The first-line gate means an inner
+ * ArrowUp still steps between the block's own lines first. Returns `fallthrough`
+ * unless the edge applies.
+ */
+export function escapeAboveSelfContainedBlock(
+  state: EditorState,
+  isFirstBlock: boolean,
+  currentBlock: Block | undefined,
+  viewport: ViewportState,
+): EdgeOutcome {
+  if (
+    !(
+      isFirstBlock &&
+      currentBlock &&
+      isTextualBlock(currentBlock) &&
+      isSelfContained(currentBlock) &&
+      caretAtBlockTop(state, viewport)
+    )
+  ) {
+    return { kind: "fallthrough" };
+  }
+  return prependLeadingParagraph(state);
+}
+
+/**
+ * Pointer counterpart to {@link escapeBelowSelfContainedBlock}: a click/tap in
+ * the empty area below the last block, when that block is a self-contained text
+ * block (`selfContained` — code / math / quote), starts a fresh trailing
+ * paragraph and places the caret there instead of clamping it to the block's
+ * end. Clicks that land on the block's own content fall through (`canvasY` is
+ * tested against the content's bottom edge). Visual void blocks keep their
+ * existing node-level click handling and are not considered here. Returns
+ * `fallthrough` unless the edge applies.
+ */
+export function createParagraphBelowOnClick(
+  state: EditorState,
+  canvasY: number,
+  viewport: ViewportState,
+): EdgeOutcome {
+  const visibleBlocks = state.view.visibleBlocks;
+  if (visibleBlocks.length === 0) return { kind: "fallthrough" };
+
+  const lastVisible = visibleBlocks[visibleBlocks.length - 1];
+  const lastBlock = state.document.page.blocks[lastVisible.originalIndex];
+  if (!lastBlock || !isSelfContained(lastBlock)) return { kind: "fallthrough" };
+  if (!isPointBelowContent(canvasY, state, viewport)) {
     return { kind: "fallthrough" };
   }
 
-  const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-  const currentBlock =
-    state.document.page.blocks[state.document.cursor.position.blockIndex];
+  return appendTrailingParagraph(state, lastBlock);
+}
 
-  // Cursor must be on the auto-created paragraph and it must still be empty
-  // (and, when required, of the matching text direction).
-  const matches =
-    state.document.cursor.position.blockIndex === blockIndex &&
-    currentBlock?.id === blockId &&
-    currentBlock.type === "paragraph" &&
-    isTextualBlock(currentBlock) &&
-    getBlockTextContent(currentBlock) === "" &&
-    (requireDirection === null ||
-      getTextDirection(getBlockTextContent(currentBlock)) === requireDirection);
+/**
+ * Upward mirror of {@link createParagraphBelowOnClick}: a click/tap in the empty
+ * area above the first block (the top padding), when that block is a
+ * self-contained text block (`selfContained` — code / math / quote), starts a
+ * fresh leading paragraph and places the caret there. Returns `fallthrough`
+ * unless the edge applies.
+ */
+export function createParagraphAboveOnClick(
+  state: EditorState,
+  canvasY: number,
+  viewport: ViewportState,
+): EdgeOutcome {
+  const visibleBlocks = state.view.visibleBlocks;
+  if (visibleBlocks.length === 0) return { kind: "fallthrough" };
 
-  if (!matches) {
+  const firstBlock = state.document.page.blocks[visibleBlocks[0].originalIndex];
+  if (!firstBlock || !isSelfContained(firstBlock)) {
+    return { kind: "fallthrough" };
+  }
+  if (!isPointAboveContent(canvasY, state, viewport)) {
     return { kind: "fallthrough" };
   }
 
-  const ops: Operation[] = [];
-
-  // Remove the auto-created paragraph and move to the image below
-  const blockToDelete = state.document.page.blocks[blockIndex];
-
-  const blockDeleteOp: Operation = {
-    op: "block_delete",
-    id: state.CRDTbinding.nextId(),
-    clock: state.CRDTbinding.getClock(),
-    pageId: state.CRDTbinding.pageId,
-    blockId: blockToDelete.id,
-  };
-  ops.push(blockDeleteOp);
-
-  const newBlocks = state.document.page.blocks.filter(
-    (_, i) => i !== blockIndex,
-  );
-  const newPage = { ...state.document.page, blocks: newBlocks };
-
-  let newState: EditorState = {
-    ...state,
-    document: { ...state.document, page: newPage },
-    ui: {
-      ...state.ui,
-      autoCreatedParagraph: null,
-    },
-  };
-
-  // Broadcast the operation
-  // Move cursor to the visual block that was below
-  newState = clearSelection(newState);
-  newState = moveCursorToPosition(newState, 0, 0);
-
-  // Select the visual block (image/line)
-  const visibleBlocks = newState.view.visibleBlocks;
-  const firstBlock = visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-  if (firstBlock && !isTextualBlock(firstBlock)) {
-    newState = {
-      ...newState,
-      document: {
-        ...newState.document,
-        selection: {
-          anchor: { blockIndex: 0, textIndex: 0 },
-          focus: { blockIndex: 0, textIndex: 0 },
-          isForward: true,
-          isCollapsed: false,
-          lastUpdate: Date.now(),
-        },
-      },
-    };
-  }
-
-  return { kind: "break", state: newState, ops };
+  return prependLeadingParagraph(state);
 }

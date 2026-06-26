@@ -78,27 +78,12 @@ export { clearFailedImageCache, imageCache } from "./rendering/renderer";
 // `filterMathCommands`/`MathCommand` live at the root).
 export { MATH_COMMANDS } from "./nodes/math-commands";
 
-// Inline-math caret/geometry bridge — for a host rendering its own magnified
-// WYSIWYG editor for the chip the caret is inside (see `InlineMathOverlay` in
-// apps/web). `getInlineMathCaretRect` places the caret, `getInlineMathOffsetAtX`
-// maps a click back to a source offset, and `mathPendingCommandRange` reports a
-// half-typed `\command` run to keep it literal — the same three the on-canvas
-// chip painter (`MathMark`) uses, exposed so the overlay stays pixel-consistent.
-export {
-  getInlineMathCaretRect,
-  getInlineMathOffsetAtX,
-  type InlineMathCaretRect,
-  type MathCommandRanges,
-  mathCommandRanges,
-  mathPendingCommandRange,
-} from "./nodes/math";
-
 // Font internals not part of the curated font surface (`notifyFonts*` are root).
 export { currentFontFamily, onFontsReady } from "./fonts";
 
 // Resolve the active theme into concrete render styles — for a host drawing its
-// own canvas chrome that must match the editor (e.g. the inline-math overlay's
-// caret color comes from `styles.cursor.color`, same as the on-canvas caret).
+// own canvas chrome that must match the editor (e.g. reading `styles.cursor.color`
+// for a cursor it paints itself, the same color the on-canvas caret uses).
 export { getEditorStyles } from "./styles";
 
 // ── Optional code-block node ─────────────────────────────────────────────────

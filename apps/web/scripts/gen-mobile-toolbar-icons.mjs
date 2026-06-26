@@ -130,7 +130,11 @@ function main() {
     .filter((entry) => entry.endsWith(".imageset"))
     .map((entry) => entry.slice(0, -".imageset".length))
     .filter(
-      (name) => !requiredSet.has(name) && !NON_TOOLBAR_IMAGESETS.has(name),
+      (name) =>
+        !requiredSet.has(name) &&
+        !NON_TOOLBAR_IMAGESETS.has(name) &&
+        // `math_*` imagesets are owned by gen-math-chip-icons.mjs, not this one.
+        !name.startsWith("math_"),
     );
   if (orphans.length > 0) {
     console.warn(

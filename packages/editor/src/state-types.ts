@@ -383,7 +383,6 @@ export interface UIState {
   // `editor.setNodeViewState`; not document content, never persisted.
   readonly nodeViewState: Readonly<Record<string, unknown>>;
   readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
-  readonly autoCreatedParagraph: { blockIndex: number; blockId: string } | null; // Track auto-created paragraphs from arrow up/down on images
   // Ephemeral, range-anchored overlays the renderer paints on top of the
   // document without them being content (find highlights, remote cursors). Keyed
   // by an opaque layer name; never persisted, never in undo. See
@@ -792,6 +791,12 @@ export interface QuoteBlockStyle extends TextStyle {
   readonly borderRadius: number;
   readonly paddingX: number;
   readonly paddingY: number;
+  /**
+   * Reduced top inset / bottom padding used on an edge shared with an adjacent
+   * quote, so consecutive quotes couple into one card with tighter internal
+   * spacing instead of stacking two full pads. Should be ≤ `paddingY`.
+   */
+  readonly joinedPaddingY: number;
   readonly glyphSize: number;
   readonly glyphWeight: string;
   readonly glyphOpacity: number;

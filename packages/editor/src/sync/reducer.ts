@@ -668,9 +668,25 @@ export function getVisibleTextFromBlock(block: Block): string {
 export function getVisibleBlocks(
   state: Page,
 ): (Block & { originalIndex: number })[] {
-  return state.blocks
+  const visible = state.blocks
     .map((b, i) => Object.assign(b, { originalIndex: i }))
     .filter((b) => !b.deleted);
+  // Stamp each block with its adjacent visible block types — a transient render
+  // hint nodes read for neighbour-aware layout (see BlockRuntimeState). When a
+  // block's join context changes, clear its memoized layout so any height/inset
+  // derived from the hint is recomputed and the height index re-measures.
+  // Steady-state text edits never touch neighbour types, so this never thrashes.
+  for (let i = 0; i < visible.length; i++) {
+    const block = visible[i];
+    const prevType = i > 0 ? visible[i - 1].type : undefined;
+    const nextType = i < visible.length - 1 ? visible[i + 1].type : undefined;
+    if (block.prevType !== prevType || block.nextType !== nextType) {
+      block.prevType = prevType;
+      block.nextType = nextType;
+      block.cachedLayout = undefined;
+    }
+  }
+  return visible;
 }
 
 /**
@@ -683,7 +699,12 @@ export function getVisibleBlocks(
  * and far too heavy to persist.
  */
 export function cleanSnapshotForSave(blocks: Block[]): Block[] {
-  return blocks.map(({ cachedLayout: _l, ...rest }) => rest as Block);
+  // Drop the transient render hints (`cachedLayout` and the neighbour-type
+  // stamps) — all are derived from the live view and recomputed on load.
+  return blocks.map(
+    ({ cachedLayout: _l, prevType: _p, nextType: _n, ...rest }) =>
+      rest as Block,
+  );
 }
 
 // Helper functions to find next/previous visible block

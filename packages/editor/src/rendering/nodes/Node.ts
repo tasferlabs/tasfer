@@ -79,6 +79,19 @@ export interface BlockRuntimeState {
   deleted?: boolean;
   afterId?: string | null;
   /**
+   * Transient render hints: the `type` of the adjacent *visible* (non-deleted)
+   * blocks, stamped by `getVisibleBlocks`. They let a node lay itself out aware
+   * of its neighbours — e.g. consecutive quotes tighten their shared edge — the
+   * one positional dependency the otherwise self-contained layout pass allows.
+   * Kept here (not threaded through every height call site) so all 16+ callers
+   * pick them up uniformly off the block. When a block's join context changes,
+   * `getVisibleBlocks` clears `cachedLayout`, so any height/inset derived from
+   * these is recomputed (and the height index, which re-measures on a cleared
+   * cache, follows). `undefined` at a document edge. Stripped before persistence.
+   */
+  prevType?: string;
+  nextType?: string;
+  /**
    * Per-block visual style overrides — an open bag of `property → value`, layer
    * 3 of the style cascade (node default ◁ theme `styles.blocks[type]` ◁ this).
    * Each property syncs as its own `style.<key>` `block_set` (independent LWW),

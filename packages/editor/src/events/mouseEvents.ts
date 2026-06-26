@@ -1,4 +1,8 @@
 import {
+  createParagraphAboveOnClick,
+  createParagraphBelowOnClick,
+} from "../actions/edit-actions";
+import {
   CLEAR_SELECTION_IN_PADDING,
   CLEAR_VISUAL_BLOCK_SELECTION,
   OPEN_BLOCK_OVERLAY,
@@ -29,12 +33,7 @@ import type {
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
-import {
-  clearAutoCreatedParagraph,
-  closeActiveMenu,
-  setLinkHover,
-  updateMode,
-} from "../state-utils";
+import { closeActiveMenu, setLinkHover, updateMode } from "../state-utils";
 import { getEditorStyles } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
@@ -84,9 +83,6 @@ export function handleMouseDown(
   if (wasMenuOpen) {
     state = closeActiveMenu(state);
   }
-
-  // Clear auto-created paragraph tracking on mouse click
-  state = clearAutoCreatedParagraph(state);
 
   state = {
     ...state,
@@ -219,8 +215,15 @@ export function handleMouseDown(
   const isClickInTopPadding =
     canvasY < styles.canvas.paddingTop - viewport.scrollY;
 
-  // If clicking in top padding, clear selection
+  // If clicking in top padding, start a fresh paragraph above a leading
+  // self-contained block (code/math/quote); otherwise clear selection.
   if (isClickInTopPadding) {
+    if (state.ui.mode !== "readonly") {
+      const edge = createParagraphAboveOnClick(state, canvasY, viewport);
+      if (edge.kind === "break") {
+        return { state: edge.state, ops: [...ops, ...edge.ops] };
+      }
+    }
     return {
       state: state.actionBus.dispatchState(CLEAR_SELECTION_IN_PADDING, state)
         .state,
@@ -330,6 +333,16 @@ export function handleMouseDown(
       }).state,
       ops,
     };
+  }
+
+  // A single click in the empty area below a trailing self-contained block
+  // (code/math/quote) starts a fresh paragraph there, so the caret lands in
+  // editable text rather than inside the block.
+  if (!isMultiClick && state.ui.mode !== "readonly") {
+    const edge = createParagraphBelowOnClick(state, canvasY, viewport);
+    if (edge.kind === "break") {
+      return { state: edge.state, ops: [...ops, ...edge.ops] };
+    }
   }
 
   // A resolved single click. Dispatch the generic TEXT_CLICK: nodes/marks may

@@ -26,11 +26,16 @@ import { History, Clock, Eye as EyeIcon, Eye } from "lucide-react";
 import { useState, useMemo, useCallback } from "react";
 import { RelativeDate } from "@/components/ui/relative-date";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import useResponsive from "../hooks/useResponsive";
 import { useConfirmation } from "./ConfirmationDialog";
 import { usePageSettings } from "../contexts/PageSettingsContext";
-import { useGetPageSnapshots } from "../api/pages.api";
+import { useCreatePage, useGetPageSnapshots } from "../api/pages.api";
+import { useSpaces } from "../contexts/SpaceContext";
+import { getPlatform } from "@/platform";
 import type { Block } from "@cypherkit/editor";
+import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
 import { SnapshotPreview } from "./SnapshotPreview";
 
 // Version data type (derived from ops, not stored snapshots)
@@ -260,12 +265,16 @@ export function SnapshotRestore({
   );
   const isMobile = useResponsive("(max-width: 768px)");
   const isRtl = i18n.dir() === "rtl";
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setOpen = onOpenChange || setInternalOpen;
 
   const { onRestoreSnapshot, pageId } = usePageSettings();
+  const { activeSpaceId } = useSpaces();
   const { getConfirmation } = useConfirmation();
+  const { mutateAsync: createPage, isPending: isForking } = useCreatePage();
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
@@ -326,6 +335,52 @@ export function SnapshotRestore({
     }
   }, [previewingSnapshot, handleRestore]);
 
+  const handleFork = useCallback(
+    async (snapshot: Snapshot) => {
+      if (!activeSpaceId || snapshot.blocks.length === 0) return;
+
+      const titleFromSnapshot = extractTitleFromBlocks(snapshot.blocks);
+      const sourceTitle =
+        titleFromSnapshot || t("common.version", "Version");
+      const forkTitle = t("snapshot.forkTitle", "{{title}} fork", {
+        title: sourceTitle,
+      });
+
+      const forkedPage = await createPage({
+        title: forkTitle,
+        parentId: null,
+        spaceId: activeSpaceId,
+      });
+
+      const platform = getPlatform();
+      await platform.ops.writeBlocks(forkedPage.id, snapshot.blocks);
+      await platform.snapshots.save(forkedPage.id, snapshot.blocks);
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["pages"] }),
+        queryClient.invalidateQueries({ queryKey: ["page", forkedPage.id] }),
+      ]);
+
+      setPreviewingSnapshot(null);
+      setOpen(false);
+      navigate(`/page/${forkedPage.id}`);
+    },
+    [
+      activeSpaceId,
+      createPage,
+      navigate,
+      queryClient,
+      setOpen,
+      t,
+    ]
+  );
+
+  const handleForkFromPreview = useCallback(async () => {
+    if (previewingSnapshot) {
+      await handleFork(previewingSnapshot);
+    }
+  }, [previewingSnapshot, handleFork]);
+
   const handlePreview = useCallback((snapshot: Snapshot) => {
     setPreviewingSnapshot(snapshot);
   }, []);
@@ -367,6 +422,8 @@ export function SnapshotRestore({
                 snapshot={previewingSnapshot}
                 onBack={handleBackFromPreview}
                 onRestore={handleRestoreFromPreview}
+                onFork={handleForkFromPreview}
+                isForking={isForking}
               />
             )}
           </DrawerContent>
@@ -395,6 +452,8 @@ export function SnapshotRestore({
                 snapshot={previewingSnapshot}
                 onBack={handleBackFromPreview}
                 onRestore={handleRestoreFromPreview}
+                onFork={handleForkFromPreview}
+                isForking={isForking}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
