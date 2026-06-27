@@ -173,6 +173,23 @@ function editorNodeStrings(): Record<string, Record<string, string>> {
   };
 }
 
+function toolbarBlockTypeFromQueryBlock(
+  block:
+    | { type: string; attrs?: Record<string, unknown> }
+    | null
+    | undefined,
+): MobileToolbarBlockType {
+  if (!block) return "paragraph";
+  if (block.type === "heading") {
+    const level = Number(block.attrs?.level);
+    if (level === 1 || level === 2 || level === 3) {
+      return `heading${level}` as MobileToolbarBlockType;
+    }
+    return "heading1";
+  }
+  return isMobileToolbarBlockType(block.type) ? block.type : "paragraph";
+}
+
 /**
  * Host overlay registry: maps a node-declared overlay `key` (see
  * {@link NodeOverlay}) to the React component that renders it. Node-declared
@@ -1249,7 +1266,7 @@ function EditorSurface({
         case "toggle-todo": {
           const block = editor.query.block();
           if (block?.type !== "todo_list") break;
-          const checked = (block as { checked?: boolean }).checked ?? false;
+          const checked = Boolean(block.attrs.checked);
           editor.change((change) =>
             change.setBlock({ checked: !checked }, { block: block.id }),
           );
@@ -2099,12 +2116,9 @@ function EditorSurface({
       // Mobile toolbar — entirely from the snapshot/query. `activeMarks` is the
       // selection-aware (intersection across the span + pending caret toggles)
       // mark set, so it replaces the old per-char format scan.
-      const rawBlockType = mounted.editor.query.block()?.type ?? "paragraph";
-      const blockType: MobileToolbarBlockType = isMobileToolbarBlockType(
-        rawBlockType,
-      )
-        ? rawBlockType
-        : "paragraph";
+      const activeBlock = mounted.editor.query.block();
+      const rawBlockType = activeBlock?.type ?? "paragraph";
+      const blockType = toolbarBlockTypeFromQueryBlock(activeBlock);
       const selectionRange = snapshot.selection.range;
       const caretOffset =
         selectionRange &&
@@ -2145,14 +2159,15 @@ function EditorSurface({
       // Structural context for the list/code contextual rows. The fields are
       // read off the current block; they default to inert values off-context so
       // the layout builder simply falls back to the formatting row.
-      const contextBlock = mounted.editor.query.block() as
-        | { indent?: number; checked?: boolean; language?: string }
-        | undefined;
-      const listIndent = contextBlock?.indent ?? 0;
+      const contextAttrs = activeBlock?.attrs ?? {};
+      const listIndent =
+        typeof contextAttrs.indent === "number" ? contextAttrs.indent : 0;
       const todoChecked =
-        rawBlockType === "todo_list" && !!contextBlock?.checked;
+        rawBlockType === "todo_list" && Boolean(contextAttrs.checked);
       const codeLanguage =
-        rawBlockType === "code" ? (contextBlock?.language ?? "") : "";
+        rawBlockType === "code" && typeof contextAttrs.language === "string"
+          ? contextAttrs.language
+          : "";
 
       setMobileToolbar({
         canUndo: snapshot.canUndo,
@@ -2640,7 +2655,7 @@ function EditorSurface({
           <MathCommandMenu
             editor={mountedRef.current.editor}
             getContainerRect={getSlashContainerRect}
-            disabled={isTouchDevice() && !IS_IOS_NATIVE}
+            disabled={isTouchDevice()}
           />,
           mountedRef.current.portalContainer,
         )}

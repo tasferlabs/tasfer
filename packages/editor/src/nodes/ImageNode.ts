@@ -77,6 +77,7 @@ import type {
 } from "../state-types";
 import { updateMode } from "../state-utils";
 import { getEditorStyles } from "../styles";
+import { orderKeyAfter } from "../sync/crdt-utils";
 
 // Image block — an embedded image.
 // Note: cachedLayout (from BlockRuntimeState) is transient runtime state, not
@@ -1530,9 +1531,10 @@ export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
   "create-paragraph-below-image",
   (state, { afterBlock, afterBlockIndex, binding }) => {
     const newParagraphId = binding.nextId();
+    const orderKey = orderKeyAfter(state.document.page.blocks, afterBlock.id);
     const newParagraph: Block = {
       id: newParagraphId,
-      afterId: afterBlock.id,
+      orderKey,
       type: "paragraph",
       charRuns: [],
       formats: [],
@@ -1543,7 +1545,7 @@ export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
       id: binding.nextId(),
       clock: binding.getClock(),
       pageId: binding.pageId,
-      afterBlockId: afterBlock.id,
+      orderKey,
       blockId: newParagraphId,
       blockType: "paragraph",
     };

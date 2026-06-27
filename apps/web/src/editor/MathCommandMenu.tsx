@@ -26,9 +26,10 @@ interface MathCommandMenuProps {
   /** The editor surface's viewport rect, for translating caret coords to screen. */
   getContainerRect: () => DOMRect | null | undefined;
   /**
-   * When true, this floating menu stays inert. Used on the in-webview platforms
-   * (Android/web touch) where the docked math toolbar row supersedes it; the
-   * native iOS accessory and fine-pointer web keep using this menu.
+   * When true, this floating menu (and its touch drawer) stays inert. Used on
+   * every touch platform — Android/web touch and the native iOS accessory —
+   * where the docked math toolbar row supersedes it. Only fine-pointer web keeps
+   * using this menu.
    */
   disabled?: boolean;
 }

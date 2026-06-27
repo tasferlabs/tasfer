@@ -43,6 +43,7 @@ import {
   type WrappedLine,
   wrapText,
 } from "../fonts";
+import { resolveMarkRunsFromChars } from "../inline-math-spans";
 import {
   getBlockTextContent,
   isTouchDevice,
@@ -122,33 +123,31 @@ interface ReplacementRun {
   readonly replacement: MarkReplacement;
 }
 
-/** Replacement-mark runs in a resolved char view, as visible-index runs. */
+/**
+ * Replacement-mark runs in a resolved char view, as visible-index runs.
+ *
+ * Resolution is delegated to `resolveMarkRunsFromChars` — the SAME tolerant,
+ * ordinal-based resolver the edit/caret path uses (`getInlineMathSpans`/
+ * `query.marks`) — so rendering and editing always agree on a chip's extent.
+ * (This used to do its own strict `startCharId`/`endCharId` lookup, which
+ * dropped a whole chip to plain text the instant an endpoint char was tombstoned
+ * — e.g. backspacing the last char of an inline formula — even though the caret
+ * still descended into it, so the painted chip and the live caret diverged.)
+ */
 function replacementRuns(
   chars: Char[],
   formats: MarkSpan[],
   marks: MarkRegistry,
 ): ReplacementRun[] {
   if (!formats.some((f) => marks.get(f.format.type)?.replacement)) return [];
-  const idToVis = new Map<string, number>();
-  const visChars: string[] = [];
-  let v = 0;
-  for (const c of chars) {
-    if (c.deleted) continue;
-    idToVis.set(c.id, v);
-    visChars.push(c.char);
-    v++;
-  }
   const runs: ReplacementRun[] = [];
-  for (const f of formats) {
-    const replacement = marks.get(f.format.type)?.replacement;
+  for (const run of resolveMarkRunsFromChars(chars, formats)) {
+    const replacement = marks.get(run.name)?.replacement;
     if (!replacement) continue;
-    const s = idToVis.get(f.startCharId);
-    const e = idToVis.get(f.endCharId);
-    if (s === undefined || e === undefined) continue;
     runs.push({
-      start: s,
-      end: e + 1,
-      text: visChars.slice(s, e + 1).join(""),
+      start: run.startIndex,
+      end: run.endIndex,
+      text: run.text,
       replacement,
     });
   }
@@ -779,6 +778,59 @@ function computeSelectionRects(
     return rects;
   }
 
+  // LTR distance from a line's start to a selection boundary `index`, descending
+  // INTO an inline replacement chip when the boundary falls strictly inside it —
+  // mirroring `caretRect`, so a selection edge inside a chip lands at the same
+  // glyph-accurate x the caret would instead of snapping to the chip's atomic
+  // edge (the cause of inline-math selections rendering with the wrong width).
+  // RTL chips fall through to the atomic measure, same as the caret.
+  const boundaryWidth = (
+    line: (typeof layout.lines)[number],
+    index: number,
+  ): number => {
+    if (!isRTL && marks) {
+      const run = enclosingReplacementRun(
+        replacementRuns(chars, formats, marks),
+        index,
+      );
+      const localOffset = run ? index - run.start : 0;
+      const replCaret = run?.replacement.caretRect?.(
+        run.text,
+        textStyle.fontSize,
+        localOffset,
+        {
+          caretOffset: localOffset,
+          editing: false,
+        },
+      );
+      if (run && replCaret) {
+        const chipLeft = measureLineWidth(
+          chars,
+          formats,
+          line.startIndex,
+          run.start,
+          textStyle,
+          fontFamily,
+          fonts,
+          codePadding,
+          marks,
+        );
+        return chipLeft + replCaret.x;
+      }
+    }
+    return measureLineWidth(
+      chars,
+      formats,
+      line.startIndex,
+      index,
+      textStyle,
+      fontFamily,
+      fonts,
+      codePadding,
+      marks,
+    );
+  };
+
   layout.lines.forEach((line) => {
     const lineY = blockTopY + line.y;
     let selectionStartX = baseX;
@@ -823,31 +875,10 @@ function computeSelectionRects(
           selectionStartX = baseX + maxWidth - widthToSelEnd;
         } else {
           if (start.textIndex > line.startIndex) {
-            selectionStartX += measureLineWidth(
-              chars,
-              formats,
-              line.startIndex,
-              start.textIndex,
-              textStyle,
-              fontFamily,
-              fonts,
-              codePadding,
-              marks,
-            );
+            selectionStartX = baseX + boundaryWidth(line, start.textIndex);
           }
           if (end.textIndex < line.endIndex) {
-            const selectedWidth = measureLineWidth(
-              chars,
-              formats,
-              Math.max(line.startIndex, start.textIndex),
-              Math.min(line.endIndex, end.textIndex),
-              textStyle,
-              fontFamily,
-              fonts,
-              codePadding,
-              marks,
-            );
-            selectionEndX = selectionStartX + selectedWidth;
+            selectionEndX = baseX + boundaryWidth(line, end.textIndex);
           }
         }
       }
@@ -880,17 +911,7 @@ function computeSelectionRects(
           selectionStartX = baseX + maxWidth - line.width;
         } else {
           if (start.textIndex > line.startIndex) {
-            selectionStartX += measureLineWidth(
-              chars,
-              formats,
-              line.startIndex,
-              start.textIndex,
-              textStyle,
-              fontFamily,
-              fonts,
-              codePadding,
-              marks,
-            );
+            selectionStartX = baseX + boundaryWidth(line, start.textIndex);
           }
         }
       }
@@ -916,19 +937,7 @@ function computeSelectionRects(
           selectionStartX = baseX + maxWidth - widthToSelEnd;
         } else {
           if (end.textIndex < line.endIndex) {
-            selectionEndX =
-              baseX +
-              measureLineWidth(
-                chars,
-                formats,
-                line.startIndex,
-                end.textIndex,
-                textStyle,
-                fontFamily,
-                fonts,
-                codePadding,
-                marks,
-              );
+            selectionEndX = baseX + boundaryWidth(line, end.textIndex);
           }
         }
       }
@@ -1499,7 +1508,16 @@ export class TextNode extends Node<TextualBlock> {
           relativeX - chipLeftX,
           clickY - baselineY,
         );
-        return run.start + Math.max(0, Math.min(offset, run.text.length));
+        // A click on the chip places the caret INSIDE the formula. The extreme
+        // stops (offset 0 / the full length) collapse onto the run's boundary
+        // index — shared with the surrounding text, so they render as an outside
+        // caret. Clamp to a strictly-interior stop so clicking anywhere on the
+        // chip lands inside it; the surrounding text/space is how you land
+        // outside. A chip with a single visible char has no interior — there is
+        // nothing inside to land on, so fall back to its near edge.
+        const lastInterior = run.text.length - 1;
+        if (lastInterior < 1) return run.start;
+        return run.start + Math.max(1, Math.min(offset, lastInterior));
       }
 
       return bestPosition;

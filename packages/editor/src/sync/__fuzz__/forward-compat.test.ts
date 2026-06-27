@@ -44,7 +44,7 @@ const insertKnownBlock: Operation = {
   id: id(1),
   clock: clock(1),
   pageId: PAGE_ID,
-  afterBlockId: null,
+  orderKey: "a0",
   blockId: "blk-known",
   blockType: "paragraph",
 };
@@ -66,7 +66,7 @@ const insertFutureBlock: Operation = {
   id: id(3),
   clock: clock(3),
   pageId: PAGE_ID,
-  afterBlockId: "blk-known",
+  orderKey: "a1",
   blockId: "blk-future",
   blockType: "future_widget",
 };

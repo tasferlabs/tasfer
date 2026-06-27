@@ -5,7 +5,13 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { caretRect, caretStops, hitTest, layoutMath, selectionRects } from "../index";
+import {
+  caretRect,
+  caretStops,
+  hitTest,
+  layoutMath,
+  selectionRects,
+} from "../index";
 
 describe("caret model", () => {
   it("produces stops at source-offset boundaries", () => {
@@ -33,6 +39,62 @@ describe("caret model", () => {
       const hit = hitTest(layout, rect.x, mid);
       expect(hit).toBe(s.offset);
     }
+  });
+
+  it("clicks in the trailing empty space land at the formula's end", () => {
+    // A tall construct (the fraction) sits to the LEFT of a short trailing term
+    // (`a`). Clicking in the empty space to the right — even at the fraction's
+    // numerator/denominator height — must place the caret AFTER `a` (the true
+    // rightmost position), not snap back up into the fraction just because the
+    // click's `y` happens to fall in the fraction's vertical band.
+    const latex = "\\frac{b}{c}+a";
+    const layout = layoutMath(latex, { fontSize: 16 });
+    const stops = caretStops(layout);
+    const farRight = layout.width + 50;
+    // Sample the vertical band of every stop, including the fraction's rows.
+    for (const s of stops) {
+      const y = (s.top + s.bottom) / 2;
+      expect(hitTest(layout, farRight, y)).toBe(latex.length);
+    }
+  });
+
+  it("clicks on a radical sign enter the root, not rest before it", () => {
+    // The √ sign is a wide, source-less ornament: its only flanking stops are the
+    // construct's leading boundary (x=0, OUTSIDE the root) and the radicand start
+    // (far right, under the vinculum). A click anywhere on the sign must enter the
+    // root (land at the radicand start), not snap back to the position before it.
+    const layout = layoutMath("\\sqrt{x}", { fontSize: 16 });
+    const stops = caretStops(layout);
+    const radicandStart = stops.find((s) => s.offset === 6)!; // `x`'s left edge
+    // Sample across the radical sign's width (from just inside the left edge up to
+    // the radicand), at the baseline.
+    for (let x = 1; x < radicandStart.x; x += 1) {
+      expect(hitTest(layout, x, 0)).toBe(6);
+    }
+    // Genuinely to the LEFT of the construct still lands before it.
+    expect(hitTest(layout, 0, 0)).toBe(0);
+    expect(hitTest(layout, -4, 0)).toBe(0);
+  });
+
+  it("enters a radical that is preceded by other content", () => {
+    // The regression: when the root is NOT the first thing on the line, its left
+    // boundary stop lands exactly on the preceding glyph's right edge and is
+    // dropped in de-duplication. The merged stop must still carry the construct's
+    // extent (`partnerX`) so a click on the √ sign enters the root instead of
+    // resting at the position before it (the "outside").
+    const latex = "a\\sqrt{x}b";
+    const layout = layoutMath(latex, { fontSize: 16 });
+    const stops = caretStops(layout);
+    const leftEdge = stops.find((s) => s.offset === 1)!; // `a`'s right edge = √'s left edge
+    const radicandStart = stops.find((s) => s.offset === 7)!; // `x`'s left edge
+    // Sample the √ sign's body, at the baseline and high on the sign — both must
+    // enter the radicand, not fall back to the position before the root.
+    for (let x = leftEdge.x + 0.5; x < radicandStart.x; x += 1) {
+      expect(hitTest(layout, x, 0)).toBe(7);
+      expect(hitTest(layout, x, -12)).toBe(7);
+    }
+    // Still resting beside `a` (before the root) on its own half.
+    expect(hitTest(layout, leftEdge.x - 1, 0)).toBe(1);
   });
 
   it("descends the caret into a fraction", () => {

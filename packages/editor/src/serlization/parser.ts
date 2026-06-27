@@ -10,6 +10,7 @@
  */
 
 import { getBaseDataSchema } from "../baseDataSchema";
+import { generateNKeysBetween } from "../sync/fractional-index";
 import { extractCounter, extractPeerId } from "../sync/id";
 import type { DataSchema } from "../sync/schema";
 import type { InputCtx, ParsedTag } from "./codecs";
@@ -154,14 +155,12 @@ export default function parsePage(
     tree.blocks.push(emptyBlock(context));
   }
 
-  // Chain blocks via afterId so the CRDT linked-list order matches parse
-  // order. resolveBlockOrder reconstructs the block array from these links on
-  // every block_insert; without them all loaded blocks anchor at null and get
-  // re-sorted by id, scrambling the document on the first split/insert.
-  let prevBlockId: string | null = null;
-  for (const block of tree.blocks) {
-    block.afterId = prevBlockId;
-    prevBlockId = block.id;
+  // Assign evenly-spaced fractional-index keys so document order matches parse
+  // order. Order is `sort by (orderKey, id)`; a later split/insert mints a key
+  // in the gap between neighbours, so loaded blocks keep their place.
+  const keys = generateNKeysBetween(null, null, tree.blocks.length);
+  for (let i = 0; i < tree.blocks.length; i++) {
+    tree.blocks[i].orderKey = keys[i];
   }
 
   return tree;

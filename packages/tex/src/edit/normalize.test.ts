@@ -5,7 +5,7 @@
  * real position. The transform is pure, idempotent, and reports the insertions
  * + caret remap a host needs to apply it as a consistent edit.
  */
-import { normalizeLatex } from "./normalize";
+import { isRedundantSpace, normalizeLatex } from "./normalize";
 import { caretStops } from "./caret";
 import { layoutMath } from "../index";
 import { describe, expect, it } from "vitest";
@@ -78,5 +78,40 @@ describe("normalizeLatex", () => {
     expect(offsets.has(8)).toBe(true);
     // Sanity: the bare form genuinely has fewer distinct interior stops.
     expect(offsets.size).toBeGreaterThan(bareSlots.size);
+  });
+});
+
+describe("isRedundantSpace", () => {
+  it("is false when the offset isn't a space", () => {
+    expect(isRedundantSpace("ab", 0)).toBe(false);
+    expect(isRedundantSpace("a b", 0)).toBe(false);
+  });
+
+  it("flags spaces that math mode collapses (no parse change)", () => {
+    // Between ordinary atoms, after a brace, between digits, doubled, trailing —
+    // all render identically without the space.
+    expect(isRedundantSpace("a b", 1)).toBe(true);
+    expect(isRedundantSpace("\\frac{a }{b}", "\\frac{a".length)).toBe(true);
+    expect(isRedundantSpace("1 2", 1)).toBe(true);
+    expect(isRedundantSpace("x }", 1)).toBe(true);
+    expect(isRedundantSpace("\\sin  x", 5)).toBe(true); // the second of two spaces
+    expect(isRedundantSpace("ab ", 2)).toBe(true); // trailing
+  });
+
+  it("keeps a space that separates a control word from a following letter", () => {
+    // `\sin x` → without the space, `\sinx` is a different (unknown) command.
+    expect(isRedundantSpace("\\sin x", 4)).toBe(false);
+    expect(isRedundantSpace("\\alpha beta", 6)).toBe(false);
+  });
+
+  it("does not keep a space after a command followed by a non-letter", () => {
+    // `\alpha 1` == `\alpha1` (a digit already terminates the control word).
+    expect(isRedundantSpace("\\alpha 1", 6)).toBe(true);
+  });
+
+  it("keeps a literal space inside a text-mode group", () => {
+    // Interior text-mode spaces are real glyphs, so the parse differs.
+    expect(isRedundantSpace("\\text{a b}", "\\text{a".length)).toBe(false);
+    expect(isRedundantSpace("\\textbf{a b}", "\\textbf{a".length)).toBe(false);
   });
 });

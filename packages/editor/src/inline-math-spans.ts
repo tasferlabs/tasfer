@@ -14,7 +14,7 @@
  * `./inline-math`, which builds on this module.
  */
 
-import type { Block } from "./serlization/loadPage";
+import type { Block, Char, MarkSpan } from "./serlization/loadPage";
 import { isTextualBlock } from "./sync/block-registry";
 import { iterateAllChars } from "./sync/char-runs";
 
@@ -46,19 +46,38 @@ export interface MarkRunData {
  *
  * Endpoints are resolved *tolerantly*: a format span anchors to exact char IDs,
  * but those chars can be tombstoned (deleting a chip's leading char makes
- * `startCharId` a tombstone) while interior chars survive. Matching the render
- * path (`isCharInSpan` finds the anchor over ALL chars, not just visible ones),
- * we key off document-order ordinals so a span resolves to its surviving visible
- * chars instead of vanishing when an endpoint is deleted.
+ * `startCharId` a tombstone) while interior chars survive. We key off
+ * document-order ordinals so a span resolves to its surviving visible chars
+ * instead of vanishing when an endpoint is deleted. The render path
+ * (`TextNode.replacementRuns`) resolves through the same core
+ * ({@link resolveMarkRunsFromChars}), so painting and editing never disagree on
+ * a chip's extent.
  */
 export function resolveMarkRuns(block: Block): MarkRunData[] {
   if (!isTextualBlock(block)) return [];
+  return resolveMarkRunsFromChars(
+    iterateAllChars(block.charRuns),
+    block.formats,
+  );
+}
 
+/**
+ * The {@link resolveMarkRuns} core, over a raw char sequence (document order,
+ * tombstones included) and its format spans — so the render path (which holds a
+ * resolved `Char[]`, not a `Block`) resolves chips through the SAME tolerant
+ * logic as the edit/caret path, instead of its own strict char-id lookup that
+ * dropped a whole chip the moment an endpoint char was tombstoned. `chars` must
+ * include deleted chars so document-order ordinals line up with the span anchors.
+ */
+export function resolveMarkRunsFromChars(
+  chars: Iterable<Char>,
+  formats: MarkSpan[],
+): MarkRunData[] {
   const ordinal = new Map<string, number>(); // char id → document-order position
   const visibleOrd: number[] = []; // ordinal of each visible char, ascending
   const visibleChars: string[] = []; // visible chars, to recover the run text
   let ord = 0;
-  for (const { id, char, deleted } of iterateAllChars(block.charRuns)) {
+  for (const { id, char, deleted } of chars) {
     ordinal.set(id, ord);
     if (!deleted) {
       visibleOrd.push(ord);
@@ -68,7 +87,7 @@ export function resolveMarkRuns(block: Block): MarkRunData[] {
   }
 
   const runs: MarkRunData[] = [];
-  for (const span of block.formats) {
+  for (const span of formats) {
     const startOrd = ordinal.get(span.startCharId);
     const endOrd = ordinal.get(span.endCharId);
     if (startOrd === undefined || endOrd === undefined) continue;

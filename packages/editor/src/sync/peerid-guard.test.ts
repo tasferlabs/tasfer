@@ -33,7 +33,7 @@ describe("createCRDTbinding peerId guard", () => {
       id: "seed:0",
       clock: { counter: 0, peerId: "seed" },
       pageId: "pg",
-      afterBlockId: null,
+      orderKey: "a0",
       blockId: "b1",
       blockType: "paragraph",
     } as const;

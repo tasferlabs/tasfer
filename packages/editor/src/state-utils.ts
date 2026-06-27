@@ -127,6 +127,8 @@ export function createInitialState(
       linkHover: null,
       nodeViewState: {},
       selectionHandleDrag: null,
+      hoveredDragHandleBlockId: null,
+      blockDrag: null,
       inlineMathHover: null,
       hoveredMathBlockIndex: null,
       caretScratch: null,

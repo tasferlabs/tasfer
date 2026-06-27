@@ -125,8 +125,12 @@ export interface MarkSet extends BaseOp {
  */
 export interface BlockInsert extends BaseOp {
   op: "block_insert";
-  /** Insert after this block ID (null = beginning) */
-  afterBlockId: string | null;
+  /**
+   * Fractional-index position key for the new block (see `fractional-index.ts`).
+   * Document order is `sort by (orderKey, id)`; the emitter mints a key in the
+   * gap after the intended predecessor.
+   */
+  orderKey: string;
   /** New block's unique ID */
   blockId: string;
   /** Block type — a built-in `BlockType` or a custom schema-registered name. */
@@ -146,6 +150,11 @@ export interface BlockDelete extends BaseOp {
 
 /**
  * Set a block property (type, indent, checked, etc.).
+ *
+ * Block position is just another LWW field here: moving a block is a
+ * `block_set` of `field: "orderKey"` with a freshly minted key. There is no
+ * dedicated move op — ordering converges through the same HLC last-writer-wins
+ * path as every other block property.
  */
 export interface BlockSet extends BaseOp {
   op: "block_set";
@@ -158,25 +167,6 @@ export interface BlockSet extends BaseOp {
 }
 
 /**
- * Move an existing block to a new position in the document.
- *
- * Blocks are ordered as an RGA linked list keyed on each block's `afterId`
- * (its predecessor anchor; null = head). A move repositions `blockId` to sit
- * immediately after `afterBlockId`. The op carries only the moved block and its
- * new anchor — the neighbour re-anchoring needed to close the old gap and open
- * the new one is derived deterministically from current state at apply time
- * (see `applyBlockMove`), so the op stays minimal and converges under
- * concurrency.
- */
-export interface BlockMove extends BaseOp {
-  op: "block_move";
-  /** Block to move */
-  blockId: string;
-  /** New predecessor anchor (null = head of document) */
-  afterBlockId: string | null;
-}
-
-/**
  * Union of all operation types.
  */
 export type Operation =
@@ -185,8 +175,7 @@ export type Operation =
   | MarkSet
   | BlockInsert
   | BlockDelete
-  | BlockSet
-  | BlockMove;
+  | BlockSet;
 
 /**
  * Version vector tracking seen operations per peer.
@@ -284,6 +273,20 @@ export interface SelectionHandleDragState {
   readonly startY: number;
 }
 
+/**
+ * Active block-reorder drag, started from a block's left-gutter handle. The
+ * block is addressed by stable `blockId` (survives concurrent remote edits that
+ * shift indices); `pointerY` is the live canvas-y of the pointer (for painting a
+ * follow indicator); `dropIndex` is the insertion index in `[0..N]` among the
+ * current visible blocks where the block would land — the renderer paints the
+ * insertion line there and the drag's `onEnd` resolves it to an `afterBlockId`.
+ */
+export interface BlockDragState {
+  readonly blockId: string;
+  readonly pointerY: number;
+  readonly dropIndex: number;
+}
+
 // Image Hover State - Not a menu, just visual feedback
 export interface ImageHoverState {
   readonly blockIndex: number;
@@ -343,6 +346,14 @@ export interface TypedInputTransform {
 export interface ContentMaterialization {
   readonly inserts: readonly { readonly at: number; readonly text: string }[];
   readonly caret: number;
+  /**
+   * Block range `[from, to)` (post-insert) the host must (re-)mark so the
+   * materialized text stays part of the same span. Set for an inline-math chip,
+   * whose placeholder braces can land at the chip's right edge — outside the
+   * math mark — and would otherwise become plain text after the chip. Absent for
+   * a block equation, whose whole text is already the formula.
+   */
+  readonly markRange?: { readonly from: number; readonly to: number };
 }
 
 // UI State - Transient interaction state (menus, popovers, mode)
@@ -383,6 +394,12 @@ export interface UIState {
   // `editor.setNodeViewState`; not document content, never persisted.
   readonly nodeViewState: Readonly<Record<string, unknown>>;
   readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
+  // Block id whose left-gutter drag handle the mouse is currently over, or null.
+  // Drives painting the Notion-style reorder grip; set by the desktop hover path
+  // off the same region hit-test the drag uses, so hover and drag never disagree.
+  readonly hoveredDragHandleBlockId: string | null;
+  // Active block-reorder drag (left-gutter handle), or null.
+  readonly blockDrag: BlockDragState | null;
   // Ephemeral, range-anchored overlays the renderer paints on top of the
   // document without them being content (find highlights, remote cursors). Keyed
   // by an opaque layer name; never persisted, never in undo. See

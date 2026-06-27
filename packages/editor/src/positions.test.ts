@@ -31,7 +31,7 @@ import { describe, expect, it } from "vitest";
 function para(id: string, text: string): Paragraph {
   return {
     id,
-    afterId: null,
+    orderKey: "a0",
     deleted: false,
     type: "paragraph",
     charRuns: text ? [{ peerId: "peer", startCounter: 0, text }] : [],
@@ -224,7 +224,7 @@ describe("toBlockData", () => {
       attrs: { checked: true },
     });
     // structural fields never leak into attrs
-    for (const k of ["charRuns", "formats", "afterId", "deleted"]) {
+    for (const k of ["charRuns", "formats", "orderKey", "deleted"]) {
       expect(k in node.attrs).toBe(false);
     }
   });

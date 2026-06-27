@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 function paragraph(text: string): Paragraph {
   return {
     id: "p-1",
-    afterId: null,
+    orderKey: "a0",
     deleted: false,
     type: "paragraph",
     charRuns: [{ peerId: "peer", startCounter: 0, text }],

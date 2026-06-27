@@ -15,7 +15,6 @@ import {
 import type {
   BlockDelete,
   BlockInsert,
-  BlockMove,
   BlockSet,
   BlockType,
   MarkSet,
@@ -38,9 +37,10 @@ import {
   getVisibleTextFromRuns,
   insertIntoRuns,
   isCharIdInRange,
+  iterateAllChars,
   iterateVisibleChars,
 } from "./char-runs";
-import { resolveBlockOrder } from "./crdt-utils";
+import { sortBlocksByOrder } from "./crdt-utils";
 import { compareHLC } from "./hlc";
 import type { DataSchema } from "./schema";
 
@@ -57,11 +57,11 @@ export function createEmptyPageState(pageId: string): Page {
 
 export function createEmptyBlock(
   id: string,
-  afterId: string | null,
+  orderKey: string,
   type: string,
   schema: DataSchema = getBaseDataSchema(),
 ): Block | undefined {
-  return schema.createDefaultBlock(type, id, afterId);
+  return schema.createDefaultBlock(type, id, orderKey);
 }
 
 /**
@@ -228,13 +228,34 @@ function applyFormatSet(state: Page, op: MarkSet): Page {
         continue;
       }
 
-      const spanCharIds: string[] = [];
-      let inSpan = false;
-      for (const { id } of iterateVisibleChars(block.charRuns)) {
-        if (id === span.startCharId) inSpan = true;
-        if (inSpan) spanCharIds.push(id);
-        if (id === span.endCharId) break;
+      // Resolve the span's surviving (visible) chars tolerantly, by document
+      // order: a span endpoint can be tombstoned (e.g. the chip's leading char
+      // was deleted) while its interior survives. Anchoring on the exact boundary
+      // id over *visible* chars would never see a tombstoned endpoint, so the
+      // walk would collect nothing and drop the whole span on the floor — turning
+      // a partial un-format into a total one (an inline-math chip losing its mark
+      // and rendering as raw source). Matching `resolveMarkRuns`, key off ordinals
+      // computed over ALL chars so a deleted endpoint still bounds the run.
+      const ordinal = new Map<string, number>();
+      const visibleIds: string[] = [];
+      let ord = 0;
+      for (const { id, deleted } of iterateAllChars(block.charRuns)) {
+        ordinal.set(id, ord++);
+        if (!deleted) visibleIds.push(id);
       }
+      const startOrd = ordinal.get(span.startCharId);
+      const endOrd = ordinal.get(span.endCharId);
+      if (startOrd === undefined || endOrd === undefined) {
+        // Both anchors gone entirely — can't resolve the run; keep it untouched
+        // rather than dropping data. (Unreachable when the overlap check above
+        // passed, since that walks the same all-chars list.)
+        newFormats.push(span);
+        continue;
+      }
+      const spanCharIds = visibleIds.filter((id) => {
+        const o = ordinal.get(id)!;
+        return o >= startOrd && o <= endOrd;
+      });
 
       let runStart: string | null = null;
       let runEnd: string | null = null;
@@ -272,26 +293,73 @@ function applyFormatSet(state: Page, op: MarkSet): Page {
       return state;
     }
 
-    const filtered = block.formats.filter((span) => {
-      if (span.format.type !== op.format.type) return true;
-      const overlaps = op.charIds.some((charId) =>
-        isCharIdInRange(
-          block.charRuns,
-          charId,
-          span.startCharId,
-          span.endCharId,
-        ),
-      );
-      return !overlaps;
-    });
+    // Document-order ordinals over ALL chars (tombstones included), so a span
+    // whose endpoint was tombstoned still bounds a range — matching the
+    // op.value === false branch and `resolveMarkRuns`.
+    const ordinal = new Map<string, number>();
+    let ord = 0;
+    for (const { id } of iterateAllChars(block.charRuns)) {
+      ordinal.set(id, ord++);
+    }
+
+    // The op's own range, as ordinals. charIds is a contiguous document-order
+    // run, but min/max defends against any ordering.
+    let startId = op.charIds[0];
+    let endId = op.charIds[op.charIds.length - 1];
+    let startOrd = ordinal.get(startId);
+    let endOrd = ordinal.get(endId);
+    if (startOrd === undefined || endOrd === undefined) {
+      // Op targets chars absent from this block — nothing coherent to set.
+      return state;
+    }
+    if (startOrd > endOrd) {
+      [startOrd, endOrd] = [endOrd, startOrd];
+      [startId, endId] = [endId, startId];
+    }
+
+    // Fold each overlapping same-type span INTO the new range (union) rather
+    // than dropping it: a mark that already covered chars outside the op's
+    // range must keep covering them. Replacing the span with just the op's
+    // range silently shrinks coverage — e.g. after an inline-math chip is split
+    // across a block boundary (Enter) and the blocks are rejoined (Backspace),
+    // re-marking the second half would otherwise strip the mark from the first
+    // half, leaving it to render as raw LaTeX source.
+    const kept: MarkSpan[] = [];
+    for (const span of block.formats) {
+      if (span.format.type !== op.format.type) {
+        kept.push(span);
+        continue;
+      }
+      const sOrd = ordinal.get(span.startCharId);
+      const eOrd = ordinal.get(span.endCharId);
+      if (sOrd === undefined || eOrd === undefined) {
+        kept.push(span);
+        continue;
+      }
+      // Ranges intersect in document order (using the new range as it grows, so
+      // a chain of overlapping spans coalesces into one).
+      const overlaps = sOrd <= endOrd && eOrd >= startOrd;
+      if (!overlaps) {
+        kept.push(span);
+        continue;
+      }
+      if (sOrd < startOrd) {
+        startOrd = sOrd;
+        startId = span.startCharId;
+      }
+      if (eOrd > endOrd) {
+        endOrd = eOrd;
+        endId = span.endCharId;
+      }
+    }
 
     const newSpan: MarkSpan = {
-      startCharId: op.charIds[0],
-      endCharId: op.charIds[op.charIds.length - 1],
+      startCharId: startId,
+      endCharId: endId,
       format: op.format,
       clock: op.clock,
     };
-    newFormats = [...filtered, newSpan];
+    newFormats = [...kept, newSpan];
   }
 
   const updatedBlock: Block = {
@@ -311,14 +379,9 @@ function applyFormatSet(state: Page, op: MarkSet): Page {
 /**
  * Apply a block insert operation.
  *
- * The new block is appended to the array and the full order is recomputed
- * via `resolveBlockOrder`. The previous splice-based approach used a
- * shallow scan that disagreed with `resolveBlockOrder` whenever a new
- * sibling was inserted alongside an existing block that already had
- * descendants — the splice would land mid-subtree while the tree walk
- * places siblings after their predecessor's full subtree. Routing every
- * insert through the same canonical order ensures local-emit and remote
- * apply (and rebuild) all converge on the same block array.
+ * The new block carries an absolute fractional-index `orderKey`; the array is
+ * re-sorted by `(orderKey, id)` so local-emit, remote apply, and rebuild all
+ * converge on the same block order regardless of arrival sequence.
  */
 function applyBlockInsert(
   state: Page,
@@ -339,7 +402,7 @@ function applyBlockInsert(
 
   const baseBlock = createEmptyBlock(
     op.blockId,
-    op.afterBlockId,
+    op.orderKey,
     op.blockType,
     schema,
   );
@@ -352,7 +415,7 @@ function applyBlockInsert(
     ? { ...baseBlock, ...op.initialProps }
     : baseBlock;
 
-  const newBlocks = resolveBlockOrder([...state.blocks, newBlock]);
+  const newBlocks = sortBlocksByOrder([...state.blocks, newBlock]);
 
   return {
     ...state,
@@ -416,6 +479,16 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
     return state;
   }
 
+  // `orderKey` is a structural, type-agnostic field (a block move), not part of
+  // any node's schema, so it bypasses `validateField`. Setting it re-sorts the
+  // document; an LWW write by HLC, like any other block property.
+  if (op.field === "orderKey") {
+    if (typeof op.value !== "string") return state;
+    const reordered = [...state.blocks];
+    reordered[blockIndex] = { ...block, orderKey: op.value };
+    return { ...state, blocks: sortBlocksByOrder(reordered) };
+  }
+
   if (!schema.validateField(block.type, op.field, op.value)) {
     return state;
   }
@@ -424,7 +497,7 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
     const newType = op.value as BlockType;
     const newBlock = createEmptyBlock(
       block.id,
-      block.afterId ?? null,
+      block.orderKey ?? "",
       newType,
       schema,
     );
@@ -483,71 +556,6 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
 }
 
 /**
- * Apply a block move operation.
- *
- * Repositions `op.blockId` to sit immediately after `op.afterBlockId` (null =
- * head). Because `afterId` anchors a block to its PREDECESSOR, a correct move
- * is three re-anchor edits, all derived from the CURRENT state so every peer
- * computes them identically:
- *
- *   1. the moved block            -> afterId = new target
- *   2. the moved block's followers -> afterId = the moved block's OLD anchor
- *      (closes the gap the block left behind)
- *   3. the target's followers      -> afterId = the moved block
- *      (opens a gap at the destination so the block lands directly after it)
- *
- * Each branch reads the ORIGINAL `afterId` (a single `.map`, no in-place
- * mutation), so edit ordering is irrelevant and the result is a pure function
- * of `(state, op)`. Final order is rebuilt via `resolveBlockOrder` rather than
- * spliced, keeping the incremental-merge and full-rebuild paths byte-identical.
- *
- * Apply stays total and defensive: a self-targeting or unknown-block op is a
- * no-op here so a malformed/remote op converges identically everywhere (the
- * action layer additionally refuses to emit such ops).
- */
-function applyBlockMove(state: Page, op: BlockMove): Page {
-  // A block cannot follow itself — that would orphan it. No-op defensively.
-  if (op.afterBlockId === op.blockId) {
-    return state;
-  }
-
-  const block = findBlock(state, op.blockId);
-  if (!block) {
-    return state;
-  }
-
-  const oldAfter = block.afterId ?? null;
-  const target = op.afterBlockId;
-
-  // Already in place: the block's anchor is the target and nothing else
-  // re-anchors. Avoids a pointless array rebuild on idempotent replays.
-  if (oldAfter === target) {
-    return state;
-  }
-
-  const newBlocks = state.blocks.map((blk) => {
-    if (blk.id === op.blockId) {
-      return { ...blk, afterId: target };
-    }
-    if (blk.afterId === op.blockId) {
-      // Close the gap the moved block left behind.
-      return { ...blk, afterId: oldAfter };
-    }
-    if (blk.afterId === target) {
-      // Open a gap at the destination so the moved block lands directly after
-      // the target, ahead of the target's former followers.
-      return { ...blk, afterId: op.blockId };
-    }
-    return blk;
-  });
-
-  return {
-    ...state,
-    blocks: resolveBlockOrder(newBlocks),
-  };
-}
-
-/**
  * Apply a single operation to the state.
  */
 export function applyOp(
@@ -568,8 +576,6 @@ export function applyOp(
       return applyBlockDelete(state, op);
     case "block_set":
       return applyBlockSet(state, op, schema);
-    case "block_move":
-      return applyBlockMove(state, op);
     default:
       // Unknown operation type
       return state;

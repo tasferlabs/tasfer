@@ -39,6 +39,14 @@ export interface CaretStop {
    */
   readonly boundary?: boolean;
   /**
+   * For a `boundary` stop, the x of the construct's OTHER outer edge. The pair
+   * `(x, partnerX)` brackets the construct's horizontal extent, letting the
+   * hit-test tell a click that fell *inside* a construct's body (e.g. on a √
+   * sign's wide leading stroke) from one genuinely beside it. Set only on
+   * boundary stops.
+   */
+  readonly partnerX?: number;
+  /**
    * The script slot this stop sits in (`"sup"`/`"sub"`), and a per-construct id
    * shared by every stop of the SAME super/subscript construct. Set only for
    * stops inside a script — used by {@link caretVertical} to connect a
@@ -91,6 +99,16 @@ export function caretStops(layout: MathLayout): CaretStop[] {
   for (const s of stops) {
     const prev = out[out.length - 1];
     if (prev && prev.offset === s.offset && Math.abs(prev.x - s.x) < 0.01) {
+      // A construct's outer-edge boundary frequently lands exactly on an adjacent
+      // glyph's edge (e.g. `a\sqrt{x}` — the root's left edge is also `a`'s right
+      // edge). The glyph wins (it carries the true row height), but we must keep
+      // the boundary's `partnerX`: it brackets the construct's horizontal extent,
+      // which the hit-test needs to tell a click on the construct's body (a wide √
+      // stroke) from one genuinely beside it. Lose it and clicks on the sign snap
+      // to the outside edge instead of entering the root.
+      if (s.partnerX !== undefined && prev.partnerX === undefined) {
+        out[out.length - 1] = { ...prev, partnerX: s.partnerX };
+      }
       continue;
     }
     out.push(s);
@@ -182,14 +200,24 @@ function walk(
     if (box.boundary && box.span) {
       const top = y - box.height * fs;
       const bottom = y + box.depth * fs;
-      out.push({ offset: box.span.start, x, y, top, bottom, boundary: true });
+      const rightX = x + box.width * fs;
       out.push({
-        offset: box.span.end,
-        x: x + box.width * fs,
+        offset: box.span.start,
+        x,
         y,
         top,
         bottom,
         boundary: true,
+        partnerX: rightX,
+      });
+      out.push({
+        offset: box.span.end,
+        x: rightX,
+        y,
+        top,
+        bottom,
+        boundary: true,
+        partnerX: x,
       });
     }
   }
@@ -200,6 +228,14 @@ function walk(
  * Source offset nearest to a click at `(x, y)`. Prefers stops whose vertical
  * band contains `y` (so a click in a numerator lands in the numerator), then
  * falls back to the horizontally-closest stop overall.
+ *
+ * The band preference only applies while the click sits horizontally *over* a
+ * row's content (between the leftmost and rightmost in-band stop). Past that
+ * extent the click is in empty space, where `y` no longer picks a row — so a
+ * click in the trailing whitespace must land at the globally nearest stop (the
+ * formula's true end) instead of snapping back up into a taller construct that
+ * happens to sit to the left at that height (e.g. clicking right of `+a` in
+ * `\frac{b}{c}+a` must land after `a`, not inside the fraction).
  */
 export function hitTest(
   layout: MathLayout,
@@ -214,6 +250,8 @@ export function hitTest(
   let bestDist = Infinity;
   let bestInBand: CaretStop | null = null;
   let bestBandDist = Infinity;
+  let minInBandX = Infinity;
+  let maxInBandX = -Infinity;
   let bestGlyphInBand: CaretStop | null = null;
   let bestGlyphBandDist = Infinity;
   let bestPlaceholder: CaretStop | null = null;
@@ -226,9 +264,13 @@ export function hitTest(
       bestDist = dist;
       best = s;
     }
-    if (y >= s.top && y <= s.bottom && dist < bestBandDist) {
-      bestBandDist = dist;
-      bestInBand = s;
+    if (y >= s.top && y <= s.bottom) {
+      if (s.x < minInBandX) minInBandX = s.x;
+      if (s.x > maxInBandX) maxInBandX = s.x;
+      if (dist < bestBandDist) {
+        bestBandDist = dist;
+        bestInBand = s;
+      }
     }
     if (
       !s.placeholder &&
@@ -266,7 +308,57 @@ export function hitTest(
   ) {
     return bestPlaceholder.offset;
   }
-  return (bestInBand ?? best!).offset;
+  // Trust the row `y` picked only while the click is horizontally over that
+  // row's content. Past the in-band stops' extent the click is in empty space —
+  // fall back to the globally nearest stop so trailing whitespace lands at the
+  // formula's true end, not back inside a taller construct sitting to the side.
+  const overBand = bestInBand !== null && x >= minInBandX && x <= maxInBandX;
+  const chosen = overBand ? bestInBand! : best!;
+
+  // A click can land on a construct's own outer boundary while actually falling
+  // *inside* its body — the classic case is the wide leading stroke of a √ sign,
+  // which carries no caret stop, so its left half is nearest the leading
+  // boundary that sits OUTSIDE the construct. When that happens, enter the
+  // construct: redirect to the nearest in-band stop within its extent, skipping
+  // the opposite outer edge (so we don't jump clear across to the far side).
+  // `partnerX` (not the `boundary` flag) is the gate: a construct edge that
+  // merged into an adjacent glyph keeps `partnerX` but loses `boundary`, and it
+  // still needs to redirect clicks that fell inside the construct's body.
+  if (chosen.partnerX !== undefined) {
+    const left = Math.min(chosen.x, chosen.partnerX);
+    const right = Math.max(chosen.x, chosen.partnerX);
+    if (x > left && x < right) {
+      // Prefer an interior stop on the click's own row; otherwise fall back to
+      // the horizontally-nearest interior stop on any row. The fallback matters
+      // for clicks high on a construct's ornament (e.g. the top of a √ sign,
+      // above the radicand's row) — every stop in the extent is genuine inner
+      // content, so entering at the nearest one still beats resting outside.
+      let inner: CaretStop | null = null;
+      let innerDist = Infinity;
+      let innerAny: CaretStop | null = null;
+      let innerAnyDist = Infinity;
+      for (const s of stops) {
+        if (s === chosen) continue;
+        if (s.x < left || s.x > right) continue; // outside the construct
+        // Skip the construct's opposite outer edge — landing there means resting
+        // beside the construct again, not entering it.
+        if (s.boundary && Math.abs(s.x - chosen.partnerX) < 0.01) continue;
+        const d = Math.abs(s.x - x);
+        if (d < innerAnyDist) {
+          innerAnyDist = d;
+          innerAny = s;
+        }
+        if (y < s.top || y > s.bottom) continue; // shares the click's row
+        if (d < innerDist) {
+          innerDist = d;
+          inner = s;
+        }
+      }
+      const target = inner ?? innerAny;
+      if (target) return target.offset;
+    }
+  }
+  return chosen.offset;
 }
 
 /** Caret geometry for a source `offset`, or null if the layout has no stops. */

@@ -160,7 +160,7 @@ function paragraphBlock(id: string): Block {
 function quoteBlock(text: string, id = "quote-1"): QuoteBlock {
   return {
     id,
-    afterId: null,
+    orderKey: "a0",
     deleted: false,
     type: "quote",
     charRuns: text ? [{ peerId: "peer", startCounter: 0, text }] : [],

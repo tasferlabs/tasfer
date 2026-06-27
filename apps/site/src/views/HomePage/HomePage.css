@@ -321,6 +321,10 @@
   box-shadow: 0 0 0 4px oklch(from var(--primary) l c h / 0.15);
   animation: lp-pulse-dot 2.4s ease-in-out infinite;
 }
+.lp-hero-tagline {
+  color: var(--primary);
+  text-transform: capitalize;
+}
 @keyframes lp-pulse-dot {
   0%,
   100% {

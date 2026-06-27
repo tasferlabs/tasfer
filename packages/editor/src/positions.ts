@@ -268,7 +268,7 @@ export function toBlockData(block: Block): BlockData {
     "type",
     "charRuns",
     "formats",
-    "afterId",
+    "orderKey",
     "deleted",
   ]);
   const attrs: Record<string, unknown> = {};

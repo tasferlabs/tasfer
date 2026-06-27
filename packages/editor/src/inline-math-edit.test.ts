@@ -7,7 +7,14 @@
  * live editor (a freshly-typed char sorts after the formula's chars).
  */
 import { getInlineMathSpans } from "./inline-math-spans";
-import { mathUnitBefore } from "./nodes/math";
+import {
+  mathDeleteUnit,
+  mathMaterializeAfterInput,
+  mathMergeAfterDelete,
+  mathRedundantSpaceAfterInput,
+  mathSplitAfterInput,
+  mathUnitBefore,
+} from "./nodes/math";
 import {
   deleteCharsInRange,
   insertCharsAtPosition,
@@ -38,6 +45,19 @@ function chip(latex: string) {
   return { page, blockId, binding };
 }
 
+/** A block equation whose char-run text IS `latex`, built from a single binding. */
+function mathBlock(latex: string) {
+  const binding = createCRDTbinding("inline-math-edit", "peer-1");
+  const engine = createSyncEngine(binding);
+  const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
+  engine.emit([blockOp]);
+  const blockId = blockOp.blockId;
+
+  let page = engine.getState();
+  page = insertCharsAtPosition(page, blockId, 0, latex, binding).newPage;
+  return { page, blockId, binding };
+}
+
 describe("inline-math in-place editing", () => {
   it("a char typed inside the numerator joins the LaTeX, span stays whole", () => {
     const { page, blockId, binding } = chip("\\frac{a}{b}");
@@ -59,11 +79,16 @@ describe("inline-math in-place editing", () => {
     expect(after[0].latex).toBe("\\frac{}{b}");
   });
 
-  it("typing at the right edge inserts plain text after the chip", () => {
+  it("the raw insert helper leaves an edge char outside the chip", () => {
+    // At the CRDT-helper layer an edge char lands OUTSIDE the math mark — typing
+    // at `endIndex` inserts past the chip's last marked char. Treating the edge
+    // as inside (re-marking the chip to swallow the char) is layered on top by
+    // MathNode's post-insert observer, exercised through the real action pipeline
+    // in `inline-math-split-merge.test.ts` ("typing a non-space char at the …
+    // edge joins the formula"). This pins the helper's lower-level contract.
     const { page, blockId, binding } = chip("x^2");
     const end = getInlineMathSpans(page.blocks[0])[0].endIndex; // past last char
     const { newPage } = insertCharsAtPosition(page, blockId, end, "z", binding);
-    // The chip is unchanged; 'z' is outside it.
     expect(getInlineMathSpans(newPage.blocks[0])[0].latex).toBe("x^2");
   });
 
@@ -89,6 +114,74 @@ describe("inline-math in-place editing", () => {
     const after = getInlineMathSpans(newPage.blocks[0]);
     expect(after).toHaveLength(1);
     expect(after[0].latex).toBe("a b");
+  });
+
+  it("backspace at a single-construct chip's edge chips off its trailing leaf, not the whole construct", () => {
+    // A chip that is itself one construct (`\sqrt{a}`) must not be selected and
+    // deleted whole from outside: Backspace just past it enters and removes the
+    // radicand's trailing leaf `a` (→ `\sqrt{}`), one unit at a time. Resting at
+    // the chip's far edge is visually indistinguishable from "just after `a`"
+    // (the closing brace has zero width), so this is what the user expects.
+    const { page, blockId, binding } = chip("\\sqrt{a}");
+    const span = getInlineMathSpans(page.blocks[0])[0];
+    const unit = mathDeleteUnit(page.blocks[0], span.endIndex, "backward")!;
+    expect(unit.isConstruct).toBe(false);
+    expect({ from: unit.from, to: unit.to }).toEqual({
+      from: span.startIndex + 6, // the `a`
+      to: span.startIndex + 7,
+    });
+    const { newPage } = deleteCharsInRange(
+      page,
+      blockId,
+      unit.from,
+      unit.to,
+      binding,
+    );
+    expect(getInlineMathSpans(newPage.blocks[0])[0].latex).toBe("\\sqrt{}");
+  });
+
+  it("delete at a single-construct chip's left edge chips off its leading leaf", () => {
+    const { page } = chip("\\sqrt{a}");
+    const span = getInlineMathSpans(page.blocks[0])[0];
+    const unit = mathDeleteUnit(page.blocks[0], span.startIndex, "forward")!;
+    expect(unit.isConstruct).toBe(false);
+    expect({ from: unit.from, to: unit.to }).toEqual({
+      from: span.startIndex + 6,
+      to: span.startIndex + 7,
+    });
+  });
+
+  it("a plain trailing leaf at a chip edge is still erased directly (no construct drill)", () => {
+    // `xy` is not one construct — Backspace at its edge removes the trailing `y`.
+    const { page } = chip("xy");
+    const span = getInlineMathSpans(page.blocks[0])[0];
+    const unit = mathDeleteUnit(page.blocks[0], span.endIndex, "backward")!;
+    expect({
+      from: unit.from,
+      to: unit.to,
+      isConstruct: unit.isConstruct,
+    }).toEqual({
+      from: span.startIndex + 1,
+      to: span.startIndex + 2,
+      isConstruct: false,
+    });
+  });
+
+  it("materializing \\frac inside a chip marks the new braces so they stay in the formula", () => {
+    // Typing `\frac` as a standalone chip then materializing must keep the `{}{}`
+    // INSIDE the chip (they land at the chip's right edge, otherwise outside the
+    // math mark) and drop the caret in the first empty slot.
+    const { page } = chip("\\frac");
+    const span = getInlineMathSpans(page.blocks[0])[0];
+    const mat = mathMaterializeAfterInput(page.blocks[0], span.endIndex)!;
+    expect(mat.inserts).toEqual([{ at: span.startIndex + 5, text: "{}{}" }]);
+    // The grown chip [start, end + 4) must be re-marked so the braces join it.
+    expect(mat.markRange).toEqual({
+      from: span.startIndex,
+      to: span.endIndex + 4,
+    });
+    // Caret lands inside the first `{}` (numerator), not in trailing plain text.
+    expect(mat.caret).toBe(span.startIndex + 6);
   });
 
   it("the \\ command menu replaces the typed query with the construct, span whole", () => {
@@ -118,5 +211,249 @@ describe("inline-math in-place editing", () => {
     const after = getInlineMathSpans(p2.blocks[0]);
     expect(after).toHaveLength(1);
     expect(after[0].latex).toBe("a\\int_{}^{} b");
+  });
+});
+
+describe("inline-math split on space / merge on delete", () => {
+  it("a space typed inside a chip splits it into two chips around a plain space", () => {
+    // "xy" chip; type a space between x and y → block text "x y", caret at 2.
+    const { page, blockId, binding } = chip("xy");
+    const { newPage: typed } = insertCharsAtPosition(
+      page,
+      blockId,
+      1,
+      " ",
+      binding,
+    );
+    // Still one tolerant span before the split runs.
+    expect(getInlineMathSpans(typed.blocks[0])[0].latex).toBe("x y");
+
+    // The post-insert observer strips "math" from the just-typed space (caret 2).
+    const split = mathSplitAfterInput(typed.blocks[0], 2)!;
+    expect(split).toEqual({ from: 1, to: 2 });
+    const { newPage: out } = markCharsInRange(
+      typed,
+      blockId,
+      split.from,
+      split.to,
+      { type: "math" },
+      false,
+      binding,
+    );
+
+    const spans = getInlineMathSpans(out.blocks[0]);
+    expect(spans.map((s) => s.latex)).toEqual(["x", "y"]);
+  });
+
+  it("a space typed inside a construct does not split (cannot divide a construct)", () => {
+    // "\frac{a}{b}" chip; type a space inside the numerator, right after `a`.
+    const { page, blockId, binding } = chip("\\frac{a}{b}");
+    const numEnd = "\\frac{a".length; // position just after `a`
+    const { newPage: typed } = insertCharsAtPosition(
+      page,
+      blockId,
+      numEnd,
+      " ",
+      binding,
+    );
+    // Caret lands just past the typed space.
+    expect(mathSplitAfterInput(typed.blocks[0], numEnd + 1)).toBeNull();
+    // The chip stays whole, with the space living in the math source.
+    const spans = getInlineMathSpans(typed.blocks[0]);
+    expect(spans).toHaveLength(1);
+    expect(spans[0].latex).toBe("\\frac{a }{b}");
+  });
+
+  it("deleting the separating space merges the two chips back into one", () => {
+    // Start from the split state: two chips "x" and "y" with a plain space at 1.
+    const { page, blockId, binding } = chip("xy");
+    const { newPage: typed } = insertCharsAtPosition(
+      page,
+      blockId,
+      1,
+      " ",
+      binding,
+    );
+    const { newPage: split } = markCharsInRange(
+      typed,
+      blockId,
+      1,
+      2,
+      { type: "math" },
+      false,
+      binding,
+    );
+    expect(getInlineMathSpans(split.blocks[0])).toHaveLength(2);
+
+    // Delete the plain space → the two chips become adjacent.
+    const { newPage: deleted } = deleteCharsInRange(
+      split,
+      blockId,
+      1,
+      2,
+      binding,
+    );
+    const plans = mathMergeAfterDelete(deleted.blocks[0])!;
+    expect(plans).toEqual([{ from: 0, to: 2, separatorsAt: [] }]);
+
+    const { newPage: merged } = markCharsInRange(
+      deleted,
+      blockId,
+      plans[0].from,
+      plans[0].to,
+      { type: "math" },
+      true,
+      binding,
+    );
+    const spans = getInlineMathSpans(merged.blocks[0]);
+    expect(spans).toHaveLength(1);
+    expect(spans[0].latex).toBe("xy");
+  });
+
+  it("plans a separator when merging would fuse a command with a letter", () => {
+    // Two adjacent chips "\sin" and "x" (no char between) must re-merge to the
+    // valid "\sin x", not the broken unknown command "\sinx".
+    const { page, blockId, binding } = chip("\\sinx");
+    // Mark [0,4) "\sin" and [4,5) "x" as two separate touching math chips.
+    let p = markCharsInRange(
+      page,
+      blockId,
+      0,
+      4,
+      { type: "math" },
+      false,
+      binding,
+    ).newPage;
+    p = markCharsInRange(
+      p,
+      blockId,
+      0,
+      4,
+      { type: "math" },
+      true,
+      binding,
+    ).newPage;
+    p = markCharsInRange(
+      p,
+      blockId,
+      4,
+      5,
+      { type: "math" },
+      true,
+      binding,
+    ).newPage;
+    expect(getInlineMathSpans(p.blocks[0]).map((s) => s.latex)).toEqual([
+      "\\sin",
+      "x",
+    ]);
+    const plans = mathMergeAfterDelete(p.blocks[0])!;
+    expect(plans).toEqual([{ from: 0, to: 5, separatorsAt: [4] }]);
+  });
+
+  it("no merge when the chips are still separated by text", () => {
+    const { page, blockId, binding } = chip("xy");
+    const { newPage: typed } = insertCharsAtPosition(
+      page,
+      blockId,
+      1,
+      " ",
+      binding,
+    );
+    const { newPage: split } = markCharsInRange(
+      typed,
+      blockId,
+      1,
+      2,
+      { type: "math" },
+      false,
+      binding,
+    );
+    // The space is still there, so the two chips are not adjacent.
+    expect(mathMergeAfterDelete(split.blocks[0])).toBeNull();
+  });
+});
+
+describe("inline-math redundant-space drop", () => {
+  it("flags a meaningless space typed inside a construct for deletion", () => {
+    // "\frac{a}{b}" chip; type a space inside the numerator, right after `a`.
+    // It can't split (a construct is indivisible) and renders identically with
+    // or without it, so it's dead source to drop — not saved as `\frac{a }{b}`.
+    const { page, blockId, binding } = chip("\\frac{a}{b}");
+    const numEnd = "\\frac{a".length;
+    const { newPage: typed } = insertCharsAtPosition(
+      page,
+      blockId,
+      numEnd,
+      " ",
+      binding,
+    );
+    expect(mathSplitAfterInput(typed.blocks[0], numEnd + 1)).toBeNull();
+    expect(mathRedundantSpaceAfterInput(typed.blocks[0], numEnd + 1)).toEqual({
+      from: numEnd,
+      to: numEnd + 1,
+    });
+  });
+
+  it("keeps a space that separates a command from a following letter", () => {
+    // "\sinx" with a space typed before the `x` → "\sin x": the space is load-
+    // bearing (dropping it fuses into the unknown command "\sinx").
+    const { page, blockId, binding } = chip("\\sinx");
+    const at = "\\sin".length;
+    const { newPage: typed } = insertCharsAtPosition(
+      page,
+      blockId,
+      at,
+      " ",
+      binding,
+    );
+    expect(getInlineMathSpans(typed.blocks[0])[0].latex).toBe("\\sin x");
+    expect(mathRedundantSpaceAfterInput(typed.blocks[0], at + 1)).toBeNull();
+  });
+
+  it("keeps a literal space inside a text-mode group", () => {
+    // "\text{ab}" with a space typed between the letters → "\text{a b}": text-mode
+    // spaces are real glyphs, so the space must survive.
+    const { page, blockId, binding } = chip("\\text{ab}");
+    const at = "\\text{a".length;
+    const { newPage: typed } = insertCharsAtPosition(
+      page,
+      blockId,
+      at,
+      " ",
+      binding,
+    );
+    expect(getInlineMathSpans(typed.blocks[0])[0].latex).toBe("\\text{a b}");
+    expect(mathRedundantSpaceAfterInput(typed.blocks[0], at + 1)).toBeNull();
+  });
+
+  it("drops a meaningless space typed inside a block equation", () => {
+    // Block math "ab"; a space typed between the atoms renders identically, so
+    // it's flagged for deletion rather than persisted as "a b".
+    const { page, blockId, binding } = mathBlock("ab");
+    const { newPage: typed } = insertCharsAtPosition(
+      page,
+      blockId,
+      1,
+      " ",
+      binding,
+    );
+    expect(typed.blocks[0].type).toBe("math");
+    expect(mathRedundantSpaceAfterInput(typed.blocks[0], 2)).toEqual({
+      from: 1,
+      to: 2,
+    });
+  });
+
+  it("keeps a command separator in a block equation", () => {
+    const { page, blockId, binding } = mathBlock("\\sinx");
+    const at = "\\sin".length;
+    const { newPage: typed } = insertCharsAtPosition(
+      page,
+      blockId,
+      at,
+      " ",
+      binding,
+    );
+    expect(mathRedundantSpaceAfterInput(typed.blocks[0], at + 1)).toBeNull();
   });
 });

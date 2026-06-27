@@ -76,7 +76,7 @@ describe("escapeBelowSelfContainedBlock — ArrowDown / PageDown", () => {
     const blocks = edge.state.document.page.blocks;
     expect(blocks).toHaveLength(2);
     expect(blocks[1].type).toBe("paragraph");
-    expect(blocks[1].afterId).toBe(blocks[0].id);
+    expect(blocks[1].orderKey! > blocks[0].orderKey!).toBe(true);
     expect(edge.state.document.cursor?.position.blockIndex).toBe(1);
     expect(edge.ops).toHaveLength(1);
     expect(edge.ops[0].op).toBe("block_insert");
@@ -143,7 +143,7 @@ describe("escapeAboveSelfContainedBlock — ArrowUp / PageUp", () => {
     const blocks = edge.state.document.page.blocks;
     expect(blocks).toHaveLength(2);
     expect(blocks[0].type).toBe("paragraph");
-    expect(blocks[0].afterId).toBe(null);
+    expect(blocks[0].orderKey! < blocks[1].orderKey!).toBe(true);
     expect(edge.state.document.cursor?.position.blockIndex).toBe(0);
     expect(edge.ops[0].op).toBe("block_insert");
   });

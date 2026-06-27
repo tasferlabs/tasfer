@@ -5,7 +5,7 @@
  * Command names group as one unit, so a unit never chips `\sin` into `\si`/`\s`.
  */
 import { describe, expect, it } from "vitest";
-import { unitAfter, unitBefore } from "./unit";
+import { isInsideConstruct, unitAfter, unitAt, unitBefore } from "./unit";
 
 /** Convenience: unit on each side as a tuple for terse assertions. */
 function back(latex: string, offset: number) {
@@ -14,6 +14,11 @@ function back(latex: string, offset: number) {
 }
 function fwd(latex: string, offset: number) {
   const u = unitAfter(latex, offset);
+  return u ? [u.start, u.end, u.isConstruct] : null;
+}
+/** The double-click selection unit at `offset`, as the same terse tuple. */
+function at(latex: string, offset: number) {
+  const u = unitAt(latex, offset);
   return u ? [u.start, u.end, u.isConstruct] : null;
 }
 
@@ -181,5 +186,81 @@ describe("unitBefore — nested constructs stay at their level", () => {
     const latex = "\\frac{\\sqrt{x}}{b}";
     const afterSqrt = latex.indexOf("}}") + 1; // index of the first of the two closing braces
     expect(back(latex, afterSqrt)).toEqual([6, afterSqrt, true]);
+  });
+});
+
+describe("unitAt — double-click selects the construct under the pointer, whole", () => {
+  it("a fraction from any glyph of its numerator", () => {
+    // Single-char numerator, caret after `a`.
+    expect(at("\\frac{a}{b}", 7)).toEqual([0, 11, true]);
+    // Multi-char numerator, caret BETWEEN the two glyphs — escalates to the whole
+    // `\frac` rather than chipping a single source char (the bug this fixes; the
+    // delete-side `unitBefore` deliberately stays on the lone `a` here).
+    expect(at("\\frac{ab}{c}", 7)).toEqual([0, 12, true]);
+    expect(back("\\frac{ab}{c}", 7)).toEqual([6, 7, false]);
+  });
+
+  it("a fraction from any glyph of its denominator", () => {
+    expect(at("\\frac{a}{b}", 9)).toEqual([0, 11, true]);
+    expect(at("\\frac{a}{bc}", 10)).toEqual([0, 12, true]);
+  });
+
+  it("the INNERMOST construct when constructs nest", () => {
+    // "\frac{x^2}{d}" — clicking the script base selects the whole `x^2`, the
+    // innermost construct, not the enclosing fraction.
+    const latex = "\\frac{x^2}{d}";
+    const afterX = latex.indexOf("x") + 1;
+    expect(at(latex, afterX)).toEqual([6, 9, true]);
+  });
+
+  it("a square root from a glyph of its body", () => {
+    expect(at("\\sqrt{xy}", 7)).toEqual([0, 9, true]);
+  });
+
+  it("a lone top-level token selects itself, not its neighbours", () => {
+    // A recognized command is its own token…
+    expect(at("\\alpha+1", 0)).toEqual([0, 6, false]);
+    // …and a bare character stays a single leaf (never widening to `ab`).
+    expect(at("ab", 0)).toEqual([0, 1, false]);
+  });
+
+  it("prefers the construct over a neighbouring operator at a shared boundary", () => {
+    // "\frac{a}{b}+1" — the caret offset at the fraction's right edge is also the
+    // `+`'s left edge; the double-click grabs the fraction, not the operator.
+    expect(at("\\frac{a}{b}+1", 11)).toEqual([0, 11, true]);
+  });
+
+  it("returns null for an empty formula", () => {
+    expect(at("", 0)).toBeNull();
+  });
+});
+
+describe("isInsideConstruct — top-level vs. construct interior", () => {
+  it("top-level positions between sibling tokens are not inside a construct", () => {
+    // "a b" — the space between two atoms is a clean top-level break point.
+    expect(isInsideConstruct("a b", 1)).toBe(false);
+    expect(isInsideConstruct("a b", 2)).toBe(false);
+    // "x+y" — every interior offset is between top-level siblings.
+    expect(isInsideConstruct("x+y", 1)).toBe(false);
+    expect(isInsideConstruct("x+y", 2)).toBe(false);
+  });
+
+  it("a space inside a fraction slot is inside the construct", () => {
+    // "\frac{a b}{c}" — the space sits in the numerator, both of its edges.
+    const sp = "\\frac{a b}{c}".indexOf(" ");
+    expect(isInsideConstruct("\\frac{a b}{c}", sp)).toBe(true);
+    expect(isInsideConstruct("\\frac{a b}{c}", sp + 1)).toBe(true);
+  });
+
+  it("positions inside a script are inside the construct", () => {
+    // "x^{a b}" — the space in the superscript group.
+    const sp = "x^{a b}".indexOf(" ");
+    expect(isInsideConstruct("x^{a b}", sp)).toBe(true);
+  });
+
+  it("the source boundaries are never inside a construct", () => {
+    expect(isInsideConstruct("\\frac{a}{b}", 0)).toBe(false);
+    expect(isInsideConstruct("\\frac{a}{b}", "\\frac{a}{b}".length)).toBe(false);
+    expect(isInsideConstruct("", 0)).toBe(false);
   });
 });

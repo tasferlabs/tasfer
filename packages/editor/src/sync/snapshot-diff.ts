@@ -23,6 +23,7 @@ import {
   styleField,
 } from "./block-registry";
 import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
+import { generateKeyBetween } from "./fractional-index";
 
 // =============================================================================
 // Types
@@ -243,7 +244,9 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
   const ops: Operation[] = [];
   const { pageId, peerId, nextId, getClock } = ctx;
 
-  let lastInsertedBlockId: string | null = null;
+  // Running fractional-index key — each block chains after the previous one,
+  // so the emitted sequence preserves the input order.
+  let prevOrderKey: string | null = null;
   let isFirstBlock = true;
 
   for (const block of blocks) {
@@ -257,28 +260,42 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
       : `b-${nextId()}`;
     isFirstBlock = false;
 
+    const orderKey = generateKeyBetween(prevOrderKey, null);
+
     // The existing init block was persisted as heading1. Morph its type when
-    // needed; otherwise emit a fresh block_insert.
+    // needed; otherwise emit a fresh block_insert. Either way, set its order
+    // key so the reused init block sits at the head of the restored sequence.
     if (!useExisting) {
       const insertOp: BlockInsert = {
         op: "block_insert",
         id: nextId(),
         clock: getClock(),
         pageId,
-        afterBlockId: lastInsertedBlockId,
+        orderKey,
         blockId: newBlockId,
         blockType: block.type,
       };
       ops.push(insertOp);
-    } else if (block.type !== "heading1") {
+    } else {
+      if (block.type !== "heading1") {
+        ops.push({
+          op: "block_set",
+          id: nextId(),
+          clock: getClock(),
+          pageId,
+          blockId: newBlockId,
+          field: "type",
+          value: block.type,
+        } as BlockSet);
+      }
       ops.push({
         op: "block_set",
         id: nextId(),
         clock: getClock(),
         pageId,
         blockId: newBlockId,
-        field: "type",
-        value: block.type,
+        field: "orderKey",
+        value: orderKey,
       } as BlockSet);
     }
 
@@ -363,7 +380,7 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
     // skip prop ops. A schema-aware diff path would handle these; until then,
     // custom blocks degrade rather than crash.
     const descriptor = getBlockDescriptor(block.type);
-    const defaultBlock = descriptor?.defaults(newBlockId, lastInsertedBlockId);
+    const defaultBlock = descriptor?.defaults(newBlockId, orderKey);
     if (defaultBlock) {
       for (const fieldName of getBlockFieldNames(block.type)) {
         if (fieldName === "type") continue;
@@ -403,7 +420,7 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
       } as BlockSet);
     }
 
-    lastInsertedBlockId = newBlockId;
+    prevOrderKey = orderKey;
   }
 
   return ops;

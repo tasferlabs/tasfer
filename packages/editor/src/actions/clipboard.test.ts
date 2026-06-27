@@ -6,10 +6,14 @@
  * drift from per-type behavior.
  */
 
+import { moveCursorToPosition } from "../selection";
 import type { Block } from "../serlization/loadPage";
+import { loadPage } from "../serlization/loadPage";
 import type { BlockSet } from "../state-types";
+import { createInitialState } from "../state-utils";
+import { applyOps, getVisibleBlocks } from "../sync/reducer";
 import { createCRDTbinding } from "../sync/sync";
-import { atomicBlockInsertOps } from "./clipboard";
+import { atomicBlockInsertOps, pasteFromClipboardEvent } from "./clipboard";
 import { describe, expect, it } from "vitest";
 
 function setFields(block: Block): Record<string, unknown> {
@@ -20,7 +24,7 @@ function setFields(block: Block): Record<string, unknown> {
   expect(ops[0]).toMatchObject({
     op: "block_insert",
     blockId: "new-block",
-    afterBlockId: "after-block",
+    orderKey: "after-block",
     blockType: block.type,
   });
 
@@ -39,7 +43,7 @@ describe("atomicBlockInsertOps", () => {
   it("emits every set image property (url/alt/width/height/objectFit)", () => {
     const image = {
       id: "i1",
-      afterId: null,
+      orderKey: "a0",
       type: "image",
       url: "https://example.com/a.png",
       alt: "alt text",
@@ -60,7 +64,7 @@ describe("atomicBlockInsertOps", () => {
   it("omits unset image properties (only url present)", () => {
     const image = {
       id: "i2",
-      afterId: null,
+      orderKey: "a0",
       type: "image",
       url: "https://example.com/b.png",
     } as unknown as Block;
@@ -78,10 +82,46 @@ describe("atomicBlockInsertOps", () => {
   it("emits only a block_insert for a line (no fields)", () => {
     const line = {
       id: "l1",
-      afterId: null,
+      orderKey: "a0",
       type: "line",
     } as unknown as Block;
 
     expect(setFields(line)).toEqual({});
+  });
+});
+
+describe("multi-block paste — ordering & convergence", () => {
+  const order = (p: { blocks: Block[] }) =>
+    getVisibleBlocks(p as never).map((b) => b.id);
+
+  it("local page matches replaying the emitted ops, with ascending keys", () => {
+    const state = moveCursorToPosition(
+      createInitialState(loadPage("Start\n")),
+      0,
+      5, // end of "Start"
+    );
+    const prevPage = state.document.page;
+
+    const result = pasteFromClipboardEvent(state, {} as ClipboardEvent, {
+      html: "<p>Alpha</p><p>Bravo</p><p>Charlie</p>",
+      text: "",
+      imageFile: null,
+    });
+    expect(result).not.toBeNull();
+
+    // Convergence: a remote peer replaying the ops (or a rebuild from the log)
+    // computes the SAME block order the local editor rendered — the historical
+    // "pasted block teleported" bug class.
+    const replayed = applyOps(prevPage, result!.ops);
+    expect(order(result!.state.document.page)).toEqual(order(replayed));
+
+    // More blocks than we started with, and every orderKey is strictly
+    // ascending (no collisions that would scramble order).
+    const blocks = getVisibleBlocks(result!.state.document.page);
+    expect(blocks.length).toBeGreaterThan(1);
+    const keys = blocks.map((b) => b.orderKey ?? "");
+    for (let i = 1; i < keys.length; i++) {
+      expect(keys[i - 1] < keys[i]).toBe(true);
+    }
   });
 });

@@ -26,6 +26,7 @@ import {
   isCharIdInRange,
   iterateVisibleChars,
 } from "./char-runs";
+import { generateKeyBetween } from "./fractional-index";
 import { compareBlocks, extractCounter, extractPeerId } from "./id";
 import { applyOp } from "./reducer";
 import { invariant } from "@shared/invariant";
@@ -258,78 +259,82 @@ export function restoreSelection(
 
   return updateSelection(state, { anchor, focus });
 } /**
- * Resolve block ordering from linked list representation.
- * Handles concurrent inserts and deleted blocks.
+ * Order blocks by their fractional-index `orderKey`.
  *
- * Orphan blocks — those whose `afterId` references a block not present in
- * the input (typically because a `block_insert` for the parent has yet to
- * arrive) — are emitted at the end in deterministic ID order so that all
- * peers agree on placement even before the missing parent has been
- * received. They migrate into the correct position once the parent block
- * is applied.
+ * Document order is a pure function of per-block `orderKey` values, so it
+ * converges trivially under concurrency (every peer applies the same
+ * `(blockId → orderKey)` map and sorts identically). Tombstones are kept in
+ * place — callers filter them when projecting visible blocks.
  *
- * @param blocks - All blocks (unordered, may include deleted)
+ * Ties (two blocks minted the same key by concurrent inserts after the same
+ * anchor) break by `-compareBlocks`: the HIGHER id (newer insert) sorts first,
+ * so pressing Enter in the middle of a document lands the fresh block
+ * immediately after the current one, ahead of a pre-existing sibling. This
+ * mirrors the char-level rule in `insertIntoRuns` (skip-greater-ids).
+ *
+ * @param blocks - All blocks (any order, may include deleted)
  * @returns Ordered array of all blocks (including tombstones)
  */
+export function sortBlocksByOrder(blocks: Block[]): Block[] {
+  return blocks.slice().sort((a, b) => {
+    const ak = a.orderKey ?? "";
+    const bk = b.orderKey ?? "";
+    if (ak !== bk) {
+      return ak < bk ? -1 : 1;
+    }
+    return -compareBlocks(a, b);
+  });
+}
 
-export function resolveBlockOrder(blocks: Block[]): Block[] {
-  if (blocks.length === 0) return [];
+/**
+ * Mint an `orderKey` that places a new block immediately after `afterBlockId`
+ * (null = head of the document). `blocks` is assumed sorted by `orderKey`
+ * (the canonical state invariant); the upper bound is the next block in that
+ * order, including tombstones, so the new key always lands in the intended gap.
+ */
+export function orderKeyAfter(
+  blocks: Block[],
+  afterBlockId: string | null,
+): string {
+  const ordered = sortBlocksByOrder(blocks);
+  // Treat an empty/absent orderKey as "no bound". `""` is the documented
+  // placeholder a freshly-parsed/pasted block carries until the caller assigns
+  // a real fractional-index key (see `defineCustomBlockCodec` in schema.ts); if
+  // one ever survives into a live mutation, feeding it to `generateKeyBetween`
+  // would throw ("invalid order key head:"). Coercing it to null instead mints a
+  // valid key relative to the remaining bounds rather than crashing the edit.
+  const keyAt = (i: number): string | null => ordered[i].orderKey || null;
 
-  // Build adjacency map: afterId -> blocks that come after it
-  const afterMap = new Map<string | null, Block[]>();
-
-  for (const block of blocks) {
-    const key = block.afterId || null;
-    const existing = afterMap.get(key) || [];
-    existing.push(block);
-    afterMap.set(key, existing);
+  let lower: string | null;
+  let from: number; // search for the upper bound strictly after this index
+  if (afterBlockId === null) {
+    lower = null;
+    from = -1;
+  } else {
+    const index = ordered.findIndex((b) => b.id === afterBlockId);
+    if (index === -1) {
+      // Anchor not present — append at the end so the block stays placeable.
+      const last = ordered.length > 0 ? keyAt(ordered.length - 1) : null;
+      return generateKeyBetween(last, null);
+    }
+    lower = keyAt(index);
+    from = index;
   }
 
-  // RGA sibling rule: among blocks sharing the same `afterId`, the one with
-  // the HIGHER id (the later/newer insert) lands closer to the anchor. This
-  // matches the char-level rule in `insertIntoRuns` (skip-greater-ids), and
-  // makes it so that pressing Enter in the middle of a document — which
-  // emits a block_insert with `afterBlockId = currentBlock.id` — places the
-  // new block immediately after the current one, ahead of any pre-existing
-  // sibling that also targets the same anchor.
-  //
-  // The orphan walk below intentionally keeps ascending order: orphans
-  // need deterministic placement but have no anchor-relative semantics.
-  for (const [key, blocksAtPosition] of afterMap) {
-    blocksAtPosition.sort((a, b) => -compareBlocks(a, b));
-    afterMap.set(key, blocksAtPosition);
-  }
-
-  // Walk the linked list starting from null (beginning)
-  const ordered: Block[] = [];
-  const visited = new Set<string>();
-
-  // Use an explicit stack instead of recursion. Imported documents can contain
-  // tens of thousands of blocks in one linear chain, which otherwise exceeds
-  // the JavaScript call-stack limit while preserving perfectly valid order.
-  const stack = [...(afterMap.get(null) || [])].reverse();
-  while (stack.length > 0) {
-    const block = stack.pop()!;
-    if (visited.has(block.id)) continue;
-    visited.add(block.id);
-    ordered.push(block);
-
-    const children = afterMap.get(block.id) || [];
-    for (let i = children.length - 1; i >= 0; i--) {
-      stack.push(children[i]);
+  // Upper bound is the first key strictly greater than `lower`. Concurrent
+  // inserts can mint duplicate keys (a tie-group resolved by id), so we must
+  // skip over equal keys — otherwise we'd ask for a key between two identical
+  // bounds. The new block then lands after the whole tie-group, i.e. after the
+  // anchor.
+  let upper: string | null = null;
+  for (let i = from + 1; i < ordered.length; i++) {
+    const k = keyAt(i);
+    if (k !== null && (lower === null || k > lower)) {
+      upper = k;
+      break;
     }
   }
-
-  // Emit orphans (afterId points at a block not in the input) at the end
-  // in deterministic ID order so peers don't silently lose them.
-  if (visited.size < blocks.length) {
-    const orphans = blocks
-      .filter((b) => !visited.has(b.id))
-      .sort(compareBlocks);
-    ordered.push(...orphans);
-  }
-
-  return ordered;
+  return generateKeyBetween(lower, upper);
 }
 export interface InsertCharsResult {
   newPage: Page;

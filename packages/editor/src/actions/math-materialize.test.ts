@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 function mathBlock(latex: string): MathBlock {
   return {
     id: "m-1",
-    afterId: null,
+    orderKey: "a0",
     deleted: false,
     type: "math",
     charRuns: latex ? [{ peerId: "peer", startCounter: 0, text: latex }] : [],

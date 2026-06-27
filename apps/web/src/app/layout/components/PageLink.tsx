@@ -376,185 +376,187 @@ export function PageLink({
 
   return (
     <div className={style.pageWrapper}>
-      {/* Drop zone BEFORE this item - for reordering */}
-      <DropZone
-        id={`before-${data.id}`}
-        parentId={data.parentId}
-        targetPageId={data.id}
-        position="before"
-        order={data.order}
-        parentsStack={parentsStack}
-        spaceId={spaceId}
-      />
+      {/* Row wrapper: drop zones are absolutely positioned against THIS box so
+          they measure the row only, never the expanded children below it. */}
+      <div className={style.pageRow}>
+        {/* Drop zone BEFORE this item - insert above */}
+        <DropZone
+          id={`before-${data.id}`}
+          parentId={data.parentId}
+          targetPageId={data.id}
+          position="before"
+          parentsStack={parentsStack}
+          spaceId={spaceId}
+        />
 
-      {/* Drop zone INSIDE this item - for nesting */}
-      <DropZone
-        id={`inside-${data.id}`}
-        parentId={data.id}
-        targetPageId={data.id}
-        position="inside"
-        parentsStack={[...parentsStack, { id: data.id, order: data.order }]}
-        spaceId={spaceId}
-      />
+        {/* Drop zone INSIDE this item - for nesting */}
+        <DropZone
+          id={`inside-${data.id}`}
+          parentId={data.id}
+          targetPageId={data.id}
+          position="inside"
+          parentsStack={[...parentsStack, { id: data.id, order: data.order }]}
+          spaceId={spaceId}
+        />
 
-      <div
-        ref={setNodeRef}
-        className={clsx(style.link, {
-          [style.isDragging]: isDragging,
-          [style.active]: currentPageId === data.id,
-        })}
-        style={{ opacity: isDragging ? 0.4 : 1 }}
-        {...attributes}
-        {...listeners}
-        onPointerDown={(e) => {
-          // Stop propagation to prevent Vaul drawer from capturing the drag
-          e.stopPropagation();
-          // Call the original listener from dnd-kit
-          listeners?.onPointerDown?.(e);
-        }}
-        onDragStart={(e) => e.preventDefault()}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          if (!isCoarse) {
-            setContextPos({ x: e.clientX, y: e.clientY });
-          }
-        }}
-      >
-        <button
-          onClick={() => setIsExpanded((old) => !old)}
-          className={clsx(
-            style.action,
-            style.collapseAction,
-            style.hasChildren,
-          )}
+        <div
+          ref={setNodeRef}
+          className={clsx(style.link, {
+            [style.isDragging]: isDragging,
+            [style.active]: currentPageId === data.id,
+          })}
+          style={{ opacity: isDragging ? 0.4 : 1 }}
+          {...attributes}
+          {...listeners}
+          onPointerDown={(e) => {
+            // Stop propagation to prevent Vaul drawer from capturing the drag
+            e.stopPropagation();
+            // Call the original listener from dnd-kit
+            listeners?.onPointerDown?.(e);
+          }}
+          onDragStart={(e) => e.preventDefault()}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (!isCoarse) {
+              setContextPos({ x: e.clientX, y: e.clientY });
+            }
+          }}
         >
-          <Icons.ChevronRight
-            width={20}
-            height={20}
+          <button
+            onClick={() => setIsExpanded((old) => !old)}
             className={clsx(
-              style.collapseIcon,
-              isExpanded && style.collapseIconExpanded,
+              style.action,
+              style.collapseAction,
+              style.hasChildren,
             )}
-          />
-          <VisuallyHidden>
-            {t("page.openSubPages", "Open sub pages")}
-          </VisuallyHidden>
-        </button>
-        <span
-          className="color-picker-blob"
-          style={{
-            backgroundColor: resolvedColor || "var(--primary)",
-            opacity: resolvedColor ? 1 : 0.3,
-          }}
-        />
-        <div className={style.linkTitle}>
-          {isEditing ? (
-            <input
-              value={localTitle}
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleStopEditing();
-                if (e.key === "Escape") handleStopEditing();
-              }}
-              onChange={(e) => handleOnChange(e.target.value)}
-              onBlur={() => handleStopEditing()}
-              placeholder={t("common.untitled", "Untitled")}
-              ref={inputRef}
+          >
+            <Icons.ChevronRight
+              width={20}
+              height={20}
+              className={clsx(
+                style.collapseIcon,
+                isExpanded && style.collapseIconExpanded,
+              )}
             />
-          ) : (
-            <span
-              role="link"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setIsExpanded(true);
-                  navigate(`/page/${data.id}`);
-                }
-              }}
-              onClick={() => {
-                if (wasDraggingRef.current || recentDragEnd) {
-                  wasDraggingRef.current = false;
-                  return;
-                }
-                setIsExpanded(true);
-                navigate(`/page/${data.id}`);
-              }}
-            >
-              {data.title || t("common.untitled", "Untitled")}
-            </span>
-          )}
-        </div>
-        <PageLinkMenu
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          isCoarse={isCoarse}
-          color={data.color}
-          onColorChange={handleColorChange}
-          onRename={handleStartEditing}
-          onDelete={handleDelete}
-          isDeleting={isDeleting}
-          onAdd={handleAdd}
-          isCreating={isCreating}
-          t={t}
-        />
-      </div>
-
-      {/* Right-click / long-press context menu positioned at cursor */}
-      {contextPos && (
-        <PopoverPrimitive.Root
-          open={true}
-          onOpenChange={(open) => {
-            if (!open) setContextPos(null);
-          }}
-        >
-          <PopoverPrimitive.Anchor
+            <VisuallyHidden>
+              {t("page.openSubPages", "Open sub pages")}
+            </VisuallyHidden>
+          </button>
+          <span
+            className="color-picker-blob"
             style={{
-              position: "fixed",
-              left: contextPos.x,
-              top: contextPos.y,
-              width: 1,
-              height: 1,
+              backgroundColor: resolvedColor || "var(--primary)",
+              opacity: resolvedColor ? 1 : 0.3,
             }}
           />
-          <PopoverPrimitive.Portal>
-            <PopoverPrimitive.Content
-              className="bg-popover rounded-xl shadow-lg border border-border min-w-64 z-50 select-none animate-in fade-in zoom-in-95 duration-100"
-              side="bottom"
-              align="start"
-              sideOffset={2}
-              collisionPadding={10}
-              onOpenAutoFocus={(e) => e.preventDefault()}
-              onCloseAutoFocus={(e) => e.preventDefault()}
-              onPointerDownOutside={() => setContextPos(null)}
-              onEscapeKeyDown={() => setContextPos(null)}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <PageLinkMenuContent
-                onClose={() => setContextPos(null)}
-                onColorChange={handleColorChange}
-                onRename={handleStartEditing}
-                onDelete={handleDelete}
-                isDeleting={isDeleting}
-                onAdd={handleAdd}
-                isCreating={isCreating}
-                color={data.color}
-                t={t}
+          <div className={style.linkTitle}>
+            {isEditing ? (
+              <input
+                value={localTitle}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleStopEditing();
+                  if (e.key === "Escape") handleStopEditing();
+                }}
+                onChange={(e) => handleOnChange(e.target.value)}
+                onBlur={() => handleStopEditing()}
+                placeholder={t("common.untitled", "Untitled")}
+                ref={inputRef}
               />
-            </PopoverPrimitive.Content>
-          </PopoverPrimitive.Portal>
-        </PopoverPrimitive.Root>
-      )}
+            ) : (
+              <span
+                role="link"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setIsExpanded(true);
+                    navigate(`/page/${data.id}`);
+                  }
+                }}
+                onClick={() => {
+                  if (wasDraggingRef.current || recentDragEnd) {
+                    wasDraggingRef.current = false;
+                    return;
+                  }
+                  setIsExpanded(true);
+                  navigate(`/page/${data.id}`);
+                }}
+              >
+                {data.title || t("common.untitled", "Untitled")}
+              </span>
+            )}
+          </div>
+          <PageLinkMenu
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            isCoarse={isCoarse}
+            color={data.color}
+            onColorChange={handleColorChange}
+            onRename={handleStartEditing}
+            onDelete={handleDelete}
+            isDeleting={isDeleting}
+            onAdd={handleAdd}
+            isCreating={isCreating}
+            t={t}
+          />
+        </div>
 
-      {/* Drop zone AFTER this item - for reordering */}
-      <DropZone
-        id={`after-${data.id}`}
-        parentId={data.parentId}
-        targetPageId={data.id}
-        position="after"
-        order={data.order + 1}
-        parentsStack={parentsStack}
-        spaceId={spaceId}
-      />
+        {/* Right-click / long-press context menu positioned at cursor */}
+        {contextPos && (
+          <PopoverPrimitive.Root
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) setContextPos(null);
+            }}
+          >
+            <PopoverPrimitive.Anchor
+              style={{
+                position: "fixed",
+                left: contextPos.x,
+                top: contextPos.y,
+                width: 1,
+                height: 1,
+              }}
+            />
+            <PopoverPrimitive.Portal>
+              <PopoverPrimitive.Content
+                className="bg-popover rounded-xl shadow-lg border border-border min-w-64 z-50 select-none animate-in fade-in zoom-in-95 duration-100"
+                side="bottom"
+                align="start"
+                sideOffset={2}
+                collisionPadding={10}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+                onCloseAutoFocus={(e) => e.preventDefault()}
+                onPointerDownOutside={() => setContextPos(null)}
+                onEscapeKeyDown={() => setContextPos(null)}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <PageLinkMenuContent
+                  onClose={() => setContextPos(null)}
+                  onColorChange={handleColorChange}
+                  onRename={handleStartEditing}
+                  onDelete={handleDelete}
+                  isDeleting={isDeleting}
+                  onAdd={handleAdd}
+                  isCreating={isCreating}
+                  color={data.color}
+                  t={t}
+                />
+              </PopoverPrimitive.Content>
+            </PopoverPrimitive.Portal>
+          </PopoverPrimitive.Root>
+        )}
+
+        {/* Drop zone AFTER this item - insert below */}
+        <DropZone
+          id={`after-${data.id}`}
+          parentId={data.parentId}
+          targetPageId={data.id}
+          position="after"
+          parentsStack={parentsStack}
+          spaceId={spaceId}
+        />
+      </div>
 
       {isExpanded /*  && data.hasChildren || isCoarse */ ? (
         <div className={style.accordion}>

@@ -25,6 +25,7 @@ import type { BlockInsert, Operation, TextInsert } from "../../state-types";
 import { isTextualBlock } from "../block-registry";
 import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
 import { insertCharsAtPosition } from "../crdt-utils";
+import { generateNKeysBetween } from "../fractional-index";
 import { invertOperations, refreshOps } from "../inverse";
 import { applyOp, applyOps, createEmptyPageState } from "../reducer";
 import { createCRDTbinding } from "../sync";
@@ -47,16 +48,13 @@ describe("merge via real ops + undo", () => {
 
     // Build initial page A="hello", B="world" via real ops so all char IDs
     // come from a single id-gen stream.
-    function makeBlockInsert(
-      afterBlockId: string | null,
-      blockId: string,
-    ): BlockInsert {
+    function makeBlockInsert(orderKey: string, blockId: string): BlockInsert {
       return {
         op: "block_insert",
         id: binding.nextId(),
         clock: binding.getClock(),
         pageId,
-        afterBlockId,
+        orderKey,
         blockId,
         blockType: "paragraph",
       };
@@ -83,10 +81,11 @@ describe("merge via real ops + undo", () => {
 
     const aId = binding.nextId();
     const bId = binding.nextId();
+    const [aKey, bKey] = generateNKeysBetween(null, null, 2);
     const initOps: Operation[] = [
-      makeBlockInsert(null, aId),
+      makeBlockInsert(aKey, aId),
       makeTextInsert(aId, null, "hello"),
-      makeBlockInsert(aId, bId),
+      makeBlockInsert(bKey, bId),
       makeTextInsert(bId, null, "world"),
     ];
     const initial = applyOps(createEmptyPageState(pageId), initOps);

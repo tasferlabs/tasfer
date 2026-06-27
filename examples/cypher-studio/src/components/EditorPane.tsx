@@ -21,7 +21,7 @@ export function EditorPane({ value, words, synced, onReady }: EditorPaneProps) {
 
       <div className="pane__editor">
         <Editor
-          value={value}
+          markdown={value}
           theme={studioTheme}
           autofocus
           ariaLabel="README.md"

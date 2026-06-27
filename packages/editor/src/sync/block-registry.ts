@@ -82,7 +82,7 @@ export interface BlockCapabilities {
 export interface BlockTypeDescriptor {
   readonly type: BlockType;
   readonly capabilities: BlockCapabilities;
-  readonly defaults: (id: string, afterId: string | null) => Block;
+  readonly defaults: (id: string, orderKey: string) => Block;
   readonly fields: Readonly<Record<string, FieldDescriptor>>;
 }
 
@@ -164,12 +164,12 @@ const languageField = propField(
 
 interface BaseBlockShape {
   readonly id: string;
-  readonly afterId: string | null;
+  readonly orderKey: string;
   readonly deleted: false;
 }
 
-function makeBase(id: string, afterId: string | null): BaseBlockShape {
-  return { id, afterId, deleted: false };
+function makeBase(id: string, orderKey: string): BaseBlockShape {
+  return { id, orderKey, deleted: false };
 }
 
 // =============================================================================
@@ -263,8 +263,8 @@ const MATH_CAPS: BlockCapabilities = {
 const paragraphDescriptor = {
   type: "paragraph",
   capabilities: TEXTUAL_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "paragraph",
     charRuns: [],
     formats: [],
@@ -275,8 +275,8 @@ const paragraphDescriptor = {
 const quoteDescriptor = {
   type: "quote",
   capabilities: QUOTE_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "quote",
     charRuns: [],
     formats: [],
@@ -287,8 +287,8 @@ const quoteDescriptor = {
 const heading1Descriptor = {
   type: "heading1",
   capabilities: HEADING_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "heading1",
     charRuns: [],
     formats: [],
@@ -299,8 +299,8 @@ const heading1Descriptor = {
 const heading2Descriptor = {
   type: "heading2",
   capabilities: HEADING_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "heading2",
     charRuns: [],
     formats: [],
@@ -311,8 +311,8 @@ const heading2Descriptor = {
 const heading3Descriptor = {
   type: "heading3",
   capabilities: HEADING_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "heading3",
     charRuns: [],
     formats: [],
@@ -323,8 +323,8 @@ const heading3Descriptor = {
 const bulletListDescriptor = {
   type: "bullet_list",
   capabilities: BULLET_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "bullet_list",
     charRuns: [],
     formats: [],
@@ -336,8 +336,8 @@ const bulletListDescriptor = {
 const numberedListDescriptor = {
   type: "numbered_list",
   capabilities: NUMBERED_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "numbered_list",
     charRuns: [],
     formats: [],
@@ -349,8 +349,8 @@ const numberedListDescriptor = {
 const todoListDescriptor = {
   type: "todo_list",
   capabilities: TODO_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "todo_list",
     charRuns: [],
     formats: [],
@@ -363,8 +363,8 @@ const todoListDescriptor = {
 const imageDescriptor = {
   type: "image",
   capabilities: VISUAL_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "image",
     url: "",
   }),
@@ -381,8 +381,8 @@ const imageDescriptor = {
 const lineDescriptor = {
   type: "line",
   capabilities: VISUAL_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "line",
   }),
   fields: { type: typeField },
@@ -391,8 +391,8 @@ const lineDescriptor = {
 const mathDescriptor = {
   type: "math",
   capabilities: MATH_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "math",
     charRuns: [],
     formats: [],
@@ -407,8 +407,8 @@ const mathDescriptor = {
 const codeDescriptor = {
   type: "code",
   capabilities: CODE_CAPS,
-  defaults: (id: string, afterId: string | null): Block => ({
-    ...makeBase(id, afterId),
+  defaults: (id: string, orderKey: string): Block => ({
+    ...makeBase(id, orderKey),
     type: "code",
     charRuns: [],
     formats: [],
@@ -539,9 +539,9 @@ export function isPreformattedType(type: string): boolean {
 export function createDefaultBlock(
   type: string,
   id: string,
-  afterId: string | null,
+  orderKey: string,
 ): Block | undefined {
-  return REGISTRY[type]?.defaults(id, afterId);
+  return REGISTRY[type]?.defaults(id, orderKey);
 }
 
 export function validateBlockField(

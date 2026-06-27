@@ -164,3 +164,32 @@ export function normalizeLatex(latex: string): LatexNormalization {
 
   return { latex: out, inserts, changed: true, mapCaret };
 }
+
+/** A node tree serialized for structural equality. Source spans (which deleting
+ * a char necessarily shifts) are dropped so only the parsed *shape* is compared:
+ * two formulas with the same serialization render identically. */
+function parseShape(latex: string): string {
+  return JSON.stringify(parse(latex), (key, value) =>
+    key === "span" ? undefined : value,
+  );
+}
+
+/**
+ * Whether the space at `offset` carries no LaTeX meaning — removing it leaves a
+ * formula that parses to the same shape, so it renders identically. In math mode
+ * the lexer collapses runs of inter-atom whitespace, so most literal spaces are
+ * dead source: `a b`, `x }`, `\, y`, and a doubled space all typeset exactly as
+ * if the space weren't there. The exceptions — spaces that DO change the parse —
+ * are a control-word separator (`\sin x`, which fuses into the unknown `\sinx`
+ * without it) and a space inside a text-mode group (`\text{a b}`, where interior
+ * spaces are literal glyphs); for those this returns false, i.e. keep the space.
+ *
+ * A live editor uses this to drop the meaningless spaces a user types *into* a
+ * formula rather than persisting them as dead LaTeX. Returns false when `offset`
+ * isn't a space. Pure.
+ */
+export function isRedundantSpace(latex: string, offset: number): boolean {
+  if (latex[offset] !== " ") return false;
+  const without = latex.slice(0, offset) + latex.slice(offset + 1);
+  return parseShape(latex) === parseShape(without);
+}

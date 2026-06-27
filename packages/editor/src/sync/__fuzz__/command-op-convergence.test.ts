@@ -12,9 +12,9 @@
  * bug class: action code hand-spliced new/replacement blocks into
  * `page.blocks` without setting `afterId` (or dropped the old block's
  * `afterId` when rebuilding it for a type change). The local array looked
- * right until the next block_insert ran resolveBlockOrder — then the
- * mis-anchored block teleported (no afterId → top of document; an alien
- * clipboard-parser afterId → end of document).
+ * right until the next block_insert re-sorted by orderKey — then the
+ * mis-keyed block teleported (no orderKey → top of document; an alien
+ * clipboard-parser key → wherever it sorted).
  */
 
 import {
@@ -69,13 +69,14 @@ function textOf(block: Block): string {
 }
 
 describe("action/op convergence", () => {
-  it("convertBlockAtCursor preserves afterId and converges", () => {
+  it("convertBlockAtCursor preserves orderKey and converges", () => {
     const s = moveCursorToPosition(fresh(), 2, 0);
+    const before = s.document.page.blocks[2].orderKey;
     const conv = convertBlockAtCursor(s, { type: "heading1" });
     expectConvergence(s.document.page, conv);
 
     const hb = conv.state.document.page.blocks[2];
-    expect(hb.afterId).toBe("block-1");
+    expect(hb.orderKey).toBe(before);
   });
 
   it("Enter after a type change does not reorder the document", () => {
@@ -120,8 +121,7 @@ describe("action/op convergence", () => {
       (b) => b.type === "paragraph" && b.id === emptyItemId,
     );
     expect(pb).toBeDefined();
-    expect(pb!.afterId).not.toBeNull();
-    expect(pb!.afterId).toBeDefined();
+    expect(pb!.orderKey).toBeDefined();
   });
 
   it("plain mid-paragraph split converges", () => {

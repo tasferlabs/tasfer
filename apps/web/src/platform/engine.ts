@@ -31,7 +31,7 @@ import type { Driver, CryptoDriver } from "./driver";
 import type { HLC } from "@cypherkit/editor";
 import type { ReplicatorHost } from "./sync";
 import { nanoid } from "nanoid";
-import { resolveBlockOrder } from "@cypherkit/editor/internal";
+import { sortBlocksByOrder } from "@cypherkit/editor/internal";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
@@ -798,7 +798,9 @@ export class Engine implements Platform {
         sql += " AND p.task = 0";
       }
 
-      sql += ' ORDER BY p."order" ASC';
+      // Tiebreak on id so duplicate/equal order values sort deterministically
+      // across peers (ordering must be a pure function of stored state).
+      sql += ' ORDER BY p."order" ASC, p.id ASC';
 
       const rows = await this.driver.db.execute<{
         id: string;
@@ -870,7 +872,9 @@ export class Engine implements Platform {
         [id],
       );
       const cached = await this.loadSnapshot(id);
-      let blocks: import("@cypherkit/editor/serlization/loadPage").Block[] | null = null;
+      let blocks:
+        | import("@cypherkit/editor/serlization/loadPage").Block[]
+        | null = null;
       if (cached && cached.opCount === opCount && cached.blocks.length > 0) {
         blocks = cached.blocks;
       } else {
@@ -902,7 +906,8 @@ export class Engine implements Platform {
           id: `__init__:0`,
           clock: { counter: 0, peerId: "__init__" },
           pageId: id,
-          afterBlockId: null,
+          // Canonical first fractional-index key (generateKeyBetween(null, null)).
+          orderKey: "a0",
           blockId: initialBlockId,
           blockType: "heading1" as const,
         };
@@ -978,7 +983,8 @@ export class Engine implements Platform {
         id: `__init__:0`,
         clock: { counter: 0, peerId: "__init__" },
         pageId: id,
-        afterBlockId: null,
+        // Canonical first fractional-index key (generateKeyBetween(null, null)).
+        orderKey: "a0",
         blockId: initialBlockId,
         blockType: "heading1" as const,
       };
@@ -1121,18 +1127,26 @@ export class Engine implements Platform {
     move: async (data: PageMoveInput): Promise<void> => {
       const spaceId = await this.getPageSpaceId(data.id);
 
-      const sets = ["parent_id = ?", "updated_at = ?"];
-      const params: unknown[] = [data.parentId, new Date().toISOString()];
-
-      if (data.order !== undefined) {
-        sets.push('"order" = ?');
-        params.push(data.order);
+      // When no explicit order is supplied (e.g. nesting a page under a new
+      // parent), append it to the end of the destination's children. Without
+      // this the page would keep its old order value, which is meaningless in
+      // the new sibling set and collides arbitrarily.
+      let order = data.order;
+      if (order === undefined) {
+        const orderRows = await this.driver.db.execute<{
+          max_order: number | null;
+        }>(
+          data.parentId === null
+            ? 'SELECT MAX("order") as max_order FROM pages WHERE parent_id IS NULL AND id != ? AND archived_at IS NULL'
+            : 'SELECT MAX("order") as max_order FROM pages WHERE parent_id = ? AND id != ? AND archived_at IS NULL',
+          data.parentId === null ? [data.id] : [data.parentId, data.id],
+        );
+        order = (orderRows[0]?.max_order ?? 0) + 1;
       }
 
-      params.push(data.id);
       await this.driver.db.run(
-        `UPDATE pages SET ${sets.join(", ")} WHERE id = ?`,
-        params,
+        `UPDATE pages SET parent_id = ?, "order" = ?, updated_at = ? WHERE id = ?`,
+        [data.parentId, order, new Date().toISOString(), data.id],
       );
 
       if (spaceId) {
@@ -1142,14 +1156,12 @@ export class Engine implements Platform {
           field: "parentId",
           value: data.parentId,
         });
-        if (data.order !== undefined) {
-          await this.emitSpaceOp(spaceId, {
-            op: "page_set",
-            pageId: data.id,
-            field: "order",
-            value: data.order,
-          });
-        }
+        await this.emitSpaceOp(spaceId, {
+          op: "page_set",
+          pageId: data.id,
+          field: "order",
+          value: order,
+        });
       }
     },
 
@@ -1285,7 +1297,8 @@ export class Engine implements Platform {
 
       let state = createEmptyPageState(pageId);
       const insertedCharIds = new Set<string>();
-      const deferredOps: import("@cypherkit/editor/state-types").Operation[] = [];
+      const deferredOps: import("@cypherkit/editor/state-types").Operation[] =
+        [];
       const results: PageSnapshot[] = [];
 
       for (let i = 0; i < total; i++) {
@@ -1316,7 +1329,7 @@ export class Engine implements Platform {
           results.push({
             id: `${op.clock.counter}-${op.clock.peerId}`,
             pageId,
-            blocks: resolveBlockOrder(snapshotState.blocks),
+            blocks: sortBlocksByOrder(snapshotState.blocks),
             clock: op.clock,
             opCount: i + 1,
             createdAt: timestamp || 0,
@@ -1530,7 +1543,8 @@ export class Engine implements Platform {
       pageId: string,
       blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
     ): Promise<void> => {
-      const { blocksToOps } = await import("@cypherkit/editor/sync/snapshot-diff");
+      const { blocksToOps } =
+        await import("@cypherkit/editor/sync/snapshot-diff");
       const { createIdGenerator, generatePeerId } =
         await import("@cypherkit/editor/sync/id");
       const { createHLC, tickHLC } = await import("@cypherkit/editor/sync/hlc");
@@ -1665,7 +1679,10 @@ export class Engine implements Platform {
     remotePageVVs: Record<string, Record<string, number>>,
   ): Promise<{
     spaceOps: SpaceOperation[];
-    pageOps: Record<string, import("@cypherkit/editor/state-types").Operation[]>;
+    pageOps: Record<
+      string,
+      import("@cypherkit/editor/state-types").Operation[]
+    >;
   }> {
     // Get missing space ops
     const allSpaceOps = await this.getSpaceOps(spaceId);
@@ -1695,8 +1712,10 @@ export class Engine implements Platform {
       localPageVVs[row.page_id][row.peer_id] = row.max_clock;
     }
 
-    const pageOps: Record<string, import("@cypherkit/editor/state-types").Operation[]> =
-      {};
+    const pageOps: Record<
+      string,
+      import("@cypherkit/editor/state-types").Operation[]
+    > = {};
     for (const [pageId, localVV] of Object.entries(localPageVVs)) {
       const remoteVV = remotePageVVs[pageId] ?? {};
 

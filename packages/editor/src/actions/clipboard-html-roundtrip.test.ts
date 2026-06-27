@@ -49,14 +49,14 @@ describe("clipboard text/html round-trip", () => {
   const source = pageWith(
     {
       id: "h1",
-      afterId: null,
+      orderKey: "a0",
       type: "heading1",
       charRuns: run("Title"),
       formats: [],
     } as unknown as Block,
     {
       id: "img1",
-      afterId: "h1",
+      orderKey: "a1",
       type: "image",
       url: "https://example.com/a.png",
       alt: "a pic",
@@ -66,7 +66,7 @@ describe("clipboard text/html round-trip", () => {
     } as unknown as Block,
     {
       id: "m1",
-      afterId: "img1",
+      orderKey: "a2",
       type: "math",
       charRuns: run("x^2 + y^2"),
       formats: [],
@@ -74,7 +74,7 @@ describe("clipboard text/html round-trip", () => {
     } as unknown as Block,
     {
       id: "li1",
-      afterId: "m1",
+      orderKey: "a3",
       type: "bullet_list",
       charRuns: run("First"),
       formats: [],
@@ -82,7 +82,7 @@ describe("clipboard text/html round-trip", () => {
     } as unknown as Block,
     {
       id: "li2",
-      afterId: "li1",
+      orderKey: "a4",
       type: "bullet_list",
       charRuns: run("Nested"),
       formats: [],
@@ -101,7 +101,7 @@ describe("clipboard text/html round-trip", () => {
   it("keeps task-list markdown out of the plain-text payload", () => {
     const page = pageWith({
       id: "todo1",
-      afterId: null,
+      orderKey: "a0",
       type: "todo_list",
       charRuns: run("Follow up"),
       formats: [],
@@ -146,7 +146,7 @@ describe("clipboard text/html round-trip", () => {
   it("preserves Unicode through the base64 marker", () => {
     const page = pageWith({
       id: "p1",
-      afterId: null,
+      orderKey: "a0",
       type: "paragraph",
       charRuns: run("emoji 🚀 and üñîçødé"),
       formats: [],

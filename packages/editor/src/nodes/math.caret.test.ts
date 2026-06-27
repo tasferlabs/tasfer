@@ -157,6 +157,35 @@ describe("inline-math first/last-unit deletion keeps the rest of the chip", () =
     });
   });
 
+  it("backspacing at the right edge enters the chip and targets its last unit", () => {
+    const block = loadPage("$abc$").blocks[0];
+    const span = getInlineMathSpans(block)[0];
+    expect(span).toMatchObject({ startIndex: 0, endIndex: 3, latex: "abc" });
+
+    // Caret resting just past the chip — Backspace must delete the trailing
+    // unit ('c'), not nuke the whole chip.
+    const del = mathDeleteUnit(block, span.endIndex, "backward");
+    expect(del).toEqual({
+      from: span.startIndex + 2,
+      to: span.startIndex + 3,
+      isConstruct: false,
+    });
+  });
+
+  it("deleting forward at the left edge enters the chip and targets its first unit", () => {
+    const block = loadPage("$abc$").blocks[0];
+    const span = getInlineMathSpans(block)[0];
+
+    // Caret resting just before the chip — Delete must remove the leading unit
+    // ('a'), not the whole chip.
+    const del = mathDeleteUnit(block, span.startIndex, "forward");
+    expect(del).toEqual({
+      from: span.startIndex,
+      to: span.startIndex + 1,
+      isConstruct: false,
+    });
+  });
+
   it("a span whose leading anchor char is deleted still resolves to the rest", () => {
     const block = loadPage("$abc$").blocks[0];
     const firstId = [...iterateVisibleChars(block.charRuns)][0].id;

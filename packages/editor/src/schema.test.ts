@@ -79,7 +79,9 @@ describe("custom node round-trip", () => {
       ],
       "test",
     );
-    expect(attrs(doc.getRawBlocks().find((b) => b.id === id)).tone).toBe("danger");
+    expect(attrs(doc.getRawBlocks().find((b) => b.id === id)).tone).toBe(
+      "danger",
+    );
   });
 });
 
@@ -95,7 +97,7 @@ describe("unknown block type degrades, never crashes", () => {
       id: "p2:5",
       clock: { counter: 5, peerId: "p2" },
       pageId: doc.pageId,
-      afterBlockId: null,
+      orderKey: "a0",
       blockId: "b-callout",
       blockType: "callout",
     };
@@ -112,7 +114,7 @@ describe("unknown block type degrades, never crashes", () => {
       id: "p3:1",
       clock: { counter: 1, peerId: "p3" },
       pageId: "",
-      afterBlockId: null,
+      orderKey: "a0",
       blockId: "b-x",
       blockType: "totally-made-up",
     };
@@ -126,7 +128,7 @@ describe("unknown block type degrades, never crashes", () => {
     // rather than throwing.
     const rogue = {
       id: "b-rogue",
-      afterId: null,
+      orderKey: "a0",
       deleted: false as const,
       type: "callout",
       tone: "warn",

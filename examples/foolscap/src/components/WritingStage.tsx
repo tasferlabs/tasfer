@@ -49,7 +49,7 @@ export function WritingStage({ value, words, goal, status, clockLabel, onReady }
 
           <div className="stage__editor">
             <Editor
-              value={value}
+              markdown={value}
               theme={foolscapTheme}
               autofocus
               ariaLabel="Saltwater, chapter two"

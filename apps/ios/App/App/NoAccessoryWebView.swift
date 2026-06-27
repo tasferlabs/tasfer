@@ -264,16 +264,12 @@ final class KeyboardAccessoryView: UIView {
 
     // MARK: Math chip row
 
-    /// The contextual math row: a pinned `\`-query prefix (live state), the
-    /// matching construct chips (pre-rendered glyph assets), or a clear "no
-    /// match" when a typed command resolves to nothing. Mirrors the web bar.
+    /// The contextual math row: the matching construct chips (pre-rendered glyph
+    /// assets), or a clear "no match" when a typed command resolves to nothing.
+    /// The toolbar is the only math picker on iOS, so it stays a plain palette —
+    /// no `\`-query echo and no top-match highlight.
     private func addMathChips(_ mathRow: [String: Any], to stack: UIStackView) {
-        let query = mathRow["query"] as? String
         let chips = mathRow["chips"] as? [[String: Any]] ?? []
-
-        if let query = query {
-            stack.addArrangedSubview(makeQueryLabel("\\" + query))
-        }
 
         if chips.isEmpty {
             let text = mathRow["noMatchLabel"] as? String ?? ""
@@ -281,33 +277,29 @@ final class KeyboardAccessoryView: UIView {
             return
         }
 
-        for (index, chip) in chips.enumerated() {
+        for chip in chips {
             guard let asset = chip["asset"] as? String,
                 let latex = chip["latex"] as? String
             else { continue }
-            // In the live state the leftmost chip is the top match.
-            let highlighted = query != nil && index == 0
             stack.addArrangedSubview(
                 makeChipButton(
                     asset: asset,
                     latex: latex,
-                    name: chip["name"] as? String ?? "",
-                    highlighted: highlighted))
+                    name: chip["name"] as? String ?? ""))
         }
     }
 
     private func makeChipButton(
         asset: String,
         latex: String,
-        name: String,
-        highlighted: Bool
+        name: String
     ) -> UIButton {
         let glyphHeight: CGFloat = 22
         let button = UIButton(type: .system)
         let image = UIImage(named: asset)?.withRenderingMode(.alwaysTemplate)
         button.setImage(image, for: .normal)
         button.accessibilityLabel = name
-        button.tintColor = highlighted ? activeTint : normalTint
+        button.tintColor = normalTint
         button.imageView?.contentMode = .scaleAspectFit
         button.contentEdgeInsets = UIEdgeInsets(top: 9, left: 10, bottom: 9, right: 10)
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -321,38 +313,11 @@ final class KeyboardAccessoryView: UIView {
             button.widthAnchor.constraint(equalToConstant: max(44, glyphHeight * aspect + 20)),
         ])
 
-        if highlighted {
-            button.backgroundColor = activeTint.withAlphaComponent(0.14)
-            button.layer.cornerRadius = 8
-        }
-
         button.addAction(
             UIAction { [weak self] _ in
                 self?.dispatch(["type": "insert-math-command", "latex": latex])
             }, for: .touchUpInside)
         return button
-    }
-
-    private func makeQueryLabel(_ text: String) -> UIView {
-        let label = UILabel()
-        label.text = text
-        label.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        label.textColor = normalTint
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.setContentHuggingPriority(.required, for: .horizontal)
-
-        let container = UIView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.backgroundColor = UIColor(named: "Muted") ?? .secondarySystemFill
-        container.layer.cornerRadius = 6
-        container.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            container.heightAnchor.constraint(equalToConstant: 26),
-        ])
-        return container
     }
 
     private func makeMutedLabel(_ text: String) -> UIView {

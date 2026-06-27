@@ -220,9 +220,9 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   createDefaultBlock(
     type: string,
     id: string,
-    afterId: string | null,
+    orderKey: string,
   ): Block | undefined {
-    return this.getDescriptor(type)?.defaults(id, afterId);
+    return this.getDescriptor(type)?.defaults(id, orderKey);
   }
 
   validateField(type: string, field: string, value: unknown): boolean {

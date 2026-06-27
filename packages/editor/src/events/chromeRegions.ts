@@ -9,7 +9,9 @@
  * pointer types, with per-pointer hit slop in its own hitTest.
  */
 
+import { MOVE_BLOCK } from "../actions/edit-actions";
 import {
+  BLOCK_DRAG_HANDLE_HIT_WIDTH,
   EDGE_SCROLL_THRESHOLD,
   SCROLLBAR_HOLD_DURATION,
   SCROLLBAR_TOUCH_BUFFER,
@@ -25,10 +27,13 @@ import {
   updateScrollFromTrackClick,
 } from "../rendering/scrollbar";
 import {
+  dropIndexAtPoint,
+  getBlockIndexAtPoint,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
 } from "../selection";
 import type { EditorState } from "../state-types";
+import { getEditorStyles } from "../styles";
 import { getSelectionHandleAtPoint } from "./eventUtils";
 import {
   startAutoScroll,
@@ -36,6 +41,7 @@ import {
   withScrollbarInteraction,
   withStoppedMomentum,
 } from "./interaction-session";
+import type { RegionCtx, RegionPoint } from "./regions";
 import { type Region, RegionRegistry } from "./regions";
 
 function endScrollbarDragState(state: EditorState): EditorState {
@@ -289,11 +295,108 @@ const peerIndicatorRegion: Region = {
   },
 };
 
+/**
+ * The block whose left-gutter handle band contains `p`, or `null`. The band is
+ * the slice of the left padding nearest the content column (`[paddingLeft -
+ * HIT_WIDTH, paddingLeft)`); the canvas gutter is never mirrored for RTL (text
+ * direction is intra-block), so it is always on the left.
+ */
+function blockAtGutterPoint(
+  p: RegionPoint,
+  ctx: RegionCtx,
+): { blockId: string; originalIndex: number } | null {
+  const styles = getEditorStyles(ctx.state);
+  const gutterInner = styles.canvas.paddingLeft;
+  if (p.x < gutterInner - BLOCK_DRAG_HANDLE_HIT_WIDTH || p.x >= gutterInner) {
+    return null;
+  }
+  const originalIndex = getBlockIndexAtPoint(
+    p.y,
+    ctx.state,
+    ctx.viewport,
+    styles,
+    ctx.visibility,
+  );
+  if (originalIndex === null) return null;
+  const block = ctx.state.view.visibleBlocks.find(
+    (b) => b.originalIndex === originalIndex,
+  );
+  return block ? { blockId: block.id, originalIndex } : null;
+}
+
+function setBlockDrag(
+  state: EditorState,
+  blockDrag: EditorState["ui"]["blockDrag"],
+): EditorState {
+  return { ...state, ui: { ...state.ui, blockDrag } };
+}
+
+/**
+ * Block reorder handle — the left-gutter grab band. Hovering a block's gutter
+ * shows a grip (painted by the renderer off `ui.hoveredDragHandleBlockId`);
+ * dragging it repositions the block via the {@link MOVE_BLOCK} action on
+ * release. Mouse only — touch reordering is a separate gesture (not built yet).
+ */
+const blockDragHandleRegion: Region = {
+  id: "block-drag-handle",
+  priority: 60,
+  modes: ["edit"],
+  hitTest(p, pointerType, ctx) {
+    if (pointerType !== "mouse") return null;
+    return blockAtGutterPoint(p, ctx);
+  },
+  drag: {
+    onStart(hit, p, ctx) {
+      const { blockId } = hit as { blockId: string };
+      return {
+        state: setBlockDrag(ctx.state, {
+          blockId,
+          pointerY: p.y,
+          dropIndex: dropIndexAtPoint(p.y, ctx.state, ctx.viewport),
+        }),
+      };
+    },
+    onMove(p, ctx) {
+      const drag = ctx.state.ui.blockDrag;
+      if (!drag) return { state: ctx.state };
+      return {
+        state: setBlockDrag(ctx.state, {
+          ...drag,
+          pointerY: p.y,
+          dropIndex: dropIndexAtPoint(p.y, ctx.state, ctx.viewport),
+        }),
+      };
+    },
+    onEnd(_p, ctx) {
+      const drag = ctx.state.ui.blockDrag;
+      const cleared = setBlockDrag(ctx.state, null);
+      if (!drag) return { state: cleared };
+      // Resolve the STORED dropIndex (a window-level mouseup has no position).
+      // visibleBlocks are in visual order, so the block at dropIndex-1 is the
+      // new predecessor; index 0 means the head of the document.
+      const { visibleBlocks } = cleared.view;
+      const afterBlockId =
+        drag.dropIndex <= 0
+          ? null
+          : (visibleBlocks[drag.dropIndex - 1]?.id ?? null);
+      const result = cleared.actionBus.dispatchState(MOVE_BLOCK, cleared, {
+        blockId: drag.blockId,
+        afterBlockId,
+      });
+      return { state: result.state, ops: result.ops };
+    },
+    onCancel(ctx) {
+      return setBlockDrag(ctx.state, null);
+    },
+  },
+};
+
 /** The built-in chrome region set every editor instance starts with. */
 export function createChromeRegionRegistry(): RegionRegistry {
   return new RegionRegistry()
     .register(scrollbarThumbRegion)
     .register(scrollbarTrackRegion)
     .register(selectionHandleRegion)
-    .register(peerIndicatorRegion);
+    .register(peerIndicatorRegion)
+    .register(blockDragHandleRegion);
 }

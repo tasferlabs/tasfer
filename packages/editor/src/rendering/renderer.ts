@@ -1,3 +1,8 @@
+import {
+  BLOCK_DRAG_HANDLE_GRIP_HEIGHT,
+  BLOCK_DRAG_HANDLE_GRIP_WIDTH,
+  BLOCK_DRAG_HANDLE_HIT_WIDTH,
+} from "../constants";
 import type {
   IndicatorHitArea,
   InteractionSession,
@@ -141,7 +146,6 @@ export function invalidateAffectedBlocks(
         break;
       case "block_insert":
       case "block_delete":
-      case "block_move":
         affectedBlockIds.add(op.blockId);
         break;
     }
@@ -273,6 +277,10 @@ export function renderPage(
 
   // Render scrollbar
   renderScrollbar(ctx, viewport, documentHeight, state);
+
+  // Block reorder chrome: gutter grip on the hovered block + insertion line
+  // while a reorder drag is active. Painted last so it sits above content.
+  renderBlockDrag(ctx, state, viewport, styles);
 
   // Restore context state (undo scaling)
   ctx.restore();
@@ -924,12 +932,17 @@ export function renderCursorLayer(
   }
 
   // Only render if cursor exists, editor is focused, and cursor is visible (not blinking)
-  // Don't render cursor in readonly mode
+  // Don't render cursor in readonly mode.
+  // While a cursor drag (the loupe/magnifier gesture) is active, force the caret
+  // solid: the magnifier composites this layer, and a paused finger that stops
+  // refreshing the caret would otherwise let it enter its blink-off phase and
+  // vanish from the loupe.
+  const isCursorDragging = session.touch?.isCursorDrag === true;
   if (
     !state.document.cursor ||
     !state.view.isFocused ||
     state.ui.mode === "readonly" ||
-    isCursorBlinking(state.document.cursor, styles)
+    (!isCursorDragging && isCursorBlinking(state.document.cursor, styles))
   ) {
     ctx.restore();
     return;
@@ -1172,6 +1185,136 @@ function getSelectionHandlePositionsForRender(
  * Draws teardrop-shaped handles at the anchor and focus positions.
  * Only renders on touch devices when there's an active selection.
  */
+/**
+ * Paint the block-reorder affordances: the left-gutter grip on the hovered
+ * block, and — while a reorder drag is active — the insertion line at the drop
+ * gap. Both are ephemeral chrome derived from `ui.hoveredDragHandleBlockId` /
+ * `ui.blockDrag`; neither is document content. No-ops when neither is set (e.g.
+ * on touch devices, which have no hover).
+ */
+function renderBlockDrag(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles,
+) {
+  const hoveredId = state.ui.hoveredDragHandleBlockId;
+  const drag = state.ui.blockDrag;
+  if (!hoveredId && !drag) return;
+
+  const visibleBlocks = state.view.visibleBlocks;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const dropIndex = drag
+    ? Math.max(0, Math.min(drag.dropIndex, visibleBlocks.length))
+    : -1;
+
+  // One top-to-bottom walk: record the hovered block's box and the y of the drop
+  // gap (`dropIndex` is an insertion index, so the gap before block `i`). Both
+  // targets are on-screen during a mouse interaction, so we can stop once both
+  // are resolved and we've passed the fold.
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  let hoveredTop: number | null = null;
+  let hoveredHeight = 0;
+  let lineY: number | null = null;
+
+  for (let i = 0; i <= visibleBlocks.length; i++) {
+    if (i === dropIndex) lineY = currentY;
+    if (i === visibleBlocks.length) break;
+    const block = visibleBlocks[i];
+    const blockHeight = getBlockHeight(
+      state.nodes,
+      state.marks,
+      block,
+      maxWidth,
+      styles,
+      i === 0,
+    );
+    if (block.id === hoveredId) {
+      hoveredTop = currentY;
+      hoveredHeight = blockHeight;
+    }
+    currentY += blockHeight;
+    if (
+      currentY > viewport.height &&
+      (hoveredId === null || hoveredTop !== null) &&
+      (dropIndex < 0 || lineY !== null)
+    ) {
+      break;
+    }
+  }
+
+  const color = styles.cursor.color;
+  ctx.save();
+
+  if (hoveredTop !== null) {
+    renderDragGrip(
+      ctx,
+      styles.canvas.paddingLeft,
+      hoveredTop,
+      hoveredHeight,
+      color,
+    );
+  }
+
+  if (lineY !== null) {
+    const left = styles.canvas.paddingLeft;
+    const right = viewport.width - styles.canvas.paddingRight;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(left, lineY);
+    ctx.lineTo(right, lineY);
+    ctx.stroke();
+    // Left end-cap dot so the line reads as an insertion marker.
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(left, lineY, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * The "grip" dots (2 columns × 3 rows) painted in the gutter band of the
+ * hovered block, centered horizontally in the hit band and aligned to the top
+ * of tall blocks (where the first line sits).
+ */
+function renderDragGrip(
+  ctx: CanvasRenderingContext2D,
+  gutterRight: number,
+  blockTop: number,
+  blockHeight: number,
+  color: string,
+) {
+  const cx = gutterRight - BLOCK_DRAG_HANDLE_HIT_WIDTH / 2;
+  const cy =
+    blockTop + Math.min(blockHeight, BLOCK_DRAG_HANDLE_GRIP_HEIGHT + 10) / 2;
+  const colGap = BLOCK_DRAG_HANDLE_GRIP_WIDTH / 3;
+  const rowGap = BLOCK_DRAG_HANDLE_GRIP_HEIGHT / 3;
+  const dotRadius = 1.6;
+
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.55;
+  for (let col = 0; col < 2; col++) {
+    for (let row = 0; row < 3; row++) {
+      ctx.beginPath();
+      ctx.arc(
+        cx + (col - 0.5) * colGap,
+        cy + (row - 1) * rowGap,
+        dotRadius,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 export function renderSelectionHandles(
   ctx: CanvasRenderingContext2D,
   state: EditorState,

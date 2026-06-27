@@ -126,9 +126,16 @@ export type {
   HitTestOptions,
   SelectionRect,
 } from "./edit/caret";
-export { unitBefore, unitAfter, type MathUnit } from "./edit/unit";
+export {
+  unitBefore,
+  unitAfter,
+  unitAt,
+  isInsideConstruct,
+  type MathUnit,
+} from "./edit/unit";
 export {
   normalizeLatex,
+  isRedundantSpace,
   type LatexNormalization,
   type LatexInsert,
 } from "./edit/normalize";

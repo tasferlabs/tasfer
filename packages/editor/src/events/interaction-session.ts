@@ -13,7 +13,7 @@
  * undo, rendering diffs, or subscriber notifications.
  */
 
-import type { EditorState } from "../state-types";
+import type { EditorState, Position } from "../state-types";
 import type { Region, RegionRegistry } from "./regions";
 
 /** Edge-of-viewport auto-scroll engaged during a drag (selection, image resize, …). */
@@ -52,6 +52,15 @@ export interface TouchState {
 export interface TouchTapTracker {
   lastTapTime: number;
   lastTapPosition: { x: number; y: number } | null;
+  /**
+   * Document position the previous tap resolved to. A multi-tap (word/line
+   * select) anchors to this instead of re-resolving the current tap's screen
+   * point: on Android the soft keyboard raised by the first tap reflows the
+   * canvas, so by the second tap the same finger location maps to a different —
+   * often empty — document position. Anchoring to where the first tap actually
+   * landed keeps the target stable across that reflow.
+   */
+  lastTapDocPosition: Position | null;
   count: number;
 }
 
@@ -121,6 +130,7 @@ export function createInteractionSession(
     tapTracker: {
       lastTapTime: 0,
       lastTapPosition: null,
+      lastTapDocPosition: null,
       count: 0,
     },
     regions,

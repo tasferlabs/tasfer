@@ -1,38 +1,38 @@
 import { cn } from "@/lib/utils";
 import { renderToSVG } from "@cypherkit/editor";
 import {
-  Bold,
-  Braces,
-  Check,
-  ChevronDown,
-  Code,
-  Heading1,
-  Heading2,
-  Heading3,
-  Image,
-  IndentDecrease,
-  IndentIncrease,
-  Italic,
-  List,
-  ListChecks,
-  ListOrdered,
-  Minus,
-  MoreHorizontal,
-  Pilcrow,
-  Quote,
-  Redo2,
-  Sigma,
-  Strikethrough,
-  Undo2,
-  X,
+    Bold,
+    Braces,
+    Check,
+    Code,
+    Heading1,
+    Heading2,
+    Heading3,
+    Image,
+    IndentDecrease,
+    IndentIncrease,
+    Italic,
+    List,
+    ListChecks,
+    ListOrdered,
+    Minus,
+    MoreHorizontal,
+    Pilcrow,
+    Quote,
+    Redo2,
+    Sigma,
+    Strikethrough,
+    Type,
+    Undo2,
+    X
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
-  MobileToolbarAction,
-  MobileToolbarIcon,
-  MobileToolbarItem,
-  MobileToolbarModel,
+    MobileToolbarAction,
+    MobileToolbarIcon,
+    MobileToolbarItem,
+    MobileToolbarModel,
 } from "../mobileToolbar";
 
 const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
@@ -44,6 +44,7 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
   math_command: <Braces className="size-5" />,
   math: <Sigma className="size-4" />,
   strikethrough: <Strikethrough className="size-5" />,
+  text: <Type className="size-4" />,
   paragraph: <Pilcrow className="size-4" />,
   heading1: <Heading1 className="size-4" />,
   heading2: <Heading2 className="size-4" />,
@@ -114,30 +115,16 @@ export function MobileKeyboardToolbar({
     if (item.kind === "menu") {
       const open = openPanelId === item.id;
       return (
-        <button
+        <ToolbarButton
           key={item.id}
-          onPointerDown={(e) => {
-            if (!e.isPrimary || e.button !== 0) return;
-            e.preventDefault();
+          onPress={() => {
             togglePanel(item.id);
           }}
-          onClick={(e) => {
-            if (e.detail === 0) togglePanel(item.id);
-          }}
-          className={cn(
-            "flex shrink-0 flex-row items-center gap-1 px-3 h-full transition-colors",
-            open ? "text-primary" : "text-muted-foreground active:bg-muted",
-          )}
+          active={open}
           aria-label={item.label}
         >
           {ICONS[item.icon]}
-          <ChevronDown
-            className={cn(
-              "size-3.5 transition-transform",
-              open && "rotate-180",
-            )}
-          />
-        </button>
+        </ToolbarButton>
       );
     }
     return (
@@ -256,14 +243,6 @@ function MathRow({ query, chips, onInsert }: MathRowProps) {
   const { t } = useTranslation();
   return (
     <>
-      {query !== null && (
-        <span
-          className="ml-1.5 mr-1 shrink-0 rounded-md bg-muted px-2 py-1 font-mono text-xs leading-none text-muted-foreground"
-          aria-hidden="true"
-        >
-          {`\\${query}`}
-        </span>
-      )}
       {chips.length > 0 ? (
         <div className="flex min-w-0 flex-1 flex-row items-center touch-pan-x overflow-x-auto overscroll-x-contain no-scrollbar">
           {chips.map((chip, index) => (

@@ -9,50 +9,41 @@ interface DropZoneProps {
   parentId: string | null;
   targetPageId: string;
   position: DropPosition;
-  order?: number;
   parentsStack?: { id: string | null; order: number }[];
   spaceId?: string;
 }
 
-export function DropZone({ id, parentId, targetPageId, position, order, parentsStack = [], spaceId }: DropZoneProps) {
+export function DropZone({
+  id,
+  parentId,
+  targetPageId,
+  position,
+  parentsStack = [],
+  spaceId,
+}: DropZoneProps) {
   const { active } = useDndContext();
-  
-  // Check if this drop zone should be disabled
+
+  // A zone is invalid only when accepting the drop would be structurally
+  // impossible (dropping a page into itself or one of its own descendants).
+  // Position/no-op resolution lives in handleDragEnd, which has the full
+  // sibling list and can compute a stable target order.
   const isInvalidTarget = () => {
     if (!active) return false;
-    
+
     const activeId = active.id as string;
-    const activeData = active.data.current as any;
-    
-    // Can't drop on "inside" zone of itself (nesting into self)
+
+    // Can't nest a page inside itself.
     if (position === "inside" && activeId === targetPageId) return true;
-    
-    // For "inside" position, check if the parent would be the dragged item or its descendant
     if (position === "inside" && activeId === parentId) return true;
-    
-    // Check if any parent in the stack is the dragged item (would create circular reference)
+
+    // Can't drop a page into any of its own descendants (circular reference).
     if (parentsStack.some((parent) => parent.id === activeId)) return true;
-    
-    // Prevent dropping on adjacent sibling dropzones that would cause unwanted swaps
-    // Only applies when in the same parent
-    if (activeData && activeData.parentId === parentId && order !== undefined) {
-      const activeOrder = activeData.order;
-      
-      // Block both "before" and "after" zones at the immediately next position
-      // Example: PageA (order: 0) should not drop on:
-      //   - PageA's "after" zone (order: 1) - would swap with PageB
-      //   - PageB's "before" zone (order: 1) - would swap with PageB
-      // This allows dropping on PageA's "before" zone (order: 0) to cancel the drag
-      if (order === activeOrder + 1) {
-        return true;
-      }
-    }
-    
+
     return false;
   };
-  
+
   const disabled = isInvalidTarget();
-  
+
   const { isOver, setNodeRef } = useDroppable({
     id,
     disabled,
@@ -61,7 +52,6 @@ export function DropZone({ id, parentId, targetPageId, position, order, parentsS
       position,
       parentId,
       targetPageId,
-      order,
       parentsStack,
       spaceId,
     },
@@ -76,9 +66,8 @@ export function DropZone({ id, parentId, targetPageId, position, order, parentsS
         position === "after" && style.dropZoneAfter,
         position === "inside" && style.dropZoneInside,
         isOver && !disabled && style.dropZoneActive,
-        disabled && style.dropZoneDisabled
+        disabled && style.dropZoneDisabled,
       )}
     />
   );
 }
-

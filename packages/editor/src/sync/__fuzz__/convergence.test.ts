@@ -18,6 +18,8 @@ import { type Block, type Mark, type Page } from "../../serlization/loadPage";
 import type { BlockType, Operation } from "../../state-types";
 import { isTextualBlock } from "../block-registry";
 import { getVisibleLengthFromRuns } from "../char-runs";
+import { orderKeyAfter } from "../crdt-utils";
+import { generateKeyBetween } from "../fractional-index";
 import { rebuildState } from "../reducer";
 import { createCRDTbinding, createSyncEngine, type SyncEngine } from "../sync";
 import { describe, expect, it } from "vitest";
@@ -208,7 +210,10 @@ function tryGenerateOp(
         state.blocks.length === 0 || rng.next() < 0.2
           ? null
           : (pickAnyBlock(state, rng)?.id ?? null);
-      return engine.createBlockInsert(after, blockType);
+      return engine.createBlockInsert(
+        orderKeyAfter(state.blocks, after),
+        blockType,
+      );
     }
     case "block_delete": {
       const block = pickLiveBlock(state, rng);
@@ -256,7 +261,12 @@ function tryGenerateOp(
       const target =
         rng.next() < 0.2 ? null : (pickAnyBlock(state, rng)?.id ?? null);
       if (target === block.id) return null;
-      return engine.createBlockMove(block.id, target);
+      // A move is an LWW write of the block's orderKey.
+      return engine.createBlockSet(
+        block.id,
+        "orderKey",
+        orderKeyAfter(state.blocks, target),
+      );
     }
   }
 }
@@ -503,7 +513,10 @@ function runFuzz(args: FuzzArgs): FailureInfo | null {
   // Peer 0 creates the initial paragraph block. Everyone else applies it
   // before any random ops are generated, so all peers share an identical
   // starting state.
-  const initialOp = engines[0].createBlockInsert(null, "paragraph");
+  const initialOp = engines[0].createBlockInsert(
+    generateKeyBetween(null, null),
+    "paragraph",
+  );
   engines[0].emit([initialOp]);
   for (let i = 1; i < engines.length; i++) {
     engines[i].apply([initialOp]);

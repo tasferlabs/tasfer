@@ -16,14 +16,14 @@
  */
 
 import type { Block, Operation } from "../../state-types";
-import { resolveBlockOrder } from "../crdt-utils";
+import { sortBlocksByOrder } from "../crdt-utils";
 import { applyOp, createEmptyPageState, getVisibleBlocks } from "../reducer";
 import { describe, expect, it } from "vitest";
 
 function imageBlock(): Block {
   return {
     id: ":img",
-    afterId: null,
+    orderKey: "a0",
     type: "image",
     url: "https://example.com/i.png",
     width: "full",
@@ -38,7 +38,7 @@ describe("value-less block_set", () => {
     let page = createEmptyPageState("p");
     page = {
       ...page,
-      blocks: resolveBlockOrder([...page.blocks, imageBlock()]),
+      blocks: sortBlocksByOrder([...page.blocks, imageBlock()]),
     };
 
     // Exact malformed shape from a real oplog: `field` present, `value` absent.
@@ -74,7 +74,7 @@ describe("value-less block_set", () => {
     let page = createEmptyPageState("p");
     page = {
       ...page,
-      blocks: resolveBlockOrder([...page.blocks, imageBlock()]),
+      blocks: sortBlocksByOrder([...page.blocks, imageBlock()]),
     };
 
     const op = {

@@ -12,7 +12,6 @@ import type { CRDTbinding } from "../state-types";
 import type {
   BlockDelete,
   BlockInsert,
-  BlockMove,
   BlockProps,
   BlockSet,
   BlockType,
@@ -106,10 +105,11 @@ export function createCRDTbinding(
  * block ids and char-run counters. The page-level counterpart of
  * `maxOpIdCounter`, for documents loaded as blocks (parsed markdown,
  * snapshots) rather than as an op log. Used to advance the local idGen past
- * every counter in the loaded document so the RGA sibling tie-break
- * (counter-first, see `compareIds`) deterministically places new local
- * blocks/chars adjacent to their anchor instead of after pre-existing
- * siblings.
+ * every counter in the loaded document so new local ids never alias an
+ * existing one, and so freshly typed chars (still an RGA, counter-first
+ * tie-break — see `compareIds`) land adjacent to their anchor rather than
+ * after pre-existing siblings. (Block order no longer relies on this — blocks
+ * carry explicit `orderKey`s.)
  */
 export function maxPageIdCounter(blocks: readonly Block[]): number {
   let max = 0;
@@ -154,7 +154,6 @@ export function maxOpIdCounter(ops: readonly Operation[]): number {
 export type {
   BlockDelete,
   BlockInsert,
-  BlockMove,
   BlockProps,
   BlockSet,
   BlockType,
@@ -259,14 +258,12 @@ export interface SyncEngine {
     value: boolean,
   ): MarkSet;
   createBlockInsert(
-    afterBlockId: string | null,
+    orderKey: string,
     blockType: BlockType,
     initialProps?: BlockProps,
   ): BlockInsert;
   createBlockDelete(blockId: string): BlockDelete;
   createBlockSet(blockId: string, field: string, value: unknown): BlockSet;
-  /** Move a block to sit immediately after `afterBlockId` (null = head). */
-  createBlockMove(blockId: string, afterBlockId: string | null): BlockMove;
 
   // Convenience methods (position/range based).
   /** Insert text at a visible position in a block (char IDs auto-generated). */
@@ -281,8 +278,8 @@ export interface SyncEngine {
     format: Mark,
     value: boolean,
   ): MarkSet;
-  /** Insert a new paragraph block after the given block (null = beginning). */
-  insertParagraph(afterBlockId: string | null): BlockInsert;
+  /** Insert a new paragraph block at the given fractional-index position. */
+  insertParagraph(orderKey: string): BlockInsert;
   /** Change a block's type. */
   changeBlockType(blockId: string, newType: BlockType): BlockSet;
   /** Toggle a todo item's checked state. */
@@ -310,8 +307,8 @@ export interface SyncEngine {
  *   render(state);
  * });
  *
- * // Emit local operations
- * const blockInsert = engine.createBlockInsert(null, "paragraph");
+ * // Emit local operations (orderKey from `generateKeyBetween`/`orderKeyAfter`)
+ * const blockInsert = engine.createBlockInsert(generateKeyBetween(null, null), "paragraph");
  * engine.emit([blockInsert]);
  *
  * // Apply remote operations
@@ -484,14 +481,14 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
   }
 
   function createBlockInsert(
-    afterBlockId: string | null,
+    orderKey: string,
     blockType: BlockType,
     initialProps?: BlockProps,
   ): BlockInsert {
     return {
       ...createBaseOp(),
       op: "block_insert",
-      afterBlockId,
+      orderKey,
       blockId: generateBlockId(binding.nextId),
       blockType,
       initialProps,
@@ -517,18 +514,6 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
       blockId,
       field,
       value,
-    };
-  }
-
-  function createBlockMove(
-    blockId: string,
-    afterBlockId: string | null,
-  ): BlockMove {
-    return {
-      ...createBaseOp(),
-      op: "block_move",
-      blockId,
-      afterBlockId,
     };
   }
 
@@ -631,7 +616,6 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
     createBlockInsert,
     createBlockDelete,
     createBlockSet: createBlockSetOp,
-    createBlockMove,
 
     insertText(blockId: string, position: number, text: string): TextInsert {
       const block = findBlock(getState(), blockId);
@@ -676,8 +660,8 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
       return createFormatSet(blockId, charIds, format, value);
     },
 
-    insertParagraph(afterBlockId: string | null): BlockInsert {
-      return createBlockInsert(afterBlockId, "paragraph");
+    insertParagraph(orderKey: string): BlockInsert {
+      return createBlockInsert(orderKey, "paragraph");
     },
 
     changeBlockType(blockId: string, newType: BlockType): BlockSet {

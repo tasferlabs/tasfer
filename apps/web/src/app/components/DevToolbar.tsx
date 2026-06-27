@@ -549,7 +549,7 @@ function crdtOpSummary(op: CrdtOpEntry): string {
     case "mark_set":
       return `${d.format}=${String(d.value)} on ${(d.charIds as string[])?.length ?? 0} chars`;
     case "block_insert":
-      return `${d.blockType} after ${d.afterBlockId ? String(d.afterBlockId).slice(0, 8) : "start"}`;
+      return `${d.blockType} @ ${d.orderKey ? String(d.orderKey) : "?"}`;
     case "block_delete":
       return String(d.blockId ?? "").slice(0, 16);
     case "block_set":

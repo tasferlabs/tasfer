@@ -27,6 +27,7 @@ import {
   pasteFromSystemClipboard,
 } from "../actions/clipboard";
 import { COPY, CUT } from "../actions/input-actions";
+import { BLUR_SELECTION_CLEAR_DELAY } from "../constants";
 import { IS_DEV } from "../env";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
 import { handleEvents } from "../events/events";
@@ -142,6 +143,7 @@ import {
   deleteCharsInRange,
   insertCharsAtPosition,
   markCharsInRange,
+  orderKeyAfter,
 } from "../sync/crdt-utils";
 import { applyOps } from "../sync/reducer";
 import { generateRestoreOperations } from "../sync/snapshot-diff";
@@ -845,6 +847,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private readonly session = createInteractionSession(this.regionRegistry);
 
   private animationFrameId: number | null = null;
+  // Deferred blur-driven selection clear; cancelled if focus returns within
+  // BLUR_SELECTION_CLEAR_DELAY (see applyBrowserFocus).
+  private pendingSelectionClear: ReturnType<typeof setTimeout> | null = null;
   private documentHeight = 0;
   private visibility: VisibleBlockRange = { start: 0, end: 0, startY: 0 };
   private isRendering = false;
@@ -1171,15 +1176,20 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     isHoveringCheckbox: boolean = false,
     isHoveringPeerIndicator: boolean = false,
     isHoveringMath: boolean = false,
+    isHoveringDragHandle: boolean = false,
+    isDraggingBlock: boolean = false,
   ) => {
     // Only update cursor on desktop (not touch devices)
     if (isTouchDevice()) {
       return;
     }
 
-    if (isDragging) {
-      // When dragging scrollbar, use grabbing cursor
+    if (isDragging || isDraggingBlock) {
+      // Dragging the scrollbar or reordering a block — closed-hand cursor.
       this.contentCanvas.style.cursor = "grabbing";
+    } else if (isHoveringDragHandle) {
+      // Hovering a block's reorder grip — open-hand "grab" affordance.
+      this.contentCanvas.style.cursor = "grab";
     } else if (dragHandleHover) {
       // When hovering over a drag handle, use resize cursor
       if (dragHandleHover === "left" || dragHandleHover === "right") {
@@ -1433,6 +1443,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             // Inline chips are clickable (→ pointer); a block equation is
             // editable text, so it keeps the text caret even while hovered.
             this._state.ui.inlineMathHover !== null,
+            this._state.ui.hoveredDragHandleBlockId !== null,
+            this._state.ui.blockDrag !== null,
           );
 
           this.dirtyLayers.content = viewportChangedAfterPaint;
@@ -1580,21 +1592,47 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private applyBrowserFocus = (focused: boolean) => {
-    const focusChanged = this._state.view.isFocused !== focused;
-    const shouldClearSelection =
-      !focused && this._state.document.selection !== null;
-    if (!focusChanged && !shouldClearSelection) return;
+    // Regaining focus cancels any pending blur-driven clear. A blur that bounces
+    // straight back must not destroy the current selection — on Android the
+    // WebView synthesizes mouse/click events after `touchend` that move focus to
+    // <body> and immediately back, which would otherwise wipe a double-tap word
+    // selection milliseconds after it appears (iOS doesn't fire that blur).
+    if (focused) this.cancelPendingSelectionClear();
 
-    if (focusChanged) {
-      this._state = updateFocus(this._state, focused);
+    const focusChanged = this._state.view.isFocused !== focused;
+    // Defer clearing the selection on blur rather than doing it inline: the clear
+    // only happens if focus has NOT returned by the time the timer fires.
+    if (!focused && this._state.document.selection !== null) {
+      this.scheduleSelectionClearOnBlur();
     }
-    if (shouldClearSelection) {
-      this._state = clearSelection(this._state);
-    }
+    if (!focusChanged) return;
+
+    this._state = updateFocus(this._state, focused);
 
     this.scheduleRender();
     const currentState = this._state;
     this.listeners.forEach((listener) => listener(currentState));
+  };
+
+  private cancelPendingSelectionClear = () => {
+    if (this.pendingSelectionClear !== null) {
+      clearTimeout(this.pendingSelectionClear);
+      this.pendingSelectionClear = null;
+    }
+  };
+
+  private scheduleSelectionClearOnBlur = () => {
+    if (this.pendingSelectionClear !== null) return; // already scheduled
+    this.pendingSelectionClear = setTimeout(() => {
+      this.pendingSelectionClear = null;
+      // Focus came back, or the selection is already gone — nothing to clear.
+      if (this._state.view.isFocused) return;
+      if (this._state.document.selection === null) return;
+      this._state = clearSelection(this._state);
+      this.scheduleRender();
+      const currentState = this._state;
+      this.listeners.forEach((listener) => listener(currentState));
+    }, BLUR_SELECTION_CLEAR_DELAY);
   };
 
   private syncBrowserFocus = () => {
@@ -2264,6 +2302,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       cancelAnimationFrame(this.animationFrameId);
     }
 
+    this.cancelPendingSelectionClear();
+
     if (this.canvasClickHandler) {
       this.contentCanvas.removeEventListener("click", this.canvasClickHandler);
     }
@@ -2829,14 +2869,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       }
 
       const blockId = block.id ?? `b-${s.CRDTbinding.nextId()}`;
-      const seeded = createDefaultBlock(block.type, blockId, afterBlockId);
+      const orderKey = orderKeyAfter(blocks, afterBlockId);
+      const seeded = createDefaultBlock(block.type, blockId, orderKey);
       if (!seeded) return { state: s, ops: [] };
 
       // Caller-supplied own attrs beyond the structural fields become block_set.
       const reserved = new Set([
         "id",
         "type",
-        "afterId",
+        "orderKey",
         "charRuns",
         "formats",
       ]);
@@ -2860,7 +2901,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
           id: s.CRDTbinding.nextId(),
           clock: s.CRDTbinding.getClock(),
           pageId: s.CRDTbinding.pageId,
-          afterBlockId,
+          orderKey,
           blockId,
           blockType: block.type,
         },
@@ -2952,11 +2993,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const block = blocks[blockIndex];
       if (!block || block.deleted) return { state: s, ops: [] };
 
-      const defaults = createDefaultBlock(
-        type,
-        block.id,
-        block.afterId ?? null,
-      );
+      const defaults = createDefaultBlock(type, block.id, block.orderKey ?? "");
       if (!defaults) return { state: s, ops: [] };
       // Carry the source text/marks over only when both sides are textual;
       // otherwise the target type's defaults stand (a void block has no text).
@@ -3409,8 +3446,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const visibleCount = newBlocks.filter((b) => !b.deleted).length;
       if (visibleCount === 0) {
         const newParagraphBlockId = `b-${s.CRDTbinding.nextId()}`;
+        const orderKey = orderKeyAfter(newBlocks, null);
         newBlocks.push({
           id: newParagraphBlockId,
+          orderKey,
           type: "paragraph",
           charRuns: [],
           formats: [],
@@ -3420,7 +3459,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
           id: s.CRDTbinding.nextId(),
           clock: s.CRDTbinding.getClock(),
           pageId: s.CRDTbinding.pageId,
-          afterBlockId: null,
+          orderKey,
           blockId: newParagraphBlockId,
           blockType: "paragraph",
         });

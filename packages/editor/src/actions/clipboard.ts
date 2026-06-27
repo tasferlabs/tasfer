@@ -43,6 +43,7 @@ import {
   deleteCharsInRange,
   insertCharsAtPosition,
   markCharsInRange,
+  orderKeyAfter,
 } from "../sync/crdt-utils";
 import { createIdGenerator, generateBlockId } from "../sync/id";
 import { applyOps } from "../sync/reducer";
@@ -64,7 +65,7 @@ function globalGenerateBlockId(binding: CRDTbinding): string {
 export function atomicBlockInsertOps(
   block: Block,
   newBlockId: string,
-  afterBlockId: string | null,
+  orderKey: string,
   binding: CRDTbinding,
 ): Operation[] {
   const ops: Operation[] = [
@@ -73,7 +74,7 @@ export function atomicBlockInsertOps(
       id: binding.nextId(),
       clock: binding.getClock(),
       pageId: binding.pageId,
-      afterBlockId,
+      orderKey,
       blockId: newBlockId,
       blockType: block.type,
     },
@@ -814,10 +815,14 @@ function insertBlocksAtCursor(
     if (!isTextualBlock(blocks[0])) {
       const atomicBlock = blocks[0];
       const newBlockId = globalGenerateBlockId(state.CRDTbinding);
+      const orderKey = orderKeyAfter(
+        newState.document.page.blocks,
+        currentBlock.id,
+      );
       const newAtomicBlock: Block = {
         ...atomicBlock,
         id: newBlockId,
-        afterId: currentBlock.id,
+        orderKey,
       };
       invalidateBlockCache(newAtomicBlock);
 
@@ -825,7 +830,7 @@ function insertBlocksAtCursor(
         ...atomicBlockInsertOps(
           atomicBlock,
           newBlockId,
-          currentBlock.id,
+          orderKey,
           state.CRDTbinding,
         ),
       );
@@ -1003,21 +1008,21 @@ function insertBlocksAtCursor(
     const pushAtomicBlockOps = (
       block: Block,
       newBlockId: string,
-      afterBlockId: string | null,
+      orderKey: string,
     ) => {
       ops.push(
-        ...atomicBlockInsertOps(
-          block,
-          newBlockId,
-          afterBlockId,
-          state.CRDTbinding,
-        ),
+        ...atomicBlockInsertOps(block, newBlockId, orderKey, state.CRDTbinding),
       );
     };
 
     const firstPastedBlock = blocks[0];
     const lastPastedBlock = blocks[blocks.length - 1];
     const resultBlocks: Block[] = [];
+    const blocksWithResults = () => [
+      ...newState.document.page.blocks.slice(0, blockIndex),
+      ...resultBlocks,
+      ...newState.document.page.blocks.slice(blockIndex + 1),
+    ];
     let lastInsertedBlockId = currentBlock.id;
 
     // Spill any after-cursor content (the text that followed the paste point in
@@ -1029,7 +1034,8 @@ function insertBlocksAtCursor(
       const visibleAfter = afterChars.filter((c) => !c.deleted);
       if (visibleAfter.length === 0) return;
 
-      const afterBlockId = globalGenerateBlockId(state.CRDTbinding);
+      const trailingBlockId = globalGenerateBlockId(state.CRDTbinding);
+      const orderKey = orderKeyAfter(blocksWithResults(), anchorId);
       const newAfterChars: Char[] = visibleAfter.map((c) => ({
         id: state.CRDTbinding.nextId(),
         char: c.char,
@@ -1058,8 +1064,8 @@ function insertBlocksAtCursor(
         .filter((f): f is MarkSpan => f !== null);
 
       const afterBlock: Block = {
-        id: afterBlockId,
-        afterId: anchorId,
+        id: trailingBlockId,
+        orderKey,
         type: "paragraph",
         charRuns: charsToRuns(newAfterChars),
         formats: newAfterFormats,
@@ -1071,8 +1077,8 @@ function insertBlocksAtCursor(
         id: state.CRDTbinding.nextId(),
         clock: state.CRDTbinding.getClock(),
         pageId: state.CRDTbinding.pageId,
-        afterBlockId: anchorId,
-        blockId: afterBlockId,
+        orderKey,
+        blockId: trailingBlockId,
         blockType: "paragraph",
       };
       ops.push(afterBlockInsertOp);
@@ -1082,7 +1088,7 @@ function insertBlocksAtCursor(
         id: state.CRDTbinding.nextId(),
         clock: state.CRDTbinding.getClock(),
         pageId: state.CRDTbinding.pageId,
-        blockId: afterBlockId,
+        blockId: trailingBlockId,
         afterCharId: null,
         charRuns: charsToRuns(newAfterChars),
       };
@@ -1104,7 +1110,7 @@ function insertBlocksAtCursor(
             id: state.CRDTbinding.nextId(),
             clock: state.CRDTbinding.getClock(),
             pageId: state.CRDTbinding.pageId,
-            blockId: afterBlockId,
+            blockId: trailingBlockId,
             charIds,
             format: format.format,
             value: true,
@@ -1114,7 +1120,7 @@ function insertBlocksAtCursor(
       }
 
       resultBlocks.push(afterBlock);
-      lastInsertedBlockId = afterBlockId;
+      lastInsertedBlockId = trailingBlockId;
     };
 
     // Handle first block
@@ -1219,13 +1225,14 @@ function insertBlocksAtCursor(
       resultBlocks.push(firstBlock);
 
       const newAtomicBlockId = globalGenerateBlockId(state.CRDTbinding);
+      const orderKey = orderKeyAfter(blocksWithResults(), currentBlock.id);
       const newAtomicBlock: Block = {
         ...firstPastedBlock,
         id: newAtomicBlockId,
-        afterId: currentBlock.id,
+        orderKey,
       };
       invalidateBlockCache(newAtomicBlock);
-      pushAtomicBlockOps(firstPastedBlock, newAtomicBlockId, currentBlock.id);
+      pushAtomicBlockOps(firstPastedBlock, newAtomicBlockId, orderKey);
       resultBlocks.push(newAtomicBlock);
       lastInsertedBlockId = newAtomicBlockId;
     }
@@ -1238,13 +1245,17 @@ function insertBlocksAtCursor(
       if (!isTextualBlock(block)) {
         // Atomic middle block (image/line/math/custom void): clone with fresh
         // ids, ops from the descriptor-driven helper — no per-type branch.
+        const orderKey = orderKeyAfter(
+          blocksWithResults(),
+          lastInsertedBlockId,
+        );
         const newAtomicBlock: Block = {
           ...block,
           id: newBlockId,
-          afterId: lastInsertedBlockId,
+          orderKey,
         };
         invalidateBlockCache(newAtomicBlock);
-        pushAtomicBlockOps(block, newBlockId, lastInsertedBlockId);
+        pushAtomicBlockOps(block, newBlockId, orderKey);
         resultBlocks.push(newAtomicBlock);
         lastInsertedBlockId = newBlockId;
       } else if (isTextualBlock(block)) {
@@ -1283,12 +1294,16 @@ function insertBlocksAtCursor(
           })
           .filter((f): f is MarkSpan => f !== null);
 
+        const orderKey = orderKeyAfter(
+          blocksWithResults(),
+          lastInsertedBlockId,
+        );
         const newBlock: Block = {
           ...block,
           id: newBlockId,
-          // `block` is parsed from the clipboard — its afterId points at a
+          // `block` is parsed from the clipboard — its order points at a
           // parser-namespace id that doesn't exist in this document.
-          afterId: lastInsertedBlockId,
+          orderKey,
           charRuns: charsToRuns(newChars),
           formats: newFormats,
         };
@@ -1299,7 +1314,7 @@ function insertBlocksAtCursor(
           id: state.CRDTbinding.nextId(),
           clock: state.CRDTbinding.getClock(),
           pageId: state.CRDTbinding.pageId,
-          afterBlockId: lastInsertedBlockId,
+          orderKey,
           blockId: newBlockId,
           blockType: newBlock.type as any,
         };
@@ -1430,12 +1445,16 @@ function insertBlocksAtCursor(
 
         const allNewFormats = [...newPastedFormats, ...newAfterFormats];
 
+        const orderKey = orderKeyAfter(
+          blocksWithResults(),
+          lastInsertedBlockId,
+        );
         const lastBlock: Block = {
           ...lastPastedBlock,
           id: lastBlockId,
-          // `lastPastedBlock` is parsed from the clipboard — its afterId
+          // `lastPastedBlock` is parsed from the clipboard — its order
           // points at a parser-namespace id that doesn't exist here.
-          afterId: lastInsertedBlockId,
+          orderKey,
           charRuns: charsToRuns(allNewChars),
           formats: allNewFormats,
         };
@@ -1446,7 +1465,7 @@ function insertBlocksAtCursor(
           id: state.CRDTbinding.nextId(),
           clock: state.CRDTbinding.getClock(),
           pageId: state.CRDTbinding.pageId,
-          afterBlockId: lastInsertedBlockId,
+          orderKey,
           blockId: lastBlockId,
           blockType: lastBlock.type as any,
         };
@@ -1503,17 +1522,17 @@ function insertBlocksAtCursor(
         // type) at the new position, then spill any after-cursor content into a
         // trailing paragraph. Type-agnostic: a new atomic type pastes for free.
         const newAtomicBlockId = globalGenerateBlockId(state.CRDTbinding);
+        const orderKey = orderKeyAfter(
+          blocksWithResults(),
+          lastInsertedBlockId,
+        );
         const newAtomicBlock: Block = {
           ...lastPastedBlock,
           id: newAtomicBlockId,
-          afterId: lastInsertedBlockId,
+          orderKey,
         };
         invalidateBlockCache(newAtomicBlock);
-        pushAtomicBlockOps(
-          lastPastedBlock,
-          newAtomicBlockId,
-          lastInsertedBlockId,
-        );
+        pushAtomicBlockOps(lastPastedBlock, newAtomicBlockId, orderKey);
         resultBlocks.push(newAtomicBlock);
         lastInsertedBlockId = newAtomicBlockId;
         appendTrailingParagraph(newAtomicBlockId);

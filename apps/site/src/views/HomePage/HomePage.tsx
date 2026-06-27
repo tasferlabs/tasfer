@@ -723,10 +723,13 @@ export default function HomePage() {
               </a>
             </div>
             <div className="lp-hero-meta">
+              <span className="lp-hero-tagline">
+                {t("home.lp.hero.metaTailOpenSource", "Open source project")}
+              </span>
               <span>
                 {t(
                   "home.lp.hero.metaTail",
-                  "AGPL-3.0 app · MIT engine · 0 accounts · 0 trackers · you choose when to share",
+                  "0 accounts · 0 trackers · you choose when to share",
                 )}
               </span>
             </div>

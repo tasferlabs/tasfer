@@ -215,40 +215,49 @@
   color: var(--muted-foreground);
 }
 
-/* Drop zones for drag and drop */
+/* Drop zones for drag and drop.
+ *
+ * All three zones overlap the row. `before` covers the top band, `after` the
+ * bottom band, and `inside` the whole row (so its nest indicator can outline
+ * the full row). The collision detector resolves the overlap by pointer
+ * position, preferring before/after over inside, so the top/bottom bands insert
+ * a sibling and only the centre nests.
+ *
+ * Zones are pointer-events:none: dnd-kit detects drops from the measured rects,
+ * not DOM hit-testing, so the zones never need to receive events — and must not,
+ * or they would swallow clicks on the row beneath them.
+ */
 .dropZone {
   position: absolute;
   inset-inline: 0;
   z-index: 10;
+  pointer-events: none;
   transition: all 0.15s ease;
 }
 
-.dropZoneBefore,
-.dropZoneAfter {
-  height: 4px;
-  margin: 0;
-  pointer-events: auto;
-}
-
 .dropZoneBefore {
-  top: -4px;
+  top: 0;
+  height: 38%;
 }
 
 .dropZoneAfter {
-  bottom: -4px;
+  bottom: 0;
+  height: 38%;
 }
 
 .dropZoneInside {
   top: 0;
   bottom: 0;
-  inset-inline: 0;
   background-color: transparent;
-  pointer-events: none;
 }
 
-.dropZoneActive.dropZoneBefore,
+/* Insertion line at the row's outer edge. */
+.dropZoneActive.dropZoneBefore {
+  box-shadow: inset 0 2px 0 0 var(--primary);
+}
+
 .dropZoneActive.dropZoneAfter {
-  background-color: var(--primary);
+  box-shadow: inset 0 -2px 0 0 var(--primary);
 }
 
 .dropZoneActive.dropZoneInside {
@@ -262,6 +271,12 @@
   position: relative;
   min-width: 0;
   /* overflow: hidden; */
+}
+
+/* Positioning context for a single row's drop zones — excludes the expanded
+   children accordion that follows it inside .pageWrapper. */
+.pageRow {
+  position: relative;
 }
 
 .isDragging {
@@ -283,13 +298,6 @@
 }
 
 @media (pointer: coarse) {
-  .dropZoneBefore,
-  .dropZoneAfter {
-    height: 8px;
-    margin: 0;
-    pointer-events: auto;
-  }
-
   /* Always show collapse button on coarse pointer */
   .collapseAction {
     display: flex;

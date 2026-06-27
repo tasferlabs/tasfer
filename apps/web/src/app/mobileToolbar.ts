@@ -24,6 +24,7 @@ export type MobileToolbarIcon =
   | "math_command"
   | "math"
   | "strikethrough"
+  | "text"
   | "paragraph"
   | "heading1"
   | "heading2"
@@ -234,7 +235,7 @@ const BLOCKS: ReadonlyArray<{
   icon: MobileToolbarIcon;
   labelKey: string;
 }> = [
-  { type: "paragraph", icon: "paragraph", labelKey: "common.text" },
+  { type: "paragraph", icon: "text", labelKey: "common.text" },
   { type: "heading1", icon: "heading1", labelKey: "blocks.heading1" },
   { type: "heading2", icon: "heading2", labelKey: "blocks.heading2" },
   { type: "heading3", icon: "heading3", labelKey: "blocks.heading3" },
@@ -602,12 +603,12 @@ function buildLayout(
     };
   }
 
-  // Format (prose): pin the high-frequency marks; block type stays in reach in
-  // the middle; the rarer marks live in the drawer.
+  // Format (prose): keep block type before inline marks; the rarer marks live
+  // in the drawer.
   return {
     context: "format",
-    left: [undo, redo, controlsDivider(), bold, italic],
-    middle: { kind: "items", items: [blockMenu] },
+    left: [undo, redo, controlsDivider(), blockMenu, bold, italic],
+    middle: { kind: "items", items: [] },
     more: [strikethrough, inlineCode],
     right,
   };

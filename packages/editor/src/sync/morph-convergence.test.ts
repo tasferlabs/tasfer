@@ -29,7 +29,7 @@ const boldSpan: MarkSpan = {
 function formattedParagraph(): Paragraph {
   return {
     id: "p-1",
-    afterId: null,
+    orderKey: "a0",
     deleted: false,
     type: "paragraph",
     charRuns: [{ peerId: "peer", startCounter: 0, text: "hello" }],

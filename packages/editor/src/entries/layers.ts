@@ -42,6 +42,15 @@ export function createCanvasLayers(
     canvas.style.height = "100%";
     canvas.style.zIndex = zIndex.toString();
     canvas.style.pointerEvents = pointerEvents ? "auto" : "none";
+    // The editor owns all touch gestures (scroll, tap, long-press) in its own
+    // handlers and scrolls the document virtually. Disabling the browser's
+    // built-in touch behaviors keeps it from interpreting a touch as a
+    // scroll/zoom candidate and injecting extra move deltas or touchcancel —
+    // which on Android (Chrome/WebView) trips tap detection and makes
+    // double-tap-to-select unreliable. Only the interactive layer needs it.
+    if (pointerEvents) {
+      canvas.style.touchAction = "none";
+    }
     canvas.style.userSelect = "none";
     canvas.style.webkitUserSelect = "none";
     (

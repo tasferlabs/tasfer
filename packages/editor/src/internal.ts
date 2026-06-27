@@ -38,7 +38,7 @@ export {
 
 // RGA char-run internals + block ordering (the op-log's lower plumbing).
 export type { Char, CharRun, MarkSpan } from "./serlization/loadPage";
-export { resolveBlockOrder } from "./sync/crdt-utils";
+export { orderKeyAfter, sortBlocksByOrder } from "./sync/crdt-utils";
 
 // ── Host-overlay state-types ─────────────────────────────────────────────────
 // Ephemeral view/overlay shapes a host reads when rendering its own chrome.

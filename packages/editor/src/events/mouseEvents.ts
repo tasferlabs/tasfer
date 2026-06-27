@@ -453,6 +453,19 @@ export function handleMouseMove(
     };
   }
 
+  // Block reorder handle hover — drives the gutter grip. Same hit-test the drag
+  // uses, so the painted grip and the grabbable band can never disagree.
+  const hoveredDragHandleBlockId =
+    hoverClaim?.region.id === "block-drag-handle"
+      ? (hoverClaim.hit as { blockId: string }).blockId
+      : null;
+  if (hoveredDragHandleBlockId !== state.ui.hoveredDragHandleBlockId) {
+    state = {
+      ...state,
+      ui: { ...state.ui, hoveredDragHandleBlockId },
+    };
+  }
+
   // Desktop hover (not in select mode, not during an image drag): let each node
   // update its own hover highlights. The engine resolves the atomic block +
   // caret position under the pointer once; nodes read those and set/clear their

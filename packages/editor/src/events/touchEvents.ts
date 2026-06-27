@@ -34,6 +34,7 @@ import {
   MOVEMENT_THRESHOLD,
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
+  TAP_MOVE_TOLERANCE,
 } from "../constants";
 import { endScrollbarDrag } from "../rendering/scrollbar";
 import {
@@ -848,11 +849,23 @@ export function handleTouchEnd(
     }
   }
 
-  // Detect tap: short duration and minimal movement
+  // Detect tap: short duration and minimal *net* movement. Using net travel
+  // (start → release) rather than the sticky `hasMoved` flag means a transient
+  // jitter spike that crossed MOVEMENT_THRESHOLD but settled back near the
+  // origin still counts as a tap — without this, slightly imprecise taps on
+  // Android (which smooths touch coordinates less than iOS) silently fail to
+  // register, breaking double-tap-to-select. `hasMoved` still governs scroll,
+  // menu-close, and long-press/cursor-drag decisions.
   const currentTime = Date.now();
+  const netTapMovement = session.touch
+    ? Math.sqrt(
+        (session.touch.currentTouchX - session.touch.startX) ** 2 +
+          (session.touch.currentTouchY - session.touch.startY) ** 2,
+      )
+    : Infinity;
   const isTap =
     session.touch &&
-    !session.touch.hasMoved &&
+    netTapMovement <= TAP_MOVE_TOLERANCE &&
     currentTime - session.touch.startTime < TAP_MAX_DURATION;
 
   if (isTap && session.touch) {
@@ -966,6 +979,13 @@ export function handleTouchEnd(
       viewport,
     );
 
+    // Where the *previous* tap resolved, captured before we overwrite it below.
+    // A multi-tap (word/line select) anchors here rather than re-resolving the
+    // current tap's screen point: on Android the keyboard raised by the first
+    // tap reflows the canvas between taps, so the same finger location maps to a
+    // different — often empty — document position by the second tap.
+    const prevTapDocPosition = session.tapTracker.lastTapDocPosition;
+
     // Check for multi-tap (double/triple) - use larger threshold for touch
     let isMultiTap = false;
     if (
@@ -985,6 +1005,7 @@ export function handleTouchEnd(
 
     session.tapTracker.lastTapTime = currentTime;
     session.tapTracker.lastTapPosition = tapPosition;
+    session.tapTracker.lastTapDocPosition = position;
 
     if (position) {
       // Check if tapped on an image cover block
@@ -1153,10 +1174,15 @@ export function handleTouchEnd(
         state = closeActiveMenu(state);
       }
 
+      // A multi-tap selects at the first tap's resolved position (stable across
+      // an Android keyboard reflow); a fresh tap uses its own resolved position.
+      const anchorPosition =
+        isMultiTap && prevTapDocPosition ? prevTapDocPosition : position;
+
       // Handle triple-tap: always select line (even inside selection)
       if (isMultiTap && session.tapTracker.count >= 3) {
         state = state.actionBus.dispatchState(TAP_SELECT_LINE, state, {
-          position,
+          position: anchorPosition,
         }).state;
       }
 
@@ -1180,7 +1206,7 @@ export function handleTouchEnd(
       // Handle double-tap: select word
       else if (isMultiTap && session.tapTracker.count === 2) {
         state = state.actionBus.dispatchState(TAP_SELECT_WORD, state, {
-          position,
+          position: anchorPosition,
         }).state;
       }
 

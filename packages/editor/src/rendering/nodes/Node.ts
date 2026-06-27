@@ -77,7 +77,17 @@ export interface BlockRuntimeState {
   // before persistence (it is a large, per-canvas-width render hint).
   cachedLayout?: NodeLayout;
   deleted?: boolean;
-  afterId?: string | null;
+  /**
+   * Fractional-index position key. Document order is `sort by (orderKey, id)`;
+   * moving a block is a single LWW `block_set` of this field. See
+   * `sync/fractional-index.ts`.
+   *
+   * Optional only at construction (freshly-parsed block literals omit it the
+   * same way they used to omit `afterId`); every block in committed `Page`
+   * state carries one, assigned by the parser, the reducer's `createEmptyBlock`,
+   * or a registry default.
+   */
+  orderKey?: string;
   /**
    * Transient render hints: the `type` of the adjacent *visible* (non-deleted)
    * blocks, stamped by `getVisibleBlocks`. They let a node lay itself out aware

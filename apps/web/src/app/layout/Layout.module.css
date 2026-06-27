@@ -592,6 +592,7 @@
   border-radius: 4px;
   overflow: hidden;
   min-width: 0;
+  height: 100%;
 
   /* for touch dragging to work */
   -webkit-touch-callout: none;

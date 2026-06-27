@@ -51,12 +51,11 @@ export type IdGenerator = (() => string) & {
    * Bump the counter so that the NEXT id returned has counter > `toAtLeast`.
    * No-op if the internal counter is already past `toAtLeast`.
    *
-   * Used to keep the RGA sibling-tie-break invariant across sessions: the
-   * sibling sort compares ids by counter-first (see `compareIds`), so new
-   * ids must out-counter every id we've ever seen — otherwise a fresh
-   * session (counter starting at 0) emits low-counter ids that the sort
-   * places AFTER pre-existing siblings (counter from the original session),
-   * pushing newly-split blocks / newly-typed chars to the end of the page.
+   * Advanced past every id seen on load so a fresh session (counter starting
+   * at 0) never re-mints an id that already exists in the op log — compound
+   * ids are `${peerId}:${counter}`, so a colliding counter from the same peer
+   * would alias a different operation. (Block order no longer depends on this:
+   * positions are explicit `orderKey` values, not counter-derived.)
    */
   advance: (toAtLeast: number) => void;
 };

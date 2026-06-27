@@ -1,15 +1,16 @@
 /**
- * `block_move` operation: applies a deterministic, convergent block reposition.
- *
- * A move re-anchors the block plus up to two neighbours (close the gap it left,
- * open a gap at the destination). These tests pin the single-user ordering,
- * apply-time totality (malformed/edge ops never throw or corrupt order),
- * concurrency convergence (LWW + cycle handling), incremental/rebuild merge
- * parity, and undo reversibility.
+ * Block move under the fractional-index model: a move is a single LWW
+ * `block_set` of the block's `orderKey`, minted by `orderKeyAfter` to sit
+ * immediately after a target. These tests pin single-user ordering, apply-time
+ * totality (malformed/edge ops never throw or corrupt order), concurrency
+ * convergence (LWW — last writer by HLC wins, no neighbour drift),
+ * incremental/rebuild merge parity, and undo reversibility.
  */
 
 import type { Block, Page } from "../serlization/loadPage";
-import type { BlockMove, HLC, Operation } from "../state-types";
+import type { BlockSet, HLC, Operation } from "../state-types";
+import { orderKeyAfter, sortBlocksByOrder } from "./crdt-utils";
+import { generateKeyBetween, generateNKeysBetween } from "./fractional-index";
 import { compareHLC } from "./hlc";
 import { invertOperation } from "./inverse";
 import { createOpLog, mergeOps } from "./oplog";
@@ -22,16 +23,16 @@ import { describe, expect, it } from "vitest";
  * exactly as `mergeOps`/`rebuildState` define convergence. Folding `applyOp`
  * in raw arrival order is NOT the convergence contract.
  */
-function applyCanonical(base: Page, ops: BlockMove[]): Page {
+function applyCanonical(base: Page, ops: Operation[]): Page {
   return [...ops]
     .sort((a, b) => compareHLC(a.clock, b.clock))
-    .reduce(applyOp, base);
+    .reduce((page, op) => applyOp(page, op), base);
 }
 
 const PAGE = "page-1";
 
-function block(id: string, afterId: string | null): Block {
-  return { id, afterId, type: "paragraph", charRuns: [], formats: [] };
+function block(id: string, orderKey: string): Block {
+  return { id, orderKey, type: "paragraph", charRuns: [], formats: [] };
 }
 
 function pageWith(...blocks: Block[]): Page {
@@ -40,104 +41,130 @@ function pageWith(...blocks: Block[]): Page {
 
 /** Visible (non-deleted) block ids in document order. */
 function ids(page: Page): string[] {
-  return page.blocks.filter((b) => !b.deleted).map((b) => b.id);
+  return sortBlocksByOrder(page.blocks)
+    .filter((b) => !b.deleted)
+    .map((b) => b.id);
 }
 
 /** All block ids in document order, including tombstones. */
 function allIds(page: Page): string[] {
-  return page.blocks.map((b) => b.id);
+  return sortBlocksByOrder(page.blocks).map((b) => b.id);
 }
 
+/**
+ * A move op: a `block_set` of `orderKey`, with the new key minted from `page`
+ * so the block lands immediately after `afterBlockId` (null = head). The key is
+ * computed against the supplied page snapshot, mirroring how a peer mints it
+ * from its local view.
+ */
 function move(
+  page: Page,
   blockId: string,
   afterBlockId: string | null,
   clock: HLC = { counter: 100, peerId: "z" },
-): BlockMove {
+): BlockSet {
   return {
-    op: "block_move",
+    op: "block_set",
     id: `${clock.peerId}:${clock.counter}`,
     clock,
     pageId: PAGE,
     blockId,
-    afterBlockId,
+    field: "orderKey",
+    value: orderKeyAfter(page.blocks, afterBlockId),
   };
 }
 
-// A,B,C,D as a clean linear chain. Counters ascend so the RGA sibling
-// tie-break (newer-first) is well-defined if a collision ever arises.
+// A,B,C,D as a clean linear chain with ascending keys.
 function linearABCD(): Page {
+  const [k1, k2, k3, k4] = generateNKeysBetween(null, null, 4);
   return pageWith(
-    block("p:1", null),
-    block("p:2", "p:1"),
-    block("p:3", "p:2"),
-    block("p:4", "p:3"),
+    block("p:1", k1),
+    block("p:2", k2),
+    block("p:3", k3),
+    block("p:4", k4),
   );
 }
 
-describe("applyBlockMove — single-user ordering", () => {
+describe("block move — single-user ordering", () => {
   it("moves a block to sit immediately after the target (B after C ⇒ A,C,B,D)", () => {
-    const next = applyOp(linearABCD(), move("p:2", "p:3"));
+    const page = linearABCD();
+    const next = applyOp(page, move(page, "p:2", "p:3"));
     expect(ids(next)).toEqual(["p:1", "p:3", "p:2", "p:4"]);
   });
 
   it("moves a block to the head (afterBlockId = null)", () => {
-    const next = applyOp(linearABCD(), move("p:3", null));
+    const page = linearABCD();
+    const next = applyOp(page, move(page, "p:3", null));
     expect(ids(next)).toEqual(["p:3", "p:1", "p:2", "p:4"]);
   });
 
   it("moves a block backwards (D after A ⇒ A,D,B,C)", () => {
-    const next = applyOp(linearABCD(), move("p:4", "p:1"));
+    const page = linearABCD();
+    const next = applyOp(page, move(page, "p:4", "p:1"));
     expect(ids(next)).toEqual(["p:1", "p:4", "p:2", "p:3"]);
   });
 
   it("is idempotent: applying the same move twice equals applying it once", () => {
-    const once = applyOp(linearABCD(), move("p:2", "p:3"));
-    const twice = applyOp(once, move("p:2", "p:3"));
+    const page = linearABCD();
+    const op = move(page, "p:2", "p:3");
+    const once = applyOp(page, op);
+    const twice = applyOp(once, op);
     expect(ids(twice)).toEqual(ids(once));
   });
 
-  it("is a no-op when the block already sits after the target", () => {
+  it("leaves order unchanged when the block already sits after the target", () => {
     const page = linearABCD();
-    const next = applyOp(page, move("p:2", "p:1"));
-    expect(next).toBe(page); // same reference — no rebuild
+    const next = applyOp(page, move(page, "p:2", "p:1"));
+    expect(ids(next)).toEqual(["p:1", "p:2", "p:3", "p:4"]);
   });
 });
 
-describe("applyBlockMove — totality (never throws, converges)", () => {
+describe("block move — totality (never throws, converges)", () => {
   it("ignores a move of a non-existent block", () => {
     const page = linearABCD();
-    expect(applyOp(page, move("p:999", "p:1"))).toBe(page);
-  });
-
-  it("ignores a self-targeting move", () => {
-    const page = linearABCD();
-    expect(applyOp(page, move("p:2", "p:2"))).toBe(page);
+    // block_set targeting a missing block is a no-op (same reference).
+    expect(applyOp(page, move(page, "p:999", "p:1"))).toBe(page);
   });
 
   it("orphans the block at the end when the target does not exist", () => {
-    const next = applyOp(linearABCD(), move("p:2", "p:404"));
-    // p:2 anchors to a missing block → emitted as an orphan at the end.
+    const page = linearABCD();
+    const next = applyOp(page, move(page, "p:2", "p:404"));
+    // orderKeyAfter appends past the last block when the anchor is missing.
     expect(ids(next)).toEqual(["p:1", "p:3", "p:4", "p:2"]);
   });
 
+  it("mints a valid key when a neighbour carries the empty-string placeholder", () => {
+    // `""` is the sentinel orderKey a freshly-parsed/pasted block holds until a
+    // real fractional-index key is assigned. If one survives into a live edit,
+    // `orderKeyAfter` must coerce it to "no bound" and still mint a valid key —
+    // not feed `""` to `generateKeyBetween`, which throws "invalid order key".
+    const page = pageWith(block("p:1", ""), block("p:2", "a1"));
+    expect(() => orderKeyAfter(page.blocks, "p:1")).not.toThrow();
+    const key = orderKeyAfter(page.blocks, "p:1");
+    expect(key).not.toBe("");
+    // The minted key is a valid fractional index usable as a real bound.
+    expect(() => generateKeyBetween(key, null)).not.toThrow();
+  });
+
   it("allows moving a block after a tombstoned target", () => {
+    const [k1, k2, k3] = generateNKeysBetween(null, null, 3);
     const page = pageWith(
-      block("p:1", null),
-      { ...block("p:2", "p:1"), deleted: true },
-      block("p:3", "p:2"),
+      block("p:1", k1),
+      { ...block("p:2", k2), deleted: true },
+      block("p:3", k3),
     );
-    const next = applyOp(page, move("p:3", "p:2"));
-    // p:3 still anchors after the tombstone p:2; tombstone stays in the chain.
+    const next = applyOp(page, move(page, "p:3", "p:2"));
+    // p:3 still sorts after the tombstone p:2; tombstone stays in the order.
     expect(allIds(next)).toEqual(["p:1", "p:2", "p:3"]);
   });
 });
 
-describe("block_move — concurrency convergence", () => {
+describe("block move — concurrency convergence", () => {
   it("converges (LWW) when two peers move the same block to different targets", () => {
     const base = linearABCD();
     // Peer A moves p:2 after p:3; peer B moves p:2 to head. Higher HLC wins.
-    const moveA = move("p:2", "p:3", { counter: 5, peerId: "a" });
-    const moveB = move("p:2", null, { counter: 9, peerId: "b" });
+    const moveA = move(base, "p:2", "p:3", { counter: 5, peerId: "a" });
+    const moveB = move(base, "p:2", null, { counter: 9, peerId: "b" });
 
     // Arrival order must not matter once ops are HLC-ordered.
     const order1 = applyCanonical(base, [moveA, moveB]);
@@ -150,46 +177,53 @@ describe("block_move — concurrency convergence", () => {
   it("converges and loses nothing when two peers reciprocally move into each other", () => {
     const base = linearABCD();
     // p:2 → after p:3 and p:3 → after p:2 concurrently — the antagonistic case.
-    const m1 = move("p:2", "p:3", { counter: 5, peerId: "a" });
-    const m2 = move("p:3", "p:2", { counter: 6, peerId: "b" });
+    const m1 = move(base, "p:2", "p:3", { counter: 5, peerId: "a" });
+    const m2 = move(base, "p:3", "p:2", { counter: 6, peerId: "b" });
 
     const order1 = applyCanonical(base, [m1, m2]);
     const order2 = applyCanonical(base, [m2, m1]);
-    // Both arrival orders agree, and every block survives (resolveBlockOrder
-    // never drops a block, even if a re-anchoring chain becomes degenerate).
+    // Both arrival orders agree, and every block survives — each move is an
+    // independent LWW write of one block's key, so nothing is dropped.
     expect(ids(order1)).toEqual(ids(order2));
     expect(new Set(ids(order1))).toEqual(new Set(["p:1", "p:2", "p:3", "p:4"]));
   });
 });
 
-describe("block_move — merge-path parity & undo", () => {
+describe("block move — merge-path parity & undo", () => {
   // Build a real op log: insert A,B,C,D then move B after C.
   function buildLog() {
     const binding = createCRDTbinding(PAGE, "peer");
     const inserts: Operation[] = [];
-    let prev: string | null = null;
+    let prevKey: string | null = null;
     const blockIds: string[] = [];
     for (let i = 0; i < 4; i++) {
       const blockId = `b-peer:${i}`;
+      const orderKey = generateKeyBetween(prevKey, null);
       inserts.push({
         op: "block_insert",
         id: binding.nextId(),
         clock: binding.getClock(),
         pageId: PAGE,
-        afterBlockId: prev,
+        orderKey,
         blockId,
         blockType: "paragraph",
       });
       blockIds.push(blockId);
-      prev = blockId;
+      prevKey = orderKey;
     }
-    const moveOp: BlockMove = {
-      op: "block_move",
+
+    // Materialize the post-insert page so the move's key is minted correctly.
+    let page: Page = { id: PAGE, title: "", blocks: [] };
+    for (const op of inserts) page = applyOp(page, op);
+
+    const moveOp: BlockSet = {
+      op: "block_set",
       id: binding.nextId(),
       clock: binding.getClock(),
       pageId: PAGE,
       blockId: blockIds[1], // B
-      afterBlockId: blockIds[2], // C
+      field: "orderKey",
+      value: orderKeyAfter(page.blocks, blockIds[2]), // after C
     };
     return { inserts, moveOp, blockIds };
   }

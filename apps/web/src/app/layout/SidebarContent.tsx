@@ -1,13 +1,15 @@
 import { useP2PPageEventsWithQueryClient } from "@/app/hooks/useP2PPageEvents";
 import { triggerHaptic } from "@/platform/bridge";
 import {
-  closestCenter,
   DndContext,
   DragOverlay,
   MouseSensor,
+  pointerWithin,
+  rectIntersection,
   TouchSensor,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -47,6 +49,47 @@ import { useTranslation } from "react-i18next";
 import { useSidebarPanel } from "../contexts/SidebarPanelContext";
 import useResponsive from "../hooks/useResponsive";
 import style from "./Layout.module.css";
+
+/**
+ * Resolve overlapping page drop zones by pointer position. The `before`/`after`
+ * insertion bands and the full-row `inside` (nest) zone deliberately overlap, so
+ * we pick by priority: a sibling-insertion band wins over the nest zone, and any
+ * specific zone wins over the broad pages-area container. This is what lets a
+ * page be dropped after the last item — previously the full-height nest zone
+ * always won the closest-center contest, so pages could only ever nest.
+ */
+const pageCollisionDetection: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args);
+  const hits = pointerHits.length > 0 ? pointerHits : rectIntersection(args);
+
+  const dataFor = (id: string | number) =>
+    args.droppableContainers.find((c) => c.id === id)?.data.current as
+      | { type?: string; position?: string }
+      | undefined;
+
+  const insertion = hits.find((h) => {
+    const d = dataFor(h.id);
+    return d?.type === "drop-zone" && d.position !== "inside";
+  });
+  if (insertion) return [insertion];
+
+  const nest = hits.find((h) => dataFor(h.id)?.type === "drop-zone");
+  if (nest) return [nest];
+
+  return hits;
+};
+
+/** Sort by order, tiebroken by id to match the server's deterministic order. */
+const byOrder = (a: IListPage, b: IListPage) =>
+  a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/** Pick an order value strictly between two neighbours (null = open end). */
+function midOrder(lower: number | null, upper: number | null): number {
+  if (lower === null && upper === null) return 1;
+  if (lower === null) return upper! - 1;
+  if (upper === null) return lower + 1;
+  return (lower + upper) / 2;
+}
 
 export function SidebarContent({
   setOpen,
@@ -214,6 +257,40 @@ export function SidebarContent({
     return space?.name || t("common.untitled", "Untitled");
   }
 
+  /** Read a (sorted) sibling list straight from the query cache. */
+  function getSiblings(
+    siblingSpaceId: string | undefined,
+    parentId: string | null,
+  ): IListPage[] {
+    const data = queryClient.getQueryData<IListPage[]>([
+      "pages",
+      { spaceId: siblingSpaceId ?? null, parentId, includeTasks: false },
+    ]);
+    return data ? [...data].sort(byOrder) : [];
+  }
+
+  /**
+   * Compute the target order for inserting before/after `targetPageId` within a
+   * sibling list that does NOT contain the dragged page. Returns the new order
+   * plus the ids that would bracket it (used for no-op detection).
+   */
+  function placeRelative(
+    others: IListPage[],
+    targetPageId: string,
+    position: "before" | "after",
+  ): { order: number; lowerId: string | null; upperId: string | null } | null {
+    const ti = others.findIndex((p) => p.id === targetPageId);
+    if (ti === -1) return null;
+    const insertIdx = position === "after" ? ti + 1 : ti;
+    const lower = others[insertIdx - 1] ?? null;
+    const upper = others[insertIdx] ?? null;
+    return {
+      order: midOrder(lower?.order ?? null, upper?.order ?? null),
+      lowerId: lower?.id ?? null,
+      upperId: upper?.id ?? null,
+    };
+  }
+
   async function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
     setActiveDragData(null);
@@ -296,85 +373,95 @@ export function SidebarContent({
     // Build the spaceId param only when cross-space
     const spaceIdParam = isCrossSpace ? targetSpaceId : undefined;
 
-    // Scenario 1: Drop on "before" zone
-    if (overData?.type === "drop-zone" && overData.position === "before") {
-      const targetParentId = overData.parentId;
-      const targetOrder = overData.order;
+    // Scenarios 1 & 2: Drop on a "before"/"after" insertion zone.
+    if (
+      overData?.type === "drop-zone" &&
+      (overData.position === "before" || overData.position === "after")
+    ) {
+      const targetParentId = overData.parentId as string | null;
+      const sameParent =
+        !isCrossSpace && activeData.parentId === targetParentId;
 
-      if (isCrossSpace || activeData.parentId !== targetParentId) {
+      if (sameParent) {
+        const siblings = getSiblings(overData.spaceId, targetParentId);
+        const others = siblings.filter((p) => p.id !== activeData.id);
+        const placement = placeRelative(
+          others,
+          overData.targetPageId,
+          overData.position,
+        );
+        if (!placement) return;
+
+        // No-op: dropping back into the gap the page already occupies.
+        const ai = siblings.findIndex((p) => p.id === activeData.id);
+        const curPrev = siblings[ai - 1]?.id ?? null;
+        const curNext = siblings[ai + 1]?.id ?? null;
+        if (placement.lowerId === curPrev && placement.upperId === curNext) {
+          return;
+        }
+
+        reorderPage({ id: activeData.id, order: placement.order });
+      } else {
+        // Cross-parent / cross-space: order is computed in the destination
+        // list, which does not yet contain the dragged page.
+        const siblings = getSiblings(overData.spaceId, targetParentId);
+        const placement = placeRelative(
+          siblings,
+          overData.targetPageId,
+          overData.position,
+        );
         movePage({
           id: activeData.id,
           parentId: targetParentId,
-          order: targetOrder,
+          order: placement?.order,
           spaceId: spaceIdParam,
         });
-      } else {
-        if (targetOrder !== activeData.order) {
-          reorderPage({
-            id: activeData.id,
-            order: targetOrder,
-          });
-        }
       }
     }
-    // Scenario 2: Drop on "after" zone
-    else if (overData?.type === "drop-zone" && overData.position === "after") {
-      const targetParentId = overData.parentId;
-      const targetOrder = overData.order;
-
-      if (isCrossSpace || activeData.parentId !== targetParentId) {
-        movePage({
-          id: activeData.id,
-          parentId: targetParentId,
-          order: targetOrder,
-          spaceId: spaceIdParam,
-        });
-      } else {
-        if (targetOrder !== activeData.order) {
-          reorderPage({
-            id: activeData.id,
-            order: targetOrder,
-          });
-        }
-      }
-    }
-    // Scenario 3: Drop on "inside" zone
+    // Scenario 3: Drop on "inside" zone (nest under the hovered page).
     else if (overData?.type === "drop-zone" && overData.position === "inside") {
-      const newParentId = overData.parentId;
+      const newParentId = overData.parentId as string | null;
 
-      if (activeData.id !== newParentId) {
-        movePage({
-          id: activeData.id,
-          parentId: newParentId,
-          spaceId: spaceIdParam,
-        });
+      // Already a direct child, or nesting into itself: nothing to do.
+      if (
+        activeData.id === newParentId ||
+        (!isCrossSpace && activeData.parentId === newParentId)
+      ) {
+        return;
       }
+
+      // Order omitted → the engine appends to the new parent's children.
+      movePage({
+        id: activeData.id,
+        parentId: newParentId,
+        spaceId: spaceIdParam,
+      });
     }
-    // Scenario 4: Drop on pages area
+    // Scenario 4: Drop on the pages area (append to the end of that list).
     else if (overData?.type === "pages-area") {
-      const targetParentId = overData.parentId;
-      const targetOrder =
-        typeof overData.order === "number" ? overData.order : undefined;
+      const targetParentId = overData.parentId as string | null;
 
       if (isDescendant(activeData.id, targetParentId)) {
         return;
       }
 
-      if (isCrossSpace || activeData.parentId !== targetParentId) {
+      const sameParent =
+        !isCrossSpace && activeData.parentId === targetParentId;
+      const siblings = getSiblings(overData.spaceId, targetParentId);
+      const others = siblings.filter((p) => p.id !== activeData.id);
+      const last = others[others.length - 1] ?? null;
+      const order = last ? last.order + 1 : 1;
+
+      if (sameParent) {
+        // No-op: the page is already last in this list.
+        if (siblings[siblings.length - 1]?.id === activeData.id) return;
+        reorderPage({ id: activeData.id, order });
+      } else {
         movePage({
           id: activeData.id,
           parentId: targetParentId,
-          order: targetOrder,
+          order,
           spaceId: spaceIdParam,
-        });
-      } else if (
-        overData.lastPageId !== activeData.id &&
-        targetOrder !== undefined &&
-        targetOrder !== activeData.order
-      ) {
-        reorderPage({
-          id: activeData.id,
-          order: targetOrder,
         });
       }
     }
@@ -514,7 +601,7 @@ export function SidebarContent({
           <div className={style.appSidebarMain}>
             <DndContext
               sensors={sensors}
-              collisionDetection={closestCenter}
+              collisionDetection={pageCollisionDetection}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >

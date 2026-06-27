@@ -23,6 +23,7 @@
 import {
   action,
   type ActionBus,
+  CONTENT_DELETED,
   stateAction,
   type StateResult,
 } from "../action-bus";
@@ -46,7 +47,7 @@ import {
   isTextualBlock,
 } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
-import { markCharsInRange } from "../sync/crdt-utils";
+import { markCharsInRange, orderKeyAfter } from "../sync/crdt-utils";
 import { applyOps, findPreviousVisibleBlockIndex } from "../sync/reducer";
 import {
   deleteForward,
@@ -290,13 +291,30 @@ export function joinWithPreviousBlock(
   return { state: next, ops };
 }
 
+/**
+ * Fire the post-delete {@link CONTENT_DELETED} normalization on the result of a
+ * deletion, folding any ops an observer emits into the same transaction (one
+ * undo entry / broadcast) — the Backspace/Delete counterpart to the
+ * {@link TEXT_INPUTTED} pass `insertText` runs. No-ops when the caret is gone.
+ */
+function withContentDeleted(result: StateResult): StateResult {
+  const pos = result.state.document.cursor?.position;
+  if (!pos) return result;
+  const settled = result.state.actionBus.dispatchState(
+    CONTENT_DELETED,
+    result.state,
+    { blockIndex: pos.blockIndex, textIndex: pos.textIndex },
+  );
+  return { state: settled.state, ops: [...result.ops, ...settled.ops] };
+}
+
 /** Delete backward one position / the selection (Backspace). */
 export const DELETE_BACKWARD = stateAction("delete-backward", (state) => {
   const boundary = backwardBoundaryContext(state);
   const result = boundary
     ? state.actionBus.dispatchState(JOIN_WITH_PREVIOUS_BLOCK, state, boundary)
     : deleteText(state);
-  return { state: result.state, ops: result.ops };
+  return withContentDeleted(result);
 });
 
 /**
@@ -354,25 +372,17 @@ export function registerEmptyBlockBackspaceExit(
 /** Delete backward to the previous word boundary (Ctrl/Cmd+Backspace). */
 export const DELETE_WORD_BACKWARD = stateAction(
   "delete-word-backward",
-  (state) => {
-    const result = deleteWordBackward(state);
-    return { state: result.state, ops: result.ops };
-  },
+  (state) => withContentDeleted(deleteWordBackward(state)),
 );
 
 /** Delete forward one position / the selection (Delete). */
-export const DELETE_FORWARD = stateAction("delete-forward", (state) => {
-  const result = deleteForward(state);
-  return { state: result.state, ops: result.ops };
-});
+export const DELETE_FORWARD = stateAction("delete-forward", (state) =>
+  withContentDeleted(deleteForward(state)),
+);
 
 /** Delete forward to the next word boundary (Ctrl/Cmd+Delete). */
-export const DELETE_WORD_FORWARD = stateAction(
-  "delete-word-forward",
-  (state) => {
-    const result = deleteWordForward(state);
-    return { state: result.state, ops: result.ops };
-  },
+export const DELETE_WORD_FORWARD = stateAction("delete-word-forward", (state) =>
+  withContentDeleted(deleteWordForward(state)),
 );
 
 // ─── Block structure ─────────────────────────────────────────────────────────
@@ -385,9 +395,10 @@ export const SPLIT_BLOCK = stateAction("split-block", (state) => {
 
 /**
  * Reposition a block to sit immediately after `afterBlockId` (null = head),
- * emitting a single `block_move` CRDT op. The dispatchable form of
- * {@link moveBlock} so hosts/plugins (e.g. a drag-to-reorder gesture) can drive
- * and observe block moves without reaching into the engine.
+ * emitting a single `block_set` of the block's fractional-index `orderKey`. The
+ * dispatchable form of {@link moveBlock} so hosts/plugins (e.g. a
+ * drag-to-reorder gesture) can drive and observe block moves without reaching
+ * into the engine.
  */
 export const MOVE_BLOCK = stateAction<{
   blockId: string;
@@ -505,9 +516,10 @@ function appendTrailingParagraph(
   const ops: Operation[] = [];
 
   const newParagraphId = state.CRDTbinding.nextId();
+  const orderKey = orderKeyAfter(state.document.page.blocks, afterBlock.id);
   const newParagraph: Block = {
     id: newParagraphId,
-    afterId: afterBlock.id,
+    orderKey,
     type: "paragraph",
     charRuns: [],
     formats: [],
@@ -518,7 +530,7 @@ function appendTrailingParagraph(
     id: state.CRDTbinding.nextId(),
     clock: state.CRDTbinding.getClock(),
     pageId: state.CRDTbinding.pageId,
-    afterBlockId: afterBlock.id,
+    orderKey,
     blockId: newParagraphId,
     blockType: "paragraph",
   };
@@ -549,9 +561,10 @@ function prependLeadingParagraph(state: EditorState): EdgeOutcome {
   const ops: Operation[] = [];
 
   const newParagraphId = state.CRDTbinding.nextId();
+  const orderKey = orderKeyAfter(state.document.page.blocks, null);
   const newParagraph: Block = {
     id: newParagraphId,
-    afterId: null,
+    orderKey,
     type: "paragraph",
     charRuns: [],
     formats: [],
@@ -562,7 +575,7 @@ function prependLeadingParagraph(state: EditorState): EdgeOutcome {
     id: state.CRDTbinding.nextId(),
     clock: state.CRDTbinding.getClock(),
     pageId: state.CRDTbinding.pageId,
-    afterBlockId: null,
+    orderKey,
     blockId: newParagraphId,
     blockType: "paragraph",
   };

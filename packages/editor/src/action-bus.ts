@@ -450,6 +450,22 @@ export const TEXT_INPUTTED = stateAction<{
 }>("text-inputted", (state) => ({ state, ops: [] }));
 
 /**
+ * Post-delete normalization — the Backspace/Delete counterpart to
+ * {@link TEXT_INPUTTED}. Dispatched by the delete actions *after* the removal is
+ * applied and the caret settled at `textIndex` in `blockIndex`, *inside the same
+ * edit transform*, so any ops an observer emits join the one CRDT change / undo
+ * entry / broadcast. A node/mark observes this (in `registerActions`) to reconcile
+ * inline runs a deletion just changed — e.g. inline math fuses two chips back into
+ * one when the plain text that separated them is gone. Default is identity;
+ * observers thread `{ state, ops }` like any {@link StateAction}. The core stays
+ * type-agnostic: it only dispatches; the node/mark decides what, if anything, to fix.
+ */
+export const CONTENT_DELETED = stateAction<{
+  blockIndex: number;
+  textIndex: number;
+}>("content-deleted", (state) => ({ state, ops: [] }));
+
+/**
  * Payload for {@link IMAGE_PASTE}: the pasted file and the stable id of the
  * image block created to hold it.
  */

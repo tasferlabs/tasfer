@@ -599,6 +599,46 @@ export function getBlockIndexAtPoint(
 }
 
 /**
+ * The insertion index in `[0..N]` (N = `state.view.visibleBlocks.length`) where a
+ * block dragged to canvas-y `y` would land, choosing the gap nearest `y` by
+ * comparing against each block's vertical midpoint: `k` means "between
+ * `visibleBlocks[k-1]` and `visibleBlocks[k]`". `0` is the head of the document,
+ * `N` is the tail. Used by the block-reorder drag to derive the `afterBlockId`
+ * argument for {@link import("./actions/edit-actions").MOVE_BLOCK}
+ * (`k === 0` → `null`, else `visibleBlocks[k-1].id`).
+ *
+ * Walks every visible block (not just the on-screen window) so the index is
+ * globally correct even when the drop is past the fold; heights come from the
+ * shared per-block cache via `getBlockHeight`, so the walk is cheap.
+ */
+export function dropIndexAtPoint(
+  y: number,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+): number {
+  const visibleBlocks = state.view.visibleBlocks;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+
+  for (let i = 0; i < visibleBlocks.length; i++) {
+    const blockHeight = getBlockHeight(
+      state.nodes,
+      state.marks,
+      visibleBlocks[i],
+      maxWidth,
+      styles,
+      i === 0,
+    );
+    // Nearest gap: y above this block's midpoint inserts before it.
+    if (y < currentY + blockHeight / 2) return i;
+    currentY += blockHeight;
+  }
+  return visibleBlocks.length;
+}
+
+/**
  * Whether canvas-y `y` lands in the empty area *below* the last visible block
  * (not merely below the fold). Used to distinguish a click in the trailing
  * whitespace from a click on the block's own last line — only the former

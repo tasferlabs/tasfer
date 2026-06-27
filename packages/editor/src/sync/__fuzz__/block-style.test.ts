@@ -18,8 +18,8 @@
  *      carries and ignores `null`/unknown keys.
  */
 
-import { mergeBlockStyle } from "../../node-shared";
 import { createDoc } from "../../doc";
+import { mergeBlockStyle } from "../../node-shared";
 import type { Block } from "../../serlization/loadPage";
 import type { Operation, TextStyle } from "../../state-types";
 import { invertOperations } from "../inverse";
@@ -39,7 +39,7 @@ const insertBlock: Operation = {
   id: "pA:1",
   clock: { counter: 1, peerId: "pA" },
   pageId: PAGE_ID,
-  afterBlockId: null,
+  orderKey: "a0",
   blockId: "blk",
   blockType: "paragraph",
 };
@@ -78,7 +78,9 @@ describe("per-block style — CRDT convergence", () => {
 
     const expected = { color: "#f00", textAlign: "center" };
     expect(styleOf(a.getRawBlocks(), "blk")).toEqual(expected);
-    expect(styleOf(b.getRawBlocks(), "blk")).toEqual(styleOf(a.getRawBlocks(), "blk"));
+    expect(styleOf(b.getRawBlocks(), "blk")).toEqual(
+      styleOf(a.getRawBlocks(), "blk"),
+    );
 
     a.destroy();
     b.destroy();
@@ -126,7 +128,7 @@ describe("per-block style — CRDT convergence", () => {
         id: "pA:2",
         clock: { counter: 2, peerId: "pA" },
         pageId: PAGE_ID,
-        afterBlockId: null,
+        orderKey: "a0",
         blockId: "blk2",
         blockType: "paragraph",
         initialProps: { style: { color: "#0f0" } },
@@ -171,7 +173,10 @@ describe("per-block style — undo", () => {
       ...styleSet("pA", 5, "color", "#f00"),
       pageId: binding.pageId,
     });
-    const setBlue = { ...styleSet("pA", 6, "color", "#00f"), pageId: binding.pageId };
+    const setBlue = {
+      ...styleSet("pA", 6, "color", "#00f"),
+      pageId: binding.pageId,
+    };
     const withBlue = applyOp(withRed, setBlue);
     expect(styleOf(withBlue.blocks, "blk").color).toBe("#00f");
 

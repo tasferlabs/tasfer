@@ -426,8 +426,8 @@ function buildLeafSpec<T extends string, A extends Record<string, AttrSpec>>(
   const descriptor: BlockTypeDescriptor = {
     type: type as BlockTypeDescriptor["type"],
     capabilities: VOID_CAPS,
-    defaults: (id, afterId) => {
-      const block: CustomBlock = { id, afterId, deleted: false, type };
+    defaults: (id, orderKey) => {
+      const block: CustomBlock = { id, orderKey, deleted: false, type };
       for (const name of attrNames) {
         if (attrs[name].default !== undefined) {
           block[name] = attrs[name].default;
@@ -495,7 +495,9 @@ function buildGenericTagCodec(
       inputTag: (tag: ParsedTag, ctx: InputCtx): Block => {
         const block: CustomBlock = {
           id: ctx.nextBlockId(),
-          afterId: null,
+          // Placeholder — the caller (parser / clipboard) assigns the real
+          // fractional-index key once the full block sequence is known.
+          orderKey: "",
           deleted: false,
           type,
         };

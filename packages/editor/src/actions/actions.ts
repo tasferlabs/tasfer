@@ -24,7 +24,6 @@ import type {
 } from "../state-types";
 import type {
   BlockInsert,
-  BlockMove,
   BlockSet,
   MarkSet,
   Operation,
@@ -65,8 +64,10 @@ import {
   getVisibleLength,
   insertCharsAtPosition,
   markCharsInRange,
+  orderKeyAfter,
   positionToCRDT,
   selectionRangeToCRDT,
+  sortBlocksByOrder,
 } from "../sync/crdt-utils";
 import {
   applyOp,
@@ -732,9 +733,10 @@ export function deleteSelectedText(state: EditorState): ActionResult {
       if (wasOnlyVisibleBlock) {
         // Append a new empty paragraph (the tombstone stays in place)
         const emptyParagraphId = state.CRDTbinding.nextId();
+        const orderKey = orderKeyAfter(state.document.page.blocks, null);
         const emptyParagraph: Block = {
           id: emptyParagraphId,
-          afterId: null,
+          orderKey,
           type: "paragraph",
           charRuns: [],
           formats: [],
@@ -745,7 +747,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
           id: state.CRDTbinding.nextId(),
           clock: state.CRDTbinding.getClock(),
           pageId: state.CRDTbinding.pageId,
-          afterBlockId: null,
+          orderKey,
           blockId: emptyParagraphId,
           blockType: "paragraph",
         };
@@ -882,7 +884,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
           id: state.CRDTbinding.nextId(),
           clock: state.CRDTbinding.getClock(),
           pageId: state.CRDTbinding.pageId,
-          afterBlockId: null,
+          orderKey: orderKeyAfter(state.document.page.blocks, null),
           blockId: emptyParagraphId,
           blockType: "paragraph",
         };
@@ -1380,7 +1382,7 @@ export function deleteText(state: EditorState): ActionResult {
           // At indent 0: convert to paragraph
           const paragraphBlock: Block = {
             id: oldBlock.id,
-            afterId: oldBlock.afterId ?? null,
+            orderKey: oldBlock.orderKey,
             type: "paragraph",
             charRuns: oldBlock.charRuns,
             formats: oldBlock.formats,
@@ -1430,9 +1432,10 @@ export function deleteText(state: EditorState): ActionResult {
           // If we deleted the last block, add an empty paragraph
           if (newBlocks.length === 0) {
             const emptyParagraphId = state.CRDTbinding.nextId();
+            const orderKey = orderKeyAfter(state.document.page.blocks, null);
             const emptyParagraph: Block = {
               id: emptyParagraphId,
-              afterId: null,
+              orderKey,
               type: "paragraph",
               charRuns: [],
               formats: [],
@@ -1443,7 +1446,7 @@ export function deleteText(state: EditorState): ActionResult {
               id: state.CRDTbinding.nextId(),
               clock: state.CRDTbinding.getClock(),
               pageId: state.CRDTbinding.pageId,
-              afterBlockId: null,
+              orderKey,
               blockId: emptyParagraphId,
               blockType: "paragraph",
             };
@@ -1541,7 +1544,7 @@ export function deleteText(state: EditorState): ActionResult {
         if (currentText.length === 0) {
           const paragraphBlock: Block = {
             id: oldBlock.id,
-            afterId: oldBlock.afterId ?? null,
+            orderKey: oldBlock.orderKey,
             type: "paragraph",
             charRuns: oldBlock.charRuns,
             formats: oldBlock.formats,
@@ -1679,9 +1682,10 @@ export function deleteForward(state: EditorState): ActionResult {
         // If we deleted the last block, add an empty paragraph
         if (newBlocks.length === 0) {
           const emptyParagraphId = state.CRDTbinding.nextId();
+          const orderKey = orderKeyAfter(state.document.page.blocks, null);
           const emptyParagraph: Block = {
             id: emptyParagraphId,
-            afterId: null,
+            orderKey,
             type: "paragraph",
             charRuns: [],
             formats: [],
@@ -1692,7 +1696,7 @@ export function deleteForward(state: EditorState): ActionResult {
             id: state.CRDTbinding.nextId(),
             clock: state.CRDTbinding.getClock(),
             pageId: state.CRDTbinding.pageId,
-            afterBlockId: null,
+            orderKey,
             blockId: emptyParagraphId,
             blockType: "paragraph",
           };
@@ -2500,9 +2504,10 @@ export function splitBlock(state: EditorState): ActionResult {
       if (block && !block.deleted && !isTextualBlock(block)) {
         // Create a new paragraph below the image
         const newParagraphId = state.CRDTbinding.nextId();
+        const orderKey = orderKeyAfter(state.document.page.blocks, oldBlock.id);
         const newParagraph: Block = {
           id: newParagraphId,
-          afterId: oldBlock.id,
+          orderKey,
           type: "paragraph",
           charRuns: [],
           formats: [],
@@ -2521,7 +2526,7 @@ export function splitBlock(state: EditorState): ActionResult {
           id: state.CRDTbinding.nextId(),
           clock: state.CRDTbinding.getClock(),
           pageId: state.CRDTbinding.pageId,
-          afterBlockId: oldBlock.id,
+          orderKey,
           blockId: newParagraphId,
           blockType: "paragraph",
         };
@@ -2586,7 +2591,7 @@ export function splitBlock(state: EditorState): ActionResult {
         // Convert to paragraph if at base indent
         const newParagraph: Block = {
           id: oldBlock.id,
-          afterId: oldBlock.afterId ?? null,
+          orderKey: oldBlock.orderKey,
           type: "paragraph",
           charRuns: [],
           formats: [],
@@ -2674,7 +2679,7 @@ export function splitBlock(state: EditorState): ActionResult {
       id: state.CRDTbinding.nextId(),
       clock: state.CRDTbinding.getClock(),
       pageId: state.CRDTbinding.pageId,
-      afterBlockId: oldBlock.id,
+      orderKey: orderKeyAfter(state.document.page.blocks, oldBlock.id),
       blockId: newBlockId,
       blockType: newBlockType,
       initialProps: isTogglable(oldBlock.type)
@@ -2820,7 +2825,7 @@ export function splitBlock(state: EditorState): ActionResult {
     id: state.CRDTbinding.nextId(),
     clock: state.CRDTbinding.getClock(),
     pageId: state.CRDTbinding.pageId,
-    afterBlockId: oldBlock.id,
+    orderKey: orderKeyAfter(pageAcc.blocks, oldBlock.id),
     blockId: newBlockId,
     blockType: blockCopy2Type,
   };
@@ -3295,7 +3300,7 @@ export function convertBlockAtCursor(
     const newBlock = createDefaultBlock(
       action.type,
       block.id,
-      block.afterId ?? null,
+      block.orderKey ?? "",
     );
     if (!newBlock) return { state, ops: [] };
 
@@ -3345,9 +3350,10 @@ export function convertBlockAtCursor(
       newState = moveCursorToPosition(newState, blockIndex + 1, 0);
     } else {
       const newParagraphId = state.CRDTbinding.nextId();
+      const orderKey = orderKeyAfter(state.document.page.blocks, block.id);
       const newParagraph: Block = {
         id: newParagraphId,
-        afterId: block.id,
+        orderKey,
         type: "paragraph",
         charRuns: [],
         formats: [],
@@ -3358,7 +3364,7 @@ export function convertBlockAtCursor(
         id: state.CRDTbinding.nextId(),
         clock: state.CRDTbinding.getClock(),
         pageId: state.CRDTbinding.pageId,
-        afterBlockId: block.id,
+        orderKey,
         blockId: newParagraphId,
         blockType: "paragraph",
       };
@@ -3409,14 +3415,14 @@ export function convertBlockAtCursor(
 
   // Update block content and type. The converted block is the target type's
   // default (which carries its own fields — a list's `indent`, a todo's
-  // `checked`, a code block's `language` — and preserves the linked-list
-  // position via `afterId`), with the source block's text carried over. Code
+  // `checked`, a code block's `language` — and preserves the document
+  // position via `orderKey`), with the source block's text carried over. Code
   // drops inline marks (it has none); other textual types keep them. No
   // per-type literal — a new textual type converts with no code here.
   const defaults = createDefaultBlock(
     action.type,
     block.id,
-    block.afterId ?? null,
+    block.orderKey ?? "",
   );
   if (!defaults) return { state, ops: [] };
   const newBlock = {
@@ -3568,7 +3574,7 @@ export function outdentListItem(state: EditorState): ActionResult {
     // At base indent - convert to paragraph
     const newBlock: Block = {
       id: block.id,
-      afterId: block.afterId ?? null,
+      orderKey: block.orderKey,
       type: "paragraph",
       charRuns: block.charRuns,
       formats: block.formats,
@@ -3638,13 +3644,14 @@ export function outdentListItem(state: EditorState): ActionResult {
 
 /**
  * Move a block to sit immediately after `afterBlockId` (null = head of the
- * document), emitting a single `block_move` CRDT op.
+ * document) by minting a fresh fractional-index `orderKey` and emitting a
+ * single `block_set` op for it. Position is an LWW register, so a move
+ * converges through the same last-writer-wins path as any other block property
+ * — no neighbour re-anchoring, no dedicated move op.
  *
- * Pure `(state) => { state, ops }` transform. Guards refuse to emit when the
- * move would be a no-op or would corrupt order; the actual re-anchoring lives
- * in the reducer (`applyBlockMove`), and the local page is derived by replaying
- * the emitted op through `applyOp` so local emit and remote apply can never
- * drift.
+ * Pure `(state) => { state, ops }` transform. Guards refuse to emit a no-op;
+ * the local page is derived by replaying the emitted op through `applyOp` so
+ * local emit and remote apply can never drift.
  */
 export function moveBlock(
   state: EditorState,
@@ -3660,24 +3667,26 @@ export function moveBlock(
   if (afterBlockId === blockId) return { state, ops: [] };
 
   // Refuse to anchor to a target that does not exist (or is tombstoned): the
-  // block would silently jump to the end of the document as an orphan.
+  // block would silently jump to the end of the document.
   if (afterBlockId !== null) {
     const target = findBlock(page, afterBlockId);
     if (!target || target.deleted) return { state, ops: [] };
   }
 
-  // Already anchored where requested — nothing to do. This matches
-  // `applyBlockMove`'s own no-op condition, so we never emit an op the reducer
-  // would ignore.
-  if ((block.afterId ?? null) === afterBlockId) return { state, ops: [] };
+  // Already positioned immediately after the requested anchor — nothing to do.
+  const ordered = sortBlocksByOrder(page.blocks);
+  const currentIndex = ordered.findIndex((b) => b.id === blockId);
+  const predecessorId = currentIndex > 0 ? ordered[currentIndex - 1].id : null;
+  if (predecessorId === afterBlockId) return { state, ops: [] };
 
-  const op: BlockMove = {
-    op: "block_move",
+  const op: BlockSet = {
+    op: "block_set",
     id: state.CRDTbinding.nextId(),
     clock: state.CRDTbinding.getClock(),
     pageId: state.CRDTbinding.pageId,
     blockId,
-    afterBlockId,
+    field: "orderKey",
+    value: orderKeyAfter(page.blocks, afterBlockId),
   };
 
   const newPage = applyOp(page, op);

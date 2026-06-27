@@ -46,7 +46,7 @@ The integration is deliberately tiny — three pieces in every example:
 2. **Theme** (`src/theme.ts`) — a plain `EditorTheme` object: semantic color
    `tokens`, a deep-partial `styles` override (font sizes, padding), and the
    `fonts` registry. No CSS selectors reach into the canvas; the look is data.
-3. **Mount** — `<Editor value={…} theme={foolscapTheme} autofocus />` from
+3. **Mount** — `<Editor markdown={…} theme={foolscapTheme} autofocus />` from
    `@cypherkit/react`, with the surrounding shell reading live state through
    `useEditorMarkdown(editor)`.
 

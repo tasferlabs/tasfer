@@ -20,7 +20,7 @@ import { InvariantError } from "@shared/invariant";
 import { describe, expect, it } from "vitest";
 
 function block(type: string): Block {
-  return { id: "b1", afterId: null, deleted: false, type } as unknown as Block;
+  return { id: "b1", orderKey: "a0", deleted: false, type } as unknown as Block;
 }
 const noCtx = {} as OutputCtx;
 

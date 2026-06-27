@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 function paragraph(text: string): Paragraph {
   return {
     id: "paragraph-1",
-    afterId: null,
+    orderKey: "a0",
     type: "paragraph",
     charRuns: text ? [{ peerId: "seed", startCounter: 1, text }] : [],
     formats: [],
@@ -21,7 +21,7 @@ function paragraph(text: string): Paragraph {
 function mathBlock(latex: string): MathBlock {
   return {
     id: "math-1",
-    afterId: "paragraph-1",
+    orderKey: "a1",
     type: "math",
     charRuns: latex ? [{ peerId: "seed", startCounter: 100, text: latex }] : [],
     formats: [],
@@ -80,7 +80,7 @@ describe("backspace at the start of a math block", () => {
       {
         id: "page-1",
         title: "",
-        blocks: [{ ...mathBlock("x^2"), afterId: null }],
+        blocks: [{ ...mathBlock("x^2"), orderKey: "a0" }],
       },
       { position: { blockIndex: 0, textIndex: 0 }, lastUpdate: 0 },
     );
@@ -104,7 +104,7 @@ describe("backspace at the start of a math block", () => {
       {
         id: "page-1",
         title: "",
-        blocks: [{ ...mathBlock("x^2"), afterId: null }],
+        blocks: [{ ...mathBlock("x^2"), orderKey: "a0" }],
       },
       { position: { blockIndex: 0, textIndex: 0 }, lastUpdate: 0 },
     );
@@ -140,7 +140,7 @@ describe("backspace from following text into a math block", () => {
   it("selects the math block first, then deletes it on the next Backspace", () => {
     const after: Paragraph = {
       id: "paragraph-2",
-      afterId: "math-1",
+      orderKey: "a2",
       type: "paragraph",
       charRuns: [{ peerId: "seed", startCounter: 200, text: "after" }],
       formats: [],

@@ -20,7 +20,6 @@ import type { CRDTbinding } from "../state-types";
 import type {
   BlockDelete,
   BlockInsert,
-  BlockMove,
   BlockSet,
   MarkSet,
   Operation,
@@ -293,7 +292,7 @@ function invertBlockDelete(
     id: binding.nextId(),
     clock: binding.getClock(),
     pageId: op.pageId,
-    afterBlockId: block.afterId ?? null,
+    orderKey: block.orderKey ?? "",
     blockId: op.blockId,
     blockType: block.type,
     initialProps,
@@ -318,6 +317,9 @@ function invertBlockSet(
   let previousValue: unknown;
   if (op.field === "type") {
     previousValue = block.type;
+  } else if (op.field === "orderKey") {
+    // Position is a structural LWW field (a move). Undo restores the prior key.
+    previousValue = block.orderKey;
   } else if (isStyleField(op.field)) {
     // A style key the block had not set inverts to `null` ("no override"), not
     // `undefined` — a `block_set` whose value is `undefined` is a defined no-op,
@@ -337,34 +339,6 @@ function invertBlockSet(
     blockId: op.blockId,
     field: op.field,
     value: previousValue,
-  };
-}
-
-/**
- * Compute the inverse of a block move operation.
- *
- * A move re-anchors the block plus up to two neighbours, but it is fully
- * reversible by a single move back to the block's ORIGINAL anchor: replaying
- * `applyBlockMove(blockId -> originalAfter)` re-derives the neighbour edits
- * from current state and restores the exact prior chain (the moved block's
- * follower and the destination's follower both snap back). The original anchor
- * is read from `pageBefore`.
- */
-function invertBlockMove(
-  op: BlockMove,
-  pageBefore: Page,
-  binding: CRDTbinding,
-): BlockMove | null {
-  const block = findBlock(pageBefore, op.blockId);
-  if (!block) return null;
-
-  return {
-    op: "block_move",
-    id: binding.nextId(),
-    clock: binding.getClock(),
-    pageId: op.pageId,
-    blockId: op.blockId,
-    afterBlockId: block.afterId ?? null,
   };
 }
 
@@ -400,10 +374,6 @@ export function invertOperation(
     }
     case "block_set": {
       const inv = invertBlockSet(op, pageBefore, binding);
-      return inv ? [inv] : [];
-    }
-    case "block_move": {
-      const inv = invertBlockMove(op, pageBefore, binding);
       return inv ? [inv] : [];
     }
     default:

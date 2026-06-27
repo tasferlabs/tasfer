@@ -1,5 +1,6 @@
 import { SELECT_ALL } from "../actions/edit-actions";
 import { SELECT_WORD_AT_POINT } from "../actions/mouse-actions";
+import { TAP_SELECT_WORD } from "../actions/touch-actions";
 import type { CursorState, Page } from "../state-types";
 import { createInitialState } from "../state-utils";
 import type { MathBlock } from "./MathNode";
@@ -8,7 +9,7 @@ import { describe, expect, it } from "vitest";
 function mathBlock(latex: string): MathBlock {
   return {
     id: "math-1",
-    afterId: null,
+    orderKey: "a0",
     deleted: false,
     type: "math",
     charRuns: [{ peerId: "peer", startCounter: 0, text: latex }],
@@ -29,6 +30,18 @@ function selectAt(latex: string, textIndex: number) {
   }).state.document.selection;
 }
 
+function tapSelectAt(latex: string, textIndex: number) {
+  const page: Page = {
+    id: "page-1",
+    title: "Math",
+    blocks: [mathBlock(latex)],
+  };
+  const state = createInitialState(page);
+  return state.actionBus.dispatchState(TAP_SELECT_WORD, state, {
+    position: { blockIndex: 0, textIndex },
+  }).state.document.selection;
+}
+
 function stateWithMathCaret(latex: string, textIndex: number) {
   const page: Page = {
     id: "page-1",
@@ -37,7 +50,7 @@ function stateWithMathCaret(latex: string, textIndex: number) {
       mathBlock(latex),
       {
         id: "paragraph-1",
-        afterId: "math-1",
+        orderKey: "a1",
         deleted: false,
         type: "paragraph",
         charRuns: [{ peerId: "peer", startCounter: 20, text: "after" }],
@@ -73,6 +86,32 @@ describe("MathNode double-click selection", () => {
     expect(selection?.focus.textIndex).toBe(6);
   });
 
+  it("selects the whole fraction from a glyph mid-numerator", () => {
+    // "\frac{ab}{c}" — the hit lands between the two numerator glyphs. The unit
+    // must escalate to the whole fraction, not chip the lone source char `a`.
+    const latex = "\\frac{ab}{c}";
+    const selection = selectAt(latex, 7);
+
+    expect(selection?.anchor.textIndex).toBe(0);
+    expect(selection?.focus.textIndex).toBe(latex.length);
+  });
+
+  it("selects the innermost construct when constructs nest", () => {
+    // "\frac{x^2}{d}" — clicking the script base selects the whole `x^2`.
+    const selection = selectAt("\\frac{x^2}{d}", 7);
+
+    expect(selection?.anchor.textIndex).toBe(6);
+    expect(selection?.focus.textIndex).toBe(9);
+  });
+
+  it("double-tap (touch) selects the construct just like double-click", () => {
+    const latex = "\\frac{a}{b}";
+    const selection = tapSelectAt(latex, 7);
+
+    expect(selection?.anchor.textIndex).toBe(0);
+    expect(selection?.focus.textIndex).toBe(latex.length);
+  });
+
   it("keeps ordinary text blocks on the normal word-selection path", () => {
     const page: Page = {
       id: "page-1",
@@ -80,7 +119,7 @@ describe("MathNode double-click selection", () => {
       blocks: [
         {
           id: "paragraph-1",
-          afterId: null,
+          orderKey: "a0",
           deleted: false,
           type: "paragraph",
           charRuns: [{ peerId: "peer", startCounter: 0, text: "hello world" }],

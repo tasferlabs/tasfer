@@ -4,10 +4,10 @@ import { createInitialState } from "../state-utils";
 import { DELETE_BACKWARD, JOIN_WITH_PREVIOUS_BLOCK } from "./edit-actions";
 import { describe, expect, it, vi } from "vitest";
 
-function paragraph(id: string, afterId: string | null, text: string): Block {
+function paragraph(id: string, orderKey: string, text: string): Block {
   return {
     id,
-    afterId,
+    orderKey,
     type: "paragraph",
     charRuns: text
       ? [{ peerId: "seed", startCounter: id === "first" ? 1 : 100, text }]
@@ -20,10 +20,7 @@ function boundaryState(): EditorState {
   const page: Page = {
     id: "page-1",
     title: "",
-    blocks: [
-      paragraph("first", null, "one"),
-      paragraph("second", "first", "two"),
-    ],
+    blocks: [paragraph("first", "a0", "one"), paragraph("second", "a1", "two")],
   };
   const state = createInitialState(page);
   return {

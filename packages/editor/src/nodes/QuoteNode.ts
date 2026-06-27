@@ -29,6 +29,7 @@ import type {
   TextStyle,
 } from "../state-types";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
+import { orderKeyAfter } from "../sync/crdt-utils";
 import {
   applyOps,
   findNextVisibleBlockIndex,
@@ -286,12 +287,13 @@ export class QuoteNode extends TextNode {
         }
 
         const newParagraphId = state.CRDTbinding.nextId();
+        const orderKey = orderKeyAfter(state.document.page.blocks, block.id);
         const op: Operation = {
           op: "block_insert",
           id: state.CRDTbinding.nextId(),
           clock: state.CRDTbinding.getClock(),
           pageId: state.CRDTbinding.pageId,
-          afterBlockId: block.id,
+          orderKey,
           blockId: newParagraphId,
           blockType: "paragraph",
         };

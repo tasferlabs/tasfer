@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 function codeBlock(text: string, language = ""): CodeBlock {
   return {
     id: "code-1",
-    afterId: null,
+    orderKey: "a0",
     deleted: false,
     type: "code",
     charRuns: [{ peerId: "peer", startCounter: 0, text }],
@@ -105,13 +105,13 @@ describe("CodeNode editing actions", () => {
   it("Backspace at the start of an empty code block exits to a paragraph", () => {
     const lead = {
       id: "p-0",
-      afterId: null,
+      orderKey: "a0",
       deleted: false as const,
       type: "paragraph" as const,
       charRuns: [{ peerId: "peer", startCounter: 0, text: "Lead" }],
       formats: [],
     };
-    const empty = { ...codeBlock(""), id: "code-2", afterId: "p-0" as const };
+    const empty = { ...codeBlock(""), id: "code-2", orderKey: "a1" as const };
     const state0 = createInitialState(pageWith(lead, empty));
     const state = withCursor(state0, cursorAt(1, 0));
 
@@ -139,7 +139,7 @@ describe("CodeNode editing actions", () => {
     const code = codeBlock("const x = 1;");
     const paragraph = {
       id: "p-1",
-      afterId: "code-1",
+      orderKey: "a1",
       deleted: false as const,
       type: "paragraph" as const,
       charRuns: [{ peerId: "peer", startCounter: 50, text: "after" }],
@@ -175,7 +175,7 @@ describe("CodeNode editing actions", () => {
     const code = codeBlock("");
     const paragraph = {
       id: "p-1",
-      afterId: "code-1",
+      orderKey: "a1",
       deleted: false as const,
       type: "paragraph" as const,
       charRuns: [],
@@ -212,7 +212,7 @@ describe("CodeNode editing actions", () => {
   it("Enter still splits a normal paragraph (regression)", () => {
     const paragraph = {
       id: "p-1",
-      afterId: null,
+      orderKey: "a0",
       deleted: false as const,
       type: "paragraph" as const,
       charRuns: [{ peerId: "peer", startCounter: 0, text: "ab" }],
@@ -242,7 +242,7 @@ describe("CodeNode editing actions", () => {
     const code = "const x = 1;\nreturn x;";
     const paragraph = {
       id: "p-1",
-      afterId: "code-1",
+      orderKey: "a1",
       deleted: false as const,
       type: "paragraph" as const,
       charRuns: [{ peerId: "peer", startCounter: 50, text: "after" }],
@@ -268,7 +268,7 @@ describe("CodeNode editing actions", () => {
     const code = "let x = 1;";
     const paragraph = {
       id: "p-1",
-      afterId: "code-1",
+      orderKey: "a1",
       deleted: false as const,
       type: "paragraph" as const,
       charRuns: [{ peerId: "peer", startCounter: 50, text: "after" }],
@@ -297,7 +297,7 @@ describe("CodeNode backtick shortcut", () => {
   function paragraph(text: string) {
     return {
       id: "p-1",
-      afterId: null,
+      orderKey: "a0",
       deleted: false as const,
       type: "paragraph" as const,
       charRuns: [{ peerId: "peer", startCounter: 0, text }],

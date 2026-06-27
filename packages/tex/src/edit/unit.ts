@@ -215,6 +215,26 @@ function resolve(
 }
 
 /**
+ * Whether `offset` sits *inside* a multi-part construct (a fraction, root,
+ * script, brace group, …) rather than at the top level of the formula. True
+ * means a caret there is within one of the construct's slots, so the formula
+ * cannot be cleanly broken in two at this point — splitting would divide the
+ * construct into invalid LaTeX (`\frac{a` / `b}`). The top-level positions
+ * *between* sibling tokens return false, as do positions inside a plain leaf
+ * (a command name the caret can't rest within anyway).
+ *
+ * This is the structural counterpart the editor's inline-math split asks before
+ * turning a typed space into a chip boundary: only top-level spaces split a chip.
+ */
+export function isInsideConstruct(latex: string, offset: number): boolean {
+  if (offset <= 0 || offset >= latex.length) return false;
+  const root = parse(latex);
+  if (root.type !== "ord") return false;
+  const { parent } = locate(root.body, offset, null);
+  return parent !== null && !isLeaf(parent);
+}
+
+/**
  * The editing unit immediately before `offset` — what a Backspace there acts on.
  * `null` at the very start (`offset <= 0`).
  */
@@ -228,4 +248,59 @@ export function unitBefore(latex: string, offset: number): MathUnit | null {
  */
 export function unitAfter(latex: string, offset: number): MathUnit | null {
   return resolve(latex, offset, "forward");
+}
+
+/**
+ * Resolve the unit a pointer double-click/double-tap at `offset` selects, on the
+ * given side of the boundary. Where {@link resolve} (Backspace/Delete) takes the
+ * single editable LEAF beside the caret, a double-click means "select the whole
+ * thing I'm pointing at": a leaf that lives inside a construct escalates to that
+ * construct, so clicking any glyph of a fraction's numerator selects the entire
+ * `\frac`, a script base selects the whole `x^{2}`. A leaf at the TOP level has
+ * no enclosing construct, so it stays its own token (`\alpha`, a bare `a`) rather
+ * than widening to swallow its neighbours. `null` past the source boundary.
+ */
+function resolveSelection(
+  latex: string,
+  offset: number,
+  direction: Direction,
+): MathUnit | null {
+  if (direction === "backward" ? offset <= 0 : offset >= latex.length) {
+    return null;
+  }
+
+  const root = parse(latex);
+  if (root.type !== "ord") return null;
+
+  const { siblings, parent } = locate(root.body, offset, null);
+  const unit =
+    direction === "backward"
+      ? siblings.find((c) => c.span.end === offset)
+      : siblings.find((c) => c.span.start === offset);
+
+  // A leaf sitting inside a construct selects that whole construct; a leaf at the
+  // top level (no enclosing construct) is its own token; a construct selects
+  // itself. With no adjacent unit (caret at a group edge) escalate to the
+  // enclosing construct — the same edge case {@link resolve} handles.
+  const target = unit && !(isLeaf(unit) && parent) ? unit : parent;
+  if (!target) return null;
+  return {
+    start: target.span.start,
+    end: target.span.end,
+    isConstruct: !isLeaf(target),
+  };
+}
+
+/**
+ * The structural unit a double-click / double-tap at source `offset` selects: the
+ * construct under the pointer, whole (see {@link resolveSelection}). The pointer
+ * hit-test resolves a click to a glyph EDGE, so the glyph actually under the
+ * cursor may be on either side; we resolve each side and prefer the one that is a
+ * construct, so a boundary between a `\frac` and a neighbouring `+` selects the
+ * fraction, not the operator. `null` for an empty formula.
+ */
+export function unitAt(latex: string, offset: number): MathUnit | null {
+  const before = resolveSelection(latex, offset, "backward");
+  const after = resolveSelection(latex, offset, "forward");
+  return [before, after].find((u) => u?.isConstruct) ?? after ?? before;
 }

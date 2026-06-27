@@ -21,7 +21,9 @@
 import {
   type ActionBus,
   type ActionHandler,
+  CONTENT_DELETED,
   stateAction,
+  type StateHandler,
   type StateResult,
   TEXT_INPUTTED,
 } from "../action-bus";
@@ -32,6 +34,7 @@ import {
 } from "../actions/edit-actions";
 import { SELECT_WORD_AT_POINT } from "../actions/mouse-actions";
 import { POINTER_MOVE } from "../actions/pointer-actions";
+import { TAP_SELECT_WORD } from "../actions/touch-actions";
 import { measureCtxText } from "../fonts";
 import { getInlineMathAtPosition } from "../inline-math";
 import type { MarkRegistry } from "../rendering/marks";
@@ -51,7 +54,13 @@ import {
 } from "../selection";
 import { escapeHtml } from "../serlization/codecs/inline";
 import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
-import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
+import type {
+  Block,
+  Char,
+  CharRun,
+  Mark,
+  MarkSpan,
+} from "../serlization/loadPage";
 import {
   MATH_BLOCK,
   NEWLINE,
@@ -77,16 +86,24 @@ import {
   getVisibleTextFromChars,
   getVisibleTextFromRuns,
 } from "../sync/char-runs";
-import { insertCharsAtPosition, markCharsInRange } from "../sync/crdt-utils";
+import {
+  deleteCharsInRange,
+  insertCharsAtPosition,
+  markCharsInRange,
+  orderKeyAfter,
+} from "../sync/crdt-utils";
 import {
   mathArmScratch,
   mathCaretMove,
   mathCommandRanges,
   mathDeleteUnit,
+  mathJoinAtEdgeAfterInput,
   mathMaterializeAfterInput,
+  mathMergeAfterDelete,
+  mathRedundantSpaceAfterInput,
+  mathSplitAfterInput,
   mathTransformTypedInput,
-  mathUnitAfter,
-  mathUnitBefore,
+  mathUnitAt,
 } from "./math";
 import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
 import {
@@ -565,7 +582,7 @@ export class MathNode extends TextNode {
 
         const paragraph: Block = {
           id: block.id,
-          afterId: block.afterId ?? null,
+          orderKey: block.orderKey,
           type: "paragraph",
           charRuns: block.charRuns,
           formats: [],
@@ -648,40 +665,38 @@ export class MathNode extends TextNode {
       50,
     );
 
-    // Desktop double-click normally selects a prose "word". LaTeX source words
-    // are the wrong abstraction here (`frac` without its slash/arguments, for
-    // example), so claim the action for block equations and select the complete
-    // structural unit adjacent to the rendered caret instead. Prefer a
-    // construct over a leaf when the hit-test lands on their shared boundary:
-    // double-clicking a numerator glyph should highlight its enclosing fraction,
-    // not just the source character.
-    bus.registerState(
-      SELECT_WORD_AT_POINT,
-      (state, { position }) => {
-        const block = state.document.page.blocks[position.blockIndex];
-        if (!block || block.deleted || block.type !== "math") return;
-        const latex = getVisibleTextFromRuns(block.charRuns);
-        const before = mathUnitBefore(latex, position.textIndex);
-        const after = mathUnitAfter(latex, position.textIndex);
-        const unit =
-          [before, after].find((candidate) => candidate?.isConstruct) ??
-          after ??
-          before;
-        if (!unit) return { state, ops: [], handled: true };
+    // A pointer double-click (desktop) / double-tap (touch) normally selects a
+    // prose "word". LaTeX source words are the wrong abstraction here (`frac`
+    // without its slash/arguments, for example), so claim BOTH gestures for block
+    // equations and select the construct under the pointer, whole, instead: any
+    // glyph of a fraction's numerator highlights the entire `\frac`, a script base
+    // the whole `x^{2}`, while a lone top-level token (`\alpha`, a bare `a`) selects
+    // itself. `mathUnitAt` resolves both sides of the hit-test boundary and prefers
+    // the construct, so clicking a numerator glyph never falls back to a single
+    // source character. One handler, registered for the mouse and touch actions.
+    const selectMathWord: StateHandler<{ position: Position }> = (
+      state,
+      { position },
+    ) => {
+      const block = state.document.page.blocks[position.blockIndex];
+      if (!block || block.deleted || block.type !== "math") return;
+      const latex = getVisibleTextFromRuns(block.charRuns);
+      const unit = mathUnitAt(latex, position.textIndex);
+      if (!unit) return { state, ops: [], handled: true };
 
-        return {
-          state: selectMathRange(
-            state,
-            position.blockIndex,
-            unit.start,
-            unit.end,
-          ),
-          ops: [],
-          handled: true,
-        };
-      },
-      50,
-    );
+      return {
+        state: selectMathRange(
+          state,
+          position.blockIndex,
+          unit.start,
+          unit.end,
+        ),
+        ops: [],
+        handled: true,
+      };
+    };
+    bus.registerState(SELECT_WORD_AT_POINT, selectMathWord, 50);
+    bus.registerState(TAP_SELECT_WORD, selectMathWord, 50);
 
     bus.registerState(
       POINTER_MOVE,
@@ -743,9 +758,10 @@ export class MathNode extends TextNode {
 
         const page = state.document.page;
         const newParagraphId = state.CRDTbinding.nextId();
+        const orderKey = orderKeyAfter(page.blocks, block.id);
         const newParagraph: Block = {
           id: newParagraphId,
-          afterId: block.id,
+          orderKey,
           type: "paragraph",
           charRuns: [],
           formats: [],
@@ -761,7 +777,7 @@ export class MathNode extends TextNode {
             id: state.CRDTbinding.nextId(),
             clock: state.CRDTbinding.getClock(),
             pageId: state.CRDTbinding.pageId,
-            afterBlockId: block.id,
+            orderKey,
             blockId: newParagraphId,
             blockType: "paragraph",
           },
@@ -790,8 +806,19 @@ export class MathNode extends TextNode {
     bus.registerState(TEXT_INPUTTED, (state, { blockIndex, textIndex }) =>
       normalizeMathInput(state, blockIndex, textIndex),
     );
+
+    // The delete-side counterpart: after the plain text separating two inline
+    // chips is removed, fuse the now-adjacent chips back into one formula. The
+    // split half lives in `normalizeMathInput` above (TEXT_INPUTTED); both keep
+    // inline math's "a space is a chip boundary" model consistent across edits.
+    bus.registerState(CONTENT_DELETED, (state, { blockIndex }) =>
+      mergeInlineMath(state, blockIndex),
+    );
   }
 }
+
+/** The inline-math mark — applied to fuse chips, removed over a space to split. */
+const INLINE_MATH_MARK: Mark = { type: "math" };
 
 /** Select `[from, to)` within one math block and remember its gesture boundary. */
 function selectMathRange(
@@ -843,7 +870,50 @@ function normalizeMathInput(
   const ops: Operation[] = [];
   let caret = textIndex;
 
-  const mat = mathMaterializeAfterInput(block, textIndex);
+  // A non-space char typed at a chip's outer edge counts as inside it: re-mark
+  // the chip to swallow the char so typing keeps extending the same formula
+  // (`\oint`+`x` first gets a separator so it stays `\oint x`, never `\ointx`). A
+  // space at an edge leaves the chip — it never reaches here as a join. This runs
+  // before materialize so a command completed at the edge (`\fra`+`c`) is joined
+  // first, then its `\frac{}{}` placeholder fills in as usual.
+  const join = mathJoinAtEdgeAfterInput(block, caret);
+  if (join) {
+    let page = next.document.page;
+    let to = join.to;
+    if (join.separatorAt !== undefined) {
+      const ins = insertCharsAtPosition(
+        page,
+        block.id,
+        join.separatorAt,
+        " ",
+        next.CRDTbinding,
+      );
+      page = ins.newPage;
+      ops.push(ins.op);
+      to += 1;
+      caret += 1;
+    }
+    const marked = markCharsInRange(
+      page,
+      block.id,
+      join.from,
+      to,
+      INLINE_MATH_MARK,
+      true,
+      next.CRDTbinding,
+    );
+    page = marked.newPage;
+    ops.push(marked.op);
+    invalidateBlockCache(page.blocks[blockIndex]);
+    next = { ...next, document: { ...next.document, page } };
+    next = moveCursorToPosition(next, blockIndex, caret, true);
+  }
+
+  const materializeBlock = next.document.page.blocks[blockIndex];
+  const mat =
+    materializeBlock && !materializeBlock.deleted
+      ? mathMaterializeAfterInput(materializeBlock, caret)
+      : null;
   if (mat && mat.inserts.length > 0) {
     let page = next.document.page;
     // Right-to-left keeps each earlier `at` valid as later inserts shift text.
@@ -859,22 +929,141 @@ function normalizeMathInput(
       page = newPage;
       ops.push(op);
     }
+    // An inline chip's braces can land at its right edge, outside the math mark.
+    // Re-mark the grown chip so the new slots stay part of the formula instead of
+    // becoming plain text after it (a block equation returns no `markRange`).
+    if (mat.markRange) {
+      const { newPage, op } = markCharsInRange(
+        page,
+        block.id,
+        mat.markRange.from,
+        mat.markRange.to,
+        INLINE_MATH_MARK,
+        true,
+        next.CRDTbinding,
+      );
+      page = newPage;
+      ops.push(op);
+    }
     invalidateBlockCache(page.blocks[blockIndex]);
     next = { ...next, document: { ...next.document, page } };
     caret = mat.caret;
     next = moveCursorToPosition(next, blockIndex, caret, true);
   }
 
-  // Arm scratch against the post-materialize content at the (possibly moved) caret.
+  // A space just typed inside an inline chip breaks it in two: strip the "math"
+  // mark from that one space (which splits the run's span — see the reducer's
+  // format-removal path), leaving two chips with a plain space between. No-op
+  // for a block equation, a non-space keystroke, or a space inside a construct.
   const editedBlock = next.document.page.blocks[blockIndex];
-  const scratch =
+  const split =
     editedBlock && !editedBlock.deleted
-      ? mathArmScratch(editedBlock, caret)
+      ? mathSplitAfterInput(editedBlock, caret)
+      : null;
+  if (split) {
+    const { newPage, op } = markCharsInRange(
+      next.document.page,
+      block.id,
+      split.from,
+      split.to,
+      INLINE_MATH_MARK,
+      false,
+      next.CRDTbinding,
+    );
+    invalidateBlockCache(newPage.blocks[blockIndex]);
+    next = { ...next, document: { ...next.document, page: newPage } };
+    ops.push(op);
+  } else {
+    // A space that didn't split a chip but landed *inside* a formula (a block
+    // equation, or an inline chip's construct like `\frac{a }{b}`) is dead LaTeX
+    // — math mode collapses it, so drop it instead of saving a meaningless space.
+    // Kept only when it's a real command separator (`\sin x`) or a text-mode
+    // space (`\text{a b}`); see mathRedundantSpaceAfterInput. The caret steps
+    // back onto where the space was so the next keystroke continues in place.
+    const redundant =
+      editedBlock && !editedBlock.deleted
+        ? mathRedundantSpaceAfterInput(editedBlock, caret)
+        : null;
+    if (redundant) {
+      const { newPage, op } = deleteCharsInRange(
+        next.document.page,
+        block.id,
+        redundant.from,
+        redundant.to,
+        next.CRDTbinding,
+      );
+      invalidateBlockCache(newPage.blocks[blockIndex]);
+      next = { ...next, document: { ...next.document, page: newPage } };
+      ops.push(op);
+      caret = redundant.from;
+      next = moveCursorToPosition(next, blockIndex, caret, true);
+    }
+  }
+
+  // Arm scratch against the post-materialize content at the (possibly moved) caret.
+  const scratchBlock = next.document.page.blocks[blockIndex];
+  const scratch =
+    scratchBlock && !scratchBlock.deleted
+      ? mathArmScratch(scratchBlock, caret)
       : null;
   if (scratch) {
     next = { ...next, ui: { ...next.ui, caretScratch: scratch } };
   }
   return { state: next, ops };
+}
+
+/**
+ * Body of MathNode's CONTENT_DELETED observer: when a deletion left inline chips
+ * touching (the text between them is gone), re-apply the "math" mark across each
+ * adjacent run so they merge into one formula — the inverse of the space-split in
+ * {@link normalizeMathInput}. A no-op (state unchanged, no ops) unless something
+ * is adjacent, so it's safe to run after every delete regardless of block type.
+ */
+function mergeInlineMath(state: EditorState, blockIndex: number): StateResult {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return { state, ops: [] };
+
+  const plans = mathMergeAfterDelete(block);
+  if (!plans) return { state, ops: [] };
+
+  const ops: Operation[] = [];
+  let page = state.document.page;
+  // Apply plans right-to-left so an earlier plan's positions stay valid across
+  // the separator inserts a later (higher-index) plan makes.
+  for (const plan of [...plans].reverse()) {
+    let to = plan.to;
+    // Insert each separator space right-to-left, then extend the marked range to
+    // cover them: a control word fused to a following letter (`\sin`⎵`x`) gets a
+    // space back so the merged chip stays valid LaTeX (`\sin x`, never `\sinx`).
+    for (const at of [...plan.separatorsAt].sort((a, b) => b - a)) {
+      const ins = insertCharsAtPosition(
+        page,
+        block.id,
+        at,
+        " ",
+        state.CRDTbinding,
+      );
+      page = ins.newPage;
+      ops.push(ins.op);
+      to += 1;
+    }
+    const { newPage, op } = markCharsInRange(
+      page,
+      block.id,
+      plan.from,
+      to,
+      INLINE_MATH_MARK,
+      true,
+      state.CRDTbinding,
+    );
+    page = newPage;
+    ops.push(op);
+  }
+  invalidateBlockCache(page.blocks[blockIndex]);
+  return {
+    state: { ...state, document: { ...state.document, page } },
+    ops,
+  };
 }
 
 // ─── Math actions ────────────────────────────────────────────────────────────
