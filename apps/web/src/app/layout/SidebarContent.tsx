@@ -15,17 +15,10 @@ import {
 } from "@dnd-kit/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Ellipsis, FileText, PanelLeftClose, Plus, Search } from "lucide-react";
+import { FileText, PanelLeftClose, Search } from "lucide-react";
 import React, { useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../../components/ui/dropdown-menu";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import {
   useCreatePage,
@@ -41,8 +34,10 @@ import { useConfirmation } from "../components/ConfirmationDialog";
 import Icons from "../components/uiKit/Icons/Icons";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
+import { useOrderedSpaces, useSpacePrefs } from "../contexts/SpacePrefsContext";
 import { setRecentDragEnd } from "./components/PageLink";
-import { PagesArea } from "./components/PagesArea";
+import { SpaceSection } from "./components/SpaceSection";
+import { SidebarTailDrop } from "./components/SidebarTailDrop";
 // import pageLinkStyle from "./components/PagesLinks.module.css";
 import { detectAdapterDetailed } from "@/platform";
 import { useTranslation } from "react-i18next";
@@ -67,6 +62,12 @@ const pageCollisionDetection: CollisionDetection = (args) => {
       | { type?: string; position?: string }
       | undefined;
 
+  // Spaces and pages share one DndContext. When a space is being dragged, only
+  // the space insertion zones are valid targets — ignore page drop zones.
+  if (args.active.data.current?.type === "spaceLink") {
+    return hits.filter((h) => dataFor(h.id)?.type === "space-drop-zone");
+  }
+
   const insertion = hits.find((h) => {
     const d = dataFor(h.id);
     return d?.type === "drop-zone" && d.position !== "inside";
@@ -78,6 +79,11 @@ const pageCollisionDetection: CollisionDetection = (args) => {
 
   return hits;
 };
+
+/** The `data.current` of an in-progress drag — a page or a space header. */
+type ActiveDrag =
+  | (IListPage & { type?: "pageLink" })
+  | { type: "spaceLink"; spaceId: string; name: string };
 
 /** Sort by order, tiebroken by id to match the server's deterministic order. */
 const byOrder = (a: IListPage, b: IListPage) =>
@@ -111,7 +117,9 @@ export function SidebarContent({
   const { getConfirmation } = useConfirmation();
   const { panelRef, hasPanel, setSlotMounted } = useSidebarPanel();
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [activeDragData, setActiveDragData] = useState<IListPage | null>(null);
+  // Holds the `data.current` of whatever is being dragged — a page (IListPage)
+  // or a space ({ type: "spaceLink", ... }). Read `.type` to distinguish.
+  const [activeDragData, setActiveDragData] = useState<ActiveDrag | null>(null);
 
   // Dialog states
   const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
@@ -120,6 +128,8 @@ export function SidebarContent({
   // const { id: currentPageId } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { spaces } = useSpaces();
+  const spacePrefs = useSpacePrefs();
+  const orderedSpaces = useOrderedSpaces(spaces);
   // const { data: sharedWithMe } = useGetSharedWithMe();
   // const { data: sharedByMe } = useGetSharedByMe();
 
@@ -248,7 +258,7 @@ export function SidebarContent({
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
-    setActiveDragData(event.active.data.current as IListPage);
+    setActiveDragData(event.active.data.current as ActiveDrag);
     triggerHaptic("medium");
   }
 
@@ -301,10 +311,24 @@ export function SidebarContent({
     if (!over) return;
 
     const activeData = active.data.current as IListPage & {
+      type?: string;
       spaceId?: string;
       parentsStack?: any;
     };
     const overData = over.data.current as any;
+
+    // Space reorder: dragging a space header onto a space insertion zone. The
+    // order is a per-device preference, so this never touches the CRDT.
+    if (activeData?.type === "spaceLink") {
+      if (overData?.type === "space-drop-zone") {
+        spacePrefs.reorder(
+          orderedSpaces.map((s) => s.id),
+          activeData.spaceId!,
+          overData.beforeSpaceId ?? null,
+        );
+      }
+      return;
+    }
 
     // Prevent dropping on the exact same dropzone
     if (active.id === over.id) {
@@ -606,70 +630,44 @@ export function SidebarContent({
               onDragEnd={handleDragEnd}
             >
               <ScrollArea className={style.appSidebarScrollArea}>
-                {spaces.map((space) => (
-                  <React.Fragment key={space.id}>
-                    <div className={style.appSidebarSection}>
-                      <div className={style.appSidebarSectionTitle}>
-                        <div className={style.appSidebarSectionIcon}>
-                          <Icons.Box />
-                        </div>
-                        {space.name || t("common.untitled", "Untitled")}
-                      </div>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          className={style.appSidebarSectionButton}
-                        >
-                          <Ellipsis size={20} />
-                          <span className="sr-only">
-                            {t("space.settings", "Space settings")}
-                          </span>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          <DropdownMenuItem
-                            onSelect={() => {
-                              onSpaceSettings(space.id);
-                            }}
-                          >
-                            {t("space.settings", "Space settings")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={() => {
-                              onInviteMembers(space.id);
-                            }}
-                          >
-                            {t("share.inviteMembers", "Invite members")}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => archiveGroup(space.id)}
-                          >
-                            {t("space.archiveSpace", "Archive space")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <button
-                        className={style.appSidebarSectionButton}
-                        onClick={() => handleAdd(null, space.id)}
-                        disabled={isCreating}
-                      >
-                        <Plus size={20} />
-                        <span className="sr-only">
-                          {t("page.addPage", "Add page")}
-                        </span>
-                      </button>
-                    </div>
-                    <PagesArea parentId={null} spaceId={space.id} />
-                  </React.Fragment>
+                {orderedSpaces.map((space) => (
+                  <SpaceSection
+                    key={space.id}
+                    space={space}
+                    isCreating={isCreating}
+                    onSpaceSettings={onSpaceSettings}
+                    onInviteMembers={onInviteMembers}
+                    onArchive={archiveGroup}
+                    onAddPage={(spaceId) => handleAdd(null, spaceId)}
+                  />
                 ))}
+                {/* Fills the space below the last space and stays droppable:
+                    append a page to the last space, or move a space to the end. */}
+                {orderedSpaces.length > 0 && (
+                  <SidebarTailDrop
+                    lastSpaceId={orderedSpaces[orderedSpaces.length - 1].id}
+                  />
+                )}
               </ScrollArea>
               <DragOverlay>
                 {activeId && activeDragData ? (
-                  <div className={style.dragOverlay}>
-                    <FileText size={20} />
-                    <span>
-                      {activeDragData.title || t("common.untitled", "Untitled")}
-                    </span>
-                  </div>
+                  activeDragData.type === "spaceLink" ? (
+                    <div className={style.dragOverlay}>
+                      <Icons.Box width={20} height={20} />
+                      <span>
+                        {activeDragData.name ||
+                          t("common.untitled", "Untitled")}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className={style.dragOverlay}>
+                      <FileText size={20} />
+                      <span>
+                        {activeDragData.title ||
+                          t("common.untitled", "Untitled")}
+                      </span>
+                    </div>
+                  )
                 ) : null}
               </DragOverlay>
             </DndContext>

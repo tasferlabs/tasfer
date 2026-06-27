@@ -34,7 +34,7 @@ import {
 } from "../selection";
 import type { EditorState } from "../state-types";
 import { getEditorStyles } from "../styles";
-import { getSelectionHandleAtPoint } from "./eventUtils";
+import { getAtomicBlockAtPoint, getSelectionHandleAtPoint } from "./eventUtils";
 import {
   startAutoScroll,
   stopAutoScroll,
@@ -78,7 +78,7 @@ const scrollbarThumbRegion: Region = {
   },
   drag: {
     touchHoldMs: SCROLLBAR_HOLD_DURATION,
-    activationIntensity: "heavy",
+    activationIntensity: "medium",
     onStart(_hit, p, ctx) {
       return {
         state: {
@@ -300,6 +300,13 @@ const peerIndicatorRegion: Region = {
  * the slice of the left padding nearest the content column (`[paddingLeft -
  * HIT_WIDTH, paddingLeft)`); the canvas gutter is never mirrored for RTL (text
  * direction is intra-block), so it is always on the left.
+ *
+ * A full-bleed atomic block (an edge-to-edge image) draws its own content
+ * across this band, so the block it covers owns the pixel — the handle yields
+ * rather than steal the interaction from the image underneath. Asked
+ * node-agnostically via `getAtomicBlockAtPoint`: any block whose interactive
+ * box reaches into the gutter suppresses the handle there; a normal centered
+ * block's box starts at `paddingLeft` and never does.
  */
 function blockAtGutterPoint(
   p: RegionPoint,
@@ -308,6 +315,18 @@ function blockAtGutterPoint(
   const styles = getEditorStyles(ctx.state);
   const gutterInner = styles.canvas.paddingLeft;
   if (p.x < gutterInner - BLOCK_DRAG_HANDLE_HIT_WIDTH || p.x >= gutterInner) {
+    return null;
+  }
+  if (
+    getAtomicBlockAtPoint(
+      p.x,
+      p.y,
+      ctx.state,
+      ctx.viewport,
+      undefined,
+      ctx.visibility,
+    )
+  ) {
     return null;
   }
   const originalIndex = getBlockIndexAtPoint(

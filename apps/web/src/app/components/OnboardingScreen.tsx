@@ -32,18 +32,16 @@ import {
     ImagePlus,
     Loader2,
     Lock,
-    Moon,
     Plus,
     QrCode,
     Share2,
     ShieldCheck,
-    Sun,
     Upload,
     User,
     Users,
     X,
 } from "lucide-react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { updateProfile } from "../api/auth.api";
 import { uploadImage, useAssetUrl } from "../api/images.api";
@@ -52,14 +50,14 @@ import {
     useAcceptInvite,
     useCreateSpace,
 } from "../api/spaces.api";
+import { getClientPlatform } from "@/platform";
 import { useAuth } from "../contexts/AuthContext";
-import { useTheme } from "../hooks/useTheme";
 import { AvatarCropDialog } from "./AvatarCropDialog";
 import "./OnboardingScreen.css";
 import { QRScannerView } from "./QRScannerView";
 
-const STEPS = ["folder", "identity", "profile", "space"] as const;
-type Step = (typeof STEPS)[number];
+const ALL_STEPS = ["folder", "identity", "profile", "space"] as const;
+type Step = (typeof ALL_STEPS)[number];
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -106,11 +104,11 @@ function detectDeviceType(): DeviceType {
 }
 
 /* ── progress dots ─────────────────────────────────────────────────────── */
-function ProgressDots({ step }: { step: Step }) {
-  const idx = STEPS.indexOf(step);
+function ProgressDots({ steps, step }: { steps: readonly Step[]; step: Step }) {
+  const idx = steps.indexOf(step);
   return (
     <div className="ob-dots" role="presentation">
-      {STEPS.map((s, i) => (
+      {steps.map((s, i) => (
         <div
           key={s}
           className={`ob-dot${
@@ -226,20 +224,6 @@ function IdentityStep({
   onBack?: () => void;
 }) {
   const { t } = useTranslation();
-  const { user } = useAuth();
-  const [copied, setCopied] = useState(false);
-
-  const publicKey = user?.id ?? "";
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(publicKey);
-    } catch {
-      // clipboard may be unavailable; the visual confirmation still fires
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
-  };
 
   return (
     <div className="ob-card">
@@ -252,26 +236,9 @@ function IdentityStep({
       <p className="ob-sub">
         {t(
           "onboarding.identityIntro",
-          "The moment you opened Cypher, it generated a keypair on this device. Your public key is how peers recognize you. The private key never leaves this machine — there's no account and no server that ever sees it.",
+          "The moment you opened Cypher, it generated a keypair on this device — that's your identity. The private key never leaves this machine, and there's no account or server behind it.",
         )}
       </p>
-
-      <div className="ob-key-block">
-        <span className="ob-key-label">
-          {t("onboarding.yourPublicKey", "your public key")}
-        </span>
-        <code>{publicKey}</code>
-      </div>
-      <button
-        className="ob-avatar-btn"
-        style={{ marginTop: 10 }}
-        onClick={copy}
-      >
-        <Copy size={14} strokeWidth={1.5} />
-        {copied
-          ? t("share.copied", "Copied")
-          : t("onboarding.copyKey", "Copy key")}
-      </button>
 
       <ul className="ob-bullets">
         <li>
@@ -792,7 +759,7 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
           aria-current={method === "code"}
           onClick={() => setMethod("code")}
         >
-          <Copy size={14} strokeWidth={1.5} />{" "}
+          <Copy size={16} strokeWidth={1.5} />
           {t("onboarding.pasteCode", "Paste code")}
         </button>
         <button
@@ -800,7 +767,7 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
           aria-current={method === "file"}
           onClick={() => setMethod("file")}
         >
-          <Upload size={14} strokeWidth={1.5} />{" "}
+          <Upload size={16} strokeWidth={1.5} />
           {t("onboarding.importFile", "Import file")}
         </button>
         <button
@@ -808,7 +775,7 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
           aria-current={method === "scan"}
           onClick={() => setMethod("scan")}
         >
-          <QrCode size={14} strokeWidth={1.5} />{" "}
+          <QrCode size={16} strokeWidth={1.5} />
           {t("scanner.scanQR", "Scan QR")}
         </button>
       </div>
@@ -969,31 +936,16 @@ function SpaceStep({ onBack }: { onBack: () => void }) {
   return <SpacePick setView={setView} onBack={onBack} />;
 }
 
-/* ── theme toggle ──────────────────────────────────────────────────────── */
-function ThemeToggle() {
-  const { t } = useTranslation();
-  const { effectiveTheme, setTheme } = useTheme();
-  const isDark = effectiveTheme === "dark";
-  return (
-    <button
-      className="ob-theme-toggle"
-      onClick={() => setTheme(isDark ? "light" : "dark")}
-      aria-label={t("settings.theme.modeKw", "Toggle theme")}
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-    >
-      {isDark ? (
-        <Sun size={17} strokeWidth={1.5} />
-      ) : (
-        <Moon size={17} strokeWidth={1.5} />
-      )}
-    </button>
-  );
-}
-
 /* ── root ──────────────────────────────────────────────────────────────── */
 export function OnboardingScreen() {
   const { user } = useAuth();
-  const [step, setStep] = useState<Step>("folder");
+  // The sync-folder mirror is a native-desktop feature; web & mobile skip it.
+  const isDesktop = getClientPlatform() === "electron";
+  const steps = useMemo<readonly Step[]>(
+    () => (isDesktop ? ALL_STEPS : ALL_STEPS.filter((s) => s !== "folder")),
+    [isDesktop],
+  );
+  const [step, setStep] = useState<Step>(isDesktop ? "folder" : "identity");
   // Persisted folder name (the writable handle lives in IndexedDB via syncFolder).
   const [folder, setFolder] = useState(() => getSyncFolderName() ?? "");
   const [name, setName] = useState(user?.name ?? "");
@@ -1001,17 +953,100 @@ export function OnboardingScreen() {
 
   const go = (s: Step) => setStep(s);
 
+  // Soft-keyboard handling. `.ob-wrap` is a height:100dvh scroll container, but
+  // `dvh` does NOT shrink when the on-screen keyboard opens — so a field near
+  // the bottom sits behind the keyboard with no room to scroll to it. Shrink the
+  // container to the area above the keyboard so the card overflows, then scroll
+  // the focused field into the now-visible area.
+  //
+  // The keyboard inset comes from two sources, per platform:
+  //   • Android: the WebView is edge-to-edge, so `resize:"native"` is a no-op
+  //     and `visualViewport` does NOT shrink for the IME. MainActivity posts the
+  //     real inset as a `keyboard-height-changed` message (same signal the editor
+  //     host consumes). Once it reports, it wins.
+  //   • iOS / mobile web: `visualViewport` shrinks for the keyboard; bind to it.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const vv = window.visualViewport;
+
+    let focused: HTMLElement | null = null;
+    // Native IME inset (CSS px) once a platform source reports it; until then we
+    // fall back to visualViewport, matching the editor host's precedence.
+    let nativeKeyboard = 0;
+    let nativeReported = false;
+
+    const reveal = () =>
+      focused?.scrollIntoView({ block: "center", behavior: "smooth" });
+
+    const syncHeight = () => {
+      if (nativeReported) {
+        wrap.style.height = `calc(100dvh - ${nativeKeyboard}px)`;
+      } else if (vv) {
+        wrap.style.height = `${vv.height}px`;
+      }
+      reveal();
+    };
+
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+        focused = el;
+        // Wait for the keyboard/viewport to settle before scrolling.
+        window.setTimeout(reveal, 350);
+      }
+    };
+    const onFocusOut = () => {
+      focused = null;
+    };
+
+    // Android IME inset posted by MainActivity: { type, height (dp ≈ CSS px),
+    // isOpen }. Validated inline to keep onboarding self-contained.
+    const onNativeKeyboard = (e: MessageEvent) => {
+      const data = e.data as
+        | { type?: unknown; height?: unknown; isOpen?: unknown }
+        | null;
+      if (
+        e.source !== window ||
+        !data ||
+        data.type !== "keyboard-height-changed" ||
+        typeof data.height !== "number" ||
+        !Number.isFinite(data.height) ||
+        typeof data.isOpen !== "boolean"
+      ) {
+        return;
+      }
+      nativeReported = true;
+      nativeKeyboard = data.isOpen ? Math.max(0, data.height) : 0;
+      syncHeight();
+    };
+
+    syncHeight();
+    vv?.addEventListener("resize", syncHeight);
+    vv?.addEventListener("scroll", reveal);
+    wrap.addEventListener("focusin", onFocusIn);
+    wrap.addEventListener("focusout", onFocusOut);
+    window.addEventListener("message", onNativeKeyboard);
+    return () => {
+      vv?.removeEventListener("resize", syncHeight);
+      vv?.removeEventListener("scroll", reveal);
+      wrap.removeEventListener("focusin", onFocusIn);
+      wrap.removeEventListener("focusout", onFocusOut);
+      window.removeEventListener("message", onNativeKeyboard);
+      wrap.style.height = "";
+    };
+  }, []);
+
   return (
-    <div className="ob-wrap">
+    <div className="ob-wrap" ref={wrapRef}>
       {/* Electron: fixed drag region at top so the window can be moved */}
       <div
         className="fixed inset-x-0 top-0 h-12 z-50"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       />
 
-      <ThemeToggle />
-
-      <ProgressDots step={step} />
+      <ProgressDots steps={steps} step={step} />
 
       {step === "folder" && (
         <FolderStep
@@ -1023,7 +1058,7 @@ export function OnboardingScreen() {
       {step === "identity" && (
         <IdentityStep
           onNext={() => go("profile")}
-          onBack={() => go("folder")}
+          onBack={isDesktop ? () => go("folder") : undefined}
         />
       )}
       {step === "profile" && (

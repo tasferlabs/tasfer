@@ -30,6 +30,10 @@ const config: CapacitorConfig = {
     Keyboard: {
       resize: "native",
     },
+    CapacitorSQLite: {
+      androidIsEncryption: false,
+      iosIsEncryption: false,
+    },
   },
 };
 

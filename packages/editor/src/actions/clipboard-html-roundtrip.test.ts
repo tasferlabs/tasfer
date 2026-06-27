@@ -112,7 +112,9 @@ describe("clipboard text/html round-trip", () => {
 
     expect(payload).not.toBeNull();
     expect(payload!.markdown).toBe("- [ ] Follow up");
-    expect(payload!.plainText).toBe("[ ] Follow up");
+    // Plain text (text/plain) goes to external apps as bare text — no marker,
+    // not literal `[ ]` brackets.
+    expect(payload!.plainText).toBe("Follow up");
   });
 
   it("round-trips image sizing, block math, and list indent losslessly", () => {
@@ -141,6 +143,38 @@ describe("clipboard text/html round-trip", () => {
     >;
     expect(lists).toHaveLength(2);
     expect(lists.map((l) => l.indent)).toEqual([0, 1]);
+  });
+
+  it("decodes the marker even when the browser wraps the fragment", () => {
+    // Browsers wrap clipboard HTML in a document shell on round-trip
+    // (`<html><body><!--StartFragment-->…<!--EndFragment-->`), so by paste time
+    // the Cypher marker is no longer at the start of the payload. The lossless
+    // path must still kick in — otherwise a copied checklist falls back to
+    // defuddle and degrades to a plain bullet list.
+    const page = pageWith({
+      id: "todo1",
+      orderKey: "a0",
+      type: "todo_list",
+      charRuns: run("Follow up"),
+      formats: [],
+      checked: true,
+      indent: 0,
+    } as unknown as Block);
+    const payload = buildClipboardPayload(selectAll(page))!;
+    const wrapped = `<html>\n<body>\n<!--StartFragment-->${payload.html}<!--EndFragment-->\n</body>\n</html>`;
+    const blocks = parseHTMLToBlocks(
+      wrapped,
+      createCRDTbinding("page-w", "peer-w"),
+    );
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("todo_list");
+    expect((blocks[0] as Block & { checked: boolean }).checked).toBe(true);
+    expect(
+      getVisibleTextFromRuns(
+        (blocks[0] as Block & { charRuns: CharRun[] }).charRuns,
+      ),
+    ).toBe("Follow up");
   });
 
   it("preserves Unicode through the base64 marker", () => {

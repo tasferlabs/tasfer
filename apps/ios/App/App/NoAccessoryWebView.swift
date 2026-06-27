@@ -211,7 +211,9 @@ final class KeyboardAccessoryView: UIView {
         let button = UIButton(type: .system)
         button.setImage(UIImage(named: icon)?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.accessibilityLabel = label
-        button.tintColor = normalTint
+        // Light up the trigger (e.g. the overflow "more" menu) when the model
+        // flags it active because one of its hidden controls is on.
+        button.tintColor = (item["active"] as? Bool ?? false) ? activeTint : normalTint
         button.imageView?.contentMode = .scaleAspectFit
         button.translatesAutoresizingMaskIntoConstraints = false
         button.widthAnchor.constraint(equalToConstant: 44).isActive = true
@@ -355,7 +357,7 @@ final class KeyboardAccessoryView: UIView {
         var addRemainingItemsToFixedRow = false
         for item in items {
             guard let kind = item["kind"] as? String else { continue }
-            if item["id"] as? String == "dismiss-divider" {
+            if item["id"] as? String == "fixed-row-start" {
                 addRemainingItemsToFixedRow = true
             }
 

@@ -99,10 +99,30 @@ export interface Image extends BlockRuntimeState {
 
 /** Decoded images, keyed by url/asset-hash. */
 export const imageCache = new Map<string, HTMLImageElement>();
-/** Urls that failed to load — avoids hammering a broken source. */
-const failedImageCache = new Set<string>();
+
+/** A parked load failure: when it last failed and how many attempts it took. */
+interface FailedLoad {
+  /** Timestamp (epoch ms) of the most recent failure. */
+  at: number;
+  /** Automatic attempts already spent on this url. */
+  attempts: number;
+}
+/**
+ * Urls that failed to load — avoids hammering a broken source on every repaint.
+ * Failures are not permanent: an entry older than {@link FAILED_TTL_MS} is
+ * re-attempted by {@link loadImage}, and {@link clearFailedImageCache} (manual
+ * retry, or the host's `online` handler) drops entries outright.
+ */
+const failedImageCache = new Map<string, FailedLoad>();
 /** In-flight loads, so concurrent blocks dedupe onto one decode. */
 const pendingLoads = new Map<string, Promise<HTMLImageElement>>();
+
+/** Automatic load attempts (including the first) before a url is parked. */
+const MAX_LOAD_ATTEMPTS = 3;
+/** Backoff before the first retry; doubles on each subsequent attempt. */
+const RETRY_BASE_DELAY_MS = 500;
+/** How long a parked failure stays sticky before a repaint may retry it. */
+const FAILED_TTL_MS = 30_000;
 
 /** Clear a failed url (or all) so a retry can re-attempt the load. */
 export function clearFailedImageCache(url?: string): void {
@@ -111,6 +131,21 @@ export function clearFailedImageCache(url?: string): void {
   } else {
     failedImageCache.clear();
   }
+}
+
+/**
+ * Whether `url` is currently parked as failed. An entry past its TTL is dropped
+ * here so the next {@link loadImage} re-attempts it — the render path then shows
+ * "loading" and retries instead of staying stuck on the error state.
+ */
+function isImageFailed(url: string): boolean {
+  const failed = failedImageCache.get(url);
+  if (!failed) return false;
+  if (Date.now() - failed.at >= FAILED_TTL_MS) {
+    failedImageCache.delete(url);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -123,8 +158,15 @@ function loadImage(
   url: string,
   resolve: (url: string) => string | Promise<string>,
 ): Promise<HTMLImageElement> {
-  if (failedImageCache.has(url)) {
-    return Promise.reject(new Error(`Image previously failed to load: ${url}`));
+  const failed = failedImageCache.get(url);
+  if (failed) {
+    if (Date.now() - failed.at < FAILED_TTL_MS) {
+      return Promise.reject(
+        new Error(`Image previously failed to load: ${url}`),
+      );
+    }
+    // TTL elapsed — drop the parked failure and re-attempt from scratch.
+    failedImageCache.delete(url);
   }
 
   const existing = imageCache.get(url);
@@ -151,37 +193,60 @@ function loadImage(
         // Asset not found — use as-is.
       }
     }
-    return new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      if (isAlreadyUrl) {
-        img.crossOrigin = "anonymous";
-      }
 
-      img.onload = () => {
+    // Bounded retry with exponential backoff: a transient failure (offline, a
+    // flaky source, or an asset not yet synced from a peer) gets a few automatic
+    // attempts before the url is parked as failed.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const img = await decodeImage(resolvedUrl, isAlreadyUrl);
         imageCache.set(url, img);
         pendingLoads.delete(url);
-        resolve(img);
-      };
-
-      img.onerror = () => {
-        failedImageCache.add(url);
-        pendingLoads.delete(url);
-        reject(new Error(`Failed to load image: ${url}`));
-      };
-
-      img.src = resolvedUrl;
-
-      // Already complete from the browser cache — resolve immediately.
-      if (img.complete) {
-        imageCache.set(url, img);
-        pendingLoads.delete(url);
-        resolve(img);
+        return img;
+      } catch (error) {
+        if (attempt >= MAX_LOAD_ATTEMPTS) {
+          failedImageCache.set(url, { at: Date.now(), attempts: attempt });
+          pendingLoads.delete(url);
+          throw error instanceof Error
+            ? error
+            : new Error(`Failed to load image: ${url}`);
+        }
+        await delay(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
       }
-    });
+    }
   })();
 
   pendingLoads.set(url, promise);
   return promise;
+}
+
+/**
+ * Decode one image url into an `HTMLImageElement` — resolves on load, rejects on
+ * error. `crossOrigin` is set for already-loadable urls (parity with the prior
+ * inline loader) so canvas export stays untainted.
+ */
+function decodeImage(
+  src: string,
+  crossOrigin: boolean,
+): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (crossOrigin) {
+      img.crossOrigin = "anonymous";
+    }
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+    img.src = src;
+    // Already complete from the browser cache — resolve immediately.
+    if (img.complete) {
+      resolve(img);
+    }
+  });
+}
+
+/** Promise-based delay used to back off between automatic load retries. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 interface ImageGeometry {
@@ -203,12 +268,15 @@ export function getDragHandleAtPoint(
   imageY: number,
   imageWidth: number,
   imageHeight: number,
+  styles: EditorStyles,
   objectFit: "cover" | "contain" = "cover",
   extraTolerance: number = 4,
 ): "left" | "right" | "bottom" | null {
-  // No `state` in scope here; imageResize styles have no per-instance overrides,
-  // so the default-resolved styles are equivalent.
-  const styles = getEditorStyles();
+  // Hit-test geometry must match the painted handles, which use the instance's
+  // resolved styles (`drawDragHandles` → `c.styles`). A host can widen
+  // `imageResize.dragHandles.*.inset` per instance (e.g. to clear a touch
+  // scrollbar target or the platform edge-gesture zone), so the caller passes
+  // the same per-instance styles rather than re-resolving defaults here.
   const { vertical, horizontal } = styles.imageResize.dragHandles;
 
   // Extra tolerance for easier hovering/tapping (pixels beyond the visible bar)
@@ -375,7 +443,6 @@ export class ImageNode extends AtomicNode<Image> {
     loading: "Loading image...",
     uploading: "Uploading image...",
     uploadFailed: "Failed to upload image",
-    clickToRetry: "Click to retry",
     changeImage: "Change Image",
   } as const;
 
@@ -496,6 +563,7 @@ export class ImageNode extends AtomicNode<Image> {
             box.y,
             box.width,
             box.height,
+            getEditorStyles(c.state),
             block.objectFit ?? "cover",
             pointerType === "touch" ? 12 : 4,
           );
@@ -668,6 +736,7 @@ export class ImageNode extends AtomicNode<Image> {
           block.y,
           block.width,
           block.height,
+          getEditorStyles(state),
           objectFit,
         );
         return {
@@ -791,22 +860,16 @@ export class ImageNode extends AtomicNode<Image> {
         c,
         box,
         styles.blocks.image.error.backgroundColor,
-        [
-          { text: this.str(state, "uploadFailed"), dy: 0 },
-          { text: this.str(state, "clickToRetry"), dy: 20 },
-        ],
+        [{ text: this.str(state, "uploadFailed"), dy: 0 }],
         styles.blocks.image.error.textColor,
       );
     } else if (block.url) {
-      if (failedImageCache.has(block.url)) {
+      if (isImageFailed(block.url)) {
         this.drawStatus(
           c,
           box,
           styles.blocks.image.error.backgroundColor,
-          [
-            { text: this.str(state, "uploadFailed"), dy: 0 },
-            { text: this.str(state, "clickToRetry"), dy: 20 },
-          ],
+          [{ text: this.str(state, "uploadFailed"), dy: 0 }],
           styles.blocks.image.error.textColor,
         );
       } else {
@@ -1605,6 +1668,7 @@ export function startImageHandleDrag(
     imageBlock.y,
     imageBlock.width,
     imageBlock.height,
+    getEditorStyles(state),
     objectFit,
     extraTolerance,
   );

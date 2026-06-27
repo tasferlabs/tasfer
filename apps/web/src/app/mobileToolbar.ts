@@ -110,6 +110,9 @@ export type MobileToolbarItem =
       icon: MobileToolbarIcon;
       label: string;
       selected: string;
+      /** Highlight the trigger (primary tint) — e.g. an overflow menu whose
+       *  hidden controls include an active one. */
+      active?: boolean;
       options: Array<{
         id: string;
         /** Optional — language options are label-only. */
@@ -467,7 +470,8 @@ export function createMobileToolbarModel(
  * chip row, so a caret-in-math context collapses to the math-command button
  * (which opens the floating `\` menu); the overflow drawer becomes a single
  * "more" menu (a native popup); and the trailing cluster ("more" + dismiss) is
- * pinned via the `dismiss-divider` the accessory keys on to split scroll/fixed.
+ * pinned via the `fixed-row-start` marker the accessory keys on to split
+ * scroll/fixed.
  */
 function flattenLayoutForNative(
   layout: MobileToolbarLayout,
@@ -491,6 +495,9 @@ function flattenLayoutForNative(
       icon: "more",
       label: t("editor.more", "More"),
       selected: active?.id ?? "",
+      // Light up the overflow trigger when a hidden control is active, mirroring
+      // an active inline mark on the visible bar.
+      active: !!active,
       options: layout.more.flatMap((item) =>
         item.kind === "button"
           ? [
@@ -504,13 +511,21 @@ function flattenLayoutForNative(
           : [],
       ),
     });
+    // The separator sits to the right of the overflow button — between it and
+    // the pinned dismiss control — matching the in-webview Android bar.
+    trailing.push(divider("more-divider"));
   }
 
   return [
     ...layout.left,
-    divider("zone-divider"),
-    ...middle,
-    divider("dismiss-divider"),
+    // The zone divider only earns its place when there is a scrollable middle to
+    // fence off. In prose the middle is empty, so emitting it would leave a
+    // dangling border at the end of the scroll row.
+    ...(middle.length > 0 ? [divider("zone-divider"), ...middle] : []),
+    // Invisible marker: everything from here on is pinned to the non-scrolling
+    // fixed row (the overflow trigger and dismiss). The native shell keys on
+    // this id to split the scrollable run from the pinned tail.
+    { kind: "spacer", id: "fixed-row-start" },
     ...trailing,
     ...layout.right,
   ];
@@ -604,10 +619,19 @@ function buildLayout(
   }
 
   // Format (prose): keep block type before inline marks; the rarer marks live
-  // in the drawer.
+  // in the drawer. A divider sits after the block switcher to separate it from
+  // the inline format controls — they are two different kinds of action.
   return {
     context: "format",
-    left: [undo, redo, controlsDivider(), blockMenu, bold, italic],
+    left: [
+      undo,
+      redo,
+      controlsDivider(),
+      blockMenu,
+      blockDivider(),
+      bold,
+      italic,
+    ],
     middle: { kind: "items", items: [] },
     more: [strikethrough, inlineCode],
     right,
@@ -616,6 +640,11 @@ function buildLayout(
 
 function controlsDivider(): MobileToolbarItem {
   return { kind: "divider", id: "history-divider" };
+}
+
+/** Separates the block-type switcher from the inline format marks. */
+function blockDivider(): MobileToolbarItem {
+  return { kind: "divider", id: "block-divider" };
 }
 
 /** The code-block language list, as selectable (label-only) drawer cells. */

@@ -14,6 +14,7 @@ import { WordCountOverlay } from "../components/WordCountOverlay";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
+import { SpacePrefsProvider } from "../contexts/SpacePrefsContext";
 import { TreeExpandProvider } from "../contexts/TreeExpandContext";
 import { useVersion } from "../contexts/VersionContext";
 import useLocalStorage from "../hooks/useLocalStorage";
@@ -44,17 +45,19 @@ export default function Layout() {
   return (
     <TopActionBarSlotProvider>
       <SpaceProvider>
-        <TreeExpandProvider>
-          <SidebarPanelProvider>
-            <PageSettingsProvider>
-              <ConfirmationDialogProvider>
-                <UnsavedChangesDialogProvider>
-                  <LayoutInner needsForceUpdate={needsForceUpdate} />
-                </UnsavedChangesDialogProvider>
-              </ConfirmationDialogProvider>
-            </PageSettingsProvider>
-          </SidebarPanelProvider>
-        </TreeExpandProvider>
+        <SpacePrefsProvider>
+          <TreeExpandProvider>
+            <SidebarPanelProvider>
+              <PageSettingsProvider>
+                <ConfirmationDialogProvider>
+                  <UnsavedChangesDialogProvider>
+                    <LayoutInner needsForceUpdate={needsForceUpdate} />
+                  </UnsavedChangesDialogProvider>
+                </ConfirmationDialogProvider>
+              </PageSettingsProvider>
+            </SidebarPanelProvider>
+          </TreeExpandProvider>
+        </SpacePrefsProvider>
       </SpaceProvider>
     </TopActionBarSlotProvider>
   );

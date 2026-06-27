@@ -102,7 +102,7 @@ export function isNative(): boolean {
  * Uses the native shell's haptic when present, else the web Vibration API.
  */
 export function triggerHaptic(
-  style: "light" | "medium" | "heavy" = "heavy",
+  style: "light" | "medium" | "heavy" = "medium",
 ): void {
   try {
     const bridge = getBridge();

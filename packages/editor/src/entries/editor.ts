@@ -3262,6 +3262,22 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const result = await pasteFromSystemClipboard(this._state);
     if (result) {
       this.executeAction(result);
+      // Mirror the synchronous Cmd/Ctrl+V path (see the IMAGE_PASTE dispatch in
+      // handleEvents): if a raw image was pasted, let the host upload it and
+      // rewrite the temporary blob url. The block is addressed by stable id.
+      if (
+        result.pastedImageFile &&
+        result.pastedImageBlockIndex !== undefined
+      ) {
+        const pastedBlock =
+          this._state.document.page.blocks[result.pastedImageBlockIndex];
+        if (pastedBlock) {
+          this.dispatch(IMAGE_PASTE, {
+            file: result.pastedImageFile,
+            blockId: pastedBlock.id,
+          });
+        }
+      }
       this._state = closeActiveMenu(this._state);
       this.scheduleRender();
       return true;

@@ -17,14 +17,21 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   const pathname = url.pathname;
 
+  // Don't intercept cross-origin requests - let the browser handle them natively.
+  // Third-party resources (CDN images, the signaling server's TURN credentials,
+  // etc.) must load with their own CORS/credentials semantics. Re-fetching them
+  // through the SW forces `credentials: "include"` (needed only for same-origin
+  // basic auth), which any server responding `Access-Control-Allow-Origin: *`
+  // rejects with net::ERR_FAILED - so e.g. remote images never load on the
+  // native app, where the SW controls every request from a cold cache.
+  if (url.origin !== self.location.origin) {
+    return; // Don't call respondWith - native fetch keeps the right credentials mode
+  }
+
   // Don't intercept static assets - let Workbox's precacheAndRoute handle them
   // This ensures precached assets are served from cache during app updates,
   // preventing 404 errors when old files are deleted from the server
-  if (
-    url.origin === self.location.origin &&
-    !pathname.startsWith("/api/") &&
-    event.request.mode !== "navigate"
-  ) {
+  if (!pathname.startsWith("/api/") && event.request.mode !== "navigate") {
     return; // Don't call respondWith - let Workbox handle it
   }
 

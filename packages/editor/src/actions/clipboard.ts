@@ -428,15 +428,22 @@ function blocksToMarkdown(blocks: Block[]): string {
 }
 
 /**
- * Leading marker on a Cypher-originated clipboard `text/html` payload. It is an
- * HTML comment (invisible to external apps, which just render the fragment that
+ * Marker on a Cypher-originated clipboard `text/html` payload. It is an HTML
+ * comment (invisible to external apps, which just render the fragment that
  * follows) carrying the base64'd canonical Markdown of the selection. On paste
  * back into Cypher, `parseHTMLToBlocks` decodes this instead of round-tripping
  * the rendered HTML through defuddle — which is lossy for image sizing, block
- * math, list nesting, etc. base64 keeps the payload free of any `-->`.
+ * math, list nesting, and todo `checked` state. base64 keeps the payload free of
+ * any `-->`.
+ *
+ * The match is intentionally *not* anchored to the start of the string: when
+ * HTML round-trips through the system clipboard, browsers wrap the fragment in
+ * a document shell (`<html><body><!--StartFragment-->…<!--EndFragment-->`), so
+ * by paste time our marker is no longer the first thing in the payload. Scanning
+ * for it anywhere keeps the lossless internal path working; the base64-only body
+ * makes a stray external match effectively impossible.
  */
-const CYPHER_CLIPBOARD_MARKER_RE =
-  /^\s*<!--cypher-clipboard:([A-Za-z0-9+/=]+)-->/;
+const CYPHER_CLIPBOARD_MARKER_RE = /<!--cypher-clipboard:([A-Za-z0-9+/=]+)-->/;
 
 function encodeClipboardMarkdown(markdown: string): string {
   const utf8 = new TextEncoder().encode(markdown);
@@ -1590,6 +1597,38 @@ function insertBlocksAtCursor(
  * Paste content from ClipboardEvent with HTML formatting (Ctrl+V)
  * This uses the paste event's clipboardData, which doesn't require permission
  */
+/**
+ * Insert a fresh image block holding a pasted file (e.g. a screenshot). Returns
+ * the index of the created block so the host can dispatch `IMAGE_PASTE` and
+ * upload + rewrite the temporary blob url. Shared by the synchronous
+ * `ClipboardEvent` path and the async {@link pasteFromSystemClipboard} path.
+ */
+function insertPastedImageBlock(
+  state: EditorState,
+  imageFile: File,
+): (ActionResult & { pastedImageBlockIndex?: number }) | null {
+  const blobUrl = URL.createObjectURL(imageFile);
+  const result = insertBlocksAtCursor(state, [
+    {
+      id: globalGenerateBlockId(state.CRDTbinding),
+      type: "image",
+      url: blobUrl,
+      alt: imageFile.name || "Pasted image",
+    },
+  ]);
+  if (!result) return null;
+  // Find the image block by its blob URL (more reliable than cursor math,
+  // since the cursor gets clamped when the image is inserted at the end)
+  const pastedImageBlockIndex = result.state.document.page.blocks.findIndex(
+    (b) => b.type === "image" && b.url === blobUrl,
+  );
+  return {
+    ...result,
+    pastedImageBlockIndex:
+      pastedImageBlockIndex >= 0 ? pastedImageBlockIndex : undefined,
+  };
+}
+
 export function pasteFromClipboardEvent(
   state: EditorState,
   event: ClipboardEvent,
@@ -1625,28 +1664,7 @@ export function pasteFromClipboardEvent(
 
   // Handle pasted image file (e.g. screenshot from clipboard)
   if (imageFile) {
-    const blobUrl = URL.createObjectURL(imageFile);
-    const result = insertBlocksAtCursor(state, [
-      {
-        id: globalGenerateBlockId(state.CRDTbinding),
-        type: "image",
-        url: blobUrl,
-        alt: imageFile.name || "Pasted image",
-      },
-    ]);
-    if (result) {
-      // Find the image block by its blob URL (more reliable than cursor math,
-      // since the cursor gets clamped when the image is inserted at the end)
-      const pastedImageBlockIndex = result.state.document.page.blocks.findIndex(
-        (b) => b.type === "image" && b.url === blobUrl,
-      );
-      return {
-        ...result,
-        pastedImageBlockIndex:
-          pastedImageBlockIndex >= 0 ? pastedImageBlockIndex : undefined,
-      };
-    }
-    return null;
+    return insertPastedImageBlock(state, imageFile);
   }
 
   // Fallback to plain text
@@ -1712,10 +1730,15 @@ export function pasteFromClipboardEventAsPlainText(
  */
 export async function pasteFromSystemClipboard(
   state: EditorState,
-): Promise<ActionResult | null> {
+): Promise<
+  | (ActionResult & { pastedImageBlockIndex?: number; pastedImageFile?: File })
+  | null
+> {
   try {
     let html = "";
     let text = "";
+    let imageBlob: Blob | null = null;
+    let imageType = "";
 
     if (navigator.clipboard?.read) {
       try {
@@ -1727,6 +1750,13 @@ export async function pasteFromSystemClipboard(
           if (!text && item.types.includes("text/plain")) {
             text = await (await item.getType("text/plain")).text();
           }
+          if (!imageBlob) {
+            const type = item.types.find((t) => t.startsWith("image/"));
+            if (type) {
+              imageBlob = await item.getType(type);
+              imageType = type;
+            }
+          }
         }
       } catch {
         // read() can reject (permissions / unsupported MIME types) — fall back
@@ -1734,13 +1764,25 @@ export async function pasteFromSystemClipboard(
       }
     }
 
-    if (!html && !text && navigator.clipboard?.readText) {
+    if (!html && !text && !imageBlob && navigator.clipboard?.readText) {
       text = await navigator.clipboard.readText();
     }
 
+    // Prefer HTML (matches the synchronous Cmd/Ctrl+V path): an image copied
+    // from a web page carries both `text/html` with an `<img>` and the bytes.
     if (html) {
       const blocks = parseHTMLToBlocks(html, state.CRDTbinding);
       if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+    }
+    // Pasted raw image (e.g. a screenshot) — insert a block and report the file
+    // so the caller can dispatch IMAGE_PASTE to upload + rewrite the blob url.
+    if (imageBlob) {
+      const ext = (imageType || imageBlob.type).split("/")[1] || "png";
+      const file = new File([imageBlob], `Pasted image.${ext}`, {
+        type: imageType || imageBlob.type || "image/png",
+      });
+      const result = insertPastedImageBlock(state, file);
+      return result ? { ...result, pastedImageFile: file } : null;
     }
     if (text) {
       const blocks = parsePlainTextToBlocks(text, state.CRDTbinding);

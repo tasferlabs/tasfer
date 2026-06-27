@@ -390,6 +390,59 @@
   justify-content: space-between;
   gap: 0.5rem;
   padding: 4px 1rem;
+  flex-shrink: 0;
+}
+
+/*
+ * Trailing drop target that grows to fill the column below the last space.
+ * Keeps the bottom of the sidebar droppable: a page dropped here appends to the
+ * last space, a space dropped here moves to the end.
+ */
+.appSidebarTail {
+  flex: 1 1 auto;
+  min-height: 4rem;
+}
+
+.appSidebarTailActive {
+  box-shadow: inset 0 2px 0 0 var(--primary);
+}
+
+/* The draggable region of a space header (collapse chevron + icon + title). */
+.appSidebarSectionHandle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: grab;
+  color: inherit;
+  text-align: start;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.appSidebarSectionHandle:active {
+  cursor: grabbing;
+}
+
+.appSidebarSectionDragging {
+  opacity: 0.4;
+}
+
+/* Insertion indicator between space headers while reordering spaces. */
+.spaceDropZone {
+  height: 4px;
+  margin: 0 1rem;
+  border-radius: 2px;
+  transition: background-color 0.15s ease;
+}
+
+.spaceDropZoneActive {
+  background-color: var(--primary);
 }
 
 @media (max-width: 768px) {
@@ -405,11 +458,16 @@
   overflow: hidden;
 }
 
-/* Override Radix ScrollArea's internal table display */
+/*
+ * Override Radix ScrollArea's internal table display. A flex column lets the
+ * trailing `.appSidebarTail` grow into whatever vertical room is left, so the
+ * empty area below the last space stays a reachable drop target (drop a page to
+ * append it / a space to move it to the end) rather than dead, undroppable space.
+ */
 .appSidebarScrollArea :global([data-radix-scroll-area-viewport]) > div {
-  display: block !important;
+  display: flex !important;
+  flex-direction: column;
   min-width: 0 !important;
-  padding-bottom: 4rem;
 }
 
 .appSidebarScrollArea > div {
@@ -419,7 +477,14 @@
 }
 
 .appSidebarScrollArea > div > div {
-  height: 100%;
+  /*
+   * Fill the available height when the space list is short (so the area reads
+   * as one continuous panel and the trailing drop zone is reachable), but grow
+   * past it and scroll when there are many spaces. A fixed `height: 100%` here
+   * combined with `height: 100%` on each `.appSidebarPages` made every space
+   * stack a full viewport tall.
+   */
+  min-height: 100%;
   min-width: 0;
 }
 
@@ -588,11 +653,18 @@
    */
   padding-block: 6px;
   padding-inline: 1rem 0.25rem;
-  flex: 1 1 auto;
+  /*
+   * Size to the pages it contains rather than growing to fill the column —
+   * otherwise, in the sidebar's flex layout, every space would stack
+   * screen-height again. The trailing `.appSidebarTail` absorbs spare space
+   * instead. `min-height` keeps a small target for dropping a page into an
+   * otherwise-empty space.
+   */
+  flex: 0 0 auto;
+  min-height: 2rem;
   border-radius: 4px;
   overflow: hidden;
   min-width: 0;
-  height: 100%;
 
   /* for touch dragging to work */
   -webkit-touch-callout: none;

@@ -271,17 +271,34 @@ export function routeCapturedEnd(
   ctx: RegionCtx,
 ): RegionResult {
   const captured = ctx.session.captured;
+  // Release the capture only AFTER the drag's onEnd has run: a node drag reads
+  // its start descriptor back off `session.captured.hit` (e.g. image resize
+  // diffs the final dimensions against the pre-drag ones to emit its ops).
+  // Clearing first would strand that data and silently drop the ops.
+  if (!captured?.region.drag) {
+    ctx.session.captured = null;
+    ctx.session.pendingCapture = null;
+    return null;
+  }
+  const result = captured.region.drag.onEnd(p, ctx);
   ctx.session.captured = null;
   ctx.session.pendingCapture = null;
-  if (!captured?.region.drag) return null;
-  return captured.region.drag.onEnd(p, ctx);
+  return result;
 }
 
 /** Route pointer cancel to the capturing region and release the capture. */
 export function routeCapturedCancel(ctx: RegionCtx): EditorState | null {
   const captured = ctx.session.captured;
+  // Same ordering as routeCapturedEnd: onCancel may still read
+  // `session.captured.hit` (e.g. to clear the resize-handle highlight on the
+  // right block), so release the capture only after it has run.
+  if (!captured?.region.drag) {
+    ctx.session.captured = null;
+    ctx.session.pendingCapture = null;
+    return null;
+  }
+  const result = captured.region.drag.onCancel(ctx);
   ctx.session.captured = null;
   ctx.session.pendingCapture = null;
-  if (!captured?.region.drag) return null;
-  return captured.region.drag.onCancel(ctx);
+  return result;
 }

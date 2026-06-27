@@ -432,12 +432,9 @@ export class ListNode extends TextNode {
   }
 
   outputText(block: ListBlock, ctx: OutputCtx): string {
-    const b = block;
-    const text = ctx.inline(b.charRuns, b.formats);
-    if (b.type === "todo_list") {
-      const checkbox = (b as TodoListItem).checked ? "[x]" : "[ ]";
-      return `${checkbox} ${text}`;
-    }
-    return text;
+    // Plain text (text/plain paste) lands in external apps as bare text — no
+    // list marker, matching bullet/numbered items. A todo's `[ ]`/`[x]` prefix
+    // would read there as stray brackets, so it's dropped too.
+    return ctx.inline(block.charRuns, block.formats);
   }
 }

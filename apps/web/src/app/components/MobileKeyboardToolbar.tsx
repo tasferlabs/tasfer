@@ -42,19 +42,19 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
   italic: <Italic className="size-5" />,
   code: <Code className="size-5" />,
   math_command: <Braces className="size-5" />,
-  math: <Sigma className="size-4" />,
+  math: <Sigma className="size-5" />,
   strikethrough: <Strikethrough className="size-5" />,
-  text: <Type className="size-4" />,
-  paragraph: <Pilcrow className="size-4" />,
-  heading1: <Heading1 className="size-4" />,
-  heading2: <Heading2 className="size-4" />,
-  heading3: <Heading3 className="size-4" />,
-  quote: <Quote className="size-4" />,
-  list: <List className="size-4" />,
-  list_ordered: <ListOrdered className="size-4" />,
-  list_todo: <ListChecks className="size-4" />,
-  image: <Image className="size-4" />,
-  line: <Minus className="size-4" />,
+  text: <Type className="size-5" />,
+  paragraph: <Pilcrow className="size-5" />,
+  heading1: <Heading1 className="size-5" />,
+  heading2: <Heading2 className="size-5" />,
+  heading3: <Heading3 className="size-5" />,
+  quote: <Quote className="size-5" />,
+  list: <List className="size-5" />,
+  list_ordered: <ListOrdered className="size-5" />,
+  list_todo: <ListChecks className="size-5" />,
+  image: <Image className="size-5" />,
+  line: <Minus className="size-5" />,
   indent: <IndentIncrease className="size-5" />,
   outdent: <IndentDecrease className="size-5" />,
   todo_check: <Check className="size-5" />,
@@ -90,6 +90,11 @@ export function MobileKeyboardToolbar({
   );
   const openMenu = menus.find((menu) => menu.id === openPanelId);
   const morePanelOpen = openPanelId === "more";
+  // Light up the overflow trigger when one of its hidden controls is active,
+  // mirroring an active inline mark on the visible bar.
+  const moreActive = layout.more.some(
+    (item) => item.kind === "button" && item.active,
+  );
 
   // Pre-render each math chip's preview SVG. Keyed by query + chip ids so a
   // selection-only state tick (same row) doesn't re-render every preview.
@@ -211,7 +216,7 @@ export function MobileKeyboardToolbar({
             <>
               <ToolbarButton
                 onPress={() => togglePanel("more")}
-                active={morePanelOpen}
+                active={morePanelOpen || moreActive}
                 aria-label={t("editor.more", "More")}
               >
                 {ICONS.more}

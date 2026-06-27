@@ -23,11 +23,17 @@
     "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
 
-  min-height: 100dvh;
+  /* Fixed (not min-) height so this element is itself the bounded scroll
+     container — with min-height it would grow to fit content and overflow-y
+     would never engage, leaving no scrollbar. */
+  height: 100dvh;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* Center with auto margins (see .ob-dots / .ob-card) rather than
+     justify-content: center, which clips the top and blocks scrolling when
+     the card is taller than the viewport. */
   padding: 32px 16px;
   background: var(--background);
   color: var(--foreground);
@@ -41,6 +47,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-top: auto;
   margin-bottom: 28px;
 }
 .ob-dot {
@@ -62,6 +69,7 @@
 .ob-card {
   width: 100%;
   max-width: 420px;
+  margin-bottom: auto;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -194,31 +202,7 @@
   background: var(--muted);
 }
 
-/* ── identity key block + bullets ──────────────────────────────────────── */
-.ob-key-block {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  background: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
-  margin-top: 4px;
-}
-.ob-key-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-.ob-key-block code {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  color: var(--foreground);
-  word-break: break-all;
-}
-
+/* ── identity bullets ──────────────────────────────────────────────────── */
 .ob-bullets {
   list-style: none;
   margin: 14px 0 0;
@@ -285,30 +269,6 @@
   font-size: 12.5px;
   color: var(--muted-foreground);
   margin-top: 2px;
-}
-
-/* ── theme toggle (top-right) ──────────────────────────────────────────── */
-.ob-theme-toggle {
-  position: fixed;
-  top: 16px;
-  inset-inline-end: 16px;
-  z-index: 55;
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--muted-foreground);
-  cursor: pointer;
-  box-shadow: var(--ob-shadow-xs);
-  transition: color var(--ob-dur-fast), background var(--ob-dur-fast), border-color var(--ob-dur-fast);
-}
-.ob-theme-toggle:hover {
-  color: var(--foreground);
-  background: var(--muted);
 }
 
 /* ── sync folder picker ────────────────────────────────────────────────── */
@@ -542,19 +502,25 @@
 }
 .ob-seg button {
   flex: 1;
+  min-width: 0;
   appearance: none;
   border: none;
   cursor: pointer;
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 7px 6px;
+  gap: 5px;
+  padding: 10px 4px;
   border-radius: var(--radius-md);
-  font: 500 12.5px var(--ob-font-sans);
+  font: 500 12px var(--ob-font-sans);
+  white-space: nowrap;
   color: var(--muted-foreground);
   background: transparent;
   transition: background var(--ob-dur-fast), color var(--ob-dur-fast);
+}
+.ob-seg button svg {
+  flex-shrink: 0;
 }
 .ob-seg button[aria-current="true"] {
   background: var(--card);

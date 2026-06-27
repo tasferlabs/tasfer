@@ -104,6 +104,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   });
 
   function handleCreate(data: z.infer<typeof CreateSchema>) {
+    if (isCreating) return;
     createSpace({ name: data.name });
   }
 

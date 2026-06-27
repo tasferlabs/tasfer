@@ -161,7 +161,6 @@ function editorNodeStrings(): Record<string, Record<string, string>> {
       loading: i18next.t("image.loading"),
       uploading: i18next.t("image.uploading"),
       uploadFailed: i18next.t("error.failedToUploadImage"),
-      clickToRetry: i18next.t("common.clickToRetry"),
       changeImage: i18next.t("image.changeImage"),
     },
     quote: {
@@ -174,10 +173,7 @@ function editorNodeStrings(): Record<string, Record<string, string>> {
 }
 
 function toolbarBlockTypeFromQueryBlock(
-  block:
-    | { type: string; attrs?: Record<string, unknown> }
-    | null
-    | undefined,
+  block: { type: string; attrs?: Record<string, unknown> } | null | undefined,
 ): MobileToolbarBlockType {
   if (!block) return "paragraph";
   if (block.type === "heading") {
@@ -622,7 +618,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
               <div className="relative px-4 pb-3">
                 <Search
                   aria-hidden="true"
-                  className="pointer-events-none absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                  className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                 />
                 <Input
                   value={search}
@@ -735,19 +731,7 @@ function nodeOverlaysEqual(a: NodeOverlay[], b: NodeOverlay[]): boolean {
 }
 
 async function downloadImage(url: string, alt?: string): Promise<void> {
-  const isAlreadyUrl =
-    url.startsWith("blob:") ||
-    url.startsWith("data:") ||
-    url.startsWith("http://") ||
-    url.startsWith("https://");
-  let resolvedUrl = url;
-  if (!isAlreadyUrl) {
-    try {
-      resolvedUrl = await getPlatform().assets.getUrl(url);
-    } catch {
-      // fall through; fetch will fail
-    }
-  }
+  const resolvedUrl = await resolveImageUrl(url);
 
   const response = await fetch(resolvedUrl);
   const blob = await response.blob();
@@ -777,6 +761,53 @@ async function downloadImage(url: string, alt?: string): Promise<void> {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(objectUrl);
+}
+
+async function resolveImageUrl(url: string): Promise<string> {
+  const isAlreadyUrl =
+    url.startsWith("blob:") ||
+    url.startsWith("data:") ||
+    url.startsWith("http://") ||
+    url.startsWith("https://");
+  if (isAlreadyUrl) return url;
+  try {
+    return await getPlatform().assets.getUrl(url);
+  } catch {
+    // fall through; fetch will fail with the unresolved ref
+    return url;
+  }
+}
+
+/**
+ * The async clipboard API only reliably accepts `image/png` across browsers, so
+ * decode anything else through a canvas before writing.
+ */
+async function blobToPngBlob(blob: Blob): Promise<Blob> {
+  if (blob.type === "image/png") return blob;
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("2d context unavailable");
+    ctx.drawImage(bitmap, 0, 0);
+    const png = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/png"),
+    );
+    if (!png) throw new Error("canvas.toBlob returned null");
+    return png;
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function copyImageToClipboard(url: string): Promise<void> {
+  const resolvedUrl = await resolveImageUrl(url);
+  const response = await fetch(resolvedUrl);
+  const blob = await response.blob();
+  const png = await blobToPngBlob(blob);
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -1116,6 +1147,19 @@ function EditorSurface({
 
     window.addEventListener("message", handleKeyboardHeight);
     return () => window.removeEventListener("message", handleKeyboardHeight);
+  }, []);
+
+  // Self-heal images that failed while offline. Connectivity is a platform
+  // concern, so the `online` reset lives in the host: drop every parked failure
+  // (the editor caps automatic retries, so a sustained outage parks them) and
+  // force a repaint, which re-attempts each broken image's load from scratch.
+  useEffect(() => {
+    const handleOnline = () => {
+      clearFailedImageCache();
+      mountedRef.current?.editor.view.updateViewport({});
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
   }, []);
 
   const dismissMobileKeyboard = useCallback(() => {
@@ -2425,6 +2469,24 @@ function EditorSurface({
   const getContextMenuItems = (): ContextMenuItem[] => {
     const hasSelection = contextMenuState?.hasSelection ?? false;
 
+    // When the cursor sits on an image block we can copy the image bytes
+    // themselves. The async clipboard write API is unavailable in some WebViews
+    // (and the native bridge clipboard is text-only), so only treat this as a
+    // copyable image where the write can actually succeed.
+    const block = mountedRef.current?.editor.query.block();
+    const imageUrl =
+      block?.type === "image" && block.attrs.url
+        ? (block.attrs.url as string)
+        : null;
+    const imageAlt =
+      block?.type === "image"
+        ? (block.attrs.alt as string | undefined)
+        : undefined;
+    const canCopyImage =
+      imageUrl !== null &&
+      typeof ClipboardItem !== "undefined" &&
+      typeof navigator.clipboard?.write === "function";
+
     const items: ContextMenuItem[] = [
       {
         id: "selectAll",
@@ -2432,24 +2494,54 @@ function EditorSurface({
         icon: <Type size={16} />,
         action: () => handleContextMenuAction("selectAll"),
       },
-      {
-        id: "copy",
-        label: t("contextMenu.copy", "Copy"),
-        icon: <Copy size={16} />,
-        action: () => handleContextMenuAction("copy"),
-        disabled: !hasSelection,
-      },
+      // A single "Copy" entry: on an image block it copies the image and shows
+      // the image icon; otherwise it copies the current text selection.
+      canCopyImage
+        ? {
+            id: "copyImage",
+            label: t("contextMenu.copyImage", "Copy image"),
+            icon: <ImageIcon size={16} />,
+            action: () => {
+              void copyImageToClipboard(imageUrl!);
+            },
+          }
+        : {
+            id: "copy",
+            label: t("contextMenu.copy", "Copy"),
+            icon: <Copy size={16} />,
+            action: () => handleContextMenuAction("copy"),
+            disabled: !hasSelection,
+          },
     ];
 
     // Hide edit-related items in readonly mode
     if (!readonly) {
-      items.push({
-        id: "cut",
-        label: t("contextMenu.cut", "Cut"),
-        icon: <Scissors size={16} />,
-        action: () => handleContextMenuAction("cut"),
-        disabled: !hasSelection,
-      });
+      // On an image block, Cut copies the image bytes then removes the block;
+      // otherwise it cuts the current text selection.
+      items.push(
+        canCopyImage
+          ? {
+              id: "cut",
+              label: t("contextMenu.cut", "Cut"),
+              icon: <Scissors size={16} />,
+              action: () => {
+                // Only remove the block once the image is safely on the
+                // clipboard — a failed copy must not destroy the image.
+                void copyImageToClipboard(imageUrl!).then(() => {
+                  mountedRef.current?.editor.change((c) =>
+                    c.deleteBlock({ block: block!.id }),
+                  );
+                });
+              },
+            }
+          : {
+              id: "cut",
+              label: t("contextMenu.cut", "Cut"),
+              icon: <Scissors size={16} />,
+              action: () => handleContextMenuAction("cut"),
+              disabled: !hasSelection,
+            },
+      );
 
       // Paste reads the system clipboard via `navigator.clipboard` (editor.paste
       // → pasteFromSystemClipboard). Clipboard *read* is gated by the browser:
@@ -2463,21 +2555,17 @@ function EditorSurface({
       });
     }
 
-    // Add Download item when cursor is on an image block with a url
-    {
-      const block = mountedRef.current?.editor.query.block();
-      if (block && block.type === "image" && block.attrs.url) {
-        const url = block.attrs.url as string;
-        const alt = block.attrs.alt as string | undefined;
-        items.push({
-          id: "downloadImage",
-          label: t("contextMenu.downloadImage", "Download image"),
-          icon: <Download size={16} />,
-          action: () => {
-            void downloadImage(url, alt);
-          },
-        });
-      }
+    // Add Download item when cursor is on an image block with a url. (Copying
+    // the image is folded into the "Copy" entry above.)
+    if (imageUrl) {
+      items.push({
+        id: "downloadImage",
+        label: t("contextMenu.downloadImage", "Download image"),
+        icon: <Download size={16} />,
+        action: () => {
+          void downloadImage(imageUrl, imageAlt);
+        },
+      });
     }
 
     // Add Format submenu for desktop when text is selected (not in readonly mode)

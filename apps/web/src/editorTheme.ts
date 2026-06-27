@@ -13,7 +13,36 @@
  * defined are omitted, so the editor's neutral defaults apply for those.
  */
 
+import { isTouchDevice } from "@cypherkit/editor/internal";
 import type { EditorTheme, ThemeTokens } from "@cypherkit/editor";
+
+/**
+ * Image resize drag-handle inset for touch devices, in CSS px (default is 16).
+ *
+ * At the default inset the left/right handles' touch hit region lands in two
+ * danger zones near the viewport edges: the custom scrollbar's 32px touch
+ * target (`scrollbar.touchTargetWidth`) on the right, and the Android system
+ * back-gesture zone (left/right, up to ~40px at high sensitivity). Pushing the
+ * handles further in from the image edge clears both. The engine's hit-test
+ * honors this per-instance inset (`getDragHandleAtPoint`), so the grabbable
+ * region moves with the painted bar. Desktop keeps the tighter default — a
+ * mouse has no edge-gesture or fat-finger scrollbar-target conflict.
+ */
+const TOUCH_IMAGE_HANDLE_INSET = 40;
+
+/**
+ * Touch handles are short, rounded grips rather than the desktop full-length
+ * bars (vertical 100px / bottom 200px). At the inset required to clear the edge
+ * danger zones, a long bar floats across the middle of the image like a divider;
+ * a compact centered grip reads as an intentional resize affordance instead.
+ * The engine's hit-test honors these same per-instance styles, so the grab area
+ * tracks the painted grip (still comfortably tappable with the 12px touch
+ * tolerance the engine adds on each side).
+ */
+const TOUCH_IMAGE_HANDLE_LENGTH = 48;
+const TOUCH_IMAGE_HANDLE_BOTTOM_LENGTH = 64;
+/** Slightly translucent so the grips rest lightly over photo content. */
+const TOUCH_IMAGE_HANDLE_OPACITY = 0.85;
 
 // token key → CSS custom property it reads from.
 const TOKEN_VARS: Partial<Record<keyof ThemeTokens, string>> = {
@@ -82,6 +111,26 @@ export function cssVarsToTheme(): EditorTheme {
           checkboxBorderColor: readTodoCheckboxBorderColor(tokens),
         },
       },
+      // On touch, keep the image resize handles clear of the scrollbar touch
+      // target and the platform edge-gesture zone (see TOUCH_IMAGE_HANDLE_INSET),
+      // and render them as compact grips rather than full-length bars.
+      ...(isTouchDevice()
+        ? {
+            imageResize: {
+              dragHandles: {
+                vertical: {
+                  inset: TOUCH_IMAGE_HANDLE_INSET,
+                  length: TOUCH_IMAGE_HANDLE_LENGTH,
+                  opacity: TOUCH_IMAGE_HANDLE_OPACITY,
+                },
+                horizontal: {
+                  length: TOUCH_IMAGE_HANDLE_BOTTOM_LENGTH,
+                  opacity: TOUCH_IMAGE_HANDLE_OPACITY,
+                },
+              },
+            },
+          }
+        : {}),
     },
   };
 }
