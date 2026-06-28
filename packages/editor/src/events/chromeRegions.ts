@@ -272,13 +272,12 @@ const selectionHandleRegion: Region = {
   },
 };
 
-/** Out-of-view peer indicator — click to scroll that peer into view. */
+/** Out-of-view peer indicator — click/tap to scroll that peer into view. */
 const peerIndicatorRegion: Region = {
   id: "peer-indicator",
   priority: 70,
   modes: ["edit", "select", "readonly"],
-  hitTest(p, pointerType, ctx) {
-    if (pointerType !== "mouse") return null;
+  hitTest(p, _pointerType, ctx) {
     return getOutOfViewIndicatorAtPoint(ctx.session, p.x, p.y);
   },
   onTap(hit, _p, _tapCount, ctx) {
@@ -371,7 +370,13 @@ const blockDragHandleRegion: Region = {
         state: setBlockDrag(ctx.state, {
           blockId,
           pointerY: p.y,
-          dropIndex: dropIndexAtPoint(p.y, ctx.state, ctx.viewport),
+          dropIndex: dropIndexAtPoint(
+            p.y,
+            ctx.state,
+            ctx.viewport,
+            undefined,
+            ctx.visibility,
+          ),
         }),
       };
     },
@@ -382,7 +387,13 @@ const blockDragHandleRegion: Region = {
         state: setBlockDrag(ctx.state, {
           ...drag,
           pointerY: p.y,
-          dropIndex: dropIndexAtPoint(p.y, ctx.state, ctx.viewport),
+          dropIndex: dropIndexAtPoint(
+            p.y,
+            ctx.state,
+            ctx.viewport,
+            undefined,
+            ctx.visibility,
+          ),
         }),
       };
     },

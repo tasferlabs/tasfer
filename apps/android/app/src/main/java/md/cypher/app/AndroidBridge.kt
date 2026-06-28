@@ -112,6 +112,16 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     }
 
     @JavascriptInterface
+    fun showContextMenu(json: String, callbackId: String) {
+        // Built on the UI thread (PopupMenu touches the view hierarchy). The
+        // chosen item id — or null on dismiss — comes back via the activity,
+        // which resolves the JS promise registered under `callbackId`.
+        (context as? MainActivity)?.runOnUiThread {
+            (context as? MainActivity)?.showNativeContextMenu(json, callbackId)
+        }
+    }
+
+    @JavascriptInterface
     fun openUrl(url: String) {
         (context as? MainActivity)?.runOnUiThread {
             try {

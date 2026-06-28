@@ -1602,7 +1602,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const focusChanged = this._state.view.isFocused !== focused;
     // Defer clearing the selection on blur rather than doing it inline: the clear
     // only happens if focus has NOT returned by the time the timer fires.
-    if (!focused && this._state.document.selection !== null) {
+    //
+    // While a host menu is up the editor is intentionally blurred (a native menu
+    // or popover took focus), but the selection must survive — its actions (copy,
+    // cut, formatting) still target it. The menu clears `hostMenuCapturing` via
+    // CLOSE_CONTEXT_MENU, and a later real blur schedules the clear as usual.
+    if (
+      !focused &&
+      this._state.document.selection !== null &&
+      !this.session.hostMenuCapturing
+    ) {
       this.scheduleSelectionClearOnBlur();
     }
     if (!focusChanged) return;
@@ -1627,6 +1636,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.pendingSelectionClear = null;
       // Focus came back, or the selection is already gone — nothing to clear.
       if (this._state.view.isFocused) return;
+      // A host menu opened after this was scheduled — keep the selection alive
+      // for its actions until the menu closes.
+      if (this.session.hostMenuCapturing) return;
       if (this._state.document.selection === null) return;
       this._state = clearSelection(this._state);
       this.scheduleRender();

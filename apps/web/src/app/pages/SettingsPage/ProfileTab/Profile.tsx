@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { DeviceType } from "@/platform/types";
+import { getDisplayName } from "@cypherkit/provider-core/cursors";
 import { Camera, Laptop, Monitor, Smartphone, Tablet, Trash } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
@@ -96,7 +97,12 @@ export function Profile() {
     }
   }
 
-  const initials = (user?.name ?? "?").charAt(0).toUpperCase();
+  const initials = getDisplayName(
+    { name: user?.name },
+    t("collaboration.anonymous", "Anonymous"),
+  )
+    .charAt(0)
+    .toUpperCase();
 
   return (
     <div className={styles.container}>

@@ -39,10 +39,16 @@
 
 import { getBaseDataSchema } from "../baseDataSchema";
 import { IS_DEV } from "../env";
+import type { Page } from "../serlization/loadPage";
 import type { Operation, OpLog, VersionVector } from "../state-types";
 import { compareHLC } from "./hlc";
 import { extractCounter, extractPeerId } from "./id";
-import { applyOp, createEmptyPageState, rebuildState } from "./reducer";
+import {
+  applyOp,
+  cleanSnapshotForSave,
+  createEmptyPageState,
+  rebuildState,
+} from "./reducer";
 import type { DataSchema } from "./schema";
 
 /**
@@ -220,7 +226,15 @@ export function mergeOps(
 
     if (IS_DEV) {
       const rebuilt = rebuildState(log.pageId, allOps, schema);
-      if (JSON.stringify(state) !== JSON.stringify(rebuilt)) {
+      // Compare CANONICAL state only. The incremental `state` is folded onto the
+      // live page a mounted editor renders into, so its blocks carry the
+      // transient render cache (`cachedLayout`) and neighbour-type stamps;
+      // `rebuilt` starts from an empty page and never has them. Stripping both
+      // (the same fields persistence drops) keeps this check measuring real CRDT
+      // divergence instead of false-positiving on render-only state.
+      const canonical = (p: Page) =>
+        JSON.stringify({ ...p, blocks: cleanSnapshotForSave(p.blocks) });
+      if (canonical(state) !== canonical(rebuilt)) {
         console.error(
           `[mergeOps] incremental state diverged from rebuilt state for page ${log.pageId}; new op ids: ${newOps.map((o) => o.id).join(", ")}`,
         );

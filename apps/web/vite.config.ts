@@ -1,11 +1,10 @@
-import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import basicSsl from "@vitejs/plugin-basic-ssl";
-import { VitePWA } from "vite-plugin-pwa";
-import { DateTime } from "luxon";
 import { readFileSync } from "fs";
+import { DateTime } from "luxon";
 import { join, resolve } from "path";
+import { defineConfig } from "vite";
+import { VitePWA } from "vite-plugin-pwa";
 
 const buildTimestamp = DateTime.utc().toFormat("yyyyMMddHHmm");
 
@@ -41,6 +40,12 @@ export default defineConfig({
   },
   base: "./",
   build: { sourcemap: true },
+  // The device-node SharedWorker bundles the Engine, whose lazy `import()`s
+  // require code-splitting — unsupported by the default `iife` worker format.
+  // Use ES module workers: they support splitting AND let wa-sqlite's WASM
+  // dynamic import (wa-sqlite-async.mjs) work normally (forcing it inline
+  // breaks it).
+  worker: { format: "es" },
   resolve: {
     alias: {
       "@cypherkit/editor": resolve(__dirname, "../../packages/editor/src"),

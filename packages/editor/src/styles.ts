@@ -400,6 +400,19 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       labelFontSize: 10,
       labelPadding: 2,
       labelBorderRadius: 2,
+      // Defaults reproduce the historical pill geometry; the inset* fields are 0
+      // so positions match the pre-theming behavior until a host overrides them
+      // (e.g. to clear a mobile safe area).
+      outOfViewIndicator: {
+        insetInlineStart: 0,
+        insetTop: 0,
+        insetBottom: 0,
+        pillHeight: 24,
+        pillPadding: 8,
+        fontSize: 12,
+        chevronSize: 6,
+        gap: 8,
+      },
     },
     selection: {
       // Focused variant; `getEditorStyles` swaps in `unfocusedBackgroundColor`

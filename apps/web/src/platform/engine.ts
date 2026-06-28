@@ -27,11 +27,14 @@ import type {
   PairCallbacks,
 } from "./types";
 import { invariant } from "@shared/invariant";
-import type { Driver, CryptoDriver } from "./driver";
+import type { Driver, CryptoDriver, DbRow } from "./driver";
 import type { HLC } from "@cypherkit/editor";
 import type { ReplicatorHost } from "./sync";
 import { nanoid } from "nanoid";
-import { sortBlocksByOrder } from "@cypherkit/editor/internal";
+// Deep import the DOM-free block-order module rather than the `/internal`
+// barrel — the barrel re-exports rendering/font code that touches `document`,
+// which crashes the engine when it runs inside the SharedWorker (Phase 2).
+import { sortBlocksByOrder } from "@cypherkit/editor/sync/block-order";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
@@ -154,10 +157,20 @@ export class Engine implements Platform {
     this.driver = driver;
   }
 
-  /** Expose the raw DbDriver for debugging tools */
-  getDb() {
-    return this.driver.db;
-  }
+  /**
+   * Raw database access for developer tooling (DevToolbar). Part of the
+   * `Platform` surface so it tunnels over RPC when the engine lives in the
+   * SharedWorker. Not for app logic — application data uses the typed
+   * namespaces below.
+   */
+  db = {
+    execute: <T extends DbRow = DbRow>(sql: string, params?: unknown[]) =>
+      this.driver.db.execute<T>(sql, params),
+    run: (sql: string, params?: unknown[]) => this.driver.db.run(sql, params),
+    exec: (sql: string) => this.driver.db.exec(sql),
+    getPendingMigrations: () => this.getPendingMigrations(),
+    applyMigrations: () => this.applyMigrations(),
+  };
 
   /** Initialize the database schema. Call once at startup. */
   async init(): Promise<void> {
@@ -1012,6 +1025,11 @@ export class Engine implements Platform {
         // Push the initial block op to already-connected peers so they don't
         // have to wait for a full re-sync to see the new page's structure.
         this.replicator?.pushPageOps(data.spaceId, id, [blockInsertOp]);
+
+        // Wake local listeners (e.g. other browser tabs sharing this engine)
+        // so their page list refreshes immediately. emitSpaceOp only stores
+        // the op and pushes to remote peers; it does not notify locally.
+        this.notifySpaceChange(data.spaceId);
       }
 
       return this.pages.get(id);
@@ -1082,6 +1100,7 @@ export class Engine implements Platform {
               value,
             });
           }
+          this.notifySpaceChange(spaceId);
         }
       }
 
@@ -1116,6 +1135,7 @@ export class Engine implements Platform {
         for (const pageId of ids) {
           await this.emitSpaceOp(spaceId, { op: "page_remove", pageId });
         }
+        this.notifySpaceChange(spaceId);
       }
 
       // Notify page delete listeners (so the editor can react if the deleted page is open)
@@ -1162,6 +1182,7 @@ export class Engine implements Platform {
           field: "order",
           value: order,
         });
+        this.notifySpaceChange(spaceId);
       }
     },
 
@@ -1179,6 +1200,7 @@ export class Engine implements Platform {
           field: "order",
           value: order,
         });
+        this.notifySpaceChange(spaceId);
       }
     },
 
@@ -1429,6 +1451,33 @@ export class Engine implements Platform {
       const blobUrl = this.createBlobUrl(data, this.guessMimeType(match));
       this.blobUrlCache.set(hash, blobUrl);
       return blobUrl;
+    },
+
+    /**
+     * Fetch raw asset bytes + mime. Used over the RPC seam when the engine runs
+     * in the worker: a `blob:` URL minted there is dead in the tab DOM, so the
+     * client mints its own URL from these bytes. Same lookup as `getUrl`,
+     * including the peer-request fallback, but context-free.
+     */
+    getBytes: async (
+      hash: string,
+    ): Promise<{ data: Uint8Array; mime: string } | null> => {
+      const assetsDir = `${this.driver.basePath}/assets`;
+      let files = await this.driver.fs.list(assetsDir);
+      let match = files.find((f) => f.startsWith(hash));
+
+      if (!match && this.replicator) {
+        const found = await this.replicator.requestAsset(hash);
+        if (found) {
+          files = await this.driver.fs.list(assetsDir);
+          match = files.find((f) => f.startsWith(hash));
+        }
+      }
+
+      if (!match) return null;
+      const data = await this.driver.fs.read(`${assetsDir}/${match}`);
+      if (!data) return null;
+      return { data, mime: this.guessMimeType(match) };
     },
 
     delete: async (hash: string): Promise<void> => {

@@ -220,6 +220,12 @@ export function beginRegionInteraction(
     return result;
   }
   if (region.onTap) {
+    // Mouse acts on press. Touch taps are delivered by the touch handler on
+    // release (handleTouchEnd): firing here would act on touch-down — before
+    // the gesture is known to be a tap rather than a scroll/long-press — and
+    // the press-time caller (handleTouchStart) returns only `begin.state`, so
+    // a tap's ops (e.g. a checkbox toggle) would be silently dropped.
+    if (pointerType === "touch") return null;
     return region.onTap(hit, p, 1, ctx);
   }
   return null;

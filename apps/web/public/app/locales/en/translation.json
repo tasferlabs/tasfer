@@ -791,6 +791,8 @@
   "onboarding.addPhoto": "Add photo",
   "onboarding.pngOrJpg": "PNG or JPG",
   "onboarding.anonymous": "anonymous",
+  "collaboration.anonymous": "Anonymous",
+  "collaboration.you": "You",
   "onboarding.spaceTitle": "Set up your first space.",
   "onboarding.spaceIntro": "A space is a workspace that syncs directly between you and the people you invite — peer to peer, no server in the middle. Start one of your own, or join a peer's.",
   "onboarding.createSpaceSub": "Just for you. Invite others whenever you like.",

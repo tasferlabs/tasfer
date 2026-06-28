@@ -607,22 +607,33 @@ export function getBlockIndexAtPoint(
  * argument for {@link import("./actions/edit-actions").MOVE_BLOCK}
  * (`k === 0` → `null`, else `visibleBlocks[k-1].id`).
  *
- * Walks every visible block (not just the on-screen window) so the index is
- * globally correct even when the drop is past the fold; heights come from the
- * shared per-block cache via `getBlockHeight`, so the walk is cheap.
+ * Walks from the on-screen window down to the tail so the index stays correct
+ * for drops past the fold; heights come from the shared per-block cache via
+ * `getBlockHeight`, so the walk is cheap.
+ *
+ * The walk is anchored at the latest content paint's `visibility` snapshot
+ * (`startY`/`start`) rather than the document top. On-screen blocks are laid out
+ * from `visibility.startY` using the height index, which carries *estimates* for
+ * the off-screen blocks above the fold; summing exact heights from block 0 would
+ * drift from the painted positions and pick the gap under the wrong block. This
+ * mirrors {@link getBlockIndexAtPoint}, which the hover hit-test already anchors
+ * the same way. Without a snapshot it falls back to the document-top walk.
  */
 export function dropIndexAtPoint(
   y: number,
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
 ): number {
   const visibleBlocks = state.view.visibleBlocks;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  const startIndex = visibility?.start ?? 0;
+  let currentY =
+    visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
 
-  for (let i = 0; i < visibleBlocks.length; i++) {
+  for (let i = startIndex; i < visibleBlocks.length; i++) {
     const blockHeight = getBlockHeight(
       state.nodes,
       state.marks,

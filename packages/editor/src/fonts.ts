@@ -76,13 +76,21 @@ const fontReadyCallbacks: Array<() => void> = [];
 // eslint-disable-next-line local/no-global-mutable-state -- pure measurement cache keyed by resolved CSS font-stack; instance-independent, so two instances can't collide.
 let metricsCache: ReadonlyMap<string, FontMetrics> = new Map();
 
-// Canvas context for measurements (created once)
-const measurementCanvas = (() => {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1;
-  canvas.height = 1;
-  return canvas.getContext("2d")!;
-})();
+// Canvas context for measurements (created once, lazily). Created on first use
+// rather than at module load so this module stays importable in DOM-free hosts
+// (e.g. the device-node SharedWorker in `apps/web`), which pull `fonts` in
+// transitively via the schema/node graph but never measure text.
+// eslint-disable-next-line local/no-global-mutable-state -- stateless, reusable measurement context; instance-independent, so two instances can't collide.
+let measurementCanvas: CanvasRenderingContext2D | null = null;
+function getMeasurementCanvas(): CanvasRenderingContext2D {
+  if (!measurementCanvas) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    measurementCanvas = canvas.getContext("2d")!;
+  }
+  return measurementCanvas;
+}
 
 /**
  * Resolve the CSS font-stack for a family key from a (per-instance) font
@@ -208,7 +216,7 @@ function calculateFontMetrics(
   fontWeight: string,
   fonts: FontStyles,
 ): FontMetrics {
-  const ctx = measurementCanvas;
+  const ctx = getMeasurementCanvas();
   applyFont(ctx, fontSize, fontWeight, fontFamily, fonts);
   const textMetrics = ctx.measureText("Mg");
 
@@ -263,7 +271,7 @@ export function measureCtxText(
   fontFamily: FontFamily,
   fonts: FontStyles,
 ): number {
-  const ctx = measurementCanvas;
+  const ctx = getMeasurementCanvas();
   // <= 2 covers surrogate pairs while keeping the cache bounded
   if (text.length <= 2) {
     const fontStack = getFontStack(fontFamily, fonts);

@@ -9,6 +9,15 @@ import { invariant } from "@shared/invariant";
 import type { Platform } from "./types";
 import { Engine } from "./engine";
 import { Replicator } from "./sync";
+import { createPlatformClient } from "./rpc/client";
+import { startNetworkHostElection } from "./rpc/net-host";
+// Static `?sharedworker` import — the only form Vite reliably compiles to a
+// SharedWorker. A dynamic `import("...?sharedworker")` runs the module on the
+// main thread instead. The SharedWorker hosts the Engine and runs SQLite on an
+// IndexedDB-backed VFS (OPFS sync access handles are dedicated-worker-only, and
+// a SharedWorker can't spawn a worker to reach them). Importing the constructor
+// does not start the worker; `new` does.
+import CypherNodeWorker from "./adapters/node.sharedworker?sharedworker";
 
 // Re-export all types for convenience
 export type * from "./types";
@@ -108,8 +117,32 @@ export async function initPlatform(): Promise<Platform> {
 
 async function _initPlatformInner(): Promise<Platform> {
   const env = detectAdapter();
+
   const signalUrl =
     import.meta.env.VITE_SIGNAL_URL ?? "wss://signaling.cypher.md";
+
+  // Web: the device-node SharedWorker is the one and only path. The Engine +
+  // Replicator run in the worker, SQLite runs there on an IndexedDB-backed VFS,
+  // and this tab is a thin RPC client — one source of truth, live cross-tab
+  // convergence. One tab is elected (Web Locks) to host the single WebRTC
+  // connection on the worker's behalf. SharedWorker is required; every current
+  // browser (Chrome/Edge/Firefox; Safari 16.4+) ships it.
+  if (env === "web") {
+    if (typeof SharedWorker === "undefined") {
+      throw new Error(
+        "This browser does not support SharedWorker, which Cypher requires. " +
+          "Please use a current version of Chrome, Edge, Firefox, or Safari 16.4+.",
+      );
+    }
+    const worker = new CypherNodeWorker();
+    const client = createPlatformClient(worker.port);
+    startNetworkHostElection(worker.port, signalUrl);
+    console.log("[platform] device-node SharedWorker active");
+    _platform = client;
+    _g.__cypher_platform = client;
+    return client;
+  }
+
   let engine: Engine;
   let replicator: Replicator;
 
@@ -135,14 +168,8 @@ async function _initPlatformInner(): Promise<Platform> {
       break;
     }
     default: {
-      const { createWebDriver } = await import("./adapters/web");
-      const driver = createWebDriver(signalUrl);
-      engine = new Engine(driver);
-      await engine.init();
-      replicator = new Replicator(driver.network, engine.asReplicatorHost());
-      engine.setReplicator(replicator);
-      engine.setSync(replicator);
-      break;
+      // env is "electron" | "capacitor" | "web"; web returned above.
+      throw new Error(`Unknown platform adapter: ${env}`);
     }
   }
 

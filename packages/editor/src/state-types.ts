@@ -718,6 +718,35 @@ export interface RenderedLine {
 
 // Style Configuration
 /** Styling for a caret decoration's name flag (e.g. a remote peer's label). */
+/**
+ * Geometry of the out-of-view peer indicators — the small "pills" pinned to a
+ * viewport edge that point toward a collaborator scrolled off-screen. All
+ * dimensions are themeable so a host can restyle them or, in particular, push
+ * them clear of platform chrome (a mobile safe area) via the `inset*` fields —
+ * the engine itself stays unaware of safe areas; it just reads these numbers.
+ */
+export interface OutOfViewIndicatorStyles {
+  /** Inset (px) from the inline-start (left) viewport edge to the first pill. */
+  readonly insetInlineStart: number;
+  /**
+   * Extra inset (px) added below the canvas top padding for pills pointing at
+   * peers above the viewport. Zero keeps them just under the top content padding.
+   */
+  readonly insetTop: number;
+  /** Inset (px) from the bottom viewport edge for pills pointing at peers below. */
+  readonly insetBottom: number;
+  /** Pill height (px). */
+  readonly pillHeight: number;
+  /** Inner padding (px) around the pill's initial. */
+  readonly pillPadding: number;
+  /** Font size (px) of the pill's initial. */
+  readonly fontSize: number;
+  /** Chevron size (px) drawn at the pill's pointing tip. */
+  readonly chevronSize: number;
+  /** Horizontal gap (px) between adjacent pills. */
+  readonly gap: number;
+}
+
 export interface RemoteCursorStyles {
   /** Label text on a caret flag. */
   readonly labelTextColor: string;
@@ -727,6 +756,8 @@ export interface RemoteCursorStyles {
   readonly labelPadding: number;
   /** Corner radius (px) of the name-label background. */
   readonly labelBorderRadius: number;
+  /** Geometry of the off-screen peer indicator pills. */
+  readonly outOfViewIndicator: OutOfViewIndicatorStyles;
 }
 
 export interface EditorStyles {

@@ -45,6 +45,7 @@ import {
 } from "@cypherkit/editor";
 import {
   CODE_LANGUAGES,
+  cleanSnapshotForSave,
   clearFailedImageCache,
   codeLanguageLabel,
   isTextualBlock,
@@ -57,6 +58,7 @@ import {
 import {
   cursorPresenceToDecorations,
   selectionToCursorPresence,
+  isSamePerson,
   type CursorPresence,
   type CursorUser,
 } from "@cypherkit/provider-core/cursors";
@@ -90,6 +92,11 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
+import {
+  toNativeMenu,
+  getNativeContextMenuPresenter,
+  prewarmMenuIcons,
+} from "./nativeContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
 import { LinkDrawer } from "../editor/LinkDrawer";
@@ -105,6 +112,7 @@ import {
 } from "../editorSchema";
 import { cssVarsToTheme } from "../editorTheme";
 import { getAppFontRegistry, onAppFontRegistryChange } from "../fonts";
+import { useSafeAreaInsets } from "./hooks/useSafeAreaInsets";
 import { cn } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { CursorMagnifier } from "./components/CursorMagnifier";
@@ -993,6 +1001,23 @@ function postKeyboardToolbar(model: NativeMobileToolbarModel): void {
   ).webkit?.messageHandlers?.KeyboardToolbar?.postMessage(model);
 }
 
+/** Tell the native shell whether the canvas editor's input surface is focused.
+ * iOS attaches the `inputAccessoryView` to the whole WKWebView, so without this
+ * gate every DOM field (find bar, dialogs, settings) would also show the
+ * formatting toolbar. The native shell shows the accessory only while this is
+ * true. No-op off iOS / when the handler isn't registered. */
+function postKeyboardAccessoryFocus(focused: boolean): void {
+  (
+    window as {
+      webkit?: {
+        messageHandlers?: {
+          KeyboardToolbarFocus?: { postMessage(m: unknown): void };
+        };
+      };
+    }
+  ).webkit?.messageHandlers?.KeyboardToolbarFocus?.postMessage(focused);
+}
+
 /**
  * Public mount component. Remounts the inner {@link EditorSurface} whenever the
  * page (or read-only mode) changes: the surface mounts its editor once via
@@ -1485,6 +1510,27 @@ function EditorSurface({
       nodeStrings: editorNodeStrings(),
     },
   });
+
+  // Keep the off-screen peer indicators clear of the platform safe area (notch,
+  // status bar, home indicator). Reading env(safe-area-inset-*) is a host
+  // concern; we feed the measured pixels into the indicator's themeable insets
+  // so the engine never needs to know what a safe area is. Re-applied on mount
+  // and whenever the insets change (orientation, etc.).
+  const safeArea = useSafeAreaInsets();
+  useEffect(() => {
+    editor?.setTheme({
+      styles: {
+        remoteCursor: {
+          outOfViewIndicator: {
+            insetTop: safeArea.top,
+            insetBottom: safeArea.bottom,
+            insetInlineStart: safeArea.left,
+          },
+        },
+      },
+    });
+  }, [editor, safeArea.top, safeArea.bottom, safeArea.left]);
+
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   // The existing native iOS accessory and the Android React toolbar consume the
   // exact same model. Only transport and rendering differ.
@@ -1533,11 +1579,22 @@ function EditorSurface({
   }, [mobileToolbarModel, t]);
 
   useEffect(() => {
-    const offFocus = editor?.on("focus", () => setKeyboardOpen(true));
-    const offBlur = editor?.on("blur", () => setKeyboardOpen(false));
+    const offFocus = editor?.on("focus", () => {
+      setKeyboardOpen(true);
+      // Enable the native iOS accessory only while the canvas editor surface
+      // holds focus, so other inputs don't inherit the formatting toolbar.
+      if (IS_IOS_NATIVE) postKeyboardAccessoryFocus(true);
+    });
+    const offBlur = editor?.on("blur", () => {
+      setKeyboardOpen(false);
+      if (IS_IOS_NATIVE) postKeyboardAccessoryFocus(false);
+    });
     return () => {
       offFocus?.();
       offBlur?.();
+      // The editor is going away; never leave the accessory enabled for whatever
+      // input gains focus next (e.g. on another page with no editor mounted).
+      if (IS_IOS_NATIVE) postKeyboardAccessoryFocus(false);
     };
   }, [editor]);
   // Bridge the hook's CypherEditor into the MountedEditorInstance shape the
@@ -1707,9 +1764,41 @@ function EditorSurface({
         ({ x, y, hasSelection }) => {
           const rect = wrapperRef.current?.getBoundingClientRect();
           if (!rect) return false;
+          const vx = rect.left + x;
+          const vy = rect.top + y;
+
+          // Native path: present a platform menu instead of the Radix popover.
+          // iOS/Android go through the unified bridge; desktop (Electron) routes
+          // over its IPC bridge. Plain web has no presenter and falls through to
+          // the popover below. We build the same host items, ship a serializable
+          // model, then run the chosen item's action. `CLOSE_CONTEXT_MENU` (via
+          // finally) clears the engine's host-capture flag whether or not an
+          // item was picked.
+          const presentNativeMenu = getNativeContextMenuPresenter();
+          if (presentNativeMenu) {
+            const { model, actions } = toNativeMenu(
+              getContextMenuItemsRef.current(hasSelection),
+            );
+            void presentNativeMenu({
+              model,
+              anchor: { x: vx, y: vy, width: 1, height: 1 },
+            })
+              .then((chosenId) => {
+                if (chosenId) actions.get(chosenId)?.();
+              })
+              .catch(() => {
+                // A presenter failure must not strand the engine in capture
+                // mode; the finally below still dispatches CLOSE_CONTEXT_MENU.
+              })
+              .finally(() => {
+                mounted.editor.dispatch(CLOSE_CONTEXT_MENU);
+              });
+            return true;
+          }
+
           setMenu({
-            x: rect.left + x,
-            y: rect.top + y,
+            x: vx,
+            y: vy,
             hasSelection,
             hoveredItemId: null,
           });
@@ -1745,10 +1834,17 @@ function EditorSurface({
       }),
     );
 
+    // Pre-rasterize native-menu icons for the current theme so the first
+    // long-press / right-click already shows them (native hosts only; a no-op
+    // cost on plain web since the menu is never requested natively there).
+    prewarmMenuIcons();
+
     // Re-push the CSS-driven editor theme whenever the document root's class
     // changes. Dark-mode flips both color tokens and targeted style overrides.
     const themeObserver = new MutationObserver(() => {
       mounted.editor.setTheme(cssVarsToTheme());
+      // Re-warm icons in the new theme color.
+      prewarmMenuIcons();
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
@@ -1841,8 +1937,14 @@ function EditorSurface({
     let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
     const saveSnapshot = (blocks: Block[]) => {
       if (snapshotTimer) clearTimeout(snapshotTimer);
+      // Strip the transient render cache (`cachedLayout`) the editor writes onto
+      // the doc's canonical blocks before persisting: it holds live Mark
+      // instances whose codec functions can't cross the platform's structured-
+      // clone boundary (postMessage), and it's per-canvas-width render state that
+      // is invalid to persist anyway.
+      const clean = cleanSnapshotForSave(blocks);
       snapshotTimer = setTimeout(() => {
-        platform.snapshots.save(pageId, blocks);
+        platform.snapshots.save(pageId, clean);
       }, 2000);
     };
 
@@ -1889,11 +1991,22 @@ function EditorSurface({
       publishLocalAwareness();
     };
 
+    // Caret label for a nameless peer: "You" when it's the local user's own
+    // other tab (same device), otherwise a neutral "Anonymous".
+    const presenceNameFallback = (state: CursorPresence) =>
+      isSamePerson(state.user, localUserRef.current.deviceId)
+        ? i18next.t("collaboration.you", "You")
+        : i18next.t("collaboration.anonymous", "Anonymous");
+
     onRoomAwarenessRef.current = (awarenesspeerId, state) => {
       if (state) {
         mounted.editor.view.setDecorations(
           presenceLayer(awarenesspeerId),
-          cursorPresenceToDecorations(awarenesspeerId, state),
+          cursorPresenceToDecorations(
+            awarenesspeerId,
+            state,
+            presenceNameFallback(state),
+          ),
         );
         remoteUsersRef.current.set(awarenesspeerId, state.user);
       } else {
@@ -1908,7 +2021,11 @@ function EditorSurface({
       for (const [awarenesspeerId, state] of Object.entries(states)) {
         mounted.editor.view.setDecorations(
           presenceLayer(awarenesspeerId),
-          cursorPresenceToDecorations(awarenesspeerId, state),
+          cursorPresenceToDecorations(
+            awarenesspeerId,
+            state,
+            presenceNameFallback(state),
+          ),
         );
         remoteUsersRef.current.set(awarenesspeerId, state.user);
       }
@@ -1950,6 +2067,17 @@ function EditorSurface({
     };
     const offSelectionChange = mounted.editor.on(
       "selectionchange",
+      publishLocalAwareness,
+    );
+    // Typing moves the caret too, but the engine classifies that as a "change"
+    // (content) event — "selectionchange" fires only for caret/selection moves
+    // with no content change. Without also publishing on "change", a peer's
+    // cursor freezes while they type and only jumps on their next click or
+    // selection. publishLocalAwareness ignores the ChangeTransaction arg and
+    // re-reads the live selection, so it works for both local and remote edits
+    // (a remote insert before our caret shifts our offset, which peers must see).
+    const offChangeAwareness = mounted.editor.on(
+      "change",
       publishLocalAwareness,
     );
     publishLocalAwareness();
@@ -2100,7 +2228,11 @@ function EditorSurface({
       // Saves + find-bar close only for local edits; remote peers save their own.
       if (!tx.isRemote) {
         if (findBarOpenRef.current) handleFindCloseRef.current?.();
-        onContentChangeRef.current?.(doc.getRawBlocks());
+        // Hand the host a persistable snapshot: `onContentChange` is wired to the
+        // debounced FS save, which crosses the platform's structured-clone
+        // boundary, so the transient render cache must be stripped first (see
+        // `saveSnapshot`).
+        onContentChangeRef.current?.(cleanSnapshotForSave(doc.getRawBlocks()));
       }
     });
 
@@ -2263,6 +2395,7 @@ function EditorSurface({
       disposeActions();
       offDocUpdate();
       offSelectionChange();
+      offChangeAwareness();
       themeObserver.disconnect();
       offFontRegistry();
 
@@ -2296,7 +2429,7 @@ function EditorSurface({
   // Re-publish our awareness when localUser becomes available, so connected
   // peers overwrite any stale entry they stored before our identity finished
   // loading (color: ""). The ongoing broadcast is driven by the editor's
-  // "selectionchange" subscription wired in the mount effect above.
+  // "selectionchange" + "change" subscriptions wired in the mount effect above.
   useEffect(() => {
     if (mountedRef.current && localUser.peerId) {
       roomBroadcastAwareness(
@@ -2466,8 +2599,11 @@ function EditorSurface({
     // host-capture flag and dismisses the popover.
   };
 
-  const getContextMenuItems = (): ContextMenuItem[] => {
-    const hasSelection = contextMenuState?.hasSelection ?? false;
+  const getContextMenuItems = (
+    hasSelectionOverride?: boolean,
+  ): ContextMenuItem[] => {
+    const hasSelection =
+      hasSelectionOverride ?? contextMenuState?.hasSelection ?? false;
 
     // When the cursor sits on an image block we can copy the image bytes
     // themselves. The async clipboard write API is unavailable in some WebViews
@@ -2666,6 +2802,12 @@ function EditorSurface({
 
     return items;
   };
+
+  // The OPEN_CONTEXT_MENU handler is registered once at mount, so it can't close
+  // over the per-render `getContextMenuItems` (that would read stale `readonly`,
+  // `t`, etc.). Keep a ref pointing at the latest builder for the native path.
+  const getContextMenuItemsRef = useRef(getContextMenuItems);
+  getContextMenuItemsRef.current = getContextMenuItems;
 
   // Lock the editor (canvas stops capturing input) while a text-input popover
   // (image upload/edit or link edit) is open — see `modalPopoverOpen`.

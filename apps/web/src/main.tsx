@@ -143,35 +143,6 @@ function renderApp() {
   root.render(<App />);
 }
 
-/**
- * Acquire an exclusive Web Lock so only one tab can run the app.
- * OPFS + wa-sqlite requires exclusive access — a second tab would corrupt state.
- * Electron and Capacitor are single-window, so this only applies to the web platform.
- */
-function acquireTabLock(): Promise<boolean> {
-  if (
-    !navigator.locks ||
-    (window as any).cypher || // Electron
-    (window as any).Capacitor?.isNativePlatform?.() // Capacitor
-  ) {
-    return Promise.resolve(true);
-  }
-
-  return new Promise((resolve) => {
-    navigator.locks.request("cypher-app", { ifAvailable: true }, (lock) => {
-      if (!lock) {
-        // Another tab holds the lock
-        resolve(false);
-        return;
-      }
-      // Hold the lock for the lifetime of this tab by returning
-      // a promise that never resolves
-      resolve(true);
-      return new Promise(() => {});
-    });
-  });
-}
-
 /** Apply the user's saved theme so CSS variables resolve correctly. */
 function applyStoredTheme() {
   const stored = localStorage.getItem("theme");
@@ -265,25 +236,29 @@ if (platformReady) {
   // Platform already initialized from a previous HMR cycle — just re-render
   renderApp();
 } else {
-  acquireTabLock().then((acquired) => {
-    if (!acquired) {
-      renderTabError();
-      return;
-    }
-    // Initialize platform adapter (web/electron/capacitor) before rendering.
-    // Must await — the worker-backed SQLite needs time to spin up.
-    initPlatform()
-      .then(() => {
-        // Asset resolution is owned by the host's image node (see
-        // `editorSchema.ts` → CypherImageNode), per-instance and not a global.
-        platformReady = true;
-        (window as any).__CYPHER_PLATFORM_READY__ = true;
-        renderApp();
-      })
-      .catch((err) => {
-        console.error("[Platform] Failed to initialize:", err);
-      });
-  });
+  // Initialize platform adapter (web/electron/capacitor) before rendering.
+  // Must await — the worker-backed SQLite needs time to spin up. On web the
+  // device-node SharedWorker is the single database connection for every tab,
+  // so no per-tab lock is needed.
+  initPlatform()
+    .then(() => {
+      // Asset resolution is owned by the host's image node (see
+      // `editorSchema.ts` → CypherImageNode), per-instance and not a global.
+      platformReady = true;
+      (window as any).__CYPHER_PLATFORM_READY__ = true;
+      renderApp();
+    })
+    .catch((err) => {
+      // A "DB locked" failure means another build's connection holds the
+      // database — typically the previous build's SharedWorker still alive
+      // during a deploy. Show the "already open" screen instead of a blank
+      // load; it resolves once that worker (and its tabs) are gone.
+      if (String(err?.message ?? err).includes("CYPHER_DB_LOCKED")) {
+        renderTabError();
+        return;
+      }
+      console.error("[Platform] Failed to initialize:", err);
+    });
 }
 
 // Register service worker for offline support (skip in Electron — loaded via file://)

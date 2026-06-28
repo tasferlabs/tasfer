@@ -6,6 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -13,12 +16,16 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Base64
+import android.util.DisplayMetrics
+import android.view.Menu
 import android.view.View
 import android.view.animation.Animation
 import android.view.animation.LinearInterpolator
 import android.view.animation.RotateAnimation
 import android.webkit.WebView
+import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.PopupMenu
 import android.widget.RelativeLayout
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -31,6 +38,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.getcapacitor.BridgeActivity
 import com.getcapacitor.WebViewListener
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 
@@ -273,7 +282,18 @@ class MainActivity : BridgeActivity() {
                     },
                     editor: {
                         setColorScheme: function(s) { nb.setColorScheme(s); return Promise.resolve(); },
-                        dismissKeyboard: function() { nb.dismissKeyboard(); return Promise.resolve(); }
+                        dismissKeyboard: function() { nb.dismissKeyboard(); return Promise.resolve(); },
+                        showContextMenu: function(req) {
+                            return new Promise(function(resolve) {
+                                if (!window.__nativeContextMenuCallbacks) window.__nativeContextMenuCallbacks = new Map();
+                                var id = 'ctx_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+                                window.__nativeContextMenuCallbacks.set(id, function(response) {
+                                    window.__nativeContextMenuCallbacks.delete(id);
+                                    resolve(response && response.id ? response.id : null);
+                                });
+                                nb.showContextMenu(JSON.stringify({ model: req.model, anchor: req.anchor }), id);
+                            });
+                        }
                     },
                     navigation: {
                         openUrl: function(u) { nb.openUrl(u); return Promise.resolve(); },
@@ -314,6 +334,132 @@ class MainActivity : BridgeActivity() {
             })();
         """.trimIndent()
         bridge.webView.evaluateJavascript(shimScript, null)
+    }
+
+    // ---- Native context menu ----
+
+    /**
+     * Present a [PopupMenu] for the editor's long-press context menu. The model
+     * mirrors the host's items (see web `app/nativeContextMenu.ts`); we resolve
+     * the JS promise registered under [callbackId] with the chosen item id, or
+     * null when dismissed without a selection. Runs on the UI thread.
+     */
+    fun showNativeContextMenu(json: String, callbackId: String) {
+        try {
+            val root = JSONObject(json)
+            val model = root.getJSONArray("model")
+            val anchor = root.getJSONObject("anchor")
+
+            // Anchor arrives as viewport-relative CSS pixels; scale to the
+            // device-pixel coordinate space the view hierarchy uses.
+            val density = resources.displayMetrics.density
+            val anchorX = (anchor.optDouble("x", 0.0) * density).toInt()
+            val anchorY = (anchor.optDouble("y", 0.0) * density).toInt()
+
+            // PopupMenu anchors to a view, so place a 1x1 throwaway anchor at the
+            // target point in the content frame and remove it on dismiss.
+            val content = findViewById<FrameLayout>(android.R.id.content)
+            val anchorView = View(this)
+            anchorView.layoutParams = FrameLayout.LayoutParams(1, 1).apply {
+                leftMargin = anchorX
+                topMargin = anchorY
+            }
+            content.addView(anchorView)
+
+            val popup = PopupMenu(this, anchorView)
+            // PopupMenu hides item icons by default; opt in (API 29+). Older
+            // devices simply show a text-only menu.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                popup.setForceShowIcon(true)
+            }
+            val idByItemId = HashMap<Int, String>()
+            buildContextMenu(popup.menu, model, idByItemId, 1)
+
+            // `chosen` guards the dismiss handler from also resolving null after
+            // an item was picked (click fires before the subsequent dismiss).
+            var chosen = false
+            popup.setOnMenuItemClickListener { item ->
+                val id = idByItemId[item.itemId]
+                if (id != null) {
+                    chosen = true
+                    resolveContextMenu(callbackId, id)
+                }
+                true
+            }
+            popup.setOnDismissListener {
+                content.removeView(anchorView)
+                if (!chosen) resolveContextMenu(callbackId, null)
+            }
+            popup.show()
+        } catch (_: Exception) {
+            // Never leave the web promise (and the engine's capture state) hanging.
+            resolveContextMenu(callbackId, null)
+        }
+    }
+
+    /** Populate [menu] from the serializable model, recursing into submenus. */
+    private fun buildContextMenu(
+        menu: Menu,
+        items: JSONArray,
+        idByItemId: HashMap<Int, String>,
+        startId: Int,
+    ): Int {
+        var nextId = startId
+        for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            val id = item.optString("id")
+            val label = item.optString("label")
+            val children = item.optJSONArray("children")
+
+            if (children != null && children.length() > 0) {
+                val submenu = menu.addSubMenu(label)
+                submenu.item?.icon = decodeMenuIcon(item.optString("iconPng"))
+                nextId = buildContextMenu(submenu, children, idByItemId, nextId)
+                continue
+            }
+
+            val itemId = nextId++
+            val menuItem = menu.add(Menu.NONE, itemId, Menu.NONE, label)
+            idByItemId[itemId] = id
+            menuItem.icon = decodeMenuIcon(item.optString("iconPng"))
+            menuItem.isEnabled = item.optBoolean("enabled", true)
+            if (item.optBoolean("checked", false)) {
+                menuItem.isCheckable = true
+                menuItem.isChecked = true
+            }
+        }
+        return nextId
+    }
+
+    /**
+     * Decode a `data:image/png;base64,...` URL (rasterized by the web side) into
+     * a menu icon, or null when absent/unparseable. The bitmap density is pinned
+     * to 2x so the 36px (2x of 18dp) PNG renders at a consistent ~18dp size on
+     * any display.
+     */
+    private fun decodeMenuIcon(dataUrl: String?): Drawable? {
+        if (dataUrl.isNullOrEmpty()) return null
+        return try {
+            val comma = dataUrl.indexOf(',')
+            val base64 = if (comma >= 0) dataUrl.substring(comma + 1) else dataUrl
+            val bytes = Base64.decode(base64, Base64.DEFAULT)
+            val bitmap =
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            bitmap.density = DisplayMetrics.DENSITY_DEFAULT * 2
+            BitmapDrawable(resources, bitmap)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Resolve the pending JS promise with [id] (or null) via the callback map. */
+    private fun resolveContextMenu(callbackId: String, id: String?) {
+        val payload = JSONObject().apply {
+            put("id", id ?: JSONObject.NULL)
+        }
+        val js =
+            "window.__nativeContextMenuCallbacks && window.__nativeContextMenuCallbacks.get('$callbackId') && window.__nativeContextMenuCallbacks.get('$callbackId')($payload)"
+        bridge.webView.evaluateJavascript(js, null)
     }
 
     // ---- Safe area insets ----

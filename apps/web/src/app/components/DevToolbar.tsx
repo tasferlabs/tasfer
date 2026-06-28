@@ -8,7 +8,6 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getPlatform } from "@/platform";
-import type { Engine } from "@/platform/engine";
 import type { ConnectionState, Peer } from "@/platform/types";
 import type { DbRow } from "@/platform/driver";
 import {
@@ -20,6 +19,20 @@ import {
 import { cn } from "@/lib/utils";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  RefreshCw,
+  Maximize2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Users,
+  Search,
+  X,
+  Trash2,
+  Play,
+  AlertTriangle,
+  AlertCircle,
+} from "lucide-react";
 
 const isStaging = import.meta.env.VITE_STAGING === "true";
 
@@ -299,7 +312,7 @@ const TYPE_BADGE: Record<ColType, { label: string; color: string }> = {
 };
 
 function getDb() {
-  return (getPlatform() as unknown as Engine).getDb();
+  return getPlatform().db;
 }
 
 async function fetchTable(
@@ -413,6 +426,11 @@ const DIR_STYLE: Record<NetDirection, { label: string; color: string }> = {
   send: { label: "OUT", color: "text-blue-400" },
   recv: { label: "IN", color: "text-emerald-400" },
 };
+
+/** Shared refresh/reload glyph used by the database, query, crdt, and peers tabs. */
+function RefreshIcon({ spinning }: { spinning?: boolean }) {
+  return <RefreshCw className={cn("w-3 h-3", spinning && "animate-spin")} />;
+}
 
 // ─── CRDT ops viewer ────────────────────────────────────────────────────
 
@@ -657,7 +675,7 @@ function CellEditor({ col, colType, nullable, editing, setEditing, saveEdit, row
         )}
       />
       {nullable && <button onMouseDown={(e) => e.preventDefault()} onClick={() => { setEditing({ ...editing, value: "NULL" }); saveEdit(row); }} className="text-[9px] text-muted-foreground/30 hover:text-destructive font-mono px-1 shrink-0 transition-colors">null</button>}
-      {colType === "text" && editing.value.length > 40 && <button onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing({ ...editing, expanded: true })} className="text-muted-foreground/30 hover:text-foreground px-0.5 shrink-0 transition-colors"><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" /></svg></button>}
+      {colType === "text" && editing.value.length > 40 && <button onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing({ ...editing, expanded: true })} className="text-muted-foreground/30 hover:text-foreground px-0.5 shrink-0 transition-colors"><Maximize2 className="w-3 h-3" /></button>}
     </div>
   );
 }
@@ -676,6 +694,7 @@ export function DevToolbar() {
   const [connectedPeers, setConnectedPeers] = useState<string[]>([]);
   const [connectedPeerNames, setConnectedPeerNames] = useState<string[]>([]);
   const [knownPeers, setKnownPeers] = useState<Peer[]>([]);
+  const [peersLoading, setPeersLoading] = useState(false);
   const [panelHeight, setPanelHeight] = useState(() =>
     Math.min(PANEL_DEFAULT_H, Math.floor(window.innerHeight * (PANEL_MAX_H_VH / 100)))
   );
@@ -854,7 +873,7 @@ export function DevToolbar() {
   useEffect(() => {
     if (!open || tab !== "database") return;
     try {
-      (getPlatform() as unknown as Engine).getPendingMigrations()
+      getPlatform().db.getPendingMigrations()
         .then(setPendingMigrations)
         .catch(() => {});
     } catch { /* not ready */ }
@@ -863,19 +882,25 @@ export function DevToolbar() {
   async function runMigrations() {
     setMigrating(true);
     try {
-      await (getPlatform() as unknown as Engine).applyMigrations();
+      await getPlatform().db.applyMigrations();
       setPendingMigrations(0);
     } catch { /* ignore */ } finally {
       setMigrating(false);
     }
   }
 
-  useEffect(() => {
-    if (!open || tab !== "peers") return;
+  const loadPeers = useCallback(async () => {
+    setPeersLoading(true);
     try {
-      getPlatform().peers.list().then(setKnownPeers).catch(() => {});
-    } catch { /* not ready */ }
-  }, [open, tab]);
+      setKnownPeers(await getPlatform().peers.list());
+    } catch { /* not ready */ } finally {
+      setPeersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open && tab === "peers") loadPeers();
+  }, [open, tab, loadPeers]);
 
   const loadCrdtOps = useCallback(async () => {
     setCrdtLoading(true);
@@ -1225,9 +1250,7 @@ export function DevToolbar() {
               onClick={() => setOpen(false)}
               className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
             >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
+              <ChevronDown className="w-3 h-3" />
             </button>
 
             <div className="w-px h-3 bg-border shrink-0 mx-0.5" />
@@ -1265,9 +1288,7 @@ export function DevToolbar() {
               )}
               title={peersSummary}
             >
-              <svg className="w-2.5 h-2.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 20a4 4 0 00-8 0m8 0H7m10 0h3m-3 0a4 4 0 00-8 0m-5 0h3m0 0a4 4 0 018 0m0-8a3 3 0 11-6 0 3 3 0 016 0zm6 1a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM8 13a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-              </svg>
+              <Users className="w-2.5 h-2.5 shrink-0" />
               <span className="text-[10px] font-medium tabular-nums">{connectedPeers.length}</span>
             </button>
 
@@ -1331,19 +1352,7 @@ export function DevToolbar() {
                     </div>
                     <div className="w-px h-3.5 bg-border shrink-0" />
                     <div className="relative flex items-center flex-1 max-w-[200px]">
-                      <svg
-                        className="absolute start-2 w-3 h-3 text-muted-foreground pointer-events-none"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                        />
-                      </svg>
+                      <Search className="absolute start-2 w-3 h-3 text-muted-foreground pointer-events-none" />
                       <input
                         type="text"
                         value={input}
@@ -1366,19 +1375,7 @@ export function DevToolbar() {
                           }}
                           className="absolute end-1 text-muted-foreground hover:text-foreground"
                         >
-                          <svg
-                            className="w-3 h-3"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M6 18L18 6M6 6l12 12"
-                            />
-                          </svg>
+                          <X className="w-3 h-3" />
                         </button>
                       )}
                     </div>
@@ -1386,19 +1383,7 @@ export function DevToolbar() {
                       onClick={() => load(table, offset, search)}
                       className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
                     >
-                      <svg
-                        className={cn("w-3 h-3", loading && "animate-spin")}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
+                      <RefreshIcon spinning={loading} />
                     </button>
                     {info && (
                       <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap shrink-0">
@@ -1417,19 +1402,7 @@ export function DevToolbar() {
                             "disabled:opacity-40 disabled:pointer-events-none",
                           )}
                         >
-                          <svg
-                            className="w-3 h-3"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                            />
-                          </svg>
+                          <Trash2 className="w-3 h-3" />
                           Delete {selected.size}
                         </button>
                       </>
@@ -1451,33 +1424,9 @@ export function DevToolbar() {
                       )}
                     >
                       {queryRunning ? (
-                        <svg
-                          className="w-3 h-3 animate-spin"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                          />
-                        </svg>
+                        <RefreshIcon spinning />
                       ) : (
-                        <svg
-                          className="w-3 h-3"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M5 3l14 9-14 9V3z"
-                          />
-                        </svg>
+                        <Play className="w-3 h-3" />
                       )}
                       Run
                     </button>
@@ -1525,9 +1474,7 @@ export function DevToolbar() {
               {/* ── Migration banner ── */}
               {pendingMigrations > 0 && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-600 dark:text-yellow-400 shrink-0">
-                  <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                  </svg>
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
                   <span className="text-[11px] flex-1">
                     {pendingMigrations} pending migration{pendingMigrations !== 1 ? "s" : ""}
                   </span>
@@ -1727,38 +1674,14 @@ export function DevToolbar() {
                           disabled={offset === 0}
                           className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-20 disabled:pointer-events-none"
                         >
-                          <svg
-                            className="w-3 h-3"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M15 19l-7-7 7-7"
-                            />
-                          </svg>
+                          <ChevronLeft className="w-3 h-3" />
                         </button>
                         <button
                           onClick={() => setOffset(offset + PAGE_SIZE)}
                           disabled={offset + PAGE_SIZE >= (info?.total ?? 0)}
                           className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-20 disabled:pointer-events-none"
                         >
-                          <svg
-                            className="w-3 h-3"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M9 5l7 7-7 7"
-                            />
-                          </svg>
+                          <ChevronRight className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
@@ -1902,19 +1825,7 @@ export function DevToolbar() {
                   {queryResult && !queryResult.ok && (
                     <div className="px-3 py-2.5 border-b border-destructive/20 bg-destructive/5 shrink-0">
                       <div className="flex items-start gap-2">
-                        <svg
-                          className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
+                        <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
                         <span className="font-mono text-[11px] text-destructive break-all">
                           {queryResult.error}
                         </span>
@@ -2046,19 +1957,7 @@ export function DevToolbar() {
                 </div>
                 <div className="w-px h-3.5 bg-border shrink-0" />
                 <div className="relative flex items-center flex-1 max-w-[200px]">
-                  <svg
-                    className="absolute start-2 w-3 h-3 text-muted-foreground pointer-events-none"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
+                  <Search className="absolute start-2 w-3 h-3 text-muted-foreground pointer-events-none" />
                   <input
                     type="text"
                     value={logFilter}
@@ -2071,19 +1970,7 @@ export function DevToolbar() {
                       onClick={() => setLogFilter("")}
                       className="absolute end-1 text-muted-foreground hover:text-foreground"
                     >
-                      <svg
-                        className="w-3 h-3"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
+                      <X className="w-3 h-3" />
                     </button>
                   )}
                 </div>
@@ -2197,19 +2084,7 @@ export function DevToolbar() {
 
                 {/* Text filter */}
                 <div className="relative flex items-center flex-1 max-w-[180px]">
-                  <svg
-                    className="absolute start-2 w-3 h-3 text-muted-foreground pointer-events-none"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
+                  <Search className="absolute start-2 w-3 h-3 text-muted-foreground pointer-events-none" />
                   <input
                     type="text"
                     value={netFilter}
@@ -2222,19 +2097,7 @@ export function DevToolbar() {
                       onClick={() => setNetFilter("")}
                       className="absolute end-1 text-muted-foreground hover:text-foreground"
                     >
-                      <svg
-                        className="w-3 h-3"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
+                      <X className="w-3 h-3" />
                     </button>
                   )}
                 </div>
@@ -2357,19 +2220,7 @@ export function DevToolbar() {
 
                 {/* Text filter */}
                 <div className="relative flex items-center flex-1 max-w-[180px]">
-                  <svg
-                    className="absolute start-2 w-3 h-3 text-muted-foreground pointer-events-none"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
+                  <Search className="absolute start-2 w-3 h-3 text-muted-foreground pointer-events-none" />
                   <input
                     type="text"
                     value={crdtFilter}
@@ -2382,19 +2233,7 @@ export function DevToolbar() {
                       onClick={() => setCrdtFilter("")}
                       className="absolute end-1 text-muted-foreground hover:text-foreground"
                     >
-                      <svg
-                        className="w-3 h-3"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
+                      <X className="w-3 h-3" />
                     </button>
                   )}
                 </div>
@@ -2418,12 +2257,10 @@ export function DevToolbar() {
                 </button>
                 <button
                   onClick={loadCrdtOps}
-                  className={cn(
-                    "h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors",
-                    crdtLoading && "animate-pulse",
-                  )}
+                  className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                  title="Reload"
                 >
-                  Reload
+                  <RefreshIcon spinning={crdtLoading} />
                 </button>
               </div>
 
@@ -2459,22 +2296,12 @@ export function DevToolbar() {
                             <span className="text-muted-foreground truncate min-w-0">
                               {crdtOpSummary(op)}
                             </span>
-                            <svg
+                            <ChevronDown
                               className={cn(
                                 "w-3 h-3 text-muted-foreground/30 shrink-0 ms-auto transition-transform",
                                 isExpanded && "rotate-180",
                               )}
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M19 9l-7 7-7-7"
-                              />
-                            </svg>
+                            />
                           </button>
                           {isExpanded && (
                             <div className="px-4 py-2 bg-muted/30 border-b border-border/20">
@@ -2558,6 +2385,19 @@ export function DevToolbar() {
               {...tabMotion}
               className="flex flex-col flex-1 min-h-0"
             >
+              <div className="flex items-center h-8 px-2 border-b border-border shrink-0 gap-1.5">
+                <span className="text-[10px] text-muted-foreground tabular-nums">
+                  {connectedPeers.length} connected · {knownPeers.length} known
+                </span>
+                <div className="flex-1" />
+                <button
+                  onClick={loadPeers}
+                  className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                  title="Reload"
+                >
+                  <RefreshIcon spinning={peersLoading} />
+                </button>
+              </div>
               <ScrollArea className="flex-1 min-h-0">
                 <div className="p-3 flex flex-col gap-2">
                   {(() => {
@@ -2778,38 +2618,14 @@ export function DevToolbar() {
             )}
             title={peersSummary}
           >
-            <svg
-              className="w-2.5 h-2.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M17 20a4 4 0 00-8 0m8 0H7m10 0h3m-3 0a4 4 0 00-8 0m-5 0h3m0 0a4 4 0 018 0m0-8a3 3 0 11-6 0 3 3 0 016 0zm6 1a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM8 13a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"
-              />
-            </svg>
+            <Users className="w-2.5 h-2.5" />
             {connectedPeers.length}
           </div>
           <button
             onClick={() => setHidden(true)}
             className="flex items-center justify-center w-6 h-6 rounded-full text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
           >
-            <svg
-              className="w-2.5 h-2.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+            <X className="w-2.5 h-2.5" strokeWidth={2.5} />
           </button>
         </motion.div>
       )}

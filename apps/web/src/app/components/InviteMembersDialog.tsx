@@ -29,6 +29,7 @@ import {
 import { useCreateInvite, useWaitForPeer, cancelPairing } from "../api/spaces.api";
 import type { SpaceInvite, Peer } from "@/platform/types";
 import useResponsive from "../hooks/useResponsive";
+import { getDisplayName } from "@cypherkit/provider-core/cursors";
 
 interface InviteMembersDialogProps {
   spaceId: string;
@@ -373,7 +374,9 @@ export function InviteMembersDialog({
 // -----------------------------------------------------------------------------
 
 function PeerRow({ peer, isNew }: { peer: JoinedPeer; isNew: boolean }) {
-  const initial = peer.name ? peer.name.charAt(0).toUpperCase() : "?";
+  const { t } = useTranslation();
+  const displayName = getDisplayName(peer, t("collaboration.anonymous", "Anonymous"));
+  const initial = displayName.charAt(0).toUpperCase();
 
   return (
     <div
@@ -385,7 +388,7 @@ function PeerRow({ peer, isNew }: { peer: JoinedPeer; isNew: boolean }) {
         {initial}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground truncate">{peer.name}</p>
+        <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
         <p className="text-[10px] text-muted-foreground font-mono truncate">
           {peer.publicKey.slice(0, 8)}...{peer.publicKey.slice(-6)}
         </p>

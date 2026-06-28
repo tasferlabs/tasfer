@@ -70,6 +70,13 @@ export {
   getVisibleTextFromRuns,
 } from "./sync/char-runs";
 export { allCharsHaveFormat } from "./sync/crdt-utils";
+// Strips the transient render cache (`cachedLayout`) and neighbour-type stamps a
+// mounted editor writes onto the doc's canonical block objects. A host MUST run
+// it on `doc.getRawBlocks()` before persisting them or handing them across a
+// structured-clone boundary (a worker/`postMessage`): `cachedLayout.lines` hold
+// references to live `Mark` instances (with their non-cloneable codec functions)
+// and per-canvas measurements that are invalid across sessions/screen sizes.
+export { cleanSnapshotForSave } from "./sync/reducer";
 
 // Shared image cache (content-addressed bitmaps) + failed-load reset.
 export { clearFailedImageCache, imageCache } from "./rendering/renderer";

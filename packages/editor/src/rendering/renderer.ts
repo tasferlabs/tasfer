@@ -280,7 +280,10 @@ export function renderPage(
 
   // Block reorder chrome: gutter grip on the hovered block + insertion line
   // while a reorder drag is active. Painted last so it sits above content.
-  renderBlockDrag(ctx, state, viewport, styles);
+  // Anchored to the same `visibility` snapshot the content paint just produced
+  // so the grip/line line up with the blocks rather than the (estimate-based)
+  // flow walked from block 0.
+  renderBlockDrag(ctx, state, viewport, styles, visibility);
 
   // Restore context state (undo scaling)
   ctx.restore();
@@ -663,11 +666,19 @@ function renderOutOfViewIndicators(
   const abovePeers = peers.filter((p) => p.direction === "above");
   const belowPeers = peers.filter((p) => p.direction === "below");
 
-  const pillHeight = 24;
-  const pillPadding = 8;
-  const fontSize = 12;
-  const chevronSize = 6;
-  const gap = 8;
+  // All pill geometry — including the per-edge insets a host uses to clear
+  // platform chrome (a mobile safe area) — comes from the theme. Defaults
+  // reproduce the historical look (insets 0).
+  const {
+    insetInlineStart,
+    insetTop,
+    insetBottom,
+    pillHeight,
+    pillPadding,
+    fontSize,
+    chevronSize,
+    gap,
+  } = styles.remoteCursor.outOfViewIndicator;
 
   // Clear previous hit areas (mutate in place — callers hold this same array)
   hitAreas.length = 0;
@@ -681,8 +692,8 @@ function renderOutOfViewIndicators(
     const textWidth = ctx.measureText(initial).width;
     const pillWidth = textWidth + pillPadding * 2;
 
-    const x = pillPadding + i * (pillWidth + gap);
-    const y = topOffset + pillPadding + chevronSize;
+    const x = insetInlineStart + pillPadding + i * (pillWidth + gap);
+    const y = topOffset + insetTop + pillPadding + chevronSize;
 
     // Store hit area (includes chevron)
     hitAreas.push({
@@ -726,8 +737,9 @@ function renderOutOfViewIndicators(
     const textWidth = ctx.measureText(initial).width;
     const pillWidth = textWidth + pillPadding * 2;
 
-    const x = pillPadding + i * (pillWidth + gap);
-    const y = viewport.height - pillPadding - pillHeight - chevronSize;
+    const x = insetInlineStart + pillPadding + i * (pillWidth + gap);
+    const y =
+      viewport.height - insetBottom - pillPadding - pillHeight - chevronSize;
 
     // Store hit area (includes chevron)
     hitAreas.push({
@@ -1197,6 +1209,7 @@ function renderBlockDrag(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles,
+  visibility?: VisibleBlockRange,
 ) {
   const hoveredId = state.ui.hoveredDragHandleBlockId;
   const drag = state.ui.blockDrag;
@@ -1213,12 +1226,20 @@ function renderBlockDrag(
   // gap (`dropIndex` is an insertion index, so the gap before block `i`). Both
   // targets are on-screen during a mouse interaction, so we can stop once both
   // are resolved and we've passed the fold.
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  //
+  // Anchor the walk at the content paint's `visibility` snapshot rather than the
+  // document top. The on-screen flow is laid out from `visibility.startY` using
+  // the height index (which carries *estimates* for the off-screen blocks above
+  // the fold); re-deriving y by summing exact heights from block 0 would drift
+  // from the painted positions and land the grip/line on the wrong block.
+  const startIndex = visibility?.start ?? 0;
+  let currentY =
+    visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
   let hoveredTop: number | null = null;
   let hoveredHeight = 0;
   let lineY: number | null = null;
 
-  for (let i = 0; i <= visibleBlocks.length; i++) {
+  for (let i = startIndex; i <= visibleBlocks.length; i++) {
     if (i === dropIndex) lineY = currentY;
     if (i === visibleBlocks.length) break;
     const block = visibleBlocks[i];

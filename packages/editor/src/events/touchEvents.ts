@@ -673,6 +673,7 @@ export function handleTouchEnd(
   _containerRect: { left: number; top: number },
   documentHeight: number,
   session: InteractionSession,
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   stopAutoScroll(session);
@@ -878,6 +879,36 @@ export function handleTouchEnd(
         ? state.ui.activeMenu.blockId
         : undefined;
 
+    // Tap on an interactive region (todo checkbox, out-of-view peer indicator,
+    // …). Checked before the padding/text fallbacks so chrome wins the tap,
+    // matching the mouse path (which hit-tests regions first). A peer indicator
+    // pill sits in the gutter and would otherwise be swallowed by the
+    // left-padding branch below.
+    const tapCtx: RegionCtx = {
+      state,
+      viewport,
+      documentHeight,
+      session,
+      updateViewport: updateViewportCallback,
+    };
+    const tapClaim = hitTestAllRegions(
+      { x: tapPosition.x, y: tapPosition.y },
+      "touch",
+      tapCtx,
+    );
+    if (tapClaim?.region.onTap) {
+      const tapResult = tapClaim.region.onTap(
+        tapClaim.hit,
+        { x: tapPosition.x, y: tapPosition.y },
+        1,
+        tapCtx,
+      );
+      if (tapResult) {
+        session.touch = null;
+        return { state: tapResult.state, ops: tapResult.ops ?? [] };
+      }
+    }
+
     // Check if tapping in top padding area
     const styles = getEditorStyles(state);
     const isTapInTopPadding =
@@ -948,26 +979,6 @@ export function handleTouchEnd(
           },
           ops,
         };
-      }
-    }
-
-    // Tap on an interactive region (todo checkbox, …)
-    const tapCtx: RegionCtx = { state, viewport, documentHeight, session };
-    const tapClaim = hitTestAllRegions(
-      { x: tapPosition.x, y: tapPosition.y },
-      "touch",
-      tapCtx,
-    );
-    if (tapClaim?.region.onTap) {
-      const tapResult = tapClaim.region.onTap(
-        tapClaim.hit,
-        { x: tapPosition.x, y: tapPosition.y },
-        1,
-        tapCtx,
-      );
-      if (tapResult) {
-        session.touch = null;
-        return { state: tapResult.state, ops: tapResult.ops ?? [] };
       }
     }
 

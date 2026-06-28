@@ -552,6 +552,7 @@ export function handleEvents(
           containerRect,
           documentHeight,
           session,
+          updateViewportCallback,
         );
         state = touchEndResult.state;
         collectedOps.push(...touchEndResult.ops);

@@ -784,6 +784,8 @@
   "onboarding.addPhoto": "إضافة صورة",
   "onboarding.pngOrJpg": "PNG أو JPG",
   "onboarding.anonymous": "مجهول",
+  "collaboration.anonymous": "مجهول",
+  "collaboration.you": "أنت",
   "onboarding.spaceTitle": "أنشئ مساحتك الأولى.",
   "onboarding.spaceIntro": "المساحة هي مكان عمل يُزامَن مباشرةً بينك وبين من تدعوهم — نِدّاً لِنِدّ، بلا خادم في المنتصف. ابدأ مساحتك الخاصة، أو انضمّ إلى مساحة قرين.",
   "onboarding.createSpaceSub": "لك وحدك. ادعُ آخرين متى شئت.",

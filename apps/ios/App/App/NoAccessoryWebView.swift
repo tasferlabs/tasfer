@@ -26,6 +26,7 @@ import ObjectiveC
 // MARK: - WKWebView ↔ accessory association
 
 private var cypherAccessoryKey: UInt8 = 0
+private var cypherAccessoryEnabledKey: UInt8 = 0
 
 extension WKWebView {
     /// Lazily-created native keyboard toolbar bound to this web view. Both the
@@ -41,6 +42,41 @@ extension WKWebView {
         objc_setAssociatedObject(
             self, &cypherAccessoryKey, view, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return view
+    }
+
+    /// Whether the custom keyboard accessory should be attached to the current
+    /// first responder. The web app sets this true only while the canvas
+    /// editor's input surface is focused; every other field (find bar, dialogs,
+    /// settings) leaves it false and gets the plain keyboard. Defaults to false.
+    var cypherAccessoryEnabled: Bool {
+        (objc_getAssociatedObject(self, &cypherAccessoryEnabledKey) as? NSNumber)?
+            .boolValue ?? false
+    }
+
+    /// Update the accessory-enabled flag and, when it changes, ask UIKit to
+    /// re-query `inputAccessoryView` so the bar attaches/detaches immediately.
+    /// The first `inputAccessoryView` request can race ahead of the web app's
+    /// focus message, so reloading here is what makes the toggle reliable.
+    func setCypherAccessoryEnabled(_ enabled: Bool) {
+        guard cypherAccessoryEnabled != enabled else { return }
+        objc_setAssociatedObject(
+            self, &cypherAccessoryEnabledKey, NSNumber(value: enabled),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        cypherContentView?.reloadInputViews()
+    }
+
+    /// The private `WKContentView` that is the real first responder for web text
+    /// input. `reloadInputViews()` only takes effect on the first responder, so
+    /// the accessory toggle targets this view rather than the `WKWebView`.
+    fileprivate var cypherContentView: UIView? {
+        func find(_ view: UIView) -> UIView? {
+            if String(describing: type(of: view)) == "WKContentView" { return view }
+            for sub in view.subviews {
+                if let match = find(sub) { return match }
+            }
+            return nil
+        }
+        return find(scrollView)
     }
 }
 
@@ -86,12 +122,15 @@ class NoAccessoryWebView: WKWebView {
     }
 
     /// Swizzled onto `WKContentView.inputAccessoryView` — at call time `self` is
-    /// the `WKContentView`, not this subclass. UIKit asks for this view while it
-    /// is attaching the keyboard, so always return the accessory. Gating this on
-    /// JS keyboard state creates a race where the first request returns nil and
-    /// UIKit never installs the toolbar.
+    /// the `WKContentView`, not this subclass. Return the accessory only while
+    /// the canvas editor surface is focused; every other input (find bar,
+    /// dialogs, settings fields) returns nil and keeps the plain keyboard. The
+    /// web app sets `cypherAccessoryEnabled` on focus and calls
+    /// `reloadInputViews()`, so a stale first request self-corrects rather than
+    /// leaving the toolbar permanently installed or missing.
     @objc private func cypherAccessoryView() -> UIView? {
-        guard let webView = cypherEnclosingWebView() else { return nil }
+        guard let webView = cypherEnclosingWebView(), webView.cypherAccessoryEnabled
+        else { return nil }
         return webView.cypherKeyboardAccessory
     }
 }
@@ -126,7 +165,16 @@ final class KeyboardAccessoryView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: barHeight)
+        // When the accessory is docked at the bottom (keyboard hidden) UIKit
+        // reports the home-indicator inset here; when it floats above the
+        // keyboard the inset is 0. Grow the bar so its controls clear the home
+        // indicator — the content rows are pinned to the safe-area guide below.
+        CGSize(width: UIView.noIntrinsicMetric, height: barHeight + safeAreaInsets.bottom)
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        invalidateIntrinsicContentSize()
     }
 
     // MARK: Build
@@ -156,7 +204,7 @@ final class KeyboardAccessoryView: UIView {
             topBorder.heightAnchor.constraint(equalToConstant: 0.5),
 
             scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
             scrollView.leadingAnchor.constraint(
                 equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 4),
             scrollView.trailingAnchor.constraint(equalTo: fixedRow.leadingAnchor),
@@ -168,7 +216,7 @@ final class KeyboardAccessoryView: UIView {
             row.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
 
             fixedRow.topAnchor.constraint(equalTo: topAnchor),
-            fixedRow.bottomAnchor.constraint(equalTo: bottomAnchor),
+            fixedRow.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
             fixedRow.trailingAnchor.constraint(
                 equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -4),
         ])
@@ -419,7 +467,9 @@ final class KeyboardAccessoryView: UIView {
 
 // MARK: - Bridge
 
-/// Receives the standard toolbar object and passes it to the existing accessory.
+/// Receives the standard toolbar object and the editor focus signal. Registered
+/// under both `KeyboardToolbar` (model) and `KeyboardToolbarFocus` (enable flag);
+/// `message.name` selects which.
 final class KeyboardToolbarBridge: NSObject, WKScriptMessageHandler {
     weak var webView: WKWebView?
 
@@ -427,9 +477,16 @@ final class KeyboardToolbarBridge: NSObject, WKScriptMessageHandler {
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        guard let model = message.body as? [String: Any],
-            let accessory = webView?.cypherKeyboardAccessory
-        else { return }
-        accessory.applyModel(model)
+        guard let webView = webView else { return }
+        switch message.name {
+        case "KeyboardToolbarFocus":
+            // The canvas editor surface gained or lost focus. Only while it is
+            // focused does iOS attach the formatting accessory; other inputs
+            // keep the plain keyboard.
+            webView.setCypherAccessoryEnabled((message.body as? NSNumber)?.boolValue ?? false)
+        default:
+            guard let model = message.body as? [String: Any] else { return }
+            webView.cypherKeyboardAccessory.applyModel(model)
+        }
     }
 }

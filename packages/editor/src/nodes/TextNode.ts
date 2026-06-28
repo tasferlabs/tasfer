@@ -411,9 +411,40 @@ function renderPlaceholder(
   ctx.textBaseline = "alphabetic";
   ctx.direction = isRTL ? "rtl" : "ltr";
 
+  // Clamp to the available text width so long placeholders (e.g. the quote's
+  // "Write something worth remembering…") don't spill past the node and off the
+  // viewport on narrow screens. Real content wraps; the ghost text is a single
+  // line, so we truncate it with an ellipsis instead.
+  const drawn = maxWidth > 0 ? truncateToWidth(ctx, text, maxWidth) : text;
   const textX = isRTL ? x + maxWidth : x;
-  ctx.fillText(text, textX, y);
+  ctx.fillText(drawn, textX, y);
   ctx.restore();
+}
+
+// Shorten `text` to the longest prefix that fits `maxWidth` once the trailing
+// ellipsis is appended. Assumes `ctx.font` is already set. Returns `text`
+// unchanged when it already fits.
+function truncateToWidth(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = "…";
+  const ellipsisWidth = ctx.measureText(ellipsis).width;
+  if (ellipsisWidth > maxWidth) return "";
+  const budget = maxWidth - ellipsisWidth;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (ctx.measureText(text.slice(0, mid)).width <= budget) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return text.slice(0, lo).trimEnd() + ellipsis;
 }
 
 // Underline decoration for composition (IME) text.

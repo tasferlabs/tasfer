@@ -8,6 +8,7 @@
 
 import type { Block, HLC, Operation } from "@cypherkit/editor";
 import type { CursorPresence } from "@cypherkit/provider-core/cursors";
+import type { DbRow, DbRunResult } from "./driver";
 
 // =============================================================================
 // Data Types
@@ -156,6 +157,12 @@ export interface RoomUser {
   avatar?: string | null;
   color?: string;
   deviceType?: DeviceType;
+  /**
+   * Stable device/person id (the device public key), shared across all of this
+   * person's tabs. Lets a peer recognize presence from the local user's own
+   * other tabs and label it "You" instead of as a separate anonymous peer.
+   */
+  deviceId?: string;
 }
 
 // =============================================================================
@@ -530,6 +537,32 @@ export interface Platform {
      * subsequent page opens can skip the full op-log rebuild.
      */
     save(pageId: string, blocks: Block[]): Promise<void>;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Raw database access (developer tooling only)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Direct SQL access for the DevToolbar. Not for app logic — application data
+   * goes through the typed namespaces above. Exposed here (rather than as an
+   * `Engine` method) because on web the engine and its database live in the
+   * SharedWorker, so tooling must reach them over the platform RPC seam.
+   */
+  db: {
+    /** Run a SELECT/PRAGMA/etc. and return rows. */
+    execute<T extends DbRow = DbRow>(
+      sql: string,
+      params?: unknown[],
+    ): Promise<T[]>;
+    /** Run an INSERT/UPDATE/DELETE statement. */
+    run(sql: string, params?: unknown[]): Promise<DbRunResult>;
+    /** Run a raw statement (DDL, pragma, etc.). */
+    exec(sql: string): Promise<void>;
+    /** Number of pending forward-only migrations (0 = schema up to date). */
+    getPendingMigrations(): Promise<number>;
+    /** Apply all pending migrations. */
+    applyMigrations(): Promise<void>;
   };
 
 }

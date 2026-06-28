@@ -63,29 +63,45 @@ export interface UseP2PRoomReturn {
 // Hook
 // =============================================================================
 
-// The device peer id derives from the persistent device keypair, but
-// `platform.identity.get()` is async — so on first render `peerId` is unknown.
-// That id is the origin half of every CRDT op id (`peerId:counter`); a doc
-// created before it resolves binds to an empty origin, which COLLIDES across
-// peers and silently drops ops (peers diverge). Cache the resolved id so later
-// visits read it synchronously and the doc never has to be created with "".
-// (First-ever visit still resolves async; the editor binding's own guard
-// generates a unique id for that one session, so no collision either way.)
-const PEER_ID_CACHE_KEY = "cypher.devicePeerId";
+// Each browser tab is a distinct CRDT replica.
+//
+// `peerId` is the origin half of every CRDT op id (`peerId:counter`) and the
+// version vector's per-origin key. It must be UNIQUE PER TAB: two tabs sharing
+// one origin would mint colliding op ids (`abc:5` in both) and the merge would
+// silently drop the second (first-write-wins in `isOpKnown`) — permanent
+// divergence and lost edits. The device public key is shared by every tab, so
+// it cannot serve as the replica id; we mint a per-tab id instead.
+//
+// The id lives in sessionStorage: unique per tab, stable across reloads of the
+// same tab (so a reload doesn't spawn a fresh replica every time), and readable
+// synchronously on first render so the doc is never created with an empty
+// origin. Device identity (name/avatar/key) is still resolved from
+// `platform.identity` separately — only the CRDT/presence origin is per-tab.
+const REPLICA_ID_KEY = "cypher.replicaId";
 
-function readCachedPeerId(): string {
+function generateReplicaId(): string {
+  // 32 hex chars, colon-free (op ids split on ":"), matching the previous width.
   try {
-    return localStorage.getItem(PEER_ID_CACHE_KEY) ?? "";
+    return crypto.randomUUID().replace(/-/g, "");
   } catch {
-    return "";
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   }
 }
 
-function cachePeerId(peerId: string): void {
+function getTabReplicaId(): string {
   try {
-    localStorage.setItem(PEER_ID_CACHE_KEY, peerId);
+    let id = sessionStorage.getItem(REPLICA_ID_KEY);
+    if (!id) {
+      id = generateReplicaId();
+      sessionStorage.setItem(REPLICA_ID_KEY, id);
+    }
+    return id;
   } catch {
-    // Private mode / storage disabled — the async resolve still sets state.
+    // Private mode / storage disabled — a fresh id per call is still unique;
+    // it's held in component state for the tab's lifetime.
+    return generateReplicaId();
   }
 }
 
@@ -98,7 +114,8 @@ export function useP2PRoom(
   const [syncState, setSyncState] = useState<SyncState>({
     status: "disconnected",
   });
-  const [peerId, setPeerId] = useState(readCachedPeerId);
+  // Stable for the lifetime of this tab; never changes, so no setter.
+  const [peerId] = useState(getTabReplicaId);
   const [localUser, setLocalUser] = useState<CursorUser>({
     peerId: "",
     color: "",
@@ -129,15 +146,17 @@ export function useP2PRoom(
       const identity = await platform.identity.get();
       if (cancelled) return;
 
-      const myPeerId = identity.publicKey.slice(0, 32);
-      cachePeerId(myPeerId);
-      setPeerId(myPeerId);
+      // Per-tab replica id (NOT the device key) — this is the CRDT op origin
+      // and presence id, and must be distinct in each tab. Matches the `peerId`
+      // the doc was created with on first render.
+      const myPeerId = peerId;
       setLocalUser({
         peerId: myPeerId,
         name: identity.name,
         avatar: identity.avatar,
         color: getColorForPeer(identity.name || myPeerId),
         deviceType: identity.deviceType,
+        deviceId: identity.publicKey,
       });
 
       setSyncState({ status: "connecting" });
@@ -161,6 +180,7 @@ export function useP2PRoom(
                 avatar: user.avatar,
                 color: user.color || getColorForPeer(user.name || joinedPeerId),
                 deviceType: user.deviceType,
+                deviceId: user.deviceId,
               },
               caret: null,
               selection: null,
@@ -204,6 +224,7 @@ export function useP2PRoom(
           name: identity.name,
           avatar: identity.avatar,
           deviceType: identity.deviceType,
+          deviceId: identity.publicKey,
         },
         callbacks,
         spaceId,
@@ -227,7 +248,7 @@ export function useP2PRoom(
       setPeerCount(0);
       setSyncState({ status: "disconnected" });
     };
-  }, [roomId, spaceId]);
+  }, [roomId, spaceId, peerId]);
 
   // Update peer count in sync state
   useEffect(() => {

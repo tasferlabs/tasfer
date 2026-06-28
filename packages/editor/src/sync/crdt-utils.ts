@@ -27,8 +27,9 @@ import {
   iterateVisibleChars,
 } from "./char-runs";
 import { generateKeyBetween } from "./fractional-index";
-import { compareBlocks, extractCounter, extractPeerId } from "./id";
+import { extractCounter, extractPeerId } from "./id";
 import { applyOp } from "./reducer";
+import { sortBlocksByOrder } from "./block-order";
 import { invariant } from "@shared/invariant";
 
 /**
@@ -274,17 +275,12 @@ export function restoreSelection(
  *
  * @param blocks - All blocks (any order, may include deleted)
  * @returns Ordered array of all blocks (including tombstones)
+ *
+ * Implemented in the DOM-free `./block-order` module (imported above for
+ * `orderKeyAfter` and re-exported here for existing consumers) so headless hosts
+ * can sort blocks without this module's selection/rendering dependencies.
  */
-export function sortBlocksByOrder(blocks: Block[]): Block[] {
-  return blocks.slice().sort((a, b) => {
-    const ak = a.orderKey ?? "";
-    const bk = b.orderKey ?? "";
-    if (ak !== bk) {
-      return ak < bk ? -1 : 1;
-    }
-    return -compareBlocks(a, b);
-  });
-}
+export { sortBlocksByOrder };
 
 /**
  * Mint an `orderKey` that places a new block immediately after `afterBlockId`

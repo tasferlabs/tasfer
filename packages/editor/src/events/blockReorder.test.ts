@@ -118,6 +118,27 @@ describe("dropIndexAtPoint", () => {
   it("maps a y past the last midpoint to the tail (N)", () => {
     expect(dropIndexAtPoint(topOf(3) + 25, state, VIEWPORT)).toBe(4);
   });
+
+  // Regression: off-screen blocks above the fold carry *estimated* heights in
+  // the height index, so the content paint reports where blocks actually landed
+  // via the `visibility` snapshot (`start`/`startY`). The drop math must anchor
+  // to that snapshot, not re-walk the exact flow from block 0 — otherwise the
+  // insertion gap is computed against positions that don't match the pixels and
+  // lands under the wrong (usually preceding) block.
+  it("anchors the gap walk at the visibility snapshot, not block 0", () => {
+    const scrolled = stateOf(["A", "B", "C", "D", "E"]);
+    // Paint reports block C (index 2) drawn at y=200; D at 240, E at 280.
+    const visibility = { start: 2, end: 4, startY: 200 };
+
+    // y=250 is past C's midpoint (220) but short of D's (260) → gap before D.
+    expect(
+      dropIndexAtPoint(250, scrolled, VIEWPORT, undefined, visibility),
+    ).toBe(3);
+
+    // Without the snapshot the naive flow from block 0 (paddingTop, scrollY 0)
+    // puts every block far above y=250 and wrongly reports the tail.
+    expect(dropIndexAtPoint(250, scrolled, VIEWPORT)).toBe(5);
+  });
 });
 
 describe("block-drag-handle region hitTest", () => {

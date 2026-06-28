@@ -28,6 +28,7 @@ import {
 } from "../api/pages.api";
 // import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
 import { useAssetUrl } from "../api/images.api";
+import { getDisplayName } from "@cypherkit/provider-core/cursors";
 import { useArchiveSpace } from "../api/spaces.api";
 import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
 import { useConfirmation } from "../components/ConfirmationDialog";
@@ -491,15 +492,19 @@ export function SidebarContent({
     }
   }
 
+  // Friendly display name for the local user — falls back to "Anonymous"
+  // rather than an empty label when no name has been set.
+  const displayName = getDisplayName(
+    { name: user?.name },
+    t("collaboration.anonymous", "Anonymous"),
+  );
   // User initials for avatar
-  const initials = user?.name
-    ? user.name
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2)
-    : "?";
+  const initials = displayName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
 
   const avatarUrl = useAssetUrl(user?.avatar);
   const shouldShowTheProfileAtTop =
@@ -537,7 +542,7 @@ export function SidebarContent({
                   )}
                 </div>
                 <span className="text-sm font-medium text-foreground truncate">
-                  {user?.name}
+                  {displayName}
                 </span>
               </button>
               {!isMobile && (
@@ -692,7 +697,7 @@ export function SidebarContent({
                   )}
                 </div>
                 <span className="text-sm font-medium text-foreground truncate">
-                  {user?.name}
+                  {displayName}
                 </span>
               </button>
             </div>
@@ -704,7 +709,7 @@ export function SidebarContent({
         open={avatarPreviewOpen}
         onOpenChange={setAvatarPreviewOpen}
         imageUrl={avatarUrl}
-        name={user?.name}
+        name={displayName}
       />
     </>
   );

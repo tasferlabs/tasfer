@@ -1,13 +1,30 @@
 import {
   type CursorUser,
   getColorForPeer,
+  getDisplayName,
+  isSamePerson,
 } from "@cypherkit/provider-core/cursors";
 import style from '../layout/Layout.module.css';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { useAssetUrl } from '../api/images.api';
+import { useAuth } from '../contexts/AuthContext';
 import { AvatarPreviewDialog } from './AvatarPreviewDialog';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Laptop, Monitor, Smartphone, Tablet } from 'lucide-react';
+
+/**
+ * Label to use when a peer has no display name: "You" when the presence is the
+ * local user's own other tab (same device), otherwise a friendly "Anonymous".
+ */
+function useNameFallback(): (user: CursorUser) => string {
+  const { t } = useTranslation();
+  const { user: self } = useAuth();
+  return (user: CursorUser) =>
+    isSamePerson(user, self?.id)
+      ? t("collaboration.you", "You")
+      : t("collaboration.anonymous", "Anonymous");
+}
 
 function DeviceIcon({ deviceType }: { deviceType?: string }) {
   const cls = "h-3 w-3 shrink-0 opacity-70";
@@ -25,10 +42,12 @@ interface ActiveUsersAvatarsProps {
 }
 
 function UserAvatarItem({ user, onClick }: { user: CursorUser; onClick: () => void }) {
+  const nameFallback = useNameFallback();
   const avatarUrl = useAssetUrl(user.avatar);
-  const initials = user.name
-    ? user.name.charAt(0).toUpperCase()
-    : user.peerId.charAt(0).toUpperCase();
+  const displayName = getDisplayName(user, nameFallback(user));
+  const initials = displayName.charAt(0).toUpperCase();
+  // Color stays keyed on a per-peer-stable value so distinct anonymous peers
+  // still get distinct colors instead of all collapsing onto one.
   const color = user.color ?? getColorForPeer(user.name || user.peerId);
 
   return (
@@ -53,7 +72,7 @@ function UserAvatarItem({ user, onClick }: { user: CursorUser; onClick: () => vo
       <TooltipContent>
         <div className="flex items-center gap-1.5">
           <DeviceIcon deviceType={user.deviceType} />
-          <span>{user.name || user.peerId}</span>
+          <span>{displayName}</span>
         </div>
       </TooltipContent>
     </Tooltip>
@@ -61,6 +80,7 @@ function UserAvatarItem({ user, onClick }: { user: CursorUser; onClick: () => vo
 }
 
 export function ActiveUsersAvatars({ users }: ActiveUsersAvatarsProps) {
+  const nameFallback = useNameFallback();
   const [previewUser, setPreviewUser] = useState<CursorUser | null>(null);
   const previewAvatarUrl = useAssetUrl(previewUser?.avatar);
 
@@ -82,7 +102,7 @@ export function ActiveUsersAvatars({ users }: ActiveUsersAvatarsProps) {
         open={!!previewUser}
         onOpenChange={(open) => { if (!open) setPreviewUser(null); }}
         imageUrl={previewAvatarUrl}
-        name={previewUser?.name}
+        name={previewUser ? getDisplayName(previewUser, nameFallback(previewUser)) : null}
       />
     </TooltipProvider>
   );

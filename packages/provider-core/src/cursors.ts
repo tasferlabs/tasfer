@@ -14,8 +14,9 @@
  *     agnostic; a host syncing presence over its own pipe can call these
  *     directly and feed the result to `editor.view.setDecorations`.
  *   - **{@link bindPresenceCursors}** — the convenience binder for a Provider:
- *     publishes the local selection on every `selectionchange`, and turns every
- *     remote peer's presence into a `presence:<peerId>` decoration layer.
+ *     publishes the local selection whenever the caret moves (both
+ *     `selectionchange` and content `change` events), and turns every remote
+ *     peer's presence into a `presence:<peerId>` decoration layer.
  */
 
 import type { Decoration, DocRange, Editor } from "@cypherkit/editor";
@@ -83,6 +84,47 @@ export interface CursorUser {
   readonly color?: string;
   /** Optional device hint (e.g. "laptop"/"phone") for a presence UI. */
   readonly deviceType?: string;
+  /**
+   * Stable id of the originating person/device, shared across all of that
+   * person's tabs/replicas (unlike {@link peerId}, which is per-tab). Lets a
+   * presence UI recognize the local user's own other tabs and label them
+   * accordingly (e.g. "You") instead of as a separate anonymous peer.
+   */
+  readonly deviceId?: string;
+}
+
+/**
+ * Last-resort label for a peer with no display name. A raw peer id (a random
+ * hex string) is never shown as a name — anonymous peers get this friendly
+ * default instead. Hosts should pass their own localized string to
+ * {@link getDisplayName}; this constant is only the English fallback.
+ */
+export const DEFAULT_USER_NAME = "Anonymous";
+
+/**
+ * A peer's display name for presence UI: their chosen name if set, otherwise a
+ * friendly fallback — never the raw peer id. Pass a localized `fallback` (e.g.
+ * the i18next translation of "Anonymous") at the host's display boundary.
+ */
+export function getDisplayName(
+  user: { readonly name?: string },
+  fallback: string = DEFAULT_USER_NAME,
+): string {
+  const name = user.name?.trim();
+  return name ? name : fallback;
+}
+
+/**
+ * Whether `user`'s presence comes from the same person/device as
+ * `selfDeviceId` (the local user's {@link CursorUser.deviceId}) — i.e. the
+ * local user's own other tab/replica. False when either id is missing, so an
+ * unknown peer is never mistaken for the local user.
+ */
+export function isSamePerson(
+  user: { readonly deviceId?: string },
+  selfDeviceId: string | null | undefined,
+): boolean {
+  return !!selfDeviceId && user.deviceId === selfDeviceId;
 }
 
 /**
@@ -107,6 +149,7 @@ const REMOTE_SELECTION_OPACITY = 0.3;
 export function cursorPresenceToDecorations(
   peerId: string,
   presence: CursorPresence,
+  defaultName?: string,
 ): Decoration[] {
   const color = presence.user.color || getColorForPeer(peerId);
 
@@ -127,9 +170,10 @@ export function cursorPresenceToDecorations(
         kind: "caret",
         point: presence.caret,
         color,
-        label: presence.user.name
-          ? { text: presence.user.name, avatar: presence.user.avatar ?? null }
-          : undefined,
+        label: {
+          text: getDisplayName(presence.user, defaultName),
+          avatar: presence.user.avatar ?? null,
+        },
       },
     ];
   }
@@ -186,8 +230,10 @@ export interface BindPresenceCursorsOptions {
 /**
  * Wire a {@link Provider}'s presence channel to an editor's decorations so
  * remote carets/selections render automatically — and the local selection is
- * published on every change. Returns an unsubscribe that detaches both
- * directions and clears every presence layer it added.
+ * published whenever the caret moves (caret-only `selectionchange` *and*
+ * content `change` events, so a peer's cursor follows their typing). Returns an
+ * unsubscribe that detaches both directions and clears every presence layer it
+ * added.
  */
 export function bindPresenceCursors(
   editor: Editor,
@@ -208,6 +254,13 @@ export function bindPresenceCursors(
   };
   publish();
   const offSelection = editor.on("selectionchange", publish);
+  // Typing moves the caret but the engine reports it as a "change" (content)
+  // event, not "selectionchange" (caret moves with no content change). Publish
+  // on both so a peer's cursor follows their typing instead of freezing until
+  // their next click/selection. `publish` ignores the event arg and re-reads the
+  // live selection, so it's correct for content changes too (including a remote
+  // insert before the caret, which shifts the offset peers need to see).
+  const offChange = editor.on("change", publish);
 
   // Inbound: each remote peer's presence becomes a decoration layer.
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -252,6 +305,7 @@ export function bindPresenceCursors(
 
   return () => {
     offSelection();
+    offChange();
     offPresence();
     for (const peerId of [...shownPeers]) clearPeer(peerId);
   };

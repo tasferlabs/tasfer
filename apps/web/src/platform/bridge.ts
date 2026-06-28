@@ -13,6 +13,29 @@
 // Bridge types
 // =============================================================================
 
+/**
+ * Serializable context-menu item posted to the native shell. Mirror of the
+ * host's `ContextMenuItem` minus the React icon node and action callback (built
+ * in `app/nativeContextMenu.ts`). `id` is the join key the native side echoes
+ * back so the host can run the matching action.
+ */
+export interface NativeMenuItem {
+  id: string;
+  label: string;
+  /** SF Symbol name for iOS, which renders its own template icon. */
+  icon?: string;
+  /**
+   * Pre-rasterized, theme-colored PNG data URL for hosts without a native icon
+   * catalog (Android `PopupMenu`, Electron `Menu`). Absent until the web side
+   * has rasterized it; absence degrades to a text-only row.
+   */
+  iconPng?: string;
+  enabled: boolean;
+  /** Checkmark state. */
+  checked?: boolean;
+  children?: NativeMenuItem[];
+}
+
 export interface CypherBridge {
   clipboard: {
     copy(text: string): Promise<void>;
@@ -28,6 +51,20 @@ export interface CypherBridge {
     setColorScheme(scheme: "light" | "dark"): Promise<void>;
     /** Atomically clear native WebView focus and hide the Android IME. */
     dismissKeyboard?(): Promise<void>;
+    /**
+     * Present a platform-native context menu and resolve with the chosen item's
+     * id, or null if the menu was dismissed without a selection.
+     *
+     * `anchor` is the trigger rectangle in viewport-relative CSS pixels; the
+     * native side converts to its own coordinate space (1:1 with WKWebView
+     * points on iOS, density-scaled on Android).
+     *
+     * Optional — shells that don't implement it fall back to the web popover.
+     */
+    showContextMenu?(req: {
+      model: NativeMenuItem[];
+      anchor: { x: number; y: number; width: number; height: number };
+    }): Promise<string | null>;
   };
 
   navigation: {
