@@ -14,7 +14,14 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "package": "electron-builder"
+    "package": "electron-builder",
+    "package:dir": "electron-builder --dir",
+    "package:linux": "electron-builder --linux",
+    "package:linux:appimage": "electron-builder --linux AppImage",
+    "package:linux:deb": "electron-builder --linux deb",
+    "package:linux:pacman": "electron-builder --linux pacman",
+    "package:mac": "electron-builder --mac",
+    "package:win": "electron-builder --win"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",

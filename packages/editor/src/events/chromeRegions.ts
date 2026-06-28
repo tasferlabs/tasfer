@@ -282,13 +282,22 @@ const peerIndicatorRegion: Region = {
   },
   onTap(hit, _p, _tapCount, ctx) {
     const target = hit as { blockIndex: number; textIndex: number };
-    const newScrollY = scrollToMakeCursorVisible(
-      target,
-      ctx.state,
-      ctx.viewport,
-    );
-    if (newScrollY !== null) {
-      ctx.updateViewport?.({ scrollY: newScrollY });
+    if (ctx.scrollPositionIntoView) {
+      // Corrected scroll: re-measures over the next few frames so it lands on
+      // the peer's exact caret even when the target is far off-screen (where a
+      // one-shot jump from estimated heights would land short).
+      ctx.scrollPositionIntoView(target);
+    } else {
+      // Fallback for a host that builds its own region context without the
+      // correction hook: a single estimate-based make-visible jump.
+      const newScrollY = scrollToMakeCursorVisible(
+        target,
+        ctx.state,
+        ctx.viewport,
+      );
+      if (newScrollY !== null) {
+        ctx.updateViewport?.({ scrollY: newScrollY });
+      }
     }
     return { state: withScrollbarInteraction(ctx.state) };
   },

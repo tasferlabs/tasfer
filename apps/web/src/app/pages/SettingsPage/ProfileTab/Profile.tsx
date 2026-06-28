@@ -5,17 +5,9 @@ import { AvatarPreviewDialog } from "@/app/components/AvatarPreviewDialog";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { DeviceType } from "@/platform/types";
 import { getDisplayName } from "@cypherkit/provider-core/cursors";
-import { Camera, Laptop, Monitor, Smartphone, Tablet, Trash } from "lucide-react";
+import { Camera, Trash } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./Profile.module.css";
@@ -28,9 +20,6 @@ export function Profile() {
   const [avatarId, setAvatarId] = React.useState<string | null>(
     user?.avatar ?? null,
   );
-  const [deviceType, setDeviceType] = React.useState<DeviceType>(
-    user?.deviceType ?? "",
-  );
   const [uploading, setUploading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [pendingFile, setPendingFile] = React.useState<File | null>(null);
@@ -39,9 +28,7 @@ export function Profile() {
   const avatarUrl = useAssetUrl(avatarId);
 
   const hasChanges =
-    name !== (user?.name ?? "") ||
-    avatarId !== (user?.avatar ?? null) ||
-    deviceType !== (user?.deviceType ?? "");
+    name !== (user?.name ?? "") || avatarId !== (user?.avatar ?? null);
 
   function handleAvatarClick() {
     if (avatarId) {
@@ -87,7 +74,6 @@ export function Profile() {
       const updated = await updateProfile({
         name: name.trim(),
         avatar: avatarId,
-        deviceType,
       });
       updateUser(updated);
     } catch (err) {
@@ -178,39 +164,6 @@ export function Profile() {
             onChange={(e) => setName(e.target.value)}
             placeholder={t("profile.enterName", "Enter your name")}
           />
-        </div>
-      </div>
-
-      <div className={styles.section}>
-        <div className={styles.row}>
-          <div className={styles.column}>
-            <p className={cn("text-sm", styles.title)}>{t("profile.deviceType", "Device type")}</p>
-            <p className="text-sm opacity-75">{t("profile.deviceTypeDesc", "Helps you identify this device")}</p>
-          </div>
-
-          <Select value={deviceType} onValueChange={(v) => setDeviceType(v as DeviceType)}>
-            <SelectTrigger className={styles.nameInput}>
-              <SelectValue placeholder={t("profile.selectDeviceType", "Select device type")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="laptop">
-                <Laptop className="h-4 w-4 text-muted-foreground" />
-                {t("profile.deviceLaptop", "Laptop")}
-              </SelectItem>
-              <SelectItem value="desktop">
-                <Monitor className="h-4 w-4 text-muted-foreground" />
-                {t("profile.deviceDesktop", "Desktop")}
-              </SelectItem>
-              <SelectItem value="phone">
-                <Smartphone className="h-4 w-4 text-muted-foreground" />
-                {t("profile.devicePhone", "Phone")}
-              </SelectItem>
-              <SelectItem value="tablet">
-                <Tablet className="h-4 w-4 text-muted-foreground" />
-                {t("profile.deviceTablet", "Tablet")}
-              </SelectItem>
-            </SelectContent>
-          </Select>
         </div>
       </div>
 

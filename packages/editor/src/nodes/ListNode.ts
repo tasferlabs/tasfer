@@ -32,7 +32,7 @@ import type {
   NodeRegionCtx,
 } from "../rendering/nodes/Node";
 import { getTextDirection } from "../rtl";
-import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
+import type { NodeCodec } from "../serlization/codecs/types";
 import {
   type Block,
   type CharRun,
@@ -43,7 +43,6 @@ import {
   NUMBERED_LIST,
   TODO_LIST_CHECKED,
   TODO_LIST_UNCHECKED,
-  type TokenType,
 } from "../serlization/tokenizer";
 import type { EditorState, EditorStyles, TextStyle } from "../state-types";
 import { isListType } from "../sync/block-registry";
@@ -358,83 +357,88 @@ export class ListNode extends TextNode {
 
   // ── Serialization ──────────────────────────────────────────────────────────
 
-  readonly markdownTokens: readonly TokenType[] = [
-    BULLET_LIST,
-    NUMBERED_LIST,
-    TODO_LIST_UNCHECKED,
-    TODO_LIST_CHECKED,
-  ];
+  readonly codec: NodeCodec = {
+    markdown: {
+      tokens: [
+        BULLET_LIST,
+        NUMBERED_LIST,
+        TODO_LIST_UNCHECKED,
+        TODO_LIST_CHECKED,
+      ],
+      output: (block, ctx) => {
+        const b = block as ListBlock;
+        const indent = " ".repeat(b.indent * 2);
+        const content = ctx.inline(b.charRuns, b.formats);
 
-  outputMarkdown(block: ListBlock, ctx: OutputCtx): string {
-    const b = block;
-    const indent = " ".repeat(b.indent * 2);
-    const content = ctx.inline(b.charRuns, b.formats);
+        if (b.type === "bullet_list") {
+          return `${indent}- ${content}`;
+        }
+        if (b.type === "numbered_list") {
+          return `${indent}${ctx.listNumber ?? 1}. ${content}`;
+        }
+        // todo_list
+        const checkbox = (b as TodoListItem).checked ? "[x]" : "[ ]";
+        return `${indent}- ${checkbox} ${content}`;
+      },
+      input: (ctx) => {
+        if (ctx.match(BULLET_LIST)) {
+          const { charRuns, formats } = ctx.inlineText();
+          const item: BulletListItem = {
+            id: ctx.nextBlockId(),
+            type: "bullet_list",
+            charRuns,
+            formats,
+            indent: ctx.indent,
+          };
+          return item;
+        }
 
-    if (b.type === "bullet_list") {
-      return `${indent}- ${content}`;
-    }
-    if (b.type === "numbered_list") {
-      return `${indent}${ctx.listNumber ?? 1}. ${content}`;
-    }
-    // todo_list
-    const checkbox = (b as TodoListItem).checked ? "[x]" : "[ ]";
-    return `${indent}- ${checkbox} ${content}`;
-  }
+        if (ctx.match(NUMBERED_LIST)) {
+          const { charRuns, formats } = ctx.inlineText();
+          const item: NumberedListItem = {
+            id: ctx.nextBlockId(),
+            type: "numbered_list",
+            charRuns,
+            formats,
+            indent: ctx.indent,
+          };
+          return item;
+        }
 
-  inputMarkdown(ctx: InputCtx): Block {
-    if (ctx.match(BULLET_LIST)) {
-      const { charRuns, formats } = ctx.inlineText();
-      const item: BulletListItem = {
-        id: ctx.nextBlockId(),
-        type: "bullet_list",
-        charRuns,
-        formats,
-        indent: ctx.indent,
-      };
-      return item;
-    }
-
-    if (ctx.match(NUMBERED_LIST)) {
-      const { charRuns, formats } = ctx.inlineText();
-      const item: NumberedListItem = {
-        id: ctx.nextBlockId(),
-        type: "numbered_list",
-        charRuns,
-        formats,
-        indent: ctx.indent,
-      };
-      return item;
-    }
-
-    const checked = ctx.check(TODO_LIST_CHECKED);
-    ctx.match(TODO_LIST_CHECKED, TODO_LIST_UNCHECKED);
-    const { charRuns, formats } = ctx.inlineText();
-    const item: TodoListItem = {
-      id: ctx.nextBlockId(),
-      type: "todo_list",
-      charRuns,
-      formats,
-      checked,
-      indent: ctx.indent,
-    };
-    return item;
-  }
-
-  /** The <li> element only — group wrapping (<ul>/<ol>) is the orchestrator's. */
-  outputHTML(block: ListBlock, ctx: OutputCtx): string {
-    const b = block;
-    const inner = ctx.inline(b.charRuns, b.formats);
-    if (b.type === "todo_list") {
-      const checked = (b as TodoListItem).checked ? " checked" : "";
-      return `<li><input type="checkbox" disabled${checked} /><span>${inner}</span></li>`;
-    }
-    return `<li>${inner}</li>`;
-  }
-
-  outputText(block: ListBlock, ctx: OutputCtx): string {
-    // Plain text (text/plain paste) lands in external apps as bare text — no
-    // list marker, matching bullet/numbered items. A todo's `[ ]`/`[x]` prefix
-    // would read there as stray brackets, so it's dropped too.
-    return ctx.inline(block.charRuns, block.formats);
-  }
+        const checked = ctx.check(TODO_LIST_CHECKED);
+        ctx.match(TODO_LIST_CHECKED, TODO_LIST_UNCHECKED);
+        const { charRuns, formats } = ctx.inlineText();
+        const item: TodoListItem = {
+          id: ctx.nextBlockId(),
+          type: "todo_list",
+          charRuns,
+          formats,
+          checked,
+          indent: ctx.indent,
+        };
+        return item;
+      },
+    },
+    /** The <li> element only — group wrapping (<ul>/<ol>) is the orchestrator's. */
+    html: {
+      output: (block, ctx) => {
+        const b = block as ListBlock;
+        const inner = ctx.inline(b.charRuns, b.formats);
+        if (b.type === "todo_list") {
+          const checked = (b as TodoListItem).checked ? " checked" : "";
+          return `<li><input type="checkbox" disabled${checked} /><span>${inner}</span></li>`;
+        }
+        return `<li>${inner}</li>`;
+      },
+    },
+    text: {
+      // Plain text (text/plain paste) lands in external apps as bare text — no
+      // list marker, matching bullet/numbered items. A todo's `[ ]`/`[x]` prefix
+      // would read there as stray brackets, so it's dropped too.
+      output: (block, ctx) => {
+        const b = block as ListBlock;
+        return ctx.inline(b.charRuns, b.formats);
+      },
+    },
+  };
 }

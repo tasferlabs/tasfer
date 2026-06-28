@@ -12,7 +12,7 @@
 import { Mark, type MarkStyle } from "./rendering/marks/Mark";
 import { AtomicNode } from "./rendering/nodes/AtomicNode";
 import { baseSchema, defineMark, defineNode } from "./schema";
-import { type OutputCtx } from "./serlization/codecs";
+import { type NodeCodec, type OutputCtx } from "./serlization/codecs";
 import type { MarkCodec } from "./serlization/codecs/mark-codec";
 import type { Block } from "./serlization/loadPage";
 import type { BlockBounds } from "./state-types";
@@ -31,15 +31,11 @@ class FancyNode extends AtomicNode {
     return 24;
   }
   protected draw(_box: BlockBounds): void {}
-  outputMarkdown(): string {
-    return ":::fancy:::";
-  }
-  outputHTML(): string {
-    return '<div class="fancy"></div>';
-  }
-  outputText(): string {
-    return "fancy-text";
-  }
+  readonly codec: NodeCodec = {
+    markdown: { output: () => ":::fancy:::" },
+    html: { output: () => '<div class="fancy"></div>' },
+    text: { output: () => "fancy-text" },
+  };
 }
 
 /** A class-first node with no serialization — must hit the generic fallback. */

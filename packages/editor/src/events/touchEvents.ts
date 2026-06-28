@@ -44,7 +44,7 @@ import {
 } from "../selection";
 import { updateCursor } from "../selection";
 import { startSelection } from "../selection";
-import type { EditorState, ViewportState } from "../state-types";
+import type { EditorState, Position, ViewportState } from "../state-types";
 import { closeActiveMenu, updateMode } from "../state-utils";
 import { getEditorStyles } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
@@ -674,6 +674,7 @@ export function handleTouchEnd(
   documentHeight: number,
   session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
+  scrollPositionIntoView?: (position: Position) => void,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   stopAutoScroll(session);
@@ -890,6 +891,7 @@ export function handleTouchEnd(
       documentHeight,
       session,
       updateViewport: updateViewportCallback,
+      scrollPositionIntoView,
     };
     const tapClaim = hitTestAllRegions(
       { x: tapPosition.x, y: tapPosition.y },

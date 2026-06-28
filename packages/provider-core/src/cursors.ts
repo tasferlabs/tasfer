@@ -19,7 +19,12 @@
  *     peer's presence into a `presence:<peerId>` decoration layer.
  */
 
-import type { Decoration, DocRange, Editor } from "@cypherkit/editor";
+import type {
+  Decoration,
+  DocRange,
+  Editor,
+  LabelIconShape,
+} from "@cypherkit/editor";
 import type { Presence, Provider, RemotePresence } from "./types";
 
 // =============================================================================
@@ -145,11 +150,17 @@ const REMOTE_SELECTION_OPACITY = 0.3;
  * Map a peer's presence to the decorations that render it: a selection fill when
  * the peer has a selection, otherwise a labeled caret. Pure — feed the result to
  * `editor.view.setDecorations("presence:<peerId>", …)`.
+ *
+ * `labelIcon` attaches a glyph to the caret label. It exists so a host can fold
+ * cross-peer context into the label — e.g. a device hint to tell two same-named
+ * collaborators apart — without this mapper having to know anything about the
+ * other peers or what the glyph depicts.
  */
 export function cursorPresenceToDecorations(
   peerId: string,
   presence: CursorPresence,
   defaultName?: string,
+  labelIcon?: readonly LabelIconShape[],
 ): Decoration[] {
   const color = presence.user.color || getColorForPeer(peerId);
 
@@ -173,6 +184,7 @@ export function cursorPresenceToDecorations(
         label: {
           text: getDisplayName(presence.user, defaultName),
           avatar: presence.user.avatar ?? null,
+          icon: labelIcon,
         },
       },
     ];

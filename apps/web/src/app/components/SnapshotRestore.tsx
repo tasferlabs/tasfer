@@ -353,8 +353,12 @@ export function SnapshotRestore({
       });
 
       const platform = getPlatform();
+      // Persist the forked content as ops; the first page open rebuilds the
+      // blocks from them and writes a snapshot whose version-vector token
+      // matches. Pre-saving a snapshot here would have no matching token (the
+      // ops' clocks are minted inside writeBlocks), so it would be discarded on
+      // open anyway.
       await platform.ops.writeBlocks(forkedPage.id, snapshot.blocks);
-      await platform.snapshots.save(forkedPage.id, snapshot.blocks);
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["pages"] }),

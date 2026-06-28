@@ -30,8 +30,6 @@ export interface Identity {
   name: string;
   /** Avatar URL or data URI */
   avatar: string | null;
-  /** Device type for identification when multiple devices share a name */
-  deviceType: DeviceType;
 }
 
 /** A known peer */
@@ -535,8 +533,22 @@ export interface Platform {
      * Save a snapshot of the current block state to the filesystem.
      * Called after local edits and after applying remote ops, so that
      * subsequent page opens can skip the full op-log rebuild.
+     *
+     * `vv` is the clock-based version vector (`{ [clockPeerId]: maxClockCounter }`)
+     * of the exact op set these `blocks` reflect — it MUST be captured atomically
+     * with `blocks` from the same source (the doc), never re-derived from storage
+     * at a later time. On open, the snapshot is only trusted when this vv exactly
+     * matches the op log's current frontier; otherwise the log is replayed. A raw
+     * op count cannot be used here: the count is read at a different instant than
+     * the blocks are captured, so a remote op persisted (but not yet folded into
+     * the blocks) can make a stale snapshot's count match — silently seeding the
+     * doc with state that lags its own op log.
      */
-    save(pageId: string, blocks: Block[]): Promise<void>;
+    save(
+      pageId: string,
+      blocks: Block[],
+      vv: Record<string, number>,
+    ): Promise<void>;
   };
 
   // ---------------------------------------------------------------------------

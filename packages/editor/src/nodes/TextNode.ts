@@ -69,7 +69,7 @@ import {
   type NodePaintCtx,
 } from "../rendering/nodes/Node";
 import { getTextDirection } from "../rtl";
-import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
+import type { InputCtx, NodeCodec } from "../serlization/codecs/types";
 import type {
   Block,
   Char,
@@ -77,7 +77,6 @@ import type {
   Mark,
   MarkSpan,
 } from "../serlization/loadPage";
-import type { TokenType } from "../serlization/tokenizer";
 import {
   HEADING_1,
   HEADING_2,
@@ -520,7 +519,6 @@ function renderCompositionUnderline(
 
 /** The visual style of one text run, folded from all its marks' channels. */
 interface ComposedMarkStyle {
-  italic: boolean;
   strikethrough: boolean;
   /** Glyph fill color, or undefined to use the block's base text color. */
   color?: string;
@@ -538,15 +536,16 @@ interface ComposedMarkStyle {
  * former hardcoded `batch.isCode / isLink / isMath` branches in `renderLine`.
  *
  * Precedence preserves the prior behavior: a chip-bearing mark's color (code)
- * wins over a plain color (link); italic / strike / underline are additive; a
+ * wins over a plain color (link); strike / underline are additive; a
  * replacement mark (math) wins the run and contributes no inline channels.
+ * Metric-affecting variants (bold, italic) are not handled here — they're folded
+ * into the {@link TextBatch} by the measurement engine so wrap and paint agree.
  */
 function composeMarkStyle(
   formats: Mark[],
   marks: MarkRegistry,
   styles: EditorStyles,
 ): ComposedMarkStyle {
-  let italic = false;
   let strikethrough = false;
   let background: MarkChipStyle | undefined;
   let chipColor: string | undefined;
@@ -562,7 +561,6 @@ function composeMarkStyle(
       continue;
     }
     const s = mark.style({ styles, mark: format });
-    if (s.italic) italic = true;
     if (s.strikethrough) strikethrough = true;
     if (s.underline) underline = s.underline;
     if (s.background) {
@@ -574,7 +572,6 @@ function composeMarkStyle(
   }
 
   return {
-    italic,
     strikethrough,
     background,
     underline,
@@ -619,8 +616,8 @@ function renderLine(
 
   for (const batch of batches) {
     const style = composeMarkStyle(batch.formats, marks, styles);
-    const effectiveFontWeight = batch.isBold ? "bold" : textStyle.fontWeight;
-    const fontStyle = style.italic ? "italic" : "normal";
+    const effectiveFontWeight = batch.bold ? "bold" : textStyle.fontWeight;
+    const fontStyle = batch.italic ? "italic" : "normal";
 
     ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily, styles.fonts)}`;
     ctx.textBaseline = "alphabetic";
@@ -1839,50 +1836,53 @@ export class TextNode extends Node<TextualBlock> {
   // fallback for any unclaimed block-start token.
   // -------------------------------------------------------------------------
 
-  readonly markdownTokens: readonly TokenType[] = [
-    HEADING_1,
-    HEADING_2,
-    HEADING_3,
-  ];
+  readonly codec: NodeCodec = {
+    markdown: {
+      tokens: [HEADING_1, HEADING_2, HEADING_3],
+      output: (block, ctx) => {
+        const b = block as TextualBlock;
+        const prefix = MARKDOWN_PREFIX[b.type] ?? "";
+        return prefix + ctx.inline(b.charRuns, b.formats);
+      },
+      input: (ctx) => {
+        const level = headingLevel(ctx);
+        const { charRuns, formats } = ctx.inlineText();
 
-  outputMarkdown(block: TextualBlock, ctx: OutputCtx): string {
-    const prefix = MARKDOWN_PREFIX[block.type] ?? "";
-    return prefix + ctx.inline(block.charRuns, block.formats);
-  }
+        if (level > 0) {
+          const heading: Heading = {
+            id: ctx.nextBlockId(),
+            type: `heading${level}` as Heading["type"],
+            charRuns,
+            formats,
+          };
+          ctx.match(NEWLINE);
+          return heading;
+        }
 
-  inputMarkdown(ctx: InputCtx): Block {
-    const level = headingLevel(ctx);
-    const { charRuns, formats } = ctx.inlineText();
-
-    if (level > 0) {
-      const heading: Heading = {
-        id: ctx.nextBlockId(),
-        type: `heading${level}` as Heading["type"],
-        charRuns,
-        formats,
-      };
-      ctx.match(NEWLINE);
-      return heading;
-    }
-
-    const paragraph: Paragraph = {
-      id: ctx.nextBlockId(),
-      type: "paragraph",
-      charRuns,
-      formats,
-    };
-    return paragraph;
-  }
-
-  outputHTML(block: TextualBlock, ctx: OutputCtx): string {
-    const tag = HTML_TAG_NAME[block.type] ?? "p";
-    const inner = ctx.inline(block.charRuns, block.formats);
-    return `<${tag}>${inner}</${tag}>`;
-  }
-
-  outputText(block: TextualBlock, ctx: OutputCtx): string {
-    return ctx.inline(block.charRuns, block.formats);
-  }
+        const paragraph: Paragraph = {
+          id: ctx.nextBlockId(),
+          type: "paragraph",
+          charRuns,
+          formats,
+        };
+        return paragraph;
+      },
+    },
+    html: {
+      output: (block, ctx) => {
+        const b = block as TextualBlock;
+        const tag = HTML_TAG_NAME[b.type] ?? "p";
+        const inner = ctx.inline(b.charRuns, b.formats);
+        return `<${tag}>${inner}</${tag}>`;
+      },
+    },
+    text: {
+      output: (block, ctx) => {
+        const b = block as TextualBlock;
+        return ctx.inline(b.charRuns, b.formats);
+      },
+    },
+  };
 
   // -------------------------------------------------------------------------
   // Per-type hooks. The base (headings/paragraph) adds nothing; ListNode

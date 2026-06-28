@@ -400,6 +400,8 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       labelFontSize: 10,
       labelPadding: 2,
       labelBorderRadius: 2,
+      labelIconSize: 12,
+      labelIconGap: 3,
       // Defaults reproduce the historical pill geometry; the inset* fields are 0
       // so positions match the pre-theming behavior until a host overrides them
       // (e.g. to clear a mobile safe area).

@@ -19,6 +19,7 @@ const editor = createEditor(options: CreateEditorOptions): CypherEditor;
   { name: "schema", type: "Schema", desc: "Allowed nodes & marks. Defaults to baseSchema. Ignored when doc is supplied (the doc carries its own data schema)." },
   { name: "theme", type: "EditorTheme", desc: "Canvas color tokens, styles, and fonts. Defaults to the neutral palette." },
   { name: "editable", type: "boolean", desc: "Set false for a read-only renderer. Default true." },
+  { name: "accessibilityTree", type: "boolean", desc: "Maintain a hidden, semantic DOM mirror of the document (headings, lists, code, marks) for screen readers — the canvas itself is opaque to assistive tech. Kept surgically in sync; only changed blocks are re-serialized. Default true; set false to opt out." },
   { name: "placeholder", type: "string", desc: "Ghost text shown when the document is empty." },
   { name: "autofocus", type: "boolean", desc: "Focus the editor and drop a caret in on mount. Default false." },
 ]} />

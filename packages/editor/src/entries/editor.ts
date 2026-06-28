@@ -1,3 +1,4 @@
+import { DomMirror } from "../a11y/dom-mirror";
 import {
   type Action,
   type ActionHandler,
@@ -834,6 +835,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private readonly cursorCtx: CanvasRenderingContext2D;
   private readonly contentCanvas: HTMLCanvasElement;
   private readonly hiddenInput?: HTMLElement;
+  // The accessible DOM mirror of the document (host reading surface). Undefined
+  // when the host opted out or supplied no container. Patched in `emitChange`.
+  private readonly a11yMirror?: DomMirror;
 
   // ── Core state ────────────────────────────────────────────────────────────
   private _state: EditorState;
@@ -946,6 +950,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       shortcuts?: Readonly<
         Record<string, string | EditorAction | MutationAction<void>>
       >;
+      /** Host-owned container for the accessible DOM mirror (see DomMirror). */
+      a11yContainer?: HTMLElement;
     },
   ) {
     // Extract contexts from layers
@@ -959,6 +965,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     this._state = initialState;
     this.viewport = viewportProp;
+
+    // The accessible DOM mirror reads the document's blocks lazily, so it stays
+    // correct as `_state` is replaced; it patches surgically off the op stream
+    // (see emitChange). Only built when the host supplies a container.
+    if (config?.a11yContainer) {
+      this.a11yMirror = new DomMirror({
+        container: config.a11yContainer,
+        getBlocks: () => this._state.document.page.blocks,
+      });
+    }
     this.rebuildBlockHeightIndex();
 
     // Built-in action defaults. These sit below any host handler (registered
@@ -1094,9 +1110,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     });
   }
 
-  // Change-event funnel: notify "change" listeners with a ChangeTransaction.
+  // Change-event funnel: patch the accessible mirror, then notify "change"
+  // listeners with a ChangeTransaction. Both local edits and remote sync funnel
+  // through here, so the mirror tracks either origin. The mirror reads the (now
+  // updated) document and re-serializes only the blocks the ops touched.
   private emitChange = (ops: readonly Operation[], isRemote: boolean): void => {
-    if (ops.length === 0 || this.changeListeners.length === 0) return;
+    if (ops.length === 0) return;
+    this.a11yMirror?.applyChange(ops);
+    if (this.changeListeners.length === 0) return;
     const tx: ChangeTransaction = { isRemote, ops };
     for (const listener of this.changeListeners) listener(tx);
   };
@@ -1254,6 +1275,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         this.session,
         this.updateViewport,
         this.pendingClipboardData,
+        this.scrollPositionIntoView,
       );
 
       // Update state with the result from events
@@ -2383,6 +2405,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.hiddenInput.removeEventListener("cut", this.cutHandler);
       this.hiddenInput.removeEventListener("paste", this.pasteHandler);
     }
+
+    this.a11yMirror?.destroy();
   };
 
   updateViewport = (newViewport: Partial<ViewportState>): void => {
@@ -2567,6 +2591,53 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       getEditorStyles(this._state),
       this.blockHeights,
     );
+  };
+
+  /**
+   * Scroll a (possibly off-screen) index position the minimum amount needed to
+   * bring it into view, then keep correcting over the next few frames until it
+   * lands exactly. The one-shot jump is computed from estimated prefix block
+   * heights, so for a far-off target it lands approximately; the
+   * `pendingViewportAnchor` re-measures after each paint and converges on the
+   * true spot — the same mechanism {@link scrollToPosition} uses for its
+   * offset target. Threaded into the event layer as `RegionCtx.
+   * scrollPositionIntoView` so the out-of-view peer indicator lands a click on
+   * the peer's actual caret rather than an estimate.
+   */
+  private scrollPositionIntoView = (position: Position): void => {
+    const block = this._state.document.page.blocks[position.blockIndex];
+    if (!block || block.deleted) return;
+    const coords = this.coordsAtIndexPosition(position);
+    if (!coords) return;
+
+    // Match scrollToMakeCursorVisible: keep the target this far from the edge.
+    const margin = 40;
+    const top = margin;
+    const bottom = this.viewport.height - margin;
+    let viewportOffsetY: number;
+    if (coords.y < top) {
+      viewportOffsetY = top;
+    } else if (coords.y + coords.height > bottom) {
+      viewportOffsetY = bottom - coords.height;
+    } else {
+      return; // already comfortably in view
+    }
+
+    const maxScroll = Math.max(
+      0,
+      this.calculateDocumentHeight() - this.viewport.height,
+    );
+    const scrollY = Math.max(
+      0,
+      Math.min(maxScroll, this.viewport.scrollY + coords.y - viewportOffsetY),
+    );
+    this.applyProgrammaticScroll(scrollY);
+    this.pendingViewportAnchor = {
+      position,
+      viewportOffsetY,
+      remainingCorrections: 3,
+    };
+    this.scheduleRender();
   };
 
   coordsAtPos = (
@@ -3821,6 +3892,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (this.broadcastFn) {
       this.emitLocalOps(ops);
     }
+
+    // A wholesale replace swaps the whole document; rebuild the accessible
+    // mirror from the new blocks directly. This also covers the standalone
+    // (no-broadcast) case, where ops never flow through `emitChange`.
+    this.a11yMirror?.rebuild();
 
     // Mark document height as dirty and reset scroll to top
     this.documentHeightDirty = true;

@@ -127,3 +127,12 @@ export interface BlockCodec {
   /** Asset references (content hashes / urls) this block owns. */
   assetRefs?(block: Block): string[];
 }
+
+/**
+ * A node's serialization facet: a {@link BlockCodec} minus `types`. `types` is
+ * block-type *identity*, already owned by the Node (`type`/`types`) and reused
+ * for registration, so the node never restates it inside its codec — the schema
+ * injects it (see `codecFromNode`). A Node declares this as its single `codec`
+ * property, the block analogue of `Mark.codec`.
+ */
+export type NodeCodec = Omit<BlockCodec, "types">;

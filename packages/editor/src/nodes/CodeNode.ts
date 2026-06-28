@@ -38,12 +38,11 @@ import type {
 } from "../rendering/nodes/Node";
 import { moveCursorToPosition } from "../selection";
 import { escapeAttr, escapeHtml } from "../serlization/codecs/inline";
-import type { InputCtx } from "../serlization/codecs/types";
-import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
+import type { NodeCodec } from "../serlization/codecs/types";
+import type { Char, CharRun, MarkSpan } from "../serlization/loadPage";
 import {
   CODE_BLOCK,
   NEWLINE,
-  type TokenType,
   type VisibleToken,
 } from "../serlization/tokenizer";
 import type {
@@ -366,46 +365,53 @@ export class CodeNode extends TextNode {
   // ── Serialization ────────────────────────────────────────────────────────────
   // Raw text round-trip (no inline-mark processing) — code is verbatim source.
 
-  readonly markdownTokens: readonly TokenType[] = [CODE_BLOCK];
+  readonly codec: NodeCodec = {
+    markdown: {
+      tokens: [CODE_BLOCK],
+      input: (ctx) => {
+        ctx.match(CODE_BLOCK);
+        const raw = (ctx.previous() as VisibleToken).content;
+        let code = "";
+        let language = "";
+        try {
+          const parsed = JSON.parse(raw) as {
+            code?: string;
+            language?: string;
+          };
+          code = parsed.code ?? "";
+          language = parsed.language ?? "";
+        } catch {
+          // Malformed token payload — fall back to an empty code block.
+        }
+        ctx.match(NEWLINE);
 
-  inputMarkdown(ctx: InputCtx): Block {
-    ctx.match(CODE_BLOCK);
-    const raw = (ctx.previous() as VisibleToken).content;
-    let code = "";
-    let language = "";
-    try {
-      const parsed = JSON.parse(raw) as { code?: string; language?: string };
-      code = parsed.code ?? "";
-      language = parsed.language ?? "";
-    } catch {
-      // Malformed token payload — fall back to an empty code block.
-    }
-    ctx.match(NEWLINE);
-
-    const block: CodeBlock = {
-      id: ctx.nextBlockId(),
-      type: "code",
-      charRuns: ctx.rawText(code),
-      formats: [],
-      language,
-    };
-    return block;
-  }
-
-  outputMarkdown(block: TextualBlock): string {
-    const b = block as CodeBlock;
-    const text = getVisibleTextFromRuns(b.charRuns);
-    return "```" + (b.language ?? "") + "\n" + text + "\n```";
-  }
-
-  outputHTML(block: TextualBlock): string {
-    const b = block as CodeBlock;
-    const text = getVisibleTextFromRuns(b.charRuns);
-    const cls = b.language ? ` class="language-${escapeAttr(b.language)}"` : "";
-    return `<pre><code${cls}>${escapeHtml(text)}</code></pre>`;
-  }
-
-  outputText(block: TextualBlock): string {
-    return getVisibleTextFromRuns((block as CodeBlock).charRuns);
-  }
+        const block: CodeBlock = {
+          id: ctx.nextBlockId(),
+          type: "code",
+          charRuns: ctx.rawText(code),
+          formats: [],
+          language,
+        };
+        return block;
+      },
+      output: (block) => {
+        const b = block as CodeBlock;
+        const text = getVisibleTextFromRuns(b.charRuns);
+        return "```" + (b.language ?? "") + "\n" + text + "\n```";
+      },
+    },
+    html: {
+      output: (block) => {
+        const b = block as CodeBlock;
+        const text = getVisibleTextFromRuns(b.charRuns);
+        const cls = b.language
+          ? ` class="language-${escapeAttr(b.language)}"`
+          : "";
+        return `<pre><code${cls}>${escapeHtml(text)}</code></pre>`;
+      },
+    },
+    text: {
+      output: (block) => getVisibleTextFromRuns((block as CodeBlock).charRuns),
+    },
+  };
 }

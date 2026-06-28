@@ -14,13 +14,8 @@ import type {
   NodeLayoutCtx,
   NodePaintCtx,
 } from "../rendering/nodes/Node";
-import type { InputCtx } from "../serlization/codecs/types";
-import type { Block } from "../serlization/loadPage";
-import {
-  HORIZONTAL_RULE,
-  NEWLINE,
-  type TokenType,
-} from "../serlization/tokenizer";
+import type { NodeCodec } from "../serlization/codecs/types";
+import { HORIZONTAL_RULE, NEWLINE } from "../serlization/tokenizer";
 import type { BlockBounds } from "../state-types";
 
 // Line block - horizontal divider/separator
@@ -47,28 +42,26 @@ export class LineNode extends AtomicNode<Line> {
 
   // ── Serialization ──────────────────────────────────────────────────────────
 
-  readonly markdownTokens: readonly TokenType[] = [HORIZONTAL_RULE];
+  readonly codec: NodeCodec = {
+    markdown: {
+      tokens: [HORIZONTAL_RULE],
+      output: () => "---",
+      input: (ctx) => {
+        ctx.match(HORIZONTAL_RULE); // Consume the horizontal rule token
+        ctx.match(NEWLINE); // Consume optional newline
 
-  outputMarkdown(): string {
-    return "---";
-  }
-
-  inputMarkdown(ctx: InputCtx): Block {
-    ctx.match(HORIZONTAL_RULE); // Consume the horizontal rule token
-    ctx.match(NEWLINE); // Consume optional newline
-
-    const line: Line = {
-      id: ctx.nextBlockId(),
-      type: "line",
-    };
-    return line;
-  }
-
-  outputHTML(): string {
-    return "<hr />";
-  }
-
-  outputText(): string {
-    return "---";
-  }
+        const line: Line = {
+          id: ctx.nextBlockId(),
+          type: "line",
+        };
+        return line;
+      },
+    },
+    html: {
+      output: () => "<hr />",
+    },
+    text: {
+      output: () => "---",
+    },
+  };
 }

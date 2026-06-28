@@ -11,9 +11,14 @@ import type { Block } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
 import type { BlockSet } from "../state-types";
 import { createInitialState } from "../state-utils";
+import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { applyOps, getVisibleBlocks } from "../sync/reducer";
 import { createCRDTbinding } from "../sync/sync";
-import { atomicBlockInsertOps, pasteFromClipboardEvent } from "./clipboard";
+import {
+  atomicBlockInsertOps,
+  getSelectionPlainText,
+  pasteFromClipboardEvent,
+} from "./clipboard";
 import { describe, expect, it } from "vitest";
 
 function setFields(block: Block): Record<string, unknown> {
@@ -123,5 +128,47 @@ describe("multi-block paste — ordering & convergence", () => {
     for (let i = 1; i < keys.length; i++) {
       expect(keys[i - 1] < keys[i]).toBe(true);
     }
+  });
+});
+
+describe("getSelectionPlainText", () => {
+  // Select the whole document, mirroring how the engine extends a selection.
+  function selectAll(markdown: string) {
+    const page = loadPage(markdown);
+    const state = createInitialState(page);
+    const lastIndex = page.blocks.length - 1;
+    const last = page.blocks[lastIndex];
+    const lastLen =
+      "charRuns" in last ? getVisibleTextFromRuns(last.charRuns).length : 0;
+    return {
+      ...state,
+      document: {
+        ...state.document,
+        selection: {
+          anchor: { blockIndex: 0, textIndex: 0 },
+          focus: { blockIndex: lastIndex, textIndex: lastLen },
+          isForward: true,
+          isCollapsed: false,
+        },
+      },
+    };
+  }
+
+  it("returns the empty string when nothing is selected", () => {
+    expect(getSelectionPlainText(createInitialState(loadPage("Hello\n")))).toBe(
+      "",
+    );
+  });
+
+  it("projects a multi-block selection to plain text, stripping marks", () => {
+    // Bold/italic markers must not survive into the plain-text mirror — it is
+    // what a plain copy yields, and is produced without extracting formats.
+    const text = getSelectionPlainText(
+      selectAll("# Title\n\nA **bold** and *italic* line\n"),
+    );
+    expect(text).toContain("Title");
+    expect(text).toContain("A bold and italic line");
+    expect(text).not.toContain("**");
+    expect(text).not.toContain("*italic*");
   });
 });

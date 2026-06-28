@@ -6,6 +6,7 @@ import type {
   ViewportState,
 } from "../state-types";
 import { getEditorStyles } from "../styles";
+import type { BlockHeightIndex } from "./block-height-index";
 import {
   allDecorations,
   type RangeDecoration,
@@ -193,6 +194,7 @@ export function renderScrollbar(
   documentHeight: number,
   state: EditorState,
   styles = getScrollbarStyles(state),
+  heightIndex?: BlockHeightIndex,
 ): void {
   // Don't render if document fits in viewport
   if (documentHeight <= viewport.height) {
@@ -278,7 +280,12 @@ export function renderScrollbar(
   ctx.restore();
 
   // Render markers on the scrollbar for caret decorations (e.g. remote peers).
-  const peerMarkers = calculateCaretMarkers(state, viewport, documentHeight);
+  const peerMarkers = calculateCaretMarkers(
+    state,
+    viewport,
+    documentHeight,
+    heightIndex,
+  );
   if (peerMarkers.length > 0) {
     renderScrollbarPeerMarkers(
       ctx,
@@ -735,6 +742,7 @@ function calculateCaretMarkers(
   state: EditorState,
   viewport: ViewportState,
   documentHeight: number,
+  heightIndex?: BlockHeightIndex,
   styles = getEditorStyles(state),
 ): PeerMarker[] {
   const markers: PeerMarker[] = [];
@@ -750,21 +758,30 @@ function calculateCaretMarkers(
     const block = state.document.page.blocks[position.blockIndex];
     if (!block || block.deleted) continue;
 
-    // Calculate document Y position (cumulative height up to this block)
+    // Document Y position (cumulative height of blocks before this one). Reuse
+    // the prefix-sum height index when available — it gives the same offset in
+    // O(log n) without laying out every preceding block. Fall back to summing
+    // exact layout heights only when the index is absent.
+    const indexedOffset = heightIndex?.offsetOfOriginalIndex(
+      position.blockIndex,
+    );
     let documentY = styles.canvas.paddingTop;
-    const visibleBlocks = state.view.visibleBlocks;
-
-    for (let i = 0; i < visibleBlocks.length; i++) {
-      const visibleBlock = visibleBlocks[i];
-      if (visibleBlock.originalIndex >= position.blockIndex) break;
-      documentY += getBlockHeight(
-        state.nodes,
-        state.marks,
-        visibleBlock,
-        maxWidth,
-        styles,
-        i === 0,
-      );
+    if (indexedOffset !== undefined && indexedOffset !== null) {
+      documentY += indexedOffset;
+    } else {
+      const visibleBlocks = state.view.visibleBlocks;
+      for (let i = 0; i < visibleBlocks.length; i++) {
+        const visibleBlock = visibleBlocks[i];
+        if (visibleBlock.originalIndex >= position.blockIndex) break;
+        documentY += getBlockHeight(
+          state.nodes,
+          state.marks,
+          visibleBlock,
+          maxWidth,
+          styles,
+          i === 0,
+        );
+      }
     }
 
     // Calculate ratio

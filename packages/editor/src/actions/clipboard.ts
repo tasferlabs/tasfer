@@ -228,7 +228,14 @@ function autoLinkInRange(
 /**
  * Get the selected content from the editor state
  */
-function getSelectedContent(state: EditorState): {
+function getSelectedContent(
+  state: EditorState,
+  // Whether to extract the inline marks covering the selection. The copy/cut
+  // payloads need them (markdown/HTML carry formatting); the plain-text mirror
+  // does not, and `extractFormatsForChars` is pure overhead on that hot path
+  // (it runs on every selection change). Pass `false` to skip it.
+  includeFormats = true,
+): {
   blocks: Block[];
   isPartial: boolean;
   start: Position;
@@ -260,11 +267,9 @@ function getSelectedContent(state: EditorState): {
       start.textIndex,
       end.textIndex,
     );
-    const selectedFormats = extractFormatsForChars(
-      block.formats,
-      selectedChars,
-      block.charRuns,
-    );
+    const selectedFormats = includeFormats
+      ? extractFormatsForChars(block.formats, selectedChars, block.charRuns)
+      : [];
 
     const partialBlock: Block = {
       ...block,
@@ -304,12 +309,16 @@ function getSelectedContent(state: EditorState): {
         textLength,
       );
       charRuns = charsToRuns(chars);
-      formats = extractFormatsForChars(block.formats, chars, block.charRuns);
+      formats = includeFormats
+        ? extractFormatsForChars(block.formats, chars, block.charRuns)
+        : [];
     } else if (i === end.blockIndex) {
       // Last block - cut to end position
       const chars = extractCharsInRange(block.charRuns, 0, end.textIndex);
       charRuns = charsToRuns(chars);
-      formats = extractFormatsForChars(block.formats, chars, block.charRuns);
+      formats = includeFormats
+        ? extractFormatsForChars(block.formats, chars, block.charRuns)
+        : [];
     }
     // Middle blocks - include full content
 
@@ -502,10 +511,19 @@ export function buildClipboardPayload(
  * Plain text of the current selection (empty string when nothing is selected).
  * Used to mirror the selection into the accessible input surface so its text
  * matches exactly what a copy would produce.
+ *
+ * Serializes ONLY plain text — not the full clipboard payload. This runs on
+ * every selection change (the input mirror tracks the live selection), so it
+ * must not pay for the markdown + HTML + base64 work `buildClipboardPayload`
+ * does for an actual copy; that was dominating the render loop during
+ * drag-select over a large document.
  */
 export function getSelectionPlainText(state: EditorState): string {
-  const payload = buildClipboardPayload(state);
-  return payload ? payload.plainText : "";
+  const selectedContent = getSelectedContent(state, false);
+  if (!selectedContent) return "";
+  const { blocks } = selectedContent;
+  if (blocks.length === 0) return "";
+  return blocksToPlainText(blocks);
 }
 
 /**

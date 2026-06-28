@@ -403,6 +403,7 @@ export type {
   DecorationLayers,
   DecorationPoint,
   DecorationRange,
+  LabelIconShape,
   RangeDecoration,
 } from "./rendering/decorations";
 

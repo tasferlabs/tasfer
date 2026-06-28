@@ -6,7 +6,7 @@
  */
 
 import { invariant } from "@shared/invariant";
-import type { Platform } from "./types";
+import type { DeviceType, Platform } from "./types";
 import { Engine } from "./engine";
 import { Replicator } from "./sync";
 import { createPlatformClient } from "./rpc/client";
@@ -57,6 +57,38 @@ export function getClientPlatform(): ClientPlatform {
     _clientPlatform = detectClientPlatform();
   }
   return _clientPlatform;
+}
+
+/**
+ * Infer the device form factor from the user agent. Used purely for presence —
+ * it lets a collaboration UI tell two people apart when they share a name. It is
+ * derived on the fly (never stored or user-edited): the device a person is on is
+ * a property of the running client, not of their identity.
+ *
+ * Desktop vs. laptop is indistinguishable from the user agent, so non-touch
+ * machines collapse to "laptop".
+ */
+export function detectDeviceType(): DeviceType {
+  if (typeof navigator === "undefined") return "";
+  const ua = navigator.userAgent;
+
+  // Tablets first — they can otherwise look like a phone or a desktop. iPadOS
+  // reports a "Macintosh" UA, so disambiguate it by the presence of touch.
+  if (
+    /iPad/i.test(ua) ||
+    (/Macintosh/i.test(ua) &&
+      typeof document !== "undefined" &&
+      "ontouchend" in document)
+  ) {
+    return "tablet";
+  }
+  if (/Android/i.test(ua) && !/Mobile/i.test(ua)) return "tablet";
+
+  // Phones
+  if (/iPhone|iPod/i.test(ua)) return "phone";
+  if (/Android/i.test(ua) && /Mobile/i.test(ua)) return "phone";
+
+  return "laptop";
 }
 
 // =============================================================================

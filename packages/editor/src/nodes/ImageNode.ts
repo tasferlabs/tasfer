@@ -51,11 +51,7 @@ import { hitRegion } from "../rendering/nodes/Node";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import { escapeAttr } from "../serlization/codecs/inline";
-import type {
-  InputCtx,
-  OutputCtx,
-  ParsedTag,
-} from "../serlization/codecs/types";
+import type { NodeCodec } from "../serlization/codecs/types";
 import type { Block } from "../serlization/loadPage";
 import {
   IMAGE_ALT_END,
@@ -63,7 +59,6 @@ import {
   IMAGE_START,
   NEWLINE,
   TEXT,
-  type TokenType,
   type VisibleToken,
 } from "../serlization/tokenizer";
 import type {
@@ -1035,129 +1030,131 @@ export class ImageNode extends AtomicNode<Image> {
 
   // ── Serialization ──────────────────────────────────────────────────────────
 
-  readonly markdownTokens: readonly TokenType[] = [IMAGE_START];
-  readonly htmlTags: readonly string[] = ["img"];
+  readonly codec: NodeCodec = {
+    markdown: {
+      tokens: [IMAGE_START],
+      htmlTags: ["img"],
+      output: (block, ctx) => {
+        const b = block as Image;
+        const alt = b.alt || "";
+        const src = ctx.mapAssetUrl(b.url);
 
-  outputMarkdown(block: Image, ctx: OutputCtx): string {
-    const b = block;
-    const alt = b.alt || "";
-    const src = ctx.mapAssetUrl(b.url);
+        // If image is in default state, use markdown syntax
+        if (isImageDefault(b)) {
+          return `![${alt}](${src})`;
+        }
 
-    // If image is in default state, use markdown syntax
-    if (isImageDefault(b)) {
-      return `![${alt}](${src})`;
-    }
+        // Otherwise, use HTML tag with custom properties
+        const width = b.width ?? "full";
+        const height = b.height ?? IMAGE_DEFAULT_HEIGHT;
+        const objectFit = b.objectFit ?? "cover";
 
-    // Otherwise, use HTML tag with custom properties
-    const width = b.width ?? "full";
-    const height = b.height ?? IMAGE_DEFAULT_HEIGHT;
-    const objectFit = b.objectFit ?? "cover";
+        const widthAttr =
+          width === "full" ? 'data-width="full"' : `width="${width}"`;
+        const heightAttr = `height="${height}"`;
+        const objectFitAttr = `data-object-fit="${objectFit}"`;
+        const altAttr = alt ? ` alt="${alt}"` : "";
 
-    const widthAttr =
-      width === "full" ? 'data-width="full"' : `width="${width}"`;
-    const heightAttr = `height="${height}"`;
-    const objectFitAttr = `data-object-fit="${objectFit}"`;
-    const altAttr = alt ? ` alt="${alt}"` : "";
+        return `<img src="${src}"${altAttr} ${widthAttr} ${heightAttr} ${objectFitAttr} />`;
+      },
+      // ![alt](url)
+      input: (ctx) => {
+        ctx.match(IMAGE_START); // Consume ![
 
-    return `<img src="${src}"${altAttr} ${widthAttr} ${heightAttr} ${objectFitAttr} />`;
-  }
+        let altText = "";
+        let imageUrl = "";
 
-  // ![alt](url)
-  inputMarkdown(ctx: InputCtx): Block {
-    ctx.match(IMAGE_START); // Consume ![
+        // Get alt text
+        if (!ctx.isEnd() && ctx.check(TEXT)) {
+          ctx.advance();
+          altText = (ctx.previous() as VisibleToken).content;
+        }
 
-    let altText = "";
-    let imageUrl = "";
+        // Consume ](
+        ctx.match(IMAGE_ALT_END);
 
-    // Get alt text
-    if (!ctx.isEnd() && ctx.check(TEXT)) {
-      ctx.advance();
-      altText = (ctx.previous() as VisibleToken).content;
-    }
+        // Get URL
+        if (!ctx.isEnd() && ctx.check(TEXT)) {
+          ctx.advance();
+          imageUrl = (ctx.previous() as VisibleToken).content;
+        }
 
-    // Consume ](
-    ctx.match(IMAGE_ALT_END);
+        // Consume )
+        ctx.match(IMAGE_END);
 
-    // Get URL
-    if (!ctx.isEnd() && ctx.check(TEXT)) {
-      ctx.advance();
-      imageUrl = (ctx.previous() as VisibleToken).content;
-    }
+        // Consume optional newline
+        ctx.match(NEWLINE);
 
-    // Consume )
-    ctx.match(IMAGE_END);
+        const image: Image = {
+          id: ctx.nextBlockId(),
+          type: "image",
+          url: imageUrl,
+          alt: altText,
+          // Default properties - not specified in markdown
+        };
+        return image;
+      },
+      // <img src="url" alt="alt" width="..." height="..." data-object-fit="..." />
+      inputTag: (tag, ctx) => {
+        const { attrs } = tag;
 
-    // Consume optional newline
-    ctx.match(NEWLINE);
+        const widthRaw = attrs["width"] ?? attrs["data-width"];
+        const width = widthRaw
+          ? widthRaw === "full"
+            ? ("full" as const)
+            : parseInt(widthRaw, 10)
+          : undefined;
+        const height = attrs["height"]
+          ? parseInt(attrs["height"], 10)
+          : undefined;
+        const objectFit = attrs["data-object-fit"]
+          ? (attrs["data-object-fit"] as "cover" | "contain")
+          : undefined;
 
-    const image: Image = {
-      id: ctx.nextBlockId(),
-      type: "image",
-      url: imageUrl,
-      alt: altText,
-      // Default properties - not specified in markdown
-    };
-    return image;
-  }
+        // Consume optional newline
+        ctx.match(NEWLINE);
 
-  // <img src="url" alt="alt" width="..." height="..." data-object-fit="..." />
-  inputMarkdownTag(tag: ParsedTag, ctx: InputCtx): Block {
-    const { attrs } = tag;
+        const image: Image = {
+          id: ctx.nextBlockId(),
+          type: "image",
+          url: attrs["src"] ?? "",
+          alt: attrs["alt"] ?? "",
+          width,
+          height,
+          objectFit,
+        };
+        return image;
+      },
+    },
+    html: {
+      output: (block, ctx) => {
+        const b = block as Image;
+        const src = ctx.mapAssetUrl(b.url);
+        const alt = b.alt ? escapeAttr(b.alt) : "";
+        const styles: string[] = [
+          "max-width:100%",
+          "height:auto",
+          "display:block",
+          "margin:1em auto",
+        ];
 
-    const widthRaw = attrs["width"] ?? attrs["data-width"];
-    const width = widthRaw
-      ? widthRaw === "full"
-        ? ("full" as const)
-        : parseInt(widthRaw, 10)
-      : undefined;
-    const height = attrs["height"] ? parseInt(attrs["height"], 10) : undefined;
-    const objectFit = attrs["data-object-fit"]
-      ? (attrs["data-object-fit"] as "cover" | "contain")
-      : undefined;
+        if (!isImageDefault(b)) {
+          if (typeof b.width === "number") styles.push(`width:${b.width}px`);
+          const fit = b.objectFit ?? "cover";
+          styles.push(`object-fit:${fit}`);
+        }
 
-    // Consume optional newline
-    ctx.match(NEWLINE);
-
-    const image: Image = {
-      id: ctx.nextBlockId(),
-      type: "image",
-      url: attrs["src"] ?? "",
-      alt: attrs["alt"] ?? "",
-      width,
-      height,
-      objectFit,
-    };
-    return image;
-  }
-
-  outputHTML(block: Image, ctx: OutputCtx): string {
-    const b = block;
-    const src = ctx.mapAssetUrl(b.url);
-    const alt = b.alt ? escapeAttr(b.alt) : "";
-    const styles: string[] = [
-      "max-width:100%",
-      "height:auto",
-      "display:block",
-      "margin:1em auto",
-    ];
-
-    if (!isImageDefault(b)) {
-      if (typeof b.width === "number") styles.push(`width:${b.width}px`);
-      const fit = b.objectFit ?? "cover";
-      styles.push(`object-fit:${fit}`);
-    }
-
-    return `<img src="${escapeAttr(src)}" alt="${alt}" style="${styles.join(";")}" />`;
-  }
-
-  outputText(block: Image): string {
-    return block.alt || "";
-  }
-
-  assetRefs(block: Image): string[] {
-    const url = block.url;
-    return url ? [url] : [];
-  }
+        return `<img src="${escapeAttr(src)}" alt="${alt}" style="${styles.join(";")}" />`;
+      },
+    },
+    text: {
+      output: (block) => (block as Image).alt || "",
+    },
+    assetRefs: (block) => {
+      const url = (block as Image).url;
+      return url ? [url] : [];
+    },
+  };
 }
 
 /**

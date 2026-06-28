@@ -134,6 +134,7 @@ function relativeColumn(
     layout.fontFamily,
     layout.fonts,
     layout.codePadding,
+    layout.marks,
   );
 }
 
@@ -149,6 +150,7 @@ export function getTextIndexAtRelativePosition(
   maxWidth?: number,
   styles?: EditorStyles,
   nodes?: NodeRegistry,
+  marks?: MarkRegistry,
 ): number {
   // If no block info provided, use simple logical positioning
   if (!block || !maxWidth || !styles || !nodes) {
@@ -199,6 +201,7 @@ export function getTextIndexAtRelativePosition(
       fontFamily,
       styles.fonts,
       codePadding,
+      marks,
     );
 
     const distance = Math.abs(widthFromStart - relativePosition);
@@ -930,6 +933,7 @@ export function moveCursorUp(
       maxWidth,
       styles,
       state.nodes,
+      state.marks,
     );
     return moveCursorToPosition(state, blockIndex, targetTextIndex);
   }
@@ -970,6 +974,7 @@ export function moveCursorUp(
         maxWidth,
         styles,
         state.nodes,
+        state.marks,
       );
       return moveCursorToPosition(state, prevBlockIndex, targetTextIndex);
     }
@@ -1055,6 +1060,7 @@ export function moveCursorDown(
       maxWidth,
       styles,
       state.nodes,
+      state.marks,
     );
     return moveCursorToPosition(state, blockIndex, targetTextIndex);
   }
@@ -1095,6 +1101,7 @@ export function moveCursorDown(
         maxWidth,
         styles,
         state.nodes,
+        state.marks,
       );
       return moveCursorToPosition(state, nextBlockIndex, targetTextIndex);
     }

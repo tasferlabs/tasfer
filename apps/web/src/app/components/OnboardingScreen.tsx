@@ -17,7 +17,7 @@ import {
     isSyncFolderSupported,
     pickSyncFolder,
 } from "@/lib/syncFolder";
-import type { DeviceType, SpaceInvite } from "@/platform/types";
+import type { SpaceInvite } from "@/platform/types";
 import { useQueryClient } from "@tanstack/react-query";
 import {
     Box,
@@ -81,26 +81,6 @@ function decodeInvite(code: string): SpaceInvite | null {
   } catch {
     return null;
   }
-}
-
-function detectDeviceType(): DeviceType {
-  if (typeof navigator === "undefined") return "";
-  const ua = navigator.userAgent;
-
-  // Check for tablets first (before phone detection)
-  if (/iPad/i.test(ua) || (/Macintosh/i.test(ua) && "ontouchend" in document)) {
-    return "tablet";
-  }
-  if (/Android/i.test(ua) && !/Mobile/i.test(ua)) {
-    return "tablet";
-  }
-
-  // Phones
-  if (/iPhone|iPod/i.test(ua)) return "phone";
-  if (/Android/i.test(ua) && /Mobile/i.test(ua)) return "phone";
-
-  // Desktop vs Laptop — can't truly distinguish, default to laptop for portables
-  return "laptop";
 }
 
 /* ── progress dots ─────────────────────────────────────────────────────── */
@@ -324,7 +304,6 @@ function ProfileStep({
         const updated = await updateProfile({
           name: name.trim(),
           avatar: avatarId,
-          deviceType: detectDeviceType(),
         });
         updateUser(updated);
       } catch (err) {
@@ -690,7 +669,7 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
             <Loader2 size={24} strokeWidth={2} />
           </div>
           <div className="ob-status-title">
-            {t("space.connectingToSpace", "Connecting…")}
+            {t("space.connecting", "Connecting…")}
           </div>
           <div className="ob-status-sub">
             {t("space.waitingForPeer", "Waiting for peer to connect…")}

@@ -53,7 +53,7 @@ import {
   moveCursorToPosition,
 } from "../selection";
 import { escapeHtml } from "../serlization/codecs/inline";
-import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
+import type { NodeCodec } from "../serlization/codecs/types";
 import type {
   Block,
   Char,
@@ -64,7 +64,6 @@ import type {
 import {
   MATH_BLOCK,
   NEWLINE,
-  type TokenType,
   type VisibleToken,
 } from "../serlization/tokenizer";
 import type {
@@ -488,52 +487,55 @@ export class MathNode extends TextNode {
 
   // ── Serialization ──────────────────────────────────────────────────────────
 
-  readonly markdownTokens: readonly TokenType[] = [MATH_BLOCK];
+  readonly codec: NodeCodec = {
+    markdown: {
+      tokens: [MATH_BLOCK],
+      output: (block) => {
+        const b = block as MathBlock;
+        const latex = getVisibleTextFromRuns(b.charRuns);
+        if (!latex) return "";
+        return `$$\n${latex}\n$$`;
+      },
+      input: (ctx) => {
+        ctx.match(MATH_BLOCK);
+        const latex = (ctx.previous() as VisibleToken).content;
+        ctx.match(NEWLINE);
 
-  outputMarkdown(block: TextualBlock): string {
-    const b = block as MathBlock;
-    const latex = getVisibleTextFromRuns(b.charRuns);
-    if (!latex) return "";
-    return `$$\n${latex}\n$$`;
-  }
-
-  inputMarkdown(ctx: InputCtx): Block {
-    ctx.match(MATH_BLOCK);
-    const latex = (ctx.previous() as VisibleToken).content;
-    ctx.match(NEWLINE);
-
-    const math: MathBlock = {
-      id: ctx.nextBlockId(),
-      type: "math",
-      charRuns: ctx.rawText(latex),
-      formats: [],
-      displayMode: true,
-    };
-    return math;
-  }
-
-  outputHTML(block: TextualBlock, ctx: OutputCtx): string {
-    const b = block as MathBlock;
-    const latex = getVisibleTextFromRuns(b.charRuns);
-    if (!latex) return "";
-    // The clipboard prefers source: emit the `$$…$$` LaTeX so a copied equation
-    // pastes as editable math into LaTeX/markdown-aware apps (and as readable
-    // source elsewhere), instead of the non-editable SVG that file export wants.
-    if (ctx.preferSource) {
-      return `<div style="text-align:center;margin:1em 0;">$$${escapeHtml(latex)}$$</div>`;
-    }
-    try {
-      if (!ctx.renderMathSVG) throw new Error("no math renderer");
-      const svg = ctx.renderMathSVG(latex, true);
-      return `<div style="text-align:center;margin:1em 0;">${svg}</div>`;
-    } catch {
-      return `<code>${escapeHtml(latex)}</code>`;
-    }
-  }
-
-  outputText(): string {
-    return "";
-  }
+        const math: MathBlock = {
+          id: ctx.nextBlockId(),
+          type: "math",
+          charRuns: ctx.rawText(latex),
+          formats: [],
+          displayMode: true,
+        };
+        return math;
+      },
+    },
+    html: {
+      output: (block, ctx) => {
+        const b = block as MathBlock;
+        const latex = getVisibleTextFromRuns(b.charRuns);
+        if (!latex) return "";
+        // The clipboard prefers source: emit the `$$…$$` LaTeX so a copied
+        // equation pastes as editable math into LaTeX/markdown-aware apps (and as
+        // readable source elsewhere), instead of the non-editable SVG that file
+        // export wants.
+        if (ctx.preferSource) {
+          return `<div style="text-align:center;margin:1em 0;">$$${escapeHtml(latex)}$$</div>`;
+        }
+        try {
+          if (!ctx.renderMathSVG) throw new Error("no math renderer");
+          const svg = ctx.renderMathSVG(latex, true);
+          return `<div style="text-align:center;margin:1em 0;">${svg}</div>`;
+        } catch {
+          return `<code>${escapeHtml(latex)}</code>`;
+        }
+      },
+    },
+    text: {
+      output: () => "",
+    },
+  };
 
   // ── Caret model (block equation) ────────────────────────────────────────────
   // The block's char-run text IS the LaTeX, so a block text index is a LaTeX

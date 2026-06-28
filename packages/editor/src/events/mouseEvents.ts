@@ -30,6 +30,7 @@ import { updateSelectionFocus } from "../selection";
 import type {
   EditorState,
   MouseEvent,
+  Position,
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
@@ -65,6 +66,7 @@ export function handleMouseDown(
   session: InteractionSession,
   visibility: VisibleBlockRange,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
+  scrollPositionIntoView?: (position: Position) => void,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   stopAutoScroll(session);
@@ -109,6 +111,7 @@ export function handleMouseDown(
     visibility,
     session,
     updateViewport: updateViewportCallback,
+    scrollPositionIntoView,
   };
   const point = { x: canvasX, y: canvasY };
   const claim = hitTestAllRegions(point, "mouse", regionCtx);

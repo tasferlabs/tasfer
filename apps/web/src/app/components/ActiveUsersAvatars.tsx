@@ -12,6 +12,7 @@ import { AvatarPreviewDialog } from './AvatarPreviewDialog';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Laptop, Monitor, Smartphone, Tablet } from 'lucide-react';
+import { collidingDisplayNames, isCollidingName } from '@/lib/presenceLabels';
 
 /**
  * Label to use when a peer has no display name: "You" when the presence is the
@@ -41,10 +42,18 @@ interface ActiveUsersAvatarsProps {
   users: CursorUser[];
 }
 
-function UserAvatarItem({ user, onClick }: { user: CursorUser; onClick: () => void }) {
-  const nameFallback = useNameFallback();
+function UserAvatarItem({
+  user,
+  displayName,
+  showDevice,
+  onClick,
+}: {
+  user: CursorUser;
+  displayName: string;
+  showDevice: boolean;
+  onClick: () => void;
+}) {
   const avatarUrl = useAssetUrl(user.avatar);
-  const displayName = getDisplayName(user, nameFallback(user));
   const initials = displayName.charAt(0).toUpperCase();
   // Color stays keyed on a per-peer-stable value so distinct anonymous peers
   // still get distinct colors instead of all collapsing onto one.
@@ -71,7 +80,9 @@ function UserAvatarItem({ user, onClick }: { user: CursorUser; onClick: () => vo
       </TooltipTrigger>
       <TooltipContent>
         <div className="flex items-center gap-1.5">
-          <DeviceIcon deviceType={user.deviceType} />
+          {/* The device icon only earns its place when it disambiguates: shown
+              solely when another connected user shares this display name. */}
+          {showDevice && <DeviceIcon deviceType={user.deviceType} />}
           <span>{displayName}</span>
         </div>
       </TooltipContent>
@@ -86,13 +97,20 @@ export function ActiveUsersAvatars({ users }: ActiveUsersAvatarsProps) {
 
   if (users.length === 0) return null;
 
+  // Resolve every user's display name once, then flag the ones that collide so
+  // a device icon is only added where it's actually needed to tell people apart.
+  const displayNames = users.map((user) => getDisplayName(user, nameFallback(user)));
+  const colliding = collidingDisplayNames(displayNames);
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className={style.usersList}>
-        {users.map((user) => (
+        {users.map((user, i) => (
           <UserAvatarItem
             key={user.peerId}
             user={user}
+            displayName={displayNames[i]}
+            showDevice={isCollidingName(displayNames[i], colliding)}
             onClick={() => user.avatar && setPreviewUser(user)}
           />
         ))}

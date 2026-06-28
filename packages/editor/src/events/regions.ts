@@ -26,6 +26,7 @@
 import { REGION_DRAG_START } from "../action-bus";
 import type {
   EditorState,
+  Position,
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
@@ -47,6 +48,16 @@ export interface RegionCtx {
   readonly visibility?: VisibleBlockRange;
   readonly session: InteractionSession;
   readonly updateViewport?: (viewport: Partial<ViewportState>) => void;
+  /**
+   * Scroll a (possibly off-screen) document position the minimum amount needed
+   * to bring it into view, landing on it exactly. Unlike a raw
+   * {@link updateViewport} scroll, this routes through the editor's
+   * scroll-correction loop, which re-measures over the next few frames so a far
+   * target — whose initial jump is computed from estimated prefix heights —
+   * still lands on its true position. Used by the out-of-view peer indicator so
+   * clicking a peer's pill lands on their actual caret rather than an estimate.
+   */
+  readonly scrollPositionIntoView?: (position: Position) => void;
 }
 
 /** `null` declines — the pointer falls through to whatever is underneath. */

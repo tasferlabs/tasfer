@@ -756,6 +756,10 @@ export interface RemoteCursorStyles {
   readonly labelPadding: number;
   /** Corner radius (px) of the name-label background. */
   readonly labelBorderRadius: number;
+  /** Size (px) of an optional glyph drawn before the label text. */
+  readonly labelIconSize: number;
+  /** Gap (px) between the label glyph and the text. */
+  readonly labelIconGap: number;
   /** Geometry of the off-screen peer indicator pills. */
   readonly outOfViewIndicator: OutOfViewIndicatorStyles;
 }

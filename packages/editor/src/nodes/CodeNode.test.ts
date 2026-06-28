@@ -4,6 +4,7 @@ import {
   SELECT_ALL,
   SPLIT_BLOCK,
 } from "../actions/edit-actions";
+import type { OutputCtx } from "../serlization/codecs/types";
 import { loadPage } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type { CursorState, EditorState, Page } from "../state-types";
@@ -394,11 +395,13 @@ describe("CodeNode markdown round-trip", () => {
   it("emits markdown, HTML, and text for a code block", () => {
     const node = new CodeNode();
     const block = codeBlock("a < b\nc", "ts");
+    // CodeNode's output channels ignore the OutputCtx (code is verbatim source).
+    const ctx = {} as OutputCtx;
 
-    expect(node.outputMarkdown(block)).toBe("```ts\na < b\nc\n```");
-    expect(node.outputHTML(block)).toBe(
+    expect(node.codec.markdown.output(block, ctx)).toBe("```ts\na < b\nc\n```");
+    expect(node.codec.html.output(block, ctx)).toBe(
       '<pre><code class="language-ts">a &lt; b\nc</code></pre>',
     );
-    expect(node.outputText(block)).toBe("a < b\nc");
+    expect(node.codec.text.output(block, ctx)).toBe("a < b\nc");
   });
 });

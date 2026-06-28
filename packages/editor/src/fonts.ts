@@ -29,17 +29,45 @@ export type { FontFamily };
 // A batch of consecutive characters with the same formatting.
 //
 // The batch carries only the metric-affecting facts the measurement engine
-// needs — `isBold` (weight) and `replacement` (a mark that renders its run as an
-// atomic non-text unit, e.g. inline math, so its width is the rendered width).
-// The *visual* mark channels (italic, code chip, link, strike, color) are
-// resolved from `formats` through the per-instance MarkRegistry at paint time,
-// so they don't live here.
+// needs — the folded font variants (`bold`/`italic`, from each mark's
+// `MarkMetrics`) and `replacement` (a mark that renders its run as an atomic
+// non-text unit, e.g. inline math, so its width is the rendered width). The
+// *visual* mark channels (code chip, link, strike, color) are resolved from
+// `formats` through the per-instance MarkRegistry at paint time, so they don't
+// live here.
 export interface TextBatch {
   text: string;
   formats: Mark[];
-  isBold: boolean;
+  /** Folded `MarkMetrics.bold` across the run — renders + measures heavier. */
+  bold: boolean;
+  /** Folded `MarkMetrics.italic` across the run — renders + measures slanted. */
+  italic: boolean;
   /** The replacement renderer for this run, or null for plain text. */
   replacement: MarkReplacement | null;
+}
+
+/**
+ * Fold the metric-affecting font variants of a run's marks into one resolved
+ * pair (any mark that sets a flag wins). The measurement engine and paint both
+ * read this so wrap/caret geometry stays in sync with what's drawn. Resolved
+ * through the per-instance {@link MarkRegistry}; without it (no registry in
+ * scope) a run carries no metric variants.
+ */
+export function composeMarkMetrics(
+  formats: Mark[],
+  marks: MarkRegistry | undefined,
+): { bold: boolean; italic: boolean } {
+  let bold = false;
+  let italic = false;
+  if (marks) {
+    for (const f of formats) {
+      const m = marks.get(f.type)?.metrics;
+      if (!m) continue;
+      if (m.bold) bold = true;
+      if (m.italic) italic = true;
+    }
+  }
+  return { bold, italic };
 }
 
 /** The first of `formats` that renders as a replacement, or null. */
@@ -199,9 +227,14 @@ function applyFont(
   fontWeight: string,
   fontFamily: FontFamily,
   fonts: FontStyles,
+  fontStyle: string = "normal",
 ): string {
   const fontStack = getFontStack(fontFamily, fonts);
-  const font = `${fontWeight} ${fontSize}px ${fontStack}`;
+  // Only prefix a non-default style so plain (non-italic) font strings stay
+  // byte-identical to before — keeps the hot ctx.font cache key stable.
+  const stylePrefix =
+    fontStyle && fontStyle !== "normal" ? `${fontStyle} ` : "";
+  const font = `${stylePrefix}${fontWeight} ${fontSize}px ${fontStack}`;
   const cacheKey = `${fontEpoch}|${font}`;
   if (lastAppliedFont.get(ctx) !== cacheKey) {
     ctx.font = font;
@@ -270,22 +303,23 @@ export function measureCtxText(
   fontWeight: string,
   fontFamily: FontFamily,
   fonts: FontStyles,
+  fontStyle: string = "normal",
 ): number {
   const ctx = getMeasurementCanvas();
   // <= 2 covers surrogate pairs while keeping the cache bounded
   if (text.length <= 2) {
     const fontStack = getFontStack(fontFamily, fonts);
-    const cacheKey = `${fontStack}|${fontWeight}|${fontSize}|${text}`;
+    const cacheKey = `${fontStack}|${fontStyle}|${fontWeight}|${fontSize}|${text}`;
     let width = charWidthCache.get(cacheKey);
     if (width === undefined) {
-      applyFont(ctx, fontSize, fontWeight, fontFamily, fonts);
+      applyFont(ctx, fontSize, fontWeight, fontFamily, fonts, fontStyle);
       width = ctx.measureText(text).width;
       charWidthCache.set(cacheKey, width);
     }
     return width;
   }
 
-  applyFont(ctx, fontSize, fontWeight, fontFamily, fonts);
+  applyFont(ctx, fontSize, fontWeight, fontFamily, fonts, fontStyle);
   return ctx.measureText(text).width;
 }
 
@@ -366,12 +400,14 @@ export function batchChars(
       currentBatch.text += char.char;
     } else {
       // Different formatting, start new batch. Only the metric-affecting facts
-      // (bold weight, replacement renderer) are precomputed; visual channels are
-      // resolved from `formats` via the MarkRegistry at paint time.
+      // (folded font variants, replacement renderer) are precomputed; visual
+      // channels are resolved from `formats` via the MarkRegistry at paint time.
+      const metrics = composeMarkMetrics(charFormats, marks);
       currentBatch = {
         text: char.char,
         formats: charFormats,
-        isBold: charFormats.some((f) => f.type === "strong"),
+        bold: metrics.bold,
+        italic: metrics.italic,
         replacement: replacementFor(charFormats, marks),
       };
       batches.push(currentBatch);
@@ -402,7 +438,8 @@ export function measureBatchedText(
       }
       // Fall back to text measurement on render error
     }
-    const effectiveFontWeight = batch.isBold ? "bold" : baseFontWeight;
+    const effectiveFontWeight = batch.bold ? "bold" : baseFontWeight;
+    const fontStyle = batch.italic ? "italic" : "normal";
     // Measure the entire batch as a string (preserves ligature widths)
     width += measureCtxText(
       batch.text,
@@ -410,6 +447,7 @@ export function measureBatchedText(
       effectiveFontWeight,
       fontFamily,
       fonts,
+      fontStyle,
     );
   }
 
@@ -623,13 +661,18 @@ export function wrapText(
     }
   }
 
-  // Helper to get font weight for a character at visible index
-  const getFontWeightAtIndex = (visibleIndex: number): string => {
+  // Helper to get the metric-affecting font variant for a character at visible
+  // index — folded from its marks' MarkMetrics through the registry.
+  const getFontVariantAtIndex = (
+    visibleIndex: number,
+  ): { weight: string; style: string } => {
     const originalIndex = visibleToOriginalIndex[visibleIndex];
     const charFormats = getFormatsAtIndex(originalIndex, chars, formats);
-    return charFormats.some((f) => f.type === "strong")
-      ? "bold"
-      : baseFontWeight;
+    const metrics = composeMarkMetrics(charFormats, marks);
+    return {
+      weight: metrics.bold ? "bold" : baseFontWeight,
+      style: metrics.italic ? "italic" : "normal",
+    };
   };
 
   // Pre-compute replacement-span ranges (visible indices) and their rendered
@@ -693,8 +736,15 @@ export function wrapText(
     } else if (replSpanIsTail.has(visibleIndex)) {
       charWidth = 0;
     } else {
-      const fontWeight = getFontWeightAtIndex(visibleIndex);
-      charWidth = measureCtxText(char, fontSize, fontWeight, fontFamily, fonts);
+      const { weight, style } = getFontVariantAtIndex(visibleIndex);
+      charWidth = measureCtxText(
+        char,
+        fontSize,
+        weight,
+        fontFamily,
+        fonts,
+        style,
+      );
     }
 
     // Check if adding this character would exceed max width

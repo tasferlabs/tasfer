@@ -35,6 +35,7 @@ import type { BlockHeightIndex } from "./block-height-index";
 import {
   allDecorations,
   type CaretDecoration,
+  type LabelIconShape,
   resolveDecorationPoint,
 } from "./decorations";
 import type { MarkRegistry } from "./marks";
@@ -276,7 +277,7 @@ export function renderPage(
   renderSelectionHandles(ctx, state, viewport, styles);
 
   // Render scrollbar
-  renderScrollbar(ctx, viewport, documentHeight, state);
+  renderScrollbar(ctx, viewport, documentHeight, state, undefined, heightIndex);
 
   // Block reorder chrome: gutter grip on the hovered block + insertion line
   // while a reorder drag is active. Painted last so it sits above content.
@@ -777,6 +778,45 @@ function renderOutOfViewIndicators(
   });
 }
 
+/**
+ * Stroke an icon expressed as 24×24-viewBox primitives (the lucide convention)
+ * into a `size`×`size` box at (`x`, `y`). The renderer stays icon-agnostic — it
+ * draws whatever primitives it's handed. Stroke width is the lucide default (2
+ * viewBox units), so it scales proportionally with `size`.
+ */
+function drawLabelIcon(
+  ctx: CanvasRenderingContext2D,
+  shapes: readonly LabelIconShape[],
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+) {
+  const VIEWBOX = 24;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(size / VIEWBOX, size / VIEWBOX);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const s of shapes) {
+    if (s.shape === "path") {
+      ctx.stroke(new Path2D(s.d));
+    } else if (s.shape === "rect") {
+      ctx.beginPath();
+      ctx.roundRect(s.x, s.y, s.width, s.height, s.rx ?? 0);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(s.x1, s.y1);
+      ctx.lineTo(s.x2, s.y2);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
 function renderCaretDecorations(
   ctx: CanvasRenderingContext2D,
   session: InteractionSession,
@@ -842,8 +882,19 @@ function renderCaretDecorations(
       const labelPadding = styles.remoteCursor.labelPadding;
       const labelFontSize = styles.remoteCursor.labelFontSize;
       ctx.font = `${labelFontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
-      const labelWidth = ctx.measureText(labelText).width + labelPadding * 2;
-      const labelHeight = labelFontSize + labelPadding * 2;
+      const textWidth = ctx.measureText(labelText).width;
+
+      // An optional glyph (e.g. a device hint) sits on the label's leading side.
+      const iconShapes = decoration.label?.icon;
+      const hasIcon = !!iconShapes && iconShapes.length > 0;
+      const iconSize = styles.remoteCursor.labelIconSize;
+      const iconSpace = hasIcon
+        ? iconSize + styles.remoteCursor.labelIconGap
+        : 0;
+
+      const contentHeight = Math.max(labelFontSize, hasIcon ? iconSize : 0);
+      const labelWidth = textWidth + iconSpace + labelPadding * 2;
+      const labelHeight = contentHeight + labelPadding * 2;
 
       // Detect RTL to position label on the correct side of cursor
       const blockChars = charRunsToChars(block.charRuns);
@@ -879,16 +930,30 @@ function renderCaretDecorations(
       );
       ctx.fill();
 
-      // Draw label text with correct direction
+      // The glyph leads the name (left in LTR, right in RTL); the text then
+      // occupies the remaining width on the trailing side.
       const nameDirection = getTextDirection(labelText);
-      ctx.fillStyle = styles.remoteCursor.labelTextColor;
+      const labelTextColor = styles.remoteCursor.labelTextColor;
+
+      if (hasIcon) {
+        const iconX =
+          nameDirection === "rtl"
+            ? labelX + labelWidth - labelPadding - iconSize
+            : labelX + labelPadding;
+        const iconY = labelY + (labelHeight - iconSize) / 2;
+        drawLabelIcon(ctx, iconShapes, iconX, iconY, iconSize, labelTextColor);
+      }
+
+      // Draw label text with correct direction, centered on the content height.
+      const textBaselineY = labelY + (labelHeight + labelFontSize) / 2 - 2;
+      ctx.fillStyle = labelTextColor;
       ctx.direction = nameDirection;
       ctx.fillText(
         labelText,
         nameDirection === "rtl"
-          ? labelX + labelWidth - labelPadding
-          : labelX + labelPadding,
-        labelY + labelFontSize + labelPadding - 2,
+          ? labelX + labelWidth - labelPadding - iconSpace
+          : labelX + labelPadding + iconSpace,
+        textBaselineY,
       );
       ctx.direction = "ltr";
     }

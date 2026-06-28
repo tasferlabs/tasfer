@@ -58,6 +58,32 @@ export interface RangeDecoration {
 }
 
 /**
+ * A glyph drawn next to a caret label, as primitive shapes in a 24×24 viewBox —
+ * the convention lucide and most icon sets share, so a producer can pass an icon
+ * set's raw geometry straight through. The core is icon-agnostic: it strokes
+ * whatever primitives it's handed (in the label's text color, round caps/joins,
+ * at the theme's icon stroke width) with no idea what they depict. A host uses
+ * this to mark, say, which device a collaborator is on.
+ */
+export type LabelIconShape =
+  | { readonly shape: "path"; readonly d: string }
+  | {
+      readonly shape: "rect";
+      readonly x: number;
+      readonly y: number;
+      readonly width: number;
+      readonly height: number;
+      readonly rx?: number;
+    }
+  | {
+      readonly shape: "line";
+      readonly x1: number;
+      readonly y1: number;
+      readonly x2: number;
+      readonly y2: number;
+    };
+
+/**
  * A caret at a point, optionally with a name/avatar flag (remote cursor). The
  * producer supplies the `color`; label chrome (font/padding/radius) comes from
  * the theme's `remoteCursor` tokens.
@@ -66,7 +92,12 @@ export interface CaretDecoration {
   readonly kind: "caret";
   readonly point: DecorationPoint;
   readonly color: string;
-  readonly label?: { readonly text: string; readonly avatar?: string | null };
+  readonly label?: {
+    readonly text: string;
+    readonly avatar?: string | null;
+    /** Glyph drawn before the label text, e.g. a device hint. */
+    readonly icon?: readonly LabelIconShape[];
+  };
 }
 
 export type Decoration = RangeDecoration | CaretDecoration;

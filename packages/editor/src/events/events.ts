@@ -19,6 +19,7 @@ import { startSelection, updateSelectionFocus } from "../selection";
 import type {
   EditorState,
   MouseEvent,
+  Position,
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
@@ -59,6 +60,7 @@ export function handleEvents(
   session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string; imageFile: File | null } | null,
+  scrollPositionIntoView?: (position: Position) => void,
 ): { state: EditorState; ops: Operation[]; pastedImageBlockIndex?: number } {
   // Collect operations from actions
   let collectedOps: Operation[] = [];
@@ -448,6 +450,7 @@ export function handleEvents(
           session,
           visibility,
           updateViewportCallback,
+          scrollPositionIntoView,
         );
         state = mouseDownResult.state;
         collectedOps.push(...mouseDownResult.ops);
@@ -553,6 +556,7 @@ export function handleEvents(
           documentHeight,
           session,
           updateViewportCallback,
+          scrollPositionIntoView,
         );
         state = touchEndResult.state;
         collectedOps.push(...touchEndResult.ops);

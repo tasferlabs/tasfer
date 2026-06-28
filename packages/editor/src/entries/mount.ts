@@ -114,6 +114,13 @@ export interface MountEditorOptions<
    *  readers. Defaults to `"Text editor"`. */
   ariaLabel?: string;
   /**
+   * Whether to maintain a hidden, semantic DOM mirror of the document for
+   * assistive tech to read and navigate (the canvas itself is opaque to screen
+   * readers). Kept surgically in sync with the document — only changed blocks
+   * are re-serialized. Default `true`; set `false` to opt a host out entirely.
+   */
+  accessibilityTree?: boolean;
+  /**
    * Ghost text shown on empty blocks. Either one generic string applied to
    * every block type, or a per-block-type map
    * (e.g. `{ paragraph: "Write…", heading1: "Title" }`). For paragraphs the
@@ -375,6 +382,39 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
 
   canvasContainer.appendChild(hiddenInput);
 
+  // The editor's reading surface: a visually-hidden but accessibility-tree-VISIBLE
+  // container holding a semantic DOM mirror of the document (headings, lists,
+  // code, marks). The canvas paints pixels a screen reader cannot see; this tree
+  // is what assistive tech reads and navigates. Distinct from `hiddenInput`,
+  // which is the input/IME/selection surface. Owned here; its children are driven
+  // by the engine's DomMirror, kept surgically in sync with the document.
+  const a11yTree =
+    options?.accessibilityTree !== false ? document.createElement("div") : null;
+  if (a11yTree) {
+    a11yTree.setAttribute("role", "document");
+    a11yTree.setAttribute("aria-label", options?.ariaLabel ?? "Text editor");
+    // Visually hidden, a11y-tree visible (never display:none/visibility:hidden,
+    // which would drop it from the a11y tree). Non-interactive and unfocusable —
+    // reading only; editing happens through `hiddenInput`.
+    a11yTree.style.position = "absolute";
+    a11yTree.style.width = "1px";
+    a11yTree.style.height = "1px";
+    a11yTree.style.overflow = "hidden";
+    a11yTree.style.clipPath = "inset(50%)";
+    a11yTree.style.whiteSpace = "nowrap";
+    a11yTree.style.pointerEvents = "none";
+    // Layout-isolate the mirror: it is a full-document-sized hidden subtree, and
+    // without containment the browser folds it into every page reflow — so each
+    // canvas `getBoundingClientRect` and each mirror mutation re-lays-out the
+    // whole tree (this dominated the profile as "Layout"). `strict` = size +
+    // layout + paint + style: its 1px box never depends on its contents, and its
+    // internal layout neither affects nor is reached by the rest of the page.
+    // Containment is a rendering optimization only — it does NOT drop the subtree
+    // from the accessibility tree (unlike display:none / content-visibility).
+    a11yTree.style.contain = "strict";
+    canvasContainer.appendChild(a11yTree);
+  }
+
   // Create portal container for React components
   const portalContainer = document.createElement("div");
   portalContainer.style.position = "absolute";
@@ -416,7 +456,15 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   });
 
   // Create editor with initial state and layered canvases
-  const editor = new Editor(layers, initialState, initialViewport, hiddenInput);
+  const editor = new Editor(
+    layers,
+    initialState,
+    initialViewport,
+    hiddenInput,
+    {
+      a11yContainer: a11yTree ?? undefined,
+    },
+  );
 
   // ── Doc ↔ editor wiring ────────────────────────────────────────────────────
   // Local edits → doc: the editor has already applied them to its own state;

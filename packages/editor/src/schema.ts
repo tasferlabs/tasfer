@@ -371,17 +371,9 @@ export function defineNode<
   );
 }
 
-/** Whether a node carries its own markdown/HTML/text round-trip methods. */
+/** Whether a node carries its own markdown/HTML/text round-trip codec. */
 function nodeHasSerialization(node: Node): boolean {
-  return Boolean(
-    node.outputMarkdown ||
-    node.outputHTML ||
-    node.outputText ||
-    node.inputMarkdown ||
-    node.inputMarkdownTag ||
-    node.markdownTokens ||
-    node.htmlTags,
-  );
+  return Boolean(node.codec);
 }
 
 /**
@@ -391,9 +383,9 @@ function nodeHasSerialization(node: Node): boolean {
  * Node subclass instance). The `render`/`node` fields of `config` are ignored
  * here — node selection is the caller's job.
  *
- * The codec follows the node: a node that implements its own serialization
- * methods (`outputMarkdown`/`inputMarkdown`/…) IS the source of truth, adapted
- * via {@link codecFromNode} exactly as the built-in nodes are in `baseDataSchema`.
+ * The codec follows the node: a node that declares its own `codec` IS the
+ * source of truth, adapted via {@link codecFromNode} exactly as the built-in
+ * nodes are in `baseDataSchema`.
  * Only when the node provides none do we synthesize the generic `<x-type … />`
  * round-trip (the BoxNode / config style). Supplying both a serializing node and
  * a `defineNode` `toMarkdown`/`toHtml`/`toText` override is rejected, so the node
@@ -451,8 +443,8 @@ function buildLeafSpec<T extends string, A extends Record<string, AttrSpec>>(
       'Block type "%s" supplies its own serialization methods AND a defineNode toMarkdown/toHtml/toText override. Remove one so the node stays the single source of truth for its serialization.',
       type,
     );
-    // Node implements the full optional serialization slice that `codecFromNode`
-    // reads; a partial set (e.g. outputMarkdown without outputHTML) throws there.
+    // The node's `codec` is a complete NodeCodec (its markdown/html/text output
+    // channels are non-optional); `codecFromNode` only injects the node's types.
     codec = codecFromNode(node);
   } else {
     codec = buildGenericTagCodec(type, config, attrs, attrNames);

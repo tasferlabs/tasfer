@@ -57,11 +57,17 @@ import {
 } from "@cypherkit/editor/internal";
 import {
   cursorPresenceToDecorations,
+  getDisplayName,
   selectionToCursorPresence,
   isSamePerson,
   type CursorPresence,
   type CursorUser,
 } from "@cypherkit/provider-core/cursors";
+import {
+  collidingDisplayNames,
+  deviceIcon,
+  isCollidingName,
+} from "@/lib/presenceLabels";
 import { useEditor } from "@cypherkit/react";
 import i18next from "i18next";
 import {
@@ -1399,9 +1405,11 @@ function EditorSurface({
   const onRoomJoinedRef = useRef<((hasOtherPeers: boolean) => void) | null>(
     null,
   );
-  // Tracks remote peers' identities (for the active-users avatar list), now that
-  // the editor no longer stores awareness — it only renders decorations.
-  const remoteUsersRef = useRef<Map<string, CursorUser>>(new Map());
+  // Tracks remote peers' full presence (caret/selection + identity), now that
+  // the editor no longer stores awareness — it only renders decorations. We keep
+  // the whole presence (not just the user) so a name collision among peers can
+  // re-derive every peer's cursor label, not only the one that just updated.
+  const remotePresenceRef = useRef<Map<string, CursorPresence>>(new Map());
 
   // Use the P2P room subscription (WebRTC DataChannels)
   const {
@@ -1909,6 +1917,24 @@ function EditorSurface({
       };
     }
 
+    // Running clock-based version vector of every op the doc holds, used as the
+    // FS snapshot's validity token. It must describe exactly the op set the
+    // snapshot blocks reflect, so it is folded from the same ops that mutate the
+    // doc (seeded from the loaded log here, then advanced per update) rather than
+    // re-derived from the ops table at write time — a frontier read there could
+    // include a remote op already persisted but not yet folded into the blocks,
+    // validating a stale snapshot on the next open. Maintained incrementally
+    // (O(peers) per save) so large logs aren't rescanned on every snapshot.
+    const clockVV: Record<string, number> = {};
+    const foldClockVV = (ops: Operation[]) => {
+      for (const op of ops) {
+        const peer = op.clock.peerId;
+        if (op.clock.counter > (clockVV[peer] ?? -1)) {
+          clockVV[peer] = op.clock.counter;
+        }
+      }
+    };
+
     // Load persisted operations from SQLite (if any) and register them on the
     // doc. This catches the doc's version vector + clock/id counter up to what
     // the snapshot blocks already represent (the blocks were rebuilt from these
@@ -1918,6 +1944,9 @@ function EditorSurface({
     const opsLoadedPromise = platform.ops.load(pageId).then((persistedOps) => {
       if (persistedOps.length > 0 && docRef.current) {
         docRef.current.load(persistedOps);
+        // Seed the snapshot token: load() registers these ops without emitting
+        // an update, so they never reach the fold in the update handler.
+        foldClockVV(persistedOps);
       }
       // Local storage confirmed — we have whatever we have. Reveal the canvas.
       if (!snapshotHasContent) {
@@ -1943,8 +1972,11 @@ function EditorSurface({
       // clone boundary (postMessage), and it's per-canvas-width render state that
       // is invalid to persist anyway.
       const clean = cleanSnapshotForSave(blocks);
+      // Snapshot the token by value now; clockVV keeps mutating as later edits
+      // arrive, but this write must carry the frontier matching `clean`.
+      const vv = { ...clockVV };
       snapshotTimer = setTimeout(() => {
-        platform.snapshots.save(pageId, clean);
+        platform.snapshots.save(pageId, clean, vv);
       }, 2000);
     };
 
@@ -1958,6 +1990,8 @@ function EditorSurface({
         roomBroadcast(u.ops);
         platform.ops.persist(pageId, u.ops);
       }
+      // Advance the token before snapshotting so it covers this batch's ops.
+      foldClockVV(u.ops);
       saveSnapshot(doc.getRawBlocks());
     });
 
@@ -1998,39 +2032,50 @@ function EditorSurface({
         ? i18next.t("collaboration.you", "You")
         : i18next.t("collaboration.anonymous", "Anonymous");
 
-    onRoomAwarenessRef.current = (awarenesspeerId, state) => {
-      if (state) {
+    // Re-render every remote peer's cursor from the tracked presence. A peer's
+    // label depends on the whole set (a device hint is appended only when another
+    // connected peer shares its name), so any join/leave/update recomputes all of
+    // them — not just the peer that changed.
+    const refreshPresenceDecorations = () => {
+      const entries = [...remotePresenceRef.current.entries()];
+      const names = entries.map(([, state]) =>
+        getDisplayName(state.user, presenceNameFallback(state)),
+      );
+      const colliding = collidingDisplayNames(names);
+      entries.forEach(([peerId, state], i) => {
+        // Only mark the device when another peer shares this name — the glyph's
+        // only job is to tell same-named collaborators apart.
+        const icon = isCollidingName(names[i], colliding)
+          ? deviceIcon(state.user.deviceType)
+          : undefined;
         mounted.editor.view.setDecorations(
-          presenceLayer(awarenesspeerId),
+          presenceLayer(peerId),
           cursorPresenceToDecorations(
-            awarenesspeerId,
+            peerId,
             state,
             presenceNameFallback(state),
+            icon,
           ),
         );
-        remoteUsersRef.current.set(awarenesspeerId, state.user);
+      });
+      onAwarenessChange?.(entries.map(([, state]) => state.user));
+    };
+
+    onRoomAwarenessRef.current = (awarenesspeerId, state) => {
+      if (state) {
+        remotePresenceRef.current.set(awarenesspeerId, state);
       } else {
         mounted.editor.view.clearDecorations(presenceLayer(awarenesspeerId));
-        remoteUsersRef.current.delete(awarenesspeerId);
+        remotePresenceRef.current.delete(awarenesspeerId);
       }
-
-      onAwarenessChange?.(Array.from(remoteUsersRef.current.values()));
+      refreshPresenceDecorations();
     };
 
     onRoomAwarenessStatesRef.current = (states) => {
       for (const [awarenesspeerId, state] of Object.entries(states)) {
-        mounted.editor.view.setDecorations(
-          presenceLayer(awarenesspeerId),
-          cursorPresenceToDecorations(
-            awarenesspeerId,
-            state,
-            presenceNameFallback(state),
-          ),
-        );
-        remoteUsersRef.current.set(awarenesspeerId, state.user);
+        remotePresenceRef.current.set(awarenesspeerId, state);
       }
-
-      onAwarenessChange?.(Array.from(remoteUsersRef.current.values()));
+      refreshPresenceDecorations();
     };
 
     // Handle room join/rejoin - request VV-based sync from peers

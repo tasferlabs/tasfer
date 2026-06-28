@@ -71,8 +71,7 @@ const SCHEMA_SQL = `
     public_key  TEXT NOT NULL,
     private_key TEXT NOT NULL,
     name        TEXT NOT NULL DEFAULT '',
-    avatar      TEXT,
-    device_type TEXT NOT NULL DEFAULT ''
+    avatar      TEXT
   );
 
   CREATE TABLE IF NOT EXISTS peers (
@@ -331,10 +330,7 @@ export class Engine implements Platform {
         public_key: string;
         name: string;
         avatar: string | null;
-        device_type: string;
-      }>(
-        "SELECT public_key, name, avatar, device_type FROM identity WHERE id = 1",
-      );
+      }>("SELECT public_key, name, avatar FROM identity WHERE id = 1");
 
       if (rows.length === 0) {
         // First run — generate keypair
@@ -344,7 +340,7 @@ export class Engine implements Platform {
           "INSERT INTO identity (id, public_key, private_key, name) VALUES (1, ?, ?, '')",
           [publicKey, privateKey],
         );
-        return { publicKey, name: "", avatar: null, deviceType: "" };
+        return { publicKey, name: "", avatar: null };
       }
 
       const row = rows[0];
@@ -352,14 +348,12 @@ export class Engine implements Platform {
         publicKey: row.public_key,
         name: row.name,
         avatar: row.avatar,
-        deviceType: (row.device_type || "") as Identity["deviceType"],
       };
     },
 
     update: async (data: {
       name?: string;
       avatar?: string | null;
-      deviceType?: string;
     }): Promise<Identity> => {
       const sets: string[] = [];
       const params: unknown[] = [];
@@ -371,10 +365,6 @@ export class Engine implements Platform {
       if (data.avatar !== undefined) {
         sets.push("avatar = ?");
         params.push(data.avatar);
-      }
-      if (data.deviceType !== undefined) {
-        sets.push("device_type = ?");
-        params.push(data.deviceType);
       }
 
       if (sets.length > 0) {
@@ -877,25 +867,29 @@ export class Engine implements Platform {
 
       const r = rows[0];
 
-      // Fast path: use filesystem snapshot if op count matches.
-      // Rebuilding from all ops is expensive on mobile — the snapshot lets us
-      // skip it when nothing has changed since the last save.
-      const [{ cnt: opCount }] = await this.driver.db.execute<{ cnt: number }>(
-        "SELECT COUNT(*) as cnt FROM ops WHERE scope_id = ?",
-        [id],
-      );
+      // Fast path: use the filesystem snapshot only when its recorded version
+      // vector exactly matches the op log's current frontier. Rebuilding from
+      // all ops is expensive on mobile — the snapshot lets us skip it when
+      // nothing has changed since the last save. A version vector (not a raw op
+      // count) is required: the snapshot's blocks and its validity token must
+      // describe the same op set, and a count read independently of the blocks
+      // can match while the blocks are stale (see snapshots.save).
+      const currentVV = await this.pageClockVV(id);
       const cached = await this.loadSnapshot(id);
       let blocks:
         | import("@cypherkit/editor/serlization/loadPage").Block[]
         | null = null;
-      if (cached && cached.opCount === opCount && cached.blocks.length > 0) {
+      if (cached && vvEqual(cached.vv, currentVV) && cached.blocks.length > 0) {
         blocks = cached.blocks;
       } else {
-        // Slow path: replay full op log and persist a fresh snapshot.
-        blocks = await this.rebuildBlocksFromOps(id);
-        if (blocks && blocks.length > 0) {
+        // Slow path: replay full op log and persist a fresh snapshot. The saved
+        // vv is derived from the exact ops the rebuild consumed, so it always
+        // describes the blocks it ships with.
+        const rebuilt = await this.rebuildBlocksFromOps(id);
+        blocks = rebuilt?.blocks ?? null;
+        if (rebuilt && blocks && blocks.length > 0) {
           // Fire-and-forget — don't block the page open on the write.
-          this.snapshots.save(id, blocks).catch(() => {});
+          this.snapshots.save(id, blocks, rebuilt.vv).catch(() => {});
         }
       }
 
@@ -1655,18 +1649,19 @@ export class Engine implements Platform {
     save: async (
       pageId: string,
       blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
+      vv: Record<string, number>,
     ): Promise<void> => {
       try {
-        const [{ cnt }] = await this.driver.db.execute<{ cnt: number }>(
-          "SELECT COUNT(*) as cnt FROM ops WHERE scope_id = ?",
-          [pageId],
-        );
+        // `vv` is supplied by the caller and describes the exact op set these
+        // blocks reflect — it is NOT re-derived from the ops table here, because
+        // a frontier read at this instant can include ops not yet folded into
+        // `blocks` (e.g. a remote op persisted but not yet applied to the doc).
         // Strip ephemeral render cache before persisting — cachedLayout is a
         // large, per-canvas-width measured-layout object, invalid across sessions
         // and screen sizes.
         const cleanBlocks = blocks.map(({ cachedLayout: _l, ...b }) => b);
         const data = new TextEncoder().encode(
-          JSON.stringify({ opCount: cnt, blocks: cleanBlocks }),
+          JSON.stringify({ vv, blocks: cleanBlocks }),
         );
         await this.driver.fs.write(this.snapshotPath(pageId), data);
       } catch (err) {
@@ -1676,16 +1671,42 @@ export class Engine implements Platform {
   };
 
   private async loadSnapshot(pageId: string): Promise<{
-    opCount: number;
+    vv: Record<string, number>;
     blocks: import("@cypherkit/editor/serlization/loadPage").Block[];
   } | null> {
     try {
       const data = await this.driver.fs.read(this.snapshotPath(pageId));
       if (!data) return null;
-      return JSON.parse(new TextDecoder().decode(data));
+      const parsed = JSON.parse(new TextDecoder().decode(data));
+      // Snapshots written before the vv-token format (or otherwise malformed)
+      // lack `vv`; treat them as untrusted so the caller replays the log and
+      // rewrites a well-formed snapshot.
+      if (!parsed || typeof parsed.vv !== "object" || parsed.vv === null) {
+        return null;
+      }
+      return parsed;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The clock-based version vector (`{ [clockPeerId]: maxClockCounter }`) of a
+   * page's op log, read straight from the indexed `ops` columns without
+   * deserializing op bodies. This is the same frontier the sync layer compares
+   * against, and the token a filesystem snapshot is validated by.
+   */
+  private async pageClockVV(pageId: string): Promise<Record<string, number>> {
+    const rows = await this.driver.db.execute<{
+      peer_id: string;
+      max_clock: number;
+    }>(
+      "SELECT peer_id, MAX(clock) as max_clock FROM ops WHERE scope_id = ? GROUP BY peer_id",
+      [pageId],
+    );
+    const vv: Record<string, number> = {};
+    for (const row of rows) vv[row.peer_id] = row.max_clock;
+    return vv;
   }
 
   // ---------------------------------------------------------------------------
@@ -2221,23 +2242,50 @@ export class Engine implements Platform {
     return ops;
   }
 
-  /** Rebuild a page's Block[] from persisted CRDT ops */
-  private async rebuildBlocksFromOps(
-    pageId: string,
-  ): Promise<import("@cypherkit/editor/serlization/loadPage").Block[] | null> {
+  /**
+   * Rebuild a page's Block[] from persisted CRDT ops, paired with the clock
+   * version vector of those exact ops so the result can be persisted as a
+   * snapshot whose validity token matches its blocks.
+   */
+  private async rebuildBlocksFromOps(pageId: string): Promise<{
+    blocks: import("@cypherkit/editor/serlization/loadPage").Block[];
+    vv: Record<string, number>;
+  } | null> {
     const ops = await this.loadPageOps(pageId);
     if (ops.length === 0) return null;
 
     const { rebuildState } = await import("@cypherkit/editor/sync/reducer");
     const page = rebuildState(pageId, ops);
+    if (page.blocks.length === 0) return null;
 
-    return page.blocks.length > 0 ? page.blocks : null;
+    const vv: Record<string, number> = {};
+    for (const op of ops) {
+      const peer = op.clock.peerId;
+      if (op.clock.counter > (vv[peer] ?? -1)) vv[peer] = op.clock.counter;
+    }
+    return { blocks: page.blocks, vv };
   }
 }
 
 // =============================================================================
 // Utilities
 // =============================================================================
+
+/**
+ * Exact equality of two clock version vectors. A peer present in one side with
+ * counter -1 (never seen) is treated as absent, so `{}` and `{ p: -1 }` compare
+ * equal — though MAX(clock) never yields a sentinel in practice.
+ */
+function vvEqual(
+  a: Record<string, number>,
+  b: Record<string, number>,
+): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if ((a[k] ?? -1) !== (b[k] ?? -1)) return false;
+  }
+  return true;
+}
 
 async function hashBytes(data: Uint8Array): Promise<string> {
   const hash = await crypto.subtle.digest(

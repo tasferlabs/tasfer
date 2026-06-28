@@ -1,9 +1,9 @@
 /**
- * strong → bold weight (the styles-free `bold` flag; metric-affecting).
+ * strong → bold weight (the styles-free `metrics.bold` flag; metric-affecting).
  *
- * `bold` is a flag rather than a {@link MarkStyle} channel because bold weight
- * changes text *metrics* (caret/wrap geometry); the measurement engine reads it
- * without resolving a theme.
+ * Bold lives in {@link MarkMetrics}, not as a {@link MarkStyle} channel, because
+ * bold weight changes text *metrics* (caret/wrap geometry); the measurement
+ * engine reads it without resolving a theme.
  *
  * The Ctrl/Cmd+B toggle action lives in `./toggle-actions` (kept out of this
  * file so constructing the mark stays free of the renderer/reducer graph).
@@ -11,7 +11,7 @@
 
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import { BOLD_END, BOLD_START } from "../../serlization/tokenizer";
-import { Mark, type MarkStyle } from "./Mark";
+import { Mark, type MarkMetrics, type MarkStyle } from "./Mark";
 
 // `html.priority` reproduces the prior fixed nesting order exactly:
 // code (innermost) → strong → emphasis → strike → link (outermost).
@@ -24,7 +24,7 @@ const STRONG_CODEC: MarkCodec = {
 
 export class StrongMark extends Mark {
   readonly type = "strong";
-  readonly bold = true;
+  readonly metrics: MarkMetrics = { bold: true };
   readonly codec = STRONG_CODEC;
   style(): MarkStyle {
     return {};

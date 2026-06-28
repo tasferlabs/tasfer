@@ -22,10 +22,11 @@
  * {@link MarkRegistry} (stored on `EditorState.marks`, never a module global —
  * the same multi-editor rule the node registry follows).
  *
- * NOTE: `bold` is a styles-free flag rather than a {@link MarkStyle} channel,
- * because bold weight affects text *metrics* (caret/wrap geometry) — the
- * measurement engine reads it without resolving a theme. The cosmetic channels
- * in `style()` never change advance width, so they stay render-only.
+ * NOTE: metric-affecting variants (bold weight, italic slant) live in the
+ * styles-free {@link MarkMetrics} facet, not in {@link MarkStyle}, because they
+ * change advance width — the measurement engine (wrap + caret geometry) reads
+ * them without resolving a theme. The cosmetic channels in `style()` never
+ * change advance width, so they stay render-only.
  */
 
 import type { ActionBus } from "../../action-bus";
@@ -56,10 +57,11 @@ export interface MarkUnderlineStyle {
  * The visual channels one mark contributes to a run. The renderer composes the
  * styles of every mark on the run (see the precedence notes in the renderer):
  * `background`/`color` from the chip-bearing mark win over a plain `color`;
- * `italic`/`strikethrough`/`underline` are additive.
+ * `strikethrough`/`underline` are additive. These channels are render-only —
+ * none of them change advance width. A variant that *does* (bold, italic)
+ * belongs in {@link MarkMetrics} instead.
  */
 export interface MarkStyle {
-  readonly italic?: boolean;
   /** Glyph fill color (code chip color, link color, …). */
   readonly color?: string;
   /** Rounded-rect background behind the glyphs (code). */
@@ -68,6 +70,20 @@ export interface MarkStyle {
   readonly underline?: MarkUnderlineStyle;
   /** Strike line through the glyphs. */
   readonly strikethrough?: boolean;
+}
+
+/**
+ * The metric-affecting font variants one mark forces. Unlike the cosmetic
+ * channels in {@link MarkStyle}, these change glyph advance width, so the
+ * measurement engine (wrap + caret geometry) must apply them too — not just
+ * paint. Theme-free, so the engine reads them without resolving styles. Folded
+ * across a run's marks: any mark that sets a flag wins.
+ */
+export interface MarkMetrics {
+  /** Heavier weight (`strong`). */
+  readonly bold?: boolean;
+  /** Oblique/italic slant (`emphasis`). */
+  readonly italic?: boolean;
 }
 
 export interface MarkStyleCtx {
@@ -203,11 +219,13 @@ export abstract class Mark {
   abstract style(c: MarkStyleCtx): MarkStyle;
 
   /**
-   * Whether this mark renders its run bold. Metric-affecting (changes advance
-   * width), so it's a styles-free flag the measurement engine can read without
-   * a theme — not a {@link MarkStyle} channel.
+   * Optional: the metric-affecting font variants this mark forces (bold weight,
+   * italic slant). Read by the measurement engine without a theme so wrap and
+   * caret geometry stay in sync with paint — the reason these live here and not
+   * as cosmetic {@link MarkStyle} channels (those never change advance width).
+   * Folded across a run (any flag set wins). Omit for a metric-neutral mark.
    */
-  readonly bold: boolean = false;
+  readonly metrics?: MarkMetrics;
 
   /**
    * Whether `ChangeApi.toggleMark` may add/remove this mark directly.

@@ -49,3 +49,23 @@ linux:
     - deb
     - pacman
   category: Office
+
+pacman:
+  # Pin runtime deps explicitly. electron-builder's auto-detected list
+  # includes http-parser, which Arch dropped from its repos and which the
+  # Electron binary no longer links against, making the package
+  # uninstallable. Keep this list in sync with the binary's real needs.
+  depends:
+    - c-ares
+    - ffmpeg
+    - gtk3
+    - libevent
+    - libvpx
+    - libxslt
+    - libxss
+    - minizip
+    - nss
+    - re2
+    - snappy
+    - libnotify
+    - libappindicator-gtk3

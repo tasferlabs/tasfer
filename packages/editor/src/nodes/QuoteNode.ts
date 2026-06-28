@@ -17,7 +17,7 @@ import type {
 } from "../rendering/nodes/Node";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
-import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
+import type { NodeCodec } from "../serlization/codecs/types";
 import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
 import { NEWLINE, QUOTE } from "../serlization/tokenizer";
 import type {
@@ -66,7 +66,6 @@ export class QuoteNode extends TextNode {
   readonly type = "quote" as const;
   readonly types: readonly string[] = ["quote"];
   readonly strings = { placeholder: "Write something worth remembering…" };
-  readonly markdownTokens = [QUOTE] as const;
 
   override textStyle(styles: EditorStyles): TextStyle {
     return styles.blocks.quote;
@@ -314,27 +313,36 @@ export class QuoteNode extends TextNode {
     );
   }
 
-  outputMarkdown(block: TextualBlock, ctx: OutputCtx): string {
-    return `> ${ctx.inline(block.charRuns, block.formats)}`;
-  }
-
-  inputMarkdown(ctx: InputCtx): Block {
-    ctx.match(QUOTE);
-    const { charRuns, formats } = ctx.inlineText();
-    ctx.match(NEWLINE);
-    return {
-      id: ctx.nextBlockId(),
-      type: "quote",
-      charRuns,
-      formats,
-    } as QuoteBlock;
-  }
-
-  outputHTML(block: TextualBlock, ctx: OutputCtx): string {
-    return `<blockquote>${ctx.inline(block.charRuns, block.formats)}</blockquote>`;
-  }
-
-  outputText(block: TextualBlock, ctx: OutputCtx): string {
-    return ctx.inline(block.charRuns, block.formats);
-  }
+  readonly codec: NodeCodec = {
+    markdown: {
+      tokens: [QUOTE],
+      output: (block, ctx) => {
+        const b = block as TextualBlock;
+        return `> ${ctx.inline(b.charRuns, b.formats)}`;
+      },
+      input: (ctx) => {
+        ctx.match(QUOTE);
+        const { charRuns, formats } = ctx.inlineText();
+        ctx.match(NEWLINE);
+        return {
+          id: ctx.nextBlockId(),
+          type: "quote",
+          charRuns,
+          formats,
+        } as QuoteBlock;
+      },
+    },
+    html: {
+      output: (block, ctx) => {
+        const b = block as TextualBlock;
+        return `<blockquote>${ctx.inline(b.charRuns, b.formats)}</blockquote>`;
+      },
+    },
+    text: {
+      output: (block, ctx) => {
+        const b = block as TextualBlock;
+        return ctx.inline(b.charRuns, b.formats);
+      },
+    },
+  };
 }

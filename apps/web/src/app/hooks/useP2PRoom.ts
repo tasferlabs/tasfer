@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { getPlatform } from "@/platform";
+import { detectDeviceType, getPlatform } from "@/platform";
 import type { ConnectionState, SyncEvents } from "@/platform/types";
 import type { Operation } from "@cypherkit/editor";
 import {
@@ -150,12 +150,15 @@ export function useP2PRoom(
       // and presence id, and must be distinct in each tab. Matches the `peerId`
       // the doc was created with on first render.
       const myPeerId = peerId;
+      // Device form factor is inferred from the running client (not stored on the
+      // identity) — it only exists to disambiguate same-named collaborators.
+      const deviceType = detectDeviceType();
       setLocalUser({
         peerId: myPeerId,
         name: identity.name,
         avatar: identity.avatar,
         color: getColorForPeer(identity.name || myPeerId),
-        deviceType: identity.deviceType,
+        deviceType,
         deviceId: identity.publicKey,
       });
 
@@ -223,7 +226,7 @@ export function useP2PRoom(
         {
           name: identity.name,
           avatar: identity.avatar,
-          deviceType: identity.deviceType,
+          deviceType,
           deviceId: identity.publicKey,
         },
         callbacks,
