@@ -6,6 +6,7 @@
  * drift from per-type behavior.
  */
 
+import { getInlineMathSpans } from "../inline-math-spans";
 import { moveCursorToPosition } from "../selection";
 import type { Block } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
@@ -18,6 +19,7 @@ import {
   atomicBlockInsertOps,
   getSelectionPlainText,
   pasteFromClipboardEvent,
+  repairMathBackslashes,
 } from "./clipboard";
 import { describe, expect, it } from "vitest";
 
@@ -170,5 +172,45 @@ describe("getSelectionPlainText", () => {
     expect(text).toContain("A bold and italic line");
     expect(text).not.toContain("**");
     expect(text).not.toContain("*italic*");
+  });
+});
+
+describe("repairMathBackslashes", () => {
+  // The defuddle/turndown HTML → Markdown path doubles every backslash and only
+  // un-doubles a few non-backslash escapes, so pasted inline math arrives with
+  // `\\degree` where the source had `\degree`. The math chip then renders the
+  // stray backslash literally. Pin the repair so the chip's LaTeX is verbatim.
+  const latexOf = (markdown: string) =>
+    loadPage(repairMathBackslashes(markdown)).blocks.flatMap((b) =>
+      getInlineMathSpans(b).map((s) => s.latex),
+    );
+
+  it("collapses doubled backslashes inside inline math (turndown artifact)", () => {
+    // `$T_1=100\degree C$` round-trips through turndown as `\\degree`.
+    expect(repairMathBackslashes("- $T_1=100\\\\degree C = 373.15 K$")).toBe(
+      "- $T_1=100\\degree C = 373.15 K$",
+    );
+    expect(latexOf("- $T_1=100\\\\degree C = 373.15 K$")).toEqual([
+      "T_1=100\\degree C = 373.15 K",
+    ]);
+    expect(latexOf("$Q=\\\\boxed{}$")).toEqual(["Q=\\boxed{}"]);
+  });
+
+  it("repairs block math the same way and never crosses the $$ pair", () => {
+    expect(repairMathBackslashes("$$\n\\\\frac{a}{b}\n$$")).toBe(
+      "$$\n\\frac{a}{b}\n$$",
+    );
+  });
+
+  it("preserves a genuine LaTeX row break (turndown sends `\\\\` as `\\\\\\\\`)", () => {
+    // A real `\\` row break is doubled by turndown to four backslashes; the
+    // repair must leave exactly the two-backslash row break behind.
+    expect(repairMathBackslashes("$a\\\\\\\\b$")).toBe("$a\\\\b$");
+  });
+
+  it("leaves non-math text and backslash-free math untouched", () => {
+    expect(repairMathBackslashes("a \\\\ b and $x=1$")).toBe(
+      "a \\\\ b and $x=1$",
+    );
   });
 });

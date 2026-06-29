@@ -831,12 +831,16 @@ export function isPointWithinSelectionRects(
         styles,
         state.marks,
       );
+      // Use the same continuous ribbon the local selection paints, so a tap in
+      // the trailing space of a line or the gap between two selected blocks
+      // counts as touching the selection (and won't dismiss it).
       const rects = node.selectionRects(
         layout,
         selection,
         block.originalIndex,
         styles.canvas.paddingLeft,
         currentY,
+        true,
       );
       for (const r of rects) {
         if (x >= r.x && x <= r.x + r.width && y >= r.y && y < r.y + r.height) {

@@ -309,6 +309,14 @@ interface RoomState {
   callbacks: Partial<SyncEvents>;
   remotePeers: Map<string, RoomUser | undefined>;
   awarenessStates: Map<string, CursorPresence>;
+  /**
+   * Remote peer id (the per-tab replica id carried on the wire) → the public
+   * key of the connection it arrived on. Presence is keyed by replica id, not
+   * by public key, so this is how a closed connection's stale entries get
+   * found and removed — without it, a dropped/relaunched peer leaves a ghost
+   * cursor behind.
+   */
+  peerOrigin: Map<string, string>;
 }
 
 /** Holds all state for an in-progress device-pairing flow. A pairing session is created when the user generates or scans an invite code and is torn down once both sides have exchanged proofs and stored each other as trusted peers. */
@@ -534,6 +542,7 @@ export class Replicator {
       callbacks: callbacks ?? {},
       remotePeers: new Map(),
       awarenessStates: new Map(),
+      peerOrigin: new Map(),
     };
     this.rooms.set(roomId, room);
 
@@ -900,14 +909,7 @@ export class Replicator {
     const unsubClose = netPeer.onClose(() => {
       this.peers.delete(remotePubKey);
       this.emitConnectedPeers();
-      for (const room of this.rooms.values()) {
-        const peerId = remotePubKey.slice(0, 32);
-        if (room.remotePeers.has(peerId)) {
-          room.remotePeers.delete(peerId);
-          room.awarenessStates.delete(peerId);
-          room.callbacks.onPeerLeft?.(peerId);
-        }
-      }
+      this.removeConnectionPresence(remotePubKey);
       this.updateConnectionState();
     });
 
@@ -936,16 +938,28 @@ export class Replicator {
     conn.netPeer.close();
     this.peers.delete(publicKey);
     this.emitConnectedPeers();
+    this.removeConnectionPresence(publicKey);
+    this.updateConnectionState();
+  }
 
+  /**
+   * Drop every room-presence entry that originated from a now-closed
+   * connection. Presence (`remotePeers`/`awarenessStates`) is keyed by the
+   * remote's per-tab replica id, not by its public key, so we resolve each
+   * entry's recorded origin connection rather than deriving a key from the
+   * public key — the latter never matched, which is what left ghost cursors
+   * for the same user after a drop or relaunch.
+   */
+  private removeConnectionPresence(publicKey: string) {
     for (const room of this.rooms.values()) {
-      const peerId = publicKey.slice(0, 32);
-      if (room.remotePeers.has(peerId)) {
+      for (const [peerId, origin] of room.peerOrigin) {
+        if (origin !== publicKey) continue;
+        room.peerOrigin.delete(peerId);
         room.remotePeers.delete(peerId);
         room.awarenessStates.delete(peerId);
         room.callbacks.onPeerLeft?.(peerId);
       }
     }
-    this.updateConnectionState();
   }
 
   private async sendHello(netPeer: NetworkPeer): Promise<void> {
@@ -1005,10 +1019,10 @@ export class Replicator {
         this.handleRoomLeave(msg);
         break;
       case "room-peers":
-        this.handleRoomPeers(msg);
+        this.handleRoomPeers(fromPubKey, msg);
         break;
       case "awareness":
-        this.handleAwareness(msg);
+        this.handleAwareness(fromPubKey, msg);
         break;
 
       // Per-page sync (fallback)
@@ -1271,6 +1285,7 @@ export class Replicator {
       // We have the same page open — full room awareness exchange
       const isNew = !room.remotePeers.has(msg.peerId);
       room.remotePeers.set(msg.peerId, msg.user);
+      room.peerOrigin.set(msg.peerId, fromPubKey);
 
       if (isNew) {
         room.callbacks.onPeerJoined?.(msg.peerId, msg.user);
@@ -1304,27 +1319,36 @@ export class Replicator {
   private handleRoomLeave(msg: RoomLeaveMsg) {
     const room = this.rooms.get(msg.pageId);
     if (!room) return;
+    room.peerOrigin.delete(msg.peerId);
     room.remotePeers.delete(msg.peerId);
     room.awarenessStates.delete(msg.peerId);
     room.callbacks.onPeerLeft?.(msg.peerId);
   }
 
-  private handleRoomPeers(msg: RoomPeersMsg) {
+  private handleRoomPeers(fromPubKey: string, msg: RoomPeersMsg) {
     const room = this.rooms.get(msg.pageId);
     if (!room) return;
     const peerIds: string[] = [];
     for (const p of msg.peers) {
       if (p.peerId !== room.localPeerId) {
         room.remotePeers.set(p.peerId, p.user);
+        // room-peers is a relay: these may be third parties the sender knows,
+        // not the sender itself. Record a provisional origin so a relayed-only
+        // peer is still cleanable, but don't clobber an origin already set by
+        // that peer's own direct room-join/awareness (its real connection).
+        if (!room.peerOrigin.has(p.peerId)) {
+          room.peerOrigin.set(p.peerId, fromPubKey);
+        }
         peerIds.push(p.peerId);
       }
     }
     room.callbacks.onRoomPeers?.(peerIds, msg.awarenessStates);
   }
 
-  private handleAwareness(msg: AwarenessMsg) {
+  private handleAwareness(fromPubKey: string, msg: AwarenessMsg) {
     const room = this.rooms.get(msg.pageId);
     if (!room) return;
+    room.peerOrigin.set(msg.peerId, fromPubKey);
     room.awarenessStates.set(msg.peerId, msg.state);
     room.callbacks.onAwareness?.(msg.peerId, msg.state);
   }

@@ -205,51 +205,69 @@ export function getSelectionHandleAtPoint(
   }
 
   const styles = getEditorStyles(state);
-  const handleSize = styles.selection.handles.size;
+  const handleRadius = styles.selection.handles.size / 2;
   const stemHeight = styles.selection.handles.stemHeight;
   const touchTargetRadius = SELECTION_HANDLE_TOUCH_TARGET / 2;
 
-  // Check anchor handle
-  if (handlePositions.anchor) {
-    const { x, y, height, isTop } = handlePositions.anchor;
-    // Calculate center of the circle part of the handle
-    let circleY: number;
-    if (isTop) {
-      // Circle is above the line
-      circleY = y - stemHeight - handleSize / 2;
-    } else {
-      // Circle is below the line
-      circleY = y + height + stemHeight + handleSize / 2;
+  // The grabbable area covers the circular ball *and* the stem, which now spans
+  // the full text height. We test both: a comfortable circle around the ball,
+  // plus a widened band over the stem so the thin bar is easy to grab. When the
+  // selection is short the two handles can overlap, so pick the nearest ball.
+  const evaluate = (
+    handle: "anchor" | "focus",
+    pos: { x: number; y: number; height: number; isTop: boolean },
+  ): { handle: "anchor" | "focus"; distance: number } | null => {
+    const { x, y, height, isTop } = pos;
+    const ballY = isTop
+      ? y - stemHeight - handleRadius
+      : y + height + stemHeight + handleRadius;
+
+    const ballDistance = Math.sqrt(
+      Math.pow(touchX - x, 2) + Math.pow(touchY - ballY, 2),
+    );
+
+    // 1) Ball: a comfortable circular target.
+    let hit = ballDistance <= touchTargetRadius;
+
+    // 2) Stem bar: the vertical bar runs the full text height; make that whole
+    //    span grabbable with a horizontal band the width of the touch target.
+    if (!hit) {
+      const barTop = isTop ? y - stemHeight : y;
+      const barBottom = isTop ? y + height : y + height + stemHeight;
+      hit =
+        touchX >= x - touchTargetRadius &&
+        touchX <= x + touchTargetRadius &&
+        touchY >= barTop &&
+        touchY <= barBottom;
     }
 
-    const distance = Math.sqrt(
-      Math.pow(touchX - x, 2) + Math.pow(touchY - circleY, 2),
-    );
-    if (distance <= touchTargetRadius) {
-      return "anchor";
-    }
+    return hit ? { handle, distance: ballDistance } : null;
+  };
+
+  // Handle positions come back in document space, but the touch point and the
+  // painted handles are in viewport space. Convert before hit-testing — without
+  // this the hitbox is offset by scrollY whenever the document is scrolled, so
+  // the touch misses the handle and falls through to the scroll gesture.
+  const toViewport = (pos: {
+    x: number;
+    y: number;
+    height: number;
+    isTop: boolean;
+  }) => ({ ...pos, y: pos.y - viewport.scrollY });
+
+  const candidates = [
+    handlePositions.anchor &&
+      evaluate("anchor", toViewport(handlePositions.anchor)),
+    handlePositions.focus &&
+      evaluate("focus", toViewport(handlePositions.focus)),
+  ].filter(
+    (c): c is { handle: "anchor" | "focus"; distance: number } => c != null,
+  );
+
+  if (candidates.length === 0) {
+    return null;
   }
 
-  // Check focus handle
-  if (handlePositions.focus) {
-    const { x, y, height, isTop } = handlePositions.focus;
-    // Calculate center of the circle part of the handle
-    let circleY: number;
-    if (isTop) {
-      // Circle is above the line
-      circleY = y - stemHeight - handleSize / 2;
-    } else {
-      // Circle is below the line
-      circleY = y + height + stemHeight + handleSize / 2;
-    }
-
-    const distance = Math.sqrt(
-      Math.pow(touchX - x, 2) + Math.pow(touchY - circleY, 2),
-    );
-    if (distance <= touchTargetRadius) {
-      return "focus";
-    }
-  }
-
-  return null;
+  candidates.sort((a, b) => a.distance - b.distance);
+  return candidates[0].handle;
 }

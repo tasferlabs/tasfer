@@ -765,6 +765,14 @@ function computeSelectionRects(
   maxWidth: number,
   selection: { anchor: Position; focus: Position; isForward: boolean },
   blockIndex: number,
+  // When true, close the vertical gaps in the selection so it reads as one
+  // connected shape: each line still hugs its own text width (ragged edges
+  // where line widths differ), but a block the selection passes through fills
+  // its own top/bottom box (its inter-block spacing) so adjacent selected
+  // blocks meet instead of leaving an untappable gap between them. The local
+  // selection uses this; tight range decorations (find highlights, remote
+  // carets) leave it false so they hug the matched glyphs. See `selectionRects`.
+  continuous = false,
 ): Rect[] {
   const start = selection.isForward ? selection.anchor : selection.focus;
   const end = selection.isForward ? selection.focus : selection.anchor;
@@ -778,7 +786,20 @@ function computeSelectionRects(
     codePadding,
     chars,
     formats,
+    insetY,
+    height: blockHeight,
   } = layout;
+
+  // Whether the selection arrives from / departs into a neighbouring block.
+  // Used to fill this block's top/bottom box so consecutive blocks form one
+  // gapless ribbon (block boxes are laid out contiguously, so each block
+  // filling its own half closes the inter-block gap).
+  const enteredFromAbove = start.blockIndex < blockIndex;
+  const exitsBelow = end.blockIndex > blockIndex;
+  // `blockTopY` is the content top (caller already added `insetY`); recover the
+  // block's box edges from the layout's own metrics.
+  const blockTopEdge = blockTopY - insetY;
+  const blockBottomEdge = blockTopEdge + blockHeight;
 
   const rects: Rect[] = [];
 
@@ -793,15 +814,20 @@ function computeSelectionRects(
 
   const contentLength = getVisibleTextFromChars(chars).length;
 
-  // Empty block: a small caret-width highlight.
+  // Empty block: a small caret-width sliver. In a continuous selection it keeps
+  // that narrow width (an empty line shows no full-width fill) but extends to
+  // this block's box edges so it connects to the selected blocks above/below.
   if (contentLength === 0 && layout.lines.length === 1) {
     const emptyBlockHeight = textStyle.fontSize * textStyle.lineHeight;
     const minSelectionWidth = textStyle.fontSize * 0.5;
+    const top = continuous && enteredFromAbove ? blockTopEdge : blockTopY;
+    const bottom =
+      continuous && exitsBelow ? blockBottomEdge : blockTopY + emptyBlockHeight;
     rects.push({
       x: baseX,
-      y: blockTopY,
+      y: top,
       width: minSelectionWidth,
-      height: emptyBlockHeight,
+      height: bottom - top,
     });
     return rects;
   }
@@ -980,6 +1006,22 @@ function computeSelectionRects(
       });
     }
   });
+
+  // Vertical box fill: extend the top/bottom rect into this block's own
+  // inter-block spacing where the selection crosses a block boundary, so
+  // adjacent selected blocks meet with no gap. Lines within a block are already
+  // contiguous (each rect's height is its full line box).
+  if (continuous && rects.length > 0) {
+    if (enteredFromAbove) {
+      const first = rects[0];
+      first.height = first.y + first.height - blockTopEdge;
+      first.y = blockTopEdge;
+    }
+    if (exitsBelow) {
+      const last = rects[rects.length - 1];
+      last.height = blockBottomEdge - last.y;
+    }
+  }
 
   return rects;
 }
@@ -1562,6 +1604,9 @@ export class TextNode extends Node<TextualBlock> {
     blockIndex: number,
     originX: number,
     blockTopY: number,
+    // The local selection passes `true` to render as one continuous ribbon;
+    // tight range decorations (find highlights, remote carets) leave it `false`.
+    continuous = false,
   ): Rect[] {
     return computeSelectionRects(
       layout,
@@ -1570,6 +1615,7 @@ export class TextNode extends Node<TextualBlock> {
       layout.adjustedMaxWidth,
       selection,
       blockIndex,
+      continuous,
     );
   }
 
@@ -1757,7 +1803,7 @@ export class TextNode extends Node<TextualBlock> {
     // (Remote selections are now range decorations, painted above with all
     // other range decorations — no peer-specific path here.)
 
-    // Local selection.
+    // Local selection — rendered as one continuous ribbon.
     if (state.document.selection && !state.document.selection.isCollapsed) {
       const rects = this.selectionRects(
         layout,
@@ -1765,6 +1811,7 @@ export class TextNode extends Node<TextualBlock> {
         blockIndex,
         x,
         y,
+        true,
       );
       this.fillRects(
         ctx,

@@ -670,6 +670,32 @@ export function flattenBlockLevelLinks(markdown: string): string {
 }
 
 /**
+ * Repair inline/block math that the HTML → Markdown conversion mangled.
+ *
+ * `createMarkdownContent` (defuddle → turndown) escapes Markdown
+ * metacharacters in text nodes, which includes doubling every backslash
+ * (`\degree` → `\\degree`). defuddle reverses that escaping for a handful of
+ * characters (`# $ % & ~ _ ^ { }`) but never for the backslash itself, so a
+ * LaTeX command inside pasted `$…$` / `$$…$$` math survives with a doubled
+ * backslash and renders as a literal `\` (e.g. `100\degree C` shows the
+ * backslash instead of `100°C`).
+ *
+ * Our Markdown dialect treats math content as verbatim LaTeX and never escapes
+ * backslashes (the inline-math tokenizer slices the source as-is), so a doubled
+ * backslash inside a math span is always the conversion's artifact — collapse
+ * each `\\` back to a single `\`. A genuine LaTeX row break `\\` arrives from
+ * turndown as `\\\\` and is preserved (collapses back to `\\`). Non-math text
+ * is left untouched; the regex only rewrites inside math delimiters, and is a
+ * no-op for spans that contain no backslash. Block math (`$$…$$`) is matched
+ * first so its `$$` pair is never mistaken for two inline spans.
+ */
+export function repairMathBackslashes(markdown: string): string {
+  return markdown.replace(/\$\$[\s\S]*?\$\$|\$[^\n$]+\$/g, (math) =>
+    math.replace(/\\\\/g, "\\"),
+  );
+}
+
+/**
  * Parse pasted HTML into blocks.
  *
  * Source HTML from the system clipboard (Google Docs, web pages, other
@@ -706,6 +732,7 @@ export function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
   }
 
   markdown = flattenBlockLevelLinks(markdown);
+  markdown = repairMathBackslashes(markdown);
   if (!markdown.trim()) return [];
   return parsePlainTextToBlocks(markdown, binding);
 }

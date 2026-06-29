@@ -1483,24 +1483,31 @@ function renderSelectionHandle(
   ctx.fillStyle = color;
 
   if (isTop) {
-    // Handle at top of selection: circle above, stem going down
-    // Circle center is above the line
+    // Handle at top of selection: circle above, stem spanning down the line.
+    // Circle center is above the line.
     const circleY = y - stemHeight - radius;
 
-    // Draw the stem (vertical line from circle to top of line)
-    ctx.fillRect(x - stemWidth / 2, y - stemHeight, stemWidth, stemHeight);
+    // Draw the stem: a vertical bar from the circle down the full text height,
+    // so the edge marker spans the line rather than only tipping it.
+    ctx.fillRect(
+      x - stemWidth / 2,
+      y - stemHeight,
+      stemWidth,
+      stemHeight + lineHeight,
+    );
 
     // Draw the circle
     ctx.beginPath();
     ctx.arc(x, circleY, radius, 0, Math.PI * 2);
     ctx.fill();
   } else {
-    // Handle at bottom of selection: stem going up, circle below
-    // Circle center is below the line
+    // Handle at bottom of selection: stem spanning up the line, circle below.
+    // Circle center is below the line.
     const circleY = y + lineHeight + stemHeight + radius;
 
-    // Draw the stem (vertical line from bottom of line to circle)
-    ctx.fillRect(x - stemWidth / 2, y + lineHeight, stemWidth, stemHeight);
+    // Draw the stem: a vertical bar from the top of the line down to the
+    // circle, spanning the full text height.
+    ctx.fillRect(x - stemWidth / 2, y, stemWidth, lineHeight + stemHeight);
 
     // Draw the circle
     ctx.beginPath();

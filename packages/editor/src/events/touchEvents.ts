@@ -1217,10 +1217,24 @@ export function handleTouchEnd(
         }).state;
       }
 
+      // Single tap landing inside an existing selection: open the context menu
+      // at the tap point and keep the selection, matching iOS where tapping
+      // selected text surfaces the edit menu (cut/copy/format) instead of
+      // dismissing it. Deselect stays a one-tap gesture — a tap *outside* the
+      // selection falls through to the caret-placement branch below, which
+      // collapses it. Allowed in readonly too (copy is still valid there).
+      else if (
+        session.touch.isTouchingSelection &&
+        state.document.selection &&
+        !state.document.selection.isCollapsed
+      ) {
+        state = state.actionBus.dispatchState(OPEN_CONTEXT_MENU_AT, state, {
+          point: { x: tapPosition.x, y: tapPosition.y },
+        }).state;
+      }
+
       // Single tap: collapse any selection, position the caret, and close the
-      // context menu. A tap landing inside an existing selection lands here too,
-      // matching native editors where a tap dismisses the selection rather than
-      // opening a menu. A tap in the empty area below a trailing self-contained
+      // context menu. A tap in the empty area below a trailing self-contained
       // block (code/math/quote) starts a fresh paragraph there instead.
       else {
         const edge =
