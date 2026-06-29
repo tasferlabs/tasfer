@@ -393,7 +393,7 @@ export function SnapshotRestore({
     return (
       <>
         <Drawer open={open} onOpenChange={handleOpenChange}>
-          <DrawerContent className="max-h-[85vh] flex flex-col">
+          <DrawerContent className="md:max-h-[85vh] flex flex-col">
             <DrawerHeader>
               <DrawerTitle>{t("snapshot.versionHistory", "Version history")}</DrawerTitle>
               <DrawerDescription>
@@ -420,7 +420,7 @@ export function SnapshotRestore({
           open={!!previewingSnapshot}
           onOpenChange={(open) => !open && setPreviewingSnapshot(null)}
         >
-          <DrawerContent className="h-[95vh]">
+          <DrawerContent className="md:h-[95vh]">
             {previewingSnapshot && (
               <SnapshotPreview
                 snapshot={previewingSnapshot}

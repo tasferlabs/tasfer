@@ -2,11 +2,18 @@
  * DevToolbar
  *
  * Minimal floating devtools. Small pill bottom-end corner.
- * Opens into a bottom panel with Database, Logs, and Network tabs.
- * Only renders when VITE_STAGING env var is set to "true".
+ * Opens into a bottom panel with Database, Logs, Network, CRDT, Peers, and
+ * Editor tabs. Renders only when developer tools are enabled at runtime (the
+ * Settings → Developer tools toggle; defaults on in staging). See
+ * `@/lib/devTools`.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  isDevToolsEnabled,
+  subscribeDevTools,
+  useDevToolsEnabled,
+} from "@/lib/devTools";
 import { getPlatform } from "@/platform";
 import type { ConnectionState, Peer } from "@/platform/types";
 import type { DbRow } from "@/platform/driver";
@@ -17,26 +24,23 @@ import {
   type NetDirection,
 } from "@/platform/devlog";
 import { cn } from "@/lib/utils";
+import { DevEditorState } from "./DevEditorState";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   RefreshCw,
-  Maximize2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Users,
   Search,
   X,
-  Trash2,
   Play,
   AlertTriangle,
   AlertCircle,
 } from "lucide-react";
 
-const isStaging = import.meta.env.VITE_STAGING === "true";
-
-type Tab = "database" | "logs" | "network" | "crdt" | "peers";
+type Tab = "database" | "logs" | "network" | "crdt" | "peers" | "editor";
 type DbView = "tables" | "query";
 
 type QueryResult =
@@ -47,34 +51,35 @@ type QueryResult =
 
 const SQL_HISTORY_MAX = 50;
 
+/**
+ * Statements the read-only query runner accepts: only those that cannot mutate
+ * or destroy state. A write keyword anywhere (e.g. smuggled inside a `WITH`
+ * CTE) disqualifies the statement, even if it starts with `SELECT`/`WITH`.
+ */
+const READ_PREFIX = /^\s*(SELECT|WITH|EXPLAIN|PRAGMA)\b/i;
+const WRITE_KEYWORD = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)\b/i;
+
 async function executeQuery(sql: string): Promise<QueryResult> {
   const db = getDb();
   const trimmed = sql.trim();
   if (!trimmed) return { ok: false, error: "Empty query" };
 
+  // Devtools are read-only so they can never destroy document state. Refuse
+  // anything that isn't a plain read; the query path uses `db.execute` only.
+  if (!READ_PREFIX.test(trimmed) || WRITE_KEYWORD.test(trimmed)) {
+    return {
+      ok: false,
+      error:
+        "Read-only mode — only SELECT / WITH / EXPLAIN / PRAGMA queries are allowed.",
+    };
+  }
+
   const t0 = performance.now();
   try {
-    const isRead = /^\s*(SELECT|PRAGMA|EXPLAIN|WITH)\b/i.test(trimmed);
-    if (isRead) {
-      const rows = await db.execute(trimmed);
-      const time = performance.now() - t0;
-      const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
-      return { ok: true, columns, rows, time };
-    } else {
-      const result = await db.run(trimmed);
-      const time = performance.now() - t0;
-      return {
-        ok: true,
-        columns: ["changes", "lastInsertRowId"],
-        rows: [
-          {
-            changes: result.changes,
-            lastInsertRowId: result.lastInsertRowId ?? null,
-          },
-        ],
-        time,
-      };
-    }
+    const rows = await db.execute(trimmed);
+    const time = performance.now() - t0;
+    const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    return { ok: true, columns, rows, time };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -207,7 +212,14 @@ function pushLog(level: LogLevel, args: unknown[]) {
   _logListeners.forEach((fn) => fn());
 }
 
-if (isStaging && !(globalThis as any).__devtoolPatched) {
+/**
+ * Tee `console.*` into the Logs-tab ring buffer. Idempotent (guarded by a
+ * global flag), so it survives HMR and runtime re-enabling. Patched once
+ * developer tools are first enabled — at load if already on, otherwise when the
+ * user flips the Settings toggle.
+ */
+function ensureConsolePatched() {
+  if ((globalThis as any).__devtoolPatched) return;
   (globalThis as any).__devtoolPatched = true;
   for (const level of LOG_LEVELS) {
     const orig = console[level].bind(console);
@@ -217,6 +229,11 @@ if (isStaging && !(globalThis as any).__devtoolPatched) {
     };
   }
 }
+
+if (isDevToolsEnabled()) ensureConsolePatched();
+subscribeDevTools(() => {
+  if (isDevToolsEnabled()) ensureConsolePatched();
+});
 
 function useLogs() {
   const [, setTick] = useState(0);
@@ -278,13 +295,6 @@ interface TableInfo {
   rows: DbRow[];
   total: number;
   pk: string[];
-}
-
-interface EditingCell {
-  rowIdx: number;
-  col: string;
-  value: string;
-  expanded: boolean; // for JSON/long text
 }
 
 /** Classify a SQLite declared type into our ColType */
@@ -591,95 +601,6 @@ function crdtOpSummary(op: CrdtOpEntry): string {
   }
 }
 
-// ─── Cell renderer ──────────────────────────────────────────────────────
-
-function CellEditor({ col, colType, nullable, editing, setEditing, saveEdit, row, typeColor }: {
-  col: string; colType: ColType; nullable: boolean;
-  editing: EditingCell; setEditing: (e: EditingCell | null) => void;
-  saveEdit: (row: DbRow) => void; row: DbRow; typeColor: string;
-}) {
-  const isNum = colType === "integer" || colType === "real";
-
-  // Boolean: inline toggle
-  if (colType === "boolean") {
-    const boolVal = editing.value === "1" || editing.value.toLowerCase() === "true";
-    return (
-      <div className="flex items-center gap-2">
-        <button onClick={() => setEditing({ ...editing, value: boolVal ? "0" : "1" })} className={cn("relative w-6 h-3.5 rounded-full transition-colors shrink-0", boolVal ? "bg-emerald-500" : "bg-muted-foreground/30")}>
-          <span className={cn("absolute top-[2px] w-2.5 h-2.5 rounded-full bg-white shadow-sm transition-transform", boolVal ? "translate-x-[10px]" : "translate-x-[2px]")} />
-        </button>
-        <span className={cn("text-[11px] font-medium", boolVal ? "text-emerald-400" : "text-muted-foreground/50")}>{boolVal ? "true" : "false"}</span>
-        {nullable && <button onMouseDown={(e) => e.preventDefault()} onClick={() => { setEditing({ ...editing, value: "NULL" }); saveEdit(row); }} className="text-[9px] text-muted-foreground/30 hover:text-destructive font-mono transition-colors">null</button>}
-        <button onMouseDown={(e) => e.preventDefault()} onClick={() => saveEdit(row)} className="text-[9px] text-primary font-medium transition-colors">save</button>
-        <button onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(null)} className="text-[9px] text-muted-foreground/30 transition-colors">esc</button>
-      </div>
-    );
-  }
-
-  // JSON or expanded text: popover
-  if (colType === "json" || editing.expanded) {
-    return (
-      <div className="absolute z-30 top-0 left-0 mt-[-1px] ml-[-1px]">
-        <div className="bg-popover border border-border rounded-lg shadow-2xl overflow-hidden" style={{ minWidth: 320, maxWidth: 480 }}>
-          <div className="flex items-center gap-2 px-2.5 h-7 border-b border-border bg-muted/30">
-            <span className={cn("text-[10px] font-medium", typeColor)}>{col}</span>
-            <span className="text-[9px] text-muted-foreground/40 font-mono">{colType}</span>
-            <div className="flex-1" />
-            {nullable && <button onMouseDown={(e) => e.preventDefault()} onClick={() => { setEditing({ ...editing, value: "NULL" }); saveEdit(row); }} className="text-[9px] text-muted-foreground/40 hover:text-destructive font-mono px-1 rounded hover:bg-muted transition-colors">NULL</button>}
-          </div>
-          <textarea
-            autoFocus
-            value={editing.value}
-            onChange={(e) => setEditing({ ...editing, value: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveEdit(row); }
-              if (e.key === "Escape") { e.preventDefault(); setEditing(null); }
-            }}
-            spellCheck={false}
-            className={cn("w-full min-h-[100px] max-h-[240px] px-2.5 py-2 font-mono text-[11px] leading-[1.5] bg-transparent resize-y focus:outline-none", typeColor)}
-          />
-          <div className="flex items-center gap-2 px-2.5 h-7 border-t border-border bg-muted/30">
-            <span className="text-[9px] text-muted-foreground/30 font-mono">{navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+\u21B5 save &middot; esc cancel</span>
-            <div className="flex-1" />
-            <button onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(null)} className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded hover:bg-muted transition-colors">Cancel</button>
-            <button onMouseDown={(e) => e.preventDefault()} onClick={() => saveEdit(row)} className="text-[10px] text-primary-foreground bg-primary font-medium px-2 py-0.5 rounded hover:bg-primary/90 transition-colors">Save</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // All other: inline input matching cell dimensions
-  return (
-    <div className="flex items-center">
-      <input
-        autoFocus
-        type="text"
-        inputMode={colType === "integer" ? "numeric" : colType === "real" ? "decimal" : "text"}
-        value={editing.value}
-        onChange={(e) => setEditing({ ...editing, value: e.target.value })}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") { e.preventDefault(); saveEdit(row); }
-          if (e.key === "Escape") { e.preventDefault(); setEditing(null); }
-          if (e.key === "Tab") { e.preventDefault(); saveEdit(row); }
-          if (e.key === "ArrowUp" && colType === "integer") { e.preventDefault(); const n = parseInt(editing.value, 10); if (!isNaN(n)) setEditing({ ...editing, value: String(n + 1) }); }
-          if (e.key === "ArrowDown" && colType === "integer") { e.preventDefault(); const n = parseInt(editing.value, 10); if (!isNaN(n)) setEditing({ ...editing, value: String(n - 1) }); }
-        }}
-        onBlur={() => saveEdit(row)}
-        className={cn(
-          "w-full h-full px-2.5 py-0.5 bg-transparent font-mono text-[11px]",
-          "ring-1 ring-inset ring-primary/40 focus:ring-primary rounded-sm",
-          "focus:outline-none",
-          isNum && "text-end tabular-nums",
-          typeColor,
-        )}
-      />
-      {nullable && <button onMouseDown={(e) => e.preventDefault()} onClick={() => { setEditing({ ...editing, value: "NULL" }); saveEdit(row); }} className="text-[9px] text-muted-foreground/30 hover:text-destructive font-mono px-1 shrink-0 transition-colors">null</button>}
-      {colType === "text" && editing.value.length > 40 && <button onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing({ ...editing, expanded: true })} className="text-muted-foreground/30 hover:text-foreground px-0.5 shrink-0 transition-colors"><Maximize2 className="w-3 h-3" /></button>}
-    </div>
-  );
-}
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const PANEL_MIN_H = 200;
@@ -687,6 +608,7 @@ const PANEL_MAX_H_VH = 80; // percent of viewport
 const PANEL_DEFAULT_H = 520;
 
 export function DevToolbar() {
+  const devToolsEnabled = useDevToolsEnabled();
   const [open, setOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [tab, setTab] = useState<Tab>("database");
@@ -712,11 +634,6 @@ export function DevToolbar() {
   const [offset, setOffset] = useState(0);
   const [search, setSearch] = useState("");
   const [input, setInput] = useState("");
-
-  // database — inline edit & selection
-  const [selected, setSelected] = useState<Set<string>>(new Set()); // set of serialised PK values
-  const [editing, setEditing] = useState<EditingCell | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   // database — query view
   const [sql, setSql] = useState("SELECT * FROM pages LIMIT 20;");
@@ -1027,85 +944,6 @@ export function DevToolbar() {
     }
   }, [sql, queryRunning]);
 
-  // Build a unique key for a row from its PK columns
-  const rowKey = useCallback((row: DbRow, pk: string[]) => {
-    return pk.map((c) => String(row[c] ?? "")).join("|");
-  }, []);
-
-  // Parse value based on column type
-  const parseValue = useCallback((value: string, colType: ColType): unknown => {
-    if (value === "NULL" || value === "null") return null;
-    switch (colType) {
-      case "boolean": {
-        const l = value.toLowerCase();
-        if (l === "true" || l === "1" || l === "yes") return 1;
-        if (l === "false" || l === "0" || l === "no") return 0;
-        return value;
-      }
-      case "integer": {
-        const n = parseInt(value, 10);
-        return isNaN(n) ? value : n;
-      }
-      case "real": {
-        const n = parseFloat(value);
-        return isNaN(n) ? value : n;
-      }
-      case "json":
-        return value; // stored as text in SQLite
-      case "datetime":
-        return value;
-      default:
-        return value;
-    }
-  }, []);
-
-  // Save an inline cell edit
-  const saveEdit = useCallback(
-    async (row: DbRow) => {
-      if (!editing || !info) return;
-      const db = getDb();
-      const { col, value } = editing;
-      const pkWhere = info.pk.map((c) => `"${c}" = ?`).join(" AND ");
-      const pkValues = info.pk.map((c) => row[c]);
-      const colType = info.colMeta[col]?.type ?? "text";
-      const parsed = parseValue(value, colType);
-
-      try {
-        await db.run(`UPDATE "${table}" SET "${col}" = ? WHERE ${pkWhere}`, [
-          parsed,
-          ...pkValues,
-        ]);
-        load(table, offset, search);
-      } catch (e) {
-        console.error("inline edit failed:", e);
-      }
-      setEditing(null);
-    },
-    [editing, info, table, load, offset, search, parseValue],
-  );
-
-  // Delete selected rows
-  const deleteSelected = useCallback(async () => {
-    if (!info || selected.size === 0) return;
-    setDeleting(true);
-    const db = getDb();
-    try {
-      const pkWhere = info.pk.map((c) => `"${c}" = ?`).join(" AND ");
-      for (const row of info.rows) {
-        const key = rowKey(row, info.pk);
-        if (!selected.has(key)) continue;
-        const pkValues = info.pk.map((c) => row[c]);
-        await db.run(`DELETE FROM "${table}" WHERE ${pkWhere}`, pkValues);
-      }
-      setSelected(new Set());
-      load(table, offset, search);
-    } catch (e) {
-      console.error("delete failed:", e);
-    } finally {
-      setDeleting(false);
-    }
-  }, [info, selected, table, load, offset, search, rowKey]);
-
   const filteredLogs = logs.filter((l) => {
     if (levelFilter !== "all" && l.level !== levelFilter) return false;
     if (logFilter && !l.message.toLowerCase().includes(logFilter.toLowerCase()))
@@ -1187,7 +1025,7 @@ export function DevToolbar() {
     URL.revokeObjectURL(url);
   }, [filteredNet]);
 
-  if (!isStaging || hidden) return null;
+  if (!devToolsEnabled || hidden) return null;
 
   const selectTable = (t: TableName) => {
     setTable(t);
@@ -1195,8 +1033,6 @@ export function DevToolbar() {
     setSearch("");
     setInput("");
     setDbView("tables");
-    setSelected(new Set());
-    setEditing(null);
   };
   const totalPages = info ? Math.ceil(info.total / PAGE_SIZE) : 0;
   const page = Math.floor(offset / PAGE_SIZE) + 1;
@@ -1256,7 +1092,7 @@ export function DevToolbar() {
             <div className="w-px h-3 bg-border shrink-0 mx-0.5" />
 
             <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar min-w-0 flex-1">
-              {(["database", "logs", "network", "crdt", "peers"] as Tab[]).map((t) => (
+              {(["database", "logs", "network", "crdt", "peers", "editor"] as Tab[]).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
@@ -1350,8 +1186,9 @@ export function DevToolbar() {
                         </button>
                       ))}
                     </div>
+                    <div className="flex-1" />
                     <div className="w-px h-3.5 bg-border shrink-0" />
-                    <div className="relative flex items-center flex-1 max-w-[200px]">
+                    <div className="relative flex items-center w-[180px] shrink-0">
                       <Search className="absolute start-2 w-3 h-3 text-muted-foreground pointer-events-none" />
                       <input
                         type="text"
@@ -1389,23 +1226,6 @@ export function DevToolbar() {
                       <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap shrink-0">
                         {info.total}
                       </span>
-                    )}
-                    {selected.size > 0 && (
-                      <>
-                        <div className="w-px h-3.5 bg-border shrink-0" />
-                        <button
-                          onClick={deleteSelected}
-                          disabled={deleting}
-                          className={cn(
-                            "h-5 px-2 flex items-center gap-1 rounded text-[10px] font-medium transition-colors",
-                            "bg-destructive/10 text-destructive hover:bg-destructive/20",
-                            "disabled:opacity-40 disabled:pointer-events-none",
-                          )}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Delete {selected.size}
-                        </button>
-                      </>
                     )}
                   </>
                 )}
@@ -1501,31 +1321,6 @@ export function DevToolbar() {
                         <table className="w-full">
                           <thead className="sticky top-0 z-10">
                             <tr className="bg-muted/50 backdrop-blur-sm">
-                              <th className="px-1.5 py-1 border-b border-border w-7">
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    info.rows.length > 0 &&
-                                    info.rows.every((r) =>
-                                      selected.has(rowKey(r, info.pk)),
-                                    )
-                                  }
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelected(
-                                        new Set(
-                                          info.rows.map((r) =>
-                                            rowKey(r, info.pk),
-                                          ),
-                                        ),
-                                      );
-                                    } else {
-                                      setSelected(new Set());
-                                    }
-                                  }}
-                                  className="w-3 h-3 rounded accent-primary cursor-pointer"
-                                />
-                              </th>
                               <th className="px-2.5 py-1 text-start text-[10px] font-medium text-muted-foreground uppercase tracking-wider w-8 border-b border-border">
                                 #
                               </th>
@@ -1565,89 +1360,46 @@ export function DevToolbar() {
                             </tr>
                           </thead>
                           <tbody>
-                            {info.rows.map((row, i) => {
-                              const key = rowKey(row, info.pk);
-                              const isSelected = selected.has(key);
-                              return (
-                                <tr
-                                  key={i}
-                                  className={cn(
-                                    "border-b border-border/30 hover:bg-muted/20 transition-colors",
-                                    isSelected && "bg-primary/5",
-                                  )}
-                                >
-                                  <td className="px-1.5 py-0.5">
-                                    <input
-                                      type="checkbox"
-                                      checked={isSelected}
-                                      onChange={() => {
-                                        setSelected((prev) => {
-                                          const next = new Set(prev);
-                                          if (next.has(key)) next.delete(key);
-                                          else next.add(key);
-                                          return next;
-                                        });
-                                      }}
-                                      className="w-3 h-3 rounded accent-primary cursor-pointer"
-                                    />
-                                  </td>
-                                  <td className="px-2.5 py-0.5 text-[10px] text-muted-foreground/50 font-mono tabular-nums">
-                                    {offset + i + 1}
-                                  </td>
-                                  {info.columns.map((col) => {
-                                    const v = row[col];
-                                    const isNull = v === null || v === undefined;
-                                    const cellEditing = editing?.rowIdx === i && editing?.col === col;
-                                    const isBinary = v instanceof Uint8Array;
-                                    const isPk = info.pk.includes(col);
-                                    const meta = info.colMeta[col];
-                                    const colType = meta?.type ?? "text" as ColType;
-                                    const canEdit = !isPk && !isBinary;
-                                    const nullable = !meta?.notnull;
-                                    const isNum = colType === "integer" || colType === "real";
-                                    const typeColor = isNum ? "text-blue-400" : colType === "boolean" ? "text-amber-400" : colType === "json" ? "text-violet-400" : colType === "datetime" ? "text-orange-400" : "text-foreground";
+                            {info.rows.map((row, i) => (
+                              <tr
+                                key={i}
+                                className="border-b border-border/30 hover:bg-muted/20 transition-colors"
+                              >
+                                <td className="px-2.5 py-0.5 text-[10px] text-muted-foreground/50 font-mono tabular-nums">
+                                  {offset + i + 1}
+                                </td>
+                                {info.columns.map((col) => {
+                                  const v = row[col];
+                                  const isNull = v === null || v === undefined;
+                                  const isBinary = v instanceof Uint8Array;
+                                  const meta = info.colMeta[col];
+                                  const colType = meta?.type ?? ("text" as ColType);
+                                  const isNum = colType === "integer" || colType === "real";
+                                  const typeColor = isNum ? "text-blue-400" : colType === "boolean" ? "text-amber-400" : colType === "json" ? "text-violet-400" : colType === "datetime" ? "text-orange-400" : "text-foreground";
 
-                                    const startEdit = () => {
-                                      if (!canEdit) return;
-                                      const editVal = isNull ? "NULL" : colType === "json" && typeof v === "object" ? JSON.stringify(v, null, 2) : colType === "boolean" ? (v === 1 || v === true || v === "1" || v === "true" ? "1" : "0") : String(v);
-                                      setEditing({ rowIdx: i, col, value: editVal, expanded: false });
-                                    };
+                                  const displayStr = isBinary ? `<${(v as Uint8Array).byteLength}B>` : isNull ? "NULL" : colType === "json" && typeof v === "object" ? JSON.stringify(v) : colType === "boolean" ? (v === 1 || v === true || v === "1" || v === "true" ? "true" : "false") : String(v);
 
-                                    const displayStr = isBinary ? `<${(v as Uint8Array).byteLength}B>` : isNull ? "NULL" : colType === "json" && typeof v === "object" ? JSON.stringify(v) : colType === "boolean" ? (v === 1 || v === true || v === "1" || v === "true" ? "true" : "false") : String(v);
+                                  // Display: NULL
+                                  if (isNull) return <td key={col} className="px-2.5 py-0.5 font-mono text-[11px]"><span className="text-muted-foreground/30 italic text-[10px]">NULL</span></td>;
 
-                                    // Editing mode
-                                    if (cellEditing && editing) {
-                                      const isExpanded = colType === "json" || editing.expanded;
-                                      return (
-                                        <td key={col} className={cn("px-2.5 py-0.5 font-mono text-[11px]", isNum && !isExpanded && "text-end", isExpanded && "relative")}>
-                                          <CellEditor col={col} colType={colType} nullable={nullable} editing={editing} setEditing={setEditing} saveEdit={saveEdit} row={row} typeColor={typeColor} />
-                                          {isExpanded && <span className={cn("truncate block max-w-[200px] opacity-20", typeColor)}>{displayStr}</span>}
-                                        </td>
-                                      );
-                                    }
+                                  // Display: boolean
+                                  if (colType === "boolean") {
+                                    const boolVal = v === 1 || v === true || v === "1" || v === "true";
+                                    return <td key={col} className="px-2.5 py-0.5 font-mono text-[11px]"><span className={cn("inline-flex items-center gap-1", boolVal ? "text-emerald-400" : "text-muted-foreground/50")}><span className={cn("w-1.5 h-1.5 rounded-full shrink-0", boolVal ? "bg-emerald-400" : "bg-muted-foreground/25")} />{boolVal ? "true" : "false"}</span></td>;
+                                  }
 
-                                    // Display: NULL
-                                    if (isNull) return <td key={col} className={cn("px-2.5 py-0.5 font-mono text-[11px]", canEdit && "cursor-text group/cell")} onDoubleClick={startEdit}><span className="text-muted-foreground/30 italic text-[10px] group-hover/cell:text-muted-foreground/50 transition-colors">NULL</span></td>;
+                                  // Display: binary
+                                  if (isBinary) return <td key={col} className="px-2.5 py-0.5 font-mono text-[11px]"><span className="text-muted-foreground/40">&lt;{(v as Uint8Array).byteLength}B&gt;</span></td>;
 
-                                    // Display: boolean
-                                    if (colType === "boolean") {
-                                      const boolVal = v === 1 || v === true || v === "1" || v === "true";
-                                      return <td key={col} className={cn("px-2.5 py-0.5 font-mono text-[11px]", canEdit && "cursor-pointer")} onDoubleClick={startEdit}><span className={cn("inline-flex items-center gap-1", boolVal ? "text-emerald-400" : "text-muted-foreground/50")}><span className={cn("w-1.5 h-1.5 rounded-full shrink-0", boolVal ? "bg-emerald-400" : "bg-muted-foreground/25")} />{boolVal ? "true" : "false"}</span></td>;
-                                    }
-
-                                    // Display: binary
-                                    if (isBinary) return <td key={col} className="px-2.5 py-0.5 font-mono text-[11px]"><span className="text-muted-foreground/40">&lt;{(v as Uint8Array).byteLength}B&gt;</span></td>;
-
-                                    // Display: all other types
-                                    return <td key={col} className={cn("px-2.5 py-0.5 font-mono text-[11px]", isNum && "text-end tabular-nums", canEdit && "cursor-text group/cell")} onDoubleClick={startEdit}><span className={cn("truncate block max-w-[200px]", typeColor, "group-hover/cell:opacity-80 transition-opacity")} title={displayStr}>{displayStr}</span></td>;
-                                  })}
-                                </tr>
-                              );
-                            })}
+                                  // Display: all other types
+                                  return <td key={col} className={cn("px-2.5 py-0.5 font-mono text-[11px]", isNum && "text-end tabular-nums")}><span className={cn("truncate block max-w-[200px]", typeColor)} title={displayStr}>{displayStr}</span></td>;
+                                })}
+                              </tr>
+                            ))}
                             {info.rows.length === 0 && (
                               <tr>
                                 <td
-                                  colSpan={info.columns.length + 2}
+                                  colSpan={info.columns.length + 1}
                                   className="px-3 py-8 text-center text-muted-foreground/50 text-xs"
                                 >
                                   {search ? "No matching rows" : "Empty table"}
@@ -2581,6 +2333,17 @@ export function DevToolbar() {
                   })()}
                 </div>
               </ScrollArea>
+            </motion.div>
+          )}
+
+          {/* ── Editor tab ── */}
+          {tab === "editor" && (
+            <motion.div
+              key="editor"
+              {...tabMotion}
+              className="flex flex-col flex-1 min-h-0"
+            >
+              <DevEditorState />
             </motion.div>
           )}
         </motion.div>

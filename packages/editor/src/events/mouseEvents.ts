@@ -400,6 +400,7 @@ export function handleMouseMove(
         documentHeight,
         session,
         updateViewport: updateViewportCallback,
+        visibility,
       },
     );
     return result ? result.state : state;

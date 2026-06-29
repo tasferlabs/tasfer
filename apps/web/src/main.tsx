@@ -11,6 +11,7 @@ import { AuthProvider } from "./app/contexts/AuthContext";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
 import { router } from "./app/routes/Router";
+import { initNativeDevToolsSync } from "./lib/devTools";
 import LoadingScreen from "./components/ui/loading-screen";
 import { loadFonts, loadArabicFonts } from "./fonts";
 import "./i18n";
@@ -75,6 +76,11 @@ if ((window as any).cypher) {
     }
   }
 }
+
+// Mirror the desktop app-menu "Developer tools" toggle into the runtime flag
+// (no-op off Electron). The injected launch value is read separately, on first
+// access of the flag.
+initNativeDevToolsSync();
 
 // Start font loading in background — don't block initial render.
 // Font metrics are computed lazily on first use per size/weight combo.

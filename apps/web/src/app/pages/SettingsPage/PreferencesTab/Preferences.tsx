@@ -151,6 +151,7 @@ export function Preferences() {
           </SelectContent>
         </Select>
       </div>
+
     </div>
   );
 }

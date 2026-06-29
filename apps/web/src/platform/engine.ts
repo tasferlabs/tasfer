@@ -151,6 +151,15 @@ export class Engine implements Platform {
   >();
   private spaceChangeListeners = new Set<(spaceId: string) => void>();
   private pageDeleteListeners = new Set<(pageId: string) => void>();
+  /**
+   * Shared bootstrap for the singleton `identity(id=1)` row. The RPC server
+   * dispatches calls without awaiting each other, so `identity.get` and
+   * `spaces.list` (which calls `identity.get`) run concurrently on first load;
+   * a naive check-then-insert lets both pass the empty SELECT and both INSERT
+   * `id=1`, and the second violates the primary key. Memoizing the bootstrap
+   * promise collapses all concurrent callers in this engine into one insert.
+   */
+  private identityReady?: Promise<void>;
 
   constructor(driver: Driver) {
     this.driver = driver;
@@ -178,6 +187,10 @@ export class Engine implements Platform {
     if (import.meta.env.VITE_STAGING !== "true") {
       await this.applyMigrations();
     }
+    // Create the identity now, before any RPC is served, so concurrent
+    // first-load callers all observe an existing row instead of racing to
+    // insert it.
+    await this.ensureIdentity();
     await this.loadSpaceHlcCounters();
   }
 
@@ -324,24 +337,35 @@ export class Engine implements Platform {
   // Identity
   // ---------------------------------------------------------------------------
 
+  /**
+   * Ensure the singleton identity row exists, generating a keypair on first
+   * run. Idempotent and race-free: {@link identityReady} memoizes the work so
+   * concurrent callers share one bootstrap, and `INSERT OR IGNORE` tolerates a
+   * row a separate worker may have written first.
+   */
+  private ensureIdentity(): Promise<void> {
+    return (this.identityReady ??= (async () => {
+      const rows = await this.driver.db.execute<{ id: number }>(
+        "SELECT id FROM identity WHERE id = 1",
+      );
+      if (rows.length > 0) return;
+      const { publicKey, privateKey } =
+        await this.driver.crypto.generateKeypair();
+      await this.driver.db.run(
+        "INSERT OR IGNORE INTO identity (id, public_key, private_key, name) VALUES (1, ?, ?, '')",
+        [publicKey, privateKey],
+      );
+    })());
+  }
+
   identity = {
     get: async (): Promise<Identity> => {
+      await this.ensureIdentity();
       const rows = await this.driver.db.execute<{
         public_key: string;
         name: string;
         avatar: string | null;
       }>("SELECT public_key, name, avatar FROM identity WHERE id = 1");
-
-      if (rows.length === 0) {
-        // First run — generate keypair
-        const { publicKey, privateKey } =
-          await this.driver.crypto.generateKeypair();
-        await this.driver.db.run(
-          "INSERT INTO identity (id, public_key, private_key, name) VALUES (1, ?, ?, '')",
-          [publicKey, privateKey],
-        );
-        return { publicKey, name: "", avatar: null };
-      }
 
       const row = rows[0];
       return {

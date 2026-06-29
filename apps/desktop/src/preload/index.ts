@@ -18,6 +18,13 @@ const bridge = {
   },
 
   platform: process.platform,
+
+  // Whether the in-app developer tools should be shown, read synchronously from
+  // the main process's persisted "Show Developer Tools" menu setting before any
+  // renderer script runs. Mirrors `platform` as a static launch-time value the
+  // web app reads (see `@/lib/devTools`); runtime changes arrive via the
+  // `devtools:set` event the main process pushes when the menu item is toggled.
+  devToolsEnabled: ipcRenderer.sendSync("devtools:get-sync") as boolean,
 };
 
 contextBridge.exposeInMainWorld("cypher", bridge);

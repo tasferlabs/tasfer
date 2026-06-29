@@ -52,6 +52,7 @@ import {
   isTextualBlock,
   isTouchDevice,
   type EditorStrings,
+  type EditorWiring,
   type NodeOverlay,
   type PlaceholderStyles,
   type TextStyle,
@@ -126,6 +127,7 @@ import { CursorMagnifier } from "./components/CursorMagnifier";
 import { MobileKeyboardToolbar } from "./components/MobileKeyboardToolbar";
 import {
   fontStyleToFamily,
+  horizontalPaddingForWidth,
   usePageSettings,
 } from "./contexts/PageSettingsContext";
 import useResponsive from "./hooks/useResponsive";
@@ -656,7 +658,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
         >
           <DrawerContent
             data-editor-overlay
-            className="h-[min(72vh,560px)] overflow-hidden"
+            className="md:h-[min(72vh,560px)] overflow-hidden"
           >
             <div className="mx-auto flex h-full w-full max-w-lg flex-col">
               <DrawerHeader className="pb-2">
@@ -936,6 +938,13 @@ interface MountedEditorProps {
   onAwarenessChange?: (users: CursorUser[]) => void;
   /** Callback when restore function is ready */
   onRestoreReady?: (restoreFn: (blocks: Block[]) => void) => void;
+  /**
+   * Receives the live editor handle once mounted (and `null` on unmount). Used
+   * by the host to expose the editor to debug chrome (the staging DevToolbar's
+   * Editor tab). Only the primary, editing instance should wire this — readonly
+   * previews leave it unset so they never become the "active" editor.
+   */
+  onEditorReady?: (editor: MountedEditorInstance["editor"] | null) => void;
   /** When true, editor is read-only - no editing, no CRDT sync, no native bridge updates */
   readonly?: boolean;
   /** Override default canvas padding */
@@ -951,6 +960,13 @@ interface MountedEditorProps {
   placeholderOverrides?: Partial<PlaceholderStyles> | null;
   /** Callback when canvas scroll position changes */
   onScroll?: (scrollY: number) => void;
+  /**
+   * Reports the editor's current symmetric horizontal canvas padding (px),
+   * which tracks the wide/narrow width setting and viewport size. Hosts use this
+   * to align chrome overlaid on the canvas (e.g. the schedule tag) with the text
+   * column. Fired on mount and whenever the padding changes.
+   */
+  onHorizontalPaddingChange?: (paddingPx: number) => void;
 }
 
 // Find-in-document highlight colors (host-owned now that the engine paints
@@ -991,6 +1007,14 @@ const presenceLayer = (peerId: string) => `presence:${peerId}`;
  * any Android IME inset reported separately by the native host.
  */
 const KEYBOARD_TOOLBAR_HEIGHT = 48;
+
+/**
+ * Minimum visualViewport shrink (CSS px) that counts as an open soft keyboard on
+ * plain web. Comfortably above transient chrome like the mobile URL bar, so a
+ * touch-capable desktop — which never opens a soft keyboard — stays below it and
+ * keeps the mobile toolbar hidden.
+ */
+const MOBILE_WEB_KEYBOARD_MIN_INSET = 120;
 
 interface KeyboardHeightMessage {
   type: "keyboard-height-changed";
@@ -1085,13 +1109,15 @@ function EditorSurface({
   onSyncStateChange,
   onAwarenessChange,
   onRestoreReady,
+  onEditorReady,
   readonly = false,
   padding,
   blockStyleOverrides,
   placeholderOverrides,
   onScroll,
+  onHorizontalPaddingChange,
 }: MountedEditorProps) {
-  const { setOnOpenFind, fontStyle } = usePageSettings();
+  const { setOnOpenFind, fontStyle, editorWidth } = usePageSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
   const mountedRef = useRef<MountedEditorInstance | null>(null);
@@ -1102,6 +1128,8 @@ function EditorSurface({
   const fontStyleRef = useRef(fontStyle);
   fontStyleRef.current = fontStyle;
   onScrollRef.current = onScroll;
+  const onHorizontalPaddingChangeRef = useRef(onHorizontalPaddingChange);
+  onHorizontalPaddingChangeRef.current = onHorizontalPaddingChange;
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
   const onContentUpdateRef = useRef(onContentUpdate);
@@ -1191,6 +1219,10 @@ function EditorSurface({
   // native WebView resize keeps this at zero.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
+  // Whether the soft keyboard is currently open; drives the mobile toolbar's
+  // visibility. Owned per platform by the effects below.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
   // Whether the soft keyboard is currently open. This — not editor focus — drives
   // the mobile toolbar so it rides the keyboard (Notion-style): it appears when
   // the keyboard opens and disappears the instant it closes, including external
@@ -1198,6 +1230,15 @@ function EditorSurface({
   // logically focused. The signal source differs per platform; see the effects
   // below. Once a native source reports, the visualViewport fallback is ignored.
   const hasNativeKeyboardRef = useRef(false);
+
+  // Whether the editor surface currently holds focus. On plain web this gates the
+  // visualViewport keyboard check so the editor's toolbar never reacts to a soft
+  // keyboard raised by some unrelated input.
+  const editorFocusedRef = useRef(false);
+  // Re-run the web visualViewport keyboard check on demand. Focus arrives before
+  // the keyboard finishes animating in, so a resize event may already be open by
+  // the time we focus; calling this on focus re-evaluates the current viewport.
+  const syncWebKeyboardRef = useRef<(() => void) | null>(null);
 
   // Android: MainActivity posts the IME inset (resize:"native" is a no-op on the
   // edge-to-edge WebView), carrying both the height for positioning and an isOpen
@@ -1210,10 +1251,42 @@ function EditorSurface({
 
       hasNativeKeyboardRef.current = true;
       setKeyboardHeight(event.data.isOpen ? event.data.height : 0);
+      // The IME inset and toolbar visibility stay in lockstep: the bar shows only
+      // while the keyboard is open, and an external dismissal (back button) that
+      // leaves the editor focused still hides it.
+      setKeyboardOpen(event.data.isOpen);
     };
 
     window.addEventListener("message", handleKeyboardHeight);
     return () => window.removeEventListener("message", handleKeyboardHeight);
+  }, []);
+
+  // Web (mobile and desktop): the only reliable cross-browser signal that a soft
+  // keyboard is actually on screen is visualViewport shrinking. Desktop browsers
+  // never shrink it on focus — even touch-capable ones (touchscreen laptops,
+  // device-emulation) that report `maxTouchPoints > 0` — so this is what keeps
+  // the mobile toolbar off the desktop. Skipped on iOS native (its WebView resize
+  // keeps the viewport full, so focus is the signal there) and once a native
+  // source reports (Android), whose IME message takes precedence.
+  useEffect(() => {
+    if (IS_IOS_NATIVE) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const sync = () => {
+      if (hasNativeKeyboardRef.current) return;
+      const inset = window.innerHeight - vv.height - vv.offsetTop;
+      setKeyboardOpen(
+        editorFocusedRef.current && inset > MOBILE_WEB_KEYBOARD_MIN_INSET,
+      );
+    };
+    syncWebKeyboardRef.current = sync;
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    return () => {
+      syncWebKeyboardRef.current = null;
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+    };
   }, []);
 
   // Self-heal images that failed while offline. Connectivity is a platform
@@ -1592,7 +1665,34 @@ function EditorSurface({
     });
   }, [editor, safeArea.top, safeArea.bottom, safeArea.left]);
 
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  // Push the selected editor width (wide/narrow page setting) into the live
+  // editor as canvas padding. The canvas is headless (no CSS max-width), so a
+  // "narrow" reading column is expressed as symmetric horizontal padding
+  // computed from the measured canvas width, recomputed on resize. The width
+  // control is desktop-only; on mobile this falls through to the engine's
+  // default gutter. setTheme reflows text without a re-mount.
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!editor || !el) return;
+    const apply = () => {
+      const horizontal = horizontalPaddingForWidth(
+        editorWidth,
+        el.clientWidth,
+        window.innerWidth > 768,
+      );
+      editor.setTheme({
+        styles: {
+          canvas: { paddingLeft: horizontal, paddingRight: horizontal },
+        },
+      });
+      onHorizontalPaddingChangeRef.current?.(horizontal);
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [editor, editorWidth]);
+
   // The existing native iOS accessory and the Android React toolbar consume the
   // exact same model. Only transport and rendering differ.
   const lastNativeToolbarRef = useRef("");
@@ -1641,14 +1741,30 @@ function EditorSurface({
 
   useEffect(() => {
     const offFocus = editor?.on("focus", () => {
-      setKeyboardOpen(true);
-      // Enable the native iOS accessory only while the canvas editor surface
-      // holds focus, so other inputs don't inherit the formatting toolbar.
-      if (IS_IOS_NATIVE) postKeyboardAccessoryFocus(true);
+      editorFocusedRef.current = true;
+      if (IS_IOS_NATIVE) {
+        // iOS native's WebView keeps the viewport full when the keyboard opens,
+        // so focus is the keyboard signal. Enable the native accessory only while
+        // the canvas surface holds focus, so other inputs don't inherit it.
+        setKeyboardOpen(true);
+        postKeyboardAccessoryFocus(true);
+      } else {
+        // Web/Android: re-evaluate visualViewport now that the editor is focused
+        // (the keyboard may already be open). Android's native IME message, once
+        // it reports, takes over via the precedence guard in the sync.
+        syncWebKeyboardRef.current?.();
+      }
     });
     const offBlur = editor?.on("blur", () => {
-      setKeyboardOpen(false);
-      if (IS_IOS_NATIVE) postKeyboardAccessoryFocus(false);
+      editorFocusedRef.current = false;
+      if (IS_IOS_NATIVE) {
+        setKeyboardOpen(false);
+        postKeyboardAccessoryFocus(false);
+      } else if (!hasNativeKeyboardRef.current) {
+        // Native IME messages own visibility once they report; otherwise losing
+        // focus dismisses the keyboard, so hide the toolbar with it.
+        setKeyboardOpen(false);
+      }
     });
     return () => {
       offFocus?.();
@@ -1673,6 +1789,17 @@ function EditorSurface({
   } else if (!editor) {
     mountedRef.current = null;
   }
+
+  // Expose the live editor handle to host debug chrome (DevToolbar's Editor
+  // tab). Read the callback through a ref so a changed callback identity doesn't
+  // re-run the register/unregister cycle — only the editor's mount/unmount does.
+  const onEditorReadyRef = useRef(onEditorReady);
+  onEditorReadyRef.current = onEditorReady;
+  useEffect(() => {
+    if (!editor) return;
+    onEditorReadyRef.current?.(editor);
+    return () => onEditorReadyRef.current?.(null);
+  }, [editor]);
 
   // We own the doc's lifetime (useEditor doesn't, since we passed `doc` in).
   // A passive cleanup runs in the passive phase — after useEditor's layout-phase
@@ -1743,6 +1870,34 @@ function EditorSurface({
     mountedRef.current = mounted;
     const doc = editor.doc;
     const native = getBridge();
+
+    // Route copy/cut/paste through the native clipboard bridge. `navigator.clipboard`
+    // read/write is gated behind a transient user activation that a programmatic
+    // clipboard op can't satisfy — notably a context-menu "Paste", whose action
+    // runs in the native menu's resolution callback with no live gesture — so it
+    // silently fails inside the WebView. The bridge talks to the platform clipboard
+    // directly. It is text-only, so we stash the last copy's rich payload and return
+    // its html on a read whose clipboard text still matches: in-app round-trips stay
+    // lossless (bold/links survive) while external apps receive plain text.
+    if (native) {
+      // `setClipboard` is engine-internal wiring (EditorWiring), off the public
+      // EditorApi the handle is typed as — reach it through the concrete class.
+      const wiring = mounted.editor as unknown as EditorWiring;
+      let lastCopy: { plainText: string; html: string } | null = null;
+      wiring.setClipboard({
+        async write(payload) {
+          lastCopy = { plainText: payload.plainText, html: payload.html };
+          await native.clipboard.copy(payload.plainText);
+        },
+        async read() {
+          const text = await native.clipboard.paste();
+          if (text && lastCopy && text === lastCopy.plainText) {
+            return { text, html: lastCopy.html };
+          }
+          return { text };
+        },
+      });
+    }
 
     // Haptics + native link-opening are editor actions now:
     // the engine dispatches semantic actions and we map them to the
@@ -1929,10 +2084,28 @@ function EditorSurface({
       requestAnimationFrame(() => setReadyPageId(pageId));
     }
 
+    // Reproduce vaul's native scroll-container behaviour for the canvas editor,
+    // which scrolls itself and so exposes no `scrollTop` for vaul to read. When
+    // the editor is at the top we leave the surface draggable so a downward drag
+    // still closes the drawer; once scrolled we set `data-vaul-no-drag` so the
+    // swipe scrolls the canvas instead of dragging the drawer. (vaul caches its
+    // decision per gesture, so a drag that starts mid-document keeps scrolling
+    // even after it reaches the top — matching a real scroll container.) Inert
+    // outside a drawer; only written when the at-top state actually flips.
+    const syncDrawerDragGuard = (scrollY: number) => {
+      const el = wrapperRef.current;
+      if (!el) return;
+      const suppressDrag = scrollY > 0;
+      if (el.hasAttribute("data-vaul-no-drag") !== suppressDrag) {
+        el.toggleAttribute("data-vaul-no-drag", suppressDrag);
+      }
+    };
+
     // Observe scroll position (a node could claim SCROLL to override page
     // scrolling; the host just tracks the offset to position floating UI).
     mounted.editor.registerAction(SCROLL, ({ scrollY }) => {
       onScrollRef.current?.(scrollY);
+      syncDrawerDragGuard(scrollY);
     });
 
     // Skip offline store and sync setup in readonly mode
@@ -2484,8 +2657,12 @@ function EditorSurface({
 
     // Programmatic cursor restoration updates the viewport directly and does
     // not dispatch SCROLL. Seed host overlays with the restored offset so they
-    // do not flash at the top of an already-scrolled document on first paint.
-    onScrollRef.current?.(mounted.editor.view.getScrollY());
+    // do not flash at the top of an already-scrolled document on first paint,
+    // and seed the drawer drag guard so a restored mid-document scroll doesn't
+    // start out closable.
+    const initialScrollY = mounted.editor.view.getScrollY();
+    onScrollRef.current?.(initialScrollY);
+    syncDrawerDragGuard(initialScrollY);
 
     return () => {
       offContent();
@@ -2777,10 +2954,12 @@ function EditorSurface({
             },
       );
 
-      // Paste reads the system clipboard via `navigator.clipboard` (editor.paste
-      // → pasteFromSystemClipboard). Clipboard *read* is gated by the browser:
-      // Chromium/Safari/native WebViews prompt-then-allow on this click gesture,
-      // Firefox restricts it for pages — there the action just no-ops gracefully.
+      // Paste reads the system clipboard through `editor.paste`. On the web that
+      // is `navigator.clipboard`, gated by the browser: Chromium/Safari
+      // prompt-then-allow on this click gesture, Firefox restricts it for pages
+      // (the action no-ops gracefully). Native shells instead read via the
+      // clipboard bridge wired in the mount effect — `navigator.clipboard` can't
+      // run from the native menu's async callback, which has no user activation.
       items.push({
         id: "paste",
         label: t("contextMenu.paste", "Paste"),
@@ -2936,6 +3115,9 @@ function EditorSurface({
         wrapperRef.current = el;
         containerRef.current = el;
       }}
+      // `data-vaul-no-drag` is toggled on this element by scroll position (see
+      // the SCROLL handler): absent at the top so a downward drag closes a host
+      // drawer, present once scrolled so the swipe scrolls the canvas instead.
       className={cn(
         "relative w-full h-full overflow-hidden focus:outline-none",
         className,

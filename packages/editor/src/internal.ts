@@ -24,6 +24,15 @@
 export type { EditorWiring } from "./entries/editor";
 export { Editor as EditorClass } from "./entries/editor";
 
+// Host clipboard transport for `EditorWiring.setClipboard` — lets native shells
+// route copy/cut/paste through their platform clipboard bridge instead of the
+// activation-gated `navigator.clipboard`.
+export type {
+  ClipboardPayload,
+  ClipboardReadResult,
+  HostClipboard,
+} from "./actions/clipboard";
+
 // ── Low-level CRDT op-log engine ─────────────────────────────────────────────
 // The high-level `Doc` (root) sits on top of these. Reach for them only for
 // headless CRDT tooling and the convergence fuzz tests.

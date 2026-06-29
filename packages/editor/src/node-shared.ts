@@ -107,3 +107,17 @@ export function isTouchDevice(): boolean {
     ("ontouchstart" in window || navigator.maxTouchPoints > 0)
   );
 }
+
+/**
+ * Whether this is an iOS / iPadOS browser or WKWebView (Capacitor). Used where
+ * WebKit's input handling differs from Blink/GBoard — e.g. the input surface
+ * needs no leading sentinel because iOS emits a real Backspace `keydown` (Android
+ * does not), and a leading space would stop WebKit from auto-capitalizing the
+ * first word of a sentence. iPadOS 13+ reports a Mac UA, so fall back to touch.
+ */
+export function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/iPad|iPhone|iPod/.test(ua)) return true;
+  return ua.includes("Macintosh") && navigator.maxTouchPoints > 1;
+}

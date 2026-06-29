@@ -96,19 +96,32 @@ function serve(port: MessagePort): void {
 }
 
 /**
- * Init failed (e.g. the OPFS database is locked by another connection). Reply to
- * every call with the error so the tab surfaces it instead of spinning forever.
+ * Init failed (e.g. the database is locked by another connection, or the
+ * IndexedDB VFS can't do I/O). Reply to every call with the error so the tab
+ * surfaces it instead of spinning forever.
+ *
+ * We don't just forward `err.message` ("disk I/O error" is SQLite's generic
+ * SQLITE_IOERR text): the error name and numeric `code` (incl. the extended
+ * IOERR subcode) and stack are what actually pin down the fault, and the worker
+ * console where they're logged isn't the page console, so callers never see
+ * them. Pack them into the forwarded message instead.
  */
+function describeInitError(err: Error): string {
+  const code = (err as { code?: unknown }).code;
+  const parts = [err.message];
+  if (err.name && err.name !== "Error") parts.unshift(err.name);
+  if (code != null) parts.push(`code=${String(code)}`);
+  let msg = `device-node init failed: ${parts.join(" ")}`;
+  if (err.stack) msg += `\n${err.stack}`;
+  return msg;
+}
+
 function serveError(port: MessagePort, err: Error): void {
+  const error = describeInitError(err);
   port.onmessage = (e: MessageEvent) => {
     const msg = e.data as { t?: string; id?: number };
     if (msg?.t === "call" && typeof msg.id === "number") {
-      port.postMessage({
-        t: "return",
-        id: msg.id,
-        ok: false,
-        error: `device-node init failed: ${err.message}`,
-      });
+      port.postMessage({ t: "return", id: msg.id, ok: false, error });
     }
   };
   port.start();

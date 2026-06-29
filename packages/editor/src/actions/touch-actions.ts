@@ -254,27 +254,6 @@ export const OPEN_CONTEXT_MENU_AT = stateAction<{
   return { state, ops: [] };
 });
 
-/**
- * Finish a long-press drag-selection: clear the selection's `initialBoundary`
- * marker and drop from select mode back to edit. Pure, no ops.
- */
-export const FINISH_SELECT_MODE = stateAction("finish-select-mode", (state) => {
-  let next = state;
-  if (next.document.selection?.initialBoundary) {
-    next = {
-      ...next,
-      document: {
-        ...next.document,
-        selection: next.document.selection
-          ? { ...next.document.selection, initialBoundary: undefined }
-          : null,
-      },
-    };
-  }
-  next = updateMode(next, "edit");
-  return { state: next, ops: [] };
-});
-
 /** Whether the spanned block of the current selection is a non-textual visual
  * block — used by the handler to gate {@link CLEAR_VISUAL_BLOCK_SELECTION}. */
 export function isVisualBlockSelection(

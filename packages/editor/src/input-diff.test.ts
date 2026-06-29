@@ -3,6 +3,7 @@ import {
   currentWordStart,
   isEmptyDelta,
   isWordBoundaryChar,
+  sentenceStartOffset,
   SURFACE_SENTINEL,
 } from "./input-diff";
 import { describe, expect, it } from "vitest";
@@ -47,6 +48,40 @@ describe("currentWordStart", () => {
   it("clamps out-of-range carets", () => {
     expect(currentWordStart("abc", 99)).toBe(0);
     expect(currentWordStart("abc", -1)).toBe(0);
+  });
+});
+
+describe("sentenceStartOffset", () => {
+  it("is 0 when no sentence terminator precedes the caret", () => {
+    expect(sentenceStartOffset("", 0)).toBe(0);
+    expect(sentenceStartOffset("buy milk and eggs", 17)).toBe(0);
+    // Mid first sentence — the whole prefix is one sentence.
+    expect(sentenceStartOffset("buy milk and ", 13)).toBe(0);
+  });
+
+  it("starts after a terminator and its trailing whitespace", () => {
+    // "Hello. World" — the second sentence starts at offset 7.
+    expect(sentenceStartOffset("Hello. World", 12)).toBe(7);
+    expect(sentenceStartOffset("Hello. World", 8)).toBe(7);
+    expect(sentenceStartOffset("Done!  go", 9)).toBe(7);
+  });
+
+  it("is stable across the gap and the first char of a new sentence", () => {
+    // Caret in the whitespace right after the terminator reports the gap end…
+    expect(sentenceStartOffset("Hello. ", 7)).toBe(7);
+    // …and stays there once the first character of the next sentence is typed,
+    // so the mirrored surface the keyboard built is not rewritten.
+    expect(sentenceStartOffset("Hello. w", 8)).toBe(7);
+  });
+
+  it("does not split on non-terminal punctuation (comma, semicolon)", () => {
+    expect(sentenceStartOffset("one, two", 8)).toBe(0);
+    expect(sentenceStartOffset("a; b", 4)).toBe(0);
+  });
+
+  it("uses only the most recent sentence boundary before the caret", () => {
+    // "A. B. C" — caret at end sits in the third sentence (offset 6).
+    expect(sentenceStartOffset("A. B. C", 7)).toBe(6);
   });
 });
 

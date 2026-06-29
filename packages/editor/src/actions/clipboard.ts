@@ -487,6 +487,43 @@ function blocksToHTML(blocks: Block[], markdown: string): string {
 }
 
 /**
+ * Host-supplied clipboard transport. When a host sets one on the editor (see
+ * `editor.setClipboard`), copy/cut/paste route through it instead of
+ * `navigator.clipboard`.
+ *
+ * Native shells (iOS/Android WebViews) need this: their async `navigator.clipboard`
+ * read/write is gated behind a transient-user-activation + permission check that a
+ * *programmatic* clipboard op can't satisfy — e.g. a context-menu "Paste" whose
+ * action runs in the resolution callback of a native menu, with no live gesture —
+ * so it silently rejects. The host wires this to its native bridge, which talks to
+ * the platform clipboard directly. The native bridge is text-only, so `read` may
+ * return just `text`; the host can still preserve formatting for its own
+ * round-trips by stashing the last-written payload and returning its `html` when
+ * the clipboard text still matches (see the host adapter).
+ */
+export interface HostClipboard {
+  /** Persist a copied/cut selection's flavors to the platform clipboard. */
+  write(payload: ClipboardPayload): Promise<void>;
+  /** Read the platform clipboard for a programmatic paste. */
+  read(): Promise<ClipboardReadResult>;
+}
+
+/** The flavors a copy/cut produces. See {@link buildClipboardPayload}. */
+export interface ClipboardPayload {
+  plainText: string;
+  html: string;
+  markdown: string;
+}
+
+/** The flavors a programmatic paste can consume, mirroring the clipboard MIME
+ * types the `navigator.clipboard` path reads. Both are optional — a text-only
+ * native clipboard returns just `text`. */
+export interface ClipboardReadResult {
+  text?: string;
+  html?: string;
+}
+
+/**
  * Build the clipboard representations of the current selection synchronously.
  * Returns `null` when there is no (non-empty) selection. Used both by the async
  * clipboard writers below and by the native `copy`/`cut` ClipboardEvent
@@ -494,7 +531,7 @@ function blocksToHTML(blocks: Block[], markdown: string): string {
  */
 export function buildClipboardPayload(
   state: EditorState,
-): { plainText: string; html: string; markdown: string } | null {
+): ClipboardPayload | null {
   const selectedContent = getSelectedContent(state);
   if (!selectedContent) return null;
   const { blocks } = selectedContent;
@@ -532,12 +569,20 @@ export function getSelectionPlainText(state: EditorState): string {
  */
 export async function copySelectionToClipboard(
   state: EditorState,
+  clipboard?: HostClipboard,
 ): Promise<boolean> {
   try {
     const payload = buildClipboardPayload(state);
     if (!payload) return false;
 
     const { plainText, html } = payload;
+
+    // A host-supplied clipboard (native shells) owns the platform write — the
+    // `navigator.clipboard` path below is gated by user activation it can't get.
+    if (clipboard) {
+      await clipboard.write(payload);
+      return true;
+    }
 
     if (navigator.clipboard && navigator.clipboard.write) {
       const clipboardItems = [
@@ -565,6 +610,7 @@ export async function copySelectionToClipboard(
 
 export async function cutSelectionToClipboard(
   state: EditorState,
+  clipboard?: HostClipboard,
 ): Promise<{ success: boolean; result: ActionResult | null }> {
   try {
     const selectedContent = getSelectedContent(state);
@@ -573,7 +619,7 @@ export async function cutSelectionToClipboard(
     const { blocks } = selectedContent;
     if (blocks.length === 0) return { success: false, result: null };
 
-    let success = await copySelectionToClipboard(state);
+    let success = await copySelectionToClipboard(state, clipboard);
 
     if (success) {
       const stateWithUndo = state;
@@ -1772,9 +1818,16 @@ export function pasteFromClipboardEventAsPlainText(
  * contenteditable surface instead; this path is for programmatic pastes that have
  * no `ClipboardEvent` to read from. Prefers `read()` so HTML formatting survives,
  * mirroring the event path, and falls back to plain text.
+ *
+ * A host-supplied `clipboard` (native shells) takes over the read entirely: the
+ * `navigator.clipboard` read below is gated by a user activation a programmatic
+ * paste — e.g. one fired from a native context-menu callback — doesn't have, so
+ * it rejects and nothing pastes. The native clipboard is typically text-only, so
+ * the image branch is web-only.
  */
 export async function pasteFromSystemClipboard(
   state: EditorState,
+  clipboard?: HostClipboard,
 ): Promise<
   | (ActionResult & { pastedImageBlockIndex?: number; pastedImageFile?: File })
   | null
@@ -1784,6 +1837,27 @@ export async function pasteFromSystemClipboard(
     let text = "";
     let imageBlob: Blob | null = null;
     let imageType = "";
+
+    if (clipboard) {
+      try {
+        const read = await clipboard.read();
+        html = read.html ?? "";
+        text = read.text ?? "";
+      } catch (error) {
+        console.error("Failed to read host clipboard:", error);
+      }
+      // HTML first (matches the navigator path) so a Cypher round-trip stays
+      // lossless via the html marker; otherwise fall back to plain text.
+      if (html) {
+        const blocks = parseHTMLToBlocks(html, state.CRDTbinding);
+        if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+      }
+      if (text) {
+        const blocks = parsePlainTextToBlocks(text, state.CRDTbinding);
+        if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+      }
+      return null;
+    }
 
     if (navigator.clipboard?.read) {
       try {

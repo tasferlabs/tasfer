@@ -303,7 +303,6 @@ export {
 // Touch event-layer actions: tap / long-press / visual-block geometry.
 export {
   CLOSE_NODE_OVERLAY,
-  FINISH_SELECT_MODE,
   OPEN_CONTEXT_MENU_AT,
   OPEN_NODE_OVERLAY,
   TAP_CLEAR_VISUAL_BLOCK_SELECTION,

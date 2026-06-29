@@ -7,6 +7,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Seed the Settings-bundle default so `UserDefaults` reflects the
+        // toggle's DefaultValue before the user ever opens the system Settings
+        // app (the bundle's DefaultValue alone is not registered until then).
+        UserDefaults.standard.register(defaults: ["dev_tools_enabled": false])
         // Set background color to prevent white flash on launch
         window?.backgroundColor = UIColor(named: "Background")
         return true

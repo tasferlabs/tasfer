@@ -68,6 +68,7 @@ import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
 import { SnapshotRestore } from "../components/SnapshotRestore";
+import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useTreeExpand } from "../contexts/TreeExpandContext";
@@ -162,6 +163,7 @@ export default function EditorPage() {
   // Restore function ref from MountedEditor
   const restoreFnRef = useRef<((blocks: Block[]) => void) | null>(null);
 
+  const { setEditor: setActiveEditor } = useActiveEditor();
   const navigate = useNavigate();
   const { activeSpaceId } = useSpaces();
   const treeExpand = useTreeExpand();
@@ -538,11 +540,22 @@ export default function EditorPage() {
                   restoreFnRef.current = restoreFn;
                 }
           }
+          onEditorReady={setActiveEditor}
           readonly={readonly}
           padding={SCHEDULE_TAG_PADDING}
           onScroll={(scrollY) => {
             if (scheduleTagRef.current) {
               scheduleTagRef.current.style.transform = `translateY(${-scrollY}px)`;
+            }
+          }}
+          onHorizontalPaddingChange={(padding) => {
+            // Keep the schedule tag aligned with the (possibly narrowed,
+            // centered) text column. Mutated imperatively like the scroll
+            // transform to avoid re-rendering on resize; overrides the
+            // default px-4 md:px-[40px] gutter classes.
+            if (scheduleTagRef.current) {
+              scheduleTagRef.current.style.paddingLeft = `${padding}px`;
+              scheduleTagRef.current.style.paddingRight = `${padding}px`;
             }
           }}
         />

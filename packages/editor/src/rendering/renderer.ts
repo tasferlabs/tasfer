@@ -216,6 +216,9 @@ export function renderPage(
   visibility.start = startIndex;
   visibility.end = startIndex;
   visibility.startY = currentY;
+  // Stamp the scroll this snapshot is valid for, so hit-testing against a later
+  // (scrolled-but-not-yet-repainted) viewport can re-base `startY`.
+  visibility.scrollY = viewport.scrollY;
 
   for (
     let visibleIdx = startIndex;
@@ -273,8 +276,10 @@ export function renderPage(
   // Add extra padding on mobile devices for keyboard space
   // documentHeight += styles.canvas.paddingBottom;
 
-  // Render selection handles for mobile (after selection rendering, before scrollbar)
-  renderSelectionHandles(ctx, state, viewport, styles);
+  // Render selection handles for mobile (after selection rendering, before
+  // scrollbar). Pass the height index so the handles anchor on the same painted
+  // flow as the highlight and caret rather than an exact walk from block 0.
+  renderSelectionHandles(ctx, state, viewport, styles, heightIndex);
 
   // Render scrollbar
   renderScrollbar(ctx, viewport, documentHeight, state, undefined, heightIndex);
@@ -1171,6 +1176,7 @@ function getPositionCoordinates(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles,
+  heightIndex?: BlockHeightIndex,
 ): { x: number; y: number; height: number } | null {
   const block = state.document.page.blocks[position.blockIndex];
   if (!block || block.deleted) return null;
@@ -1180,12 +1186,18 @@ function getPositionCoordinates(
 
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  // Anchor the block top on the same prefix-height index the content paint and
+  // caret use. Without it this walks exact heights from block 0, which drifts
+  // from the (estimate-anchored) painted flow for any off-screen block whose
+  // estimate ≠ exact height — e.g. wrapped list/todo items — so the handles land
+  // away from the highlighted text on a long, scrolled document.
   const blockTop = getBlockTopViewport(
     state,
     position.blockIndex,
     maxWidth,
     viewport,
     styles,
+    heightIndex,
   );
   const layout = node.layout({
     block,
@@ -1213,6 +1225,7 @@ function getSelectionHandlePositionsForRender(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles,
+  heightIndex?: BlockHeightIndex,
 ): {
   anchor: { x: number; y: number; height: number; isTop: boolean } | null;
   focus: { x: number; y: number; height: number; isTop: boolean } | null;
@@ -1227,12 +1240,14 @@ function getSelectionHandlePositionsForRender(
     state,
     viewport,
     styles,
+    heightIndex,
   );
   const focusCoords = getPositionCoordinates(
     selection.focus,
     state,
     viewport,
     styles,
+    heightIndex,
   );
 
   if (!anchorCoords || !focusCoords) {
@@ -1406,6 +1421,7 @@ export function renderSelectionHandles(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  heightIndex?: BlockHeightIndex,
 ) {
   // Only render handles on touch devices
   if (!isTouchDevice()) {
@@ -1421,6 +1437,7 @@ export function renderSelectionHandles(
     state,
     viewport,
     styles,
+    heightIndex,
   );
 
   if (!handlePositions) {

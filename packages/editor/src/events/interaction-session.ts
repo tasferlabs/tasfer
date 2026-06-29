@@ -114,6 +114,20 @@ export interface InteractionSession {
    * never writes it directly, it just dispatches CLOSE_CONTEXT_MENU to dismiss.
    */
   hostMenuCapturing: boolean;
+  /**
+   * Magnifier loupe over a dragged selection handle. Set when a handle drag
+   * begins; `shown` flips true once the hold outlives CURSOR_DRAG_ACTIVATION_DELAY
+   * (so a quick adjust never flashes it) and gates the single CURSOR_DRAG_START.
+   * `x`/`y` are the latest handle pointer (canvas coords), re-read every frame by
+   * the loupe tick in handleEvents. Cleared (with a matching CURSOR_DRAG_END) when
+   * the drag ends.
+   */
+  handleDragLoupe: {
+    startTime: number;
+    shown: boolean;
+    x: number;
+    y: number;
+  } | null;
 }
 
 export function createInteractionSession(
@@ -138,6 +152,7 @@ export function createInteractionSession(
     pendingCapture: null,
     outOfViewIndicatorHitAreas: [],
     hostMenuCapturing: false,
+    handleDragLoupe: null,
   };
 }
 

@@ -455,7 +455,7 @@ export const MathCommandDrawer: React.FC<MathCommandDrawerProps> = ({
     >
       <DrawerContent
         data-editor-overlay
-        className="h-[min(78vh,640px)] overflow-hidden"
+        className="md:h-[min(78vh,640px)] overflow-hidden"
       >
         <div className="mx-auto flex h-full w-full max-w-lg flex-col">
           <DrawerHeader className="pb-2">

@@ -43,6 +43,37 @@ export function currentWordStart(text: string, caret: number): number {
   return start;
 }
 
+/**
+ * The start offset of the sentence containing `pos` in `text`: the index just
+ * after the most recent sentence terminator (`.`, `!`, or `?`) and the run of
+ * whitespace following it, or 0 when there is none. Whitespace right after a
+ * terminator belongs to the *next* sentence, so a caret sitting in that gap
+ * (e.g. just after `"Hi. "`) reports the gap's end — making the result stable as
+ * the user types the first character of the new sentence.
+ *
+ * The input surface mirrors `text.slice(sentenceStart, caret)` so the OS keyboard
+ * sees the real left-context and applies its own sentence-capitalization: it
+ * capitalizes a word that genuinely begins a sentence and leaves mid-sentence
+ * words alone, instead of capitalizing every word.
+ */
+export function sentenceStartOffset(text: string, pos: number): number {
+  const end = Math.max(0, Math.min(pos, text.length));
+  let start = 0;
+  let i = 0;
+  while (i < end) {
+    const ch = text[i];
+    if (ch === "." || ch === "!" || ch === "?") {
+      let j = i + 1;
+      while (j < end && isWordBoundaryChar(text[j])) j++;
+      start = j;
+      i = j;
+    } else {
+      i++;
+    }
+  }
+  return start;
+}
+
 /** A minimal `[deleteStart, deleteEnd) → insert` edit derived from two strings. */
 export interface SurfaceDelta {
   /** Start offset (in `prev`) of the replaced span. */

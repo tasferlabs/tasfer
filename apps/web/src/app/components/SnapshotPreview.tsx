@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import type { Block } from "@cypherkit/editor";
-import { ChevronRight, FileText, GitFork, Layers, RotateCcw } from "lucide-react";
+import { ChevronLeft, FileText, GitFork, Layers, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { MountedEditor } from "../MountedEditor";
 
@@ -29,6 +29,36 @@ export function SnapshotPreview({
 
   return (
     <div className="flex flex-col h-full flex-1">
+      {/* Header: back + version info */}
+      <div className="flex items-center gap-2 p-3 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onBack}
+          className="shrink-0"
+          aria-label={t("common.back", "Back")}
+        >
+          <ChevronLeft className="h-5 w-5 rtl:-scale-x-100" />
+        </Button>
+
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-medium truncate">
+            {t("common.version", "Version")} {snapshot.versionNumber}
+          </h3>
+          <div className="flex gap-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Layers className="h-3 w-3 shrink-0" />
+              {snapshot.opCount} {snapshot.opCount === 1 ? t("snapshot.operation", "operation") : t("snapshot.operations", "operations")}
+            </span>
+            <span className="flex items-center gap-1">
+              <FileText className="h-3 w-3 shrink-0" />
+              {snapshot.blockCount}{" "}
+              {snapshot.blockCount === 1 ? t("blocks.blockKw", "block") : t("blocks.blocksKw", "blocks")}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Editor Preview */}
       <div className="flex-1 overflow-hidden bg-background">
         <MountedEditor
@@ -39,54 +69,24 @@ export function SnapshotPreview({
         />
       </div>
 
-      <div className="flex items-center gap-4 justify-between p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t">
-        <div className="flex items-center gap-2">
-          <Button onClick={onRestore} size={"lg"}>
-            <RotateCcw className="h-3.5 w-3.5 me-1.5" />
-            {t("common.restore", "Restore")}
-          </Button>
-          <Button
-            onClick={onFork}
-            size={"lg"}
-            variant="outline"
-            disabled={isForking}
-          >
-            <GitFork className="h-3.5 w-3.5 me-1.5" />
-            {isForking
-              ? t("snapshot.forking", "Forking...")
-              : t("snapshot.fork", "Fork")}
-          </Button>
-        </div>
-
-        <div className="flex items-center justify-between gap-2 flex-1">
-          <div className="flex items-center gap-4">
-            <div>
-              <h3 className="text-sm font-medium">
-                {t("common.version", "Version")} {snapshot.versionNumber}
-              </h3>
-              <div className="flex gap-2">
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Layers className="h-3 w-3" />
-                  <span>
-                    {snapshot.opCount} {snapshot.opCount === 1 ? t("snapshot.operation", "operation") : t("snapshot.operations", "operations")}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1 text-xs text-muted-foreground me-2">
-                  <FileText className="h-3 w-3" />
-                  <span>
-                    {snapshot.blockCount}{" "}
-                    {snapshot.blockCount === 1 ? t("blocks.blockKw", "block") : t("blocks.blocksKw", "blocks")}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <Button variant="ghost" size="icon" onClick={onBack}>
-            <ChevronRight className="h-4 w-4 rtl:-scale-x-100" />
-          </Button>
-        </div>
+      {/* Footer: actions */}
+      <div className="flex items-center gap-2 p-3 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <Button onClick={onRestore} size="lg" className="flex-1">
+          <RotateCcw className="h-4 w-4 me-1.5" />
+          {t("common.restore", "Restore")}
+        </Button>
+        <Button
+          onClick={onFork}
+          size="lg"
+          variant="outline"
+          disabled={isForking}
+          className="flex-1"
+        >
+          <GitFork className="h-4 w-4 me-1.5" />
+          {isForking
+            ? t("snapshot.forking", "Forking...")
+            : t("snapshot.fork", "Fork")}
+        </Button>
       </div>
     </div>
   );

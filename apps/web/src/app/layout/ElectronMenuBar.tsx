@@ -1,11 +1,15 @@
 import { Menubar as MenubarPrimitive } from "radix-ui";
 import { useTranslation } from "react-i18next";
-import { Minus, Square, X } from "lucide-react";
+import { Check, Minus, Square, X } from "lucide-react";
+import { useDevToolsEnabled } from "@/lib/devTools";
 
 const invoke = (channel: string) => (window as any).cypher?.invoke(channel);
 
 export function ElectronMenuBar() {
   const { t } = useTranslation();
+  // Mirrors the persisted setting; toggling routes through the main process,
+  // which broadcasts the new value back into this flag.
+  const devToolsEnabled = useDevToolsEnabled();
 
   return (
     <div className="flex items-center h-9 shrink-0 w-full bg-background border-b" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
@@ -17,6 +21,7 @@ export function ElectronMenuBar() {
           <Item label={t("menu.reload", "Reload")} shortcut="Ctrl+R" onSelect={() => invoke("app:reload")} />
           <Item label={t("menu.forceReload", "Force Reload")} shortcut="Ctrl+Shift+R" onSelect={() => invoke("app:force-reload")} />
           <Item label={t("menu.toggleDevTools", "Toggle Developer Tools")} shortcut="Ctrl+Shift+I" onSelect={() => invoke("app:toggle-devtools")} />
+          <Item label={t("settings.devTools.title", "Cypher Inspector")} checked={devToolsEnabled} onSelect={() => invoke("devtools:toggle")} />
           <Separator />
           <Item label={t("menu.resetZoom", "Reset Zoom")} shortcut="Ctrl+0" onSelect={() => invoke("app:reset-zoom")} />
           <Item label={t("menu.zoomIn", "Zoom In")} shortcut="Ctrl+=" onSelect={() => invoke("app:zoom-in")} />
@@ -70,12 +75,15 @@ function Menu({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-function Item({ label, shortcut, onSelect }: { label: string; shortcut?: string; onSelect: () => void }) {
+function Item({ label, shortcut, checked, onSelect }: { label: string; shortcut?: string; checked?: boolean; onSelect: () => void }) {
   return (
     <MenubarPrimitive.Item
       className="flex items-center gap-4 rounded-sm px-2 py-1.5 text-sm cursor-default select-none outline-none focus:bg-accent focus:text-accent-foreground"
       onSelect={onSelect}
     >
+      {checked !== undefined && (
+        <Check className={`size-3.5 ${checked ? "opacity-100" : "opacity-0"}`} />
+      )}
       <span className="flex-1">{label}</span>
       {shortcut && <span className="text-xs text-muted-foreground ms-auto">{shortcut}</span>}
     </MenubarPrimitive.Item>

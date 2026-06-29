@@ -486,6 +486,11 @@ export function getTextPositionFromViewport(
   const allBlocks = state.document.page.blocks;
 
   const startIndex = visibility?.start ?? 0;
+  // The last block the walk actually visited, and whether it stopped early
+  // because it passed the bottom of the viewport (more content continues below
+  // the fold) rather than reaching the document's final block.
+  let lastWalkedOriginalIndex = -1;
+  let brokeEarly = false;
   for (
     let visibleIdx = startIndex;
     visibleIdx < visibleBlocks.length;
@@ -527,22 +532,34 @@ export function getTextPositionFromViewport(
       return { blockIndex: block.originalIndex, textIndex };
     }
 
+    lastWalkedOriginalIndex = block.originalIndex;
+
     // Break early if we've passed the visible area (click can only be in visible area)
     if (currentY > viewport.height) {
+      brokeEarly = true;
       break;
     }
 
     currentY += blockHeight;
   }
 
-  // If click is below all blocks, position at end of last visible block
+  // Point is below everything the walk reached. When it stopped early at the
+  // bottom edge (a long document scrolled above its end), clamp to the last
+  // block walked rather than the document's final block: without this, dragging
+  // a selection — or holding it at the bottom for edge auto-scroll — past the
+  // viewport bottom snaps the focus straight to the end of the document and
+  // selects everything below the fold at once. Clamping keeps the focus at the
+  // fold so auto-scroll reveals the rest one step at a time. Only when the walk
+  // genuinely reached the final block is the point truly below all content.
   if (y >= currentY && visibleBlocks.length > 0) {
-    const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
-    const lastBlock = allBlocks[lastVisibleBlock.originalIndex];
-    const content = getBlockTextContent(lastBlock);
+    const targetOriginalIndex = brokeEarly
+      ? lastWalkedOriginalIndex
+      : visibleBlocks[visibleBlocks.length - 1].originalIndex;
+    const targetBlock = allBlocks[targetOriginalIndex];
+    const content = getBlockTextContent(targetBlock);
 
     return {
-      blockIndex: lastVisibleBlock.originalIndex,
+      blockIndex: targetOriginalIndex,
       textIndex: content.length,
     };
   }
@@ -774,6 +791,7 @@ export function isPointWithinSelectionRects(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
 ): boolean {
   const selection = state.document.selection;
   if (!selection || selection.isCollapsed) {
@@ -794,12 +812,22 @@ export function isPointWithinSelectionRects(
 
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  // Anchor at the painted-visibility snapshot when given (the same basis as the
+  // content paint), so a scrolled document with off-screen blocks whose
+  // estimated height ≠ exact height — e.g. wrapped list/todo items — still maps
+  // the point onto the highlighted rectangles instead of a flow walked exactly
+  // from block 0.
+  let currentY =
+    visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
 
   // Iterate through blocks that are part of the selection (only visible blocks)
   const visibleBlocks = state.view.visibleBlocks;
 
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+  for (
+    let visibleIdx = visibility?.start ?? 0;
+    visibleIdx < visibleBlocks.length;
+    visibleIdx++
+  ) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
       state.nodes,
@@ -854,6 +882,51 @@ export function isPointWithinSelectionRects(
 
   return false;
 }
+
+/**
+ * Whether the document has a highlighted selection rather than a plain collapsed
+ * caret — either a non-empty text range or a visual/atomic block selection (a
+ * collapsed selection that sits on a non-textual block, e.g. a selected image or
+ * divider). A normal caret on textual content (or no selection at all) is not
+ * "active" here.
+ *
+ * The magnifier loupe is a caret-repositioning tool, so it only engages when
+ * there is a caret to move; this gate keeps a long-hold from popping it while a
+ * selection is up.
+ */
+export function hasActiveSelectionHighlight(state: EditorState): boolean {
+  const sel = state.document.selection;
+  if (!sel) return false;
+  if (!sel.isCollapsed) return true;
+  const block = state.document.page.blocks[sel.anchor.blockIndex];
+  return !!block && !block.deleted && !isTextualBlock(block);
+}
+
+/**
+ * Index of the block currently held in a *visual block selection* (a selected
+ * image/divider/math block), or `null` when the selection is a text caret/range
+ * or absent. A visual block selection is encoded as a non-collapsed selection
+ * whose anchor and focus sit at the same position on a non-textual block (see
+ * `SELECT_VISUAL_BLOCK` / `TAP_SELECT_VISUAL_BLOCK`). Callers — e.g. the click
+ * handlers that clear it and the image node that renders resize handles for it —
+ * share this one detector instead of re-deriving the shape.
+ */
+export function getVisualBlockSelectionIndex(
+  state: EditorState,
+): number | null {
+  const sel = state.document.selection;
+  if (!sel || sel.isCollapsed) return null;
+  if (
+    sel.anchor.blockIndex !== sel.focus.blockIndex ||
+    sel.anchor.textIndex !== sel.focus.textIndex
+  ) {
+    return null;
+  }
+  const block = state.document.page.blocks[sel.anchor.blockIndex];
+  if (!block || block.deleted || isTextualBlock(block)) return null;
+  return sel.anchor.blockIndex;
+}
+
 /**
  * Move cursor up by one line (not block)
  * If on the first line of a block, moves to the last line of the previous block

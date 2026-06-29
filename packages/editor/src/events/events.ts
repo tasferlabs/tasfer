@@ -14,8 +14,9 @@ import {
   updateScrollbarFadeOpacity,
 } from "../rendering/scrollbar";
 import { getTextPositionFromViewport } from "../selection";
+import { hasActiveSelectionHighlight } from "../selection";
 import { updateCursor } from "../selection";
-import { startSelection, updateSelectionFocus } from "../selection";
+import { updateSelectionFocus } from "../selection";
 import type {
   EditorState,
   MouseEvent,
@@ -24,7 +25,7 @@ import type {
   VisibleBlockRange,
 } from "../state-types";
 import type { Operation } from "../state-types";
-import { closeActiveMenu, updateMode } from "../state-utils";
+import { closeActiveMenu } from "../state-utils";
 import { applyEdgeScroll } from "./autoScroll";
 import {
   handleCompositionEnd,
@@ -65,6 +66,62 @@ export function handleEvents(
   // Collect operations from actions
   let collectedOps: Operation[] = [];
   let pastedImageBlockIndex: number | undefined;
+
+  // The visibility snapshot is produced by the last paint. If the scroll has
+  // advanced since then without an intervening repaint — e.g. a programmatic
+  // scroll-into-view committed via scheduleRender, or a scroll restored by the
+  // host — its `startY` no longer matches the live viewport. Every handler below
+  // hit-tests pointer coordinates by walking from `visibility.startY`, so a
+  // stale anchor maps the pointer to the wrong block/line and a click or drag
+  // lands its selection anchor on the wrong row. Re-base the snapshot onto the
+  // current scroll before anyone reads it. (`startY` is `paddingTop - scrollY +
+  // offset`, so it shifts by the scroll delta.)
+  if (
+    visibility.scrollY !== undefined &&
+    visibility.scrollY !== viewport.scrollY
+  ) {
+    visibility = {
+      ...visibility,
+      startY: visibility.startY + (visibility.scrollY - viewport.scrollY),
+      scrollY: viewport.scrollY,
+    };
+  }
+
+  // Edge auto-scroll advances the scroll position through
+  // `updateViewportCallback`, which swaps the host's viewport for a new object —
+  // our local `viewport` still points at the pre-scroll snapshot. Re-point it at
+  // the freshly scrolled position so every drag position resolved below (and the
+  // queued pointer events processed later this frame) sees the same scrollY the
+  // next paint will use. Without this the selection focus is resolved one
+  // frame's scroll delta behind the paint, so the selection visibly shrinks and
+  // grows while auto-scrolling.
+  const autoScroll = (pointerY: number, accelerate: boolean): void => {
+    const newScrollY = applyEdgeScroll(
+      pointerY,
+      session,
+      viewport,
+      documentHeight,
+      accelerate,
+      updateViewportCallback,
+    );
+    if (newScrollY !== null) {
+      const delta = newScrollY - viewport.scrollY;
+      viewport = { ...viewport, scrollY: newScrollY };
+      // The painted-visibility snapshot anchors the from-`startY` position walk
+      // used by queued pointer moves this frame (handleMouseMove). Shift it by
+      // the same delta (and advance its stamped scroll) so that path agrees with
+      // the from-top auto-scroll path and with the scroll the next paint will
+      // use — `startY` is `paddingTop - scrollY`, so a downward scroll lowers it.
+      visibility = {
+        ...visibility,
+        startY: visibility.startY - delta,
+        scrollY:
+          visibility.scrollY !== undefined
+            ? visibility.scrollY + delta
+            : visibility.scrollY,
+      };
+    }
+  };
   // Promote a pending hold-to-drag capture once its hold time has elapsed
   // (e.g. iOS-style scrollbar hold). Runs every frame, independent of events.
   const promoted = tickPendingCapture({
@@ -78,7 +135,11 @@ export function handleEvents(
     state = promoted;
   }
 
-  // Check for cursor drag activation (200ms, before the 600ms long-press)
+  // Fast magnifier: the touch started right on the caret (isTouchingCursor), so
+  // grab it after a short 200ms hold — unambiguous, no need to wait out the
+  // long-press window. A hold that starts *away* from the caret brings up the
+  // same magnifier at the 600ms mark below (after snapping the caret to the
+  // hold point).
   if (
     session.touch &&
     session.touch.isTouchingCursor &&
@@ -101,34 +162,41 @@ export function handleEvents(
     }
   }
 
-  // Check for long press trigger (independent of touchmove events)
+  // Long-hold trigger (independent of touchmove events). What it does depends on
+  // what's under the finger:
+  //  - on an existing selection → open the context menu immediately;
+  //  - on non-selected content (editable) → snap the caret to the hit-tested
+  //    point and bring up the magnifier (cursor-drag), so the loupe is reachable
+  //    from anywhere a tap is — including a line edge/end where no caret sits —
+  //    not only when the finger starts on the caret. Releasing without a drag
+  //    opens the context menu (handleTouchEnd's isCursorDrag branch).
+  //  - readonly, or no resolvable position → plain long-press, context menu on
+  //    release.
   if (
     session.touch &&
     !session.touch.isLongPress &&
-    !session.touch.isCursorDrag && // Don't trigger long press if we're in cursor drag mode
+    !session.touch.isCursorDrag && // Don't re-trigger once a cursor drag is active
     !session.touch.hasMoved &&
     !session.captured && // Not while a region drag owns the pointer (image resize, …)
     !session.pendingCapture && // ... or is waiting on its hold timer
-    !state.ui.selectionHandleDrag // Don't open context menu if we're dragging a selection handle
+    !state.ui.selectionHandleDrag // Don't take over while dragging a selection handle
   ) {
     const timeSinceStart = Date.now() - session.touch.startTime;
     if (timeSinceStart >= CONTEXT_MENU_DURATION) {
-      session.touch.isLongPress = true;
-
       const position = getTextPositionFromViewport(
         session.touch.currentTouchX,
         session.touch.currentTouchY,
         state,
         viewport,
+        undefined,
+        visibility,
       );
 
-      // Long press behavior depends on whether touching selected text
       if (session.touch.isTouchingSelection) {
-        // On selected text: show context menu immediately
-        if (position) {
-          if (!state.document.selection) {
-            state = updateCursor(state, position);
-          }
+        // On selected text: show the context menu immediately.
+        session.touch.isLongPress = true;
+        if (position && !state.document.selection) {
+          state = updateCursor(state, position);
         }
 
         // Clear link hover tooltip and slash menu when opening context menu
@@ -148,14 +216,39 @@ export function handleEvents(
           y: session.touch.currentTouchY,
           hasSelection: !!getSelectionRange(state),
         });
+      } else if (
+        state.ui.mode !== "readonly" &&
+        position &&
+        !hasActiveSelectionHighlight(state)
+      ) {
+        // On non-selected content with only a caret in play: snap the caret here
+        // and enter the magnifier cursor-drag. Suppressed while a selection is up
+        // (a range, or a visual/atomic block) — the loupe only moves a caret, so
+        // a hold there falls through to the plain context-menu long-press below.
+        // The drag-move / hold-to-menu-on-release behavior is then owned by the
+        // shared isCursorDrag branches (handleTouchMove/End).
+        state = updateCursor(state, position);
+        state = closeActiveMenu({
+          ...state,
+          ui: {
+            ...state.ui,
+            isHoveringLinkWithModifier: false,
+          },
+        });
+        session.touch.isCursorDrag = true;
+        state.actionBus.dispatch(CURSOR_DRAG_START, {
+          touchX: session.touch.currentTouchX,
+          touchY: session.touch.currentTouchY,
+          touchRadiusX: session.touch.touchRadiusX,
+          touchRadiusY: session.touch.touchRadiusY,
+        });
       } else {
-        // On non-selected text: prepare for drag selection (don't show menu yet)
-        // If they drag, selection will start. If they release, menu shows in touchend
+        // Readonly (no caret editing) or no resolvable position: fall back to a
+        // plain long-press that opens the context menu on release.
+        session.touch.isLongPress = true;
         if (position) {
           state = updateCursor(state, position);
         }
-
-        // Clear other menus
         state = closeActiveMenu({
           ...state,
           ui: {
@@ -167,63 +260,40 @@ export function handleEvents(
     }
   }
 
-  // Apply auto-scroll and selection update during long press
-  if (session.autoScroll.isActive && session.touch?.isLongPress) {
-    // Current touch coordinates are already adjusted relative to container in handleTouchMove
-    const touch = {
-      clientY: session.touch.currentTouchY,
-      clientX: session.touch.currentTouchX,
+  // Drive the magnifier loupe over a dragged selection handle. A handle drag is a
+  // captured region (no session.touch), so its loupe lives here: once the handle
+  // has been held past the activation delay, show the loupe and keep it tracking
+  // the latest handle pointer (kept current by the drag's onMove / the edge
+  // auto-scroll below). The matching CURSOR_DRAG_END is emitted by the handle
+  // drag's onEnd/onCancel.
+  if (session.handleDragLoupe && state.ui.selectionHandleDrag) {
+    const loupe = session.handleDragLoupe;
+    const dragPayload = {
+      touchX: loupe.x,
+      touchY: loupe.y,
+      touchRadiusX: 0,
+      touchRadiusY: 0,
     };
-
-    applyEdgeScroll(
-      touch.clientY,
-      session,
-      viewport,
-      documentHeight,
-      true,
-      updateViewportCallback,
-    );
-
-    const position = getTextPositionFromViewport(
-      touch.clientX,
-      touch.clientY,
-      state,
-      viewport,
-    );
-
-    if (position) {
-      if (state.ui.mode !== "select") {
-        state = updateCursor(state, position);
-        state = startSelection(state, position);
-        state = updateMode(state, "select");
-      } else {
-        state = updateSelectionFocus(state, position);
-        state = updateCursor(state, position);
+    if (!loupe.shown) {
+      if (Date.now() - loupe.startTime >= CURSOR_DRAG_ACTIVATION_DELAY) {
+        loupe.shown = true;
+        state.actionBus.dispatch(CURSOR_DRAG_START, dragPayload);
       }
+    } else {
+      state.actionBus.dispatch(CURSOR_DRAG_MOVE, dragPayload);
     }
+  }
 
-    state = {
-      ...state,
-      view: {
-        ...state.view,
-        scrollbar: {
-          ...state.view.scrollbar,
-          lastInteraction: Date.now(),
-        },
-      },
-    };
-  } else if (session.autoScroll.isActive && state.ui.mode === "select") {
+  // Apply edge auto-scroll while a drag holds at the viewport edge, re-resolving
+  // whatever the active gesture tracks (selection focus, handle, or caret).
+  if (session.autoScroll.isActive && state.ui.mode === "select") {
     // Apply auto-scroll for mouse selection
-    applyEdgeScroll(
-      session.autoScroll.lastPointerY,
-      session,
-      viewport,
-      documentHeight,
-      true,
-      updateViewportCallback,
-    );
+    autoScroll(session.autoScroll.lastPointerY, true);
 
     // Update selection based on new scroll position
+    // Resolve against the re-pointed `viewport` (autoScroll already advanced its
+    // scrollY this frame), whose default `paddingTop - scrollY` anchor is the
+    // post-scroll painted top.
     const position = getTextPositionFromViewport(
       session.autoScroll.lastPointerX,
       session.autoScroll.lastPointerY,
@@ -237,16 +307,18 @@ export function handleEvents(
     }
   } else if (session.autoScroll.isActive && state.ui.selectionHandleDrag) {
     // Apply auto-scroll for selection handle drag (touch)
-    applyEdgeScroll(
-      session.autoScroll.lastPointerY,
-      session,
-      viewport,
-      documentHeight,
-      true,
-      updateViewportCallback,
-    );
+    autoScroll(session.autoScroll.lastPointerY, true);
+
+    // Keep the loupe tracking the held-at-edge finger while content scrolls.
+    if (session.handleDragLoupe) {
+      session.handleDragLoupe.x = session.autoScroll.lastPointerX;
+      session.handleDragLoupe.y = session.autoScroll.lastPointerY;
+    }
 
     // Update selection based on new scroll position
+    // Resolve against the re-pointed `viewport` (autoScroll already advanced its
+    // scrollY this frame), whose default `paddingTop - scrollY` anchor is the
+    // post-scroll painted top.
     const position = getTextPositionFromViewport(
       session.autoScroll.lastPointerX,
       session.autoScroll.lastPointerY,
@@ -255,40 +327,33 @@ export function handleEvents(
     );
 
     if (position && state.document.selection) {
-      const { handleType } = state.ui.selectionHandleDrag;
-      const { anchor, focus } = state.document.selection;
-
-      let newAnchor = anchor;
-      let newFocus = focus;
-
-      if (handleType === "anchor") {
-        newAnchor = position;
-      } else {
-        newFocus = position;
-      }
+      // The dragged handle is always the focus (set up in the handle region's
+      // onStart); the anchor is the opposite, fixed endpoint.
+      const { anchor } = state.document.selection;
+      const newFocus = position;
 
       const isForward =
-        newAnchor.blockIndex < newFocus.blockIndex ||
-        (newAnchor.blockIndex === newFocus.blockIndex &&
-          newAnchor.textIndex <= newFocus.textIndex);
+        anchor.blockIndex < newFocus.blockIndex ||
+        (anchor.blockIndex === newFocus.blockIndex &&
+          anchor.textIndex <= newFocus.textIndex);
 
       const isCollapsed =
-        newAnchor.blockIndex === newFocus.blockIndex &&
-        newAnchor.textIndex === newFocus.textIndex;
+        anchor.blockIndex === newFocus.blockIndex &&
+        anchor.textIndex === newFocus.textIndex;
 
       state = {
         ...state,
         document: {
           ...state.document,
           selection: {
-            anchor: newAnchor,
+            anchor,
             focus: newFocus,
             isForward,
             isCollapsed,
             lastUpdate: Date.now(),
           },
           cursor: {
-            position: handleType === "anchor" ? newAnchor : newFocus,
+            position: newFocus,
             lastUpdate: Date.now(),
           },
         },
@@ -303,16 +368,12 @@ export function handleEvents(
     }
   } else if (session.autoScroll.isActive && session.touch?.isCursorDrag) {
     // Apply auto-scroll for cursor drag (touch)
-    applyEdgeScroll(
-      session.autoScroll.lastPointerY,
-      session,
-      viewport,
-      documentHeight,
-      true,
-      updateViewportCallback,
-    );
+    autoScroll(session.autoScroll.lastPointerY, true);
 
     // Update cursor position based on new scroll position
+    // Resolve against the re-pointed `viewport` (autoScroll already advanced its
+    // scrollY this frame), whose default `paddingTop - scrollY` anchor is the
+    // post-scroll painted top.
     const position = getTextPositionFromViewport(
       session.autoScroll.lastPointerX,
       session.autoScroll.lastPointerY,
@@ -437,6 +498,28 @@ export function handleEvents(
           session,
         );
         break;
+      case "mouseleave":
+        if (isTouchDevice()) {
+          break;
+        }
+        // The pointer left the canvas. Hover-driven chrome (image resize
+        // handles, link/math hovers) is only ever cleared by a *subsequent*
+        // mousemove over a non-matching block — which never arrives once the
+        // cursor is gone — so it would otherwise stay painted (e.g. image
+        // handles stuck visible). Drop every hover highlight here. A selected
+        // image keeps its handles via the selection gate, not this state.
+        state = {
+          ...state,
+          ui: {
+            ...state.ui,
+            isHoveringLinkWithModifier: false,
+            imageHover: null,
+            linkHover: null,
+            inlineMathHover: null,
+            hoveredMathBlockIndex: null,
+          },
+        };
+        break;
       case "mousedown":
         if (isTouchDevice()) {
           break;
@@ -534,6 +617,7 @@ export function handleEvents(
           containerRect,
           documentHeight,
           session,
+          visibility,
         );
         break;
       case "touchmove":
@@ -545,6 +629,7 @@ export function handleEvents(
           documentHeight,
           session,
           updateViewportCallback,
+          visibility,
         );
         break;
       case "touchend":
@@ -557,6 +642,7 @@ export function handleEvents(
           session,
           updateViewportCallback,
           scrollPositionIntoView,
+          visibility,
         );
         state = touchEndResult.state;
         collectedOps.push(...touchEndResult.ops);

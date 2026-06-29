@@ -237,9 +237,14 @@ export class MathNode extends TextNode {
     // Keep the same full-block surface as a code block at rest so an equation
     // reads as a distinct editable block. Hover and active states use the
     // stronger math interaction color.
+    // A readonly document shows no hover/active emphasis — the equation reads as
+    // static, keeping its resting code-block surface. Gate on `isReadonlyBase`
+    // (not `mode === "readonly"`) so a readonly editor in `select` mode, used for
+    // copy, stays un-emphasized when a selection overlaps the block too.
     const emphasized =
-      state.ui.hoveredMathBlockIndex === blockIndex ||
-      this.isBlockActive(state, blockIndex);
+      !state.ui.isReadonlyBase &&
+      (state.ui.hoveredMathBlockIndex === blockIndex ||
+        this.isBlockActive(state, blockIndex));
     ctx.fillStyle = emphasized
       ? m.hoverBackgroundColor
       : styles.blocks.code.backgroundColor;
@@ -703,6 +708,11 @@ export class MathNode extends TextNode {
     bus.registerState(
       POINTER_MOVE,
       (state, { textPosition, blockUnderPoint, canvasX, viewport }) => {
+        // Readonly documents never highlight math on hover — neither the
+        // full-block backdrop nor an inline chip (which would also flip the
+        // pointer cursor). This handler is the sole writer of both hover slots,
+        // so simply leaving them untouched keeps them null in a readonly editor.
+        if (state.ui.isReadonlyBase) return { state, ops: [] };
         // Whole-block hover: the pointer is genuinely over a (now textual) math
         // block. Gate on `blockUnderPoint` (bounds-exact), NOT `textPosition`
         // (which clamps to the last block), so hovering the empty space below a

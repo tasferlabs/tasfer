@@ -37,6 +37,15 @@ export interface NativeMenuItem {
 }
 
 export interface CypherBridge {
+  /**
+   * Whether developer tools (the in-app DevToolbar) should be shown, read from
+   * the native shell's OS-level setting at launch. iOS sources this from a
+   * Settings-bundle toggle (`UserDefaults`); it is injected synchronously into
+   * the bridge literal at `.atDocumentStart`. Absent on shells that don't
+   * provide an OS-level control. See `@/lib/devTools`.
+   */
+  devToolsEnabled?: boolean;
+
   clipboard: {
     copy(text: string): Promise<void>;
     cut(text: string): Promise<void>;

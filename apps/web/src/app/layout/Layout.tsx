@@ -11,6 +11,7 @@ import { OnboardingScreen } from "../components/OnboardingScreen";
 import PeerVersionPopup from "../components/PeerVersionPopup";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
 import { WordCountOverlay } from "../components/WordCountOverlay";
+import { ActiveEditorProvider } from "../contexts/ActiveEditorContext";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
@@ -49,11 +50,13 @@ export default function Layout() {
           <TreeExpandProvider>
             <SidebarPanelProvider>
               <PageSettingsProvider>
-                <ConfirmationDialogProvider>
-                  <UnsavedChangesDialogProvider>
-                    <LayoutInner needsForceUpdate={needsForceUpdate} />
-                  </UnsavedChangesDialogProvider>
-                </ConfirmationDialogProvider>
+                <ActiveEditorProvider>
+                  <ConfirmationDialogProvider>
+                    <UnsavedChangesDialogProvider>
+                      <LayoutInner needsForceUpdate={needsForceUpdate} />
+                    </UnsavedChangesDialogProvider>
+                  </ConfirmationDialogProvider>
+                </ActiveEditorProvider>
               </PageSettingsProvider>
             </SidebarPanelProvider>
           </TreeExpandProvider>

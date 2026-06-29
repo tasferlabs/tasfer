@@ -58,6 +58,53 @@ describe("viewport pointer lookup", () => {
     expect(heightCalls).toBe(1);
   });
 
+  it("clamps a point below the viewport to the fold, not the document end", () => {
+    // Regression: dragging a selection (or holding it for edge auto-scroll) past
+    // the bottom edge of a long, mid-scrolled document must not jump the focus to
+    // the very end of the document and select everything below the fold at once.
+    class TestNode extends AtomicNode<TestBlock> {
+      readonly type = "viewport-test" as const;
+      protected intrinsicHeight(_c: NodeLayoutCtx): number {
+        return 40;
+      }
+      protected draw(_box: BlockBounds, _c: NodePaintCtx): void {}
+    }
+
+    const blocks = Array.from({ length: 1000 }, (_, index) => ({
+      id: `b${index}`,
+      type: "viewport-test",
+    })) as unknown as Block[];
+    const page: Page = { id: "page", title: "", blocks };
+    const state = createInitialState(page, {
+      nodes: new NodeRegistry().register(new TestNode()),
+    });
+    const viewport = {
+      width: 600,
+      height: 800,
+      scrollY: 4_000,
+      documentHeight: 40_000,
+    };
+
+    // Painted window: block 100 at canvas-y 0, 40px blocks. The walk passes the
+    // viewport bottom (800) at block 121 (top 840). A pointer at y = 900 is below
+    // the viewport with content continuing below the fold.
+    const position = getTextPositionFromViewport(
+      100,
+      900,
+      state,
+      viewport,
+      undefined,
+      {
+        start: 100,
+        end: 120,
+        startY: 0,
+      },
+    );
+
+    // Clamped to the fold (block 121), not the document's final block (999).
+    expect(position).toEqual({ blockIndex: 121, textIndex: 0 });
+  });
+
   it("keeps typing scroll checks in the latest painted coordinate space", () => {
     const blocks = Array.from({ length: 1000 }, (_, index) => ({
       id: `p${index}`,

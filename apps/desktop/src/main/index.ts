@@ -10,9 +10,11 @@ import {
   BrowserWindow,
   Tray,
   Menu,
+  type MenuItemConstructorOptions,
   nativeImage,
   ipcMain,
 } from "electron";
+import fs from "fs";
 import path from "path";
 import { getDb, closeDb } from "./db";
 import { registerDbHandlers } from "./handlers/db";
@@ -25,6 +27,46 @@ import { registerContextMenuHandlers } from "./handlers/contextMenu";
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
+
+// ── Developer-tools setting ────────────────────────────────────────────────
+// The "Show Developer Tools" app-menu toggle. Persisted in a tiny JSON file in
+// userData (independent of the document DB) so it survives restarts, injected
+// into the renderer at launch via the preload, and pushed on every toggle. The
+// web app's `@/lib/devTools` flag is the single consumer.
+
+const settingsPath = () => path.join(app.getPath("userData"), "settings.json");
+
+function readDevToolsEnabled(): boolean {
+  try {
+    const raw = fs.readFileSync(settingsPath(), "utf8");
+    return JSON.parse(raw)?.devToolsEnabled === true;
+  } catch {
+    return false; // No file yet / unreadable → off by default.
+  }
+}
+
+function writeDevToolsEnabled(value: boolean): void {
+  try {
+    fs.writeFileSync(
+      settingsPath(),
+      JSON.stringify({ devToolsEnabled: value }),
+      "utf8",
+    );
+  } catch {
+    // Best-effort; the in-session value still propagates to the renderer.
+  }
+}
+
+let devToolsEnabled = false;
+
+/** Apply a new value: persist, mirror onto the menu checkbox, push to renderer. */
+function setDevToolsEnabled(value: boolean): void {
+  devToolsEnabled = value;
+  writeDevToolsEnabled(value);
+  const item = Menu.getApplicationMenu()?.getMenuItemById("show-dev-tools");
+  if (item) item.checked = value;
+  mainWindow?.webContents.send("devtools:set", value);
+}
 
 // Dev mode: load from Vite dev server. Prod: load built files.
 const isDev = !app.isPackaged;
@@ -63,9 +105,12 @@ function createWindow() {
     },
   });
 
-  // Remove native menu bar on Windows/Linux — we render a custom one in the renderer.
-  // macOS uses the system menu bar automatically.
-  if (!isMac) {
+  // Remove native menu bar on Windows/Linux — we render a custom one in the
+  // renderer (which reaches the "Show Developer Tools" toggle over IPC). macOS
+  // uses the system menu bar, so install a template carrying the same toggle.
+  if (isMac) {
+    Menu.setApplicationMenu(buildMacMenu());
+  } else {
     Menu.setApplicationMenu(null);
   }
 
@@ -91,6 +136,46 @@ function createWindow() {
 
   mainWindow = win;
   return win;
+}
+
+/**
+ * macOS application menu. Mostly standard roles (so Cmd+Q, Edit, Window, etc.
+ * keep working) plus a checkbox "Show Developer Tools" item under View that
+ * drives the in-app DevToolbar. Win/Linux don't use this — their renderer menu
+ * carries the same item.
+ */
+function buildMacMenu(): Menu {
+  const template: MenuItemConstructorOptions[] = [
+    { role: "appMenu" },
+    { role: "fileMenu" },
+    { role: "editMenu" },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        {
+          id: "show-dev-tools",
+          // Distinct from Electron's built-in "Toggle Developer Tools" above —
+          // this drives Cypher's own in-app inspector panel.
+          label: "Show Cypher Inspector",
+          type: "checkbox",
+          checked: devToolsEnabled,
+          click: () => setDevToolsEnabled(!devToolsEnabled),
+        },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    { role: "windowMenu" },
+  ];
+  return Menu.buildFromTemplate(template);
 }
 
 function createTray() {
@@ -179,6 +264,10 @@ app.whenReady().then(() => {
     if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon);
   }
 
+  // Load the persisted "Show Developer Tools" setting before the window (and its
+  // preload) reads it.
+  devToolsEnabled = readDevToolsEnabled();
+
   // Initialize database
   getDb();
 
@@ -195,6 +284,16 @@ app.whenReady().then(() => {
   ipcMain.handle("app:reload", () => mainWindow?.webContents.reload());
   ipcMain.handle("app:force-reload", () => mainWindow?.webContents.reloadIgnoringCache());
   ipcMain.handle("app:toggle-devtools", () => mainWindow?.webContents.toggleDevTools());
+  // In-app DevToolbar enablement (distinct from Electron's inspector above).
+  // Synchronous read for the preload's launch-time injection; toggle for the
+  // renderer-drawn menu (Windows/Linux) and returns the new value.
+  ipcMain.on("devtools:get-sync", (e) => {
+    e.returnValue = devToolsEnabled;
+  });
+  ipcMain.handle("devtools:toggle", () => {
+    setDevToolsEnabled(!devToolsEnabled);
+    return devToolsEnabled;
+  });
   ipcMain.handle("app:reset-zoom", () => mainWindow?.webContents.setZoomLevel(0));
   ipcMain.handle("app:zoom-in", () => {
     if (!mainWindow) return;

@@ -49,6 +49,11 @@ class CypherViewController: CAPBridgeViewController {
             contextMenuJS = ""
         }
 
+        // Read the "Show Developer Tools" toggle from the app's Settings-bundle
+        // (system Settings app) and inject it into the bridge so the web app can
+        // surface its in-app developer toolbar without an env/build change.
+        let devToolsEnabled = UserDefaults.standard.bool(forKey: "dev_tools_enabled")
+
         let scriptSource = """
             (function() {
                 // Callback registry for async storage responses
@@ -107,6 +112,7 @@ class CypherViewController: CAPBridgeViewController {
                 }
 
                 window.CypherBridge = {
+                    devToolsEnabled: \(devToolsEnabled),
                     clipboard: {
                         copy: function(text) { return callNative({action: 'copy', text: text}); },
                         cut: function(text) { return callNative({action: 'cut', text: text}); },
@@ -226,11 +232,15 @@ class CypherViewController: CAPBridgeViewController {
         // Set presenting view controller for image picker
         imagePickerCoordinator.presentingViewController = self
 
-        #if DEBUG
-            if #available(iOS 16.4, *) {
+        // Allow Safari Web Inspector when developer tools are enabled (always in
+        // DEBUG builds; in release only when the Settings toggle is on).
+        if #available(iOS 16.4, *) {
+            #if DEBUG
                 webView.isInspectable = true
-            }
-        #endif
+            #else
+                webView.isInspectable = devToolsEnabled
+            #endif
+        }
 
         return webView
     }

@@ -1,9 +1,10 @@
 /**
  * DevLog — lightweight event bus for network message logging.
- * Only active in staging builds. No-op in production.
+ * Only active while developer tools are enabled (Settings → Developer tools;
+ * defaults on in staging). No-op otherwise.
  */
 
-const isStaging = import.meta.env.VITE_STAGING === "true";
+import { isDevToolsEnabled } from "@/lib/devTools";
 
 export type NetDirection = "send" | "recv";
 
@@ -33,7 +34,7 @@ export function logNet(
   msg: { type: string },
   sizeBytes: number,
 ) {
-  if (!isStaging) return;
+  if (!isDevToolsEnabled()) return;
 
   const summary = buildSummary(msg as Record<string, unknown>);
 

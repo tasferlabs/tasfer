@@ -49,7 +49,11 @@ import type {
 } from "../rendering/nodes/Node";
 import { hitRegion } from "../rendering/nodes/Node";
 import { invalidateBlockCache } from "../rendering/renderer";
-import { clearSelection, moveCursorToPosition } from "../selection";
+import {
+  clearSelection,
+  getVisualBlockSelectionIndex,
+  moveCursorToPosition,
+} from "../selection";
 import { escapeAttr } from "../serlization/codecs/inline";
 import type { NodeCodec } from "../serlization/codecs/types";
 import type { Block } from "../serlization/loadPage";
@@ -547,6 +551,11 @@ export class ImageNode extends AtomicNode<Image> {
         priority: 60,
         modes: ["edit", "select"],
         hitTest: (p, pointerType): ImageResizeHit | null => {
+          // A readonly document is never resizable. `isReadonlyBase` persists
+          // through `select` mode (which a readonly editor uses for
+          // drag-selection), so gate on it rather than `mode === "readonly"`
+          // to keep the resize drag inert there as well.
+          if (c.state.ui.isReadonlyBase) return null;
           const block = c.block as Image;
           if (!block.url) return null;
           const box = this.hitTestBox(c, c.origin, p);
@@ -999,14 +1008,29 @@ export class ImageNode extends AtomicNode<Image> {
   ): void {
     const { state, blockIndex } = c;
     const block = c.block as Image;
-    // The active resize handle (while dragging) lives in this block's transient
-    // view-state; hover handles live in `ui.imageHover`.
+    // A readonly document can't be resized, so never surface the resize chrome —
+    // not on hover, selection, or an in-flight drag. Gate on `isReadonlyBase`
+    // (not `mode === "readonly"`): a readonly editor can still enter `select`
+    // mode for drag-selection, and the handles must stay hidden there too.
+    if (state.ui.isReadonlyBase) return;
+    // Handles are painted in three situations, in priority order:
+    //  - mid-resize: the active handle lives in this block's transient view-state
+    //    (`resizeHandle`) and is highlighted;
+    //  - hover: the pointer is over the image (`ui.imageHover`), highlighting
+    //    whichever handle it is near;
+    //  - selected: the image is the current visual-block selection, so the
+    //    handles show un-highlighted to tell the user where they can drag.
+    // Hover is mouse-only and cleared when the pointer leaves the canvas; the
+    // selected case is what surfaces handles on touch (and keeps them up while a
+    // selected image is just sitting there) without depending on hover state.
     const draggingHandle = (
       state.ui.nodeViewState[block.id] as ImageViewState | undefined
     )?.resizeHandle;
     const isHovering =
       !!state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex;
-    const shouldRender = (isHovering || !!draggingHandle) && !!block.url;
+    const isSelected = getVisualBlockSelectionIndex(state) === blockIndex;
+    const shouldRender =
+      (isHovering || !!draggingHandle || isSelected) && !!block.url;
     if (!shouldRender) return;
 
     let hoveredHandle: "left" | "right" | "bottom" | null = null;

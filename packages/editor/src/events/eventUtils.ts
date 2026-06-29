@@ -151,6 +151,7 @@ export function isWithinClickDistance(
 function getSelectionHandlePositions(
   state: EditorState,
   viewport: ViewportState,
+  visibility?: VisibleBlockRange,
 ): {
   anchor: { x: number; y: number; height: number; isTop: boolean } | null;
   focus: { x: number; y: number; height: number; isTop: boolean } | null;
@@ -160,12 +161,21 @@ function getSelectionHandlePositions(
     return null;
   }
 
+  const styles = getEditorStyles(state);
   const anchorCoords = getCursorDocumentCoords(
     selection.anchor,
     state,
     viewport,
+    styles,
+    visibility,
   );
-  const focusCoords = getCursorDocumentCoords(selection.focus, state, viewport);
+  const focusCoords = getCursorDocumentCoords(
+    selection.focus,
+    state,
+    viewport,
+    styles,
+    visibility,
+  );
 
   if (!anchorCoords || !focusCoords) {
     return null;
@@ -198,8 +208,13 @@ export function getSelectionHandleAtPoint(
   touchY: number,
   state: EditorState,
   viewport: ViewportState,
+  visibility?: VisibleBlockRange,
 ): "anchor" | "focus" | null {
-  const handlePositions = getSelectionHandlePositions(state, viewport);
+  const handlePositions = getSelectionHandlePositions(
+    state,
+    viewport,
+    visibility,
+  );
   if (!handlePositions) {
     return null;
   }

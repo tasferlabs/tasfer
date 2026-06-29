@@ -13,7 +13,6 @@ import {
 import { TEXT_CLICK } from "../actions/pointer-actions";
 import {
   CLOSE_NODE_OVERLAY,
-  FINISH_SELECT_MODE,
   isVisualBlockSelection,
   OPEN_CONTEXT_MENU_AT,
   OPEN_NODE_OVERLAY,
@@ -39,12 +38,17 @@ import { endScrollbarDrag } from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
+  hasActiveSelectionHighlight,
   isPointWithinSelectionRects,
 } from "../selection";
 import { updateCursor } from "../selection";
-import { startSelection } from "../selection";
-import type { EditorState, Position, ViewportState } from "../state-types";
-import { closeActiveMenu, updateMode } from "../state-utils";
+import type {
+  EditorState,
+  Position,
+  ViewportState,
+  VisibleBlockRange,
+} from "../state-types";
+import { closeActiveMenu } from "../state-utils";
 import { getEditorStyles } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
@@ -70,10 +74,20 @@ export function handleTouchStart(
   containerRect: { left: number; top: number },
   documentHeight: number,
   session: InteractionSession,
+  visibility?: VisibleBlockRange,
 ): EditorState {
   // In suspended mode, block touch interactions that might lead to scrolling
   if (state.ui.mode === "suspended") {
     return state;
+  }
+
+  // Image hover handles are a mouse-only affordance set on `mousemove` and never
+  // touched by the touch path, so a lingering value is stale from an earlier
+  // mouse session on a hybrid device — it would leave handles painted on an
+  // image the finger never went near. Drop it as soon as a touch begins; a
+  // touch-selected image surfaces its handles through the selection gate.
+  if (state.ui.imageHover) {
+    state = { ...state, ui: { ...state.ui, imageHover: null } };
   }
 
   // Handle two-finger scroll
@@ -134,7 +148,13 @@ export function handleTouchStart(
     // handles) — highest-priority hit wins. A hold-gated drag (scrollbar
     // thumb) returns "pending": the touch keeps behaving as a normal
     // scroll/tap until tickPendingCapture promotes it after the hold delay.
-    const regionCtx: RegionCtx = { state, viewport, documentHeight, session };
+    const regionCtx: RegionCtx = {
+      state,
+      viewport,
+      documentHeight,
+      session,
+      visibility,
+    };
     const point = { x: canvasX, y: canvasY };
     const claim = hitTestAllRegions(point, "touch", regionCtx);
     let holdPending = false;
@@ -153,6 +173,8 @@ export function handleTouchStart(
       canvasY,
       state,
       viewport,
+      undefined,
+      visibility,
     );
 
     // While a hold-gated chrome drag is pending, the touch still scrolls and
@@ -180,18 +202,22 @@ export function handleTouchStart(
       };
     } else {
       // Regular touch (not on scrollbar)
-      // Check if touch is near the cursor for cursor drag mode
+      // Check if touch is near the cursor for cursor drag mode. Only with a
+      // plain caret — a range or visual/atomic block selection has no caret to
+      // grab, and the loupe must not pop over it.
       let isTouchingCursor = false;
       if (
         state.document.cursor &&
         !isTouchingSelection &&
-        (!state.document.selection || state.document.selection.isCollapsed) &&
+        !hasActiveSelectionHighlight(state) &&
         state.ui.mode !== "readonly"
       ) {
         const cursorCoords = getCursorDocumentCoords(
           state.document.cursor.position,
           state,
           viewport,
+          undefined,
+          visibility,
         );
         if (cursorCoords) {
           // Convert document coords to viewport coords
@@ -259,6 +285,7 @@ export function handleTouchMove(
   documentHeight: number,
   session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
+  visibility?: VisibleBlockRange,
 ): EditorState {
   // In suspended mode, block scrolling
   if (state.ui.mode === "suspended") {
@@ -281,6 +308,12 @@ export function handleTouchMove(
         documentHeight,
         session,
         updateViewport: updateViewportCallback,
+        // A captured drag (e.g. a selection handle) re-resolves the pointer to a
+        // document position every move; without the painted-visibility anchor it
+        // walks exact heights from block 0, which diverges from the estimate-
+        // anchored paint on a long scrolled document (wrapped list/todo items
+        // mis-estimate) — so the handle would jump far from the finger.
+        visibility,
       },
     );
     return result ? result.state : state;
@@ -469,6 +502,8 @@ export function handleTouchMove(
         canvasY,
         state,
         viewport,
+        undefined,
+        visibility,
       );
 
       if (newPosition) {
@@ -535,66 +570,24 @@ export function handleTouchMove(
       }
     }
 
-    // Handle long press text selection mode
-    // Block long-press text selection in readonly mode
+    // A long-hold that set isLongPress (editable mode) is always a hold on an
+    // existing selection — the context menu is up (host-owned). A hold on non-
+    // selected content enters cursor-drag instead, handled by the isCursorDrag
+    // branch above. While the host menu captures the pointer, forward the raw
+    // client point so it can hit-test its own items for the drag-to-item
+    // gesture; otherwise just hold in place until release.
     if (session.touch.isLongPress && state.ui.mode !== "readonly") {
-      // If a host context menu is capturing the pointer, allow drag-and-release
-      // interaction — don't start text selection (the user might be dragging to
-      // a menu item). The host owns the menu, so forward the raw client point
-      // and let it hit-test its own items / update its hover highlight.
       if (session.hostMenuCapturing) {
-        session.touch.lastY = canvasY;
-        session.touch.lastTime = currentTime;
-
         const touch = event.touches[0];
         state.actionBus.dispatch(CONTEXT_MENU_POINTER_MOVE, {
           clientX: touch.clientX,
           clientY: touch.clientY,
         });
-
-        return state;
       }
 
-      // Long pressed on non-selected text: enable drag selection
-      if (!session.touch.isTouchingSelection) {
-        // Start selection mode if not already in it
-        if (state.ui.mode !== "select") {
-          const position = getTextPositionFromViewport(
-            session.touch.startX,
-            session.touch.startY,
-            state,
-            viewport,
-          );
-
-          if (position) {
-            state = startSelection(state, position);
-            state = updateMode(state, "select");
-          }
-        }
-
-        if (!session.autoScroll.isActive) {
-          startAutoScroll(session);
-        }
-
-        session.touch.lastY = canvasY;
-        session.touch.lastTime = currentTime;
-
-        return {
-          ...state,
-          view: {
-            ...state.view,
-            scrollbar: {
-              ...state.view.scrollbar,
-              lastInteraction: Date.now(),
-            },
-          },
-        };
-      } else {
-        // Long pressing on selection - don't start auto-scroll, just wait for touchend
-        session.touch.lastY = canvasY;
-        session.touch.lastTime = currentTime;
-        return state;
-      }
+      session.touch.lastY = canvasY;
+      session.touch.lastTime = currentTime;
+      return state;
     }
 
     // Default: Handle scrolling
@@ -674,6 +667,7 @@ export function handleTouchEnd(
   session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   scrollPositionIntoView?: (position: Position) => void,
+  visibility?: VisibleBlockRange,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   stopAutoScroll(session);
@@ -689,6 +683,7 @@ export function handleTouchEnd(
       viewport,
       documentHeight,
       session,
+      visibility,
     });
     return {
       state: endResult ? endResult.state : state,
@@ -818,26 +813,10 @@ export function handleTouchEnd(
         },
         ops,
       };
-    } else if (state.ui.mode === "select") {
-      // Long press created a new selection (user dragged) - exit select mode
-      state = state.actionBus.dispatchState(FINISH_SELECT_MODE, state).state;
-      session.touch = null;
-
-      return {
-        state: {
-          ...state,
-          view: {
-            ...state.view,
-            scrollbar: {
-              ...state.view.scrollbar,
-              lastInteraction: Date.now(),
-            },
-          },
-        },
-        ops,
-      };
     } else {
-      // Long press on non-selected text but user didn't drag - show context menu now
+      // Plain long-press without a drag (readonly, or a hold that couldn't
+      // resolve a caret position) — show the context menu now. Editable holds on
+      // content enter cursor-drag instead and open their menu from that branch.
       state = state.actionBus.dispatchState(OPEN_CONTEXT_MENU_AT, state, {
         point: {
           x: session.touch.currentTouchX,
@@ -902,6 +881,7 @@ export function handleTouchEnd(
       session,
       updateViewport: updateViewportCallback,
       scrollPositionIntoView,
+      visibility,
     };
     const tapClaim = hitTestAllRegions(
       { x: tapPosition.x, y: tapPosition.y },
@@ -970,6 +950,8 @@ export function handleTouchEnd(
         tapPosition.y,
         state,
         viewport,
+        undefined,
+        visibility,
       );
 
       if (paddingPosition) {
@@ -1000,6 +982,8 @@ export function handleTouchEnd(
       tapPosition.y,
       state,
       viewport,
+      undefined,
+      visibility,
     );
 
     // Where the *previous* tap resolved, captured before we overwrite it below.
@@ -1044,6 +1028,8 @@ export function handleTouchEnd(
           tapPosition.y,
           state,
           viewport,
+          undefined,
+          visibility,
         );
         if (atomicHit) {
           // Ask the node whether activation opens a host overlay (a placeholder
@@ -1358,11 +1344,6 @@ export function handleTouchCancel(
   // End cursor drag if active — let observers (e.g. a host magnifier) tear down.
   if (session.touch?.isCursorDrag) {
     state.actionBus.dispatch(CURSOR_DRAG_END);
-  }
-
-  // If we were in long press text selection mode, exit select mode
-  if (session.touch?.isLongPress && state.ui.mode === "select") {
-    state = updateMode(state, "edit");
   }
 
   // Clear touch state

@@ -116,6 +116,8 @@ function PageSettingsImpl({
   const {
     fontStyle,
     setFontStyle,
+    editorWidth,
+    setEditorWidth,
     showWordCount,
     setShowWordCount,
     wordCount,
@@ -216,6 +218,23 @@ function PageSettingsImpl({
           ))}
         </div>
       </div>
+
+      {/* Full-width toggle is desktop/wide-device only: on mobile the column
+          already fills the viewport, so there is no width to trade off. */}
+      {!isMobile && (
+        <div className="flex items-center justify-between px-4 pb-6">
+          <label htmlFor="full-width-toggle" className="text-sm font-medium">
+            {t("settings.fullWidth", "Full width")}
+          </label>
+          <Switch
+            id="full-width-toggle"
+            checked={editorWidth === "wide"}
+            onCheckedChange={(checked) =>
+              setEditorWidth(checked ? "wide" : "narrow")
+            }
+          />
+        </div>
+      )}
 
       <div className="space-y-3 py-6 border-t border-border px-4">
         <div className="flex items-center justify-between">

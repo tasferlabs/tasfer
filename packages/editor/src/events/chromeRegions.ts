@@ -9,10 +9,12 @@
  * pointer types, with per-pointer hit slop in its own hitTest.
  */
 
+import { CURSOR_DRAG_END } from "../action-bus";
 import { MOVE_BLOCK } from "../actions/edit-actions";
 import {
   BLOCK_DRAG_HANDLE_HIT_WIDTH,
   EDGE_SCROLL_THRESHOLD,
+  MOVEMENT_THRESHOLD,
   SCROLLBAR_HOLD_DURATION,
   SCROLLBAR_TOUCH_BUFFER,
 } from "../constants";
@@ -36,6 +38,7 @@ import type { EditorState } from "../state-types";
 import { getEditorStyles } from "../styles";
 import { getAtomicBlockAtPoint, getSelectionHandleAtPoint } from "./eventUtils";
 import {
+  type InteractionSession,
   startAutoScroll,
   stopAutoScroll,
   withScrollbarInteraction,
@@ -157,6 +160,18 @@ const scrollbarTrackRegion: Region = {
   },
 };
 
+/**
+ * Tear down the selection-handle magnifier loupe at the end of a handle drag:
+ * emit the matching CURSOR_DRAG_END (only if it was ever shown) and drop the
+ * transient session state. Shared by the drag's onEnd and onCancel.
+ */
+function endHandleLoupe(state: EditorState, session: InteractionSession): void {
+  if (session.handleDragLoupe?.shown) {
+    state.actionBus.dispatch(CURSOR_DRAG_END);
+  }
+  session.handleDragLoupe = null;
+}
+
 /** Touch selection handles (anchor/focus) — drag to adjust the selection. */
 const selectionHandleRegion: Region = {
   id: "selection-handle",
@@ -164,19 +179,59 @@ const selectionHandleRegion: Region = {
   modes: ["edit", "select"],
   hitTest(p, pointerType, ctx) {
     if (pointerType !== "touch") return null;
-    return getSelectionHandleAtPoint(p.x, p.y, ctx.state, ctx.viewport);
+    return getSelectionHandleAtPoint(
+      p.x,
+      p.y,
+      ctx.state,
+      ctx.viewport,
+      ctx.visibility,
+    );
   },
   drag: {
     onStart(hit, p, ctx) {
-      const handleType = hit as "anchor" | "focus";
+      // The handle under the finger becomes the focus — the moving end — and the
+      // opposite handle becomes the anchor, the fixed base. Grabbing the "anchor"
+      // handle therefore swaps the stored endpoints so the drag always moves the
+      // focus; the swap is visually identical (same span and highlight
+      // direction) but keeps `selection.focus` and the caret tracking the held
+      // handle, so a later keyboard shift-extension continues from there.
+      const grabbedAnchorHandle = (hit as "anchor" | "focus") === "anchor";
+      // Start the loupe timer at grab. The per-frame tick in handleEvents shows
+      // the magnifier once this hold outlives CURSOR_DRAG_ACTIVATION_DELAY and
+      // tracks the handle from the coords kept current in onMove.
+      ctx.session.handleDragLoupe = {
+        startTime: Date.now(),
+        shown: false,
+        x: p.x,
+        y: p.y,
+      };
+
+      let state = ctx.state;
+      const sel = state.document.selection;
+      if (grabbedAnchorHandle && sel) {
+        state = {
+          ...state,
+          document: {
+            ...state.document,
+            selection: {
+              anchor: sel.focus,
+              focus: sel.anchor,
+              isForward: !sel.isForward,
+              isCollapsed: sel.isCollapsed,
+              lastUpdate: Date.now(),
+            },
+            cursor: { position: sel.anchor, lastUpdate: Date.now() },
+          },
+        };
+      }
+
       return {
         state: withScrollbarInteraction(
           withStoppedMomentum({
-            ...ctx.state,
+            ...state,
             ui: {
-              ...ctx.state.ui,
+              ...state.ui,
               selectionHandleDrag: {
-                handleType,
                 startX: p.x,
                 startY: p.y,
               },
@@ -209,6 +264,8 @@ const selectionHandleRegion: Region = {
         p.y,
         state,
         viewport,
+        undefined,
+        ctx.visibility,
       );
 
       let next = state;
@@ -217,44 +274,63 @@ const selectionHandleRegion: Region = {
         state.document.selection &&
         state.ui.selectionHandleDrag
       ) {
-        const { handleType } = state.ui.selectionHandleDrag;
-        const { anchor, focus } = state.document.selection;
-
-        const newAnchor = handleType === "anchor" ? newPosition : anchor;
-        const newFocus = handleType === "anchor" ? focus : newPosition;
+        // The dragged handle is always the focus (set up in onStart); the anchor
+        // is the opposite, fixed endpoint.
+        const { anchor } = state.document.selection;
+        const newFocus = newPosition;
 
         const isForward =
-          newAnchor.blockIndex < newFocus.blockIndex ||
-          (newAnchor.blockIndex === newFocus.blockIndex &&
-            newAnchor.textIndex <= newFocus.textIndex);
+          anchor.blockIndex < newFocus.blockIndex ||
+          (anchor.blockIndex === newFocus.blockIndex &&
+            anchor.textIndex <= newFocus.textIndex);
 
         const isCollapsed =
-          newAnchor.blockIndex === newFocus.blockIndex &&
-          newAnchor.textIndex === newFocus.textIndex;
+          anchor.blockIndex === newFocus.blockIndex &&
+          anchor.textIndex === newFocus.textIndex;
 
         next = {
           ...state,
           document: {
             ...state.document,
             selection: {
-              anchor: newAnchor,
+              anchor,
               focus: newFocus,
               isForward,
               isCollapsed,
               lastUpdate: Date.now(),
             },
             cursor: {
-              position: handleType === "anchor" ? newAnchor : newFocus,
+              position: newFocus,
               lastUpdate: Date.now(),
             },
           },
         };
       }
 
+      // The loupe is a dwell affordance (iOS-style): if the finger starts
+      // dragging straight away — past the movement threshold before the loupe has
+      // shown — cancel it for this drag, so only a deliberate hold-before-drag
+      // brings it up. Once shown, movement simply repositions it.
+      const loupe = session.handleDragLoupe;
+      if (loupe) {
+        const grab = state.ui.selectionHandleDrag;
+        if (
+          !loupe.shown &&
+          grab &&
+          Math.hypot(p.x - grab.startX, p.y - grab.startY) > MOVEMENT_THRESHOLD
+        ) {
+          session.handleDragLoupe = null;
+        } else {
+          loupe.x = p.x;
+          loupe.y = p.y;
+        }
+      }
+
       return { state: withScrollbarInteraction(next) };
     },
     onEnd(_p, ctx) {
       stopAutoScroll(ctx.session);
+      endHandleLoupe(ctx.state, ctx.session);
       return {
         state: withScrollbarInteraction({
           ...ctx.state,
@@ -264,6 +340,7 @@ const selectionHandleRegion: Region = {
     },
     onCancel(ctx) {
       stopAutoScroll(ctx.session);
+      endHandleLoupe(ctx.state, ctx.session);
       return {
         ...ctx.state,
         ui: { ...ctx.state.ui, selectionHandleDrag: null },

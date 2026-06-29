@@ -266,9 +266,10 @@ export type ActiveFormatsMode =
 // Drag handle position on an image
 export type DragHandlePosition = "left" | "right" | "bottom" | null;
 
-// Drag state for selection handle (mobile text selection)
+// Drag state for selection handle (mobile text selection). The handle under the
+// finger is always the selection focus (the opposite handle is the fixed
+// anchor), so the dragged endpoint is unambiguous and needs no stored type.
 export interface SelectionHandleDragState {
-  readonly handleType: "anchor" | "focus";
   readonly startX: number;
   readonly startY: number;
 }
@@ -677,6 +678,13 @@ export interface VisibleBlockRange {
   end: number;
   /** Viewport-space top of `start`, including scroll offset. */
   startY: number;
+  /**
+   * The `viewport.scrollY` this snapshot was painted at. `startY` is only valid
+   * for that scroll; consumers that hit-test against a (possibly newer) live
+   * viewport must re-base `startY` by the scroll delta. Undefined on the
+   * pre-first-paint placeholder.
+   */
+  scrollY?: number;
 }
 
 export interface TouchState {

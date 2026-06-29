@@ -816,7 +816,7 @@ export function EventPreview({
         }}
         modal={false}
       >
-        <DrawerContent className="h-[90vh] p-0">
+        <DrawerContent className="md:h-[90vh] p-0">
           <div className={style.previewPopoverHeader}>
             {pageId && (
               <Link to={`/page/${pageId}`} className={style.previewOpenLink}>

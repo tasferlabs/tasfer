@@ -25,6 +25,7 @@ import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
   getSelectionPlainText,
+  type HostClipboard,
   pasteFromSystemClipboard,
 } from "../actions/clipboard";
 import { COPY, CUT } from "../actions/input-actions";
@@ -39,12 +40,12 @@ import {
 import { onFontsReady } from "../fonts";
 import {
   computeSurfaceDelta,
-  currentWordStart,
   isEmptyDelta,
   isWordBoundaryChar,
+  sentenceStartOffset,
   SURFACE_SENTINEL,
 } from "../input-diff";
-import { getBlockTextContent } from "../node-shared";
+import { getBlockTextContent, isIOS } from "../node-shared";
 import {
   type BlockData as RuntimeBlockData,
   docMarks,
@@ -799,6 +800,16 @@ export interface EditorWiring {
    */
   setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
   /**
+   * Route `copy`/`cut`/`paste` through a host-supplied clipboard instead of
+   * `navigator.clipboard`. Native shells (iOS/Android WebViews) set this: their
+   * async clipboard API is gated by a transient user activation a programmatic
+   * clipboard op — e.g. one fired from a native context-menu callback — can't
+   * satisfy, so it silently fails. Pass `null` to revert to the browser
+   * clipboard (the web default). Engine-internal plumbing, off the public
+   * {@link EditorApi}; reached via `EditorClass` from `@cypherkit/editor/internal`.
+   */
+  setClipboard: (clipboard: HostClipboard | null) => void;
+  /**
    * Raw state firehose — the listener receives the full internal
    * {@link EditorState} after each render-loop diff and on direct notifications.
    * The public {@link EditorApi.subscribe} is the snapshot-delivering wrapper
@@ -868,6 +879,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // Broadcast function for sending operations to peers
   private broadcastFn: ((ops: Operation[]) => void) | null = null;
 
+  // Host-supplied clipboard (native shells); null → use navigator.clipboard.
+  private clipboard: HostClipboard | null = null;
+
   // Change-event channel. `on("change")` listeners receive a ChangeTransaction
   // ({ isRemote, ops }); this is distinct from the state-diff subscribe() path
   // that backs selectionchange/focus/blur.
@@ -908,14 +922,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // ── Input-surface mirror (per-instance) ─────────────────────────────────────
   // `hiddenInput` is a contenteditable surface that holds either the current
   // selection's text (so native copy/cut and screen readers see real content) or
-  // the SENTINEL followed by the word being typed, caret placed AFTER it. The
-  // leading sentinel keeps Android GBoard emitting `deleteContentBackward` on
-  // backspace and is a real word boundary so the keyboard predicts/autocorrects
-  // the word (see SURFACE_SENTINEL). All programmatic DOM mutation is wrapped in
+  // the SENTINEL followed by the current sentence up to the caret (the word being
+  // typed plus its left-context), caret placed AFTER it. The leading sentinel
+  // keeps Android GBoard emitting `deleteContentBackward` on backspace; the
+  // sentence context lets the keyboard apply its own autocapitalization and
+  // predict/autocorrect the word (see SURFACE_SENTINEL). On iOS the sentinel is
+  // empty: WebKit emits a real Backspace `keydown` (so the sentinel isn't needed
+  // for delete) and a leading space would stop it from capitalizing the first
+  // word of a sentence. All programmatic DOM mutation is wrapped in
   // `isMirrorUpdating` so the resulting input/selection events aren't mistaken
   // for user edits, and `lastSelectionSig` avoids recomputing the (potentially
   // large) selection text on every render frame.
-  private readonly SENTINEL = SURFACE_SENTINEL;
+  private readonly SENTINEL = isIOS() ? "" : SURFACE_SENTINEL;
   private isMirrorUpdating = false;
   private lastSelectionSig: string | null = null;
   // The last surface text the editor observed or wrote (always begins with the
@@ -1038,6 +1056,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.contentCanvas.addEventListener("mousedown", this.eventsHandler);
       this.contentCanvas.addEventListener("mousemove", this.eventsHandler);
       this.contentCanvas.addEventListener("mouseup", this.eventsHandler);
+      // Clear hover-driven chrome (image handles, link/math hovers) when the
+      // pointer leaves the canvas; without this they stay painted until the
+      // next mousemove, which never comes once the cursor is gone.
+      this.contentCanvas.addEventListener("mouseleave", this.eventsHandler);
       this.contentCanvas.addEventListener("wheel", this.eventsHandler, {
         passive: false,
       });
@@ -1620,6 +1642,20 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       e.preventDefault();
     }
 
+    // Keep focus on the hidden input across a primary-button press. The canvas
+    // isn't focusable, so WebKit's default mousedown action moves focus to
+    // <body> — and that runs *after* `canvasClickHandler` re-focuses the input,
+    // so the input is blurred a moment later. That stray blur schedules the
+    // deferred selection-clear, which on a drag longer than the clear delay fires
+    // mid-gesture and collapses the in-progress selection (the anchor then
+    // re-pins at the pointer). Suppressing the default keeps focus put; the
+    // explicit `focus()` in `canvasClickHandler` still runs. Right-click is left
+    // alone (its focus/context-menu path is handled separately), and
+    // selectstart/dragstart are already prevented on the canvas.
+    if (e.type === "mousedown" && (e as MouseEvent).button === 0) {
+      e.preventDefault();
+    }
+
     // Paste is handled by the contenteditable surface's `paste` listener
     // (pasteHandler), which extracts the clipboard data synchronously and
     // queues the event. eventsHandler no longer receives paste/keydown.
@@ -1659,9 +1695,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // or popover took focus), but the selection must survive — its actions (copy,
     // cut, formatting) still target it. The menu clears `hostMenuCapturing` via
     // CLOSE_CONTEXT_MENU, and a later real blur schedules the clear as usual.
+    // A mid-drag blur must never tear down the selection being built. The
+    // desktop selection mirror (and other focus churn) can momentarily blur the
+    // hidden input while the pointer is still down; if the deferred clear then
+    // fires before focus returns, `updateSelectionFocus` sees a null selection on
+    // the next move and re-anchors at the pointer — collapsing everything dragged
+    // so far ("less selection, not where I started"). An in-progress drag owns
+    // the selection until mouseup flips the mode back to `edit`.
     if (
       !focused &&
       this._state.document.selection !== null &&
+      this._state.ui.mode !== "select" &&
       !this.session.hostMenuCapturing
     ) {
       this.scheduleSelectionClearOnBlur();
@@ -1691,6 +1735,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // A host menu opened after this was scheduled — keep the selection alive
       // for its actions until the menu closes.
       if (this.session.hostMenuCapturing) return;
+      // A drag-select started after this was scheduled — never clear the
+      // selection out from under an in-progress gesture (it would re-anchor at
+      // the pointer on the next move).
+      if (this._state.ui.mode === "select") return;
       if (this._state.document.selection === null) return;
       this._state = clearSelection(this._state);
       this.scheduleRender();
@@ -1901,8 +1949,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   //   • Non-collapsed selection → mirror its plain text (selected), so native
   //     copy/cut and screen readers operate on real content. Recomputed only
   //     when the selection changes (the text can be large).
-  //   • Caret → mirror "sentinel + the word under the caret", derived from the
-  //     document. When the surface ALREADY equals that, it is left untouched —
+  //   • Caret → mirror "sentinel + the current sentence up to the caret", derived
+  //     from the document. When the surface ALREADY equals that, it is left untouched —
   //     rewriting an already-correct surface tears down the OS predictive-text /
   //     autocorrect session, which is exactly what used to make autocomplete
   //     dead. The surface is only rewritten when it has drifted (caret moved,
@@ -1966,8 +2014,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.resetSentinel();
       return;
     }
-    const wordStart = currentWordStart(text, caret.offset);
-    const target = this.SENTINEL + text.slice(wordStart, caret.offset);
+    // Mirror from the start of the current sentence (not just the current word)
+    // up to the caret. The OS keyboard decides autocapitalization by reading the
+    // text before the cursor, so it needs the real left-context: with only the
+    // bare word it saw every word at the field start and capitalized each one
+    // (glaringly in list items). `sentenceStartOffset` is stable while typing
+    // within a sentence — it only moves when a sentence ends — so the surface
+    // the keyboard already built is left untouched between keystrokes, keeping
+    // the predictive-text/autocorrect session alive.
+    const contextStart = sentenceStartOffset(text, caret.offset);
+    const target = this.SENTINEL + text.slice(contextStart, caret.offset);
 
     const current = this.hiddenInput.textContent ?? "";
     if (current === target && document.activeElement === this.hiddenInput) {
@@ -2095,23 +2151,27 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
+    // Diff against the whole mirrored region (sentence context + word), matching
+    // what the surface holds. The shared context is a common prefix, so the delta
+    // still localizes to the changed word; absolute offsets are taken from
+    // `contextStart`.
     const text = getBlockTextContent(block);
-    const wordStart = currentWordStart(text, caret.offset);
-    const docWord = text.slice(wordStart, caret.offset);
-    const newWord = newSurface.startsWith(this.SENTINEL)
+    const contextStart = sentenceStartOffset(text, caret.offset);
+    const docRegion = text.slice(contextStart, caret.offset);
+    const newRegion = newSurface.startsWith(this.SENTINEL)
       ? newSurface.slice(this.SENTINEL.length)
       : newSurface;
 
-    const delta = computeSurfaceDelta(docWord, newWord);
+    const delta = computeSurfaceDelta(docRegion, newRegion);
     if (isEmptyDelta(delta)) {
       this.lastSurfaceValue = newSurface;
       return;
     }
 
     const blockId = block.id;
-    const from = wordStart + delta.deleteStart;
-    const to = wordStart + delta.deleteEnd;
-    const caretOffset = wordStart + newWord.length;
+    const from = contextStart + delta.deleteStart;
+    const to = contextStart + delta.deleteEnd;
+    const caretOffset = contextStart + newRegion.length;
 
     this.change((c) => {
       c.insertText(delta.insert, {
@@ -2126,7 +2186,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Handle input from the contenteditable surface (mobile keyboard + desktop
   // character input flow through here as InputEvents). The surface holds
-  // "sentinel + current word"; this classifies how it changed and routes plain
+  // "sentinel + current sentence up to the caret"; this classifies how it changed and routes plain
   // typing / single backspaces through the synthetic-key pipeline (unchanged
   // behavior) while applying autocorrect/predictive replacements as one edit.
   private hiddenInputHandler = (e: Event) => {
@@ -2204,9 +2264,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // The surface lost its leading sentinel.
     if (!newSurface.startsWith(this.SENTINEL)) {
       if (isBackwardDelete) {
-        // The delete reached past the word start (the word was already empty):
-        // let the document Backspace handle the block merge / outdent, then
-        // restore the sentinel.
+        // The delete consumed the whole mirrored region (it was just the bare
+        // sentinel — caret at a sentence start with no context): let the
+        // document Backspace handle it (char delete, or block merge / outdent at
+        // offset 0), then restore the sentinel.
         this.queueSyntheticKey("Backspace");
         this.scheduleRender();
         this.resetSentinel();
@@ -2217,23 +2278,27 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
-    const prevWord = this.lastSurfaceValue.startsWith(this.SENTINEL)
+    // The mirrored region (sentence context + word). Its context prefix is
+    // identical between frames while typing within a sentence, so an append /
+    // single backspace shows up as a one-character change at the end exactly as
+    // it did when the surface held only the word.
+    const prevRegion = this.lastSurfaceValue.startsWith(this.SENTINEL)
       ? this.lastSurfaceValue.slice(sentinelLen)
       : "";
-    const newWord = newSurface.slice(sentinelLen);
+    const newRegion = newSurface.slice(sentinelLen);
 
     // No textual change (e.g. a caret-only input event).
-    if (newWord === prevWord) {
+    if (newRegion === prevRegion) {
       this.lastSurfaceValue = newSurface;
       return;
     }
 
-    // Plain typing — characters appended at the end of the word. Route through
-    // the synthetic-key path so autoformat/plugins run as for hardware keys.
+    // Plain typing — characters appended at the end. Route through the
+    // synthetic-key path so autoformat/plugins run as for hardware keys.
     if (
       it === "insertText" &&
       inputEvent.data != null &&
-      newWord === prevWord + inputEvent.data
+      newRegion === prevRegion + inputEvent.data
     ) {
       for (const char of inputEvent.data) this.queueSyntheticKey(char);
       this.scheduleRender();
@@ -2241,11 +2306,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
-    // Single-character backspace within the word — same synthetic path.
+    // Single-character backspace at the caret — same synthetic path. (Deletes
+    // the word's last char, or a context space when the word is empty; the
+    // document Backspace handles either at the real caret offset.)
     if (
       isBackwardDelete &&
-      newWord.length === prevWord.length - 1 &&
-      prevWord.startsWith(newWord)
+      newRegion.length === prevRegion.length - 1 &&
+      prevRegion.startsWith(newRegion)
     ) {
       this.queueSyntheticKey("Backspace");
       this.scheduleRender();
@@ -2253,9 +2320,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
-    // Everything else within the word — an autocorrect swap, a predictive-text
-    // completion, or a multi-character (word) delete — is a replacement of the
-    // current word, applied as one document edit.
+    // Everything else — an autocorrect swap, a predictive-text completion, or a
+    // multi-character (word) delete — is a replacement of the current word,
+    // applied as one document edit.
     this.applySurfaceReplacement(newSurface);
   };
 
@@ -2617,6 +2684,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.contentCanvas.removeEventListener("mousedown", this.eventsHandler);
       this.contentCanvas.removeEventListener("mousemove", this.eventsHandler);
       this.contentCanvas.removeEventListener("mouseup", this.eventsHandler);
+      this.contentCanvas.removeEventListener("mouseleave", this.eventsHandler);
       this.contentCanvas.removeEventListener("pointerdown", this.eventsHandler);
       this.contentCanvas.removeEventListener("pointermove", this.eventsHandler);
       this.contentCanvas.removeEventListener("pointerup", this.eventsHandler);
@@ -3562,7 +3630,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // the live selection only moves when `selectRange` is set.
     const working =
       docRange != null ? selectTarget(this._state, docRange) : this._state;
-    const success = await copySelectionToClipboard(working);
+    const success = await copySelectionToClipboard(
+      working,
+      this.clipboard ?? undefined,
+    );
     const moveSelection = success && docRange != null && !!selectRange;
     this._state = closeActiveMenu(
       moveSelection ? updateMode(working, "edit") : this._state,
@@ -3585,7 +3656,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       docRange != null && !selectRange ? docSelection(this._state) : null;
     const working =
       docRange != null ? selectTarget(this._state, docRange) : this._state;
-    const result = await cutSelectionToClipboard(working);
+    const result = await cutSelectionToClipboard(
+      working,
+      this.clipboard ?? undefined,
+    );
     if (result.success && result.result) {
       // `deleteSelectedText` collapses the caret at the cut point. Restore the
       // pre-cut selection (block-id anchored, offset-clamped) when requested.
@@ -3604,7 +3678,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   paste = async (): Promise<boolean> => {
-    const result = await pasteFromSystemClipboard(this._state);
+    const result = await pasteFromSystemClipboard(
+      this._state,
+      this.clipboard ?? undefined,
+    );
     if (result) {
       this.executeAction(result);
       // Mirror the synchronous Cmd/Ctrl+V path (see the IMAGE_PASTE dispatch in
@@ -4172,6 +4249,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   setBroadcast = (fn: ((ops: Operation[]) => void) | null): void => {
     this.broadcastFn = fn;
+  };
+
+  setClipboard = (clipboard: HostClipboard | null): void => {
+    this.clipboard = clipboard;
   };
 
   setTheme = (patch: EditorTheme): void => {
