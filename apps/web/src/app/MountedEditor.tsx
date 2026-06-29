@@ -40,6 +40,7 @@ import {
   type CursorDragInfo,
   type Decoration,
   type Doc,
+  type DocPoint,
   type MountedEditor as MountedEditorInstance,
   type Operation,
 } from "@cypherkit/editor";
@@ -198,6 +199,40 @@ function toolbarBlockTypeFromQueryBlock(
     return "heading1";
   }
   return isMobileToolbarBlockType(block.type) ? block.type : "paragraph";
+}
+
+/**
+ * The inline-math chip the caret rests in or directly abuts in block `blockId`,
+ * or undefined. BOTH edges count as in the chip, mirroring the engine's
+ * edge-join (typing at either boundary extends the same formula, so the math
+ * toolbar should help there too):
+ *
+ * - The start edge / interior is left-inclusive — `query.marks` returns a run
+ *   for `from <= offset < to`. This also covers a single-char chip, whose only
+ *   caret stop is its start edge (a tap snaps there; see TextNode.hitTest).
+ * - The end edge is right-exclusive in `query.marks`, so a caret at `to` (the
+ *   common "I just finished the chip, keep going" spot) returns no run. Probe
+ *   one position back: a math run ending exactly at the caret is the right edge.
+ *
+ * `marksAt` is `editor.query.marks` (an arrow property, so it stays bound);
+ * generic over the schema's mark-info element so it accepts it as-is.
+ */
+function inlineMathChipAt<M extends { name: string; from: number; to: number }>(
+  marksAt: (at?: DocPoint) => M[],
+  blockId: string,
+  caretOffset: number,
+): M | undefined {
+  const here = marksAt({ block: blockId, offset: caretOffset }).find(
+    (mark) => mark.name === "math",
+  );
+  if (here) return here;
+  if (caretOffset > 0) {
+    const before = marksAt({ block: blockId, offset: caretOffset - 1 }).find(
+      (mark) => mark.name === "math",
+    );
+    if (before && before.to === caretOffset) return before;
+  }
+  return undefined;
 }
 
 /**
@@ -1141,6 +1176,7 @@ function EditorSurface({
     isBold: false,
     isItalic: false,
     isCode: false,
+    isMath: false,
     canOpenMathCommands: false,
     isStrikethrough: false,
     blockType: "paragraph" as MobileToolbarBlockType,
@@ -1239,6 +1275,13 @@ function EditorSurface({
         case "toggle-code":
           editor.change((change) => change.setMark("code"));
           break;
+        case "toggle-math":
+          // With a selection the chosen text becomes the chip's LaTeX; with an
+          // empty caret this arms a pending math format so the next typed text
+          // forms the chip.
+          editor.change((change) => change.setMark("math"));
+          editor.focus();
+          break;
         case "open-math-commands": {
           const range = editor.state.selection.range;
           if (
@@ -1252,14 +1295,12 @@ function EditorSurface({
 
           const block = editor.query.block(range);
           const caretOffset = range.offset ?? 0;
-          const insideInlineMath = editor.query
-            .marks(range)
-            .some(
-              (mark) =>
-                mark.name === "math" &&
-                caretOffset > mark.from &&
-                caretOffset < mark.to,
-            );
+          // Inserting `\` at either chip edge joins the chip via MathNode's
+          // edge-join observer, so both edges open the menu.
+          const insideInlineMath =
+            block != null &&
+            inlineMathChipAt(editor.query.marks, block.id, caretOffset) !==
+              undefined;
           if (block?.type !== "math" && !insideInlineMath) break;
 
           // Match a typed backslash: notify command-menu observers before the
@@ -1279,8 +1320,8 @@ function EditorSurface({
           // insert: when a `\command` is being typed, replace it; otherwise drop
           // the construct at the caret. Either way leave the caret in the first
           // `{}` slot. Works in both math contexts the row shows in: a block
-          // equation, or strictly inside an inline chip (its LaTeX lives in the
-          // block text, so the offsets below are block-relative either way).
+          // equation, or an inline chip (its LaTeX lives in the block text, so
+          // the offsets below are block-relative either way).
           const range = editor.state.selection.range;
           if (
             !range ||
@@ -1293,15 +1334,13 @@ function EditorSurface({
           const block = editor.query.block(range);
           if (!block) break;
           const caretOffset = range.offset ?? 0;
-          const insideInlineMath = editor.query
-            .marks(range)
-            .some(
-              (mark) =>
-                mark.name === "math" &&
-                caretOffset > mark.from &&
-                caretOffset < mark.to,
-            );
-          if (block.type !== "math" && !insideInlineMath) break;
+          // The inline chip the caret rests in or abuts (either edge counts).
+          // Null in a block equation, whose whole text is LaTeX.
+          const chip =
+            block.type === "math"
+              ? undefined
+              : inlineMathChipAt(editor.query.marks, block.id, caretOffset);
+          if (block.type !== "math" && !chip) break;
           const active = activeBlockMathCommand(block.text, caretOffset);
           const caret = mathCommandCaretOffset(action.latex);
           editor.change((change) => {
@@ -1310,14 +1349,28 @@ function EditorSurface({
                 from: { block: block.id, offset: active.backslashIndex },
                 to: { block: block.id, offset: caretOffset },
               });
-              change.select({
-                block: block.id,
-                offset: active.backslashIndex + caret,
-              });
             } else {
               change.insertText(action.latex);
-              change.select({ block: block.id, offset: caretOffset + caret });
             }
+            // Dropping a construct at a chip's edge (a single-char chip has no
+            // interior caret stop, so the construct lands just outside the math
+            // mark — raw LaTeX abutting the chip) leaves it unmarked. Re-mark the
+            // chip's full grown extent so the construct joins it into one
+            // formula. Idempotent for an interior drop already inside the mark.
+            if (chip) {
+              const delta = active
+                ? action.latex.length - (caretOffset - active.backslashIndex)
+                : action.latex.length;
+              change.setMark("math", {
+                active: true,
+                range: {
+                  from: { block: block.id, offset: chip.from },
+                  to: { block: block.id, offset: chip.to + delta },
+                },
+              });
+            }
+            const caretBase = active ? active.backslashIndex : caretOffset;
+            change.select({ block: block.id, offset: caretBase + caret });
           });
           editor.focus();
           break;
@@ -2349,23 +2402,22 @@ function EditorSurface({
           : null;
       const insideInlineMath =
         caretOffset !== null &&
-        mounted.editor.query
-          .marks()
-          .some(
-            (mark) =>
-              mark.name === "math" &&
-              caretOffset > mark.from &&
-              caretOffset < mark.to,
-          );
+        activeBlock != null &&
+        inlineMathChipAt(
+          mounted.editor.query.marks,
+          activeBlock.id,
+          caretOffset,
+        ) !== undefined;
       const canOpenMathCommands =
         snapshot.selection.empty &&
         (rawBlockType === "math" || insideInlineMath);
 
       // Contextual math row. Present whenever the caret rests in math — a block
-      // equation or strictly inside an inline chip — so it supersedes the touch
-      // `\` drawer in both. The chip's LaTeX lives literally in the block text,
-      // so the same `\command` detection works for either. `query` is the
-      // in-progress `\command`, or null while browsing.
+      // equation or an inline chip (including its start edge, the only caret
+      // stop a single-char chip has) — so it supersedes the touch `\` drawer in
+      // both. The chip's LaTeX lives literally in the block text, so the same
+      // `\command` detection works for either. `query` is the in-progress
+      // `\command`, or null while browsing.
       let math: MobileToolbarMathContext | null = null;
       if (
         snapshot.selection.empty &&
@@ -2396,6 +2448,7 @@ function EditorSurface({
         isBold: snapshot.activeMarks.has("strong"),
         isItalic: snapshot.activeMarks.has("emphasis"),
         isCode: snapshot.activeMarks.has("code"),
+        isMath: snapshot.activeMarks.has("math"),
         canOpenMathCommands,
         isStrikethrough: snapshot.activeMarks.has("strike"),
         blockType,

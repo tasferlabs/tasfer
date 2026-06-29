@@ -48,12 +48,6 @@ interface PositionPayload {
   position: Position;
 }
 
-/** A resolved hit position plus the pixel point the tap landed at. */
-interface PointPayload {
-  position: Position;
-  point: { x: number; y: number };
-}
-
 // ─── Padding taps (clear / reposition, no ops) ───────────────────────────────
 
 /**
@@ -201,33 +195,14 @@ export const TAP_SELECT_WORD = stateAction<PositionPayload>(
   },
 );
 
-// ─── Tap-on-selection / tap-place-cursor ─────────────────────────────────────
+// ─── Tap-place-cursor ────────────────────────────────────────────────────────
 
 /**
- * Tap landing inside an existing selection: keep the selection but move the
- * caret to the tap position, and open the context menu (mobile paste UX) if one
- * isn't already open. The handler resolves `position` and supplies the tap
- * `point` the menu anchors to. Pure, no ops.
- */
-export const TAP_ON_SELECTION = stateAction<PointPayload>(
-  "tap-on-selection",
-  (state, { position, point }) => {
-    const next = updateCursor(state, position);
-    // Headless: signal the host to open its menu (canvas coords; the host adds
-    // its container rect). The host dedupes if its menu is already open.
-    next.actionBus.dispatch(OPEN_CONTEXT_MENU, {
-      x: point.x,
-      y: point.y,
-      hasSelection: !!getSelectionRange(next),
-    });
-    return { state: next, ops: [] };
-  },
-);
-
-/**
- * Single tap outside any selection: clear the selection, place the caret at the
- * tap position, drop to edit mode, and close an open context menu. The handler
- * resolves `position`. Pure, no ops.
+ * Single tap: clear any selection, place the caret at the tap position, drop to
+ * edit mode, and close an open context menu. A tap landing inside an existing
+ * selection routes here too — matching native editors, where a tap dismisses
+ * the selection and repositions the caret rather than opening a menu (the menu
+ * is reached via long-press). The handler resolves `position`. Pure, no ops.
  */
 export const TAP_PLACE_CURSOR = stateAction<PositionPayload>(
   "tap-place-cursor",

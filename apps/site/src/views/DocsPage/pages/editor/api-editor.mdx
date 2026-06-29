@@ -20,6 +20,7 @@ const editor = createEditor(options: CreateEditorOptions): CypherEditor;
   { name: "theme", type: "EditorTheme", desc: "Canvas color tokens, styles, and fonts. Defaults to the neutral palette." },
   { name: "editable", type: "boolean", desc: "Set false for a read-only renderer. Default true." },
   { name: "accessibilityTree", type: "boolean", desc: "Maintain a hidden, semantic DOM mirror of the document (headings, lists, code, marks) for screen readers — the canvas itself is opaque to assistive tech. Kept surgically in sync; only changed blocks are re-serialized. Default true; set false to opt out." },
+  { name: "nativeAutocomplete", type: "boolean", desc: "Enable the OS keyboard's native predictive text / autocorrect / sentence autocapitalization. Default true — the editor keeps the in-progress word in its hidden input surface so suggestions appear and can be committed. Set false for fields that should suppress all of it (e.g. code or token input)." },
   { name: "placeholder", type: "string", desc: "Ghost text shown when the document is empty." },
   { name: "autofocus", type: "boolean", desc: "Focus the editor and drop a caret in on mount. Default false." },
 ]} />

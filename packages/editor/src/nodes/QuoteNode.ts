@@ -156,8 +156,7 @@ export class QuoteNode extends TextNode {
   /**
    * Draw the card chrome. `joinTop`/`joinBottom` couple this block with an
    * adjacent quote: the joined edge squares off (so abutting cards tile into one
-   * shape), the accent extends through the seam instead of insetting, and the
-   * opening glyph is drawn only on the first block of the run (`!joinTop`).
+   * shape) and the accent extends through the seam instead of insetting.
    */
   private paintCard(
     ctx: CanvasRenderingContext2D,
@@ -211,20 +210,6 @@ export class QuoteNode extends TextNode {
     );
     ctx.fill();
 
-    // Only the first block of a consecutive run carries the opening quote glyph.
-    if (!joinTop) {
-      ctx.globalAlpha = style.glyphOpacity;
-      ctx.font = `${style.glyphWeight} ${style.glyphSize}px Georgia, serif`;
-      ctx.textBaseline = "top";
-      ctx.textAlign = isRTL ? "right" : "left";
-      ctx.fillText(
-        isRTL ? "”" : "“",
-        isRTL
-          ? accentX - style.accentGap
-          : accentX + style.accentWidth + style.accentGap,
-        y + style.glyphOffsetY,
-      );
-    }
     ctx.restore();
   }
 
@@ -234,6 +219,38 @@ export class QuoteNode extends TextNode {
     state: EditorState,
   ): string {
     return this.str(state, "placeholder");
+  }
+
+  /**
+   * The quote's editorial 18px body is too large for its long ghost hint on
+   * narrow screens, so render only the placeholder at a reduced size. Real
+   * content still paints with the full quote text style; the baseline is shared,
+   * so the smaller ghost stays aligned with where typed text begins.
+   */
+  protected override paintPlaceholder(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    styles: EditorStyles,
+    textStyle: TextStyle,
+    text: string,
+    isRTL: boolean,
+    maxWidth: number,
+  ): void {
+    const placeholderStyle: TextStyle = {
+      ...textStyle,
+      fontSize: Math.round(textStyle.fontSize * 0.8),
+    };
+    super.paintPlaceholder(
+      ctx,
+      x,
+      y,
+      styles,
+      placeholderStyle,
+      text,
+      isRTL,
+      maxWidth,
+    );
   }
 
   /**

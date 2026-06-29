@@ -52,6 +52,7 @@ export type MobileToolbarAction =
   | { type: "toggle-bold" }
   | { type: "toggle-italic" }
   | { type: "toggle-code" }
+  | { type: "toggle-math" }
   | { type: "open-math-commands" }
   | { type: "insert-math-command"; latex: string }
   | { type: "toggle-strikethrough" }
@@ -213,6 +214,7 @@ interface MobileToolbarState {
   isBold: boolean;
   isItalic: boolean;
   isCode: boolean;
+  isMath: boolean;
   canOpenMathCommands: boolean;
   isStrikethrough: boolean;
   blockType: MobileToolbarBlockType;
@@ -412,6 +414,13 @@ export function createMobileToolbarModel(
     { type: "toggle-strikethrough" },
     { active: state.isStrikethrough },
   );
+  const inlineMath = button(
+    "inline-math",
+    "math",
+    t("editor.math.inline", "Inline math"),
+    { type: "toggle-math" },
+    { active: state.isMath },
+  );
   const mathCommand = button(
     "math-command",
     "math_command",
@@ -449,6 +458,7 @@ export function createMobileToolbarModel(
     italic,
     inlineCode,
     strikethrough,
+    inlineMath,
     blockMenu,
     dismiss,
   });
@@ -542,12 +552,21 @@ function buildLayout(
     italic: MobileToolbarItem;
     inlineCode: MobileToolbarItem;
     strikethrough: MobileToolbarItem;
+    inlineMath: MobileToolbarItem;
     blockMenu: MobileToolbarItem;
     dismiss: MobileToolbarItem;
   },
 ): MobileToolbarLayout {
-  const { undo, redo, bold, italic, inlineCode, strikethrough, blockMenu } =
-    controls;
+  const {
+    undo,
+    redo,
+    bold,
+    italic,
+    inlineCode,
+    strikethrough,
+    inlineMath,
+    blockMenu,
+  } = controls;
   const right = [controls.dismiss];
 
   // Math owns the whole middle: structural blocks can't nest in an equation, so
@@ -613,7 +632,7 @@ function buildLayout(
       left: [undo, redo],
       middle: { kind: "items", items: middleItems },
       // The structural controls take the middle; marks move to the drawer.
-      more: [bold, italic, strikethrough, inlineCode],
+      more: [bold, italic, strikethrough, inlineCode, inlineMath],
       right,
     };
   }
@@ -633,7 +652,7 @@ function buildLayout(
       italic,
     ],
     middle: { kind: "items", items: [] },
-    more: [strikethrough, inlineCode],
+    more: [strikethrough, inlineCode, inlineMath],
     right,
   };
 }

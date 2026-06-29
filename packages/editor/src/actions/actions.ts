@@ -3024,7 +3024,7 @@ export function selectCurrentBlock(state: EditorState): EditorState {
  * If there's no selection, toggles the format mode for next typed text.
  *
  * `formatType` is any toggleable mark type (the built-ins plus custom toggle
- * marks); callers gate non-toggleable marks (link/math) before reaching here.
+ * marks); callers gate non-toggleable marks (link) before reaching here.
  */
 export function toggleFormat(
   state: EditorState,

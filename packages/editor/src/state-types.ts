@@ -849,10 +849,6 @@ export interface QuoteBlockStyle extends TextStyle {
    * spacing instead of stacking two full pads. Should be ≤ `paddingY`.
    */
   readonly joinedPaddingY: number;
-  readonly glyphSize: number;
-  readonly glyphWeight: string;
-  readonly glyphOpacity: number;
-  readonly glyphOffsetY: number;
 }
 
 /**

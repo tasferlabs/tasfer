@@ -37,6 +37,13 @@ import {
   isInLongPressMode,
 } from "../events/interaction-session";
 import { onFontsReady } from "../fonts";
+import {
+  computeSurfaceDelta,
+  currentWordStart,
+  isEmptyDelta,
+  isWordBoundaryChar,
+  SURFACE_SENTINEL,
+} from "../input-diff";
 import { getBlockTextContent } from "../node-shared";
 import {
   type BlockData as RuntimeBlockData,
@@ -898,20 +905,23 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     imageFile: File | null;
   } | null = null;
 
-  // ── Accessible input-surface mirror (per-instance) ──────────────────────────
-  // `hiddenInput` is a contenteditable surface that always holds either the
-  // current selection's text (so native copy/cut and screen readers see real
-  // content) or a single sentinel char with the caret placed AFTER it. The
-  // trailing-character caret is what keeps Android GBoard emitting
-  // `deleteContentBackward` on backspace (the old <input> used value=" ").
-  // NBSP is used because a plain space can be collapsed/trimmed in a
-  // contenteditable. All programmatic DOM mutation is wrapped in
+  // ── Input-surface mirror (per-instance) ─────────────────────────────────────
+  // `hiddenInput` is a contenteditable surface that holds either the current
+  // selection's text (so native copy/cut and screen readers see real content) or
+  // the SENTINEL followed by the word being typed, caret placed AFTER it. The
+  // leading sentinel keeps Android GBoard emitting `deleteContentBackward` on
+  // backspace and is a real word boundary so the keyboard predicts/autocorrects
+  // the word (see SURFACE_SENTINEL). All programmatic DOM mutation is wrapped in
   // `isMirrorUpdating` so the resulting input/selection events aren't mistaken
   // for user edits, and `lastSelectionSig` avoids recomputing the (potentially
   // large) selection text on every render frame.
-  private readonly SENTINEL = " "; // NBSP (stable in contenteditable; a plain space can be trimmed)
+  private readonly SENTINEL = SURFACE_SENTINEL;
   private isMirrorUpdating = false;
   private lastSelectionSig: string | null = null;
+  // The last surface text the editor observed or wrote (always begins with the
+  // sentinel in caret mode). `hiddenInputHandler` diffs the new surface against
+  // this to classify the edit (append / backspace / autocorrect replacement).
+  private lastSurfaceValue: string = this.SENTINEL;
 
   // Guards async work that settles after destroy() from poking a torn-down loop.
   private destroyed = false;
@@ -1239,6 +1249,81 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
   };
 
+  // Drain the queued DOM events into document state: apply them, record undo,
+  // broadcast ops, and dispatch a queued image paste. Returns the state as it
+  // was BEFORE draining (the render loop diffs against it to choose dirty
+  // layers). Also called by `flushPendingInput` to settle pending keystrokes
+  // synchronously before an out-of-band edit (an autocorrect replacement) so
+  // that edit addresses an up-to-date document.
+  private processQueuedEvents = (): EditorState => {
+    const prevState = this._state;
+
+    const handleEventsResult = handleEvents(
+      this._state,
+      this.viewport,
+      this.visibility,
+      this.eventsQueue,
+      this.documentHeight,
+      this.cachedRect,
+      this.session,
+      this.updateViewport,
+      this.pendingClipboardData,
+      this.scrollPositionIntoView,
+    );
+
+    this._state = handleEventsResult.state;
+
+    // Record operations to undo stack (only if not from undo/redo). Undo/redo
+    // already updates undoManager internally, so check if it changed.
+    if (handleEventsResult.ops.length > 0) {
+      const undoManagerChanged =
+        prevState.undoManager !== this._state.undoManager;
+      if (!undoManagerChanged) {
+        this._state = recordUndoOps(
+          prevState,
+          this._state,
+          handleEventsResult.ops,
+          this._state.CRDTbinding.getPeerId(),
+        );
+      }
+      if (this.broadcastFn) {
+        this.emitLocalOps(handleEventsResult.ops);
+      }
+    }
+
+    // Dispatch the IMAGE_PASTE action if an image file was pasted. A node may
+    // claim it (return true) to handle its own upload; the host observes it at
+    // priority 0 to upload + rewrite the block url.
+    if (
+      this.pendingClipboardData?.imageFile &&
+      handleEventsResult.pastedImageBlockIndex !== undefined
+    ) {
+      const file = this.pendingClipboardData.imageFile;
+      const blockIndex = handleEventsResult.pastedImageBlockIndex;
+      // Resolve to a stable id now (index is valid at this tick) so the host's
+      // async upload addresses the right block even if it shifts meanwhile.
+      const pastedBlock = this._state.document.page.blocks[blockIndex];
+      if (pastedBlock) {
+        this.dispatch(IMAGE_PASTE, { file, blockId: pastedBlock.id });
+      }
+    }
+
+    // Clear clipboard data after it's been used
+    this.pendingClipboardData = null;
+
+    return prevState;
+  };
+
+  // Settle any queued keystrokes into the document immediately. The event queue
+  // normally drains on the next animation frame; an out-of-band edit that uses
+  // absolute document offsets (the autocorrect-replacement path) must flush it
+  // first so those offsets are computed against the real, current document.
+  private flushPendingInput = () => {
+    if (this.eventsQueue.length === 0) return;
+    this.processQueuedEvents();
+    this.scheduleRender();
+  };
+
   // Render a single frame synchronously
   private renderFrame = async () => {
     if (this.isRendering) return;
@@ -1262,64 +1347,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         this.updateCachedRect();
       }
 
-      const prevState = this._state;
-
-      // Handle events to get state and operations
-      const handleEventsResult = handleEvents(
-        this._state,
-        this.viewport,
-        this.visibility,
-        this.eventsQueue,
-        this.documentHeight,
-        this.cachedRect,
-        this.session,
-        this.updateViewport,
-        this.pendingClipboardData,
-        this.scrollPositionIntoView,
-      );
-
-      // Update state with the result from events
-      this._state = handleEventsResult.state;
-
-      // Record operations to undo stack (only if not from undo/redo)
-      // Undo/redo already updates undoManager internally, so check if it changed
-      if (handleEventsResult.ops.length > 0) {
-        const undoManagerChanged =
-          prevState.undoManager !== this._state.undoManager;
-        if (!undoManagerChanged) {
-          // Regular operation - record to undo stack (pass both before/after states for cursor restoration)
-          this._state = recordUndoOps(
-            prevState,
-            this._state,
-            handleEventsResult.ops,
-            this._state.CRDTbinding.getPeerId(),
-          );
-        }
-        // Broadcast ops to peers
-        if (this.broadcastFn) {
-          this.emitLocalOps(handleEventsResult.ops);
-        }
-      }
-
-      // Dispatch the IMAGE_PASTE action if an image file was pasted. A node may
-      // claim it (return true) to handle its own upload; the host observes it at
-      // priority 0 to upload + rewrite the block url.
-      if (
-        this.pendingClipboardData?.imageFile &&
-        handleEventsResult.pastedImageBlockIndex !== undefined
-      ) {
-        const file = this.pendingClipboardData.imageFile;
-        const blockIndex = handleEventsResult.pastedImageBlockIndex;
-        // Resolve to a stable id now (index is valid at this tick) so the host's
-        // async upload addresses the right block even if it shifts meanwhile.
-        const pastedBlock = this._state.document.page.blocks[blockIndex];
-        if (pastedBlock) {
-          this.dispatch(IMAGE_PASTE, { file, blockId: pastedBlock.id });
-        }
-      }
-
-      // Clear clipboard data after it's been used
-      this.pendingClipboardData = null;
+      // Drain queued DOM events into document state (also returns the
+      // pre-drain state the dirty-layer checks below diff against).
+      const prevState = this.processQueuedEvents();
 
       // Check if state changed or if there are events that require rendering
       const stateChanged = prevState !== this._state;
@@ -1679,7 +1709,43 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.syncBrowserFocus();
   };
 
+  // True while an in-progress touch gesture should hold the soft keyboard open.
+  // On Android the WebView blurs the focused hidden input to <body> partway
+  // through any touch hold (the touch lands on the canvas, not the input), which
+  // dismisses the keyboard and threatens to clear an in-progress selection — even
+  // though the gesture never left the editor; iOS doesn't fire this blur. Covers
+  // both gestures that hold while the keyboard should stay up: a long-press
+  // drag-select and a cursor-drag (the magnifier loupe repositioning the caret).
+  // Excludes the menu-takeover case: a long-press on existing selected text opens
+  // the context menu, which legitimately takes focus (`hostMenuCapturing`).
+  private shouldHoldKeyboardForTouch = (): boolean =>
+    isTouchDevice() &&
+    !!this.hiddenInput &&
+    !this.session.hostMenuCapturing &&
+    !this._state.ui.isReadonlyBase &&
+    (isInLongPressMode(this.session) ||
+      this.session.touch?.isCursorDrag === true);
+
+  // Re-grab focus for the hidden input if it drifted off during a touch gesture,
+  // so the keyboard stays up (see shouldHoldKeyboardForTouch).
+  private reassertTouchSelectionFocus = () => {
+    if (!this.shouldHoldKeyboardForTouch()) return;
+    if (document.activeElement === this.hiddenInput) return;
+    try {
+      this.hiddenInput?.focus({ preventScroll: true });
+    } catch {
+      // Ignore — focus can throw if the element is detached mid-teardown.
+    }
+  };
+
   private browserBlurHandler = () => {
+    // Re-grab focus and swallow the transient blur during a touch gesture so the
+    // keyboard stays up. If focus can't be reclaimed, fall through and record the
+    // blur as usual.
+    if (this.shouldHoldKeyboardForTouch()) {
+      this.reassertTouchSelectionFocus();
+      if (document.activeElement === this.hiddenInput) return;
+    }
     this.applyBrowserFocus(false);
   };
 
@@ -1692,15 +1758,39 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.touchHasMoved = false;
     }
 
+    // Keep the soft keyboard up across canvas touch gestures. On Android the
+    // WebView otherwise runs its own long-press / selection handling on the
+    // touch and blurs the focused hidden input to <body> mid-gesture (the touch
+    // lands on the canvas, not the input), dismissing the keyboard. Preventing
+    // the touchstart default stops that native gesture at the source while the
+    // editor owns the keyboard: the engine drives scrolling and selection from
+    // touchmove, and a fresh tap's focus is granted explicitly in
+    // touchEndHandler, so nothing here depends on the default. Scoped to a
+    // single-finger touch on an already-focused, editable surface so multi-touch
+    // scroll and the unfocused first-tap-to-focus path are untouched. iOS never
+    // fires the blur; preventing here is a harmless no-op there.
+    if (
+      isTouchDevice() &&
+      e.cancelable &&
+      e.touches.length === 1 &&
+      this._state.view.isFocused &&
+      !this._state.ui.isReadonlyBase
+    ) {
+      e.preventDefault();
+    }
+
     // Process the touch event normally (for scrolling, etc.)
     this.eventsHandler(e);
   };
 
   // Handle touchend - focus input if it was a tap (not a scroll)
   private touchEndHandler = (e: TouchEvent) => {
-    // Check if we're ending a long press selection BEFORE processing the event
-    // This allows us to focus the input synchronously with the user gesture
+    // Check if we're ending a long press selection or a cursor-drag BEFORE
+    // processing the event, so we can focus the input synchronously with the user
+    // gesture. A cursor-drag (magnifier) ends in neither a tap nor a long-press,
+    // but the keyboard must stay up just the same.
     const wasLongPress = isInLongPressMode(this.session);
+    const wasCursorDrag = this.session.touch?.isCursorDrag === true;
 
     // Process the touch event first
     this.eventsHandler(e);
@@ -1713,11 +1803,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // Don't focus input if a context menu just opened (it would close the menu)
     const hasContextMenu = this.session.hostMenuCapturing;
 
-    // Focus input if ending long press or on tap (but not when context menu is open or in readonly mode)
+    // Focus input if ending a long press, a cursor-drag, or on tap (but not when
+    // a context menu is open or in readonly mode)
     if (
       this.hiddenInput &&
       isTouchDevice() &&
-      (wasLongPress || wasTap) &&
+      (wasLongPress || wasTap || wasCursorDrag) &&
       !hasContextMenu &&
       !this._state.ui.isReadonlyBase
     ) {
@@ -1737,6 +1828,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     // Process the touch event normally (for scrolling)
     this.eventsHandler(e);
+
+    // A long-press drag-select keeps the finger on the canvas, so Android's
+    // native long-press blurs the hidden input and the keyboard slides away
+    // mid-drag. Re-grab focus on each move (a touchmove is a strong enough
+    // gesture context to keep the keyboard up) so it stays put.
+    this.reassertTouchSelectionFocus();
   };
 
   // ── Input-surface mirror + clipboard helpers ───────────────────────────────
@@ -1776,10 +1873,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
   };
 
-  // Restore the single-sentinel-char state with the caret AFTER it (keeps
-  // Android emitting deleteContentBackward). Called after every input/compose.
+  // Restore the bare-sentinel state with the caret AFTER it (keeps Android
+  // emitting deleteContentBackward). Used when there is no live word to mirror
+  // (empty caret position, composition end, cut, focus seed).
   private resetSentinel = () => {
     this.setMirror(this.SENTINEL, false);
+    this.lastSurfaceValue = this.SENTINEL;
   };
 
   // Cheap signature of the current selection/caret, to avoid recomputing the
@@ -1795,27 +1894,90 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       : "none";
   };
 
-  // Keep the surface in sync with the model selection: hold the selection's
-  // plain text (selected, so copy/AT see it) or fall back to the sentinel.
-  // Skipped during IME composition (the browser owns the content then).
-  private syncMirrorToSelection = () => {
+  // Reconcile the input surface against the document each frame. Skipped during
+  // IME composition (the browser owns the content then).
+  //
+  // Two modes:
+  //   • Non-collapsed selection → mirror its plain text (selected), so native
+  //     copy/cut and screen readers operate on real content. Recomputed only
+  //     when the selection changes (the text can be large).
+  //   • Caret → mirror "sentinel + the word under the caret", derived from the
+  //     document. When the surface ALREADY equals that, it is left untouched —
+  //     rewriting an already-correct surface tears down the OS predictive-text /
+  //     autocorrect session, which is exactly what used to make autocomplete
+  //     dead. The surface is only rewritten when it has drifted (caret moved,
+  //     autoformat rewrote the word, a remote edit landed, …).
+  private syncMirrorToSelection = (forceRangedSelection = false) => {
     if (!this.hiddenInput) return;
+
+    const selection = this._state.document.selection;
+
+    // Mirroring a non-collapsed selection as a *ranged* DOM selection on the
+    // hidden contenteditable is what lets the native (hardware-key) copy/cut
+    // event and screen readers see real selected text. On touch devices we skip
+    // it: Android's IME dismisses the soft keyboard the instant the focused
+    // editable holds a ranged selection (iOS doesn't), so doing this on every
+    // frame of a drag-select yanks the keyboard away mid-gesture. The selection
+    // is still painted on canvas, and touch copy/cut build from editor state, so
+    // the ranged surface is only needed for the native copy/cut event — that
+    // path forces it on demand via `forceRangedSelection`.
+    const mirrorRangedSelection =
+      !!selection &&
+      !selection.isCollapsed &&
+      (forceRangedSelection || !isTouchDevice());
+
     const sig = this.selectionSignature(this._state);
-    if (sig === this.lastSelectionSig) return;
+    const sigUnchanged = sig === this.lastSelectionSig;
     this.lastSelectionSig = sig;
-    const sel = this._state.document.selection;
-    if (sel && !sel.isCollapsed) {
+
+    if (mirrorRangedSelection) {
+      if (sigUnchanged) return;
       const text = getSelectionPlainText(this._state);
       if (text) {
         this.setMirror(text, true);
+        this.lastSurfaceValue = text;
         return;
       }
+      // No plain text (e.g. an image-only selection) — fall through to caret.
+    } else if (selection && !selection.isCollapsed) {
+      // Touch device with a live selection: leave the collapsed caret surface in
+      // place so the soft keyboard stays up while text is selected.
+      return;
     }
-    // No selection: (re)place the sentinel + caret. Runs only when the
-    // selection signature changes (cheap), and re-anchors the caret after the
-    // sentinel on focus and after every caret move so Android keeps emitting
-    // deleteContentBackward.
-    this.resetSentinel();
+
+    const caret = resolvePoint(this._state, "caret");
+    if (!caret) {
+      this.resetSentinel();
+      return;
+    }
+    const block = this._state.document.page.blocks[caret.blockIndex];
+    if (!block || block.deleted || !isTextualBlock(block)) {
+      this.resetSentinel();
+      return;
+    }
+    const text = getBlockTextContent(block);
+    // Only keep a live word when the caret sits at the END of one (the normal
+    // typing position). Mid-word — a non-boundary char follows the caret — falls
+    // back to the bare sentinel, so the surface never has to represent a caret
+    // inside its text.
+    const atWordEnd =
+      caret.offset >= text.length || isWordBoundaryChar(text[caret.offset]);
+    if (!atWordEnd) {
+      this.resetSentinel();
+      return;
+    }
+    const wordStart = currentWordStart(text, caret.offset);
+    const target = this.SENTINEL + text.slice(wordStart, caret.offset);
+
+    const current = this.hiddenInput.textContent ?? "";
+    if (current === target && document.activeElement === this.hiddenInput) {
+      // Already consistent and the keyboard owns it — don't touch the DOM (that
+      // would cancel an in-flight suggestion); just keep the classifier in sync.
+      this.lastSurfaceValue = target;
+      return;
+    }
+    this.setMirror(target, false);
+    this.lastSurfaceValue = target;
   };
 
   // Pull html/text/image out of a ClipboardEvent synchronously (clipboardData
@@ -1905,8 +2067,68 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.scheduleRender();
   };
 
+  // Enqueue a synthetic keydown so a contenteditable InputEvent is processed by
+  // the same keyboard pipeline as a hardware key — preserving block/inline
+  // autoformat, the TEXT_INPUT host signal, and any plugin behavior.
+  private queueSyntheticKey = (key: string) => {
+    this.eventsQueue.push(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+    );
+  };
+
+  // Apply a word-level replacement (autocorrect swap, predictive-text
+  // completion, or a multi-character word delete) as ONE document edit. The
+  // surface already holds the new word; diff it against the word currently in
+  // the document and replace just the changed span at absolute offsets. Pending
+  // keystrokes are flushed first so those offsets address an up-to-date document.
+  private applySurfaceReplacement = (newSurface: string) => {
+    this.flushPendingInput();
+
+    const caret = resolvePoint(this._state, "caret");
+    if (!caret) {
+      this.resetSentinel();
+      return;
+    }
+    const block = this._state.document.page.blocks[caret.blockIndex];
+    if (!block || block.deleted || !isTextualBlock(block)) {
+      this.resetSentinel();
+      return;
+    }
+
+    const text = getBlockTextContent(block);
+    const wordStart = currentWordStart(text, caret.offset);
+    const docWord = text.slice(wordStart, caret.offset);
+    const newWord = newSurface.startsWith(this.SENTINEL)
+      ? newSurface.slice(this.SENTINEL.length)
+      : newSurface;
+
+    const delta = computeSurfaceDelta(docWord, newWord);
+    if (isEmptyDelta(delta)) {
+      this.lastSurfaceValue = newSurface;
+      return;
+    }
+
+    const blockId = block.id;
+    const from = wordStart + delta.deleteStart;
+    const to = wordStart + delta.deleteEnd;
+    const caretOffset = wordStart + newWord.length;
+
+    this.change((c) => {
+      c.insertText(delta.insert, {
+        from: { block: blockId, offset: from },
+        to: { block: blockId, offset: to },
+      });
+      c.select({ block: blockId, offset: caretOffset });
+    });
+
+    this.lastSurfaceValue = newSurface;
+  };
+
   // Handle input from the contenteditable surface (mobile keyboard + desktop
-  // character input flow through here as InputEvents).
+  // character input flow through here as InputEvents). The surface holds
+  // "sentinel + current word"; this classifies how it changed and routes plain
+  // typing / single backspaces through the synthetic-key pipeline (unchanged
+  // behavior) while applying autocorrect/predictive replacements as one edit.
   private hiddenInputHandler = (e: Event) => {
     if (!this.hiddenInput) return;
     if (this.isMirrorUpdating) return;
@@ -1921,83 +2143,120 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
 
     const inputEvent = e as InputEvent;
+    const it = inputEvent.inputType;
 
-    // Skip processing during IME composition - composition events will handle it
-    if (inputEvent.inputType === "insertCompositionText") {
-      // Don't process composition text here - let composition events handle it
-      return;
-    }
+    // Skip processing during IME composition - composition events handle it.
+    if (it === "insertCompositionText") return;
+    if (this._state.ui.composition?.isComposing) return;
 
-    // Block ALL input operations during composition (mobile keyboards)
-    // The composition events will handle everything
-    if (this._state.ui.composition?.isComposing) {
-      return;
-    }
+    const isBackwardDelete =
+      it === "deleteContentBackward" ||
+      it === "deleteWordBackward" ||
+      it === "deleteSoftLineBackward" ||
+      it === "deleteHardLineBackward";
+    const isForwardDelete =
+      it === "deleteContentForward" || it === "deleteWordForward";
+    // Contenteditable favors `insertParagraph` for Enter (vs. `insertLineBreak`
+    // on <input>), so accept both.
+    const isEnter = it === "insertParagraph" || it === "insertLineBreak";
 
-    // Use inputEvent.data for precise text that was inserted (not entire input value)
-    const insertedText = inputEvent.data;
-
-    // Handle text input
-    if (insertedText && inputEvent.inputType === "insertText") {
-      // Process each character that was inserted
-      for (const char of insertedText) {
-        const keyEvent = new KeyboardEvent("keydown", {
-          key: char,
-          bubbles: true,
-          cancelable: true,
-        });
-        this.eventsQueue.push(keyEvent);
+    // Typing over a non-collapsed selection: the surface holds the selection
+    // text, so drive the edit from the event (the document insert/delete is
+    // selection-aware) and let the render loop re-establish the word surface.
+    const selection = this._state.document.selection;
+    if (selection && !selection.isCollapsed) {
+      if (
+        inputEvent.data != null &&
+        (it === "insertText" || it === "insertReplacementText")
+      ) {
+        for (const char of inputEvent.data) this.queueSyntheticKey(char);
+      } else if (isBackwardDelete) {
+        this.queueSyntheticKey("Backspace");
+      } else if (isForwardDelete) {
+        this.queueSyntheticKey("Delete");
+      } else if (isEnter) {
+        this.queueSyntheticKey("Enter");
       }
       this.scheduleRender();
-      // Restore the sentinel (caret after a real char) so Android keeps firing
-      // deleteContentBackward.
       this.resetSentinel();
       return;
     }
 
-    // Handle special input types. Contenteditable favors `insertParagraph` for
-    // Enter (vs. `insertLineBreak` on <input>), so accept both.
+    // Enter / line break: split the block; the new line's empty word resyncs.
+    if (isEnter) {
+      this.queueSyntheticKey("Enter");
+      this.scheduleRender();
+      this.resetSentinel();
+      return;
+    }
+
+    // Forward delete acts on content AFTER the caret (outside the mirrored word).
+    if (isForwardDelete) {
+      this.queueSyntheticKey("Delete");
+      this.scheduleRender();
+      this.resetSentinel();
+      return;
+    }
+
+    const newSurface = this.hiddenInput.textContent ?? "";
+    const sentinelLen = this.SENTINEL.length;
+
+    // The surface lost its leading sentinel.
+    if (!newSurface.startsWith(this.SENTINEL)) {
+      if (isBackwardDelete) {
+        // The delete reached past the word start (the word was already empty):
+        // let the document Backspace handle the block merge / outdent, then
+        // restore the sentinel.
+        this.queueSyntheticKey("Backspace");
+        this.scheduleRender();
+        this.resetSentinel();
+        return;
+      }
+      // A replacement that rewrote the whole field (some keyboards do this).
+      this.applySurfaceReplacement(newSurface);
+      return;
+    }
+
+    const prevWord = this.lastSurfaceValue.startsWith(this.SENTINEL)
+      ? this.lastSurfaceValue.slice(sentinelLen)
+      : "";
+    const newWord = newSurface.slice(sentinelLen);
+
+    // No textual change (e.g. a caret-only input event).
+    if (newWord === prevWord) {
+      this.lastSurfaceValue = newSurface;
+      return;
+    }
+
+    // Plain typing — characters appended at the end of the word. Route through
+    // the synthetic-key path so autoformat/plugins run as for hardware keys.
     if (
-      inputEvent.inputType === "insertParagraph" ||
-      inputEvent.inputType === "insertLineBreak"
+      it === "insertText" &&
+      inputEvent.data != null &&
+      newWord === prevWord + inputEvent.data
     ) {
-      const enterEvent = new KeyboardEvent("keydown", {
-        key: "Enter",
-        bubbles: true,
-        cancelable: true,
-      });
-      this.eventsQueue.push(enterEvent);
+      for (const char of inputEvent.data) this.queueSyntheticKey(char);
       this.scheduleRender();
-      this.resetSentinel();
+      this.lastSurfaceValue = newSurface;
       return;
     }
 
-    if (inputEvent.inputType === "deleteContentBackward") {
-      const backspaceEvent = new KeyboardEvent("keydown", {
-        key: "Backspace",
-        bubbles: true,
-        cancelable: true,
-      });
-      this.eventsQueue.push(backspaceEvent);
+    // Single-character backspace within the word — same synthetic path.
+    if (
+      isBackwardDelete &&
+      newWord.length === prevWord.length - 1 &&
+      prevWord.startsWith(newWord)
+    ) {
+      this.queueSyntheticKey("Backspace");
       this.scheduleRender();
-      this.resetSentinel();
+      this.lastSurfaceValue = newSurface;
       return;
     }
 
-    if (inputEvent.inputType === "deleteContentForward") {
-      const deleteEvent = new KeyboardEvent("keydown", {
-        key: "Delete",
-        bubbles: true,
-        cancelable: true,
-      });
-      this.eventsQueue.push(deleteEvent);
-      this.scheduleRender();
-      this.resetSentinel();
-      return;
-    }
-
-    // Restore the sentinel for any other input types
-    this.resetSentinel();
+    // Everything else within the word — an autocorrect swap, a predictive-text
+    // completion, or a multi-character (word) delete — is a replacement of the
+    // current word, applied as one document edit.
+    this.applySurfaceReplacement(newSurface);
   };
 
   // Handle keydown from hidden input (for special keys)
@@ -2250,7 +2509,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // copy/cut path runs as designed.
       if (e.code === "KeyC" || e.code === "KeyX") {
         this.lastSelectionSig = null;
-        this.syncMirrorToSelection();
+        // Force the ranged DOM selection even on touch devices (where the
+        // render-loop mirror keeps it collapsed to preserve the soft keyboard):
+        // the native copy/cut event only fires when the surface holds one.
+        this.syncMirrorToSelection(true);
         return;
       }
 

@@ -147,7 +147,11 @@ const inlineMathReplacement: MarkReplacement = {
 
 export class MathMark extends Mark {
   readonly type = "math";
-  readonly togglable = false; // needs LaTeX — applied via the math action
+  // Togglable over a selection: a chip's visible chars ARE its LaTeX, so
+  // wrapping the selection just marks it as math (no extra input, unlike a
+  // link's url). With no selection it arms a pending math format — the next
+  // typed text forms the chip — since a zero-width chip can't exist.
+  readonly togglable = true;
   readonly replacement = inlineMathReplacement;
   readonly codec = MATH_CODEC;
   style(): MarkStyle {

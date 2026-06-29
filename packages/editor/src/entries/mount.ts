@@ -121,6 +121,17 @@ export interface MountEditorOptions<
    */
   accessibilityTree?: boolean;
   /**
+   * Whether the OS keyboard's native predictive text / autocorrect / sentence
+   * autocapitalization is enabled on the input surface. Default `true`. When on,
+   * the hidden contenteditable advertises `spellcheck`, `autocorrect`, and
+   * `autocapitalize="sentences"`, and the editor keeps the in-progress word in
+   * that surface so suggestions appear and can be committed. Set `false` for
+   * fields that should suppress all of it (e.g. code-only or token input).
+   * (Grammarly-style DOM injectors stay disabled regardless, since they would
+   * mutate the input surface.)
+   */
+  nativeAutocomplete?: boolean;
+  /**
    * Ghost text shown on empty blocks. Either one generic string applied to
    * every block type, or a per-block-type map
    * (e.g. `{ paragraph: "Write…", heading1: "Title" }`). For paragraphs the
@@ -374,9 +385,20 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   hiddenInput.setAttribute("aria-label", options?.ariaLabel ?? "Text editor");
   if (!editable) hiddenInput.setAttribute("aria-readonly", "true");
   hiddenInput.setAttribute("tabindex", "0");
-  hiddenInput.setAttribute("autocapitalize", "off");
-  hiddenInput.setAttribute("spellcheck", "false");
-  // Suppress Grammarly and similar contenteditable injectors.
+  // Native OS predictive text / autocorrect / autocapitalization. On by default;
+  // the editor keeps the in-progress word in this surface so the keyboard can
+  // offer and commit suggestions (see `hiddenInputHandler`). The surface is
+  // invisible (opacity 0) so spellcheck draws no squiggles — it only feeds the
+  // mobile suggestion strip. `autocorrect` is the non-standard iOS attribute.
+  const nativeAutocomplete = options?.nativeAutocomplete !== false;
+  hiddenInput.setAttribute(
+    "autocapitalize",
+    nativeAutocomplete ? "sentences" : "off",
+  );
+  hiddenInput.setAttribute("autocorrect", nativeAutocomplete ? "on" : "off");
+  hiddenInput.setAttribute("spellcheck", nativeAutocomplete ? "true" : "false");
+  // Suppress Grammarly and similar contenteditable injectors regardless: they
+  // would mutate the input surface and corrupt the word-diff input flow.
   hiddenInput.setAttribute("data-gramm", "false");
   // The engine seeds the sentinel content/caret on first focus + render.
 

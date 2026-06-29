@@ -194,6 +194,58 @@ export function mathCaretMove(
 }
 
 /**
+ * The unit a backward delete acts on at `offset`, accounting for a command-
+ * separator space. Normally just {@link mathUnitBefore}; but the separator space
+ * in `\degree C` (or `\sin x`) is absorbed into the preceding command's token, so
+ * it is a "dead" caret stop with no editing unit of its own. Deleting only that
+ * space — the editor's generic fallback when no unit resolves — would weld the
+ * control word onto the following letter (`\degree |C` → the unknown `\degreeC`).
+ * Whenever that fusion would happen, take the whole command *together with* its
+ * separator so the command stays atomic (`\degree |C` Backspace → `C`). An
+ * ordinary inter-atom space (`a |b`) needs no separator, so it falls through to
+ * the harmless fallback that merges them (`→ ab`).
+ */
+function separatorAwareUnitBefore(
+  latex: string,
+  offset: number,
+): MathUnit | null {
+  const u = mathUnitBefore(latex, offset);
+  if (u) return u;
+  if (
+    offset > 0 &&
+    latex[offset - 1] === " " &&
+    mathNeedsCommandSeparator(latex, offset - 1, latex[offset] ?? "")
+  ) {
+    const cmd = mathUnitBefore(latex, offset - 1);
+    if (cmd) return { start: cmd.start, end: offset, isConstruct: false };
+  }
+  return null;
+}
+
+/**
+ * Forward counterpart of {@link separatorAwareUnitBefore}: a Delete sitting just
+ * before a command-separator space takes the space together with the following
+ * unit, so the preceding command can't fuse with it (`\degree| C` Delete →
+ * `\degree`). Like the backward case, an ordinary inter-atom space is left to the
+ * fallback (`a| b` Delete → `ab`).
+ */
+function separatorAwareUnitAfter(
+  latex: string,
+  offset: number,
+): MathUnit | null {
+  const u = mathUnitAfter(latex, offset);
+  if (u) return u;
+  if (
+    latex[offset] === " " &&
+    mathNeedsCommandSeparator(latex, offset, latex[offset + 1] ?? "")
+  ) {
+    const next = mathUnitAfter(latex, offset + 1);
+    if (next) return { start: offset, end: next.end, isConstruct: false };
+  }
+  return null;
+}
+
+/**
  * The math editing unit adjacent to the caret to delete/select. In a block
  * equation it's the unit before/after the caret. In a chip it's the chip's own
  * unit — including the unit at the chip's first/last char, which deletes just
@@ -202,7 +254,9 @@ export function mathCaretMove(
  * longer strands the rest). A caret resting on a chip's outer edge (just past it
  * on Backspace, just before it on Delete) enters the chip and removes its
  * adjacent unit too — a chip is edited one unit at a time, never deleted whole
- * from outside. `null` when the caret isn't in math content.
+ * from outside. A command-separator space adjacent to the caret is deleted with
+ * its command so it can never fuse into an unknown control word (see
+ * {@link separatorAwareUnitBefore}). `null` when the caret isn't in math content.
  */
 export function mathDeleteUnit(
   block: Block,
@@ -231,7 +285,7 @@ export function mathDeleteUnit(
   if (dir === "backward") {
     if (index <= 0) return null;
     if (block.type === "math") {
-      const u = mathUnitBefore(blockLatex(block), index);
+      const u = separatorAwareUnitBefore(blockLatex(block), index);
       return u ? asUnit(u) : null;
     }
     // Inside the chip: erase the unit before the caret.
@@ -239,7 +293,7 @@ export function mathDeleteUnit(
     if (inside) {
       return chipUnit(
         inside,
-        mathUnitBefore(inside.latex, index - inside.startIndex),
+        separatorAwareUnitBefore(inside.latex, index - inside.startIndex),
       );
     }
     // Just past the chip's right edge: Backspace enters the chip and erases its
@@ -251,7 +305,7 @@ export function mathDeleteUnit(
 
   // forward
   if (block.type === "math") {
-    const u = mathUnitAfter(blockLatex(block), index);
+    const u = separatorAwareUnitAfter(blockLatex(block), index);
     return u ? asUnit(u) : null;
   }
   // Inside the chip: erase the unit after the caret.
@@ -259,7 +313,7 @@ export function mathDeleteUnit(
   if (inside) {
     return chipUnit(
       inside,
-      mathUnitAfter(inside.latex, index - inside.startIndex),
+      separatorAwareUnitAfter(inside.latex, index - inside.startIndex),
     );
   }
   // Just before the chip's left edge: Delete enters the chip and erases its

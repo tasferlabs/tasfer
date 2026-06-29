@@ -18,7 +18,6 @@ import {
   OPEN_CONTEXT_MENU_AT,
   OPEN_NODE_OVERLAY,
   TAP_CLEAR_VISUAL_BLOCK_SELECTION,
-  TAP_ON_SELECTION,
   TAP_OUTSIDE_CONTENT,
   TAP_PLACE_CURSOR,
   TAP_SELECT_LINE,
@@ -726,11 +725,23 @@ export function handleTouchEnd(
     return { state, ops };
   }
 
-  // End cursor drag if active
+  // End cursor drag if active. The cursor drag is the magnifier (loupe)
+  // gesture: hold on the caret to bring it up, then slide to reposition.
+  //
+  // If the finger never moved, this was a plain hold-on-cursor — open the
+  // context menu (standard mobile paste menu). But if the user actually dragged
+  // the caret with the magnifier, lifting just commits the new caret position;
+  // popping a menu there is surprising. The `isCursorDrag` branch in
+  // handleTouchMove returns before the shared `hasMoved` flag is set, so it
+  // never reflects cursor-drag travel; compute net movement here instead.
   if (session.touch?.isCursorDrag) {
-    const didNotMove = !session.touch.hasMoved;
     const touchX = session.touch.currentTouchX;
     const touchY = session.touch.currentTouchY;
+    const netMovement = Math.sqrt(
+      (touchX - session.touch.startX) ** 2 +
+        (touchY - session.touch.startY) ** 2,
+    );
+    const didNotMove = netMovement <= TAP_MOVE_TOLERANCE;
     state.actionBus.dispatch(CURSOR_DRAG_END);
     session.touch = null;
 
@@ -745,8 +756,7 @@ export function handleTouchEnd(
       },
     };
 
-    // If the user held on the cursor without moving, open context menu
-    // This matches standard mobile behavior (long-press on cursor = paste menu)
+    // Held on the cursor without dragging → open context menu.
     if (didNotMove) {
       newState = newState.actionBus.dispatchState(
         OPEN_CONTEXT_MENU_AT,
@@ -1199,33 +1209,19 @@ export function handleTouchEnd(
         }).state;
       }
 
-      // If tapping inside a selection (single or double tap), open context menu (mobile UX)
-      // Use pixel-based check to account for text wrapping - only trigger if tap is on actual selection boxes
-      else if (
-        isPointWithinSelectionRects(
-          tapPosition.x,
-          tapPosition.y,
-          state,
-          viewport,
-        )
-      ) {
-        // Keep selection but update cursor position; open context menu at tap
-        state = state.actionBus.dispatchState(TAP_ON_SELECTION, state, {
-          position,
-          point: { x: tapPosition.x, y: tapPosition.y },
-        }).state;
-      }
-
-      // Handle double-tap: select word
+      // Handle double-tap: select word (fires even inside an existing
+      // selection, mirroring native editors where double-tap re-selects).
       else if (isMultiTap && session.tapTracker.count === 2) {
         state = state.actionBus.dispatchState(TAP_SELECT_WORD, state, {
           position: anchorPosition,
         }).state;
       }
 
-      // Single tap outside selection: position cursor and close context menu.
-      // A tap in the empty area below a trailing self-contained block
-      // (code/math/quote) starts a fresh paragraph there instead.
+      // Single tap: collapse any selection, position the caret, and close the
+      // context menu. A tap landing inside an existing selection lands here too,
+      // matching native editors where a tap dismisses the selection rather than
+      // opening a menu. A tap in the empty area below a trailing self-contained
+      // block (code/math/quote) starts a fresh paragraph there instead.
       else {
         const edge =
           state.ui.mode !== "readonly"

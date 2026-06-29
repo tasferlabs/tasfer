@@ -272,6 +272,7 @@
   "editor.link.openLinkTitle": "Open Link",
   "editor.link.updateLink": "Update Link",
   "editor.math.chooseConstruct": "Choose a math construct",
+  "editor.math.inline": "Inline math",
   "editor.math.insertConstruct": "Insert {{name}}",
   "editor.math.noConstructs": "No matching constructs",
   "editor.math.placeholder": "Type an equation, or type '\\' for commands…",

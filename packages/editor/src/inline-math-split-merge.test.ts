@@ -164,6 +164,37 @@ describe("inline-math split/merge through the action pipeline", () => {
     expect(spans(state)).toEqual(["ab"]);
   });
 
+  it("Backspacing before a letter across a command separator deletes the whole command (\\degree C, not \\degreeC)", () => {
+    // Regression: the separator space in `\degree C` is absorbed into the command
+    // token, so the position before `C` (offset 8) has no editing unit of its own.
+    // A Backspace there used to fall back to deleting the raw separator, welding
+    // the control word onto `C` into the unknown `\degreeC`. Now the command is
+    // deleted together with its separator, leaving a valid chip. This is what made
+    // the bug appear only where the soft keyboard parked the caret past the
+    // separator (iOS) rather than on it (Android).
+    const s = editorWithChip("\\degree C", 8);
+    const after = s.actionBus.dispatchState(DELETE_BACKWARD, s);
+    expect(spans(after.state)).toEqual(["C"]);
+  });
+
+  it("forward-Deleting before a command separator deletes the separator and the following atom (\\degree C → \\degree)", () => {
+    // Forward counterpart: Delete sitting just after `\degree` (offset 7, before
+    // the separator) must not strand the separator and fuse — it takes the space
+    // together with `C`, leaving the command intact.
+    const s = editorWithChip("\\degree C", 7);
+    const after = s.actionBus.dispatchState(DELETE_FORWARD, s);
+    expect(spans(after.state)).toEqual(["\\degree"]);
+  });
+
+  it("a plain inter-atom space still merges harmlessly on Backspace (a b → ab)", () => {
+    // The separator-aware delete must only fire for a load-bearing command
+    // separator: an ordinary space between atoms carries no meaning, so deleting
+    // just it (merging the atoms) stays the correct, expected behavior.
+    const s = editorWithChip("a b", 2);
+    const after = s.actionBus.dispatchState(DELETE_BACKWARD, s);
+    expect(spans(after.state)).toEqual(["ab"]);
+  });
+
   it("merging a command into a following letter keeps a separator (\\sin x, not \\sinx)", () => {
     // "\sin x": split right after \sin, then merge back — the merge must reinsert
     // a separator so the result is the valid "\sin x", never the broken "\sinx"

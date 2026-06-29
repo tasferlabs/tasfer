@@ -1,4 +1,4 @@
-import { DELETE_BACKWARD } from "../actions/edit-actions";
+import { DELETE_BACKWARD, DELETE_FORWARD } from "../actions/edit-actions";
 import { getInlineMathSpans } from "../inline-math-spans";
 import type { CursorState, EditorState, Page } from "../state-types";
 import { createInitialState } from "../state-utils";
@@ -133,6 +133,67 @@ describe("backspace at the start of a math block", () => {
     expect(getInlineMathSpans(redone.document.page.blocks[0])[0]?.latex).toBe(
       "x^2",
     );
+  });
+});
+
+describe("deleting across a command separator in a math block", () => {
+  // The separator space in `\degree C` is absorbed into the command token, so the
+  // position before `C` carries no editing unit. Deleting only the raw space
+  // would fuse the control word onto `C` into the unknown `\degreeC`; the command
+  // must be deleted together with its separator instead. (Same root cause as the
+  // inline-chip regression — the seam is shared, so a block proves the fix too.)
+  it("Backspace before the letter removes the whole command (\\degree C → C)", () => {
+    const state = stateWithCursor(
+      {
+        id: "page-1",
+        title: "",
+        blocks: [{ ...mathBlock("\\degree C"), orderKey: "a0" }],
+      },
+      { position: { blockIndex: 0, textIndex: 8 }, lastUpdate: 0 },
+    );
+
+    const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+    expect(
+      getVisibleTextFromRuns(
+        (result.state.document.page.blocks[0] as MathBlock).charRuns,
+      ),
+    ).toBe("C");
+  });
+
+  it("forward-Delete before the separator removes the separator and the atom (\\degree C → \\degree)", () => {
+    const state = stateWithCursor(
+      {
+        id: "page-1",
+        title: "",
+        blocks: [{ ...mathBlock("\\degree C"), orderKey: "a0" }],
+      },
+      { position: { blockIndex: 0, textIndex: 7 }, lastUpdate: 0 },
+    );
+
+    const result = state.actionBus.dispatchState(DELETE_FORWARD, state);
+    expect(
+      getVisibleTextFromRuns(
+        (result.state.document.page.blocks[0] as MathBlock).charRuns,
+      ),
+    ).toBe("\\degree");
+  });
+
+  it("an ordinary inter-atom space still merges (a b → ab)", () => {
+    const state = stateWithCursor(
+      {
+        id: "page-1",
+        title: "",
+        blocks: [{ ...mathBlock("a b"), orderKey: "a0" }],
+      },
+      { position: { blockIndex: 0, textIndex: 2 }, lastUpdate: 0 },
+    );
+
+    const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+    expect(
+      getVisibleTextFromRuns(
+        (result.state.document.page.blocks[0] as MathBlock).charRuns,
+      ),
+    ).toBe("ab");
   });
 });
 
