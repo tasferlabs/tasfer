@@ -1,0 +1,395 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── Top bar ── */
+
+.headerTitle {
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+  /* Align with the list row content below it. The top bar pads 0.5rem; the
+     row text sits at .list (0.75rem) + .row (0.625rem) from the frame edge. */
+  padding-inline-start: 0.875rem;
+}
+
+.headerCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding-inline: 0.4rem;
+  margin-inline-start: 0.5rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted-foreground), transparent 88%);
+}
+
+/* Selected-page cluster lifted into the top action bar on desktop, so the
+   wide empty area isn't wasted. Pushed to the inline-end with auto margin. */
+.headerPreview {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 0;
+  margin-inline-start: auto;
+  padding-inline: 0.75rem;
+}
+
+.headerDot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+}
+
+.headerSelTitle {
+  min-width: 0;
+  max-width: 28ch;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.headerSelMeta {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  padding-inline-end: 0.25rem;
+}
+
+@media (max-width: 980px) {
+  .headerSelMeta {
+    display: none;
+  }
+}
+
+/* ── Desktop master–detail ──
+   List pane is FIRST in DOM so flex-row places it inline-start
+   (left in LTR, right in RTL) automatically — no [dir] override needed. */
+
+.split {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+}
+
+.listPane {
+  flex: 0 0 auto;
+  width: clamp(280px, 28%, 380px);
+  min-width: 240px;
+  max-width: 560px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-inline-end: 1px solid var(--border);
+}
+
+.previewPane {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  background: var(--background);
+}
+
+/* Drag handle sitting over the list/preview divider. Out of flow so it doesn't
+   shift the panes; the inline-start edge is where the 1px divider sits. It
+   extends up through the top action bar (negative top) so the bar and the list
+   read as one section — grabbable and highlighting along their whole height. */
+.resizer {
+  position: absolute;
+  top: -100vh;
+  bottom: 0;
+  inset-inline-start: -3px;
+  width: 6px;
+  z-index: 6;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+/* Fill the whole 6px handle on hover/drag, matching the main app sidebar's
+   resize bar width rather than a thin hairline. */
+.resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--primary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.resizer:hover::after,
+.resizing .resizer::after {
+  opacity: 1;
+}
+
+/* Suppress selection and force the resize cursor everywhere during a drag. */
+.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* Extend the list/preview divider up through the top action bar so it reads as
+   one continuous line. The page content paints over the header (it's later in
+   the DOM within .appFrame), and this edge is exactly where the divider sits. */
+.previewPane::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -1px;
+  bottom: 100%;
+  width: 1px;
+  height: 100vh;
+  background: var(--border);
+  pointer-events: none;
+}
+
+/* ── List ── */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+  gap: 0.25rem;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.section + .section {
+  margin-top: 1rem;
+}
+
+.sectionHeader {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+  margin: 0.25rem 0 0.375rem;
+  padding-inline: 0.5rem;
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+  color: var(--foreground);
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.row:hover {
+  background: color-mix(in srgb, var(--accent), transparent 35%);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.rowActive,
+.rowActive:hover {
+  background: var(--accent);
+}
+
+/* Accent rail on the selected row — uses the page's own color when set. */
+.rowActive::before {
+  content: "";
+  position: absolute;
+  inset-block: 0.375rem;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--row-accent, var(--primary));
+}
+
+.colorDot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--row-accent, var(--muted-foreground));
+}
+
+.rowTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowMeta {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Archived-space rows are containers, not selectable buttons: the inline
+   Restore button is the only interactive element, so drop the row's pointer
+   affordance and hover-as-target highlight. */
+.spaceRow {
+  cursor: default;
+  padding-inline-end: 0.25rem;
+}
+
+.spaceRow:hover {
+  background: transparent;
+}
+
+.spaceIcon {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  color: var(--muted-foreground);
+}
+
+.spaceRestore {
+  flex: 0 0 auto;
+}
+
+/* ── Preview ── */
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.previewHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.previewColor {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+}
+
+.previewHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.previewTitle {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.previewMeta {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.previewBody {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.previewState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 2rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+/* ── Empty states ── */
+
+.empty,
+.previewEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex: 1;
+  text-align: center;
+  padding: 2rem;
+  color: var(--muted-foreground);
+}
+
+.emptyIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted-foreground), transparent 90%);
+}
+
+.previewEmpty .emptyIcon {
+  width: 3rem;
+  height: 3rem;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.emptyHint {
+  margin: 0;
+  font-size: 0.8125rem;
+  max-width: 24rem;
+}
+
+/* ── Mobile preview drawer ── */
+
+.drawerContent {
+  height: 88vh;
+  padding: 0;
+}

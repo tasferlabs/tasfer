@@ -81,9 +81,9 @@ export const TEXT_CLICK = stateAction<{
  * the atomic block + caret position already resolved. Handlers update their own
  * hover UI (image resize-handle hover, math block / inline-math chip hover, link
  * tooltip) and **observe only** — they return `{ state, ops: [] }`, never claim.
- * Default is a no-op. `pointerX`/`pointerY` are raw viewport (event) coordinates,
- * needed by the link-tooltip keep-open hysteresis (which hit-tests the tooltip
- * box in viewport space, not canvas space).
+ * Default is a no-op. Hover hit-tests (including the link-tooltip keep-open
+ * hysteresis) use `canvasX`/`canvasY`, which share the canvas/container space of
+ * the stored `ui.linkHover` anchor.
  */
 export const POINTER_MOVE = stateAction<{
   canvasX: number;
@@ -97,8 +97,6 @@ export const POINTER_MOVE = stateAction<{
    */
   blockUnderPoint: number | null;
   atomicBlock: NodeAtomicHit | null;
-  pointerX: number;
-  pointerY: number;
   viewport: ViewportState;
   /** Resolve a caret position to document coords (link tooltip anchor, …). */
   resolveCoords: CoordsResolver;

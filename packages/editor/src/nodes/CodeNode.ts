@@ -275,8 +275,15 @@ export class CodeNode extends TextNode {
    * MountedEditor) that reads the block's `language` live and writes it back via
    * `setBlock`. Emitted for every visible code block so the tag is always
    * available, not just while editing.
+   *
+   * Suppressed entirely in a readonly document: the chip is a mutating
+   * affordance (selecting a language commits a `language` block_set op), so it
+   * must stay hidden like the math hover backdrop and image resize handles. The
+   * gate is `isReadonlyBase` (not `mode === "readonly"`) so it also holds in the
+   * `select` mode a readonly editor enters for copy.
    */
   overlays(c: NodeRegionCtx): readonly NodeOverlay[] {
+    if (c.state.ui.isReadonlyBase) return [];
     return [
       {
         key: "code-language",

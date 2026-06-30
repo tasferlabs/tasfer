@@ -10,7 +10,7 @@ import type {
 import { currentFontFamily, getFontStack } from "../fonts";
 import type { TextualBlock } from "../nodes/TextNode";
 import { getTextDirection } from "../rtl";
-import { isCursorBlinking } from "../selection";
+import { isCursorBlinking, isNodeSelection } from "../selection";
 import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
 import type {
   EditorState,
@@ -1231,7 +1231,7 @@ function getSelectionHandlePositionsForRender(
   focus: { x: number; y: number; height: number; isTop: boolean } | null;
 } | null {
   const selection = state.document.selection;
-  if (!selection || selection.isCollapsed) {
+  if (!selection || selection.isCollapsed || isNodeSelection(selection)) {
     return null;
   }
 

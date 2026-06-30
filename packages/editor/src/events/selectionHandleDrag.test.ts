@@ -5,6 +5,7 @@
  * even when the grabbed handle is the selection's anchor — onStart swaps the
  * stored endpoints so the dragged end is always the focus.
  */
+import { CURSOR_DRAG_BOUNDARY } from "../action-bus";
 import { getCursorDocumentCoords } from "../selection";
 import { loadPage } from "../serlization/loadPage";
 import type { EditorState, ViewportState } from "../state-types";
@@ -166,6 +167,31 @@ describe("touch selection-handle drag", () => {
     // The start (block 2) is the fixed anchor; the focus follows the finger.
     expect(sel.anchor.blockIndex).toBe(2);
     expect(sel.focus.blockIndex).toBe(4);
+  });
+
+  it("ticks a boundary haptic each time the dragged handle crosses into a new block", () => {
+    const state = withForwardSelection(2, 5);
+    let boundaryTicks = 0;
+    state.actionBus.register(CURSOR_DRAG_BOUNDARY, () => {
+      boundaryTicks += 1;
+    });
+
+    // Focus starts at block 5; dragging it through three distinct blocks crosses
+    // a boundary on each move, so the host gets a tap per crossing.
+    dragHandleThrough(state, "focus", [4, 3, 2]);
+    expect(boundaryTicks).toBe(3);
+  });
+
+  it("does not tick a boundary haptic when the handle stays in the same block", () => {
+    const state = withForwardSelection(2, 5);
+    let boundaryTicks = 0;
+    state.actionBus.register(CURSOR_DRAG_BOUNDARY, () => {
+      boundaryTicks += 1;
+    });
+
+    // Re-landing on the focus's current block (5) moves nothing, so no tap.
+    dragHandleThrough(state, "focus", [5]);
+    expect(boundaryTicks).toBe(0);
   });
 
   it("resolves to a non-empty selection when collapsing the start onto the end", () => {

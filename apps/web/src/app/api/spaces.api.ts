@@ -5,14 +5,36 @@
  * trusted peers. All data is stored locally and synced via P2P.
  */
 
-import { useMutation, type UseMutationOptions, useQuery } from "@tanstack/react-query";
+import {
+  useMutation,
+  type UseMutationOptions,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { getPlatform } from "@/platform";
-import type { SpaceMember, SpaceInvite, PairCallbacks } from "@/platform/types";
+import type {
+  SpaceMember,
+  SpaceInvite,
+  PairCallbacks,
+  ArchivedSpaceItem,
+} from "@/platform/types";
 
 export interface ISpace {
   id: string;
   name: string;
   createdAt: string;
+}
+
+export type { ArchivedSpaceItem };
+
+/**
+ * Invalidate everything affected by a space changing its archived state.
+ * Archiving or restoring a space moves it between the sidebar and the Bin, and
+ * shifts which of its deleted pages the Bin can surface (pages in an archived
+ * space are hidden with it), so both space and page lists must refresh.
+ */
+function spaceArchiveKeys(): string[][] {
+  return [["spaces"], ["spaces-archived"], ["pages"], ["pages-archived"]];
 }
 
 export interface ISpaceMember {
@@ -85,6 +107,18 @@ export function useUpdateSpace<TContext = unknown>(
   });
 }
 
+export async function getArchivedSpaces(): Promise<ArchivedSpaceItem[]> {
+  const platform = getPlatform();
+  return platform.spaces.listArchived();
+}
+
+export function useGetArchivedSpaces() {
+  return useQuery({
+    queryKey: ["spaces-archived"],
+    queryFn: getArchivedSpaces,
+  });
+}
+
 export async function archiveSpace(spaceId: string): Promise<void> {
   const platform = getPlatform();
   await platform.spaces.archive(spaceId);
@@ -93,9 +127,37 @@ export async function archiveSpace(spaceId: string): Promise<void> {
 export function useArchiveSpace<TContext = unknown>(
   options?: UseMutationOptions<void, Error, string, TContext>,
 ) {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: archiveSpace,
     ...options,
+    onSuccess: (...args) => {
+      for (const key of spaceArchiveKeys()) {
+        queryClient.invalidateQueries({ queryKey: key });
+      }
+      options?.onSuccess?.(...args);
+    },
+  });
+}
+
+export async function unarchiveSpace(spaceId: string): Promise<void> {
+  const platform = getPlatform();
+  await platform.spaces.unarchive(spaceId);
+}
+
+export function useUnarchiveSpace<TContext = unknown>(
+  options?: UseMutationOptions<void, Error, string, TContext>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: unarchiveSpace,
+    ...options,
+    onSuccess: (...args) => {
+      for (const key of spaceArchiveKeys()) {
+        queryClient.invalidateQueries({ queryKey: key });
+      }
+      options?.onSuccess?.(...args);
+    },
   });
 }
 

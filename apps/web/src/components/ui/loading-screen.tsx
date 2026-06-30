@@ -11,7 +11,7 @@ export default function LoadingScreen() {
     >
       <img
         className="animate-spin"
-        src="/spinner.png"
+        src={`${import.meta.env.BASE_URL}spinner.png`}
         alt={t("common.loading", "Loading...")}
         width={32}
         height={32}

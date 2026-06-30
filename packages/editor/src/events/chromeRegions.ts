@@ -9,7 +9,7 @@
  * pointer types, with per-pointer hit slop in its own hitTest.
  */
 
-import { CURSOR_DRAG_END } from "../action-bus";
+import { CURSOR_DRAG_BOUNDARY, CURSOR_DRAG_END } from "../action-bus";
 import { MOVE_BLOCK } from "../actions/edit-actions";
 import {
   BLOCK_DRAG_HANDLE_HIT_WIDTH,
@@ -276,8 +276,18 @@ const selectionHandleRegion: Region = {
       ) {
         // The dragged handle is always the focus (set up in onStart); the anchor
         // is the opposite, fixed endpoint.
-        const { anchor } = state.document.selection;
+        const { anchor, focus: prevFocus } = state.document.selection;
         const newFocus = newPosition;
+
+        // Tick a haptic each time the held handle crosses a character or line
+        // boundary, mirroring the caret cursor-drag path in touchEvents — the
+        // host maps CURSOR_DRAG_BOUNDARY to a light tap.
+        if (
+          prevFocus.blockIndex !== newFocus.blockIndex ||
+          prevFocus.textIndex !== newFocus.textIndex
+        ) {
+          state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
+        }
 
         const isForward =
           anchor.blockIndex < newFocus.blockIndex ||

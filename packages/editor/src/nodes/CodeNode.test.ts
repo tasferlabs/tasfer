@@ -89,6 +89,30 @@ describe("CodeNode layout", () => {
   });
 });
 
+describe("CodeNode language overlay in readonly", () => {
+  const node = new CodeNode();
+  // overlays() reads only block.id, origin, maxWidth, and state.ui.isReadonlyBase.
+  const overlaysFor = (state: EditorState) =>
+    node.overlays({
+      block: codeBlock("x"),
+      origin: { x: 0, y: 0 },
+      maxWidth: 400,
+      state,
+    } as unknown as Parameters<CodeNode["overlays"]>[0]);
+
+  it("emits the language slot for an editable document", () => {
+    const overlays = overlaysFor(createInitialState(pageWith(codeBlock("x"))));
+    expect(overlays.map((o) => o.key)).toEqual(["code-language"]);
+  });
+
+  it("suppresses the language slot for a readonly document", () => {
+    const overlays = overlaysFor(
+      createInitialState(pageWith(codeBlock("x")), { mode: "readonly" }),
+    );
+    expect(overlays).toEqual([]);
+  });
+});
+
 describe("CodeNode editing actions", () => {
   it("Enter inserts a newline inside a code block instead of splitting it", () => {
     const state0 = createInitialState(pageWith(codeBlock("ab")));

@@ -238,6 +238,45 @@ describe("stale image-hover handles are cleared when the pointer leaves", () => 
     expect(next.ui.imageHover).toBeNull();
   });
 
+  it("a canvas mouseleave keeps linkHover (interactive popover the host owns)", () => {
+    // The link tooltip is a pointer-events-auto DOM popover: the pointer
+    // crossing from the canvas onto it fires this very mouseleave. Clearing here
+    // would unmount the popover before the cursor could reach it (the reported
+    // bug). Its dismissal is host-owned (the popover clears it on pointer-leave),
+    // so mouseleave must leave linkHover intact while dropping sibling hovers.
+    const base = createInitialState(pageOf(["image"]));
+    const state: EditorState = {
+      ...base,
+      ui: {
+        ...base.ui,
+        imageHover: hoverOn(0),
+        linkHover: {
+          position: { blockIndex: 0, textIndex: 0 },
+          url: "https://example.com",
+          text: "example",
+          x: 10,
+          y: 20,
+          startIndex: 0,
+          endIndex: 7,
+        },
+      },
+    };
+    const session = createInteractionSession(createChromeRegionRegistry());
+
+    const next = handleEvents(
+      state,
+      viewport,
+      visibility,
+      [{ type: "mouseleave" } as unknown as Event],
+      viewport.documentHeight,
+      { left: 0, top: 0 },
+      session,
+    ).state;
+
+    expect(next.ui.imageHover).toBeNull();
+    expect(next.ui.linkHover).toEqual(state.ui.linkHover);
+  });
+
   it("a touch interaction drops a stale (mouse-set) imageHover", () => {
     const { state, session } = withHover();
     expect(state.ui.imageHover).not.toBeNull();

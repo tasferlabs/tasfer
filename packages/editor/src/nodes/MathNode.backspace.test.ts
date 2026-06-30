@@ -1,6 +1,12 @@
 import { DELETE_BACKWARD, DELETE_FORWARD } from "../actions/edit-actions";
 import { getInlineMathSpans } from "../inline-math-spans";
-import type { CursorState, EditorState, Page } from "../state-types";
+import { getSelectionHandlePositions, isNodeSelection } from "../selection";
+import type {
+  CursorState,
+  EditorState,
+  Page,
+  ViewportState,
+} from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
@@ -237,5 +243,81 @@ describe("backspace from following text into a math block", () => {
         .filter((block) => !block.deleted)
         .map((block) => block.type),
     ).toEqual(["paragraph"]);
+  });
+
+  it("renders the selected math block as a node selection, not text handles", () => {
+    // The node-selection sentinel (anchor === focus, isCollapsed: false) is a
+    // whole-block selection, not a zero-width text range. The mobile selection
+    // handles would otherwise both resolve to the math's start edge — two
+    // teardrops stacked into a stray caret-like bar. They must be suppressed so
+    // the block paints its own selected state instead.
+    const after: Paragraph = {
+      id: "paragraph-2",
+      orderKey: "a2",
+      type: "paragraph",
+      charRuns: [{ peerId: "seed", startCounter: 200, text: "after" }],
+      formats: [],
+    };
+    const state = stateWithCursor(
+      {
+        id: "page-1",
+        title: "",
+        blocks: [mathBlock("x^2"), after],
+      },
+      { position: { blockIndex: 1, textIndex: 0 }, lastUpdate: 0 },
+    );
+
+    const selected = state.actionBus.dispatchState(
+      DELETE_BACKWARD,
+      state,
+    ).state;
+
+    expect(isNodeSelection(selected.document.selection)).toBe(true);
+
+    const viewport: ViewportState = {
+      width: 800,
+      height: 2000,
+      scrollY: 0,
+      documentHeight: 2000,
+    };
+    expect(getSelectionHandlePositions(selected, viewport)).toBeNull();
+  });
+});
+
+describe("isNodeSelection", () => {
+  const at = (blockIndex: number, textIndex: number) => ({
+    blockIndex,
+    textIndex,
+  });
+
+  it("is true only for a non-collapsed selection pinned to one position", () => {
+    expect(
+      isNodeSelection({
+        anchor: at(0, 0),
+        focus: at(0, 0),
+        isForward: true,
+        isCollapsed: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("is false for a real text range and for a collapsed caret", () => {
+    expect(
+      isNodeSelection({
+        anchor: at(0, 0),
+        focus: at(0, 3),
+        isForward: true,
+        isCollapsed: false,
+      }),
+    ).toBe(false);
+    expect(
+      isNodeSelection({
+        anchor: at(0, 2),
+        focus: at(0, 2),
+        isForward: true,
+        isCollapsed: true,
+      }),
+    ).toBe(false);
+    expect(isNodeSelection(null)).toBe(false);
   });
 });

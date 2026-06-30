@@ -61,6 +61,16 @@ export interface PageListItem {
   recurrenceId?: string | null;
 }
 
+/** A soft-deleted page surfaced in the Bin (root of an archived subtree) */
+export interface ArchivedPageItem {
+  id: string;
+  title: string;
+  spaceId?: string | null;
+  color?: string | null;
+  /** ISO timestamp when the page was archived (deleted) */
+  archivedAt: string;
+}
+
 /** Full page with content */
 export interface PageFull extends PageListItem {
   blocks: Block[] | null;
@@ -172,6 +182,14 @@ export interface Space {
   id: string;
   name: string;
   createdAt: string;
+}
+
+/** An archived space surfaced in the Bin */
+export interface ArchivedSpaceItem {
+  id: string;
+  name: string;
+  /** ISO timestamp when the space was archived */
+  archivedAt: string;
 }
 
 /** A member of a space */
@@ -388,6 +406,8 @@ export interface Platform {
   spaces: {
     /** List all spaces this device is a member of */
     list(): Promise<Space[]>;
+    /** List archived spaces this device is a member of (for the Bin) */
+    listArchived(): Promise<ArchivedSpaceItem[]>;
     /** Get a space with its members */
     get(id: string): Promise<Space & { members: SpaceMember[] }>;
     /** Create a new space (adds self as owner) */
@@ -439,6 +459,10 @@ export interface Platform {
     update(data: PageUpdateInput): Promise<PageFull>;
     /** Delete a page */
     delete(id: string): Promise<void>;
+    /** List soft-deleted (archived) pages across all spaces — roots of archived subtrees */
+    listArchived(): Promise<ArchivedPageItem[]>;
+    /** Restore a soft-deleted page (and its archived subtree) */
+    restore(id: string): Promise<void>;
     /** Move a page to a new parent */
     move(data: PageMoveInput): Promise<void>;
     /** Reorder a page within its parent */

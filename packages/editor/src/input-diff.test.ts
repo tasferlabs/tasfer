@@ -1,4 +1,5 @@
 import {
+  clampMirrorStartToSpans,
   computeSurfaceDelta,
   currentWordStart,
   isEmptyDelta,
@@ -156,5 +157,49 @@ describe("computeSurfaceDelta", () => {
     expect(out).toBe(b);
     // No lone surrogate left behind.
     expect(out.length).toBe(2);
+  });
+});
+
+describe("clampMirrorStartToSpans", () => {
+  // An inline math chip `\frac{a}{b}` covering offsets [2, 13) in
+  // `x \frac{a}{b} y`-style text — the protected source the surface must not
+  // mirror into.
+  const chip = [{ start: 2, end: 13 }];
+
+  it("floors the word start at the chip's end when the caret is past it", () => {
+    // Caret just after the chip: the word would walk back into the LaTeX, so the
+    // mirror must start no earlier than the chip's end (an empty word → sentinel).
+    expect(clampMirrorStartToSpans(chip, 13)).toBe(13);
+    // Caret two chars past the chip ("…b} yz|"): the live word is only "yz".
+    expect(clampMirrorStartToSpans(chip, 15)).toBe(13);
+  });
+
+  it("returns null when the caret sits strictly inside a chip", () => {
+    // Anywhere in (start, end) is inside the LaTeX — no prose word at all.
+    expect(clampMirrorStartToSpans(chip, 3)).toBeNull();
+    expect(clampMirrorStartToSpans(chip, 12)).toBeNull();
+  });
+
+  it("treats the chip edges as outside the chip", () => {
+    // Left edge: caret before the chip → unaffected (floor 0).
+    expect(clampMirrorStartToSpans(chip, 2)).toBe(0);
+    // Right edge handled above (floors to 13), confirming edges aren't "inside".
+  });
+
+  it("ignores chips that start after the caret", () => {
+    expect(clampMirrorStartToSpans([{ start: 5, end: 10 }], 3)).toBe(0);
+  });
+
+  it("with no protected spans the start is unconstrained (floor 0)", () => {
+    expect(clampMirrorStartToSpans([], 7)).toBe(0);
+  });
+
+  it("floors at the nearest preceding chip when several precede the caret", () => {
+    const spans = [
+      { start: 0, end: 3 },
+      { start: 6, end: 9 },
+    ];
+    // Caret at 12: both chips precede it; the floor is the later chip's end.
+    expect(clampMirrorStartToSpans(spans, 12)).toBe(9);
   });
 });

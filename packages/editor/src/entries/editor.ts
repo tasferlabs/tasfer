@@ -38,14 +38,17 @@ import {
   isInLongPressMode,
 } from "../events/interaction-session";
 import { onFontsReady } from "../fonts";
+import { resolveMarkRuns } from "../inline-math-spans";
 import {
+  clampMirrorStartToSpans,
   computeSurfaceDelta,
+  currentWordStart,
   isEmptyDelta,
   isWordBoundaryChar,
   sentenceStartOffset,
   SURFACE_SENTINEL,
 } from "../input-diff";
-import { getBlockTextContent, isIOS } from "../node-shared";
+import { getBlockTextContent, isAndroid, isIOS } from "../node-shared";
 import {
   type BlockData as RuntimeBlockData,
   docMarks,
@@ -135,6 +138,7 @@ import {
   createDefaultBlock,
   getBlockFieldNames,
   isPlainStyleObject,
+  isPreformattedType,
   isStyleField,
   isTextualBlock,
   readBlockStyle,
@@ -415,6 +419,14 @@ export interface EditorStateSnapshot {
    */
   readonly mode: EditorMode;
   /**
+   * Whether the editor was initialized read-only. Unlike {@link mode} (which a
+   * read-only editor flips to `select` to allow drag-select + copy), this stays
+   * true for the editor's lifetime — so host chrome can suppress *mutating*
+   * affordances (a link's Edit button, a code block's language picker) for the
+   * whole read-only session, not just while `mode === "readonly"`.
+   */
+  readonly isReadonlyBase: boolean;
+  /**
    * Whether the caret sits in a node/mark's caret-anchored command-entry scratch
    * — e.g. typing a `\command` inside a math chip, kept literal until confirmed.
    * Gates host chrome that mirrors that in-progress entry (the inline-math
@@ -535,6 +547,14 @@ export interface EditorHostApi {
    * and notify subscribers.
    */
   closeActiveMenu: () => void;
+  /**
+   * Dismiss the link hover tooltip (`ui.linkHover`). The tooltip is an
+   * interactive DOM popover the host renders; once the pointer is over it the
+   * canvas sees no more moves, so the host signals dismissal here when the
+   * pointer leaves the popover. Engine-internal off-link hover detection still
+   * clears it on its own while the pointer is over the canvas.
+   */
+  clearLinkHover: () => void;
   /** Restore from snapshot - generates and broadcasts operations */
   restoreFromSnapshot: (blocks: Block[]) => void;
 }
@@ -604,7 +624,7 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
 export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
   /**
    * Read-only state snapshot for UI binding: `{ selection, activeMarks,
-   * canUndo, canRedo, isFocused, mode, caretScratchActive }`.
+   * canUndo, canRedo, isFocused, mode, isReadonlyBase, caretScratchActive }`.
    * The typed read surface for chrome — pair it with the {@link query} facet for
    * content reads and the {@link view} facet for geometry. The raw internal
    * `EditorState` is not exposed through this public contract — both
@@ -922,23 +942,42 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // ── Input-surface mirror (per-instance) ─────────────────────────────────────
   // `hiddenInput` is a contenteditable surface that holds either the current
   // selection's text (so native copy/cut and screen readers see real content) or
-  // the SENTINEL followed by the current sentence up to the caret (the word being
-  // typed plus its left-context), caret placed AFTER it. The leading sentinel
-  // keeps Android GBoard emitting `deleteContentBackward` on backspace; the
-  // sentence context lets the keyboard apply its own autocapitalization and
-  // predict/autocorrect the word (see SURFACE_SENTINEL). On iOS the sentinel is
-  // empty: WebKit emits a real Backspace `keydown` (so the sentinel isn't needed
-  // for delete) and a leading space would stop it from capitalizing the first
-  // word of a sentence. All programmatic DOM mutation is wrapped in
-  // `isMirrorUpdating` so the resulting input/selection events aren't mistaken
-  // for user edits, and `lastSelectionSig` avoids recomputing the (potentially
-  // large) selection text on every render frame.
+  // the SENTINEL followed by the text up to the caret, caret placed AFTER it. The
+  // leading sentinel keeps Android GBoard emitting `deleteContentBackward` on
+  // backspace and is a real word boundary so the keyboard predicts/autocorrects
+  // the word (see SURFACE_SENTINEL).
+  //
+  // How much text trails the sentinel is platform-specific (see
+  // `mirrorSentenceContext`): the current word on desktop, the current sentence
+  // on mobile. All programmatic DOM mutation is wrapped in `isMirrorUpdating` so
+  // the resulting input/selection events aren't mistaken for user edits, and
+  // `lastSelectionSig` avoids recomputing the (potentially large) selection text
+  // on every render frame.
+  //
+  // iOS uses an EMPTY sentinel; Android and desktop a single space. The space
+  // gives Android GBoard a character before the caret so it keeps emitting
+  // `deleteContentBackward` on backspace, and is a real word boundary so the
+  // keyboard predicts/autocorrects the word (see SURFACE_SENTINEL). iOS doesn't
+  // need it — it emits a real Backspace `keydown` — and the space actively breaks
+  // WebKit autocapitalization: at a sentence start the surface would read " "
+  // instead of empty, so WebKit never sees a fresh sentence and never capitalizes.
+  // With an empty sentinel the surface is genuinely empty at a sentence boundary,
+  // and `setMirror("")` leaves the DOM selection untouched (no `firstChild`), so
+  // WebKit's shift-state survives and the OS capitalizes the first letter itself.
   private readonly SENTINEL = isIOS() ? "" : SURFACE_SENTINEL;
+  // Mobile keyboards derive autocapitalization from the text before the caret, so
+  // the surface must mirror real sentence context or the OS capitalizes every word
+  // (glaringly in list items) — or, at a word boundary, would capitalize mid-
+  // sentence words. At a sentence start the sentence slice is empty, which is
+  // exactly the signal the keyboard needs to capitalize. Desktop keyboards don't
+  // autocapitalize, so they mirror just the word for tighter predictions.
+  private readonly mirrorSentenceContext = isAndroid() || isIOS();
   private isMirrorUpdating = false;
   private lastSelectionSig: string | null = null;
-  // The last surface text the editor observed or wrote (always begins with the
-  // sentinel in caret mode). `hiddenInputHandler` diffs the new surface against
-  // this to classify the edit (append / backspace / autocorrect replacement).
+  // The last surface text the editor observed or wrote (begins with the sentinel
+  // in caret mode; the iOS sentinel is empty). `hiddenInputHandler` diffs the new
+  // surface against this to classify the edit (append / backspace / autocorrect
+  // replacement).
   private lastSurfaceValue: string = this.SENTINEL;
 
   // Guards async work that settles after destroy() from poking a torn-down loop.
@@ -1754,7 +1793,37 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private browserFocusHandler = () => {
+    this.inputDebug("focus", {
+      ua: typeof navigator === "undefined" ? "?" : navigator.userAgent,
+      maxTouchPoints:
+        typeof navigator === "undefined" ? "?" : navigator.maxTouchPoints,
+      mirrorSentenceContext: this.mirrorSentenceContext,
+      autocapitalize: this.hiddenInput?.getAttribute("autocapitalize"),
+      autocorrect: this.hiddenInput?.getAttribute("autocorrect"),
+      spellcheck: this.hiddenInput?.getAttribute("spellcheck"),
+      inputmode: this.hiddenInput?.getAttribute("inputmode"),
+      surface: this.hiddenInput?.textContent,
+    });
     this.syncBrowserFocus();
+  };
+
+  // Temporary input-surface diagnostics for debugging mobile autocapitalization.
+  // Inert unless `window.__cypherInputDebug` is set truthy (run that in a console
+  // / Safari Web Inspector, or set it from the host). When on, the lines flow to
+  // the DevToolbar Logs tab (it tees `console.*`). TODO: remove once the mobile
+  // keyboard behavior is confirmed.
+  private inputDebug = (
+    event: string,
+    detail: Record<string, unknown>,
+  ): void => {
+    if (
+      typeof window === "undefined" ||
+      !(window as unknown as { __cypherInputDebug?: unknown })
+        .__cypherInputDebug
+    ) {
+      return;
+    }
+    console.log(`[cypher-input] ${event}`, detail);
   };
 
   // True while an in-progress touch gesture should hold the soft keyboard open.
@@ -1929,6 +1998,50 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.lastSurfaceValue = this.SENTINEL;
   };
 
+  // The document offset where the mirrored region after the sentinel begins. On
+  // mobile it's the start of the current sentence (so the keyboard reads real
+  // left-context and capitalizes only true sentence starts); on desktop it's the
+  // current word. `sentenceStartOffset` is stable while typing within a sentence,
+  // so the surface the keyboard already built isn't rewritten between keystrokes
+  // (which would tear down its predictive-text/autocorrect session).
+  private mirrorStartOffset = (text: string, caret: number): number =>
+    this.mirrorSentenceContext
+      ? sentenceStartOffset(text, caret)
+      : currentWordStart(text, caret);
+
+  // Where the mirrored word may start, clamped so it never reaches into content
+  // that is verbatim SOURCE rather than prose — exposing source to the OS
+  // keyboard lets predictive text / autocorrect rewrite it, and a multi-character
+  // swap is then applied as a raw range replace (`applySurfaceReplacement`) that
+  // bypasses the source's own input pipeline. That mangles it: e.g. an inline
+  // math chip's LaTeX loses braces and gains accented characters.
+  //
+  // Two node/mark-agnostic sources of "not prose":
+  //   • A preformatted block (code, math) IS source end to end → `null`: no live
+  //     word at all, just the bare sentinel. Typing still flows through the
+  //     synthetic-key pipeline; only autocorrect/prediction is withheld.
+  //   • A replacement-mark run (an inline math chip) embeds source inside prose.
+  //     The caret strictly inside one → `null`; otherwise the word may not start
+  //     before the end of the last such run at or before the caret.
+  //
+  // Returns the clamped start, or `null` when the surface should fall back to the
+  // bare sentinel.
+  private clampedMirrorStart = (
+    block: Block,
+    text: string,
+    caret: number,
+  ): number | null => {
+    if (isPreformattedType(block.type)) return null;
+    // Replacement-mark runs (inline math chips) are verbatim source embedded in
+    // prose; the keyboard must not autocorrect them.
+    const spans = resolveMarkRuns(block)
+      .filter((r) => this._state.marks.get(r.name)?.replacement)
+      .map((r) => ({ start: r.startIndex, end: r.endIndex }));
+    const floor = clampMirrorStartToSpans(spans, caret);
+    if (floor === null) return null;
+    return Math.max(this.mirrorStartOffset(text, caret), floor);
+  };
+
   // Cheap signature of the current selection/caret, to avoid recomputing the
   // (potentially large) selection text on every render frame.
   private selectionSignature = (s: EditorState): string => {
@@ -1949,7 +2062,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   //   • Non-collapsed selection → mirror its plain text (selected), so native
   //     copy/cut and screen readers operate on real content. Recomputed only
   //     when the selection changes (the text can be large).
-  //   • Caret → mirror "sentinel + the current sentence up to the caret", derived
+  //   • Caret → mirror "sentinel + the current word (mobile: sentence) up to the caret", derived
   //     from the document. When the surface ALREADY equals that, it is left untouched —
   //     rewriting an already-correct surface tears down the OS predictive-text /
   //     autocorrect session, which is exactly what used to make autocomplete
@@ -2014,19 +2127,25 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.resetSentinel();
       return;
     }
-    // Mirror from the start of the current sentence (not just the current word)
-    // up to the caret. The OS keyboard decides autocapitalization by reading the
-    // text before the cursor, so it needs the real left-context: with only the
-    // bare word it saw every word at the field start and capitalized each one
-    // (glaringly in list items). `sentenceStartOffset` is stable while typing
-    // within a sentence — it only moves when a sentence ends — so the surface
-    // the keyboard already built is left untouched between keystrokes, keeping
-    // the predictive-text/autocorrect session alive.
-    const contextStart = sentenceStartOffset(text, caret.offset);
-    const target = this.SENTINEL + text.slice(contextStart, caret.offset);
+    const mirrorStart = this.clampedMirrorStart(block, text, caret.offset);
+    if (mirrorStart === null) {
+      this.resetSentinel();
+      return;
+    }
+    const target = this.SENTINEL + text.slice(mirrorStart, caret.offset);
 
     const current = this.hiddenInput.textContent ?? "";
-    if (current === target && document.activeElement === this.hiddenInput) {
+    const consistent =
+      current === target && document.activeElement === this.hiddenInput;
+    if (!consistent) {
+      this.inputDebug("syncMirror", {
+        caretOffset: caret.offset,
+        mirrorStart,
+        target,
+        current,
+      });
+    }
+    if (consistent) {
       // Already consistent and the keyboard owns it — don't touch the DOM (that
       // would cancel an in-flight suggestion); just keep the classifier in sync.
       this.lastSurfaceValue = target;
@@ -2151,13 +2270,21 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
-    // Diff against the whole mirrored region (sentence context + word), matching
-    // what the surface holds. The shared context is a common prefix, so the delta
-    // still localizes to the changed word; absolute offsets are taken from
-    // `contextStart`.
+    // Diff against the whole mirrored region (which on Android includes the
+    // sentence context before the word), matching what the surface holds. The
+    // shared context is a common prefix, so the delta still localizes to the
+    // changed word; absolute offsets are taken from `mirrorStart`.
     const text = getBlockTextContent(block);
-    const contextStart = sentenceStartOffset(text, caret.offset);
-    const docRegion = text.slice(contextStart, caret.offset);
+    // Clamp identically to the surface builder so the replacement can never land
+    // inside verbatim source (a preformatted block, or an inline math chip's
+    // LaTeX) — see `clampedMirrorStart`. When it would, there is no prose word to
+    // replace; drop back to the sentinel rather than corrupt the source.
+    const mirrorStart = this.clampedMirrorStart(block, text, caret.offset);
+    if (mirrorStart === null) {
+      this.resetSentinel();
+      return;
+    }
+    const docRegion = text.slice(mirrorStart, caret.offset);
     const newRegion = newSurface.startsWith(this.SENTINEL)
       ? newSurface.slice(this.SENTINEL.length)
       : newSurface;
@@ -2169,9 +2296,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
 
     const blockId = block.id;
-    const from = contextStart + delta.deleteStart;
-    const to = contextStart + delta.deleteEnd;
-    const caretOffset = contextStart + newRegion.length;
+    const from = mirrorStart + delta.deleteStart;
+    const to = mirrorStart + delta.deleteEnd;
+    const caretOffset = mirrorStart + newRegion.length;
 
     this.change((c) => {
       c.insertText(delta.insert, {
@@ -2186,7 +2313,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Handle input from the contenteditable surface (mobile keyboard + desktop
   // character input flow through here as InputEvents). The surface holds
-  // "sentinel + current sentence up to the caret"; this classifies how it changed and routes plain
+  // "sentinel + current word (mobile: sentence) up to the caret"; this classifies how it changed and routes plain
   // typing / single backspaces through the synthetic-key pipeline (unchanged
   // behavior) while applying autocorrect/predictive replacements as one edit.
   private hiddenInputHandler = (e: Event) => {
@@ -2204,6 +2331,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     const inputEvent = e as InputEvent;
     const it = inputEvent.inputType;
+
+    this.inputDebug("input", {
+      inputType: it,
+      data: inputEvent.data,
+      prevSurface: this.lastSurfaceValue,
+      newSurface: this.hiddenInput.textContent,
+      composing: this._state.ui.composition?.isComposing ?? false,
+      sentinel: JSON.stringify(this.SENTINEL),
+      autocapitalize: this.hiddenInput.getAttribute("autocapitalize"),
+      ua: typeof navigator === "undefined" ? "?" : navigator.userAgent,
+    });
 
     // Skip processing during IME composition - composition events handle it.
     if (it === "insertCompositionText") return;
@@ -2278,10 +2416,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
-    // The mirrored region (sentence context + word). Its context prefix is
-    // identical between frames while typing within a sentence, so an append /
-    // single backspace shows up as a one-character change at the end exactly as
-    // it did when the surface held only the word.
+    // The mirrored region: the current word, plus its sentence context on
+    // Android. Any context prefix is identical between frames while typing within
+    // a sentence, so an append / single backspace shows up as a one-character
+    // change at the end exactly as it does when the surface holds only the word.
     const prevRegion = this.lastSurfaceValue.startsWith(this.SENTINEL)
       ? this.lastSurfaceValue.slice(sentinelLen)
       : "";
@@ -2294,7 +2432,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
 
     // Plain typing — characters appended at the end. Route through the
-    // synthetic-key path so autoformat/plugins run as for hardware keys.
+    // synthetic-key path so autoformat/plugins run as for hardware keys. The OS
+    // keyboard owns capitalization: it reads the mirrored sentence context and
+    // emits an already-capitalized `data` at a sentence start (see SENTINEL and
+    // `mirrorSentenceContext`).
     if (
       it === "insertText" &&
       inputEvent.data != null &&
@@ -2631,12 +2772,25 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Handle composition events (IME input)
   private compositionStartHandler = (e: CompositionEvent) => {
+    this.inputDebug("compositionstart", {
+      data: e.data,
+      surface: this.hiddenInput?.textContent,
+      ua: typeof navigator === "undefined" ? "?" : navigator.userAgent,
+      maxTouchPoints:
+        typeof navigator === "undefined" ? "?" : navigator.maxTouchPoints,
+      mirrorSentenceContext: this.mirrorSentenceContext,
+      autocapitalize: this.hiddenInput?.getAttribute("autocapitalize"),
+    });
     // Mark composition as starting - this will be handled in events.ts
     this.eventsQueue.push(e);
     this.scheduleRender();
   };
 
   private compositionUpdateHandler = (e: CompositionEvent) => {
+    this.inputDebug("compositionupdate", {
+      data: e.data,
+      surface: this.hiddenInput?.textContent,
+    });
     // Update composition text - this will be handled in events.ts
     this.eventsQueue.push(e);
     this.scheduleRender();
@@ -2644,6 +2798,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   private compositionEndHandler = (e: CompositionEvent) => {
     if (!this.hiddenInput) return;
+
+    this.inputDebug("compositionend", {
+      data: e.data,
+      surface: this.hiddenInput.textContent,
+    });
 
     // Finalize composition - this will be handled in events.ts
     this.eventsQueue.push(e);
@@ -4033,6 +4192,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.listeners.forEach((listener) => listener(currentState));
   };
 
+  clearLinkHover = (): void => {
+    if (!this._state.ui.linkHover) return;
+    this._state = {
+      ...this._state,
+      ui: { ...this._state.ui, linkHover: null },
+    };
+    const currentState = this._state;
+    this.scheduleRender();
+    this.listeners.forEach((listener) => listener(currentState));
+  };
+
   isHostMenuCapturing = (): boolean => this.session.hostMenuCapturing;
 
   updatePageFromSync = (
@@ -4285,6 +4455,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       canRedo: canRedoState(this._state),
       isFocused: this._state.view.isFocused,
       mode: this._state.ui.mode,
+      isReadonlyBase: this._state.ui.isReadonlyBase,
       caretScratchActive: this.queryCaretScratchActive(),
     };
   }
@@ -4415,6 +4586,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     openOverlay: this.openOverlay,
     setNodeViewState: this.setNodeViewState,
     closeActiveMenu: this.closeActiveMenu,
+    clearLinkHover: this.clearLinkHover,
     restoreFromSnapshot: this.restoreFromSnapshot,
   };
 }

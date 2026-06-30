@@ -211,12 +211,9 @@ export function SidebarContent({
     },
   });
 
-  const { mutate: requestArchiveSpace } = useArchiveSpace({
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["spaces"] });
-      queryClient.invalidateQueries({ queryKey: ["pages"] });
-    },
-  });
+  // Cache invalidation (spaces + pages, including the Bin) is handled inside
+  // useArchiveSpace so every caller stays consistent.
+  const { mutate: requestArchiveSpace } = useArchiveSpace();
 
   // Configure sensors with better mobile support and prevent accidental drags during scrolling
   const sensors = useSensors(
@@ -612,6 +609,12 @@ export function SidebarContent({
                 <Icons.Calendar width={24} height={24} />
               </div>
               {t("calendar.title", "Calendar")}
+            </RouterLink>
+            <RouterLink className={style.appNavigationLink} to={"/bin"}>
+              <div className={style.appNavigationLinkIcon}>
+                <Icons.Trash width={24} height={24} />
+              </div>
+              {t("bin.title", "Bin")}
             </RouterLink>
 
             <button

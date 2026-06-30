@@ -192,6 +192,7 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
   },
   spaces: {
     list: { kind: "request" },
+    listArchived: { kind: "request" },
     get: { kind: "request" },
     create: { kind: "request" },
     rename: { kind: "request" },
@@ -212,6 +213,8 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     create: { kind: "request" },
     update: { kind: "request" },
     delete: { kind: "request" },
+    listArchived: { kind: "request" },
+    restore: { kind: "request" },
     move: { kind: "request" },
     reorder: { kind: "request" },
     search: { kind: "request" },

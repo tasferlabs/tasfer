@@ -34,6 +34,7 @@ export type MobileToolbarIcon =
   | "list_ordered"
   | "list_todo"
   | "image"
+  | "link"
   | "line"
   | "keyboard_dismiss"
   // Contextual controls (list/code/overflow). The native iOS accessory renders
@@ -61,6 +62,8 @@ export type MobileToolbarAction =
   | { type: "outdent-list" }
   | { type: "toggle-todo" }
   | { type: "set-code-language"; language: string }
+  | { type: "edit-link" }
+  | { type: "edit-image" }
   | { type: "dismiss" };
 
 /** One construct in the contextual math row. The `latex` is both inserted on tap
@@ -126,7 +129,12 @@ export type MobileToolbarItem =
   | { kind: "spacer"; id: string };
 
 /** Which editing context produced the contextual layout. */
-export type MobileToolbarContextKind = "format" | "list" | "code" | "math";
+export type MobileToolbarContextKind =
+  | "format"
+  | "list"
+  | "code"
+  | "math"
+  | "image";
 
 /**
  * The three-tier layout the in-webview React bar (Android/web touch) renders:
@@ -222,6 +230,8 @@ interface MobileToolbarState {
   listIndent: number;
   /** Checked state of the current todo item (false when not a todo). */
   todoChecked: boolean;
+  /** Whether the caret/selection rests on an existing link mark. */
+  linkActive: boolean;
   /** Language of the current code block ("" when not in code / untagged). */
   codeLanguage: string;
   math: MobileToolbarMathContext | null;
@@ -421,8 +431,20 @@ export function createMobileToolbarModel(
     { type: "toggle-math" },
     { active: state.isMath },
   );
+  // The native iOS accessory replaces the item with id "math-command" with the
+  // live chip row (see NoAccessoryWebView.swift), so `mathCommand` is only the
+  // chip-row anchor there — it is never rendered as a button. The visible,
+  // tappable `\` trigger is `mathTrigger`, which carries a distinct id so it
+  // renders as a real button on every shell while sitting beside the chips.
   const mathCommand = button(
     "math-command",
+    "math_command",
+    t("editor.math.chooseConstruct", "Math commands"),
+    { type: "open-math-commands" },
+    { enabled: state.canOpenMathCommands },
+  );
+  const mathTrigger = button(
+    "math-trigger",
     "math_command",
     t("editor.math.chooseConstruct", "Math commands"),
     { type: "open-math-commands" },
@@ -433,6 +455,25 @@ export function createMobileToolbarModel(
     "keyboard_dismiss",
     t("editor.dismissKeyboard", "Dismiss keyboard"),
     { type: "dismiss" },
+  );
+  // Contextual settings buttons. The link control surfaces whenever the
+  // caret/selection rests on an existing link and opens the link settings
+  // drawer; the image control is the whole bar when an image block is selected
+  // and opens the image settings drawer. Both live in the shared model so every
+  // shell — the in-webview Android/web bar and the native iOS accessory —
+  // renders the same entry point.
+  const editLink = button(
+    "edit-link",
+    "link",
+    t("editor.link.editLinkTitle", "Edit Link"),
+    { type: "edit-link" },
+    { active: true },
+  );
+  const editImage = button(
+    "edit-image",
+    "image",
+    t("editor.image.editImage", "Edit Image"),
+    { type: "edit-image" },
   );
 
   const blockMenu: MobileToolbarItem = {
@@ -459,8 +500,11 @@ export function createMobileToolbarModel(
     inlineCode,
     strikethrough,
     inlineMath,
+    mathTrigger,
     blockMenu,
     dismiss,
+    editLink,
+    editImage,
   });
 
   return {
@@ -477,11 +521,12 @@ export function createMobileToolbarModel(
 /**
  * Project the contextual {@link MobileToolbarLayout} into the flat ordered list
  * the native iOS accessory renders. The native shell can't draw the live math
- * chip row, so a caret-in-math context collapses to the math-command button
- * (which opens the floating `\` menu); the overflow drawer becomes a single
- * "more" menu (a native popup); and the trailing cluster ("more" + dismiss) is
- * pinned via the `fixed-row-start` marker the accessory keys on to split
- * scroll/fixed.
+ * chip row, so a caret-in-math context emits the `mathCommand` anchor (id
+ * "math-command") whose slot the accessory replaces with the chip glyphs; the
+ * visible `\` trigger lives separately in `layout.left`. The overflow drawer
+ * becomes a single "more" menu (a native popup); and the trailing cluster
+ * ("more" + dismiss) is pinned via the `fixed-row-start` marker the accessory
+ * keys on to split scroll/fixed.
  */
 function flattenLayoutForNative(
   layout: MobileToolbarLayout,
@@ -553,8 +598,11 @@ function buildLayout(
     inlineCode: MobileToolbarItem;
     strikethrough: MobileToolbarItem;
     inlineMath: MobileToolbarItem;
+    mathTrigger: MobileToolbarItem;
     blockMenu: MobileToolbarItem;
     dismiss: MobileToolbarItem;
+    editLink: MobileToolbarItem;
+    editImage: MobileToolbarItem;
   },
 ): MobileToolbarLayout {
   const {
@@ -566,16 +614,36 @@ function buildLayout(
     strikethrough,
     inlineMath,
     blockMenu,
+    editLink,
+    editImage,
   } = controls;
   const right = [controls.dismiss];
+
+  // An image block has no inline text to format: its whole contextual bar is the
+  // settings control (replace/remove), shown beside history. Selecting an image
+  // keeps the editor focused, so the bar/accessory stays up to host this.
+  if (state.blockType === "image") {
+    return {
+      context: "image",
+      left: [undo, redo],
+      middle: { kind: "items", items: [editImage] },
+      more: [],
+      right,
+    };
+  }
 
   // Math owns the whole middle: structural blocks can't nest in an equation, so
   // there are no list/code controls to compete with the chip row.
   if (state.math) {
     const mathRow = buildMathRow(state.math)!;
+    // Pin the `\` trigger as the first contextual control (right after the
+    // always-leading undo/redo): the math middle is the chip row, so without this
+    // there's no quick way to start a typed `\command`. It inserts `\` and opens
+    // the command palette (see `open-math-commands`). On native the chip row is
+    // anchored separately via the `mathCommand` slot, so both stay visible.
     return {
       context: "math",
-      left: [undo, redo],
+      left: [undo, redo, controlsDivider(), controls.mathTrigger],
       middle: { kind: "math", ...mathRow },
       more: [],
       right,
@@ -627,6 +695,8 @@ function buildLayout(
         active: state.todoChecked,
       });
     }
+    // A link can live inside a list item; surface its settings button too.
+    if (state.linkActive) middleItems.push(editLink);
     return {
       context: "list",
       left: [undo, redo],
@@ -651,7 +721,9 @@ function buildLayout(
       bold,
       italic,
     ],
-    middle: { kind: "items", items: [] },
+    // The link settings button rides the contextual middle, surfacing only while
+    // the caret/selection rests on an existing link.
+    middle: { kind: "items", items: state.linkActive ? [editLink] : [] },
     more: [strikethrough, inlineCode, inlineMath],
     right,
   };

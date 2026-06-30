@@ -48,6 +48,7 @@ import type {
 import { invalidateBlockCache } from "../rendering/renderer";
 import {
   clearSelection,
+  isNodeSelection,
   moveCursorLeft,
   moveCursorRight,
   moveCursorToPosition,
@@ -392,6 +393,13 @@ export class MathNode extends TextNode {
     const lo = Math.min(sel.anchor.blockIndex, sel.focus.blockIndex);
     const hi = Math.max(sel.anchor.blockIndex, sel.focus.blockIndex);
     if (blockIndex < lo || blockIndex > hi) return null;
+    // A node selection of this whole equation (the math/code sentinel: a
+    // non-collapsed selection whose endpoints share one position — what
+    // Backspace from the following block produces) highlights the entire LaTeX,
+    // not a zero-width slice. Without this the block would read as a stray caret.
+    if (isNodeSelection(sel) && sel.anchor.blockIndex === blockIndex) {
+      return len > 0 ? { from: 0, to: len } : null;
+    }
     const at = (p: Position) =>
       p.blockIndex < blockIndex
         ? 0

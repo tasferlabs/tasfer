@@ -65,6 +65,18 @@ function resolveInitial(): boolean {
 
 let enabled = resolveInitial();
 
+// Mirror enablement into a generic global the editor engine reads to gate its
+// temporary input-surface diagnostics (see `Editor.inputDebug`). This keeps the
+// engine host-independent — it only reads `window.__cypherInputDebug` and never
+// our dev-tools flags. TODO: remove with the engine-side logging once the mobile
+// keyboard behavior is confirmed.
+function syncInputDebugFlag(): void {
+  if (typeof window === "undefined") return;
+  (window as unknown as { __cypherInputDebug?: boolean }).__cypherInputDebug =
+    enabled;
+}
+syncInputDebugFlag();
+
 /**
  * Whether the in-app developer-tools setting has been revealed. The Settings
  * toggle lives in the Information tab and is kept low-visibility: it stays hidden
@@ -95,6 +107,7 @@ export function isDevToolsEnabled(): boolean {
 export function setDevToolsEnabled(value: boolean): void {
   if (value === enabled) return;
   enabled = value;
+  syncInputDebugFlag();
   try {
     localStorage.setItem(STORAGE_KEY, value ? "true" : "false");
   } catch {
@@ -132,15 +145,19 @@ export function unlockDevTools(): void {
 
 /** React binding: re-renders when developer options are unlocked/enabled. */
 export function useDevToolsUnlocked(): boolean {
-  return useSyncExternalStore(subscribeDevTools, isDevToolsUnlocked, () =>
-    DEFAULT_ENABLED,
+  return useSyncExternalStore(
+    subscribeDevTools,
+    isDevToolsUnlocked,
+    () => DEFAULT_ENABLED,
   );
 }
 
 /** React binding: re-renders when developer tools are toggled. */
 export function useDevToolsEnabled(): boolean {
-  return useSyncExternalStore(subscribeDevTools, isDevToolsEnabled, () =>
-    DEFAULT_ENABLED,
+  return useSyncExternalStore(
+    subscribeDevTools,
+    isDevToolsEnabled,
+    () => DEFAULT_ENABLED,
   );
 }
 
@@ -152,9 +169,11 @@ export function useDevToolsEnabled(): boolean {
  */
 export function initNativeDevToolsSync(): void {
   if (typeof window === "undefined") return;
-  const desktop = (window as unknown as {
-    cypher?: { on?: (channel: string, cb: (value: unknown) => void) => void };
-  }).cypher;
+  const desktop = (
+    window as unknown as {
+      cypher?: { on?: (channel: string, cb: (value: unknown) => void) => void };
+    }
+  ).cypher;
   desktop?.on?.("devtools:set", (value) => {
     if (typeof value === "boolean") setDevToolsEnabled(value);
   });

@@ -109,11 +109,26 @@ export function isTouchDevice(): boolean {
 }
 
 /**
- * Whether this is an iOS / iPadOS browser or WKWebView (Capacitor). Used where
- * WebKit's input handling differs from Blink/GBoard — e.g. the input surface
- * needs no leading sentinel because iOS emits a real Backspace `keydown` (Android
- * does not), and a leading space would stop WebKit from auto-capitalizing the
- * first word of a sentence. iPadOS 13+ reports a Mac UA, so fall back to touch.
+ * Whether this is an Android browser or WebView (Capacitor / GBoard). Android's
+ * soft keyboard re-derives autocapitalization from the text *before the cursor*
+ * on every keystroke, so the input surface must mirror real sentence context or
+ * it capitalizes every word. iOS/desktop keyboards instead track sentence state
+ * from the keystroke stream and work with the bare word, so this gates the
+ * sentence-context input-surface behavior to Android only.
+ */
+export function isAndroid(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android/.test(navigator.userAgent || "");
+}
+
+/**
+ * Whether this is an iOS / iPadOS browser or WKWebView (Capacitor). WebKit drives
+ * autocapitalization statefully from the text before the caret, but a leading
+ * space makes the surface non-empty at a sentence start, so it never sees a fresh
+ * sentence and never capitalizes — so the input surface uses NO leading sentinel
+ * on iOS. iOS emits a real Backspace `keydown` (unlike Android), so the sentinel
+ * isn't needed for delete either. iPadOS 13+ reports a Mac UA, so fall back to
+ * touch.
  */
 export function isIOS(): boolean {
   if (typeof navigator === "undefined") return false;

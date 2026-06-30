@@ -88,20 +88,13 @@ export class LinkMark extends Mark {
       POINTER_MOVE,
       (
         state,
-        {
-          textPosition,
-          pointerX,
-          pointerY,
-          viewport,
-          resolveCoords,
-          modifiers,
-        },
+        { textPosition, canvasX, canvasY, viewport, resolveCoords, modifiers },
       ) => ({
         state: computeLinkHover(
           state,
           textPosition,
-          pointerX,
-          pointerY,
+          canvasX,
+          canvasY,
           viewport.scrollY,
           resolveCoords,
           modifiers.ctrlOrMeta,
@@ -116,16 +109,20 @@ export class LinkMark extends Mark {
 /**
  * The link hover-tooltip state machine, migrated from the old inline mouse-move
  * block. Pure over {@link EditorState}: given the resolved caret position under
- * the pointer (or null) and the raw viewport pointer coords, it sets/clears
+ * the pointer (or null) and the canvas-space pointer coords, it sets/clears
  * `ui.linkHover` and `ui.isHoveringLinkWithModifier`. With the modifier held it
  * suppresses the tooltip (the user means to click-to-open); off a link it keeps
  * the tooltip open while the pointer is over the tooltip box (hysteresis).
+ *
+ * `canvasX`/`canvasY` must be in the same canvas/container space as the stored
+ * `ui.linkHover` anchor (scroll-adjusted, no `containerRect` baked in), so the
+ * keep-open hit-test lines up with where the overlay is actually painted.
  */
 function computeLinkHover(
   state: EditorState,
   textPosition: Position | null,
-  pointerX: number,
-  pointerY: number,
+  canvasX: number,
+  canvasY: number,
   scrollY: number,
   resolveCoords: CoordsResolver,
   ctrlOrMeta: boolean,
@@ -183,10 +180,10 @@ function computeLinkHover(
     const tooltipHeight = 120;
     const hover = next.ui.linkHover;
     const isOverTooltip =
-      pointerX >= hover.x &&
-      pointerX <= hover.x + tooltipWidth &&
-      pointerY >= hover.y &&
-      pointerY <= hover.y + tooltipHeight;
+      canvasX >= hover.x &&
+      canvasX <= hover.x + tooltipWidth &&
+      canvasY >= hover.y &&
+      canvasY <= hover.y + tooltipHeight;
     if (!isOverTooltip) next = setLinkHover(next, null);
   }
   if (next.ui.isHoveringLinkWithModifier) {

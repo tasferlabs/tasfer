@@ -24,6 +24,7 @@ import {
   CURSOR_DRAG_END,
   CURSOR_DRAG_MOVE,
   CURSOR_DRAG_START,
+  DRAG_DETENT,
   IMAGE_PASTE,
   INDENT_LIST_ITEM,
   OPEN_CONTEXT_MENU,
@@ -413,7 +414,8 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
 /**
  * Renders the link hover tooltip for a `CypherLinkMark`-declared
  * `"link-tooltip"` slot. "Edit" promotes the hover menu to the `linkEdit` menu
- * in place (clearing the selection first, as the old flow did).
+ * in place (clearing the selection first, as the old flow did). In a readonly
+ * document the Edit affordance is omitted, leaving only "Open".
  */
 const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
   overlay,
@@ -443,6 +445,7 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
         linkText={text}
         x={containerRect.left + overlay.rect.x}
         y={containerRect.top + overlay.rect.y}
+        onDismiss={() => editor.host.clearLinkHover()}
         onOpen={() => {
           if (window.CypherBridge) {
             window.CypherBridge.navigation.openUrl(url);
@@ -450,18 +453,26 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
             window.open(url, "_blank", "noopener,noreferrer");
           }
         }}
-        onEdit={() => {
-          editor.setSelection(null);
-          openLinkEditMenu(editor, {
-            blockId,
-            startIndex,
-            endIndex,
-            url,
-            text,
-            x: overlay.rect.x,
-            y: overlay.rect.y,
-          });
-        }}
+        // Readonly documents show the tooltip for opening the link only —
+        // editing the URL mutates the doc, so the Edit affordance is dropped
+        // (the tooltip hides the button when `onEdit` is absent). Gated on
+        // `isReadonlyBase` so it also holds in the select mode used for copy.
+        onEdit={
+          editor.state.isReadonlyBase
+            ? undefined
+            : () => {
+                editor.setSelection(null);
+                openLinkEditMenu(editor, {
+                  blockId,
+                  startIndex,
+                  endIndex,
+                  url,
+                  text,
+                  x: overlay.rect.x,
+                  y: overlay.rect.y,
+                });
+              }
+        }
       />
     </div>
   );
@@ -1212,6 +1223,7 @@ function EditorSurface({
     todoChecked: false,
     codeLanguage: "",
     math: null as MobileToolbarMathContext | null,
+    linkActive: false,
   });
 
   // Android edge-to-edge WebViews retain their full viewport when the IME opens.
@@ -1483,6 +1495,31 @@ function EditorSurface({
           editor.focus();
           break;
         }
+        case "edit-link": {
+          // Open the settings drawer for the link under the caret/selection —
+          // the in-webview counterpart to the iOS bar's format button. Rendered
+          // as a drawer on mobile by the CypherLinkMark "link-edit" overlay.
+          const link = editor.query.marks().find((m) => m.name === "link");
+          if (!link) break;
+          openLinkEditMenu(editor, {
+            blockId: link.block,
+            startIndex: link.from,
+            endIndex: link.to,
+            url: (link.attrs.url as string | undefined) ?? "",
+            text: link.text,
+            x: 0,
+            y: 0,
+          });
+          break;
+        }
+        case "edit-image": {
+          // Open the settings drawer for the selected image (replace/remove),
+          // rendered on mobile by the CypherImageNode "image-upload" overlay.
+          const block = editor.query.block();
+          if (block?.type !== "image") break;
+          openImageUploadMenu(editor, block.id, 0, 0);
+          break;
+        }
         case "dismiss":
           dismissMobileKeyboard();
           break;
@@ -1700,7 +1737,12 @@ function EditorSurface({
     () =>
       createMobileToolbarModel(
         {
-          visible: !readonly && keyboardOpen,
+          // Selecting an image keeps the editor focused but may not raise the
+          // soft keyboard, so also show the bar (with its image settings button)
+          // whenever an image block is the selection. iOS ignores `visible` —
+          // UIKit attaches the accessory only with the keyboard.
+          visible:
+            !readonly && (keyboardOpen || mobileToolbar.blockType === "image"),
           bottomInset: keyboardHeight,
           ...mobileToolbar,
         },
@@ -1959,6 +2001,7 @@ function EditorSurface({
       mounted.editor.registerAction(CURSOR_DRAG_BOUNDARY, () =>
         fireHaptic("light"),
       ),
+      mounted.editor.registerAction(DRAG_DETENT, () => fireHaptic("light")),
       mounted.editor.registerAction(CURSOR_DRAG_END, () => {
         fireHaptic("medium");
         setMagnifierActive(false);
@@ -2560,6 +2603,14 @@ function EditorSurface({
       }
       currentIconTypeRef.current = iconType;
 
+      // An existing link under the caret/selection drives the contextual link
+      // settings button in the mobile bar / iOS accessory (it opens the link
+      // settings drawer). The image settings button is driven by the block type
+      // ("image") directly, so it needs no separate flag here.
+      const linkActive = mounted.editor.query
+        .marks()
+        .some((m) => m.name === "link");
+
       // Mobile toolbar — entirely from the snapshot/query. `activeMarks` is the
       // selection-aware (intersection across the span + pending caret toggles)
       // mark set, so it replaces the old per-char format scan.
@@ -2629,6 +2680,7 @@ function EditorSurface({
         todoChecked,
         codeLanguage,
         math,
+        linkActive,
       });
     });
 

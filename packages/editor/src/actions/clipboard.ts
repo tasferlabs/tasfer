@@ -716,6 +716,27 @@ export function flattenBlockLevelLinks(markdown: string): string {
 }
 
 /**
+ * Strip anchor links from pasted Markdown. Any link whose URL carries a
+ * `#fragment` — whether a bare `#section` or a full `https://site/page#section`
+ * (heading permalinks, table-of-contents entries, the article's own section
+ * self-links) — points at an in-page anchor that doesn't exist here, so the
+ * editor can't follow it. We unwrap such links to their visible text rather
+ * than keep a dead link; a link whose text is only an anchor glyph (a `#`/`¶`/`§`
+ * permalink marker) or empty is dropped entirely so no stray symbol is left
+ * behind. Images (`![alt](…#…)`) and links to a fragment-less URL are untouched.
+ */
+export function stripFragmentLinks(markdown: string): string {
+  return markdown.replace(
+    /(!?)\[([^\]]*)\]\([^)\s]*#[^)\s]*(?:\s+(?:"[^"]*"|'[^']*'))?\)/g,
+    (match, bang: string, text: string) => {
+      if (bang) return match; // image, not a link — leave alone
+      // Glyph-only or empty anchor text (e.g. a permalink `#`) → remove wholly.
+      return text.replace(/[#¶§\s]/g, "") === "" ? "" : text;
+    },
+  );
+}
+
+/**
  * Repair inline/block math that the HTML → Markdown conversion mangled.
  *
  * `createMarkdownContent` (defuddle → turndown) escapes Markdown
@@ -738,6 +759,22 @@ export function flattenBlockLevelLinks(markdown: string): string {
 export function repairMathBackslashes(markdown: string): string {
   return markdown.replace(/\$\$[\s\S]*?\$\$|\$[^\n$]+\$/g, (math) =>
     math.replace(/\\\\/g, "\\"),
+  );
+}
+
+/**
+ * Externally pasted images (e.g. the images in a pasted article) show the
+ * *whole* image, contained within the content column, rather than an
+ * edge-to-edge cover banner — `contain` selects the image node's natural-width
+ * layout (see ImageNode `imageWidthMode`). Only fills in a fit the source left
+ * unspecified, so an internal copy round-tripping an explicit layout (which
+ * comes through the marker branch below) is left untouched.
+ */
+function containExternalImages(blocks: Block[]): Block[] {
+  return blocks.map((b) =>
+    b.type === "image" && b.objectFit === undefined
+      ? { ...b, objectFit: "contain" as const }
+      : b,
   );
 }
 
@@ -778,9 +815,10 @@ export function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
   }
 
   markdown = flattenBlockLevelLinks(markdown);
+  markdown = stripFragmentLinks(markdown);
   markdown = repairMathBackslashes(markdown);
   if (!markdown.trim()) return [];
-  return parsePlainTextToBlocks(markdown, binding);
+  return containExternalImages(parsePlainTextToBlocks(markdown, binding));
 }
 
 /**
@@ -1705,6 +1743,11 @@ function insertPastedImageBlock(
       type: "image",
       url: blobUrl,
       alt: imageFile.name || "Pasted image",
+      // Pasted images display contained at their natural size within the
+      // content column, not edge-to-edge. `contain` selects the image node's
+      // natural-width layout (see ImageNode `imageWidthMode`); leaving width
+      // unset keeps it responsive rather than baking in a pixel width.
+      objectFit: "contain",
     },
   ]);
   if (!result) return null;

@@ -15,6 +15,7 @@ const CalendarPage = React.lazy(
 const SettingsPage = React.lazy(
   () => import("../pages/SettingsPage/SettingsPage"),
 );
+const BinPage = React.lazy(() => import("../pages/BinPage/BinPage"));
 
 const createRouter =
   getClientPlatform() === "web" ? createBrowserRouter : createHashRouter;
@@ -47,6 +48,10 @@ export const router = createRouter([
       {
         path: "settings",
         element: <SettingsPage />,
+      },
+      {
+        path: "bin",
+        element: <BinPage />,
       },
     ],
   },

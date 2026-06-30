@@ -502,19 +502,25 @@ export function handleEvents(
         if (isTouchDevice()) {
           break;
         }
-        // The pointer left the canvas. Hover-driven chrome (image resize
-        // handles, link/math hovers) is only ever cleared by a *subsequent*
+        // The pointer left the canvas. Non-interactive hover chrome (image resize
+        // handles, math highlights) is only ever cleared by a *subsequent*
         // mousemove over a non-matching block — which never arrives once the
         // cursor is gone — so it would otherwise stay painted (e.g. image
-        // handles stuck visible). Drop every hover highlight here. A selected
-        // image keeps its handles via the selection gate, not this state.
+        // handles stuck visible). Drop those here. A selected image keeps its
+        // handles via the selection gate, not this state.
+        //
+        // `linkHover` is deliberately NOT cleared: the link tooltip is an
+        // interactive DOM popover the host renders, and the pointer crossing from
+        // the canvas onto it fires this very `mouseleave`. Clearing here would
+        // unmount the popover before the cursor could reach it. Its dismissal is
+        // owned by the host (the popover clears it on its own pointer-leave) and
+        // by the off-link hysteresis in `computeLinkHover`.
         state = {
           ...state,
           ui: {
             ...state.ui,
             isHoveringLinkWithModifier: false,
             imageHover: null,
-            linkHover: null,
             inlineMathHover: null,
             hoveredMathBlockIndex: null,
           },

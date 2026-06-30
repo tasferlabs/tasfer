@@ -29,7 +29,7 @@
  * an asset reference becomes (kept as-is, bundle-relative path, data URI).
  */
 
-import { type ActionBus, stateAction } from "../action-bus";
+import { type ActionBus, DRAG_DETENT, stateAction } from "../action-bus";
 import { POINTER_MOVE, TEXT_CLICK } from "../actions/pointer-actions";
 import { EDGE_SCROLL_THRESHOLD, IMAGE_DEFAULT_HEIGHT } from "../constants";
 import {
@@ -348,6 +348,20 @@ export function isImageDefault(block: Image): boolean {
   );
 }
 
+/**
+ * The image's resolved width *mode*, the single source of truth for what an
+ * unset `width` means. An explicit number is a user-sized, contained width.
+ * With no stored width the mode depends on fit: a `contain` image (e.g. one
+ * pasted in) is "natural" — fit within the content column at its decoded size,
+ * never edge-to-edge — while the legacy `cover` default is "full", bleeding to
+ * the viewport edges. Every layout, hit-test, and serialization site routes
+ * through this so they can't disagree on the default.
+ */
+function imageWidthMode(block: Image): number | "full" | "natural" {
+  if (typeof block.width === "number") return block.width;
+  return (block.objectFit ?? "cover") === "contain" ? "natural" : "full";
+}
+
 /** The resolved start descriptor of an in-progress resize drag. Lives on the
  *  captured hit (per-drag, node-owned) — there is no global UI slot for it. */
 interface ImageDragStart {
@@ -429,6 +443,25 @@ function shouldBlockBottomScroll(
   return isAtMaxHeight && isNearBottomEdge;
 }
 
+/**
+ * Classify an image's width as a resize detent. A free width is "free"; the two
+ * snapped widths the resize math pins to — full-bleed ("full") and exactly the
+ * content/padding width ("padding", where it flips to `contain`) — are the
+ * milestones a drag should tap as it clicks into (or releases from) them. The
+ * `UPDATE_IMAGE_HANDLE_DRAG` snap branches assign `maxWidth` exactly, so the
+ * equality check is reliable, not a float near-miss.
+ */
+function imageResizeDetent(
+  block: Image,
+  maxWidth: number,
+): "full" | "padding" | "free" {
+  if (block.width === "full") return "full";
+  if (typeof block.width === "number" && block.width === maxWidth) {
+    return "padding";
+  }
+  return "free";
+}
+
 export class ImageNode extends AtomicNode<Image> {
   readonly type = "image" as const;
 
@@ -468,10 +501,10 @@ export class ImageNode extends AtomicNode<Image> {
     const { height: defaultImageHeight, placeholderHeight } =
       styles.blocks.image.dimensions;
 
-    const imageWidth = block.width ?? "full";
+    const mode = imageWidthMode(block);
     const imageHeight = block.height ?? defaultImageHeight;
 
-    if (imageWidth === "full") {
+    if (mode === "full") {
       // Full width: edge-to-edge, ignoring page padding.
       return {
         displayX: 0,
@@ -481,8 +514,29 @@ export class ImageNode extends AtomicNode<Image> {
       };
     }
 
+    if (mode === "natural") {
+      // Contained default (e.g. a pasted image): fit the decoded image within
+      // the content column, centered, respecting page padding, with the height
+      // following the natural aspect ratio. Until the image decodes, reserve
+      // the full column width at placeholder height — the draw path invalidates
+      // the cached layout and repaints once the natural size is known.
+      const decoded = block.url ? imageCache.get(block.url) : undefined;
+      if (block.url && decoded?.complete && decoded.naturalWidth > 0) {
+        const aspect = decoded.naturalWidth / decoded.naturalHeight;
+        const displayWidth = Math.min(decoded.naturalWidth, c.maxWidth);
+        const displayX =
+          styles.canvas.paddingLeft + (c.maxWidth - displayWidth) / 2;
+        return { displayX, displayWidth, displayHeight: displayWidth / aspect };
+      }
+      return {
+        displayX: styles.canvas.paddingLeft,
+        displayWidth: c.maxWidth,
+        displayHeight: placeholderHeight,
+      };
+    }
+
     // Custom width: respect padding, constrain to container, center.
-    const requestedWidth = imageWidth;
+    const requestedWidth = mode;
     const displayWidth = Math.min(requestedWidth, c.maxWidth);
     const displayX =
       styles.canvas.paddingLeft + (c.maxWidth - displayWidth) / 2;
@@ -522,7 +576,7 @@ export class ImageNode extends AtomicNode<Image> {
   protected displayBox(c: NodeLayoutCtx & { origin: Point }): BlockBounds {
     const { displayX, displayWidth, displayHeight } = this.geometry(c);
     const shouldBleed =
-      c.isFirst && ((c.block as Image).width ?? "full") === "full";
+      c.isFirst && imageWidthMode(c.block as Image) === "full";
     const y = shouldBleed
       ? c.origin.y - c.styles.canvas.paddingTop
       : c.origin.y;
@@ -530,8 +584,7 @@ export class ImageNode extends AtomicNode<Image> {
   }
 
   adjustFlowHeight(height: number, c: NodeLayoutCtx): number {
-    const imageWidth = (c.block as Image).width ?? "full";
-    if (c.isFirst && imageWidth === "full") {
+    if (c.isFirst && imageWidthMode(c.block as Image) === "full") {
       return height - c.styles.canvas.paddingTop;
     }
     return height;
@@ -630,17 +683,35 @@ export class ImageNode extends AtomicNode<Image> {
               stopAutoScroll(session);
             }
 
+            const nextState = updateImageHandleDrag(
+              state,
+              viewport,
+              p.x,
+              p.y,
+              h.blockIndex,
+              h.start,
+            );
+
+            // Tap when the resize snaps into (or releases from) a width detent —
+            // full-bleed or padding-width — so the gesture has tactile feedback
+            // during the drag, mirroring the caret's boundary tap. Free dragging
+            // between detents stays silent.
+            const nextBlock = nextState.document.page.blocks[h.blockIndex];
+            if (nextBlock?.type === "image") {
+              const styles = getEditorStyles(state);
+              const maxWidth =
+                viewport.width -
+                (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+              if (
+                imageResizeDetent(block, maxWidth) !==
+                imageResizeDetent(nextBlock, maxWidth)
+              ) {
+                state.actionBus.dispatch(DRAG_DETENT);
+              }
+            }
+
             return {
-              state: withScrollbarInteraction(
-                updateImageHandleDrag(
-                  state,
-                  viewport,
-                  p.x,
-                  p.y,
-                  h.blockIndex,
-                  h.start,
-                ),
-              ),
+              state: withScrollbarInteraction(nextState),
             };
           },
           onEnd(_p, ctx) {
@@ -801,7 +872,7 @@ export class ImageNode extends AtomicNode<Image> {
     const block = c.block as Image;
     const { displayX, displayWidth, displayHeight } = this.geometry(c);
 
-    const shouldBleed = c.isFirst && (block.width ?? "full") === "full";
+    const shouldBleed = c.isFirst && imageWidthMode(block) === "full";
     const boxY = shouldBleed ? origin.y - c.styles.canvas.paddingTop : origin.y;
     const inside =
       point.x >= displayX &&
@@ -1068,18 +1139,22 @@ export class ImageNode extends AtomicNode<Image> {
           return `![${alt}](${src})`;
         }
 
-        // Otherwise, use HTML tag with custom properties
-        const width = b.width ?? "full";
-        const height = b.height ?? IMAGE_DEFAULT_HEIGHT;
+        // Otherwise, use an HTML tag with custom properties. Emit only the
+        // dimensions that are actually set so an unset one round-trips as unset
+        // (a pasted contain image carries neither width nor height — its size
+        // is derived from the decoded image, not stored).
         const objectFit = b.objectFit ?? "cover";
+        const attrs = [`src="${src}"`];
+        if (alt) attrs.push(`alt="${alt}"`);
+        if (b.width !== undefined) {
+          attrs.push(
+            b.width === "full" ? 'data-width="full"' : `width="${b.width}"`,
+          );
+        }
+        if (b.height !== undefined) attrs.push(`height="${b.height}"`);
+        attrs.push(`data-object-fit="${objectFit}"`);
 
-        const widthAttr =
-          width === "full" ? 'data-width="full"' : `width="${width}"`;
-        const heightAttr = `height="${height}"`;
-        const objectFitAttr = `data-object-fit="${objectFit}"`;
-        const altAttr = alt ? ` alt="${alt}"` : "";
-
-        return `<img src="${src}"${altAttr} ${widthAttr} ${heightAttr} ${objectFitAttr} />`;
+        return `<img ${attrs.join(" ")} />`;
       },
       // ![alt](url)
       input: (ctx) => {
@@ -1697,9 +1772,10 @@ export function startImageHandleDrag(
   if (clickedHandle && block.url) {
     // Use the displayed dimensions (imageBlock.width/height) instead of stored
     // dimensions (block.width/height) so resizing works correctly on mobile when
-    // the image was resized on desktop. For 'full' width images, keep 'full'.
-    const storedWidth = block.width ?? "full";
-    const startWidth = storedWidth === "full" ? "full" : imageBlock.width;
+    // the image was resized on desktop. Only a true edge-to-edge image keeps
+    // 'full' — a contained/natural image starts from its rendered width.
+    const startWidth =
+      imageWidthMode(block) === "full" ? "full" : imageBlock.width;
     const startHeight = imageBlock.height;
 
     const start: ImageDragStart = {

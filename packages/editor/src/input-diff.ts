@@ -74,6 +74,36 @@ export function sentenceStartOffset(text: string, pos: number): number {
   return start;
 }
 
+/** A half-open `[start, end)` span of verbatim source the surface must not enter. */
+export interface ProtectedSpan {
+  start: number;
+  end: number;
+}
+
+/**
+ * Clamp the start of the mirrored word so it never reaches into a protected
+ * span — a stretch of verbatim SOURCE (an inline math chip's LaTeX) that the OS
+ * keyboard must not autocorrect. Spans are caret-edge ranges in the same
+ * coordinate space as `caret`.
+ *
+ * Returns the floor the word may not start before (the end of the last span at
+ * or before the caret, else 0), or `null` when `caret` sits *strictly inside* a
+ * span — there is no prose word to mirror, so the caller falls back to the bare
+ * sentinel. A caret exactly on a span edge is outside it: at the right edge the
+ * floor advances past the span; at the left edge the span is ignored.
+ */
+export function clampMirrorStartToSpans(
+  spans: Iterable<ProtectedSpan>,
+  caret: number,
+): number | null {
+  let floor = 0;
+  for (const { start, end } of spans) {
+    if (start < caret && caret < end) return null;
+    if (end <= caret) floor = Math.max(floor, end);
+  }
+  return floor;
+}
+
 /** A minimal `[deleteStart, deleteEnd) → insert` edit derived from two strings. */
 export interface SurfaceDelta {
   /** Start offset (in `prev`) of the replaced span. */

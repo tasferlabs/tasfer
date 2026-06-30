@@ -1803,16 +1803,27 @@ export class TextNode extends Node<TextualBlock> {
     // (Remote selections are now range decorations, painted above with all
     // other range decorations — no peer-specific path here.)
 
-    // Local selection — rendered as one continuous ribbon.
-    if (state.document.selection && !state.document.selection.isCollapsed) {
-      const rects = this.selectionRects(
-        layout,
-        state.document.selection,
-        blockIndex,
-        x,
-        y,
-        true,
-      );
+    // Local selection — rendered as one continuous ribbon. A node selection (a
+    // whole preformatted/visual block held as an atom — what Backspace from the
+    // following block produces) collapses to a single position, so highlight the
+    // entire block instead of a zero-width slice, mirroring the math node.
+    const localSel = state.document.selection;
+    if (localSel && !localSel.isCollapsed) {
+      // The node-selection sentinel collapses anchor and focus onto one position
+      // while staying non-collapsed (see `isNodeSelection` / the whole-block
+      // branch of `deleteSelectedText`). Highlight the whole block in that case.
+      const nodeSelected =
+        localSel.anchor.blockIndex === blockIndex &&
+        localSel.focus.blockIndex === blockIndex &&
+        localSel.anchor.textIndex === localSel.focus.textIndex;
+      const sel = nodeSelected
+        ? {
+            anchor: { blockIndex, textIndex: 0 },
+            focus: { blockIndex, textIndex: fullContent.length },
+            isForward: true,
+          }
+        : localSel;
+      const rects = this.selectionRects(layout, sel, blockIndex, x, y, true);
       this.fillRects(
         ctx,
         rects,

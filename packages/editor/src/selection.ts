@@ -15,6 +15,7 @@ import type {
   EditorStyles,
   PartialSelectionState,
   Position,
+  SelectionState,
   ViewportState,
   VisibleBlockRange,
 } from "./state-types";
@@ -731,7 +732,7 @@ export function getSelectionHandlePositions(
   focus: { x: number; y: number; height: number; isTop: boolean } | null;
 } | null {
   const selection = state.document.selection;
-  if (!selection || selection.isCollapsed) {
+  if (!selection || selection.isCollapsed || isNodeSelection(selection)) {
     return null;
   }
 
@@ -1518,6 +1519,23 @@ export function isCollapsedSelection(
   return (
     selection.anchor.blockIndex === selection.focus.blockIndex &&
     selection.anchor.textIndex === selection.focus.textIndex
+  );
+}
+
+/**
+ * Whether `selection` is a *node selection* — a whole block held as an atomic
+ * unit (an image or divider, or a math / code block selected whole) rather than
+ * a text range. Encoded as a non-collapsed selection whose anchor and focus
+ * share one position; see {@link getVisualBlockSelectionIndex} and the
+ * whole-block branch of `deleteSelectedText`. Such a selection has no draggable
+ * text endpoints, so the mobile selection-handle passes skip it and the block
+ * paints its own selected state.
+ */
+export function isNodeSelection(selection: SelectionState | null): boolean {
+  return (
+    selection !== null &&
+    !selection.isCollapsed &&
+    isCollapsedSelection(selection)
   );
 }
 export function updateFocus(

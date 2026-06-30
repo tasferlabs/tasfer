@@ -44,8 +44,6 @@ function hoverMathBlock(state: EditorState): EditorState {
     textPosition: null,
     blockUnderPoint: 0,
     atomicBlock: null,
-    pointerX: 10,
-    pointerY: 10,
     viewport,
     resolveCoords: () => null,
     modifiers: { ctrlOrMeta: false },

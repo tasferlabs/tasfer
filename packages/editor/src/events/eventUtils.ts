@@ -6,6 +6,7 @@ import { AtomicNode } from "../rendering/nodes";
 import { getBlockHeight } from "../rendering/renderer";
 import {
   getCursorDocumentCoords,
+  isNodeSelection,
   scrollToMakeCursorVisible,
 } from "../selection";
 import type {
@@ -157,7 +158,7 @@ function getSelectionHandlePositions(
   focus: { x: number; y: number; height: number; isTop: boolean } | null;
 } | null {
   const selection = state.document.selection;
-  if (!selection || selection.isCollapsed) {
+  if (!selection || selection.isCollapsed || isNodeSelection(selection)) {
     return null;
   }
 

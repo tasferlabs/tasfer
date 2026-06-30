@@ -211,6 +211,7 @@ export {
   CURSOR_DRAG_END,
   CURSOR_DRAG_MOVE,
   CURSOR_DRAG_START,
+  DRAG_DETENT,
   IMAGE_PASTE,
   isMutationAction,
   isStateAction,

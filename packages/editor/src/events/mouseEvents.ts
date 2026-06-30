@@ -510,8 +510,6 @@ export function handleMouseMove(
         atomicBlock,
         textPosition,
         blockUnderPoint,
-        pointerX: event.x,
-        pointerY: event.y,
         viewport,
         resolveCoords: (pos) => getCursorDocumentCoords(pos, state, viewport),
         modifiers: { ctrlOrMeta: event.ctrlKey || event.metaKey },

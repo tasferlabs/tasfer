@@ -2,7 +2,6 @@ import { cn } from "@/lib/utils";
 import { renderToSVG } from "@cypherkit/editor";
 import {
     Bold,
-    Braces,
     Check,
     Code,
     Heading1,
@@ -12,6 +11,7 @@ import {
     IndentDecrease,
     IndentIncrease,
     Italic,
+    Link2,
     List,
     ListChecks,
     ListOrdered,
@@ -41,7 +41,22 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
   bold: <Bold className="size-5" />,
   italic: <Italic className="size-5" />,
   code: <Code className="size-5" />,
-  math_command: <Braces className="size-5" />,
+  // A backslash `\` — the character this button types to open math commands.
+  // Inlined (Lucide has no backslash) with the exact same path/stroke as the iOS
+  // asset (apps/ios/icons/math_command.svg) so both shells render an identical glyph.
+  math_command: (
+    <svg
+      className="size-5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m5 5 14 14" />
+    </svg>
+  ),
   math: <Sigma className="size-5" />,
   strikethrough: <Strikethrough className="size-5" />,
   text: <Type className="size-5" />,
@@ -54,6 +69,7 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
   list_ordered: <ListOrdered className="size-5" />,
   list_todo: <ListChecks className="size-5" />,
   image: <Image className="size-5" />,
+  link: <Link2 className="size-5" />,
   line: <Minus className="size-5" />,
   indent: <IndentIncrease className="size-5" />,
   outdent: <IndentDecrease className="size-5" />,
@@ -83,6 +99,11 @@ export function MobileKeyboardToolbar({
 
   const middle = layout.middle;
   const middleItems = middle.kind === "items" ? middle.items : [];
+  // Whether the scrollable middle has content to fence off from the pinned left
+  // cluster with a divider. Mirrors the native accessory's `zone-divider` rule
+  // (see `flattenLayoutForNative`), so both shells fence identical zones — e.g.
+  // undo/redo and an image block's settings button.
+  const hasMiddle = middle.kind === "math" || middleItems.length > 0;
 
   // Menus can live in the left cluster or the middle; resolve the open one.
   const menus = [...layout.left, ...middleItems].filter(
@@ -192,6 +213,11 @@ export function MobileKeyboardToolbar({
       <div className="flex flex-row items-stretch border-t border-border bg-background h-12">
         <div className="flex shrink-0 flex-row items-center">
           {layout.left.map(renderItem)}
+          {/* Zone divider between the pinned left cluster and the scrollable
+              middle — the in-webview counterpart to the native `zone-divider`.
+              Kept inside this `items-center` cluster so it centers vertically
+              like every other divider (the outer row is `items-stretch`). */}
+          {hasMiddle && <Divider />}
         </div>
 
         {/* Scrollable contextual middle. */}

@@ -10,6 +10,7 @@
 import type {
   Platform,
   PageListItem,
+  ArchivedPageItem,
   PageFull,
   PageCreateInput,
   PageUpdateInput,
@@ -21,6 +22,7 @@ import type {
   Peer,
   Asset,
   Space,
+  ArchivedSpaceItem,
   SpaceMember,
   SpaceOperation,
   SpaceInvite,
@@ -520,6 +522,26 @@ export class Engine implements Platform {
         id: r.id,
         name: r.name,
         createdAt: r.created_at,
+      }));
+    },
+
+    listArchived: async (): Promise<ArchivedSpaceItem[]> => {
+      const identity = await this.identity.get();
+      const rows = await this.driver.db.execute<{
+        id: string;
+        name: string;
+        archived_at: string;
+      }>(
+        `SELECT s.id, s.name, s.archived_at FROM spaces s
+         JOIN space_members m ON m.space_id = s.id
+         WHERE m.public_key = ? AND s.archived_at IS NOT NULL
+         ORDER BY s.archived_at DESC, s.name`,
+        [identity.publicKey],
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        archivedAt: r.archived_at,
       }));
     },
 
@@ -1159,6 +1181,132 @@ export class Engine implements Platform {
       // Notify page delete listeners (so the editor can react if the deleted page is open)
       for (const pageId of ids) {
         this.notifyPageDeleted(pageId);
+      }
+    },
+
+    listArchived: async (): Promise<ArchivedPageItem[]> => {
+      // Roots of archived subtrees across every space: a page is a "root" if it
+      // has no parent, or its parent is not itself archived. This shows each
+      // deletion the user performed once, instead of every descendant of a
+      // deleted subtree as a separate entry.
+      //
+      // Pages whose space is archived are excluded: an archived space is hidden
+      // as a whole (see spaces.listArchived in the Bin), and restoring the space
+      // brings its still-live pages back. Listing those pages' individually
+      // deleted members here would let them be restored into a hidden space.
+      const rows = await this.driver.db.execute<{
+        id: string;
+        title: string;
+        space_id: string | null;
+        color: string | null;
+        archived_at: string;
+      }>(
+        `SELECT p.id, p.title, p.space_id, p.color, p.archived_at
+           FROM pages p
+           LEFT JOIN pages parent ON p.parent_id = parent.id
+           LEFT JOIN spaces sp ON p.space_id = sp.id
+          WHERE p.archived_at IS NOT NULL
+            AND (p.parent_id IS NULL OR parent.archived_at IS NULL)
+            AND (p.space_id IS NULL OR sp.archived_at IS NULL)
+          ORDER BY p.archived_at DESC, p.id ASC`,
+      );
+
+      return rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        spaceId: r.space_id,
+        color: r.color,
+        archivedAt: r.archived_at,
+      }));
+    },
+
+    restore: async (id: string): Promise<void> => {
+      const spaceId = await this.getPageSpaceId(id);
+
+      // Collect the archived subtree rooted at `id` (mirror of delete's CTE,
+      // walking archived rows instead of live ones).
+      const subtree = await this.driver.db.execute<{
+        id: string;
+        title: string;
+        parent_id: string | null;
+        order: number;
+        task: number;
+        color: string | null;
+        scheduled_at: string | null;
+        duration: number | null;
+        all_day: number | null;
+      }>(
+        `WITH RECURSIVE subtree(id) AS (
+           SELECT id FROM pages WHERE id = ? AND archived_at IS NOT NULL
+           UNION ALL
+           SELECT p.id FROM pages p JOIN subtree s ON p.parent_id = s.id WHERE p.archived_at IS NOT NULL
+         )
+         SELECT p.id, p.title, p.parent_id, p."order" as "order", p.task,
+                p.color, p.scheduled_at, p.duration, p.all_day
+           FROM pages p JOIN subtree s ON p.id = s.id`,
+        [id],
+      );
+
+      if (subtree.length === 0) return;
+
+      const ids = subtree.map((r) => r.id);
+      const placeholders = ids.map(() => "?").join(", ");
+      const now = new Date().toISOString();
+
+      // Un-archive the whole subtree locally.
+      await this.driver.db.run(
+        `UPDATE pages SET archived_at = NULL, updated_at = ? WHERE id IN (${placeholders})`,
+        [now, ...ids],
+      );
+
+      // If the restored root's parent is gone (still archived or deleted), drop
+      // the root to the top level so it isn't orphaned under an invisible page.
+      const root = subtree.find((r) => r.id === id)!;
+      let reparented = false;
+      if (root.parent_id !== null) {
+        const parentRows = await this.driver.db.execute<{ archived_at: string | null }>(
+          "SELECT archived_at FROM pages WHERE id = ?",
+          [root.parent_id],
+        );
+        const parentAlive = parentRows.length > 0 && parentRows[0].archived_at === null;
+        if (!parentAlive) {
+          await this.driver.db.run(
+            `UPDATE pages SET parent_id = NULL, updated_at = ? WHERE id = ?`,
+            [now, id],
+          );
+          root.parent_id = null;
+          reparented = true;
+        }
+      }
+
+      // Propagate to peers. A fresh page_add (higher HLC than the prior
+      // page_remove) un-archives the row on every peer via the existing
+      // un-archive branch in applySpaceOp. Emit these before the reparent
+      // page_set so the row is alive when the reparent op applies.
+      if (spaceId) {
+        for (const r of subtree) {
+          await this.emitSpaceOp(spaceId, {
+            op: "page_add",
+            pageId: r.id,
+            title: r.title,
+            parentId: r.parent_id,
+            order: r.order,
+            task: r.task === 1,
+            color: r.color,
+            scheduledAt: r.scheduled_at,
+            duration: r.duration,
+            allDay: r.all_day === null ? null : r.all_day === 1,
+          });
+        }
+        if (reparented) {
+          await this.emitSpaceOp(spaceId, {
+            op: "page_set",
+            pageId: id,
+            field: "parentId",
+            value: null,
+          });
+        }
+        this.notifySpaceChange(spaceId);
       }
     },
 

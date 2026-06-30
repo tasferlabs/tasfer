@@ -412,6 +412,16 @@ export const REGION_DRAG_START = action<{
 }>("region-drag-start");
 
 /**
+ * An in-progress region drag crossed a discrete detent — a snap point or
+ * milestone the user should feel, like an image resize snapping to full-width /
+ * padding-width or a slider passing a tick. The cursor-drag caret has its own
+ * boundary signal ({@link CURSOR_DRAG_BOUNDARY}); this is its content-agnostic
+ * sibling for non-caret region drags, so a node never reaches for a
+ * cursor-specific action. A host maps it to a light haptic. Observe-only.
+ */
+export const DRAG_DETENT = action("drag-detent");
+
+/**
  * Local text was just inserted into a block by a keystroke — the host-facing
  * "input" signal (a higher-level, index-based sibling of the CRDT `text_insert`
  * op). Payload: the inserted `text` and the `blockIndex`/`textIndex` where it

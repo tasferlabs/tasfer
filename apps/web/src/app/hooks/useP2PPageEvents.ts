@@ -72,6 +72,7 @@ export function useP2PPageEventsWithQueryClient(): void {
 
     const unsub = platform.spaces.onChange(() => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
       queryClient.invalidateQueries({ queryKey: ["spaces"] });
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
     });
@@ -87,6 +88,7 @@ export function useP2PPageEventsWithQueryClient(): void {
 
     onPageDeleted: (pageId) => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
       queryClient.invalidateQueries({ queryKey: ["page", pageId] });
     },
 

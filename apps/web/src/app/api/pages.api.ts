@@ -3,10 +3,12 @@ import {
   type UseMutationOptions,
   useQuery,
   type UseQueryOptions,
+  useQueryClient,
 } from "@tanstack/react-query";
 import { getPlatform } from "@/platform";
 import type {
   PageListItem,
+  ArchivedPageItem,
   PageFull,
   PageSearchResult,
   PageCalendarItem,
@@ -18,6 +20,7 @@ import type {
 // =============================================================================
 
 export type IListPage = PageListItem;
+export type { ArchivedPageItem };
 export type IPage = PageFull;
 export type ISearchPage = PageSearchResult;
 export type ICalendarPage = PageCalendarItem;
@@ -128,6 +131,45 @@ export function useDeletePage<TContext = unknown>(
   return useMutation({
     mutationFn: deletePage,
     ...options,
+  });
+}
+
+// Archived (soft-deleted) pages — the Bin
+export async function getArchivedPages(): Promise<ArchivedPageItem[]> {
+  const platform = getPlatform();
+  return platform.pages.listArchived();
+}
+
+export function useGetArchivedPages() {
+  return useQuery({
+    queryKey: ["pages-archived"],
+    queryFn: getArchivedPages,
+  });
+}
+
+// Restore a soft-deleted page (and its archived subtree)
+interface IRestorePage {
+  id: string;
+}
+
+export async function restorePage(data: IRestorePage): Promise<void> {
+  const platform = getPlatform();
+  return platform.pages.restore(data.id);
+}
+
+export function useRestorePage<TContext = unknown>(
+  options?: UseMutationOptions<void, Error, IRestorePage, TContext>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: restorePage,
+    ...options,
+    onSuccess: (...args) => {
+      queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.invalidateQueries({ queryKey: ["spaces"] });
+      options?.onSuccess?.(...args);
+    },
   });
 }
 

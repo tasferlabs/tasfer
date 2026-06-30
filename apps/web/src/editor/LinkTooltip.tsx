@@ -10,6 +10,14 @@ interface LinkTooltipProps {
   y: number;
   onEdit?: () => void;
   onOpen?: () => void;
+  /**
+   * Called when the pointer leaves the popover. The engine deliberately keeps
+   * `ui.linkHover` set once the pointer crosses from the canvas onto this
+   * (interactive) popover, so the popover owns its own dismissal: leaving it in
+   * any direction — including the flip-above / edge-clamped layouts — clears the
+   * hover here.
+   */
+  onDismiss?: () => void;
 }
 
 export const LinkTooltip: React.FC<LinkTooltipProps> = ({
@@ -19,6 +27,7 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
   y,
   onEdit,
   onOpen,
+  onDismiss,
 }) => {
   const { t } = useTranslation();
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -82,7 +91,10 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
         transform: position.transform,
       }}
       onMouseEnter={(e) => e.stopPropagation()}
-      onMouseLeave={(e) => e.stopPropagation()}
+      onMouseLeave={(e) => {
+        e.stopPropagation();
+        onDismiss?.();
+      }}
     >
       <div className="bg-popover border border-border rounded-lg shadow-lg overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150 pointer-events-auto">
         {/* Link Preview */}
