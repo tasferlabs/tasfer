@@ -238,6 +238,51 @@ describe("stale image-hover handles are cleared when the pointer leaves", () => 
     expect(next.ui.imageHover).toBeNull();
   });
 
+  it("a mouseleave onto the hover toolbar keeps imageHover (the cursor is reaching it, not leaving)", () => {
+    // The download / edit buttons are a pointer-events-auto DOM overlay the host
+    // renders on top of the image. Moving the cursor from the image onto a button
+    // fires this very canvas mouseleave — the reported bug was that clearing
+    // imageHover here unmounted the buttons before the click could land. The host
+    // marks its overlay layer `data-editor-overlay`, so a mouseleave whose
+    // relatedTarget resolves inside that layer must leave imageHover intact.
+    const { state, session } = withHover();
+    const relatedTarget = {
+      closest: (selector: string) =>
+        selector === "[data-editor-overlay]" ? { tag: "overlay" } : null,
+    };
+
+    const next = handleEvents(
+      state,
+      viewport,
+      visibility,
+      [{ type: "mouseleave", relatedTarget } as unknown as Event],
+      viewport.documentHeight,
+      { left: 0, top: 0 },
+      session,
+    ).state;
+
+    expect(next.ui.imageHover).toEqual(state.ui.imageHover);
+  });
+
+  it("a mouseleave onto unrelated DOM still drops imageHover", () => {
+    // relatedTarget exists but is not within the editor's overlay layer (e.g. the
+    // sidebar) — a real exit, so the hover chrome clears as before.
+    const { state, session } = withHover();
+    const relatedTarget = { closest: () => null };
+
+    const next = handleEvents(
+      state,
+      viewport,
+      visibility,
+      [{ type: "mouseleave", relatedTarget } as unknown as Event],
+      viewport.documentHeight,
+      { left: 0, top: 0 },
+      session,
+    ).state;
+
+    expect(next.ui.imageHover).toBeNull();
+  });
+
   it("a canvas mouseleave keeps linkHover (interactive popover the host owns)", () => {
     // The link tooltip is a pointer-events-auto DOM popover: the pointer
     // crossing from the canvas onto it fires this very mouseleave. Clearing here

@@ -1,5 +1,35 @@
 # Input-surface rebuild: browser-authoritative contenteditable
 
+## Status (2026-06-30)
+
+**Landed** (behind the `inputStrategy` option, default `"faithful"` on iOS,
+`"managed"` elsewhere):
+
+- Stage 0/1 — faithful per-block mirror. `inputStrategy` mount option +
+  `Editor.faithfulEligible` / `setFaithfulMirror` / `readFaithfulCaret`;
+  `syncMirrorToSelection` writes the focused block's full text + real caret for
+  eligible blocks, rewriting only on drift.
+- Stage 1 reconciler — `handleFaithfulInput` diffs the whole block via
+  `computeSurfaceDelta`: plain typing routes through the synthetic-key pipeline
+  (so autoformat / TEXT_INPUT still run), autocorrect / predictions / injected
+  deletes apply as one `change()` edit.
+- Stage 2 — new-line caps fix. The keydown handler no longer `preventDefault`s a
+  plain Enter in an eligible block, so WebKit processes the paragraph break and
+  advances its autocapitalization state; the resulting `insertParagraph` maps to
+  `SPLIT_BLOCK`.
+
+**Deferred:** verbatim-source blocks (code/math, inline math chips) stay on the
+managed sentinel path via `faithfulEligible` (the U+FFFC placeholder mapping in
+Risks is unbuilt). Backspace/Delete stay synthetic in faithful mode. A
+`selectionchange→Position` listener (Stage 1 bullet 3) is not needed yet —
+tap-to-position is canvas-hit-test → model → mirror, and reconciled edits set the
+model caret explicitly.
+
+**Device-gated (cannot validate without hardware):** the WebKit autocap
+hypothesis above, and whether to promote the default to faithful on Android /
+desktop and delete the managed machinery (Stages 3–5). Revert per-instance with
+`inputStrategy: "managed"`.
+
 ## Why
 
 The current input layer is a **minimal, puppeteered** hidden contenteditable: it

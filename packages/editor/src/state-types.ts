@@ -401,6 +401,11 @@ export interface UIState {
   readonly hoveredDragHandleBlockId: string | null;
   // Active block-reorder drag (left-gutter handle), or null.
   readonly blockDrag: BlockDragState | null;
+  // Insertion-gap index for an external drag (e.g. a dropped image file) hovering
+  // the canvas, or null. Drives the same insertion line the renderer paints for a
+  // block reorder, minus the gutter grip. Set by the host via
+  // `editor.view.showDropIndicator`; never persisted, never in undo.
+  readonly externalDropIndex: number | null;
   // Ephemeral, range-anchored overlays the renderer paints on top of the
   // document without them being content (find highlights, remote cursors). Keyed
   // by an opaque layer name; never persisted, never in undo. See

@@ -12,7 +12,11 @@
  * the explicitly-unstable `@cypherkit/tex/internal` entry (see ./internal.ts),
  * mirroring `@cypherkit/editor`. Keep this surface tight.
  */
-import { buildExpression } from "./layout/build";
+import {
+  buildExpression,
+  buildExpressionWrapped,
+  topLevelBreakOffsets,
+} from "./layout/build";
 import type { Box } from "./layout/box";
 import type { Node } from "./parse/ast";
 import { parse } from "./parse/parser";
@@ -30,6 +34,28 @@ export interface LayoutOptions {
    * See {@link ParseOptions.literalRange} / `pendingCommandRange`.
    */
   literalRange?: { start: number; end: number };
+  /**
+   * Maximum width in pixels the formula may occupy. When set (and finite), the
+   * top-level expression line-breaks to fit: it is split across rows at binary
+   * operators and relations and stacked into one taller layout (its baseline
+   * stays the first row's). A single unbreakable construct wider than this
+   * overflows rather than breaking. Omit (the default) for the classic single
+   * unbreakable row.
+   */
+  maxWidth?: number;
+  /**
+   * Width budget in pixels for the FIRST row only; defaults to `maxWidth`. Lets
+   * an inline formula begin in the space left on a text line and use the full
+   * width on continuation rows. Ignored unless `maxWidth` is set.
+   */
+  firstMaxWidth?: number;
+  /** Pixels to indent continuation rows by. Ignored unless `maxWidth` is set. */
+  wrapIndent?: number;
+  /**
+   * Extra leading in pixels between stacked rows. Defaults to a small gap.
+   * Ignored unless `maxWidth` is set.
+   */
+  wrapLineGap?: number;
 }
 
 export interface MathLayout {
@@ -95,10 +121,23 @@ export function layoutMath(
   const fontSize = opts.fontSize ?? 16;
   const displayMode = opts.displayMode ?? false;
   const ast = parse(latex, { literalRange: opts.literalRange });
-  const box = buildExpression(
-    ast.type === "ord" ? ast.body : [ast],
-    displayMode ? DISPLAY : TEXT,
-  );
+  const nodes = ast.type === "ord" ? ast.body : [ast];
+  const style = displayMode ? DISPLAY : TEXT;
+  // Layout is computed in em; a px width budget converts at the current size.
+  const box =
+    opts.maxWidth != null && Number.isFinite(opts.maxWidth)
+      ? buildExpressionWrapped(nodes, style, {
+          maxWidth: opts.maxWidth / fontSize,
+          firstMaxWidth:
+            opts.firstMaxWidth != null
+              ? opts.firstMaxWidth / fontSize
+              : undefined,
+          indent:
+            opts.wrapIndent != null ? opts.wrapIndent / fontSize : undefined,
+          lineGap:
+            opts.wrapLineGap != null ? opts.wrapLineGap / fontSize : undefined,
+        })
+      : buildExpression(nodes, style);
   return {
     box,
     fontSize,
@@ -108,6 +147,19 @@ export function layoutMath(
     depth: box.depth * fontSize,
     depthBelowBaseline: box.depth * fontSize,
   };
+}
+
+/**
+ * Source offsets where `latex` may be line-broken at top level — before each
+ * binary operator / relation. Empty when the formula has no such break (a single
+ * atom, one big construct). A caller wrapping inline math into running text uses
+ * these as the only legal split points; the rendered width of each resulting
+ * piece is `layoutMath(piece).width` (re-laid-out standalone), so this carries no
+ * widths itself — just the break *structure*.
+ */
+export function breakpoints(latex: string): number[] {
+  const ast = parse(latex);
+  return topLevelBreakOffsets(ast.type === "ord" ? ast.body : [ast], TEXT);
 }
 
 export { needsCommandSeparator, pendingCommandRange } from "./parse/parser";
@@ -139,6 +191,7 @@ export {
   type LatexNormalization,
   type LatexInsert,
 } from "./edit/normalize";
+export { canRenderMathChar } from "./edit/char";
 export { fontFamily, loadFonts, ALL_VARIANTS } from "./fonts/fonts";
 export type { LoadFontsOptions } from "./fonts/fonts";
 export type { FontVariant } from "./data/fontMetrics";

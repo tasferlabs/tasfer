@@ -131,6 +131,14 @@ const BLOCK_MATH_FONT_SIZE = 22;
 const MATH_PLACEHOLDER_FONT_SIZE = 14;
 const MATH_PLACEHOLDER_FONT_WEIGHT = "400";
 
+// Wrapping geometry for a too-wide equation (see `layoutEquation`). The width
+// budget is inset from the block edges so wrapped rows don't touch the rounded
+// surface; continuation rows are indented and the stacked rows get a little
+// extra leading so a broken equation reads as a connected, multi-line whole.
+const BLOCK_MATH_PADDING_X = 16;
+const BLOCK_MATH_WRAP_INDENT = 24;
+const BLOCK_MATH_LINE_GAP = 8;
+
 /** TextNodeLayout augmented with the rendered equation + its placement. */
 interface MathNodeLayout extends TextNodeLayout {
   /** The laid-out equation, or null when the block is empty. */
@@ -162,6 +170,29 @@ export class MathNode extends TextNode {
     return m.minHeight + m.paddingTop + m.paddingBottom;
   }
 
+  /**
+   * Lay out the equation as display math constrained to the block's content
+   * width: it line-breaks at binary operators / relations to fit, stacking onto
+   * extra rows rather than overflowing the block (a single unbreakable construct
+   * still overflows — there is nothing to break). One helper so `computeLayout`,
+   * `paint`, and `caretRect` all lay out with identical geometry; `literalRange`
+   * keeps a command still being typed (`\in`) literal, matching what paint draws.
+   */
+  private layoutEquation(
+    latex: string,
+    contentWidth: number,
+    literalRange?: { start: number; end: number },
+  ): MathLayout {
+    return layoutMath(latex, {
+      fontSize: BLOCK_MATH_FONT_SIZE,
+      displayMode: true,
+      maxWidth: Math.max(0, contentWidth - 2 * BLOCK_MATH_PADDING_X),
+      wrapIndent: BLOCK_MATH_WRAP_INDENT,
+      wrapLineGap: BLOCK_MATH_LINE_GAP,
+      literalRange,
+    });
+  }
+
   // ── Layout ───────────────────────────────────────────────────────────────
 
   /**
@@ -183,12 +214,7 @@ export class MathNode extends TextNode {
     const base = super.computeLayout(block, maxWidth, styles, content, marks);
     const latex = getVisibleTextFromChars(base.chars);
     const m = styles.blocks.math;
-    const mathLayout = latex
-      ? layoutMath(latex, {
-          fontSize: BLOCK_MATH_FONT_SIZE,
-          displayMode: true,
-        })
-      : null;
+    const mathLayout = latex ? this.layoutEquation(latex, maxWidth) : null;
     const mh = mathLayout ? mathLayout.height + mathLayout.depth : 0;
     const contentH = Math.max(m.minHeight, mh);
     const height = contentH + m.paddingTop + m.paddingBottom;
@@ -306,11 +332,7 @@ export class MathNode extends TextNode {
         commandEntryActive,
       );
       const mathLayout = literalRange
-        ? layoutMath(latex, {
-            fontSize: BLOCK_MATH_FONT_SIZE,
-            displayMode: true,
-            literalRange,
-          })
+        ? this.layoutEquation(latex, width, literalRange)
         : layout.mathLayout;
       const mathOffsetX = literalRange
         ? Math.max(0, (width - mathLayout.width) / 2)
@@ -451,11 +473,7 @@ export class MathNode extends TextNode {
       commandEntryActive,
     );
     const mathLayout = literalRange
-      ? layoutMath(latex, {
-          fontSize: BLOCK_MATH_FONT_SIZE,
-          displayMode: true,
-          literalRange,
-        })
+      ? this.layoutEquation(latex, l.adjustedMaxWidth, literalRange)
       : l.mathLayout;
     const mathOffsetX = literalRange
       ? Math.max(0, (l.adjustedMaxWidth - mathLayout.width) / 2)

@@ -11,6 +11,7 @@
  */
 
 import { containsCJK, isCJKCharacter } from "./cjk";
+import { resolveMarkRunsFromChars } from "./inline-math-spans";
 import type { MarkRegistry, MarkReplacement } from "./rendering/marks";
 import type { Char, CharRun, Mark, MarkSpan } from "./serlization/loadPage";
 // Formatted text measurement - handles Char[] with MarkSpan[]
@@ -44,6 +45,13 @@ export interface TextBatch {
   italic: boolean;
   /** The replacement renderer for this run, or null for plain text. */
   replacement: MarkReplacement | null;
+  /**
+   * Pre-resolved advance for this batch, overriding any measurement. Set for a
+   * replacement batch whose width was computed per line-fragment by the layout
+   * (so a chip wrapped across lines contributes its on-this-line width, not the
+   * whole formula's) — see {@link measureTextUpToIndex}'s `replCharWidths`.
+   */
+  fixedWidth?: number;
 }
 
 /**
@@ -430,6 +438,11 @@ export function measureBatchedText(
   let width = 0;
 
   for (const batch of batches) {
+    // A layout-resolved per-fragment width wins (a chip wrapped across lines).
+    if (batch.fixedWidth !== undefined) {
+      width += batch.fixedWidth;
+      continue;
+    }
     if (batch.replacement) {
       const dims = batch.replacement.measure(batch.text, fontSize);
       if (dims) {
@@ -481,6 +494,7 @@ export function measureCRDTPositions(
   fontFamily: FontFamily,
   fonts: FontStyles,
   marks?: MarkRegistry,
+  replCharWidths?: Map<number, number>,
 ): number[] {
   const lineLength = endIndex - startIndex;
   const positions: number[] = new Array(lineLength + 1);
@@ -501,6 +515,7 @@ export function measureCRDTPositions(
       fonts,
       0,
       marks,
+      replCharWidths,
     );
   }
 
@@ -520,9 +535,41 @@ export function measureTextUpToIndex(
   fonts: FontStyles,
   _codePadding: number = 0,
   marks?: MarkRegistry,
+  // Per-visible-index advance override for replacement chips, keyed by visible
+  // char index. When a chip wraps across lines the layout splits it into
+  // per-line fragments and records, here, each fragment's first char → its
+  // on-this-line rendered width and the rest → 0. Supplying it makes width
+  // measurement attribute each line's slice its own advance (instead of the
+  // whole formula's), keeping the caret aligned with the reflowed paint. When
+  // omitted, the legacy whole-chip atomic fixup below applies.
+  replCharWidths?: Map<number, number>,
 ): number {
   // Use batched measurement to preserve Arabic ligatures
   const batches = batchChars(chars, formats, startIndex, endIndex, marks);
+
+  // Per-fragment override: attribute each replacement batch the sum of its
+  // chars' recorded widths (a wrapped chip's slice on this line), so a batch that
+  // is the middle/end of a chip still contributes its real width.
+  if (replCharWidths && batches.some((b) => b.replacement)) {
+    let visIdx = startIndex;
+    for (const batch of batches) {
+      const batchStart = visIdx;
+      const batchEnd = batchStart + batch.text.length;
+      visIdx = batchEnd;
+      if (!batch.replacement) continue;
+      let w = 0;
+      for (let v = batchStart; v < batchEnd; v++)
+        w += replCharWidths.get(v) ?? 0;
+      batch.fixedWidth = w;
+    }
+    return measureBatchedText(
+      batches,
+      fontSize,
+      baseFontWeight,
+      fontFamily,
+      fonts,
+    );
+  }
 
   // Replacement-span atomic fixup. batchChars can produce a replacement batch
   // whose text is a *partial* slice of the span's source (when the requested
@@ -608,6 +655,7 @@ export function measureCharsUpToIndex(
   fonts: FontStyles,
   codePadding: number = 0,
   marks?: MarkRegistry,
+  replCharWidths?: Map<number, number>,
 ): number {
   // Convert charRuns to Char[] for compatibility with existing measurement code
   const chars = charRunsToChars(charRuns);
@@ -624,6 +672,7 @@ export function measureCharsUpToIndex(
     fonts,
     codePadding,
     marks,
+    replCharWidths,
   );
 }
 
@@ -640,6 +689,15 @@ export function wrapText(
   _codePadding: number = 0,
   _compositionRange: { start: number; end: number } | null = null,
   marks?: MarkRegistry,
+  // Whether a replacement run (inline-math chip) may be SPLIT across lines at its
+  // internal break offsets. True in LTR text (the chip reflows at its operators).
+  // False in RTL: a formula is an atomic LTR box within the bidi line — the same
+  // model every mainstream system uses (browsers/KaTeX/MathJax keep inline math
+  // an atomic inline-block; bidi TeX places it as one LTR box) — because the
+  // RTL caret/selection/paint paths treat a chip atomically, so splitting it
+  // here would only diverge from them. An atomic chip still wraps as a WHOLE unit
+  // (moves to its own line; overflows/cuts if wider than the line).
+  allowReplacementBreaks: boolean = true,
 ): WrappedLine[] {
   // Get visible text
   const visibleChars = chars.filter((c) => !c.deleted);
@@ -675,38 +733,75 @@ export function wrapText(
     };
   };
 
-  // Pre-compute replacement-span ranges (visible indices) and their rendered
-  // widths. A replacement run (e.g. an inline-math chip) is drawn as a single
-  // atomic unit whose width is the rendered width — not the sum of its source
-  // character widths — so wrapping must treat the span as one unit at the
-  // rendered width. We attribute the full span width to the first char and 0 to
-  // the rest, making the span effectively non-breakable (subsequent 0-width
-  // chars can never trigger a wrap on their own).
-  const replSpanFirstWidth = new Map<number, number>();
-  const replSpanIsTail = new Set<number>();
-  for (const span of formats) {
-    const replacement = marks?.get(span.format.type)?.replacement;
+  // Pre-compute replacement-span layout for wrapping. A replacement run (an
+  // inline-math chip) renders as glyphs, not its source characters, so wrapping
+  // must use its rendered width. A run MAY expose internal break offsets (math's
+  // top-level operators) so a too-wide run flows across lines instead of
+  // overflowing as one block: we split it into SEGMENTS at those offsets,
+  // attribute each segment's rendered width to the segment's first char (0 to the
+  // rest, so a wrap can only trigger at a segment start), and mark each interior
+  // segment start as a break opportunity. A run with no break offsets is one
+  // segment — the classic atomic chip. `chipChars` flags every char inside a run
+  // so the Latin space-backtrack never splits a run at a space in its SOURCE
+  // (e.g. `\sin x`), which would render an invalid slice.
+  const segFirstWidth = new Map<number, number>();
+  const chipTail = new Set<number>();
+  const segBreakBefore = new Set<number>();
+  const chipChars = new Set<number>();
+  // Resolve replacement runs through the SAME tolerant, ordinal-based resolver
+  // the paint/caret path uses (`TextNode.replacementRuns`). A strict
+  // `startCharId`/`endCharId` lookup dropped a whole chip to plain text — losing
+  // its wrap breakpoints — the instant an endpoint char was tombstoned (e.g.
+  // backspacing a chip's first/last char), so a wrapped formula stopped wrapping
+  // on delete while paint still drew it as a formula. `run.endIndex` is the
+  // caret-edge (after the last surviving char), so the last visible index is
+  // `endIndex - 1`.
+  for (const run of resolveMarkRunsFromChars(chars, formats)) {
+    const replacement = marks?.get(run.name)?.replacement;
     if (!replacement) continue;
-    const startOrig = chars.findIndex((c) => c.id === span.startCharId);
-    const endOrig = chars.findIndex((c) => c.id === span.endCharId);
-    if (startOrig === -1 || endOrig === -1) continue;
-    let startVis = -1;
-    let endVis = -1;
-    for (let i = 0; i < visibleToOriginalIndex.length; i++) {
-      const orig = visibleToOriginalIndex[i];
-      if (orig === startOrig) startVis = i;
-      if (orig === endOrig) endVis = i;
-    }
-    if (startVis === -1 || endVis === -1) continue;
-    const text = visibleChars
-      .slice(startVis, endVis + 1)
-      .map((c) => c.char)
-      .join("");
+    const startVis = run.startIndex;
+    const endVis = run.endIndex - 1;
+    if (endVis < startVis) continue;
+    const text = run.text;
     const dims = replacement.measure(text, fontSize);
     if (!dims) continue; // fall through to plain-text widths on render error
-    replSpanFirstWidth.set(startVis, dims.width);
-    for (let i = startVis + 1; i <= endVis; i++) {
-      replSpanIsTail.add(i);
+    for (let i = startVis; i <= endVis; i++) chipChars.add(i);
+
+    // Segment boundaries within the run: [0, ...interior breaks, length]. In RTL
+    // the chip stays atomic (no interior breaks), so it's one whole segment.
+    const rawBreaks = allowReplacementBreaks
+      ? (replacement.breakpoints?.(text, fontSize) ?? [])
+      : [];
+    const bounds = [
+      0,
+      ...rawBreaks
+        .filter((b) => b > 0 && b < text.length)
+        .sort((a, b) => a - b),
+      text.length,
+    ];
+    // Cumulative rendered width up to each boundary (measured WITH leading
+    // context, so a segment's leading inter-atom glue rides with it — a small,
+    // safe overestimate of a continuation line's true standalone width, so wrap
+    // never packs a line past the budget).
+    const cum = [0];
+    for (let k = 1; k < bounds.length; k++) {
+      const d =
+        bounds[k] === text.length
+          ? dims
+          : replacement.measure(text.slice(0, bounds[k]), fontSize);
+      cum.push(d ? d.width : cum[k - 1]);
+    }
+    for (let k = 0; k + 1 < bounds.length; k++) {
+      const segStartVis = startVis + bounds[k];
+      segFirstWidth.set(segStartVis, Math.max(0, cum[k + 1] - cum[k]));
+      if (k > 0) segBreakBefore.add(segStartVis); // interior break: may lead a line
+      for (
+        let v = startVis + bounds[k] + 1;
+        v < startVis + bounds[k + 1];
+        v++
+      ) {
+        chipTail.add(v);
+      }
     }
   }
 
@@ -714,8 +809,10 @@ export function wrapText(
   let currentLine = "";
   let currentLineWidth = 0;
 
-  // Track character widths for the current line (for backtracking on word wrap)
+  // Per-line parallel arrays: each char's width and its visible index (the latter
+  // lets the Latin backtrack skip spaces that live inside a replacement run).
   let lineCharWidths: number[] = [];
+  let lineCharVis: number[] = [];
 
   for (
     let visibleIndex = 0;
@@ -726,14 +823,17 @@ export function wrapText(
     const isCJK = isCJKCharacter(char);
     const isSpace = char === " ";
 
-    // Measure this single character (O(1) per character).
-    // Replacement span: first char carries the full rendered width; remaining
-    // chars carry 0 width so the span is atomic and never breaks mid-run.
+    // Measure this single character (O(1) per character). A replacement segment's
+    // first char carries the segment width; the rest carry 0.
     let charWidth: number;
-    const replFirstWidth = replSpanFirstWidth.get(visibleIndex);
-    if (replFirstWidth !== undefined) {
-      charWidth = replFirstWidth;
-    } else if (replSpanIsTail.has(visibleIndex)) {
+    const segW = segFirstWidth.get(visibleIndex);
+    // A chip-interior char: inside a replacement segment but not its first char,
+    // so it carries 0 width and must always ride with its segment (never start or
+    // force a line on its own).
+    const isChipTail = segW === undefined && chipTail.has(visibleIndex);
+    if (segW !== undefined) {
+      charWidth = segW;
+    } else if (isChipTail) {
       charWidth = 0;
     } else {
       const { weight, style } = getFontVariantAtIndex(visibleIndex);
@@ -746,19 +846,46 @@ export function wrapText(
         style,
       );
     }
+    // A break may be taken before this char when it starts an interior segment of
+    // a replacement run (math operator) — the run's source splits here.
+    const isSegBreak = segBreakBefore.has(visibleIndex);
 
-    // Check if adding this character would exceed max width
-    if (currentLineWidth + charWidth > maxWidth && currentLine.length > 0) {
+    // Check if adding this character would exceed max width. A chip-interior char
+    // (0 width) never triggers a wrap on its own: once a chip overflows, its tail
+    // chars would otherwise re-trip this and carve the formula char by char — an
+    // atomic / too-wide chip must overflow as one piece (the "cut" terminal case),
+    // not shatter. It always rides with the segment it belongs to.
+    if (
+      currentLineWidth + charWidth > maxWidth &&
+      currentLine.length > 0 &&
+      !isChipTail
+    ) {
       // Line is full, need to wrap
-      if (isCJK || isSpace || hasCJK) {
+      if (isSegBreak) {
+        // Break before this math segment so it leads the continuation line; each
+        // line's chip slice renders standalone.
+        lines.push({ text: currentLine, consumedSpace: false });
+        currentLine = char;
+        currentLineWidth = charWidth;
+        lineCharWidths = [charWidth];
+        lineCharVis = [visibleIndex];
+      } else if (isCJK || isSpace || hasCJK) {
         // For CJK or spaces, break here
         lines.push({ text: currentLine, consumedSpace: isSpace });
         currentLine = isSpace ? "" : char;
         currentLineWidth = isSpace ? 0 : charWidth;
         lineCharWidths = isSpace ? [] : [charWidth];
+        lineCharVis = isSpace ? [] : [visibleIndex];
       } else {
-        // Latin character - try to find last space in current line
-        const lastSpaceIndex = currentLine.lastIndexOf(" ");
+        // Latin character - break at the last space NOT inside a replacement run
+        // (a chip's source spaces, e.g. `\sin x`, are not legal break points).
+        let lastSpaceIndex = -1;
+        for (let p = currentLine.length - 1; p > 0; p--) {
+          if (currentLine[p] === " " && !chipChars.has(lineCharVis[p])) {
+            lastSpaceIndex = p;
+            break;
+          }
+        }
         if (lastSpaceIndex > 0) {
           // Break at the space
           const lineToAdd = currentLine.substring(0, lastSpaceIndex);
@@ -777,15 +904,18 @@ export function wrapText(
           }
           currentLineWidth = newLineWidth;
 
-          // Update lineCharWidths
+          // Update parallel per-line arrays
           lineCharWidths = lineCharWidths.slice(lastSpaceIndex + 1);
           lineCharWidths.push(charWidth);
+          lineCharVis = lineCharVis.slice(lastSpaceIndex + 1);
+          lineCharVis.push(visibleIndex);
         } else {
           // No space found, force break
           lines.push({ text: currentLine, consumedSpace: false });
           currentLine = char;
           currentLineWidth = charWidth;
           lineCharWidths = [charWidth];
+          lineCharVis = [visibleIndex];
         }
       }
     } else {
@@ -793,6 +923,7 @@ export function wrapText(
       currentLine += char;
       currentLineWidth += charWidth;
       lineCharWidths.push(charWidth);
+      lineCharVis.push(visibleIndex);
     }
   }
 

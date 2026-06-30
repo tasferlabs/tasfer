@@ -61,7 +61,7 @@ export function EventCard({
             null;
           return c && !isDraft
             ? { borderInlineStartColor: c }
-            : { borderInlineStartColor: "var(--primary)" };
+            : { borderInlineStartColor: "var(--page-color-default)" };
         })(),
       }}
       {...listeners}

@@ -488,8 +488,10 @@ export function caretVertical(
 const VERTICAL_X_WEIGHT = 3;
 
 /**
- * Highlight rectangles covering the source range `[start, end)`. Returns one
- * rect per contiguous run of selected glyphs (typically one for inline math).
+ * Highlight rectangles covering the source range `[start, end)`. Selected glyphs
+ * are merged per visual ROW (keyed by baseline `y`) into one rect each, so a
+ * single-row formula yields one rect while a wrapped (multi-row) one yields a
+ * rect per line — never a single tall block bridging the gaps between rows.
  */
 export function selectionRects(
   layout: MathLayout,
@@ -498,21 +500,39 @@ export function selectionRects(
 ): SelectionRect[] {
   if (end < start) [start, end] = [end, start];
   const fs = layout.fontSize;
-  const segs: { x0: number; x1: number; top: number; bottom: number }[] = [];
+  const segs: {
+    x0: number;
+    x1: number;
+    top: number;
+    bottom: number;
+    y: number;
+  }[] = [];
   collectSelected(layout.box, 0, 0, fs, start, end, segs);
-  // Merge into a single bounding rect (inline math is one line).
   if (segs.length === 0) return [];
-  let x0 = Infinity,
-    x1 = -Infinity,
-    top = Infinity,
-    bottom = -Infinity;
+  // Group by row baseline (glyphs on one text line share `y` exactly), then
+  // bound each group. Rounding keeps near-equal baselines in the same bucket.
+  const rows = new Map<
+    number,
+    { x0: number; x1: number; top: number; bottom: number }
+  >();
   for (const s of segs) {
-    x0 = Math.min(x0, s.x0);
-    x1 = Math.max(x1, s.x1);
-    top = Math.min(top, s.top);
-    bottom = Math.max(bottom, s.bottom);
+    const key = Math.round(s.y * 100) / 100;
+    const r = rows.get(key);
+    if (!r) {
+      rows.set(key, { x0: s.x0, x1: s.x1, top: s.top, bottom: s.bottom });
+    } else {
+      r.x0 = Math.min(r.x0, s.x0);
+      r.x1 = Math.max(r.x1, s.x1);
+      r.top = Math.min(r.top, s.top);
+      r.bottom = Math.max(r.bottom, s.bottom);
+    }
   }
-  return [{ x: x0, y: top, width: x1 - x0, height: bottom - top }];
+  return [...rows.values()].map((r) => ({
+    x: r.x0,
+    y: r.top,
+    width: r.x1 - r.x0,
+    height: r.bottom - r.top,
+  }));
 }
 
 function collectSelected(
@@ -522,7 +542,7 @@ function collectSelected(
   fs: number,
   start: number,
   end: number,
-  out: { x0: number; x1: number; top: number; bottom: number }[],
+  out: { x0: number; x1: number; top: number; bottom: number; y: number }[],
 ): void {
   if (box.type === "glyph") {
     if (box.span && box.span.start >= start && box.span.end <= end) {
@@ -531,6 +551,7 @@ function collectSelected(
         x1: x + box.width * fs,
         top: y - box.height * fs,
         bottom: y + box.depth * fs,
+        y,
       });
     }
     return;
@@ -547,6 +568,7 @@ function collectSelected(
         x1: x + box.width * fs,
         top: y - box.height * fs,
         bottom: y + box.depth * fs,
+        y,
       });
       return;
     }

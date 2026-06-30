@@ -219,6 +219,14 @@ export interface TextNodeLayout extends NodeLayout {
   readonly compositionRange: { start: number; end: number } | null;
   /** Raw wrap result, retained for consumers that need consumedSpace. */
   readonly wrapped: WrappedLine[];
+  /**
+   * Per-visible-index advance override for replacement chips that wrapped across
+   * lines: each line-fragment's first char → its on-this-line rendered width, the
+   * rest → 0. Threaded into every width measurement (caret-x, hit-test, selection)
+   * so they attribute each line's chip slice its own advance, matching the
+   * reflowed paint. Empty when no chip wraps (every chip is one whole fragment).
+   */
+  readonly replCharWidths: Map<number, number>;
 }
 
 /** Arguments to the {@link TextNode.renderLineText} glyph-drawing hook. */
@@ -372,6 +380,7 @@ function measureLineWidth(
   fonts: FontStyles,
   codePadding: number,
   marks?: MarkRegistry,
+  replCharWidths?: Map<number, number>,
 ): number {
   return measureTextUpToIndex(
     chars,
@@ -384,6 +393,7 @@ function measureLineWidth(
     fonts,
     codePadding,
     marks,
+    replCharWidths,
   );
 }
 
@@ -847,9 +857,16 @@ function computeSelectionRects(
         replacementRuns(chars, formats, marks),
         index,
       );
-      const localOffset = run ? index - run.start : 0;
+      // Descend into the chip's FRAGMENT on this line (run clipped to the line),
+      // matching the reflowed slice — see `caretRect`.
+      const fragStart = run ? Math.max(run.start, line.startIndex) : 0;
+      const fragEnd = run ? Math.min(run.end, line.endIndex) : 0;
+      const fragText = run
+        ? run.text.slice(fragStart - run.start, fragEnd - run.start)
+        : "";
+      const localOffset = run ? index - fragStart : 0;
       const replCaret = run?.replacement.caretRect?.(
-        run.text,
+        fragText,
         textStyle.fontSize,
         localOffset,
         {
@@ -862,12 +879,13 @@ function computeSelectionRects(
           chars,
           formats,
           line.startIndex,
-          run.start,
+          fragStart,
           textStyle,
           fontFamily,
           fonts,
           codePadding,
           marks,
+          layout.replCharWidths,
         );
         return chipLeft + replCaret.x;
       }
@@ -882,6 +900,7 @@ function computeSelectionRects(
       fonts,
       codePadding,
       marks,
+      layout.replCharWidths,
     );
   };
 
@@ -1183,6 +1202,9 @@ export class TextNode extends Node<TextualBlock> {
       codePadding,
       compositionRange,
       marks,
+      // RTL lines keep an inline-math chip atomic (no operator split), matching
+      // the RTL caret/selection/paint paths, which treat a chip atomically.
+      !isRTL,
     );
 
     const fontMetrics = getFontMetrics(
@@ -1206,12 +1228,38 @@ export class TextNode extends Node<TextualBlock> {
     // positioning is added by each consumer (it differs between the scroll-space
     // paint pass and the document-space caret pass), so x stays 0 here.
     const lines: RenderedLine[] = [];
+    // Per-line replacement-chip fragment advances (see TextNodeLayout). Filled as
+    // each line resolves its chip fragments, then threaded into every width
+    // measurement so a chip that wrapped across lines is measured per slice.
+    const replCharWidths = new Map<number, number>();
     let textIndex = 0;
     let lineY = 0;
     for (let i = 0; i < wrapped.length; i++) {
       const wl = wrapped[i];
       const lineStartIndex = textIndex;
       const lineEndIndex = textIndex + wl.text.length;
+      let ascent = textAscent;
+      let descent = textDescent;
+      // Replacement fragments on THIS line — a chip clipped to the line. Record
+      // each fragment's first-char advance (rest → 0) so measurement attributes
+      // the slice its own width, and grow the line box around the chip. A chip
+      // that wrapped contributes one fragment per line it spans; an unwrapped chip
+      // is its whole self on one line (fragment == run, identical to before).
+      for (const run of replacements) {
+        const fragStart = Math.max(run.start, lineStartIndex);
+        const fragEnd = Math.min(run.end, lineEndIndex);
+        if (fragEnd <= fragStart) continue;
+        const fragText = run.text.slice(
+          fragStart - run.start,
+          fragEnd - run.start,
+        );
+        const dims = run.replacement.measure(fragText, textStyle.fontSize);
+        if (!dims) continue;
+        replCharWidths.set(fragStart, dims.width);
+        for (let v = fragStart + 1; v < fragEnd; v++) replCharWidths.set(v, 0);
+        ascent = Math.max(ascent, dims.height - dims.depthBelowBaseline);
+        descent = Math.max(descent, dims.depthBelowBaseline);
+      }
       const width = measureLineWidth(
         chars,
         formats,
@@ -1222,16 +1270,8 @@ export class TextNode extends Node<TextualBlock> {
         fonts,
         codePadding,
         marks,
+        replCharWidths,
       );
-      let ascent = textAscent;
-      let descent = textDescent;
-      for (const run of replacements) {
-        if (run.start < lineStartIndex || run.end > lineEndIndex) continue;
-        const dims = run.replacement.measure(run.text, textStyle.fontSize);
-        if (!dims) continue;
-        ascent = Math.max(ascent, dims.height - dims.depthBelowBaseline);
-        descent = Math.max(descent, dims.depthBelowBaseline);
-      }
       const actualLineHeight = Math.max(lineHeight, ascent + descent);
       lines.push({
         text: wl.text,
@@ -1271,6 +1311,7 @@ export class TextNode extends Node<TextualBlock> {
       formats,
       compositionRange,
       wrapped,
+      replCharWidths,
     };
   }
 
@@ -1342,15 +1383,24 @@ export class TextNode extends Node<TextualBlock> {
                 replacementRuns(chars, formats, layout.marks),
                 textIndex,
               );
+        // A chip may have wrapped across lines: work against its FRAGMENT on the
+        // line the caret sits on (run clipped to the line), so the caret maps to
+        // the reflowed slice that line paints, not the whole formula. For an
+        // unwrapped chip the fragment IS the whole run.
+        const fragStart = run ? Math.max(run.start, line.startIndex) : 0;
+        const fragEnd = run ? Math.min(run.end, line.endIndex) : 0;
+        const fragText = run
+          ? run.text.slice(fragStart - run.start, fragEnd - run.start)
+          : "";
         // While an edit is in progress inside this run, read the caret off the
         // same `edit` the run paints with (a command kept literal, `\in` not ∈)
         // so it tracks the source the user is entering.
-        const localOffset = run ? textIndex - run.start : 0;
+        const localOffset = run ? textIndex - fragStart : 0;
         const edit: MarkReplacementEdit = { caretOffset: localOffset, editing };
         const replCaret =
           run &&
           run.replacement.caretRect?.(
-            run.text,
+            fragText,
             textStyle.fontSize,
             localOffset,
             edit,
@@ -1360,13 +1410,14 @@ export class TextNode extends Node<TextualBlock> {
             chars,
             formats,
             line.startIndex,
-            run.start,
+            fragStart,
             textStyle.fontSize,
             textStyle.fontWeight,
             fontFamily,
             fonts,
             codePadding,
             layout.marks,
+            layout.replCharWidths,
           );
           // Anchor the replacement's caret extent at the run baseline so the
           // caret hugs the row it sits on (short in a subscript, tall across a
@@ -1394,6 +1445,7 @@ export class TextNode extends Node<TextualBlock> {
           fonts,
           codePadding,
           layout.marks,
+          layout.replCharWidths,
         );
         return {
           x: isRTL
@@ -1497,6 +1549,7 @@ export class TextNode extends Node<TextualBlock> {
       fontFamily,
       fonts,
       layout.marks,
+      layout.replCharWidths,
     );
 
     const lineWidth = positionWidths[positionWidths.length - 1];
@@ -1557,13 +1610,26 @@ export class TextNode extends Node<TextualBlock> {
         ? replacementRuns(chars, formats, layout.marks)
         : []) {
         if (!run.replacement.hitTest) continue;
-        const startLocal = run.start - lineStartIndex;
-        if (startLocal < 0 || startLocal + 1 >= positionWidths.length) continue;
+        // Hit-test against the chip's FRAGMENT on this line (the run clipped to
+        // the line) so a click on a continuation row of a wrapped chip still
+        // descends into the formula. For an unwrapped chip the fragment is the
+        // whole run.
+        const fragStart = Math.max(run.start, lineStartIndex);
+        const fragEnd = Math.min(run.end, lineEndIndex);
+        if (fragEnd <= fragStart) continue;
+        const startLocal = fragStart - lineStartIndex;
+        if (startLocal + 1 >= positionWidths.length) continue;
+        const fragText = run.text.slice(
+          fragStart - run.start,
+          fragEnd - run.start,
+        );
+        // The fragment's first char carries its whole on-line width (the override
+        // map), so its left/right edges are the adjacent position widths.
         const chipLeftX = positionWidths[startLocal];
         const chipRightX = positionWidths[startLocal + 1];
         if (relativeX <= chipLeftX || relativeX >= chipRightX) {
-          if (bestPosition > run.start && bestPosition < run.end) {
-            bestPosition = relativeX <= chipLeftX ? run.start : run.end;
+          if (bestPosition > fragStart && bestPosition < fragEnd) {
+            bestPosition = relativeX <= chipLeftX ? fragStart : fragEnd;
           }
           continue;
         }
@@ -1573,21 +1639,20 @@ export class TextNode extends Node<TextualBlock> {
         const baselineY =
           lineTopY + (line.baselineOffset ?? layout.fontMetrics.ascent);
         const offset = run.replacement.hitTest(
-          run.text,
+          fragText,
           textStyle.fontSize,
           relativeX - chipLeftX,
           clickY - baselineY,
         );
         // A click on the chip places the caret INSIDE the formula. The extreme
-        // stops (offset 0 / the full length) collapse onto the run's boundary
-        // index — shared with the surrounding text, so they render as an outside
-        // caret. Clamp to a strictly-interior stop so clicking anywhere on the
-        // chip lands inside it; the surrounding text/space is how you land
-        // outside. A chip with a single visible char has no interior — there is
-        // nothing inside to land on, so fall back to its near edge.
-        const lastInterior = run.text.length - 1;
-        if (lastInterior < 1) return run.start;
-        return run.start + Math.max(1, Math.min(offset, lastInterior));
+        // stops (offset 0 / the full length) collapse onto the fragment's boundary
+        // index — shared with the surrounding text/adjacent fragment, so they
+        // render as an outside caret. Clamp to a strictly-interior stop so clicking
+        // anywhere on the slice lands inside it. A single-char fragment has no
+        // interior, so fall back to its near edge.
+        const lastInterior = fragText.length - 1;
+        if (lastInterior < 1) return fragStart;
+        return fragStart + Math.max(1, Math.min(offset, lastInterior));
       }
 
       return bestPosition;
@@ -2045,6 +2110,9 @@ export class TextNode extends Node<TextualBlock> {
     codePadding: number,
     compositionRange: { start: number; end: number } | null,
     marks?: MarkRegistry,
+    // LTR-only: split a wide inline-math chip at its operators (false in RTL,
+    // where a formula stays an atomic LTR box — see `wrapText`).
+    allowReplacementBreaks: boolean = true,
   ): WrappedLine[] {
     return wrapText(
       chars,
@@ -2057,6 +2125,7 @@ export class TextNode extends Node<TextualBlock> {
       codePadding,
       compositionRange,
       marks,
+      allowReplacementBreaks,
     );
   }
 

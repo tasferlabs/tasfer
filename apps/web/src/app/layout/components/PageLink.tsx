@@ -445,7 +445,7 @@ export function PageLink({
           <span
             className="color-picker-blob"
             style={{
-              backgroundColor: resolvedColor || "var(--primary)",
+              backgroundColor: resolvedColor || "var(--page-color-default)",
               opacity: resolvedColor ? 1 : 0.3,
             }}
           />
@@ -588,9 +588,10 @@ function ColorGrid({
     >
       <button
         className={clsx(
-          "w-full aspect-square rounded-lg border-2 cursor-pointer transition-transform hover:scale-110 bg-primary",
+          "w-full aspect-square rounded-lg border-2 cursor-pointer transition-transform hover:scale-110",
           !color ? "border-foreground" : "border-transparent",
         )}
+        style={{ backgroundColor: "var(--page-color-default)" }}
         onClick={() => onColorChange(null)}
         aria-label="Default color"
       />

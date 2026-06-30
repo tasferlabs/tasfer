@@ -18,9 +18,11 @@ import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
 import { SpacePrefsProvider } from "../contexts/SpacePrefsContext";
 import { TreeExpandProvider } from "../contexts/TreeExpandContext";
 import { useVersion } from "../contexts/VersionContext";
+import { useFileDropImport } from "../hooks/useFileDropImport";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useResponsive from "../hooks/useResponsive";
 import ForceUpdatePage from "../pages/ForceUpdatePage";
+import { FileDropChrome } from "./FileDropChrome";
 import { FloatingSidebar } from "./FloatingSidebar";
 import style from "./Layout.module.css";
 import { ResizableSidebar } from "./ResizableSidebar";
@@ -84,6 +86,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
   );
   const isMobile = useResponsive("(max-width: 768px)");
   const { spaces, isLoading: spacesLoading } = useSpaces();
+  const fileDrop = useFileDropImport();
 
   // Remember the last visited route so we can restore it on next visit
   const location = useLocation();
@@ -110,6 +113,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
       <div
         className={style.appContainer}
         inert={needsForceUpdate ? (true as unknown as boolean) : undefined}
+        {...fileDrop.dropZoneProps}
       >
         {isMobile ? (
           <FloatingSidebar
@@ -157,6 +161,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
           setInviteMembersId(open ? inviteMembersId : null)
         }
       />
+      <FileDropChrome fileDrop={fileDrop} spaces={spaces} />
       <ActionCenter />
       <PeerVersionPopup />
       <BottomToolDock>

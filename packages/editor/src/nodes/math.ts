@@ -22,6 +22,8 @@ import type {
 import { isTouchDevice } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import {
+  breakpoints as texBreakpoints,
+  canRenderMathChar,
   caretRect as texCaretRect,
   caretStops as texCaretStops,
   caretVertical as texCaretVertical,
@@ -30,6 +32,7 @@ import {
   isRedundantSpace as texIsRedundantSpace,
   isValidLatex,
   layoutMath,
+  type MathLayout,
   type MathUnit,
   needsCommandSeparator as texNeedsCommandSeparator,
   normalizeLatex as texNormalizeLatex,
@@ -134,6 +137,19 @@ export function mathCaretVerticalStep(
   dir: "up" | "down",
 ): number | null {
   if (block.type === "math") {
+    // Prefer the equation's actual rendered layout off the block's render cache:
+    // when it wrapped onto several rows, vertical motion must step between THOSE
+    // rows (not a hypothetical single-row layout), so up/down walks a broken
+    // equation line by line exactly as painted. Falls back to a fresh single-row
+    // layout before the first paint has populated the cache.
+    const cached = (
+      block as { cachedLayout?: { mathLayout?: MathLayout | null } }
+    ).cachedLayout;
+    const ml = cached?.mathLayout;
+    if (ml) {
+      const x = texCaretRect(ml, index)?.x ?? 0;
+      return texCaretVertical(ml, index, dir, x);
+    }
     return getBlockMathOffsetVertical(blockLatex(block), index, dir);
   }
   const span = chipAt(block, index, "inside");
@@ -358,11 +374,13 @@ function chipLeadingUnit(latex: string): MathUnit | null {
 }
 
 /**
- * Rewrite a typed char in math content: insert a space before a letter typed
- * right after a complete command (`\oint`+`x` → `\oint x`, never the unknown
- * `\ointx`), and — inside an inline chip — flag that inline-markdown must be
- * suppressed (a stray `$`/`*` can't reinterpret the formula). `null` outside math
- * or when nothing needs doing.
+ * Rewrite a typed char in math content: drop characters the tex engine cannot
+ * render (an Arabic letter, a CJK ideograph, an emoji — they would lay out as a
+ * zero-width, caret-less "latent" glyph the user can neither see nor delete),
+ * insert a space before a letter typed right after a complete command
+ * (`\oint`+`x` → `\oint x`, never the unknown `\ointx`), and — inside an inline
+ * chip — flag that inline-markdown must be suppressed (a stray `$`/`*` can't
+ * reinterpret the formula). `null` outside math or when nothing needs doing.
  */
 export function mathTransformTypedInput(
   block: Block,
@@ -383,12 +401,20 @@ export function mathTransformTypedInput(
     }
   }
   if (latex === null) return null;
+  // Discard unrenderable characters before they enter the document. Iterate by
+  // code point so an astral char (emoji) is dropped whole, not split.
+  const renderable = [...input].filter(canRenderMathChar).join("");
+  if (renderable.length === 0) {
+    // Every typed character is latent in math: swallow the keystroke (no op).
+    return input.length === 0 ? null : { input: "" };
+  }
   const out =
-    input.length === 1 && mathNeedsCommandSeparator(latex, offset, input)
-      ? " " + input
-      : input;
+    renderable.length === 1 &&
+    mathNeedsCommandSeparator(latex, offset, renderable)
+      ? " " + renderable
+      : renderable;
   if (insideChip) return { input: out, suppressMarkdown: true };
-  // Block equation: only contribute when the separator actually changed the input.
+  // Block equation: only contribute when filtering or the separator changed input.
   return out === input ? null : { input: out };
 }
 
@@ -808,6 +834,16 @@ export function getInlineMathDims(
     height: l.height + l.depth,
     depthBelowBaseline: l.depth,
   };
+}
+
+/**
+ * Source offsets within an inline chip's LaTeX where the line-wrapper may break
+ * it across lines — the formula's top-level operator/relation breaks (see
+ * `@cypherkit/tex`'s `breakpoints`). Empty when the chip has no top-level break
+ * (a lone construct), so it stays atomic and overflows rather than splitting.
+ */
+export function getInlineMathBreakpoints(latex: string): number[] {
+  return latex ? texBreakpoints(latex) : [];
 }
 
 /**

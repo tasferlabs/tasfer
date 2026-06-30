@@ -193,6 +193,17 @@ export interface MarkReplacement {
     localX: number,
     localY: number,
   ): number;
+  /**
+   * Offsets *within* `text` where the run may be line-broken when it is too wide
+   * to fit — letting the line-wrapper flow a long run across several lines instead
+   * of treating it as one unbreakable advance. Each offset splits the run into
+   * pieces that each render standalone via {@link paint} (the wrapper slices the
+   * run's chars at these points and renders each line's slice on its own). Return
+   * `[]` (or omit the method) to keep the run atomic — it then wraps only as a
+   * whole unit and overflows if it cannot fit. For inline math these are the
+   * formula's top-level operator/relation breaks.
+   */
+  breakpoints?(text: string, fontSize: number): number[];
 }
 
 /**

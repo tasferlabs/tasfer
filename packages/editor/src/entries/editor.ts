@@ -94,6 +94,7 @@ import {
   scrollToMakeCursorVisible,
 } from "../selection";
 import { moveCursorToPosition } from "../selection";
+import { dropIndexAtPoint } from "../selection";
 import { isCursorBlinking } from "../selection";
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
@@ -496,6 +497,19 @@ export interface EditorViewApi {
   setDecorations: (layer: string, decorations: readonly Decoration[]) => void;
   /** Clear one decoration layer. */
   clearDecorations: (layer: string) => void;
+  /**
+   * Drive the insertion-line indicator for an external drag — e.g. dragging an
+   * image file over the canvas. Pass viewport client coordinates (`clientX`/
+   * `clientY` from a DOM drag event); the engine maps them to the nearest
+   * insertion gap, paints the same line a block reorder shows (without the gutter
+   * grip), and returns the {@link DocPoint} that line marks so a drop can insert
+   * there. Returns `null` — and clears the line — when the point is outside the
+   * canvas or can't be resolved. Pass `null` to clear on drag-leave/drop. Purely
+   * ephemeral chrome: no document content, no CRDT op, not in undo.
+   */
+  showDropIndicator: (
+    client: { x: number; y: number } | null,
+  ) => DocPoint | null;
 }
 
 /**
@@ -972,6 +986,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // exactly the signal the keyboard needs to capitalize. Desktop keyboards don't
   // autocapitalize, so they mirror just the word for tighter predictions.
   private readonly mirrorSentenceContext = isAndroid() || isIOS();
+  // Input-surface strategy (see the `inputStrategy` mount option). `"faithful"`
+  // makes the contenteditable a real per-block field the OS keyboard reads full
+  // context from; `"managed"` is the legacy sentinel+word puppet. Defaults to
+  // faithful on iOS, where the managed surface cannot satisfy WebKit's stateful
+  // autocapitalization (notably on new lines). Set in the constructor.
+  private readonly inputStrategy: "managed" | "faithful";
   private isMirrorUpdating = false;
   private lastSelectionSig: string | null = null;
   // The last surface text the editor observed or wrote (begins with the sentinel
@@ -1019,6 +1039,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       >;
       /** Host-owned container for the accessible DOM mirror (see DomMirror). */
       a11yContainer?: HTMLElement;
+      /** Input-surface strategy; defaults per-platform (see `inputStrategy`). */
+      inputStrategy?: "managed" | "faithful";
     },
   ) {
     // Extract contexts from layers
@@ -1026,6 +1048,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.cursorCtx = layers.cursor.ctx;
     this.contentCanvas = layers.content.canvas;
     this.hiddenInput = hiddenInput;
+    this.inputStrategy =
+      config?.inputStrategy ?? (isIOS() ? "faithful" : "managed");
 
     this.schemaActions = config?.actions ?? {};
     this.schemaShortcuts = config?.shortcuts ?? {};
@@ -1793,37 +1817,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private browserFocusHandler = () => {
-    this.inputDebug("focus", {
-      ua: typeof navigator === "undefined" ? "?" : navigator.userAgent,
-      maxTouchPoints:
-        typeof navigator === "undefined" ? "?" : navigator.maxTouchPoints,
-      mirrorSentenceContext: this.mirrorSentenceContext,
-      autocapitalize: this.hiddenInput?.getAttribute("autocapitalize"),
-      autocorrect: this.hiddenInput?.getAttribute("autocorrect"),
-      spellcheck: this.hiddenInput?.getAttribute("spellcheck"),
-      inputmode: this.hiddenInput?.getAttribute("inputmode"),
-      surface: this.hiddenInput?.textContent,
-    });
     this.syncBrowserFocus();
-  };
-
-  // Temporary input-surface diagnostics for debugging mobile autocapitalization.
-  // Inert unless `window.__cypherInputDebug` is set truthy (run that in a console
-  // / Safari Web Inspector, or set it from the host). When on, the lines flow to
-  // the DevToolbar Logs tab (it tees `console.*`). TODO: remove once the mobile
-  // keyboard behavior is confirmed.
-  private inputDebug = (
-    event: string,
-    detail: Record<string, unknown>,
-  ): void => {
-    if (
-      typeof window === "undefined" ||
-      !(window as unknown as { __cypherInputDebug?: unknown })
-        .__cypherInputDebug
-    ) {
-      return;
-    }
-    console.log(`[cypher-input] ${event}`, detail);
   };
 
   // True while an in-progress touch gesture should hold the soft keyboard open.
@@ -1998,6 +1992,86 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.lastSurfaceValue = this.SENTINEL;
   };
 
+  // ── Faithful input surface (per-block, browser-authoritative) ───────────────
+  // The faithful strategy makes the contenteditable a real field that holds the
+  // focused block's FULL visible text as a single text node, with the real DOM
+  // caret. The browser edits it natively and the engine reconciles a whole-block
+  // diff to CRDT ops. Because the field is real, the OS keyboard owns
+  // autocapitalization (incl. on new lines), autocorrect, and predictions with no
+  // sentinel/word puppeteering. See `docs/input-surface-rebuild.md`.
+
+  // Whether a block uses the faithful representation. Only when the faithful
+  // strategy is active and the block is prose with NO verbatim source: a
+  // preformatted block (code/math) is source end to end, and a replacement-mark
+  // run (inline math chip) embeds source in prose — both must stay on the managed
+  // path so the keyboard can't autocorrect into source. Those fall back to the
+  // sentinel surface even under the faithful strategy.
+  private faithfulEligible = (block: Block | undefined): boolean => {
+    if (this.inputStrategy !== "faithful") return false;
+    if (!block || block.deleted || !isTextualBlock(block)) return false;
+    if (isPreformattedType(block.type)) return false;
+    const hasReplacementRun = resolveMarkRuns(block).some(
+      (r) => this._state.marks.get(r.name)?.replacement,
+    );
+    return !hasReplacementRun;
+  };
+
+  // Write the block's full visible text as a single text node and collapse the
+  // DOM caret at `caretOffset` (a visible-character index, which equals the DOM
+  // offset within the one text node). Wrapped in `isMirrorUpdating` so the
+  // resulting DOM events are ignored by our own handlers. An empty block leaves
+  // no text node — the caret collapses into the element, which WebKit reads as a
+  // fresh line/sentence (so a new line capitalizes).
+  private setFaithfulMirror = (text: string, caretOffset: number) => {
+    if (!this.hiddenInput) return;
+    this.isMirrorUpdating = true;
+    try {
+      if (this.hiddenInput.textContent !== text) {
+        this.hiddenInput.textContent = text;
+      }
+      if (document.activeElement === this.hiddenInput) {
+        const sel = window.getSelection();
+        if (sel) {
+          const node = this.hiddenInput.firstChild;
+          const range = document.createRange();
+          if (node) {
+            range.setStart(
+              node,
+              Math.max(0, Math.min(caretOffset, text.length)),
+            );
+          } else {
+            range.setStart(this.hiddenInput, 0);
+          }
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    } catch {
+      // Defensive: a stray DOM state shouldn't break input handling.
+    } finally {
+      this.isMirrorUpdating = false;
+    }
+  };
+
+  // The current collapsed DOM caret offset within the faithful surface's text
+  // node, or `null` when the selection is absent, ranged, or not inside the
+  // surface. Used to skip rewriting an already-correct surface (which would tear
+  // down the keyboard's in-flight prediction/autocorrect session).
+  private readFaithfulCaret = (): number | null => {
+    if (!this.hiddenInput) return null;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    if (!range.collapsed) return null;
+    const node = this.hiddenInput.firstChild;
+    if (node) {
+      return range.startContainer === node ? range.startOffset : null;
+    }
+    // Empty surface: the caret collapses into the element itself.
+    return range.startContainer === this.hiddenInput ? 0 : null;
+  };
+
   // The document offset where the mirrored region after the sentinel begins. On
   // mobile it's the start of the current sentence (so the keyboard reads real
   // left-context and capitalizes only true sentence starts); on desktop it's the
@@ -2116,6 +2190,23 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.resetSentinel();
       return;
     }
+
+    // Faithful strategy: mirror the block's full text with the real caret. Only
+    // rewrite when the surface has actually drifted (text or caret) — rewriting an
+    // already-correct field cancels the keyboard's in-flight suggestion session.
+    if (this.faithfulEligible(block)) {
+      const fullText = getBlockTextContent(block);
+      const consistent =
+        this.hiddenInput.textContent === fullText &&
+        document.activeElement === this.hiddenInput &&
+        this.readFaithfulCaret() === caret.offset;
+      if (!consistent) {
+        this.setFaithfulMirror(fullText, caret.offset);
+      }
+      this.lastSurfaceValue = fullText;
+      return;
+    }
+
     const text = getBlockTextContent(block);
     // Only keep a live word when the caret sits at the END of one (the normal
     // typing position). Mid-word — a non-boundary char follows the caret — falls
@@ -2137,14 +2228,6 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const current = this.hiddenInput.textContent ?? "";
     const consistent =
       current === target && document.activeElement === this.hiddenInput;
-    if (!consistent) {
-      this.inputDebug("syncMirror", {
-        caretOffset: caret.offset,
-        mirrorStart,
-        target,
-        current,
-      });
-    }
     if (consistent) {
       // Already consistent and the keyboard owns it — don't touch the DOM (that
       // would cancel an in-flight suggestion); just keep the classifier in sync.
@@ -2311,6 +2394,75 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.lastSurfaceValue = newSurface;
   };
 
+  // Reconcile a faithful (whole-block) surface edit into CRDT ops. The block's
+  // full text lives in the surface; diff it against the last value we observed
+  // (`lastSurfaceValue`) and route the change:
+  //   • Enter → the proven SPLIT_BLOCK path. WebKit already processed the break
+  //     natively (faithful mode doesn't preventDefault Enter), advancing its
+  //     autocapitalization state to "new line" — the fix the managed surface
+  //     could not deliver. Re-rendering the mirror to the new block discards
+  //     WebKit's transient break.
+  //   • plain typing → the synthetic-key pipeline, so block/inline autoformat and
+  //     the TEXT_INPUT host signal run exactly as for a hardware key. The OS
+  //     keyboard supplies already-capitalized `data` (it reads the full block as
+  //     left-context), so capitalization is entirely native.
+  //   • everything else (autocorrect swap, predictive completion, suggestion-strip
+  //     replacement, keyboard-injected delete) → one document edit at absolute
+  //     block offsets.
+  // Hardware Backspace/Delete don't reach here — they stay synthetic in the
+  // keydown handler — so any delete seen here is keyboard-injected and part of a
+  // replacement, handled by the diff below.
+  private handleFaithfulInput = (
+    inputEvent: InputEvent,
+    it: string,
+    block: Block,
+    isEnter: boolean,
+  ) => {
+    if (!this.hiddenInput) return;
+
+    if (isEnter) {
+      this.queueSyntheticKey("Enter");
+      this.scheduleRender();
+      return;
+    }
+
+    const newText = this.hiddenInput.textContent ?? "";
+    const delta = computeSurfaceDelta(this.lastSurfaceValue, newText);
+    if (isEmptyDelta(delta)) {
+      this.lastSurfaceValue = newText;
+      return;
+    }
+
+    // Plain typing — a pure insertion of exactly the event's `data`. Route through
+    // the synthetic-key pipeline so autoformat/plugins run; the surface re-syncs
+    // from the model on the next render (overwriting the browser's own mutation,
+    // and self-healing if autoformat rewrote the text or changed the block type).
+    if (
+      it === "insertText" &&
+      inputEvent.data != null &&
+      delta.deleteStart === delta.deleteEnd &&
+      delta.insert === inputEvent.data
+    ) {
+      for (const char of inputEvent.data) this.queueSyntheticKey(char);
+      this.scheduleRender();
+      this.lastSurfaceValue = newText;
+      return;
+    }
+
+    const blockId = block.id;
+    this.change((c) => {
+      c.insertText(delta.insert, {
+        from: { block: blockId, offset: delta.deleteStart },
+        to: { block: blockId, offset: delta.deleteEnd },
+      });
+      c.select({
+        block: blockId,
+        offset: delta.deleteStart + delta.insert.length,
+      });
+    });
+    this.lastSurfaceValue = newText;
+  };
+
   // Handle input from the contenteditable surface (mobile keyboard + desktop
   // character input flow through here as InputEvents). The surface holds
   // "sentinel + current word (mobile: sentence) up to the caret"; this classifies how it changed and routes plain
@@ -2331,17 +2483,6 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     const inputEvent = e as InputEvent;
     const it = inputEvent.inputType;
-
-    this.inputDebug("input", {
-      inputType: it,
-      data: inputEvent.data,
-      prevSurface: this.lastSurfaceValue,
-      newSurface: this.hiddenInput.textContent,
-      composing: this._state.ui.composition?.isComposing ?? false,
-      sentinel: JSON.stringify(this.SENTINEL),
-      autocapitalize: this.hiddenInput.getAttribute("autocapitalize"),
-      ua: typeof navigator === "undefined" ? "?" : navigator.userAgent,
-    });
 
     // Skip processing during IME composition - composition events handle it.
     if (it === "insertCompositionText") return;
@@ -2377,6 +2518,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       }
       this.scheduleRender();
       this.resetSentinel();
+      return;
+    }
+
+    // Faithful strategy: a collapsed caret in a prose block reconciles the WHOLE
+    // block (not a sentinel+word region). Verbatim-source blocks (code/math,
+    // inline math chips) are not eligible and fall through to the managed path.
+    const caretPoint = resolvePoint(this._state, "caret");
+    const caretBlock = caretPoint
+      ? this._state.document.page.blocks[caretPoint.blockIndex]
+      : undefined;
+    if (this.faithfulEligible(caretBlock)) {
+      this.handleFaithfulInput(inputEvent, it, caretBlock as Block, isEnter);
       return;
     }
 
@@ -2679,6 +2832,26 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
+    // Faithful strategy: let WebKit process Enter NATIVELY so its
+    // autocapitalization state advances to a new line (the next letter then
+    // capitalizes — the bug the managed surface couldn't fix). We don't
+    // preventDefault; the resulting `insertParagraph` input event applies the
+    // SPLIT_BLOCK (see handleFaithfulInput). Only for a collapsed caret in an
+    // eligible block and a plain Enter — Enter over a selection, or with a
+    // modifier, falls through to the synthetic path below. `stopPropagation`
+    // keeps the window listener from also acting on it.
+    if (e.key === "Enter" && !isShortcut && !e.altKey) {
+      const sel = this._state.document.selection;
+      const caretPoint = resolvePoint(this._state, "caret");
+      const caretBlock = caretPoint
+        ? this._state.document.page.blocks[caretPoint.blockIndex]
+        : undefined;
+      if ((!sel || sel.isCollapsed) && this.faithfulEligible(caretBlock)) {
+        e.stopPropagation();
+        return;
+      }
+    }
+
     // Only forward special keys to avoid duplication with input event
     // Regular text input is handled by hiddenInputHandler
     if (
@@ -2772,25 +2945,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Handle composition events (IME input)
   private compositionStartHandler = (e: CompositionEvent) => {
-    this.inputDebug("compositionstart", {
-      data: e.data,
-      surface: this.hiddenInput?.textContent,
-      ua: typeof navigator === "undefined" ? "?" : navigator.userAgent,
-      maxTouchPoints:
-        typeof navigator === "undefined" ? "?" : navigator.maxTouchPoints,
-      mirrorSentenceContext: this.mirrorSentenceContext,
-      autocapitalize: this.hiddenInput?.getAttribute("autocapitalize"),
-    });
     // Mark composition as starting - this will be handled in events.ts
     this.eventsQueue.push(e);
     this.scheduleRender();
   };
 
   private compositionUpdateHandler = (e: CompositionEvent) => {
-    this.inputDebug("compositionupdate", {
-      data: e.data,
-      surface: this.hiddenInput?.textContent,
-    });
     // Update composition text - this will be handled in events.ts
     this.eventsQueue.push(e);
     this.scheduleRender();
@@ -2798,11 +2958,6 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   private compositionEndHandler = (e: CompositionEvent) => {
     if (!this.hiddenInput) return;
-
-    this.inputDebug("compositionend", {
-      data: e.data,
-      surface: this.hiddenInput.textContent,
-    });
 
     // Finalize composition - this will be handled in events.ts
     this.eventsQueue.push(e);
@@ -3138,6 +3293,51 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       blockIndex: resolved.blockIndex,
       textIndex: resolved.offset,
     });
+  };
+
+  showDropIndicator = (
+    client: { x: number; y: number } | null,
+  ): DocPoint | null => {
+    const setIndex = (index: number | null) => {
+      if (this._state.ui.externalDropIndex === index) return;
+      this._state = {
+        ...this._state,
+        ui: { ...this._state.ui, externalDropIndex: index },
+      };
+      const currentState = this._state;
+      this.scheduleRender();
+      this.listeners.forEach((listener) => listener(currentState));
+    };
+
+    if (client === null) {
+      setIndex(null);
+      return null;
+    }
+
+    if (this.rectNeedsUpdate) this.updateCachedRect();
+    const { left, top } = this.cachedRect;
+    const canvasX = client.x - left;
+    const canvasY = client.y - top;
+    // Outside the canvas (e.g. over the sidebar) — there is no valid gap.
+    if (
+      canvasX < 0 ||
+      canvasX > this.viewport.width ||
+      canvasY < 0 ||
+      canvasY > this.viewport.height
+    ) {
+      setIndex(null);
+      return null;
+    }
+
+    const index = dropIndexAtPoint(canvasY, this._state, this.viewport);
+    setIndex(index);
+
+    // Resolve the gap to a block-edge DocPoint: gap 0 is the document start;
+    // gap i is after the (i-1)th visible block. visibleBlocks are in visual order.
+    const blocks = this._state.view.visibleBlocks;
+    if (index <= 0 || blocks.length === 0) return "start";
+    const before = blocks[Math.min(index, blocks.length) - 1];
+    return { block: before.id, side: "after" };
   };
 
   // Raw state firehose (EditorWiring) — the internal primitive every public
@@ -4578,6 +4778,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     scrollToPosition: this.scrollToPosition,
     setDecorations: this.setDecorations,
     clearDecorations: this.clearDecorations,
+    showDropIndicator: this.showDropIndicator,
   };
 
   host: EditorHostApi = {

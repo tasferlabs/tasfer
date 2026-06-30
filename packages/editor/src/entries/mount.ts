@@ -132,6 +132,22 @@ export interface MountEditorOptions<
    */
   nativeAutocomplete?: boolean;
   /**
+   * How the hidden contenteditable input surface relates to the document.
+   *
+   * - `"managed"` (legacy): the surface is a puppet holding only a sentinel plus
+   *   the in-progress word/sentence; the engine re-seeds it every keystroke.
+   * - `"faithful"`: the surface is a real per-block field holding the focused
+   *   block's full text with a real caret, edited by the browser and reconciled
+   *   to CRDT ops. This lets the OS keyboard own autocapitalization (including on
+   *   new lines), autocorrect, and predictions natively.
+   *
+   * Defaults to `"faithful"` on iOS (where the managed surface cannot satisfy
+   * WebKit's stateful autocapitalization) and `"managed"` elsewhere. Blocks that
+   * embed verbatim source (code/math, inline math chips) always use the managed
+   * representation regardless. See `docs/input-surface-rebuild.md`.
+   */
+  inputStrategy?: "managed" | "faithful";
+  /**
    * Ghost text shown on empty blocks. Either one generic string applied to
    * every block type, or a per-block-type map
    * (e.g. `{ paragraph: "Write…", heading1: "Title" }`). For paragraphs the
@@ -485,6 +501,7 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     hiddenInput,
     {
       a11yContainer: a11yTree ?? undefined,
+      inputStrategy: options?.inputStrategy,
     },
   );
 

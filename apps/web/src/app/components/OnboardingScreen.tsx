@@ -1,22 +1,13 @@
 /* OnboardingScreen.tsx — Cypher first-run flow.
- *   1. folder    — pick the on-disk folder pages are mirrored to (one-way export)
- *   2. identity  — the keypair Cypher already generated; on-device by default
- *   3. profile   — optional name + avatar (collapsed), only matters for sharing
- *   4. space     — create your own (optional name) OR join a peer's
+ *   1. identity  — the keypair Cypher already generated; on-device by default
+ *   2. profile   — optional name + avatar (collapsed), only matters for sharing
+ *   3. space     — create your own (optional name) OR join a peer's
  *                  (paste code / import invite file / scan QR)
  *
  * UI ported from the Claude Design handoff bundle (see OnboardingScreen.css).
- * Every step is wired to the real platform APIs. The folder step persists a real
- * directory handle via src/lib/syncFolder.ts — the in-app CRDT op-log stays the
- * source of truth, and that folder is the destination of a one-way markdown
- * mirror (the export/sync itself is wired up separately).
+ * Every step is wired to the real platform APIs.
  */
 
-import {
-    getSyncFolderName,
-    isSyncFolderSupported,
-    pickSyncFolder,
-} from "@/lib/syncFolder";
 import type { SpaceInvite } from "@/platform/types";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -27,8 +18,6 @@ import {
     ChevronRight,
     Copy,
     Fingerprint,
-    Folder,
-    FolderOpen,
     ImagePlus,
     Loader2,
     Lock,
@@ -41,7 +30,7 @@ import {
     Users,
     X,
 } from "lucide-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { updateProfile } from "../api/auth.api";
 import { uploadImage, useAssetUrl } from "../api/images.api";
@@ -50,13 +39,12 @@ import {
     useAcceptInvite,
     useCreateSpace,
 } from "../api/spaces.api";
-import { getClientPlatform } from "@/platform";
 import { useAuth } from "../contexts/AuthContext";
 import { AvatarCropDialog } from "./AvatarCropDialog";
 import "./OnboardingScreen.css";
 import { QRScannerView } from "./QRScannerView";
 
-const ALL_STEPS = ["folder", "identity", "profile", "space"] as const;
+const ALL_STEPS = ["identity", "profile", "space"] as const;
 type Step = (typeof ALL_STEPS)[number];
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -100,102 +88,7 @@ function ProgressDots({ steps, step }: { steps: readonly Step[]; step: Step }) {
   );
 }
 
-/* ── 1. sync folder ────────────────────────────────────────────────────── */
-function FolderStep({
-  folder,
-  setFolder,
-  onNext,
-}: {
-  folder: string;
-  setFolder: (v: string) => void;
-  onNext: () => void;
-}) {
-  const { t } = useTranslation();
-  const [picking, setPicking] = useState(false);
-  const supported = isSyncFolderSupported();
-
-  // Open the OS directory picker and persist the chosen handle (see
-  // src/lib/syncFolder.ts). We only keep the folder *name* in local state for
-  // display — the writable handle is saved to IndexedDB for the one-way sync.
-  async function choose() {
-    setPicking(true);
-    try {
-      const res = await pickSyncFolder();
-      if (res) setFolder(res.name);
-    } finally {
-      setPicking(false);
-    }
-  }
-
-  return (
-    <div className="ob-card">
-      <div className="ob-icon-wrap">
-        <FolderOpen size={22} strokeWidth={1.5} />
-      </div>
-      <h2 className="ob-title">
-        {t("onboarding.folderTitle", "Where should your pages be saved?")}
-      </h2>
-      <p className="ob-sub">
-        {t(
-          "onboarding.folderDesc",
-          "Pick a folder and Cypher mirrors every page into it as plain markdown — a one-way copy you fully own. Open it in any editor, back it up, put it in git. The app keeps the source of truth; the folder is always yours.",
-        )}
-      </p>
-
-      <label className="ob-label">
-        {t("onboarding.folderLabel", "Sync folder")}
-      </label>
-      {folder ? (
-        <div className="ob-folder-card">
-          <div className="ob-folder-ico">
-            <Folder size={18} strokeWidth={1.5} />
-          </div>
-          <div className="ob-folder-text">
-            <div className="ob-folder-name">{folder}</div>
-            <div className="ob-folder-path">
-              {t("onboarding.folderMirror", "one-way markdown mirror")}
-            </div>
-          </div>
-          <button className="ob-link-btn" onClick={choose} disabled={picking}>
-            {t("common.change", "Change")}
-          </button>
-        </div>
-      ) : (
-        <button className="ob-pick-btn" onClick={choose} disabled={picking}>
-          {picking ? (
-            <Loader2 size={18} strokeWidth={2} className="ob-spin-icon" />
-          ) : (
-            <Folder size={18} strokeWidth={1.5} />
-          )}
-          {t("onboarding.chooseFolder", "Choose folder…")}
-        </button>
-      )}
-
-      <div className="ob-note">
-        <Check size={14} strokeWidth={1.5} />
-        <span>
-          {supported
-            ? t(
-                "onboarding.folderNote",
-                "Mirroring is one-way — Cypher writes here, it never reads your edits back from the folder.",
-              )
-            : t(
-                "onboarding.folderUnsupported",
-                "Folder export isn't available in this browser — you can set it later on desktop.",
-              )}
-        </span>
-      </div>
-
-      <div className="ob-actions">
-        <button className="ob-btn ob-btn-primary" onClick={onNext}>
-          {folder ? t("common.continue", "Continue") : t("common.skip", "Skip")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ── 2. identity ───────────────────────────────────────────────────────── */
+/* ── 1. identity ───────────────────────────────────────────────────────── */
 function IdentityStep({
   onNext,
   onBack,
@@ -255,7 +148,7 @@ function IdentityStep({
   );
 }
 
-/* ── 3. profile (optional, collapsed) ──────────────────────────────────── */
+/* ── 2. profile (optional, collapsed) ──────────────────────────────────── */
 function ProfileStep({
   name,
   setName,
@@ -430,7 +323,7 @@ function ProfileStep({
   );
 }
 
-/* ── 4a. space — pick ──────────────────────────────────────────────────── */
+/* ── 3a. space — pick ──────────────────────────────────────────────────── */
 function SpacePick({
   setView,
   onBack,
@@ -495,7 +388,7 @@ function SpacePick({
   );
 }
 
-/* ── 4b. space — create ────────────────────────────────────────────────── */
+/* ── 3b. space — create ────────────────────────────────────────────────── */
 function SpaceCreate({ setView }: { setView: (v: SpaceView) => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -583,7 +476,7 @@ function SpaceCreate({ setView }: { setView: (v: SpaceView) => void }) {
   );
 }
 
-/* ── 4c. space — join ──────────────────────────────────────────────────── */
+/* ── 3c. space — join ──────────────────────────────────────────────────── */
 type JoinMethod = "code" | "file" | "scan";
 type JoinStatus = "input" | "connecting" | "done" | "error";
 
@@ -918,15 +811,7 @@ function SpaceStep({ onBack }: { onBack: () => void }) {
 /* ── root ──────────────────────────────────────────────────────────────── */
 export function OnboardingScreen() {
   const { user } = useAuth();
-  // The sync-folder mirror is a native-desktop feature; web & mobile skip it.
-  const isDesktop = getClientPlatform() === "electron";
-  const steps = useMemo<readonly Step[]>(
-    () => (isDesktop ? ALL_STEPS : ALL_STEPS.filter((s) => s !== "folder")),
-    [isDesktop],
-  );
-  const [step, setStep] = useState<Step>(isDesktop ? "folder" : "identity");
-  // Persisted folder name (the writable handle lives in IndexedDB via syncFolder).
-  const [folder, setFolder] = useState(() => getSyncFolderName() ?? "");
+  const [step, setStep] = useState<Step>("identity");
   const [name, setName] = useState(user?.name ?? "");
   const [avatarId, setAvatarId] = useState<string | null>(user?.avatar ?? null);
 
@@ -1025,21 +910,9 @@ export function OnboardingScreen() {
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       />
 
-      <ProgressDots steps={steps} step={step} />
+      <ProgressDots steps={ALL_STEPS} step={step} />
 
-      {step === "folder" && (
-        <FolderStep
-          folder={folder}
-          setFolder={setFolder}
-          onNext={() => go("identity")}
-        />
-      )}
-      {step === "identity" && (
-        <IdentityStep
-          onNext={() => go("profile")}
-          onBack={isDesktop ? () => go("folder") : undefined}
-        />
-      )}
+      {step === "identity" && <IdentityStep onNext={() => go("profile")} />}
       {step === "profile" && (
         <ProfileStep
           name={name}

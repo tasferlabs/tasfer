@@ -876,7 +876,8 @@ function PageActionBar({ pageId }: { pageId: string }) {
                       <span
                         className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                         style={{
-                          backgroundColor: parentColor || "var(--primary)",
+                          backgroundColor:
+                            parentColor || "var(--page-color-default)",
                           opacity: parentColor ? 1 : 0.3,
                         }}
                       />
@@ -899,7 +900,8 @@ function PageActionBar({ pageId }: { pageId: string }) {
               <span
                 className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                 style={{
-                  backgroundColor: effectiveColor || "var(--primary)",
+                  backgroundColor:
+                    effectiveColor || "var(--page-color-default)",
                   opacity: effectiveColor ? 1 : 0.3,
                 }}
               />
@@ -934,7 +936,8 @@ function PageActionBar({ pageId }: { pageId: string }) {
                     <span
                       className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                       style={{
-                        backgroundColor: parentColor || "var(--primary)",
+                        backgroundColor:
+                          parentColor || "var(--page-color-default)",
                         opacity: parentColor ? 1 : 0.3,
                       }}
                     />
@@ -955,7 +958,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
             <span
               className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
               style={{
-                backgroundColor: effectiveColor || "var(--primary)",
+                backgroundColor: effectiveColor || "var(--page-color-default)",
                 opacity: effectiveColor ? 1 : 0.3,
               }}
             />

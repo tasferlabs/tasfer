@@ -667,7 +667,6 @@ function renderOutOfViewIndicators(
   peers: OutOfViewPeer[],
   viewport: ViewportState,
   styles: EditorStyles,
-  topOffset: number = 0,
 ) {
   const abovePeers = peers.filter((p) => p.direction === "above");
   const belowPeers = peers.filter((p) => p.direction === "below");
@@ -691,15 +690,32 @@ function renderOutOfViewIndicators(
 
   ctx.font = `600 ${fontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
 
+  // The indicators live in the left margin, just outside the reading column, so
+  // they never sit on top of the text. `paddingLeft` is the content's left edge
+  // (it grows for the centered "narrow" page width); we right-align the row to
+  // it and let each extra peer step further into the gutter. The safe-area inset
+  // is the hard left limit (mobile notch / very tight gutters).
+  const contentLeft = Math.max(insetInlineStart, styles.canvas.paddingLeft);
+  // A small breathing gap from the very edge so the chevron isn't flush against
+  // the canvas border.
+  const edgeMargin = 4;
+
   // Render indicators for peers above viewport
-  abovePeers.forEach((peer, i) => {
+  let aboveX = contentLeft;
+  abovePeers.forEach((peer) => {
     const initial =
       peer.caret.decoration.label?.text.charAt(0).toUpperCase() || "?";
     const textWidth = ctx.measureText(initial).width;
-    const pillWidth = textWidth + pillPadding * 2;
+    // A single initial should read as a circle: never let the pill be narrower
+    // than it is tall. A longer label (rare) still grows into a stadium.
+    const pillWidth = Math.max(textWidth + pillPadding * 2, pillHeight);
 
-    const x = insetInlineStart + pillPadding + i * (pillWidth + gap);
-    const y = topOffset + insetTop + pillPadding + chevronSize;
+    aboveX -= pillWidth + gap;
+    const x = Math.max(insetInlineStart, aboveX);
+    // Hug the top edge. This is deliberately independent of the canvas top
+    // padding: a host may reserve that padding for chrome (e.g. a schedule tag)
+    // that sits in the content column, which the gutter-placed pill clears.
+    const y = insetTop + edgeMargin + chevronSize;
 
     // Store hit area (includes chevron)
     hitAreas.push({
@@ -737,15 +753,18 @@ function renderOutOfViewIndicators(
   });
 
   // Render indicators for peers below viewport
-  belowPeers.forEach((peer, i) => {
+  let belowX = contentLeft;
+  belowPeers.forEach((peer) => {
     const initial =
       peer.caret.decoration.label?.text.charAt(0).toUpperCase() || "?";
     const textWidth = ctx.measureText(initial).width;
-    const pillWidth = textWidth + pillPadding * 2;
+    const pillWidth = Math.max(textWidth + pillPadding * 2, pillHeight);
 
-    const x = insetInlineStart + pillPadding + i * (pillWidth + gap);
+    belowX -= pillWidth + gap;
+    const x = Math.max(insetInlineStart, belowX);
+    // Hug the bottom edge (chevron tip on the bottom inset line).
     const y =
-      viewport.height - insetBottom - pillPadding - pillHeight - chevronSize;
+      viewport.height - insetBottom - edgeMargin - pillHeight - chevronSize;
 
     // Store hit area (includes chevron)
     hitAreas.push({
@@ -964,7 +983,8 @@ function renderCaretDecorations(
     }
   }
 
-  // Render out-of-view indicators (offset above indicators below the tags area)
+  // Render out-of-view peer indicators in the left margin, pinned to the
+  // viewport edges.
   if (outOfViewPeers.length > 0) {
     renderOutOfViewIndicators(
       ctx,
@@ -972,7 +992,6 @@ function renderCaretDecorations(
       outOfViewPeers,
       viewport,
       styles,
-      styles.canvas.paddingTop,
     );
   } else {
     session.outOfViewIndicatorHitAreas.length = 0;
@@ -1293,14 +1312,19 @@ function renderBlockDrag(
 ) {
   const hoveredId = state.ui.hoveredDragHandleBlockId;
   const drag = state.ui.blockDrag;
-  if (!hoveredId && !drag) return;
+  // An external drag (dropped image file) shows the same insertion line, but has
+  // no source block — so no gutter grip, only the line.
+  const externalDropIndex = state.ui.externalDropIndex;
+  if (!hoveredId && !drag && externalDropIndex == null) return;
 
   const visibleBlocks = state.view.visibleBlocks;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  const dropIndex = drag
-    ? Math.max(0, Math.min(drag.dropIndex, visibleBlocks.length))
-    : -1;
+  const activeDropIndex = drag ? drag.dropIndex : externalDropIndex;
+  const dropIndex =
+    activeDropIndex != null
+      ? Math.max(0, Math.min(activeDropIndex, visibleBlocks.length))
+      : -1;
 
   // One top-to-bottom walk: record the hovered block's box and the y of the drop
   // gap (`dropIndex` is an insertion index, so the gap before block `i`). Both

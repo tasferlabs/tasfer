@@ -18,6 +18,7 @@ import { hasActiveSelectionHighlight } from "../selection";
 import { updateCursor } from "../selection";
 import { updateSelectionFocus } from "../selection";
 import type {
+  EditorEvent,
   EditorState,
   MouseEvent,
   Position,
@@ -50,6 +51,29 @@ import {
   handleTouchMove,
   handleTouchStart,
 } from "./touchEvents";
+
+/**
+ * True when a canvas `mouseleave` is the pointer crossing *onto* host-rendered
+ * editor chrome rather than genuinely leaving the editor surface. The host marks
+ * its overlay layer with `data-editor-overlay`; an interactive overlay (the image
+ * hover toolbar, the link tooltip) is DOM the pointer can only reach by crossing
+ * the canvas boundary, so the hover state backing it must survive the traversal —
+ * clearing it here would unmount the overlay before the cursor lands on it.
+ *
+ * Duck-typed against the raw DOM event so the headless test harness — which
+ * dispatches bare `{ type }` objects with no `relatedTarget` — reads as "not
+ * entering an overlay", and the normal hover-chrome clear still runs.
+ */
+function isEnteringEditorOverlay(event: EditorEvent): boolean {
+  const related = (event as { relatedTarget?: unknown }).relatedTarget as {
+    closest?: (selector: string) => unknown;
+  } | null;
+  return (
+    related != null &&
+    typeof related.closest === "function" &&
+    related.closest("[data-editor-overlay]") != null
+  );
+}
 
 export function handleEvents(
   state: EditorState,
@@ -502,19 +526,29 @@ export function handleEvents(
         if (isTouchDevice()) {
           break;
         }
-        // The pointer left the canvas. Non-interactive hover chrome (image resize
+        // The pointer is crossing onto a host-rendered interactive overlay (the
+        // image hover toolbar, the link tooltip), not actually leaving the editor.
+        // Tearing down hover chrome now would unmount the very thing the cursor is
+        // reaching — leave the state untouched and let the overlay own its own
+        // dismissal. See `isEnteringEditorOverlay`.
+        if (isEnteringEditorOverlay(event)) {
+          break;
+        }
+        // A genuine canvas exit. Non-interactive hover chrome (image resize
         // handles, math highlights) is only ever cleared by a *subsequent*
         // mousemove over a non-matching block — which never arrives once the
         // cursor is gone — so it would otherwise stay painted (e.g. image
         // handles stuck visible). Drop those here. A selected image keeps its
         // handles via the selection gate, not this state.
         //
-        // `linkHover` is deliberately NOT cleared: the link tooltip is an
-        // interactive DOM popover the host renders, and the pointer crossing from
-        // the canvas onto it fires this very `mouseleave`. Clearing here would
-        // unmount the popover before the cursor could reach it. Its dismissal is
-        // owned by the host (the popover clears it on its own pointer-leave) and
-        // by the off-link hysteresis in `computeLinkHover`.
+        // `imageHover` backs the hover toolbar too, but that overlay is handled
+        // by the early return above: a real exit (the cursor heading off to the
+        // sidebar, not onto the toolbar) should both hide the handles and dismiss
+        // the toolbar, so it clears here like the other hover chrome.
+        //
+        // `linkHover` is deliberately NOT cleared even on a real exit: the link
+        // tooltip lingers via the host's own pointer-leave and the off-link
+        // hysteresis in `computeLinkHover`, matching the old behavior.
         state = {
           ...state,
           ui: {

@@ -5,11 +5,7 @@
  * root em (size multiplier baked in), so a `sigma` constant used in a shift is
  * converted to root em the same way a glyph is: value × style.sizeMultiplier.
  */
-import {
-  type AtomClass,
-  SPACINGS,
-  TIGHT_SPACINGS,
-} from "../data/constants";
+import { type AtomClass, SPACINGS, TIGHT_SPACINGS } from "../data/constants";
 import {
   atomClassOf,
   type FontVariant,
@@ -53,8 +49,18 @@ function sig(style: Style, name: SigmaName): number {
 // keyed by the glyph char. Integrals (\int, \oint, …) are intentionally absent.
 const LIMIT_OP_CHARS = new Set(
   [
-    "\\coprod", "\\bigvee", "\\bigwedge", "\\biguplus", "\\bigcap", "\\bigcup",
-    "\\prod", "\\sum", "\\bigotimes", "\\bigoplus", "\\bigodot", "\\bigsqcup",
+    "\\coprod",
+    "\\bigvee",
+    "\\bigwedge",
+    "\\biguplus",
+    "\\bigcap",
+    "\\bigcup",
+    "\\prod",
+    "\\sum",
+    "\\bigotimes",
+    "\\bigoplus",
+    "\\bigodot",
+    "\\bigsqcup",
   ]
     .map((n) => mathSymbols[n]?.char)
     .filter((c): c is string => !!c),
@@ -93,8 +99,7 @@ function buildBigOp(
   if (wide) {
     glyph = { ...glyph, width: wide[large ? 1 : 0] * style.sizeMultiplier };
   }
-  const baseShift =
-    (glyph.height - glyph.depth) / 2 - sig(style, "axisHeight");
+  const baseShift = (glyph.height - glyph.depth) / 2 - sig(style, "axisHeight");
   return { glyph, baseShift, slant: glyph.italic };
 }
 
@@ -103,7 +108,10 @@ function buildBigOp(
 // integral and overlay an oval. Maps the absent char to the glyph to draw plus
 // the oval's [width, height] in em (KaTeX's `svgData`, display Size2 / text
 // Size1), scaled by the size multiplier at layout time.
-const CYCLIC_OPS: Record<string, { char: string; display: [number, number]; text: [number, number] }> = {
+const CYCLIC_OPS: Record<
+  string,
+  { char: string; display: [number, number]; text: [number, number] }
+> = {
   "∯": { char: "∬", display: [1.472, 0.659], text: [0.957, 0.499] }, // \oiint
   "∰": { char: "∭", display: [1.98, 0.659], text: [1.304, 0.499] }, // \oiiint
 };
@@ -131,7 +139,9 @@ function buildBigOpAtom(
   // stops for it (a bare `\oint`/`\sum` would otherwise contribute none — the
   // glyph from buildBigOp is span-less and the wrapper isn't a caret boundary —
   // leaving the caret invisible and un-landable just after the operator).
-  const children: Placed[] = [{ box: { ...glyph, span }, dx: 0, dy: baseShift }];
+  const children: Placed[] = [
+    { box: { ...glyph, span }, dx: 0, dy: baseShift },
+  ];
 
   if (cyclic) {
     const [w, h] = (style.styleSize === 0 ? cyclic.display : cyclic.text).map(
@@ -178,7 +188,10 @@ function buildBigOpAtom(
  * dots reach a full line instead of floating short inside a matrix/cases column.
  * We reproduce that exactly with the same glyph + invisible rule.
  */
-function buildVdots(node: Extract<Node, { type: "atom" }>, style: Style): Built {
+function buildVdots(
+  node: Extract<Node, { type: "atom" }>,
+  style: Style,
+): Built {
   const glyph = glyphBox(
     node.info.char,
     resolveFontVariant(node.info),
@@ -238,12 +251,169 @@ export function buildExpression(
 }
 
 /** Glue (root em) between two adjacent atom classes at `style`. */
-function interAtomGlue(left: AtomClass, right: AtomClass, style: Style): number {
+function interAtomGlue(
+  left: AtomClass,
+  right: AtomClass,
+  style: Style,
+): number {
   const table = style.isTight() ? TIGHT_SPACINGS : SPACINGS;
   const mu = table[left]?.[right];
   if (!mu) return 0;
   // mu → em uses the style's cssEmPerMu, then × multiplier for root em.
   return mu * style.metrics().cssEmPerMu * style.sizeMultiplier;
+}
+
+/**
+ * How a top-level expression is broken across lines to fit a width budget. All
+ * dimensions are in root em (the same unit the box tree uses).
+ */
+export interface WrapOptions {
+  /** Width budget for continuation rows (rows after the first). */
+  maxWidth: number;
+  /** Width budget for the FIRST row; defaults to `maxWidth`. Lets an inline chip
+   *  start in the space remaining on a text line and use the full width below. */
+  firstMaxWidth?: number;
+  /** Horizontal indent applied to every row after the first. */
+  indent?: number;
+  /** Extra leading inserted between stacked rows, on top of the rows' own
+   *  depth + height. Defaults to {@link DEFAULT_LINE_GAP}. */
+  lineGap?: number;
+}
+
+/** Default inter-row leading (em) when {@link WrapOptions.lineGap} is omitted. */
+const DEFAULT_LINE_GAP = 0.4;
+
+/**
+ * Like {@link buildExpression}, but breaks the top-level atom list across
+ * several rows so each fits the width budget, then stacks the rows into one box
+ * whose baseline is the FIRST row's (continuation rows hang below it). The whole
+ * result still plugs into paint / caret / hit-test unchanged — it is just a
+ * taller box tree.
+ *
+ * Breaks follow TeX's line-break classes: a break may be taken *before* a binary
+ * operator (`mbin`) or relation (`mrel`), so the operator leads the continuation
+ * row (the `\binoppenalty`/`\relpenalty` positions, rendered AMS-style). The
+ * inter-atom glue that would precede a break is discarded at the row edge. A
+ * single atom (or unbreakable construct — a `\frac`, a `\left(…\right)`) wider
+ * than the budget simply overflows its row: there is nothing to break, so it is
+ * cut, matching the editor's "break first, cut only when we must" contract.
+ */
+export function buildExpressionWrapped(
+  nodes: Node[],
+  style: Style,
+  wrap: WrapOptions,
+  font?: FontVariant,
+): ListBox {
+  const built = nodes.map((n) => buildNode(n, style, font));
+  const n = built.length;
+  if (n === 0) return hbox([]);
+
+  // Per-item advance and the (discardable) glue that precedes it.
+  const widths = built.map((b) => b.box.width);
+  const glue: number[] = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    glue[i] =
+      !built[i - 1].isSpace && !built[i].isSpace
+        ? interAtomGlue(built[i - 1].klass, built[i].klass, style)
+        : 0;
+  }
+  // A break may be taken before a binary operator or relation (never before the
+  // first atom — that would open the line with a dangling operator).
+  const canBreakBefore = (i: number): boolean =>
+    i > 0 && (built[i].klass === "mbin" || built[i].klass === "mrel");
+
+  // Greedy line break: fill the current row until the next atom would overflow,
+  // then retreat to the most recent break opportunity (or break here if this
+  // atom is itself a break point). Rows are contiguous index ranges [a, b].
+  const rows: Array<[number, number]> = [];
+  const firstLimit = wrap.firstMaxWidth ?? wrap.maxWidth;
+  let limit = firstLimit;
+  let rowStart = 0;
+  let rowWidth = widths[0];
+  let lastBreak = -1; // most recent breakpoint index in the current row (> rowStart)
+  for (let i = 1; i < n; i++) {
+    const add = glue[i] + widths[i];
+    if (rowWidth + add <= limit) {
+      rowWidth += add;
+      if (canBreakBefore(i)) lastBreak = i;
+      continue;
+    }
+    // Overflow: choose where to break, if anywhere.
+    let breakAt = -1;
+    if (canBreakBefore(i)) breakAt = i;
+    else if (lastBreak > rowStart) breakAt = lastBreak;
+    if (breakAt === -1) {
+      // No breakpoint available — this atom can't start a new row on its own, so
+      // keep it here and overflow (cut). Continue scanning for a later break.
+      rowWidth += add;
+      continue;
+    }
+    rows.push([rowStart, breakAt - 1]);
+    rowStart = breakAt;
+    limit = wrap.maxWidth; // continuation rows use the full budget
+    // Re-measure the carried-over atoms (breakAt … i) onto the fresh row.
+    rowWidth = widths[rowStart];
+    lastBreak = -1;
+    for (let j = rowStart + 1; j <= i; j++) {
+      rowWidth += glue[j] + widths[j];
+      if (canBreakBefore(j)) lastBreak = j;
+    }
+  }
+  rows.push([rowStart, n - 1]);
+
+  // Assemble each row as its own hbox (interior glue kept, no leading glue).
+  const buildRow = (a: number, b: number): ListBox => {
+    const items: HItem[] = [];
+    for (let j = a; j <= b; j++) {
+      if (j > a && glue[j]) items.push({ kern: glue[j] });
+      items.push(built[j].box);
+    }
+    return hbox(items);
+  };
+  const rowBoxes = rows.map(([a, b]) => buildRow(a, b));
+
+  // Stack the rows: row 0 on the baseline, each next row a row-gap below the
+  // previous one's depth. listBox derives the overall box's height (= row 0's,
+  // the baseline row) and depth (down to the last row) from the placements.
+  const indent = wrap.indent ?? 0;
+  const gap = wrap.lineGap ?? DEFAULT_LINE_GAP;
+  const children: Placed[] = [];
+  let y = 0;
+  for (let r = 0; r < rowBoxes.length; r++) {
+    if (r > 0) y += rowBoxes[r - 1].depth + gap + rowBoxes[r].height;
+    children.push({ box: rowBoxes[r], dx: r === 0 ? 0 : indent, dy: y });
+  }
+  return listBox(children);
+}
+
+/**
+ * Source offsets at which a top-level line break may be taken — the start offset
+ * of every binary operator / relation atom that has content before it (TeX's
+ * `\binoppenalty`/`\relpenalty` break-before positions). A caller that flows a
+ * formula into running text (an inline chip wrapping across lines) splits the
+ * source at these offsets: each piece is a whole run of top-level atoms, so it
+ * re-parses to a valid sub-expression, and a continuation piece leads with its
+ * operator. Independent of width and style (the atom class is), so the result is
+ * the fixed break *structure* the caller packs to whatever width it has.
+ */
+export function topLevelBreakOffsets(nodes: Node[], style: Style): number[] {
+  const offsets: number[] = [];
+  let prevSpace = false;
+  for (let i = 0; i < nodes.length; i++) {
+    const built = buildNode(nodes[i], style);
+    const span = (nodes[i] as { span?: Span }).span;
+    if (
+      i > 0 &&
+      !prevSpace &&
+      !built.isSpace &&
+      (built.klass === "mbin" || built.klass === "mrel") &&
+      span
+    ) {
+      offsets.push(span.start);
+    }
+    prevSpace = !!built.isSpace;
+  }
+  return offsets;
 }
 
 /**
@@ -312,7 +482,8 @@ function buildNodeInner(node: Node, style: Style, font?: FontVariant): Built {
       const box = buildExpression(node.body, style, font);
       box.span = node.span;
       const isCharBox =
-        node.body.length === 1 && buildNode(node.body[0], style, font).isCharBox;
+        node.body.length === 1 &&
+        buildNode(node.body[0], style, font).isCharBox;
       return { box, klass: "mord", isCharBox };
     }
     case "supsub":
@@ -351,7 +522,11 @@ function buildNodeInner(node: Node, style: Style, font?: FontVariant): Built {
       return buildStyleNode(node, style);
     case "infix": {
       // An unresolved infix marker (no operands) — render nothing.
-      return { box: listBox([], { width: 0 }), klass: "mord", isCharBox: false };
+      return {
+        box: listBox([], { width: 0 }),
+        klass: "mord",
+        isCharBox: false,
+      };
     }
     case "space":
       return {
@@ -434,8 +609,7 @@ function buildAccent(
       : glyphBox(info?.char ?? "", "Main-Regular", style.sizeMultiplier, null);
 
   const clearance = Math.min(base.height, sig(style, "xHeight"));
-  const skew =
-    baseBuilt.isCharBox && base.type === "glyph" ? base.skew : 0;
+  const skew = baseBuilt.isCharBox && base.type === "glyph" ? base.skew : 0;
   const dx = (base.width - accent.width) / 2 + skew;
   // Accent sits just above the base, dipping `clearance` below the base's top.
   const dy = -(base.height - clearance) - accent.depth;
@@ -533,10 +707,18 @@ function buildOverUnder(
     const gap = 3 * rt;
     if (isOver) {
       // Rule `gap` above the body top; box reaches a further `rt` above it.
-      children.push({ box: ruleBox(inner.width, rt), dx: 0, dy: -(inner.height + gap) });
+      children.push({
+        box: ruleBox(inner.width, rt),
+        dx: 0,
+        dy: -(inner.height + gap),
+      });
       height = inner.height + 5 * rt;
     } else {
-      children.push({ box: ruleBox(inner.width, rt), dx: 0, dy: inner.depth + gap + rt });
+      children.push({
+        box: ruleBox(inner.width, rt),
+        dx: 0,
+        dy: inner.depth + gap + rt,
+      });
       depth = inner.depth + 5 * rt;
     }
   } else {
@@ -555,7 +737,11 @@ function buildOverUnder(
     }
   }
 
-  const box = listBox(children, { width: inner.width, klass: "mord", span: node.span });
+  const box = listBox(children, {
+    width: inner.width,
+    klass: "mord",
+    span: node.span,
+  });
   const out: Box = { ...box, height, depth };
   // Braces become an `mop`-ish inner so a trailing `^{label}` sits above them.
   return { box: out, klass: "mord", isCharBox: false };
@@ -607,22 +793,34 @@ function envConfig(env: string): EnvConfig {
     colGap: 0.7,
   };
   switch (env) {
-    case "pmatrix": return { ...base, left: "(", right: ")" };
-    case "bmatrix": return { ...base, left: "[", right: "]" };
-    case "Bmatrix": return { ...base, left: "\\{", right: "\\}" };
-    case "vmatrix": return { ...base, left: "|", right: "|" };
-    case "Vmatrix": return { ...base, left: "\\Vert", right: "\\Vert" };
+    case "pmatrix":
+      return { ...base, left: "(", right: ")" };
+    case "bmatrix":
+      return { ...base, left: "[", right: "]" };
+    case "Bmatrix":
+      return { ...base, left: "\\{", right: "\\}" };
+    case "vmatrix":
+      return { ...base, left: "|", right: "|" };
+    case "Vmatrix":
+      return { ...base, left: "\\Vert", right: "\\Vert" };
     case "cases":
     case "rcases":
       return {
-        ...base, align: "l", arraystretch: 1.2, colGap: 1.0,
+        ...base,
+        align: "l",
+        arraystretch: 1.2,
+        colGap: 1.0,
         left: env === "rcases" ? "." : "\\{",
         right: env === "rcases" ? "\\}" : ".",
       };
     case "dcases":
     case "drcases":
       return {
-        ...base, cellStyle: DISPLAY, align: "l", arraystretch: 1.2, colGap: 1.0,
+        ...base,
+        cellStyle: DISPLAY,
+        align: "l",
+        arraystretch: 1.2,
+        colGap: 1.0,
         left: env === "drcases" ? "." : "\\{",
         right: env === "drcases" ? "\\}" : ".",
       };
@@ -630,7 +828,13 @@ function envConfig(env: string): EnvConfig {
     case "align":
     case "align*":
     case "aligned*":
-      return { ...base, cellStyle: DISPLAY, align: "alternate", addJot: true, colGap: 0 };
+      return {
+        ...base,
+        cellStyle: DISPLAY,
+        align: "alternate",
+        addJot: true,
+        colGap: 0,
+      };
     case "gathered":
     case "gather":
     case "gather*":
@@ -653,7 +857,10 @@ function envConfig(env: string): EnvConfig {
  * exactly as KaTeX. Delimited variants (`pmatrix`, `cases`, …) wrap the grid in
  * auto-sized fences.
  */
-function buildArray(node: Extract<Node, { type: "array" }>, style: Style): Built {
+function buildArray(
+  node: Extract<Node, { type: "array" }>,
+  style: Style,
+): Built {
   const cfg = envConfig(node.env);
   const cs = cfg.cellStyle;
 
@@ -706,18 +913,33 @@ function buildArray(node: Extract<Node, { type: "array" }>, style: Style): Built
     const dyRow = rowInfo[r].base - shift;
     for (let c = 0; c < cells[r].length; c++) {
       const cell = cells[r][c];
-      const dx = colX[c] + cellAlignOffset(cfg, node.colAlign, c, colW[c], cell.width);
+      const dx =
+        colX[c] + cellAlignOffset(cfg, node.colAlign, c, colW[c], cell.width);
       children.push({ box: cell, dx, dy: dyRow });
     }
   }
 
-  let box = listBox(children, { width: totalWidth, klass: "mord", span: node.span });
+  let box = listBox(children, {
+    width: totalWidth,
+    klass: "mord",
+    span: node.span,
+  });
   // listBox derives tight metrics from content; an empty/short array still
   // reports the centered strut extents.
-  box = { ...box, height: totalHeight / 2 + axis, depth: totalHeight / 2 - axis };
+  box = {
+    ...box,
+    height: totalHeight / 2 + axis,
+    depth: totalHeight / 2 - axis,
+  };
 
   if (cfg.left !== undefined || cfg.right !== undefined) {
-    const wrapped = wrapDelimiters(box, cfg.left ?? ".", cfg.right ?? ".", style, node.span);
+    const wrapped = wrapDelimiters(
+      box,
+      cfg.left ?? ".",
+      cfg.right ?? ".",
+      style,
+      node.span,
+    );
     return { box: wrapped, klass: "minner", isCharBox: false };
   }
   return { box, klass: "mord", isCharBox: false };
@@ -782,7 +1004,11 @@ function buildSupSub(
     }
     if (node.base.type === "opname" && node.base.limits) {
       const base = buildOpName(node.base, style).box;
-      return { box: stackLimits(base, 0, 0, node, style), klass: "mop", isCharBox: false };
+      return {
+        box: stackLimits(base, 0, 0, node, style),
+        klass: "mop",
+        isCharBox: false,
+      };
     }
   }
 
@@ -796,7 +1022,8 @@ function buildSupSub(
   const subm = node.sub ? buildNode(node.sub, subStyle).box : null;
 
   // Rule 18a — initial drops (only for non-character bases, e.g. a big group).
-  let supShift = supm && !isCharBox ? base.height - sig(supStyle, "supDrop") : 0;
+  let supShift =
+    supm && !isCharBox ? base.height - sig(supStyle, "supDrop") : 0;
   let subShift = subm && !isCharBox ? base.depth + sig(subStyle, "subDrop") : 0;
 
   // Rule 18c — minimum superscript shift depends on the style.
@@ -839,8 +1066,14 @@ function buildSupSub(
       }
     }
     children.push({ box: supm, dx: base.width, dy: -supShift, role: "sup" });
-    children.push({ box: subm, dx: base.width - italic, dy: subShift, role: "sub" });
-    width = base.width + Math.max(supm.width, subm.width - italic) + scriptspace;
+    children.push({
+      box: subm,
+      dx: base.width - italic,
+      dy: subShift,
+      role: "sub",
+    });
+    width =
+      base.width + Math.max(supm.width, subm.width - italic) + scriptspace;
   } else if (subm) {
     // Rule 18b
     subShift = Math.max(
@@ -848,7 +1081,12 @@ function buildSupSub(
       sig(style, "sub1"),
       subm.height - 0.8 * xHeight,
     );
-    children.push({ box: subm, dx: base.width - italic, dy: subShift, role: "sub" });
+    children.push({
+      box: subm,
+      dx: base.width - italic,
+      dy: subShift,
+      role: "sub",
+    });
     width = base.width + (subm.width - italic) + scriptspace;
   } else if (supm) {
     // Rule 18c, d
@@ -857,7 +1095,11 @@ function buildSupSub(
     width = base.width + supm.width + scriptspace;
   }
 
-  const box = listBox(children, { width, klass: baseBuilt.klass, span: node.span });
+  const box = listBox(children, {
+    width,
+    klass: baseBuilt.klass,
+    span: node.span,
+  });
   return { box, klass: baseBuilt.klass, isCharBox: false };
 }
 
@@ -891,7 +1133,12 @@ function stackLimits(
     );
     // sup baseline sits above the operator's top by `kern`.
     const dy = baseShift - base.height - kern - sup.depth;
-    children.push({ box: sup, dx: (opW - sup.width) / 2 + slant, dy, role: "sup" });
+    children.push({
+      box: sup,
+      dx: (opW - sup.width) / 2 + slant,
+      dy,
+      role: "sup",
+    });
     height = Math.max(height, sup.height - dy) + big5;
     width = Math.max(width, sup.width);
   }
@@ -901,7 +1148,12 @@ function stackLimits(
       sig(style, "bigOpSpacing4") - sub.height,
     );
     const dy = baseShift + base.depth + kern + sub.height;
-    children.push({ box: sub, dx: (opW - sub.width) / 2 - slant, dy, role: "sub" });
+    children.push({
+      box: sub,
+      dx: (opW - sub.width) / 2 - slant,
+      dy,
+      role: "sub",
+    });
     depth = Math.max(depth, sub.depth + dy) + big5;
     width = Math.max(width, sub.width);
   }
@@ -913,7 +1165,11 @@ function stackLimits(
   }));
   const box = listBox(shifted, { width, span: node.span });
   // listBox derives tight height/depth; widen them to include bigOpSpacing5.
-  return { ...box, height: Math.max(box.height, height), depth: Math.max(box.depth, depth) };
+  return {
+    ...box,
+    height: Math.max(box.height, height),
+    depth: Math.max(box.depth, depth),
+  };
 }
 
 /**
@@ -921,7 +1177,10 @@ function stackLimits(
  * roman font, classed `mop` so it gets operator spacing. Multi-letter names are
  * a plain glyph run (no inter-atom glue inside the name).
  */
-function buildOpName(node: Extract<Node, { type: "opname" }>, style: Style): Built {
+function buildOpName(
+  node: Extract<Node, { type: "opname" }>,
+  style: Style,
+): Built {
   const items: HItem[] = [];
   for (const ch of node.name) {
     items.push(glyphBox(ch, "Main-Regular", style.sizeMultiplier, node.span));
@@ -939,7 +1198,11 @@ function buildMathFont(
   node: Extract<Node, { type: "mathfont" }>,
   style: Style,
 ): Built {
-  const box = buildExpression(asNodes(node.body), style, node.variant as FontVariant);
+  const box = buildExpression(
+    asNodes(node.body),
+    style,
+    node.variant as FontVariant,
+  );
   box.span = node.span;
   return { box, klass: "mord", isCharBox: false };
 }
@@ -997,13 +1260,19 @@ function buildText(node: Extract<Node, { type: "text" }>, style: Style): Built {
  * is already centered here and a grouped body (`\mathop{X}`) stays put, matching
  * KaTeX (which leaves `\mathop{X}` at its natural height).
  */
-function buildMClass(node: Extract<Node, { type: "mclass" }>, style: Style): Built {
+function buildMClass(
+  node: Extract<Node, { type: "mclass" }>,
+  style: Style,
+): Built {
   const body = buildNode(node.body, style).box;
   return { box: body, klass: node.mclass, isCharBox: false };
 }
 
 /** `\overset` / `\underset` / `\stackrel` — reuse the limit-stacking machinery. */
-function buildStack(node: Extract<Node, { type: "stack" }>, style: Style): Built {
+function buildStack(
+  node: Extract<Node, { type: "stack" }>,
+  style: Style,
+): Built {
   const baseBuilt = buildNode(node.base, style);
   const base = baseBuilt.box;
   let baseShift = 0;
@@ -1017,7 +1286,10 @@ function buildStack(node: Extract<Node, { type: "stack" }>, style: Style): Built
     }
   } else {
     // \overset / \underset inherit the base's binary/relation spacing class.
-    klass = baseBuilt.klass === "mrel" || baseBuilt.klass === "mbin" ? baseBuilt.klass : "mord";
+    klass =
+      baseBuilt.klass === "mrel" || baseBuilt.klass === "mbin"
+        ? baseBuilt.klass
+        : "mord";
   }
   const fake: Extract<Node, { type: "supsub" }> = {
     type: "supsub",
@@ -1031,7 +1303,10 @@ function buildStack(node: Extract<Node, { type: "stack" }>, style: Style): Built
 }
 
 /** `\boxed` / `\fbox` — body inside a ruled frame (pad 0.3 em + 0.04 em rule). */
-function buildBoxed(node: Extract<Node, { type: "boxed" }>, style: Style): Built {
+function buildBoxed(
+  node: Extract<Node, { type: "boxed" }>,
+  style: Style,
+): Built {
   // `\boxed{#1}` is `\fbox{$\displaystyle #1$}` — the content is set in display
   // style (so a boxed fraction is full size), while the frame padding stays at
   // the ambient size.
@@ -1050,35 +1325,66 @@ function buildBoxed(node: Extract<Node, { type: "boxed" }>, style: Style): Built
     { box: ruleBox(rt, fullH, fullD), dx: 0, dy: 0 }, // left edge
     { box: ruleBox(rt, fullH, fullD), dx: totalW - rt, dy: 0 }, // right edge
   ];
-  const box = listBox(children, { width: totalW, klass: "mord", span: node.span });
-  return { box: { ...box, height: fullH, depth: fullD }, klass: "mord", isCharBox: false };
+  const box = listBox(children, {
+    width: totalW,
+    klass: "mord",
+    span: node.span,
+  });
+  return {
+    box: { ...box, height: fullH, depth: fullD },
+    klass: "mord",
+    isCharBox: false,
+  };
 }
 
 /** `\phantom` (invisible, full box) and its `h`/`v`/`smash` dimension variants. */
-function buildPhantom(node: Extract<Node, { type: "phantom" }>, style: Style): Built {
+function buildPhantom(
+  node: Extract<Node, { type: "phantom" }>,
+  style: Style,
+): Built {
   const body = buildNode(node.body, style).box;
   let width = body.width;
   let height = body.height;
   let depth = body.depth;
   let visible = false;
   switch (node.kind) {
-    case "phantom": break; // keep all dimensions, paint nothing
-    case "hphantom": height = 0; depth = 0; break;
-    case "vphantom": width = 0; break;
-    case "smash": height = 0; depth = 0; visible = true; break; // keep ink + width
+    case "phantom":
+      break; // keep all dimensions, paint nothing
+    case "hphantom":
+      height = 0;
+      depth = 0;
+      break;
+    case "vphantom":
+      width = 0;
+      break;
+    case "smash":
+      height = 0;
+      depth = 0;
+      visible = true;
+      break; // keep ink + width
   }
   const children: Placed[] = visible ? [{ box: body, dx: 0, dy: 0 }] : [];
   const box = listBox(children, { width, klass: "mord", span: node.span });
-  return { box: { ...box, width, height, depth }, klass: "mord", isCharBox: false };
+  return {
+    box: { ...box, width, height, depth },
+    klass: "mord",
+    isCharBox: false,
+  };
 }
 
 /** A style switch (`\displaystyle` …) — rebuild the body at the new style. */
-function buildStyleNode(node: Extract<Node, { type: "style" }>, _style: Style): Built {
+function buildStyleNode(
+  node: Extract<Node, { type: "style" }>,
+  _style: Style,
+): Built {
   const target =
-    node.style === "display" ? DISPLAY
-    : node.style === "text" ? TEXT
-    : node.style === "script" ? SCRIPT
-    : SCRIPTSCRIPT;
+    node.style === "display"
+      ? DISPLAY
+      : node.style === "text"
+        ? TEXT
+        : node.style === "script"
+          ? SCRIPT
+          : SCRIPTSCRIPT;
   const box = buildExpression(node.body, target);
   box.span = node.span;
   return { box, klass: "mord", isCharBox: false };
@@ -1092,9 +1398,11 @@ function buildStyleNode(node: Extract<Node, { type: "style" }>, _style: Style): 
  */
 function buildFrac(node: Extract<Node, { type: "frac" }>, style: Style): Built {
   const fstyle =
-    node.forceStyle === "display" ? DISPLAY
-    : node.forceStyle === "text" ? TEXT
-    : style;
+    node.forceStyle === "display"
+      ? DISPLAY
+      : node.forceStyle === "text"
+        ? TEXT
+        : style;
   const hasRule = node.hasRule !== false;
 
   let numm = buildNode(node.num, fstyle.fracNum()).box;
@@ -1103,7 +1411,11 @@ function buildFrac(node: Extract<Node, { type: "frac" }>, style: Style): Built {
   // \cfrac struts the numerator so stacked continued fractions line up.
   if (node.continued) {
     const sm = fstyle.sizeMultiplier;
-    numm = { ...numm, height: Math.max(numm.height, 0.85 * sm), depth: Math.max(numm.depth, 0.35 * sm) };
+    numm = {
+      ...numm,
+      height: Math.max(numm.height, 0.85 * sm),
+      depth: Math.max(numm.depth, 0.35 * sm),
+    };
   }
 
   const ruleWidth = hasRule ? sig(fstyle, "defaultRuleThickness") : 0;
@@ -1120,17 +1432,24 @@ function buildFrac(node: Extract<Node, { type: "frac" }>, style: Style): Built {
     clearance = hasRule ? 3 * ruleSpacing : 7 * ruleSpacing;
   } else {
     denomShift = sig(fstyle, "denom2");
-    if (hasRule) { numShift = sig(fstyle, "num2"); clearance = ruleSpacing; }
-    else { numShift = sig(fstyle, "num3"); clearance = 3 * ruleSpacing; }
+    if (hasRule) {
+      numShift = sig(fstyle, "num2");
+      clearance = ruleSpacing;
+    } else {
+      numShift = sig(fstyle, "num3");
+      clearance = 3 * ruleSpacing;
+    }
   }
 
   if (hasRule) {
     // Rule 15d — push numerator/denominator clear of the bar.
     if (numShift - numm.depth - (axisHeight + 0.5 * ruleWidth) < clearance) {
-      numShift += clearance - (numShift - numm.depth - (axisHeight + 0.5 * ruleWidth));
+      numShift +=
+        clearance - (numShift - numm.depth - (axisHeight + 0.5 * ruleWidth));
     }
     if (axisHeight - 0.5 * ruleWidth - (denm.height - denomShift) < clearance) {
-      denomShift += clearance - (axisHeight - 0.5 * ruleWidth - (denm.height - denomShift));
+      denomShift +=
+        clearance - (axisHeight - 0.5 * ruleWidth - (denm.height - denomShift));
     }
   } else {
     // Rule 15c — bar-less: keep a minimum gap between num depth and denom height.
@@ -1147,23 +1466,40 @@ function buildFrac(node: Extract<Node, { type: "frac" }>, style: Style): Built {
     { box: denm, dx: (inner - denm.width) / 2, dy: denomShift },
   ];
   if (hasRule) {
-    children.splice(1, 0, { box: ruleBox(inner, ruleWidth), dx: 0, dy: -axisHeight + ruleWidth / 2 });
+    children.splice(1, 0, {
+      box: ruleBox(inner, ruleWidth),
+      dx: 0,
+      dy: -axisHeight + ruleWidth / 2,
+    });
   }
-  let box: ListBox = listBox(children, { width: inner, klass: "mord", span: node.span });
+  let box: ListBox = listBox(children, {
+    width: inner,
+    klass: "mord",
+    span: node.span,
+  });
 
   // Rule 15e — surrounding delimiters (\binom), else nulldelimiterspace.
   if (node.leftDelim || node.rightDelim) {
     const delimSize = isDisplay ? sig(fstyle, "delim1") : sig(fstyle, "delim2");
-    const left = node.leftDelim ? makeDelimiter(node.leftDelim, delimSize, fstyle, true) : null;
-    const right = node.rightDelim ? makeDelimiter(node.rightDelim, delimSize, fstyle, true) : null;
+    const left = node.leftDelim
+      ? makeDelimiter(node.leftDelim, delimSize, fstyle, true)
+      : null;
+    const right = node.rightDelim
+      ? makeDelimiter(node.rightDelim, delimSize, fstyle, true)
+      : null;
     const items: HItem[] = [];
-    if (left) items.push(left); else items.push({ kern: 0.12 * fstyle.sizeMultiplier });
+    if (left) items.push(left);
+    else items.push({ kern: 0.12 * fstyle.sizeMultiplier });
     items.push(box);
-    if (right) items.push(right); else items.push({ kern: 0.12 * fstyle.sizeMultiplier });
+    if (right) items.push(right);
+    else items.push({ kern: 0.12 * fstyle.sizeMultiplier });
     box = hbox(items, { klass: "mord", span: node.span });
   } else {
     const nd = 0.12 * fstyle.sizeMultiplier;
-    box = hbox([{ kern: nd }, box, { kern: nd }], { klass: "mord", span: node.span });
+    box = hbox([{ kern: nd }, box, { kern: nd }], {
+      klass: "mord",
+      span: node.span,
+    });
   }
   return { box, klass: "mord", isCharBox: false };
 }
@@ -1218,7 +1554,11 @@ function buildSqrt(node: Extract<Node, { type: "sqrt" }>, style: Style): Built {
   });
   children.push({ box: inner, dx: aw, dy: 0 });
 
-  let box = listBox(children, { width: aw + inner.width, klass: "mord", span: node.span });
+  let box = listBox(children, {
+    width: aw + inner.width,
+    klass: "mord",
+    span: node.span,
+  });
 
   // Optional root index, in scriptscript style, tucked into the surd.
   if (node.index) {
@@ -1273,12 +1613,7 @@ function surdImage(
 }
 
 /** A radical-sign vector path filling [0, w] × [-height, depth]. */
-function surdPath(
-  w: number,
-  height: number,
-  depth: number,
-  rule: number,
-): Box {
+function surdPath(w: number, height: number, depth: number, rule: number): Box {
   const topY = -height + rule / 2; // y of the vinculum centerline
   // The tall right stroke must rise diagonally from the bottom vertex all the
   // way to the vinculum join at x = w (where the radicand's overbar begins),

@@ -26,6 +26,7 @@ import {
   Link,
   type LucideIcon,
   Scissors,
+  Sigma,
   Strikethrough,
   Type,
 } from "lucide-react";
@@ -49,6 +50,7 @@ const ICON_BY_ID: Record<string, string> = {
   "format-italic": "italic",
   "format-code": "chevron.left.forwardslash.chevron.right",
   "format-strikethrough": "strikethrough",
+  "format-math": "function",
   "format-link": "link",
 };
 
@@ -69,6 +71,7 @@ const MENU_ICON_COMPONENTS: Record<string, LucideIcon> = {
   "format-italic": Italic,
   "format-code": Code,
   "format-strikethrough": Strikethrough,
+  "format-math": Sigma,
   "format-link": Link,
 };
 

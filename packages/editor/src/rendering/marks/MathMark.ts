@@ -10,6 +10,7 @@
  */
 
 import {
+  getInlineMathBreakpoints,
   getInlineMathCaretRect,
   getInlineMathDims,
   getInlineMathOffsetAtX,
@@ -102,6 +103,11 @@ const inlineMathReplacement: MarkReplacement = {
       localX,
       localY,
     );
+  },
+  breakpoints(text) {
+    // Source offsets into the chip's LaTeX == visible-char offsets within the run
+    // (a chip's visible chars ARE its LaTeX), independent of font size.
+    return getInlineMathBreakpoints(text);
   },
   paint({ ctx, text, x, y, fontSize, isRTL, hovered, dims, styles, edit }) {
     const mathStyle = styles.textFormats.inlineMath;

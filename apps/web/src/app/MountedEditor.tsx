@@ -86,6 +86,7 @@ import {
   Link,
   Scissors,
   Search,
+  Sigma,
   Strikethrough,
   Type,
 } from "lucide-react";
@@ -3042,6 +3043,7 @@ function EditorSurface({
       const isItalic = marks?.has("emphasis") ?? false;
       const isCode = marks?.has("code") ?? false;
       const isStrikethrough = marks?.has("strike") ?? false;
+      const isMath = marks?.has("math") ?? false;
 
       items.push({
         id: "format",
@@ -3079,6 +3081,17 @@ function EditorSurface({
             action: () =>
               mountedRef.current?.editor.change((c) => c.setMark("strike")),
             active: isStrikethrough,
+          },
+          {
+            id: "format-math",
+            label: t("contextMenu.math", "Math"),
+            icon: <Sigma size={16} />,
+            // A togglable mark: over a selection this wraps it as an inline
+            // math chip (the chip's visible chars are its LaTeX), mirroring the
+            // mobile toolbar's "toggle-math".
+            action: () =>
+              mountedRef.current?.editor.change((c) => c.setMark("math")),
+            active: isMath,
           },
           {
             id: "format-link",
@@ -3256,6 +3269,12 @@ function EditorSurface({
           return createPortal(
             <div
               key={`${overlay.key}:${overlay.blockId}`}
+              // Marks this layer as host-rendered editor chrome. The engine's
+              // canvas `mouseleave` handler reads the event's relatedTarget and,
+              // when the pointer is crossing onto an element inside this layer
+              // (e.g. the image hover toolbar's buttons), keeps the backing hover
+              // state alive instead of tearing the overlay down mid-traversal.
+              data-editor-overlay=""
               style={{
                 position: "absolute",
                 left: `${overlay.rect.x}px`,

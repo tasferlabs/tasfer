@@ -161,7 +161,7 @@ export function PagePicker({
                         page.color ??
                         (page.path &&
                           [...page.path].reverse().find((p) => p.color)?.color);
-                      return c || "var(--primary)";
+                      return c || "var(--page-color-default)";
                     })(),
                     opacity:
                       page.color ||

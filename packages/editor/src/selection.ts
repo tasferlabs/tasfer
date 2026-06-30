@@ -136,6 +136,7 @@ function relativeColumn(
     layout.fonts,
     layout.codePadding,
     layout.marks,
+    layout.replCharWidths,
   );
 }
 

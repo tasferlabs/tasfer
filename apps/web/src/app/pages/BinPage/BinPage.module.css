@@ -165,38 +165,15 @@
   gap: 0.25rem;
 }
 
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.section + .section {
-  margin-top: 1rem;
-}
-
-.sectionHeader {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted-foreground);
-  margin: 0.25rem 0 0.375rem;
-  padding-inline: 0.5rem;
-}
-
+/* Shared row shell: a main content area plus a trailing Restore control. The
+   hover/active highlight lives here so it spans the full row width. */
 .row {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 0.625rem;
   width: 100%;
-  padding: 0.5rem 0.625rem;
-  border: none;
+  padding-inline-end: 0.25rem;
   border-radius: 8px;
-  background: transparent;
-  text-align: start;
-  cursor: pointer;
   color: var(--foreground);
   transition:
     background-color 120ms ease,
@@ -205,11 +182,6 @@
 
 .row:hover {
   background: color-mix(in srgb, var(--accent), transparent 35%);
-}
-
-.row:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
 }
 
 .rowActive,
@@ -225,15 +197,39 @@
   inset-inline-start: 0;
   width: 3px;
   border-radius: 999px;
-  background: var(--row-accent, var(--primary));
+  background: var(--row-accent, var(--page-color-default));
 }
 
-.colorDot {
+/* Content area: dot/icon + title + meta. Carries the inner padding so the
+   shell stays edge-to-edge for the highlight. */
+.rowMain {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.625rem;
+}
+
+/* Page rows are the selection target — the whole row opens the preview, so it's
+   clickable and keyboard-focusable. The Restore icon is the only nested button. */
+.pageRow {
+  cursor: pointer;
+}
+
+.pageRow:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* Page glyph, mirroring the muted folder on space rows. Tinted with the page's
+   own color when it has one (carried by --row-accent on the row), otherwise
+   muted so a colorless page stays quiet. */
+.pageIcon {
   flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--row-accent, var(--muted-foreground));
+  width: 15px;
+  height: 15px;
+  color: var(--row-accent, var(--muted-foreground));
 }
 
 .rowTitle {
@@ -246,6 +242,20 @@
   text-overflow: ellipsis;
 }
 
+/* Per-row space label in the flat, chronological page list. Sits between the
+   title and the relative-time meta; truncates so a long space name can't crowd
+   out the title. */
+.rowSpace {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 12ch;
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .rowMeta {
   flex: 0 0 auto;
   font-size: 0.6875rem;
@@ -253,14 +263,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Archived-space rows are containers, not selectable buttons: the inline
-   Restore button is the only interactive element, so drop the row's pointer
-   affordance and hover-as-target highlight. */
-.spaceRow {
-  cursor: default;
-  padding-inline-end: 0.25rem;
-}
-
+/* Space rows aren't selectable — the Restore button is the only target — so
+   suppress the row-wide hover highlight that page rows use. */
 .spaceRow:hover {
   background: transparent;
 }
@@ -272,8 +276,219 @@
   color: var(--muted-foreground);
 }
 
-.spaceRestore {
+/* Quiet recovery action: a muted icon button that reads as calm at rest and
+   lifts to a soft pill on hover/focus. The boldness is spent on one honest
+   micro-interaction — the counter-clockwise arrow winds further back, echoing
+   the undo it performs. */
+.restore {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease;
+}
+
+.restore:hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--accent), transparent 30%);
+}
+
+.restore:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.restore:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.restoreIcon {
+  width: 15px;
+  height: 15px;
+  transition: transform 240ms cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+.restore:hover .restoreIcon,
+.restore:focus-visible .restoreIcon {
+  transform: rotate(-55deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .restoreIcon {
+    transition: none;
+  }
+  .restore:hover .restoreIcon,
+  .restore:focus-visible .restoreIcon {
+    transform: none;
+  }
+}
+
+/* ── Mobile touch list ──
+   Distinct from the desktop master–detail list: roomy two-line rows whose only
+   job is to open the item. Restore lives inside the drawer, so there is no
+   inline control to catch a stray thumb. */
+
+.mobileList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0.5rem 0.5rem
+    max(0.5rem, env(safe-area-inset-bottom, 0px));
+  list-style: none;
+}
+
+.mobileRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  width: 100%;
+  min-height: 3.75rem;
+  padding: 0.75rem 0.5rem 0.75rem 0.75rem;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: start;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 140ms ease;
+}
+
+/* Touch feedback only — no resting highlight, so the list stays quiet. */
+.mobileRow:active {
+  background: color-mix(in srgb, var(--accent), transparent 25%);
+}
+
+.mobileRow:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* The icon carries the page's own color so a deleted page keeps its identity;
+   spaces and colorless pages fall back to muted. */
+.mobileIcon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  color: var(--row-accent, var(--muted-foreground));
+}
+
+.mobileText {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+}
+
+.mobileTitle {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobileSub {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.mobileSubLabel {
+  min-width: 0;
+  max-width: 16ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobileDot {
+  flex: 0 0 auto;
+  opacity: 0.6;
+}
+
+.mobileTime {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.mobileChevron {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  color: color-mix(in srgb, var(--muted-foreground), transparent 35%);
+}
+
+/* The chevron points toward the opening edge; flip it under RTL. */
+:global([dir="rtl"]) .mobileChevron {
+  transform: scaleX(-1);
+}
+
+/* ── Mobile space restore sheet ──
+   Spaces have no page preview, so tapping one opens this compact confirm sheet
+   with a single, deliberate Restore action. */
+.spaceSheet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+  padding: 1.5rem 1.5rem max(1.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+.spaceSheetIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  margin-bottom: 0.25rem;
+  border-radius: 16px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted-foreground), transparent 88%);
+}
+
+.spaceSheetTitle {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  word-break: break-word;
+}
+
+.spaceSheetMeta {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+.spaceSheetHint {
+  margin: 0.25rem 0 0;
+  max-width: 26rem;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+.spaceSheetButton {
+  width: 100%;
+  max-width: 18rem;
+  margin-top: 0.875rem;
 }
 
 /* ── Preview ── */

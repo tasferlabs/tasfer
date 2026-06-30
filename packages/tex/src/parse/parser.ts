@@ -994,7 +994,7 @@ function isEmptyOrd(n: Node): boolean {
 }
 
 /** Symbol info for a literal character, synthesizing an ordinary if unknown. */
-function symbolFor(ch: string): SymbolInfo {
+export function symbolFor(ch: string): SymbolInfo {
   const known = mathSymbols[ch];
   if (known) return known;
   // Unknown literal: treat as an ordinary symbol in the main font (best effort).

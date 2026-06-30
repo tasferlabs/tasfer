@@ -21,6 +21,7 @@ const editor = createEditor(options: CreateEditorOptions): CypherEditor;
   { name: "editable", type: "boolean", desc: "Set false for a read-only renderer. Default true." },
   { name: "accessibilityTree", type: "boolean", desc: "Maintain a hidden, semantic DOM mirror of the document (headings, lists, code, marks) for screen readers — the canvas itself is opaque to assistive tech. Kept surgically in sync; only changed blocks are re-serialized. Default true; set false to opt out." },
   { name: "nativeAutocomplete", type: "boolean", desc: "Enable the OS keyboard's native predictive text / autocorrect / sentence autocapitalization. Default true — the editor keeps the in-progress word in its hidden input surface so suggestions appear and can be committed. Set false for fields that should suppress all of it (e.g. code or token input)." },
+  { name: "inputStrategy", type: '"managed" | "faithful"', desc: "How the hidden input surface relates to the document. \"faithful\" makes it a real per-block field the OS keyboard reads full context from (native autocapitalization including on new lines, autocorrect, predictions); \"managed\" is the legacy sentinel+word surface. Defaults to \"faithful\" on iOS and \"managed\" elsewhere. Blocks with verbatim source (code/math, inline math chips) always use the managed representation." },
   { name: "placeholder", type: "string", desc: "Ghost text shown when the document is empty." },
   { name: "autofocus", type: "boolean", desc: "Focus the editor and drop a caret in on mount. Default false." },
 ]} />

@@ -26,7 +26,7 @@ import {
     Undo2,
     X
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
     MobileToolbarAction,
@@ -96,6 +96,29 @@ export function MobileKeyboardToolbar({
   const { t } = useTranslation();
   const [openPanelId, setOpenPanelId] = useState<string | null>(null);
   const { layout } = model;
+
+  // Publish the persistent bar's height as a global CSS var while this toolbar
+  // is mounted (it is only rendered when visible). Other bottom-anchored chrome
+  // that lives outside the editor tree — e.g. the BottomToolDock's dev-tools and
+  // word-count tags — adds it so it clears the bar instead of hiding behind it.
+  // The bar rides the keyboard, so consumers stack: base + keyboard inset + this.
+  // Cleared on unmount, so it is 0 whenever the toolbar is gone. Mirrors the
+  // existing `--devtool-height` / `--safe-area-inset-*` host-chrome vars.
+  const barRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const measure = () => {
+      const height = barRef.current?.offsetHeight ?? 0;
+      root.style.setProperty("--keyboard-toolbar-height", `${height}px`);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (barRef.current) observer.observe(barRef.current);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--keyboard-toolbar-height");
+    };
+  }, []);
 
   const middle = layout.middle;
   const middleItems = middle.kind === "items" ? middle.items : [];
@@ -210,7 +233,10 @@ export function MobileKeyboardToolbar({
         </PanelRow>
       )}
 
-      <div className="flex flex-row items-stretch border-t border-border bg-background h-12">
+      <div
+        ref={barRef}
+        className="flex flex-row items-stretch border-t border-border bg-background h-12"
+      >
         <div className="flex shrink-0 flex-row items-center">
           {layout.left.map(renderItem)}
           {/* Zone divider between the pinned left cluster and the scrollable

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DateTime } from "luxon";
-import { Folder, RotateCcw } from "lucide-react";
+import { ChevronRight, FileText, Folder, RotateCcw } from "lucide-react";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
@@ -17,17 +17,17 @@ import {
 import {
   useGetArchivedSpaces,
   useUnarchiveSpace,
+  type ArchivedSpaceItem,
 } from "../../api/spaces.api";
 import Icons from "../../components/uiKit/Icons/Icons";
 import BinPreview from "./BinPreview";
 import clsx from "clsx";
 import style from "./BinPage.module.css";
 
-interface BinSection {
-  spaceId: string | null;
-  spaceName: string | null;
-  items: ArchivedPageItem[];
-}
+/** A single Bin row: either an archived space or a deleted page. */
+type BinEntry =
+  | { kind: "space"; archivedAt: string; space: ArchivedSpaceItem }
+  | { kind: "page"; archivedAt: string; page: ArchivedPageItem };
 
 export default function BinPage() {
   const { t, i18n } = useTranslation();
@@ -44,6 +44,9 @@ export default function BinPage() {
     useUnarchiveSpace();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Mobile-only: tapping a space row opens a small restore sheet instead of
+  // exposing an inline restore button (which is too easy to mis-tap on touch).
+  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
 
   // Resizable list pane, mirroring the main app sidebar. Width is persisted and
   // only adjustable with a fine pointer; coarse pointers fall back to the CSS
@@ -78,27 +81,37 @@ export default function BinPage() {
     };
   }, [isResizing, resize, stopResizing]);
 
-  // Group archived pages by their owning space so each space's deleted pages
-  // are listed together. Pages with no space fall into an "Other" bucket.
-  const sections = useMemo<BinSection[]>(() => {
-    if (!archived) return [];
-    const spaceName = new Map(spaces.map((s) => [s.id, s.name]));
-    const bySpace = new Map<string | null, ArchivedPageItem[]>();
-    for (const item of archived) {
-      const key = item.spaceId ?? null;
-      if (!bySpace.has(key)) bySpace.set(key, []);
-      bySpace.get(key)!.push(item);
+  // Resolve a page's owning space to a display label. Archived-space pages are
+  // filtered out upstream, so any unresolved space_id is a genuinely space-less
+  // page.
+  const spaceName = useMemo(
+    () => new Map(spaces.map((s) => [s.id, s.name])),
+    [spaces],
+  );
+
+  // The Bin is one chronological stream: archived spaces and deleted pages are
+  // interleaved purely by when they were removed, newest first. ISO-8601
+  // timestamps compare correctly as strings, so no Date parsing is needed.
+  const entries = useMemo<BinEntry[]>(() => {
+    const out: BinEntry[] = [];
+    for (const space of archivedSpaces ?? []) {
+      out.push({ kind: "space", archivedAt: space.archivedAt, space });
     }
-    return Array.from(bySpace.entries()).map(([spaceId, items]) => ({
-      spaceId,
-      spaceName: spaceId ? (spaceName.get(spaceId) ?? null) : null,
-      items,
-    }));
-  }, [archived, spaces]);
+    for (const page of archived ?? []) {
+      out.push({ kind: "page", archivedAt: page.archivedAt, page });
+    }
+    out.sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
+    return out;
+  }, [archived, archivedSpaces]);
 
   const selected = useMemo(
     () => archived?.find((p) => p.id === selectedId) ?? null,
     [archived, selectedId],
+  );
+
+  const selectedSpace = useMemo(
+    () => archivedSpaces?.find((s) => s.id === selectedSpaceId) ?? null,
+    [archivedSpaces, selectedSpaceId],
   );
 
   // On large screens, auto-select the first page so the preview pane isn't
@@ -117,16 +130,19 @@ export default function BinPage() {
     }
   }, [archived, selectedId]);
 
-  const hasArchivedSpaces = (archivedSpaces?.length ?? 0) > 0;
-  // Headers disambiguate groups; with a Spaces section present, label the page
-  // groups too even when there's only one.
-  const showHeaders = sections.length > 1 || hasArchivedSpaces;
-  const isEmpty =
-    !isLoading &&
-    !spacesLoading &&
-    (!archived || archived.length === 0) &&
-    !hasArchivedSpaces;
-  const totalCount = (archived?.length ?? 0) + (archivedSpaces?.length ?? 0);
+  // Same for the mobile space sheet: close it once the space is restored.
+  useEffect(() => {
+    if (
+      selectedSpaceId &&
+      archivedSpaces &&
+      !archivedSpaces.some((s) => s.id === selectedSpaceId)
+    ) {
+      setSelectedSpaceId(null);
+    }
+  }, [archivedSpaces, selectedSpaceId]);
+
+  const isEmpty = !isLoading && !spacesLoading && entries.length === 0;
+  const totalCount = entries.length;
 
   function handleRestore(id: string) {
     restorePage({ id });
@@ -139,74 +155,153 @@ export default function BinPage() {
       role="listbox"
       aria-label={t("bin.title", "Bin")}
     >
-      {hasArchivedSpaces && (
-        <section className={style.section}>
-          <h2 className={style.sectionHeader}>
-            {t("bin.spacesHeader", "Spaces")}
-          </h2>
-          {archivedSpaces!.map((space) => (
-            <div key={space.id} className={clsx(style.row, style.spaceRow)}>
-              <Folder className={style.spaceIcon} aria-hidden />
-              <span className={style.rowTitle}>
-                {space.name || t("space.untitled", "Untitled space")}
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className={style.spaceRestore}
-                onClick={() => unarchiveSpace(space.id)}
-                disabled={isRestoringSpace}
-                aria-label={t("bin.restoreSpace", "Restore space")}
-              >
-                <RotateCcw className="me-1.5 h-4 w-4" />
-                {t("bin.restore", "Restore")}
-              </Button>
-            </div>
-          ))}
-        </section>
-      )}
-      {sections.map((section) => (
-        <section key={section.spaceId ?? "__none__"} className={style.section}>
-          {showHeaders && (
-            <h2 className={style.sectionHeader}>
-              {section.spaceName ?? t("bin.otherSpace", "Other")}
-            </h2>
-          )}
-          {section.items.map((item) => {
-            const isActive = item.id === selectedId;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="option"
-                aria-selected={isActive}
-                className={clsx(style.row, isActive && style.rowActive)}
-                style={
-                  item.color
-                    ? ({ "--row-accent": item.color } as React.CSSProperties)
-                    : undefined
-                }
-                onClick={() => setSelectedId(item.id)}
-              >
-                <span
-                  className={style.colorDot}
-                  style={
-                    item.color ? { backgroundColor: item.color } : undefined
-                  }
-                  aria-hidden
-                />
+      {entries.map((entry) => {
+        if (entry.kind === "space") {
+          const { space } = entry;
+          return (
+            <div
+              key={`space-${space.id}`}
+              className={clsx(style.row, style.spaceRow)}
+            >
+              <div className={style.rowMain}>
+                <Folder className={style.spaceIcon} aria-hidden />
                 <span className={style.rowTitle}>
-                  {item.title || t("common.untitled", "Untitled")}
+                  {space.name || t("space.untitled", "Untitled space")}
                 </span>
                 <span className={style.rowMeta}>
-                  {DateTime.fromISO(item.archivedAt).toRelative() ?? ""}
+                  {DateTime.fromISO(space.archivedAt).toRelative() ?? ""}
                 </span>
+              </div>
+              <button
+                type="button"
+                className={style.restore}
+                onClick={() => unarchiveSpace(space.id)}
+                disabled={isRestoringSpace}
+                title={t("bin.restoreSpace", "Restore space")}
+                aria-label={t("bin.restoreSpace", "Restore space")}
+              >
+                <RotateCcw className={style.restoreIcon} aria-hidden />
               </button>
-            );
-          })}
-        </section>
-      ))}
+            </div>
+          );
+        }
+
+        const { page } = entry;
+        const isActive = page.id === selectedId;
+        const space = page.spaceId
+          ? (spaceName.get(page.spaceId) ?? null)
+          : null;
+        // The row itself is the selection target (opens the preview); only the
+        // Restore icon is a nested button. A clickable row keeps a single
+        // control per action without nesting a button inside a button.
+        return (
+          <div
+            key={`page-${page.id}`}
+            role="option"
+            aria-selected={isActive}
+            tabIndex={0}
+            className={clsx(style.row, style.pageRow, isActive && style.rowActive)}
+            style={
+              page.color
+                ? ({ "--row-accent": page.color } as React.CSSProperties)
+                : undefined
+            }
+            onClick={() => setSelectedId(page.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setSelectedId(page.id);
+              }
+            }}
+          >
+            <div className={style.rowMain}>
+              <FileText className={style.pageIcon} aria-hidden />
+              <span className={style.rowTitle}>
+                {page.title || t("common.untitled", "Untitled")}
+              </span>
+              {space && <span className={style.rowSpace}>{space}</span>}
+              <span className={style.rowMeta}>
+                {DateTime.fromISO(page.archivedAt).toRelative() ?? ""}
+              </span>
+            </div>
+            <button
+              type="button"
+              className={style.restore}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRestore(page.id);
+              }}
+              disabled={isPending}
+              title={t("bin.restorePage", "Restore page")}
+              aria-label={t("bin.restorePage", "Restore page")}
+            >
+              <RotateCcw className={style.restoreIcon} aria-hidden />
+            </button>
+          </div>
+        );
+      })}
     </div>
+  );
+
+  // Touch-first list. Each row's single job is to open the item; restore is a
+  // deliberate action inside the drawer, so there is no inline button to mis-tap.
+  const mobileList = (
+    <ul className={style.mobileList} aria-label={t("bin.title", "Bin")}>
+      {entries.map((entry) => {
+        const isSpace = entry.kind === "space";
+        const accent = entry.kind === "page" ? entry.page.color : undefined;
+        const title = isSpace
+          ? entry.space.name || t("space.untitled", "Untitled space")
+          : entry.page.title || t("common.untitled", "Untitled");
+        // Second line: an owning-space label for pages, a type label for spaces.
+        const label =
+          entry.kind === "page"
+            ? entry.page.spaceId
+              ? (spaceName.get(entry.page.spaceId) ?? null)
+              : null
+            : t("bin.typeSpace", "Space");
+        const time = DateTime.fromISO(entry.archivedAt).toRelative() ?? "";
+        return (
+          <li key={`${entry.kind}-${isSpace ? entry.space.id : entry.page.id}`}>
+            <button
+              type="button"
+              className={style.mobileRow}
+              style={
+                accent
+                  ? ({ "--row-accent": accent } as React.CSSProperties)
+                  : undefined
+              }
+              onClick={() =>
+                isSpace
+                  ? setSelectedSpaceId(entry.space.id)
+                  : setSelectedId(entry.page.id)
+              }
+            >
+              {isSpace ? (
+                <Folder className={style.mobileIcon} aria-hidden />
+              ) : (
+                <FileText className={style.mobileIcon} aria-hidden />
+              )}
+              <span className={style.mobileText}>
+                <span className={style.mobileTitle}>{title}</span>
+                <span className={style.mobileSub}>
+                  {label && (
+                    <>
+                      <span className={style.mobileSubLabel}>{label}</span>
+                      <span className={style.mobileDot} aria-hidden>
+                        ·
+                      </span>
+                    </>
+                  )}
+                  <span className={style.mobileTime}>{time}</span>
+                </span>
+              </span>
+              <ChevronRight className={style.mobileChevron} aria-hidden />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 
   return (
@@ -252,7 +347,7 @@ export default function BinPage() {
         </div>
       ) : isMobile ? (
         <>
-          {list}
+          {mobileList}
           <Drawer
             open={selected !== null}
             onOpenChange={(open) => !open && setSelectedId(null)}
@@ -267,6 +362,52 @@ export default function BinPage() {
                   restoring={isPending}
                   onRestore={() => handleRestore(selected.id)}
                 />
+              )}
+            </DrawerContent>
+          </Drawer>
+          <Drawer
+            open={selectedSpace !== null}
+            onOpenChange={(open) => !open && setSelectedSpaceId(null)}
+          >
+            <DrawerContent>
+              <DrawerTitle className="sr-only">
+                {selectedSpace?.name || t("space.untitled", "Untitled space")}
+              </DrawerTitle>
+              {selectedSpace && (
+                <div className={style.spaceSheet}>
+                  <span className={style.spaceSheetIcon}>
+                    <Folder width={26} height={26} aria-hidden />
+                  </span>
+                  <h2 className={style.spaceSheetTitle}>
+                    {selectedSpace.name ||
+                      t("space.untitled", "Untitled space")}
+                  </h2>
+                  <p className={style.spaceSheetMeta}>
+                    {t("bin.deletedAgo", "Deleted {{time}}", {
+                      time:
+                        DateTime.fromISO(
+                          selectedSpace.archivedAt,
+                        ).toRelative() ?? "",
+                    })}
+                  </p>
+                  <p className={style.spaceSheetHint}>
+                    {t(
+                      "bin.spaceRestoreHint",
+                      "Restoring brings the space and its pages back.",
+                    )}
+                  </p>
+                  <Button
+                    className={style.spaceSheetButton}
+                    onClick={() => {
+                      unarchiveSpace(selectedSpace.id);
+                      setSelectedSpaceId(null);
+                    }}
+                    disabled={isRestoringSpace}
+                  >
+                    <RotateCcw className="me-1.5 h-4 w-4" />
+                    {t("bin.restore", "Restore")}
+                  </Button>
+                </div>
               )}
             </DrawerContent>
           </Drawer>

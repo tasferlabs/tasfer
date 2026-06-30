@@ -129,6 +129,7 @@ export function createInitialState(
       selectionHandleDrag: null,
       hoveredDragHandleBlockId: null,
       blockDrag: null,
+      externalDropIndex: null,
       inlineMathHover: null,
       hoveredMathBlockIndex: null,
       caretScratch: null,
