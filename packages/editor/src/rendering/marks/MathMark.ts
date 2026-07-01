@@ -14,6 +14,7 @@ import {
   getInlineMathCaretRect,
   getInlineMathDims,
   getInlineMathOffsetAtX,
+  getInlineMathSelectionRects,
   mathCaretMove,
   mathCommandRanges,
   mathDeleteUnit,
@@ -102,6 +103,17 @@ const inlineMathReplacement: MarkReplacement = {
       fontSize * INLINE_MATH_SCALE,
       localX,
       localY,
+    );
+  },
+  selectionRects(text, fontSize, start, end, edit) {
+    // Lay out with the same `literalRange` `measure`/`paint` use so the selection
+    // rects land on the glyphs actually drawn (a command being typed is literal).
+    return getInlineMathSelectionRects(
+      text,
+      fontSize * INLINE_MATH_SCALE,
+      start,
+      end,
+      commandRangesFor(text, edit).literalRange,
     );
   },
   breakpoints(text) {

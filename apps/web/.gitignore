@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# mkcert LAN dev certs (see vite.config.ts)
+certs/

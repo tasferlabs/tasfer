@@ -85,14 +85,44 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
           ? range.offset ?? 0
           : null;
       if (!t || caretIndex === null) return;
-      // Replace the typed "\query" with the construct (one undo step). No mark is
-      // passed: the run is inserted strictly inside the existing math span, so
-      // it's covered positionally — keeping the chip a single, well-anchored span.
+      // For an inline chip, capture its span before the edit so we can keep the
+      // construct inside the math mark below. A block equation has no such mark
+      // (its whole text IS the LaTeX), so `chip` stays undefined there.
+      const block = editor.query.block({
+        block: t.blockId,
+        offset: t.backslashIndex,
+      });
+      const chip =
+        block && block.type !== "math"
+          ? editor.query
+              .marks({ block: t.blockId, offset: t.backslashIndex })
+              .find((m) => m.name === "math")
+          : undefined;
+      // Replace the typed "\query" with the construct (one undo step).
       editor.change((c) => {
         c.insertText(cmd.latex, {
           from: { block: t.blockId, offset: t.backslashIndex },
           to: { block: t.blockId, offset: caretIndex },
         });
+        // Inline chip: the construct is covered positionally when it lands strictly
+        // inside the span, but replacing `[backslash, caret)` when the `\` was the
+        // chip's FIRST char drops the span's start anchor — orphaning the construct
+        // outside the math mark. Re-mark the whole resulting formula so it stays ONE
+        // well-anchored chip. Offsets are post-insert (each queued edit resolves
+        // against the running state): the formula start is unchanged, its end shifts
+        // by the length delta. Idempotent when coverage was already intact, so it's
+        // safe for the interior/edge cases too.
+        if (chip) {
+          const end =
+            chip.to + cmd.latex.length - (caretIndex - t.backslashIndex);
+          c.setMark("math", {
+            active: true,
+            range: {
+              from: { block: t.blockId, offset: chip.from },
+              to: { block: t.blockId, offset: end },
+            },
+          });
+        }
         c.select({
           block: t.blockId,
           offset: t.backslashIndex + mathCommandCaretOffset(cmd.latex),
@@ -127,16 +157,17 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         return close();
       }
       // The `\` run must be in a math context. A block equation qualifies whole
-      // (its text IS the LaTeX). Otherwise the `\` must sit strictly inside an
-      // inline math chip (a "math" mark run): past the chip's first char — so
-      // replacing `[backslash, caret)` on select never eats the span's start
-      // anchor — with the caret still within the chip. Query at the backslash
-      // (always interior) rather than the caret, whose right edge is exclusive.
+      // (its text IS the LaTeX). Otherwise the `\` must sit inside an inline math
+      // chip (a "math" mark run) with the caret still within it. The `\` MAY be the
+      // chip's first char — starting a formula with a command (`\frac`, …) — since
+      // `select` re-marks the inserted construct so replacing the span's start
+      // anchor doesn't orphan it. Query at the backslash (always inside the run)
+      // rather than the caret, whose right edge is exclusive.
       if (block.type !== "math") {
         const chip = editor.query
           .marks({ block: block.id, offset: t.backslashIndex })
           .find((m) => m.name === "math");
-        if (!chip || t.backslashIndex <= chip.from || caretIndex > chip.to) {
+        if (!chip || caretIndex > chip.to) {
           return close();
         }
       }

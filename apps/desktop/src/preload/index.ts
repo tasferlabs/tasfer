@@ -25,6 +25,11 @@ const bridge = {
   // web app reads (see `@/lib/devTools`); runtime changes arrive via the
   // `devtools:set` event the main process pushes when the menu item is toggled.
   devToolsEnabled: ipcRenderer.sendSync("devtools:get-sync") as boolean,
+
+  // Whether the host is running a tiling window manager (i3, sway, …), read
+  // synchronously at launch like `platform`. The custom window controls hide the
+  // minimize/maximize buttons when true — those actions don't apply there.
+  tilingWm: ipcRenderer.sendSync("wm:tiling-sync") as boolean,
 };
 
 contextBridge.exposeInMainWorld("cypher", bridge);

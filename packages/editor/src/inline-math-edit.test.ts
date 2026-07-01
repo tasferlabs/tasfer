@@ -185,14 +185,14 @@ describe("inline-math in-place editing", () => {
   });
 
   it("the \\ command menu replaces the typed query with the construct, span whole", () => {
-    // "a\int b": the user typed `\int` inside a chip (with 'a' before and ' b'
-    // after as anchors). Selecting "Integral" replaces [1,5) (the `\int`) with
+    // "a\sum b": the user typed `\sum` inside a chip (with 'a' before and ' b'
+    // after as anchors). Selecting "Summation" replaces [1,5) (the `\sum`) with
     // the template — the exact interior delete+insert the change API runs — so
-    // the chip stays one span and becomes "a\int_{}^{} b", ready to fill.
-    const { page, blockId, binding } = chip("a\\int b");
+    // the chip stays one span and becomes "a\sum_{}^{} b", ready to fill.
+    const { page, blockId, binding } = chip("a\\sum b");
     const span = getInlineMathSpans(page.blocks[0])[0];
     const from = span.startIndex + 1; // the `\`
-    const to = span.startIndex + 5; // after `\int`
+    const to = span.startIndex + 5; // after `\sum`
 
     const { newPage: p1 } = deleteCharsInRange(
       page,
@@ -205,12 +205,12 @@ describe("inline-math in-place editing", () => {
       p1,
       blockId,
       from,
-      "\\int_{}^{}",
+      "\\sum_{}^{}",
       binding,
     );
     const after = getInlineMathSpans(p2.blocks[0]);
     expect(after).toHaveLength(1);
-    expect(after[0].latex).toBe("a\\int_{}^{} b");
+    expect(after[0].latex).toBe("a\\sum_{}^{} b");
   });
 });
 

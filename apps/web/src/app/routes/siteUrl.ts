@@ -1,10 +1,13 @@
 /**
  * Base URL of the marketing/docs site (apps/site).
  *
- * Empty string = same origin: /home, /docs and /privacy are served by the site
- * app behind the same reverse proxy as this editor SPA. Set `VITE_SITE_URL` to a
- * full origin (e.g. https://cypher.md) when the site is deployed on a separate
- * host/subdomain.
+ * This editor SPA owns the apex origin (https://cypher.md); the marketing/docs
+ * site is deployed on a separate origin (https://www.cypher.md). Its /home,
+ * /docs and /privacy routes must therefore be reached by absolute URL — a
+ * same-origin path would resolve against this app, which does not serve them.
+ * Override with `VITE_SITE_URL` (e.g. an empty string when both apps share an
+ * origin behind one reverse proxy, or a different host in other deployments).
  */
 export const SITE_URL =
-  (import.meta.env as Record<string, string | undefined>).VITE_SITE_URL ?? "";
+  (import.meta.env as Record<string, string | undefined>).VITE_SITE_URL ??
+  (import.meta.env.DEV ? "http://localhost:4100" : "https://www.cypher.md");

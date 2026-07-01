@@ -5,6 +5,11 @@ import { useDevToolsEnabled } from "@/lib/devTools";
 
 const invoke = (channel: string) => (window as any).cypher?.invoke(channel);
 
+// Under a tiling window manager (i3, sway, …) minimize hides the window with no
+// taskbar to restore it and maximize is meaningless, so the main process drops
+// those native capabilities and signals us to omit the matching buttons.
+const isTilingWm = (window as any).cypher?.tilingWm === true;
+
 export function ElectronMenuBar() {
   const { t } = useTranslation();
   // Mirrors the persisted setting; toggling routes through the main process,
@@ -33,18 +38,22 @@ export function ElectronMenuBar() {
 
       {/* Window controls — replaces native titleBarOverlay */}
       <div className="flex items-center ms-auto h-full" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-        <button
-          onClick={() => invoke("app:minimize")}
-          className="inline-flex items-center justify-center h-full w-11 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-        >
-          <Minus className="size-3.5" />
-        </button>
-        <button
-          onClick={() => invoke("app:maximize")}
-          className="inline-flex items-center justify-center h-full w-11 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-        >
-          <Square className="size-3" />
-        </button>
+        {!isTilingWm && (
+          <button
+            onClick={() => invoke("app:minimize")}
+            className="inline-flex items-center justify-center h-full w-11 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            <Minus className="size-3.5" />
+          </button>
+        )}
+        {!isTilingWm && (
+          <button
+            onClick={() => invoke("app:maximize")}
+            className="inline-flex items-center justify-center h-full w-11 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            <Square className="size-3" />
+          </button>
+        )}
         <button
           onClick={() => invoke("app:close")}
           className="inline-flex items-center justify-center h-full w-11 text-muted-foreground hover:bg-destructive hover:text-white transition-colors"

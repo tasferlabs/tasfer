@@ -2,9 +2,11 @@ import {
   clampMirrorStartToSpans,
   computeSurfaceDelta,
   currentWordStart,
+  hasSentinel,
   isEmptyDelta,
   isWordBoundaryChar,
   sentenceStartOffset,
+  stripSentinel,
   SURFACE_SENTINEL,
 } from "./input-diff";
 import { describe, expect, it } from "vitest";
@@ -31,6 +33,38 @@ describe("isWordBoundaryChar", () => {
     expect(isWordBoundaryChar("Z")).toBe(false);
     expect(isWordBoundaryChar("7")).toBe(false);
     expect(isWordBoundaryChar("'")).toBe(false);
+  });
+});
+
+describe("hasSentinel / stripSentinel", () => {
+  const NBSP = " ";
+
+  it("detects and strips the regular-space sentinel", () => {
+    expect(hasSentinel(" word", SURFACE_SENTINEL)).toBe(true);
+    expect(stripSentinel(" word", SURFACE_SENTINEL)).toBe("word");
+  });
+
+  it("tolerates a browser substituting the sentinel with an NBSP", () => {
+    // WebKit/Blink normalize a leading space to an NBSP in contenteditable.
+    // The substitute must be recognized as the sentinel, not leaked as content.
+    expect(hasSentinel(`${NBSP}word`, SURFACE_SENTINEL)).toBe(true);
+    expect(stripSentinel(`${NBSP}word`, SURFACE_SENTINEL)).toBe("word");
+    // The bare NBSP sentinel (empty word) strips to nothing, not to a space.
+    expect(stripSentinel(NBSP, SURFACE_SENTINEL)).toBe("");
+  });
+
+  it("reports a genuinely absent sentinel", () => {
+    // A surface that starts with a word char has lost its sentinel entirely.
+    expect(hasSentinel("word", SURFACE_SENTINEL)).toBe(false);
+    expect(hasSentinel("", SURFACE_SENTINEL)).toBe(false);
+    // stripSentinel leaves such a surface untouched.
+    expect(stripSentinel("word", SURFACE_SENTINEL)).toBe("word");
+  });
+
+  it("treats an empty sentinel (iOS) as always present and strips nothing", () => {
+    expect(hasSentinel("word", "")).toBe(true);
+    expect(hasSentinel("", "")).toBe(true);
+    expect(stripSentinel("word", "")).toBe("word");
   });
 });
 

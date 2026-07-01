@@ -8,6 +8,7 @@ import { Direction } from "radix-ui";
 import { registerSW } from "virtual:pwa-register";
 import { initPlatform } from "./platform";
 import { AuthProvider } from "./app/contexts/AuthContext";
+import { ToastProvider } from "./app/components/Toast";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
 import { router } from "./app/routes/Router";
@@ -126,11 +127,13 @@ const App = () => (
     <AuthProvider>
       <ThemeProvider>
         <DirectionWrapper>
-          <VersionProvider>
-            <Suspense fallback={<LoadingScreen />}>
-              <RouterProvider router={router} />
-            </Suspense>
-          </VersionProvider>
+          <ToastProvider>
+            <VersionProvider>
+              <Suspense fallback={<LoadingScreen />}>
+                <RouterProvider router={router} />
+              </Suspense>
+            </VersionProvider>
+          </ToastProvider>
         </DirectionWrapper>
       </ThemeProvider>
     </AuthProvider>

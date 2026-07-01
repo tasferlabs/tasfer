@@ -1,7 +1,6 @@
-import basicSsl from "@vitejs/plugin-basic-ssl";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { DateTime } from "luxon";
 import { join, resolve } from "path";
 import { defineConfig } from "vite";
@@ -10,15 +9,43 @@ import { VitePWA } from "vite-plugin-pwa";
 const buildTimestamp = DateTime.utc().toFormat("yyyyMMddHHmm");
 
 // `npm run dev:host` (`vite --host`) serves on the LAN, i.e. a non-localhost
-// origin. Browsers treat plain-HTTP non-localhost origins as *insecure
-// contexts*, where `navigator.locks`, `crypto.subtle`, and OPFS are all
-// undefined — so the SQLite IndexedDB VFS's Web Locks call throws and surfaces
-// as a bogus "disk I/O error", and identity/crypto would fail next. HTTPS makes
-// the LAN origin a secure context so those APIs exist. localhost is already a
-// secure context, so we only enable the self-signed cert when actually hosting.
+// origin. Browsers (and the iOS/Android WebView) treat plain-HTTP non-localhost
+// origins as *insecure contexts*, where `navigator.locks`, `crypto.subtle`, and
+// OPFS are all undefined — so the SQLite IndexedDB VFS's Web Locks call throws
+// and surfaces as a bogus "disk I/O error", and identity/crypto/sync fail next.
+// HTTPS makes the LAN origin a secure context so those APIs exist. localhost is
+// already a secure context, so we only enable TLS when actually hosting.
+//
+// The cert must be trusted by the connecting device (an iOS/Android WebView
+// rejects an untrusted cert outright), so generate it with mkcert, whose local
+// CA you install once on the device:
+//   brew install mkcert && mkcert -install
+//   mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem \
+//     <your-LAN-IP> localhost cypher.md
+// `certs/` is gitignored. If host mode is requested without the cert present we
+// fall back to HTTP and warn, rather than failing to start.
 const isHostMode = process.argv.some(
   (arg) => arg === "--host" || arg.startsWith("--host="),
 );
+
+const certDir = resolve(__dirname, "certs");
+const certPath = join(certDir, "lan-cert.pem");
+const keyPath = join(certDir, "lan-key.pem");
+const lanHttps =
+  isHostMode && existsSync(certPath) && existsSync(keyPath)
+    ? { cert: readFileSync(certPath), key: readFileSync(keyPath) }
+    : undefined;
+
+if (isHostMode && !lanHttps) {
+  console.warn(
+    "\n[vite] --host requested but no mkcert cert found in apps/web/certs/.\n" +
+      "       Serving over plain HTTP: the LAN origin will be an INSECURE\n" +
+      "       context and crypto.subtle / OPFS / Web Locks will be undefined.\n" +
+      "       Generate a trusted cert:\n" +
+      "         brew install mkcert && mkcert -install\n" +
+      "         mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem <LAN-IP> localhost cypher.md\n",
+  );
+}
 
 // Read version config from monorepo root
 const versionConfig = JSON.parse(
@@ -27,7 +54,6 @@ const versionConfig = JSON.parse(
 
 export default defineConfig({
   plugins: [
-    isHostMode && basicSsl(),
     tailwindcss(),
     react(),
     VitePWA({
@@ -73,6 +99,7 @@ export default defineConfig({
   },
   server: {
     port: 4000,
+    https: lanHttps,
     proxy: {
       "/api": {
         target: "http://localhost:3000",

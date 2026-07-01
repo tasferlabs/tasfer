@@ -1,15 +1,13 @@
-"use client";
+import type { Metadata } from "next";
+import RootRedirect from "./RootRedirect";
 
-import { useEffect } from "react";
+// The apex path "/" is not a real landing page — it redirects to /home (the
+// canonical landing route). Point its canonical at /home so if a crawler indexes
+// "/" before following the redirect, ranking signals still consolidate on /home.
+export const metadata: Metadata = {
+  alternates: { canonical: "/home" },
+};
 
-/**
- * Root redirect → /home (the canonical landing route, matching the editor app's
- * inbound links). A client redirect is used instead of next/navigation redirect
- * because this site is statically exported (no request-time server).
- */
 export default function RootPage() {
-  useEffect(() => {
-    window.location.replace("/home");
-  }, []);
-  return null;
+  return <RootRedirect />;
 }

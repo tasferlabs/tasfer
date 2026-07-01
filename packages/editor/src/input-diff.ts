@@ -33,6 +33,33 @@ export function isWordBoundaryChar(ch: string | undefined): boolean {
 }
 
 /**
+ * Whether `surface` still carries its leading sentinel.
+ *
+ * The regular-space sentinel is not read back verbatim: contenteditable engines
+ * normalize whitespace and frequently substitute a leading space with a
+ * non-breaking space (` `) — even under `white-space: pre`, and especially
+ * at the very start of the field. So ANY single leading whitespace counts as the
+ * sentinel; requiring an exact `" "` match would misread a browser-substituted
+ * NBSP as "sentinel gone" and let that NBSP leak into the document as a spurious
+ * leading space. An empty sentinel (iOS) is always considered present.
+ */
+export function hasSentinel(surface: string, sentinel: string): boolean {
+  if (sentinel === "") return true;
+  return surface.length > 0 && isWordBoundaryChar(surface[0]);
+}
+
+/**
+ * `surface` with its leading sentinel removed — the mirrored region the editor
+ * reconciles against the document. Tolerant of the browser having substituted
+ * the sentinel space with an NBSP (see {@link hasSentinel}); returns the surface
+ * unchanged when the sentinel is genuinely absent.
+ */
+export function stripSentinel(surface: string, sentinel: string): string {
+  if (sentinel === "") return surface;
+  return hasSentinel(surface, sentinel) ? surface.slice(1) : surface;
+}
+
+/**
  * The start offset of the word ending at `caret` within `text`: the index just
  * after the last boundary character before the caret (0 when the caret is in the
  * first word). The word itself is `text.slice(start, caret)`.

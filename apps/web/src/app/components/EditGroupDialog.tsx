@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
@@ -34,6 +35,8 @@ import {
 import { useAssetUrl } from "../api/images.api";
 import { AvatarPreviewDialog } from "./AvatarPreviewDialog";
 import { RelativeDate } from "@/components/ui/relative-date";
+import { cn } from "@/lib/utils";
+import type { ISpaceMember } from "../api/spaces.api";
 import useResponsive from "../hooks/useResponsive";
 
 interface EditGroupDialogProps {
@@ -186,19 +189,91 @@ function GeneralTab({
 
 // --- Members Tab ---
 
-function MemberAvatar({ avatar, name, onClick }: { avatar?: string | null; name?: string | null; onClick: () => void }) {
+// Activity tiers derived from a member's last-seen timestamp.
+// "online" earns a live presence dot; "active" stays in the main list;
+// "inactive" (stale or never seen) is folded into the collapsed group.
+type Presence = "online" | "active" | "inactive";
+
+const ONLINE_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+const ACTIVE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function getPresence(lastSeen: string | null): Presence {
+  if (!lastSeen) return "inactive";
+  const elapsed = Date.now() - new Date(lastSeen).getTime();
+  if (Number.isNaN(elapsed)) return "inactive";
+  if (elapsed <= ONLINE_WINDOW_MS) return "online";
+  if (elapsed <= ACTIVE_WINDOW_MS) return "active";
+  return "inactive";
+}
+
+function MemberAvatar({
+  avatar,
+  name,
+  onClick,
+  presence,
+}: {
+  avatar?: string | null;
+  name?: string | null;
+  onClick: () => void;
+  presence?: Presence;
+}) {
   const avatarUrl = useAssetUrl(avatar);
   return (
-    <div
-      className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden"
-      style={{ cursor: avatar ? "pointer" : undefined }}
-      onClick={onClick}
-    >
-      {avatarUrl ? (
-        <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
-      ) : (
-        name?.charAt(0).toUpperCase() || "?"
+    <div className="relative shrink-0">
+      <div
+        className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium overflow-hidden"
+        style={{ cursor: avatar ? "pointer" : undefined }}
+        onClick={onClick}
+      >
+        {avatarUrl ? (
+          <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+        ) : (
+          name?.charAt(0).toUpperCase() || "?"
+        )}
+      </div>
+      {presence === "online" && (
+        <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 ring-2 ring-background" />
       )}
+    </div>
+  );
+}
+
+function MemberRow({
+  member,
+  dimmed,
+  onPreview,
+}: {
+  member: ISpaceMember;
+  dimmed?: boolean;
+  onPreview: (avatar: string, name: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  const presence = getPresence(member.lastSeen);
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50",
+        dimmed && "opacity-60",
+      )}
+    >
+      <MemberAvatar
+        avatar={member.userAvatar}
+        name={member.userName}
+        presence={presence}
+        onClick={() =>
+          member.userAvatar && onPreview(member.userAvatar, member.userName)
+        }
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{member.userName}</p>
+        <p className="text-xs text-muted-foreground truncate">
+          {member.lastSeen ? (
+            <RelativeDate date={member.lastSeen} />
+          ) : (
+            t("space.noActivity", "No activity")
+          )}
+        </p>
+      </div>
     </div>
   );
 }
@@ -220,62 +295,93 @@ function MembersTab({
   } | null>(null);
   const previewAvatarUrl = useAssetUrl(previewMember?.avatar);
 
+  const [showInactive, setShowInactive] = useState(false);
+
   const { data: members, isLoading: isLoadingMembers } = useGetSpaceMembers(
     open ? spaceId : undefined,
   );
 
-  // Snapshot sort by lastSeen desc when data first loads; does not re-sort on re-renders
-  const sortedMembers = useMemo(() => {
-    if (!members) return members;
-    return [...members].sort((a, b) => {
+  const handlePreview = (avatar: string, name: string | null) =>
+    setPreviewMember({ avatar, name });
+
+  // Split by activity tier so stale / never-seen members can be folded away
+  // instead of bloating the list. Each group is sorted most-recent-first.
+  const { active, inactive } = useMemo(() => {
+    const byRecent = (a: ISpaceMember, b: ISpaceMember) => {
       if (!a.lastSeen && !b.lastSeen) return 0;
       if (!a.lastSeen) return 1;
       if (!b.lastSeen) return -1;
       return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
-    });
+    };
+    const active: ISpaceMember[] = [];
+    const inactive: ISpaceMember[] = [];
+    for (const member of members ?? []) {
+      if (getPresence(member.lastSeen) === "inactive") inactive.push(member);
+      else active.push(member);
+    }
+    return {
+      active: active.sort(byRecent),
+      inactive: inactive.sort(byRecent),
+    };
   }, [members]);
+
+  const hasMembers = active.length > 0 || inactive.length > 0;
+  // With nobody active, keep the inactive group open so the panel isn't empty.
+  const inactiveExpanded = showInactive || active.length === 0;
 
   return (
     <div className="space-y-4 pt-4">
-      {/* Members list */}
-      <div className="space-y-2">
-        {isLoadingMembers && (
-          <p className="text-sm text-muted-foreground">{t("common.loading", "Loading...")}</p>
-        )}
-        {sortedMembers?.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            {t("space.noMembers", "No members yet")}
-          </p>
-        )}
-        {sortedMembers?.map((member) => (
-          <div
-            key={member.id}
-            className="flex items-center justify-between rounded-md border p-2 gap-2"
-          >
-            <MemberAvatar
-              avatar={member.userAvatar}
-              name={member.userName}
-              onClick={() =>
-                member.userAvatar &&
-                setPreviewMember({
-                  avatar: member.userAvatar,
-                  name: member.userName,
-                })
-              }
-            />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium truncate">{member.userName}</p>
-              <p className="text-xs text-muted-foreground truncate">
-                {member.lastSeen ? (
-                  <RelativeDate date={member.lastSeen} />
-                ) : (
-                  t("space.noActivity", "No activity")
+      {isLoadingMembers && (
+        <p className="text-sm text-muted-foreground">{t("common.loading", "Loading...")}</p>
+      )}
+      {!isLoadingMembers && !hasMembers && (
+        <p className="text-sm text-muted-foreground">
+          {t("space.noMembers", "No members yet")}
+        </p>
+      )}
+
+      {active.length > 0 && (
+        <div className="space-y-0.5">
+          {inactive.length > 0 && (
+            <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t("space.active", "Active")} · {active.length}
+            </p>
+          )}
+          {active.map((member) => (
+            <MemberRow key={member.id} member={member} onPreview={handlePreview} />
+          ))}
+        </div>
+      )}
+
+      {inactive.length > 0 && (
+        <div className="space-y-0.5">
+          {active.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowInactive((v) => !v)}
+              className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+              aria-expanded={inactiveExpanded}
+            >
+              <ChevronDown
+                className={cn(
+                  "size-3.5 transition-transform",
+                  !inactiveExpanded && "-rotate-90",
                 )}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
+              />
+              <span>{t("space.inactive", "Inactive")}</span>
+              <span className="opacity-70">· {inactive.length}</span>
+            </button>
+          ) : (
+            <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t("space.inactive", "Inactive")} · {inactive.length}
+            </p>
+          )}
+          {inactiveExpanded &&
+            inactive.map((member) => (
+              <MemberRow key={member.id} member={member} dimmed onPreview={handlePreview} />
+            ))}
+        </div>
+      )}
 
       <Button variant="secondary" onClick={openInviteMembers} className="w-full">
         {t("share.inviteMembers", "Invite members")}

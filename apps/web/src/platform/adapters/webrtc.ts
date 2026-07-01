@@ -297,6 +297,11 @@ class WebRtcPeer implements NetworkPeer {
     return () => { this.closeListeners.delete(cb); };
   }
 
+  /** Bytes still queued in the datachannel's send buffer (0 when drained). */
+  bufferedAmount(): number {
+    return this.dc?.bufferedAmount ?? 0;
+  }
+
   close(): void {
     this.dc?.close();
     this.pc.close();
@@ -350,6 +355,11 @@ class RelayPeer implements NetworkPeer {
     return () => { this.closeListeners.delete(cb); };
   }
 
+  /** Relay sends go straight out over the CF WebSocket — nothing is buffered here. */
+  bufferedAmount(): number {
+    return 0;
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -375,6 +385,7 @@ class WebRtcTopic implements NetworkTopic {
   private resolveWsReady!: () => void;
   private rejectWsReady!: (err: Error) => void;
   private destroyed = false;
+  private suspended = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -455,7 +466,9 @@ class WebRtcTopic implements NetworkTopic {
       // re-trigger handlePeerJoin in the Replicator.
       this._reset();
 
-      if (this.destroyed) return;
+      // Skip reconnect when destroyed (terminal) or suspended (backgrounded):
+      // suspend() closed this socket on purpose and resume() will re-open it.
+      if (this.destroyed || this.suspended) return;
 
       // Reconnect with exponential backoff (1s, 2s, 4s, 8s, max 30s)
       const delay = Math.min(1000 * 2 ** this.reconnectAttempt, 30000);
@@ -763,6 +776,40 @@ class WebRtcTopic implements NetworkTopic {
     return Array.from(this.peers.values());
   }
 
+  /** Total bytes still queued across this topic's peer send buffers. */
+  bufferedAmount(): number {
+    let total = 0;
+    for (const peer of this.peers.values()) {
+      total += peer.bufferedAmount();
+    }
+    return total;
+  }
+
+  /**
+   * Suspend the topic for app backgrounding: close peers and the signaling
+   * socket, halt the reconnect backoff, but keep listeners so resume() can
+   * rebuild the connection. Unlike destroy(), this is reversible.
+   */
+  suspend(): void {
+    if (this.suspended) return;
+    this.suspended = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this._reset();
+    this.ws?.close(1000);
+    this.ws = null;
+  }
+
+  /** Re-open the signaling socket after a suspend(); peers rediscover via CF. */
+  async resume(): Promise<void> {
+    if (!this.suspended) return;
+    this.suspended = false;
+    this.reconnectAttempt = 0;
+    await this.ensureWs();
+  }
+
   /**
    * Tear down peer connections but keep listeners intact.
    * Used on WebSocket reconnect — peers will re-establish, listeners must survive.
@@ -872,6 +919,41 @@ class WebRtcNetworkDriver implements NetworkDriver {
 
     await nt.connect();
     return nt;
+  }
+
+  /**
+   * Best-effort wait for every topic's peer send buffers to drain, bounded by
+   * `timeoutMs`. Resolves immediately when nothing is queued. Called before
+   * pause() on backgrounding so an in-flight sync round can finish sending.
+   */
+  async flush(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    const buffered = () => {
+      let total = 0;
+      for (const topic of this.topics.values()) total += topic.bufferedAmount();
+      return total;
+    };
+    while (buffered() > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+
+  /** Suspend every topic's signaling socket + peers (reversible via resume()). */
+  async pause(): Promise<void> {
+    for (const topic of this.topics.values()) {
+      topic.suspend();
+    }
+  }
+
+  /** Re-open every topic suspended by pause(). */
+  async resume(): Promise<void> {
+    for (const topic of this.topics.values()) {
+      try {
+        await topic.resume();
+      } catch (e) {
+        console.error("[WebRTC] topic resume failed:", e);
+      }
+    }
   }
 
   async destroy(): Promise<void> {

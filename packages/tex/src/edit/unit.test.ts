@@ -132,6 +132,48 @@ describe("unitBefore — empty slots escalate to the construct", () => {
   });
 });
 
+describe("unitBefore/After — an empty script slot peels off alone", () => {
+  // A caret inside an EMPTY `_{}`/`^{}` slot deletes just that script (operator
+  // and braces), keeping the base — so a limit is optional: add `_`, back out to
+  // a bare operator. Contrast the fraction cases above, where an empty slot
+  // escalates to the whole construct.
+  it("removes an empty subscript, leaving the base and the other script", () => {
+    // "\int_{}^{}" — caret in the empty sub (offset 6) peels `_{}` (offsets 4..7)
+    // → "\int^{}"; caret in the empty sup (offset 9) peels `^{}` (7..10).
+    expect(back("\\int_{}^{}", 6)).toEqual([4, 7, false]);
+    expect(fwd("\\int_{}^{}", 6)).toEqual([4, 7, false]);
+    expect(back("\\int_{}^{}", 9)).toEqual([7, 10, false]);
+    expect(fwd("\\int_{}^{}", 9)).toEqual([7, 10, false]);
+  });
+
+  it("peels the sole empty script back to a bare operator", () => {
+    // "\int_{}" and "\int^{}" — the empty script (offsets 4..7) is all that is
+    // deleted, leaving "\int".
+    expect(back("\\int_{}", 6)).toEqual([4, 7, false]);
+    expect(fwd("\\int_{}", 6)).toEqual([4, 7, false]);
+    expect(back("\\int^{}", 6)).toEqual([4, 7, false]);
+    // "x^{}" → back to a bare "x".
+    expect(back("x^{}", 3)).toEqual([1, 4, false]);
+    expect(fwd("x^{}", 3)).toEqual([1, 4, false]);
+  });
+
+  it("peels only the EMPTY script when the sibling script is filled", () => {
+    // "\int_{a}^{}" — caret in the empty sup (offset 10) peels `^{}` (8..11),
+    // leaving "\int_{a}". A caret inside the FILLED sub is untouched: its glyph
+    // deletes at its own level, and the construct still escalates from its edge.
+    expect(back("\\int_{a}^{}", 10)).toEqual([8, 11, false]);
+    expect(fwd("\\int_{a}^{}", 10)).toEqual([8, 11, false]);
+    expect(back("\\int_{a}^{}", 7)).toEqual([6, 7, false]); // the `a` glyph
+    expect(back("\\int_{a}^{}", 6)).toEqual([0, 11, true]); // edge → whole construct
+  });
+
+  it("a filled script still selects the whole construct (unchanged)", () => {
+    // "x^{2}" — nothing empty, so the base+script unit is preserved.
+    expect(back("x^{2}", 5)).toEqual([0, 5, true]);
+    expect(back("x^{2}", 4)).toEqual([3, 4, false]);
+  });
+});
+
 describe("unitAfter — forward direction", () => {
   it("the character to the right", () => {
     expect(fwd("x+2", 0)).toEqual([0, 1, false]);
@@ -260,7 +302,9 @@ describe("isInsideConstruct — top-level vs. construct interior", () => {
 
   it("the source boundaries are never inside a construct", () => {
     expect(isInsideConstruct("\\frac{a}{b}", 0)).toBe(false);
-    expect(isInsideConstruct("\\frac{a}{b}", "\\frac{a}{b}".length)).toBe(false);
+    expect(isInsideConstruct("\\frac{a}{b}", "\\frac{a}{b}".length)).toBe(
+      false,
+    );
     expect(isInsideConstruct("", 0)).toBe(false);
   });
 });

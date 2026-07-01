@@ -41,6 +41,14 @@ interface RenderOptions {
   title?: string;
   /** Asset url → replacement url (e.g. data URIs for self-contained export). */
   imageUrlMap?: Map<string, string>;
+  /**
+   * Extra CSS appended to the document `<style>` (e.g. `@font-face` rules that
+   * inline the math fonts as data URLs, so rendered math survives being loaded
+   * into an isolated print context that never loaded the app's fonts). Ignored
+   * by {@link serializeToHTMLFragment} — only the full-document shell has a
+   * `<style>` to carry it.
+   */
+  extraCss?: string;
   /** Block/mark types in play. Defaults to the built-in set. */
   schema?: DataSchema;
   /**
@@ -171,12 +179,13 @@ export function serializeToHTML(
 ): string {
   const body = serializeToHTMLFragment(blocks, options);
   const title = options.title ? escapeHtml(options.title) : "Document";
+  const css = options.extraCss ? `${STYLES}\n${options.extraCss}` : STYLES;
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8" />
 <title>${title}</title>
-<style>${STYLES}</style>
+<style>${css}</style>
 </head>
 <body>
 ${body}

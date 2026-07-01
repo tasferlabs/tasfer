@@ -251,12 +251,19 @@ interface SnapshotRestoreProps {
   onPreview?: (snapshot: Snapshot) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /**
+   * Restrict recovery to forking. Used from the corrupted-page screen, where
+   * restoring in place cannot recover the page — the persisted op-log rebuilds
+   * to the same broken state — so Fork (a clean new page) is the only option.
+   */
+  forkOnly?: boolean;
 }
 
 export function SnapshotRestore({
   onPreview,
   open: controlledOpen,
   onOpenChange,
+  forkOnly,
 }: SnapshotRestoreProps) {
   const { t, i18n } = useTranslation();
   const [internalOpen, setInternalOpen] = useState(false);
@@ -397,7 +404,9 @@ export function SnapshotRestore({
             <DrawerHeader>
               <DrawerTitle>{t("snapshot.versionHistory", "Version history")}</DrawerTitle>
               <DrawerDescription>
-                {t("snapshot.restorePrevious", "Restore a previous version of this page")}
+                {forkOnly
+                  ? t("snapshot.forkPrevious", "Fork a previous version into a new page")
+                  : t("snapshot.restorePrevious", "Restore a previous version of this page")}
               </DrawerDescription>
             </DrawerHeader>
             <div className="flex-1 min-h-0 overflow-hidden">
@@ -428,6 +437,7 @@ export function SnapshotRestore({
                 onRestore={handleRestoreFromPreview}
                 onFork={handleForkFromPreview}
                 isForking={isForking}
+                forkOnly={forkOnly}
               />
             )}
           </DrawerContent>
@@ -445,7 +455,9 @@ export function SnapshotRestore({
         <SheetHeader>
           <SheetTitle>{t("snapshot.versionHistory", "Version history")}</SheetTitle>
           <SheetDescription>
-            {t("snapshot.restorePrevious", "Restore a previous version of this page")}
+            {forkOnly
+              ? t("snapshot.forkPrevious", "Fork a previous version into a new page")
+              : t("snapshot.restorePrevious", "Restore a previous version of this page")}
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-1 basis-full gap-4 overflow-hidden mt-4">
@@ -458,6 +470,7 @@ export function SnapshotRestore({
                 onRestore={handleRestoreFromPreview}
                 onFork={handleForkFromPreview}
                 isForking={isForking}
+                forkOnly={forkOnly}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">

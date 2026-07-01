@@ -37,7 +37,18 @@ function raisesKeyboard(node: EventTarget | null): boolean {
 function Drawer({
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Root>) {
-  return <DrawerPrimitive.Root data-slot="drawer" {...props} />;
+  // `DrawerContent` owns keyboard-inset handling itself (see `useKeyboardInset`
+  // and the `expanded`/`paddingBottom` geometry below), so vaul's built-in
+  // input repositioning is redundant here — and actively harmful. Vaul's
+  // `isInput` treats our canvas editor's contenteditable as a text field, then
+  // (a) writes an inline `style.height`/`style.bottom` onto the drawer that
+  // overrides our `h-auto` + `top`/`bottom` geometry (leaving dead space and a
+  // stranded footer), and (b) applies focus/scroll transforms that fight the
+  // iOS focus gesture so the soft keyboard never settles open. Disable it and
+  // let our own inset logic be the single source of truth. Still overridable.
+  return (
+    <DrawerPrimitive.Root data-slot="drawer" repositionInputs={false} {...props} />
+  );
 }
 
 function DrawerTrigger({
@@ -132,10 +143,18 @@ function DrawerContent({
             // top offset already sits below it.
             paddingTop: expanded ? safeTop : undefined,
             // While the keyboard is open, reserve its height so content stays
-            // above it; otherwise fall back to the safe-area inset (home indicator).
+            // above it; otherwise fall back to the safe-area inset (home
+            // indicator). Either way, also clear `--keyboard-toolbar-height` —
+            // the editor's mobile formatting toolbar is a global `fixed` overlay
+            // that rides above the keyboard, so a footer (e.g. Save/Cancel) would
+            // otherwise hide behind it. The var is 0 while the toolbar is
+            // unmounted and grows live when its "more" panel opens a second row,
+            // so the footer stays clear at any toolbar height. On iOS native the
+            // keyboard inset is ~0 but the toolbar still overlays, hence adding
+            // it in both branches.
             paddingBottom: keyboardOpen
-              ? `${keyboardInset}px`
-              : "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+              ? `calc(${keyboardInset}px + var(--keyboard-toolbar-height, 0px))`
+              : "calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + var(--keyboard-toolbar-height, 0px))",
           } as React.CSSProperties
         }
         {...props}

@@ -8,8 +8,8 @@
  * This is just the thin driver — all business logic is in Engine.
  */
 
-import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver, CryptoDriver } from "../driver";
-import { ed25519 } from "@noble/curves/ed25519.js";
+import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver } from "../driver";
+import { WebCryptoDriver } from "./web-crypto";
 import { createWebRtcNetworkDriver } from "./webrtc";
 
 // These modules are only available when running as a Capacitor app.
@@ -259,103 +259,13 @@ class CapacitorFsDriver implements FsDriver {
 
 // =============================================================================
 // Create Capacitor Driver
-// =============================================================================
-
-// =============================================================================
-// WebCrypto Driver (same as web — WebCrypto is available in WebView)
-// =============================================================================
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return bytes;
-}
-
-// RFC 8410 PKCS#8 prefix for a raw 32-byte Ed25519 private key. Keeping the
-// fallback key in PKCS#8 form makes identities portable to WebCrypto-capable
-// WebViews after an OS update.
-const ED25519_PKCS8_PREFIX = "302e020100300506032b657004220420";
-
-function ed25519SeedFromPrivateKey(privateKey: string): Uint8Array {
-  if (privateKey.length === 64) return hexToBytes(privateKey);
-  if (
-    privateKey.length === ED25519_PKCS8_PREFIX.length + 64 &&
-    privateKey.startsWith(ED25519_PKCS8_PREFIX)
-  ) {
-    return hexToBytes(privateKey.slice(ED25519_PKCS8_PREFIX.length));
-  }
-  throw new Error("Unsupported Ed25519 private key format");
-}
-
-class WebCryptoDriver implements CryptoDriver {
-  async generateKeypair(): Promise<{ publicKey: string; privateKey: string }> {
-    try {
-      const keyPair = await crypto.subtle.generateKey(
-        { name: "Ed25519" } as any,
-        true,
-        ["sign", "verify"],
-      );
-      const publicKeyRaw = await crypto.subtle.exportKey("raw", keyPair.publicKey);
-      const privateKeyRaw = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
-      return {
-        publicKey: bytesToHex(new Uint8Array(publicKeyRaw)),
-        privateKey: bytesToHex(new Uint8Array(privateKeyRaw)),
-      };
-    } catch {
-      // Ed25519 is still missing in some Android System WebView versions.
-      const seed = ed25519.utils.randomPrivateKey();
-      return {
-        publicKey: bytesToHex(ed25519.getPublicKey(seed)),
-        privateKey: ED25519_PKCS8_PREFIX + bytesToHex(seed),
-      };
-    }
-  }
-
-  async sign(privateKey: string, message: Uint8Array): Promise<string> {
-    try {
-      const keyData = hexToBytes(privateKey);
-      const key = await crypto.subtle.importKey(
-        "pkcs8",
-        keyData.buffer as ArrayBuffer,
-        { name: "Ed25519" } as any,
-        false,
-        ["sign"],
-      );
-      const signature = await crypto.subtle.sign("Ed25519" as any, key, message.buffer as ArrayBuffer);
-      return bytesToHex(new Uint8Array(signature));
-    } catch {
-      return bytesToHex(ed25519.sign(message, ed25519SeedFromPrivateKey(privateKey)));
-    }
-  }
-
-  async verify(publicKey: string, signature: string, message: Uint8Array): Promise<boolean> {
-    try {
-      const keyData = hexToBytes(publicKey);
-      const key = await crypto.subtle.importKey(
-        "raw",
-        keyData.buffer as ArrayBuffer,
-        { name: "Ed25519" } as any,
-        false,
-        ["verify"],
-      );
-      const sig = hexToBytes(signature);
-      return crypto.subtle.verify("Ed25519" as any, key, sig.buffer as ArrayBuffer, message.buffer as ArrayBuffer);
-    } catch {
-      return ed25519.verify(hexToBytes(signature), message, hexToBytes(publicKey));
-    }
-  }
-}
-
-// =============================================================================
-// Create Capacitor Driver
+//
+// The WebCrypto (Ed25519) driver is shared with the web adapter — `crypto.subtle`
+// is available in the WebView as long as it runs in a secure context (the app's
+// own scheme, HTTPS, or localhost). Live-reload dev must therefore be served over
+// HTTPS; a plain-HTTP LAN origin is an insecure context and WebCrypto is undefined.
+// The shared driver also carries a JS Ed25519 fallback for older Android System
+// WebViews that expose crypto.subtle but not the Ed25519 curve.
 // =============================================================================
 
 export function createCapacitorDriver(signalUrl: string): Driver {

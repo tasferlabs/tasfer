@@ -253,6 +253,17 @@ export abstract class Node<B extends Block = Block> {
   readonly types?: readonly string[];
 
   /**
+   * Optional: the visual "card" family this block tiles with. Adjacent blocks
+   * whose nodes declare the same non-`undefined` `joinGroup` square off their
+   * touching corners so their filled backgrounds meet as one continuous surface
+   * instead of two rounded boxes with a notch at the seam. It groups by a shared
+   * family rather than exact block type, so distinct card types (code, math,
+   * quote) can be made to tile together by declaring one common group.
+   * `undefined` (the default) never joins. Consumed via `cardJoinFlags`.
+   */
+  readonly joinGroup?: string;
+
+  /**
    * Optional: this node's catalog of localized canvas strings (status labels,
    * placeholders) keyed by a short local name — e.g. ImageNode owns
    * `{ clickToUpload, loading, … }`. English defaults ship with the node; a

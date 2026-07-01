@@ -24,6 +24,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Calendar,
   CalendarDays,
+  ChevronDown,
   Clock,
   FolderOpen,
   GripHorizontal,
@@ -181,6 +182,11 @@ export function EventPreview({
   const [draftParent, setDraftParent] = useState<ISearchPage | null>(null);
   const [draftIsTask, setDraftIsTask] = useState(true);
 
+  // Mobile drawer: the schedule fields (date, duration, space, type) collapse
+  // into a single summary line and expand on tap. Collapsed by default so the
+  // title editor leads; reset whenever a different preview opens.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
   // Remember the last user-resized dimensions across event switches
   const lastSizeRef = useRef({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
 
@@ -256,6 +262,7 @@ export function EventPreview({
       setPos(null); // will be computed from anchor
       setDraftParent(null);
       setDraftIsTask(true);
+      setDetailsOpen(false);
     }
   }, [pageId, draft]);
 
@@ -769,8 +776,28 @@ export function EventPreview({
     );
   }, [onDraftSave, draftParent, draftIsTask]);
 
+  // Desktop: Ctrl/Cmd+Enter saves a draft. Existing events already autosave, so
+  // there is nothing to commit for them. Capture phase so the shortcut wins over
+  // the editor's own Enter handling. Mobile drives saving from the footer button.
+  useEffect(() => {
+    if (!isActive || isMobile || !isDraft) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+      e.preventDefault();
+      handleDraftSaveClick();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isActive, isMobile, isDraft, handleDraftSaveClick]);
+
   const draftFooter = isDraft ? (
     <div className={style.previewDraftFooter}>
+      {!isMobile && (
+        <span className={style.previewDraftShortcut}>
+          {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+Enter{" "}
+          {t("calendar.toSave", "to save")}
+        </span>
+      )}
       <Button variant="ghost" size="sm" onClick={handleClose}>
         {t("common.cancel", "Cancel")}
       </Button>
@@ -807,12 +834,56 @@ export function EventPreview({
     />
   ) : null;
 
+  // One-line summary of the collapsed schedule fields for the mobile accordion.
+  const summaryDate = dateValue
+    ? DateTime.fromISO(dateValue, { zone: tz ?? undefined })
+    : null;
+  const scheduleSummary = {
+    when:
+      summaryDate && summaryDate.isValid
+        ? summaryDate.toLocaleString({
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })
+        : t("calendar.noDate", "No date"),
+    duration: formatDurationLabel(currentDuration, t),
+    space: currentParent?.title?.trim() || t("common.none", "None"),
+    type: isTask ? t("calendar.task", "Task") : t("calendar.event", "Event"),
+  };
+
+  // An in-progress draft (the user has typed a title) should not be lost to an
+  // accidental tap outside the non-modal drawer. `onDraftSave` isn't called on
+  // dismiss, so confirm before discarding rather than silently dropping it.
+  const draftHasContent = () => {
+    const blocks = draftContentRef.current?.blocks;
+    return !!blocks && extractTitleFromBlocks(blocks).trim().length > 0;
+  };
+  const requestClose = () => {
+    if (isDraft && draftHasContent()) {
+      void getConfirmation({
+        title: t("calendar.discardDraftTitle", "Discard this event?"),
+        description: t(
+          "calendar.discardDraftBody",
+          "You've started creating this event. Discard it?",
+        ),
+        cancelText: t("calendar.keepEditing", "Keep editing"),
+        confirmText: t("common.discard", "Discard"),
+      }).then((confirmed) => {
+        if (confirmed) handleClose();
+      });
+      return;
+    }
+    handleClose();
+  };
+
   if (isMobile) {
     return (
       <Drawer
         open={isActive}
         onOpenChange={(open) => {
-          if (!open) handleClose();
+          if (!open) requestClose();
         }}
         modal={false}
       >
@@ -840,7 +911,7 @@ export function EventPreview({
               <button
                 type="button"
                 className={style.previewCloseBtn}
-                onClick={handleClose}
+                onClick={requestClose}
                 aria-label={t("editor.closePreview", "Close preview")}
                 title={t("editor.closePreview", "Close preview")}
               >
@@ -848,51 +919,86 @@ export function EventPreview({
               </button>
             </div>
           </div>
-          <div className={style.previewRow}>
-            <Calendar size={14} className={style.previewRowIcon} />
-            <DateTimePicker
-              type="datetime"
-              value={dateValue}
-              onChange={handleDateChange}
-              timezone={tz}
-              size="small"
-              fullWidth
-            />
-          </div>
-          <div className={style.previewRow}>
-            <Clock size={14} className={style.previewRowIcon} />
-            <Combobox
-              items={durationLabels}
-              value={formatDurationLabel(currentDuration, t)}
-              onValueChange={(val) => {
-                if (val != null) handleDurationChange(val);
-              }}
+          <div className={style.previewDetails}>
+            <button
+              type="button"
+              className={style.previewDetailsSummary}
+              onClick={() => setDetailsOpen((open) => !open)}
+              aria-expanded={detailsOpen}
             >
-              <ComboboxInput
-                placeholder={formatDurationLabel(currentDuration, t)}
-                className={"w-full"}
+              <Calendar size={14} className={style.previewRowIcon} />
+              <span className={style.previewDetailsSummaryText}>
+                <span className={style.previewDetailsSummaryPrimary}>
+                  {scheduleSummary.when} · {scheduleSummary.duration}
+                </span>
+                <span className={style.previewDetailsSummaryMeta}>
+                  {scheduleSummary.space} · {scheduleSummary.type}
+                </span>
+              </span>
+              <ChevronDown
+                size={18}
+                className={`${style.previewDetailsChevron} ${detailsOpen ? style.previewDetailsChevronOpen : ""}`}
               />
-              <ComboboxContent>
-                <ComboboxList>
-                  {(item) => (
-                    <ComboboxItem key={item} value={item}>
-                      {item}
-                    </ComboboxItem>
-                  )}
-                </ComboboxList>
-              </ComboboxContent>
-            </Combobox>
+            </button>
+            <AnimatePresence initial={false}>
+              {detailsOpen && (
+                <motion.div
+                  key="details"
+                  className={style.previewDetailsBody}
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                >
+                  <div className={style.previewRow}>
+                    <Calendar size={14} className={style.previewRowIcon} />
+                    <DateTimePicker
+                      type="datetime"
+                      value={dateValue}
+                      onChange={handleDateChange}
+                      timezone={tz}
+                      size="small"
+                      fullWidth
+                    />
+                  </div>
+                  <div className={style.previewRow}>
+                    <Clock size={14} className={style.previewRowIcon} />
+                    <Combobox
+                      items={durationLabels}
+                      value={formatDurationLabel(currentDuration, t)}
+                      onValueChange={(val) => {
+                        if (val != null) handleDurationChange(val);
+                      }}
+                    >
+                      <ComboboxInput
+                        placeholder={formatDurationLabel(currentDuration, t)}
+                        className={"w-full"}
+                      />
+                      <ComboboxContent>
+                        <ComboboxList>
+                          {(item) => (
+                            <ComboboxItem key={item} value={item}>
+                              {item}
+                            </ComboboxItem>
+                          )}
+                        </ComboboxList>
+                      </ComboboxContent>
+                    </Combobox>
+                  </div>
+                  <div className={style.previewRow}>
+                    <FolderOpen size={14} className={style.previewRowIcon} />
+                    <PagePicker
+                      spaceId={activeSpaceId}
+                      value={currentParent}
+                      onChange={handleParentChange}
+                      excludeId={pageId || undefined}
+                    />
+                  </div>
+                  {taskEventRow}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-          <div className={style.previewRow}>
-            <FolderOpen size={14} className={style.previewRowIcon} />
-            <PagePicker
-              spaceId={activeSpaceId}
-              value={currentParent}
-              onChange={handleParentChange}
-              excludeId={pageId || undefined}
-            />
-          </div>
-          {taskEventRow}
           <div className="flex-1 min-h-0 overflow-hidden border-t border-border">
             {editor}
           </div>

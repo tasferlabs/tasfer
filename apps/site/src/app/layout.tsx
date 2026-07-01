@@ -16,11 +16,53 @@ import "@fontsource/space-grotesk/700.css";
 
 import { Providers } from "@/providers/Providers";
 
+// Canonical origin of the marketing/docs site. The editor app owns the apex
+// (https://cypher.md); this site is served from www. metadataBase lets every
+// route express canonical/OpenGraph URLs as site-relative paths that Next
+// resolves to absolute URLs at build time.
+const SITE_ORIGIN = "https://www.cypher.md";
+
+// Positioning: for people who don't want their private writing sitting on a
+// company's servers. Promise (one benefit, not a feature list): your notes stay
+// yours — on your device, readable only by you. The copy leads with that
+// benefit and lets the facts (encrypted, no cloud, no account) prove it. It
+// deliberately avoids "canvas-based" and other build-detail jargon nobody
+// searches for or cares about.
+const TITLE = "Cypher — private markdown notes that stay on your device";
+const DESCRIPTION =
+  "A markdown editor that keeps your writing yours — every note stays on your device, end-to-end encrypted, syncing directly between your devices. No cloud. No account. No company reading your words.";
+
 export const metadata: Metadata = {
-  title: "Cypher — local-first, end-to-end encrypted markdown",
-  description:
-    "A canvas-based markdown editor that is fully peer-to-peer and local-first. Your files stay on your disk, your keys never leave it, and sync is direct between peers.",
+  metadataBase: new URL(SITE_ORIGIN),
+  title: {
+    default: TITLE,
+    template: "%s — Cypher",
+  },
+  description: DESCRIPTION,
+  applicationName: "Cypher",
   icons: { icon: "/logo.png" },
+  robots: { index: true, follow: true },
+  openGraph: {
+    type: "website",
+    siteName: "Cypher",
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/home",
+    images: [
+      {
+        url: "/og.png",
+        width: 1200,
+        height: 630,
+        alt: "Cypher — your thoughts stay yours. Private, end-to-end encrypted markdown.",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: ["/og.png"],
+  },
 };
 
 /**

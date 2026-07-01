@@ -158,6 +158,25 @@ export interface NetworkDriver {
    */
   join(topic: Uint8Array): Promise<NetworkTopic>;
 
+  /**
+   * Best-effort drain of any queued outbound sends, bounded by `timeoutMs`.
+   * Used before backgrounding on native so an in-flight sync round can finish
+   * flushing before the platform suspends the connection. Resolves early when
+   * nothing is buffered. Optional — drivers without buffering may omit it.
+   */
+  flush?(timeoutMs: number): Promise<void>;
+
+  /**
+   * Suspend all signaling sockets and peer connections while keeping topics,
+   * topic keys, and listeners intact, so a later resume() can reconnect fast.
+   * Halts any reconnect backoff so a backgrounded app doesn't retry endlessly.
+   * Optional — platforms with no lifecycle constraints may omit it.
+   */
+  pause?(): Promise<void>;
+
+  /** Re-open the signaling sockets suspended by pause(). Optional. */
+  resume?(): Promise<void>;
+
   /** Shut down all connections and stop discovery */
   destroy(): Promise<void>;
 }

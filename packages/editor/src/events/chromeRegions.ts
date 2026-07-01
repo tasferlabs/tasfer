@@ -479,6 +479,23 @@ const blockDragHandleRegion: Region = {
     onMove(p, ctx) {
       const drag = ctx.state.ui.blockDrag;
       if (!drag) return { state: ctx.state };
+
+      // Edge auto-scroll: when the pointer nears a viewport edge, record it so
+      // the frame loop in handleEvents keeps scrolling (via onAutoScrollTick)
+      // while the pointer holds still — letting a drag reach off-screen blocks.
+      const { session } = ctx;
+      const isNearTopEdge = p.y < EDGE_SCROLL_THRESHOLD || p.y < 0;
+      const isNearBottomEdge =
+        p.y > ctx.viewport.height - EDGE_SCROLL_THRESHOLD ||
+        p.y > ctx.viewport.height;
+      if (isNearTopEdge || isNearBottomEdge) {
+        startAutoScroll(session);
+        session.autoScroll.lastPointerX = p.x;
+        session.autoScroll.lastPointerY = p.y;
+      } else if (session.autoScroll.isActive) {
+        stopAutoScroll(session);
+      }
+
       return {
         state: setBlockDrag(ctx.state, {
           ...drag,
@@ -493,7 +510,32 @@ const blockDragHandleRegion: Region = {
         }),
       };
     },
+    // While edge auto-scroll is active, the frame loop drives scrolling through
+    // these. A block reorder never needs to halt scrolling early (unlike an
+    // image resize chasing its own height), so it always permits the scroll;
+    // applyEdgeScroll clamps at the document ends.
+    onAutoScrollTick() {
+      return { blockScroll: false };
+    },
+    onAutoScrollScrolled(p, _scrollDelta, ctx) {
+      // The viewport scrolled under a stationary pointer, so the same pointerY
+      // now sits over a different block — re-resolve the drop gap.
+      const drag = ctx.state.ui.blockDrag;
+      if (!drag) return ctx.state;
+      return setBlockDrag(ctx.state, {
+        ...drag,
+        pointerY: p.y,
+        dropIndex: dropIndexAtPoint(
+          p.y,
+          ctx.state,
+          ctx.viewport,
+          undefined,
+          ctx.visibility,
+        ),
+      });
+    },
     onEnd(_p, ctx) {
+      stopAutoScroll(ctx.session);
       const drag = ctx.state.ui.blockDrag;
       const cleared = setBlockDrag(ctx.state, null);
       if (!drag) return { state: cleared };
@@ -512,6 +554,7 @@ const blockDragHandleRegion: Region = {
       return { state: result.state, ops: result.ops };
     },
     onCancel(ctx) {
+      stopAutoScroll(ctx.session);
       return setBlockDrag(ctx.state, null);
     },
   },

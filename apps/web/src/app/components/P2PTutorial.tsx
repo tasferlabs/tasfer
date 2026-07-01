@@ -1,12 +1,7 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  ArrowRight,
-  GitBranch,
-  Network,
-  ShieldAlert,
-} from "lucide-react";
+import { Check, Lock, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const STORAGE_KEY = "cypher:p2p-tutorial-seen";
@@ -29,106 +24,127 @@ export function markP2PTutorialSeen(): void {
   }
 }
 
-interface Step {
-  icon: React.ElementType;
-  titleKey: string;
-  titleFallback: string;
-  descKey: string;
-  descFallback: string;
-  accentClass: string;
-  glowClass: string;
-  ringClass: string;
-}
-
-const STEPS: Step[] = [
-  {
-    icon: Network,
-    titleKey: "p2pTutorial.directConnection",
-    titleFallback: "Direct connection",
-    descKey: "p2pTutorial.directConnectionDesc",
-    descFallback:
-      "Your devices connect directly to each other. There is no server in between, no cloud, no middleman. Data flows peer-to-peer.",
-    accentClass: "text-primary",
-    glowClass: "bg-primary/15",
-    ringClass: "ring-primary/20 bg-primary/10",
-  },
-  {
-    icon: GitBranch,
-    titleKey: "p2pTutorial.dataReplicates",
-    titleFallback: "Data lives on every device",
-    descKey: "p2pTutorial.dataReplicatesDesc",
-    descFallback:
-      "When you share a space, a full copy of the data is replicated to every member's device. Each peer holds an independent copy that works offline.",
-    accentClass: "text-amber-600 dark:text-amber-400",
-    glowClass: "bg-amber-500/15",
-    ringClass: "ring-amber-500/20 bg-amber-500/10",
-  },
-  {
-    icon: ShieldAlert,
-    titleKey: "p2pTutorial.noTakebacks",
-    titleFallback: "What's shared stays shared",
-    descKey: "p2pTutorial.noTakebacksDesc",
-    descFallback:
-      "Once data reaches another device, you cannot take it back. There is no \"unshare\". This is how distributed systems work. Only share with people you trust.",
-    accentClass: "text-destructive",
-    glowClass: "bg-destructive/15",
-    ringClass: "ring-destructive/20 bg-destructive/10",
-  },
-];
+const STEP_COUNT = 3;
 
 const slideVariants = {
-  enter: (direction: number) => ({
-    x: direction > 0 ? 80 : -80,
-    opacity: 0,
-  }),
-  center: {
-    x: 0,
-    opacity: 1,
-  },
-  exit: (direction: number) => ({
-    x: direction > 0 ? -80 : 80,
-    opacity: 0,
-  }),
+  enter: (direction: number) => ({ x: direction > 0 ? 60 : -60, opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (direction: number) => ({ x: direction > 0 ? -60 : 60, opacity: 0 }),
 };
 
-interface P2PTutorialProps {
-  /** Called when the user finishes or dismisses the tutorial. */
-  onComplete: () => void;
+// -----------------------------------------------------------------------------
+// Illustration primitives
+// -----------------------------------------------------------------------------
+
+/** A miniature document card used in the step illustrations. */
+function MiniDoc({
+  width,
+  height,
+  accent,
+  showTitle = true,
+}: {
+  width: number;
+  height: number;
+  accent: "primary" | "neutral";
+  showTitle?: boolean;
+}) {
+  const border = accent === "primary" ? "border-primary/40" : "border-border";
+  const titleBar = accent === "primary" ? "bg-primary" : "bg-foreground/30";
+  const line = accent === "primary" ? "bg-primary/50" : "bg-foreground/15";
+  return (
+    <div
+      className={`flex flex-col gap-1 rounded-lg border bg-background ${border}`}
+      style={{ width, height, padding: "8px 8px 0" }}
+    >
+      {showTitle && (
+        <div className={`h-1.5 rounded-full ${titleBar}`} style={{ width: "72%" }} />
+      )}
+      <div className={`h-1 rounded-full ${line}`} style={{ width: "100%" }} />
+      <div className={`h-1 rounded-full ${line}`} style={{ width: "86%" }} />
+      <div className={`h-1 rounded-full ${line}`} style={{ width: "94%" }} />
+    </div>
+  );
 }
 
-export function P2PTutorial({ onComplete }: P2PTutorialProps) {
+/** Panel that frames each step's illustration. */
+function IllustrationPanel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-4 flex items-center justify-center gap-3.5 rounded-lg border border-primary/20 bg-primary/[0.06] px-4 py-[18px]">
+      {children}
+    </div>
+  );
+}
+
+function Caption({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="text-[11px] font-medium text-primary">{children}</span>
+  );
+}
+
+function MutedCaption({ children }: { children: React.ReactNode }) {
+  return <span className="text-[11px] text-muted-foreground">{children}</span>;
+}
+
+// -----------------------------------------------------------------------------
+// Tutorial
+// -----------------------------------------------------------------------------
+
+interface P2PTutorialProps {
+  /** Called when the user accepts all steps (the final, gated action). */
+  onComplete: () => void;
+  /** Called when the user cancels from the first step. */
+  onCancel: () => void;
+  /** Label for the final primary action. Defaults to "Continue". */
+  completeLabel?: string;
+}
+
+export function P2PTutorial({
+  onComplete,
+  onCancel,
+  completeLabel,
+}: P2PTutorialProps) {
   const { t } = useTranslation();
   const [[current, direction], setPage] = useState([0, 0]);
+  const [confirmed, setConfirmed] = useState(false);
 
-  const step = STEPS[current];
-  const isLast = current === STEPS.length - 1;
+  const isLast = current === STEP_COUNT - 1;
 
-  const next = useCallback(() => {
-    if (isLast) {
-      markP2PTutorialSeen();
-      onComplete();
-    } else {
-      setPage([current + 1, 1]);
-    }
-  }, [current, isLast, onComplete]);
+  const goto = useCallback(
+    (next: number) => {
+      const clamped = Math.max(0, Math.min(STEP_COUNT - 1, next));
+      setPage(([prev]) => [clamped, clamped >= prev ? 1 : -1]);
+    },
+    [],
+  );
 
-  const Icon = step.icon;
+  const complete = useCallback(() => {
+    markP2PTutorialSeen();
+    onComplete();
+  }, [onComplete]);
 
   return (
-    <div className="flex flex-col items-center">
-      {/* Progress dots */}
-      <div className="flex items-center gap-2 mb-6">
-        {STEPS.map((_, i) => (
-          <div
+    <div className="flex flex-col">
+      {/* Progress dots (clickable) */}
+      <div className="mb-[18px] flex items-center justify-center gap-0.5">
+        {Array.from({ length: STEP_COUNT }, (_, i) => (
+          <button
             key={i}
-            className={`h-1.5 rounded-full transition-all duration-300 ${
-              i === current
-                ? "w-6 bg-primary"
-                : i < current
-                  ? "w-1.5 bg-primary/40"
-                  : "w-1.5 bg-border"
-            }`}
-          />
+            type="button"
+            aria-label={t("p2pTutorial.gotoStep", "Go to step {{n}}", { n: i + 1 })}
+            aria-current={i === current}
+            onClick={() => goto(i)}
+            className="flex rounded-md px-[3px] py-2 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+          >
+            <span
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                i === current
+                  ? "w-6 bg-primary"
+                  : i < current
+                    ? "w-1.5 bg-primary/40"
+                    : "w-1.5 bg-border"
+              }`}
+            />
+          </button>
         ))}
       </div>
 
@@ -141,69 +157,183 @@ export function P2PTutorial({ onComplete }: P2PTutorialProps) {
           initial="enter"
           animate="center"
           exit="exit"
-          transition={{ duration: 0.25, ease: "easeInOut" }}
-          className="flex flex-col items-center w-full"
+          transition={{ duration: 0.22, ease: "easeInOut" }}
+          className="flex flex-col"
         >
-          {/* Icon with glow */}
-          <div className="relative mb-5">
-            <div
-              className={`absolute inset-0 rounded-full blur-2xl scale-150 ${step.glowClass}`}
-            />
-            <div
-              className={`relative flex h-16 w-16 items-center justify-center rounded-full ring-1 ${step.ringClass}`}
-            >
-              <Icon className={`h-7 w-7 ${step.accentClass}`} />
-            </div>
-          </div>
+          {current === 0 && (
+            <>
+              <IllustrationPanel>
+                <div className="flex flex-col items-center gap-[7px]">
+                  <MiniDoc width={60} height={76} accent="primary" />
+                  <Caption>{t("p2pTutorial.yourSpace", "your space")}</Caption>
+                </div>
+                <svg
+                  width="40"
+                  height="16"
+                  viewBox="0 0 40 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-primary rtl:-scale-x-100"
+                >
+                  <path d="M2 8 H32" strokeDasharray="3 4" />
+                  <path d="M27 3 L33 8 L27 13" />
+                </svg>
+                <div className="flex flex-col items-center gap-[7px]">
+                  <div className="flex h-[46px] w-[46px] items-center justify-center rounded-full border-[1.5px] border-dashed border-primary/70 text-primary">
+                    <Plus className="h-[18px] w-[18px]" />
+                  </div>
+                  <MutedCaption>{t("p2pTutorial.invite", "invite")}</MutedCaption>
+                </div>
+              </IllustrationPanel>
+              <StepText
+                title={t("p2pTutorial.step1Title", "Invite someone to this space.")}
+                body={t(
+                  "p2pTutorial.step1Desc",
+                  "Right now this space lives only on your device. Inviting turns it into a shared space — you'll both edit the same notes, live.",
+                )}
+              />
+            </>
+          )}
 
-          {/* Title */}
-          <h2 className="text-lg font-semibold text-foreground text-center">
-            {t(step.titleKey, step.titleFallback)}
-          </h2>
+          {current === 1 && (
+            <>
+              <div className="mb-4 flex flex-col items-center gap-[9px] rounded-lg border border-primary/20 bg-primary/[0.06] p-4">
+                <div className="flex items-center gap-3">
+                  <MiniDoc width={40} height={54} accent="primary" showTitle={false} />
+                  <div className="flex flex-col items-center gap-[5px] text-primary">
+                    <Lock className="h-[17px] w-[17px]" />
+                    <svg width="56" height="6" viewBox="0 0 56 6" fill="none">
+                      <circle cx="3" cy="3" r="2.5" fill="currentColor" />
+                      <line
+                        x1="6"
+                        y1="3"
+                        x2="50"
+                        y2="3"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeDasharray="1 4"
+                        strokeLinecap="round"
+                      />
+                      <circle cx="53" cy="3" r="2.5" fill="currentColor" />
+                    </svg>
+                  </div>
+                  <MiniDoc width={40} height={54} accent="primary" showTitle={false} />
+                </div>
+                <span className="text-center text-[11px] text-muted-foreground">
+                  {t(
+                    "p2pTutorial.relayCaption",
+                    "a relay finds your peer — then steps aside",
+                  )}
+                </span>
+              </div>
+              <StepText
+                title={t("p2pTutorial.step2Title", "It syncs device to device.")}
+                body={t(
+                  "p2pTutorial.step2Desc",
+                  "Cypher connects you directly, over an encrypted link. A thin relay finds your peer, then steps aside — no server ever stores your notes.",
+                )}
+              />
+            </>
+          )}
 
-          {/* Description */}
-          <p className="text-sm text-muted-foreground mt-2.5 text-center max-w-[300px] leading-relaxed">
-            {t(step.descKey, step.descFallback)}
-          </p>
+          {current === 2 && (
+            <>
+              <IllustrationPanel>
+                <div className="flex flex-col items-center gap-[7px]">
+                  <MiniDoc width={54} height={70} accent="neutral" />
+                  <MutedCaption>{t("p2pTutorial.you", "you")}</MutedCaption>
+                </div>
+                <div className="flex flex-col items-center gap-[5px]">
+                  <svg
+                    width="42"
+                    height="18"
+                    viewBox="0 0 42 18"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="text-primary rtl:-scale-x-100"
+                  >
+                    <path d="M3 9 H36" />
+                    <path d="M29 3 L36 9 L29 15" />
+                  </svg>
+                  <MutedCaption>{t("p2pTutorial.fullCopy", "full copy")}</MutedCaption>
+                </div>
+                <div className="flex flex-col items-center gap-[7px]">
+                  <MiniDoc width={54} height={70} accent="primary" />
+                  <Caption>{t("p2pTutorial.them", "them")}</Caption>
+                </div>
+              </IllustrationPanel>
+              <StepText
+                title={t("p2pTutorial.step3Title", "They keep a full copy.")}
+                body={t(
+                  "p2pTutorial.step3Desc",
+                  "Inviting replicates this entire space to their device. Archiving or leaving on your side deletes nothing from theirs — once it's sent, there's no recall.",
+                )}
+              />
 
-          {/* Step-specific accent bar */}
-          <div
-            className={`mt-5 h-0.5 w-12 rounded-full opacity-40 ${
-              current === 0
-                ? "bg-primary"
-                : current === 1
-                  ? "bg-amber-500"
-                  : "bg-destructive"
-            }`}
-          />
+              {/* Permanence confirmation gate */}
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={confirmed}
+                onClick={() => setConfirmed((v) => !v)}
+                className="mt-3 flex w-full items-start gap-2.5 rounded-md py-1 text-start focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                {confirmed ? (
+                  <span className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] bg-primary text-primary-foreground">
+                    <Check className="h-3 w-3" strokeWidth={3.5} />
+                  </span>
+                ) : (
+                  <span className="mt-px h-[18px] w-[18px] shrink-0 rounded-[5px] border-[1.5px] border-input bg-background" />
+                )}
+                <span className="text-[13px] leading-relaxed text-muted-foreground">
+                  {t("p2pTutorial.confirmPermanence", "I understand this can't be undone.")}
+                </span>
+              </button>
+            </>
+          )}
         </motion.div>
       </AnimatePresence>
 
-      {/* Action buttons */}
-      <div className="flex w-full gap-2.5 mt-7">
-        {!isLast ? (
-          <>
-            <Button
-              variant="ghost"
-              className="flex-1 text-muted-foreground"
-              onClick={() => {
-                markP2PTutorialSeen();
-                onComplete();
-              }}
-            >
-              {t("p2pTutorial.skip", "Skip")}
-            </Button>
-            <Button className="flex-1" onClick={next}>
-              {t("common.continue", "Continue")}
-              <ArrowRight className="h-4 w-4 ms-1 rtl:-scale-x-100" />
-            </Button>
-          </>
-        ) : (
-          <Button className="w-full" onClick={next}>
-            {t("p2pTutorial.gotIt", "I understand, continue")}
-          </Button>
-        )}
+      {/* Actions */}
+      <div className="mt-5 flex items-center gap-2.5">
+        <Button
+          variant="ghost"
+          className="text-muted-foreground"
+          onClick={current === 0 ? onCancel : () => goto(current - 1)}
+        >
+          {current === 0
+            ? t("common.cancel", "Cancel")
+            : t("common.back", "Back")}
+        </Button>
+        <Button
+          className="ms-auto"
+          disabled={isLast && !confirmed}
+          onClick={isLast ? complete : () => goto(current + 1)}
+        >
+          {isLast
+            ? (completeLabel ?? t("common.continue", "Continue"))
+            : t("common.continue", "Continue")}
+        </Button>
       </div>
     </div>
+  );
+}
+
+function StepText({ title, body }: { title: string; body: string }) {
+  return (
+    <>
+      <h2 className="text-[22px] font-semibold leading-tight tracking-[-0.01em] text-foreground">
+        {title}
+      </h2>
+      <p className="mt-2 text-[13.5px] leading-relaxed text-muted-foreground">
+        {body}
+      </p>
+    </>
   );
 }

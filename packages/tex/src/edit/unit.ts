@@ -150,6 +150,36 @@ function locate(
 }
 
 /**
+ * When the caret sits inside an EMPTY script slot (`\int_{}`, `x^{}`), the unit
+ * is that whole script token (`_{}` / `^{}`) — a delete peels the empty script
+ * off and keeps the base, rather than escalating to the whole scripted construct
+ * (which would take the operator and any other script with it). This is what
+ * makes a limit "optional": type `_`, change your mind, backspace back to a bare
+ * `\int`. The `_`/`^` operator sits one char before the slot's `{`, so the token
+ * starts at `slot.span.start - 1`. Deleting immediately (`isConstruct: false`) —
+ * an empty slot has nothing to preview losing.
+ */
+function emptyScriptUnit(parent: Node, offset: number): MathUnit | null {
+  if (parent.type !== "supsub") return null;
+  for (const slot of [parent.sub, parent.sup]) {
+    if (
+      slot &&
+      slot.type === "ord" &&
+      slot.body.length === 0 &&
+      offset > slot.span.start &&
+      offset < slot.span.end
+    ) {
+      return {
+        start: slot.span.start - 1,
+        end: slot.span.end,
+        isConstruct: false,
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * Resolve the editing unit for a caret at `offset` on the given side. Returns
  * `null` when there is nothing on that side (caret at the very start for
  * backward / end for forward) — the caller falls back to its normal block-level
@@ -203,13 +233,16 @@ function resolve(
 
   // Nothing at this level (caret at the group's edge): escalate to the enclosing
   // construct so the whole thing is the unit rather than its braces chipped off
-  // into partial LaTeX.
+  // into partial LaTeX. A caret inside an empty script slot is the exception —
+  // there the unit is just that empty script, so it can be peeled off alone.
   if (parent) {
-    return {
-      start: parent.span.start,
-      end: parent.span.end,
-      isConstruct: !isLeaf(parent),
-    };
+    return (
+      emptyScriptUnit(parent, offset) ?? {
+        start: parent.span.start,
+        end: parent.span.end,
+        isConstruct: !isLeaf(parent),
+      }
+    );
   }
   return null;
 }

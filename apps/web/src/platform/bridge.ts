@@ -104,6 +104,17 @@ export interface CypherBridge {
     exists(path: string): Promise<boolean>;
     getInfo(): Promise<{ free: number; total: number }>;
   };
+
+  /**
+   * App-lifecycle coordination for background sync. The native shell calls
+   * `window.__cypherLifecycle.onPause/onResume` (see SyncLifecycleController)
+   * around app background/foreground; the web side calls `endFlush()` back to
+   * release the native background task once teardown finishes. Optional —
+   * shells without a background-task window omit it. Fire-and-forget.
+   */
+  lifecycle?: {
+    endFlush(): void;
+  };
 }
 
 export interface CypherEditorCallbacks {

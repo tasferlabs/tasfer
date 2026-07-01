@@ -265,3 +265,109 @@ describe("block-drag-handle drag lifecycle", () => {
     expect(order(res!.state)).toEqual(["A", "B", "C", "D"]);
   });
 });
+
+// A block reorder must edge-scroll like the image-resize drag: dragging toward
+// a viewport edge scrolls the page so off-screen blocks become reachable drop
+// targets. The region opts in by activating auto-scroll from onMove and by
+// exposing the onAutoScrollTick/onAutoScrollScrolled hooks the frame loop drives.
+describe("block-drag-handle edge auto-scroll", () => {
+  let region: Region;
+  beforeEach(() => {
+    region = dragHandle();
+  });
+
+  // VIEWPORT.height is 800; EDGE_SCROLL_THRESHOLD is 80, so y > 720 is the
+  // bottom edge band and y < 80 the top band.
+  function draggingCtx(): RegionCtx {
+    const state = stateOf(["A", "B", "C", "D"]);
+    return ctxOf({
+      ...state,
+      ui: {
+        ...state.ui,
+        blockDrag: { blockId: "A", pointerY: 0, dropIndex: 0 },
+      },
+    });
+  }
+
+  it("onMove near an edge activates auto-scroll and records the pointer", () => {
+    const drag = region.drag;
+    if (!drag) throw new Error("expected a drag spec");
+    const ctx = draggingCtx();
+    drag.onMove({ x: 20, y: 760 }, ctx);
+    expect(ctx.session.autoScroll.isActive).toBe(true);
+    expect(ctx.session.autoScroll.lastPointerX).toBe(20);
+    expect(ctx.session.autoScroll.lastPointerY).toBe(760);
+  });
+
+  // A fast drag flicks the pointer from mid-canvas straight past the bottom in
+  // one step — the canvas never sees an in-band mousemove, only a window-level
+  // move at a y BEYOND the viewport (the host forwards it because a region drag
+  // owns the pointer). Auto-scroll must still activate from that past-edge y, or
+  // the reorder can't reach off-screen blocks. VIEWPORT.height is 800.
+  it("onMove past the bottom edge (y > viewport height) activates auto-scroll", () => {
+    const drag = region.drag;
+    if (!drag) throw new Error("expected a drag spec");
+    const ctx = draggingCtx();
+    drag.onMove({ x: 20, y: 900 }, ctx);
+    expect(ctx.session.autoScroll.isActive).toBe(true);
+    expect(ctx.session.autoScroll.lastPointerY).toBe(900);
+  });
+
+  it("onMove away from the edges stops an active auto-scroll", () => {
+    const drag = region.drag;
+    if (!drag) throw new Error("expected a drag spec");
+    const ctx = draggingCtx();
+    drag.onMove({ x: 20, y: 760 }, ctx); // activate at the bottom edge
+    drag.onMove({ x: 20, y: 400 }, ctx); // move back into the middle
+    expect(ctx.session.autoScroll.isActive).toBe(false);
+  });
+
+  it("onEnd and onCancel stop auto-scroll", () => {
+    const drag = region.drag;
+    if (!drag) throw new Error("expected a drag spec");
+    const endCtx = draggingCtx();
+    drag.onMove({ x: 20, y: 760 }, endCtx);
+    drag.onEnd(null, endCtx);
+    expect(endCtx.session.autoScroll.isActive).toBe(false);
+
+    const cancelCtx = draggingCtx();
+    drag.onMove({ x: 20, y: 760 }, cancelCtx);
+    drag.onCancel(cancelCtx);
+    expect(cancelCtx.session.autoScroll.isActive).toBe(false);
+  });
+
+  it("onAutoScrollTick never blocks scrolling (unlike a maxed image resize)", () => {
+    const drag = region.drag;
+    if (!drag) throw new Error("expected a drag spec");
+    expect(drag.onAutoScrollTick?.({ x: 20, y: 760 }, draggingCtx())).toEqual({
+      blockScroll: false,
+    });
+  });
+
+  it("onAutoScrollScrolled re-resolves the drop gap under a stationary pointer", () => {
+    const drag = region.drag;
+    if (!drag) throw new Error("expected a drag spec");
+    // A doc taller than the viewport so y=760 lands mid-document, not past the
+    // tail. The pointer holds at y=760 (bottom edge); after the viewport scrolls
+    // down 100px the same screen-y sits over a later block, so the gap advances.
+    const ids = Array.from({ length: 30 }, (_, i) => `b${i}`);
+    const state = stateOf(ids);
+    const before = dropIndexAtPoint(760, state, VIEWPORT);
+    const scrolled: ViewportState = { ...VIEWPORT, scrollY: 100 };
+    const ctx: RegionCtx = {
+      ...ctxOf({
+        ...state,
+        ui: {
+          ...state.ui,
+          blockDrag: { blockId: "b0", pointerY: 760, dropIndex: before },
+        },
+      }),
+      viewport: scrolled,
+    };
+    const next = drag.onAutoScrollScrolled?.({ x: 20, y: 760 }, 100, ctx);
+    expect(next?.ui.blockDrag?.dropIndex).toBe(
+      dropIndexAtPoint(760, state, scrolled),
+    );
+    expect(next?.ui.blockDrag?.dropIndex).toBeGreaterThan(before);
+  });
+});

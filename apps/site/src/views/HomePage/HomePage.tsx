@@ -8,14 +8,18 @@ import { loadArabicFonts } from "@/lib/fonts";
 import "./HomePage.css";
 
 const REPO_URL = "https://github.com/hamza512b/cypher";
-// The editor SPA (apps/web) is a separate app served at the app origin — same
-// origin behind the CDN in prod, a different port in dev. "open cypher" must be
-// a full-page navigation (plain <a>), not a next/link client route, or it never
-// leaves the marketing site. NEXT_PUBLIC_APP_URL overrides the base; "" = same
-// origin (the prod default), localhost:4000 is the dev fallback.
+// The editor SPA (apps/web) is a separate app served at its own origin
+// (https://cypher.md, the apex), while this marketing site is served from a
+// different origin (www.cypher.md). "open cypher" must therefore be an absolute
+// full-page navigation (plain <a>) to the app origin — a same-origin "/page" or
+// a next/link client route would resolve against the marketing site, which does
+// not serve the editor, and 404. NEXT_PUBLIC_APP_URL overrides the base;
+// https://cypher.md is the prod default, localhost:4000 is the dev fallback.
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ??
-  (process.env.NODE_ENV === "development" ? "http://localhost:4000" : "");
+  (process.env.NODE_ENV === "development"
+    ? "http://localhost:4000"
+    : "https://cypher.md");
 const APP_OPEN_URL = `${APP_URL}/page`;
 
 interface BeforeInstallPromptEvent extends Event {

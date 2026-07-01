@@ -58,6 +58,7 @@ import type {
 import { updateMode } from "../state-utils";
 import { CODE_FONT_FAMILY } from "../styles";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
+import { cardJoinFlags } from "../sync/reducer";
 import { type CodeToken, highlightLine } from "./code-highlight";
 import {
   type RenderLineTextArgs,
@@ -107,6 +108,8 @@ export const INSERT_TAB = stateAction("insert-tab", (state) => {
 export class CodeNode extends TextNode {
   readonly type = "code" as const;
   readonly types: readonly string[] = ["code"];
+  // All card blocks (code, math, quote) tile together when stacked.
+  readonly joinGroup = "card";
 
   protected estimateLayoutMaxWidth(
     _block: TextualBlock,
@@ -221,10 +224,25 @@ export class CodeNode extends TextNode {
 
     // Rounded background box behind the text. Spans the full block width; the
     // text inside is inset by paddingX / paddingTop via the layout hooks above.
+    // Adjacent code/math blocks (one shared card surface) square off the shared
+    // edge so their backgrounds tile into one continuous card, not a rounded seam.
+    const { joinTop, joinBottom } = cardJoinFlags(
+      c.state.nodes,
+      c.state.document.page.blocks,
+      c.blockIndex,
+    );
+    const topRadius = joinTop ? 0 : cs.borderRadius;
+    const bottomRadius = joinBottom ? 0 : cs.borderRadius;
     ctx.save();
     ctx.fillStyle = cs.backgroundColor;
     ctx.beginPath();
-    ctx.roundRect(x, y, c.maxWidth, layout.height, cs.borderRadius);
+    // roundRect radii order: [topLeft, topRight, bottomRight, bottomLeft].
+    ctx.roundRect(x, y, c.maxWidth, layout.height, [
+      topRadius,
+      topRadius,
+      bottomRadius,
+      bottomRadius,
+    ]);
     ctx.fill();
     ctx.restore();
 

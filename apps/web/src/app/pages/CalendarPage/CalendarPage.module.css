@@ -376,6 +376,67 @@
   flex-shrink: 0;
 }
 
+/* Mobile: collapsed schedule summary that expands into the rows above. */
+.previewDetails {
+  display: flex;
+  flex-direction: column;
+}
+
+.previewDetailsSummary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  cursor: pointer;
+}
+
+.previewDetailsSummary:hover {
+  background-color: var(--accent);
+}
+
+.previewDetailsSummaryText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.previewDetailsSummaryPrimary {
+  font-size: 0.875rem;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.previewDetailsSummaryMeta {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.previewDetailsChevron {
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.previewDetailsChevronOpen {
+  transform: rotate(180deg);
+}
+
+.previewDetailsBody {
+  overflow: hidden;
+}
+
 .previewTaskToggle {
   background: none;
   border: 1px solid var(--border);
@@ -461,10 +522,17 @@
 
 .previewDraftFooter {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   padding: 8px 12px;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--border);
+}
+
+.previewDraftShortcut {
+  margin-inline-end: auto;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
 }
 
 .previewResizeBarTop {

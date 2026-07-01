@@ -5,9 +5,10 @@ const config: CapacitorConfig = {
   appName: "Cypher",
   webDir: "dist",
   server: {
-    // For development, uncomment and set your dev server URL:
-    // url: "http://192.168.68.55:4000",
-    // cleartext: true,
+    // For development, uncomment and set your dev server URL. It must be HTTPS
+    // (served by `npm run dev:host` with an mkcert cert): the WebView only
+    // exposes crypto.subtle / OPFS in a secure context. See vite.config.ts.
+    url: "https://192.168.68.55:4000",
     hostname: "cypher.md",
     androidScheme: "https",
     allowNavigation: ["cypher.md"],

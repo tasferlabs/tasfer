@@ -32,6 +32,7 @@ import {
 } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
 import type { BlockHeightIndex } from "./block-height-index";
+import { caretLandingProgress, caretLandingShape } from "./caret-landing";
 import {
   allDecorations,
   type CaretDecoration,
@@ -1002,6 +1003,54 @@ function renderCaretDecorations(
  * Render only the cursor on a separate layer (for blink animation).
  * This is much faster than re-rendering the entire page.
  */
+/**
+ * Paint the local caret. When `landingStartedAt` marks a recent navigation, the
+ * caret is drawn mid-morph — a circle that squishes into the bar — otherwise as
+ * the plain vertical bar. Sets `fillStyle` to the cursor color either way.
+ */
+function drawCaret(
+  ctx: CanvasRenderingContext2D,
+  cursorPos: { x: number; y: number; height: number },
+  styles: EditorStyles,
+  landingStartedAt?: number | null,
+) {
+  ctx.fillStyle = styles.cursor.color;
+
+  const duration = styles.cursor.landingDuration;
+  const progress =
+    landingStartedAt != null
+      ? caretLandingProgress(Date.now(), landingStartedAt, duration)
+      : 1;
+
+  if (progress >= 1) {
+    ctx.fillRect(
+      cursorPos.x,
+      cursorPos.y,
+      styles.cursor.width,
+      cursorPos.height,
+    );
+    return;
+  }
+
+  const shape = caretLandingShape(
+    progress,
+    styles.cursor.width,
+    cursorPos.height,
+    styles.cursor.landingRadius,
+  );
+  const cx = cursorPos.x + styles.cursor.width / 2;
+  const cy = cursorPos.y + cursorPos.height / 2;
+  ctx.beginPath();
+  ctx.roundRect(
+    cx - shape.halfWidth,
+    cy - shape.halfHeight,
+    shape.halfWidth * 2,
+    shape.halfHeight * 2,
+    shape.cornerRadius,
+  );
+  ctx.fill();
+}
+
 export function renderCursorLayer(
   ctx: CanvasRenderingContext2D,
   session: InteractionSession,
@@ -1009,6 +1058,13 @@ export function renderCursorLayer(
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
   heightIndex?: BlockHeightIndex,
+  /**
+   * Timestamp (`Date.now()`-relative) at which the local caret last navigated to
+   * a new position, or `null` when no landing morph is in flight. Drives the
+   * circle-to-bar flourish; the surface keeps this layer repainting until the
+   * morph finishes.
+   */
+  caretLandingStartedAt?: number | null,
 ) {
   // Save context state
   ctx.save();
@@ -1151,9 +1207,9 @@ export function renderCursorLayer(
     return;
   }
 
-  // Draw the cursor
-  ctx.fillStyle = styles.cursor.color;
-  ctx.fillRect(cursorPos.x, cursorPos.y, styles.cursor.width, cursorPos.height);
+  // Draw the caret — as a plain bar, or mid-"landing" morph if it just moved
+  // here. Leaves fillStyle set to the cursor color for the touch handle below.
+  drawCaret(ctx, cursorPos, styles, caretLandingStartedAt);
 
   // Draw cursor drag handle on touch devices (small circle below cursor)
   if (isTouchDevice()) {

@@ -211,6 +211,17 @@ async function _initPlatformInner(): Promise<Platform> {
     console.error(`[Sync] Replicator failed to start: ${msg}`);
   });
 
+  // Make sync lifecycle-aware: pause/flush on app background, reconnect on
+  // foreground. Native (iOS/Android) drives this via window.__cypherLifecycle;
+  // the controller also self-wires a visibilitychange/pagehide fallback that is
+  // harmless on electron. HMR-safe: dispose any prior instance before wiring.
+  {
+    const { SyncLifecycleController } = await import("./sync-lifecycle");
+    _g.__cypher_syncLifecycle?.dispose?.();
+    const dispose = new SyncLifecycleController(replicator).install();
+    _g.__cypher_syncLifecycle = { dispose };
+  }
+
   _platform = engine;
   _g.__cypher_platform = engine;
   return _platform;

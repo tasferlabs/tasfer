@@ -59,6 +59,55 @@ describe("TextNode inline-math chip click → inside", () => {
     expect(index).toBe(start);
   });
 
+  describe("a selection confined within a chip hugs the selected row", () => {
+    // "aa $\frac{a}{b}$": "aa " is 0..2, the chip `\frac{a}{b}` spans [3, 14).
+    // Within the chip's LaTeX the numerator `a` is at offset 6 and the
+    // denominator `b` at offset 9 → block indices 9 and 12.
+    const fracBlock = loadPage("aa $\\frac{a}{b}$").blocks[0] as TextualBlock;
+    const fracLayout = node.computeLayout(
+      fracBlock,
+      1000,
+      styles,
+      undefined,
+      marks,
+    );
+    const lineHeight = fracLayout.lines[0].height;
+    const rectsFor = (from: number, to: number) =>
+      node.selectionRects(
+        fracLayout,
+        {
+          anchor: { blockIndex: 0, textIndex: from },
+          focus: { blockIndex: 0, textIndex: to },
+          isForward: true,
+        },
+        0,
+        0,
+        0,
+      );
+    const bounds = (from: number, to: number) => {
+      const rects = rectsFor(from, to);
+      const top = Math.min(...rects.map((r) => r.y));
+      const bottom = Math.max(...rects.map((r) => r.y + r.height));
+      return { rects, top, bottom, height: bottom - top };
+    };
+
+    it("selecting the denominator highlights only the denominator row, not the whole fraction", () => {
+      const denom = bounds(12, 13); // `b`
+      expect(denom.rects.length).toBeGreaterThan(0);
+      // The bug: the rect spanned the full (inflated) line box. It must now be
+      // meaningfully shorter than that box.
+      expect(denom.height).toBeLessThan(lineHeight * 0.7);
+    });
+
+    it("numerator and denominator selections sit on different rows", () => {
+      const numer = bounds(9, 10); // `a`
+      const denom = bounds(12, 13); // `b`
+      // Numerator is drawn above the denominator (smaller y = higher on screen).
+      expect(numer.top).toBeLessThan(denom.top);
+      expect(numer.bottom).toBeLessThanOrEqual(denom.top + 1);
+    });
+  });
+
   it("a selection edge inside a chip aligns with the caret there, not the chip's atomic edge", () => {
     // Selecting up to an interior chip offset must highlight to the glyph-accurate
     // x the caret sits at — not snap to the chip's left/right edge (the inline-math

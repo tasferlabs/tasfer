@@ -842,6 +842,76 @@ function computeSelectionRects(
     return rects;
   }
 
+  // Selection confined ENTIRELY within one replacement chip that paints its own
+  // per-row selection rects (inline math): highlight the selected glyphs' own
+  // rows instead of filling the chip's full (inflated) line box — so selecting a
+  // fraction's denominator lights up just the denominator, not the whole formula.
+  // A selection that also covers surrounding text falls through to the normal
+  // line-box fill below. LTR only; RTL chips fall through, matching the caret.
+  if (
+    !isRTL &&
+    marks &&
+    start.blockIndex === blockIndex &&
+    end.blockIndex === blockIndex &&
+    end.textIndex > start.textIndex
+  ) {
+    const confiningRun = replacementRuns(chars, formats, marks).find(
+      (r) =>
+        r.replacement.selectionRects &&
+        start.textIndex >= r.start &&
+        end.textIndex <= r.end,
+    );
+    if (confiningRun) {
+      const chipRects: Rect[] = [];
+      for (const line of layout.lines) {
+        // Selection ∩ line, then clip to the chip's fragment on this line (the
+        // chip may have wrapped across lines — work per fragment, like caretRect).
+        const selStart = Math.max(start.textIndex, line.startIndex);
+        const selEnd = Math.min(end.textIndex, line.endIndex);
+        if (selEnd <= selStart) continue;
+        const fragStart = Math.max(confiningRun.start, line.startIndex);
+        const fragEnd = Math.min(confiningRun.end, line.endIndex);
+        const fragText = confiningRun.text.slice(
+          fragStart - confiningRun.start,
+          fragEnd - confiningRun.start,
+        );
+        const rowRects = confiningRun.replacement.selectionRects?.(
+          fragText,
+          textStyle.fontSize,
+          selStart - fragStart,
+          selEnd - fragStart,
+          { caretOffset: selStart - fragStart, editing: false },
+        );
+        if (!rowRects || rowRects.length === 0) continue;
+        const chipLeft = measureLineWidth(
+          chars,
+          formats,
+          line.startIndex,
+          fragStart,
+          textStyle,
+          fontFamily,
+          fonts,
+          codePadding,
+          marks,
+          layout.replCharWidths,
+        );
+        const baselineY =
+          blockTopY +
+          line.y +
+          (line.baselineOffset ?? layout.fontMetrics.ascent);
+        for (const rr of rowRects) {
+          chipRects.push({
+            x: baseX + chipLeft + rr.x,
+            y: baselineY + rr.top,
+            width: rr.width,
+            height: rr.bottom - rr.top,
+          });
+        }
+      }
+      if (chipRects.length > 0) return chipRects;
+    }
+  }
+
   // LTR distance from a line's start to a selection boundary `index`, descending
   // INTO an inline replacement chip when the boundary falls strictly inside it —
   // mirroring `caretRect`, so a selection edge inside a chip lands at the same

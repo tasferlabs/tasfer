@@ -6,6 +6,7 @@
  */
 
 import { getBaseDataSchema } from "../baseDataSchema";
+import type { NodeRegistry } from "../rendering/nodes/Node";
 import {
   type Block,
   type Char,
@@ -736,6 +737,31 @@ export function findPreviousVisibleBlockIndex(
     }
   }
   return null;
+}
+
+/**
+ * Whether the card block at `index` visually joins the previous/next block into
+ * one continuous surface. Two adjacent blocks join when their nodes declare the
+ * same {@link Node.joinGroup} — the built-in card blocks (code, math, quote)
+ * share one group, so any two stacked cards tile together. Card-style nodes use
+ * this to square off the shared corner so abutting backgrounds meet instead of
+ * showing a rounded notch at the seam. A block whose node declares no group
+ * never joins. Tombstoned blocks between two members are skipped, so a deleted
+ * block never breaks a run.
+ */
+export function cardJoinFlags(
+  nodes: NodeRegistry,
+  blocks: Block[],
+  index: number,
+): { joinTop: boolean; joinBottom: boolean } {
+  const group = nodes.get(blocks[index].type)?.joinGroup;
+  if (group === undefined) return { joinTop: false, joinBottom: false };
+  const sameGroup = (i: number | null): boolean =>
+    i !== null && nodes.get(blocks[i].type)?.joinGroup === group;
+  return {
+    joinTop: sameGroup(findPreviousVisibleBlockIndex(blocks, index)),
+    joinBottom: sameGroup(findNextVisibleBlockIndex(blocks, index)),
+  };
 }
 
 /**

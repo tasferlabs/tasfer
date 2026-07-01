@@ -16,6 +16,13 @@ interface SnapshotPreviewProps {
   onRestore: () => void;
   onFork: () => void;
   isForking?: boolean;
+  /**
+   * When true, restoring in place is not a valid recovery (e.g. the page is
+   * corrupted, so its op-log deterministically rebuilds to the same broken
+   * state). Only Fork — which starts a clean page from these blocks — is
+   * offered.
+   */
+  forkOnly?: boolean;
 }
 
 export function SnapshotPreview({
@@ -24,6 +31,7 @@ export function SnapshotPreview({
   onRestore,
   onFork,
   isForking,
+  forkOnly,
 }: SnapshotPreviewProps) {
   const { t } = useTranslation();
 
@@ -70,17 +78,23 @@ export function SnapshotPreview({
       </div>
 
       {/* Footer: actions */}
-      <div className="flex items-center gap-2 p-3 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <Button onClick={onRestore} size="lg" className="flex-1">
-          <RotateCcw className="h-4 w-4 me-1.5" />
-          {t("common.restore", "Restore")}
-        </Button>
+      <div
+        className={`flex items-center gap-2 p-3 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 ${
+          forkOnly ? "justify-end" : ""
+        }`}
+      >
+        {!forkOnly && (
+          <Button onClick={onRestore} size="lg" className="flex-1">
+            <RotateCcw className="h-4 w-4 me-1.5" />
+            {t("common.restore", "Restore")}
+          </Button>
+        )}
         <Button
           onClick={onFork}
-          size="lg"
-          variant="outline"
+          size={forkOnly ? "default" : "lg"}
+          variant={forkOnly ? "default" : "outline"}
           disabled={isForking}
-          className="flex-1"
+          className={forkOnly ? "mr-auto" : "flex-1"}
         >
           <GitFork className="h-4 w-4 me-1.5" />
           {isForking

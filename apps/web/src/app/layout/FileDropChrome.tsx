@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
 import { Inbox } from "lucide-react";
-import clsx from "clsx";
 import type { ISpace } from "../api/spaces.api";
 import { SpacePickerDialog } from "../components/SpacePickerDialog";
 import type { useFileDropImport } from "../hooks/useFileDropImport";
@@ -9,9 +8,9 @@ type FileDrop = ReturnType<typeof useFileDropImport>;
 
 /**
  * The visual layer for window-level file drag-and-drop: the full-window "drop to
- * import" overlay (markdown/text/ZIP → pages), the import status toast, and the
- * space picker. The in-document image insertion line is painted by the editor
- * canvas itself, so it has no chrome here.
+ * import" overlay (markdown/text/ZIP → pages) and the space picker. Import status
+ * is surfaced through the global toast, and the in-document image insertion line
+ * is painted by the editor canvas itself, so neither needs chrome here.
  */
 export function FileDropChrome({
   fileDrop,
@@ -23,7 +22,6 @@ export function FileDropChrome({
   return (
     <>
       <DropImportOverlay visible={fileDrop.dragKind === "doc"} />
-      <DropNotice notice={fileDrop.notice} />
       <SpacePickerDialog
         open={fileDrop.spacePicker.open}
         spaces={spaces}
@@ -61,32 +59,6 @@ function DropImportOverlay({ visible }: { visible: boolean }) {
             )}
           </p>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function DropNotice({ notice }: { notice: FileDrop["notice"] }) {
-  const { t } = useTranslation();
-  if (!notice) return null;
-  return (
-    <div className="pointer-events-none fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 animate-in fade-in-0 slide-in-from-bottom-2 duration-150">
-      <div
-        className={clsx(
-          "flex items-center gap-2 rounded-full border px-4 py-2 text-sm shadow-lg",
-          notice.kind === "error"
-            ? "border-destructive/40 bg-background text-destructive"
-            : "border-border bg-background text-muted-foreground",
-        )}
-      >
-        {notice.kind === "importing" && (
-          <span className="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        )}
-        <span>
-          {notice.kind === "importing"
-            ? t("import.importing", "Importing...")
-            : notice.message}
-        </span>
       </div>
     </div>
   );

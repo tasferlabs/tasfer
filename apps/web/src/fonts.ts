@@ -38,6 +38,16 @@ for (const [path, url] of Object.entries(texFontModules)) {
   texFontUrls[file] = url;
 }
 
+/**
+ * Vite-hashed URL for a math font variant (e.g. `"Math-Italic"`), or undefined
+ * if unknown. Exposed so the export path can inline these WOFF2 faces as
+ * data-URL `@font-face`s — rendered math references the `CypherTeX_<Variant>`
+ * families, which aren't loaded in the isolated print/PDF context.
+ */
+export function getTexFontUrl(variant: string): string | undefined {
+  return texFontUrls[`KaTeX_${variant}.woff2`];
+}
+
 // The app's font families (key → CSS font-stack). These keys are what
 // PageSettingsContext selects between (via `fontStyleToFamily`).
 const POPPINS_STACK =

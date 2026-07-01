@@ -279,6 +279,26 @@ export function renderScrollbar(
 
   ctx.restore();
 
+  // Surface the user's own selection on the track (subtle span, drawn first so
+  // the peer/gutter markers sit on top of it).
+  const localSelection = calculateLocalSelectionSpan(
+    state,
+    viewport,
+    documentHeight,
+    heightIndex,
+  );
+  if (localSelection) {
+    renderScrollbarLocalSelection(
+      ctx,
+      viewport,
+      documentHeight,
+      localSelection,
+      styles,
+      opacity,
+      scale,
+    );
+  }
+
   // Render markers on the scrollbar for caret decorations (e.g. remote peers).
   const peerMarkers = calculateCaretMarkers(
     state,
@@ -597,6 +617,53 @@ export function renderScrollbarPeerMarkers(
 }
 
 /**
+ * Render the local user's own selection as a subtle span on the scroll track,
+ * so a selection that has been scrolled out of view is still locatable. Drawn
+ * at reduced alpha (and in the caret color) so it reads as an ambient hint
+ * rather than competing with the peer caret markers above it.
+ */
+function renderScrollbarLocalSelection(
+  ctx: CanvasRenderingContext2D,
+  viewport: ViewportState,
+  documentHeight: number,
+  span: { startRatio: number; endRatio: number; color: string },
+  styles: ScrollbarStyles = getScrollbarStyles(),
+  opacity: number = 1,
+  scale: number = 1,
+): void {
+  if (documentHeight <= viewport.height) {
+    return;
+  }
+
+  const trackWidth = styles.width * scale;
+  const safeAreaBottom = getSafeAreaBottom();
+  const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
+  const trackWidthDiff = trackWidth - styles.width;
+  const rtl = getDefaultDirection() === "rtl";
+  const trackX = rtl
+    ? styles.padding
+    : viewport.width - styles.width - styles.padding - trackWidthDiff;
+  const trackY = styles.padding;
+
+  const markerWidth = trackWidth;
+  // Clamp to a minimum height so a single-block (short) selection is still a
+  // visible bar rather than a hairline.
+  const minHeight = 4;
+  const rawTop = trackY + span.startRatio * trackHeight;
+  const rawBottom = trackY + span.endRatio * trackHeight;
+  const height = Math.max(minHeight, rawBottom - rawTop);
+  const y = rawTop - (height - (rawBottom - rawTop)) / 2;
+
+  ctx.save();
+  ctx.globalAlpha = opacity * 0.5;
+  ctx.fillStyle = span.color;
+  ctx.beginPath();
+  ctx.roundRect(trackX, y, markerWidth, height, markerWidth / 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
  * Render gutter markers on the scrollbar track for decorations that opted in
  * (`gutter: true`) — generic; the scrollbar knows nothing about "search". Each
  * marker is placed at its span's start block and drawn in the decoration's color.
@@ -734,6 +801,47 @@ export function applyMomentum(
 }
 
 /**
+ * Document Y position (cumulative height of blocks before `blockIndex`) for a
+ * block index into `state.document.page.blocks`. Reuses the prefix-sum height
+ * index when available — it gives the same offset in O(log n) without laying
+ * out every preceding block. Falls back to summing exact layout heights only
+ * when the index is absent. Returns null if the block doesn't exist or is
+ * deleted.
+ */
+function documentYForBlockIndex(
+  state: EditorState,
+  blockIndex: number,
+  maxWidth: number,
+  styles: ReturnType<typeof getEditorStyles>,
+  heightIndex?: BlockHeightIndex,
+): number | null {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return null;
+
+  const indexedOffset = heightIndex?.offsetOfOriginalIndex(blockIndex);
+  let documentY = styles.canvas.paddingTop;
+  if (indexedOffset !== undefined && indexedOffset !== null) {
+    documentY += indexedOffset;
+  } else {
+    const visibleBlocks = state.view.visibleBlocks;
+    for (let i = 0; i < visibleBlocks.length; i++) {
+      const visibleBlock = visibleBlocks[i];
+      if (visibleBlock.originalIndex >= blockIndex) break;
+      documentY += getBlockHeight(
+        state.nodes,
+        state.marks,
+        visibleBlock,
+        maxWidth,
+        styles,
+        i === 0,
+      );
+    }
+  }
+
+  return documentY;
+}
+
+/**
  * Calculate scrollbar marker positions for caret decorations (e.g. remote peer
  * cursors). Returns ratios (0-1) representing each caret's position in the
  * document, in the decoration's color.
@@ -755,34 +863,14 @@ function calculateCaretMarkers(
     const position = resolveDecorationPoint(deco.point, state.document.page);
     if (!position) continue;
 
-    const block = state.document.page.blocks[position.blockIndex];
-    if (!block || block.deleted) continue;
-
-    // Document Y position (cumulative height of blocks before this one). Reuse
-    // the prefix-sum height index when available — it gives the same offset in
-    // O(log n) without laying out every preceding block. Fall back to summing
-    // exact layout heights only when the index is absent.
-    const indexedOffset = heightIndex?.offsetOfOriginalIndex(
+    const documentY = documentYForBlockIndex(
+      state,
       position.blockIndex,
+      maxWidth,
+      styles,
+      heightIndex,
     );
-    let documentY = styles.canvas.paddingTop;
-    if (indexedOffset !== undefined && indexedOffset !== null) {
-      documentY += indexedOffset;
-    } else {
-      const visibleBlocks = state.view.visibleBlocks;
-      for (let i = 0; i < visibleBlocks.length; i++) {
-        const visibleBlock = visibleBlocks[i];
-        if (visibleBlock.originalIndex >= position.blockIndex) break;
-        documentY += getBlockHeight(
-          state.nodes,
-          state.marks,
-          visibleBlock,
-          maxWidth,
-          styles,
-          i === 0,
-        );
-      }
-    }
+    if (documentY === null) continue;
 
     // Calculate ratio
     const ratio = Math.max(0, Math.min(1, documentY / documentHeight));
@@ -790,4 +878,57 @@ function calculateCaretMarkers(
   }
 
   return markers;
+}
+
+/**
+ * Span (0-1 ratios) of the local user's own text selection in the document, so
+ * it can be surfaced on the scroll track — the same affordance remote peers get
+ * via caret markers. Returns null when there is no selection or the selection
+ * is collapsed to a caret (nothing meaningful to locate when scrolled away).
+ * Unlike peer markers this reads `state.document.selection` directly, since the
+ * local selection is not modeled as a decoration.
+ */
+function calculateLocalSelectionSpan(
+  state: EditorState,
+  viewport: ViewportState,
+  documentHeight: number,
+  heightIndex?: BlockHeightIndex,
+  styles = getEditorStyles(state),
+): { startRatio: number; endRatio: number; color: string } | null {
+  const selection = state.document.selection;
+  if (!selection || selection.isCollapsed) return null;
+
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+
+  const topIndex = Math.min(
+    selection.anchor.blockIndex,
+    selection.focus.blockIndex,
+  );
+  const bottomIndex = Math.max(
+    selection.anchor.blockIndex,
+    selection.focus.blockIndex,
+  );
+
+  const topY = documentYForBlockIndex(
+    state,
+    topIndex,
+    maxWidth,
+    styles,
+    heightIndex,
+  );
+  const bottomY = documentYForBlockIndex(
+    state,
+    bottomIndex,
+    maxWidth,
+    styles,
+    heightIndex,
+  );
+  if (topY === null || bottomY === null) return null;
+
+  return {
+    startRatio: Math.max(0, Math.min(1, topY / documentHeight)),
+    endRatio: Math.max(0, Math.min(1, bottomY / documentHeight)),
+    color: styles.cursor.color,
+  };
 }

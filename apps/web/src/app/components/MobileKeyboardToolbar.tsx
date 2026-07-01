@@ -97,23 +97,28 @@ export function MobileKeyboardToolbar({
   const [openPanelId, setOpenPanelId] = useState<string | null>(null);
   const { layout } = model;
 
-  // Publish the persistent bar's height as a global CSS var while this toolbar
-  // is mounted (it is only rendered when visible). Other bottom-anchored chrome
-  // that lives outside the editor tree — e.g. the BottomToolDock's dev-tools and
-  // word-count tags — adds it so it clears the bar instead of hiding behind it.
-  // The bar rides the keyboard, so consumers stack: base + keyboard inset + this.
-  // Cleared on unmount, so it is 0 whenever the toolbar is gone. Mirrors the
-  // existing `--devtool-height` / `--safe-area-inset-*` host-chrome vars.
-  const barRef = useRef<HTMLDivElement>(null);
+  // Publish the toolbar's full column height as a global CSS var while this
+  // toolbar is mounted (it is only rendered when visible). Other bottom-anchored
+  // chrome that lives outside the editor tree — e.g. the BottomToolDock's
+  // dev-tools and word-count tags — adds it so it clears the toolbar instead of
+  // hiding behind it. This measures the outer container, so it grows to include
+  // any transient panel opened above the persistent bar (the "more" drawer or a
+  // menu's options); the tags then ride up with the drawer rather than sitting
+  // behind it. `bottomInset` is applied via `bottom:`, not height, so it stays
+  // out of `offsetHeight`. The toolbar rides the keyboard, so consumers stack:
+  // base + keyboard inset + this. Cleared on unmount, so it is 0 whenever the
+  // toolbar is gone. Mirrors the existing `--devtool-height` /
+  // `--safe-area-inset-*` host-chrome vars.
+  const containerRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const root = document.documentElement;
     const measure = () => {
-      const height = barRef.current?.offsetHeight ?? 0;
+      const height = containerRef.current?.offsetHeight ?? 0;
       root.style.setProperty("--keyboard-toolbar-height", `${height}px`);
     };
     measure();
     const observer = new ResizeObserver(measure);
-    if (barRef.current) observer.observe(barRef.current);
+    if (containerRef.current) observer.observe(containerRef.current);
     return () => {
       observer.disconnect();
       root.style.removeProperty("--keyboard-toolbar-height");
@@ -191,6 +196,7 @@ export function MobileKeyboardToolbar({
 
   return (
     <div
+      ref={containerRef}
       data-editor-overlay
       className="fixed bottom-0 left-0 right-0 z-50 flex flex-col"
       style={{ bottom: `${model.bottomInset}px` }}
@@ -233,10 +239,7 @@ export function MobileKeyboardToolbar({
         </PanelRow>
       )}
 
-      <div
-        ref={barRef}
-        className="flex flex-row items-stretch border-t border-border bg-background h-12"
-      >
+      <div className="flex flex-row items-stretch border-t border-border bg-background h-12">
         <div className="flex shrink-0 flex-row items-center">
           {layout.left.map(renderItem)}
           {/* Zone divider between the pinned left cluster and the scrollable

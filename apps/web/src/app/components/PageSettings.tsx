@@ -164,6 +164,46 @@ function PageSettingsImpl({
     }
   };
 
+  // // Dev-only: force this page into the corrupted-recovery state by appending a
+  // // block_delete for every visible block. The deletes are minted with counters
+  // // strictly greater than the op-log frontier so they win the HLC sort and the
+  // // rebuild yields zero visible blocks (the app's definition of "corrupted").
+  // // Persisting to the op-log only takes effect on the next open, so we reload.
+  // const handleCorruptPage = async () => {
+  //   if (!currentPageId) return;
+  //   const confirmed = await getConfirmation({
+  //     title: t("dev.corruptPage", "Corrupt this page?"),
+  //     description: t(
+  //       "dev.corruptPageDescription",
+  //       "Dev only: soft-deletes every block in this page's op-log so it rebuilds to the corrupted-recovery screen. The page then reloads.",
+  //     ),
+  //     cancelText: t("common.cancel", "Cancel"),
+  //     confirmText: t("dev.corrupt", "Corrupt"),
+  //   });
+  //   if (!confirmed) return;
+
+  //   const platform = getPlatform();
+  //   const ops = await platform.ops.load(currentPageId);
+  //   const maxCounter = ops.reduce((m, o) => Math.max(m, o.clock.counter), 0);
+  //   const peerId = "__devcorrupt__";
+  //   const deleteOps: Operation[] = currentBlocks
+  //     .filter((b) => !b.deleted)
+  //     .map((b, i) => {
+  //       const counter = maxCounter + 1 + i;
+  //       return {
+  //         op: "block_delete",
+  //         blockId: b.id,
+  //         id: `${peerId}:${counter}`,
+  //         clock: { counter, peerId },
+  //         pageId: currentPageId,
+  //       };
+  //     });
+  //   if (deleteOps.length === 0) return;
+
+  //   await platform.ops.persist(currentPageId, deleteOps);
+  //   window.location.reload();
+  // };
+
   const triggerButton = (
     <Button
       variant="ghost"
@@ -337,6 +377,20 @@ function PageSettingsImpl({
           {t("snapshot.versionHistory", "Version history")}
         </Button>
       </div>
+
+      {/* {devToolsEnabled && !isViewOnly && (
+        <div className="py-4 border-t border-border px-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-destructive hover:text-destructive px-2 py-5"
+            onClick={handleCorruptPage}
+          >
+            <Bug className="h-4 w-4" />
+            {t("dev.corruptPageAction", "Corrupt this page")}
+          </Button>
+        </div>
+      )} */}
     </div>
   );
 

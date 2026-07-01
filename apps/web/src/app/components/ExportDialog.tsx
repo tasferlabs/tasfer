@@ -24,6 +24,7 @@ import { collectAssetRefs } from "@cypherkit/editor";
 import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
 import { imageCache } from "@cypherkit/editor/internal";
 import { getPlatform } from "@/platform";
+import { getTexFontUrl } from "@/fonts";
 import { getPage } from "../api/pages.api";
 import type { PageMetadata } from "@cypherkit/editor";
 import { downloadFile } from "@/downloadFile";
@@ -161,6 +162,38 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       reader.readAsDataURL(blob);
     });
 
+  // Rendered math is `<text>` bound to `CypherTeX_<Variant>` families that the
+  // app loads at runtime but the isolated print/PDF context never does. Inline
+  // the WOFF2 faces the document actually uses as data-URL `@font-face`s so the
+  // exported HTML is self-contained (same reason images become data URLs).
+  const buildMathFontFaceCss = async (
+    renderedHtml: string,
+  ): Promise<string> => {
+    const variants = new Set<string>();
+    for (const m of renderedHtml.matchAll(
+      /font-family="CypherTeX_([\w-]+)"/g,
+    )) {
+      variants.add(m[1]);
+    }
+    if (variants.size === 0) return "";
+
+    const faces = await Promise.all(
+      [...variants].map(async (variant) => {
+        const url = getTexFontUrl(variant);
+        if (!url) return null;
+        try {
+          const response = await fetch(url);
+          if (!response.ok) return null;
+          const dataUrl = await blobToDataUrl(await response.blob());
+          return `@font-face{font-family:'CypherTeX_${variant}';src:url(${dataUrl}) format('woff2');font-display:block;}`;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return faces.filter((f): f is string => f !== null).join("\n");
+  };
+
   const buildExportHtml = async (): Promise<string> => {
     // Resolve image URLs to data URLs so they survive across windows / native renderers
     const imageUrlMap = new Map<string, string>();
@@ -174,10 +207,15 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         }
       }
     }
-    return serializeToHTML(currentBlocks, {
-      title: getBaseName(),
-      imageUrlMap,
-    });
+
+    const title = getBaseName();
+    const html = serializeToHTML(currentBlocks, { title, imageUrlMap });
+
+    // If the document has math, re-emit with the used faces inlined so the
+    // formulas render in the print context. No math → the first pass is final.
+    const extraCss = await buildMathFontFaceCss(html);
+    if (!extraCss) return html;
+    return serializeToHTML(currentBlocks, { title, imageUrlMap, extraCss });
   };
 
   const printViaWindow = async (html: string) => {
@@ -369,7 +407,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-3 gap-3">
-            <button
+          <button
             onClick={handleExportPdf}
             disabled={isExporting}
             className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"

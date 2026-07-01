@@ -128,6 +128,25 @@ export interface MarkReplacementCaret {
   readonly bottom: number;
 }
 
+/**
+ * One highlight rectangle for a selected sub-range inside a replacement run, from
+ * {@link MarkReplacement.selectionRects}. The vertical analogue of
+ * {@link MarkReplacementCaret}: geometry is relative to the run (x from the left
+ * edge, top/bottom from the text baseline, +y down) so a sub-selection hugs the
+ * selected glyphs' own row — a fraction's denominator highlights just the
+ * denominator, not the whole formula's height.
+ */
+export interface MarkReplacementSelectionRect {
+  /** X from the run's left edge, CSS px. */
+  readonly x: number;
+  /** Rect top relative to the text baseline (negative = above), CSS px. */
+  readonly top: number;
+  /** Rect bottom relative to the text baseline (positive = below), CSS px. */
+  readonly bottom: number;
+  /** Rect width, CSS px. */
+  readonly width: number;
+}
+
 export interface MarkReplacementPaintCtx {
   readonly ctx: CanvasRenderingContext2D;
   /** The run's text (e.g. the LaTeX source for inline math). */
@@ -193,6 +212,22 @@ export interface MarkReplacement {
     localX: number,
     localY: number,
   ): number;
+  /**
+   * Highlight rectangles for a selected source sub-range `[start, end)` within
+   * the run — the selection analogue of {@link caretRect}. Lets a sub-selection
+   * hug the selected glyphs' own row (a fraction's denominator highlights just
+   * the denominator) instead of spanning the run's full line box. Omit to keep
+   * the run atomic for selection painting (the caller then fills the whole line
+   * box across the run). Used only when the selection is confined to this run;
+   * a selection that also covers surrounding text still fills the line box.
+   */
+  selectionRects?(
+    text: string,
+    fontSize: number,
+    start: number,
+    end: number,
+    edit?: MarkReplacementEdit,
+  ): MarkReplacementSelectionRect[];
   /**
    * Offsets *within* `text` where the run may be line-broken when it is too wide
    * to fit — letting the line-wrapper flow a long run across several lines instead

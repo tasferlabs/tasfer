@@ -1015,12 +1015,6 @@ function searchDecorations(
 const presenceLayer = (peerId: string) => `presence:${peerId}`;
 
 /**
- * Height reserved for the focus-driven {@link MobileKeyboardToolbar}, excluding
- * any Android IME inset reported separately by the native host.
- */
-const KEYBOARD_TOOLBAR_HEIGHT = 48;
-
-/**
  * Minimum visualViewport shrink (CSS px) that counts as an open soft keyboard on
  * plain web. Comfortably above transient chrome like the mobile URL bar, so a
  * touch-capable desktop — which never opens a soft keyboard — stays below it and
@@ -1684,24 +1678,32 @@ function EditorSurface({
   });
 
   // Keep the off-screen peer indicators clear of the platform safe area (notch,
-  // status bar, home indicator). Reading env(safe-area-inset-*) is a host
-  // concern; we feed the measured pixels into the indicator's themeable insets
-  // so the engine never needs to know what a safe area is. Re-applied on mount
-  // and whenever the insets change (orientation, etc.).
+  // home indicator). Reading env(safe-area-inset-*) is a host concern; we feed
+  // the measured pixels into the indicator's themeable insets so the engine
+  // never needs to know what a safe area is. Re-applied on mount and whenever
+  // the insets change (orientation, etc.).
+  //
+  // The TOP inset is deliberately NOT fed here: the app header (`.appHeader`)
+  // already reserves `safe-area-inset-top` in its own height and sits above the
+  // editor in flow, so the canvas top is already below the status bar/notch.
+  // Passing safeArea.top would double-count it and push the top ("above")
+  // indicator visibly down the viewport (most obvious on mobile). The bottom and
+  // leading edges get their insets because the canvas does reach the screen
+  // bottom (home indicator) and leading edge.
   const safeArea = useSafeAreaInsets();
   useEffect(() => {
     editor?.setTheme({
       styles: {
         remoteCursor: {
           outOfViewIndicator: {
-            insetTop: safeArea.top,
+            insetTop: 0,
             insetBottom: safeArea.bottom,
             insetInlineStart: safeArea.left,
           },
         },
       },
     });
-  }, [editor, safeArea.top, safeArea.bottom, safeArea.left]);
+  }, [editor, safeArea.bottom, safeArea.left]);
 
   // Push the selected editor width (wide/narrow page setting) into the live
   // editor as canvas padding. The canvas is headless (no CSS max-width), so a
@@ -3187,14 +3189,17 @@ function EditorSurface({
         "relative w-full h-full overflow-hidden focus:outline-none",
         className,
       )}
-      // Cap the canvas above the toolbar and the Android IME inset, when present.
-      style={
-        keyboardHeight > 0
-          ? {
-              height: `max(100px, calc(100% - ${keyboardHeight + KEYBOARD_TOOLBAR_HEIGHT}px))`,
-            }
-          : undefined
-      }
+      // Cap the canvas above the mobile toolbar and the Android IME inset. The
+      // toolbar publishes its live full height (persistent bar + any open drawer
+      // panel) as `--keyboard-toolbar-height` while mounted, 0px otherwise — so
+      // this shrinks the canvas by the real toolbar height, growing when the
+      // drawer opens. Keeping `viewport.height` accurate is what lets the engine
+      // pin bottom chrome (out-of-view peer indicators, the caret) above the
+      // toolbar instead of behind it. Both terms collapse to 0 when the keyboard
+      // and toolbar are gone, leaving the plain `h-full` height.
+      style={{
+        height: `max(100px, calc(100% - ${keyboardHeight}px - var(--keyboard-toolbar-height, 0px)))`,
+      }}
       // The editable surface and its ARIA semantics (role="textbox",
       // aria-label, aria-multiline) now live on the engine's contenteditable
       // input element; this wrapper is just a layout container.

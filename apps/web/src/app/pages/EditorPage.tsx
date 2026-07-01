@@ -411,14 +411,12 @@ export default function EditorPage() {
   const handleRestoreSnapshot = useCallback(
     (blocks: Block[]) => {
       if (!id) return;
-      if (restoreFnRef.current) {
-        // Normal restore through mounted editor (generates CRDT operations)
-        restoreFnRef.current(blocks);
-      } else {
-        // Corrupted state — no editor mounted, restore directly
-        setPageSnapshot(blocks);
-        setPersistedState(null);
-      }
+      // Restore only works through a mounted editor, where it emits CRDT ops
+      // against the live op-log. Without one (e.g. a corrupted page) an
+      // in-memory swap would not persist and the page would rebuild to the same
+      // broken state on reopen — that flow forks instead. See EditorCorruptedState.
+      if (!restoreFnRef.current) return;
+      restoreFnRef.current(blocks);
     },
     [id],
   );
@@ -855,9 +853,9 @@ function PageActionBar({ pageId }: { pageId: string }) {
         <MovePageButton pageId={pageId} currentParentId={page.parentId}>
           <button className={style.breadcrumbs} style={{ cursor: "pointer" }}>
             {page.parents &&
-              page.parents.length > 1 &&
+              page.parents.length >= 1 &&
               (() => {
-                const parentIdx = page.parents!.length - 2;
+                const parentIdx = page.parents!.length - 1;
                 const parent = page.parents![parentIdx];
                 const parentColor =
                   parent.color ??
@@ -915,9 +913,9 @@ function PageActionBar({ pageId }: { pageId: string }) {
       ) : (
         <div className={style.breadcrumbs}>
           {page?.parents &&
-            page.parents.length > 1 &&
+            page.parents.length >= 1 &&
             (() => {
-              const parentIdx = page.parents!.length - 2;
+              const parentIdx = page.parents!.length - 1;
               const parent = page.parents![parentIdx];
               const parentColor =
                 parent.color ??
@@ -1075,7 +1073,7 @@ function EditorCorruptedState() {
       <p className={style.appErrorDescription}>
         {t(
           "error.pageCorruptedDescription",
-          "The page content could not be loaded. You can restore a previous version or start with a blank page.",
+          "The page content could not be loaded. Restoring in place cannot recover it, but you can fork an earlier version into a fresh page.",
         )}
       </p>
       <div className="flex gap-3">
@@ -1087,6 +1085,7 @@ function EditorCorruptedState() {
       <SnapshotRestore
         open={showVersionHistory}
         onOpenChange={setShowVersionHistory}
+        forkOnly
       />
     </div>
   );

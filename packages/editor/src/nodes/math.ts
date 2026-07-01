@@ -37,6 +37,7 @@ import {
   needsCommandSeparator as texNeedsCommandSeparator,
   normalizeLatex as texNormalizeLatex,
   pendingCommandRange as texPendingCommandRange,
+  selectionRects as texSelectionRects,
   toSVG,
   unitAfter as texUnitAfter,
   unitAt as texUnitAt,
@@ -529,6 +530,16 @@ export function mathSplitAfterInput(
 }
 
 /**
+ * Sentence punctuation that reads as prose when typed flush against a chip's
+ * edge, so — like a space — it is left as plain text instead of being absorbed
+ * into the formula (`$x^2$` + `.` → `$x^2$.`). These marks are essentially never
+ * a meaningful leading/trailing math token. Brackets and parentheses are
+ * deliberately EXCLUDED: they are common math delimiters, so their edge behavior
+ * stays "extend the formula" and a user wanting them as prose leaves via a space.
+ */
+const EDGE_PROSE_PUNCTUATION = new Set([",", ".", ";", ":", "!", "?"]);
+
+/**
  * A non-space char just typed at an inline chip's OUTER edge joins the formula.
  *
  * Typing at a chip's `startIndex`/`endIndex` inserts the char *outside* the math
@@ -539,6 +550,8 @@ export function mathSplitAfterInput(
  * (`x^2|` + `z` → `x^2z`, `|x^2` + `a` → `ax^2`). A SPACE never joins — it is the
  * "leave the formula" gesture at a boundary (one at the right edge ends the chip,
  * one at the left edge stays plain text before it), so those keep landing outside.
+ * Sentence punctuation flush against an edge behaves the same way as a space (see
+ * {@link EDGE_PROSE_PUNCTUATION}): `$x^2$` + `,` stays `$x^2$,`, not `$x^2,$`.
  *
  * `caret` is the post-insert caret, so the freshly-typed char is at `caret − 1`.
  * Returns the block range `[from, to)` to (re-)mark as math (the whole grown
@@ -558,6 +571,11 @@ export function mathJoinAtEdgeAfterInput(
   const typed = caret - 1;
   const ch = getVisibleTextFromRuns(block.charRuns)[typed];
   if (ch === undefined || ch === " ") return null;
+  // Sentence punctuation flush against a chip reads as prose ending/preceding the
+  // formula, not a token of it — so, like a space, it must NOT be swallowed. This
+  // is what lets a formula be followed immediately by a comma/period without the
+  // punctuation vanishing into the math mark.
+  if (EDGE_PROSE_PUNCTUATION.has(ch)) return null;
 
   for (const span of getInlineMathSpans(block)) {
     // Right edge: the char landed just past the chip's last marked char.
@@ -897,6 +915,43 @@ export function getInlineMathCaretRect(
   const l = layoutMath(latex, { fontSize, displayMode: false, literalRange });
   const r = texCaretRect(l, offset);
   return r ? { x: r.x, top: r.top, bottom: r.bottom } : null;
+}
+
+/** One highlight rectangle for a selected sub-range inside a chip. */
+export interface InlineMathSelectionRect {
+  /** X from the chip's left edge, CSS px. */
+  readonly x: number;
+  /** Top relative to the chip baseline (negative = above), CSS px. */
+  readonly top: number;
+  /** Bottom relative to the chip baseline (positive = below), CSS px. */
+  readonly bottom: number;
+  /** Rect width, CSS px. */
+  readonly width: number;
+}
+
+/**
+ * Highlight rectangles for the selected source range `[start, end)` within a
+ * chip — the selection analogue of {@link getInlineMathCaretRect}. Rects are
+ * per visual row (x from the chip's left edge, top/bottom from the baseline, +y
+ * down), so a sub-selection hugs just the selected row (a fraction's denominator
+ * highlights the denominator, not the whole formula's height). Empty for empty
+ * input or an empty range.
+ */
+export function getInlineMathSelectionRects(
+  latex: string,
+  fontSize: number,
+  start: number,
+  end: number,
+  literalRange?: { start: number; end: number },
+): InlineMathSelectionRect[] {
+  if (!latex) return [];
+  const l = layoutMath(latex, { fontSize, displayMode: false, literalRange });
+  return texSelectionRects(l, start, end).map((r) => ({
+    x: r.x,
+    top: r.y,
+    bottom: r.y + r.height,
+    width: r.width,
+  }));
 }
 
 /**

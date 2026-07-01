@@ -18,7 +18,7 @@ import type {
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import type { NodeCodec } from "../serlization/codecs/types";
-import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
+import type { Char, CharRun, MarkSpan } from "../serlization/loadPage";
 import { NEWLINE, QUOTE } from "../serlization/tokenizer";
 import type {
   EditorState,
@@ -32,29 +32,11 @@ import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { orderKeyAfter } from "../sync/crdt-utils";
 import {
   applyOps,
+  cardJoinFlags,
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
 import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
-
-/**
- * Whether a quote at `index` visually joins the previous/next block into one
- * continuous card. Consecutive quotes are coupled: the inner corners square off
- * so the backgrounds tile seamlessly, the accent bar runs straight through the
- * seam, and only the run's first block draws the opening glyph. Tombstoned
- * blocks between two quotes are skipped (a deleted block never breaks a run).
- */
-export function quoteJoinFlags(
-  blocks: Block[],
-  index: number,
-): { joinTop: boolean; joinBottom: boolean } {
-  const prev = findPreviousVisibleBlockIndex(blocks, index);
-  const next = findNextVisibleBlockIndex(blocks, index);
-  return {
-    joinTop: prev !== null && blocks[prev].type === "quote",
-    joinBottom: next !== null && blocks[next].type === "quote",
-  };
-}
 
 export interface QuoteBlock extends BlockRuntimeState {
   type: "quote";
@@ -65,6 +47,7 @@ export interface QuoteBlock extends BlockRuntimeState {
 export class QuoteNode extends TextNode {
   readonly type = "quote" as const;
   readonly types: readonly string[] = ["quote"];
+  readonly joinGroup = "card";
   readonly strings = { placeholder: "Write something worth remembering…" };
 
   override textStyle(styles: EditorStyles): TextStyle {
@@ -135,10 +118,21 @@ export class QuoteNode extends TextNode {
   override paint(passedLayout: NodeLayout, c: NodePaintCtx): RenderedBlock {
     const layout = passedLayout as TextNodeLayout;
     const quote = c.styles.blocks.quote;
-    const { joinTop, joinBottom } = quoteJoinFlags(
-      c.state.document.page.blocks,
+    const blocks = c.state.document.page.blocks;
+    const { joinTop, joinBottom } = cardJoinFlags(
+      c.state.nodes,
+      blocks,
       c.blockIndex,
     );
+    // The card squares off against any adjacent card, but the accent bar only
+    // runs through a seam it shares with another quote (which draws a matching
+    // accent continuing the line). Against a different card type — e.g. a math
+    // block — the accent stays inset so the green line doesn't dangle past the
+    // quote into a neighbour that has no accent of its own.
+    const prev = findPreviousVisibleBlockIndex(blocks, c.blockIndex);
+    const next = findNextVisibleBlockIndex(blocks, c.blockIndex);
+    const accentJoinTop = prev !== null && blocks[prev].type === "quote";
+    const accentJoinBottom = next !== null && blocks[next].type === "quote";
     this.paintCard(
       c.ctx,
       c.origin.x,
@@ -149,14 +143,18 @@ export class QuoteNode extends TextNode {
       layout.isRTL,
       joinTop,
       joinBottom,
+      accentJoinTop,
+      accentJoinBottom,
     );
     return super.paint(passedLayout, c);
   }
 
   /**
-   * Draw the card chrome. `joinTop`/`joinBottom` couple this block with an
-   * adjacent quote: the joined edge squares off (so abutting cards tile into one
-   * shape) and the accent extends through the seam instead of insetting.
+   * Draw the card chrome. `joinTop`/`joinBottom` square off the shared edge when
+   * this block abuts any adjacent card, tiling the backgrounds into one shape.
+   * `accentJoinTop`/`accentJoinBottom` are the narrower quote-only coupling: the
+   * accent runs through the seam (instead of insetting) only where the neighbour
+   * is another quote whose accent continues the line.
    */
   private paintCard(
     ctx: CanvasRenderingContext2D,
@@ -168,6 +166,8 @@ export class QuoteNode extends TextNode {
     isRTL: boolean,
     joinTop: boolean,
     joinBottom: boolean,
+    accentJoinTop: boolean,
+    accentJoinBottom: boolean,
   ): void {
     const topRadius = joinTop ? 0 : style.borderRadius;
     const bottomRadius = joinBottom ? 0 : style.borderRadius;
@@ -191,10 +191,10 @@ export class QuoteNode extends TextNode {
     const accentX = isRTL
       ? x + width - style.paddingX - style.accentWidth
       : x + style.paddingX;
-    // Inset the accent by paddingY only on a free (unjoined) edge; on a seam it
+    // Inset the accent by paddingY on a free edge; on a quote-to-quote seam it
     // runs to the block boundary so it meets the neighbour's accent flush.
-    const accentTop = y + (joinTop ? 0 : style.paddingY);
-    const accentBottom = y + height - (joinBottom ? 0 : style.paddingY);
+    const accentTop = y + (accentJoinTop ? 0 : style.paddingY);
+    const accentBottom = y + height - (accentJoinBottom ? 0 : style.paddingY);
     const accentEndRadius = style.accentWidth / 2;
     ctx.roundRect(
       accentX,
@@ -202,10 +202,10 @@ export class QuoteNode extends TextNode {
       style.accentWidth,
       Math.max(0, accentBottom - accentTop),
       [
-        joinTop ? 0 : accentEndRadius,
-        joinTop ? 0 : accentEndRadius,
-        joinBottom ? 0 : accentEndRadius,
-        joinBottom ? 0 : accentEndRadius,
+        accentJoinTop ? 0 : accentEndRadius,
+        accentJoinTop ? 0 : accentEndRadius,
+        accentJoinBottom ? 0 : accentEndRadius,
+        accentJoinBottom ? 0 : accentEndRadius,
       ],
     );
     ctx.fill();

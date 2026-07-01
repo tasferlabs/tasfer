@@ -92,6 +92,7 @@ import {
   markCharsInRange,
   orderKeyAfter,
 } from "../sync/crdt-utils";
+import { cardJoinFlags } from "../sync/reducer";
 import {
   mathArmScratch,
   mathCaretMove,
@@ -154,6 +155,8 @@ interface MathNodeLayout extends TextNodeLayout {
 export class MathNode extends TextNode {
   readonly type = "math" as const;
   readonly types: readonly string[] = ["math"];
+  // All card blocks (code, math, quote) tile together when stacked.
+  readonly joinGroup = "card";
 
   /**
    * A math block is textual (its char-run text is the LaTeX), but the visible
@@ -276,7 +279,22 @@ export class MathNode extends TextNode {
       ? m.hoverBackgroundColor
       : styles.blocks.code.backgroundColor;
     ctx.beginPath();
-    ctx.roundRect(x, y, width, layout.height, m.hoverBorderRadius);
+    // Adjacent math/code blocks (one shared card surface) square off the shared
+    // edge so their backgrounds tile into one continuous card, not a rounded seam.
+    const { joinTop, joinBottom } = cardJoinFlags(
+      state.nodes,
+      state.document.page.blocks,
+      blockIndex,
+    );
+    const topRadius = joinTop ? 0 : m.hoverBorderRadius;
+    const bottomRadius = joinBottom ? 0 : m.hoverBorderRadius;
+    // roundRect radii order: [topLeft, topRight, bottomRight, bottomLeft].
+    ctx.roundRect(x, y, width, layout.height, [
+      topRadius,
+      topRadius,
+      bottomRadius,
+      bottomRadius,
+    ]);
     ctx.fill();
 
     if (!layout.mathLayout) {

@@ -347,6 +347,13 @@ interface PairingSession {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+/**
+ * Max time pause() waits for peer send buffers to drain before tearing down.
+ * Bounds the iOS background-task flush window — must stay well under the OS's
+ * background execution grace (~seconds).
+ */
+const FLUSH_TIMEOUT_MS = 2500;
+
 function encode(msg: Message): Uint8Array {
   let wire: any = msg;
 
@@ -422,6 +429,9 @@ export class Replicator {
     string,
     { timer: ReturnType<typeof setTimeout> | null; pending: CursorPresence | null }
   >();
+
+  /** True while suspended for app backgrounding (see pause()/resume()). */
+  private paused = false;
 
   /** Connection state */
   private connectionState: ConnectionState = "disconnected";
@@ -520,6 +530,77 @@ export class Replicator {
         break;
       }
     }
+    this.updateConnectionState();
+  }
+
+  /** True if a topic is already open for this peer. */
+  private hasTopicForPeer(publicKey: string): boolean {
+    for (const entry of this.topics.values()) {
+      if (entry.remotePubKey === publicKey) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Suspend sync for app backgrounding. Best-effort flushes in-flight sends,
+   * then closes every peer connection and suspends the signaling sockets —
+   * WITHOUT discarding trusted-peer topics, open rooms, or listeners, so
+   * resume() can rebuild the connection quickly. Idempotent.
+   *
+   * NOTE: on native the Engine's CRDT ops are already durable in SQLite, so
+   * "flush" here means completing the network exchange, not saving to disk.
+   */
+  async pause(): Promise<void> {
+    if (this.paused) return;
+    this.paused = true;
+    console.log("[Sync] pause");
+
+    // Give peer send buffers a bounded window to drain before teardown.
+    await this.network.flush?.(FLUSH_TIMEOUT_MS);
+
+    // Close peer connections; keep topics, rooms, and listeners intact.
+    for (const conn of this.peers.values()) {
+      conn.cleanup();
+      conn.netPeer.close();
+    }
+    this.peers.clear();
+    this.emitConnectedPeers();
+
+    // Suspend the signaling sockets and halt reconnect backoff. Topic objects
+    // and registered topic keys are preserved for resume().
+    await this.network.pause?.();
+
+    this.setConnectionState("disconnected");
+  }
+
+  /**
+   * Resume sync after foregrounding. Re-opens the suspended signaling sockets;
+   * peers rediscover each other and re-run the hello handshake, which itself
+   * re-announces our open rooms (see handleHello), so presence self-heals.
+   * Also connects any trusted peer added while backgrounded. Idempotent.
+   */
+  async resume(): Promise<void> {
+    if (!this.paused) return;
+    this.paused = false;
+    console.log("[Sync] resume");
+
+    // Re-open sockets suspended by pause(); existing topics reconnect and their
+    // onPeerJoin listeners re-fire handlePeerJoin → sendHello (a fresh round).
+    await this.network.resume?.();
+
+    // Connect trusted peers that gained trust while backgrounded (no topic yet).
+    const trustedPeers = await this.host.getTrustedPeers();
+    for (const peer of trustedPeers) {
+      if (peer.trusted && !this.hasTopicForPeer(peer.publicKey)) {
+        try {
+          await this.connectToPeer(peer.publicKey);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(`[Sync] resume: failed to connect to peer ${peer.publicKey.slice(0, 8)}: ${msg}`);
+        }
+      }
+    }
+
     this.updateConnectionState();
   }
 

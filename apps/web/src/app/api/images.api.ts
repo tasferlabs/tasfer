@@ -20,6 +20,26 @@ const COMPRESSION_OPTIONS = {
   fileType: "image/webp" as const,
 };
 
+/** Cheap pre-check so we only pull in the HEIC decoder when it's plausibly needed. */
+function looksHeic(file: File): boolean {
+  return /image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+}
+
+/**
+ * Decode HEIC/HEIF to JPEG. Browsers other than Safari can't paint HEIC to a
+ * canvas, so the editor and compression pipeline can't handle it — libheif (via
+ * `heic-to`, a wasm decoder loaded on demand) converts it up front, uniformly on
+ * every platform. Non-HEIC files pass straight through.
+ */
+async function decodeHeic(file: File): Promise<File> {
+  if (!looksHeic(file)) return file;
+  const { heicTo, isHeic } = await import("heic-to");
+  if (!(await isHeic(file))) return file;
+  const jpeg = await heicTo({ blob: file, type: "image/jpeg", quality: 0.92 });
+  const name = file.name.replace(/\.hei[cf]$/i, "") || "image";
+  return new File([jpeg], `${name}.jpg`, { type: "image/jpeg" });
+}
+
 async function compressFile(file: File): Promise<File> {
   // Skip SVGs and small files (< 500KB)
   if (file.type === "image/svg+xml" || file.size < 500 * 1024) {
@@ -46,14 +66,15 @@ function assetToImage(asset: Asset): IImage {
 
 // Upload image
 export async function uploadImage(file: File): Promise<IImage> {
-  const compressed = await compressFile(file);
+  const decoded = await decodeHeic(file);
+  const compressed = await compressFile(decoded);
   const platform = getPlatform();
   const asset = await platform.assets.store(compressed);
   return assetToImage(asset);
 }
 
 export function useUploadImage<TContext = unknown>(
-  options?: UseMutationOptions<IImage, Error, File, TContext>
+  options?: UseMutationOptions<IImage, Error, File, TContext>,
 ) {
   return useMutation({
     mutationFn: uploadImage,
@@ -72,7 +93,7 @@ export async function deleteImage(data: IDeleteImage): Promise<void> {
 }
 
 export function useDeleteImage<TContext = unknown>(
-  options?: UseMutationOptions<void, Error, IDeleteImage, TContext>
+  options?: UseMutationOptions<void, Error, IDeleteImage, TContext>,
 ) {
   return useMutation({
     mutationFn: deleteImage,
@@ -98,10 +119,16 @@ export function useAssetUrl(hash: string | null | undefined): string | null {
 
     let cancelled = false;
     getImageUrl(hash).then(
-      (resolved) => { if (!cancelled) setUrl(resolved); },
-      () => { if (!cancelled) setUrl(null); },
+      (resolved) => {
+        if (!cancelled) setUrl(resolved);
+      },
+      () => {
+        if (!cancelled) setUrl(null);
+      },
     );
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [hash]);
 
   return url;

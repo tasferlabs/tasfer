@@ -908,6 +908,14 @@ export interface CursorStyles {
   readonly width: number;
   readonly color: string;
   readonly blinkInterval: number;
+  /**
+   * Duration of the caret "landing" morph, in milliseconds — the circle-to-bar
+   * flourish played when the caret navigates to a new position. Set to 0 to
+   * disable the animation.
+   */
+  readonly landingDuration: number;
+  /** Radius of the circle the caret morphs from when it lands, in CSS pixels. */
+  readonly landingRadius: number;
   /** Radius of the touch-device cursor drag handle (the small circle). */
   readonly handleRadius: number;
   /** Height of the stem connecting the cursor to its touch drag handle. */

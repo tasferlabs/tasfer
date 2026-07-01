@@ -28,6 +28,67 @@ let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
+// ── Tiling window manager detection (Linux) ────────────────────────────────
+// i3, sway, bspwm and friends manage geometry themselves: minimizing an
+// Electron window there usually hides it with no taskbar to bring it back, and
+// "maximize" is meaningless. So we drop the minimize/maximize window controls
+// (and the matching native window capabilities) when running under one. This is
+// a best-effort read of the session environment — unknown means "not tiling",
+// i.e. show every control. Computed once at launch and surfaced to the renderer
+// (which draws the controls) over the `wm:tiling-sync` sync IPC via the preload.
+
+/** WM names (as they appear in the desktop/session env vars) that tile. */
+const TILING_WM_NAMES = [
+  "i3",
+  "sway",
+  "bspwm",
+  "dwm",
+  "awesome",
+  "xmonad",
+  "herbstluftwm",
+  "qtile",
+  "spectrwm",
+  "leftwm",
+  "hyprland",
+  "river",
+  "wmii",
+  "ratpoison",
+  "stumpwm",
+  "notion",
+  "dk",
+];
+
+function detectTilingWm(): boolean {
+  if (process.platform !== "linux") return false;
+
+  // WM-specific IPC sockets are the strongest signal when present.
+  if (
+    process.env.I3SOCK ||
+    process.env.SWAYSOCK ||
+    process.env.HYPRLAND_INSTANCE_SIGNATURE
+  ) {
+    return true;
+  }
+
+  // Otherwise match the session/desktop identifiers. These can be
+  // colon-separated lists (e.g. XDG_CURRENT_DESKTOP), so split before comparing.
+  const sources = [
+    process.env.XDG_CURRENT_DESKTOP,
+    process.env.XDG_SESSION_DESKTOP,
+    process.env.DESKTOP_SESSION,
+  ];
+  return sources.some((value) =>
+    value
+      ? value
+          .toLowerCase()
+          .split(":")
+          .some((name) => TILING_WM_NAMES.includes(name.trim()))
+      : false,
+  );
+}
+
+const isTilingWm = detectTilingWm();
+
 // ── Developer-tools setting ────────────────────────────────────────────────
 // The "Show Developer Tools" app-menu toggle. Persisted in a tiny JSON file in
 // userData (independent of the document DB) so it survives restarts, injected
@@ -70,7 +131,11 @@ function setDevToolsEnabled(value: boolean): void {
 
 // Dev mode: load from Vite dev server. Prod: load built files.
 const isDev = !app.isPackaged;
-const DEV_SERVER_URL = "http://localhost:4000";
+// Defaults to HTTPS so a single `npm run dev:host` server (which serves the LAN
+// over HTTPS with the mkcert cert; localhost is in its SAN and the mkcert CA is
+// in the system trust store) drives desktop and mobile at once. Override with
+// CYPHER_DEV_URL when running plain HTTP `npm run dev`.
+const DEV_SERVER_URL = process.env.CYPHER_DEV_URL ?? "https://localhost:4000";
 
 // Icons are bundled inside the asar via the `files` config
 const resourcesDir = isDev
@@ -104,6 +169,13 @@ function createWindow() {
       sandbox: false, // needed for better-sqlite3 native module
     },
   });
+
+  // Under a tiling WM, minimize/maximize don't apply — drop the native window
+  // capabilities to match the controls the renderer hides (see detectTilingWm).
+  if (isTilingWm) {
+    win.setMinimizable(false);
+    win.setMaximizable(false);
+  }
 
   // Remove native menu bar on Windows/Linux — we render a custom one in the
   // renderer (which reaches the "Show Developer Tools" toggle over IPC). macOS
@@ -289,6 +361,11 @@ app.whenReady().then(() => {
   // renderer-drawn menu (Windows/Linux) and returns the new value.
   ipcMain.on("devtools:get-sync", (e) => {
     e.returnValue = devToolsEnabled;
+  });
+  // Static launch-time flag for the renderer's window controls: true under a
+  // tiling WM, where minimize/maximize buttons are dropped.
+  ipcMain.on("wm:tiling-sync", (e) => {
+    e.returnValue = isTilingWm;
   });
   ipcMain.handle("devtools:toggle", () => {
     setDevToolsEnabled(!devToolsEnabled);

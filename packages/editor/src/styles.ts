@@ -388,6 +388,8 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       width: 2,
       color: t.cursor,
       blinkInterval: 530,
+      landingDuration: 190,
+      landingRadius: 6,
       handleRadius: 5,
       handleStemHeight: 3,
     },

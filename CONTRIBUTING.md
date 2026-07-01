@@ -65,6 +65,14 @@ app consumes `@cypherkit/editor`, `@cypherkit/tex`, and `@cypherkit/react` as ra
 TypeScript source via path aliases, so engine changes show up in `apps/web`
 without a separate build step.
 
+### Mobile & HTTPS Development
+
+The mobile WebViews (and any non-localhost browser) need a **secure context** for
+`crypto.subtle`, OPFS, and Web Locks, so the LAN dev server must be served over
+HTTPS with a locally trusted mkcert certificate. Generating the cert and trusting
+it on each device (including the per-device iOS Simulator step) is documented in
+[docs/ssl-dev-setup.md](docs/ssl-dev-setup.md).
+
 ### Project Structure
 
 ```

@@ -433,6 +433,7 @@ export function handleEvents(
       state,
       viewport,
       documentHeight,
+      visibility,
       session,
       updateViewport: updateViewportCallback,
     };

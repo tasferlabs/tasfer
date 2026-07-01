@@ -172,7 +172,11 @@ export function InviteMembersDialog({
   const content = (
     <div className="flex flex-col gap-4">
       {showTutorial && (
-        <P2PTutorial onComplete={handleTutorialComplete} />
+        <P2PTutorial
+          onComplete={handleTutorialComplete}
+          onCancel={() => onOpenChange(false)}
+          completeLabel={t("share.createInvite", "Create invite")}
+        />
       )}
 
       {!showTutorial && status === "generating" && (
@@ -344,9 +348,15 @@ export function InviteMembersDialog({
       <Drawer open={open} onOpenChange={onOpenChange}>
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
-            <DrawerHeader>
-              <DrawerTitle>{t("share.inviteMembers", "Invite members")}</DrawerTitle>
-            </DrawerHeader>
+            {showTutorial ? (
+              <DrawerTitle className="sr-only">
+                {t("share.inviteMembers", "Invite members")}
+              </DrawerTitle>
+            ) : (
+              <DrawerHeader>
+                <DrawerTitle>{t("share.inviteMembers", "Invite members")}</DrawerTitle>
+              </DrawerHeader>
+            )}
             <div className="px-4">{content}</div>
           </div>
         </DrawerContent>
@@ -357,12 +367,18 @@ export function InviteMembersDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[400px]">
-        <DialogHeader>
-          <DialogTitle>{t("share.inviteMembers", "Invite members")}</DialogTitle>
-          <DialogDescription>
-            {t("share.invitePeople", "Invite people to collaborate in this space")}
-          </DialogDescription>
-        </DialogHeader>
+        {showTutorial ? (
+          <DialogTitle className="sr-only">
+            {t("share.inviteMembers", "Invite members")}
+          </DialogTitle>
+        ) : (
+          <DialogHeader>
+            <DialogTitle>{t("share.inviteMembers", "Invite members")}</DialogTitle>
+            <DialogDescription>
+              {t("share.invitePeople", "Invite people to collaborate in this space")}
+            </DialogDescription>
+          </DialogHeader>
+        )}
         {content}
       </DialogContent>
     </Dialog>

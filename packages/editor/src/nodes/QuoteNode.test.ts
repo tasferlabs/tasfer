@@ -8,7 +8,8 @@ import type { CursorState, EditorState, Page } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getEditorStyles } from "../styles";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
-import { type QuoteBlock, quoteJoinFlags } from "./QuoteNode";
+import { cardJoinFlags } from "../sync/reducer";
+import { type QuoteBlock } from "./QuoteNode";
 import { describe, expect, it } from "vitest";
 
 describe("QuoteNode serialization", () => {
@@ -32,56 +33,64 @@ describe("QuoteNode serialization", () => {
   });
 });
 
-describe("quoteJoinFlags (consecutive-quote coupling)", () => {
-  const quote = (id: string): Block => quoteBlock("x", id);
-  const para = (id: string): Block => ({
-    id,
-    type: "paragraph",
-    charRuns: [],
-    formats: [],
-  });
+describe("cardJoinFlags (adjacent card coupling)", () => {
+  // Any state carries the full node registry; the join only reads each node's
+  // joinGroup, so one shared registry serves every fixture below.
+  const nodes = createInitialState(pageWith(paragraphBlock("x"))).nodes;
+  const join = (blocks: Block[], index: number) =>
+    cardJoinFlags(nodes, blocks, index);
+
+  const card =
+    (type: string) =>
+    (id: string): Block =>
+      ({ id, type, charRuns: [], formats: [] }) as Block;
+  const quote = card("quote");
+  const code = card("code");
+  const math = card("math");
+  const para = card("paragraph");
   const tombstone = (id: string): Block => ({ ...quote(id), deleted: true });
 
   it("leaves a standalone quote unjoined on both edges", () => {
     const blocks = [para("p0"), quote("q1"), para("p2")];
-    expect(quoteJoinFlags(blocks, 1)).toEqual({
-      joinTop: false,
-      joinBottom: false,
-    });
+    expect(join(blocks, 1)).toEqual({ joinTop: false, joinBottom: false });
   });
 
   it("joins the run boundaries: first joins down, last joins up", () => {
     const blocks = [quote("q0"), quote("q1"), quote("q2")];
-    expect(quoteJoinFlags(blocks, 0)).toEqual({
-      joinTop: false,
-      joinBottom: true,
-    });
-    expect(quoteJoinFlags(blocks, 1)).toEqual({
-      joinTop: true,
-      joinBottom: true,
-    });
-    expect(quoteJoinFlags(blocks, 2)).toEqual({
-      joinTop: true,
-      joinBottom: false,
-    });
+    expect(join(blocks, 0)).toEqual({ joinTop: false, joinBottom: true });
+    expect(join(blocks, 1)).toEqual({ joinTop: true, joinBottom: true });
+    expect(join(blocks, 2)).toEqual({ joinTop: true, joinBottom: false });
   });
 
   it("does not join across a non-quote neighbour", () => {
     const blocks = [quote("q0"), para("p1"), quote("q2")];
-    expect(quoteJoinFlags(blocks, 0)).toEqual({
-      joinTop: false,
-      joinBottom: false,
-    });
-    expect(quoteJoinFlags(blocks, 2)).toEqual({
-      joinTop: false,
-      joinBottom: false,
-    });
+    expect(join(blocks, 0)).toEqual({ joinTop: false, joinBottom: false });
+    expect(join(blocks, 2)).toEqual({ joinTop: false, joinBottom: false });
   });
 
   it("skips tombstoned blocks so a deleted block never breaks a run", () => {
     const blocks = [quote("q0"), tombstone("dead"), quote("q2")];
-    expect(quoteJoinFlags(blocks, 0).joinBottom).toBe(true);
-    expect(quoteJoinFlags(blocks, 2).joinTop).toBe(true);
+    expect(join(blocks, 0).joinBottom).toBe(true);
+    expect(join(blocks, 2).joinTop).toBe(true);
+  });
+
+  it("tiles code and math together — they share a card surface", () => {
+    const blocks = [code("c0"), math("m1"), code("c2")];
+    expect(join(blocks, 0)).toEqual({ joinTop: false, joinBottom: true });
+    expect(join(blocks, 1)).toEqual({ joinTop: true, joinBottom: true });
+    expect(join(blocks, 2)).toEqual({ joinTop: true, joinBottom: false });
+  });
+
+  it("tiles across card types — a quote meets an adjacent code block", () => {
+    const blocks = [quote("q0"), code("c1"), math("m2")];
+    expect(join(blocks, 0)).toEqual({ joinTop: false, joinBottom: true });
+    expect(join(blocks, 1)).toEqual({ joinTop: true, joinBottom: true });
+    expect(join(blocks, 2)).toEqual({ joinTop: true, joinBottom: false });
+  });
+
+  it("does not join a paragraph — it declares no join group", () => {
+    const blocks = [para("p0"), para("p1")];
+    expect(join(blocks, 0)).toEqual({ joinTop: false, joinBottom: false });
   });
 });
 

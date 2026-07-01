@@ -155,6 +155,13 @@ class CypherViewController: CAPBridgeViewController {
                         list: function(path) { return callStorage('list', { path: path }); },
                         exists: function(path) { return callStorage('exists', { path: path }); },
                         getInfo: function() { return callStorage('getStorageInfo', {}); }
+                    },
+                    lifecycle: {
+                        // Tell native the background-sync teardown finished so it
+                        // can release the beginBackgroundTask window early.
+                        endFlush: function() {
+                            window.webkit.messageHandlers.Lifecycle.postMessage({ action: 'flushComplete' });
+                        }
                     }
                 };
             })();
@@ -168,18 +175,21 @@ class CypherViewController: CAPBridgeViewController {
         let storageBridge = StorageBridge()
         let imagePickerCoordinator = ImagePickerCoordinator()
         let keyboardToolbarBridge = KeyboardToolbarBridge()
+        let lifecycleBridge = LifecycleBridge()
         clipboardBridge.imagePickerCoordinator = imagePickerCoordinator
 
         userContentController.add(clipboardBridge, name: "IOSBridge")
         userContentController.add(storageBridge, name: "Storage")
         userContentController.add(keyboardToolbarBridge, name: "KeyboardToolbar")
         userContentController.add(keyboardToolbarBridge, name: "KeyboardToolbarFocus")
+        userContentController.add(lifecycleBridge, name: "Lifecycle")
 
         // Store references so they aren't deallocated
         self._clipboardBridge = clipboardBridge
         self._storageBridge = storageBridge
         self._imagePickerCoordinator = imagePickerCoordinator
         self._keyboardToolbarBridge = keyboardToolbarBridge
+        self._lifecycleBridge = lifecycleBridge
 
         // Native context menu (iOS 16+). Registered only where the JS bridge
         // method above is exposed, so iOS 15 never posts to a missing handler.
@@ -225,6 +235,7 @@ class CypherViewController: CAPBridgeViewController {
         storageBridge.webView = webView
         storageBridge.presentingViewController = self
         keyboardToolbarBridge.webView = webView
+        lifecycleBridge.webView = webView
         if #available(iOS 16.0, *) {
             (self._contextMenuBridge as? ContextMenuBridge)?.webView = webView
         }
@@ -250,6 +261,7 @@ class CypherViewController: CAPBridgeViewController {
     private var _storageBridge: StorageBridge?
     private var _imagePickerCoordinator: ImagePickerCoordinator?
     private var _keyboardToolbarBridge: KeyboardToolbarBridge?
+    private var _lifecycleBridge: LifecycleBridge?
     // Type-erased so the property declaration doesn't reference the
     // iOS 16-only ContextMenuBridge type on a class that also runs on iOS 15.
     private var _contextMenuBridge: AnyObject?

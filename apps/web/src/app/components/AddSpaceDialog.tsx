@@ -41,14 +41,13 @@ import { z } from "zod";
 import { cancelPairing, useAcceptInvite, useCreateSpace } from "../api/spaces.api";
 import useResponsive from "../hooks/useResponsive";
 import { QRScannerView } from "./QRScannerView";
-import { P2PTutorial, hasSeenP2PTutorial } from "./P2PTutorial";
 
 interface AddSpaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-type View = "pick" | "create" | "join" | "tutorial-invite" | "tutorial-join";
+type View = "pick" | "create" | "join";
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -185,10 +184,6 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       onOpenChange(false);
       return;
     }
-    if (view === "tutorial-invite" || view === "tutorial-join") {
-      setView("pick");
-      return;
-    }
     setView("pick");
     setJoinStatus("input");
     setErrorMsg("");
@@ -202,13 +197,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       <div className="flex flex-col gap-2">
         <button
           type="button"
-          onClick={() => {
-            if (!hasSeenP2PTutorial()) {
-              setView("tutorial-invite");
-            } else {
-              setView("create");
-            }
-          }}
+          onClick={() => setView("create")}
           className="group flex items-center gap-3 rounded-lg border border-border p-3.5 text-start transition-colors hover:border-primary/40 hover:bg-primary/5"
         >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
@@ -227,13 +216,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
 
         <button
           type="button"
-          onClick={() => {
-            if (!hasSeenP2PTutorial()) {
-              setView("tutorial-join");
-            } else {
-              setView("join");
-            }
-          }}
+          onClick={() => setView("join")}
           className="group flex items-center gap-3 rounded-lg border border-border p-3.5 text-start transition-colors hover:border-primary/40 hover:bg-primary/5"
         >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
@@ -469,17 +452,10 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
     : joinStatus === "done" ? joinDoneView
     : joinErrorView;
 
-  const tutorialView = (view === "tutorial-invite" || view === "tutorial-join") ? (
-    <P2PTutorial
-      onComplete={() => setView(view === "tutorial-invite" ? "create" : "join")}
-    />
-  ) : null;
-
   // --- Header ---
   const title =
     view === "pick" ? t("space.addSpace", "Add space")
     : view === "create" ? t("space.createNewSpace", "Create new space")
-    : view === "tutorial-invite" || view === "tutorial-join" ? t("p2pTutorial.title", "Before you start")
     : t("space.joinSpace", "Join space");
 
   const header = (
@@ -498,7 +474,6 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   );
 
   const body = view === "pick" ? pickView
-    : view === "tutorial-invite" || view === "tutorial-join" ? tutorialView
     : view === "create" ? createView
     : joinView;
 

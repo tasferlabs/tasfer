@@ -111,36 +111,39 @@ const COMMANDS: readonly MathCommand[] = [
     latex: "\\bigcap_{}^{}",
   },
   { id: "lim", name: "Limit", keywords: ["limit"], latex: "\\lim_{}" },
-  { id: "int", name: "Integral", keywords: ["integral"], latex: "\\int_{}^{}" },
+  // Integrals insert bare — their limits are optional (indefinite integrals
+  // carry none), so we don't force empty sub/superscript slots the way the
+  // stacked-limit operators above (\sum, \prod, …) do. Add limits with `_`/`^`.
+  { id: "int", name: "Integral", keywords: ["integral"], latex: "\\int" },
   {
     id: "iint",
     name: "Double integral",
     keywords: ["integral", "double"],
-    latex: "\\iint_{}^{}",
+    latex: "\\iint",
   },
   {
     id: "iiint",
     name: "Triple integral",
     keywords: ["integral", "triple"],
-    latex: "\\iiint_{}^{}",
+    latex: "\\iiint",
   },
   {
     id: "oint",
     name: "Contour integral",
     keywords: ["integral", "contour", "loop"],
-    latex: "\\oint_{}^{}",
+    latex: "\\oint",
   },
   {
     id: "oiint",
     name: "Surface integral",
     keywords: ["integral", "surface", "closed", "double", "cyclic"],
-    latex: "\\oiint_{}^{}",
+    latex: "\\oiint",
   },
   {
     id: "oiiint",
     name: "Volume integral",
     keywords: ["integral", "volume", "closed", "triple", "cyclic"],
-    latex: "\\oiiint_{}^{}",
+    latex: "\\oiiint",
   },
 
   // Matrices

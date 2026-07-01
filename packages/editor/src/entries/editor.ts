@@ -31,6 +31,7 @@ import {
 import { COPY, CUT } from "../actions/input-actions";
 import { BLUR_SELECTION_CLEAR_DELAY } from "../constants";
 import { IS_DEV } from "../env";
+import { edgeScrollDelta } from "../events/autoScroll";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
 import { handleEvents } from "../events/events";
 import {
@@ -43,9 +44,11 @@ import {
   clampMirrorStartToSpans,
   computeSurfaceDelta,
   currentWordStart,
+  hasSentinel,
   isEmptyDelta,
   isWordBoundaryChar,
   sentenceStartOffset,
+  stripSentinel,
   SURFACE_SENTINEL,
 } from "../input-diff";
 import { getBlockTextContent, isAndroid, isIOS } from "../node-shared";
@@ -510,6 +513,21 @@ export interface EditorViewApi {
   showDropIndicator: (
     client: { x: number; y: number } | null,
   ) => DocPoint | null;
+  /**
+   * Advance edge auto-scroll for an external drag and refresh the drop line —
+   * one frame's worth. Native HTML5 drags emit only `drag*` events (never
+   * `pointermove`), so the engine's pointer-driven auto-scroll can't see them;
+   * a host drives this from its own `requestAnimationFrame` loop while a file
+   * drag is in flight, passing the latest `clientX`/`clientY`. When the pointer
+   * sits within the edge band the viewport scrolls (clamped to the document),
+   * then the insertion line is re-resolved against the new scroll — same
+   * geometry and DocPoint contract as {@link showDropIndicator}. A pointer away
+   * from both edges scrolls nothing but still refreshes the line. Pass `null`
+   * on drag-leave/drop to reset. Purely ephemeral chrome: no op, not in undo.
+   */
+  edgeScrollForDrag: (
+    client: { x: number; y: number } | null,
+  ) => DocPoint | null;
 }
 
 /**
@@ -942,6 +960,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   } | null = null;
 
   private lastCursorBlinkState = false; // Track cursor blink state changes
+
+  // Timestamp of the caret's most recent navigation, driving the "landing"
+  // morph (circle → bar). `null` when no morph is in flight. See caret-landing.
+  private caretLandingStartedAt: number | null = null;
+  // Set when a mouse click (non-touch) is dispatched, so the landing morph plays
+  // only when the caret *jumps* to a clicked location — not on keyboard movement
+  // or touch. Consumed on the next rendered frame.
+  private caretJumpPending = false;
+  private readonly reducedMotionQuery =
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)")
+      : null;
 
   private readonly eventsQueue: Event[] = [];
   private readonly listeners: ((state: EditorState) => void)[] = [];
@@ -1458,11 +1488,28 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         }
 
         // Check if cursor position changed (requires cursor layer update)
-        if (
+        const cursorPositionChanged =
           prevState.document.cursor?.position !==
-          this._state.document.cursor?.position
-        ) {
+          this._state.document.cursor?.position;
+        if (cursorPositionChanged) {
           this.dirtyLayers.cursor = true;
+        }
+
+        // Start the caret "landing" morph only when the caret *jumps* to a
+        // clicked location (mouse only — `caretJumpPending`). Not on keyboard
+        // movement, not on touch, and not when it advances because content was
+        // typed or deleted (a content edit swaps the page reference).
+        const contentChanged =
+          prevState.document.page !== this._state.document.page;
+        if (
+          this.caretJumpPending &&
+          cursorPositionChanged &&
+          !contentChanged &&
+          prevState.document.cursor &&
+          this._state.document.cursor &&
+          !this.reducedMotionQuery?.matches
+        ) {
+          this.caretLandingStartedAt = Date.now();
         }
 
         // Check if focus changed (affects cursor visibility)
@@ -1501,6 +1548,24 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // Cursor blink only affects cursor layer
       if (cursorBlinkChanged) {
         this.dirtyLayers.cursor = true;
+      }
+
+      // A pending jump is consumed by the frame that follows its click, whether
+      // or not the caret ended up moving — never let it carry into a later frame
+      // and mis-trigger on keyboard movement.
+      this.caretJumpPending = false;
+
+      // Keep the cursor layer repainting while a caret-landing morph is in
+      // flight, then clear the marker so the caret settles to a static bar.
+      if (this.caretLandingStartedAt !== null) {
+        const elapsed = Date.now() - this.caretLandingStartedAt;
+        const landingDuration = getEditorStyles(this._state).cursor
+          .landingDuration;
+        if (elapsed >= landingDuration) {
+          this.caretLandingStartedAt = null;
+        } else {
+          this.dirtyLayers.cursor = true;
+        }
       }
 
       // Render dirty layers
@@ -1597,6 +1662,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             this.viewport,
             getEditorStyles(this._state),
             this.blockHeights,
+            this.caretLandingStartedAt,
           );
           this.dirtyLayers.cursor = false;
         }
@@ -1717,6 +1783,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // selectstart/dragstart are already prevented on the canvas.
     if (e.type === "mousedown" && (e as MouseEvent).button === 0) {
       e.preventDefault();
+      // A left click that lands the caret elsewhere is a "jump" — arm the
+      // landing morph for this frame. Ignored on touch (where `mousedown` is
+      // synthesized but never places the caret).
+      if (!isTouchDevice()) this.caretJumpPending = true;
     }
 
     // Paste is handled by the contenteditable surface's `paste` listener
@@ -1733,10 +1803,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private windowMouseMoveHandler = (e: Event) => {
+    // Forward window-level moves whenever a drag owns the pointer, so a gesture
+    // that runs past the canvas edge keeps being tracked. Text selection is a
+    // mode (not a captured region); scrollbar/image-resize/block-reorder are
+    // captured region drags. A captured drag needs these to reach its edge zone:
+    // a fast flick can jump from mid-canvas straight past the bottom without a
+    // canvas mousemove ever landing in the 80px edge band, so without the
+    // window move its edge auto-scroll would never activate. Named
+    // node-agnostically via `session.captured` — no region type appears here.
     if (
       this._state &&
       (this._state.view.scrollbar.isDragging ||
-        this._state.ui.mode === "select")
+        this._state.ui.mode === "select" ||
+        this.session.captured !== null)
     ) {
       this.eventsQueue.push(e);
     }
@@ -2368,9 +2447,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
     const docRegion = text.slice(mirrorStart, caret.offset);
-    const newRegion = newSurface.startsWith(this.SENTINEL)
-      ? newSurface.slice(this.SENTINEL.length)
-      : newSurface;
+    // Strip the leading sentinel tolerantly: the browser may have substituted
+    // the regular-space sentinel with an NBSP, which must NOT be diffed into the
+    // document as a leading space (see `stripSentinel`).
+    const newRegion = stripSentinel(newSurface, this.SENTINEL);
 
     const delta = computeSurfaceDelta(docRegion, newRegion);
     if (isEmptyDelta(delta)) {
@@ -2550,10 +2630,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
 
     const newSurface = this.hiddenInput.textContent ?? "";
-    const sentinelLen = this.SENTINEL.length;
 
-    // The surface lost its leading sentinel.
-    if (!newSurface.startsWith(this.SENTINEL)) {
+    // The surface lost its leading sentinel. A browser that substituted the
+    // regular-space sentinel with an NBSP still COUNTS as carrying it
+    // (`hasSentinel`), so its body is read below and the substitute never leaks
+    // into the document; this fires only when the sentinel is genuinely gone.
+    if (!hasSentinel(newSurface, this.SENTINEL)) {
       if (isBackwardDelete) {
         // The delete consumed the whole mirrored region (it was just the bare
         // sentinel — caret at a sentence start with no context): let the
@@ -2573,10 +2655,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // Android. Any context prefix is identical between frames while typing within
     // a sentence, so an append / single backspace shows up as a one-character
     // change at the end exactly as it does when the surface holds only the word.
-    const prevRegion = this.lastSurfaceValue.startsWith(this.SENTINEL)
-      ? this.lastSurfaceValue.slice(sentinelLen)
+    const prevRegion = hasSentinel(this.lastSurfaceValue, this.SENTINEL)
+      ? stripSentinel(this.lastSurfaceValue, this.SENTINEL)
       : "";
-    const newRegion = newSurface.slice(sentinelLen);
+    const newRegion = stripSentinel(newSurface, this.SENTINEL);
 
     // No textual change (e.g. a caret-only input event).
     if (newRegion === prevRegion) {
@@ -3338,6 +3420,51 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (index <= 0 || blocks.length === 0) return "start";
     const before = blocks[Math.min(index, blocks.length) - 1];
     return { block: before.id, side: "after" };
+  };
+
+  edgeScrollForDrag = (
+    client: { x: number; y: number } | null,
+  ): DocPoint | null => {
+    if (client === null) return null;
+
+    if (this.rectNeedsUpdate) this.updateCachedRect();
+    const canvasX = client.x - this.cachedRect.left;
+    const canvasY = client.y - this.cachedRect.top;
+    // Outside the canvas (e.g. over the sidebar) — nothing to scroll or mark.
+    if (
+      canvasX < 0 ||
+      canvasX > this.viewport.width ||
+      canvasY < 0 ||
+      canvasY > this.viewport.height
+    ) {
+      return null;
+    }
+
+    // Constant edge speed, proximity-scaled — matching the pointer-driven block
+    // reorder and image-resize drags (no time-based acceleration). Clamp the new
+    // offset to the document bounds before committing it as a programmatic scroll
+    // (the native-drag path is host-driven, so it bypasses the SCROLL funnel).
+    const delta = edgeScrollDelta(canvasY, this.viewport.height, {
+      accelerate: false,
+      elapsedMs: 0,
+    });
+    if (delta !== 0) {
+      const maxScroll = Math.max(
+        0,
+        this.calculateDocumentHeight() - this.viewport.height,
+      );
+      const newScrollY = Math.max(
+        0,
+        Math.min(maxScroll, this.viewport.scrollY + delta),
+      );
+      if (newScrollY !== this.viewport.scrollY) {
+        this.applyProgrammaticScroll(newScrollY);
+      }
+    }
+
+    // Re-resolve the insertion line against the (possibly) scrolled viewport so
+    // it tracks the content moving under a stationary pointer.
+    return this.showDropIndicator(client);
   };
 
   // Raw state firehose (EditorWiring) — the internal primitive every public
@@ -4779,6 +4906,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     setDecorations: this.setDecorations,
     clearDecorations: this.clearDecorations,
     showDropIndicator: this.showDropIndicator,
+    edgeScrollForDrag: this.edgeScrollForDrag,
   };
 
   host: EditorHostApi = {
