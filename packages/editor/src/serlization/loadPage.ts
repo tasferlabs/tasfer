@@ -6,6 +6,7 @@ import type { VisualBlock } from "../rendering/nodes/AtomicNode";
 import type { BlockRuntimeState } from "../rendering/nodes/Node";
 import type { DataSchema } from "../sync/schema";
 import type { HLC } from "../sync/sync";
+import { normalizeBlocks } from "./normalize";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
 
@@ -207,6 +208,27 @@ export function loadPage(content: string, schema?: DataSchema): Page {
   const tokens = tokenizePage(body);
   const page = parsePage(tokens, schema);
   if (metadata) page.metadata = metadata;
+  // Coerce the parsed blocks to the schema's authoring allow-list — the import
+  // analogue of paste normalization (a no-op for an unrestricted schema, so the
+  // body editor is unaffected). parsePage already guarantees ≥1 block; if every
+  // block is a disallowed void type and gets dropped, seed one empty fallback
+  // block (reusing the first block's identity) so the page is never empty.
+  if (schema) {
+    const normalized = normalizeBlocks(page.blocks, schema);
+    if (normalized.length > 0) {
+      page.blocks = normalized;
+    } else {
+      const first = page.blocks[0];
+      const seeded = first
+        ? schema.createDefaultBlock(
+            schema.fallbackBlockType(),
+            first.id,
+            first.orderKey ?? "",
+          )
+        : undefined;
+      if (seeded) page.blocks = [seeded];
+    }
+  }
   return page;
 }
 /**

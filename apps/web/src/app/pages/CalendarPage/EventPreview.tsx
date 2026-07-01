@@ -9,15 +9,18 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
-import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { BottomSheet } from "@/components/ui/bottom-sheet";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { Block } from "@cypherkit/editor";
-import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
+import { createDoc, type Block, type Doc } from "@cypherkit/editor";
+import {
+  cleanSnapshotForSave,
+  extractTitleFromBlocks,
+} from "@cypherkit/editor/internal";
 import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -52,6 +55,9 @@ import { useSpaces } from "../../contexts/SpaceContext";
 import { useDebouncedSave } from "../../hooks/useDebouncedSave";
 import useResponsive from "../../hooks/useResponsive";
 import { MountedEditor } from "../../MountedEditor";
+import { TitleEditor } from "../../TitleEditor";
+import { appSchema } from "../../../editorSchema";
+import { DraftTagPicker } from "./DraftTagPicker";
 import type { DraftEvent } from "./CalendarPage";
 import style from "./CalendarPage.module.css";
 
@@ -154,6 +160,8 @@ export function EventPreview({
   onSidebarModeChange,
   draft,
   onDraftSave,
+  onDraftScheduleChange,
+  onDraftContentChange,
 }: {
   pageId: string | null;
   anchor: DOMRect | null;
@@ -167,6 +175,12 @@ export function EventPreview({
     parentId?: string | null,
     task?: boolean,
   ) => void;
+  // Draft schedule edits flow up so the grid's `__draft__` card stays in sync
+  // with the sheet's date/duration fields (two-way with grid drag/resize).
+  onDraftScheduleChange?: (scheduledAt: string, duration: number) => void;
+  // Reports whether the draft has a typed title, so the host can guard
+  // navigation away from an in-progress draft.
+  onDraftContentChange?: (hasContent: boolean) => void;
 }) {
   const { t } = useTranslation();
   const isRtl = i18next.dir() === "rtl";
@@ -186,6 +200,12 @@ export function EventPreview({
   // into a single summary line and expand on tap. Collapsed by default so the
   // title editor leads; reset whenever a different preview opens.
   const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // The draft edits a lightweight, local-only CRDT doc through the compact
+  // TitleEditor (a single-heading window) instead of mounting the full page
+  // editor for what is only an event title. Created when a draft opens and
+  // destroyed on close; existing events still use the full MountedEditor.
+  const [draftDoc, setDraftDoc] = useState<Doc | null>(null);
 
   // Remember the last user-resized dimensions across event switches
   const lastSizeRef = useRef({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
@@ -255,16 +275,20 @@ export function EventPreview({
   }, [setHasPanel]);
 
   // When opening a new preview, restore the last user-resized dimensions
-  // but recompute position from anchor so the active event stays visible
+  // but recompute position from anchor so the active event stays visible.
+  // Keyed on draft *presence*, not the draft object: editing the draft's
+  // schedule mints a new draft object every change, and re-running this would
+  // wipe the space picker / collapse the details mid-edit.
+  const draftActive = !!draft;
   useEffect(() => {
-    if (pageId || draft) {
+    if (pageId || draftActive) {
       setSize({ ...lastSizeRef.current });
       setPos(null); // will be computed from anchor
       setDraftParent(null);
       setDraftIsTask(true);
       setDetailsOpen(false);
     }
-  }, [pageId, draft]);
+  }, [pageId, draftActive]);
 
   // Compute initial position from anchor (only when pos is null)
   const computed = useMemo(
@@ -609,13 +633,40 @@ export function EventPreview({
     (blocks: Block[]) => {
       if (isDraft) {
         draftContentRef.current = { blocks };
+        onDraftContentChange?.(
+          extractTitleFromBlocks(blocks).trim().length > 0,
+        );
         return;
       }
       if (!pageId) return;
       debouncedSave({ pageId, blocks });
     },
-    [pageId, isDraft, debouncedSave],
+    [pageId, isDraft, debouncedSave, onDraftContentChange],
   );
+
+  // Own the draft's local doc: create it when a draft opens, mirror every edit
+  // to the host (title presence + latest blocks for save), and tear it down on
+  // close. `handleContentChange`'s draft branch stores the blocks and reports
+  // whether a title has been typed — the same path the old editor used.
+  useEffect(() => {
+    if (!draftActive) return;
+    const doc = createDoc({
+      blocks: [{ id: "draft-1", type: "heading1", charRuns: [], formats: [] }],
+      pageId: "__draft__",
+      peerId: "draft-local",
+      schema: appSchema.data,
+    });
+    setDraftDoc(doc);
+    handleContentChange(cleanSnapshotForSave(doc.getRawBlocks()));
+    const off = doc.on("update", () => {
+      handleContentChange(cleanSnapshotForSave(doc.getRawBlocks()));
+    });
+    return () => {
+      off();
+      doc.destroy();
+      setDraftDoc(null);
+    };
+  }, [draftActive, handleContentChange]);
 
   const handleClose = useCallback(() => {
     flush();
@@ -721,7 +772,10 @@ export function EventPreview({
 
   const handleDateChange = (value: string | null) => {
     if (!value) return;
-    if (isDraft) return; // Draft schedule is read-only until saved
+    if (isDraft) {
+      onDraftScheduleChange?.(value, currentDuration);
+      return;
+    }
     if (!previewPage?.scheduledAt) return;
     handleScheduleChange(value, previewPage.duration || null);
   };
@@ -729,7 +783,10 @@ export function EventPreview({
   const handleDurationChange = (val: string) => {
     const idx = durationLabels.indexOf(val);
     if (idx === -1) return;
-    if (isDraft) return; // Draft schedule is read-only until saved
+    if (isDraft) {
+      if (dateValue) onDraftScheduleChange?.(dateValue, DURATION_OPTIONS[idx]);
+      return;
+    }
     if (previewPage?.scheduledAt) {
       handleScheduleChange(previewPage.scheduledAt, DURATION_OPTIONS[idx]);
     }
@@ -759,11 +816,6 @@ export function EventPreview({
       heading1: { text: t("common.title", "Title") },
     }),
     [t],
-  );
-
-  const draftSnapshot = useMemo<Block[]>(
-    () => [{ id: "draft-1", type: "heading1", charRuns: [], formats: [] }],
-    [],
   );
 
   const handleDraftSaveClick = useCallback(() => {
@@ -808,16 +860,22 @@ export function EventPreview({
   ) : null;
 
   const editor = isDraft ? (
-    <MountedEditor
-      snapshot={draftSnapshot}
-      pageId="__draft__"
-      onContentChange={handleContentChange}
-      className="h-full"
-      autoFocus
-      padding={editorPadding}
-      blockStyleOverrides={editorBlockStyleOverrides}
-      placeholderOverrides={previewPlaceholderOverrides}
-    />
+    // The compact title editor fills its container (a single-heading window over
+    // the draft doc). On mobile the sheet stays compact (a "peek") so the grid
+    // behind it is visible and its handles remain draggable; auto-focusing would
+    // raise the keyboard and expand the sheet over the grid, so defer focus until
+    // the user taps the title. Desktop keeps immediate focus. Enter commits the
+    // draft (single-block window makes Enter inert in the engine).
+    draftDoc ? (
+      <TitleEditor
+        doc={draftDoc}
+        autoFocus={!isMobile}
+        onSubmit={handleDraftSaveClick}
+        placeholder={t("calendar.addTitle", "Add title")}
+        className="h-full px-3 py-2"
+        style={{ height: "100%" }}
+      />
+    ) : null
   ) : isLoading && !pageSnapshot ? (
     <div className={style.previewLoading}>{t("common.loading", "Loading...")}</div>
   ) : pageSnapshot && pageId ? (
@@ -878,133 +936,238 @@ export function EventPreview({
     handleClose();
   };
 
-  if (isMobile) {
+  const mobileHeader = (
+    <div className={`${style.previewPopoverHeader} shrink-0`}>
+      {pageId && (
+        <Link to={`/page/${pageId}`} className={style.previewOpenLink}>
+          <Maximize2 size={14} />
+          {t("page.openPage", "Open page")}
+        </Link>
+      )}
+      <div className={style.previewHeaderActions}>
+        {pageId && (
+          <button
+            type="button"
+            className={style.previewDeleteIconBtn}
+            onClick={handleDelete}
+            disabled={isDeleting}
+            aria-label={t("calendar.deleteEvent", "Delete event")}
+            title={t("calendar.deleteEvent", "Delete event")}
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
+        <button
+          type="button"
+          className={style.previewCloseBtn}
+          onClick={requestClose}
+          aria-label={t("editor.closePreview", "Close preview")}
+          title={t("editor.closePreview", "Close preview")}
+        >
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+
+  const mobileScheduleFields = (
+    <div className={style.previewDetailsBody}>
+      <div className={style.previewRow}>
+        <Calendar size={14} className={style.previewRowIcon} />
+        <DateTimePicker
+          type="datetime"
+          value={dateValue}
+          onChange={handleDateChange}
+          timezone={tz}
+          size="small"
+          fullWidth
+        />
+      </div>
+      <div className={style.previewRow}>
+        <Clock size={14} className={style.previewRowIcon} />
+        <Combobox
+          items={durationLabels}
+          value={formatDurationLabel(currentDuration, t)}
+          onValueChange={(val) => {
+            if (val != null) handleDurationChange(val);
+          }}
+        >
+          <ComboboxInput
+            placeholder={formatDurationLabel(currentDuration, t)}
+            className={"w-full"}
+          />
+          <ComboboxContent>
+            <ComboboxList>
+              {(item) => (
+                <ComboboxItem key={item} value={item}>
+                  {item}
+                </ComboboxItem>
+              )}
+            </ComboboxList>
+          </ComboboxContent>
+        </Combobox>
+      </div>
+      <div className={style.previewRow}>
+        <FolderOpen size={14} className={style.previewRowIcon} />
+        <PagePicker
+          spaceId={activeSpaceId}
+          value={currentParent}
+          onChange={handleParentChange}
+          excludeId={pageId || undefined}
+        />
+      </div>
+      {taskEventRow}
+    </div>
+  );
+
+  // Google-Calendar-style draft chrome (mobile). A top action bar (Cancel /
+  // Save) sits above a scrollable body: title, then the date + duration rows,
+  // the drill-down parent tags, and finally the Task/Event toggle. The sheet
+  // itself drags up to a taller detent, so there's no separate full-screen mode.
+  const draftTopBar = (
+    <div className={style.draftTopBar}>
+      <button
+        type="button"
+        className={style.draftTopBarAction}
+        onClick={requestClose}
+      >
+        {t("common.cancel", "Cancel")}
+      </button>
+      <button
+        type="button"
+        className={`${style.draftTopBarAction} ${style.draftTopBarSave}`}
+        onClick={handleDraftSaveClick}
+      >
+        {t("common.save", "Save")}
+      </button>
+    </div>
+  );
+
+  const draftBody = (
+    <div className={style.draftScroll}>
+      <div className={style.draftTitleWrap}>{editor}</div>
+
+      <div className={style.draftSection}>
+        <div className={style.previewRow}>
+          <Calendar size={16} className={style.previewRowIcon} />
+          <DateTimePicker
+            type="datetime"
+            value={dateValue}
+            onChange={handleDateChange}
+            timezone={tz}
+            size="small"
+            fullWidth
+          />
+        </div>
+        <div className={style.previewRow}>
+          <Clock size={16} className={style.previewRowIcon} />
+          <Combobox
+            items={durationLabels}
+            value={formatDurationLabel(currentDuration, t)}
+            onValueChange={(val) => {
+              if (val != null) handleDurationChange(val);
+            }}
+          >
+            <ComboboxInput
+              placeholder={formatDurationLabel(currentDuration, t)}
+              className={"w-full"}
+            />
+            <ComboboxContent>
+              <ComboboxList>
+                {(item) => (
+                  <ComboboxItem key={item} value={item}>
+                    {item}
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
+        </div>
+      </div>
+
+      <div className={style.draftSection}>
+        <div className={style.draftSectionHeader}>
+          <FolderOpen size={16} className={style.previewRowIcon} />
+          <span>{t("calendar.parentPage", "Parent page")}</span>
+        </div>
+        <DraftTagPicker
+          spaceId={activeSpaceId}
+          value={currentParent}
+          onChange={handleParentChange}
+        />
+      </div>
+
+      <div className={style.draftSection}>{taskEventRow}</div>
+    </div>
+  );
+
+  if (isMobile && isDraft) {
     return (
-      <Drawer
+      <BottomSheet
         open={isActive}
         onOpenChange={(open) => {
           if (!open) requestClose();
         }}
-        modal={false}
+        variant="peek"
+        className="p-0"
       >
-        <DrawerContent className="md:h-[90vh] p-0">
-          <div className={style.previewPopoverHeader}>
-            {pageId && (
-              <Link to={`/page/${pageId}`} className={style.previewOpenLink}>
-                <Maximize2 size={14} />
-                {t("page.openPage", "Open page")}
-              </Link>
-            )}
-            <div className={style.previewHeaderActions}>
-              {pageId && (
-                <button
-                  type="button"
-                  className={style.previewDeleteIconBtn}
-                  onClick={handleDelete}
-                  disabled={isDeleting}
-                  aria-label={t("calendar.deleteEvent", "Delete event")}
-                  title={t("calendar.deleteEvent", "Delete event")}
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
-              <button
-                type="button"
-                className={style.previewCloseBtn}
-                onClick={requestClose}
-                aria-label={t("editor.closePreview", "Close preview")}
-                title={t("editor.closePreview", "Close preview")}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-          <div className={style.previewDetails}>
-            <button
-              type="button"
-              className={style.previewDetailsSummary}
-              onClick={() => setDetailsOpen((open) => !open)}
-              aria-expanded={detailsOpen}
-            >
-              <Calendar size={14} className={style.previewRowIcon} />
-              <span className={style.previewDetailsSummaryText}>
-                <span className={style.previewDetailsSummaryPrimary}>
-                  {scheduleSummary.when} · {scheduleSummary.duration}
-                </span>
-                <span className={style.previewDetailsSummaryMeta}>
-                  {scheduleSummary.space} · {scheduleSummary.type}
-                </span>
+        {draftTopBar}
+        {draftBody}
+      </BottomSheet>
+    );
+  }
+
+  if (isMobile) {
+    // Existing event: collapsible schedule summary, then the page body.
+    return (
+      <BottomSheet
+        open={isActive}
+        onOpenChange={(open) => {
+          if (!open) requestClose();
+        }}
+        variant="sheet"
+        className="p-0"
+      >
+        {mobileHeader}
+        <div className={`${style.previewDetails} shrink-0`}>
+          <button
+            type="button"
+            className={style.previewDetailsSummary}
+            onClick={() => setDetailsOpen((open) => !open)}
+            aria-expanded={detailsOpen}
+          >
+            <Calendar size={14} className={style.previewRowIcon} />
+            <span className={style.previewDetailsSummaryText}>
+              <span className={style.previewDetailsSummaryPrimary}>
+                {scheduleSummary.when} · {scheduleSummary.duration}
               </span>
-              <ChevronDown
-                size={18}
-                className={`${style.previewDetailsChevron} ${detailsOpen ? style.previewDetailsChevronOpen : ""}`}
-              />
-            </button>
-            <AnimatePresence initial={false}>
-              {detailsOpen && (
-                <motion.div
-                  key="details"
-                  className={style.previewDetailsBody}
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2, ease: "easeInOut" }}
-                >
-                  <div className={style.previewRow}>
-                    <Calendar size={14} className={style.previewRowIcon} />
-                    <DateTimePicker
-                      type="datetime"
-                      value={dateValue}
-                      onChange={handleDateChange}
-                      timezone={tz}
-                      size="small"
-                      fullWidth
-                    />
-                  </div>
-                  <div className={style.previewRow}>
-                    <Clock size={14} className={style.previewRowIcon} />
-                    <Combobox
-                      items={durationLabels}
-                      value={formatDurationLabel(currentDuration, t)}
-                      onValueChange={(val) => {
-                        if (val != null) handleDurationChange(val);
-                      }}
-                    >
-                      <ComboboxInput
-                        placeholder={formatDurationLabel(currentDuration, t)}
-                        className={"w-full"}
-                      />
-                      <ComboboxContent>
-                        <ComboboxList>
-                          {(item) => (
-                            <ComboboxItem key={item} value={item}>
-                              {item}
-                            </ComboboxItem>
-                          )}
-                        </ComboboxList>
-                      </ComboboxContent>
-                    </Combobox>
-                  </div>
-                  <div className={style.previewRow}>
-                    <FolderOpen size={14} className={style.previewRowIcon} />
-                    <PagePicker
-                      spaceId={activeSpaceId}
-                      value={currentParent}
-                      onChange={handleParentChange}
-                      excludeId={pageId || undefined}
-                    />
-                  </div>
-                  {taskEventRow}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          <div className="flex-1 min-h-0 overflow-hidden border-t border-border">
-            {editor}
-          </div>
-          {draftFooter}
-        </DrawerContent>
-      </Drawer>
+              <span className={style.previewDetailsSummaryMeta}>
+                {scheduleSummary.space} · {scheduleSummary.type}
+              </span>
+            </span>
+            <ChevronDown
+              size={18}
+              className={`${style.previewDetailsChevron} ${detailsOpen ? style.previewDetailsChevronOpen : ""}`}
+            />
+          </button>
+          <AnimatePresence initial={false}>
+            {detailsOpen && (
+              <motion.div
+                key="details"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: "easeInOut" }}
+              >
+                {mobileScheduleFields}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+        <div className="flex-1 min-h-0 overflow-hidden border-t border-border">
+          {editor}
+        </div>
+      </BottomSheet>
     );
   }
 

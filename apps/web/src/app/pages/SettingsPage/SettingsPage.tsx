@@ -6,7 +6,13 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChevronRight, Download, Info, SlidersHorizontal, User } from "lucide-react";
+import {
+  ChevronRight,
+  Download,
+  Info,
+  SlidersHorizontal,
+  User,
+} from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -63,6 +69,56 @@ export default function SettingsPage() {
     const DrawerContentComponent = openDrawer ? CONTENT[openDrawer] : null;
 
     return (
+      <div className={style.scrollHost}>
+        <div className={style.container}>
+          <TopActionBarPortal>
+            <span className={style.heading}>
+              {t("settings.title", "Settings")}
+            </span>
+          </TopActionBarPortal>
+
+          <div className={style.list}>
+            {TABS.map((tab) => {
+              const Icon = TAB_ICONS[tab];
+              return (
+                <button
+                  key={tab}
+                  className={style.listItem}
+                  onClick={() => setOpenDrawer(tab)}
+                >
+                  <Icon size={20} />
+                  <span className={style.listItemLabel}>{tabLabels[tab]}</span>
+                  <ChevronRight size={18} className={style.listItemChevron} />
+                </button>
+              );
+            })}
+          </div>
+
+          <Drawer
+            open={openDrawer !== null}
+            onOpenChange={(open) => {
+              if (!open) setOpenDrawer(null);
+            }}
+            direction="bottom"
+          >
+            <DrawerContent>
+              <DrawerHeader>
+                <DrawerTitle>
+                  {openDrawer ? tabLabels[openDrawer] : ""}
+                </DrawerTitle>
+              </DrawerHeader>
+              <div className={style.drawerBody}>
+                {DrawerContentComponent && <DrawerContentComponent />}
+              </div>
+            </DrawerContent>
+          </Drawer>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={style.scrollHost}>
       <div className={style.container}>
         <TopActionBarPortal>
           <span className={style.heading}>
@@ -70,77 +126,35 @@ export default function SettingsPage() {
           </span>
         </TopActionBarPortal>
 
-        <div className={style.list}>
-          {TABS.map((tab) => {
-            const Icon = TAB_ICONS[tab];
-            return (
-              <button
-                key={tab}
-                className={style.listItem}
-                onClick={() => setOpenDrawer(tab)}
-              >
-                <Icon size={20} />
-                <span className={style.listItemLabel}>{tabLabels[tab]}</span>
-                <ChevronRight size={18} className={style.listItemChevron} />
-              </button>
-            );
-          })}
-        </div>
-
-        <Drawer
-          open={openDrawer !== null}
-          onOpenChange={(open) => {
-            if (!open) setOpenDrawer(null);
-          }}
-          direction="bottom"
-        >
-          <DrawerContent>
-            <DrawerHeader>
-              <DrawerTitle>
-                {openDrawer ? tabLabels[openDrawer] : ""}
-              </DrawerTitle>
-            </DrawerHeader>
-            <div className={style.drawerBody}>
-              {DrawerContentComponent && <DrawerContentComponent />}
-            </div>
-          </DrawerContent>
-        </Drawer>
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <TabsList className={style.tabsList}>
+            <TabsTrigger value="profile">
+              {t("settings.profile", "Profile")}
+            </TabsTrigger>
+            <TabsTrigger value="preferences">
+              {t("settings.preferences", "Preferences")}
+            </TabsTrigger>
+            <TabsTrigger value="data">
+              {t("export.title", "Export")}
+            </TabsTrigger>
+            <TabsTrigger value="information">
+              {t("settings.information.title", "Information")}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value={"profile"}>
+            <Profile />
+          </TabsContent>
+          <TabsContent value={"preferences"}>
+            <Preferences />
+          </TabsContent>
+          <TabsContent value={"data"}>
+            <Data />
+          </TabsContent>
+          <TabsContent value={"information"}>
+            <Information />
+          </TabsContent>
+        </Tabs>
       </div>
-    );
-  }
-
-  return (
-    <div className={style.container}>
-      <TopActionBarPortal>
-        <span className={style.heading}>{t("settings.title", "Settings")}</span>
-      </TopActionBarPortal>
-
-      <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className={style.tabsList}>
-          <TabsTrigger value="profile">
-            {t("settings.profile", "Profile")}
-          </TabsTrigger>
-          <TabsTrigger value="preferences">
-            {t("settings.preferences", "Preferences")}
-          </TabsTrigger>
-          <TabsTrigger value="data">{t("export.title", "Export")}</TabsTrigger>
-          <TabsTrigger value="information">
-            {t("settings.information.title", "Information")}
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value={"profile"}>
-          <Profile />
-        </TabsContent>
-        <TabsContent value={"preferences"}>
-          <Preferences />
-        </TabsContent>
-        <TabsContent value={"data"}>
-          <Data />
-        </TabsContent>
-        <TabsContent value={"information"}>
-          <Information />
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }

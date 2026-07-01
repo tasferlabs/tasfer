@@ -35,6 +35,7 @@ import {
   isStyleField,
   isValidStyleValue,
 } from "./block-registry";
+import { invariant } from "@shared/invariant";
 
 /**
  * The CRDT + serialization facets of one block type, bundled. The rendering
@@ -97,6 +98,16 @@ export type DataSchemaExtensionDefinition<E extends DataSchemaExtension> = {
 export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   private readonly blocks: ReadonlyMap<string, BlockSpecCore>;
   private readonly marks: ReadonlyMap<string, MarkSpec>;
+  /**
+   * Authoring allow-list — the subset of REGISTERED block types the local user
+   * may create. `undefined` = unrestricted (every registered type is creatable).
+   * This gates authoring ONLY; the reducer/oplog stays agnostic, so a peer or a
+   * stored snapshot may still carry — and this schema will still render — a type
+   * that is registered but absent from this set. Narrow it with `restrict()`.
+   */
+  readonly allowedBlocks?: ReadonlySet<string>;
+  /** Authoring allow-list for inline marks; `undefined` = unrestricted. */
+  readonly allowedMarks?: ReadonlySet<string>;
   /** Block-start token → codec, derived from each block's markdown.tokens. */
   readonly tokenDispatch: ReadonlyMap<TokenType, BlockCodec>;
   /** HTML tag (lowercase) → codec, derived from each block's markdown.htmlTags. */
@@ -109,6 +120,10 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   constructor(
     blockSpecs: readonly BlockSpecCore[],
     markSpecs: readonly MarkSpec[],
+    allowed?: {
+      readonly blocks?: ReadonlySet<string>;
+      readonly marks?: ReadonlySet<string>;
+    },
   ) {
     const blocks = new Map<string, BlockSpecCore>();
     const tokenDispatch = new Map<TokenType, BlockCodec>();
@@ -140,6 +155,8 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
 
     this.blocks = blocks;
     this.marks = marks;
+    this.allowedBlocks = allowed?.blocks;
+    this.allowedMarks = allowed?.marks;
     this.tokenDispatch = tokenDispatch;
     this.htmlTagDispatch = htmlTagDispatch;
     this.markStartTokens = markStartTokens;
@@ -243,17 +260,127 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return fromGroup !== undefined && fromGroup === toGroup;
   }
 
+  // ── Authoring allow-list ───────────────────────────────────────────────────
+  //
+  // A whitelist of the block/mark types the local user may CREATE. It is a
+  // subset of the registered set and gates authoring only (actions, paste,
+  // input rules, mark toggles) — never the reducer, so peers that share the
+  // base registry converge regardless of their allow-lists. `restrict()`
+  // narrows it; the query helpers are consulted at every authoring boundary and
+  // by host chrome to hide disallowed controls. All are no-ops when unrestricted.
+
+  /**
+   * The universal fallback block type — a plain text block a disallowed type is
+   * coerced to, and the type a document is guaranteed to be able to hold. By
+   * convention `paragraph` (the same type `getFallbackCodec` claims); `restrict`
+   * always keeps it creatable so a document can never become unrepresentable.
+   */
+  fallbackBlockType(): string {
+    return "paragraph";
+  }
+
+  /** Whether the local user may create a block of `type` (registered + allowed). */
+  isBlockAllowed(type: string): boolean {
+    return this.allowedBlocks
+      ? this.allowedBlocks.has(type)
+      : this.hasBlock(type);
+  }
+
+  /** Whether the local user may apply a mark of `type` (registered + allowed). */
+  isMarkAllowed(type: string): boolean {
+    return this.allowedMarks ? this.allowedMarks.has(type) : this.hasMark(type);
+  }
+
+  /**
+   * `type` if it is creatable here, else the fallback type. The single clamp an
+   * authoring site applies before minting/morphing a block, so a disallowed
+   * target degrades to a plain block rather than being admitted.
+   */
+  coerceCreatable(type: string): string {
+    return this.isBlockAllowed(type) ? type : this.fallbackBlockType();
+  }
+
+  /**
+   * Derive a new schema that restricts which registered types may be authored.
+   * Omit a key to leave that dimension unrestricted; `marks: []` yields a
+   * format-free field. The full registry is preserved (rendering is unchanged),
+   * so this is purely an authoring constraint. The receiver is never mutated.
+   *
+   * The fallback block type (`paragraph`) is always creatable and cannot be
+   * excluded — a document must always be able to hold a plain block. Every named
+   * type must already be registered in this schema (apply `extend()` first, then
+   * `restrict()` last).
+   */
+  restrict(restriction: {
+    readonly blocks?: readonly string[];
+    readonly marks?: readonly string[];
+  }): DataSchema<D> {
+    const allowedBlocks =
+      restriction.blocks === undefined
+        ? this.allowedBlocks
+        : this.buildAllowedBlockSet(restriction.blocks);
+    const allowedMarks =
+      restriction.marks === undefined
+        ? this.allowedMarks
+        : this.buildAllowedMarkSet(restriction.marks);
+    return new DataSchema(this.blockSpecs(), this.markSpecs(), {
+      blocks: allowedBlocks,
+      marks: allowedMarks,
+    });
+  }
+
+  private buildAllowedBlockSet(names: readonly string[]): ReadonlySet<string> {
+    const set = new Set<string>();
+    for (const name of names) {
+      invariant(
+        this.hasBlock(name),
+        'restrict(): block type "%s" is not registered in this schema — register it with extend() before restricting.',
+        name,
+      );
+      set.add(name);
+    }
+    // The fallback is never excludable, so a document can always hold a plain
+    // block (and coerceCreatable always has a legal target).
+    const fallback = this.fallbackBlockType();
+    invariant(
+      this.hasBlock(fallback),
+      'restrict(): the fallback block type "%s" must be registered to restrict this schema.',
+      fallback,
+    );
+    set.add(fallback);
+    return set;
+  }
+
+  private buildAllowedMarkSet(names: readonly string[]): ReadonlySet<string> {
+    const set = new Set<string>();
+    for (const name of names) {
+      invariant(
+        this.hasMark(name),
+        'restrict(): mark type "%s" is not registered in this schema.',
+        name,
+      );
+      set.add(name);
+    }
+    // No mandatory mark — `marks: []` is a legitimately format-free field.
+    return set;
+  }
+
   /**
    * Derive a new schema with extra block/mark types. Later definitions win on
    * key collision, so a host can override a built-in. The receiver is never
-   * mutated.
+   * mutated. Any existing authoring allow-list is carried through unchanged:
+   * `extend()` only widens the REGISTERED set, never the allowed set (apply
+   * `restrict()` last).
    */
   extend<const E extends DataSchemaExtension>(
     ext: E,
   ): DataSchema<MergeSchema<D, DataSchemaExtensionDefinition<E>>> {
     const blocks = [...this.blockSpecs(), ...(ext.blocks ?? [])];
     const marks = [...this.markSpecs(), ...(ext.marks ?? [])];
-    return new DataSchema(blocks, marks);
+    return new DataSchema(blocks, marks, {
+      blocks: this.allowedBlocks,
+      marks: this.allowedMarks,
+    });
   }
 
   /** The block specs this schema was built from (deduped by primary type). */

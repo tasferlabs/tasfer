@@ -288,14 +288,16 @@ export function PageLink({
         (old) => {
           return old?.map((page) => {
             if (page.id === data.id) {
-              return { ...page, title: localTitle, autoTitle: false };
+              return { ...page, title: localTitle };
             }
             return page;
           });
         },
       );
-      // Set autoTitle=false since user is manually setting the title
-      updatePage({ id: data.id, title: localTitle, autoTitle: false });
+      // The title always mirrors the heading; a sidebar rename is a soft edit of
+      // the record string and is re-derived from content the next time the page
+      // is opened and edited.
+      updatePage({ id: data.id, title: localTitle });
     }
     setEditingPageId(null);
   }

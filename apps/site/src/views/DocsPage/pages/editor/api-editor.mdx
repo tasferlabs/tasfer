@@ -17,6 +17,7 @@ const editor = createEditor(options: CreateEditorOptions): CypherEditor;
   { name: "blocks", type: "Block[]", desc: "Pre-parsed blocks to mount (e.g. restored from a snapshot). Mutually exclusive with markdown/doc — passing two is a type error (and throws at runtime)." },
   { name: "doc", type: "Doc", desc: "An existing CRDT document to edit (see createDoc). Mutually exclusive with blocks/markdown; sync and persistence flow through it." },
   { name: "schema", type: "Schema", desc: "Allowed nodes & marks. Defaults to baseSchema. Ignored when doc is supplied (the doc carries its own data schema)." },
+  { name: "window", type: "ViewWindow", desc: "Scope this editor to a subset of the doc's blocks (e.g. titleBlockWindow() for a title-only surface over a shared doc). Omit for a full-document editor. A view/authoring concern only — sync is unaffected, so windowed and full editors on one doc converge. See Schema › View windows." },
   { name: "theme", type: "EditorTheme", desc: "Canvas color tokens, styles, and fonts. Defaults to the neutral palette." },
   { name: "editable", type: "boolean", desc: "Set false for a read-only renderer. Default true." },
   { name: "accessibilityTree", type: "boolean", desc: "Maintain a hidden, semantic DOM mirror of the document (headings, lists, code, marks) for screen readers — the canvas itself is opaque to assistive tech. Kept surgically in sync; only changed blocks are re-serialized. Default true; set false to opt out." },

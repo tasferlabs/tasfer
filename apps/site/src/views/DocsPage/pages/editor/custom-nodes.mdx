@@ -167,3 +167,9 @@ if (block?.type === "callout") {
   block" placeholder until it's upgraded. Ship schema changes to all peers
   together, the way you'd ship a database migration.
 </Callout>
+
+To constrain which of these registered types a given editor may *author* — a
+one-line title, a comment box — narrow the schema with
+[`restrict`](/docs/editor/api-schema#restrict). It gates creation only: a
+restricted editor still *renders* a `callout` that a collaborator (or a paste)
+brings in, because the type stays registered.

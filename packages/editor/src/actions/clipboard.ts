@@ -1,4 +1,8 @@
-import { deleteSelectedText, getSelectionRange } from "../actions/actions";
+import {
+  deleteSelectedText,
+  getSelectionRange,
+  insertText,
+} from "../actions/actions";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import { serializeToHTMLFragment } from "../serlization/htmlSerializer";
@@ -11,6 +15,7 @@ import type {
   Page,
 } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
+import { normalizeBlocks } from "../serlization/normalize";
 import { serializeToMarkdown } from "../serlization/serializer";
 import { serializeToText } from "../serlization/textSerializer";
 import type {
@@ -886,6 +891,27 @@ function insertBlocksAtCursor(
 ): ActionResult {
   if (blocks.length === 0) return { state, ops: [] };
 
+  // Coerce pasted/inserted blocks to the schema's authoring allow-list before any
+  // op is emitted — the single parsed->committed boundary for every paste entry
+  // point (event paste, plain-text, system clipboard, internal-marker round-trip).
+  // A disallowed block is coerced to a plain block (text preserved) or dropped,
+  // and disallowed marks are stripped. No-op when unrestricted.
+  blocks = normalizeBlocks(blocks, state.schema);
+  if (blocks.length === 0) return { state, ops: [] };
+
+  // A single-block surface (e.g. a TitleEditor) never gains blocks from a paste.
+  // Flatten the payload to one line of plain text and insert it inline at the
+  // caret via the normal typing path (which also replaces any selection). Block
+  // structure and inter-block newlines are dropped — exactly what a one-line
+  // title wants. (normalizeBlocks already stripped disallowed marks; this drops
+  // the marks too, since plain text carries none.)
+  if (state.view.window?.singleBlock) {
+    const text = blocksToPlainText(blocks)
+      .replace(/\s*\n\s*/g, " ")
+      .trim();
+    return text.length > 0 ? insertText(state, text) : { state, ops: [] };
+  }
+
   const ops: Operation[] = [];
 
   // Record undo state before modification
@@ -1059,24 +1085,28 @@ function insertBlocksAtCursor(
       }
     }
 
-    // Auto-detect URLs in pasted text (only for portions not already link-formatted)
-    const insertedBlock = pageAcc.blocks.find(
-      (b: Block) => b.id === currentBlock.id,
-    );
-    const fullText =
-      insertedBlock && isTextualBlock(insertedBlock)
-        ? getVisibleTextFromRuns(insertedBlock.charRuns)
-        : "";
-    const autoLinkResult = autoLinkInRange(
-      pageAcc,
-      currentBlock.id,
-      fullText,
-      textIndex,
-      textIndex + pasteText.length,
-      state.CRDTbinding,
-    );
-    pageAcc = autoLinkResult.newPage;
-    ops.push(...autoLinkResult.ops);
+    // Auto-detect URLs in pasted text (only for portions not already
+    // link-formatted). Skipped when the schema forbids the link mark (no-op when
+    // unrestricted).
+    if (state.schema.isMarkAllowed("link")) {
+      const insertedBlock = pageAcc.blocks.find(
+        (b: Block) => b.id === currentBlock.id,
+      );
+      const fullText =
+        insertedBlock && isTextualBlock(insertedBlock)
+          ? getVisibleTextFromRuns(insertedBlock.charRuns)
+          : "";
+      const autoLinkResult = autoLinkInRange(
+        pageAcc,
+        currentBlock.id,
+        fullText,
+        textIndex,
+        textIndex + pasteText.length,
+        state.CRDTbinding,
+      );
+      pageAcc = autoLinkResult.newPage;
+      ops.push(...autoLinkResult.ops);
+    }
 
     invalidateBlockCache(pageAcc.blocks[blockIndex]);
 
@@ -1736,6 +1766,9 @@ function insertPastedImageBlock(
   state: EditorState,
   imageFile: File,
 ): (ActionResult & { pastedImageBlockIndex?: number }) | null {
+  // Honor the authoring allow-list: don't create an image block (or leak a blob
+  // url) when the image type is disallowed. No-op when unrestricted.
+  if (!state.schema.isBlockAllowed("image")) return null;
   const blobUrl = URL.createObjectURL(imageFile);
   const result = insertBlocksAtCursor(state, [
     {

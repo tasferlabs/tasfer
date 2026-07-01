@@ -104,7 +104,6 @@ const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS pages (
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL DEFAULT '',
-    auto_title    INTEGER NOT NULL DEFAULT 1,
     parent_id     TEXT,
     "order"       REAL NOT NULL DEFAULT 0,
     space_id      TEXT,
@@ -854,7 +853,6 @@ export class Engine implements Platform {
       const rows = await this.driver.db.execute<{
         id: string;
         title: string;
-        auto_title: number;
         parent_id: string | null;
         order: number;
         has_children: number;
@@ -870,7 +868,6 @@ export class Engine implements Platform {
       return rows.map((r) => ({
         id: r.id,
         title: r.title,
-        autoTitle: r.auto_title === 1,
         parentId: r.parent_id,
         order: r.order,
         hasChildren: r.has_children === 1,
@@ -888,7 +885,6 @@ export class Engine implements Platform {
       const rows = await this.driver.db.execute<{
         id: string;
         title: string;
-        auto_title: number;
         parent_id: string | null;
         order: number;
         has_children: number;
@@ -976,7 +972,6 @@ export class Engine implements Platform {
       return {
         id: r.id,
         title: r.title,
-        autoTitle: r.auto_title === 1,
         parentId: r.parent_id,
         order: r.order,
         hasChildren: r.has_children === 1,
@@ -1086,11 +1081,6 @@ export class Engine implements Platform {
         sets.push("title = ?");
         params.push(data.title);
         changedFields.push({ field: "title", value: data.title });
-      }
-      if (data.autoTitle !== undefined) {
-        sets.push("auto_title = ?");
-        params.push(data.autoTitle ? 1 : 0);
-        changedFields.push({ field: "autoTitle", value: data.autoTitle });
       }
       if (data.color !== undefined) {
         sets.push("color = ?");
@@ -1402,7 +1392,6 @@ export class Engine implements Platform {
       const rows = await this.driver.db.execute<{
         id: string;
         title: string;
-        auto_title: number;
         parent_id: string | null;
         order: number;
         color: string | null;
@@ -1426,7 +1415,6 @@ export class Engine implements Platform {
         results.push({
           id: r.id,
           title: r.title,
-          autoTitle: r.auto_title === 1,
           parentId: r.parent_id,
           order: r.order,
           color: r.color,
@@ -2318,7 +2306,6 @@ export class Engine implements Platform {
           break;
         const fieldMap: Record<string, string> = {
           title: "title",
-          autoTitle: "auto_title",
           parentId: "parent_id",
           order: '"order"',
           color: "color",
@@ -2330,7 +2317,7 @@ export class Engine implements Platform {
         const col = fieldMap[op.field];
         if (col) {
           let val = op.value;
-          if (op.field === "task" || op.field === "autoTitle") {
+          if (op.field === "task") {
             val = val ? 1 : 0;
           } else if (op.field === "allDay") {
             val = val === null ? null : val ? 1 : 0;

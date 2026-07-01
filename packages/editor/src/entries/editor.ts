@@ -1288,6 +1288,62 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.listeners.forEach((listener) => listener(currentState));
   };
 
+  // Keep the caret/selection inside this editor's block window — a no-op for a
+  // full-document editor (window undefined). Local navigation can resolve a
+  // target block outside the window (the block-boundary helpers scan the whole
+  // page), and a remote edit can shift the windowed block out from under a stale
+  // caret; in both cases we snap back to the nearest in-window block, at the edge
+  // the caret was heading toward, so a single-block TitleEditor's caret never
+  // escapes into the body it doesn't render.
+  private clampToWindow = (state: EditorState): EditorState => {
+    const window = state.view.window;
+    if (!window) return state;
+    const blocks = state.document.page.blocks;
+    const included = window.select(blocks);
+    if (included.size === 0) return state;
+    const sorted = [...included].sort((a, b) => a - b);
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const clampPos = (pos: Position): Position => {
+      if (included.has(pos.blockIndex) && !blocks[pos.blockIndex]?.deleted) {
+        return pos;
+      }
+      const target = pos.blockIndex < first ? first : last;
+      const atStart = pos.blockIndex < target;
+      return {
+        blockIndex: target,
+        textIndex: atStart ? 0 : getBlockTextContent(blocks[target]).length,
+      };
+    };
+    let cursor = state.document.cursor;
+    if (cursor) {
+      const pos = clampPos(cursor.position);
+      if (pos !== cursor.position) cursor = { ...cursor, position: pos };
+    }
+    let selection = state.document.selection;
+    if (selection) {
+      const anchor = clampPos(selection.anchor);
+      const focus = clampPos(selection.focus);
+      if (anchor !== selection.anchor || focus !== selection.focus) {
+        selection = {
+          ...selection,
+          anchor,
+          focus,
+          isCollapsed:
+            anchor.blockIndex === focus.blockIndex &&
+            anchor.textIndex === focus.textIndex,
+        };
+      }
+    }
+    if (
+      cursor === state.document.cursor &&
+      selection === state.document.selection
+    ) {
+      return state;
+    }
+    return { ...state, document: { ...state.document, cursor, selection } };
+  };
+
   private updateCachedRect = () => {
     const containerRect = this.contentCanvas.getBoundingClientRect();
     this.cachedRect = {
@@ -1388,6 +1444,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     this._state = handleEventsResult.state;
 
+    // Contain the caret/selection within this editor's block window (no-op when
+    // unwindowed) before recording undo, so a windowed editor's navigation can
+    // never leave a caret pointing at a block it doesn't render.
+    this._state = this.clampToWindow(this._state);
+
     // Record operations to undo stack (only if not from undo/redo). Undo/redo
     // already updates undoManager internally, so check if it changed.
     if (handleEventsResult.ops.length > 0) {
@@ -1449,6 +1510,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       if (this.lastRenderedPageRef !== this._state.document.page) {
         this._state.view.visibleBlocks = getVisibleBlocks(
           this._state.document.page,
+          this._state.view.window,
         );
         this.dirtyLayers.content = true;
         this.dirtyLayers.cursor = true;
@@ -1475,6 +1537,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         if (prevState.document.page !== this._state.document.page) {
           this._state.view.visibleBlocks = getVisibleBlocks(
             this._state.document.page,
+            this._state.view.window,
           ); // ADD HERE
           this.dirtyLayers.content = true;
           this.dirtyLayers.cursor = true; // Cursor position may have changed
@@ -3599,8 +3662,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // snapshot-restore path, so the replace is a single undoable step and is
     // broadcast to peers — not a silent state swap. loadPage always yields a
     // fresh Page (≥1 block), so empty input is handled safely; an identical
-    // result produces no ops and is a no-op.
-    this.restoreFromSnapshot(loadPage(markdown).blocks);
+    // result produces no ops and is a no-op. Pass the instance schema so the
+    // parsed blocks are coerced to its authoring allow-list (no-op when
+    // unrestricted), matching the paste path.
+    this.restoreFromSnapshot(loadPage(markdown, this._state.schema).blocks);
   };
 
   // ── Actions & chaining (Tier B) ────────────────────────────────────────
@@ -3742,6 +3807,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private insertBlockAction =
     (block: RuntimeBlockInput, at: DocPoint | undefined): StateAction =>
     (s) => {
+      // Honor the authoring allow-list: inserting a disallowed block type is a
+      // no-op — an explicit API insert of a forbidden type does nothing rather
+      // than silently substituting a different type (mirrors convertBlockAtCursor).
+      // No-op when unrestricted.
+      if (!s.schema.isBlockAllowed(block.type)) return { state: s, ops: [] };
       const blocks = s.document.page.blocks;
       // The anchor block to insert after. A "before" point inserts after the
       // anchor's predecessor; "after"/default inserts after the anchor itself.
@@ -3855,7 +3925,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
       let state = s;
       const ops: Operation[] = [];
-      if (resolvedType !== undefined) {
+      // Honor the authoring allow-list: a disallowed target type is skipped (the
+      // caret path's convertBlockAtCursor also no-ops, but gating here covers the
+      // non-caret setBlockTypeAction too). Other attrs in the patch still apply.
+      // No-op when unrestricted.
+      if (resolvedType !== undefined && s.schema.isBlockAllowed(resolvedType)) {
         const caretIdx = s.document.cursor?.position.blockIndex;
         const r =
           idx === caretIdx
@@ -4230,6 +4304,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       active: boolean,
     ): StateAction =>
     (s) => {
+      // Honor the authoring allow-list — applying a disallowed mark over a range
+      // (link, math, or any ranged mark) is a no-op. No-op when unrestricted.
+      if (!s.schema.isMarkAllowed(mark.type)) return { state: s, ops: [] };
       const blocks = s.document.page.blocks;
       const blockIndex = findBlockIndex(s.document.page, blockId);
       const block = blocks[blockIndex];
@@ -4543,7 +4620,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     clearAllBlockCaches(page.blocks);
 
     // Compute visible blocks from the NEW page, not the stale view state
-    const visibleBlocks = getVisibleBlocks(page);
+    const visibleBlocks = getVisibleBlocks(page, this._state.view.window);
     this._state.view.visibleBlocks = visibleBlocks;
 
     // Validate and adjust cursor position if needed
@@ -4655,6 +4732,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       },
     };
 
+    // A remote edit can insert/delete blocks before the windowed block, shifting
+    // a stale caret out of the window — snap it back (no-op when unwindowed).
+    this._state = this.clampToWindow(this._state);
+
     // Mark document height as dirty since page content changed
     this.documentHeightDirty = true;
 
@@ -4693,7 +4774,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     clearAllBlockCaches(newPage.blocks);
 
     // Update visibleBlocks from the new page so cursor targets a valid block
-    this._state.view.visibleBlocks = getVisibleBlocks(newPage);
+    this._state.view.visibleBlocks = getVisibleBlocks(
+      newPage,
+      this._state.view.window,
+    );
     const newVisibleBlocks = this._state.view.visibleBlocks;
 
     // Reset cursor to beginning of first visible block

@@ -1,4 +1,4 @@
-import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
+import { type SyncState } from "@/app/hooks/useP2PRoom";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -33,17 +33,13 @@ import {
   REGION_DRAG_START,
   SCROLL,
   TEXT_INPUT,
-  createDoc,
   mathCommandCaretOffset,
   mergeRegister,
-  serializeVV,
   type Block,
   type CursorDragInfo,
   type Decoration,
-  type Doc,
   type DocPoint,
   type MountedEditor as MountedEditorInstance,
-  type Operation,
 } from "@cypherkit/editor";
 import {
   CODE_LANGUAGES,
@@ -52,7 +48,6 @@ import {
   codeLanguageLabel,
   isTextualBlock,
   isTouchDevice,
-  type EditorStrings,
   type EditorWiring,
   type NodeOverlay,
   type PlaceholderStyles,
@@ -71,7 +66,6 @@ import {
   deviceIcon,
   isCollidingName,
 } from "@/lib/presenceLabels";
-import { useEditor } from "@cypherkit/react";
 import i18next from "i18next";
 import {
   Bold,
@@ -120,8 +114,6 @@ import {
   openLinkEditMenu,
   type LinkEditOverlayData,
 } from "../editorSchema";
-import { cssVarsToTheme } from "../editorTheme";
-import { getAppFontRegistry, onAppFontRegistryChange } from "../fonts";
 import { useSafeAreaInsets } from "./hooks/useSafeAreaInsets";
 import { cn } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
@@ -130,6 +122,7 @@ import { MobileKeyboardToolbar } from "./components/MobileKeyboardToolbar";
 import {
   fontStyleToFamily,
   horizontalPaddingForWidth,
+  editorThemeForDensity,
   usePageSettings,
 } from "./contexts/PageSettingsContext";
 import useResponsive from "./hooks/useResponsive";
@@ -144,52 +137,14 @@ import {
   type NativeMobileToolbarModel,
 } from "./mobileToolbar";
 import { EditorLoadingState } from "./pages/EditorPage";
-
-/**
- * Localized cross-node canvas strings (block placeholders). The
- * @cypherkit/editor package ships English defaults and no i18n library, so the
- * host passes translations at mount. Evaluated at mount time — fine, since
- * changing the language happens on the Settings page where no editor is
- * mounted; the next mount picks up the new language.
- *
- * Strings owned by a single block type live on the node, not here — see
- * {@link editorNodeStrings}.
- */
-function editorStrings(): EditorStrings {
-  return {
-    placeholderHeading1: i18next.t("blocks.heading1"),
-    placeholderHeading2: i18next.t("blocks.heading2"),
-    placeholderHeading3: i18next.t("blocks.heading3"),
-    placeholderParagraph: i18next.t("editor.typeForActions"),
-    placeholderParagraphTouch: i18next.t("editor.typeSomething"),
-    placeholderListItem: i18next.t("blocks.listItem"),
-    placeholderTodoItem: i18next.t("blocks.todoItem"),
-    placeholderMath: i18next.t("editor.math.placeholder"),
-  };
-}
-
-/**
- * Per-node localized strings, keyed by block type then the node's local string
- * key (mirrors each node's `strings` catalog). Passed as `theme.nodeStrings`;
- * the editor overlays these onto the nodes' English defaults per instance.
- */
-function editorNodeStrings(): Record<string, Record<string, string>> {
-  return {
-    image: {
-      clickToUpload: i18next.t("image.clickToUpload"),
-      loading: i18next.t("image.loading"),
-      uploading: i18next.t("image.uploading"),
-      uploadFailed: i18next.t("error.failedToUploadImage"),
-      changeImage: i18next.t("image.changeImage"),
-    },
-    quote: {
-      placeholder: i18next.t(
-        "blocks.quotePlaceholder",
-        "Write something worth remembering…",
-      ),
-    },
-  };
-}
+// The whole page mounts on the shared EditorCore (theme, strings, fonts, and
+// live dark-mode/font re-theming) — the same core a TitleEditor uses, so both
+// surfaces render identically and gain editor features together (see `editorCore`).
+import { useEditorCore } from "./editorCore";
+import {
+  useCollaborativeDoc,
+  type CollaborativeDoc,
+} from "./useCollaborativeDoc";
 
 function toolbarBlockTypeFromQueryBlock(
   block: { type: string; attrs?: Record<string, unknown> } | null | undefined,
@@ -1090,29 +1045,58 @@ function postKeyboardAccessoryFocus(focused: boolean): void {
 }
 
 /**
- * Public mount component. Remounts the inner {@link EditorSurface} whenever the
- * page (or read-only mode) changes: the surface mounts its editor once via
- * `useEditor` (a mount-once hook), so a fresh `key` is how we recreate the
- * doc + editor for a new page — replacing the old in-effect teardown/rebuild.
+ * Public mount component. Keys the collaborative wrapper per page (or read-only
+ * mode) so a page switch tears the doc + editor down and rebuilds them for the
+ * new page — the `key` is how we recreate them, replacing the old in-effect
+ * teardown/rebuild.
  */
 export function MountedEditor(props: MountedEditorProps) {
   return (
-    <EditorSurface
+    <CollaborativeEditor
       key={`${props.pageId}::${props.readonly ? "ro" : "rw"}`}
       {...props}
     />
   );
 }
 
-function EditorSurface({
-  snapshot,
+/**
+ * Owns the page's shared {@link Doc} and all its collaboration/persistence via
+ * {@link useCollaborativeDoc} — hoisted ABOVE the editor — then renders the body
+ * {@link PageEditor} as a view over it. Keeping doc ownership a level up means the
+ * editor (a child) is always torn down before the doc, and lets other surfaces
+ * (a live title/preview) attach to the same doc with sync wired exactly once.
+ */
+function CollaborativeEditor(props: MountedEditorProps) {
+  const collab = useCollaborativeDoc({
+    pageId: props.pageId,
+    spaceId: props.spaceId,
+    snapshot: props.snapshot,
+    readonly: props.readonly ?? false,
+    onSyncStateChange: props.onSyncStateChange,
+  });
+  return <PageEditor {...props} collab={collab} />;
+}
+
+interface PageEditorProps extends MountedEditorProps {
+  /** The shared doc + collaboration handles this editor is a view over. */
+  collab: CollaborativeDoc;
+}
+
+/**
+ * PageEditor — the full-page WYSIWYG editor: the app's core editing experience
+ * over an entire document. It renders and edits the shared `Doc` (owned by
+ * {@link useCollaborativeDoc} above it) through the shared {@link useEditorCore}
+ * mount — the same core the compact {@link TitleEditor} uses — and owns the page
+ * chrome: presence rendering, the mobile + native toolbars, context menu, find
+ * bar, node/mark overlays, and cursor persistence.
+ */
+function PageEditor({
+  collab,
   className = "",
   onContentChange,
   onContentUpdate,
   autoFocus = false,
   pageId,
-  spaceId,
-  onSyncStateChange,
   onAwarenessChange,
   onRestoreReady,
   onEditorReady,
@@ -1122,12 +1106,13 @@ function EditorSurface({
   placeholderOverrides,
   onScroll,
   onHorizontalPaddingChange,
-}: MountedEditorProps) {
-  const { setOnOpenFind, fontStyle, editorWidth } = usePageSettings();
+}: PageEditorProps) {
+  const { setOnOpenFind, fontStyle, editorWidth, density } = usePageSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
   const mountedRef = useRef<MountedEditorInstance | null>(null);
-  const docRef = useRef<Doc | null>(null);
+  // The shared doc is owned above us by useCollaborativeDoc; we're a view over it.
+  const doc = collab.doc;
   const onScrollRef = useRef(onScroll);
   // Latest selected font family, read at mount time without making it a mount
   // dependency (changing it re-themes via setTheme below, not a full re-mount).
@@ -1188,12 +1173,6 @@ function EditorSurface({
   }, [setOnOpenFind]);
 
   const lastContextMenuStateRef = useRef<typeof contextMenuState>(null);
-  // Preserve live editor content across HMR re-mounts (refs survive Fast Refresh)
-  const liveBlocksRef = useRef<{ blocks: Block[]; pageId: string } | null>(
-    null,
-  );
-  // Track when applying remote operations to prevent triggering saves for non-local changes
-  const isApplyingRemoteOpsRef = useRef(false);
   // Spinner overlay: hidden once we've confirmed local storage state (ops
   // loaded or snapshot has content). Keyed by pageId rather than a boolean so
   // a page switch hides the canvas on the very first render (a boolean reset
@@ -1547,115 +1526,25 @@ function EditorSurface({
     "format",
   );
 
-  // Callbacks for useRoom - use refs to avoid recreating callbacks
-  const onRoomOperationsRef = useRef<((ops: Operation[]) => void) | null>(null);
-  const onRoomSyncResponseRef = useRef<
-    ((ops: Operation[], vv: Record<string, number>) => void) | null
-  >(null);
-  const onRoomAwarenessRef = useRef<
-    ((awarenesspeerId: string, state: CursorPresence | null) => void) | null
-  >(null);
-  const onRoomFirstPeerRef = useRef<(() => void) | null>(null);
-  const onRoomPeerJoinedRef = useRef<((peerId: string) => void) | null>(null);
-  const onRoomAwarenessStatesRef = useRef<
-    ((states: Record<string, CursorPresence>) => void) | null
-  >(null);
-  const onRoomJoinedRef = useRef<((hasOtherPeers: boolean) => void) | null>(
-    null,
-  );
-  // Tracks remote peers' full presence (caret/selection + identity), now that
-  // the editor no longer stores awareness — it only renders decorations. We keep
-  // the whole presence (not just the user) so a name collision among peers can
-  // re-derive every peer's cursor label, not only the one that just updated.
+  // Tracks remote peers' full presence (caret/selection + identity); the editor
+  // renders decorations from this. We keep the whole presence (not just the user)
+  // so a name collision among peers can re-derive every peer's cursor label, not
+  // only the one that just updated. Fed by the awareness channel from the hook.
   const remotePresenceRef = useRef<Map<string, CursorPresence>>(new Map());
 
-  // Use the P2P room subscription (WebRTC DataChannels)
-  const {
-    broadcast: roomBroadcast,
-    broadcastAwareness: roomBroadcastAwareness,
-    sendSyncRequest: roomSendSyncRequest,
-    syncState,
-    localUser,
-    peerId,
-  } = useP2PRoom(
-    pageId,
-    {
-      onOperations: useCallback((ops: Operation[]) => {
-        onRoomOperationsRef.current?.(ops);
-      }, []),
-      onSyncResponse: useCallback(
-        (ops: Operation[], vv: Record<string, number>) => {
-          onRoomSyncResponseRef.current?.(ops, vv);
-        },
-        [],
-      ),
-      onAwarenessUpdate: useCallback(
-        (pId: string, state: CursorPresence | null) => {
-          onRoomAwarenessRef.current?.(pId, state);
-        },
-        [],
-      ),
-      onFirstPeer: useCallback(() => {
-        onRoomFirstPeerRef.current?.();
-      }, []),
-      onPeerJoined: useCallback((pId: string) => {
-        onRoomPeerJoinedRef.current?.(pId);
-      }, []),
-      onAwarenessStates: useCallback(
-        (states: Record<string, CursorPresence>) => {
-          onRoomAwarenessStatesRef.current?.(states);
-        },
-        [],
-      ),
-      onJoined: useCallback((hasOtherPeers: boolean) => {
-        onRoomJoinedRef.current?.(hasOtherPeers);
-      }, []),
-    },
-    spaceId,
-  );
+  // This tab's identity + color, read from the hook that owns the room. Held in a
+  // ref so the presence handlers and awareness broadcast read the latest without
+  // re-running the mount effect.
+  const localUserRef = useRef(collab.localUser);
+  localUserRef.current = collab.localUser;
 
-  // Refs for values from useP2PRoom that should NOT cause editor re-mount.
-  // Reading from refs inside the big useEffect avoids destroying/recreating
-  // the editor (and nulling all callback refs) when these change.
-  const peerIdRef = useRef(peerId);
-  peerIdRef.current = peerId;
-  const localUserRef = useRef(localUser);
-  localUserRef.current = localUser;
-
-  // Notify parent of sync state changes
-  useEffect(() => {
-    onSyncStateChange?.(syncState);
-  }, [syncState, onSyncStateChange]);
-
-  // ── Mount via @cypherkit/react's useEditor ───────────────────────────────
-  // The CRDT Doc is the single source of truth. We create it ourselves (rather
-  // than letting useEditor make a private one) for two reasons: it must carry
-  // this device's persistent peer id — so local ops stay causally ours across
-  // reloads — and the app's explicit `appSchema`. useEditor owns the editor
-  // lifecycle and mounts the canvas into `containerRef`; we keep owning the
-  // doc and tear it down below (after the editor).
-  //
-  // Created exactly once per mount: this surface is remounted per page via the
-  // MountedEditor wrapper's `key`, and useEditor reads its options once and is
-  // reconfigured imperatively (setTheme, …) thereafter.
-  if (!docRef.current) {
-    // HMR: reuse live editor content for the same page (refs survive Fast
-    // Refresh); otherwise start from the snapshot prop.
-    const initialBlocks =
-      liveBlocksRef.current?.pageId === pageId
-        ? liveBlocksRef.current.blocks
-        : snapshot;
-    liveBlocksRef.current = null;
-    docRef.current = createDoc({
-      blocks: initialBlocks,
-      pageId,
-      peerId: peerIdRef.current,
-      schema: appSchema.data,
-    });
-  }
-  const doc = docRef.current!;
-
-  const { containerRef, editor } = useEditor({
+  // ── Mount via the shared EditorCore ──────────────────────────────────────
+  // The shared CRDT `doc` (owned by useCollaborativeDoc above us) is the single
+  // source of truth; we pass it in so this surface is a view over it. useEditorCore
+  // (wrapping `useEditor`) owns the editor lifecycle and mounts the canvas into
+  // `containerRef`. The doc outlives the editor: as our parent, the hook tears the
+  // doc down only after this child editor has unmounted.
+  const { containerRef, editor } = useEditorCore({
     doc,
     schema: appSchema,
     editable: !readonly,
@@ -1663,18 +1552,11 @@ function EditorSurface({
     padding,
     blockStyleOverrides,
     placeholderOverrides,
-    strings: editorStrings(),
-    // The editor is headless and never reads the DOM for styling — feed it our
-    // current `--editor-*` CSS variables as theme tokens. Kept in sync with
-    // dark-mode toggles via the MutationObserver below (editor.setTheme). Fonts
-    // (registry + selected family) ride on the theme too; both update live via
-    // the subscriptions below.
-    theme: {
-      ...cssVarsToTheme(),
-      fonts: getAppFontRegistry(),
-      fontFamily: fontStyleToFamily(fontStyleRef.current),
-      nodeStrings: editorNodeStrings(),
-    },
+    // Shared strings, base theme (CSS `--editor-*` tokens + font registry + node
+    // strings), and live dark-mode/font re-theming all come from useEditorCore.
+    // The only body-specific bit is the selected serif/sans family, passed as a
+    // theme override; it also updates live via the setTheme effect below.
+    theme: { fontFamily: fontStyleToFamily(fontStyleRef.current) },
   });
 
   // Keep the off-screen peer indicators clear of the platform safe area (notch,
@@ -1732,6 +1614,15 @@ function EditorSurface({
     observer.observe(el);
     return () => observer.disconnect();
   }, [editor, editorWidth]);
+
+  // Push the display-density scale (line-spacing multiplier page setting) into
+  // the live editor. It scales the flow-text line heights and inter-block gaps;
+  // setTheme deep-merges, so this rides alongside the font/width/token patches
+  // and reflows text without a re-mount.
+  useEffect(() => {
+    if (!editor) return;
+    editor.setTheme(editorThemeForDensity(density));
+  }, [editor, density]);
 
   // The existing native iOS accessory and the Android React toolbar consume the
   // exact same model. Only transport and rendering differ.
@@ -1846,32 +1737,16 @@ function EditorSurface({
     return () => onEditorReadyRef.current?.(null);
   }, [editor]);
 
-  // We own the doc's lifetime (useEditor doesn't, since we passed `doc` in).
-  // A passive cleanup runs in the passive phase — after useEditor's layout-phase
-  // editor teardown — so the editor is destroyed before the doc, matching the
-  // engine's "tear down the editor (detaches doc↔editor wiring), then the doc".
-  useEffect(() => {
-    return () => {
-      docRef.current?.destroy();
-      docRef.current = null;
-    };
-    // Mount-once (the surface is keyed per page); destroy on unmount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Persist cursor position + (for HMR) live blocks on unmount, while the editor
-  // is still alive. As a layout-effect cleanup declared after useEditor, it runs
-  // in the commit phase before useEditor's own layout cleanup destroys the
-  // editor — so editor.state / the doc still return live data here.
+  // Persist cursor position on unmount, while the editor is still alive. As a
+  // layout-effect cleanup declared after the editor mount, it runs in the commit
+  // phase before useEditor's own layout cleanup destroys the editor — so
+  // editor.state / view still return live data here. (The doc's lifetime and the
+  // HMR live-blocks stash are owned by useCollaborativeDoc, a level up.)
   useLayoutEffect(() => {
     if (readonly) return;
     return () => {
       const editorApi = mountedRef.current?.editor;
       if (!editorApi) return;
-      const blocks = docRef.current?.getRawBlocks();
-      if (blocks) {
-        liveBlocksRef.current = { blocks, pageId };
-      }
       const range = editorApi.state.selection.range;
       const caret =
         range && typeof range === "object" && "offset" in range
@@ -2101,21 +1976,16 @@ function EditorSurface({
     // cost on plain web since the menu is never requested natively there).
     prewarmMenuIcons();
 
-    // Re-push the CSS-driven editor theme whenever the document root's class
-    // changes. Dark-mode flips both color tokens and targeted style overrides.
-    const themeObserver = new MutationObserver(() => {
-      mounted.editor.setTheme(cssVarsToTheme());
-      // Re-warm icons in the new theme color.
+    // Re-pushing the editor theme on dark-mode and font-registry changes is now
+    // owned by useEditorCore (useLiveEditorTheme), shared with every surface.
+    // The only theme-linked concern left here is host-specific: re-rasterize the
+    // native context-menu icons in the new color when the root class flips.
+    const menuIconThemeObserver = new MutationObserver(() => {
       prewarmMenuIcons();
     });
-    themeObserver.observe(document.documentElement, {
+    menuIconThemeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class"],
-    });
-
-    // Re-theme when the app font registry changes (e.g. Arabic stacks load).
-    const offFontRegistry = onAppFontRegistryChange(() => {
-      mounted.editor.setTheme({ fonts: getAppFontRegistry() });
     });
 
     // True if snapshot has any block with actual text (not just the auto-generated empty init block).
@@ -2179,8 +2049,7 @@ function EditorSurface({
       return () => {
         unsubscribe();
         disposeActions();
-        themeObserver.disconnect();
-        offFontRegistry();
+        menuIconThemeObserver.disconnect();
         // The editor (useEditor) and the doc (our cleanup effects) are torn
         // down separately; here we only undo this effect's own wiring.
         if (mountedRef.current === mounted) {
@@ -2189,38 +2058,15 @@ function EditorSurface({
       };
     }
 
-    // Running clock-based version vector of every op the doc holds, used as the
-    // FS snapshot's validity token. It must describe exactly the op set the
-    // snapshot blocks reflect, so it is folded from the same ops that mutate the
-    // doc (seeded from the loaded log here, then advanced per update) rather than
-    // re-derived from the ops table at write time — a frontier read there could
-    // include a remote op already persisted but not yet folded into the blocks,
-    // validating a stale snapshot on the next open. Maintained incrementally
-    // (O(peers) per save) so large logs aren't rescanned on every snapshot.
-    const clockVV: Record<string, number> = {};
-    const foldClockVV = (ops: Operation[]) => {
-      for (const op of ops) {
-        const peer = op.clock.peerId;
-        if (op.clock.counter > (clockVV[peer] ?? -1)) {
-          clockVV[peer] = op.clock.counter;
-        }
-      }
-    };
+    // Ops sync + persistence (broadcast, apply-remote, ops load, FS snapshot) are
+    // owned by useCollaborativeDoc above us — the doc fans local edits out to peers
+    // + SQLite + the snapshot, and applies remote ops, all without the editor. Here
+    // we wire only the editor-scoped half: revealing the canvas, restore, and
+    // presence (rendering peers' cursors + publishing our own).
 
-    // Load persisted operations from SQLite (if any) and register them on the
-    // doc. This catches the doc's version vector + clock/id counter up to what
-    // the snapshot blocks already represent (the blocks were rebuilt from these
-    // ops by the engine), without re-rendering — see Doc.load. New local ops
-    // then out-order and out-counter historical ones.
-    const platform = getPlatform();
-    const opsLoadedPromise = platform.ops.load(pageId).then((persistedOps) => {
-      if (persistedOps.length > 0 && docRef.current) {
-        docRef.current.load(persistedOps);
-        // Seed the snapshot token: load() registers these ops without emitting
-        // an update, so they never reach the fold in the update handler.
-        foldClockVV(persistedOps);
-      }
-      // Local storage confirmed — we have whatever we have. Reveal the canvas.
+    // Reveal the canvas once the hook confirms persisted ops have loaded (the VV is
+    // accurate). If the snapshot already had content we revealed above.
+    collab.opsLoaded.then(() => {
       if (!snapshotHasContent) {
         requestAnimationFrame(() => setReadyPageId(pageId));
       }
@@ -2233,68 +2079,19 @@ function EditorSurface({
       });
     }
 
-    // Debounced snapshot writer — keeps the FS snapshot in sync after edits.
-    // 2s delay avoids writing on every keystroke.
-    let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
-    const saveSnapshot = (blocks: Block[]) => {
-      if (snapshotTimer) clearTimeout(snapshotTimer);
-      // Strip the transient render cache (`cachedLayout`) the editor writes onto
-      // the doc's canonical blocks before persisting: it holds live Mark
-      // instances whose codec functions can't cross the platform's structured-
-      // clone boundary (postMessage), and it's per-canvas-width render state that
-      // is invalid to persist anyway.
-      const clean = cleanSnapshotForSave(blocks);
-      // Snapshot the token by value now; clockVV keeps mutating as later edits
-      // arrive, but this write must carry the frontier matching `clean`.
-      const vv = { ...clockVV };
-      snapshotTimer = setTimeout(() => {
-        platform.snapshots.save(pageId, clean, vv);
-      }, 2000);
-    };
-
-    // Single fan-out for every document change. Local edits (u.local) are
-    // broadcast to peers and persisted to SQLite here; remote ops are persisted
-    // by the Replicator before they reach applyRemoteOps, so we only refresh the
-    // FS snapshot for those. The doc's update event also drives the editor
-    // re-render (via the editor's doc↔editor wiring), so there's no second fold.
-    const offDocUpdate = doc.on("update", (u) => {
-      if (u.local) {
-        roomBroadcast(u.ops);
-        platform.ops.persist(pageId, u.ops);
-      }
-      // Advance the token before snapshotting so it covers this batch's ops.
-      foldClockVV(u.ops);
-      saveSnapshot(doc.getRawBlocks());
-    });
-
-    // Apply remote ops through the doc. applyUpdate dedups via the version
-    // vector, advances the shared binding past everything received (so local
-    // ops stay causally ahead), drives the editor, and fires offDocUpdate — all
-    // synchronously, so the isApplyingRemoteOps guard still brackets the
-    // editor's state-change notification and suppresses the local save path.
-    const applyRemoteOps = (ops: Operation[]) => {
-      isApplyingRemoteOpsRef.current = true;
-      doc.applyUpdate(ops, "remote");
-      isApplyingRemoteOpsRef.current = false;
-    };
-
-    // Wire up room callbacks to sync engine and editor
-    // These refs are called by useRoom when messages arrive
-    onRoomOperationsRef.current = applyRemoteOps;
-
-    onRoomSyncResponseRef.current = (ops, _versionVector) => {
-      if (ops.length > 0) {
-        applyRemoteOps(ops);
-      }
-    };
-
-    onRoomFirstPeerRef.current = () => {
-      // The editor already has the initial content loaded
-    };
-
-    // When a new peer joins our room, re-broadcast our awareness so they see our cursor
-    onRoomPeerJoinedRef.current = (_joinedPeerId) => {
-      publishLocalAwareness();
+    // Publish our cursor/selection to the room whenever it moves. The editor
+    // doesn't own awareness — it emits "selectionchange"; we convert the live
+    // selection to this app's awareness wire shape and broadcast it through the
+    // hook's channel. Guard: don't broadcast before P2P identity loads (localUser
+    // starts as { peerId: "", color: "" }).
+    const publishLocalAwareness = () => {
+      if (!localUserRef.current.peerId) return;
+      collab.awareness.broadcast(
+        selectionToCursorPresence(
+          mounted.editor.state.selection.range,
+          localUserRef.current,
+        ),
+      );
     };
 
     // Caret label for a nameless peer: "You" when it's the local user's own
@@ -2333,55 +2130,29 @@ function EditorSurface({
       onAwarenessChange?.(entries.map(([, state]) => state.user));
     };
 
-    onRoomAwarenessRef.current = (awarenesspeerId, state) => {
-      if (state) {
-        remotePresenceRef.current.set(awarenesspeerId, state);
-      } else {
-        mounted.editor.view.clearDecorations(presenceLayer(awarenesspeerId));
-        remotePresenceRef.current.delete(awarenesspeerId);
-      }
-      refreshPresenceDecorations();
-    };
+    // Connect this (primary) surface to the hook's awareness transport: render
+    // incoming peer presence as cursors, and re-publish ours when a peer joins or
+    // we (re)join a populated room so they see our cursor.
+    const disconnectAwareness = collab.awareness.connect({
+      onUpdate: (awarenessPeerId, state) => {
+        if (state) {
+          remotePresenceRef.current.set(awarenessPeerId, state);
+        } else {
+          mounted.editor.view.clearDecorations(presenceLayer(awarenessPeerId));
+          remotePresenceRef.current.delete(awarenessPeerId);
+        }
+        refreshPresenceDecorations();
+      },
+      onStates: (states) => {
+        for (const [awarenessPeerId, state] of Object.entries(states)) {
+          remotePresenceRef.current.set(awarenessPeerId, state);
+        }
+        refreshPresenceDecorations();
+      },
+      onPeerJoined: () => publishLocalAwareness(),
+      onRejoin: () => publishLocalAwareness(),
+    });
 
-    onRoomAwarenessStatesRef.current = (states) => {
-      for (const [awarenesspeerId, state] of Object.entries(states)) {
-        remotePresenceRef.current.set(awarenesspeerId, state);
-      }
-      refreshPresenceDecorations();
-    };
-
-    // Handle room join/rejoin - request VV-based sync from peers
-    onRoomJoinedRef.current = (hasOtherPeers) => {
-      if (hasOtherPeers) {
-        // Wait for persisted ops to load so the VV is accurate
-        opsLoadedPromise.then(() => {
-          const localVV = serializeVV(doc.getVersionVector());
-          roomSendSyncRequest(localVV);
-        });
-
-        // Broadcast current awareness state so peers see our cursor
-        publishLocalAwareness();
-      }
-    };
-
-    // Local-edit broadcast/persistence is handled by the doc.on("update")
-    // subscription above — the editor feeds its local ops into the doc, and the
-    // doc fans them out to peers + SQLite + the snapshot.
-
-    // Publish our cursor/selection to the room whenever it moves. The editor no
-    // longer owns awareness — it just emits "selectionchange"; we convert the
-    // current selection to this app's awareness wire shape and broadcast it.
-    // Guard: don't broadcast before P2P identity loads (localUserRef starts as
-    // { peerId: "", color: "" }).
-    const publishLocalAwareness = () => {
-      if (!localUserRef.current.peerId) return;
-      roomBroadcastAwareness(
-        selectionToCursorPresence(
-          mounted.editor.state.selection.range,
-          localUserRef.current,
-        ),
-      );
-    };
     const offSelectionChange = mounted.editor.on(
       "selectionchange",
       publishLocalAwareness,
@@ -2723,28 +2494,15 @@ function EditorSurface({
       offContent();
       offUi();
       disposeActions();
-      offDocUpdate();
       offSelectionChange();
       offChangeAwareness();
-      themeObserver.disconnect();
-      offFontRegistry();
+      disconnectAwareness();
+      menuIconThemeObserver.disconnect();
 
-      // Clear room callback refs
-      onRoomOperationsRef.current = null;
-      onRoomSyncResponseRef.current = null;
-      onRoomAwarenessRef.current = null;
-      onRoomFirstPeerRef.current = null;
-      onRoomPeerJoinedRef.current = null;
-      onRoomAwarenessStatesRef.current = null;
-      onRoomJoinedRef.current = null;
-
-      // Cancel pending snapshot write
-      if (snapshotTimer) clearTimeout(snapshotTimer);
-
-      // The editor (useEditor) is destroyed in the commit phase and the doc by
-      // our dedicated cleanup effect; cursor/live-blocks are saved by the
-      // layout-effect above (all while the editor is still alive). Here we only
-      // undo this effect's own wiring.
+      // The editor (useEditor) is destroyed in the commit phase; the doc + its
+      // sync/persistence are owned and torn down by useCollaborativeDoc a level
+      // up; the cursor is saved by the layout-effect above (while the editor is
+      // still alive). Here we only undo this effect's own wiring.
       delete window.CypherEditorCallbacks;
       if (mountedRef.current === mounted) {
         mountedRef.current = null;
@@ -2752,7 +2510,7 @@ function EditorSurface({
     };
     // Runs once when the editor becomes available. The surface is remounted per
     // page (keyed wrapper), so pageId/readonly/snapshot are constant here, and
-    // the room callbacks are stable per roomId — all captured once.
+    // the awareness channel is stable — all captured once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
@@ -2760,16 +2518,18 @@ function EditorSurface({
   // peers overwrite any stale entry they stored before our identity finished
   // loading (color: ""). The ongoing broadcast is driven by the editor's
   // "selectionchange" + "change" subscriptions wired in the mount effect above.
+  const localUser = collab.localUser;
+  const broadcastAwareness = collab.awareness.broadcast;
   useEffect(() => {
     if (mountedRef.current && localUser.peerId) {
-      roomBroadcastAwareness(
+      broadcastAwareness(
         selectionToCursorPresence(
           mountedRef.current.editor.state.selection.range,
           localUser,
         ),
       );
     }
-  }, [localUser, roomBroadcastAwareness]);
+  }, [localUser, broadcastAwareness]);
 
   // Global keyboard shortcuts for find — listen on document so they work even
   // when the editor canvas doesn't have focus, but skip when a dialog or drawer is open.

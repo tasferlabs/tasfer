@@ -48,7 +48,6 @@ export interface Peer {
 export interface PageListItem {
   id: string;
   title: string;
-  autoTitle: boolean;
   parentId: string | null;
   order: number;
   hasChildren: boolean;
@@ -94,7 +93,6 @@ export interface PageCreateInput {
 export interface PageUpdateInput {
   id: string;
   title?: string;
-  autoTitle?: boolean;
   color?: string | null;
   scheduledAt?: string | null;
   duration?: number | null;
@@ -122,7 +120,6 @@ export interface PageSearchResult {
 export interface PageCalendarItem {
   id: string;
   title: string;
-  autoTitle: boolean;
   parentId: string | null;
   order: number;
   color: string | null;

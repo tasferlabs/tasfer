@@ -22,9 +22,11 @@ import type {
   PlaceholderStyles,
   TextStyle,
   ViewportState,
+  ViewWindow,
 } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { mergeTheme } from "../styles";
+import type { DataSchema } from "../sync/schema";
 import { Editor, type EditorApi } from "./editor";
 import {
   createCanvasLayers,
@@ -209,6 +211,25 @@ export interface MountEditorOptions<
    * Omit to use the built-in set (`createDefaultMarkRegistry`). Mirrors `nodes`.
    */
   marks?: readonly Mark[];
+  /**
+   * The canvas-free document schema (`schema.data`) that governs local
+   * AUTHORING — its allow-list decides which registered block/mark types the
+   * user may create (see `Schema.restrict`). Omit for the unrestricted base
+   * schema. `createEditor({ schema })` forwards this automatically; pass it here
+   * only when driving `mountEditor` directly with a restricted schema. Rendering
+   * is governed by `nodes`/`marks`, not this — a disallowed type still renders.
+   */
+  schema?: DataSchema<D>;
+  /**
+   * Restrict which of the doc's blocks this editor renders and edits — a VIEW
+   * WINDOW (see {@link ViewWindow}). Omit for a full-document editor (the
+   * default). Two editors attached to the same {@link doc} can show disjoint
+   * windows (e.g. a title-only surface alongside a full page editor) and stay
+   * live-synced through the shared doc. Purely a view/authoring concern: the
+   * doc, reducer, and sync are unaffected, so peers converge regardless of any
+   * editor's window. See `titleBlockWindow`.
+   */
+  window?: ViewWindow;
   /**
    * Per-instance CRDT context (peer id + clock + id generator). Hosts that
    * sync should create one with `createCRDTbinding(pageId, peerId)` and pass
@@ -488,6 +509,11 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     mode: options?.editable === false ? "readonly" : "edit",
     nodes,
     marks,
+    // Authoring schema (allow-list + CRDT/serialization facets). Defaults to the
+    // base (unrestricted) schema inside createInitialState when omitted.
+    schema: options?.schema,
+    // Block window (e.g. a title-only surface). Undefined for a full editor.
+    window: options?.window,
     // The doc's binding is the shared id/clock source when a doc is attached.
     crdtBinding: doc?._binding ?? options?.crdtBinding,
     theme,

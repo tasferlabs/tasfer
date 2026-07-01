@@ -31,6 +31,7 @@
  * flowing into the text via `inlineText()`.
  */
 
+import { analyzeLineBidi } from "../bidi";
 import {
   batchChars,
   currentFontFamily,
@@ -974,123 +975,118 @@ function computeSelectionRects(
     );
   };
 
+  // Plain line-start-to-index width (no inline-chip descent), block indices.
+  const plainWidth = (fromIndex: number, toIndex: number): number =>
+    measureLineWidth(
+      chars,
+      formats,
+      fromIndex,
+      toIndex,
+      textStyle,
+      fontFamily,
+      fonts,
+      codePadding,
+      marks,
+      layout.replCharWidths,
+    );
+
   layout.lines.forEach((line) => {
     const lineY = blockTopY + line.y;
-    let selectionStartX = baseX;
-    let selectionEndX = baseX + line.width;
-    let shouldRender = false;
 
-    if (start.blockIndex === blockIndex && end.blockIndex === blockIndex) {
-      if (
-        start.textIndex <= line.endIndex &&
-        end.textIndex >= line.startIndex
-      ) {
-        shouldRender = true;
+    // The logical block-index range of THIS line that the selection covers.
+    // A selection that starts/ends outside this block contributes the whole
+    // line edge on that side (multi-block ribbon).
+    const startsHere = start.blockIndex === blockIndex;
+    const endsHere = end.blockIndex === blockIndex;
+    const lineSelStart = startsHere
+      ? Math.max(line.startIndex, start.textIndex)
+      : line.startIndex;
+    const lineSelEnd = endsHere
+      ? Math.min(line.endIndex, end.textIndex)
+      : line.endIndex;
+    if (lineSelStart >= lineSelEnd) return;
 
-        if (isRTL) {
-          const selStartTextIndex = Math.max(line.startIndex, start.textIndex);
-          const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
+    // Resolve the line's bidi structure. A line whose only run is at the base
+    // level needs no reordering — take the fast monotonic path, which also
+    // keeps the inline-math chip glyph-descent (`boundaryWidth`) behaviour.
+    const { runs, visual } = analyzeLineBidi(line.text, isRTL ? "rtl" : "ltr");
+    const baseLevel = isRTL ? 1 : 0;
+    const isPureLine =
+      runs.length === 0 || (runs.length === 1 && runs[0].level === baseLevel);
 
-          const widthToSelStart = measureLineWidth(
-            chars,
-            formats,
-            line.startIndex,
-            selStartTextIndex,
-            textStyle,
-            fontFamily,
-            fonts,
-            codePadding,
-            marks,
-          );
-          const widthToSelEnd = measureLineWidth(
-            chars,
-            formats,
-            line.startIndex,
-            selEndTextIndex,
-            textStyle,
-            fontFamily,
-            fonts,
-            codePadding,
-            marks,
-          );
-
-          selectionEndX = baseX + maxWidth - widthToSelStart;
-          selectionStartX = baseX + maxWidth - widthToSelEnd;
-        } else {
-          if (start.textIndex > line.startIndex) {
-            selectionStartX = baseX + boundaryWidth(line, start.textIndex);
-          }
-          if (end.textIndex < line.endIndex) {
-            selectionEndX = baseX + boundaryWidth(line, end.textIndex);
-          }
-        }
-      }
-    } else if (start.blockIndex < blockIndex && end.blockIndex > blockIndex) {
-      shouldRender = true;
+    if (isPureLine) {
+      let selectionStartX = baseX;
+      let selectionEndX = baseX + line.width;
       if (isRTL) {
-        const lineStartX = baseX + maxWidth - line.width;
-        selectionStartX = lineStartX;
-        selectionEndX = lineStartX + line.width;
-      }
-    } else if (start.blockIndex === blockIndex && end.blockIndex > blockIndex) {
-      if (start.textIndex <= line.endIndex) {
-        shouldRender = true;
-
-        if (isRTL) {
-          const selStartTextIndex = Math.max(line.startIndex, start.textIndex);
-          const widthToSelStart = measureLineWidth(
-            chars,
-            formats,
-            line.startIndex,
-            selStartTextIndex,
-            textStyle,
-            fontFamily,
-            fonts,
-            codePadding,
-            marks,
-          );
-
-          selectionEndX = baseX + maxWidth - widthToSelStart;
-          selectionStartX = baseX + maxWidth - line.width;
-        } else {
-          if (start.textIndex > line.startIndex) {
-            selectionStartX = baseX + boundaryWidth(line, start.textIndex);
-          }
+        selectionEndX =
+          baseX + maxWidth - plainWidth(line.startIndex, lineSelStart);
+        selectionStartX =
+          baseX + maxWidth - plainWidth(line.startIndex, lineSelEnd);
+      } else {
+        if (lineSelStart > line.startIndex) {
+          selectionStartX = baseX + boundaryWidth(line, lineSelStart);
+        }
+        if (lineSelEnd < line.endIndex) {
+          selectionEndX = baseX + boundaryWidth(line, lineSelEnd);
         }
       }
-    } else if (start.blockIndex < blockIndex && end.blockIndex === blockIndex) {
-      if (end.textIndex >= line.startIndex) {
-        shouldRender = true;
-
-        if (isRTL) {
-          const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
-          const widthToSelEnd = measureLineWidth(
-            chars,
-            formats,
-            line.startIndex,
-            selEndTextIndex,
-            textStyle,
-            fontFamily,
-            fonts,
-            codePadding,
-            marks,
-          );
-
-          selectionEndX = baseX + maxWidth;
-          selectionStartX = baseX + maxWidth - widthToSelEnd;
-        } else {
-          if (end.textIndex < line.endIndex) {
-            selectionEndX = baseX + boundaryWidth(line, end.textIndex);
-          }
-        }
-      }
-    }
-
-    if (shouldRender) {
       rects.push({
         x: selectionStartX,
         y: lineY,
         width: selectionEndX - selectionStartX,
+        height: line.height,
+      });
+      return;
+    }
+
+    // Mixed-direction (bidi) line: lay runs out in visual order, then emit one
+    // rect per selected run — a logical range that spans an embedded run of the
+    // opposite direction is not visually contiguous, so a single span would
+    // land on the wrong glyphs.
+    let totalWidth = 0;
+    for (const r of runs) {
+      totalWidth += plainWidth(
+        line.startIndex + r.start,
+        line.startIndex + r.end,
+      );
+    }
+    // LTR lines are left-aligned (origin 0); RTL lines are right-aligned so the
+    // last visual run ends flush at maxWidth.
+    const origin = isRTL ? maxWidth - totalWidth : 0;
+    const runLeft = new Map<(typeof runs)[number], number>();
+    let cursorX = origin;
+    for (const r of visual) {
+      runLeft.set(r, cursorX);
+      cursorX += plainWidth(line.startIndex + r.start, line.startIndex + r.end);
+    }
+
+    const lineLen = line.text.length;
+    const lo = Math.max(0, Math.min(lineLen, lineSelStart - line.startIndex));
+    const hi = Math.max(0, Math.min(lineLen, lineSelEnd - line.startIndex));
+    for (const r of runs) {
+      const a = Math.max(r.start, lo);
+      const b = Math.min(r.end, hi);
+      if (a >= b) continue;
+      const runStartIdx = line.startIndex + r.start;
+      const runEndIdx = line.startIndex + r.end;
+      const selA = line.startIndex + a;
+      const selB = line.startIndex + b;
+      const rx = runLeft.get(r) ?? origin;
+      let xLeft: number;
+      let xRight: number;
+      if (r.level % 2 === 0) {
+        // LTR run: logical order matches visual order.
+        xLeft = rx + plainWidth(runStartIdx, selA);
+        xRight = rx + plainWidth(runStartIdx, selB);
+      } else {
+        // RTL run: reversed — the visually-left edge is the logically-later end.
+        xLeft = rx + plainWidth(selB, runEndIdx);
+        xRight = rx + plainWidth(selA, runEndIdx);
+      }
+      rects.push({
+        x: baseX + xLeft,
+        y: lineY,
+        width: xRight - xLeft,
         height: line.height,
       });
     }
@@ -1504,24 +1500,80 @@ export class TextNode extends Node<TextualBlock> {
           };
         }
 
-        const widthFromStart = measureTextUpToIndex(
-          chars,
-          formats,
-          line.startIndex,
-          textIndex,
-          textStyle.fontSize,
-          textStyle.fontWeight,
-          fontFamily,
-          fonts,
-          codePadding,
-          layout.marks,
-          layout.replCharWidths,
+        const caretY =
+          currentY + (line.baselineOffset ?? textAscent) - textAscent;
+
+        // Mixed-direction (bidi) line: place the caret through the visual run
+        // order so it sits at the right glyph boundary in an embedded run.
+        const width = (from: number, to: number): number =>
+          measureTextUpToIndex(
+            chars,
+            formats,
+            from,
+            to,
+            textStyle.fontSize,
+            textStyle.fontWeight,
+            fontFamily,
+            fonts,
+            codePadding,
+            layout.marks,
+            layout.replCharWidths,
+          );
+        const { runs: cRuns, visual: cVisual } = analyzeLineBidi(
+          line.text,
+          isRTL ? "rtl" : "ltr",
         );
+        const cBaseLevel = isRTL ? 1 : 0;
+        const pureCaretLine =
+          cRuns.length === 0 ||
+          (cRuns.length === 1 && cRuns[0].level === cBaseLevel);
+        if (!pureCaretLine) {
+          const lineLen = line.text.length;
+          const i0 = Math.max(
+            0,
+            Math.min(lineLen, textIndex - line.startIndex),
+          );
+          let totalW = 0;
+          for (const r of cRuns) {
+            totalW += width(line.startIndex + r.start, line.startIndex + r.end);
+          }
+          const origin = isRTL ? adjustedMaxWidth - totalW : 0;
+          const runLeftX = new Map<(typeof cRuns)[number], number>();
+          let cx = origin;
+          for (const r of cVisual) {
+            runLeftX.set(r, cx);
+            cx += width(line.startIndex + r.start, line.startIndex + r.end);
+          }
+          // The run owning this boundary: the one that contains i0 as an
+          // interior/left edge, or the last run when the caret is at line end.
+          let owner = cRuns[cRuns.length - 1];
+          for (const r of cRuns) {
+            if (i0 >= r.start && i0 < r.end) {
+              owner = r;
+              break;
+            }
+          }
+          const l = runLeftX.get(owner) ?? origin;
+          const ownerStart = line.startIndex + owner.start;
+          const ownerEnd = line.startIndex + owner.end;
+          const caretIdx = line.startIndex + i0;
+          const localX =
+            owner.level % 2 === 0
+              ? width(ownerStart, caretIdx)
+              : width(caretIdx, ownerEnd);
+          return {
+            x: baseX + l + localX,
+            y: caretY,
+            height: line.height,
+          };
+        }
+
+        const widthFromStart = width(line.startIndex, textIndex);
         return {
           x: isRTL
             ? baseX + adjustedMaxWidth - widthFromStart
             : baseX + widthFromStart,
-          y: currentY + (line.baselineOffset ?? textAscent) - textAscent,
+          y: caretY,
           height: line.height,
         };
       }
@@ -1623,6 +1675,62 @@ export class TextNode extends Node<TextualBlock> {
     );
 
     const lineWidth = positionWidths[positionWidths.length - 1];
+
+    // Bidi (mixed-direction) line: map the click through the visual run order.
+    // `positionWidths[i]` is the cumulative logical width to line-relative index
+    // i, so run/segment widths come straight from it (no extra measurement).
+    const { runs: bidiRunsList, visual: bidiVisual } = analyzeLineBidi(
+      lineText,
+      isRTL ? "rtl" : "ltr",
+    );
+    const baseLvl = isRTL ? 1 : 0;
+    const pureHitLine =
+      bidiRunsList.length === 0 ||
+      (bidiRunsList.length === 1 && bidiRunsList[0].level === baseLvl);
+    if (!pureHitLine) {
+      const origin = isRTL ? adjustedMaxWidth - lineWidth : 0;
+      const runLeftX = new Map<(typeof bidiRunsList)[number], number>();
+      let cx = origin;
+      for (const r of bidiVisual) {
+        runLeftX.set(r, cx);
+        cx += positionWidths[r.end] - positionWidths[r.start];
+      }
+      // Pick the visual run under the click (nearest one if the click is in a
+      // gap or past the ends).
+      let chosen = bidiRunsList[0];
+      let chosenDist = Infinity;
+      for (const r of bidiRunsList) {
+        const l = runLeftX.get(r) ?? origin;
+        const rRight = l + (positionWidths[r.end] - positionWidths[r.start]);
+        if (relativeX >= l && relativeX <= rRight) {
+          chosen = r;
+          chosenDist = 0;
+          break;
+        }
+        const d = relativeX < l ? l - relativeX : relativeX - rRight;
+        if (d < chosenDist) {
+          chosenDist = d;
+          chosen = r;
+        }
+      }
+      const l = runLeftX.get(chosen) ?? origin;
+      let best = chosen.start;
+      let bestDist = Infinity;
+      for (let i = chosen.start; i <= chosen.end; i++) {
+        // Visual x of logical boundary i within the run: LTR grows from the
+        // run's left; RTL grows from its right (reversed).
+        const vx =
+          chosen.level % 2 === 0
+            ? l + (positionWidths[i] - positionWidths[chosen.start])
+            : l + (positionWidths[chosen.end] - positionWidths[i]);
+        const d = Math.abs(relativeX - vx);
+        if (d < bestDist) {
+          bestDist = d;
+          best = i;
+        }
+      }
+      return lineStartIndex + best;
+    }
 
     if (isRTL) {
       const maxWidth = adjustedMaxWidth;

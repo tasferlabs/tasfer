@@ -1,8 +1,12 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./Preferences.module.css";
-import { useTheme, type Theme } from "@/app/hooks/useTheme";
-import { useConfirmation } from "@/app/components/ConfirmationDialog";
+import {
+  DisplayDensity,
+  LanguageSelect,
+  ThemeSelect,
+  Section,
+} from "./AppearanceSettings";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -24,29 +28,10 @@ import {
 } from "@/lib/dateTimePreferences";
 
 export function Preferences() {
-  const { getConfirmation } = useConfirmation();
   const { t, i18n } = useTranslation();
-  const theme = useTheme();
   const [timeFormat, setTimeFormatState] = useState<TimeFormat>(getTimeFormat);
   const [dateFormat, setDateFormatState] = useState<DateFormat>(getDateFormat);
   const [weekStartDay, setWeekStartState] = useState<WeekStart>(getWeekStart);
-
-  function onChangeTheme(themeValue: Theme) {
-    theme.setTheme(themeValue);
-  }
-
-  async function onChangeLangaue(language: string) {
-    const confirmed = await getConfirmation({
-      title: t("common.areYouSure", "Are you sure?"),
-      description: t("settings.language.changingReload", "Changing the language will reload the page."),
-    });
-
-    if (!confirmed) return;
-
-    document.cookie = `locale=${language};path=/;max-age=${365 * 24 * 60 * 60}`;
-    i18n.changeLanguage(language);
-    window.location.reload();
-  }
 
   function onChangeTimeFormat(value: TimeFormat) {
     setTimeFormat(value);
@@ -66,92 +51,113 @@ export function Preferences() {
 
   return (
     <div className={styles.container}>
-      <div className={styles.row}>
-        <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t("settings.theme.title", "Theme")}</p>
-          <p className="text-sm opacity-75">{t("settings.theme.selectForApp", "Select theme for the application")}</p>
+      <LanguageSelect />
+      <DisplayDensity />
+      <ThemeSelect />
+
+      <Section
+        title={t("settings.dateTime.title", "Date & Time")}
+        description={t(
+          "settings.dateTime.description",
+          "How dates and times read throughout the app. Set once — timestamps, calendars, and the week's first day all follow.",
+        )}
+      >
+        <div className={styles.row}>
+          <div className={styles.column}>
+            <p className={cn("text-sm", styles.title)}>
+              {t("settings.dateTime.timeFormat", "Time format")}
+            </p>
+            <p className="text-sm opacity-75">
+              {t(
+                "settings.dateTime.chooseTimeFormat",
+                "Choose how times are displayed",
+              )}
+            </p>
+          </div>
+          <Select onValueChange={onChangeTimeFormat} value={timeFormat}>
+            <SelectTrigger className={styles.selectTrigger}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="system">
+                {t("settings.theme.systemDefault", "System default")}
+              </SelectItem>
+              <SelectItem value="12h">
+                {t("settings.dateTime.12hour", "12-hour")} (
+                {new Intl.DateTimeFormat(i18n.language, {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  hour12: true,
+                }).format(new Date(2000, 0, 1, 14, 30))}
+                )
+              </SelectItem>
+              <SelectItem value="24h">
+                {t("settings.dateTime.24hour", "24-hour")} (14:30)
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
-        <Select onValueChange={onChangeTheme} value={theme.theme}>
-          <SelectTrigger className={styles.selectTrigger}>
-            <SelectValue placeholder={t("settings.theme.select", "Select theme")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="light">{t("settings.theme.light", "Light")}</SelectItem>
-            <SelectItem value="dark">{t("settings.theme.dark", "Dark")}</SelectItem>
-            <SelectItem value="system">{t("settings.theme.system", "System")}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className={styles.row}>
-        <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t("settings.language.title", "Language")}</p>
-          <p className="text-sm opacity-75">{t("settings.language.selectForApp", "Select language for the application")}</p>
+        <div className={styles.row}>
+          <div className={styles.column}>
+            <p className={cn("text-sm", styles.title)}>
+              {t("settings.dateTime.dateFormat", "Date format")}
+            </p>
+            <p className="text-sm opacity-75">
+              {t(
+                "settings.dateTime.chooseDateFormat",
+                "Choose how dates are displayed",
+              )}
+            </p>
+          </div>
+          <Select onValueChange={onChangeDateFormat} value={dateFormat}>
+            <SelectTrigger className={styles.selectTrigger}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="system">
+                {t("settings.theme.systemDefault", "System default")}
+              </SelectItem>
+              <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
+              <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
+              <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <Select onValueChange={onChangeLangaue} value={i18n.language}>
-          <SelectTrigger className={styles.selectTrigger}>
-            <SelectValue placeholder={t("settings.language.select", "Select language")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="en">English</SelectItem>
-            <SelectItem value="ar">العربية</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
 
-      <div className={styles.row}>
-        <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t("settings.dateTime.timeFormat", "Time format")}</p>
-          <p className="text-sm opacity-75">{t("settings.dateTime.chooseTimeFormat", "Choose how times are displayed")}</p>
+        <div className={styles.row}>
+          <div className={styles.column}>
+            <p className={cn("text-sm", styles.title)}>
+              {t("settings.dateTime.weekStartsOn", "Week starts on")}
+            </p>
+            <p className="text-sm opacity-75">
+              {t(
+                "settings.dateTime.chooseWeekStart",
+                "Choose which day the week begins",
+              )}
+            </p>
+          </div>
+          <Select
+            onValueChange={onChangeWeekStart}
+            value={String(weekStartDay)}
+          >
+            <SelectTrigger className={styles.selectTrigger}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">
+                {t("settings.dateTime.monday", "Monday")}
+              </SelectItem>
+              <SelectItem value="0">
+                {t("settings.dateTime.sunday", "Sunday")}
+              </SelectItem>
+              <SelectItem value="6">
+                {t("settings.dateTime.saturday", "Saturday")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <Select onValueChange={onChangeTimeFormat} value={timeFormat}>
-          <SelectTrigger className={styles.selectTrigger}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="system">{t("settings.theme.systemDefault", "System default")}</SelectItem>
-            <SelectItem value="12h">{t("settings.dateTime.12hour", "12-hour")} ({new Intl.DateTimeFormat(i18n.language, { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(2000, 0, 1, 14, 30))})</SelectItem>
-            <SelectItem value="24h">{t("settings.dateTime.24hour", "24-hour")} (14:30)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className={styles.row}>
-        <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t("settings.dateTime.dateFormat", "Date format")}</p>
-          <p className="text-sm opacity-75">{t("settings.dateTime.chooseDateFormat", "Choose how dates are displayed")}</p>
-        </div>
-        <Select onValueChange={onChangeDateFormat} value={dateFormat}>
-          <SelectTrigger className={styles.selectTrigger}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="system">{t("settings.theme.systemDefault", "System default")}</SelectItem>
-            <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
-            <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
-            <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className={styles.row}>
-        <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t("settings.dateTime.weekStartsOn", "Week starts on")}</p>
-          <p className="text-sm opacity-75">{t("settings.dateTime.chooseWeekStart", "Choose which day the week begins")}</p>
-        </div>
-        <Select onValueChange={onChangeWeekStart} value={String(weekStartDay)}>
-          <SelectTrigger className={styles.selectTrigger}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="1">{t("settings.dateTime.monday", "Monday")}</SelectItem>
-            <SelectItem value="0">{t("settings.dateTime.sunday", "Sunday")}</SelectItem>
-            <SelectItem value="6">{t("settings.dateTime.saturday", "Saturday")}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
+      </Section>
     </div>
   );
 }

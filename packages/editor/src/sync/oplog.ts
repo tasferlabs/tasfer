@@ -98,6 +98,13 @@ export function isOpKnown(vv: VersionVector, op: Operation): boolean {
 /**
  * Append a local operation to the log.
  * Updates version vector and state.
+ *
+ * Convergence-critical: this records EVERY well-formed op and advances the
+ * version vector unconditionally. The schema is used only to materialize the
+ * projected snapshot (via the reducer). Never filter ops here by the authoring
+ * allow-list (`schema.isBlockAllowed`) — dropping a peer's op would break CRDT
+ * convergence. The allow-list is an authoring-time constraint (actions/paste),
+ * not a storage one.
  */
 export function appendOp(
   log: OpLog,

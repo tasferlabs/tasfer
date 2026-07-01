@@ -27,8 +27,30 @@ import ObjectiveC
 
 private var cypherAccessoryKey: UInt8 = 0
 private var cypherAccessoryEnabledKey: UInt8 = 0
+private var cypherHomeIndicatorInsetKey: UInt8 = 0
 
 extension WKWebView {
+    /// The device's home-indicator bottom inset, captured by the hosting view
+    /// controller while no keyboard is docked (see
+    /// `CypherViewController.captureHomeIndicatorInset`).
+    ///
+    /// The accessory can't read this from any live safe area: once a hardware
+    /// keyboard docks the bar over the home indicator, both the app window and
+    /// the accessory's own `safeAreaInsets.bottom` collapse to 0 (the bar now
+    /// occupies that region). This cached value is the only reliable source of
+    /// the gap the docked bar must reserve.
+    var cypherHomeIndicatorInset: CGFloat {
+        get {
+            (objc_getAssociatedObject(self, &cypherHomeIndicatorInsetKey) as? NSNumber)
+                .map { CGFloat($0.doubleValue) } ?? 0
+        }
+        set {
+            objc_setAssociatedObject(
+                self, &cypherHomeIndicatorInsetKey, NSNumber(value: Double(newValue)),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+    }
+
     /// Lazily-created native keyboard toolbar bound to this web view. Both the
     /// swizzled `inputAccessoryView` getter and the bridge resolve the same
     /// instance through this associated object.
@@ -148,6 +170,15 @@ final class KeyboardAccessoryView: UIView {
     private let row = UIStackView()
     private let fixedRow = UIStackView()
 
+    /// Home-indicator inset currently reserved below the controls. Non-zero only
+    /// while the bar is docked at the screen bottom by a hardware keyboard (see
+    /// `resolveBottomInset`). Drives both `intrinsicContentSize` and the content
+    /// rows' bottom constant so the controls clear the home indicator.
+    private var resolvedBottomInset: CGFloat = 0
+    /// The content rows' bottom pins, held so their constant can track
+    /// `resolvedBottomInset` without rebuilding the layout.
+    private var contentBottomConstraints: [NSLayoutConstraint] = []
+
     private let normalTint = UIColor(named: "MutedForeground") ?? .secondaryLabel
     private let activeTint = UIColor(named: "Primary") ?? .label
     private let borderColor = UIColor(named: "Border") ?? .separator
@@ -156,7 +187,11 @@ final class KeyboardAccessoryView: UIView {
         self.webView = webView
         super.init(
             frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: barHeight))
-        autoresizingMask = .flexibleWidth
+        // `.flexibleHeight` is what makes UIKit's keyboard layout treat this
+        // accessory as self-sizing and read `intrinsicContentSize`. Without it
+        // the bar is locked to its initial `frame.height` and the intrinsic
+        // size (and the docked home-indicator growth it carries) is ignored.
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
         backgroundColor = UIColor(named: "Background") ?? .systemBackground
         buildUI()
     }
@@ -165,16 +200,84 @@ final class KeyboardAccessoryView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override var intrinsicContentSize: CGSize {
-        // When the accessory is docked at the bottom (keyboard hidden) UIKit
-        // reports the home-indicator inset here; when it floats above the
-        // keyboard the inset is 0. Grow the bar so its controls clear the home
-        // indicator — the content rows are pinned to the safe-area guide below.
-        CGSize(width: UIView.noIntrinsicMetric, height: barHeight + safeAreaInsets.bottom)
+        // Grow the bar by the docked home-indicator inset so its controls clear
+        // the home indicator. `resolvedBottomInset` is 0 while the bar floats
+        // above the software keyboard (which already fills the safe area) and
+        // the measured inset only when a hardware keyboard docks it at the
+        // screen bottom — see `resolveBottomInset`.
+        CGSize(width: UIView.noIntrinsicMetric, height: barHeight + resolvedBottomInset)
     }
 
     override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
+        refreshBottomInset()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        refreshBottomInset()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // The bar's frame moves between "floating above the keyboard" and
+        // "docked at the screen bottom" as the keyboard shows/hides or a
+        // hardware keyboard connects; re-resolve the inset on every layout pass.
+        refreshBottomInset()
+        let fmaxY = window.map { convert(bounds, to: $0.screen.coordinateSpace).maxY } ?? -1
+        let smaxY = window?.screen.bounds.maxY ?? -1
+        NSLog("CYPHERKBD layout ownSafeBottom=\(safeAreaInsets.bottom) cached=\(webView?.cypherHomeIndicatorInset ?? -1) resolved=\(resolvedBottomInset) intrinsic=\(intrinsicContentSize.height) frame=\(frame) fmaxY=\(fmaxY) smaxY=\(smaxY) window=\(window != nil)")
+    }
+
+    /// Re-measure the docked home-indicator inset and, when it changes, update
+    /// both the content rows' bottom pins and the bar's intrinsic height.
+    private func refreshBottomInset() {
+        let inset = resolveBottomInset()
+        guard inset != resolvedBottomInset else { return }
+        resolvedBottomInset = inset
+        for constraint in contentBottomConstraints { constraint.constant = -inset }
         invalidateIntrinsicContentSize()
+        // UIKit derives the accessory's height (`_UIKBAutolayoutHeightConstraint`)
+        // from `intrinsicContentSize` only when it installs the accessory, and
+        // never re-reads it on `invalidateIntrinsicContentSize()` alone — so the
+        // stale height would pin the bar and break the inset constraint. Re-install
+        // the input views on the next runloop so the keyboard rebuilds that height
+        // from the new intrinsic size. Coalesced so a single transition triggers
+        // one reload rather than one per layout pass.
+        scheduleInputViewReload()
+    }
+
+    private var inputViewReloadScheduled = false
+
+    private func scheduleInputViewReload() {
+        guard !inputViewReloadScheduled else { return }
+        inputViewReloadScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.inputViewReloadScheduled = false
+            self.webView?.cypherContentView?.reloadInputViews()
+        }
+    }
+
+    /// Home-indicator inset to reserve below the controls.
+    ///
+    /// The accessory's own `safeAreaInsets.bottom` stays 0 even when a hardware
+    /// keyboard docks it at the bottom of the screen — UIKit does not extend the
+    /// keyboard host's safe area into a floating input accessory — so the
+    /// controls would overlap the home indicator. Reserve the cached
+    /// home-indicator inset (captured by the view controller before the bar
+    /// docked), but only while the bar is actually docked on the screen's bottom
+    /// edge. While it floats atop the software keyboard the keyboard already
+    /// fills the safe area, so no growth is wanted.
+    private func resolveBottomInset() -> CGFloat {
+        guard let screen = window?.screen else { return 0 }
+        let frameInScreen = convert(bounds, to: screen.coordinateSpace)
+        let dockedAtBottom = frameInScreen.maxY >= screen.bounds.maxY - 0.5
+        guard dockedAtBottom else { return 0 }
+        // Use the home-indicator inset captured before the bar docked. Reading
+        // any live safe area here returns 0, because the docked bar already
+        // covers the home-indicator region.
+        return webView?.cypherHomeIndicatorInset ?? 0
     }
 
     // MARK: Build
@@ -197,6 +300,17 @@ final class KeyboardAccessoryView: UIView {
         addSubview(scrollView)
         addSubview(fixedRow)
 
+        // Pin the content rows to the view's own bottom, offset up by the
+        // docked home-indicator inset. `safeAreaLayoutGuide.bottomAnchor` can't
+        // be used here: the accessory's own bottom safe area reads 0 while a
+        // hardware keyboard docks it at the screen bottom, so the inset is
+        // measured from the app window and applied through this constant (see
+        // `refreshBottomInset`). Horizontal edges keep the safe-area guide for
+        // the landscape notch.
+        let scrollBottom = scrollView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        let fixedBottom = fixedRow.bottomAnchor.constraint(equalTo: bottomAnchor)
+        contentBottomConstraints = [scrollBottom, fixedBottom]
+
         NSLayoutConstraint.activate([
             topBorder.topAnchor.constraint(equalTo: topAnchor),
             topBorder.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -204,7 +318,7 @@ final class KeyboardAccessoryView: UIView {
             topBorder.heightAnchor.constraint(equalToConstant: 0.5),
 
             scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+            scrollBottom,
             scrollView.leadingAnchor.constraint(
                 equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 4),
             scrollView.trailingAnchor.constraint(equalTo: fixedRow.leadingAnchor),
@@ -216,7 +330,7 @@ final class KeyboardAccessoryView: UIView {
             row.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
 
             fixedRow.topAnchor.constraint(equalTo: topAnchor),
-            fixedRow.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+            fixedBottom,
             fixedRow.trailingAnchor.constraint(
                 equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -4),
         ])

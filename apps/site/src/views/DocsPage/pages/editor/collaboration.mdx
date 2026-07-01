@@ -57,3 +57,9 @@ const stop = bindPresenceCursors(editor, net, {
 Syncing presence over your own transport instead of a provider? Call the pure mappers directly — `selectionToCursorPresence(editor.state.selection.range, user)` to publish, and `cursorPresenceToDecorations(peerId, state)` → ``editor.view.setDecorations(`presence:${peerId}`, …)`` to display.
 
 <Callout kind="note" title="Offline is not a special case.">Disconnect, edit for an hour on a plane, reconnect — the CRDT merges your changes with everyone else's deterministically. There is no "resolve conflicts" dialog because there are no conflicts to resolve.</Callout>
+
+<h2 id="schemas">Peers with different schemas</h2>
+
+Two peers editing the same document do not need identical schemas. The CRDT log and the reducer are schema-agnostic about the [authoring allow-list](/docs/editor/api-schema#restrict): a peer records and materializes every well-formed op regardless of what its own schema permits it to _create_. So a peer whose schema is `restrict`ed to headings-only still renders a bullet list a collaborator produced — it just can't mint one locally. Convergence is unaffected because the allow-list never changes how the shared log is projected.
+
+The same rule covers version skew: a peer running an older build that doesn't recognize a newer block type keeps the op in its log (so re-saving never drops a newer peer's content) and renders the block once its schema learns the type. Never enforce an allow-list — or drop an "unknown" op — inside a provider or the reducer; that is the one change that _would_ diverge replicas.

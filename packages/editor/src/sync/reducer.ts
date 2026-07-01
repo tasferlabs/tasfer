@@ -22,6 +22,7 @@ import type {
   Operation,
   TextDelete,
   TextInsert,
+  ViewWindow,
 } from "../state-types";
 import { findBlock, findBlockIndex } from "./block-lookup";
 import {
@@ -62,6 +63,13 @@ export function createEmptyBlock(
   type: string,
   schema: DataSchema = getBaseDataSchema(),
 ): Block | undefined {
+  // Materialization is gated by REGISTRATION only (createDefaultBlock returns
+  // undefined for a type the schema doesn't know) — NEVER by the authoring
+  // allow-list (schema.isBlockAllowed). The allow-list is an authoring-time
+  // constraint enforced at actions/paste; the reducer must stay agnostic to it or
+  // two peers with different allow-lists would materialize the same op-log
+  // differently and diverge. A restricted peer still RENDERS a disallowed-but-
+  // registered type that arrives via sync. Do not add an allow-list check here.
   return schema.createDefaultBlock(type, id, orderKey);
 }
 
@@ -674,10 +682,32 @@ export function getVisibleTextFromBlock(block: Block): string {
  */
 export function getVisibleBlocks(
   state: Page,
+  window?: ViewWindow,
 ): (Block & { originalIndex: number })[] {
-  const visible = state.blocks
-    .map((b, i) => Object.assign(b, { originalIndex: i }))
-    .filter((b) => !b.deleted);
+  let visible: (Block & { originalIndex: number })[];
+  if (window) {
+    // Windowed editor (e.g. a TitleEditor sharing a Doc with a PageEditor). The
+    // block instances are shared across every editor on the doc, and the loop
+    // below MUTATES them (neighbour stamps, cache clear) — so a windowed editor
+    // must work on private shallow copies, or two editors' derivations would
+    // clobber each other's `prevType`/`nextType`/`cachedLayout`. `originalIndex`
+    // is the block's true index in the full doc array, so ops still target the
+    // right block even though the visible list is filtered.
+    const included = window.select(state.blocks);
+    visible = [];
+    for (let i = 0; i < state.blocks.length; i++) {
+      const b = state.blocks[i];
+      if (b.deleted || !included.has(i)) continue;
+      visible.push(Object.assign({ ...b } as Block, { originalIndex: i }));
+    }
+  } else {
+    // Full-document editor: the common path. Stamp `originalIndex` in place on
+    // the shared blocks so `visibleBlocks[i] === page.blocks[originalIndex]` and
+    // the per-instance layout cache persists across renders.
+    visible = state.blocks
+      .map((b, i) => Object.assign(b, { originalIndex: i }))
+      .filter((b) => !b.deleted);
+  }
   // Stamp each block with its adjacent visible block types — a transient render
   // hint nodes read for neighbour-aware layout (see BlockRuntimeState). When a
   // block's join context changes, clear its memoized layout so any height/inset

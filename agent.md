@@ -14,6 +14,8 @@ directly to HTML canvas and stores document state in a CRDT.
   general extension mechanism instead of a type-name check in core code.
 - All user-facing strings must use i18next. Add translation keys with the UI text.
 - Keep public editor documentation accurate when changing a public API.
+- A math block must never show raw LaTeX to the reader. It always renders the
+  typeset formula; source is only ever visible while that block is being edited.
 
 ## Compatibility status
 

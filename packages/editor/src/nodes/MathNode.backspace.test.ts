@@ -201,6 +201,30 @@ describe("deleting across a command separator in a math block", () => {
       ),
     ).toBe("ab");
   });
+
+  // Deleting a construct that sat *between* a command and a following letter also
+  // welds them: backspacing the empty subscript in `\int_{}a` down to `\inta`
+  // fuses one unknown command that renders as raw red LaTeX. The post-delete
+  // normalization reinserts the separator space so it stays `\int a` (∫a) — the
+  // principle "a math block never shows raw LaTeX" holds through the edit.
+  it("Backspacing an empty subscript keeps the command atomic (\\int_{}a → \\int a)", () => {
+    const state = stateWithCursor(
+      {
+        id: "page-1",
+        title: "",
+        blocks: [{ ...mathBlock("\\sqrt{t}\\int_{}a=x"), orderKey: "a0" }],
+      },
+      // Caret inside the empty braces `\int_{|}`.
+      { position: { blockIndex: 0, textIndex: 14 }, lastUpdate: 0 },
+    );
+
+    const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+    expect(
+      getVisibleTextFromRuns(
+        (result.state.document.page.blocks[0] as MathBlock).charRuns,
+      ),
+    ).toBe("\\sqrt{t}\\int a=x");
+  });
 });
 
 describe("backspace from following text into a math block", () => {

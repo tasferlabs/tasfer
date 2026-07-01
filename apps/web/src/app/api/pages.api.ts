@@ -93,7 +93,6 @@ export function useCreatePage<TContext = unknown>(
 interface IUpdatePage {
   id: string;
   title?: string;
-  autoTitle?: boolean;
   color?: string | null;
   scheduledAt?: string | null;
   duration?: number | null;

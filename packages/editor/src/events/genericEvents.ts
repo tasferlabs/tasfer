@@ -50,7 +50,10 @@ export function handlePaste(
     ...result.state,
     view: {
       ...result.state.view,
-      visibleBlocks: getVisibleBlocks(result.state.document.page),
+      visibleBlocks: getVisibleBlocks(
+        result.state.document.page,
+        result.state.view.window,
+      ),
     },
   };
 

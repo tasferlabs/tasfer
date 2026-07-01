@@ -705,6 +705,29 @@ export function mathMergeAfterDelete(block: Block): MathMergePlan[] | null {
 }
 
 /**
+ * After a delete in a block equation, the offset where a command-separator space
+ * must be reinserted so the edit stays valid LaTeX, or null. Removing the content
+ * between a control word and a following letter — e.g. backspacing the empty
+ * subscript in `\int_{}a` down to `\inta` — welds them into one unknown command
+ * that renders as raw red source. Reinserting the space keeps them two atoms
+ * (`\int a` → ∫a). This is the delete-side counterpart of the insert path's
+ * {@link mathNeedsCommandSeparator} guard (a letter typed after a complete command
+ * gets a space) and of {@link mathMergeAfterDelete}'s guard for inline chips;
+ * block equations, whose whole text is one LaTeX string with no chip spans, need
+ * this direct check. `caret` is the post-delete caret offset (the weld point).
+ */
+export function mathSeparatorAfterDelete(
+  block: Block,
+  caret: number,
+): number | null {
+  if (block.type !== "math") return null;
+  const latex = blockLatex(block);
+  const next = latex[caret];
+  if (next === undefined) return null;
+  return mathNeedsCommandSeparator(latex, caret, next) ? caret : null;
+}
+
+/**
  * Source range of a command being typed right at `caret` (`\al` heading to
  * `\alpha`), or null. The renderer paints glyphs in this range in normal text
  * color instead of the red "unknown command" placeholder — the command is in

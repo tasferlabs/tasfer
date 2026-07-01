@@ -535,6 +535,149 @@
   color: var(--muted-foreground);
 }
 
+/* ---------------------------------------------------------------------------
+ * Mobile draft (new-event) sheet — Google-Calendar-style chrome.
+ * ------------------------------------------------------------------------- */
+
+/* Top action bar: Cancel (start) · expand · Save (end). */
+.draftTopBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.draftTopBarAction {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 10px;
+  font-size: 1rem;
+  color: var(--primary);
+  border-radius: 8px;
+}
+
+.draftTopBarAction:hover {
+  background-color: var(--accent);
+}
+
+.draftTopBarSave {
+  font-weight: 600;
+}
+
+/* Scrollable body of the draft sheet. */
+.draftScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The "Add title" editor sits at the top, larger than the field rows. */
+.draftTitleWrap {
+  flex-shrink: 0;
+  height: 60px;
+  overflow: hidden;
+  font-size: 1.375rem;
+}
+
+.draftSection {
+  border-top: 1px solid var(--border);
+  padding: 4px 0;
+}
+
+.draftSection:first-of-type {
+  border-top: none;
+}
+
+.draftSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 4px;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+/* Stacked drill-down rows of parent tags. */
+.draftTagLevels {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 12px 8px;
+}
+
+.draftTagRow {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.draftTagRow::-webkit-scrollbar {
+  display: none;
+}
+
+/* Deeper rows are inset so the drill path reads top-to-bottom. */
+.draftTagRow ~ .draftTagRow,
+.draftTagLevels .draftTagRow:not(:first-child) {
+  padding-inline-start: 16px;
+}
+
+.draftTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  max-width: 60vw;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.draftTag:hover {
+  background-color: var(--accent);
+}
+
+.draftTagSelected {
+  border-color: var(--primary);
+  background-color: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.draftTagOpen {
+  border-color: var(--muted-foreground);
+  background-color: var(--accent);
+}
+
+.draftTagDot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.draftTagLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draftTagChevron {
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+
 .previewResizeBarTop {
   position: absolute;
   top: 0;

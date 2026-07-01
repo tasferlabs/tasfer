@@ -1,6 +1,7 @@
 import { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallback } from "react";
 import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useBlocker } from "react-router-dom";
+import { useConfirmation } from "@/app/components/ConfirmationDialog";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -16,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import i18next from "i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
+import useResponsive from "../../hooks/useResponsive";
 import type { Block } from "@cypherkit/editor";
 import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
 import { getPlatform } from "@/platform";
@@ -87,6 +89,8 @@ export default function CalendarPage() {
   const { t } = useTranslation();
   const isRtl = i18next.dir() === "rtl";
   const navigate = useNavigate();
+  const { getConfirmation } = useConfirmation();
+  const isMobile = useResponsive("(max-width: 768px)");
   const { activeSpaceId } = useSpaces();
   useP2PPageEventsWithQueryClient();
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -137,31 +141,126 @@ export default function CalendarPage() {
   }, [overlayYear, overlayMonth, overlayDay, tz]);
 
   const prevOverlayValue = useRef(overlayValue);
-  useEffect(() => {
-    if (overlayValue && overlayValue !== prevOverlayValue.current) {
-      const dt = DateTime.fromISO(overlayValue, { zone: tz });
-      setSelectedDate(dt.toJSDate());
-      setMiniCalOpen(false);
-    }
-    prevOverlayValue.current = overlayValue;
-  }, [overlayValue, tz]);
 
   // ── Event preview ──
   const previewJustClosedRef = useRef(false);
   const [previewPageId, setPreviewPageId] = useState<string | null>(null);
   const [previewAnchor, setPreviewAnchor] = useState<DOMRect | null>(null);
   const [draftEvent, setDraftEvent] = useState<DraftEvent | null>(null);
+  // Whether the open draft has a typed title. Lifted from EventPreview so we can
+  // guard navigation away from an in-progress draft (Google-Calendar style).
+  const [draftHasContent, setDraftHasContent] = useState(false);
+  // Set synchronously while a draft is being committed so the discard guards
+  // (in-page + route) don't fire during the create → onSuccess window.
+  const savingDraftRef = useRef(false);
   const queryClient = useQueryClient();
 
   const handlePreviewClose = useCallback(() => {
     setPreviewPageId(null);
     setPreviewAnchor(null);
     setDraftEvent(null);
+    setDraftHasContent(false);
     previewJustClosedRef.current = true;
     requestAnimationFrame(() => {
       previewJustClosedRef.current = false;
     });
   }, []);
+
+  // Show the discard confirmation before running `proceed` when a titled draft
+  // is open; drop an empty draft silently; pass through when there's no draft
+  // (or one is being saved). `onCancel` runs when the user keeps editing — used
+  // by navigations that need to visually revert (swipe snap-back, mini-cal).
+  // Used to gate all in-page navigation.
+  const guardDiscard = useCallback(
+    (proceed: () => void, onCancel?: () => void) => {
+      if (!draftEvent || savingDraftRef.current) {
+        proceed();
+        return;
+      }
+      if (!draftHasContent) {
+        setDraftEvent(null);
+        setPreviewAnchor(null);
+        proceed();
+        return;
+      }
+      void getConfirmation({
+        title: t("calendar.discardDraftTitle", "Discard this event?"),
+        description: t(
+          "calendar.discardDraftBody",
+          "You've started creating this event. Discard it?",
+        ),
+        cancelText: t("calendar.keepEditing", "Keep editing"),
+        confirmText: t("common.discard", "Discard"),
+      }).then((confirmed) => {
+        if (confirmed) {
+          setDraftEvent(null);
+          setPreviewAnchor(null);
+          setDraftHasContent(false);
+          proceed();
+        } else {
+          onCancel?.();
+        }
+      });
+    },
+    [draftEvent, draftHasContent, getConfirmation, t],
+  );
+
+  // Apply a mini-calendar date pick, guarding an in-progress draft. On cancel,
+  // revert the overlay fields back to the current selection so the picker
+  // doesn't reflect the rejected date and doesn't re-trigger this effect.
+  useEffect(() => {
+    if (overlayValue && overlayValue !== prevOverlayValue.current) {
+      const target = overlayValue;
+      prevOverlayValue.current = target;
+      guardDiscard(
+        () => {
+          setSelectedDate(DateTime.fromISO(target, { zone: tz }).toJSDate());
+          setMiniCalOpen(false);
+        },
+        () => {
+          // Match how `overlayValue` is derived so the recomputed value equals
+          // this and the effect's guard sees no change.
+          const revertISO = DateTime.fromObject(
+            {
+              year: selectedDate.getFullYear(),
+              month: selectedDate.getMonth() + 1,
+              day: selectedDate.getDate(),
+            },
+            { zone: tz },
+          ).toISODate();
+          prevOverlayValue.current = revertISO;
+          setOverlayYear(String(selectedDate.getFullYear()).padStart(4, "0"));
+          setOverlayMonth(
+            String(selectedDate.getMonth() + 1).padStart(2, "0"),
+          );
+          setOverlayDay(String(selectedDate.getDate()).padStart(2, "0"));
+          setMiniCalOpen(false);
+        },
+      );
+    } else {
+      prevOverlayValue.current = overlayValue;
+    }
+  }, [overlayValue, tz, guardDiscard, selectedDate]);
+
+  // Guard route navigation away from the calendar (link clicks, back/forward,
+  // navigate()) while a titled draft is open, using the same discard dialog as
+  // the in-page guards so the copy is consistent.
+  const routeBlocker = useBlocker(draftHasContent && !savingDraftRef.current);
+  useEffect(() => {
+    if (routeBlocker.state !== "blocked") return;
+    void getConfirmation({
+      title: t("calendar.discardDraftTitle", "Discard this event?"),
+      description: t(
+        "calendar.discardDraftBody",
+        "You've started creating this event. Discard it?",
+      ),
+      cancelText: t("calendar.keepEditing", "Keep editing"),
+      confirmText: t("common.discard", "Discard"),
+    }).then((confirmed) => {
+      if (confirmed) routeBlocker.proceed();
+      else routeBlocker.reset();
+    });
+  }, [routeBlocker, getConfirmation, t]);
 
   const handleEventClick = useCallback((pageId: string, rect: DOMRect) => {
     if (pageId === "__draft__") {
@@ -223,8 +322,13 @@ export default function CalendarPage() {
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
       queryClient.invalidateQueries({ queryKey: ["pages"] });
       setDraftEvent(null);
+      setDraftHasContent(false);
+      savingDraftRef.current = false;
       setPreviewPageId(newPage.id);
       setPreviewAnchor(null);
+    },
+    onError: () => {
+      savingDraftRef.current = false;
     },
   });
 
@@ -295,10 +399,21 @@ export default function CalendarPage() {
       ) as HTMLElement | null;
       if (el) {
         setPreviewAnchor(el.getBoundingClientRect());
+        // On mobile the draft sheet covers the lower part of the grid, so scroll
+        // the new event up near the top of the timeline where it stays visible
+        // (and draggable) above the sheet.
+        const timeline = timelineRef.current;
+        if (isMobile && timeline) {
+          const cardRect = el.getBoundingClientRect();
+          const tlRect = timeline.getBoundingClientRect();
+          const target =
+            timeline.scrollTop + (cardRect.top - tlRect.top) - 72;
+          timeline.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+        }
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [draftEvent, previewAnchor]);
+  }, [draftEvent, previewAnchor, isMobile]);
 
   const draftSnapshotRef = useRef<{ blocks?: Block[] }>(
     {},
@@ -312,6 +427,9 @@ export default function CalendarPage() {
       task?: boolean,
     ) => {
       if (!draftEvent || !activeSpaceId) return;
+      // Mark saving before the async create so the discard guards pass through
+      // rather than prompting while the draft is being committed.
+      savingDraftRef.current = true;
       draftSnapshotRef.current = { blocks };
       createPage({
         title: blocks ? extractTitleFromBlocks(blocks) : "",
@@ -342,7 +460,6 @@ export default function CalendarPage() {
       timedPages.push({
         id: "__draft__",
         title: "",
-        autoTitle: false,
         parentId: null,
         order: 0,
         color: null,
@@ -387,19 +504,21 @@ export default function CalendarPage() {
 
   // ── Day navigation ──
   function goToDay(offset: number) {
-    setSelectedDate((prev) => {
-      const next = new Date(prev);
-      if (viewMode === "week") {
-        next.setDate(next.getDate() + offset * 7);
-      } else {
-        next.setDate(next.getDate() + offset);
-      }
-      return next;
+    guardDiscard(() => {
+      setSelectedDate((prev) => {
+        const next = new Date(prev);
+        if (viewMode === "week") {
+          next.setDate(next.getDate() + offset * 7);
+        } else {
+          next.setDate(next.getDate() + offset);
+        }
+        return next;
+      });
     });
   }
 
   function goToToday() {
-    setSelectedDate(new Date());
+    guardDiscard(() => setSelectedDate(new Date()));
   }
 
   // ── dnd-kit: drag to move events ──
@@ -975,6 +1094,10 @@ export default function CalendarPage() {
     const strip = track.parentElement!;
 
     function onTouchMove(e: TouchEvent) {
+      // Week view has 7 narrow columns where a horizontal drag reads as an
+      // accidental gesture; don't pan the whole grid between weeks there (use
+      // the header arrows instead). Day view keeps day-to-day swiping.
+      if (viewMode === "week") return;
       const start = swipeTouchRef.current;
       if (!start) return;
       const touch = e.touches[0];
@@ -1026,36 +1149,54 @@ export default function CalendarPage() {
       target = 1; // swiped left → next
     }
 
-    // prev → translateX(0), center → translateX(-pw), next → translateX(-2pw)
-    const targetX = -pw - target * pw;
-
-    const remainingDist = Math.abs(targetX - (-pw + dx));
-    const duration = target === 0
-      ? Math.min(250, Math.max(120, remainingDist * 0.8))
-      : Math.min(300, Math.max(150, remainingDist / Math.max(velocity, 0.5)));
-
-    track.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
-    track.style.transform = `translateX(${targetX}px)`;
-
     swipeOffsetRef.current = 0;
     swipeDirRef.current = null;
 
-    if (target !== 0) {
-      const onEnd = () => {
-        track.removeEventListener("transitionend", onEnd);
-        isNavigatingRef.current = true;
-        setSelectedDate((prev) => {
-          const next = new Date(prev);
-          const delta = target === -1
-            ? (viewMode === "week" ? -7 : -1)
-            : (viewMode === "week" ? 7 : 1);
-          next.setDate(next.getDate() + delta);
-          return next;
-        });
-      };
-      track.addEventListener("transitionend", onEnd);
+    // Settle the track to a panel: prev → translateX(0), center → translateX(-pw),
+    // next → translateX(-2pw).
+    const animateTo = (t: -1 | 0 | 1) => {
+      const targetX = -pw - t * pw;
+      const remainingDist = Math.abs(targetX - (-pw + dx));
+      const duration =
+        t === 0
+          ? Math.min(250, Math.max(120, remainingDist * 0.8))
+          : Math.min(300, Math.max(150, remainingDist / Math.max(velocity, 0.5)));
+      track.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
+      track.style.transform = `translateX(${targetX}px)`;
+    };
+
+    if (target === 0) {
+      animateTo(0);
+      return;
     }
-  }, [viewMode]);
+
+    // A navigation would occur — guard an in-progress draft before committing.
+    // On "keep editing" snap back to center so we don't strand a half-swipe.
+    guardDiscard(
+      () => {
+        animateTo(target);
+        const onEnd = () => {
+          track.removeEventListener("transitionend", onEnd);
+          isNavigatingRef.current = true;
+          setSelectedDate((prev) => {
+            const next = new Date(prev);
+            const delta =
+              target === -1
+                ? viewMode === "week"
+                  ? -7
+                  : -1
+                : viewMode === "week"
+                  ? 7
+                  : 1;
+            next.setDate(next.getDate() + delta);
+            return next;
+          });
+        };
+        track.addEventListener("transitionend", onEnd);
+      },
+      () => animateTo(0),
+    );
+  }, [viewMode, guardDiscard]);
 
   // ── Now indicator ──
   const [nowMinutes, setNowMinutes] = useState(() => {
@@ -1667,10 +1808,12 @@ export default function CalendarPage() {
                 <div
                   key={i}
                   className={`${style.weekDayHeader} ${isSameDay(day, today) ? style.weekDayHeaderToday : ""}`}
-                  onClick={() => {
-                    setSelectedDate(day);
-                    setViewMode("day");
-                  }}
+                  onClick={() =>
+                    guardDiscard(() => {
+                      setSelectedDate(day);
+                      setViewMode("day");
+                    })
+                  }
                 >
                   <span className={style.weekDayName}>{shortDayName(day)}</span>
                   <span className={style.weekDayNumber}>{day.getDate()}</span>
@@ -1705,6 +1848,10 @@ export default function CalendarPage() {
         onSidebarModeChange={setSidebarMode}
         draft={draftEvent}
         onDraftSave={handleDraftSave}
+        onDraftScheduleChange={(scheduledAt, duration) =>
+          setDraftEvent((d) => (d ? { ...d, scheduledAt, duration } : d))
+        }
+        onDraftContentChange={setDraftHasContent}
       />
     </div>
   );

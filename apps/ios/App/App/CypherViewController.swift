@@ -13,6 +13,28 @@ class CypherViewController: CAPBridgeViewController {
         }
     }
 
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        captureHomeIndicatorInset()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        captureHomeIndicatorInset()
+    }
+
+    /// Record the current home-indicator inset onto the web view so the native
+    /// keyboard accessory can reserve it while a hardware keyboard docks the bar
+    /// at the screen bottom. At that point every live safe area reads 0 (the bar
+    /// covers the home indicator), so the accessory relies on this value taken
+    /// while no keyboard is docked. Only positive readings are kept, so the last
+    /// real inset (from launch or a rotation) survives the docked collapse.
+    private func captureHomeIndicatorInset() {
+        let bottom = view.safeAreaInsets.bottom
+        guard bottom > 0 else { return }
+        webView?.cypherHomeIndicatorInset = bottom
+    }
+
     override func capacitorDidLoad() {
         // Register custom plugins
         bridge?.registerPluginInstance(CypherBridgePlugin())

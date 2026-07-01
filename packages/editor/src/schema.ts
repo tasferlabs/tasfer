@@ -27,7 +27,9 @@ import { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
 import { Node } from "./rendering/nodes/Node";
 import type {
   BaseSchemaDefinition,
+  BlockName,
   InferAttrs,
+  MarkNameOf,
   MergeSchema,
   SchemaDefinition,
 } from "./schema-types";
@@ -92,6 +94,24 @@ export interface SchemaExtension {
    * a separate `marks` option.
    */
   readonly marks?: readonly MarkDef[];
+}
+
+/**
+ * The authoring allow-list passed to {@link Schema.restrict}. Names are the
+ * schema's own registered block/mark types (so they autocomplete). Omit a key to
+ * leave that dimension unrestricted; `marks: []` yields a format-free field. The
+ * fallback block type (`paragraph`) is always kept creatable and need not be
+ * listed. The full registry is preserved — a restricted editor still RENDERS a
+ * disallowed type that arrives via sync or an older document; it only stops the
+ * local user from creating one.
+ *
+ *   const titleSchema = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
+ */
+export interface SchemaRestriction<
+  D extends SchemaDefinition = BaseSchemaDefinition,
+> {
+  readonly blocks?: readonly BlockName<D>[];
+  readonly marks?: readonly MarkNameOf<D>[];
 }
 
 type UnionToIntersection<U> = (
@@ -175,6 +195,25 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
         .filter((render): render is Mark => Boolean(render)),
     ];
     return new Schema(data, nodes, marks);
+  }
+
+  /**
+   * Derive a schema that restricts which registered types the local user may
+   * author — the ProseMirror-style whitelist. Rendering is untouched (the same
+   * nodes/marks), so this only gates creation: a restricted editor still paints
+   * a disallowed block that arrives via sync or an older document. Immutable —
+   * returns a new schema. Apply after `extend()` (register types first, then
+   * restrict).
+   *
+   *   const titleSchema = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
+   *   const editor = createEditor({ element, schema: titleSchema });
+   */
+  restrict(restriction: SchemaRestriction<D>): Schema<D> {
+    return new Schema(
+      this.data.restrict(restriction) as DataSchema<D>,
+      this.nodes,
+      this.marks,
+    );
   }
 }
 

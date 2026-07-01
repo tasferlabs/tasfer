@@ -149,8 +149,9 @@ export default function EditorPage() {
   const [persistedState, setPersistedState] = useState<
     "empty" | "not-found" | "error" | "corrupted" | null
   >(null);
-  // Auto-title state - when true, title is auto-generated from content
-  const [autoTitle, setAutoTitle] = useState(true);
+  // The page's title always mirrors its heading: it is auto-derived from the
+  // document content on every local edit (see handleSave). This tracks the last
+  // derived value so we only write the record string when it actually changes.
   const [currentTitle, setCurrentTitle] = useState<string>("");
   // The page's actual space_id (from DB), used for P2P sync routing
   const [pageSpaceId, setPageSpaceId] = useState<string | null>(null);
@@ -184,12 +185,8 @@ export default function EditorPage() {
     }, 500),
   ).current;
 
-  // Refs for auto-title to avoid stale closures
-  const autoTitleRef = useRef(autoTitle);
+  // Ref for the last derived title to avoid stale closures in the save callback.
   const currentTitleRef = useRef(currentTitle);
-  useEffect(() => {
-    autoTitleRef.current = autoTitle;
-  }, [autoTitle]);
   useEffect(() => {
     currentTitleRef.current = currentTitle;
   }, [currentTitle]);
@@ -293,7 +290,6 @@ export default function EditorPage() {
           if (!hasVisibleBlocks) {
             // Page exists but has no content — mark as corrupted so user can recover from snapshots
             setPageSnapshot(blocks);
-            setAutoTitle(page.autoTitle);
             setCurrentTitle(page.title || "");
             setPageSpaceId(page.spaceId ?? null);
             setLocalPermission("owner");
@@ -303,8 +299,6 @@ export default function EditorPage() {
             return;
           }
           setPageSnapshot(blocks);
-          // Track auto-title state
-          setAutoTitle(page.autoTitle);
           setCurrentTitle(page.title || "");
           // Store the page's actual space ID for P2P sync routing
           setPageSpaceId(page.spaceId ?? null);
@@ -349,8 +343,9 @@ export default function EditorPage() {
         const updateData: { id: string; title?: string } = { id: pageId };
 
         let titleChanged = false;
-        // Only update title if we're still on the same page
-        if (autoTitleRef.current && pageId === id) {
+        // The title always mirrors the heading — derive it from content and save
+        // whenever it changes (only while we're still on the same page).
+        if (pageId === id) {
           const extractedTitle = extractTitleFromBlocks(blocks);
           if (extractedTitle !== currentTitleRef.current) {
             updateData.title = extractedTitle;

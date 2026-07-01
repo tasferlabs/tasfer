@@ -125,6 +125,11 @@ function backwardBoundaryContext(
     return null;
   }
 
+  // A single-block surface never merges its block into a neighbour outside the
+  // window — Backspace at offset 0 has no "previous block" to join, so the
+  // boundary is treated as the document edge.
+  if (state.view.window?.singleBlock) return null;
+
   const currentBlockIndex = cursor.position.blockIndex;
   const currentBlock = state.document.page.blocks[currentBlockIndex];
   if (!currentBlock || currentBlock.deleted) return null;
@@ -255,6 +260,7 @@ export function joinWithPreviousBlock(
     source,
     target,
     state.CRDTbinding,
+    state.schema,
     false,
   );
   let newPage = joined.newPage;

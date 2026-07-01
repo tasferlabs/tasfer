@@ -146,6 +146,7 @@ export type {
   DefineNodeConfig,
   MarkDef,
   SchemaExtension,
+  SchemaRestriction,
 } from "./schema";
 export { baseSchema, defineMark, defineNode, Schema } from "./schema";
 export type {
@@ -354,7 +355,18 @@ export type {
   ScrollbarStyles,
   ThemeTokens,
   VersionVector,
+  ViewWindow,
 } from "./state-types";
+
+// View windows — scope an editor to a subset of a shared doc's blocks (the
+// `window` option on `mountEditor`/`createEditor`/`useEditor`). `titleBlockWindow`
+// builds a single-block title surface (pair with `Schema.restrict`); two editors
+// on one `Doc` showing different windows stay live-synced through the doc.
+export {
+  blockIdWindow,
+  titleBlockIndex,
+  titleBlockWindow,
+} from "./view-window";
 
 // CRDT sync — version-vector codecs the providers exchange on the wire. For
 // document sync + persistence prefer the high-level `Doc` (`createDoc` above):

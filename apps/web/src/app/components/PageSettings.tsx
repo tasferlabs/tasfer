@@ -20,7 +20,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -33,15 +32,19 @@ import {
   Trash2,
   Replace,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
+import { type CypherEditor } from "@cypherkit/editor";
+import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
 import {
   useDeletePage,
   useGetPage,
   useGetPages,
   useUpdatePage,
 } from "../api/pages.api";
+import { useActiveEditor } from "../contexts/ActiveEditorContext";
+import { TitleEditor } from "../TitleEditor";
 import { useSpaces } from "../contexts/SpaceContext";
 import {
   usePageSettings,
@@ -434,53 +437,55 @@ function RenameDialog({ open, onOpenChange }: RenameDialogProps) {
   const queryClient = useQueryClient();
   const { data: currentPage } = useGetPage(currentPageId);
   const isMobile = useResponsive("(max-width: 768px)");
-  const [renameValue, setRenameValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const { editor } = useActiveEditor();
+  // The active editor's runtime object is the `CypherEditor` (it carries the
+  // live `doc`), though the context types it as the narrower `EditorApi` — hence
+  // the localized cast. `null` until the page's editor has mounted.
+  const doc = (editor as CypherEditor | null)?.doc ?? null;
 
-  const { mutate: updatePage, isPending } = useUpdatePage({
+  const { mutate: updatePage } = useUpdatePage({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["page", currentPageId] });
       queryClient.invalidateQueries({ queryKey: ["pages"] });
-      onOpenChange(false);
     },
   });
 
-  useEffect(() => {
-    if (open) {
-      setRenameValue(currentPage?.title || "");
-      // Focus input after dialog opens
-      setTimeout(() => {
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      }, 50);
+  // TitleEditor is a windowed view over the SAME shared doc the body renders, so
+  // it edits the document's heading block live through the CRDT — the rename is
+  // already committed (and synced/persisted) as the user types; there is no
+  // separate "save" step. The body editor sees these edits as remote, so its own
+  // local-save title derivation never runs. Re-derive the denormalized
+  // `page.title` record string (sidebar/chrome label) from the doc here on close
+  // so it keeps mirroring the heading.
+  const close = useCallback(() => {
+    if (doc && currentPageId) {
+      const title = extractTitleFromBlocks(doc.getRawBlocks());
+      if (title !== (currentPage?.title ?? "")) {
+        updatePage({ id: currentPageId, title });
+      }
     }
-  }, [open, currentPage?.title]);
+    onOpenChange(false);
+  }, [doc, currentPageId, currentPage?.title, updatePage, onOpenChange]);
 
-  const handleRename = () => {
-    if (currentPageId && renameValue !== currentPage?.title) {
-      updatePage({ id: currentPageId, title: renameValue, autoTitle: false });
-    } else {
-      onOpenChange(false);
-    }
-  };
+  // Route every dismissal (button, Escape, backdrop, swipe) through `close` so
+  // the derived title is always persisted.
+  const handleOpenChange = (next: boolean) =>
+    next ? onOpenChange(true) : close();
 
-  const content = (
-    <div className="space-y-4">
-      <Input
-        ref={inputRef}
-        value={renameValue}
-        onChange={(e) => setRenameValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") handleRename();
-        }}
-        placeholder={t("page.pageTitle", "Page title")}
-      />
-    </div>
-  );
+  const content = doc ? (
+    <TitleEditor
+      doc={doc}
+      editable
+      autoFocus
+      onSubmit={close}
+      onCancel={close}
+      placeholder={t("page.pageTitle", "Page title")}
+    />
+  ) : null;
 
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
+      <Drawer open={open} onOpenChange={handleOpenChange}>
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
@@ -488,12 +493,7 @@ function RenameDialog({ open, onOpenChange }: RenameDialogProps) {
             </DrawerHeader>
             <div className="px-4">{content}</div>
             <DrawerFooter className="pt-4">
-              <Button onClick={handleRename} disabled={isPending}>
-                {t("common.save", "Save")}
-              </Button>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t("common.cancel", "Cancel")}
-              </Button>
+              <Button onClick={close}>{t("common.done", "Done")}</Button>
             </DrawerFooter>
           </div>
         </DrawerContent>
@@ -502,16 +502,14 @@ function RenameDialog({ open, onOpenChange }: RenameDialogProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("page.renamePage", "Rename page")}</DialogTitle>
         </DialogHeader>
         {content}
         <DialogFooter>
-          <Button onClick={handleRename} disabled={isPending}>
-            {t("common.save", "Save")}
-          </Button>
+          <Button onClick={close}>{t("common.done", "Done")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

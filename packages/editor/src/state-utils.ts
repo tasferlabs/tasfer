@@ -3,6 +3,7 @@
 // them, and the node registry imports back into this module, so keeping these off
 // `state-utils` breaks the `ListNode extends TextNode` circular-init hazard.
 import { createActionBus } from "./action-bus";
+import { getBaseDataSchema } from "./baseDataSchema";
 import type { Mark, MarkRegistry } from "./rendering/marks";
 import { createDefaultMarkRegistry } from "./rendering/marks";
 import type {
@@ -25,8 +26,10 @@ import type {
   EditorTheme,
   LinkHoverState,
   TypedInputTransform,
+  ViewWindow,
 } from "./state-types";
 import { resolveNodeStrings, resolveTheme } from "./styles";
+import type { DataSchema } from "./sync/schema";
 
 export {
   getBlockTextContent,
@@ -48,8 +51,10 @@ export function createInitialState(
     mode?: EditorMode;
     nodes?: NodeRegistry;
     marks?: MarkRegistry;
+    schema?: DataSchema;
     theme?: EditorTheme;
     crdtBinding?: CRDTbindingType;
+    window?: ViewWindow;
   },
 ): EditorState {
   // Each editor instance owns its own CRDT context. Because the binding is
@@ -79,6 +84,16 @@ export function createInitialState(
   // the built-in marks when not provided.
   const marks = options?.marks ?? createDefaultMarkRegistry();
 
+  // The canvas-free document schema (CRDT/serialization facets + authoring
+  // allow-list). Per-instance and immutable; default to the base (unrestricted)
+  // schema. Consulted by authoring paths via `state.schema` — never the reducer.
+  const schema = options?.schema ?? getBaseDataSchema();
+
+  // This editor's block window (e.g. a title-only TitleEditor), or undefined for
+  // a full-document editor. Immutable per instance; every visible-blocks
+  // derivation honors it. See ViewWindow.
+  const window = options?.window;
+
   // The host's raw theme, resolved once into the full style tree. Stored
   // per-instance (not a module global) so two editors on a page style
   // independently and the engine never reads the DOM.
@@ -106,6 +121,7 @@ export function createInitialState(
     actionBus,
     nodes,
     marks,
+    schema,
     theme,
     resolvedStyles,
     resolvedNodeStrings,
@@ -144,7 +160,8 @@ export function createInitialState(
       },
       scrollbar: createInitialScrollbarState(),
       momentum: createInitialMomentumState(),
-      visibleBlocks: getVisibleBlocks(page),
+      visibleBlocks: getVisibleBlocks(page, window),
+      window,
     },
     undoManager: initialUndoManagerState,
   };

@@ -243,7 +243,7 @@ export function SidebarContent({
       title: t("space.archiveSpace", "Archive space"),
       description: t(
         "space.confirmArchiveSpace",
-        "Are you sure you want to archive this space? You will stop syncing and receiving updates.",
+        "Archiving deletes nothing. It hides this space and stops syncing here — your copy and every member's stay put. Unarchive anytime.",
       ),
       confirmText: t("common.archive", "Archive"),
       cancelText: t("common.cancel", "Cancel"),

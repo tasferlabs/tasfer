@@ -75,6 +75,8 @@ import {
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
+import type { DataSchema } from "../sync/schema";
+import { isWordChar } from "../word-chars";
 
 /**
  * URL regex pattern for auto-detection.
@@ -204,6 +206,7 @@ function detectAndApplyInlineMarkdown(
   blockId: string,
   textIndex: number,
   binding: CRDTbinding,
+  schema: DataSchema,
 ): {
   newPage: Page;
   newTextIndex: number;
@@ -230,6 +233,9 @@ function detectAndApplyInlineMarkdown(
   ];
 
   for (const { regex, markerLen, format } of patterns) {
+    // Skip auto-format for a mark the schema forbids authoring (no-op when
+    // unrestricted). Leaves the literal delimiters in place.
+    if (!schema.isMarkAllowed(format.type)) continue;
     const match = fullText.slice(0, textIndex).match(regex);
     if (!match) continue;
     const matchStart = textIndex - match[0].length;
@@ -289,6 +295,7 @@ function detectAndApplyInlineMarkdown(
 function applyMarkdownPrefix(
   block: Block,
   binding: CRDTbinding,
+  schema: DataSchema,
   preserveType: boolean = false,
 ): { block: Block; ops: Operation[] } {
   if (!isTextualBlock(block)) {
@@ -342,8 +349,13 @@ function applyMarkdownPrefix(
     ops.push(setOp);
   };
 
-  // Check for list markers
-  if (textAfterSpaces.startsWith("- [ ] ")) {
+  // Check for list markers. Each branch morphs to a specific type; skip it when
+  // that type is not authorable in this schema, leaving the literal prefix in
+  // place (a no-op for an unrestricted schema, where every type is allowed).
+  if (
+    textAfterSpaces.startsWith("- [ ] ") &&
+    schema.isBlockAllowed("todo_list")
+  ) {
     // Unchecked todo list
     (block as any).type = "todo_list";
     (block as any).checked = false;
@@ -353,8 +365,9 @@ function applyMarkdownPrefix(
     setBlockField("checked", false);
     setBlockField("indent", indentLevel);
   } else if (
-    textAfterSpaces.startsWith("- [x] ") ||
-    textAfterSpaces.startsWith("- [X] ")
+    (textAfterSpaces.startsWith("- [x] ") ||
+      textAfterSpaces.startsWith("- [X] ")) &&
+    schema.isBlockAllowed("todo_list")
   ) {
     // Checked todo list
     (block as any).type = "todo_list";
@@ -364,14 +377,20 @@ function applyMarkdownPrefix(
     if (oldType !== "todo_list") setBlockField("type", "todo_list");
     setBlockField("checked", true);
     setBlockField("indent", indentLevel);
-  } else if (textAfterSpaces.match(/^[-*+] /)) {
+  } else if (
+    textAfterSpaces.match(/^[-*+] /) &&
+    schema.isBlockAllowed("bullet_list")
+  ) {
     // Bullet list
     (block as any).type = "bullet_list";
     (block as any).indent = indentLevel;
     removePrefix(0, leadingSpaces + 2);
     if (oldType !== "bullet_list") setBlockField("type", "bullet_list");
     setBlockField("indent", indentLevel);
-  } else if (textAfterSpaces.match(/^\d+\. /)) {
+  } else if (
+    textAfterSpaces.match(/^\d+\. /) &&
+    schema.isBlockAllowed("numbered_list")
+  ) {
     // Numbered list
     const match = textAfterSpaces.match(/^(\d+)\. /);
     if (match) {
@@ -381,19 +400,19 @@ function applyMarkdownPrefix(
       if (oldType !== "numbered_list") setBlockField("type", "numbered_list");
       setBlockField("indent", indentLevel);
     }
-  } else if (text.startsWith("### ")) {
+  } else if (text.startsWith("### ") && schema.isBlockAllowed("heading3")) {
     block.type = "heading3";
     removePrefix(0, 4);
     if (oldType !== "heading3") setBlockField("type", "heading3");
-  } else if (text.startsWith("## ")) {
+  } else if (text.startsWith("## ") && schema.isBlockAllowed("heading2")) {
     block.type = "heading2";
     removePrefix(0, 3);
     if (oldType !== "heading2") setBlockField("type", "heading2");
-  } else if (text.startsWith("# ")) {
+  } else if (text.startsWith("# ") && schema.isBlockAllowed("heading1")) {
     block.type = "heading1";
     removePrefix(0, 2);
     if (oldType !== "heading1") setBlockField("type", "heading1");
-  } else if (text.match(/^-{3,}$/)) {
+  } else if (text.match(/^-{3,}$/) && schema.isBlockAllowed("line")) {
     // Line/divider block - three or more dashes with nothing else
     // Generate text_delete for all visible chars before clearing
     const allCharIds: string[] = [];
@@ -415,7 +434,7 @@ function applyMarkdownPrefix(
     (block as any).type = "line";
     (block as any).charRuns = [];
     setBlockField("type", "line");
-  } else if (text === "$$") {
+  } else if (text === "$$" && schema.isBlockAllowed("math")) {
     // Math block - $$ on its own line
     const allCharIds: string[] = [];
     for (const { id } of iterateVisibleChars(block.charRuns)) {
@@ -438,7 +457,7 @@ function applyMarkdownPrefix(
     (block as any).charRuns = [];
     (block as any).formats = [];
     setBlockField("type", "math");
-  } else if (text === "```") {
+  } else if (text === "```" && schema.isBlockAllowed("code")) {
     // Code block — three backticks on their own line. Like math (and unlike the
     // void `line`), code is textual, so the caret stays inside the (now empty)
     // block; the bottom of insertText clamps the cursor into the cleared block.
@@ -499,6 +518,7 @@ export function mergeBlocksOps(
   source: Block,
   target: Block,
   binding: CRDTbinding,
+  schema: DataSchema,
   applyMarkdown: boolean = true,
 ): {
   newPage: Page;
@@ -607,7 +627,7 @@ export function mergeBlocksOps(
     isTextualBlock(targetAfterMerge)
   ) {
     const clone = { ...targetAfterMerge } as Block;
-    const { ops: prefixOps } = applyMarkdownPrefix(clone, binding);
+    const { ops: prefixOps } = applyMarkdownPrefix(clone, binding, schema);
     if (prefixOps.length > 0) {
       ops.push(...prefixOps);
       pageAcc = applyOps(pageAcc, prefixOps);
@@ -816,7 +836,9 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     // must not silently re-morph when its text is edited. (This is the same
     // "paragraph is the base type" convention as the schema's fallback codec.)
     if (block.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
+      ops.push(
+        ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema).ops,
+      );
     }
 
     invalidateBlockCache(blockCopy);
@@ -989,7 +1011,10 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     if (startBlockIndex !== -1) {
       const blockCopy = newPage.blocks[startBlockIndex];
       if (startBlock.type === "paragraph") {
-        ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
+        ops.push(
+          ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema)
+            .ops,
+        );
       }
       invalidateBlockCache(blockCopy);
     }
@@ -1131,6 +1156,7 @@ export function insertText(state: EditorState, input: string): ActionResult {
       oldBlock.id,
       newTextIndex,
       state.CRDTbinding,
+      state.schema,
     );
     if (markdownResult) {
       // Save history BEFORE applying markdown (with raw markdown text).
@@ -1141,6 +1167,7 @@ export function insertText(state: EditorState, input: string): ActionResult {
         ...applyMarkdownPrefix(
           blockBeforeMarkdown,
           state.CRDTbinding,
+          state.schema,
           oldBlock.type !== "paragraph",
         ).ops,
       );
@@ -1166,8 +1193,9 @@ export function insertText(state: EditorState, input: string): ActionResult {
     }
   }
 
-  // Auto-detect URLs when a word boundary is typed (space) — never in code.
-  if (input === " " && !inCodeBlock) {
+  // Auto-detect URLs when a word boundary is typed (space) — never in code, and
+  // never when the schema forbids the link mark (no-op when unrestricted).
+  if (input === " " && !inCodeBlock && state.schema.isMarkAllowed("link")) {
     const currentBlock = pageAcc.blocks[blockIndex];
     if (isTextualBlock(currentBlock)) {
       const text = getVisibleTextFromRuns(currentBlock.charRuns);
@@ -1194,6 +1222,7 @@ export function insertText(state: EditorState, input: string): ActionResult {
       ...applyMarkdownPrefix(
         blockCopy,
         state.CRDTbinding,
+        state.schema,
         oldBlock.type !== "paragraph",
       ).ops,
     );
@@ -1302,7 +1331,9 @@ export function deleteText(state: EditorState): ActionResult {
 
     const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
+      ops.push(
+        ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema).ops,
+      );
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -1314,6 +1345,10 @@ export function deleteText(state: EditorState): ActionResult {
     newState = moveCursorToPosition(newState, blockIndex, textIndex - 1, true);
     return { state: newState, ops };
   } else {
+    // A single-block surface never merges its block into (or outdents/deletes
+    // itself toward) a neighbour outside the window — Backspace at offset 0 is a
+    // no-op, so the block count and neighbours are untouched.
+    if (state.view.window?.singleBlock) return { state, ops: [] };
     // Find previous visible (non-deleted) block — skip tombstones left by snapshot restore
     const prevBlockIndex = findPreviousVisibleBlockIndex(
       state.document.page.blocks,
@@ -1513,6 +1548,7 @@ export function deleteText(state: EditorState): ActionResult {
         blockToDelete,
         blockToPreserve,
         state.CRDTbinding,
+        state.schema,
       );
       ops.push(...mergeOps);
 
@@ -1642,7 +1678,9 @@ export function deleteForward(state: EditorState): ActionResult {
 
     const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
+      ops.push(
+        ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema).ops,
+      );
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -1653,6 +1691,9 @@ export function deleteForward(state: EditorState): ActionResult {
     newState = moveCursorToPosition(newState, blockIndex, textIndex, true);
     return { state: newState, ops };
   } else {
+    // A single-block surface never merges its block into a neighbour outside the
+    // window — forward-delete at the end of the block is a no-op.
+    if (state.view.window?.singleBlock) return { state, ops: [] };
     // Check for next visible block to merge with
     const nextBlockIndex = findNextVisibleBlockIndex(
       state.document.page.blocks,
@@ -1741,6 +1782,7 @@ export function deleteForward(state: EditorState): ActionResult {
         blockToDelete,
         blockToPreserve,
         state.CRDTbinding,
+        state.schema,
       );
       ops.push(...mergeOps);
 
@@ -1789,17 +1831,13 @@ function findWordBoundary(
     }
 
     // Skip current character type for non-CJK
-    const startIsWordChar = /[\p{L}\p{N}_]/u.test(text[i - 1]);
+    const startIsWordChar = isWordChar(text[i - 1]);
     if (startIsWordChar) {
-      while (
-        i > 0 &&
-        /[\p{L}\p{N}_]/u.test(text[i - 1]) &&
-        !isCJKCharacter(text[i - 1])
-      ) {
+      while (i > 0 && isWordChar(text[i - 1]) && !isCJKCharacter(text[i - 1])) {
         i--;
       }
     } else {
-      while (i > 0 && !/[\p{L}\p{N}_]/u.test(text[i - 1])) {
+      while (i > 0 && !isWordChar(text[i - 1])) {
         i--;
       }
     }
@@ -1818,17 +1856,17 @@ function findWordBoundary(
     }
 
     // Skip current character type for non-CJK
-    const startIsWordChar = /[\p{L}\p{N}_]/u.test(text[i]);
+    const startIsWordChar = isWordChar(text[i]);
     if (startIsWordChar) {
       while (
         i < text.length &&
-        /[\p{L}\p{N}_]/u.test(text[i]) &&
+        isWordChar(text[i]) &&
         !isCJKCharacter(text[i])
       ) {
         i++;
       }
     } else {
-      while (i < text.length && !/[\p{L}\p{N}_]/u.test(text[i])) {
+      while (i < text.length && !isWordChar(text[i])) {
         i++;
       }
     }
@@ -1848,20 +1886,16 @@ function findWordDeleteBoundaryLeft(text: string, index: number): number {
   }
 
   // Check what type of character we're starting from (Unicode-aware)
-  const isWordChar = /[\p{L}\p{N}_]/u.test(text[i - 1]);
+  const startsOnWord = isWordChar(text[i - 1]);
 
-  if (isWordChar) {
-    // Delete word characters (Unicode letters, numbers, underscores)
-    while (
-      i > 0 &&
-      /[\p{L}\p{N}_]/u.test(text[i - 1]) &&
-      !isCJKCharacter(text[i - 1])
-    ) {
+  if (startsOnWord) {
+    // Delete word characters (see isWordChar: letters, numbers, marks, joiners, underscore)
+    while (i > 0 && isWordChar(text[i - 1]) && !isCJKCharacter(text[i - 1])) {
       i--;
     }
   } else {
     // Delete non-word characters (spaces, punctuation, special characters together)
-    while (i > 0 && !/[\p{L}\p{N}_]/u.test(text[i - 1])) {
+    while (i > 0 && !isWordChar(text[i - 1])) {
       i--;
     }
   }
@@ -1880,20 +1914,16 @@ function findWordDeleteBoundaryRight(text: string, index: number): number {
   }
 
   // Check what type of character we're starting from (Unicode-aware)
-  const isWordChar = /[\p{L}\p{N}_]/u.test(text[i]);
+  const startsOnWord = isWordChar(text[i]);
 
-  if (isWordChar) {
-    // Delete word characters (Unicode letters, numbers, underscores)
-    while (
-      i < text.length &&
-      /[\p{L}\p{N}_]/u.test(text[i]) &&
-      !isCJKCharacter(text[i])
-    ) {
+  if (startsOnWord) {
+    // Delete word characters (see isWordChar: letters, numbers, marks, joiners, underscore)
+    while (i < text.length && isWordChar(text[i]) && !isCJKCharacter(text[i])) {
       i++;
     }
   } else {
     // Delete non-word characters (spaces, punctuation, special characters together)
-    while (i < text.length && !/[\p{L}\p{N}_]/u.test(text[i])) {
+    while (i < text.length && !isWordChar(text[i])) {
       i++;
     }
   }
@@ -2112,7 +2142,9 @@ export function deleteWordForward(state: EditorState): ActionResult {
 
     const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
+      ops.push(
+        ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema).ops,
+      );
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -2149,6 +2181,7 @@ export function deleteWordForward(state: EditorState): ActionResult {
         blockToDelete,
         blockToPreserve,
         state.CRDTbinding,
+        state.schema,
       );
       ops.push(...mergeOps);
 
@@ -2228,7 +2261,9 @@ export function deleteWordBackward(state: EditorState): ActionResult {
 
     const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
+      ops.push(
+        ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema).ops,
+      );
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -2260,6 +2295,7 @@ export function deleteWordBackward(state: EditorState): ActionResult {
       blockToDelete,
       blockToPreserve,
       state.CRDTbinding,
+      state.schema,
     );
     ops.push(...mergeOps);
 
@@ -2284,9 +2320,10 @@ export function deleteWordBackward(state: EditorState): ActionResult {
   return { state, ops };
 }
 
-// Find word boundaries for selection - only selects word characters (letters, numbers, underscore)
-// Uses Unicode property escapes to support all languages
-// For CJK characters, each character is treated as a word
+// Find word boundaries for selection. Word characters are defined by
+// `isWordChar` (letters, numbers, combining marks, joiners, underscore) so
+// vocalized Arabic and joined Persian/Indic words stay whole.
+// For CJK characters, each character is treated as a word.
 function findWordStart(text: string, index: number): number {
   let i = index;
 
@@ -2295,13 +2332,9 @@ function findWordStart(text: string, index: number): number {
     return i;
   }
 
-  // Move left while we're in word characters (Unicode letters, numbers, or underscore)
+  // Move left while we're in word characters (see isWordChar)
   // Stop at CJK characters
-  while (
-    i > 0 &&
-    /[\p{L}\p{N}_]/u.test(text[i - 1]) &&
-    !isCJKCharacter(text[i - 1])
-  ) {
+  while (i > 0 && isWordChar(text[i - 1]) && !isCJKCharacter(text[i - 1])) {
     i--;
   }
   return i;
@@ -2315,13 +2348,9 @@ function findWordEnd(text: string, index: number): number {
     return i + 1;
   }
 
-  // Move right while we're in word characters (Unicode letters, numbers, or underscore)
+  // Move right while we're in word characters (see isWordChar)
   // Stop at CJK characters
-  while (
-    i < text.length &&
-    /[\p{L}\p{N}_]/u.test(text[i]) &&
-    !isCJKCharacter(text[i])
-  ) {
+  while (i < text.length && isWordChar(text[i]) && !isCJKCharacter(text[i])) {
     i++;
   }
   return i;
@@ -2346,9 +2375,8 @@ export function selectWordAtPosition(
 
   if (text.length === 0) return state;
 
-  // Check if we're on a word character (Unicode letter, number, or underscore)
-  const isOnWord =
-    textIndex < text.length && /[\p{L}\p{N}_]/u.test(text[textIndex]);
+  // Check if we're on a word character (see isWordChar)
+  const isOnWord = textIndex < text.length && isWordChar(text[textIndex]);
 
   if (!isOnWord) {
     // If not on a word, don't select anything
@@ -2472,6 +2500,11 @@ export function moveToLineEnd(state: EditorState): EditorState {
 
 export function splitBlock(state: EditorState): ActionResult {
   if (!state.document.cursor) return { state, ops: [] };
+
+  // A single-block surface (e.g. a TitleEditor) never splits into a second
+  // block: Enter is inert here, so the block count stays fixed. Hosts map Enter
+  // to their own intent (commit/blur/advance focus) above the engine.
+  if (state.view.window?.singleBlock) return { state, ops: [] };
 
   const ops: Operation[] = [];
 
@@ -2669,10 +2702,16 @@ export function splitBlock(state: EditorState): ActionResult {
     }
 
     const newBlockId = state.CRDTbinding.nextId();
-    // Continue the same list type. `oldBlock` is already a list block, so its
-    // type is the desired type for the next item; togglable lists (todo) also
-    // seed an unchecked state.
-    const newBlockType = oldBlock.type;
+    // Continue the same list type — but clamp to the authoring allow-list so a
+    // restricted editor never MINTS a disallowed type (coerceCreatable is
+    // identity when unrestricted). The COERCED type is what we emit, so a remote
+    // replay of this op converges. List-specific initialProps (checked/indent)
+    // only apply while the continuation stays a list; a coerced-to-paragraph
+    // fallback drops them.
+    const newBlockType = state.schema.coerceCreatable(
+      oldBlock.type,
+    ) as Block["type"];
+    const continuesList = newBlockType === oldBlock.type;
 
     const blockInsertOp: BlockInsert = {
       op: "block_insert",
@@ -2682,9 +2721,11 @@ export function splitBlock(state: EditorState): ActionResult {
       orderKey: orderKeyAfter(state.document.page.blocks, oldBlock.id),
       blockId: newBlockId,
       blockType: newBlockType,
-      initialProps: isTogglable(oldBlock.type)
-        ? { checked: false, indent: oldBlock.indent }
-        : { indent: oldBlock.indent },
+      initialProps: continuesList
+        ? isTogglable(oldBlock.type)
+          ? { checked: false, indent: oldBlock.indent }
+          : { indent: oldBlock.indent }
+        : undefined,
     };
     ops.push(blockInsertOp);
     pageAcc = applyOps(pageAcc, [blockInsertOp]);
@@ -2754,6 +2795,15 @@ export function splitBlock(state: EditorState): ActionResult {
     blockCopy2Type = originalType;
   }
 
+  // Clamp the newly-minted continuation (block 2) to the authoring allow-list so
+  // a restricted editor never CREATES a disallowed block on Enter — identity when
+  // unrestricted; a disallowed continuation degrades to a plain paragraph. The
+  // coerced type is what the block_insert below emits, so a remote replay of the
+  // split converges. Block 1 already exists (never minted here) and needs no clamp.
+  blockCopy2Type = state.schema.coerceCreatable(
+    blockCopy2Type,
+  ) as Block["type"];
+
   // Split the text content. Every modification below routes through ops
   // and is replayed onto `pageAcc` via applyOps, so the local page state
   // ends up byte-identical to what `applyOps(pre-split-page, ops)` would
@@ -2788,6 +2838,7 @@ export function splitBlock(state: EditorState): ActionResult {
       const { ops: prefixOps } = applyMarkdownPrefix(
         mutableClone,
         state.CRDTbinding,
+        state.schema,
       );
       if (prefixOps.length > 0) {
         ops.push(...prefixOps);
@@ -3030,6 +3081,11 @@ export function toggleFormat(
   state: EditorState,
   formatType: string,
 ): ActionResult {
+  // Honor the authoring allow-list: toggling a disallowed mark is a no-op on
+  // every path that funnels through here (ChangeApi.setMark's toggle branch and
+  // the built-in TOGGLE_* actions). No-op for an unrestricted schema.
+  if (!state.schema.isMarkAllowed(formatType)) return { state, ops: [] };
+
   const range = getSelectionRange(state);
 
   // If no selection, toggle format in UI's active formats
@@ -3278,6 +3334,11 @@ export function convertBlockAtCursor(
   params: { type: Block["type"]; deleteFrom?: number; deleteTo?: number },
 ): ActionResult {
   if (!state.document.cursor) return { state, ops: [] };
+
+  // Honor the schema's authoring allow-list — converting to a disallowed type is
+  // a clean no-op (a slash/command convert simply does nothing), mirroring the
+  // reducer dropping a type it can't model. No-op for an unrestricted schema.
+  if (!state.schema.isBlockAllowed(params.type)) return { state, ops: [] };
 
   const ops: Operation[] = [];
   const blockIndex = state.document.cursor.position.blockIndex;
@@ -3761,6 +3822,11 @@ export function convertToList(
   listType: "bullet_list" | "numbered_list" | "todo_list",
 ): ActionResult {
   if (!state.document.cursor) return { state, ops: [] };
+
+  // Honor the authoring allow-list. This builds the list block literal directly
+  // (bypassing createDefaultBlock/convertBlockAtCursor), so it needs its own
+  // gate; a disallowed list type is a clean no-op. No-op when unrestricted.
+  if (!state.schema.isBlockAllowed(listType)) return { state, ops: [] };
 
   const ops: Operation[] = [];
 

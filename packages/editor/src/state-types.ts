@@ -4,6 +4,7 @@ import type { MarkRegistry } from "./rendering/marks/Mark";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
 import type { Block, CharRun, Mark, Page } from "./serlization/loadPage";
+import type { DataSchema } from "./sync/schema";
 
 // =============================================================================
 // CRDT Types — P2P Offline-Tolerant Live Updates
@@ -413,6 +414,35 @@ export interface UIState {
   readonly decorations: DecorationLayers;
 }
 
+/**
+ * A per-editor VIEW WINDOW: restricts which of the document's blocks this editor
+ * renders and edits, without changing the underlying doc. Two editors attached
+ * to one shared `Doc` can show disjoint windows of it (e.g. a `TitleEditor`
+ * scoped to the title block alongside a full `PageEditor`) and — because the doc
+ * is the single source of truth — stay live-synced with zero extra wiring.
+ *
+ * A window is purely a view/authoring concern: it NEVER filters ops in the
+ * reducer or oplog, so peers converge on the full doc regardless of anyone's
+ * window. It is node/mark-agnostic — `select` is an opaque host-supplied rule
+ * and the core never names a block type. See `titleBlockWindow`.
+ */
+export interface ViewWindow {
+  /**
+   * Given the doc's full block list (document order, tombstones included),
+   * return the set of ORIGINAL indices this editor shows. Re-evaluated on every
+   * visible-blocks derivation, so a dynamic rule (e.g. "the first text block")
+   * tracks insertions/deletions. Must be pure and deterministic.
+   */
+  readonly select: (blocks: readonly Block[]) => ReadonlySet<number>;
+  /**
+   * When true this is a SINGLE-BLOCK surface: authoring ops that would create,
+   * split, or merge-away a block are suppressed, and the caret is kept inside
+   * the window. Set by windows that resolve to exactly one block (e.g. the
+   * title). Like `Schema.restrict`, this is an authoring-time gate only.
+   */
+  readonly singleBlock?: boolean;
+}
+
 // View State - Ephemeral view properties
 export interface ViewState {
   readonly isFocused: boolean;
@@ -420,6 +450,12 @@ export interface ViewState {
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
   visibleBlocks: (Block & { originalIndex: number })[];
+  /**
+   * This editor's block window, or undefined for a full-document editor (the
+   * default). Immutable per instance; every `getVisibleBlocks` derivation honors
+   * it. See {@link ViewWindow}.
+   */
+  readonly window?: ViewWindow;
 }
 
 /**
@@ -562,6 +598,15 @@ export interface EditorState {
    * sets and so marks are opt-in at mount. Mirrors {@link nodes}.
    */
   readonly marks: MarkRegistry;
+  /**
+   * The canvas-free document schema for this instance — the CRDT/serialization
+   * facets plus the authoring allow-list. Carried by reference (mirrors
+   * {@link nodes}/{@link marks}) so every authoring path can consult
+   * `state.schema.isBlockAllowed` / `coerceCreatable` / `isMarkAllowed` before
+   * minting or morphing content. Defaults to the base (unrestricted) schema.
+   * The reducer never reads the allow-list, so this only gates local authoring.
+   */
+  readonly schema: DataSchema;
   /**
    * The host's raw styling input for this instance (tokens + style overrides +
    * fonts + selected family + strings). Kept so `setTheme` can merge a partial

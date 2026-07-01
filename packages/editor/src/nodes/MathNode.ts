@@ -102,6 +102,7 @@ import {
   mathMaterializeAfterInput,
   mathMergeAfterDelete,
   mathRedundantSpaceAfterInput,
+  mathSeparatorAfterDelete,
   mathSplitAfterInput,
   mathTransformTypedInput,
   mathUnitAt,
@@ -232,6 +233,26 @@ export class MathNode extends TextNode {
       base.fontFamily,
       base.fonts,
     );
+    // An equation is a single logical line for the caret/selection stack: its
+    // internal rows (a fraction's halves, a wrapped display line) are stacked
+    // math geometry navigated by the tex caret model (see `caret` / `caretRect`),
+    // NOT the text-wrapped lines TextNode measures from the raw LaTeX string.
+    // Those base lines are meaningless here — worse, when the LaTeX is long enough
+    // to text-wrap, the generic vertical-nav fall-through (`moveCursorDown`, once
+    // `caretVerticalStep` reports no math row beyond the edge) would step between
+    // them and trap the caret inside the block. Collapse to one line spanning the
+    // whole equation, mirroring what `paint` emits, so exhausting the math rows
+    // exits the block. Empty (no `mathLayout`) still yields one line so the block
+    // reports a bottom/top edge to the escape logic.
+    const line: RenderedLine = {
+      text: latex,
+      x: mathOffsetX,
+      y: mathTop,
+      width: mathLayout ? mathLayout.width : 0,
+      height: mh,
+      startIndex: 0,
+      endIndex: latex.length,
+    };
     // LaTeX is always laid out left-to-right. The base layout derives direction
     // from the content (TextNode → getTextDirection), which falls back to the UI
     // default — so in an RTL locale an empty or symbol-only equation would come
@@ -239,6 +260,7 @@ export class MathNode extends TextNode {
     return {
       ...base,
       isRTL: false,
+      lines: [line],
       height,
       mathLayout,
       mathOffsetX,
@@ -867,9 +889,14 @@ export class MathNode extends TextNode {
     // chips is removed, fuse the now-adjacent chips back into one formula. The
     // split half lives in `normalizeMathInput` above (TEXT_INPUTTED); both keep
     // inline math's "a space is a chip boundary" model consistent across edits.
-    bus.registerState(CONTENT_DELETED, (state, { blockIndex }) =>
-      mergeInlineMath(state, blockIndex),
-    );
+    // A block equation has no chip spans, so it also gets the direct fusion guard
+    // below: a delete that welds a command onto a following letter (`\int_{}a` →
+    // `\inta`) gets its separator space back so it never renders as raw source.
+    bus.registerState(CONTENT_DELETED, (state, { blockIndex, textIndex }) => {
+      const merged = mergeInlineMath(state, blockIndex);
+      const separated = separateBlockMath(merged.state, blockIndex, textIndex);
+      return { state: separated.state, ops: [...merged.ops, ...separated.ops] };
+    });
   }
 }
 
@@ -1119,6 +1146,40 @@ function mergeInlineMath(state: EditorState, blockIndex: number): StateResult {
   return {
     state: { ...state, document: { ...state.document, page } },
     ops,
+  };
+}
+
+/**
+ * Block-equation counterpart of {@link mergeInlineMath}: after a delete welds a
+ * control word onto a following letter (backspacing the empty subscript in
+ * `\int_{}a` leaves `\inta`, one unknown command rendered as raw red source),
+ * reinsert the command-separator space so the two stay distinct atoms (`\int a`).
+ * `caret` is the post-delete caret offset (the weld point). A no-op unless a weld
+ * actually happened, so it's safe to run after every delete. The caret is left
+ * where the delete put it — just after the command, before the reinserted space.
+ */
+function separateBlockMath(
+  state: EditorState,
+  blockIndex: number,
+  caret: number,
+): StateResult {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return { state, ops: [] };
+
+  const at = mathSeparatorAfterDelete(block, caret);
+  if (at === null) return { state, ops: [] };
+
+  const { newPage, op } = insertCharsAtPosition(
+    state.document.page,
+    block.id,
+    at,
+    " ",
+    state.CRDTbinding,
+  );
+  invalidateBlockCache(newPage.blocks[blockIndex]);
+  return {
+    state: { ...state, document: { ...state.document, page: newPage } },
+    ops: [op],
   };
 }
 

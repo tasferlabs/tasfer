@@ -1,0 +1,281 @@
+/* Shared full-width settings sections: Display density, Language, Theme. */
+.section {
+  padding: 2rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.heading {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5rem;
+  color: var(--foreground);
+}
+
+.description {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  max-width: 560px;
+  margin: 0 0 1.75rem;
+}
+
+/* ---- density preview cards ---- */
+/* Seven columns mirror the slider stops so each card sits above its stop
+   (Dense → stop 1, Default → stop 4, Spacious → stop 7). */
+.previews {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: end;
+  margin-bottom: 1.5rem;
+}
+
+.colDense {
+  grid-column: 1;
+}
+
+.colDefault {
+  grid-column: 4;
+}
+
+.colSpacious {
+  grid-column: 7;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.cardBox {
+  width: 100%;
+  height: 84px;
+  box-sizing: border-box;
+  border: 1.5px solid;
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.bar {
+  border-radius: 3px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.cardLabel {
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+/* ---- density slider ---- */
+.track {
+  position: relative;
+  margin: 0;
+}
+
+.trackLine {
+  position: absolute;
+  inset-inline: 6.5%;
+  top: 14px;
+  height: 1.5px;
+  background: var(--border);
+}
+
+.stops {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.stop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.stopDotWrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--background);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stopDot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border-style: solid;
+  transition: border-color 0.15s;
+}
+
+.stopLabel {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.01em;
+  transition: color 0.15s;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+}
+
+.reset {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--foreground);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 24px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.reset:hover {
+  background: var(--accent);
+  border-color: var(--muted-foreground);
+}
+
+/* ---- language pills ---- */
+.langGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.langPill {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-family: inherit;
+  background: transparent;
+  border: 1.5px solid var(--border);
+  border-radius: 9px;
+  padding: 12px 20px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.langPillActive {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+}
+
+.langNative {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.langCode {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+  transition: color 0.15s;
+}
+
+.langCodeActive {
+  color: var(--primary);
+}
+
+/* ---- theme preview cards ---- */
+.themeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  max-width: 440px;
+}
+
+.themeFrame {
+  width: 100%;
+  height: 82px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.themeFrameActive {
+  border-color: var(--primary);
+}
+
+.themePaper {
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+}
+
+.themePane {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.themeBar {
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 640px) {
+  /* On a narrow drawer the 7-column split makes cards too thin, so fall back to
+     an even three-across row (the stops stay aligned enough at this width). */
+  .previews {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.625rem;
+  }
+
+  .colDense,
+  .colDefault,
+  .colSpacious {
+    grid-column: auto;
+  }
+
+  .themeGrid {
+    gap: 0.625rem;
+  }
+
+  .stopLabel {
+    font-size: 0.6875rem;
+  }
+}

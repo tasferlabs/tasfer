@@ -58,7 +58,7 @@ export type CreateEditorContent<
  */
 export type CreateEditorBaseOptions<
   D extends SchemaDefinition = BaseSchemaDefinition,
-> = Omit<MountEditorOptions<D>, "doc"> & {
+> = Omit<MountEditorOptions<D>, "doc" | "schema"> & {
   /** The host element the canvas mounts into. Sized to fill this element. */
   element: HTMLElement;
   /**
@@ -197,6 +197,10 @@ export function createEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     nodes: mountOptions.nodes ?? schema.nodes,
     // Same for inline marks — schema's marks unless the host overrode them.
     marks: mountOptions.marks ?? schema.marks,
+    // Carry the canvas-free schema onto the editor state so authoring honors the
+    // allow-list (Schema.restrict). Same DataSchema the doc's reducer uses, so
+    // authoring and materialization stay consistent.
+    schema: schema.data,
     // Attach the doc: mountEditor mounts from its blocks, shares its binding,
     // and owns the doc↔editor wiring (local edits → doc, doc updates → editor).
     doc,
