@@ -58,10 +58,41 @@ const TILING_WM_NAMES = [
   "dk",
 ];
 
+/**
+ * The user runtime directory (`/run/user/<uid>`), where WM IPC sockets live.
+ * Falls back to constructing it from the uid when `XDG_RUNTIME_DIR` is unset.
+ */
+function runtimeDir(): string | null {
+  if (process.env.XDG_RUNTIME_DIR) return process.env.XDG_RUNTIME_DIR;
+  const uid = process.getuid?.();
+  return uid === undefined ? null : `/run/user/${uid}`;
+}
+
+/**
+ * Probe the runtime directory for a WM's IPC socket. i3, Sway and Hyprland each
+ * create one when they start, independent of the process environment — so this
+ * detects them even when the app is launched straight from the WM (rofi, a
+ * keybinding, a `.desktop` entry) and inherits none of their env vars.
+ */
+function tilingSocketPresent(): boolean {
+  const dir = runtimeDir();
+  if (!dir) return false;
+  try {
+    // i3 → <runtime>/i3/ipc-socket.*   Hyprland → <runtime>/hypr/
+    if (fs.existsSync(path.join(dir, "i3"))) return true;
+    if (fs.existsSync(path.join(dir, "hypr"))) return true;
+    // Sway → <runtime>/sway-ipc.<uid>.<pid>.sock (flat file, not a subdir).
+    return fs.readdirSync(dir).some((name) => name.startsWith("sway-ipc."));
+  } catch {
+    return false; // Unreadable runtime dir → fall through to other signals.
+  }
+}
+
 function detectTilingWm(): boolean {
   if (process.platform !== "linux") return false;
 
-  // WM-specific IPC sockets are the strongest signal when present.
+  // WM-specific IPC sockets are the strongest signal when the app inherits the
+  // WM's environment (e.g. launched from a terminal under the session).
   if (
     process.env.I3SOCK ||
     process.env.SWAYSOCK ||
@@ -70,21 +101,30 @@ function detectTilingWm(): boolean {
     return true;
   }
 
-  // Otherwise match the session/desktop identifiers. These can be
-  // colon-separated lists (e.g. XDG_CURRENT_DESKTOP), so split before comparing.
+  // Match the session/desktop identifiers. These can be colon-separated lists
+  // (e.g. XDG_CURRENT_DESKTOP), so split before comparing.
   const sources = [
     process.env.XDG_CURRENT_DESKTOP,
     process.env.XDG_SESSION_DESKTOP,
     process.env.DESKTOP_SESSION,
   ];
-  return sources.some((value) =>
-    value
-      ? value
-          .toLowerCase()
-          .split(":")
-          .some((name) => TILING_WM_NAMES.includes(name.trim()))
-      : false,
-  );
+  if (
+    sources.some((value) =>
+      value
+        ? value
+            .toLowerCase()
+            .split(":")
+            .some((name) => TILING_WM_NAMES.includes(name.trim()))
+        : false,
+    )
+  ) {
+    return true;
+  }
+
+  // Last resort: the env can be empty when the WM is started from .xinitrc and
+  // the app is launched without inheriting a login shell's exports. The IPC
+  // socket on disk is authoritative in that case.
+  return tilingSocketPresent();
 }
 
 const isTilingWm = detectTilingWm();
@@ -133,9 +173,19 @@ function setDevToolsEnabled(value: boolean): void {
 const isDev = !app.isPackaged;
 // Defaults to HTTPS so a single `npm run dev:host` server (which serves the LAN
 // over HTTPS with the mkcert cert; localhost is in its SAN and the mkcert CA is
-// in the system trust store) drives desktop and mobile at once. Override with
-// CYPHER_DEV_URL when running plain HTTP `npm run dev`.
-const DEV_SERVER_URL = process.env.CYPHER_DEV_URL ?? "https://localhost:4000";
+// in the system trust store) drives desktop and mobile at once.
+//
+// Resolution order:
+//   1. CYPHER_DEV_URL          — one-off CLI override (`CYPHER_DEV_URL=… npm run dev`)
+//   2. MAIN_VITE_DEV_URL       — persistent per-machine value from apps/desktop/.env
+//   3. https://localhost:4000  — default for a same-machine dev server
+// Point these at the LAN host (e.g. https://192.168.68.55:4000) when the dev
+// server runs on another device. electron-vite only exposes `MAIN_VITE_`-prefixed
+// .env vars, and only via import.meta.env (never process.env); see .env.example.
+const DEV_SERVER_URL =
+  process.env.CYPHER_DEV_URL ??
+  import.meta.env.MAIN_VITE_DEV_URL ??
+  "https://localhost:4000";
 
 // Icons are bundled inside the asar via the `files` config
 const resourcesDir = isDev
