@@ -12,7 +12,26 @@ function sendToAllWindows(channel: string, ...args: unknown[]) {
   }
 }
 
+/**
+ * Whether `electron-updater` can actually check for updates in this process.
+ *
+ * There's nothing to update against when the app isn't packaged (dev/unpacked
+ * runs), and on Linux `electron-updater` only supports the AppImage target — it
+ * keys off the `APPIMAGE` env var the AppImage runtime injects. Any other Linux
+ * build (unpacked `out/`, a distro package, `.deb`) makes `checkForUpdates()`
+ * throw "APPIMAGE env is not defined, current application is not an AppImage",
+ * which then surfaces to the renderer as a spurious update error. Skip entirely
+ * in those cases.
+ */
+function updatesSupported(): boolean {
+  if (!app.isPackaged) return false;
+  if (process.platform === "linux" && !process.env.APPIMAGE) return false;
+  return true;
+}
+
 export function registerUpdaterHandlers() {
+  const canUpdate = updatesSupported();
+
   // Let the renderer control when to download
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -60,14 +79,17 @@ export function registerUpdaterHandlers() {
   // ── IPC handlers — renderer-initiated actions ──────────────────────────
 
   ipcMain.handle("updater:check", async () => {
+    if (!canUpdate) return null;
     return autoUpdater.checkForUpdates();
   });
 
   ipcMain.handle("updater:download", async () => {
+    if (!canUpdate) return null;
     return autoUpdater.downloadUpdate();
   });
 
   ipcMain.handle("updater:install", () => {
+    if (!canUpdate) return;
     autoUpdater.quitAndInstall(false, true);
   });
 
@@ -76,6 +98,10 @@ export function registerUpdaterHandlers() {
   });
 
   // ── Automatic checks ──────────────────────────────────────────────────
+
+  // Nothing to check against on unsupported builds — don't schedule the timers
+  // (a bare checkForUpdates there just throws and spams updater:error).
+  if (!canUpdate) return;
 
   // Check shortly after launch (give the window time to load)
   setTimeout(() => {
