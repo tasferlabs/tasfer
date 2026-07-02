@@ -1,15 +1,7 @@
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
   DrawerContent,
-  DrawerFooter,
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
@@ -32,19 +24,11 @@ import {
   Trash2,
   Replace,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
-import { type CypherEditor } from "@cypherkit/editor";
-import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
-import {
-  useDeletePage,
-  useGetPage,
-  useGetPages,
-  useUpdatePage,
-} from "../api/pages.api";
-import { useActiveEditor } from "../contexts/ActiveEditorContext";
-import { TitleEditor } from "../TitleEditor";
+import { useDeletePage, useGetPages } from "../api/pages.api";
+import { RenameDialog } from "./RenameDialog";
 import { useSpaces } from "../contexts/SpaceContext";
 import {
   usePageSettings,
@@ -63,7 +47,7 @@ export function PageSettings() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   // const [showShareDialog, setShowShareDialog] = useState(false);
-  // const { id: pageId } = useParams<{ id: string }>();
+  const { id: pageId } = useParams<{ id: string }>();
 
   return (
     <>
@@ -87,6 +71,7 @@ export function PageSettings() {
         onOpenChange={setShowImportDialog}
       />
       <RenameDialog
+        pageId={pageId}
         open={showRenameDialog}
         onOpenChange={setShowRenameDialog}
       />
@@ -157,7 +142,10 @@ function PageSettingsImpl({
   const handleDelete = async () => {
     const confirmed = await getConfirmation({
       title: t("page.deletePage", "Delete Page"),
-      description: t("page.confirmDeletePage", "Are you sure you want to delete this page?"),
+      description: t(
+        "page.confirmDeletePage",
+        "Are you sure you want to delete this page?",
+      ),
       cancelText: t("common.cancel", "Cancel"),
       confirmText: t("common.delete", "Delete"),
     });
@@ -223,14 +211,24 @@ function PageSettingsImpl({
     label: string;
     className: string;
   }> = [
-    { value: "default", label: t("common.default", "Default"), className: "font-sans" },
-    { value: "serif", label: t("settings.fontSerif", "Serif"), className: "font-serif" },
+    {
+      value: "default",
+      label: t("common.default", "Default"),
+      className: "font-sans",
+    },
+    {
+      value: "serif",
+      label: t("settings.fontSerif", "Serif"),
+      className: "font-serif",
+    },
   ];
 
   const content = (
     <div className="flex-1 py-4">
       <div className="space-y-3 px-4 pb-8">
-        <label className="text-sm font-medium sr-only">{t("settings.fontStyle", "Font style")}</label>
+        <label className="text-sm font-medium sr-only">
+          {t("settings.fontStyle", "Font style")}
+        </label>
         <div className="grid grid-cols-2 gap-2">
           {fontOptions.map((option) => (
             <button
@@ -289,7 +287,9 @@ function PageSettingsImpl({
               <span className="font-medium">
                 {new Intl.NumberFormat(i18n.language).format(wordCount)}
               </span>{" "}
-              {wordCount === 1 ? t("common.word", "word") : t("common.words", "words")}
+              {wordCount === 1
+                ? t("common.word", "word")
+                : t("common.words", "words")}
             </p>
           </div>
           <Switch
@@ -404,7 +404,9 @@ function PageSettingsImpl({
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm h-full  flex flex-col">
             <DrawerHeader className="relative">
-              <DrawerTitle>{t("page.settingsTitle", "Page Settings")}</DrawerTitle>
+              <DrawerTitle>
+                {t("page.settingsTitle", "Page Settings")}
+              </DrawerTitle>
             </DrawerHeader>
             {content}
           </div>
@@ -423,95 +425,5 @@ function PageSettingsImpl({
         {content}
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-interface RenameDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
-
-function RenameDialog({ open, onOpenChange }: RenameDialogProps) {
-  const { t } = useTranslation();
-  const { id: currentPageId } = useParams<{ id: string }>();
-  const queryClient = useQueryClient();
-  const { data: currentPage } = useGetPage(currentPageId);
-  const isMobile = useResponsive("(max-width: 768px)");
-  const { editor } = useActiveEditor();
-  // The active editor's runtime object is the `CypherEditor` (it carries the
-  // live `doc`), though the context types it as the narrower `EditorApi` — hence
-  // the localized cast. `null` until the page's editor has mounted.
-  const doc = (editor as CypherEditor | null)?.doc ?? null;
-
-  const { mutate: updatePage } = useUpdatePage({
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["page", currentPageId] });
-      queryClient.invalidateQueries({ queryKey: ["pages"] });
-    },
-  });
-
-  // TitleEditor is a windowed view over the SAME shared doc the body renders, so
-  // it edits the document's heading block live through the CRDT — the rename is
-  // already committed (and synced/persisted) as the user types; there is no
-  // separate "save" step. The body editor sees these edits as remote, so its own
-  // local-save title derivation never runs. Re-derive the denormalized
-  // `page.title` record string (sidebar/chrome label) from the doc here on close
-  // so it keeps mirroring the heading.
-  const close = useCallback(() => {
-    if (doc && currentPageId) {
-      const title = extractTitleFromBlocks(doc.getRawBlocks());
-      if (title !== (currentPage?.title ?? "")) {
-        updatePage({ id: currentPageId, title });
-      }
-    }
-    onOpenChange(false);
-  }, [doc, currentPageId, currentPage?.title, updatePage, onOpenChange]);
-
-  // Route every dismissal (button, Escape, backdrop, swipe) through `close` so
-  // the derived title is always persisted.
-  const handleOpenChange = (next: boolean) =>
-    next ? onOpenChange(true) : close();
-
-  const content = doc ? (
-    <TitleEditor
-      doc={doc}
-      editable
-      autoFocus
-      onSubmit={close}
-      onCancel={close}
-      placeholder={t("page.pageTitle", "Page title")}
-    />
-  ) : null;
-
-  if (isMobile) {
-    return (
-      <Drawer open={open} onOpenChange={handleOpenChange}>
-        <DrawerContent>
-          <div className="mx-auto w-full max-w-sm pb-6">
-            <DrawerHeader>
-              <DrawerTitle>{t("page.renamePage", "Rename page")}</DrawerTitle>
-            </DrawerHeader>
-            <div className="px-4">{content}</div>
-            <DrawerFooter className="pt-4">
-              <Button onClick={close}>{t("common.done", "Done")}</Button>
-            </DrawerFooter>
-          </div>
-        </DrawerContent>
-      </Drawer>
-    );
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t("page.renamePage", "Rename page")}</DialogTitle>
-        </DialogHeader>
-        {content}
-        <DialogFooter>
-          <Button onClick={close}>{t("common.done", "Done")}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

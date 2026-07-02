@@ -17,6 +17,7 @@ import type {
 } from "../state-types";
 import type { MarkSet, TextDelete, TextInsert } from "../state-types";
 import { findBlock } from "./block-lookup";
+import { sortBlocksByOrder } from "./block-order";
 import { isTextualBlock } from "./block-registry";
 import {
   findCharInRuns,
@@ -29,7 +30,6 @@ import {
 import { generateKeyBetween } from "./fractional-index";
 import { extractCounter, extractPeerId } from "./id";
 import { applyOp } from "./reducer";
-import { sortBlocksByOrder } from "./block-order";
 import { invariant } from "@shared/invariant";
 
 /**

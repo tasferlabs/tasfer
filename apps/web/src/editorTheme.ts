@@ -44,8 +44,17 @@ const TOUCH_IMAGE_HANDLE_BOTTOM_LENGTH = 64;
 /** Slightly translucent so the grips rest lightly over photo content. */
 const TOUCH_IMAGE_HANDLE_OPACITY = 0.85;
 
-// token key → CSS custom property it reads from.
-const TOKEN_VARS: Partial<Record<keyof ThemeTokens, string>> = {
+/**
+ * token key → CSS custom property it reads from.
+ *
+ * Typed as a TOTAL record over {@link ThemeTokens} (not `Partial`): adding a
+ * token to the engine forces a decision here — map it to a `--editor-*` variable
+ * or explicitly opt out with `null` (keep the engine's neutral default). This
+ * prevents a new semantic color from silently keeping a light-mode default in
+ * dark mode, which is exactly what the code-syntax colors did before they were
+ * mapped below.
+ */
+const TOKEN_VARS: Record<keyof ThemeTokens, string | null> = {
   text: "--editor-text",
   heading: "--editor-heading",
   placeholder: "--editor-placeholder",
@@ -71,6 +80,19 @@ const TOKEN_VARS: Partial<Record<keyof ThemeTokens, string>> = {
   scrollbarThumb: "--editor-scrollbar-thumb",
   scrollbarThumbHover: "--editor-scrollbar-thumb-hover",
   scrollbarThumbActive: "--editor-scrollbar-thumb-active",
+  // Code-block syntax highlighting — previously unmapped, so these silently kept
+  // the engine's light-mode defaults regardless of `.dark`. Now theme-driven.
+  codeKeyword: "--editor-code-keyword",
+  codeString: "--editor-code-string",
+  codeComment: "--editor-code-comment",
+  codeNumber: "--editor-code-number",
+  codeFunction: "--editor-code-function",
+  mathErrorBackground: "--editor-math-error-bg",
+  // Unrenderable-block fallback box: the engine's neutral translucent gray reads
+  // correctly on both surfaces, so keep it (deliberately no CSS variable).
+  unknownBlockBackground: null,
+  unknownBlockBorder: null,
+  unknownBlockText: null,
 };
 
 /**
@@ -84,7 +106,9 @@ export function readEditorTokens(): Partial<ThemeTokens> {
   const cs = getComputedStyle(document.documentElement);
   const tokens: Partial<Record<keyof ThemeTokens, string>> = {};
   for (const key of Object.keys(TOKEN_VARS) as (keyof ThemeTokens)[]) {
-    const value = cs.getPropertyValue(TOKEN_VARS[key]!).trim();
+    const cssVar = TOKEN_VARS[key];
+    if (!cssVar) continue; // token intentionally left to the engine default
+    const value = cs.getPropertyValue(cssVar).trim();
     if (value) tokens[key] = value;
   }
   return tokens;

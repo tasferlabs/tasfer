@@ -90,3 +90,29 @@ createEditor({
   },
 });
 ```
+
+<h2 id="caret-selection">Caret, selection & placeholder</h2>
+
+The caret, the selection highlight, remote collaborators' carets, and empty-block placeholders are all leaves of `styles` — tune them per instance without touching the DOM.
+
+<PropsTable cols={["Path", "Default", "Description"]} rows={[
+  { name: "styles.cursor.width / blinkInterval", type: "2 / 530", desc: "Local caret bar width (px) and blink period (ms). landingDuration (190ms) animates the caret 'landing' morph — set 0 to disable it." },
+  { name: "styles.selection.cornerRadius", type: "0", desc: "Corner radius (px) of the selection-highlight rects. 0 keeps sharp rectangles; each line rect rounds independently. opacity (0.2) is the fill translucency." },
+  { name: "styles.selection.remoteOpacity", type: "0.2", desc: "Fill opacity for a remote peer's selection when its decoration sets none. Applied consistently by text and image / divider (atomic) block selections." },
+  { name: "styles.remoteCursor.caretWidth", type: "2", desc: "Width (px) of a peer's caret bar, independent of the local cursor. labelGap (2px) is the gap above the caret to the name flag." },
+  { name: "styles.placeholder.showUnfocused", type: "false", desc: "When true, every empty block shows its placeholder — not only the block holding the caret." },
+]} />
+
+Placeholder appearance is per block type: each block's resolved text style carries an optional `placeholder` override — `color` (defaults to `styles.placeholder.color`), `fontScale` (a multiple of the block's own font size), and `fontWeight`.
+
+```ts
+editor.setTheme({
+  styles: {
+    selection: { cornerRadius: 4 },
+    blocks: {
+      heading1: { placeholder: { color: "#b9b9c2" } },
+      quote: { placeholder: { fontScale: 0.8 } }, // a smaller ghost hint
+    },
+  },
+});
+```

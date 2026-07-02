@@ -136,6 +136,11 @@ import {
   type MobileToolbarMathContext,
   type NativeMobileToolbarModel,
 } from "./mobileToolbar";
+import {
+  isFormattingToolbarSuppressed,
+  onFormattingToolbarSuppressionChange,
+  postKeyboardAccessoryFocus,
+} from "./mobileToolbarSuppression";
 import { EditorLoadingState } from "./pages/EditorPage";
 // The whole page mounts on the shared EditorCore (theme, strings, fonts, and
 // live dark-mode/font re-theming) — the same core a TitleEditor uses, so both
@@ -938,17 +943,38 @@ interface MountedEditorProps {
 
 // Find-in-document highlight colors (host-owned now that the engine paints
 // generic decorations rather than knowing about "search"). Active match is
-// emphasized; both opt into a scrollbar gutter marker.
-const SEARCH_HIGHLIGHT_COLOR = "#facc15";
-const SEARCH_HIGHLIGHT_ACTIVE_COLOR = "#f97316";
+// emphasized; both opt into a scrollbar gutter marker. Colors come from CSS
+// variables so they track the theme / dark mode and a rebrand can retint them;
+// the historical yellow/orange is the fallback when the vars are absent.
+const SEARCH_HIGHLIGHT_FALLBACK = "#facc15";
+const SEARCH_HIGHLIGHT_ACTIVE_FALLBACK = "#f97316";
 const SEARCH_HIGHLIGHT_OPACITY = 0.35;
 const SEARCH_HIGHLIGHT_ACTIVE_OPACITY = 0.5;
+
+/** Read a CSS custom property off the document root, or a fallback (SSR/tests). */
+function readRootCssVar(name: string, fallback: string): string {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return fallback;
+  }
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  return value || fallback;
+}
 
 /** Build the find-decoration list for a set of matches and the active index. */
 function searchDecorations(
   matches: { blockId: string; startIndex: number; endIndex: number }[],
   activeIndex: number,
 ): Decoration[] {
+  const baseColor = readRootCssVar(
+    "--editor-search-highlight",
+    SEARCH_HIGHLIGHT_FALLBACK,
+  );
+  const activeColor = readRootCssVar(
+    "--editor-search-highlight-active",
+    SEARCH_HIGHLIGHT_ACTIVE_FALLBACK,
+  );
   return matches.map((m, i) => {
     const isActive = i === activeIndex;
     return {
@@ -957,7 +983,7 @@ function searchDecorations(
         from: { block: m.blockId, offset: m.startIndex },
         to: { block: m.blockId, offset: m.endIndex },
       },
-      color: isActive ? SEARCH_HIGHLIGHT_ACTIVE_COLOR : SEARCH_HIGHLIGHT_COLOR,
+      color: isActive ? activeColor : baseColor,
       opacity: isActive
         ? SEARCH_HIGHLIGHT_ACTIVE_OPACITY
         : SEARCH_HIGHLIGHT_OPACITY,
@@ -1027,22 +1053,9 @@ function postKeyboardToolbar(model: NativeMobileToolbarModel): void {
   ).webkit?.messageHandlers?.KeyboardToolbar?.postMessage(model);
 }
 
-/** Tell the native shell whether the canvas editor's input surface is focused.
- * iOS attaches the `inputAccessoryView` to the whole WKWebView, so without this
- * gate every DOM field (find bar, dialogs, settings) would also show the
- * formatting toolbar. The native shell shows the accessory only while this is
- * true. No-op off iOS / when the handler isn't registered. */
-function postKeyboardAccessoryFocus(focused: boolean): void {
-  (
-    window as {
-      webkit?: {
-        messageHandlers?: {
-          KeyboardToolbarFocus?: { postMessage(m: unknown): void };
-        };
-      };
-    }
-  ).webkit?.messageHandlers?.KeyboardToolbarFocus?.postMessage(focused);
-}
+// The accessory enable flag (`postKeyboardAccessoryFocus`) lives in
+// `mobileToolbarSuppression.ts`, shared with compact surfaces (TitleEditor)
+// that disable the accessory while they hold focus.
 
 /**
  * Public mount component. Keys the collaborative wrapper per page (or read-only
@@ -1200,14 +1213,34 @@ function PageEditor({
     linkActive: false,
   });
 
-  // Android edge-to-edge WebViews retain their full viewport when the IME opens.
-  // MainActivity reports the IME inset so fixed UI can stay above it. On iOS the
-  // native WebView resize keeps this at zero.
+  // The soft-keyboard inset (CSS px) the editor's viewport height is reduced by,
+  // so the canvas — caret, bottom peer chrome — stays above the keyboard. Both
+  // mobile WebViews now keep their FULL height when the keyboard opens (Android is
+  // edge-to-edge; iOS runs Capacitor Keyboard `resize: "none"`), so the inset is
+  // reported per platform: Android posts it from MainActivity; iOS derives it from
+  // visualViewport (effect below). Zero on desktop and whenever the keyboard is
+  // closed.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   // Whether the soft keyboard is currently open; drives the mobile toolbar's
   // visibility. Owned per platform by the effects below.
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  // Another surface (e.g. a focused TitleEditor — a plain input-like field with
+  // no block formatting) can claim the keyboard and suppress this editor's
+  // formatting toolbar; the keyboard-open signals above are keyboard-scoped,
+  // not surface-scoped, so without this the body's bar rides a keyboard that
+  // another editor raised (rename dialog, calendar draft sheet).
+  const [toolbarSuppressed, setToolbarSuppressed] = useState(
+    isFormattingToolbarSuppressed,
+  );
+  useEffect(
+    () =>
+      onFormattingToolbarSuppressionChange(() =>
+        setToolbarSuppressed(isFormattingToolbarSuppressed()),
+      ),
+    [],
+  );
 
   // Whether the soft keyboard is currently open. This — not editor focus — drives
   // the mobile toolbar so it rides the keyboard (Notion-style): it appears when
@@ -1270,6 +1303,33 @@ function PageEditor({
     vv.addEventListener("scroll", sync);
     return () => {
       syncWebKeyboardRef.current = null;
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+    };
+  }, []);
+
+  // iOS native: under Capacitor Keyboard `resize: "none"` (see capacitor.config)
+  // the WKWebView keeps its full height when the keyboard opens instead of the
+  // frame shrinking — so the keyboard inset, which the editor's viewport formula
+  // needs to lift the canvas above the keyboard, must come from visualViewport
+  // (same source mobile web uses). Deliberately NOT resize:"native": that shrank
+  // the whole document on every keyboard toggle, reflowing the app layout and
+  // repainting every viewport-sized canvas. keyboardOpen stays focus-driven for
+  // iOS (above/below) — it also gates the native input accessory. Android posts
+  // its own inset; plain web keeps this at 0 (fixed chrome follows the layout
+  // viewport there).
+  useEffect(() => {
+    if (!IS_IOS_NATIVE) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const sync = () => {
+      const inset = window.innerHeight - vv.height - vv.offsetTop;
+      setKeyboardHeight(inset > 0 ? inset : 0);
+    };
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    return () => {
       vv.removeEventListener("resize", sync);
       vv.removeEventListener("scroll", sync);
     };
@@ -1636,13 +1696,22 @@ function PageEditor({
           // whenever an image block is the selection. iOS ignores `visible` —
           // UIKit attaches the accessory only with the keyboard.
           visible:
-            !readonly && (keyboardOpen || mobileToolbar.blockType === "image"),
+            !readonly &&
+            !toolbarSuppressed &&
+            (keyboardOpen || mobileToolbar.blockType === "image"),
           bottomInset: keyboardHeight,
           ...mobileToolbar,
         },
         (key, fallback) => t(key, fallback ?? key),
       ),
-    [keyboardHeight, keyboardOpen, mobileToolbar, readonly, t],
+    [
+      keyboardHeight,
+      keyboardOpen,
+      mobileToolbar,
+      readonly,
+      t,
+      toolbarSuppressed,
+    ],
   );
   useEffect(() => {
     if (!IS_IOS_NATIVE) return;

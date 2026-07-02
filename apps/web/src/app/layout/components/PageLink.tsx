@@ -11,6 +11,7 @@ import {
   useGetPages,
 } from "../../api/pages.api";
 import { useConfirmation } from "../../components/ConfirmationDialog";
+import { RenameDialog } from "../../components/RenameDialog";
 import Icons from "../../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../../components/uiKit/VisuallyHidden/VisuallyHidden";
 import {
@@ -63,22 +64,6 @@ export function setRecentDragEnd() {
   }, 100);
 }
 
-// Mock hooks
-const useOutsideClick = ({ element, action, condition }: any) => {
-  useEffect(() => {
-    if (!condition) return;
-
-    const handleClick = (e: MouseEvent) => {
-      if (element.current && !element.current.contains(e.target)) {
-        action(e);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [condition, element, action]);
-};
-
 export function PageLink({
   data,
   spaceId,
@@ -97,9 +82,8 @@ export function PageLink({
   const { getConfirmation } = useConfirmation();
   const navigate = useNavigate();
   const { id: currentPageId } = useParams<{ id: string }>();
-  const inputRef = useRef<HTMLInputElement>(null);
   const wasDraggingRef = useRef(false);
-  const [editingPageId, setEditingPageId] = useState<string | null>(null);
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(
     null,
@@ -114,7 +98,6 @@ export function PageLink({
     },
     [treeExpand, data.id, isExpanded],
   );
-  const [localTitle, setLocalTitle] = useState(data.title);
 
   // Get root pages to determine navigation after deletion
   const { data: rootPages } = useGetPages(spaceId ?? null, null);
@@ -267,45 +250,6 @@ export function PageLink({
     }
   }, [isDragging]);
 
-  useOutsideClick({
-    element: inputRef,
-    action: (ev: Event) => {
-      ev.stopImmediatePropagation();
-      handleStopEditing();
-    },
-    condition: editingPageId === data.id,
-  });
-
-  function handleOnChange(title: string): void {
-    setLocalTitle(title);
-  }
-
-  function handleStopEditing(): void {
-    if (localTitle !== data.title) {
-      // Optimistically update the cache BEFORE exiting edit mode
-      queryClient.setQueryData<IListPage[]>(
-        ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
-        (old) => {
-          return old?.map((page) => {
-            if (page.id === data.id) {
-              return { ...page, title: localTitle };
-            }
-            return page;
-          });
-        },
-      );
-      // The title always mirrors the heading; a sidebar rename is a soft edit of
-      // the record string and is re-derived from content the next time the page
-      // is opened and edited.
-      updatePage({ id: data.id, title: localTitle });
-    }
-    setEditingPageId(null);
-  }
-
-  function handleStartEditing() {
-    setEditingPageId(data.id);
-  }
-
   async function handleDelete() {
     const confirmed = await getConfirmation({
       title: t("page.deletePage", "Delete Page"),
@@ -358,23 +302,6 @@ export function PageLink({
   }
 
   const resolvedColor = data.color ?? color ?? null;
-  const isEditing = editingPageId === data.id;
-
-  useEffect(() => {
-    function handleWindowFocus() {
-      if (isEditing) {
-        handleStopEditing();
-      }
-    }
-    window.addEventListener("focusout", handleWindowFocus);
-    return () => {
-      window.removeEventListener("focusout", handleWindowFocus);
-    };
-  }, [isEditing]);
-
-  useEffect(() => {
-    setLocalTitle(data.title);
-  }, [data.title]);
 
   return (
     <div className={style.pageWrapper}>
@@ -452,41 +379,26 @@ export function PageLink({
             }}
           />
           <div className={style.linkTitle}>
-            {isEditing ? (
-              <input
-                value={localTitle}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleStopEditing();
-                  if (e.key === "Escape") handleStopEditing();
-                }}
-                onChange={(e) => handleOnChange(e.target.value)}
-                onBlur={() => handleStopEditing()}
-                placeholder={t("common.untitled", "Untitled")}
-                ref={inputRef}
-              />
-            ) : (
-              <span
-                role="link"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    setIsExpanded(true);
-                    navigate(`/page/${data.id}`);
-                  }
-                }}
-                onClick={() => {
-                  if (wasDraggingRef.current || recentDragEnd) {
-                    wasDraggingRef.current = false;
-                    return;
-                  }
+            <span
+              role="link"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
                   setIsExpanded(true);
                   navigate(`/page/${data.id}`);
-                }}
-              >
-                {data.title || t("common.untitled", "Untitled")}
-              </span>
-            )}
+                }
+              }}
+              onClick={() => {
+                if (wasDraggingRef.current || recentDragEnd) {
+                  wasDraggingRef.current = false;
+                  return;
+                }
+                setIsExpanded(true);
+                navigate(`/page/${data.id}`);
+              }}
+            >
+              {data.title || t("common.untitled", "Untitled")}
+            </span>
           </div>
           <PageLinkMenu
             open={menuOpen}
@@ -494,7 +406,7 @@ export function PageLink({
             isCoarse={isCoarse}
             color={data.color}
             onColorChange={handleColorChange}
-            onRename={handleStartEditing}
+            onRename={() => setShowRenameDialog(true)}
             onDelete={handleDelete}
             isDeleting={isDeleting}
             onAdd={handleAdd}
@@ -536,7 +448,7 @@ export function PageLink({
                 <PageLinkMenuContent
                   onClose={() => setContextPos(null)}
                   onColorChange={handleColorChange}
-                  onRename={handleStartEditing}
+                  onRename={() => setShowRenameDialog(true)}
                   onDelete={handleDelete}
                   isDeleting={isDeleting}
                   onAdd={handleAdd}
@@ -572,6 +484,13 @@ export function PageLink({
           />
         </div>
       ) : null}
+
+      <RenameDialog
+        pageId={data.id}
+        spaceId={spaceId}
+        open={showRenameDialog}
+        onOpenChange={setShowRenameDialog}
+      />
     </div>
   );
 }

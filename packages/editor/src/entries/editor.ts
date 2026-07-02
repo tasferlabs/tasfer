@@ -928,6 +928,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private visibility: VisibleBlockRange = { start: 0, end: 0, startY: 0 };
   private isRendering = false;
 
+  // Auto-height mode: the canvas grows to fit its content instead of filling a
+  // scroll region, so the scrollbar is suppressed and the host is told the
+  // content height (via `onContentHeightChange`) so it can size the container.
+  // Used for compact surfaces like a title field. `lastNotifiedContentHeight`
+  // debounces the callback so the host only hears about real height changes.
+  private readonly autoHeight: boolean;
+  private readonly onContentHeightChange?: (height: number) => void;
+  private lastNotifiedContentHeight = -1;
+
   // Broadcast function for sending operations to peers
   private broadcastFn: ((ops: Operation[]) => void) | null = null;
 
@@ -1071,6 +1080,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       a11yContainer?: HTMLElement;
       /** Input-surface strategy; defaults per-platform (see `inputStrategy`). */
       inputStrategy?: "managed" | "faithful";
+      /**
+       * Grow the canvas to fit its content instead of filling a fixed viewport.
+       * Suppresses the scrollbar and reports the content height through
+       * `onContentHeightChange` so the host can resize the container.
+       */
+      autoHeight?: boolean;
+      /**
+       * Called (in auto-height mode) whenever the rendered content height
+       * changes, so the host can resize the canvas/container to match.
+       */
+      onContentHeightChange?: (height: number) => void;
     },
   ) {
     // Extract contexts from layers
@@ -1080,6 +1100,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.hiddenInput = hiddenInput;
     this.inputStrategy =
       config?.inputStrategy ?? (isIOS() ? "faithful" : "managed");
+    this.autoHeight = config?.autoHeight ?? false;
+    this.onContentHeightChange = config?.onContentHeightChange;
 
     this.schemaActions = config?.actions ?? {};
     this.schemaShortcuts = config?.shortcuts ?? {};
@@ -1664,12 +1686,29 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             undefined,
             this.requestRedraw,
             this.blockHeights,
+            this.autoHeight,
           );
           this.cachedDocumentHeight = this.documentHeight;
           this.viewport = {
             ...this.viewport,
             documentHeight: this.documentHeight,
           };
+
+          // Auto-height: the editor owns its viewport height, growing it to the
+          // content. It then tells the host to resize the DOM canvas/container
+          // to match (the host callback touches the DOM only, never this editor,
+          // so it's safe even during the synchronous first paint in the
+          // constructor). This frame already painted at the old height, so
+          // schedule a repaint at the new one.
+          if (
+            this.autoHeight &&
+            this.documentHeight !== this.lastNotifiedContentHeight
+          ) {
+            this.lastNotifiedContentHeight = this.documentHeight;
+            this.viewport = { ...this.viewport, height: this.documentHeight };
+            this.onContentHeightChange?.(this.documentHeight);
+            this.scheduleRender();
+          }
 
           const anchor = this.pendingViewportAnchor;
           if (anchor) {
@@ -1919,6 +1958,37 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     this._state = updateFocus(this._state, focused);
 
+    // A focused editable editor must always hold a caret (or a selection):
+    // focus can be granted outside the pointer-resolution paths — the canvas
+    // click fallback after a touch that didn't qualify as a tap, a host calling
+    // `focus()` bare, Tab onto the input surface — and without a caret the
+    // editor looks focused (ring, keyboard) but every keystroke is a no-op.
+    // Seed the document start, clamped into the view window (a windowed title
+    // editor must never hold a caret outside its window); a tap/click that
+    // resolves a position places its own caret over this in the same frame
+    // (pointer events are processed from the queue after this synchronous focus
+    // handler). An existing selection is left alone — focus returning from a
+    // menu/popover must not collapse it.
+    if (
+      focused &&
+      !this._state.ui.isReadonlyBase &&
+      this._state.document.selection === null &&
+      this._state.document.cursor === null
+    ) {
+      const resolved = resolvePoint(this._state, "start");
+      if (resolved) {
+        this._state = this.clampToWindow(
+          updateMode(
+            updateCursor(this._state, {
+              blockIndex: resolved.blockIndex,
+              textIndex: resolved.offset,
+            }),
+            "edit",
+          ),
+        );
+      }
+    }
+
     this.scheduleRender();
     const currentState = this._state;
     this.listeners.forEach((listener) => listener(currentState));
@@ -2065,6 +2135,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       !hasContextMenu &&
       !this._state.ui.isReadonlyBase
     ) {
+      // The gesture is fully handled here (caret placed by the touch pipeline,
+      // focus granted below), so suppress the browser's compatibility mouse
+      // events (mousedown/mouseup/click). They are hit-tested at the finger's
+      // screen coordinates AFTER this handler runs — and focusing the editor can
+      // move the layout under that point (a bottom sheet auto-raising for the
+      // keyboard, the keyboard itself resizing the viewport). The synthesized
+      // mousedown then lands on whatever slid under the finger, its default
+      // action moves focus to <body>, and the canvas `click` fallback that would
+      // re-focus never fires because the click no longer targets the canvas —
+      // the first tap appears to do nothing. Nothing on the touch path needs
+      // those events: `canvasClickHandler` only duplicates the `focus()` below.
+      if (e.cancelable) e.preventDefault();
       this.focus();
     }
   };

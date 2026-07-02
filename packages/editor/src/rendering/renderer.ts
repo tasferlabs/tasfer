@@ -182,6 +182,9 @@ export function renderPage(
   styles: EditorStyles = getEditorStyles(state),
   requestRedraw: () => void,
   heightIndex?: BlockHeightIndex,
+  // Auto-height surfaces grow the canvas to fit their content, so there is never
+  // a scroll region — skip the scrollbar (and its minimap markers) entirely.
+  autoHeight = false,
 ) {
   // Save context state
   ctx.save();
@@ -282,8 +285,17 @@ export function renderPage(
   // flow as the highlight and caret rather than an exact walk from block 0.
   renderSelectionHandles(ctx, state, viewport, styles, heightIndex);
 
-  // Render scrollbar
-  renderScrollbar(ctx, viewport, documentHeight, state, undefined, heightIndex);
+  // Render scrollbar (skipped for auto-height surfaces, which never scroll)
+  if (!autoHeight) {
+    renderScrollbar(
+      ctx,
+      viewport,
+      documentHeight,
+      state,
+      undefined,
+      heightIndex,
+    );
+  }
 
   // Block reorder chrome: gutter grip on the hovered block + insertion line
   // while a reorder drag is active. Painted last so it sits above content.
@@ -684,12 +696,14 @@ function renderOutOfViewIndicators(
     fontSize,
     chevronSize,
     gap,
+    edgeMargin,
+    initialFontWeight,
   } = styles.remoteCursor.outOfViewIndicator;
 
   // Clear previous hit areas (mutate in place — callers hold this same array)
   hitAreas.length = 0;
 
-  ctx.font = `600 ${fontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
+  ctx.font = `${initialFontWeight} ${fontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
 
   // The indicators live in the left margin, just outside the reading column, so
   // they never sit on top of the text. `paddingLeft` is the content's left edge
@@ -697,9 +711,6 @@ function renderOutOfViewIndicators(
   // it and let each extra peer step further into the gutter. The safe-area inset
   // is the hard left limit (mobile notch / very tight gutters).
   const contentLeft = Math.max(insetInlineStart, styles.canvas.paddingLeft);
-  // A small breathing gap from the very edge so the chevron isn't flush against
-  // the canvas border.
-  const edgeMargin = 4;
 
   // Render indicators for peers above viewport
   let aboveX = contentLeft;
@@ -892,12 +903,13 @@ function renderCaretDecorations(
       continue;
     }
 
-    // Draw the caret in the decoration's color.
+    // Draw the caret in the decoration's color. Peer carets use their own
+    // themed width, independent of the local caret.
     ctx.fillStyle = caretColor;
     ctx.fillRect(
       cursorPos.x,
       cursorPos.y,
-      styles.cursor.width,
+      styles.remoteCursor.caretWidth,
       cursorPos.height,
     );
 
@@ -928,7 +940,7 @@ function renderCaretDecorations(
 
       // In RTL, label extends to the left of cursor; in LTR, to the right
       let labelX = isCursorRTL ? cursorPos.x - labelWidth : cursorPos.x;
-      let labelY = cursorPos.y - labelHeight - 2;
+      let labelY = cursorPos.y - labelHeight - styles.remoteCursor.labelGap;
 
       // Prevent going off the right edge
       if (labelX + labelWidth > viewport.width) {

@@ -125,7 +125,7 @@ export abstract class AtomicNode<B extends Block = Block> extends Node<B> {
   // -- shared selection-overlay machinery (was duplicated per visual block) --
 
   private paintRangeDecorations(box: BlockBounds, c: NodePaintCtx): void {
-    const { state, ctx, blockIndex } = c;
+    const { state, ctx, styles, blockIndex } = c;
 
     for (const deco of allDecorations(state.ui.decorations)) {
       if (deco.kind !== "range") continue;
@@ -138,8 +138,11 @@ export abstract class AtomicNode<B extends Block = Block> extends Node<B> {
       if (this.coversBlock(selection, blockIndex)) {
         ctx.save();
         ctx.fillStyle = deco.color;
-        ctx.globalAlpha = deco.opacity ?? 0.2;
-        ctx.fillRect(box.x, box.y, box.width, box.height);
+        // Match TextNode: fall back to the themed remote-selection opacity when
+        // the decoration sets none, so overriding `selection.remoteOpacity`
+        // affects atomic blocks (image/divider/math) too.
+        ctx.globalAlpha = deco.opacity ?? styles.selection.remoteOpacity;
+        this.fillSelectionRect(ctx, box, styles.selection.cornerRadius);
         ctx.restore();
       }
     }
@@ -154,8 +157,24 @@ export abstract class AtomicNode<B extends Block = Block> extends Node<B> {
     ctx.save();
     ctx.fillStyle = styles.selection.backgroundColor;
     ctx.globalAlpha = styles.selection.opacity;
-    ctx.fillRect(box.x, box.y, box.width, box.height);
+    this.fillSelectionRect(ctx, box, styles.selection.cornerRadius);
     ctx.restore();
+  }
+
+  /** Fill a selection box, honoring the themed `selection.cornerRadius`
+   *  (sharp `fillRect` when 0). Caller sets `fillStyle`/`globalAlpha`. */
+  private fillSelectionRect(
+    ctx: CanvasRenderingContext2D,
+    box: BlockBounds,
+    cornerRadius: number,
+  ): void {
+    if (cornerRadius > 0) {
+      ctx.beginPath();
+      ctx.roundRect(box.x, box.y, box.width, box.height, cornerRadius);
+      ctx.fill();
+    } else {
+      ctx.fillRect(box.x, box.y, box.width, box.height);
+    }
   }
 
   /** Does this multi/visual-block selection include `blockIndex`? */

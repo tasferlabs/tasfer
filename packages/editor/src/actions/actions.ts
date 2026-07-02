@@ -1,5 +1,6 @@
 import { TEXT_INPUTTED } from "../action-bus";
 import { isCJKCharacter } from "../cjk";
+import { resolveMarkRuns } from "../inline-math-spans";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isBlockRTL } from "../rtl";
 import {
@@ -2375,17 +2376,37 @@ export function selectWordAtPosition(
 
   if (text.length === 0) return state;
 
-  // Check if we're on a word character (see isWordChar)
-  const isOnWord = textIndex < text.length && isWordChar(text[textIndex]);
+  // Replacement marks (e.g. an inline-math chip) are atomic to the reader — they
+  // render as a formula, not the raw LaTeX behind them — so a double-click that
+  // lands inside one selects the WHOLE chip rather than running word logic over
+  // its source (which would grab a single LaTeX sub-token, or nothing when the
+  // click lands on a non-word char like `^`). Keyed on the generic `replacement`
+  // facet, so this stays mark-agnostic. Strictly-interior only: a click at a
+  // chip boundary falls through to select the adjacent text word.
+  const chipRun = resolveMarkRuns(block).find(
+    (run) =>
+      state.marks.get(run.name)?.replacement &&
+      textIndex > run.startIndex &&
+      textIndex < run.endIndex,
+  );
+  let wordStart: number;
+  let wordEnd: number;
+  if (chipRun) {
+    wordStart = chipRun.startIndex;
+    wordEnd = chipRun.endIndex;
+  } else {
+    // Check if we're on a word character (see isWordChar)
+    const isOnWord = textIndex < text.length && isWordChar(text[textIndex]);
 
-  if (!isOnWord) {
-    // If not on a word, don't select anything
-    return state;
+    if (!isOnWord) {
+      // If not on a word, don't select anything
+      return state;
+    }
+
+    // Find word boundaries
+    wordStart = findWordStart(text, textIndex);
+    wordEnd = findWordEnd(text, textIndex);
   }
-
-  // Find word boundaries
-  const wordStart = findWordStart(text, textIndex);
-  const wordEnd = findWordEnd(text, textIndex);
 
   // If we're not in a word, don't select anything
   if (wordStart === wordEnd) return state;

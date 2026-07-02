@@ -331,6 +331,10 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         paddingX: 16,
         paddingY: 18,
         joinedPaddingY: 7,
+        // The quote's editorial 18px body is too large for its long ghost hint
+        // on narrow screens, so the placeholder renders at 0.8× (was baked into
+        // QuoteNode; now a theme leaf).
+        placeholder: { fontScale: 0.8 },
       },
       line: {
         height: 32, // Total block height
@@ -381,6 +385,9 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         placeholder: {
           backgroundColor: t.muted,
           textColor: t.mutedForeground,
+          // Absolute ghost-text size/weight (was baked into MathNode).
+          fontSize: 14,
+          fontWeight: "400",
         },
       },
     },
@@ -394,10 +401,14 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       handleStemHeight: 3,
     },
     remoteCursor: {
+      // Same 2px as the local caret by default; overridable to make peer carets
+      // thicker/thinner independently.
+      caretWidth: 2,
       labelTextColor: t.remoteCursorLabelText,
       labelFontSize: 10,
       labelPadding: 2,
       labelBorderRadius: 2,
+      labelGap: 2,
       labelIconSize: 12,
       labelIconGap: 3,
       // Defaults reproduce the historical pill geometry; the inset* fields are 0
@@ -412,6 +423,8 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         fontSize: 12,
         chevronSize: 6,
         gap: 8,
+        edgeMargin: 4,
+        initialFontWeight: "600",
       },
     },
     selection: {
@@ -421,6 +434,7 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       unfocusedBackgroundColor: t.selectionUnfocused,
       opacity: 0.2,
       remoteOpacity: 0.2,
+      cornerRadius: 0,
       handles: {
         size: 12, // Diameter of the handle circle
         color: t.selection,
@@ -441,6 +455,7 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       todoItem: { text: strings.placeholderTodoItem },
       math: { text: strings.placeholderMath },
       color: t.placeholder,
+      showUnfocused: false,
     },
     textFormats: {
       code: {

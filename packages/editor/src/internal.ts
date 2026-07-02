@@ -95,7 +95,9 @@ export { clearFailedImageCache, imageCache } from "./rendering/renderer";
 export { MATH_COMMANDS } from "./nodes/math-commands";
 
 // Font internals not part of the curated font surface (`notifyFonts*` are root).
-export { currentFontFamily, onFontsReady } from "./fonts";
+// `getFontMetrics` lets a host lay out chrome around the same line boxes the
+// engine renders (e.g. vertically centering a compact single-line editor).
+export { currentFontFamily, getFontMetrics, onFontsReady } from "./fonts";
 
 // Resolve the active theme into concrete render styles — for a host drawing its
 // own canvas chrome that must match the editor (e.g. reading `styles.cursor.color`

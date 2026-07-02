@@ -29,6 +29,7 @@ import {
   CalendarDays,
   ChevronDown,
   Clock,
+  Copy,
   FolderOpen,
   GripHorizontal,
   Info,
@@ -108,10 +109,7 @@ function computePosition(
     left = isRtl ? anchor.right + GAP : anchor.left - GAP - clampedW;
   }
   // Pick the larger side and shrink to fit if MIN_WIDTH fits
-  else if (
-    spaceInlineEnd >= MIN_WIDTH ||
-    spaceInlineStart >= MIN_WIDTH
-  ) {
+  else if (spaceInlineEnd >= MIN_WIDTH || spaceInlineStart >= MIN_WIDTH) {
     if (spaceInlineEnd >= spaceInlineStart) {
       clampedW = Math.max(MIN_WIDTH, spaceInlineEnd);
       left = isRtl ? anchor.left - GAP - clampedW : anchor.right + GAP;
@@ -123,9 +121,7 @@ function computePosition(
   // Neither side fits MIN_WIDTH — position above or below the anchor instead
   else {
     clampedW = Math.min(width, window.innerWidth - 2 * GAP);
-    left = isRtl
-      ? window.innerWidth - GAP - clampedW
-      : GAP;
+    left = isRtl ? window.innerWidth - GAP - clampedW : GAP;
 
     const spaceBelow = window.innerHeight - anchor.bottom - GAP;
     const spaceAbove = anchor.top - GAP;
@@ -158,6 +154,7 @@ export function EventPreview({
   onClose,
   sidebarMode,
   onSidebarModeChange,
+  onDuplicate,
   draft,
   onDraftSave,
   onDraftScheduleChange,
@@ -168,6 +165,8 @@ export function EventPreview({
   onClose: () => void;
   sidebarMode: boolean;
   onSidebarModeChange: (mode: boolean) => void;
+  // Duplicate the currently-previewed event into a new page and select it.
+  onDuplicate?: (pageId: string) => void;
   draft?: DraftEvent | null;
   onDraftSave?: (
     blocks?: Block[],
@@ -369,9 +368,11 @@ export function EventPreview({
             snapZoneActiveRef.current = nearSidebar;
             setShowSnapZone(nearSidebar);
             if (nearSidebar) {
-              setSnapZoneWidth(isRtl
-                ? window.innerWidth - sidebarRect.left
-                : sidebarRect.right);
+              setSnapZoneWidth(
+                isRtl
+                  ? window.innerWidth - sidebarRect.left
+                  : sidebarRect.right,
+              );
             }
           } else {
             snapZoneActiveRef.current = false;
@@ -509,7 +510,11 @@ export function EventPreview({
   }, [pageId]);
 
   useEffect(() => {
-    if (previewPage?.blocks && snapshotPageIdRef.current === pageId && !pageSnapshot) {
+    if (
+      previewPage?.blocks &&
+      snapshotPageIdRef.current === pageId &&
+      !pageSnapshot
+    ) {
       setPageSnapshot(previewPage.blocks);
     }
   }, [previewPage?.blocks, pageId, pageSnapshot]);
@@ -644,29 +649,50 @@ export function EventPreview({
     [pageId, isDraft, debouncedSave, onDraftContentChange],
   );
 
-  // Own the draft's local doc: create it when a draft opens, mirror every edit
-  // to the host (title presence + latest blocks for save), and tear it down on
-  // close. `handleContentChange`'s draft branch stores the blocks and reports
-  // whether a title has been typed — the same path the old editor used.
+  // Create the draft's doc during the render that opens it (render-phase state
+  // adjustment) rather than in an effect: an effect-created doc mounted the
+  // TitleEditor one commit after the sheet, so the title field popped in and
+  // the editor's synchronous canvas mount hitched the entrance animation.
+  // `createDoc` is pure construction (no external registration), so it is safe
+  // to call while rendering.
+  if (draftActive && !draftDoc) {
+    setDraftDoc(
+      createDoc({
+        blocks: [
+          { id: "draft-1", type: "heading1", charRuns: [], formats: [] },
+        ],
+        pageId: "__draft__",
+        peerId: "draft-local",
+        schema: appSchema.data,
+      }),
+    );
+  }
+
+  // Mirror every draft edit to the host (title presence + latest blocks for
+  // save) while the draft is open, and destroy the doc when it closes.
+  // `handleContentChange`'s draft branch stores the blocks and reports whether
+  // a title has been typed — the same path the old editor used.
   useEffect(() => {
-    if (!draftActive) return;
-    const doc = createDoc({
-      blocks: [{ id: "draft-1", type: "heading1", charRuns: [], formats: [] }],
-      pageId: "__draft__",
-      peerId: "draft-local",
-      schema: appSchema.data,
+    if (!draftActive) {
+      if (draftDoc) {
+        draftDoc.destroy();
+        setDraftDoc(null);
+      }
+      return;
+    }
+    if (!draftDoc) return;
+    handleContentChange(cleanSnapshotForSave(draftDoc.getRawBlocks()));
+    return draftDoc.on("update", () => {
+      handleContentChange(cleanSnapshotForSave(draftDoc.getRawBlocks()));
     });
-    setDraftDoc(doc);
-    handleContentChange(cleanSnapshotForSave(doc.getRawBlocks()));
-    const off = doc.on("update", () => {
-      handleContentChange(cleanSnapshotForSave(doc.getRawBlocks()));
-    });
-    return () => {
-      off();
-      doc.destroy();
-      setDraftDoc(null);
-    };
-  }, [draftActive, handleContentChange]);
+  }, [draftActive, draftDoc, handleContentChange]);
+
+  // The cleanup above only unsubscribes, so destroy an open draft's doc if the
+  // preview unmounts mid-draft. `destroy()` is idempotent, so racing the
+  // close-path destroy is harmless.
+  const draftDocRef = useRef<Doc | null>(null);
+  draftDocRef.current = draftDoc;
+  useEffect(() => () => draftDocRef.current?.destroy(), []);
 
   const handleClose = useCallback(() => {
     flush();
@@ -688,8 +714,14 @@ export function EventPreview({
     const confirmed = await getConfirmation({
       title: t("calendar.deleteEvent", "Delete event"),
       description: previewPage.hasChildren
-        ? t("calendar.eventHasSubPages", "This event has sub-pages. Deleting it will also delete its sub-pages.")
-        : t("calendar.confirmDeleteEvent", "Are you sure you want to delete this event?"),
+        ? t(
+            "calendar.eventHasSubPages",
+            "This event has sub-pages. Deleting it will also delete its sub-pages.",
+          )
+        : t(
+            "calendar.confirmDeleteEvent",
+            "Are you sure you want to delete this event?",
+          ),
       cancelText: t("common.cancel", "Cancel"),
       confirmText: t("common.delete", "Delete"),
     });
@@ -697,6 +729,14 @@ export function EventPreview({
 
     deletePage({ id: pageId });
   }, [deletePage, getConfirmation, isDeleting, pageId, previewPage, t]);
+
+  const handleDuplicate = useCallback(async () => {
+    if (!pageId || !onDuplicate) return;
+    // Persist any pending debounced edits so the copy reflects the latest
+    // content rather than the last-saved snapshot.
+    await flush();
+    onDuplicate(pageId);
+  }, [flush, onDuplicate, pageId]);
 
   const handleScheduleChange = useCallback(
     (scheduledAt: string, duration: number | null) => {
@@ -738,7 +778,9 @@ export function EventPreview({
         }
         disabled={!isTask && previewPage?.hasChildren}
       >
-        {isTask ? t("calendar.convertToEvent", "Convert to Event") : t("calendar.convertToTask", "Convert to Task")}
+        {isTask
+          ? t("calendar.convertToEvent", "Convert to Event")
+          : t("calendar.convertToTask", "Convert to Task")}
       </button>
       {!isTask && previewPage?.hasChildren && (
         <TooltipProvider delayDuration={0}>
@@ -749,7 +791,10 @@ export function EventPreview({
               </button>
             </TooltipTrigger>
             <TooltipContent>
-              {t("calendar.moveSubPagesToConvert", "Move sub-pages to convert to task")}
+              {t(
+                "calendar.moveSubPagesToConvert",
+                "Move sub-pages to convert to task",
+              )}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -820,12 +865,7 @@ export function EventPreview({
 
   const handleDraftSaveClick = useCallback(() => {
     const content = draftContentRef.current;
-    onDraftSave?.(
-      content?.blocks,
-      null,
-      draftParent?.id ?? null,
-      draftIsTask,
-    );
+    onDraftSave?.(content?.blocks, null, draftParent?.id ?? null, draftIsTask);
   }, [onDraftSave, draftParent, draftIsTask]);
 
   // Desktop: Ctrl/Cmd+Enter saves a draft. Existing events already autosave, so
@@ -860,24 +900,31 @@ export function EventPreview({
   ) : null;
 
   const editor = isDraft ? (
-    // The compact title editor fills its container (a single-heading window over
-    // the draft doc). On mobile the sheet stays compact (a "peek") so the grid
-    // behind it is visible and its handles remain draggable; auto-focusing would
-    // raise the keyboard and expand the sheet over the grid, so defer focus until
-    // the user taps the title. Desktop keeps immediate focus. Enter commits the
-    // draft (single-block window makes Enter inert in the engine).
+    // The compact title editor (a single-heading window over the draft doc)
+    // renders as a fixed single-line field — a draft title is short, and a fixed
+    // height keeps the sheet tight instead of reserving tall auto-grow space. On
+    // mobile the sheet stays compact (a "peek") so the grid behind it is visible
+    // and its handles remain draggable; auto-focusing would raise the keyboard and
+    // expand the sheet over the grid, so defer focus until the user taps the
+    // title. Desktop keeps immediate focus. Enter commits the draft (single-block
+    // window makes Enter inert in the engine).
     draftDoc ? (
-      <TitleEditor
-        doc={draftDoc}
-        autoFocus={!isMobile}
-        onSubmit={handleDraftSaveClick}
-        placeholder={t("calendar.addTitle", "Add title")}
-        className="h-full px-3 py-2"
-        style={{ height: "100%" }}
-      />
+      // The gutter lives on a wrapper: TitleEditor draws the Input component's
+      // border box, so padding inside it would inset the text from its own
+      // border instead of insetting the field from the sheet edge.
+      <div className="px-3">
+        <TitleEditor
+          doc={draftDoc}
+          autoFocus={!isMobile}
+          onSubmit={handleDraftSaveClick}
+          placeholder={t("calendar.addTitle", "Add title")}
+        />
+      </div>
     ) : null
   ) : isLoading && !pageSnapshot ? (
-    <div className={style.previewLoading}>{t("common.loading", "Loading...")}</div>
+    <div className={style.previewLoading}>
+      {t("common.loading", "Loading...")}
+    </div>
   ) : pageSnapshot && pageId ? (
     <MountedEditor
       key={pageId}
@@ -936,6 +983,19 @@ export function EventPreview({
     handleClose();
   };
 
+  const duplicateButton =
+    pageId && onDuplicate ? (
+      <button
+        type="button"
+        className={style.previewCloseBtn}
+        onClick={handleDuplicate}
+        aria-label={t("calendar.duplicateEvent", "Duplicate event")}
+        title={t("calendar.duplicateEvent", "Duplicate event")}
+      >
+        <Copy size={16} />
+      </button>
+    ) : null;
+
   const mobileHeader = (
     <div className={`${style.previewPopoverHeader} shrink-0`}>
       {pageId && (
@@ -945,6 +1005,7 @@ export function EventPreview({
         </Link>
       )}
       <div className={style.previewHeaderActions}>
+        {duplicateButton}
         {pageId && (
           <button
             type="button"
@@ -1248,6 +1309,7 @@ export function EventPreview({
             >
               <GripHorizontal size={16} className={style.previewGripIcon} />
               <div className={style.previewHeaderActions}>
+                {duplicateButton}
                 {pageId && (
                   <button
                     type="button"
@@ -1313,6 +1375,7 @@ export function EventPreview({
             >
               <GripHorizontal size={16} className={style.previewGripIcon} />
               <div className={style.previewHeaderActions}>
+                {duplicateButton}
                 {pageId && (
                   <button
                     type="button"

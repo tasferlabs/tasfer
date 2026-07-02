@@ -217,6 +217,7 @@
 }
 
 .appNavigationLink {
+  position: relative;
   width: 100%;
   display: flex;
   align-items: center;
@@ -252,6 +253,11 @@
     background-color: var(--accent);
     transition: background-color 0.05s ease;
   }
+
+  /* Pills on mobile: the tint carries the active state, no edge rail. */
+  .appNavigationLink.active::before {
+    display: none;
+  }
 }
 
 .appNavigationLinkIcon {
@@ -285,6 +291,32 @@
 
 :global(.dark) .appNavigationLink:hover {
   background-color: var(--accent);
+}
+
+/* Current app section: a soft primary tint plus a left rail, so it reads as
+   the active destination and stays distinct from an active page in the tree. */
+.appNavigationLink.active {
+  background-color: color-mix(in srgb, var(--primary), transparent 88%);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.appNavigationLink.active:hover {
+  background-color: color-mix(in srgb, var(--primary), transparent 80%);
+}
+
+.appNavigationLink.active::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -1rem;
+  inset-block: 4px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background-color: var(--primary);
+}
+
+.appNavigationLink.active .appNavigationLinkIcon {
+  color: var(--primary);
 }
 
 .appNavigationLinkShortcut {

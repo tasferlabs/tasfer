@@ -23,8 +23,22 @@ function chip(latex: string) {
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
   let page = engine.getState();
-  page = insertCharsAtPosition(page, blockId, 0, "aa " + latex, binding).newPage;
-  page = markCharsInRange(page, blockId, 3, 3 + latex.length, { type: "math" }, true, binding).newPage;
+  page = insertCharsAtPosition(
+    page,
+    blockId,
+    0,
+    "aa " + latex,
+    binding,
+  ).newPage;
+  page = markCharsInRange(
+    page,
+    blockId,
+    3,
+    3 + latex.length,
+    { type: "math" },
+    true,
+    binding,
+  ).newPage;
   return { page, blockId, binding };
 }
 
@@ -34,7 +48,13 @@ describe("inline `\\`-command at a chip's first char", () => {
     let { page, blockId, binding } = chip("\\x^2");
     // select("\frac"): replace the `\` [3,4) with "\frac{}{}".
     page = deleteCharsInRange(page, blockId, 3, 4, binding).newPage;
-    page = insertCharsAtPosition(page, blockId, 3, "\\frac{}{}", binding).newPage;
+    page = insertCharsAtPosition(
+      page,
+      blockId,
+      3,
+      "\\frac{}{}",
+      binding,
+    ).newPage;
     const spans = getInlineMathSpans(page.blocks[0]);
     // The inserted construct is NOT covered — the chip shrank to just the tail.
     expect(spans.map((s) => s.latex)).toEqual(["x^2"]);
@@ -43,10 +63,24 @@ describe("inline `\\`-command at a chip's first char", () => {
   it("re-marking the whole resulting formula keeps ONE clean chip", () => {
     let { page, blockId, binding } = chip("\\x^2");
     page = deleteCharsInRange(page, blockId, 3, 4, binding).newPage;
-    page = insertCharsAtPosition(page, blockId, 3, "\\frac{}{}", binding).newPage;
+    page = insertCharsAtPosition(
+      page,
+      blockId,
+      3,
+      "\\frac{}{}",
+      binding,
+    ).newPage;
     // The fix: re-mark [chip.from, chip.to + latexLen - (caret - backslash)).
     // chip.to=7, latexLen=9, caret-backslash = 4-3 = 1 → end = 7 + 9 - 1 = 15.
-    page = markCharsInRange(page, blockId, 3, 15, { type: "math" }, true, binding).newPage;
+    page = markCharsInRange(
+      page,
+      blockId,
+      3,
+      15,
+      { type: "math" },
+      true,
+      binding,
+    ).newPage;
     const spans = getInlineMathSpans(page.blocks[0]);
     expect(spans).toHaveLength(1);
     expect(spans[0].latex).toBe("\\frac{}{}x^2");

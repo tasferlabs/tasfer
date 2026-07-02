@@ -17,7 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import { FileText, PanelLeftClose, Search } from "lucide-react";
 import React, { useState } from "react";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import {
@@ -598,24 +598,39 @@ export function SidebarContent({
                 </kbd>
               )}
             </button>
-            <RouterLink className={style.appNavigationLink} to={"/settings"}>
+            <NavLink
+              className={({ isActive }) =>
+                clsx(style.appNavigationLink, isActive && style.active)
+              }
+              to={"/settings"}
+            >
               <div className={style.appNavigationLinkIcon}>
                 <Icons.Gear width={24} height={24} />
               </div>
               {t("settings.title", "Settings")}
-            </RouterLink>
-            <RouterLink className={style.appNavigationLink} to={"/calendar"}>
+            </NavLink>
+            <NavLink
+              className={({ isActive }) =>
+                clsx(style.appNavigationLink, isActive && style.active)
+              }
+              to={"/calendar"}
+            >
               <div className={style.appNavigationLinkIcon}>
                 <Icons.Calendar width={24} height={24} />
               </div>
               {t("calendar.title", "Calendar")}
-            </RouterLink>
-            <RouterLink className={style.appNavigationLink} to={"/bin"}>
+            </NavLink>
+            <NavLink
+              className={({ isActive }) =>
+                clsx(style.appNavigationLink, isActive && style.active)
+              }
+              to={"/bin"}
+            >
               <div className={style.appNavigationLinkIcon}>
                 <Icons.Trash width={24} height={24} />
               </div>
               {t("bin.title", "Bin")}
-            </RouterLink>
+            </NavLink>
 
             <button
               className={style.appNavigationLink}

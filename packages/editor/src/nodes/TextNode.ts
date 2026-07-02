@@ -412,9 +412,17 @@ function renderPlaceholder(
   maxWidth: number,
 ) {
   if (!text) return;
+  // Appearance is resolved per block from the block's own placeholder override
+  // (color / relative size / weight), falling back to the global placeholder
+  // color, a 1× scale, and the block's own weight. This keeps type-specific
+  // placeholder styling (e.g. the quote's smaller ghost) in the theme rather
+  // than in node code, with no type switch here.
+  const ph = textStyle.placeholder;
+  const fontSize = Math.round(textStyle.fontSize * (ph?.fontScale ?? 1));
+  const fontWeight = ph?.fontWeight ?? textStyle.fontWeight;
   ctx.save();
-  ctx.fillStyle = styles.placeholder.color;
-  ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(
+  ctx.fillStyle = ph?.color ?? styles.placeholder.color;
+  ctx.font = `${fontWeight} ${fontSize}px ${getFontStack(
     currentFontFamily(styles),
     styles.fonts,
   )}`;
@@ -1729,6 +1737,71 @@ export class TextNode extends Node<TextualBlock> {
           best = i;
         }
       }
+
+      // Inline-math chips on a bidi line: descend into the chip's rendered
+      // formula exactly as the monotonic path below does, but locate the chip by
+      // its VISUAL x — its run is reordered away from its logical position. All
+      // of a chip's chars share one embedding level, so the chip is a sub-range
+      // of a single bidi run; take that run's geometry. Without this a click on a
+      // math chip embedded in an RTL line never enters the formula (it snaps to a
+      // run boundary), so the chip cannot be selected or edited.
+      for (const run of layout.marks
+        ? replacementRuns(chars, formats, layout.marks)
+        : []) {
+        if (!run.replacement.hitTest) continue;
+        const fragStart = Math.max(run.start, lineStartIndex);
+        const fragEnd = Math.min(run.end, lineEndIndex);
+        if (fragEnd <= fragStart) continue;
+        const startLocal = fragStart - lineStartIndex;
+        if (startLocal + 1 >= positionWidths.length) continue;
+        const owner = bidiRunsList.find(
+          (r) => startLocal >= r.start && startLocal < r.end,
+        );
+        if (!owner) continue;
+        const ox = runLeftX.get(owner) ?? origin;
+        // Visual x of the two logical boundaries bounding the chip's single
+        // advance (interior chip indices are zero-width, so they collapse onto
+        // one of these). The chip glyph box is between them, whatever the run's
+        // direction — take min/max for its visual left/right edges.
+        const vxOf = (i: number): number =>
+          owner.level % 2 === 0
+            ? ox + (positionWidths[i] - positionWidths[owner.start])
+            : ox + (positionWidths[owner.end] - positionWidths[i]);
+        const eA = vxOf(startLocal);
+        const eB = vxOf(startLocal + 1);
+        const chipLeftX = Math.min(eA, eB);
+        const chipRightX = Math.max(eA, eB);
+        // Logical index at the chip's visually-left / -right edge (reversed in an
+        // RTL run), so a click just outside the chip snaps to the near boundary.
+        const leftEdge = owner.level % 2 === 0 ? fragStart : fragEnd;
+        const rightEdge = owner.level % 2 === 0 ? fragEnd : fragStart;
+        if (relativeX <= chipLeftX || relativeX >= chipRightX) {
+          const bestIdx = lineStartIndex + best;
+          if (bestIdx > fragStart && bestIdx < fragEnd) {
+            best =
+              (relativeX <= chipLeftX ? leftEdge : rightEdge) - lineStartIndex;
+          }
+          continue;
+        }
+        // The chip's formula is always laid out LTR, so the run-local x is the
+        // distance from its visual left edge regardless of surrounding direction.
+        const fragText = run.text.slice(
+          fragStart - run.start,
+          fragEnd - run.start,
+        );
+        const baselineY =
+          lineTopY + (line.baselineOffset ?? layout.fontMetrics.ascent);
+        const offset = run.replacement.hitTest(
+          fragText,
+          textStyle.fontSize,
+          relativeX - chipLeftX,
+          clickY - baselineY,
+        );
+        const lastInterior = fragText.length - 1;
+        if (lastInterior < 1) return fragStart;
+        return fragStart + Math.max(1, Math.min(offset, lastInterior));
+      }
+
       return lineStartIndex + best;
     }
 
@@ -2040,6 +2113,7 @@ export class TextNode extends Node<TextualBlock> {
         rects,
         deco.color,
         deco.opacity ?? styles.selection.remoteOpacity,
+        styles.selection.cornerRadius,
       );
     }
 
@@ -2072,15 +2146,19 @@ export class TextNode extends Node<TextualBlock> {
         rects,
         styles.selection.backgroundColor,
         styles.selection.opacity,
+        styles.selection.cornerRadius,
       );
     }
 
-    // Placeholder (when empty + cursor here + not composing/selecting).
+    // Placeholder (empty block, in edit mode, not composing/selecting). Shown
+    // in the caret's block by default; `placeholder.showUnfocused` extends it to
+    // every empty block.
     const hasActiveSelection =
       state.document.selection && !state.document.selection.isCollapsed;
+    const cursorInThisBlock =
+      state.document.cursor?.position.blockIndex === blockIndex;
     if (
-      state.document.cursor &&
-      state.document.cursor.position.blockIndex === blockIndex &&
+      (styles.placeholder.showUnfocused || cursorInThisBlock) &&
       fullContent.length === 0 &&
       !state.ui.composition &&
       !hasActiveSelection &&
@@ -2108,18 +2186,25 @@ export class TextNode extends Node<TextualBlock> {
     return { block, bounds, lines: renderedLines };
   }
 
-  private fillRects(
+  protected fillRects(
     ctx: CanvasRenderingContext2D,
     rects: Rect[],
     fillStyle: string,
     opacity: number,
+    cornerRadius = 0,
   ): void {
     if (rects.length === 0) return;
     ctx.save();
     ctx.fillStyle = fillStyle;
     ctx.globalAlpha = opacity;
     for (const r of rects) {
-      ctx.fillRect(r.x, r.y, r.width, r.height);
+      if (cornerRadius > 0) {
+        ctx.beginPath();
+        ctx.roundRect(r.x, r.y, r.width, r.height, cornerRadius);
+        ctx.fill();
+      } else {
+        ctx.fillRect(r.x, r.y, r.width, r.height);
+      }
     }
     ctx.restore();
   }

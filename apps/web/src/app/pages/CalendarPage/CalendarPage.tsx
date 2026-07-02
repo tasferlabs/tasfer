@@ -390,6 +390,52 @@ export default function CalendarPage() {
     [activeSpaceId, selectedDate],
   );
 
+  // Duplicate an existing event into a new page: copies its title, parent,
+  // color, duration, task flag, and body content. `scheduledAt` overrides the
+  // copy's time (used by Ctrl/Cmd-drag to drop the copy at a new slot); when
+  // omitted the copy lands at the original's time. `select` opens the new
+  // event's preview afterwards (used by the Duplicate button).
+  const duplicatePage = useCallback(
+    async (
+      sourceId: string,
+      opts?: { scheduledAt?: string; select?: boolean },
+    ) => {
+      if (!activeSpaceId) return;
+      const platform = getPlatform();
+      let src;
+      try {
+        src = await platform.pages.get(sourceId);
+      } catch {
+        return;
+      }
+      const newPage = await platform.pages.create({
+        title: src.title,
+        parentId: src.parentId,
+        spaceId: src.spaceId ?? activeSpaceId,
+        scheduledAt: opts?.scheduledAt ?? src.scheduledAt ?? undefined,
+        duration: src.duration ?? undefined,
+        allDay: src.allDay ?? undefined,
+        task: src.task,
+      });
+      // Color isn't part of the create payload, so apply it in a follow-up.
+      if (src.color) {
+        await updatePageApi({ id: newPage.id, color: src.color });
+      }
+      // writeBlocks reuses the new page's init block for the first block, so we
+      // don't end up with a duplicated leading heading.
+      if (src.blocks && src.blocks.length > 0) {
+        await getPlatform().ops.writeBlocks(newPage.id, src.blocks);
+      }
+      queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      if (opts?.select) {
+        setPreviewPageId(newPage.id);
+        setPreviewAnchor(null);
+      }
+    },
+    [activeSpaceId, queryClient],
+  );
+
   // After the draft card renders, resolve its position as the anchor
   useEffect(() => {
     if (!draftEvent || previewAnchor) return;
@@ -535,6 +581,18 @@ export default function CalendarPage() {
   const [dragDeltaMinutes, setDragDeltaMinutes] = useState(0);
   const [dragTargetDay, setDragTargetDay] = useState<Date | null>(null);
 
+  // Ctrl/Cmd held during a move-drag turns it into a duplicate: the original
+  // stays put and a copy is created at the drop slot. The ref drives the drop
+  // decision; the state drives the "copy" affordance on the drop ghost.
+  const dragDuplicateRef = useRef(false);
+  const [isDuplicateDrag, setIsDuplicateDrag] = useState(false);
+  const setDragDuplicate = useCallback((v: boolean) => {
+    if (dragDuplicateRef.current !== v) {
+      dragDuplicateRef.current = v;
+      setIsDuplicateDrag(v);
+    }
+  }, []);
+
   // Edge-drag navigation: when dragging near left/right edge, auto-navigate after delay
   const edgeDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const edgeDragDirRef = useRef<-1 | 1 | null>(null);
@@ -560,6 +618,7 @@ export default function CalendarPage() {
     }
 
     function handlePointerMove(e: PointerEvent) {
+      setDragDuplicate(e.ctrlKey || e.metaKey);
       const timeline = timelineRef.current;
       if (!timeline) return;
 
@@ -643,12 +702,22 @@ export default function CalendarPage() {
       }
     }
 
+    // Track the duplicate modifier even when the pointer is stationary — the
+    // user may press or release Ctrl/Cmd mid-drag without moving.
+    function handleModifierKey(e: KeyboardEvent) {
+      setDragDuplicate(e.ctrlKey || e.metaKey);
+    }
+
     window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("keydown", handleModifierKey);
+    window.addEventListener("keyup", handleModifierKey);
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("keydown", handleModifierKey);
+      window.removeEventListener("keyup", handleModifierKey);
       clearEdgeDragTimer();
     };
-  }, [activeDragPage, viewMode, weekDays, clearEdgeDragTimer, isRtl]);
+  }, [activeDragPage, viewMode, weekDays, clearEdgeDragTimer, isRtl, setDragDuplicate]);
 
   function handleDragStart(event: DragStartEvent) {
     const page = event.active.data.current?.page as ICalendarPage | undefined;
@@ -657,6 +726,10 @@ export default function CalendarPage() {
       setActiveDragPage(page);
       setDragDeltaMinutes(0);
       setDragTargetDay(null);
+      const ae = event.activatorEvent as
+        | { ctrlKey?: boolean; metaKey?: boolean }
+        | undefined;
+      setDragDuplicate(!!ae && (!!ae.ctrlKey || !!ae.metaKey));
     }
   }
 
@@ -682,7 +755,12 @@ export default function CalendarPage() {
       scheduledDate.setMinutes(newStartMin);
 
       const newISO = scheduledDate.toISOString();
-      if (newISO !== activeDragPage.scheduledAt) {
+      // Ctrl/Cmd-drag duplicates instead of moving: the original keeps its slot
+      // and a copy lands where the drag ended. Drafts (unsaved) can't be
+      // duplicated, so they fall through to the move behavior.
+      if (dragDuplicateRef.current && activeDragPage.id !== "__draft__") {
+        void duplicatePage(activeDragPage.id, { scheduledAt: newISO });
+      } else if (newISO !== activeDragPage.scheduledAt) {
         if (activeDragPage.id === "__draft__") {
           setDraftEvent((prev) =>
             prev ? { ...prev, scheduledAt: newISO } : prev,
@@ -698,6 +776,7 @@ export default function CalendarPage() {
     setActiveDragPage(null);
     setDragDeltaMinutes(0);
     setDragTargetDay(null);
+    setDragDuplicate(false);
   }
 
   function handleDragCancel() {
@@ -706,6 +785,7 @@ export default function CalendarPage() {
     setActiveDragPage(null);
     setDragDeltaMinutes(0);
     setDragTargetDay(null);
+    setDragDuplicate(false);
   }
 
   // ── Resize (bottom handle drag) ──
@@ -1039,25 +1119,39 @@ export default function CalendarPage() {
     return () => el.removeEventListener("touchmove", onTouchMoveCreate);
   }, [getMinutesFromClientY, viewMode]);
 
-  const handleGridTouchEnd = useCallback(() => {
-    const state = touchCreateRef.current;
-    if (!state) return;
+  const handleGridTouchEnd = useCallback(
+    (e?: React.TouchEvent) => {
+      const state = touchCreateRef.current;
+      if (!state) return;
 
-    clearTimeout(state.timer);
+      clearTimeout(state.timer);
 
-    if (state.active) {
-      // Finalize the create-drag
-      setCreateDrag((prev) => {
-        if (prev) {
-          const duration = prev.endMinutes - prev.startMinutes;
-          createPageAtTime(prev.startMinutes, duration, prev.date);
-        }
-        return null;
-      });
-    }
+      if (state.active) {
+        // Cancel the compatibility mouse events iOS synthesizes ~300ms after
+        // touchend at the release point. The new-event draft sheet slides up
+        // from the bottom exactly where this create gesture ends, so that ghost
+        // click would land on the sheet's title canvas and focus it — flashing
+        // the keyboard (and, under Keyboard `resize: "native"`, briefly resizing
+        // the WebView, which reflows the sheet's contents) the instant the draft
+        // opens. Mobile deliberately does NOT auto-focus the title, so this
+        // phantom focus is pure flicker. The gesture is fully handled here;
+        // nothing downstream needs the synthetic click. (touchcancel isn't
+        // cancelable, hence the `cancelable` guard.)
+        if (e?.cancelable) e.preventDefault();
+        // Finalize the create-drag
+        setCreateDrag((prev) => {
+          if (prev) {
+            const duration = prev.endMinutes - prev.startMinutes;
+            createPageAtTime(prev.startMinutes, duration, prev.date);
+          }
+          return null;
+        });
+      }
 
-    touchCreateRef.current = null;
-  }, [createPageAtTime]);
+      touchCreateRef.current = null;
+    },
+    [createPageAtTime],
+  );
 
   // ── Swipe navigation (manual touch + transform) ──
   const swipeTrackRef = useRef<HTMLDivElement>(null);
@@ -1316,6 +1410,9 @@ export default function CalendarPage() {
             const top = (newStartMin / 60) * HOUR_HEIGHT;
             const height = (duration / 60) * HOUR_HEIGHT;
 
+            const duplicating =
+              isDuplicateDrag && activeDragPage.id !== "__draft__";
+
             return (
               <div
                 className={style.dropGhost}
@@ -1324,6 +1421,11 @@ export default function CalendarPage() {
                 <span className={style.dropGhostTime}>
                   {formatTimeRange(newStartMin, newStartMin + duration)}
                 </span>
+                {duplicating && (
+                  <span className={style.dropGhostBadge}>
+                    {t("calendar.copy", "Copy")}
+                  </span>
+                )}
               </div>
             );
           })()}
@@ -1846,6 +1948,7 @@ export default function CalendarPage() {
         onClose={handlePreviewClose}
         sidebarMode={sidebarMode ?? false}
         onSidebarModeChange={setSidebarMode}
+        onDuplicate={(id) => duplicatePage(id, { select: true })}
         draft={draftEvent}
         onDraftSave={handleDraftSave}
         onDraftScheduleChange={(scheduledAt, duration) =>

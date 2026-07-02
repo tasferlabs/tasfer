@@ -222,38 +222,6 @@ export class QuoteNode extends TextNode {
   }
 
   /**
-   * The quote's editorial 18px body is too large for its long ghost hint on
-   * narrow screens, so render only the placeholder at a reduced size. Real
-   * content still paints with the full quote text style; the baseline is shared,
-   * so the smaller ghost stays aligned with where typed text begins.
-   */
-  protected override paintPlaceholder(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    styles: EditorStyles,
-    textStyle: TextStyle,
-    text: string,
-    isRTL: boolean,
-    maxWidth: number,
-  ): void {
-    const placeholderStyle: TextStyle = {
-      ...textStyle,
-      fontSize: Math.round(textStyle.fontSize * 0.8),
-    };
-    super.paintPlaceholder(
-      ctx,
-      x,
-      y,
-      styles,
-      placeholderStyle,
-      text,
-      isRTL,
-      maxWidth,
-    );
-  }
-
-  /**
    * Quote-specific editing affordances:
    * - Backspace at the start of an empty quote exits to a paragraph instead of
    *   merging into the previous block (shared

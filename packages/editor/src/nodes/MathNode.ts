@@ -130,8 +130,6 @@ export interface MathBlock extends BlockRuntimeState {
 // Display-math base font size, in CSS pixels (block equations render a touch
 // larger than body text).
 const BLOCK_MATH_FONT_SIZE = 22;
-const MATH_PLACEHOLDER_FONT_SIZE = 14;
-const MATH_PLACEHOLDER_FONT_WEIGHT = "400";
 
 // Wrapping geometry for a too-wide equation (see `layoutEquation`). The width
 // budget is inset from the block edges so wrapped rows don't touch the rounded
@@ -228,8 +226,8 @@ export class MathNode extends TextNode {
     const mathTop = m.paddingTop + Math.max(0, (contentH - mh) / 2);
     const placeholderWidth = measureCtxText(
       styles.placeholder.math.text,
-      MATH_PLACEHOLDER_FONT_SIZE,
-      MATH_PLACEHOLDER_FONT_WEIGHT,
+      m.placeholder.fontSize,
+      m.placeholder.fontWeight,
       base.fontFamily,
       base.fonts,
     );
@@ -321,16 +319,22 @@ export class MathNode extends TextNode {
 
     if (!layout.mathLayout) {
       const selection = state.document.selection;
+      const cursorInThisBlock =
+        state.document.cursor?.position.blockIndex === blockIndex;
       const showPlaceholder =
-        state.document.cursor?.position.blockIndex === blockIndex &&
+        (styles.placeholder.showUnfocused || cursorInThisBlock) &&
         (!selection || selection.isCollapsed) &&
         !state.ui.composition &&
         state.ui.mode === "edit";
       if (showPlaceholder) {
+        const mathPlaceholder = styles.blocks.math.placeholder;
         const textStyle: TextStyle = {
           ...this.textStyle(styles),
-          fontSize: MATH_PLACEHOLDER_FONT_SIZE,
-          fontWeight: MATH_PLACEHOLDER_FONT_WEIGHT,
+          fontSize: mathPlaceholder.fontSize,
+          fontWeight: mathPlaceholder.fontWeight,
+          // Absolute size — clear any inherited scale so a host-set block
+          // placeholder fontScale can't re-scale the math ghost text.
+          placeholder: undefined,
         };
         ctx.save();
         ctx.textAlign = "center";
@@ -391,13 +395,23 @@ export class MathNode extends TextNode {
         layout.chars.length,
       );
       if (range) {
-        const rects = texSelectionRects(mathLayout, range.from, range.to);
-        ctx.globalAlpha = styles.selection.opacity;
-        ctx.fillStyle = styles.selection.backgroundColor;
-        for (const r of rects) {
-          ctx.fillRect(drawX + r.x, baselineY + r.y, r.width, r.height);
-        }
-        ctx.globalAlpha = 1;
+        // Reuse the base selection fill so math honors the themed
+        // `selection.cornerRadius` (and opacity) like text/atomic blocks.
+        const rects = texSelectionRects(mathLayout, range.from, range.to).map(
+          (r) => ({
+            x: drawX + r.x,
+            y: baselineY + r.y,
+            width: r.width,
+            height: r.height,
+          }),
+        );
+        this.fillRects(
+          ctx,
+          rects,
+          styles.selection.backgroundColor,
+          styles.selection.opacity,
+          styles.selection.cornerRadius,
+        );
       }
 
       paintMath(ctx, mathLayout, drawX, baselineY, {

@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
 import {
   analyzeLineBidi,
   bidiRuns,
   resolveBidiLevels,
   visualRunOrder,
 } from "./bidi";
+import { describe, expect, it } from "vitest";
 
 describe("bidi level resolution", () => {
   it("pure LTR text is all level 0", () => {

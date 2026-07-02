@@ -8,13 +8,13 @@ import { useEffect, useState } from "react";
  *     so `visualViewport` does NOT shrink. MainActivity posts the real inset as a
  *     `keyboard-height-changed` message (the same signal the editor consumes).
  *     Once a native source reports, it wins.
- *   • iOS / mobile web: `visualViewport` shrinks for the keyboard; derive the
- *     inset from it. (iOS native resizes the WebView, so the inset stays ~0 there
- *     and no adjustment is needed.)
+ *   • iOS / mobile web: the WebView keeps its full height (iOS runs Capacitor
+ *     Keyboard `resize: "none"` — see capacitor.config.ts), so `visualViewport`
+ *     shrinks for the keyboard and we derive the inset from it.
  *
- * Intended for full-screen mobile overlays (e.g. the base Drawer) that are
- * `position: fixed` and therefore do NOT follow the visual viewport on iOS — so
- * their bottom edge would otherwise hide behind the keyboard. Reading the
+ * Intended for `position: fixed` mobile overlays (the base Drawer, the calendar
+ * bottom sheet, the editor toolbar dock) whose bottom edge would otherwise hide
+ * behind the keyboard — they pad/offset by this inset to sit above it. Reading the
  * keyboard is a host/platform concern; the editor engine knows nothing about it.
  */
 export default function useKeyboardInset(): number {

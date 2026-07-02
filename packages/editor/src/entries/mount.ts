@@ -112,6 +112,14 @@ export interface MountEditorOptions<
   /** Whether the document can be edited. Default `true`; `false` mounts a
    *  read-only renderer (no caret edits, no sync writes). */
   editable?: boolean;
+  /**
+   * Grow the canvas to fit its content height instead of filling the container
+   * (which stays width-sized to its box). The scrollbar is never rendered —
+   * there is no scroll region. Use for compact, self-sizing surfaces such as a
+   * title field or a single-line editor in a drawer. The host container must be
+   * free to grow vertically (don't give it a fixed height). Default `false`.
+   */
+  autoHeight?: boolean;
   /** Accessible name for the editor's input surface, announced by screen
    *  readers. Defaults to `"Text editor"`. */
   ariaLabel?: string;
@@ -485,6 +493,12 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   portalContainer.style.zIndex = "1000";
   container.appendChild(portalContainer);
 
+  // Auto-height surfaces grow to fit their content: the editor drives the height
+  // and the scrollbar is suppressed. The container must be free to grow (no
+  // fixed height); we size the canvas layers from the content height reported by
+  // the editor rather than from the container's measured height.
+  const autoHeight = options?.autoHeight === true;
+
   const initialViewport: ViewportState = {
     width: initial.width,
     height: initial.height,
@@ -519,6 +533,25 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     theme,
   });
 
+  let baseWidth = initial.width;
+  let baseHeight = initial.height;
+  let destroyed = false;
+
+  // Auto-height: resize the DOM canvas/container to the content height the editor
+  // reports. This runs on every content-height change — including the editor's
+  // synchronous first paint during construction below — so it must touch only
+  // the DOM (canvas layers, container), never the `editor` binding (which is
+  // still in its temporal dead zone during that first call).
+  const applyContentHeight = (height: number) => {
+    if (destroyed) return;
+    const h = Math.max(Math.ceil(height), 1);
+    if (h === baseHeight) return;
+    baseHeight = h;
+    canvasContainer.style.height = `${h}px`;
+    portalContainer.style.height = `${h}px`;
+    resizeCanvasLayers(layers, baseWidth, h);
+  };
+
   // Create editor with initial state and layered canvases
   const editor = new Editor(
     layers,
@@ -528,6 +561,8 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     {
       a11yContainer: a11yTree ?? undefined,
       inputStrategy: options?.inputStrategy,
+      autoHeight,
+      onContentHeightChange: autoHeight ? applyContentHeight : undefined,
     },
   );
 
@@ -548,9 +583,6 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     });
   }
 
-  let baseWidth = initial.width;
-  let baseHeight = initial.height;
-
   const resizeCanvas = () => {
     canvasContainer.style.width = `${baseWidth}px`;
     canvasContainer.style.height = `${baseHeight}px`;
@@ -560,12 +592,20 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     editor.updateViewport({ width: baseWidth, height: baseHeight });
   };
 
-  let destroyed = false;
   const resizeObserver = new ResizeObserver(() => {
     if (destroyed) return;
     const rect = container.getBoundingClientRect();
-    baseWidth = Math.max(rect.width, 1);
-    baseHeight = Math.max(rect.height, 1);
+    const newWidth = Math.max(rect.width, 1);
+    // In auto-height mode the editor owns the height (the container grows with
+    // its content, which would otherwise feed back into this observer). Only
+    // react to width changes; height is driven by `applyContentHeight`.
+    if (autoHeight) {
+      if (newWidth === baseWidth) return;
+      baseWidth = newWidth;
+    } else {
+      baseWidth = newWidth;
+      baseHeight = Math.max(rect.height, 1);
+    }
     resizeCanvas();
   });
   resizeObserver.observe(container);

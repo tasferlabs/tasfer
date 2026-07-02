@@ -114,6 +114,17 @@
   --editor-placeholder: oklch(0.68 0.01 285.938);
   --editor-code-bg: oklch(0.967 0.001 286.375);
   --editor-code-text: oklch(0.577 0.245 27.325);
+  /* Code-block syntax highlighting (light). Hues: keyword=purple, string=green,
+     comment=gray, number=orange, function=blue. */
+  --editor-code-keyword: #9333ea;
+  --editor-code-string: #16a34a;
+  --editor-code-comment: #6b7280;
+  --editor-code-number: #c2410c;
+  --editor-code-function: #2563eb;
+  --editor-math-error-bg: rgba(128, 128, 128, 0.15);
+  /* Find-in-document highlights (translucent fills; see MountedEditor). */
+  --editor-search-highlight: #facc15;
+  --editor-search-highlight-active: #f97316;
   --editor-link: oklch(0.6 0.13 163);
   --editor-link-hover: oklch(0.51 0.1 166);
   --editor-scrollbar-track: oklch(0.92 0.004 286.32 / 5%);
@@ -176,6 +187,17 @@
   --editor-placeholder: oklch(0.42 0.01 285.938);
   --editor-code-bg: oklch(0.2 0 286.033);
   --editor-code-text: oklch(0.704 0.191 22.216);
+  /* Code-block syntax highlighting (dark): same hues as light, lightened for
+     contrast on the dark code surface. */
+  --editor-code-keyword: #c792ea;
+  --editor-code-string: #7ee787;
+  --editor-code-comment: #8b949e;
+  --editor-code-number: #ffab70;
+  --editor-code-function: #79b8ff;
+  --editor-math-error-bg: rgba(180, 180, 180, 0.18);
+  /* Find-in-document highlights, brightened for the dark surface. */
+  --editor-search-highlight: #fde047;
+  --editor-search-highlight-active: #fb923c;
   --editor-link: oklch(0.7 0.15 162);
   --editor-link-hover: oklch(0.77 0.15 163);
   --editor-scrollbar-track: oklch(1 0 0 / 5%);

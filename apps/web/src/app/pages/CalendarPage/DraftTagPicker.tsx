@@ -12,7 +12,8 @@ import style from "./CalendarPage.module.css";
  *   • Row 0 lists the space's top-level pages.
  *   • Tapping a tag that HAS sub-pages drills in — a new row of that page's
  *     children drops down below (the deeper rows above it stay, so the drill
- *     path reads top-to-bottom). Drilling does NOT select it.
+ *     path reads top-to-bottom). Drilling does NOT select it. Tapping the same
+ *     open tag again collapses it, so a drill-down can be undone.
  *   • Only a LEAF (a page with no sub-pages) becomes the selected parent; tap it
  *     again to deselect (back to root / no parent).
  *
@@ -33,10 +34,26 @@ export function DraftTagPicker({
   const [drillPath, setDrillPath] = useState<IListPage[]>([]);
   const levels: (string | null)[] = [null, ...drillPath.map((p) => p.id)];
 
+  // Color inherited by each row's tags when they have no color of their own,
+  // matching the sidebar: a page falls back to its nearest colored ancestor.
+  // Row 0 (top level) has no ancestor, so it inherits nothing.
+  const rowInheritedColors: (string | null)[] = [null];
+  let inherited: string | null = null;
+  for (const p of drillPath) {
+    inherited = p.color ?? inherited;
+    rowInheritedColors.push(inherited);
+  }
+
   const pick = (levelIndex: number, page: IListPage) => {
     // Anything drilled BELOW this level is replaced by this new choice.
     const base = drillPath.slice(0, levelIndex);
     if (page.hasChildren) {
+      // Tapping the already-open branch again closes it, so the user can back
+      // out of a drill-down they've changed their mind about.
+      if (drillPath[levelIndex]?.id === page.id) {
+        setDrillPath(base);
+        return;
+      }
       // Open this branch: its children appear as the next row. Navigating away
       // from a previously chosen leaf clears the selection.
       setDrillPath([...base, page]);
@@ -67,6 +84,7 @@ export function DraftTagPicker({
           parentId={parentId}
           selectedId={value?.id ?? null}
           openId={drillPath[i]?.id ?? null}
+          inheritedColor={rowInheritedColors[i]}
           onPick={(page) => pick(i, page)}
         />
       ))}
@@ -79,12 +97,14 @@ function TagRow({
   parentId,
   selectedId,
   openId,
+  inheritedColor,
   onPick,
 }: {
   spaceId: string | null;
   parentId: string | null;
   selectedId: string | null;
   openId: string | null;
+  inheritedColor: string | null;
   onPick: (page: IListPage) => void;
 }) {
   const { t } = useTranslation();
@@ -96,6 +116,7 @@ function TagRow({
       {pages.map((page) => {
         const isSelected = page.id === selectedId;
         const isOpen = page.id === openId;
+        const resolvedColor = page.color ?? inheritedColor;
         return (
           <button
             key={page.id}
@@ -110,8 +131,8 @@ function TagRow({
             <span
               className={style.draftTagDot}
               style={{
-                backgroundColor: page.color || "var(--page-color-default)",
-                opacity: page.color ? 1 : 0.3,
+                backgroundColor: resolvedColor || "var(--page-color-default)",
+                opacity: resolvedColor ? 1 : 0.3,
               }}
             />
             <span className={style.draftTagLabel}>

@@ -64,13 +64,24 @@ app wiring and the (deferred) full component decomposition.
 
 `TitleEditor` takes a `doc` prop. Each use needs a `Doc` to pass in.
 
-1. **Edit-title dialog — DONE.** `apps/web/src/app/components/PageSettings.tsx`
-   `RenameDialog` now renders
-   `<TitleEditor doc={…} editable autoFocus onSubmit={close} onCancel={close} />`
-   over the open page's live doc (read as
-   `(useActiveEditor().editor as CypherEditor).doc`). The plain `<Input>` is gone;
-   the footer is a single **Done** button (editing is live through the CRDT, so
-   there is no discardable draft).
+1. **Edit-title dialog — DONE.** Extracted to a reusable
+   `apps/web/src/app/components/RenameDialog.tsx` that renders
+   `<TitleEditor doc={…} editable autoFocus onSubmit={close} onCancel={close} />`.
+   The plain `<Input>` is gone; the footer is a single **Done** button (editing is
+   live through the CRDT, so there is no discardable draft). `PageSettings` mounts
+   it for the open page.
+   - **Doc source (any page):** `RenameDialog` takes a `pageId` (+ `spaceId`). When
+     `pageId` is the page currently open in the editor, it reuses that editor's
+     live doc (`(useActiveEditor().editor as CypherEditor).doc`) — no second
+     room/persistence. For any other page it loads the page's snapshot
+     (`useGetPage`) and spins up a short-lived `useCollaborativeDoc` **while the
+     dialog is open**, so the windowed title editor works on a live, synced,
+     persisted doc for that page. The doc-loading subtree is gated behind `open`
+     and behind "not the open page," so a closed dialog never joins a room.
+   - **Sidebar reuse — DONE.** `apps/web/src/app/layout/components/PageLink.tsx`
+     dropped its inline `<input>` soft-rename (and the `useOutsideClick` mock,
+     focus/blur effects, and `localTitle` state) and now opens the shared
+     `RenameDialog` with `pageId={data.id}` for every sidebar page.
    - **Product decision (RESOLVED):** picked the block-editing model — the title
      IS the doc's first heading, always auto-derived. The **manual-override
      concept is dropped**: the `autoTitle` page-record flag and its `auto_title`
@@ -116,8 +127,16 @@ gets a `Doc` to hand `TitleEditor` depends on where it lives:
   title")` and `i18next.t("common.title", "Title")` with English fallbacks. Add
   real keys to `apps/web/public/app/locales/{en,ar}/translation.json`
   (`editor.titleAriaLabel`; confirm `common.title` exists).
-- **Single-line sizing:** the container defaults to `height: 3rem`; tune to the
-  heading1 line height, and decide wrap behavior for long titles (clip vs. grow).
+- **Single-line sizing — DONE.** `TitleEditor` now reproduces the `Input`
+  component exactly: its box chrome/focus ring classes, `h-9` + `px-2.5`
+  geometry, `text-base`/`md:text-sm` typography, `--foreground` text and
+  `--muted-foreground` placeholder, placeholder always shown when empty
+  (`styles.placeholder.showUnfocused`). Canvas vertical padding is computed
+  from the measured font bounding box (`getFontMetrics`, newly exported from
+  `@cypherkit/editor/internal`) so the line box — and the caret, which the
+  engine draws at full bounding-box height — is centered and contained instead
+  of clipping (Poppins's bounding box is up to ~1.76em). Wrap behavior for long
+  titles is still undecided (fixed mode clips; `autoHeight` grows).
 - **Caret on autoFocus:** currently `editor.focus()` (the public `focus` type is
   `() => void`). If caret-at-end is wanted, use the `setCaret` surface.
 - **Title marks:** currently allows `strong/emphasis/strike/code`. Revisit

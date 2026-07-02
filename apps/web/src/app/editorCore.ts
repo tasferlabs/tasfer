@@ -13,6 +13,7 @@
  */
 
 import {
+  mergeTheme,
   type BaseSchemaDefinition,
   type EditorTheme,
   type SchemaDefinition,
@@ -78,15 +79,18 @@ export function editorNodeStrings(): Record<string, Record<string, string>> {
 /**
  * The app's editor theme from the current `--editor-*` CSS variables, plus the
  * app font registry and per-node strings — the headless editor never reads the
- * DOM, so we feed it these. Pass `overrides` (e.g. `fontFamily`) to specialize.
+ * DOM, so we feed it these. Pass `overrides` (e.g. `fontFamily`, or compact
+ * `styles` for the title surface) to specialize; they are DEEP-merged over the
+ * base via `mergeTheme`, so a `styles` override composes with the CSS-driven
+ * styles (todo checkbox, image handles) instead of replacing them.
  */
 export function appEditorTheme(overrides?: Partial<EditorTheme>): EditorTheme {
-  return {
+  const base: EditorTheme = {
     ...cssVarsToTheme(),
     fonts: getAppFontRegistry(),
     nodeStrings: editorNodeStrings(),
-    ...overrides,
   };
+  return overrides ? mergeTheme(base, overrides) : base;
 }
 
 /**

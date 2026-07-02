@@ -803,9 +803,19 @@ export interface OutOfViewIndicatorStyles {
   readonly chevronSize: number;
   /** Horizontal gap (px) between adjacent pills. */
   readonly gap: number;
+  /** Breathing gap (px) from the viewport edge so the chevron isn't flush. */
+  readonly edgeMargin: number;
+  /** Font weight of the pill's initial (a CSS `font-weight` string). */
+  readonly initialFontWeight: string;
 }
 
 export interface RemoteCursorStyles {
+  /**
+   * Width (px) of a remote peer's caret bar. Independent of the local
+   * {@link CursorStyles.width} so peer carets can be tuned separately; defaults
+   * to the same 2px.
+   */
+  readonly caretWidth: number;
   /** Label text on a caret flag. */
   readonly labelTextColor: string;
   /** Font size (px) of the name label drawn above a caret. */
@@ -814,6 +824,8 @@ export interface RemoteCursorStyles {
   readonly labelPadding: number;
   /** Corner radius (px) of the name-label background. */
   readonly labelBorderRadius: number;
+  /** Vertical gap (px) between the caret top and the label's bottom edge. */
+  readonly labelGap: number;
   /** Size (px) of an optional glyph drawn before the label text. */
   readonly labelIconSize: number;
   /** Gap (px) between the label glyph and the text. */
@@ -874,6 +886,11 @@ export interface MathStyles {
   readonly placeholder: {
     readonly backgroundColor: string;
     readonly textColor: string;
+    /** Ghost-text size (px). Absolute — a block equation's placeholder is
+     *  smaller than its typeset body, so it is not scaled from body text. */
+    readonly fontSize: number;
+    /** Ghost-text weight (CSS `font-weight` string). */
+    readonly fontWeight: string;
   };
 }
 
@@ -947,6 +964,30 @@ export interface TextStyle {
   readonly color: string;
   readonly lineHeight: number;
   readonly paddingBottom: number;
+  /**
+   * Optional per-block-type placeholder appearance, set via
+   * `theme.styles.blocks.<type>.placeholder` (or `setTheme`). Lets a host tune
+   * the empty-block ghost text (color / relative size / weight) independently per
+   * block type — resolved off each block's own style, so core needs no type
+   * switch. Omitted fields fall back: `color` → {@link PlaceholderStyles.color},
+   * `fontScale` → 1, `fontWeight` → the block's own weight.
+   */
+  readonly placeholder?: BlockPlaceholderStyle;
+}
+
+/**
+ * Per-block-type override of the empty-block placeholder's appearance. All
+ * fields optional; see {@link TextStyle.placeholder} for the fallbacks. The
+ * placeholder text itself is resolved separately (the node's `placeholderText`
+ * hook / {@link PlaceholderStyles}); this is only its paint style.
+ */
+export interface BlockPlaceholderStyle {
+  /** Text color. Defaults to the global {@link PlaceholderStyles.color}. */
+  readonly color?: string;
+  /** Multiplier on the block's font size (1 = same size as the block text). */
+  readonly fontScale?: number;
+  /** Font weight (CSS string). Defaults to the block's own weight. */
+  readonly fontWeight?: string;
 }
 
 export interface CursorStyles {
@@ -1019,6 +1060,12 @@ export interface SelectionStyles {
   /** Default opacity for a range decoration's fill when it sets none (e.g. a
    * remote peer's selection; its color comes from the decoration). */
   readonly remoteOpacity: number;
+  /**
+   * Corner radius (px) of the selection-highlight rects. 0 (default) keeps the
+   * historical sharp rectangles. Each line rect is rounded independently, so a
+   * multi-line selection reads as a stack of rounded ribbons.
+   */
+  readonly cornerRadius: number;
   readonly handles: SelectionHandleStyles;
 }
 
@@ -1054,6 +1101,13 @@ export interface PlaceholderStyles {
     readonly text: string;
   };
   readonly color: string;
+  /**
+   * When true, every empty block paints its placeholder — not only the block
+   * with the caret. Default false (focused-only, the historical behavior). Still
+   * gated by edit mode with no active selection/composition. Per-block-type
+   * appearance ({@link TextStyle.placeholder}) applies either way.
+   */
+  readonly showUnfocused: boolean;
 }
 
 export interface TextFormatStyles {
