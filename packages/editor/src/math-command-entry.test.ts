@@ -3,14 +3,19 @@
  * a control word is being typed at the caret (`\in` heading to `\int`), the math
  * node/mark arms scratch so the renderer/caret draw it as literal source instead
  * of resolving the symbol — killing the mid-type flash where `\in` briefly shows
- * ∈. It is armed ONLY by `insertText` (the keystroke that grows the command, via
- * the `armCaretScratch` seam) and cleared by any caret move (`updateCursor`
- * resets `caretScratch`), so a finished command never re-renders literally just
- * because the caret later parks at its trailing edge. Deletion/navigation are
- * untouched — they parse the real source, so the command stays one atomic,
- * non-partially-deletable token.
+ * ∈. It is armed by the edits that grow OR shrink the command — `insertText`
+ * (TEXT_INPUTTED) and the DELETE_* actions (CONTENT_DELETED): backspacing `\fr`
+ * to `\f` is still editing that command, and its residue must keep rendering as
+ * literal source (a residue left as a bare `\` would otherwise merge with a
+ * following structural char — `\frac{J\|}{K}` ⌫ → `\}` steals the frac's closing
+ * brace and de-structures the formula). It is cleared by any caret move
+ * (`updateCursor` resets `caretScratch`), so a finished command never re-renders
+ * literally just because the caret later parks at its trailing edge. Caret
+ * NAVIGATION and the delete-unit computation itself stay untouched — they parse
+ * the real source, so a committed command stays one atomic token.
  */
 import { insertText } from "./actions/actions";
+import { DELETE_BACKWARD } from "./actions/edit-actions";
 import { mathArmScratch } from "./nodes/math";
 import { moveCursorToPosition, updateCursor } from "./selection";
 import type { EditorState } from "./state-types";
@@ -104,6 +109,48 @@ describe("math command-entry flag", () => {
     const after = insertText(state, "t").state; // `\int`
     expect(latexOf(after)).toBe("\\int");
     expect(after.ui.caretScratch).toEqual({ type: "math", blockId, offset: 4 });
+  });
+
+  it("re-arms when a backspace shrinks a command still being typed", () => {
+    // `\fra` ⌫ → `\fr`: an in-progress (unknown) run deletes char by char, and
+    // deleting inside it is still editing it. The caret move cleared the
+    // scratch; CONTENT_DELETED must re-arm it so the residue keeps rendering as
+    // literal source. (A COMMITTED command like `\int` instead deletes as one
+    // atomic token — there is no residue to arm for.)
+    const { state, blockId } = mathState("\\fra", 4);
+    const after = state.actionBus.dispatchState(DELETE_BACKWARD, state).state;
+    expect(latexOf(after)).toBe("\\fr");
+    expect(after.ui.caretScratch).toEqual({ type: "math", blockId, offset: 3 });
+  });
+
+  it("re-arms when a backspace leaves a bare `\\` before a structural brace", () => {
+    // The reported bug: `\frac{J\f|}{K}`, ⌫ the `f`. The residue `\` sits right
+    // before the numerator's closing `}` — unarmed, it lexes as the command `\}`,
+    // stealing the frac's closer and de-structuring the whole formula (everything
+    // collapses into the numerator). Armed, the lexer keeps the command-entry `\`
+    // standalone and the fraction stays intact.
+    const { state, blockId } = mathState("\\frac{J\\f}{K}", 9);
+    const after = state.actionBus.dispatchState(DELETE_BACKWARD, state).state;
+    expect(latexOf(after)).toBe("\\frac{J\\}{K}");
+    expect(after.ui.caretScratch).toEqual({ type: "math", blockId, offset: 8 });
+    expect(isCaretScratchActive(after, blockId, 8)).toBe(true);
+  });
+
+  it("does NOT arm when a delete lands the caret at a finished command's edge", () => {
+    // `\sum1` ⌫ the `1`: the caret parks at the edge of `\sum` — complete and
+    // not a prefix of anything longer. It must keep rendering as ∑, not flash
+    // back to literal source.
+    const { state } = mathState("\\sum1", 5);
+    const after = state.actionBus.dispatchState(DELETE_BACKWARD, state).state;
+    expect(latexOf(after)).toBe("\\sum");
+    expect(after.ui.caretScratch).toBeNull();
+  });
+
+  it("does NOT arm when the delete has nothing to do with a command", () => {
+    const { state } = mathState("xy", 2);
+    const after = state.actionBus.dispatchState(DELETE_BACKWARD, state).state;
+    expect(latexOf(after)).toBe("x");
+    expect(after.ui.caretScratch).toBeNull();
   });
 
   it("isCaretScratchActive matches only the exact block + offset", () => {

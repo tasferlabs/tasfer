@@ -1,4 +1,5 @@
 import {
+  caretInProtectedSource,
   clampMirrorStartToSpans,
   computeSurfaceDelta,
   currentWordStart,
@@ -283,5 +284,32 @@ describe("clampMirrorStartToSpans", () => {
     ];
     // Caret at 12: both chips precede it; the floor is the later chip's end.
     expect(clampMirrorStartToSpans(spans, 12)).toBe(9);
+  });
+});
+
+describe("caretInProtectedSource", () => {
+  // The same inline math chip `[2, 13)` as above.
+  const chip = [{ start: 2, end: 13 }];
+
+  it("is true anywhere in a preformatted block, regardless of spans", () => {
+    // A math/code block is source end to end — no prose word ever, so predictive
+    // text is withheld at every offset.
+    expect(caretInProtectedSource(true, [], 0)).toBe(true);
+    expect(caretInProtectedSource(true, [], 7)).toBe(true);
+    expect(caretInProtectedSource(true, chip, 5)).toBe(true);
+  });
+
+  it("is true when the caret is strictly inside an inline math chip", () => {
+    expect(caretInProtectedSource(false, chip, 3)).toBe(true);
+    expect(caretInProtectedSource(false, chip, 12)).toBe(true);
+  });
+
+  it("is false at a chip's edges (the caret is in prose there)", () => {
+    expect(caretInProtectedSource(false, chip, 2)).toBe(false);
+    expect(caretInProtectedSource(false, chip, 13)).toBe(false);
+  });
+
+  it("is false in plain prose with no protected spans", () => {
+    expect(caretInProtectedSource(false, [], 4)).toBe(false);
   });
 });

@@ -505,10 +505,20 @@ describe("script typed at an accent base's end scripts the whole construct", () 
   });
 
   it("does not redirect from the middle of the base or inside \\widehat", () => {
+    // Mid-base (`\dot{x|y}`): no construct redirect — but a `y` follows, which a
+    // bare `^` would swallow, so the script emits its empty box AT the caret
+    // (insertAt is the caret, not hopped past the accent) and keeps `y` a sibling.
     const mid = mathBlock("\\dot{xy}");
     expect(
       mathTransformTypedInput(mid.page.blocks[0], "\\dot{x".length, "^"),
-    ).toBeNull();
+    ).toEqual({
+      input: "^{}",
+      insertAt: "\\dot{x".length,
+      caret: "\\dot{x^".length + 1,
+    });
+    // At the end of a stretchy accent's base (`\widehat{ab|}`) the next char is the
+    // slot's own `}` — nothing to grab — so the bare operator passes through
+    // unchanged (null) for the materializer to open the box.
     const wide = mathBlock("\\widehat{ab}");
     expect(
       mathTransformTypedInput(wide.page.blocks[0], "\\widehat{ab".length, "^"),

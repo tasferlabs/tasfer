@@ -192,9 +192,30 @@ export function inlineToHtml(
     .join("");
 }
 
-/** Plain text rendering: visible characters, formatting dropped. */
-export function inlineToText(charRuns: CharRun[]): string {
-  return getVisibleTextFromRuns(charRuns);
+/**
+ * Plain text rendering: visible characters, formatting dropped — except marks
+ * that declare a {@link MarkCodec.toText} projection (inline math keeps its
+ * `$…$` delimiters so the LaTeX survives a plain-text paste). Data-driven
+ * through the schema, so there is no per-mark-type chain here.
+ */
+export function inlineToText(
+  charRuns: CharRun[],
+  formats: MarkSpan[],
+  schema: DataSchema,
+): string {
+  const segments = groupSegments(charRuns, formats);
+  let content = "";
+  for (const segment of segments) {
+    let text = segment.text;
+    if (segment.formats) {
+      for (const format of segment.formats) {
+        const toText = schema.getMarkCodec(format.type)?.toText;
+        if (toText) text = toText(text, format);
+      }
+    }
+    content += text;
+  }
+  return content;
 }
 
 const MAX_TITLE_MARKDOWN_VISIBLE_LENGTH = 100;

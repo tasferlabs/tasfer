@@ -54,6 +54,13 @@ export interface MarkCodec {
   /** Wrap inline `text` in this mark's markdown delimiters. */
   toMarkdown(text: string, mark: Mark): string;
   /**
+   * Plain-text projection of a marked run. Most marks drop to bare text on the
+   * plain-text clipboard flavor, so this is omitted; a mark whose visible text
+   * is not self-describing (inline math, whose chars are raw LaTeX) implements
+   * it to keep its `$…$` delimiters so the equation survives a plain-text paste.
+   */
+  toText?(text: string, mark: Mark): string;
+  /**
    * The tokenizer start/end tokens that open/close this mark. Set for marks the
    * tokenizer recognizes as paired inline delimiters (bold/italic/strike/code/
    * inline-math). Omitted for marks parsed specially (link) and for custom

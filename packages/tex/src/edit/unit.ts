@@ -268,24 +268,37 @@ export function isInsideConstruct(latex: string, offset: number): boolean {
 }
 
 /**
- * Where a script (`^`/`_`) typed at `offset` should actually be inserted so it
- * attaches to the WHOLE enclosing accented construct instead of growing the
- * accent's base. A non-stretchy accent (`\dot{x}`, `\vec{v}`) decorates one
- * symbol — it reads as a single construct — so a script typed at the end of its
- * base slot (`\dot{x|}`, the position live editing lands the caret at after
- * filling the materialized `\dot{}`) means "script the accented atom"
- * (`\dot{x}^{2}`), not "expand the base under the accent" (`\dot{x^{2}}`).
+ * Where a script (`script`, `^` or `_`) typed at `offset` should actually be
+ * inserted so it attaches to the WHOLE enclosing construct instead of nesting
+ * inside the slot the caret happens to sit in. Two constructs redirect:
+ *
+ *  - **A non-stretchy accent** (`\dot{x}`, `\vec{v}`) decorates one symbol — it
+ *    reads as a single construct — so a script typed at the end of its base slot
+ *    (`\dot{x|}`, where live editing lands the caret after filling the
+ *    materialized `\dot{}`) means "script the accented atom" (`\dot{x}^{2}`), not
+ *    "expand the base under the accent" (`\dot{x^{2}}`). Stretchy accents
+ *    (`\widehat`, `\widetilde`) never redirect: their whole point is to span
+ *    arbitrary content, so a script typed inside stays inside.
+ *
+ *  - **A super/subscript** whose complementary slot is still free. After typing a
+ *    subscript the caret rests at the end of its slot (`x_{n|}`); the natural next
+ *    gesture — a `^` to add the matching superscript — must attach to the SAME
+ *    base (`x_{n}^{2}`, one construct with both scripts), not nest into the
+ *    subscript's content (`x_{n^{2}}`). So a script typed at the end of a
+ *    supsub's braced, non-empty script slot redirects past the whole supsub —
+ *    but ONLY when the supsub lacks the script being added (typing `^` while a
+ *    superscript already exists can't add a second, so it falls through and
+ *    stays inside the slot).
  *
  * Returns the source offset just past the outermost such construct — nested
- * accents escalate, so `\hat{\dot{x|}}` resolves to after the whole `\hat{…}` —
- * or `null` when the caret isn't at the end of a non-stretchy accent's braced,
- * non-empty base. Stretchy accents (`\widehat`, `\widetilde`) never redirect:
- * their whole point is to span arbitrary content, so a script typed inside
- * stays inside. Pure; the editor consults this before inserting a script char.
+ * constructs escalate, so `\hat{\dot{x|}}` resolves to after the whole `\hat{…}`
+ * — or `null` when the caret isn't at a redirecting construct's slot end. Pure;
+ * the editor consults this before inserting a script char.
  */
 export function scriptAttachOffset(
   latex: string,
   offset: number,
+  script: "^" | "_",
 ): number | null {
   const root = parse(latex);
   if (root.type !== "ord") return null;
@@ -293,7 +306,7 @@ export function scriptAttachOffset(
   let target: number | null = null;
   let cursor = offset;
   for (;;) {
-    const hop = accentEndHop(root, cursor, latex);
+    const hop = scriptEndHop(root, cursor, latex, script);
     if (hop === null) break;
     target = hop;
     cursor = hop;
@@ -302,15 +315,18 @@ export function scriptAttachOffset(
 }
 
 /**
- * The offset just past a non-stretchy accent whose braced, non-empty base ends
- * exactly at `offset` (i.e. the caret sits right before the base's closing
- * brace), or `null`. The `latex[offset] === "}"` guard skips an unterminated
- * base (`\dot{x`), whose span ends without a brace to hop over.
+ * The offset just past a construct whose braced, non-empty slot ends exactly at
+ * `offset` (the caret sits right before that slot's closing brace) and that a
+ * script typed there should attach to as a whole, or `null`. Covers a
+ * non-stretchy accent's base and a super/subscript's script slot (see
+ * {@link scriptAttachOffset}). The `latex[offset] === "}"` guard skips an
+ * unterminated slot (`\dot{x`), whose span ends without a brace to hop over.
  */
-function accentEndHop(
+function scriptEndHop(
   node: Node,
   offset: number,
   latex: string,
+  script: "^" | "_",
 ): number | null {
   if (
     node.type === "accent" &&
@@ -322,9 +338,28 @@ function accentEndHop(
   ) {
     return node.span.end;
   }
+  if (node.type === "supsub") {
+    // Adding the script only makes sense when the matching slot is still empty —
+    // LaTeX has no second superscript, so `x^{2|}` + `^` can't escalate and must
+    // stay put (the parser would drop the duplicate `^{}` anyway).
+    const free = script === "^" ? node.sup === null : node.sub === null;
+    if (free) {
+      for (const slot of [node.sup, node.sub]) {
+        if (
+          slot &&
+          slot.type === "ord" &&
+          slot.body.length > 0 &&
+          offset === slot.span.end - 1 &&
+          latex[offset] === "}"
+        ) {
+          return node.span.end;
+        }
+      }
+    }
+  }
   for (const group of childGroups(node)) {
     for (const child of group) {
-      const hop = accentEndHop(child, offset, latex);
+      const hop = scriptEndHop(child, offset, latex, script);
       if (hop !== null) return hop;
     }
   }
@@ -386,6 +421,120 @@ function resolveSelection(
     end: target.span.end,
     isConstruct: !isLeaf(target),
   };
+}
+
+/** One nesting level of the AST as seen along a descent to a source offset. */
+interface SelectionLevel {
+  /** Source span of the slot's content (its sibling list's extent). */
+  readonly start: number;
+  readonly end: number;
+  /** The construct owning this slot, or `null` for the formula's top level. */
+  readonly construct: Node | null;
+}
+
+/**
+ * The chain of nesting levels from the formula's top level down to the slot that
+ * *strictly* contains `offset`, each carrying the construct it belongs to. The
+ * root level (construct `null`) is always first; a caret inside a fraction's
+ * numerator yields `[root, frac.num]`; one inside a nested fraction yields three.
+ * Mirrors {@link locate}'s descent, but records the whole path rather than only
+ * the innermost group — range selection needs to compare two offsets' levels.
+ */
+function levelsAt(root: Node, offset: number): SelectionLevel[] {
+  const levels: SelectionLevel[] = [
+    { start: root.span.start, end: root.span.end, construct: null },
+  ];
+  let siblings = root.type === "ord" ? root.body : [];
+  descend: for (;;) {
+    for (const child of siblings) {
+      if (offset > child.span.start && offset < child.span.end) {
+        for (const group of childGroups(child)) {
+          if (group.length === 0) continue;
+          const gStart = group[0].span.start;
+          const gEnd = group[group.length - 1].span.end;
+          if (offset >= gStart && offset <= gEnd) {
+            levels.push({ start: gStart, end: gEnd, construct: child });
+            siblings = group;
+            continue descend;
+          }
+        }
+        // Inside `child` but not within any populated slot (its delimiters or an
+        // empty slot): it is atomic here. Record it as a terminal level so an
+        // endpoint escalates to the whole construct instead of resting in its guts.
+        levels.push({
+          start: child.span.start,
+          end: child.span.end,
+          construct: child,
+        });
+        break descend;
+      }
+    }
+    break;
+  }
+  return levels;
+}
+
+/**
+ * Snap a range SELECTION's endpoints so it never partially covers a connected
+ * construct — while staying LEVEL-AWARE: a selection lives at the deepest nesting
+ * level the two endpoints share, and only constructs *below* that level are
+ * atomic. Selecting within a fraction's numerator stays inside the numerator
+ * (its own tokens are selectable); dragging from the numerator to the denominator
+ * escalates to the whole `\frac`; at the top level a fraction is one unit.
+ *
+ * The two endpoints snap by different rules once the shared level is found:
+ * - the `focus` (the endpoint just moved) that descends into a deeper construct
+ *   snaps to that construct's edge in its DIRECTION OF TRAVEL (`focusEdge`) — far
+ *   edge to take it in, near edge to drop it (this is what makes "select less"
+ *   work);
+ * - the `anchor` (fixed pivot) that descends deeper widens OUTWARD, to the far
+ *   edge of its construct away from the focus, so the whole of it is covered.
+ *
+ * Offsets that already sit at the shared level are left untouched. Returns the
+ * possibly-adjusted pair; a collapsed range (equal offsets) passes through.
+ */
+export function resolveSelectionRange(
+  latex: string,
+  anchor: number,
+  focus: number,
+  focusEdge: "start" | "end",
+): { anchor: number; focus: number } {
+  if (anchor === focus) return { anchor, focus };
+  const root = parse(latex);
+  if (root.type !== "ord") return { anchor, focus };
+
+  const pathA = levelsAt(root, anchor);
+  const pathF = levelsAt(root, focus);
+
+  // Deepest level whose slot (identified by its content span) both endpoints
+  // share. The root level always matches, so `k` starts there and descends while
+  // the next level down is the same slot in both paths.
+  let k = 0;
+  const maxK = Math.min(pathA.length, pathF.length) - 1;
+  while (
+    k < maxK &&
+    pathA[k + 1].start === pathF[k + 1].start &&
+    pathA[k + 1].end === pathF[k + 1].end
+  ) {
+    k++;
+  }
+
+  const forward = anchor < focus;
+  // Anchor: if it lives below the shared level, take the whole child it sits in,
+  // widening away from the focus (start when the anchor is the low end, else end).
+  let outAnchor = anchor;
+  if (k + 1 < pathA.length) {
+    const child = pathA[k + 1].construct!;
+    outAnchor = forward ? child.span.start : child.span.end;
+  }
+  // Focus: if it lives below the shared level, snap to its child's edge in the
+  // direction the focus travelled.
+  let outFocus = focus;
+  if (k + 1 < pathF.length) {
+    const child = pathF[k + 1].construct!;
+    outFocus = focusEdge === "end" ? child.span.end : child.span.start;
+  }
+  return { anchor: outAnchor, focus: outFocus };
 }
 
 /**

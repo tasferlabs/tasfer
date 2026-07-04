@@ -171,17 +171,20 @@ export {
   caretRect,
   caretVertical,
   selectionRects,
+  spanAtPoint,
 } from "./edit/caret";
 export type {
   CaretStop,
   CaretRect,
   HitTestOptions,
   SelectionRect,
+  SpanAtPointOptions,
 } from "./edit/caret";
 export {
   unitBefore,
   unitAfter,
   unitAt,
+  resolveSelectionRange,
   isInsideConstruct,
   scriptAttachOffset,
   type MathUnit,
@@ -193,7 +196,7 @@ export {
   type LatexInsert,
 } from "./edit/normalize";
 export { canRenderMathChar } from "./edit/char";
-export { escapeTypedBrace } from "./edit/brace";
+export { escapeTypedBrace, balanceBraces } from "./edit/brace";
 export {
   symbolCommands,
   operatorCommands,

@@ -1,6 +1,8 @@
 import { cn } from "@/lib/utils";
 import { renderToSVG } from "@cypherkit/editor";
 import {
+    ArrowLeft,
+    ArrowRight,
     Bold,
     Check,
     Code,
@@ -76,6 +78,8 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
   todo_check: <Check className="size-5" />,
   more: <MoreHorizontal className="size-5" />,
   keyboard_dismiss: <X className="size-5" />,
+  caret_left: <ArrowLeft className="size-5" />,
+  caret_right: <ArrowRight className="size-5" />,
 };
 
 interface MobileKeyboardToolbarProps {
@@ -130,8 +134,13 @@ export function MobileKeyboardToolbar({
   // Whether the scrollable middle has content to fence off from the pinned left
   // cluster with a divider. Mirrors the native accessory's `zone-divider` rule
   // (see `flattenLayoutForNative`), so both shells fence identical zones — e.g.
-  // undo/redo and an image block's settings button.
-  const hasMiddle = middle.kind === "math" || middleItems.length > 0;
+  // undo/redo and an image block's settings button. The math row only carries
+  // content (chips / "no match") while a `\command` is being typed; the empty
+  // browse state must not leave a dangling divider.
+  const hasMiddle =
+    middle.kind === "math"
+      ? middle.query !== null
+      : middleItems.length > 0;
 
   // Menus can live in the left cluster or the middle; resolve the open one.
   const menus = [...layout.left, ...middleItems].filter(
@@ -296,11 +305,14 @@ interface MathRowProps {
   onInsert: (latex: string) => void;
 }
 
-// The contextual math row: a pinned `\`-query prefix (live state), the matching
-// construct chips (rendered as glyph previews), or a clear "no match" when a
-// typed command resolves to nothing rather than a blank gap.
+// The contextual math row: while a `\command` is being typed it shows the
+// matching construct chips (rendered as glyph previews), or a clear "no match"
+// when the query resolves to nothing rather than a blank gap. While just editing
+// (`query === null`) it renders nothing — suggestions are one `\` tap away, and
+// the caret controls take the freed space (see `buildMathRow`).
 function MathRow({ query, chips, onInsert }: MathRowProps) {
   const { t } = useTranslation();
+  if (query === null) return null;
   return (
     <>
       {chips.length > 0 ? (

@@ -388,6 +388,28 @@ export function caretTokenClamp(
 }
 
 /**
+ * Snap a non-collapsed range selection `[anchor, focus]` within one block so it
+ * never partially covers a connected construct, level-awarely (see
+ * {@link CaretModel.selectionRange}), or `null` when nothing needs snapping.
+ * `focusEdge` is the direction the focus travelled. Node-agnostic: the block's
+ * node/marks answer, plain text falls through to `null`.
+ */
+export function selectionRangeAt(
+  state: EditorState,
+  block: Block,
+  anchor: number,
+  focus: number,
+  focusEdge: "start" | "end",
+): { anchor: number; focus: number } | null {
+  return seam(
+    state,
+    block,
+    (n) => n.caret?.selectionRange?.(block, anchor, focus, focusEdge) ?? null,
+    (m) => m.caret?.selectionRange?.(block, anchor, focus, focusEdge) ?? null,
+  );
+}
+
+/**
  * The editing unit adjacent to the caret to delete/select (see
  * {@link CaretDeleteUnit}), or `null` when the caret isn't in atomic content
  * (caller does its plain character/word delete).

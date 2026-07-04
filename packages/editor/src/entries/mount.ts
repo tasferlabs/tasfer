@@ -138,7 +138,9 @@ export interface MountEditorOptions<
    * that surface so suggestions appear and can be committed. Set `false` for
    * fields that should suppress all of it (e.g. code-only or token input).
    * (Grammarly-style DOM injectors stay disabled regardless, since they would
-   * mutate the input surface.)
+   * mutate the input surface.) Even when on, it is withheld automatically while
+   * the caret sits in verbatim source — a math/code block or an inline math chip
+   * — so the mobile suggestion strip can't offer nonsense fixes for LaTeX.
    */
   nativeAutocomplete?: boolean;
   /**
@@ -561,6 +563,7 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     {
       a11yContainer: a11yTree ?? undefined,
       inputStrategy: options?.inputStrategy,
+      nativeAutocomplete,
       autoHeight,
       onContentHeightChange: autoHeight ? applyContentHeight : undefined,
     },

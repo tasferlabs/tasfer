@@ -996,8 +996,14 @@ function buildSupSub(
   if (node.base && style.styleSize === 0) {
     if (isLimitOp(node.base)) {
       const { glyph, baseShift, slant } = buildBigOp(node.base.info, style);
+      // Carry the operator's source span on its glyph (buildBigOp leaves it
+      // null) so the caret layer emits edge stops for it and a double-click can
+      // select/highlight the operator — mirroring buildBigOpAtom's side-set
+      // path. Without it a `\sum`/`\prod` base is span-less: the caret can't land
+      // just after it and its selection highlight comes out empty.
+      const spanned: Box = { ...glyph, span: node.base.span };
       return {
-        box: stackLimits(glyph, baseShift, slant, node, style),
+        box: stackLimits(spanned, baseShift, slant, node, style),
         klass: "mop",
         isCharBox: false,
       };

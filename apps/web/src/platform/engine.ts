@@ -955,6 +955,13 @@ export class Engine implements Platform {
         | null = null;
       if (cached && vvEqual(cached.vv, currentVV) && cached.blocks.length > 0) {
         blocks = cached.blocks;
+        // Free (blocks in hand, no op-log replay): reconcile the derived title
+        // columns against the doc on every open, not only the slow rebuild path
+        // below. A page whose title_md drifted from the doc — e.g. one saved
+        // before a title-projection change, or edited only through a surface
+        // that never wrote the columns — would otherwise stay stale forever,
+        // since a warm snapshot cache skips the rebuild that used to heal it.
+        this.refreshDerivedTitlesFromBlocks(id, blocks).catch(() => {});
       } else {
         // Slow path: replay full op log and persist a fresh snapshot. The saved
         // vv is derived from the exact ops the rebuild consumed, so it always
@@ -1790,6 +1797,16 @@ export class Engine implements Platform {
       operations: import("@cypherkit/editor/state-types").Operation[],
     ): Promise<void> => {
       await this.insertOpsBatch(pageId, operations, Date.now());
+      // The doc ops just changed and they — not any denormalized metadata — are
+      // the source of truth for the page's title columns. Re-derive them, the
+      // same as the remote path (handleRemotePageOps). The body editor's
+      // app-layer save only fires for edits it sees as local and only when the
+      // VISIBLE title text changes, so it misses two cases this covers: edits
+      // made through a secondary surface (a TitleEditor windows the shared doc,
+      // so the body sees them as remote) and marks-only heading edits (wrapping
+      // a run as inline math changes title_md's `$…$` projection but not the
+      // plain title). Debounced + no-op-guarded in scheduleTitleRefresh.
+      this.scheduleTitleRefresh(pageId);
     },
 
     /** Convert blocks to CRDT ops and persist them (used by import) */

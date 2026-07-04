@@ -18,6 +18,7 @@ import {
   mathCaretMove,
   mathCommandRanges,
   mathDeleteUnit,
+  mathSelectionRange,
   mathTransformTypedInput,
 } from "../../nodes/math";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
@@ -40,6 +41,9 @@ import { layoutMath, paintMath } from "@cypherkit/tex";
 const MATH_CODEC: MarkCodec = {
   type: "math",
   toMarkdown: (t) => `$${t}$`,
+  // Plain-text clipboard flavor: keep the `$…$` source so a copied chip pastes
+  // as readable LaTeX, not bare delimiterless characters.
+  toText: (t) => `$${t}$`,
   tokens: { start: INLINE_MATH_START, end: INLINE_MATH_END },
   html: {
     priority: 0,
@@ -199,5 +203,9 @@ export class MathMark extends Mark {
       block.type === "math"
         ? null
         : mathTransformTypedInput(block, index, input),
+    selectionRange: (block, anchor, focus, focusEdge) =>
+      block.type === "math"
+        ? null
+        : mathSelectionRange(block, anchor, focus, focusEdge),
   };
 }

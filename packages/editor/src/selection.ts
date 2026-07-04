@@ -26,6 +26,7 @@ import {
   createInitialCursorState,
   getBlockTextContent,
   getBlockTextLength,
+  selectionRangeAt,
 } from "./state-utils";
 import { getEditorStyles, getTextStyle } from "./styles";
 import { isTextualBlock } from "./sync/block-registry";
@@ -577,6 +578,81 @@ export function getTextPositionFromViewport(
     };
   }
 
+  return null;
+}
+
+/**
+ * The word/token RANGE a double-click / double-tap at `(x, y)` selects, asked of
+ * the block's node directly from the point (see {@link TextNode.wordRangeFromPoint}).
+ * A node that has no point-based word selection — every plain-text block —
+ * returns null, so the caller falls back to the offset-based word selection. Only
+ * a direct block hit resolves a range; a tap in padding / below the content
+ * (where there is no word) returns null too. Shares the visible-block Y walk with
+ * {@link getTextPositionFromViewport} so the geometry matches the painted flow.
+ */
+export function getWordRangeFromViewport(
+  x: number,
+  y: number,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
+): { blockIndex: number; start: number; end: number } | null {
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  if (
+    x < styles.canvas.paddingLeft ||
+    x > styles.canvas.paddingLeft + maxWidth
+  ) {
+    return null;
+  }
+  let currentY =
+    visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
+  const visibleBlocks = state.view.visibleBlocks;
+  const startIndex = visibility?.start ?? 0;
+  for (
+    let visibleIdx = startIndex;
+    visibleIdx < visibleBlocks.length;
+    visibleIdx++
+  ) {
+    const block = visibleBlocks[visibleIdx];
+    const blockHeight = getBlockHeight(
+      state.nodes,
+      state.marks,
+      block,
+      maxWidth,
+      styles,
+      visibleIdx === 0,
+    );
+    if (y >= currentY && y < currentY + blockHeight) {
+      const node = textNodeFor(state, block);
+      if (!node || !isTextualBlock(block)) return null;
+      const layout = layoutFor(
+        node,
+        block,
+        block.originalIndex,
+        maxWidth,
+        styles,
+        state.marks,
+      );
+      const range = node.wordRangeFromPoint(
+        layout,
+        x,
+        y,
+        styles.canvas.paddingLeft,
+        currentY,
+      );
+      return range
+        ? {
+            blockIndex: block.originalIndex,
+            start: range.start,
+            end: range.end,
+          }
+        : null;
+    }
+    if (currentY > viewport.height) break;
+    currentY += blockHeight;
+  }
   return null;
 }
 
@@ -1352,6 +1428,100 @@ export function startSelection(
   });
 }
 
+/** −1 if `to` is before `from` in document order, +1 if after, 0 if the same. */
+function positionDelta(from: Position, to: Position): number {
+  if (to.blockIndex !== from.blockIndex)
+    return Math.sign(to.blockIndex - from.blockIndex);
+  return Math.sign(to.textIndex - from.textIndex);
+}
+
+/**
+ * Snap one endpoint of a CROSS-block selection within its own block. Everything
+ * from the endpoint to the block edge facing the other endpoint is selected, so
+ * that edge is the in-block pivot — the node/mark then widens the endpoint out of
+ * any construct it sits in (level-aware; against a block edge that means the
+ * top-level construct). `role` says which side of the resolved pair to read back.
+ */
+function snapCrossBlockEndpoint(
+  state: EditorState,
+  pos: Position,
+  otherIsAfter: boolean,
+  role: "anchor" | "focus",
+  focusEdge: "start" | "end",
+): Position {
+  const block = state.document.page.blocks[pos.blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return pos;
+  const pivot = otherIsAfter ? getBlockTextLength(block) : 0;
+  const [a, f] =
+    role === "anchor" ? [pos.textIndex, pivot] : [pivot, pos.textIndex];
+  const snapped = selectionRangeAt(state, block, a, f, focusEdge);
+  if (!snapped) return pos;
+  return {
+    ...pos,
+    textIndex: role === "anchor" ? snapped.anchor : snapped.focus,
+  };
+}
+
+/**
+ * Snap a selection's endpoints so it never partially covers a connected math
+ * construct, LEVEL-AWARELY (see {@link CaretModel.selectionRange}). The moving
+ * `focus` snaps in its direction of travel — right/down to take a construct in,
+ * left/up to drop it (this is what makes "select less" work) — while the fixed
+ * `anchor` widens outward. `prevFocus` supplies the travel direction; absent or
+ * unmoved it defaults to the range's own orientation. A collapsed selection is a
+ * bare caret — legal inside a construct for editing — so it passes through.
+ */
+function snapSelectionToConstructs(
+  state: EditorState,
+  anchor: Position,
+  focus: Position,
+  prevFocus: Position | undefined,
+): { anchor: Position; focus: Position } {
+  if (isCollapsedSelection({ anchor, focus })) return { anchor, focus };
+  const forward = isForwardSelection({ anchor, focus });
+  const travel = prevFocus ? positionDelta(prevFocus, focus) : 0;
+  const focusEdge: "start" | "end" =
+    travel > 0 ? "end" : travel < 0 ? "start" : forward ? "end" : "start";
+
+  if (anchor.blockIndex === focus.blockIndex) {
+    const block = state.document.page.blocks[anchor.blockIndex];
+    if (!block || block.deleted || !isTextualBlock(block)) {
+      return { anchor, focus };
+    }
+    const snapped = selectionRangeAt(
+      state,
+      block,
+      anchor.textIndex,
+      focus.textIndex,
+      focusEdge,
+    );
+    if (!snapped) return { anchor, focus };
+    return {
+      anchor: { ...anchor, textIndex: snapped.anchor },
+      focus: { ...focus, textIndex: snapped.focus },
+    };
+  }
+
+  // Cross-block: snap each endpoint within its own block against the far edge.
+  const focusIsAfter = focus.blockIndex > anchor.blockIndex;
+  return {
+    anchor: snapCrossBlockEndpoint(
+      state,
+      anchor,
+      focusIsAfter,
+      "anchor",
+      focusEdge,
+    ),
+    focus: snapCrossBlockEndpoint(
+      state,
+      focus,
+      !focusIsAfter,
+      "focus",
+      focusEdge,
+    ),
+  };
+}
+
 export function updateSelectionFocus(
   state: EditorState,
   position: Position,
@@ -1406,41 +1576,43 @@ export function updateSelectionFocus(
       }
     }
 
-    return {
-      ...state,
-      document: {
-        ...state.document,
-        selection: {
-          anchor: newAnchor,
-          focus: newFocus,
-          isForward: isForwardSelection({
-            anchor: newAnchor,
-            focus: newFocus,
-          }),
-          isCollapsed: isCollapsedSelection({
-            anchor: newAnchor,
-            focus: newFocus,
-          }),
-          lastUpdate: Date.now(),
-          initialBoundary: state.document.selection.initialBoundary,
-        },
-      },
-    };
+    return commitSelectionFocus(
+      state,
+      newAnchor,
+      newFocus,
+      state.document.selection.initialBoundary,
+    );
   }
 
-  return updateSelection(state, {
-    focus: position,
-    anchor: state.document.selection.anchor,
-    lastUpdate: Date.now(),
-    isForward: isForwardSelection({
-      anchor: state.document.selection.anchor,
-      focus: position,
-    }),
-    isCollapsed: isCollapsedSelection({
-      anchor: state.document.selection.anchor,
-      focus: position,
-    }),
+  return commitSelectionFocus(state, state.document.selection.anchor, position);
+}
+
+/**
+ * Snap a selection's endpoints out of any construct they fall inside, write the
+ * selection, and park the caret on the snapped focus. Keeping the caret on the
+ * focus (not the raw interior stop a move/hit-test landed on) is what lets the
+ * NEXT Shift+Arrow or drag step resume from the construct's edge — otherwise
+ * crossing an atomic construct costs one keystroke per interior caret stop it
+ * snapped over (it looks "stuck", selecting the same whole construct each press).
+ */
+function commitSelectionFocus(
+  state: EditorState,
+  anchor: Position,
+  focus: Position,
+  initialBoundary?: SelectionState["initialBoundary"],
+): EditorState {
+  const snapped = snapSelectionToConstructs(
+    state,
+    anchor,
+    focus,
+    state.document.selection?.focus,
+  );
+  const next = updateSelection(state, {
+    anchor: snapped.anchor,
+    focus: snapped.focus,
+    ...(initialBoundary ? { initialBoundary } : {}),
   });
+  return next.document.cursor ? updateCursor(next, snapped.focus) : next;
 }
 
 export function clearSelection(state: EditorState): EditorState {

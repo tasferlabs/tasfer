@@ -25,6 +25,7 @@ import {
 } from "@/platform/devlog";
 import { cn } from "@/lib/utils";
 import { DevEditorState } from "./DevEditorState";
+import useResponsive from "../hooks/useResponsive";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -609,6 +610,8 @@ const PANEL_DEFAULT_H = 520;
 
 export function DevToolbar() {
   const devToolsEnabled = useDevToolsEnabled();
+  // Full-screen on touch devices (phones/tablets), not on narrow desktop windows.
+  const isTouch = useResponsive("(pointer: coarse)");
   const [open, setOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [tab, setTab] = useState<Tab>("database");
@@ -1063,23 +1066,43 @@ export function DevToolbar() {
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: 24, opacity: 0, scale: 0.98 }}
           transition={{ type: "spring", damping: 30, stiffness: 500 }}
-          style={{ height: panelHeight, maxHeight: `${PANEL_MAX_H_VH}vh` }}
+          style={
+            isTouch
+              ? {
+                  height: "100dvh",
+                  maxHeight: "100dvh",
+                  // Full-screen on mobile must clear the notch, home indicator,
+                  // and rounded corners — inset content into the safe area.
+                  paddingTop:
+                    "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+                  paddingBottom:
+                    "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+                  paddingLeft:
+                    "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
+                  paddingRight:
+                    "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
+                }
+              : { height: panelHeight, maxHeight: `${PANEL_MAX_H_VH}vh` }
+          }
           className={cn(
-            "fixed inset-x-0 bottom-0 z-40 top-auto",
+            "fixed z-40",
+            isTouch ? "inset-0" : "inset-x-0 bottom-0 top-auto",
             "bg-popover/95 backdrop-blur-xl",
-            "border-t border-border",
+            isTouch ? "border-0" : "border-t border-border",
             "shadow-2xl",
             "font-sans",
             "flex flex-col overflow-hidden",
           )}
         >
-          {/* Resize handle */}
-          <div
-            onPointerDown={onResizePointerDown}
-            className="shrink-0 h-1.5 cursor-ns-resize flex items-center justify-center hover:bg-muted/50 transition-colors group"
-          >
-            <div className="w-8 h-0.5 rounded-full bg-border group-hover:bg-muted-foreground transition-colors" />
-          </div>
+          {/* Resize handle — hidden on touch devices where the panel is full-screen */}
+          {!isTouch && (
+            <div
+              onPointerDown={onResizePointerDown}
+              className="shrink-0 h-1.5 cursor-ns-resize flex items-center justify-center hover:bg-muted/50 transition-colors group"
+            >
+              <div className="w-8 h-0.5 rounded-full bg-border group-hover:bg-muted-foreground transition-colors" />
+            </div>
+          )}
           {/* Top bar */}
           <div className="flex items-center h-7 px-1.5 border-b border-border shrink-0 gap-0.5">
             <button

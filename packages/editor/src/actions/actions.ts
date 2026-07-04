@@ -1123,11 +1123,15 @@ export function insertText(
   // markdown auto-format to stand down so a stray `$`/`*` can't reinterpret it.
   let suppressInlineMarkdown = false;
   let insertIndex = textIndex;
+  let caretOverride: number | null = null;
   const typed = transformTypedInput(state, oldBlock, textIndex, input);
   if (typed) {
     input = typed.input;
     suppressInlineMarkdown = typed.suppressMarkdown ?? false;
     insertIndex = typed.insertAt ?? insertIndex;
+    // A transform may place the caret INSIDE its inserted text (a typed script's
+    // empty box drops the caret between the braces) rather than after it.
+    caretOverride = typed.caret ?? null;
   }
 
   // Nothing left to insert — either the keystroke was empty or a node's
@@ -1178,7 +1182,10 @@ export function insertText(
   // Inline markdown detection (only on closing delimiter characters)
   const isClosingDelimiter =
     input === "*" || input === "`" || input === "~" || input === "$";
-  let finalTextIndex = newTextIndex;
+  // A transform-supplied caret (a script box's interior) overrides the default
+  // "after the inserted text" landing. Scripts aren't closing delimiters, so the
+  // markdown path below never reassigns this.
+  let finalTextIndex = caretOverride ?? newTextIndex;
 
   if (isClosingDelimiter && !inCodeBlock && !suppressInlineMarkdown) {
     const markdownResult = detectAndApplyInlineMarkdown(

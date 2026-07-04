@@ -27,6 +27,8 @@ import {
   DRAG_DETENT,
   IMAGE_PASTE,
   INDENT_LIST_ITEM,
+  MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_RIGHT,
   OPEN_CONTEXT_MENU,
   OPEN_LINK,
   OUTDENT_LIST_ITEM,
@@ -1259,9 +1261,12 @@ function PageEditor({
   // the time we focus; calling this on focus re-evaluates the current viewport.
   const syncWebKeyboardRef = useRef<(() => void) | null>(null);
 
-  // Android: MainActivity posts the IME inset (resize:"native" is a no-op on the
-  // edge-to-edge WebView), carrying both the height for positioning and an isOpen
-  // flag so position and visibility stay in lockstep.
+  // Native shells post the IME inset with both the height for positioning and an
+  // isOpen flag so position and visibility stay in lockstep. Android: MainActivity
+  // posts it (resize:"native" is a no-op on the edge-to-edge WebView). iOS:
+  // CypherViewController posts it from UIKit's keyboard frame, because under
+  // Capacitor Keyboard resize:"none" the WKWebView keeps its full height and
+  // visualViewport never shrinks — so there is no viewport-derived signal there.
   useEffect(() => {
     const handleKeyboardHeight = (event: MessageEvent) => {
       if (event.source !== window || !isKeyboardHeightMessage(event.data)) {
@@ -1308,32 +1313,16 @@ function PageEditor({
     };
   }, []);
 
-  // iOS native: under Capacitor Keyboard `resize: "none"` (see capacitor.config)
-  // the WKWebView keeps its full height when the keyboard opens instead of the
-  // frame shrinking — so the keyboard inset, which the editor's viewport formula
-  // needs to lift the canvas above the keyboard, must come from visualViewport
-  // (same source mobile web uses). Deliberately NOT resize:"native": that shrank
-  // the whole document on every keyboard toggle, reflowing the app layout and
-  // repainting every viewport-sized canvas. keyboardOpen stays focus-driven for
-  // iOS (above/below) — it also gates the native input accessory. Android posts
-  // its own inset; plain web keeps this at 0 (fixed chrome follows the layout
-  // viewport there).
-  useEffect(() => {
-    if (!IS_IOS_NATIVE) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const sync = () => {
-      const inset = window.innerHeight - vv.height - vv.offsetTop;
-      setKeyboardHeight(inset > 0 ? inset : 0);
-    };
-    sync();
-    vv.addEventListener("resize", sync);
-    vv.addEventListener("scroll", sync);
-    return () => {
-      vv.removeEventListener("resize", sync);
-      vv.removeEventListener("scroll", sync);
-    };
-  }, []);
+  // iOS native keyboard height comes from the CypherViewController message
+  // handled above, NOT visualViewport: under Capacitor Keyboard `resize: "none"`
+  // (see capacitor.config) the WKWebView keeps its full height when the keyboard
+  // opens and visualViewport never shrinks, so a viewport-derived inset would
+  // read 0 (or a negative rubber-band value on scroll) and leave the canvas and
+  // the bottom fixed overlays behind the keyboard. Deliberately NOT
+  // resize:"native": that shrank the whole document on every keyboard toggle,
+  // reflowing the app layout and repainting every viewport-sized canvas.
+  // keyboardOpen is still driven by focus (above/below), and the native inset
+  // message keeps it in lockstep with the actual keyboard.
 
   // Self-heal images that failed while offline. Connectivity is a platform
   // concern, so the `online` reset lives in the host: drop every parked failure
@@ -1514,6 +1503,17 @@ function PageEditor({
           editor.change((change) =>
             change.setBlock({ type: action.blockType as never }),
           );
+          break;
+        case "caret-left":
+          // Pure caret step (the engine's left-arrow primitive). In math it snaps
+          // over a whole construct and out to its edge — how you leave a `\dot`,
+          // a script slot or a fraction when the soft keyboard has no arrow keys.
+          editor.dispatch(MOVE_CURSOR_LEFT);
+          editor.focus();
+          break;
+        case "caret-right":
+          editor.dispatch(MOVE_CURSOR_RIGHT);
+          editor.focus();
           break;
         case "indent-list":
           editor.dispatch(INDENT_LIST_ITEM);

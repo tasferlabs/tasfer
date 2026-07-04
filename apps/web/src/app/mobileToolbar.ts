@@ -45,7 +45,9 @@ export type MobileToolbarIcon =
   | "indent"
   | "outdent"
   | "todo_check"
-  | "more";
+  | "more"
+  | "caret_left"
+  | "caret_right";
 
 export type MobileToolbarAction =
   | { type: "undo" }
@@ -56,6 +58,12 @@ export type MobileToolbarAction =
   | { type: "toggle-math" }
   | { type: "open-math-commands" }
   | { type: "insert-math-command"; latex: string }
+  // Step the caret one position left/right. In math these snap over whole
+  // constructs and out to a construct's edge (the caret model's `charLeft`/
+  // `charRight`), so they are how you exit a `\dot`, a script slot, a fraction —
+  // a mobile keyboard offers no arrow keys of its own.
+  | { type: "caret-left" }
+  | { type: "caret-right" }
   | { type: "toggle-strikethrough" }
   | { type: "set-block"; blockType: MobileToolbarBlockType }
   | { type: "indent-list" }
@@ -277,55 +285,25 @@ const LIST_BLOCK_TYPES: readonly MobileToolbarBlockType[] = [
 /** Deepest indent a list item can reach; mirrors `indentListItem`'s clamp. */
 const MAX_LIST_INDENT = 6;
 
-/**
- * Curated default constructs for the browse state, by catalog id, in display
- * order. Picked for thumb-frequency (fractions, scripts, big operators, the
- * common relations and Greek letters); the full catalog stays one `\` away.
- */
-const DEFAULT_MATH_CHIP_IDS: readonly string[] = [
-  "frac",
-  "sqrt",
-  "^",
-  "_",
-  "sum",
-  "int",
-  "lim",
-  "infty",
-  "leq",
-  "geq",
-  "neq",
-  "times",
-  "cdot",
-  "pm",
-  "to",
-  "partial",
-  "alpha",
-  "beta",
-  "theta",
-  "pi",
-  "lambda",
-  "sigma",
-];
-
 const toChip = (cmd: {
   id: string;
   name: string;
   latex: string;
 }): MathToolbarChip => ({ id: cmd.id, name: cmd.name, latex: cmd.latex });
 
-/** Build the math row for a caret-in-math context (or null when not in math). */
+/**
+ * Build the math row for a caret-in-math context (or null when not in math).
+ * Construct suggestions surface ONLY while a `\command` is being typed (`query
+ * !== null`): the toolbar is narrow, and a permanent browse row of chips crowds
+ * out the caret controls that let you step out of a construct (a mobile keyboard
+ * has no arrow keys). While just editing (`query === null`) the row is empty —
+ * tap the `\` trigger to open the catalog.
+ */
 export function buildMathRow(
   math: MobileToolbarMathContext | null,
 ): MobileToolbarMathRow | null {
   if (!math) return null;
-  if (math.query === null) {
-    const byId = new Map(filterMathCommands("").map((c) => [c.id, c]));
-    const chips = DEFAULT_MATH_CHIP_IDS.flatMap((id) => {
-      const cmd = byId.get(id);
-      return cmd ? [toChip(cmd)] : [];
-    });
-    return { query: null, chips };
-  }
+  if (math.query === null) return { query: null, chips: [] };
   // Live: mirror the `\` menu's ranked matches, capped to keep the row light.
   const chips = filterMathCommands(math.query).slice(0, 24).map(toChip);
   return { query: math.query, chips };
@@ -534,8 +512,17 @@ function flattenLayoutForNative(
   divider: (id: string) => MobileToolbarItem,
   t: Translate,
 ): MobileToolbarItem[] {
+  // The math middle is the live chip row, anchored by the `mathCommand` slot the
+  // accessory fills. It's present only while a `\command` is being typed (`query
+  // !== null`); when just editing, the row is empty, so emit nothing and let the
+  // caret controls in `layout.left` carry the context (mirrors the in-webview
+  // bar's empty browse state — see `buildMathRow`).
   const middle =
-    layout.middle.kind === "math" ? [mathCommand] : layout.middle.items;
+    layout.middle.kind === "math"
+      ? layout.middle.query !== null
+        ? [mathCommand]
+        : []
+      : layout.middle.items;
 
   const trailing: MobileToolbarItem[] = [];
   if (layout.more.length > 0) {
@@ -636,6 +623,32 @@ function buildLayout(
   // there are no list/code controls to compete with the chip row.
   if (state.math) {
     const mathRow = buildMathRow(state.math)!;
+    // Left/right caret steps, pinned beside the `\` trigger. In math they snap
+    // over whole constructs and out to their edges, so they are the way to leave
+    // a `\dot`/script slot/fraction — a mobile keyboard has no arrow keys. They
+    // show ONLY while browsing (`query === null`): once a `\command` is being
+    // typed, the suggestion chips fill the middle, and the two clusters would
+    // compete for the same scarce width — so the arrows step aside for them.
+    const caretLeft: MobileToolbarItem = {
+      kind: "button",
+      id: "caret-left",
+      icon: "caret_left",
+      label: t("editor.math.moveCaretLeft", "Move left"),
+      action: { type: "caret-left" },
+      enabled: true,
+      active: false,
+    };
+    const caretRight: MobileToolbarItem = {
+      kind: "button",
+      id: "caret-right",
+      icon: "caret_right",
+      label: t("editor.math.moveCaretRight", "Move right"),
+      action: { type: "caret-right" },
+      enabled: true,
+      active: false,
+    };
+    const caretControls: MobileToolbarItem[] =
+      mathRow.query === null ? [caretLeft, caretRight] : [];
     // Pin the `\` trigger as the first contextual control (right after the
     // always-leading undo/redo): the math middle is the chip row, so without this
     // there's no quick way to start a typed `\command`. It inserts `\` and opens
@@ -643,7 +656,13 @@ function buildLayout(
     // anchored separately via the `mathCommand` slot, so both stay visible.
     return {
       context: "math",
-      left: [undo, redo, controlsDivider(), controls.mathTrigger],
+      left: [
+        undo,
+        redo,
+        controlsDivider(),
+        controls.mathTrigger,
+        ...caretControls,
+      ],
       middle: { kind: "math", ...mathRow },
       more: [],
       right,

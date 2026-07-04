@@ -341,6 +341,14 @@ export interface TypedInputTransform {
    * The caret lands after the inserted text as usual. Absent: insert at caret.
    */
   readonly insertAt?: number;
+  /**
+   * Absolute block-text index the caret should land at after the insert, when it
+   * belongs INSIDE the inserted text rather than after it — e.g. a typed script
+   * emits its empty box outright (`^{}`) so it can't swallow the following atom,
+   * and the caret must sit between the braces (`aa|aaa` + `^` → `aa^{}aaa` with
+   * the caret in the box). Absent: the caret lands after the inserted text.
+   */
+  readonly caret?: number;
 }
 
 /**

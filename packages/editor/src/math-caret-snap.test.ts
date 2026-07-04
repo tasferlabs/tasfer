@@ -48,6 +48,27 @@ describe("mathCaretOffsets — commands are atomic", () => {
   it("includes the source boundaries even for empty / glyphless input", () => {
     expect(mathCaretOffsets("")).toEqual([0]);
   });
+
+  it("collapses the zero-width separator space after a symbol command", () => {
+    // `\partial z`: `\partial` [0,8), a separator space [8,9), `z` [9,10). The
+    // space renders zero-width, so offsets 8 and 9 draw the identical caret —
+    // stepping between them looked frozen. Only the later (9, before `z`, the
+    // clean insert/delete anchor) survives, so a single right-press crosses ∂.
+    expect(mathCaretOffsets("\\partial z")).toEqual([0, 9, 10]);
+  });
+
+  it("collapses an ordinary inter-atom space", () => {
+    // `x y`: the space [1,2) is invisible in math, so offsets 1 and 2 coincide;
+    // only 2 (before `y`) remains, where Backspace merges the gap (`x y`→`xy`).
+    expect(mathCaretOffsets("x y")).toEqual([0, 2, 3]);
+  });
+
+  it("keeps a big operator's visible italic space distinct (`\\int x`)", () => {
+    // Unlike `\partial`, `\int` carries a visible thin space before `x`, so its
+    // trailing edge (4) and `x`'s leading edge (5) are different pixels — both
+    // stay legal, exactly as before.
+    expect(mathCaretOffsets("\\int x")).toEqual([0, 4, 5, 6]);
+  });
 });
 
 describe("mathCaretStep — horizontal movement snaps over a command", () => {

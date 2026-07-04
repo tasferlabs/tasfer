@@ -1419,6 +1419,10 @@ export class TextNode extends Node<TextualBlock> {
     blockTopY: number,
     state?: EditorState,
     blockId?: string,
+    // Which end of a selection this caret is (see MathNode.caretRect). Plain text
+    // maps an offset to a single x, so there is no tie to break here — the param
+    // exists for the shared signature and math's override consumes it.
+    _edge?: "start" | "end",
   ): { x: number; y: number; height: number; exact?: boolean } {
     const editing =
       state != null && blockId != null
@@ -1608,6 +1612,24 @@ export class TextNode extends Node<TextualBlock> {
    * an inline-math chip) via its `hitTest`, using the layout's mark registry.
    * Ported from getPositionWithinBlock + Line.
    */
+  /**
+   * The word/token RANGE a double-tap at a point selects, resolved from the POINT
+   * rather than a caret offset. Plain text has no point-specific word model — its
+   * offset-based word selection is fine — so the base returns null and the caller
+   * falls back to that path. Math overrides this: a point lands the selection on
+   * the exact atom/construct under the finger, which is the only way to hit a
+   * small operator wedged between constructs. See {@link getWordRangeFromViewport}.
+   */
+  wordRangeFromPoint(
+    _layout: TextNodeLayout,
+    _x: number,
+    _y: number,
+    _originX: number,
+    _blockTopY: number,
+  ): { start: number; end: number } | null {
+    return null;
+  }
+
   positionFromPoint(
     _block: TextualBlock,
     layout: TextNodeLayout,

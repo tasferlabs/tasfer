@@ -11,6 +11,72 @@ class CypherViewController: CAPBridgeViewController {
         if let backgroundColor = UIColor(named: "Background") {
             view.backgroundColor = backgroundColor
         }
+
+        observeKeyboardFrame()
+    }
+
+    deinit {
+        for token in keyboardObservers {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+
+    // MARK: - Soft-keyboard inset → web
+
+    /// Tokens for the keyboard-frame observers, removed on deinit.
+    private var keyboardObservers: [NSObjectProtocol] = []
+
+    /// Post the soft-keyboard inset to the web app so its `position: fixed`
+    /// bottom overlays clear the keyboard — the bottom tool dock (word-count and
+    /// dev-tools chips) and the editor's canvas height formula.
+    ///
+    /// Under Capacitor Keyboard `resize: "none"` (see capacitor.config.ts) the
+    /// WKWebView keeps its full height when the keyboard opens and, crucially,
+    /// `window.visualViewport` does NOT shrink — so the web has no viewport-derived
+    /// keyboard signal on iOS. UIKit's keyboard frame is the only source of truth.
+    /// This mirrors the `keyboard-height-changed` message Android's MainActivity
+    /// posts; the web consumes both through one native-precedence path
+    /// (useKeyboardInset, MountedEditor).
+    private func observeKeyboardFrame() {
+        let center = NotificationCenter.default
+        keyboardObservers.append(
+            center.addObserver(
+                forName: UIResponder.keyboardWillChangeFrameNotification,
+                object: nil, queue: .main
+            ) { [weak self] note in
+                self?.postKeyboardInset(from: note, closing: false)
+            })
+        keyboardObservers.append(
+            center.addObserver(
+                forName: UIResponder.keyboardWillHideNotification,
+                object: nil, queue: .main
+            ) { [weak self] note in
+                self?.postKeyboardInset(from: note, closing: true)
+            })
+    }
+
+    private func postKeyboardInset(from note: Notification, closing: Bool) {
+        guard let webView = webView else { return }
+
+        var inset: CGFloat = 0
+        if !closing,
+            let endFrame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey]
+                as? NSValue)?.cgRectValue
+        {
+            // The keyboard frame arrives in window coordinates; map it into the
+            // web view and measure how far it covers the view's bottom edge. The
+            // end frame already includes the input-accessory bar and extends past
+            // the home indicator, so this overlap is the full inset a
+            // bottom-pinned fixed element must clear. CSS px == points here.
+            let frameInWebView = webView.convert(endFrame, from: nil)
+            inset = max(0, webView.bounds.maxY - frameInWebView.minY)
+        }
+
+        let isOpen = inset > 0
+        let js =
+            "window.postMessage({ type: 'keyboard-height-changed', "
+            + "height: \(Int(inset.rounded())), isOpen: \(isOpen) }, '*')"
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     override func viewSafeAreaInsetsDidChange() {

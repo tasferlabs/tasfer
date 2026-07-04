@@ -8,7 +8,9 @@
  * outside.
  */
 import { createDefaultMarkRegistry } from "../rendering/marks";
+import { startSelection, updateSelectionFocus } from "../selection";
 import { loadPage } from "../serlization/loadPage";
+import { createInitialState } from "../state-utils";
 import { resolveTheme } from "../styles";
 import { TextNode, type TextualBlock } from "./TextNode";
 import { describe, expect, it } from "vitest";
@@ -132,5 +134,35 @@ describe("TextNode inline-math chip click → inside", () => {
     // measure would have snapped it).
     const chipRight = node.caretRect(layout, chipEnd, 0, 0).x;
     expect(Math.abs(right - chipRight)).toBeGreaterThan(1);
+  });
+});
+
+describe("inline-math chip range selection snaps to whole constructs", () => {
+  // "aa $\frac{a}{b}$": the chip `\frac{a}{b}` spans block [3, 14). A drag /
+  // Shift+Arrow endpoint that lands inside the chip's fraction must widen to the
+  // whole construct, just like a block equation — you can't select PART of it.
+  const dragSelect = (anchorIndex: number, focusIndex: number) => {
+    const page = loadPage("aa $\\frac{a}{b}$");
+    let state = createInitialState(page);
+    state = startSelection(state, { blockIndex: 0, textIndex: anchorIndex });
+    state = updateSelectionFocus(state, {
+      blockIndex: 0,
+      textIndex: focusIndex,
+    });
+    return state.document.selection;
+  };
+
+  it("widens a focus that lands in the chip's denominator to the whole chip", () => {
+    // Anchor after the chip (block 14), focus into the denominator (block 12).
+    const selection = dragSelect(14, 12);
+    expect(selection?.anchor.textIndex).toBe(14);
+    expect(selection?.focus.textIndex).toBe(3);
+  });
+
+  it("leaves a selection that stops at the chip's outer edge untouched", () => {
+    // Selecting just the leading "aa " up to the chip's start is a legal edge.
+    const selection = dragSelect(0, 3);
+    expect(selection?.anchor.textIndex).toBe(0);
+    expect(selection?.focus.textIndex).toBe(3);
   });
 });

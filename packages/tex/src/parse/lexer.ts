@@ -42,9 +42,22 @@ const isSpace = (c: string) => c === " " || c === "\t" || c === "\n" || c === "\
  * the construct stays whole.
  *
  * `literalStart` is the source offset of a `\` the caller is actively typing as a
- * new command (command-entry caret just past it — see `pendingCommandRange`). It
- * forces the same no-merge behavior even INSIDE an environment, so typing `\`
- * before a `\frac` in a matrix cell doesn't momentarily read as a row break.
+ * new command (command-entry caret just past it — see `pendingCommandRange`).
+ * That `\` never merges with what follows it, in two ways:
+ *
+ *  - It forces the `\\` no-merge behavior even INSIDE an environment, so typing
+ *    `\` before a `\frac` in a matrix cell doesn't momentarily read as a row
+ *    break.
+ *  - It also skips the single-non-letter-command merge, so typing `\` before an
+ *    EXISTING structural char doesn't swallow it: in `\frac{a\|}{b}` the fresh
+ *    `\` would otherwise lex as `\}`, stealing the frac's closing brace —
+ *    de-structuring the fraction and flashing a red brace glyph. The typed `\`
+ *    stays a standalone empty-named command until the user types the next char
+ *    themselves (at which point the caret moves past it, command entry ends,
+ *    and a deliberate `\}` lexes normally).
+ *
+ * Letters after the command-entry `\` still merge — they ARE the command name
+ * being typed (`\al` en route to `\alpha`).
  */
 export function tokenize(src: string, literalStart?: number): Token[] {
   const tokens: Token[] = [];
@@ -77,9 +90,12 @@ export function tokenize(src: string, literalStart?: number): Token[] {
       i++; // consume backslash
       if (i < n && isLetter(src[i])) {
         while (i < n && isLetter(src[i])) i++;
-      } else if (i < n && src[i] !== "\\") {
+      } else if (i < n && src[i] !== "\\" && start !== literalStart) {
         i++; // single non-letter command char — but never a following \, which
-        // begins its own command (an empty-named \ shows as a literal backslash).
+        // begins its own command (an empty-named \ shows as a literal backslash),
+        // and never for the command-entry \ being typed: merging would steal an
+        // EXISTING structural char (`\frac{a\|}{b}` → `\}` swallows the frac's
+        // closing brace, de-structuring it and flashing a red brace glyph).
       }
       const value = src.slice(start + 1, i);
       // Track environment nesting so the `\\` rule above knows where it is.

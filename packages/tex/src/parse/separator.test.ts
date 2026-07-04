@@ -18,6 +18,9 @@ function unknownNames(node: Node): string[] {
       n.body.forEach(visit);
     } else if (n.type === "supsub") {
       [n.base, n.sup, n.sub].forEach((c) => c && visit(c));
+    } else if (n.type === "frac") {
+      visit(n.num);
+      visit(n.den);
     }
   };
   visit(node);
@@ -180,6 +183,46 @@ describe("parse — a complete construct survives the caret at its command edge"
       "frac", // the intact fraction
     ]);
     expect(unknownNames(root)).toEqual([""]);
+  });
+
+  it("typing a `\\` inside a frac argument doesn't steal its closing brace", () => {
+    // The reported bug: `\frac{dy|}{dx}`, type `\` (command entry). The fresh
+    // `\` would merge with the frac's structural `}` into the single-char
+    // command `\}` — swallowing the closer, de-structuring the fraction, and
+    // flashing a red right-brace glyph (only the `\` itself is suppressed by
+    // the pending range). The command-entry `\` must stay standalone so the
+    // `}` keeps closing the numerator.
+    const src = "\\frac{dy\\}{dx}";
+    const range = pendingCommandRange(src, 9)!; // caret right after the typed \
+    expect(range).toEqual({ start: 8, end: 9 });
+    const root = parse(src, { literalRange: range });
+    expect(root.type === "ord" && root.body.map((n) => n.type)).toEqual([
+      "frac",
+    ]);
+    // The only literal is the in-progress `\`; the frac's brace was NOT eaten.
+    expect(unknownNames(root)).toEqual([""]);
+  });
+
+  it("typing a `\\` before the denominator's `{` doesn't steal the opener", () => {
+    // Same bug, left-brace flavor: `\frac{dy}|{dx}`, type `\`. Merging into
+    // `\{` steals the denominator's opening brace and flashes a red left
+    // brace. Standalone, the `\` becomes the momentary denominator atom (as
+    // any typed char there would) and `{dx}` stays an intact group.
+    const src = "\\frac{dy}\\{dx}";
+    const range = pendingCommandRange(src, 10)!;
+    expect(range).toEqual({ start: 9, end: 10 });
+    const root = parse(src, { literalRange: range });
+    expect(root.type === "ord" && root.body.map((n) => n.type)).toEqual([
+      "frac",
+      "ord",
+    ]);
+    expect(unknownNames(root)).toEqual([""]);
+  });
+
+  it("a deliberate escaped brace still resolves outside command entry", () => {
+    // Once the user actually types the brace (caret moves past it, command
+    // entry ends), `\{`/`\}` lex as one command and typeset as brace glyphs.
+    expect(unknownNames(parse("\\{x\\}"))).toEqual([]);
   });
 
   it("`\\\\` is STILL a row separator inside a tabular environment", () => {

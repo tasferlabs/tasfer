@@ -117,6 +117,45 @@ describe("clipboard text/html round-trip", () => {
     expect(payload!.plainText).toBe("Follow up");
   });
 
+  it("emits block math as `$$…$$` LaTeX in the plain-text payload", () => {
+    const page = pageWith({
+      id: "m1",
+      orderKey: "a0",
+      type: "math",
+      charRuns: run("x^2 + y^2"),
+      formats: [],
+      displayMode: true,
+    } as unknown as Block);
+    const payload = buildClipboardPayload(selectAll(page));
+
+    expect(payload).not.toBeNull();
+    // External plain-text targets (terminals, code editors) must receive the
+    // LaTeX source, not an empty string.
+    expect(payload!.plainText).toBe("$$x^2 + y^2$$");
+  });
+
+  it("keeps inline math `$…$` delimiters in the plain-text payload", () => {
+    // "see a^2" — chars peer:0..6; the math chip covers "a^2" (peer:4..6).
+    const page = pageWith({
+      id: "p1",
+      orderKey: "a0",
+      type: "paragraph",
+      charRuns: run("see a^2"),
+      formats: [
+        {
+          startCharId: "peer:4",
+          endCharId: "peer:6",
+          format: { type: "math" },
+          clock: { counter: 0, peerId: "peer" },
+        },
+      ],
+    } as unknown as Block);
+    const payload = buildClipboardPayload(selectAll(page));
+
+    expect(payload).not.toBeNull();
+    expect(payload!.plainText).toBe("see $a^2$");
+  });
+
   it("round-trips image sizing, block math, and list indent losslessly", () => {
     const payload = buildClipboardPayload(selectAll(source));
     const binding = createCRDTbinding("page-2", "peer-b");

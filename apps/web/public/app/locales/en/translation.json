@@ -301,6 +301,8 @@
   "editor.math.chooseConstruct": "Choose a math construct",
   "editor.math.inline": "Inline math",
   "editor.math.insertConstruct": "Insert {{name}}",
+  "editor.math.moveCaretLeft": "Move left",
+  "editor.math.moveCaretRight": "Move right",
   "editor.math.noConstructs": "No matching constructs",
   "editor.math.placeholder": "Type an equation, or type '\\' for commands…",
   "editor.math.searchConstructs": "Search fractions, roots, symbols…",

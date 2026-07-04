@@ -185,15 +185,22 @@ export const TAP_SELECT_LINE = stateAction<PositionPayload>(
  *
  * Named `TAP_*` (vs the mouse `SELECT_WORD_AT_POINT`) for the touch convention.
  */
-export const TAP_SELECT_WORD = stateAction<PositionPayload>(
-  "tap-select-word",
-  (state, { position }) => {
-    const next = selectWordAtPosition(state, position);
-    // Host-owned context menu: signal it to close (no-op if none is open).
-    state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
-    return { state: next, ops: [] };
-  },
-);
+export const TAP_SELECT_WORD = stateAction<
+  PositionPayload & {
+    /**
+     * A pre-resolved word/token range (block-text indices), when the node under
+     * the tap selects by POINT rather than by the `position` offset — a math
+     * block resolves the atom the finger is on (see `getWordRangeFromViewport`).
+     * The default text handler ignores it; the math node's handler consumes it.
+     */
+    range?: { start: number; end: number };
+  }
+>("tap-select-word", (state, { position }) => {
+  const next = selectWordAtPosition(state, position);
+  // Host-owned context menu: signal it to close (no-op if none is open).
+  state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
+  return { state: next, ops: [] };
+});
 
 // ─── Tap-place-cursor ────────────────────────────────────────────────────────
 

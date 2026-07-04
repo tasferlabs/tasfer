@@ -22,9 +22,11 @@ import type {
 import { isTouchDevice } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import {
+  balanceBraces as texBalanceBraces,
   breakpoints as texBreakpoints,
   canRenderMathChar,
   caretRect as texCaretRect,
+  type CaretStop,
   caretStops as texCaretStops,
   caretVertical as texCaretVertical,
   escapeTypedBrace as texEscapeTypedBrace,
@@ -38,6 +40,7 @@ import {
   needsCommandSeparator as texNeedsCommandSeparator,
   normalizeLatex as texNormalizeLatex,
   pendingCommandRange as texPendingCommandRange,
+  resolveSelectionRange as texResolveSelectionRange,
   scriptAttachOffset as texScriptAttachOffset,
   selectionRects as texSelectionRects,
   toSVG,
@@ -386,9 +389,9 @@ function chipLeadingUnit(latex: string): MathUnit | null {
  * of silently opening an invisible group — raw braces still pass through where
  * they're structural: completing a typed `\{`, opening a control word's
  * argument, closing a raw-opened group), redirect a script
- * (`^`/`_`) typed at the end of an accent's base to just past the construct so
- * it scripts the accented atom as a whole (`\dot{x|}` + `^` → `\dot{x}^`, never
- * `\dot{x^{}}` with the dot expanding over the script), and — inside an inline
+ * (`^`/`_`) typed at the end of an accent's base or a super/subscript's filled
+ * slot to just past the construct so it attaches as a whole (`\dot{x|}` + `^` →
+ * `\dot{x}^`, not `\dot{x^{}}`; `x_{n|}` + `^` → `x_{n}^`, not `x_{n^{}}`), and — inside an inline
  * chip — flag that inline-markdown must be suppressed (a stray `$`/`*` can't
  * reinterpret the formula). `null` outside math or when nothing needs doing.
  */
@@ -430,18 +433,39 @@ export function mathTransformTypedInput(
   if (out === "{" || out === "}") {
     out = texEscapeTypedBrace(latex, offset, out) ?? out;
   }
-  // A script typed at the end of a non-stretchy accent's base attaches to the
-  // whole construct: hop the insert past it so `\dot{x|}` + `^` yields
-  // `\dot{x}^{…}` (the scripted accented atom), not `\dot{x^{…}}` (the accent
-  // expanding over the script). The base offset re-maps a chip-local target
-  // back to block coordinates.
-  const attach =
-    out === "^" || out === "_" ? texScriptAttachOffset(latex, offset) : null;
-  if (attach !== null) {
-    const insertAt = attach + (index - offset);
-    return insideChip
-      ? { input: out, suppressMarkdown: true, insertAt }
-      : { input: out, insertAt };
+  // A script typed at the end of an accent's base, or of a super/subscript's
+  // filled slot, attaches to the whole construct: hop the insert past it so
+  // `\dot{x|}` + `^` yields `\dot{x}^{…}` (the scripted accented atom, not the
+  // accent expanding over the script) and `x_{n|}` + `^` yields `x_{n}^{…}` (the
+  // matching script on the same base, not `x_{n^{…}}` nested in the subscript).
+  // The base offset re-maps a chip-local target back to block coordinates.
+  if (out === "^" || out === "_") {
+    const attach = texScriptAttachOffset(latex, offset, out);
+    const localAt = attach ?? offset;
+    const insertAt = localAt + (index - offset);
+    // A bare `^`/`_` typed BEFORE more content greedily binds the next atom as its
+    // script (`aa|aaa` + `^` → `aa^aaa`, the 3rd `a` raised) — the source parses
+    // as a filled slot, so the materializer never opens an empty box. When such an
+    // atom follows (anything but the enclosing slot's `}` or the string's end),
+    // emit the braced box `^{}` outright and drop the caret inside it, keeping the
+    // following atoms as base siblings (`aa^{}aaa`, caret in the box). With nothing
+    // to grab, keep the bare operator so the materializer opens the box and lands
+    // the caret exactly as it does for a trailing script (`x|` + `^` → `x^{}`).
+    const grabs = localAt < latex.length && latex[localAt] !== "}";
+    if (grabs) {
+      const boxed = out + "{}";
+      const caret = insertAt + out.length + 1; // between the box's braces
+      return insideChip
+        ? { input: boxed, suppressMarkdown: true, insertAt, caret }
+        : { input: boxed, insertAt, caret };
+    }
+    if (attach !== null) {
+      return insideChip
+        ? { input: out, suppressMarkdown: true, insertAt }
+        : { input: out, insertAt };
+    }
+    if (insideChip) return { input: out, suppressMarkdown: true };
+    return out === input ? null : { input: out };
   }
   if (insideChip) return { input: out, suppressMarkdown: true };
   // Block equation: only contribute when filtering or the separator changed input.
@@ -470,6 +494,76 @@ export function mathArmScratch(
   }
   if (latex === null || !mathPendingCommandRange(latex, offset)) return null;
   return { type: "math", blockId: block.id, offset: index };
+}
+
+/**
+ * Auto-heal unbalanced grouping braces in the math content at `index` by
+ * appending the missing closing `}` — the counterpart of {@link
+ * mathMaterializeAfterInput}, run just before it so materialization then works on
+ * balanced source. An unclosed `{` makes its group run to the end of the source,
+ * swallowing every trailing offset so the caret can never sit *after* the
+ * construct (nothing can be typed to its right); closing the group restores that
+ * exit position. Render-neutral and idempotent (see {@link texBalanceBraces}) —
+ * a no-op on the balanced source normal editing always produces, so it only ever
+ * repairs pasted / imported LaTeX. The braces are real source text applied as
+ * CRDT ops within the same edit. `null` when nothing needs closing or the caret
+ * isn't in math content.
+ *
+ * Because the closers append at the source end, they shift no earlier offset, so
+ * the caret keeps its position — it simply gains a reachable stop to its right.
+ */
+/**
+ * `latex` with any unclosed grouping `{` closed — the string form of the
+ * brace auto-heal, applied when LaTeX is *imported* (pasted `$$…$$` markdown /
+ * HTML) so unbalanced source never enters the document and traps the caret past
+ * the construct in the first place. Render-neutral and idempotent (see {@link
+ * texBalanceBraces}); balanced input is returned unchanged.
+ */
+export function mathBalancedLatex(latex: string): string {
+  const b = texBalanceBraces(latex);
+  if (!b.changed) return latex;
+  return b.inserts.reduce((s, i) => s + i.text, latex);
+}
+
+export function mathBalanceAfterInput(
+  block: Block,
+  index: number,
+): ContentMaterialization | null {
+  if (block.type === "math") {
+    const latex = blockLatex(block);
+    // Defer while a command is being typed at the caret: a bare `\` mid-edit
+    // merges with a following `}` into the escaped literal `\}`, which transiently
+    // unbalances the group (`\frac{J\|}{K}` ⌫ → `\frac{J\}{K}`, num now unclosed).
+    // That residue is handled by command-entry scratch (it renders literally) and
+    // resolves as the user finishes the command — healing it here would append a
+    // stray `}` to a formula that's about to become balanced again. Once the
+    // command commits and the caret moves off, the next edit heals normally.
+    if (mathPendingCommandRange(latex, index)) return null;
+    const b = texBalanceBraces(latex);
+    if (!b.changed) return null;
+    return { inserts: b.inserts, caret: index };
+  }
+  // Inline chip: the caret is inside the chip (or just past its last char after
+  // typing). The chip's visible chars ARE its LaTeX; the closers land at the
+  // chip's right edge — outside the math mark — so re-mark the grown chip so the
+  // new braces join the formula instead of becoming plain text after it.
+  for (const span of getInlineMathSpans(block)) {
+    if (index <= span.startIndex || index > span.endIndex) continue;
+    if (mathPendingCommandRange(span.latex, index - span.startIndex))
+      return null;
+    const b = texBalanceBraces(span.latex);
+    if (!b.changed) return null;
+    const inserted = b.inserts.reduce((sum, i) => sum + i.text.length, 0);
+    return {
+      inserts: b.inserts.map((i) => ({
+        at: span.startIndex + i.at,
+        text: i.text,
+      })),
+      caret: index,
+      markRange: { from: span.startIndex, to: span.endIndex + inserted },
+    };
+  }
+  return null;
 }
 
 /**
@@ -926,6 +1020,60 @@ export function mathUnitAt(latex: string, offset: number): MathUnit | null {
 }
 
 /**
+ * Snap a range SELECTION `[anchor, focus]` (block-text indices) so it never
+ * partially covers a connected math construct, LEVEL-AWARELY — see
+ * {@link CaretModel.selectionRange}. Returns adjusted indices, or `null` to leave
+ * the range untouched.
+ *
+ * Handles both hosts behind the caret seam:
+ * - a block equation (`block.type === "math"`, whose whole text IS the LaTeX) —
+ *   resolves directly on the block offsets;
+ * - an inline chip inside ordinary text — a chip is one atomic unit at the
+ *   paragraph's level, so when both endpoints sit inside the SAME chip the range
+ *   is resolved at that chip's LaTeX levels (re-based onto block coordinates),
+ *   and otherwise any endpoint inside a chip snaps to the chip's edge (whole chip
+ *   in/out), while endpoints in plain text stay put.
+ */
+export function mathSelectionRange(
+  block: Block,
+  anchor: number,
+  focus: number,
+  focusEdge: "start" | "end",
+): { anchor: number; focus: number } | null {
+  if (block.type === "math") {
+    const latex = getVisibleTextFromRuns(block.charRuns);
+    return texResolveSelectionRange(latex, anchor, focus, focusEdge);
+  }
+  const chipA = chipAt(block, anchor, "inside");
+  const chipF = chipAt(block, focus, "inside");
+  if (chipA && chipF && chipA.startIndex === chipF.startIndex) {
+    // Both endpoints inside one chip: resolve at that chip's own LaTeX levels.
+    const r = texResolveSelectionRange(
+      chipA.latex,
+      anchor - chipA.startIndex,
+      focus - chipA.startIndex,
+      focusEdge,
+    );
+    return {
+      anchor: chipA.startIndex + r.anchor,
+      focus: chipA.startIndex + r.focus,
+    };
+  }
+  if (!chipA && !chipF) return null; // neither endpoint inside a chip
+  // A chip is atomic at the block level: widen the anchor outward, snap the focus
+  // by its travel direction; a plain-text endpoint is left where it is.
+  const forward = anchor < focus;
+  return {
+    anchor: chipA ? (forward ? chipA.startIndex : chipA.endIndex) : anchor,
+    focus: chipF
+      ? focusEdge === "end"
+        ? chipF.endIndex
+        : chipF.startIndex
+      : focus,
+  };
+}
+
+/**
  * The legal caret source offsets within a LaTeX string, sorted ascending — the
  * positions the caret may rest at. A multi-character command (`\int`, `\sin`)
  * lays out as glyphs that all carry the *whole* command's span, so it yields
@@ -934,14 +1082,77 @@ export function mathUnitAt(latex: string, offset: number): MathUnit | null {
  * so it can never be split into `\in` by a delete or `\inxt` by a keystroke. The
  * source boundaries `0` and `latex.length` are always included so the caret can
  * sit before/after the whole equation (and step out to an adjacent block).
+ *
+ * A space that separates a token from the next (`\partial z`, `x y`) renders
+ * zero-width in math, so the two source offsets bracketing it — the trailing
+ * edge of the token before and the leading edge of the glyph after — draw the
+ * caret at the SAME point. Two source positions, one visual gap: a raw arrow-step
+ * from one to the other looks frozen (the reported "press right twice to pass
+ * `\partial`"). We keep only the LATER offset of such a coincident pair — the
+ * start of the following glyph, where an insert lands cleanly (`\partial|z` →
+ * `\partial xz`, not the command-corrupting `\partialx z`) and Backspace deletes
+ * the gap.
+ *
+ * The collapse is deliberately narrow: it fires only for two non-boundary stops
+ * at the identical `(x, y)`. A construct's outer BOUNDARY stop is a distinct
+ * "beside the whole construct" rest even where it visually coincides with an
+ * inner edge — the far edge of `\sqrt{a}` (past `}`) sits on the radicand's right
+ * edge yet must stay reachable to step out — so a boundary never collapses. And
+ * a same-column stop on a different ROW (the baseline after `x` vs the `2` up in
+ * `x^{2}`) differs in `y`, so it stays too. Only truly invisible duplicates go.
  */
 export function mathCaretOffsets(latex: string): number[] {
-  const set = new Set<number>([0, latex.length]);
-  if (latex) {
-    const l = layoutMath(latex, { fontSize: 16, displayMode: false });
-    for (const stop of texCaretStops(l)) set.add(stop.offset);
+  if (!latex) return [0];
+  const l = layoutMath(latex, { fontSize: 16, displayMode: false });
+  // Every caret stop at each source offset. One offset can have several (a
+  // multi-glyph command like `\sin` stops at each of its glyphs' edges).
+  const stopsByOffset = new Map<number, CaretStop[]>();
+  for (const stop of texCaretStops(l)) {
+    const group = stopsByOffset.get(stop.offset);
+    if (group) group.push(stop);
+    else stopsByOffset.set(stop.offset, [stop]);
   }
-  return [...set].sort((a, b) => a - b);
+  // The source boundaries are always legal, even when they carry no glyph edge
+  // (an empty slot, a leading/trailing structural brace).
+  if (!stopsByOffset.has(0)) stopsByOffset.set(0, []);
+  if (!stopsByOffset.has(latex.length)) stopsByOffset.set(latex.length, []);
+
+  const offsets = [...stopsByOffset.keys()].sort((a, b) => a - b);
+  const out: number[] = [];
+  for (let i = 0; i < offsets.length; i++) {
+    const offset = offsets[i];
+    const next = offsets[i + 1];
+    // Drop an offset that is visually indistinguishable from the next one,
+    // keeping the later (see above). Never drop a source boundary. Runs of
+    // three+ coincident offsets collapse to the last.
+    if (
+      offset !== 0 &&
+      offset !== latex.length &&
+      next !== undefined &&
+      coincidentCaret(stopsByOffset.get(offset)!, stopsByOffset.get(next)!)
+    ) {
+      continue;
+    }
+    out.push(offset);
+  }
+  return out;
+}
+
+/**
+ * Whether two offsets draw the caret at the exact same point(s): equal stop
+ * count, each `(x, y)` matching within a sub-pixel epsilon, and neither carrying
+ * a construct-boundary stop (a boundary is a deliberately distinct rest — see
+ * {@link mathCaretOffsets}). Empty stop sets (source boundaries) never coincide.
+ */
+function coincidentCaret(a: CaretStop[], b: CaretStop[]): boolean {
+  if (a.length === 0 || a.length !== b.length) return false;
+  if (a.some((s) => s.boundary) || b.some((s) => s.boundary)) return false;
+  const key = (s: CaretStop) => s.x * 1e5 + s.y;
+  const sa = [...a].sort((p, q) => key(p) - key(q));
+  const sb = [...b].sort((p, q) => key(p) - key(q));
+  return sa.every(
+    (s, i) => Math.abs(s.x - sb[i].x) < 0.01 && Math.abs(s.y - sb[i].y) < 0.01,
+  );
 }
 
 export interface InlineMathDims {

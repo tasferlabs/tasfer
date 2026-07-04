@@ -131,6 +131,25 @@ export function clampMirrorStartToSpans(
   return floor;
 }
 
+/**
+ * Whether the caret sits in verbatim SOURCE rather than prose — a preformatted
+ * block (a math or code block, source end to end) or *strictly inside* a
+ * replacement-mark run (an inline math chip's LaTeX). This is exactly the
+ * condition under which the surface withholds a live word from the OS keyboard
+ * (see {@link clampMirrorStartToSpans}); the editor also uses it to switch off
+ * native predictive text / autocorrect so the mobile suggestion strip can't
+ * offer nonsense fixes for LaTeX. Node/mark-agnostic: the caller supplies the
+ * preformatted flag and the replacement spans. A caret on a span edge is prose.
+ */
+export function caretInProtectedSource(
+  isPreformatted: boolean,
+  replacementSpans: Iterable<ProtectedSpan>,
+  caret: number,
+): boolean {
+  if (isPreformatted) return true;
+  return clampMirrorStartToSpans(replacementSpans, caret) === null;
+}
+
 /** A minimal `[deleteStart, deleteEnd) → insert` edit derived from two strings. */
 export interface SurfaceDelta {
   /** Start offset (in `prev`) of the replaced span. */

@@ -68,6 +68,7 @@ import {
   type VisibleToken,
 } from "../serlization/tokenizer";
 import type {
+  ContentMaterialization,
   EditorState,
   EditorStyles,
   Operation,
@@ -97,6 +98,8 @@ import { applyOps, cardJoinFlags } from "../sync/reducer";
 import {
   mathAbsorbNumericPunctuationAfterInput,
   mathArmScratch,
+  mathBalanceAfterInput,
+  mathBalancedLatex,
   mathCaretMove,
   mathCommandRanges,
   mathDeleteUnit,
@@ -104,6 +107,7 @@ import {
   mathMaterializeAfterInput,
   mathMergeAfterDelete,
   mathRedundantSpaceAfterInput,
+  mathSelectionRange,
   mathSeparatorAfterDelete,
   mathSplitAfterInput,
   mathTransformTypedInput,
@@ -117,6 +121,7 @@ import {
   type MathLayout,
   paintMath,
   selectionRects as texSelectionRects,
+  spanAtPoint as texSpanAtPoint,
 } from "@cypherkit/tex";
 
 // Math block — a display LaTeX equation. Textual (its char-run text is the
@@ -501,6 +506,7 @@ export class MathNode extends TextNode {
     blockTopY: number,
     state?: EditorState,
     blockId?: string,
+    edge?: "start" | "end",
   ): { x: number; y: number; height: number; exact?: boolean } {
     const commandEntryActive =
       state != null && blockId != null
@@ -537,7 +543,7 @@ export class MathNode extends TextNode {
 
     const baseX = originX + mathOffsetX;
     const baselineY = blockTopY + l.mathTop + mathLayout.height;
-    const r = texCaretRect(mathLayout, textIndex);
+    const r = texCaretRect(mathLayout, textIndex, edge);
     if (!r) {
       return {
         x: baseX,
@@ -572,6 +578,31 @@ export class MathNode extends TextNode {
     });
   }
 
+  /**
+   * Double-tap / double-click → the LaTeX range to select, resolved from the tap
+   * POINT (not a caret offset). Selecting math by point is what makes a small
+   * operator reachable: a `+`/`-`/`=` wedged between two constructs is impossible
+   * to hit through the offset path (the tap maps to a shared boundary and
+   * `mathUnitAt` prefers the neighbouring construct), but here the finger just
+   * lands in the operator's own box. Uses a finger-sized target on touch. Returns
+   * null for an empty block, so the caller falls back to the offset path.
+   */
+  wordRangeFromPoint(
+    layout: TextNodeLayout,
+    x: number,
+    y: number,
+    originX: number,
+    blockTopY: number,
+  ): { start: number; end: number } | null {
+    const l = layout as MathNodeLayout;
+    if (!l.mathLayout) return null;
+    const baseX = originX + l.mathOffsetX;
+    const baselineY = blockTopY + l.mathTop + l.mathLayout.height;
+    return texSpanAtPoint(l.mathLayout, x - baseX, y - baselineY, {
+      minTargetSize: isTouchDevice() ? 44 : 24,
+    });
+  }
+
   // ── Serialization ──────────────────────────────────────────────────────────
 
   readonly codec: NodeCodec = {
@@ -591,7 +622,11 @@ export class MathNode extends TextNode {
         const math: MathBlock = {
           id: ctx.nextBlockId(),
           type: "math",
-          charRuns: ctx.rawText(latex),
+          // Close any unclosed grouping braces on import so pasted/imported LaTeX
+          // never enters unbalanced — an unclosed `{` runs its group to the source
+          // end and traps every trailing offset inside it, leaving no caret stop
+          // past the construct. Render-neutral; balanced source is unchanged.
+          charRuns: ctx.rawText(mathBalancedLatex(latex)),
           formats: [],
           displayMode: true,
         };
@@ -620,7 +655,15 @@ export class MathNode extends TextNode {
       },
     },
     text: {
-      output: () => "",
+      // Plain-text clipboard flavor: emit the `$$…$$` LaTeX source so a copied
+      // equation pastes as readable/editable math into plain-text targets
+      // (terminals, code editors) instead of vanishing.
+      output: (block) => {
+        const b = block as MathBlock;
+        const latex = getVisibleTextFromRuns(b.charRuns);
+        if (!latex) return "";
+        return `$$${latex}$$`;
+      },
     },
   };
 
@@ -636,6 +679,8 @@ export class MathNode extends TextNode {
     deleteUnit: (block, index, dir) => mathDeleteUnit(block, index, dir),
     transformInput: (block, index, input) =>
       mathTransformTypedInput(block, index, input),
+    selectionRange: (block, anchor, focus, focusEdge) =>
+      mathSelectionRange(block, anchor, focus, focusEdge),
   };
 
   /**
@@ -763,14 +808,18 @@ export class MathNode extends TextNode {
     // itself. `mathUnitAt` resolves both sides of the hit-test boundary and prefers
     // the construct, so clicking a numerator glyph never falls back to a single
     // source character. One handler, registered for the mouse and touch actions.
-    const selectMathWord: StateHandler<{ position: Position }> = (
-      state,
-      { position },
-    ) => {
+    const selectMathWord: StateHandler<{
+      position: Position;
+      range?: { start: number; end: number };
+    }> = (state, { position, range }) => {
       const block = state.document.page.blocks[position.blockIndex];
       if (!block || block.deleted || block.type !== "math") return;
+      // Prefer a range the caller resolved from the tap POINT — it lands on the
+      // exact atom the finger is over, so a small operator (`+`/`-`/`=`) between
+      // constructs is selectable at all. Fall back to the offset-based unit when
+      // no point was resolved (e.g. a keyboard-driven word select).
       const latex = getVisibleTextFromRuns(block.charRuns);
-      const unit = mathUnitAt(latex, position.textIndex);
+      const unit = range ?? mathUnitAt(latex, position.textIndex);
       if (!unit) return { state, ops: [], handled: true };
 
       return {
@@ -908,7 +957,41 @@ export class MathNode extends TextNode {
     bus.registerState(CONTENT_DELETED, (state, { blockIndex, textIndex }) => {
       const merged = mergeInlineMath(state, blockIndex);
       const separated = separateBlockMath(merged.state, blockIndex, textIndex);
-      return { state: separated.state, ops: [...merged.ops, ...separated.ops] };
+      let next = separated.state;
+      const ops: Operation[] = [...merged.ops, ...separated.ops];
+      // Auto-heal grouping braces the same way the input path does: a delete that
+      // left an unclosed `{` (or one that landed in an already-imbalanced block)
+      // regains the caret stop past the construct instead of trapping every
+      // trailing offset inside the open group. Idempotent, so balanced content
+      // no-ops. Runs on the caret's own position so a chip is resolved from it.
+      const balanceBlock = next.document.page.blocks[blockIndex];
+      const bal =
+        balanceBlock && !balanceBlock.deleted
+          ? mathBalanceAfterInput(balanceBlock, textIndex)
+          : null;
+      if (bal && bal.inserts.length > 0) {
+        next = applyMathInserts(
+          next,
+          balanceBlock.id,
+          blockIndex,
+          bal,
+          ops,
+        ).state;
+      }
+      // Re-arm command-entry scratch when the delete backed into a command still
+      // being typed (`\fr` ⌫ → `\f`) — the caret move cleared it. Editing a
+      // command by deletion is still editing it: without the flag the residue
+      // parses as committed source, and a residue left as a bare `\` merges with
+      // a following structural char (`\frac{J\|}{K}` ⌫ → `\}` steals the frac's
+      // closing brace and the whole formula de-structures). Mirrors the arming
+      // in `normalizeMathInput`; a complete, non-growable command never arms.
+      const block = next.document.page.blocks[blockIndex];
+      const scratch =
+        block && !block.deleted ? mathArmScratch(block, textIndex) : null;
+      if (scratch) {
+        next = { ...next, ui: { ...next.ui, caretScratch: scratch } };
+      }
+      return { state: next, ops };
     });
   }
 }
@@ -941,6 +1024,55 @@ function selectMathRange(
     },
   };
   return updateMode(next, "select");
+}
+
+/**
+ * Apply a math content plan (`{ inserts, caret, markRange? }` from
+ * {@link mathBalanceAfterInput} / {@link mathMaterializeAfterInput}) as real CRDT
+ * ops: splice each insert in right-to-left (so an earlier `at` stays valid as
+ * later inserts shift text), re-mark the grown chip when a `markRange` is given
+ * (an inline chip's new braces land at its right edge, outside the math mark),
+ * then move the caret to the plan's final position. Pushes the ops onto `ops` and
+ * returns the updated state plus the settled caret. Shared by the balance and
+ * materialize steps, which apply identically.
+ */
+function applyMathInserts(
+  state: EditorState,
+  blockId: string,
+  blockIndex: number,
+  plan: ContentMaterialization,
+  ops: Operation[],
+): { state: EditorState; caret: number } {
+  let page = state.document.page;
+  for (const ins of [...plan.inserts].sort((a, b) => b.at - a.at)) {
+    if (ins.text.length === 0) continue; // empty placeholder = nothing to insert
+    const { newPage, op } = insertCharsAtPosition(
+      page,
+      blockId,
+      ins.at,
+      ins.text,
+      state.CRDTbinding,
+    );
+    page = newPage;
+    ops.push(op);
+  }
+  if (plan.markRange) {
+    const { newPage, op } = markCharsInRange(
+      page,
+      blockId,
+      plan.markRange.from,
+      plan.markRange.to,
+      INLINE_MATH_MARK,
+      true,
+      state.CRDTbinding,
+    );
+    page = newPage;
+    ops.push(op);
+  }
+  invalidateBlockCache(page.blocks[blockIndex]);
+  let next: EditorState = { ...state, document: { ...state.document, page } };
+  next = moveCursorToPosition(next, blockIndex, plan.caret, true);
+  return { state: next, caret: plan.caret };
 }
 
 /**
@@ -1011,46 +1143,33 @@ function normalizeMathInput(
     next = moveCursorToPosition(next, blockIndex, caret, true);
   }
 
+  // Auto-heal unbalanced grouping braces BEFORE materializing, so the materializer
+  // works on balanced source. An unclosed `{` (only ever from pasted/imported
+  // LaTeX — typed braces are escaped and materialization inserts balanced pairs)
+  // makes its group run to the source end, swallowing every trailing offset so no
+  // caret can sit after the construct; appending the missing `}` restores that
+  // right-side exit position. Render-neutral and idempotent, so it no-ops on the
+  // balanced source normal typing produces.
+  const balanceBlock = next.document.page.blocks[blockIndex];
+  const bal =
+    balanceBlock && !balanceBlock.deleted
+      ? mathBalanceAfterInput(balanceBlock, caret)
+      : null;
+  if (bal && bal.inserts.length > 0) {
+    const applied = applyMathInserts(next, block.id, blockIndex, bal, ops);
+    next = applied.state;
+    caret = applied.caret;
+  }
+
   const materializeBlock = next.document.page.blocks[blockIndex];
   const mat =
     materializeBlock && !materializeBlock.deleted
       ? mathMaterializeAfterInput(materializeBlock, caret)
       : null;
   if (mat && mat.inserts.length > 0) {
-    let page = next.document.page;
-    // Right-to-left keeps each earlier `at` valid as later inserts shift text.
-    for (const ins of [...mat.inserts].sort((a, b) => b.at - a.at)) {
-      if (ins.text.length === 0) continue; // empty placeholder = nothing to insert
-      const { newPage, op } = insertCharsAtPosition(
-        page,
-        block.id,
-        ins.at,
-        ins.text,
-        next.CRDTbinding,
-      );
-      page = newPage;
-      ops.push(op);
-    }
-    // An inline chip's braces can land at its right edge, outside the math mark.
-    // Re-mark the grown chip so the new slots stay part of the formula instead of
-    // becoming plain text after it (a block equation returns no `markRange`).
-    if (mat.markRange) {
-      const { newPage, op } = markCharsInRange(
-        page,
-        block.id,
-        mat.markRange.from,
-        mat.markRange.to,
-        INLINE_MATH_MARK,
-        true,
-        next.CRDTbinding,
-      );
-      page = newPage;
-      ops.push(op);
-    }
-    invalidateBlockCache(page.blocks[blockIndex]);
-    next = { ...next, document: { ...next.document, page } };
-    caret = mat.caret;
-    next = moveCursorToPosition(next, blockIndex, caret, true);
+    const applied = applyMathInserts(next, block.id, blockIndex, mat, ops);
+    next = applied.state;
+    caret = applied.caret;
   }
 
   // A space just typed inside an inline chip breaks it in two: strip the "math"

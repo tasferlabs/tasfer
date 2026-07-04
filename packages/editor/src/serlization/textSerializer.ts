@@ -28,7 +28,7 @@ export function serializeToText(
 
   const ctx: OutputCtx = {
     format: "text",
-    inline: (charRuns) => inlineToText(charRuns),
+    inline: (charRuns, formats) => inlineToText(charRuns, formats, schema),
     mapAssetUrl: (url) => url,
   };
 

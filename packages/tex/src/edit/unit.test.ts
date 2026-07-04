@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isInsideConstruct,
+  resolveSelectionRange,
   scriptAttachOffset,
   unitAfter,
   unitAt,
@@ -283,6 +284,72 @@ describe("unitAt — double-click selects the construct under the pointer, whole
   });
 });
 
+describe("resolveSelectionRange — level-aware range snapping", () => {
+  // `→` reads "from anchor to focus": travel direction is anchor→focus, so the
+  // focus edge is "end" when focus > anchor, "start" otherwise.
+  const range = (latex: string, anchor: number, focus: number) => {
+    const edge = focus >= anchor ? "end" : "start";
+    const r = resolveSelectionRange(latex, anchor, focus, edge);
+    return [r.anchor, r.focus];
+  };
+
+  it("at the top level a fraction is one atomic unit", () => {
+    // "a\frac{b}{c}d": fraction spans [1, 12). Selecting from before it (offset 1)
+    // rightward into the numerator takes the whole `\frac`.
+    const latex = "a\\frac{b}{c}d";
+    expect(range(latex, 1, 8)).toEqual([1, 12]); // into the numerator → whole frac
+  });
+
+  it("stays WITHIN a slot when both endpoints share it (level-aware)", () => {
+    // "\frac{ab}{c}": both endpoints in the numerator [6, 8) — select just `a`,
+    // the numerator is NOT collapsed to the whole fraction.
+    expect(range("\\frac{ab}{c}", 6, 7)).toEqual([6, 7]);
+    expect(range("\\frac{ab}{c}", 7, 8)).toEqual([7, 8]);
+  });
+
+  it("escalates to the fraction when endpoints straddle its two slots", () => {
+    // Numerator → denominator: the shared level is the top level, so the whole
+    // `\frac{a}{b}` (│[0,11)) is taken.
+    expect(range("\\frac{a}{b}", 6, 9)).toEqual([0, 11]);
+  });
+
+  it("selects within the INNER fraction of a nested one", () => {
+    // "\frac{\frac{a}{b}}{c}": inner frac is [6, 17). Numerator `a` at 12,
+    // denominator `b` at 15 — both inside the outer numerator, so straddling the
+    // inner slots escalates only to the INNER fraction, not the outer one.
+    const latex = "\\frac{\\frac{a}{b}}{c}";
+    expect(range(latex, 12, 15)).toEqual([6, 17]);
+  });
+
+  it("direction of travel decides include vs exclude (select less)", () => {
+    // "a\frac{b}{c}d": whole fraction selected as [1, 12). Moving the focus LEFT
+    // back into it (focus 8 < prev, edge "start") drops it to the near edge.
+    const latex = "a\\frac{b}{c}d";
+    // grow right: anchor 1, focus into numerator → include whole frac
+    expect(resolveSelectionRange(latex, 1, 8, "end")).toEqual({
+      anchor: 1,
+      focus: 12,
+    });
+    // shrink: focus travelling left into the frac → exclude (near edge)
+    expect(resolveSelectionRange(latex, 1, 8, "start")).toEqual({
+      anchor: 1,
+      focus: 1,
+    });
+  });
+
+  it("leaves a top-level range between siblings untouched", () => {
+    // "\frac{a}{b}+1": selecting the trailing `+1` never touches the fraction.
+    expect(range("\\frac{a}{b}+1", 11, 13)).toEqual([11, 13]);
+  });
+
+  it("passes a collapsed range through", () => {
+    expect(resolveSelectionRange("\\frac{a}{b}", 6, 6, "end")).toEqual({
+      anchor: 6,
+      focus: 6,
+    });
+  });
+});
+
 describe("isInsideConstruct — top-level vs. construct interior", () => {
   it("top-level positions between sibling tokens are not inside a construct", () => {
     // "a b" — the space between two atoms is a clean top-level break point.
@@ -318,38 +385,72 @@ describe("isInsideConstruct — top-level vs. construct interior", () => {
 describe("scriptAttachOffset — scripts attach to the whole accented construct", () => {
   it("the end of a non-stretchy accent's base hops past the construct", () => {
     // "\dot{x|}" — a `^` typed here means \dot{x}^{…}, not \dot{x^{…}}.
-    expect(scriptAttachOffset("\\dot{x}", 6)).toBe(7);
-    expect(scriptAttachOffset("\\vec{v}", 6)).toBe(7);
+    expect(scriptAttachOffset("\\dot{x}", 6, "^")).toBe(7);
+    expect(scriptAttachOffset("\\vec{v}", 6, "^")).toBe(7);
     // A multi-token base still hops from its end.
-    expect(scriptAttachOffset("\\vec{AB}", 7)).toBe(8);
+    expect(scriptAttachOffset("\\vec{AB}", 7, "^")).toBe(8);
   });
 
   it("hops even when the accent sits inside another construct's slot", () => {
     // "x^{\dot{a|}}" — the hop lands inside the superscript group, after \dot{a}.
-    expect(scriptAttachOffset("x^{\\dot{a}}", 9)).toBe(10);
+    expect(scriptAttachOffset("x^{\\dot{a}}", 9, "^")).toBe(10);
   });
 
   it("nested accents escalate to after the outermost construct", () => {
     // "\hat{\dot{x|}}" — the whole \hat{\dot{x}} is one accented construct.
-    expect(scriptAttachOffset("\\hat{\\dot{x}}", 11)).toBe(13);
+    expect(scriptAttachOffset("\\hat{\\dot{x}}", 11, "^")).toBe(13);
   });
 
   it("does not hop from the middle of the base or an empty base", () => {
     // "\dot{x|y}" — the script belongs to `x`, inside the base.
-    expect(scriptAttachOffset("\\dot{xy}", 6)).toBeNull();
+    expect(scriptAttachOffset("\\dot{xy}", 6, "^")).toBeNull();
     // "\dot{|}" — nothing accented yet; keep the default behavior.
-    expect(scriptAttachOffset("\\dot{}", 5)).toBeNull();
+    expect(scriptAttachOffset("\\dot{}", 5, "^")).toBeNull();
   });
 
   it("never hops out of a stretchy accent (it spans arbitrary content)", () => {
     const latex = "\\widehat{ab}";
-    expect(scriptAttachOffset(latex, latex.length - 1)).toBeNull();
+    expect(scriptAttachOffset(latex, latex.length - 1, "^")).toBeNull();
   });
 
-  it("ignores an unbraced base and non-accent constructs", () => {
+  it("ignores an unbraced base and a fraction slot", () => {
     // "\dot x|" — the caret is already past the construct; nothing to hop.
-    expect(scriptAttachOffset("\\dot x", 6)).toBeNull();
-    // "\frac{a|}{b}" — a fraction slot is not an accent base.
-    expect(scriptAttachOffset("\\frac{a}{b}", 7)).toBeNull();
+    expect(scriptAttachOffset("\\dot x", 6, "^")).toBeNull();
+    // "\frac{a|}{b}" — a fraction slot is not a redirecting construct.
+    expect(scriptAttachOffset("\\frac{a}{b}", 7, "^")).toBeNull();
+  });
+});
+
+describe("scriptAttachOffset — the matching script attaches to the same base", () => {
+  it("a `^` at the end of a subscript hops past the whole supsub", () => {
+    // "x_{n|}" + `^` must mean x_{n}^{…} (both scripts, one base), never
+    // x_{n^{…}} (a superscript nested in the subscript's content).
+    expect(scriptAttachOffset("x_{n}", 4, "^")).toBe(5);
+    // "x^{2|}" + `_` is the mirror case → x^{2}_{…}.
+    expect(scriptAttachOffset("x^{2}", 4, "_")).toBe(5);
+    // A multi-token slot still hops from its end.
+    expect(scriptAttachOffset("x_{ab}", 5, "^")).toBe(6);
+  });
+
+  it("hops when the scripted base is itself a construct", () => {
+    // "\frac{a}{b}_{n|}" + `^` → \frac{a}{b}_{n}^{…}.
+    const latex = "\\frac{a}{b}_{n}";
+    expect(scriptAttachOffset(latex, latex.length - 1, "^")).toBe(latex.length);
+  });
+
+  it("does NOT hop when the matching script already exists", () => {
+    // "x_{n|}^{2}" + `^` can't add a second superscript, so it stays put
+    // (nesting into `n`); the parser would drop a duplicate `^{}` anyway.
+    expect(scriptAttachOffset("x_{n}^{2}", 4, "^")).toBeNull();
+    // Typing the SAME script the caret sits in never escalates either.
+    expect(scriptAttachOffset("x^{2}", 4, "^")).toBeNull();
+    expect(scriptAttachOffset("x_{n}", 4, "_")).toBeNull();
+  });
+
+  it("does not hop from the middle of a slot or an empty slot", () => {
+    // "x_{a|b}" — the script belongs to `a`, inside the subscript.
+    expect(scriptAttachOffset("x_{ab}", 4, "^")).toBeNull();
+    // "x_{|}" — nothing to script yet; keep the default behavior.
+    expect(scriptAttachOffset("x_{}", 3, "^")).toBeNull();
   });
 });

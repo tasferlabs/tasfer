@@ -4,8 +4,14 @@
  * completing a `\{` being typed, opening a control word's argument, or closing
  * a group the user opened raw.
  */
-import { escapeTypedBrace } from "./brace";
+import { balanceBraces, escapeTypedBrace } from "./brace";
+import { parse } from "../parse/parser";
 import { describe, expect, it } from "vitest";
+
+/** Apply balanceBraces' inserts to get the healed string. */
+function balanced(latex: string): string {
+  return balanceBraces(latex).inserts.reduce((s, i) => s + i.text, latex);
+}
 
 describe("escapeTypedBrace", () => {
   it("escapes a brace typed in plain math content", () => {
@@ -49,5 +55,47 @@ describe("escapeTypedBrace", () => {
   it("does not count escaped braces when balancing groups", () => {
     // `\{` is a symbol, not an opener: nothing is open, so the brace escapes.
     expect(escapeTypedBrace("\\{a", 3, "}")).toBe("\\}");
+  });
+});
+
+describe("balanceBraces", () => {
+  it("no-ops on already-balanced source", () => {
+    for (const s of ["", "x+1", "\\frac{a}{b}", "\\sqrt{x^{2}+1}", "{a{b}c}"]) {
+      expect(balanceBraces(s).changed).toBe(false);
+      expect(balanced(s)).toBe(s);
+    }
+  });
+
+  it("closes a single unclosed group", () => {
+    expect(balanced("\\frac{a}{b")).toBe("\\frac{a}{b}");
+    expect(balanced("{abc")).toBe("{abc}");
+  });
+
+  it("closes several nested unclosed groups innermost-first", () => {
+    expect(balanced("\\frac{a{b{c")).toBe("\\frac{a{b{c}}}");
+  });
+
+  it("heals the reported right-side dead end (extra caret stop past the frac)", () => {
+    const broken = "\\frac{a}{b}+\\sqrt{H}-\\frac{aaaa}{bbbb+\\frac{a}{b}";
+    const healed = balanced(broken);
+    expect(healed).toBe(broken + "}");
+    // The healed source parses to the SAME shape (render-neutral): only the
+    // closing brace — a caret stop past the construct — is added.
+    const drop = (k: string, v: unknown) => (k === "span" ? undefined : v);
+    expect(JSON.stringify(parse(healed), drop)).toBe(
+      JSON.stringify(parse(broken), drop),
+    );
+  });
+
+  it("ignores stray closing braces and escaped braces", () => {
+    // A stray `}` the parser already drops isn't an opener to match.
+    expect(balanceBraces("a}b").changed).toBe(false);
+    // `\{` is a literal glyph, not a grouping opener.
+    expect(balanceBraces("\\{a").changed).toBe(false);
+  });
+
+  it("is idempotent", () => {
+    const once = balanced("\\frac{a{b");
+    expect(balanced(once)).toBe(once);
   });
 });

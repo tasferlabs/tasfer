@@ -38,6 +38,7 @@ import { endScrollbarDrag } from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
+  getWordRangeFromViewport,
   hasActiveSelectionHighlight,
   isPointWithinSelectionRects,
 } from "../selection";
@@ -1196,10 +1197,22 @@ export function handleTouchEnd(
       }
 
       // Handle double-tap: select word (fires even inside an existing
-      // selection, mirroring native editors where double-tap re-selects).
+      // selection, mirroring native editors where double-tap re-selects). A node
+      // may resolve a point-based range from the tap (math selects the atom under
+      // the finger, so a small operator is hittable); plain text returns none and
+      // the action falls back to its offset word select.
       else if (isMultiTap && session.tapTracker.count === 2) {
+        const range = getWordRangeFromViewport(
+          tapPosition.x,
+          tapPosition.y,
+          state,
+          viewport,
+          styles,
+          visibility,
+        );
         state = state.actionBus.dispatchState(TAP_SELECT_WORD, state, {
           position: anchorPosition,
+          range: range ?? undefined,
         }).state;
       }
 

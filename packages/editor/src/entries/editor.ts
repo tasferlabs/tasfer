@@ -41,6 +41,7 @@ import {
 import { onFontsReady } from "../fonts";
 import { resolveMarkRuns } from "../inline-math-spans";
 import {
+  caretInProtectedSource,
   clampMirrorStartToSpans,
   computeSurfaceDelta,
   currentWordStart,
@@ -904,6 +905,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private readonly cursorCtx: CanvasRenderingContext2D;
   private readonly contentCanvas: HTMLCanvasElement;
   private readonly hiddenInput?: HTMLElement;
+  // Mount-time baseline for native OS predictive text / autocorrect on the input
+  // surface. Withheld while the caret is in verbatim source; see
+  // `applyAutosuggestForCaret`.
+  private readonly nativeAutocomplete: boolean = true;
+  // Last-applied autosuggestion suppression, so the DOM attributes are only
+  // rewritten on a transition (writing them every frame is wasteful and, mid-
+  // typing, can disturb the keyboard's session). `false` matches the mount-time
+  // baseline the surface starts with.
+  private autosuggestSuppressed = false;
   // The accessible DOM mirror of the document (host reading surface). Undefined
   // when the host opted out or supplied no container. Patched in `emitChange`.
   private readonly a11yMirror?: DomMirror;
@@ -1080,6 +1090,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       /** Input-surface strategy; defaults per-platform (see `inputStrategy`). */
       inputStrategy?: "managed" | "faithful";
       /**
+       * Baseline for native OS predictive text / autocorrect / autocapitalize on
+       * the input surface (default true). Even when enabled, it is withheld while
+       * the caret sits in verbatim source (math/code); see `applyAutosuggestForCaret`.
+       */
+      nativeAutocomplete?: boolean;
+      /**
        * Grow the canvas to fit its content instead of filling a fixed viewport.
        * Suppresses the scrollbar and reports the content height through
        * `onContentHeightChange` so the host can resize the container.
@@ -1099,6 +1115,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.hiddenInput = hiddenInput;
     this.inputStrategy =
       config?.inputStrategy ?? (isIOS() ? "faithful" : "managed");
+    this.nativeAutocomplete = config?.nativeAutocomplete !== false;
     this.autoHeight = config?.autoHeight ?? false;
     this.onContentHeightChange = config?.onContentHeightChange;
 
@@ -2354,6 +2371,43 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     return Math.max(this.mirrorStartOffset(text, caret), floor);
   };
 
+  // Whether the collapsed caret currently sits in verbatim SOURCE rather than
+  // prose: a preformatted block (a math block or code block is source end to
+  // end) or strictly inside a replacement-mark run (an inline math chip's LaTeX).
+  // Node/mark-agnostic — the same preformatted/replacement signal the input
+  // mirror uses to keep source away from the OS keyboard.
+  private caretInVerbatimSource = (): boolean => {
+    const caret = resolvePoint(this._state, "caret");
+    if (!caret) return false;
+    const block = this._state.document.page.blocks[caret.blockIndex];
+    if (!block || block.deleted || !isTextualBlock(block)) return false;
+    const spans = resolveMarkRuns(block)
+      .filter((r) => this._state.marks.get(r.name)?.replacement)
+      .map((r) => ({ start: r.startIndex, end: r.endIndex }));
+    return caretInProtectedSource(
+      isPreformattedType(block.type),
+      spans,
+      caret.offset,
+    );
+  };
+
+  // Native predictive text / autocorrect / autocapitalize draw their suggestions
+  // from the input surface. In math (or code) source those suggestions are noise
+  // — the mobile strip offers to "fix" `\frac` into an English word — so withhold
+  // them while the caret is in verbatim source and restore the mount-time
+  // baseline when it leaves. Only rewrites the attributes on a transition.
+  private applyAutosuggestForCaret = () => {
+    const el = this.hiddenInput;
+    if (!el) return;
+    const suppressed = this.caretInVerbatimSource();
+    if (suppressed === this.autosuggestSuppressed) return;
+    this.autosuggestSuppressed = suppressed;
+    const on = this.nativeAutocomplete && !suppressed;
+    el.setAttribute("autocapitalize", on ? "sentences" : "off");
+    el.setAttribute("autocorrect", on ? "on" : "off");
+    el.setAttribute("spellcheck", on ? "true" : "false");
+  };
+
   // Cheap signature of the current selection/caret, to avoid recomputing the
   // (potentially large) selection text on every render frame.
   private selectionSignature = (s: EditorState): string => {
@@ -2382,6 +2436,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   //     autoformat rewrote the word, a remote edit landed, …).
   private syncMirrorToSelection = (forceRangedSelection = false) => {
     if (!this.hiddenInput) return;
+
+    // Toggle native predictive text off while the caret is in verbatim source,
+    // independent of which surface branch below runs.
+    this.applyAutosuggestForCaret();
 
     const selection = this._state.document.selection;
 

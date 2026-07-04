@@ -361,10 +361,34 @@ export function hitTest(
   return chosen.offset;
 }
 
-/** Caret geometry for a source `offset`, or null if the layout has no stops. */
+/**
+ * Minimum caret height as a fraction of the layout font size. A stop on a tiny
+ * glyph (a superscript `2`, a fraction's single-letter denominator) yields a
+ * span of only a few pixels; without a floor the drawn caret is a razor-thin
+ * nub. The floor is font-relative so it scales with the formula (an inline chip
+ * in a big heading gets a proportionally bigger minimum, never the host line's
+ * full text height). Taller rows keep hugging — the floor only lifts short ones.
+ */
+const MIN_CARET_HEIGHT_EM = 0.5;
+
+/**
+ * Caret geometry for a source `offset`, or null if the layout has no stops.
+ *
+ * One source offset can own several stops at different x — an atom's edge and its
+ * neighbour's edge across the inter-atom space (the med/thick space around a `+`
+ * or `=`), plus a construct's outer boundary. `edge` disambiguates when the
+ * offset is a SELECTION endpoint: `"start"` (the low end) faces its content to
+ * the RIGHT so it takes the RIGHTMOST stop, `"end"` (the high end) faces LEFT and
+ * takes the LEFTMOST — so the caret/handle hugs the highlighted range instead of
+ * drifting out across the operator's surrounding space to a neighbour's edge.
+ * Omit `edge` for a bare caret: there a construct boundary wins the tie, so the
+ * caret rests beside the whole construct on the main baseline (e.g. just past
+ * `x^{2}`), not up on its script row.
+ */
 export function caretRect(
   layout: MathLayout,
   offset: number,
+  edge?: "start" | "end",
 ): CaretRect | null {
   const stops = caretStops(layout);
   if (stops.length === 0) return null;
@@ -372,16 +396,35 @@ export function caretRect(
   let bestDist = Math.abs(stops[0].offset - offset);
   for (const s of stops) {
     const d = Math.abs(s.offset - offset);
-    // On an exact-offset tie prefer a construct boundary stop: at a construct's
-    // right edge (e.g. the end of `x^{2}`, also the end of the `2`) the caret
-    // should sit beside the whole construct on the main baseline, not up on the
-    // script row.
-    if (d < bestDist || (d === bestDist && d === 0 && s.boundary)) {
+    if (d < bestDist) {
       bestDist = d;
       best = s;
+    } else if (d === bestDist && d === 0) {
+      // Exact-offset tie between coincident stops — resolve by `edge` for a
+      // selection endpoint (hug the selected side), else by the boundary rule.
+      if (edge === "start") {
+        if (s.x > best.x) best = s;
+      } else if (edge === "end") {
+        if (s.x < best.x) best = s;
+      } else if (s.boundary && !best.boundary) {
+        best = s;
+      }
     }
   }
-  return { x: best.x, top: best.top, bottom: best.bottom };
+  // Floor a short span to a legible minimum, expanding about the stop's centre so
+  // it stays on its row. Never exceed the formula's own extent, so a small
+  // single-row chip is matched, not overshot.
+  let { top, bottom } = best;
+  const minHeight = Math.min(
+    layout.fontSize * MIN_CARET_HEIGHT_EM,
+    layout.height + layout.depth,
+  );
+  const grow = (minHeight - (bottom - top)) / 2;
+  if (grow > 0) {
+    top -= grow;
+    bottom += grow;
+  }
+  return { x: best.x, top, bottom };
 }
 
 /**
@@ -487,6 +530,141 @@ export function caretVertical(
 /** How much more horizontal distance counts than vertical in {@link caretVertical}. */
 const VERTICAL_X_WEIGHT = 3;
 
+/** Options for {@link spanAtPoint}. */
+export interface SpanAtPointOptions {
+  /**
+   * Minimum width/height, in CSS pixels, of an atom's tap target. A `+`/`=` glyph
+   * (and the space around it) is a small target on a touch screen; padding each
+   * atom's box to at least this makes a finger-sized tap land on it.
+   */
+  readonly minTargetSize?: number;
+}
+
+/** A candidate atom under a tap: its box, plus the nearest enclosing construct. */
+interface AtomHit {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  /** Span of the glyph itself. */
+  glyph: { start: number; end: number };
+  /**
+   * Span of the nearest enclosing boundary construct (fraction, script, root, …),
+   * or null at the top level. A double-tap selects the WHOLE construct a glyph
+   * lives in — tapping a fraction's numerator selects the `\frac` — so this wins
+   * over the bare glyph when set. The NEAREST (innermost) construct is kept, so a
+   * nested `\frac{x^2}{d}` selects the inner `x^{2}`, not the whole fraction.
+   */
+  construct: { start: number; end: number } | null;
+}
+
+function collectAtomHits(
+  box: Box,
+  x: number,
+  y: number,
+  fs: number,
+  construct: { start: number; end: number } | null,
+  out: AtomHit[],
+): void {
+  if (box.type === "glyph") {
+    if (box.span && box.width > 0) {
+      out.push({
+        left: x,
+        right: x + box.width * fs,
+        top: y - box.height * fs,
+        bottom: y + box.depth * fs,
+        glyph: { start: box.span.start, end: box.span.end },
+        construct,
+      });
+    }
+    return;
+  }
+  if (box.type === "placeholder") {
+    // An empty editable slot: it has no glyph, so a tap on it selects the
+    // construct it belongs to (its `construct`), never a zero-width span.
+    out.push({
+      left: x,
+      right: x + box.width * fs,
+      top: y - box.height * fs,
+      bottom: y + box.depth * fs,
+      glyph: { start: box.offset, end: box.offset },
+      construct,
+    });
+    return;
+  }
+  if (box.type === "list") {
+    // Descend into the nearest enclosing boundary construct so inner glyphs carry
+    // it; an inline-flow wrapper (`ord`, a font command) is not a boundary and
+    // leaves the current construct in place.
+    const inner = box.boundary && box.span ? box.span : construct;
+    for (const child of box.children) {
+      collectAtomHits(
+        child.box,
+        x + child.dx * fs,
+        y + child.dy * fs,
+        fs,
+        inner,
+        out,
+      );
+    }
+  }
+}
+
+/**
+ * The source span a double-tap / double-click at `(x, y)` selects: the whole atom
+ * (or enclosing construct) the point falls on — the POINT-based counterpart to
+ * {@link unitAt}, which only sees a caret offset. Working from the point is what
+ * makes a small operator selectable: `unitAt` maps a tap to one shared boundary
+ * offset and then prefers an adjacent construct, so a `+`/`-`/`=` wedged between
+ * two constructs (`x^2+y^2`) is impossible to hit; here the tap simply lands in
+ * the operator's own (finger-padded) box and selects it.
+ *
+ * Prefers an atom whose box — padded to `minTargetSize` — contains the point;
+ * failing that (a tap in the slack above/below a row), the horizontally-nearest
+ * atom, so a tap always resolves to the column under the finger. Returns null for
+ * an empty formula.
+ */
+export function spanAtPoint(
+  layout: MathLayout,
+  x: number,
+  y: number,
+  options: SpanAtPointOptions = {},
+): { start: number; end: number } | null {
+  const hits: AtomHit[] = [];
+  collectAtomHits(layout.box, 0, 0, layout.fontSize, null, hits);
+  if (hits.length === 0) return null;
+
+  const pad = options.minTargetSize ?? 0;
+  let contained: AtomHit | null = null;
+  let containedDist = Infinity;
+  let nearest: AtomHit | null = null;
+  let nearestDist = Infinity;
+  for (const h of hits) {
+    const cx = (h.left + h.right) / 2;
+    const cy = (h.top + h.bottom) / 2;
+    const halfW = Math.max((h.right - h.left) / 2, pad / 2);
+    const halfH = Math.max((h.bottom - h.top) / 2, pad / 2);
+    const dx = Math.abs(x - cx);
+    const dy = Math.abs(y - cy);
+    if (dx <= halfW && dy <= halfH) {
+      const d = Math.hypot(dx, dy);
+      if (d < containedDist) {
+        containedDist = d;
+        contained = h;
+      }
+    }
+    // Horizontal distance to the box (0 while over it) — the row-agnostic
+    // fallback so a tap in the vertical slack still selects its column.
+    const hxd = x < h.left ? h.left - x : x > h.right ? x - h.right : 0;
+    if (hxd < nearestDist) {
+      nearestDist = hxd;
+      nearest = h;
+    }
+  }
+  const chosen = contained ?? nearest!;
+  return chosen.construct ?? chosen.glyph;
+}
+
 /**
  * Highlight rectangles covering the source range `[start, end)`. Selected glyphs
  * are merged per visual ROW (keyed by baseline `y`) into one rect each, so a
@@ -535,6 +713,41 @@ export function selectionRects(
   }));
 }
 
+/**
+ * Horizontal extent of a box's actually-DRAWN content (glyphs, rules, paths and
+ * placeholder slots), in layout coordinates. A list box's advance `width` can
+ * exceed this — a big operator reserves trailing italic advance for a following
+ * script — so a selection highlight must hug the ink, never that empty advance.
+ * Returns null when the subtree draws nothing, so the caller keeps the box's own
+ * bounds as a fallback.
+ */
+function drawnXBounds(
+  box: Box,
+  x: number,
+  fs: number,
+): { x0: number; x1: number } | null {
+  switch (box.type) {
+    case "glyph":
+      return box.width > 0 ? { x0: x, x1: x + box.width * fs } : null;
+    case "rule":
+    case "path":
+    case "placeholder":
+      return { x0: x, x1: x + box.width * fs };
+    case "list": {
+      let x0 = Infinity;
+      let x1 = -Infinity;
+      for (const child of box.children) {
+        const b = drawnXBounds(child.box, x + child.dx * fs, fs);
+        if (b) {
+          x0 = Math.min(x0, b.x0);
+          x1 = Math.max(x1, b.x1);
+        }
+      }
+      return x1 > x0 ? { x0, x1 } : null;
+    }
+  }
+}
+
 function collectSelected(
   box: Box,
   x: number,
@@ -558,14 +771,27 @@ function collectSelected(
   }
   if (box.type === "list") {
     // A construct (a list box with a source span) that falls ENTIRELY within
-    // the selection highlights as one solid rect — its own bounding box — so the
-    // whole thing is covered, including empty slots, rules and delimiters that
-    // are not glyph children (e.g. `\frac{}{b}` selected whole would otherwise
-    // light up only the `b`). A partial overlap descends to highlight the glyphs.
+    // the selection highlights as one solid rect — so the whole thing is
+    // covered, including empty slots, rules and delimiters that are not glyph
+    // children (e.g. `\frac{}{b}` selected whole would otherwise light up only
+    // the `b`). A partial overlap descends to highlight the glyphs.
     if (box.span && box.span.start >= start && box.span.end <= end) {
+      // Match the construct's caret-stop extent, so the highlight starts where
+      // its edge caret sits and ends where the other does — "nothing more,
+      // nothing less". A boundary construct (fraction, root, delimited group)
+      // owns edge stops at its box edges, so its full advance width IS the
+      // extent (covering nulldelimiter side-space and the bar the same way the
+      // caret does). A non-boundary wrapper has no edge stops — its carets sit at
+      // the glyph edges — so hug the drawn ink: a big operator floats its glyph
+      // in a trailing italic-correction advance (room a following script leans
+      // into), and filling to `box.width` there bleeds the green past the ∫ into
+      // the empty script column (the reported "selects more than it should").
+      // Vertical extent stays the construct's own height/depth so stacked slots
+      // (a fraction's halves) remain fully covered.
+      const drawn = box.boundary ? null : drawnXBounds(box, x, fs);
       out.push({
-        x0: x,
-        x1: x + box.width * fs,
+        x0: drawn ? drawn.x0 : x,
+        x1: drawn ? drawn.x1 : x + box.width * fs,
         top: y - box.height * fs,
         bottom: y + box.depth * fs,
         y,

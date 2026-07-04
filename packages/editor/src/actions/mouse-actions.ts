@@ -70,13 +70,20 @@ export const PLACE_CURSOR_IN_SIDE_PADDING = stateAction<{
 // ─── Word / line selection (double / triple click) ───────────────────────────
 
 /** Select the whole word at a resolved position (double-click). Pure, no ops. */
-export const SELECT_WORD_AT_POINT = stateAction<{ position: Position }>(
-  "select-word-at-point",
-  (state, { position }) => ({
-    state: selectWordAtPosition(state, position),
-    ops: [],
-  }),
-);
+export const SELECT_WORD_AT_POINT = stateAction<{
+  position: Position;
+  /**
+   * A pre-resolved word/token range (block-text indices), when the node under the
+   * pointer selects by POINT rather than by the `position` offset — a math block
+   * resolves the atom the cursor is on (see `getWordRangeFromViewport`), which is
+   * the only way to hit a small operator between constructs. The default text
+   * handler ignores it; the math node's handler consumes it.
+   */
+  range?: { start: number; end: number };
+}>("select-word-at-point", (state, { position }) => ({
+  state: selectWordAtPosition(state, position),
+  ops: [],
+}));
 
 /** Select the whole line at a resolved position (triple-click). Pure, no ops. */
 export const SELECT_LINE_AT_POINT = stateAction<{ position: Position }>(

@@ -1,6 +1,8 @@
 import { SELECT_ALL } from "../actions/edit-actions";
+import { EXTEND_SELECTION_RIGHT } from "../actions/keyboard-actions";
 import { SELECT_WORD_AT_POINT } from "../actions/mouse-actions";
 import { TAP_SELECT_WORD } from "../actions/touch-actions";
+import { startSelection, updateSelectionFocus } from "../selection";
 import type { CursorState, Page } from "../state-types";
 import { createInitialState } from "../state-utils";
 import type { MathBlock } from "./MathNode";
@@ -136,6 +138,140 @@ describe("MathNode double-click selection", () => {
 
     expect(selection?.anchor.textIndex).toBe(0);
     expect(selection?.focus.textIndex).toBe(5);
+  });
+});
+
+describe("MathNode range selection snaps to whole constructs", () => {
+  // A drag or Shift+Arrow that lands a selection endpoint inside a fraction must
+  // widen out to the whole construct — you cannot select PART of a fraction. Both
+  // gestures funnel through `updateSelectionFocus`, so driving it directly with a
+  // seed anchor + a moved focus exercises the shared snap.
+  const dragSelect = (
+    latex: string,
+    anchorIndex: number,
+    focusIndex: number,
+  ) => {
+    const page: Page = {
+      id: "page-1",
+      title: "Math",
+      blocks: [mathBlock(latex)],
+    };
+    let state = createInitialState(page);
+    state = startSelection(state, {
+      blockIndex: 0,
+      textIndex: anchorIndex,
+    });
+    state = updateSelectionFocus(state, {
+      blockIndex: 0,
+      textIndex: focusIndex,
+    });
+    return state.document.selection;
+  };
+
+  it("widens a focus that lands inside the fraction to its far edge", () => {
+    // Anchor just after the whole fraction; drag the focus back into the
+    // denominator — the selection must snap to cover the entire `\frac`.
+    const latex = "\\frac{a}{b}"; // length 11
+    const selection = dragSelect(latex, latex.length, 9);
+
+    expect(selection?.anchor.textIndex).toBe(latex.length);
+    expect(selection?.focus.textIndex).toBe(0);
+  });
+
+  it("stays WITHIN a slot when both endpoints share it (level-aware)", () => {
+    // "\frac{ab}{c}": both endpoints in the numerator — selecting just `a` must
+    // NOT balloon to the whole fraction. This is the level-awareness the caret
+    // navigation already has, mirrored for range selection.
+    const latex = "\\frac{ab}{c}"; // numerator `ab` spans [6, 8)
+    const selection = dragSelect(latex, 6, 7);
+
+    expect(selection?.anchor.textIndex).toBe(6);
+    expect(selection?.focus.textIndex).toBe(7);
+  });
+
+  it("escalates to the whole fraction only when endpoints straddle its slots", () => {
+    // Numerator → denominator: the shared level is the top level, so the whole
+    // `\frac` is taken (you can't select the numerator plus half the denominator).
+    const latex = "\\frac{a}{b}"; // numerator `a` at 6, denominator `b` at 9
+    const selection = dragSelect(latex, 6, 9);
+
+    expect(selection?.anchor.textIndex).toBe(0);
+    expect(selection?.focus.textIndex).toBe(latex.length);
+  });
+
+  it("widens an anchor that started inside the fraction", () => {
+    // A drag that BEGAN inside the numerator, then moved past the fraction: the
+    // anchor is an illegal in-construct boundary and must widen out too.
+    const latex = "\\frac{a}{b}+1"; // fraction is [0, 11)
+    const selection = dragSelect(latex, 6, latex.length);
+
+    expect(selection?.anchor.textIndex).toBe(0);
+    expect(selection?.focus.textIndex).toBe(latex.length);
+  });
+
+  it("leaves a selection between top-level tokens untouched", () => {
+    // "\frac{a}{b}+1" — selecting the trailing `+1` never touches the fraction.
+    const latex = "\\frac{a}{b}+1";
+    const selection = dragSelect(latex, latex.length, 11);
+
+    expect(selection?.anchor.textIndex).toBe(latex.length);
+    expect(selection?.focus.textIndex).toBe(11);
+  });
+
+  it("does not snap a collapsed caret resting inside a fraction", () => {
+    // A bare caret may legally sit inside a construct to edit it; only a real
+    // range snaps. Focus back onto the anchor → collapsed, unchanged.
+    const latex = "\\frac{a}{b}";
+    const selection = dragSelect(latex, 6, 6);
+
+    expect(selection?.isCollapsed).toBe(true);
+    expect(selection?.anchor.textIndex).toBe(6);
+    expect(selection?.focus.textIndex).toBe(6);
+  });
+
+  it("dragging the focus back OUT of the fraction shrinks the selection", () => {
+    // Anchor after the fraction; the whole `\frac` is selected (focus at 0). Now
+    // drag the focus rightward, back into the fraction: travelling right must snap
+    // the focus to the construct's FAR edge (drop it) rather than re-expand — the
+    // "select less" case. Emulate the two drag events with two focus updates.
+    const latex = "\\frac{a}{b}"; // [0, 11)
+    const page: Page = { id: "p", title: "M", blocks: [mathBlock(latex)] };
+    let state = createInitialState(page);
+    state = startSelection(state, { blockIndex: 0, textIndex: latex.length });
+    // First drag left into the denominator → whole fraction selected.
+    state = updateSelectionFocus(state, { blockIndex: 0, textIndex: 9 });
+    expect(state.document.selection?.focus.textIndex).toBe(0);
+    // Now drag back right into the numerator → shrink out to the fraction's end.
+    state = updateSelectionFocus(state, { blockIndex: 0, textIndex: 6 });
+    expect(state.document.selection?.focus.textIndex).toBe(latex.length);
+    expect(state.document.selection?.isCollapsed).toBe(true);
+  });
+});
+
+describe("MathNode Shift+Arrow crosses a construct in one extra press", () => {
+  // The caret must park on the snapped focus, not the interior stop the move
+  // landed on — otherwise crossing a construct costs one press per interior stop.
+  it("selects the whole fraction, then leaves it, one press each", () => {
+    const latex = "\\frac{a}{b}"; // one top-level construct, [0, 11)
+    let state = stateWithMathCaret(latex, 0); // caret before the fraction
+
+    // Press 1: Shift+Right takes in the entire fraction and parks the caret on
+    // its far edge (11), not an interior numerator/denominator stop.
+    state = state.actionBus.dispatchState(EXTEND_SELECTION_RIGHT, state).state;
+    expect(state.document.selection?.anchor.textIndex).toBe(0);
+    expect(state.document.selection?.focus).toEqual({
+      blockIndex: 0,
+      textIndex: latex.length,
+    });
+    expect(state.document.cursor?.position).toEqual({
+      blockIndex: 0,
+      textIndex: latex.length,
+    });
+
+    // Press 2: from the parked edge, one more Shift+Right leaves the equation for
+    // the following paragraph — no "stuck" repeats.
+    state = state.actionBus.dispatchState(EXTEND_SELECTION_RIGHT, state).state;
+    expect(state.document.selection?.focus.blockIndex).toBe(1);
   });
 });
 

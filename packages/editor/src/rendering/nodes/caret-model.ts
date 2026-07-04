@@ -55,6 +55,27 @@ export interface CaretModel<B extends Block = Block> {
   atomicSpans?(block: B): readonly TextSpan[];
 
   /**
+   * Snap a non-collapsed range SELECTION `[anchor, focus]` (both block-text
+   * indices) so it never partially covers a connected construct, while staying
+   * LEVEL-AWARE — a selection lives at the deepest nesting level its two endpoints
+   * share, and only constructs *below* that level are atomic. Selecting within a
+   * fraction's numerator stays inside it; dragging across its two slots escalates
+   * to the whole `\frac`; at the top level the fraction is one unit. `focusEdge`
+   * is the direction the focus travelled (`"end"` = rightward/grow, `"start"` =
+   * leftward/shrink), used to decide whether a construct the focus entered is
+   * taken in or dropped. Returns the adjusted indices, or `null` to leave the
+   * range untouched (plain text, or nothing to snap). Distinct from
+   * {@link atomicSpans}: the caret may rest inside a construct to edit it — this
+   * governs only where a selection may end.
+   */
+  selectionRange?(
+    block: B,
+    anchor: number,
+    focus: number,
+    focusEdge: "start" | "end",
+  ): { anchor: number; focus: number } | null;
+
+  /**
    * Override caret motion for content the caret descends *into* (the spans above
    * are opaque — this is for genuinely 2-D / structured content like math).
    * Return the next caret index for `motion`, or `null` to fall back to the

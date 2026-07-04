@@ -24,6 +24,7 @@ import {
   getBlockIndexAtPoint,
   getCursorDocumentCoords,
   getTextPositionFromViewport,
+  getWordRangeFromViewport,
 } from "../selection";
 import { updateCursor } from "../selection";
 import { updateSelectionFocus } from "../selection";
@@ -328,11 +329,22 @@ export function handleMouseDown(
     };
   }
 
-  // Handle double-click: select word
+  // Handle double-click: select word. A node may resolve a point-based range
+  // (math selects the atom under the cursor, so a small operator is hittable);
+  // plain text returns none and the action falls back to its offset word select.
   if (isMultiClick && clickCount === 2) {
+    const range = getWordRangeFromViewport(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      styles,
+      visibility,
+    );
     return {
       state: state.actionBus.dispatchState(SELECT_WORD_AT_POINT, state, {
         position,
+        range: range ?? undefined,
       }).state,
       ops,
     };
@@ -538,7 +550,13 @@ export function handleMouseMove(
   if (!position) return state;
 
   let newState = updateSelectionFocus(state, position);
-  newState = updateCursor(newState, position);
+  // `updateSelectionFocus` may have widened the focus out of a math construct;
+  // park the caret on that snapped focus (not the raw interior hit) so the drag
+  // resumes from the construct's edge rather than re-snapping every pixel.
+  newState = updateCursor(
+    newState,
+    newState.document.selection?.focus ?? position,
+  );
 
   const isNearEdge =
     canvasY < EDGE_SCROLL_THRESHOLD ||

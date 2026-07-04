@@ -567,8 +567,9 @@ function calculateCursorPosition(
   );
 
   // A caret inside a math chip carries its exact box (sized to the row it sits
-  // on); draw it verbatim. Otherwise the caret is ascent+descent tall (text
-  // height) anchored at the line top, not full line height.
+  // on, already floored to a legible minimum by the tex caret model); draw it
+  // verbatim. Otherwise the caret is ascent+descent tall (text height) anchored
+  // at the line top, not full line height.
   return {
     x: rect.x,
     y: rect.y,
@@ -1264,6 +1265,7 @@ function getPositionCoordinates(
   viewport: ViewportState,
   styles: EditorStyles,
   heightIndex?: BlockHeightIndex,
+  edge?: "start" | "end",
 ): { x: number; y: number; height: number } | null {
   const block = state.document.page.blocks[position.blockIndex];
   if (!block || block.deleted) return null;
@@ -1301,6 +1303,7 @@ function getPositionCoordinates(
     blockTop,
     state,
     block.id,
+    edge,
   );
 }
 
@@ -1322,12 +1325,21 @@ function getSelectionHandlePositionsForRender(
     return null;
   }
 
+  const isForward = selection.isForward;
+
+  // Each handle hugs the SELECTED side of its offset: the document-start handle
+  // faces its content to the right, the document-end handle to the left. Without
+  // this a handle on an operator (`+`, `=`) — whose edges share their source
+  // offset with the surrounding math space and any neighbouring construct's
+  // boundary — drifts out past the operator, so the pair brackets more than the
+  // green highlight covers. (Forward: anchor is the start, focus the end.)
   const anchorCoords = getPositionCoordinates(
     selection.anchor,
     state,
     viewport,
     styles,
     heightIndex,
+    isForward ? "start" : "end",
   );
   const focusCoords = getPositionCoordinates(
     selection.focus,
@@ -1335,13 +1347,12 @@ function getSelectionHandlePositionsForRender(
     viewport,
     styles,
     heightIndex,
+    isForward ? "end" : "start",
   );
 
   if (!anchorCoords || !focusCoords) {
     return null;
   }
-
-  const isForward = selection.isForward;
 
   return {
     anchor: {
