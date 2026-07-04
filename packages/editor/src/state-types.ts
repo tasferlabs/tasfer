@@ -333,6 +333,14 @@ export interface CaretDeleteUnit {
 export interface TypedInputTransform {
   readonly input: string;
   readonly suppressMarkdown?: boolean;
+  /**
+   * Block-text index to insert at instead of the caret, when the keystroke's
+   * meaning targets a position the caret isn't at — e.g. a script (`^`/`_`)
+   * typed at the end of an accent's base attaches to the whole construct, so
+   * math redirects the insert to just past it (`\dot{x|}` + `^` → `\dot{x}^`).
+   * The caret lands after the inserted text as usual. Absent: insert at caret.
+   */
+  readonly insertAt?: number;
 }
 
 /**

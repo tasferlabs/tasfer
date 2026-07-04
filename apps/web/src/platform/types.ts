@@ -48,6 +48,15 @@ export interface Peer {
 export interface PageListItem {
   id: string;
   title: string;
+  /**
+   * The title's rich projection: the same title line as inline MARKDOWN
+   * (marks intact), for rendering rich title previews without loading the
+   * doc. Like `title`, this is a LOCAL, rebuildable cache derived from the
+   * doc content — the doc's operation log is the source of truth, and titles
+   * are never replicated as metadata (peers re-derive from content ops).
+   * Empty when not yet derived.
+   */
+  titleMd?: string;
   parentId: string | null;
   order: number;
   hasChildren: boolean;
@@ -60,10 +69,21 @@ export interface PageListItem {
   recurrenceId?: string | null;
 }
 
+/** A lightweight reference to a page in a breadcrumb path / parent chain. */
+export interface PagePathSegment {
+  id: string;
+  title: string;
+  /** Markdown projection of the title line (see {@link PageListItem.titleMd}). */
+  titleMd?: string;
+  color?: string | null;
+}
+
 /** A soft-deleted page surfaced in the Bin (root of an archived subtree) */
 export interface ArchivedPageItem {
   id: string;
   title: string;
+  /** Markdown projection of the title line (see {@link PageListItem.titleMd}). */
+  titleMd?: string;
   spaceId?: string | null;
   color?: string | null;
   /** ISO timestamp when the page was archived (deleted) */
@@ -75,12 +95,14 @@ export interface PageFull extends PageListItem {
   blocks: Block[] | null;
   createdAt: string;
   updatedAt: string;
-  parents?: { id: string; title: string; color?: string | null }[];
+  parents?: PagePathSegment[];
 }
 
 /** Data needed to create a page */
 export interface PageCreateInput {
   title: string;
+  /** Markdown projection of the title line (see {@link PageListItem.titleMd}). */
+  titleMd?: string;
   parentId: string | null;
   spaceId?: string;
   scheduledAt?: string;
@@ -93,6 +115,8 @@ export interface PageCreateInput {
 export interface PageUpdateInput {
   id: string;
   title?: string;
+  /** Markdown projection of the title line (see {@link PageListItem.titleMd}). */
+  titleMd?: string;
   color?: string | null;
   scheduledAt?: string | null;
   duration?: number | null;
@@ -111,8 +135,10 @@ export interface PageMoveInput {
 export interface PageSearchResult {
   id: string;
   title: string | null;
+  /** Markdown projection of the title line (see {@link PageListItem.titleMd}). */
+  titleMd?: string | null;
   parentId: string | null;
-  path: { id: string; title: string; color?: string | null }[] | null;
+  path: PagePathSegment[] | null;
   color?: string | null;
 }
 
@@ -120,6 +146,8 @@ export interface PageSearchResult {
 export interface PageCalendarItem {
   id: string;
   title: string;
+  /** Markdown projection of the title line (see {@link PageListItem.titleMd}). */
+  titleMd?: string;
   parentId: string | null;
   order: number;
   color: string | null;
@@ -128,7 +156,7 @@ export interface PageCalendarItem {
   allDay: boolean | null;
   recurrenceId: string | null;
   task: boolean;
-  path: { id: string; title: string; color?: string | null }[] | null;
+  path: PagePathSegment[] | null;
   createdAt: string;
 }
 
@@ -234,11 +262,18 @@ export interface MemberSet extends SpaceBaseOp {
   value: unknown;
 }
 
-/** Add a page to the space (page created) */
+/**
+ * Add a page to the space (page created).
+ *
+ * Deliberately carries NO title: the page's title (plain and markdown) is a
+ * derived projection of the doc content, and the doc's operation log is the
+ * source of truth. Every peer derives the title columns locally from the
+ * content ops it receives (see Engine.refreshDerivedTitles), so replicated
+ * metadata can never contradict the document.
+ */
 export interface PageAdd extends SpaceBaseOp {
   op: "page_add";
   pageId: string;
-  title: string;
   parentId: string | null;
   order: number;
   task?: boolean;

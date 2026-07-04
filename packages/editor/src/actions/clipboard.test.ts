@@ -8,9 +8,9 @@
 
 import { getInlineMathSpans } from "../inline-math-spans";
 import { moveCursorToPosition } from "../selection";
-import type { Block } from "../serlization/loadPage";
+import type { Block, CharRun } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
-import type { BlockSet } from "../state-types";
+import type { BlockSet, EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { applyOps, getVisibleBlocks } from "../sync/reducer";
@@ -130,6 +130,83 @@ describe("multi-block paste — ordering & convergence", () => {
     for (let i = 1; i < keys.length; i++) {
       expect(keys[i - 1] < keys[i]).toBe(true);
     }
+  });
+});
+
+describe("paste inside a quote — plain lines continue the quote", () => {
+  const paste = (state: EditorState, text: string) =>
+    pasteFromClipboardEvent(state, {} as ClipboardEvent, {
+      html: "",
+      text,
+      imageFile: null,
+    });
+  const blockText = (b: Block) =>
+    getVisibleTextFromRuns((b as { charRuns: CharRun[] }).charRuns);
+
+  it("re-types pasted plain lines to quote blocks", () => {
+    const state = moveCursorToPosition(
+      createInitialState(loadPage("> Lead")),
+      0,
+      4, // end of "Lead"
+    );
+    const prevPage = state.document.page;
+
+    const result = paste(state, "one\ntwo\nthree");
+    expect(result).not.toBeNull();
+
+    const blocks = getVisibleBlocks(result!.state.document.page);
+    expect(blocks.map((b) => b.type)).toEqual(["quote", "quote", "quote"]);
+    expect(blocks.map(blockText)).toEqual(["Leadone", "two", "three"]);
+
+    // Convergence: replaying the emitted ops mints the same quote types.
+    const replayed = applyOps(prevPage, result!.ops);
+    expect(getVisibleBlocks(replayed).map((b) => b.type)).toEqual([
+      "quote",
+      "quote",
+      "quote",
+    ]);
+  });
+
+  it("keeps the host's tail in the quote when pasting mid-text", () => {
+    const state = moveCursorToPosition(
+      createInitialState(loadPage("> AliceBob")),
+      0,
+      5, // between "Alice" and "Bob"
+    );
+
+    const result = paste(state, "one\ntwo");
+    const blocks = getVisibleBlocks(result!.state.document.page);
+
+    expect(blocks.map((b) => b.type)).toEqual(["quote", "quote"]);
+    expect(blocks.map(blockText)).toEqual(["Aliceone", "twoBob"]);
+  });
+
+  it("leaves richer parsed types (headings) untouched", () => {
+    const state = moveCursorToPosition(
+      createInitialState(loadPage("> Lead")),
+      0,
+      4,
+    );
+
+    const result = paste(state, "intro\n# Title\ntail");
+    const blocks = getVisibleBlocks(result!.state.document.page);
+
+    expect(blocks.map((b) => b.type)).toEqual(["quote", "heading1", "quote"]);
+    expect(blocks.map(blockText)).toEqual(["Leadintro", "Title", "tail"]);
+  });
+
+  it("does not re-type lines pasted into a paragraph host", () => {
+    const state = moveCursorToPosition(
+      createInitialState(loadPage("Lead")),
+      0,
+      4,
+    );
+
+    const result = paste(state, "one\ntwo");
+    const blocks = getVisibleBlocks(result!.state.document.page);
+
+    expect(blocks.map((b) => b.type)).toEqual(["paragraph", "paragraph"]);
+    expect(blocks.map(blockText)).toEqual(["Leadone", "two"]);
   });
 });
 

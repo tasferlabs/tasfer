@@ -5,6 +5,7 @@ import {
   hasSentinel,
   isEmptyDelta,
   isWordBoundaryChar,
+  rescueCaretBeforeSentinel,
   sentenceStartOffset,
   stripSentinel,
   SURFACE_SENTINEL,
@@ -65,6 +66,53 @@ describe("hasSentinel / stripSentinel", () => {
     expect(hasSentinel("word", "")).toBe(true);
     expect(hasSentinel("", "")).toBe(true);
     expect(stripSentinel("word", "")).toBe("word");
+  });
+});
+
+describe("rescueCaretBeforeSentinel", () => {
+  const NBSP = " ";
+
+  it("reorders a keystroke that landed before the bare sentinel", () => {
+    // Regression: a browser that grants focus without an explicit selection
+    // parks the DOM caret at offset 0, BEFORE the sentinel. The first
+    // keystroke then turns ` ` into `C `; read verbatim, the trailing
+    // sentinel space is diffed into the document ("Cy" typed fast came out
+    // as "C y" in the draft-title editor).
+    expect(rescueCaretBeforeSentinel(" ", "C ", SURFACE_SENTINEL)).toBe(" C");
+  });
+
+  it("reorders a multi-character insertion (fast typing / IME commit)", () => {
+    expect(rescueCaretBeforeSentinel(" ", "Cy ", SURFACE_SENTINEL)).toBe(" Cy");
+  });
+
+  it("keeps the browser's sentinel substitute and the mirrored word", () => {
+    // The browser may have substituted the sentinel with an NBSP; the rescued
+    // surface must keep whatever character actually leads the field, and any
+    // mirrored word after it stays in place.
+    expect(rescueCaretBeforeSentinel(`${NBSP}wo`, `r${NBSP}wo`, " ")).toBe(
+      `${NBSP}rwo`,
+    );
+  });
+
+  it("does not fire on a normal append after the sentinel", () => {
+    expect(rescueCaretBeforeSentinel(" C", " Cy", SURFACE_SENTINEL)).toBeNull();
+  });
+
+  it("does not fire on deletions or replacements", () => {
+    // Backspace that consumed the sentinel.
+    expect(rescueCaretBeforeSentinel(" ", "", SURFACE_SENTINEL)).toBeNull();
+    // Whole-field rewrite by a keyboard (sentinel replaced, not displaced).
+    expect(
+      rescueCaretBeforeSentinel(" word", "sword", SURFACE_SENTINEL),
+    ).toBeNull();
+  });
+
+  it("does not fire when the new surface still leads with the sentinel", () => {
+    expect(rescueCaretBeforeSentinel(" ", " C", SURFACE_SENTINEL)).toBeNull();
+  });
+
+  it("does not fire for the empty sentinel (iOS faithful surface)", () => {
+    expect(rescueCaretBeforeSentinel("", "C", "")).toBeNull();
   });
 });
 

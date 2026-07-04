@@ -67,6 +67,8 @@ export function useGetPage(
 // Create page
 interface ICreatePage {
   title: string;
+  /** Markdown projection of the title line (rich title previews). */
+  titleMd?: string;
   parentId: string | null;
   spaceId: string;
   scheduledAt?: string;
@@ -93,6 +95,8 @@ export function useCreatePage<TContext = unknown>(
 interface IUpdatePage {
   id: string;
   title?: string;
+  /** Markdown projection of the title line (rich title previews). */
+  titleMd?: string;
   color?: string | null;
   scheduledAt?: string | null;
   duration?: number | null;

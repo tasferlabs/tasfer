@@ -64,6 +64,7 @@ export {
   type MarkStyleCtx,
   type MarkUnderlineStyle,
   MathMark,
+  type SelectionWrapTrigger,
   StrikeMark,
   StrongMark,
 } from "./rendering/marks";
@@ -428,6 +429,7 @@ export {
   filterMathCommands,
   type MathCommand,
   mathCommandCaretOffset,
+  mathCommandInsertion,
 } from "./nodes/math-commands";
 
 // Host-convenience helpers (block/format/selection readers), the low-level

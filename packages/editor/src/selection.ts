@@ -1582,13 +1582,37 @@ export function moveCursorToPosition(
   const allBlocks = state.document.page.blocks;
   if (allBlocks.length === 0) return state;
 
-  const clampedBlockIndex = Math.max(
+  let clampedBlockIndex = Math.max(
     0,
     Math.min(blockIndex, allBlocks.length - 1),
   );
-  const block = allBlocks[clampedBlockIndex];
+  let block = allBlocks[clampedBlockIndex];
 
-  if (!block || block.deleted) return state;
+  // `page.blocks` keeps tombstones, so index arithmetic (blockIndex ± 1) can
+  // land on a deleted block. The cursor must always rest on visible content:
+  // resolve to the nearest visible block — forward first (the caller aimed
+  // past the target), then backward. Silently keeping the old cursor here hid
+  // real bugs ("Enter inserts a line but the caret stays behind").
+  if (!block || block.deleted) {
+    let resolved = -1;
+    for (let i = clampedBlockIndex + 1; i < allBlocks.length; i++) {
+      if (!allBlocks[i].deleted) {
+        resolved = i;
+        break;
+      }
+    }
+    if (resolved === -1) {
+      for (let i = clampedBlockIndex - 1; i >= 0; i--) {
+        if (!allBlocks[i].deleted) {
+          resolved = i;
+          break;
+        }
+      }
+    }
+    if (resolved === -1) return state;
+    clampedBlockIndex = resolved;
+    block = allBlocks[clampedBlockIndex];
+  }
 
   const maxTextIndex = getBlockTextLength(block);
   const clampedTextIndex = Math.max(0, Math.min(textIndex, maxTextIndex));

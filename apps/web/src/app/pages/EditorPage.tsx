@@ -19,10 +19,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { type Block } from "@cypherkit/editor";
 import type { CursorUser } from "@cypherkit/provider-core/cursors";
 import type { TextualBlock } from "@cypherkit/editor/internal";
-import {
-  extractTitleFromBlocks,
-  getVisibleTextFromRuns,
-} from "@cypherkit/editor/internal";
+import { getVisibleTextFromRuns } from "@cypherkit/editor/internal";
+import { deriveTitles } from "@/lib/pageTitle";
+import { TitlePreview } from "../TitlePreview";
 import {
   formatDatePreferred,
   formatTimePreferred,
@@ -69,7 +68,10 @@ import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
 import { SnapshotRestore } from "../components/SnapshotRestore";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
-import { usePageSettings } from "../contexts/PageSettingsContext";
+import {
+  NARROW_CONTENT_WIDTH,
+  usePageSettings,
+} from "../contexts/PageSettingsContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useTreeExpand } from "../contexts/TreeExpandContext";
 import { useDebouncedSave } from "../hooks/useDebouncedSave";
@@ -190,6 +192,10 @@ export default function EditorPage() {
   useEffect(() => {
     currentTitleRef.current = currentTitle;
   }, [currentTitle]);
+  // The title's rich (markdown) projection, tracked the same way. A ref only —
+  // nothing renders it here; it exists so marks-only edits to the heading
+  // (bolding a word changes no visible text) still persist a fresh titleMd.
+  const currentTitleMdRef = useRef<string>("");
 
   useEffect(() => {
     if (id) {
@@ -291,6 +297,7 @@ export default function EditorPage() {
             // Page exists but has no content — mark as corrupted so user can recover from snapshots
             setPageSnapshot(blocks);
             setCurrentTitle(page.title || "");
+            currentTitleMdRef.current = page.titleMd || "";
             setPageSpaceId(page.spaceId ?? null);
             setLocalPermission("owner");
             setPermission("owner");
@@ -300,6 +307,7 @@ export default function EditorPage() {
           }
           setPageSnapshot(blocks);
           setCurrentTitle(page.title || "");
+          currentTitleMdRef.current = page.titleMd || "";
           // Store the page's actual space ID for P2P sync routing
           setPageSpaceId(page.spaceId ?? null);
           // Track permission
@@ -340,16 +348,26 @@ export default function EditorPage() {
       if (!pageId) return;
 
       try {
-        const updateData: { id: string; title?: string } = { id: pageId };
+        const updateData: { id: string; title?: string; titleMd?: string } = {
+          id: pageId,
+        };
 
         let titleChanged = false;
         // The title always mirrors the heading — derive it from content and save
-        // whenever it changes (only while we're still on the same page).
+        // whenever it changes (only while we're still on the same page). Both
+        // projections are checked independently: a marks-only edit changes the
+        // markdown but not the visible text.
         if (pageId === id) {
-          const extractedTitle = extractTitleFromBlocks(blocks);
+          const { title: extractedTitle, titleMd: extractedTitleMd } =
+            deriveTitles(blocks);
           if (extractedTitle !== currentTitleRef.current) {
             updateData.title = extractedTitle;
             setCurrentTitle(extractedTitle);
+            titleChanged = true;
+          }
+          if (extractedTitleMd !== currentTitleMdRef.current) {
+            updateData.titleMd = extractedTitleMd;
+            currentTitleMdRef.current = extractedTitleMd;
             titleChanged = true;
           }
         }
@@ -834,7 +852,6 @@ function PageActionBar({ pageId }: { pageId: string }) {
     isError: isPageError,
   } = useGetPage(pageId);
   const { isSaving, activeUsers, permission } = usePageSettings();
-  const { t } = useTranslation();
 
   // Effective color: page's own color, or inherit from closest ancestor that has one
   const effectiveColor =
@@ -875,7 +892,10 @@ function PageActionBar({ pageId }: { pageId: string }) {
                         }}
                       />
                       <span className="truncate">
-                        {parent.title || t("common.untitled", "Untitled")}
+                        <TitlePreview
+                          title={parent.title}
+                          titleMd={parent.titleMd}
+                        />
                       </span>
                     </span>
                     <span className={style.breadcrumbSeparator}>
@@ -899,7 +919,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
                 }}
               />
               <span className="truncate">
-                {page.title || t("common.untitled", "Untitled")}
+                <TitlePreview title={page.title} titleMd={page.titleMd} />
               </span>
             </span>
             <ChevronDown size={10} className="shrink-0 opacity-40" />
@@ -934,7 +954,10 @@ function PageActionBar({ pageId }: { pageId: string }) {
                         opacity: parentColor ? 1 : 0.3,
                       }}
                     />
-                    {parent.title || t("common.untitled", "Untitled")}
+                    <TitlePreview
+                      title={parent.title}
+                      titleMd={parent.titleMd}
+                    />
                   </span>
                   <span className={style.breadcrumbSeparator}>
                     <ChevronRight size={16} />
@@ -955,7 +978,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
                 opacity: effectiveColor ? 1 : 0.3,
               }}
             />
-            {page?.title || t("common.untitled", "Untitled")}
+            <TitlePreview title={page?.title} titleMd={page?.titleMd} />
           </span>
         </div>
       )}
@@ -970,15 +993,29 @@ function PageActionBar({ pageId }: { pageId: string }) {
 }
 
 export function EditorLoadingState({ padding = true }: { padding?: boolean }) {
+  const { editorWidth } = usePageSettings();
   return (
     <div className={clsx("w-full h-full", padding && "p-6 md:p-10")}>
-      <Skeleton className="h-12 w-3/4 mb-8" />
-      <Skeleton className="h-6 w-full mb-4" />
-      <Skeleton className="h-6 w-full mb-4" />
-      <Skeleton className="h-6 w-5/6 mb-4" />
-      <Skeleton className="h-6 w-full mb-8" />
-      <Skeleton className="h-6 w-full mb-4" />
-      <Skeleton className="h-6 w-4/5 mb-4" />
+      {/* Mirror the mounted editor's width setting so the skeleton doesn't
+          jump when the canvas takes over: "narrow" centers the same reading
+          column the engine gets via horizontalPaddingForWidth (the outer
+          md:p-10 matches its minimum 40px gutter), "wide" spans the canvas. */}
+      <div
+        className={clsx(editorWidth === "narrow" && "mx-auto")}
+        style={
+          editorWidth === "narrow"
+            ? { maxWidth: NARROW_CONTENT_WIDTH }
+            : undefined
+        }
+      >
+        <Skeleton className="h-12 w-3/4 mb-8" />
+        <Skeleton className="h-6 w-full mb-4" />
+        <Skeleton className="h-6 w-full mb-4" />
+        <Skeleton className="h-6 w-5/6 mb-4" />
+        <Skeleton className="h-6 w-full mb-8" />
+        <Skeleton className="h-6 w-full mb-4" />
+        <Skeleton className="h-6 w-4/5 mb-4" />
+      </div>
     </div>
   );
 }

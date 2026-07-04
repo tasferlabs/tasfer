@@ -12,6 +12,7 @@ import {
 } from "../../api/pages.api";
 import { useConfirmation } from "../../components/ConfirmationDialog";
 import { RenameDialog } from "../../components/RenameDialog";
+import { TitlePreview } from "../../TitlePreview";
 import Icons from "../../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../../components/uiKit/VisuallyHidden/VisuallyHidden";
 import {
@@ -397,7 +398,7 @@ export function PageLink({
                 navigate(`/page/${data.id}`);
               }}
             >
-              {data.title || t("common.untitled", "Untitled")}
+              <TitlePreview title={data.title} titleMd={data.titleMd} />
             </span>
           </div>
           <PageLinkMenu

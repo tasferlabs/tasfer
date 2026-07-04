@@ -31,10 +31,10 @@ import { useCreatePage, updatePage } from "../api/pages.api";
 import { uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import {
-  extractTitleFromBlocks,
   getVisibleTextFromRuns,
   isTextualBlock,
 } from "@cypherkit/editor/internal";
+import { deriveTitles } from "@/lib/pageTitle";
 import { type Block } from "@cypherkit/editor";
 
 interface ImportDialogProps {
@@ -276,8 +276,11 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
 
   const handleCreateNew = useCallback(() => {
     if (pendingBlocks && activeSpaceId) {
-      const title = extractTitleFromBlocks(pendingBlocks) || "";
-      createPage({ title, parentId: null, spaceId: activeSpaceId });
+      createPage({
+        ...deriveTitles(pendingBlocks),
+        parentId: null,
+        spaceId: activeSpaceId,
+      });
     }
   }, [pendingBlocks, createPage, activeSpaceId]);
 

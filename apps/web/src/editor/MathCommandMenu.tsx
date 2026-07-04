@@ -6,7 +6,7 @@ import {
   type Editor,
   filterMathCommands,
   type MathCommand,
-  mathCommandCaretOffset,
+  mathCommandInsertion,
   renderToSVG,
   TEXT_INPUT,
 } from "@cypherkit/editor";
@@ -98,9 +98,19 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
               .marks({ block: t.blockId, offset: t.backslashIndex })
               .find((m) => m.name === "math")
           : undefined;
+      // The formula character right after the replaced run — the rest of the
+      // block for an equation, but only up to the chip's end for inline math
+      // (text past the chip is prose, which can't fuse with a command). A
+      // letter there needs a separator space or committing `\pi` in `a\pi|a`
+      // leaves the fused unknown `\pia`; `mathCommandInsertion` appends it.
+      const following =
+        block?.type === "math" || (chip && caretIndex < chip.to)
+          ? (block?.text[caretIndex] ?? "")
+          : "";
+      const insertion = mathCommandInsertion(cmd.latex, following);
       // Replace the typed "\query" with the construct (one undo step).
       editor.change((c) => {
-        c.insertText(cmd.latex, {
+        c.insertText(insertion.text, {
           from: { block: t.blockId, offset: t.backslashIndex },
           to: { block: t.blockId, offset: caretIndex },
         });
@@ -114,7 +124,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         // safe for the interior/edge cases too.
         if (chip) {
           const end =
-            chip.to + cmd.latex.length - (caretIndex - t.backslashIndex);
+            chip.to + insertion.text.length - (caretIndex - t.backslashIndex);
           c.setMark("math", {
             active: true,
             range: {
@@ -125,7 +135,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         }
         c.select({
           block: t.blockId,
-          offset: t.backslashIndex + mathCommandCaretOffset(cmd.latex),
+          offset: t.backslashIndex + insertion.caretOffset,
         });
       });
       close();

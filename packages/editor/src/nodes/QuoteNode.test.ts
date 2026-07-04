@@ -1,3 +1,4 @@
+import { insertText } from "../actions/actions";
 import { DELETE_BACKWARD, SPLIT_BLOCK } from "../actions/edit-actions";
 import { getBlockHeight } from "../rendering/renderer";
 import { serializeToHTMLFragment } from "../serlization/htmlSerializer";
@@ -190,6 +191,66 @@ function withCursor(
 function pageWith(...blocks: Page["blocks"]): Page {
   return { id: "page-1", title: "Quotes", blocks };
 }
+
+describe("QuoteNode markdown typing shortcut", () => {
+  function paragraphWithText(text: string): Block {
+    return {
+      id: "p-1",
+      orderKey: "a0",
+      deleted: false,
+      type: "paragraph",
+      charRuns: [{ peerId: "peer", startCounter: 0, text }],
+      formats: [],
+    } as Block;
+  }
+
+  it('converts a paragraph to a quote on "> "', () => {
+    const state = withCursor(
+      createInitialState(pageWith(paragraphWithText(">"))),
+      { blockIndex: 0, textIndex: 1 },
+    );
+
+    const result = insertText(state, " ");
+    const block = result.state.document.page.blocks[0] as QuoteBlock;
+
+    expect(block.type).toBe("quote");
+    // The "> " prefix is consumed, not kept as literal text.
+    expect(getVisibleTextFromRuns(block.charRuns)).toBe("");
+    expect(
+      result.ops.some(
+        (op) =>
+          op.op === "block_set" && op.field === "type" && op.value === "quote",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps typing after the conversion inside the quote", () => {
+    const state = withCursor(
+      createInitialState(pageWith(paragraphWithText(">"))),
+      { blockIndex: 0, textIndex: 1 },
+    );
+
+    const converted = insertText(state, " ");
+    const typed = insertText(converted.state, "W");
+    const block = typed.state.document.page.blocks[0] as QuoteBlock;
+
+    expect(block.type).toBe("quote");
+    expect(getVisibleTextFromRuns(block.charRuns)).toBe("W");
+  });
+
+  it('leaves ">" without a following space as literal text', () => {
+    const state = withCursor(
+      createInitialState(pageWith(paragraphWithText(">"))),
+      { blockIndex: 0, textIndex: 1 },
+    );
+
+    const result = insertText(state, "=");
+    const block = result.state.document.page.blocks[0];
+
+    expect(block.type).toBe("paragraph");
+    expect(getVisibleTextFromRuns((block as QuoteBlock).charRuns)).toBe(">=");
+  });
+});
 
 describe("QuoteNode Enter behavior", () => {
   it("splits within quote text without losing the quote type", () => {

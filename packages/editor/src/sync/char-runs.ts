@@ -610,6 +610,39 @@ export function charRunsToChars(runs: CharRun[]): Char[] {
 const MAX_TITLE_LENGTH = 100;
 
 /**
+ * The block whose content IS the document's title: the first non-empty
+ * heading, or failing that the first non-empty text block (paragraph/list).
+ * Returns null when the document has no titled content. Shared by the
+ * plain-text and markdown title extractors so both always agree on which
+ * block the title comes from.
+ */
+export function findTitleBlock(
+  blocks: Block[] | undefined,
+): TextualBlock | null {
+  if (!blocks || blocks.length === 0) return null;
+
+  // First pass: look for first non-empty heading
+  for (const block of blocks) {
+    if (block.deleted) continue;
+    if (isHeadingType(block.type)) {
+      const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
+      if (text.trim().length > 0) return block as TextualBlock;
+    }
+  }
+
+  // Second pass: look for first non-empty text block (paragraph or list)
+  for (const block of blocks) {
+    if (block.deleted) continue;
+    if (isTextualBlock(block)) {
+      const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
+      if (text.trim().length > 0) return block as TextualBlock;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Extract a title from blocks by finding the first non-empty text block.
  * Prefers headings over paragraphs/lists.
  * Returns empty string if no suitable title is found.
@@ -621,33 +654,10 @@ export function extractTitleFromBlocks(
   blocks: Block[] | undefined,
   maxLength: number = MAX_TITLE_LENGTH,
 ): string {
-  if (!blocks || blocks.length === 0) return "";
-
-  // First pass: look for first non-empty heading
-  for (const block of blocks) {
-    if (block.deleted) continue;
-    if (isHeadingType(block.type)) {
-      const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
-      const trimmed = text.trim();
-      if (trimmed.length > 0) {
-        return truncateTitle(trimmed, maxLength);
-      }
-    }
-  }
-
-  // Second pass: look for first non-empty text block (paragraph or list)
-  for (const block of blocks) {
-    if (block.deleted) continue;
-    if (isTextualBlock(block)) {
-      const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
-      const trimmed = text.trim();
-      if (trimmed.length > 0) {
-        return truncateTitle(trimmed, maxLength);
-      }
-    }
-  }
-
-  return "";
+  const block = findTitleBlock(blocks);
+  if (!block) return "";
+  const trimmed = getVisibleTextFromRuns(block.charRuns).trim();
+  return truncateTitle(trimmed, maxLength);
 }
 
 /**

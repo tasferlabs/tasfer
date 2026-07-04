@@ -523,6 +523,19 @@
   min-height: 0;
 }
 
+/* Draft title field leads the desktop popover, above the schedule rows. */
+.previewDraftTitleArea {
+  padding-top: 12px;
+}
+
+/* Scrollable middle of the desktop draft popover: the drill-down parent rows
+   grow vertically, and the footer stays pinned below. */
+.previewDraftScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .previewDraftFooter {
   display: flex;
   align-items: center;
@@ -530,12 +543,6 @@
   gap: 8px;
   padding: 8px 12px;
   border-top: 1px solid var(--border);
-}
-
-.previewDraftShortcut {
-  margin-inline-end: auto;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
 }
 
 /* ---------------------------------------------------------------------------
@@ -612,6 +619,129 @@
   color: var(--muted-foreground);
 }
 
+/* Trailing action in a draft section header (the parent-picker search toggle). */
+.draftSectionHeaderAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-inline-start: auto;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.draftSectionHeaderAction:hover,
+.draftSectionHeaderActionActive {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+/* Search mode of the draft parent picker: swaps in for the tag rows. */
+.parentSearch {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 12px 8px;
+}
+
+.parentSearchInputRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 8px;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+}
+
+.parentSearchInputRow:focus-within {
+  border-color: var(--ring);
+}
+
+.parentSearchInput {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border: none;
+  background: none;
+  outline: none;
+  font-size: 0.875rem;
+  color: var(--foreground);
+}
+
+.parentSearchInput::placeholder {
+  color: var(--muted-foreground);
+}
+
+.parentSearchClear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.parentSearchClear:hover {
+  color: var(--foreground);
+}
+
+.parentSearchResults {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.parentSearchItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* Hover moves the highlight (mouseenter), so active covers both inputs. */
+.parentSearchItemActive {
+  background: var(--accent);
+}
+
+.parentSearchTitle,
+.parentSearchPath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.parentSearchTitle {
+  flex-shrink: 0;
+  max-width: 70%;
+}
+
+.parentSearchPath {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.parentSearchEmpty {
+  padding: 12px 8px;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
 /* Stacked drill-down rows of parent tags. */
 .draftTagLevels {
   display: flex;
@@ -643,7 +773,9 @@
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  max-width: 60vw;
+  /* Cap relative to the row, not the viewport: the picker also renders inside
+     the ~400px desktop draft popover. */
+  max-width: min(60vw, 100%);
   padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;

@@ -7,6 +7,8 @@ import {
   pointerWithin,
   rectIntersection,
   TouchSensor,
+  useDndContext,
+  useDroppable,
   useSensor,
   useSensors,
   type CollisionDetection,
@@ -17,11 +19,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import { FileText, PanelLeftClose, Search } from "lucide-react";
 import React, { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import {
   useCreatePage,
+  useDeletePage,
   useMovePage,
   useReorderPage,
   type IListPage,
@@ -37,6 +40,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useOrderedSpaces, useSpacePrefs } from "../contexts/SpacePrefsContext";
 import { setRecentDragEnd } from "./components/PageLink";
+import { TitlePreview } from "../TitlePreview";
 import { SpaceSection } from "./components/SpaceSection";
 import { SidebarTailDrop } from "./components/SidebarTailDrop";
 // import pageLinkStyle from "./components/PagesLinks.module.css";
@@ -60,14 +64,18 @@ const pageCollisionDetection: CollisionDetection = (args) => {
 
   const dataFor = (id: string | number) =>
     args.droppableContainers.find((c) => c.id === id)?.data.current as
-      | { type?: string; position?: string }
-      | undefined;
+      { type?: string; position?: string } | undefined;
 
   // Spaces and pages share one DndContext. When a space is being dragged, only
   // the space insertion zones are valid targets — ignore page drop zones.
   if (args.active.data.current?.type === "spaceLink") {
     return hits.filter((h) => dataFor(h.id)?.type === "space-drop-zone");
   }
+
+  // The Bin nav link never overlaps a page drop zone, but resolve it first so
+  // a drop on it can't lose to any broader container hit.
+  const bin = hits.find((h) => dataFor(h.id)?.type === "bin-drop-zone");
+  if (bin) return [bin];
 
   const insertion = hits.find((h) => {
     const d = dataFor(h.id);
@@ -126,7 +134,7 @@ export function SidebarContent({
   const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
   // const [sharedCollapsed, setSharedCollapsed] = useState(false);
 
-  // const { id: currentPageId } = useParams<{ id: string }>();
+  const { id: currentPageId } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { spaces } = useSpaces();
   const spacePrefs = useSpacePrefs();
@@ -208,6 +216,34 @@ export function SidebarContent({
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
+    },
+  });
+
+  // Soft-delete for drag-to-Bin. The dragged page can come from any list, so
+  // the optimistic update sweeps every cached pages query, like movePage.
+  const { mutate: deletePage } = useDeletePage({
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: ["pages"] });
+      const previousData = queryClient.getQueriesData<IListPage[]>({
+        queryKey: ["pages"],
+      });
+
+      queryClient.setQueriesData<IListPage[]>({ queryKey: ["pages"] }, (old) =>
+        old ? old.filter((p) => p.id !== variables.id) : old,
+      );
+
+      return { previousData };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousData) {
+        for (const [key, data] of context.previousData) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
     },
   });
 
@@ -325,6 +361,34 @@ export function SidebarContent({
           overData.beforeSpaceId ?? null,
         );
       }
+      return;
+    }
+
+    // Drop on the Bin nav link: soft-delete the page (restorable from /bin).
+    // Same confirmation and navigate-away behavior as the context-menu delete.
+    if (overData?.type === "bin-drop-zone") {
+      const confirmed = await getConfirmation({
+        title: t("page.deletePage", "Delete Page"),
+        description: t(
+          "page.confirmDeletePage",
+          "Are you sure you want to delete this page?",
+        ),
+        cancelText: t("common.cancel", "Cancel"),
+        confirmText: t("common.delete", "Delete"),
+      });
+      if (!confirmed) return;
+
+      if (currentPageId === activeData.id) {
+        const remaining = getSiblings(activeData.spaceId, null).filter(
+          (p) => p.id !== activeData.id,
+        );
+        if (remaining.length > 0) {
+          navigate(`/page/${remaining[0].id}`);
+        } else {
+          navigate("/page");
+        }
+      }
+      deletePage({ id: activeData.id });
       return;
     }
 
@@ -573,85 +637,77 @@ export function SidebarContent({
               )}
             </div>
           )}
-          <div className={style.appNavigationLinks}>
-            <button
-              className={style.appNavigationLink}
-              onClick={() => {
-                document.dispatchEvent(
-                  new KeyboardEvent("keydown", {
-                    key: "k",
-                    metaKey: true,
-                    bubbles: true,
-                  }),
-                );
-              }}
-            >
-              <div className={style.appNavigationLinkIcon}>
-                <Search size={20} />
-              </div>
-              {t("sidebar.search", "Search")}
-              {isFine && (
-                <kbd className={clsx(style.appNavigationLinkShortcut)}>
-                  {/Mac|iPhone|iPad/.test(navigator.platform)
-                    ? "\u2318K"
-                    : "Ctrl+K"}
-                </kbd>
-              )}
-            </button>
-            <NavLink
-              className={({ isActive }) =>
-                clsx(style.appNavigationLink, isActive && style.active)
-              }
-              to={"/settings"}
-            >
-              <div className={style.appNavigationLinkIcon}>
-                <Icons.Gear width={24} height={24} />
-              </div>
-              {t("settings.title", "Settings")}
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                clsx(style.appNavigationLink, isActive && style.active)
-              }
-              to={"/calendar"}
-            >
-              <div className={style.appNavigationLinkIcon}>
-                <Icons.Calendar width={24} height={24} />
-              </div>
-              {t("calendar.title", "Calendar")}
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                clsx(style.appNavigationLink, isActive && style.active)
-              }
-              to={"/bin"}
-            >
-              <div className={style.appNavigationLinkIcon}>
-                <Icons.Trash width={24} height={24} />
-              </div>
-              {t("bin.title", "Bin")}
-            </NavLink>
+          {/* The DndContext wraps the nav links too, so the Bin link can act
+              as a drop target for pages dragged out of the spaces tree. */}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={pageCollisionDetection}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <div className={style.appNavigationLinks}>
+              <button
+                className={style.appNavigationLink}
+                onClick={() => {
+                  document.dispatchEvent(
+                    new KeyboardEvent("keydown", {
+                      key: "k",
+                      metaKey: true,
+                      bubbles: true,
+                    }),
+                  );
+                }}
+              >
+                <div className={style.appNavigationLinkIcon}>
+                  <Search size={20} />
+                </div>
+                {t("sidebar.search", "Search")}
+                {isFine && (
+                  <kbd className={clsx(style.appNavigationLinkShortcut)}>
+                    {/Mac|iPhone|iPad/.test(navigator.platform)
+                      ? "\u2318K"
+                      : "Ctrl+K"}
+                  </kbd>
+                )}
+              </button>
+              <NavLink
+                className={({ isActive }) =>
+                  clsx(style.appNavigationLink, isActive && style.active)
+                }
+                to={"/settings"}
+              >
+                <div className={style.appNavigationLinkIcon}>
+                  <Icons.Gear width={24} height={24} />
+                </div>
+                {t("settings.title", "Settings")}
+              </NavLink>
+              <NavLink
+                className={({ isActive }) =>
+                  clsx(style.appNavigationLink, isActive && style.active)
+                }
+                to={"/calendar"}
+              >
+                <div className={style.appNavigationLinkIcon}>
+                  <Icons.Calendar width={24} height={24} />
+                </div>
+                {t("calendar.title", "Calendar")}
+              </NavLink>
+              <BinNavLink />
 
-            <button
-              className={style.appNavigationLink}
-              onClick={() => {
-                onAddSpace();
-              }}
-            >
-              <div className={style.appNavigationLinkIcon}>
-                <Icons.AddGroup />
-              </div>
-              {t("space.addSpace", "Add space")}
-            </button>
-          </div>
+              <button
+                className={style.appNavigationLink}
+                onClick={() => {
+                  onAddSpace();
+                }}
+              >
+                <div className={style.appNavigationLinkIcon}>
+                  <Icons.AddGroup />
+                </div>
+                {t("space.addSpace", "Add space")}
+              </button>
+            </div>
 
-          <div className={style.appSidebarMain}>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={pageCollisionDetection}
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
-            >
+            <div className={style.appSidebarMain}>
               <ScrollArea className={style.appSidebarScrollArea}>
                 {orderedSpaces.map((space) => (
                   <SpaceSection
@@ -686,15 +742,17 @@ export function SidebarContent({
                     <div className={style.dragOverlay}>
                       <FileText size={20} />
                       <span>
-                        {activeDragData.title ||
-                          t("common.untitled", "Untitled")}
+                        <TitlePreview
+                          title={activeDragData.title}
+                          titleMd={activeDragData.titleMd}
+                        />
                       </span>
                     </div>
                   )
                 ) : null}
               </DragOverlay>
-            </DndContext>
-          </div>
+            </div>
+          </DndContext>
 
           {!shouldShowTheProfileAtTop && (
             <div className={style.appSidebarFooter}>
@@ -730,5 +788,40 @@ export function SidebarContent({
         name={displayName}
       />
     </>
+  );
+}
+
+/**
+ * The Bin nav link doubles as a drop target: dropping a page on it moves the
+ * page to the Bin. Lives in its own component because `useDroppable` must run
+ * under the sidebar's DndContext, which SidebarContent itself renders.
+ */
+function BinNavLink() {
+  const { t } = useTranslation();
+  const { active } = useDndContext();
+  const isPageDrag = active?.data.current?.type === "pageLink";
+  const { isOver, setNodeRef } = useDroppable({
+    id: "bin-drop",
+    disabled: !isPageDrag,
+    data: { type: "bin-drop-zone" },
+  });
+
+  return (
+    <NavLink
+      ref={setNodeRef}
+      className={({ isActive }) =>
+        clsx(
+          style.appNavigationLink,
+          isActive && style.active,
+          isOver && isPageDrag && style.binDropTarget,
+        )
+      }
+      to={"/bin"}
+    >
+      <div className={style.appNavigationLinkIcon}>
+        <Icons.Trash width={24} height={24} />
+      </div>
+      {t("bin.title", "Bin")}
+    </NavLink>
   );
 }

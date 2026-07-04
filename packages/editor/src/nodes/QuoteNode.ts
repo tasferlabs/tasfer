@@ -48,6 +48,9 @@ export class QuoteNode extends TextNode {
   readonly type = "quote" as const;
   readonly types: readonly string[] = ["quote"];
   readonly joinGroup = "card";
+  // Multi-line plain text pasted inside a quote continues the quote: each
+  // pasted paragraph becomes another quote block in the same card run.
+  readonly absorbsPastedParagraphs = true;
   readonly strings = { placeholder: "Write something worth remembering…" };
 
   override textStyle(styles: EditorStyles): TextStyle {

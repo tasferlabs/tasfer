@@ -73,6 +73,14 @@ export interface BlockCapabilities {
    * the same group, with no global enumeration to edit.
    */
   readonly morphGroup?: string;
+  /**
+   * Projects this block's raw text into a ONE-LINE INLINE markdown context —
+   * page-title extraction, where a whole block becomes a single title line.
+   * A math block's text is LaTeX source, so it projects as an inline math run
+   * (`$…$`): title previews then typeset the formula instead of leaking raw
+   * source to the reader. Absent → the text passes through unprojected.
+   */
+  readonly titleInlineMarkdown?: (text: string) => string;
 }
 
 // =============================================================================
@@ -255,6 +263,9 @@ const MATH_CAPS: BlockCapabilities = {
   preformatted: true,
   selfContained: true,
   morphGroup: "text",
+  // As a page title, a display equation becomes an inline math run — the same
+  // `$…$` delimiters the inline math MarkCodec emits — so previews typeset it.
+  titleInlineMarkdown: (text) => `$${text}$`,
 };
 
 // Each descriptor uses `satisfies BlockTypeDescriptor` so it is checked against
@@ -486,6 +497,17 @@ export function isTextualBlock(block: Block): block is TextualBlock {
 
 export function canHaveFormats(type: string): boolean {
   return REGISTRY[type]?.capabilities.hasFormats ?? false;
+}
+
+/**
+ * The block type's title projection (see
+ * {@link BlockCapabilities.titleInlineMarkdown}), or undefined when its text
+ * needs none.
+ */
+export function titleInlineMarkdownProjection(
+  type: string,
+): ((text: string) => string) | undefined {
+  return REGISTRY[type]?.capabilities.titleInlineMarkdown;
 }
 
 /**

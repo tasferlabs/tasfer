@@ -152,6 +152,34 @@ describe("inline-math split/merge through the action pipeline", () => {
     expect(state.document.cursor?.position.textIndex).toBe(6);
   });
 
+  it("a dot at the right edge stays prose, but a digit after it absorbs both (3.14)", () => {
+    // The dot is ambiguous when typed — sentence period vs. decimal point — so
+    // it lands outside the chip; the digit one keystroke later resolves it as
+    // numeric and the observer re-marks the chip to swallow dot and digit. From
+    // there the caret is back at the edge, so further digits join normally.
+    let s = insertText(editorWithChip("3", 1), ".").state;
+    expect(spans(s)).toEqual(["3"]); // dot ejected as prose for now
+    s = insertText(s, "1").state;
+    expect(spans(s)).toEqual(["3.1"]); // digit pulled the dot back in
+    s = insertText(s, "4").state;
+    expect(spans(s)).toEqual(["3.14"]);
+    expect(s.document.cursor?.position.textIndex).toBe(4);
+  });
+
+  it("a comma before a digit absorbs the same way (1,000)", () => {
+    let s = insertText(editorWithChip("1", 1), ",").state;
+    expect(spans(s)).toEqual(["1"]);
+    for (const d of ["0", "0", "0"]) s = insertText(s, d).state;
+    expect(spans(s)).toEqual(["1,000"]);
+  });
+
+  it("a dot followed by a non-digit keeps the sentence reading ($x^2$. a)", () => {
+    let s = insertText(editorWithChip("x^2", 3), ".").state;
+    s = insertText(s, " ").state;
+    s = insertText(s, "a").state;
+    expect(spans(s)).toEqual(["x^2"]); // ". a" stays plain prose after the chip
+  });
+
   it("a space at the right edge leaves the chip (does not join)", () => {
     // The space is the "leave the formula" gesture: it stays plain text after
     // the chip, which is unchanged (no join, no split).

@@ -3,12 +3,12 @@
 import { Callout, PropsTable } from "../../docsComponents";
 
 export const faqs = [
-  ["Is there an account or login?", "No. Cypher has no account system at all. There is nothing to sign up for, nothing to log into, and nothing to delete when you leave — you walk away by closing the app."],
-  ["Where is my work stored?", "Locally on your device. On first launch you pick a folder, and Cypher mirrors every page into it as plain .md files — a one-way copy you can open in any editor, back up, or put in git."],
-  ["Do I need the internet?", "No. Cypher is local-first: it works fully offline. The network is only ever used for optional sync, and even then only to reach your own other devices."],
-  ["Can the relay read my notes?", "No. Documents are encrypted end-to-end on your device before anything leaves it. The relay forwards opaque bytes and keeps no log — it is structurally unable to decrypt your work, not merely promising not to."],
-  ["What happens if the Cypher project disappears?", "Your files are plain markdown on your disk, untouched. The app is AGPL-3.0, so the source can be built and maintained by anyone. Nothing about your data depends on us existing."],
-  ["How do I move to a new computer?", "Install Cypher on the new machine and pair it with an existing device — your work syncs over directly, peer to peer. Your markdown folder is a portable backup you can carry along too."],
+  ["Is there an account or login?", "No. Cypher has no account system at all. Your identity is a keypair generated on your device. There is nothing to sign up for, nothing to log into, and nothing to delete when you leave — you walk away by closing the app."],
+  ["Where is my work stored?", "Locally on your device, in a SQLite database. You can export every page as plain .md files in a ZIP at any time from Settings → Data — files you can open in any editor, back up, or put in git."],
+  ["Do I need the internet?", "No. Cypher is local-first: reading and writing work fully offline. The network is used to sync spaces you have shared and, on desktop, to check GitHub for app updates. Your documents are never uploaded to a server."],
+  ["Can the relay read my notes?", "No. Traffic that passes through the relay is encrypted on your device before anything leaves it. The relay forwards opaque bytes and stores nothing — it is structurally unable to decrypt your work, not merely promising not to."],
+  ["What happens if the Cypher project disappears?", "Your work is in a local database on your device, untouched, and exports to plain markdown at any time. The app is AGPL-3.0, so the source can be built and maintained by anyone. Nothing about your data depends on us existing."],
+  ["How do I move to a new computer?", "Install Cypher on the new machine and join your space with an invite from an existing device — your work syncs over directly, peer to peer. Or export everything to a ZIP on the old machine and import it on the new one."],
 ];
 
 <p className="dx-lede">Common questions, and fixes for the handful of things that can go sideways. If something here doesn't cover it, the [issue tracker](https://github.com/hamza512b/cypher/issues) is the place.</p>
@@ -28,13 +28,13 @@ export const faqs = [
   </table>
 </div>
 
-<h2 id="reset">Common fixes</h2>
+<h2 id="fixes">Common fixes</h2>
 
 <PropsTable cols={["Problem", "Cause", "Fix"]} rows={[
-  { name: "Markdown export isn't writing files", type: "Folder permissions", desc: "Grant Cypher access to the export folder in your OS privacy settings, or pick a different folder in Settings → Export." },
-  { name: "Sync stuck 'introducing'", type: "Relay unreachable", desc: "Verify the relay URL and that outbound WSS (443) isn't blocked. Try your own relay." },
-  { name: "Edits not appearing on device B", type: "Device B offline", desc: "Both devices must be online to converge. They'll merge automatically once B reconnects." },
+  { name: "Sync stuck, devices never connect", type: "Relay unreachable", desc: "Verify outbound WSS (443) isn't blocked and that both devices are online at the same time." },
+  { name: "Edits not appearing on device B", type: "Device B offline", desc: "Both devices must be online together to converge. They'll merge automatically once B reconnects." },
+  { name: "Imported files didn't show up", type: "Unsupported format", desc: "Import (Settings → Data) accepts markdown (.md) and plain-text (.txt) files, or a ZIP of them." },
   { name: "Markdown shortcut didn't fire", type: "Caret mid-line", desc: "Block shortcuts (#, >, -) only trigger at the start of a line." },
 ]} />
 
-<Callout kind="warn" title="Before you reset anything.">Resetting the app clears the spaces stored on this device. Your markdown mirror is plain files on disk and stays untouched — it's your safety net. And if you use sync, unpairing every device can leave encrypted sync state held only on those devices unrecoverable.</Callout>
+<Callout kind="warn" title="Your devices are the only copy.">There is no server backup. If you use sync, every member device holds the space; if you use one device, that device is it. Export your pages regularly from Settings → Data — a ZIP of plain markdown is your safety net.</Callout>

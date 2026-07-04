@@ -76,7 +76,9 @@ import type {
 } from "../state-types";
 import { updateMode } from "../state-utils";
 import { getEditorStyles } from "../styles";
+import { findBlockIndex } from "../sync/block-lookup";
 import { orderKeyAfter } from "../sync/crdt-utils";
+import { applyOps } from "../sync/reducer";
 
 // Image block — an embedded image.
 // Note: cachedLayout (from BlockRuntimeState) is transient runtime state, not
@@ -1691,13 +1693,6 @@ export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
   (state, { afterBlock, afterBlockIndex, binding }) => {
     const newParagraphId = binding.nextId();
     const orderKey = orderKeyAfter(state.document.page.blocks, afterBlock.id);
-    const newParagraph: Block = {
-      id: newParagraphId,
-      orderKey,
-      type: "paragraph",
-      charRuns: [],
-      formats: [],
-    };
 
     const blockInsertOp: Operation = {
       op: "block_insert",
@@ -1709,15 +1704,23 @@ export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
       blockType: "paragraph",
     };
 
-    const newBlocks = [...state.document.page.blocks, newParagraph];
-    const newPage = { ...state.document.page, blocks: newBlocks };
+    // Replay the op so the paragraph lands at its canonical sorted position
+    // (appending + `afterBlockIndex + 1` only agrees when the image is the
+    // literal last array element — trailing tombstones break both), then place
+    // the caret by id.
+    const newPage = applyOps(state.document.page, [blockInsertOp]);
 
     let next = {
       ...state,
       document: { ...state.document, page: newPage },
     };
     next = clearSelection(next);
-    next = moveCursorToPosition(next, afterBlockIndex + 1, 0);
+    const paragraphIndex = findBlockIndex(newPage, newParagraphId);
+    next = moveCursorToPosition(
+      next,
+      paragraphIndex !== -1 ? paragraphIndex : afterBlockIndex + 1,
+      0,
+    );
     next = updateMode(next, "edit");
 
     return { state: next, ops: [blockInsertOp] };

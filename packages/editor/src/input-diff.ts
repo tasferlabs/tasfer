@@ -197,3 +197,40 @@ export function computeSurfaceDelta(prev: string, next: string): SurfaceDelta {
 
   return { deleteStart, deleteEnd, insert };
 }
+
+/**
+ * Recognize a keystroke that landed BEFORE the sentinel and reorder the surface
+ * so the sentinel stays leading.
+ *
+ * The surface's DOM caret belongs after the sentinel, but a browser that focuses
+ * the contenteditable without an explicit selection places it at offset 0 —
+ * before the sentinel (the editor re-asserts the caret on focus, but this guards
+ * any path where a stale caret survives). Typing there turns ` ` into `C `:
+ * the sentinel is no longer leading, so a naive reconciliation reads the WHOLE
+ * surface — trailing sentinel space included — as typed content and leaks a
+ * spurious space into the document.
+ *
+ * The shape is unambiguous: the previous surface carried its sentinel, the new
+ * one doesn't, and the change is a pure insertion at offset 0 that left the
+ * previous surface (sentinel first) intact after it. Returns the surface as it
+ * would read had the caret been where it belongs — sentinel, then the inserted
+ * text, then the rest — so the caller reconciles only the typed characters.
+ * Returns `null` for every other change (deletes, replacements, mid-surface
+ * edits, or an empty sentinel), which the caller handles as before.
+ */
+export function rescueCaretBeforeSentinel(
+  prev: string,
+  next: string,
+  sentinel: string,
+): string | null {
+  if (sentinel === "") return null;
+  if (!hasSentinel(prev, sentinel)) return null;
+  if (hasSentinel(next, sentinel)) return null;
+  const delta = computeSurfaceDelta(prev, next);
+  const isPureInsertionAtStart =
+    delta.deleteStart === 0 && delta.deleteEnd === 0 && delta.insert.length > 0;
+  if (!isPureInsertionAtStart) return null;
+  // `next` is `insert + prev`; keep whatever character the browser holds as the
+  // sentinel (it may have substituted an NBSP) and move the insertion after it.
+  return prev[0] + delta.insert + prev.slice(1);
+}

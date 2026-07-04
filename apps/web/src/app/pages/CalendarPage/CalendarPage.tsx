@@ -19,7 +19,7 @@ import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
 import useResponsive from "../../hooks/useResponsive";
 import type { Block } from "@cypherkit/editor";
-import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
+import { deriveTitles } from "@/lib/pageTitle";
 import { getPlatform } from "@/platform";
 import {
   useGetCalendarPages,
@@ -311,7 +311,7 @@ export default function CalendarPage() {
       if (blocks) {
         await updatePageApi({
           id: newPage.id,
-          title: extractTitleFromBlocks(blocks),
+          ...deriveTitles(blocks),
         });
         // Persist the typed content as CRDT ops so the editor shows it on open.
         // writeBlocks reuses the existing init block for the first block so we
@@ -410,6 +410,7 @@ export default function CalendarPage() {
       }
       const newPage = await platform.pages.create({
         title: src.title,
+        titleMd: src.titleMd,
         parentId: src.parentId,
         spaceId: src.spaceId ?? activeSpaceId,
         scheduledAt: opts?.scheduledAt ?? src.scheduledAt ?? undefined,
@@ -478,7 +479,7 @@ export default function CalendarPage() {
       savingDraftRef.current = true;
       draftSnapshotRef.current = { blocks };
       createPage({
-        title: blocks ? extractTitleFromBlocks(blocks) : "",
+        ...(blocks ? deriveTitles(blocks) : { title: "" }),
         parentId: parentId ?? null,
         spaceId: activeSpaceId,
         scheduledAt: draftEvent.scheduledAt,

@@ -1,9 +1,10 @@
 import { Command } from "cmdk";
 import { Calendar, ChevronLeft, Moon, Plus, Settings, Sun } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useCreatePage, useSearchPages } from "../api/pages.api";
+import { TitlePreview } from "../TitlePreview";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useTheme } from "../hooks/useTheme";
 import { useQueryClient } from "@tanstack/react-query";
@@ -43,7 +44,9 @@ export function ActionCenter() {
     if (open && isMobile) {
       setMobileVisible(true);
       // Trigger enter animation on next frame
-      requestAnimationFrame(() => requestAnimationFrame(() => setMobileAnimating(true)));
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => setMobileAnimating(true)),
+      );
     } else if (!open && isMobile) {
       setMobileAnimating(false);
     }
@@ -108,8 +111,10 @@ export function ActionCenter() {
         onTransitionEnd={handleMobileTransitionEnd}
         className="fixed inset-0 z-50 bg-background flex flex-col"
         style={{
-          paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-          paddingBottom: "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+          paddingTop:
+            "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+          paddingBottom:
+            "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
           opacity: mobileAnimating ? 1 : 0,
           transform: mobileAnimating ? "translateY(0)" : "translateY(8px)",
           transition: "opacity 0.2s ease, transform 0.2s ease",
@@ -127,7 +132,10 @@ export function ActionCenter() {
               ref={inputRef}
               value={search}
               onValueChange={setSearch}
-              placeholder={t("editor.searchPagesActions", "Search pages, actions...")}
+              placeholder={t(
+                "editor.searchPagesActions",
+                "Search pages, actions...",
+              )}
               className="flex-1 h-10 bg-transparent text-base outline-none placeholder:text-muted-foreground"
             />
             {search && (
@@ -154,7 +162,9 @@ export function ActionCenter() {
                   <Command.Item
                     key={page.id}
                     value={`page-${page.id}`}
-                    onSelect={() => runAction(() => navigate(`/page/${page.id}`))}
+                    onSelect={() =>
+                      runAction(() => navigate(`/page/${page.id}`))
+                    }
                     className={mobileItemClass}
                   >
                     <span
@@ -164,7 +174,8 @@ export function ActionCenter() {
                           const c =
                             page.color ??
                             (page.path &&
-                              [...page.path].reverse().find((p) => p.color)?.color);
+                              [...page.path].reverse().find((p) => p.color)
+                                ?.color);
                           return c || "var(--page-color-default)";
                         })(),
                         opacity:
@@ -176,13 +187,23 @@ export function ActionCenter() {
                     />
                     <div className="flex-1 min-w-0">
                       <div className="truncate">
-                        {page.title || t("common.untitled", "Untitled")}
+                        <TitlePreview
+                          title={page.title}
+                          titleMd={page.titleMd}
+                        />
                       </div>
                       {page.path && page.path.length > 0 && (
                         <div className="text-xs text-muted-foreground truncate">
-                          {page.path
-                            .map((p) => p.title || t("common.untitled", "Untitled"))
-                            .join(" / ")}
+                          {page.path.map((p, i) => (
+                            <Fragment key={p.id}>
+                              {i > 0 && " / "}
+                              <TitlePreview
+                                title={p.title}
+                                titleMd={p.titleMd}
+                                mathFontSize={12}
+                              />
+                            </Fragment>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -197,42 +218,105 @@ export function ActionCenter() {
             >
               <Command.Item
                 value="new-page"
-                keywords={["create", t("common.createKw", "create"), "new", t("common.newKw", "new"), "page", t("common.pageKw", "page"), "add", t("common.add", "add")]}
-                onSelect={() => runAction(() => { if (activeSpaceId) createPage.mutate({ title: "", parentId: null, spaceId: activeSpaceId }); })}
+                keywords={[
+                  "create",
+                  t("common.createKw", "create"),
+                  "new",
+                  t("common.newKw", "new"),
+                  "page",
+                  t("common.pageKw", "page"),
+                  "add",
+                  t("common.add", "add"),
+                ]}
+                onSelect={() =>
+                  runAction(() => {
+                    if (activeSpaceId)
+                      createPage.mutate({
+                        title: "",
+                        parentId: null,
+                        spaceId: activeSpaceId,
+                      });
+                  })
+                }
                 className={mobileItemClass}
               >
-                <div className={iconBoxClass}><Plus size={16} /></div>
+                <div className={iconBoxClass}>
+                  <Plus size={16} />
+                </div>
                 <span>{t("page.newPageTitle", "New Page")}</span>
               </Command.Item>
 
               <Command.Item
                 value="calendar"
-                keywords={["calendar", t("calendar.calendarKw", "calendar"), "schedule", t("calendar.scheduleKw", "schedule"), "events", t("calendar.eventsKw", "events")]}
+                keywords={[
+                  "calendar",
+                  t("calendar.calendarKw", "calendar"),
+                  "schedule",
+                  t("calendar.scheduleKw", "schedule"),
+                  "events",
+                  t("calendar.eventsKw", "events"),
+                ]}
                 onSelect={() => runAction(() => navigate("/calendar"))}
                 className={mobileItemClass}
               >
-                <div className={iconBoxClass}><Calendar size={16} /></div>
+                <div className={iconBoxClass}>
+                  <Calendar size={16} />
+                </div>
                 <span>{t("nav.goToCalendar", "Go to Calendar")}</span>
               </Command.Item>
 
               <Command.Item
                 value="settings"
-                keywords={["settings", t("settings.settingsKw", "settings"), "preferences", t("settings.preferencesKw", "preferences"), "account", t("common.account", "account")]}
+                keywords={[
+                  "settings",
+                  t("settings.settingsKw", "settings"),
+                  "preferences",
+                  t("settings.preferencesKw", "preferences"),
+                  "account",
+                  t("common.account", "account"),
+                ]}
                 onSelect={() => runAction(() => navigate("/settings"))}
                 className={mobileItemClass}
               >
-                <div className={iconBoxClass}><Settings size={16} /></div>
+                <div className={iconBoxClass}>
+                  <Settings size={16} />
+                </div>
                 <span>{t("nav.goToSettings", "Go to Settings")}</span>
               </Command.Item>
 
               <Command.Item
                 value="toggle-theme"
-                keywords={["theme", t("settings.theme.themeKw", "theme"), "dark", t("settings.theme.darkKw", "dark"), "light", t("settings.theme.lightKw", "light"), "mode", t("settings.theme.modeKw", "mode"), "appearance", t("settings.appearanceKw", "appearance")]}
-                onSelect={() => runAction(() => setTheme(effectiveTheme === "dark" ? "light" : "dark"))}
+                keywords={[
+                  "theme",
+                  t("settings.theme.themeKw", "theme"),
+                  "dark",
+                  t("settings.theme.darkKw", "dark"),
+                  "light",
+                  t("settings.theme.lightKw", "light"),
+                  "mode",
+                  t("settings.theme.modeKw", "mode"),
+                  "appearance",
+                  t("settings.appearanceKw", "appearance"),
+                ]}
+                onSelect={() =>
+                  runAction(() =>
+                    setTheme(effectiveTheme === "dark" ? "light" : "dark"),
+                  )
+                }
                 className={mobileItemClass}
               >
-                <div className={iconBoxClass}>{effectiveTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}</div>
-                <span>{effectiveTheme === "dark" ? t("settings.theme.switchToLight", "Switch to Light Mode") : t("settings.theme.switchToDark", "Switch to Dark Mode")}</span>
+                <div className={iconBoxClass}>
+                  {effectiveTheme === "dark" ? (
+                    <Sun size={16} />
+                  ) : (
+                    <Moon size={16} />
+                  )}
+                </div>
+                <span>
+                  {effectiveTheme === "dark"
+                    ? t("settings.theme.switchToLight", "Switch to Light Mode")
+                    : t("settings.theme.switchToDark", "Switch to Dark Mode")}
+                </span>
               </Command.Item>
             </Command.Group>
           </Command.List>
@@ -292,13 +376,20 @@ export function ActionCenter() {
                 />
                 <div className="flex-1 min-w-0">
                   <div className="truncate">
-                    {page.title || t("common.untitled", "Untitled")}
+                    <TitlePreview title={page.title} titleMd={page.titleMd} />
                   </div>
                   {page.path && page.path.length > 0 && (
                     <div className="text-xs text-muted-foreground truncate">
-                      {page.path
-                        .map((p) => p.title || t("common.untitled", "Untitled"))
-                        .join(" / ")}
+                      {page.path.map((p, i) => (
+                        <Fragment key={p.id}>
+                          {i > 0 && " / "}
+                          <TitlePreview
+                            title={p.title}
+                            titleMd={p.titleMd}
+                            mathFontSize={12}
+                          />
+                        </Fragment>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -313,42 +404,105 @@ export function ActionCenter() {
         >
           <Command.Item
             value="new-page"
-            keywords={["create", t("common.createKw", "create"), "new", t("common.newKw", "new"), "page", t("common.pageKw", "page"), "add", t("common.add", "add")]}
-            onSelect={() => runAction(() => { if (activeSpaceId) createPage.mutate({ title: "", parentId: null, spaceId: activeSpaceId }); })}
+            keywords={[
+              "create",
+              t("common.createKw", "create"),
+              "new",
+              t("common.newKw", "new"),
+              "page",
+              t("common.pageKw", "page"),
+              "add",
+              t("common.add", "add"),
+            ]}
+            onSelect={() =>
+              runAction(() => {
+                if (activeSpaceId)
+                  createPage.mutate({
+                    title: "",
+                    parentId: null,
+                    spaceId: activeSpaceId,
+                  });
+              })
+            }
             className={itemClass}
           >
-            <div className={iconBoxClass}><Plus size={16} /></div>
+            <div className={iconBoxClass}>
+              <Plus size={16} />
+            </div>
             <span>{t("page.newPageTitle", "New Page")}</span>
           </Command.Item>
 
           <Command.Item
             value="calendar"
-            keywords={["calendar", t("calendar.calendarKw", "calendar"), "schedule", t("calendar.scheduleKw", "schedule"), "events", t("calendar.eventsKw", "events")]}
+            keywords={[
+              "calendar",
+              t("calendar.calendarKw", "calendar"),
+              "schedule",
+              t("calendar.scheduleKw", "schedule"),
+              "events",
+              t("calendar.eventsKw", "events"),
+            ]}
             onSelect={() => runAction(() => navigate("/calendar"))}
             className={itemClass}
           >
-            <div className={iconBoxClass}><Calendar size={16} /></div>
+            <div className={iconBoxClass}>
+              <Calendar size={16} />
+            </div>
             <span>{t("nav.goToCalendar", "Go to Calendar")}</span>
           </Command.Item>
 
           <Command.Item
             value="settings"
-            keywords={["settings", t("settings.settingsKw", "settings"), "preferences", t("settings.preferencesKw", "preferences"), "account", t("common.account", "account")]}
+            keywords={[
+              "settings",
+              t("settings.settingsKw", "settings"),
+              "preferences",
+              t("settings.preferencesKw", "preferences"),
+              "account",
+              t("common.account", "account"),
+            ]}
             onSelect={() => runAction(() => navigate("/settings"))}
             className={itemClass}
           >
-            <div className={iconBoxClass}><Settings size={16} /></div>
+            <div className={iconBoxClass}>
+              <Settings size={16} />
+            </div>
             <span>{t("nav.goToSettings", "Go to Settings")}</span>
           </Command.Item>
 
           <Command.Item
             value="toggle-theme"
-            keywords={["theme", t("settings.theme.themeKw", "theme"), "dark", t("settings.theme.darkKw", "dark"), "light", t("settings.theme.lightKw", "light"), "mode", t("settings.theme.modeKw", "mode"), "appearance", t("settings.appearanceKw", "appearance")]}
-            onSelect={() => runAction(() => setTheme(effectiveTheme === "dark" ? "light" : "dark"))}
+            keywords={[
+              "theme",
+              t("settings.theme.themeKw", "theme"),
+              "dark",
+              t("settings.theme.darkKw", "dark"),
+              "light",
+              t("settings.theme.lightKw", "light"),
+              "mode",
+              t("settings.theme.modeKw", "mode"),
+              "appearance",
+              t("settings.appearanceKw", "appearance"),
+            ]}
+            onSelect={() =>
+              runAction(() =>
+                setTheme(effectiveTheme === "dark" ? "light" : "dark"),
+              )
+            }
             className={itemClass}
           >
-            <div className={iconBoxClass}>{effectiveTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}</div>
-            <span>{effectiveTheme === "dark" ? t("settings.theme.switchToLight", "Switch to Light Mode") : t("settings.theme.switchToDark", "Switch to Dark Mode")}</span>
+            <div className={iconBoxClass}>
+              {effectiveTheme === "dark" ? (
+                <Sun size={16} />
+              ) : (
+                <Moon size={16} />
+              )}
+            </div>
+            <span>
+              {effectiveTheme === "dark"
+                ? t("settings.theme.switchToLight", "Switch to Light Mode")
+                : t("settings.theme.switchToDark", "Switch to Dark Mode")}
+            </span>
           </Command.Item>
         </Command.Group>
       </Command.List>
@@ -356,15 +510,21 @@ export function ActionCenter() {
       {/* Footer */}
       <div className="border-t border-border px-4 py-2 flex items-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
-          <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">↑↓</kbd>
+          <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">
+            ↑↓
+          </kbd>
           {t("page.navigateKw", "navigate")}
         </span>
         <span className="flex items-center gap-1">
-          <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">↵</kbd>
+          <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">
+            ↵
+          </kbd>
           {t("common.selectKw", "select")}
         </span>
         <span className="flex items-center gap-1">
-          <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">esc</kbd>
+          <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">
+            esc
+          </kbd>
           {t("common.closeKw", "close")}
         </span>
       </div>

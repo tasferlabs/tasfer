@@ -13,6 +13,7 @@ import {
   mathMergeAfterDelete,
   mathRedundantSpaceAfterInput,
   mathSplitAfterInput,
+  mathTransformTypedInput,
   mathUnitBefore,
 } from "./nodes/math";
 import {
@@ -455,5 +456,103 @@ describe("inline-math redundant-space drop", () => {
       binding,
     );
     expect(mathRedundantSpaceAfterInput(typed.blocks[0], at + 1)).toBeNull();
+  });
+});
+
+describe("script typed at an accent base's end scripts the whole construct", () => {
+  it("redirects `^` typed at \\dot{x|} to just past the construct (block)", () => {
+    // The accent is one construct: the script must attach to \dot{x} as a whole
+    // (`\dot{x}^{…}`), never grow the base under the dot (`\dot{x^{…}}`).
+    const { page } = mathBlock("\\dot{x}");
+    const caret = "\\dot{x".length;
+    expect(mathTransformTypedInput(page.blocks[0], caret, "^")).toEqual({
+      input: "^",
+      insertAt: "\\dot{x}".length,
+    });
+  });
+
+  it("re-bases the redirect target to block coordinates inside a chip", () => {
+    // Chip "\vec{v}" preceded by plain text "t ": chip-local hop 6 → 7 must map
+    // to block indices (startIndex + offset), and markdown stays suppressed.
+    const { page, blockId, binding } = chip("\\vec{v}");
+    const { newPage } = insertCharsAtPosition(page, blockId, 0, "t ", binding);
+    const span = getInlineMathSpans(newPage.blocks[0])[0];
+    expect(span.latex).toBe("\\vec{v}");
+    const caret = span.startIndex + "\\vec{v".length;
+    expect(mathTransformTypedInput(newPage.blocks[0], caret, "_")).toEqual({
+      input: "_",
+      suppressMarkdown: true,
+      insertAt: span.startIndex + "\\vec{v}".length,
+    });
+  });
+
+  it("materializes the redirected script into \\dot{x}^{} with the caret in it", () => {
+    // Full flow: redirect the insert, apply it, then the TEXT_INPUTTED
+    // materializer fills the script's braces and lands the caret inside them.
+    const { page, blockId, binding } = mathBlock("\\dot{x}");
+    const t = mathTransformTypedInput(page.blocks[0], "\\dot{x".length, "^")!;
+    const { newPage } = insertCharsAtPosition(
+      page,
+      blockId,
+      t.insertAt!,
+      t.input,
+      binding,
+    );
+    const caret = t.insertAt! + 1;
+    const mat = mathMaterializeAfterInput(newPage.blocks[0], caret)!;
+    expect(mat.inserts).toEqual([{ at: caret, text: "{}" }]);
+    expect(mat.caret).toBe(caret + 1);
+  });
+
+  it("does not redirect from the middle of the base or inside \\widehat", () => {
+    const mid = mathBlock("\\dot{xy}");
+    expect(
+      mathTransformTypedInput(mid.page.blocks[0], "\\dot{x".length, "^"),
+    ).toBeNull();
+    const wide = mathBlock("\\widehat{ab}");
+    expect(
+      mathTransformTypedInput(wide.page.blocks[0], "\\widehat{ab".length, "^"),
+    ).toBeNull();
+  });
+});
+
+describe("typed braces become their escaped literal form in math content", () => {
+  it("escapes { typed in a block equation", () => {
+    const { page } = mathBlock("x+1");
+    expect(mathTransformTypedInput(page.blocks[0], 3, "{")).toEqual({
+      input: "\\{",
+    });
+  });
+
+  it("escapes } typed inside a chip's construct slot (never closes the slot)", () => {
+    const { page } = chip("\\frac{12}{2}");
+    const span = getInlineMathSpans(page.blocks[0])[0];
+    const caret = span.startIndex + "\\frac{12".length;
+    expect(mathTransformTypedInput(page.blocks[0], caret, "}")).toEqual({
+      input: "\\}",
+      suppressMarkdown: true,
+    });
+  });
+
+  it("keeps { raw right after a typed backslash (completing \\{ itself)", () => {
+    const { page } = mathBlock("\\");
+    expect(mathTransformTypedInput(page.blocks[0], 1, "{")).toBeNull();
+  });
+
+  it("keeps { raw after a control word (opening its argument)", () => {
+    const { page } = mathBlock("\\text");
+    expect(mathTransformTypedInput(page.blocks[0], 5, "{")).toBeNull();
+  });
+
+  it("keeps } raw while a raw-opened group is unclosed", () => {
+    const { page } = mathBlock("\\text{ab");
+    expect(mathTransformTypedInput(page.blocks[0], 8, "}")).toBeNull();
+  });
+
+  it("a multi-char insert keeps its braces (source text, not a keystroke)", () => {
+    const { page } = mathBlock("x");
+    expect(
+      mathTransformTypedInput(page.blocks[0], 1, "\\frac{a}{b}"),
+    ).toBeNull();
   });
 });

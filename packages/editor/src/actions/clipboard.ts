@@ -32,7 +32,8 @@ import type {
   TextInsert,
 } from "../state-types";
 import { getBlockTextLength } from "../state-utils";
-import { findBlock } from "../sync/block-lookup";
+import { findBlock, findBlockIndex } from "../sync/block-lookup";
+import { sortBlocksByOrder } from "../sync/block-order";
 import {
   getBlockDescriptor,
   getBlockFieldNames,
@@ -51,7 +52,7 @@ import {
   orderKeyAfter,
 } from "../sync/crdt-utils";
 import { createIdGenerator, generateBlockId } from "../sync/id";
-import { applyOps } from "../sync/reducer";
+import { applyOps, findNextVisibleBlockIndex } from "../sync/reducer";
 import { createMarkdownContent } from "defuddle/full";
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
@@ -968,6 +969,22 @@ function insertBlocksAtCursor(
   }
   const currentBlock = newState.document.page.blocks[blockIndex];
 
+  // A container block can opt in (via `Node.absorbsPastedParagraphs`) to
+  // absorb pasted plain paragraphs into its own type, so multi-line plain text
+  // pasted inside e.g. a quote continues the quote as more quote blocks
+  // instead of breaking out into paragraphs. Richer parsed types (headings,
+  // lists, code, …) keep their type. Guarded by the schema so a host block
+  // that arrived from a permissive peer never mints disallowed blocks.
+  const hostAbsorbsParagraphs =
+    isTextualBlock(currentBlock) &&
+    state.schema.isBlockAllowed(currentBlock.type) &&
+    state.nodes.get(currentBlock.type)?.absorbsPastedParagraphs === true;
+  if (hostAbsorbsParagraphs) {
+    blocks = blocks.map((b) =>
+      b.type === "paragraph" ? ({ ...b, type: currentBlock.type } as Block) : b,
+    );
+  }
+
   // If pasting a single block
   if (blocks.length === 1) {
     // Pasting a single atomic block (image, line, math, or any custom void
@@ -997,12 +1014,13 @@ function insertBlocksAtCursor(
         ),
       );
 
-      // Insert the block after the current block
-      const newBlocks = [
-        ...newState.document.page.blocks.slice(0, blockIndex + 1),
+      // Insert the block at its canonical sorted position — `blocks` keeps
+      // tombstones, and a tombstone tied on the current block's orderKey means
+      // "after the current block" is NOT `blockIndex + 1` on every replica.
+      const newBlocks = sortBlocksByOrder([
+        ...newState.document.page.blocks,
         newAtomicBlock,
-        ...newState.document.page.blocks.slice(blockIndex + 1),
-      ];
+      ]);
 
       newState = {
         ...newState,
@@ -1012,8 +1030,18 @@ function insertBlocksAtCursor(
         },
       };
 
-      // Move cursor to the block after the inserted atomic block
-      newState = moveCursorToPosition(newState, blockIndex + 2, 0);
+      // Move cursor to the next visible block after the inserted atomic block
+      // (or onto the atomic block itself when it's the document tail).
+      const atomicIndex = findBlockIndex(newState.document.page, newBlockId);
+      const nextVisibleIndex = findNextVisibleBlockIndex(
+        newBlocks,
+        atomicIndex,
+      );
+      newState = moveCursorToPosition(
+        newState,
+        nextVisibleIndex ?? atomicIndex,
+        0,
+      );
 
       return { state: clearSelection(newState), ops };
     }
@@ -1192,10 +1220,16 @@ function insertBlocksAtCursor(
     let lastInsertedBlockId = currentBlock.id;
 
     // Spill any after-cursor content (the text that followed the paste point in
-    // the current block) into a trailing paragraph anchored after `anchorId`.
+    // the current block) into a trailing block anchored after `anchorId`.
     // Atomic blocks can't hold a caret/text, so when the last pasted block is
     // atomic this preserves the original tail. No-op when there's no live
     // after-content. Type-agnostic, so every atomic block type behaves the same.
+    // The tail is the host block's own content, so it keeps the host type when
+    // the host absorbs pasted paragraphs (quote tail stays a quote); otherwise
+    // it spills into a paragraph.
+    const trailingSpillType = hostAbsorbsParagraphs
+      ? currentBlock.type
+      : "paragraph";
     const appendTrailingParagraph = (anchorId: string) => {
       const visibleAfter = afterChars.filter((c) => !c.deleted);
       if (visibleAfter.length === 0) return;
@@ -1232,10 +1266,10 @@ function insertBlocksAtCursor(
       const afterBlock: Block = {
         id: trailingBlockId,
         orderKey,
-        type: "paragraph",
+        type: trailingSpillType,
         charRuns: charsToRuns(newAfterChars),
         formats: newAfterFormats,
-      };
+      } as Block;
       invalidateBlockCache(afterBlock);
 
       const afterBlockInsertOp: BlockInsert = {
@@ -1245,7 +1279,7 @@ function insertBlocksAtCursor(
         pageId: state.CRDTbinding.pageId,
         orderKey,
         blockId: trailingBlockId,
-        blockType: "paragraph",
+        blockType: trailingSpillType,
       };
       ops.push(afterBlockInsertOp);
 

@@ -163,6 +163,7 @@
   "calendar.endTime": "End time",
   "calendar.event": "Event",
   "calendar.eventHasSubPages": "This event has sub-pages. Deleting it will also delete its sub-pages.",
+  "calendar.findParentPage": "Find a page",
   "calendar.eventsKw": "events",
   "calendar.last15Min": "Last 15 minutes",
   "calendar.last5Min": "Last 5 minutes",

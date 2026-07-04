@@ -4,12 +4,12 @@ import { Callout } from "../../docsComponents";
 
 export const ledger = [
   ["Your email address", "never asked"],
-  ["Your name", "never asked"],
-  ["Your documents", "never uploaded — they stay on your disk"],
-  ["Who you sync with", "never logged — the relay forgets immediately"],
+  ["Your name", "an optional display name, stored locally — visible only to people you share a space with"],
+  ["Your documents", "never uploaded — they stay on your device"],
+  ["Who you sync with", "never logged — the relay stores nothing"],
   ["Your editing habits", "never tracked — there is no analytics SDK"],
   ["Device fingerprint", "never collected"],
-  ["Crash reports", "shown to you locally; sent nowhere unless you copy them yourself"],
+  ["Crash reports", "never collected — there is no crash reporter"],
 ];
 
 <p className="dx-lede">The short version: **Cypher does not have a file on you, because it never opens one.** No accounts, no telemetry, no document upload. Here is the complete accounting.</p>
@@ -32,12 +32,12 @@ export const ledger = [
 
 <h2 id="where">Where your work actually lives</h2>
 
-- **On your device.** Every keystroke lands in your space, stored locally on your device. No round-trip, no server copy.
-- **Between your devices.** If you enable sync, documents are encrypted on-device before they cross any wire. Only your paired devices hold the keys.
-- **Through a relay — only when needed.** When a direct connection can't be made, an encrypted blob passes through a relay that cannot decrypt it and keeps no record of it.
+- **On your device.** Every keystroke lands in a local database on your device (SQLite — on desktop, a plain file in the app's data folder). No round-trip, no server copy. You can export everything as plain markdown at any time from **Settings → Data**.
+- **Between your devices.** When you share a space, documents travel directly between member devices over an encrypted peer-to-peer channel. The keys are derived on your devices from the invite you created; no server ever holds them.
+- **Through a relay — only when needed.** When a direct connection can't be made, traffic is encrypted on-device with AES-256-GCM and passes through a relay that cannot decrypt it and keeps no record of it.
 
-<Callout kind="tip" title="Don't trust the page — read the code.">Every claim here is enforced by source you can audit. The encryption, the relay, and the protocol are all in the [AGPL-3.0 repository](https://github.com/hamza512b/cypher). Fork it, swap the relay, or ship your own build — every fork inherits the same refusal.</Callout>
+<Callout kind="tip" title="Don't trust the page — read the code.">Every claim here is enforced by source you can audit. The encryption, the relay, and the protocol are all in the [repository](https://github.com/hamza512b/cypher) — the apps are AGPL-3.0, the editor libraries MIT. Fork it, swap the relay, or ship your own build — every fork inherits the same refusal.</Callout>
 
 <h2 id="keys">Your keys</h2>
 
-Encryption keys are generated on your device and stored in your operating system's keychain. They never leave your hardware and are never escrowed with anyone. There is no key-recovery service — which also means there is no master key for anyone to compel. If you lose every paired device, your encrypted sync data is unrecoverable by design; your local space on this device — and any markdown you've exported — is, of course, still right there.
+Your identity is a keypair generated on your device the first time the app runs. It is stored in the app's local database, its private half is never transmitted, and it is never escrowed with anyone. There is no key-recovery service — which also means there is no master key for anyone to compel. Your devices hold the only copies of your work, so treat the markdown export in **Settings → Data** as your backup: if you lose every device, there is no server to recover from.

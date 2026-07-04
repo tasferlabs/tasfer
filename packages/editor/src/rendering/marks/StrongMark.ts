@@ -11,7 +11,12 @@
 
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import { BOLD_END, BOLD_START } from "../../serlization/tokenizer";
-import { Mark, type MarkMetrics, type MarkStyle } from "./Mark";
+import {
+  Mark,
+  type MarkMetrics,
+  type MarkStyle,
+  type SelectionWrapTrigger,
+} from "./Mark";
 
 // `html.priority` reproduces the prior fixed nesting order exactly:
 // code (innermost) → strong → emphasis → strike → link (outermost).
@@ -26,6 +31,11 @@ export class StrongMark extends Mark {
   readonly type = "strong";
   readonly metrics: MarkMetrics = { bold: true };
   readonly codec = STRONG_CODEC;
+  // A doubled markdown delimiter means strong: `**x**` / `__x__`.
+  readonly selectionWrap: readonly SelectionWrapTrigger[] = [
+    { char: "*", level: 2 },
+    { char: "_", level: 2 },
+  ];
   style(): MarkStyle {
     return {};
   }

@@ -264,6 +264,17 @@ export abstract class Node<B extends Block = Block> {
   readonly joinGroup?: string;
 
   /**
+   * Optional: when a multi-block paste lands with the caret inside a block of
+   * this node's type, pasted plain paragraphs are re-typed to the host block's
+   * type — multi-line plain text pasted into e.g. a quote continues as more
+   * quote blocks instead of breaking out into paragraphs. Content that parsed
+   * as a richer type (heading, list, code, …) keeps that type. `undefined`
+   * (the default) leaves pasted blocks as parsed. Consumed by the paste path
+   * in `insertBlocksAtCursor`.
+   */
+  readonly absorbsPastedParagraphs?: boolean;
+
+  /**
    * Optional: this node's catalog of localized canvas strings (status labels,
    * placeholders) keyed by a short local name — e.g. ImageNode owns
    * `{ clickToUpload, loading, … }`. English defaults ship with the node; a

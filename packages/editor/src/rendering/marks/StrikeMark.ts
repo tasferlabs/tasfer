@@ -5,7 +5,7 @@ import {
   STRIKETHROUGH_END,
   STRIKETHROUGH_START,
 } from "../../serlization/tokenizer";
-import { Mark, type MarkStyle } from "./Mark";
+import { Mark, type MarkStyle, type SelectionWrapTrigger } from "./Mark";
 
 const STRIKE_CODEC: MarkCodec = {
   type: "strike",
@@ -17,6 +17,7 @@ const STRIKE_CODEC: MarkCodec = {
 export class StrikeMark extends Mark {
   readonly type = "strike";
   readonly codec = STRIKE_CODEC;
+  readonly selectionWrap: readonly SelectionWrapTrigger[] = [{ char: "~" }];
   style(): MarkStyle {
     return { strikethrough: true };
   }

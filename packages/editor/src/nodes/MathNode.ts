@@ -82,6 +82,7 @@ import {
   isTouchDevice,
   updateMode,
 } from "../state-utils";
+import { findBlockIndex } from "../sync/block-lookup";
 import {
   getVisibleTextFromChars,
   getVisibleTextFromRuns,
@@ -92,8 +93,9 @@ import {
   markCharsInRange,
   orderKeyAfter,
 } from "../sync/crdt-utils";
-import { cardJoinFlags } from "../sync/reducer";
+import { applyOps, cardJoinFlags } from "../sync/reducer";
 import {
+  mathAbsorbNumericPunctuationAfterInput,
   mathArmScratch,
   mathCaretMove,
   mathCommandRanges,
@@ -851,18 +853,6 @@ export class MathNode extends TextNode {
         const page = state.document.page;
         const newParagraphId = state.CRDTbinding.nextId();
         const orderKey = orderKeyAfter(page.blocks, block.id);
-        const newParagraph: Block = {
-          id: newParagraphId,
-          orderKey,
-          type: "paragraph",
-          charRuns: [],
-          formats: [],
-        };
-        const blocks = [
-          ...page.blocks.slice(0, blockIndex + 1),
-          newParagraph,
-          ...page.blocks.slice(blockIndex + 1),
-        ];
         const ops: Operation[] = [
           {
             op: "block_insert",
@@ -874,12 +864,21 @@ export class MathNode extends TextNode {
             blockType: "paragraph",
           },
         ];
+        // Replay the op so the paragraph lands where every replica sorts it
+        // (a tombstone tied on this block's orderKey shifts the position),
+        // then place the caret by id instead of assuming blockIndex + 1.
+        const newPage = applyOps(page, ops);
         let next: EditorState = {
           ...state,
-          document: { ...state.document, page: { ...page, blocks } },
+          document: { ...state.document, page: newPage },
         };
         next = clearSelection(next);
-        next = moveCursorToPosition(next, blockIndex + 1, 0);
+        const paragraphIndex = findBlockIndex(newPage, newParagraphId);
+        next = moveCursorToPosition(
+          next,
+          paragraphIndex !== -1 ? paragraphIndex : blockIndex + 1,
+          0,
+        );
         return { state: next, ops, handled: true };
       }) as unknown as ActionHandler<void>,
       0,
@@ -969,26 +968,32 @@ function normalizeMathInput(
 
   // A non-space char typed at a chip's outer edge counts as inside it: re-mark
   // the chip to swallow the char so typing keeps extending the same formula
-  // (`\oint`+`x` first gets a separator so it stays `\oint x`, never `\ointx`). A
+  // (`\oint`+`x` first gets a separator so it stays `\oint x`, never `\ointx`,
+  // and a brace gets its escaping `\` so it joins as the literal `\{`). A
   // space at an edge leaves the chip — it never reaches here as a join. This runs
   // before materialize so a command completed at the edge (`\fra`+`c`) is joined
-  // first, then its `\frac{}{}` placeholder fills in as usual.
-  const join = mathJoinAtEdgeAfterInput(block, caret);
+  // first, then its `\frac{}{}` placeholder fills in as usual. The fallback
+  // covers the one-keystroke-later repair: a digit typed right after an edge
+  // `.`/`,` re-marks the chip to absorb both — the punctuation the edge join
+  // ejected as prose turned out to be part of a number (`$3$.` + `1` → `$3.1$`).
+  const join =
+    mathJoinAtEdgeAfterInput(block, caret) ??
+    mathAbsorbNumericPunctuationAfterInput(block, caret);
   if (join) {
     let page = next.document.page;
     let to = join.to;
-    if (join.separatorAt !== undefined) {
+    if (join.insert) {
       const ins = insertCharsAtPosition(
         page,
         block.id,
-        join.separatorAt,
-        " ",
+        join.insert.at,
+        join.insert.text,
         next.CRDTbinding,
       );
       page = ins.newPage;
       ops.push(ins.op);
-      to += 1;
-      caret += 1;
+      to += join.insert.text.length;
+      caret += join.insert.text.length;
     }
     const marked = markCharsInRange(
       page,

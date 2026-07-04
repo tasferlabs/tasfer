@@ -1,9 +1,23 @@
-import { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { Fragment, useState } from "react";
+import { ChevronRight, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useGetPages, type IListPage, type ISearchPage } from "../../api/pages.api";
+import {
+  useGetPages,
+  useSearchPages,
+  type IListPage,
+  type ISearchPage,
+} from "../../api/pages.api";
 import { cn } from "@/lib/utils";
+import { TitlePreview } from "../../TitlePreview";
 import style from "./CalendarPage.module.css";
+
+/** The slice of a page the drill path needs; ancestors carry no list metadata. */
+type DrillEntry = {
+  id: string;
+  title: string;
+  titleMd?: string;
+  color?: string | null;
+};
 
 /**
  * A Google-Calendar-style drill-down parent picker for the event draft. The
@@ -18,7 +32,9 @@ import style from "./CalendarPage.module.css";
  *     again to deselect (back to root / no parent).
  *
  * State is intentionally local and ephemeral: the picker is mounted only while a
- * draft is open, so a fresh draft always starts back at the top level.
+ * draft is open, so a fresh draft starts back at the top level. When it mounts
+ * with a selection already made (e.g. picked via DraftParentSearch), the drill
+ * path opens to the selection's ancestors so it appears selected in context.
  */
 export function DraftTagPicker({
   spaceId,
@@ -31,7 +47,14 @@ export function DraftTagPicker({
 }) {
   // The pages we've drilled into (each has children). `drillPath[i]` is the
   // opened page whose children fill row `i + 1`; row 0 is always the top level.
-  const [drillPath, setDrillPath] = useState<IListPage[]>([]);
+  const [drillPath, setDrillPath] = useState<DrillEntry[]>(() =>
+    (value?.path ?? []).map((p) => ({
+      id: p.id,
+      title: p.title,
+      titleMd: p.titleMd,
+      color: p.color,
+    })),
+  );
   const levels: (string | null)[] = [null, ...drillPath.map((p) => p.id)];
 
   // Color inherited by each row's tags when they have no color of their own,
@@ -69,9 +92,15 @@ export function DraftTagPicker({
     onChange({
       id: page.id,
       title: page.title,
+      titleMd: page.titleMd,
       parentId: page.parentId,
       color: page.color ?? null,
-      path: base.map((p) => ({ id: p.id, title: p.title, color: p.color })),
+      path: base.map((p) => ({
+        id: p.id,
+        title: p.title,
+        titleMd: p.titleMd,
+        color: p.color,
+      })),
     });
   };
 
@@ -107,7 +136,6 @@ function TagRow({
   inheritedColor: string | null;
   onPick: (page: IListPage) => void;
 }) {
-  const { t } = useTranslation();
   const { data: pages } = useGetPages(spaceId, parentId);
   if (!pages || pages.length === 0) return null;
 
@@ -136,7 +164,11 @@ function TagRow({
               }}
             />
             <span className={style.draftTagLabel}>
-              {page.title || t("common.untitled", "Untitled")}
+              <TitlePreview
+                title={page.title}
+                titleMd={page.titleMd}
+                mathFontSize={12}
+              />
             </span>
             {page.hasChildren && (
               <ChevronRight size={13} className={style.draftTagChevron} />
@@ -144,6 +176,139 @@ function TagRow({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * Search mode of the draft parent picker: swaps in for the tag rows while the
+ * user types, showing a flat, keyboard-navigable list over ALL pages in the
+ * space with each result's ancestor path. Unlike the drill-down (where tapping
+ * a branch opens it), any result — branch or leaf — is directly selectable.
+ * Selecting hands the page back to the host, which returns to browse mode;
+ * DraftTagPicker then remounts with the drill path opened to the selection.
+ */
+export function DraftParentSearch({
+  spaceId,
+  onSelect,
+  onCancel,
+}: {
+  spaceId: string | null;
+  onSelect: (page: ISearchPage) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const { data: results } = useSearchPages(spaceId, query);
+  // Results shrink as the query narrows; keep the highlight on a real row.
+  const active = Math.min(activeIndex, (results?.length ?? 0) - 1);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      // Back out of search only — stop the popover's window-level Escape
+      // listener from closing the whole draft.
+      e.stopPropagation();
+      onCancel();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex(Math.min(active + 1, (results?.length ?? 0) - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex(Math.max(active - 1, 0));
+    } else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
+      // Plain Enter picks the highlighted result; Ctrl/Cmd+Enter stays the
+      // popover-wide save shortcut.
+      e.preventDefault();
+      const page = results?.[active];
+      if (page) onSelect(page);
+    }
+  };
+
+  return (
+    <div className={style.parentSearch}>
+      <div className={style.parentSearchInputRow}>
+        <Search size={14} className={style.previewRowIcon} />
+        <input
+          autoFocus
+          className={style.parentSearchInput}
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setActiveIndex(0);
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder={t("editor.searchPages", "Search pages...")}
+        />
+        <button
+          type="button"
+          className={style.parentSearchClear}
+          onClick={onCancel}
+          aria-label={t("common.cancel", "Cancel")}
+        >
+          <X size={14} />
+        </button>
+      </div>
+      {results &&
+        (results.length === 0 ? (
+          <div className={style.parentSearchEmpty}>
+            {t("page.noPagesFound", "No pages found")}
+          </div>
+        ) : (
+          <div className={style.parentSearchResults} role="listbox">
+            {results.map((page, i) => {
+              const resolvedColor =
+                page.color ??
+                (page.path
+                  ? [...page.path].reverse().find((p) => p.color)?.color
+                  : null);
+              return (
+                <button
+                  key={page.id}
+                  type="button"
+                  role="option"
+                  aria-selected={i === active}
+                  className={cn(
+                    style.parentSearchItem,
+                    i === active && style.parentSearchItemActive,
+                  )}
+                  onMouseEnter={() => setActiveIndex(i)}
+                  onClick={() => onSelect(page)}
+                >
+                  <span
+                    className={style.draftTagDot}
+                    style={{
+                      backgroundColor:
+                        resolvedColor || "var(--page-color-default)",
+                      opacity: resolvedColor ? 1 : 0.3,
+                    }}
+                  />
+                  <span className={style.parentSearchTitle}>
+                    <TitlePreview
+                      title={page.title}
+                      titleMd={page.titleMd}
+                      mathFontSize={12}
+                    />
+                  </span>
+                  {page.path && page.path.length > 0 && (
+                    <span className={style.parentSearchPath}>
+                      {page.path.map((s, j) => (
+                        <Fragment key={s.id}>
+                          {j > 0 && " / "}
+                          <TitlePreview
+                            title={s.title}
+                            titleMd={s.titleMd}
+                            mathFontSize={11}
+                          />
+                        </Fragment>
+                      ))}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ))}
     </div>
   );
 }

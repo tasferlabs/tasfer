@@ -5,7 +5,13 @@
  * Command names group as one unit, so a unit never chips `\sin` into `\si`/`\s`.
  */
 import { describe, expect, it } from "vitest";
-import { isInsideConstruct, unitAfter, unitAt, unitBefore } from "./unit";
+import {
+  isInsideConstruct,
+  scriptAttachOffset,
+  unitAfter,
+  unitAt,
+  unitBefore,
+} from "./unit";
 
 /** Convenience: unit on each side as a tuple for terse assertions. */
 function back(latex: string, offset: number) {
@@ -306,5 +312,44 @@ describe("isInsideConstruct — top-level vs. construct interior", () => {
       false,
     );
     expect(isInsideConstruct("", 0)).toBe(false);
+  });
+});
+
+describe("scriptAttachOffset — scripts attach to the whole accented construct", () => {
+  it("the end of a non-stretchy accent's base hops past the construct", () => {
+    // "\dot{x|}" — a `^` typed here means \dot{x}^{…}, not \dot{x^{…}}.
+    expect(scriptAttachOffset("\\dot{x}", 6)).toBe(7);
+    expect(scriptAttachOffset("\\vec{v}", 6)).toBe(7);
+    // A multi-token base still hops from its end.
+    expect(scriptAttachOffset("\\vec{AB}", 7)).toBe(8);
+  });
+
+  it("hops even when the accent sits inside another construct's slot", () => {
+    // "x^{\dot{a|}}" — the hop lands inside the superscript group, after \dot{a}.
+    expect(scriptAttachOffset("x^{\\dot{a}}", 9)).toBe(10);
+  });
+
+  it("nested accents escalate to after the outermost construct", () => {
+    // "\hat{\dot{x|}}" — the whole \hat{\dot{x}} is one accented construct.
+    expect(scriptAttachOffset("\\hat{\\dot{x}}", 11)).toBe(13);
+  });
+
+  it("does not hop from the middle of the base or an empty base", () => {
+    // "\dot{x|y}" — the script belongs to `x`, inside the base.
+    expect(scriptAttachOffset("\\dot{xy}", 6)).toBeNull();
+    // "\dot{|}" — nothing accented yet; keep the default behavior.
+    expect(scriptAttachOffset("\\dot{}", 5)).toBeNull();
+  });
+
+  it("never hops out of a stretchy accent (it spans arbitrary content)", () => {
+    const latex = "\\widehat{ab}";
+    expect(scriptAttachOffset(latex, latex.length - 1)).toBeNull();
+  });
+
+  it("ignores an unbraced base and non-accent constructs", () => {
+    // "\dot x|" — the caret is already past the construct; nothing to hop.
+    expect(scriptAttachOffset("\\dot x", 6)).toBeNull();
+    // "\frac{a|}{b}" — a fraction slot is not an accent base.
+    expect(scriptAttachOffset("\\frac{a}{b}", 7)).toBeNull();
   });
 });

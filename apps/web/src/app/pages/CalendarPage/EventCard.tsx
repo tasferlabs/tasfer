@@ -1,9 +1,9 @@
 import { useRef } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import i18next from "i18next";
 import type { ICalendarPage } from "../../api/pages.api";
+import { TitlePreview } from "../../TitlePreview";
 import {
   HOUR_HEIGHT,
   pageToStartMin,
@@ -25,7 +25,6 @@ export function EventCard({
   compact?: boolean;
   isDraft?: boolean;
 }) {
-  const { t } = useTranslation();
   const startMin = pageToStartMin(page);
   const duration = page.duration || 60;
   const top = (startMin / 60) * HOUR_HEIGHT;
@@ -53,11 +52,14 @@ export function EventCard({
         top,
         height: actualHeight,
         opacity: isDragging ? 0.3 : 1,
-        ...(compact ? { insetInlineStart: 0, insetInlineEnd: 0, padding: "2px 6px" } : {}),
+        ...(compact
+          ? { insetInlineStart: 0, insetInlineEnd: 0, padding: "2px 6px" }
+          : {}),
         ...(() => {
           const c =
             page.color ??
-            (page.path && [...page.path].reverse().find((p) => p.color)?.color) ??
+            (page.path &&
+              [...page.path].reverse().find((p) => p.color)?.color) ??
             null;
           return c && !isDraft
             ? { borderInlineStartColor: c }
@@ -84,7 +86,11 @@ export function EventCard({
       {showTimeInline && compact ? (
         <div className={style.eventInline}>
           <span className={style.eventTitle} style={{ fontSize: "0.7rem" }}>
-            {page.title || t("common.untitled", "Untitled")}
+            <TitlePreview
+              title={page.title}
+              titleMd={page.titleMd}
+              mathFontSize={11}
+            />
           </span>
           <span className={style.eventTimeInline}>{formatTime(startMin)}</span>
         </div>
@@ -94,7 +100,11 @@ export function EventCard({
             className={style.eventTitle}
             style={compact ? { fontSize: "0.7rem" } : undefined}
           >
-            {page.title || t("common.untitled", "Untitled")}
+            <TitlePreview
+              title={page.title}
+              titleMd={page.titleMd}
+              mathFontSize={compact ? 11 : 12}
+            />
           </span>
           {showTimeSeparate && (
             <div

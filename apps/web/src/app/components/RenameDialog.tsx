@@ -18,7 +18,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
 import { type CypherEditor, type Doc } from "@cypherkit/editor";
-import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
+import { deriveTitles } from "@/lib/pageTitle";
 import { useGetPage, useUpdatePage } from "../api/pages.api";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import { useCollaborativeDoc } from "../useCollaborativeDoc";
@@ -186,13 +186,23 @@ function RenameDialogView({
   // so it keeps mirroring the heading.
   const close = useCallback(() => {
     if (doc && pageId) {
-      const title = extractTitleFromBlocks(doc.getRawBlocks());
-      if (title !== (currentPage?.title ?? "")) {
-        updatePage({ id: pageId, title });
+      const { title, titleMd } = deriveTitles(doc.getRawBlocks());
+      if (
+        title !== (currentPage?.title ?? "") ||
+        titleMd !== (currentPage?.titleMd ?? "")
+      ) {
+        updatePage({ id: pageId, title, titleMd });
       }
     }
     onOpenChange(false);
-  }, [doc, pageId, currentPage?.title, updatePage, onOpenChange]);
+  }, [
+    doc,
+    pageId,
+    currentPage?.title,
+    currentPage?.titleMd,
+    updatePage,
+    onOpenChange,
+  ]);
 
   // Route every dismissal (button, Escape, backdrop, swipe) through `close` so
   // the derived title is always persisted.

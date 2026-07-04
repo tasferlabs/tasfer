@@ -40,6 +40,23 @@ import type {
 } from "../../state-types";
 import type { CaretModel } from "../nodes/caret-model";
 
+/**
+ * One selection-wrap trigger: typing `char` while a non-collapsed text
+ * selection is held applies this mark to the selection instead of replacing
+ * it (see {@link Mark.selectionWrap}).
+ */
+export interface SelectionWrapTrigger {
+  /** The typed character that triggers the wrap (e.g. `"*"`, `"$"`). */
+  readonly char: string;
+  /**
+   * Orders marks sharing one `char` by their markdown delimiter count — the
+   * count at which this mark appears alone (`*` = 1 → emphasis, `**` = 2 →
+   * strong). Defaults to 1. Marks with distinct levels on the same char cycle
+   * through the delimiter-count combinations on repeated presses.
+   */
+  readonly level?: number;
+}
+
 /** A rounded-rect background drawn behind a mark's glyphs (code, inline math). */
 export interface MarkChipStyle {
   readonly color: string;
@@ -279,6 +296,27 @@ export abstract class Mark {
    * `false`; they're applied through their own dedicated actions instead.
    */
   readonly togglable: boolean = true;
+
+  /**
+   * Optional: the typed-delimiter triggers that apply this mark over a held
+   * selection — VS Code-style auto-surround with markdown semantics. When a
+   * non-collapsed text selection is active and the user types a trigger char,
+   * the editor applies this mark to the selection instead of replacing it,
+   * mirroring what the delimiter means in markdown source (`*` → emphasis,
+   * `` ` `` → code, `$` → math).
+   *
+   * Marks may share a trigger char at different `level`s (emphasis `*`/1,
+   * strong `*`/2); repeated presses over the held selection then walk the
+   * delimiter-count combinations exactly as markdown reads them — `*` →
+   * *emphasis*, `**` → **strong**, `***` → both, a fourth press back to
+   * plain. A single-mark trigger is a plain toggle (`$` wraps as math, `$`
+   * again unwraps). Omit for a mark with no typed delimiter (link).
+   *
+   * Consumed generically by `wrapSelectionOnInput` (actions/wrap-selection),
+   * gated per document by `DataSchema.isMarkAllowed` and per block by the
+   * block's `hasFormats` capability, like every other mark application.
+   */
+  readonly selectionWrap?: readonly SelectionWrapTrigger[];
 
   /** If set, this mark replaces glyph rendering for its run (inline math). */
   readonly replacement?: MarkReplacement;

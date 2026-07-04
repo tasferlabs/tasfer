@@ -53,9 +53,9 @@ export const NAV: NavSection[] = [
         items: [
           { route: "app/getting-started", title: "Getting started", Comp: AppGettingStarted, kw: "install build space desktop first document setup export markdown" },
           { route: "app/sync-relay", title: "Sync & relay setup", Comp: AppSyncRelay, kw: "sync pair devices peer to peer encrypted relay" },
-          { route: "app/self-hosting", title: "Self-hosting the relay", Comp: AppSelfHosting, kw: "self host relay docker container tls config server" },
+          { route: "app/self-hosting", title: "Self-hosting the relay", Comp: AppSelfHosting, kw: "self host relay signaling cloudflare worker wrangler deploy turn config server" },
           { route: "app/privacy", title: "Privacy & data", Comp: AppPrivacy, kw: "privacy telemetry tracking keys encryption data ledger" },
-          { route: "app/troubleshooting", title: "Troubleshooting & FAQ", Comp: AppTroubleshooting, kw: "faq help fix problem reset account questions" },
+          { route: "app/troubleshooting", title: "Troubleshooting & FAQ", Comp: AppTroubleshooting, kw: "faq help fix problem backup export import account questions" },
         ],
       },
     ],

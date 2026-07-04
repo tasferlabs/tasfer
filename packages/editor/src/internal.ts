@@ -76,8 +76,16 @@ export {
 export { isTextualBlock } from "./sync/block-registry";
 export {
   extractTitleFromBlocks,
+  findTitleBlock,
   getVisibleTextFromRuns,
 } from "./sync/char-runs";
+// The title's rich sibling (markdown of the same title block) plus the
+// inline-HTML renderer that turns it into DOM for a cheap host-side title
+// preview (marks via their codecs, math via an injected SVG renderer).
+export {
+  extractTitleMarkdownFromBlocks,
+  inlineToHtml,
+} from "./serlization/codecs/inline";
 export { allCharsHaveFormat } from "./sync/crdt-utils";
 // Strips the transient render cache (`cachedLayout`) and neighbour-type stamps a
 // mounted editor writes onto the doc's canonical block objects. A host MUST run

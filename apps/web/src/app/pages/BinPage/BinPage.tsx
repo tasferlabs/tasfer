@@ -5,6 +5,7 @@ import { ChevronRight, FileText, Folder, RotateCcw } from "lucide-react";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
+import { TitlePreview } from "../../TitlePreview";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useResponsive from "../../hooks/useResponsive";
 import useLocalStorage from "../../hooks/useLocalStorage";
@@ -217,7 +218,7 @@ export default function BinPage() {
             <div className={style.rowMain}>
               <FileText className={style.pageIcon} aria-hidden />
               <span className={style.rowTitle}>
-                {page.title || t("common.untitled", "Untitled")}
+                <TitlePreview title={page.title} titleMd={page.titleMd} />
               </span>
               {space && <span className={style.rowSpace}>{space}</span>}
               <span className={style.rowMeta}>
@@ -250,9 +251,11 @@ export default function BinPage() {
       {entries.map((entry) => {
         const isSpace = entry.kind === "space";
         const accent = entry.kind === "page" ? entry.page.color : undefined;
-        const title = isSpace
-          ? entry.space.name || t("space.untitled", "Untitled space")
-          : entry.page.title || t("common.untitled", "Untitled");
+        const title = isSpace ? (
+          entry.space.name || t("space.untitled", "Untitled space")
+        ) : (
+          <TitlePreview title={entry.page.title} titleMd={entry.page.titleMd} />
+        );
         // Second line: an owning-space label for pages, a type label for spaces.
         const label =
           entry.kind === "page"

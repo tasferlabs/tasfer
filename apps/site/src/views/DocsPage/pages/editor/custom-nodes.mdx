@@ -129,6 +129,19 @@ const marked = defineMark("highlight", {
 });
 ```
 
+A `Mark` subclass can also declare `selectionWrap` — the typed delimiters that apply it over a held selection, VS Code-style auto-surround with markdown meaning. Typing a trigger char while text is selected applies the mark instead of replacing the selection (the built-ins declare `` ` `` → code, `~` → strike, `$` → inline math). Marks sharing a char at different `level`s cycle with the delimiter count on repeated presses, the way emphasis (`*`, level 1) and strong (`*`, level 2) walk *em* → **strong** → ***both*** → plain:
+
+```ts
+class HighlightMark extends Mark {
+  readonly type = "highlight";
+  // `=` typed over a selection toggles the highlight (think `==text==`).
+  readonly selectionWrap = [{ char: "=" }];
+  style() {
+    return { background: { color: "#fde68a", padding: 2, borderRadius: 3 } };
+  }
+}
+```
+
 <h2 id="register">Register them</h2>
 
 `extend` returns a _new_ immutable schema — the base is never mutated, so two editors on one page can run different schemas.

@@ -3,7 +3,7 @@
 import { Icons } from "../../docsIcons";
 import { Callout, Card, CardGrid, Step, Steps } from "../../docsComponents";
 
-<p className="dx-lede">Cypher is a local-first, end-to-end encrypted markdown editor. Your files live on your disk, your keys never leave your device, and sync is peer-to-peer. **There is no account to create — you start by opening the app.**</p>
+<p className="dx-lede">Cypher is a local-first, peer-to-peer markdown editor. Your work is stored on your device, your keys never leave it, and sync happens directly between your devices. **There is no account to create — you start by opening the app.**</p>
 
 <h2 id="install">Install</h2>
 
@@ -14,13 +14,13 @@ Cypher runs as a desktop app and as a local web build. Pick whichever fits your 
     to="app/getting-started"
     icon={<Icons.Download />}
     title="Desktop (macOS / Windows / Linux)"
-    desc="Signed binaries on the releases page. Auto-updates can be turned off in Settings."
+    desc="Signed builds on the GitHub releases page. The app checks GitHub Releases for updates."
   />
   <Card
     to="app/getting-started"
     icon={<Icons.Terminal />}
     title="Run it yourself"
-    desc="Clone the AGPL-3.0 repo and run a local build. The relay is a separate, optional service."
+    desc="Clone the repo (the app is AGPL-3.0) and run a local build. The signaling relay is a separate, optional service."
   />
 </CardGrid>
 
@@ -29,25 +29,26 @@ To build from source:
 ```bash
 git clone https://github.com/hamza512b/cypher
 cd cypher
-pnpm install
-pnpm dev          # opens the app at http://localhost:4000
+npm install
+cd apps/web
+npm run dev       # opens the app at http://localhost:4000
 ```
 
 <h2 id="first-doc">Your first document</h2>
 
 <Steps>
-  <Step title="Pick a folder">
-    On first launch, Cypher asks for a folder. It mirrors every page into it as plain `.md` files — a **one-way** copy you can open in any editor, today or in twenty years. The app keeps the source of truth; the folder is always yours.
+  <Step title="Create a space">
+    On first launch, Cypher asks you to create a space — or join someone else's with an invite. A space is a collection of pages that lives entirely on your device, in a local database.
   </Step>
   <Step title="Write">
     Markdown shortcuts work as you type: `#` for headings, `**bold**`, `>` for quotes, `- [ ]` for tasks. Everything is saved locally the instant you type — there is no "save" button and no spinner reporting to a server.
   </Step>
-  <Step title="Back it up like any folder">
-    Because the mirror is just files, your existing backup tools already cover it. Copy it, zip it, put it in a git repo, sync it with rsync. The mirror is one-way — Cypher writes to the folder, it never reads your edits back from it.
+  <Step title="Export any time">
+    **Settings → Data → Export all** writes every page out as plain markdown in a ZIP — files you can open in any editor, today or in twenty years. Individual pages export as Markdown, HTML, PDF, or plain text, and the same Data tab imports markdown files or a ZIP back in.
   </Step>
 </Steps>
 
-<Callout kind="note" title="No telemetry, ever.">Cypher ships with no analytics, no crash reporting that phones home, and no account system. The first run does not contact a network at all. See [Privacy & data](/docs/app/privacy) for the complete list of what the app does and does not collect.</Callout>
+<Callout kind="note" title="No telemetry, ever.">Cypher ships with no analytics SDK, no crash reporting, and no account system. The network is used for two things only: syncing spaces you have shared, and (on desktop) checking GitHub for app updates. Your documents are never uploaded anywhere. See [Privacy & data](/docs/app/privacy) for the complete accounting.</Callout>
 
 <h2 id="next">Next steps</h2>
 
@@ -56,12 +57,12 @@ pnpm dev          # opens the app at http://localhost:4000
     to="app/sync-relay"
     icon={<Icons.Link />}
     title="Sync across devices"
-    desc="Turn on peer-to-peer sync and pair a second device in under a minute."
+    desc="Share a space with an invite code or QR and edit it from every device, peer to peer."
   />
   <Card
     to="app/privacy"
     icon={<Icons.Shield />}
     title="Privacy & data"
-    desc="Exactly what stays on your disk and what (nothing) leaves it."
+    desc="Exactly what stays on your device and what (nothing) we collect."
   />
 </CardGrid>

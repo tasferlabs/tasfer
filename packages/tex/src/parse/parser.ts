@@ -675,8 +675,9 @@ const OVER_UNDER = new Set([
 /**
  * Named math operators → whether they take limits (scripts stacked above/below
  * in display style). The no-limit ops keep their scripts on the side.
+ * Exported (within the package) as the data behind `operatorCommands`.
  */
-const MATH_OPERATORS: Record<string, boolean> = {
+export const MATH_OPERATORS: Record<string, boolean> = {
   // No limits (scripts on the side).
   arcsin: false, arccos: false, arctan: false, arctg: false, arcctg: false,
   arg: false, cos: false, cosec: false, cosh: false, cot: false, cotg: false,

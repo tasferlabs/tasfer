@@ -3,6 +3,8 @@ import { Command } from "cmdk";
 import { ChevronDown, ChevronRight, FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSearchPages, type ISearchPage } from "@/app/api/pages.api";
+import { TitlePreview } from "@/app/TitlePreview";
+import type { PagePathSegment } from "@/platform/types";
 import {
   Popover,
   PopoverAnchor,
@@ -89,7 +91,11 @@ export function PagePicker({
                     !value && "text-muted-foreground",
                   )}
                 >
-                  {value ? value.title || t("common.untitled", "Untitled") : t("common.none", "None")}
+                  {value ? (
+                    <TitlePreview title={value.title} titleMd={value.titleMd} />
+                  ) : (
+                    t("common.none", "None")
+                  )}
                 </span>
               </button>
             </PopoverTrigger>
@@ -111,7 +117,10 @@ export function PagePicker({
       )}
       <PopoverContent
         className="p-0"
-        style={{ width: popoverWidth ?? (customTrigger ? 260 : anchorWidth || undefined) }}
+        style={{
+          width:
+            popoverWidth ?? (customTrigger ? 260 : anchorWidth || undefined),
+        }}
         align={align}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
@@ -139,8 +148,13 @@ export function PagePicker({
                 }}
                 className="cursor-pointer flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
               >
-                <FileText size={14} className="shrink-0 text-muted-foreground" />
-                <span className="text-muted-foreground italic">{t("page.noParent", "No parent (root)")}</span>
+                <FileText
+                  size={14}
+                  className="shrink-0 text-muted-foreground"
+                />
+                <span className="text-muted-foreground italic">
+                  {t("page.noParent", "No parent (root)")}
+                </span>
               </Command.Item>
             )}
             {filtered?.map((page) => (
@@ -172,7 +186,7 @@ export function PagePicker({
                 />
                 <div className="min-w-0 flex-1 flex gap-2">
                   <span className="truncate block">
-                    {page.title || t("common.untitled", "Untitled")}
+                    <TitlePreview title={page.title} titleMd={page.titleMd} />
                   </span>
                   {page.path && <PathBreadcrumb path={page.path} />}
                 </div>
@@ -184,9 +198,8 @@ export function PagePicker({
     </Popover>
   );
 }
-function PathBreadcrumb({ path }: { path: { id: string; title: string }[] }) {
+function PathBreadcrumb({ path }: { path: PagePathSegment[] }) {
   const collapsed = path.length > 2;
-  const { t } = useTranslation();
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -195,12 +208,22 @@ function PathBreadcrumb({ path }: { path: { id: string; title: string }[] }) {
           <span className="flex items-center gap-0.5 text-xs text-muted-foreground min-w-0 overflow-hidden">
             {collapsed ? (
               <>
-                <span className="truncate max-w-[5rem]">{path[0].title || t("common.untitled", "Untitled")}</span>
+                <span className="truncate max-w-[5rem]">
+                  <TitlePreview
+                    title={path[0].title}
+                    titleMd={path[0].titleMd}
+                    mathFontSize={12}
+                  />
+                </span>
                 <ChevronRight size={10} className="shrink-0 opacity-50" />
                 <span className="shrink-0">…</span>
                 <ChevronRight size={10} className="shrink-0 opacity-50" />
                 <span className="truncate max-w-[5rem]">
-                  {path[path.length - 1].title || t("common.untitled", "Untitled")}
+                  <TitlePreview
+                    title={path[path.length - 1].title}
+                    titleMd={path[path.length - 1].titleMd}
+                    mathFontSize={12}
+                  />
                 </span>
               </>
             ) : (
@@ -212,7 +235,13 @@ function PathBreadcrumb({ path }: { path: { id: string; title: string }[] }) {
                   {i > 0 && (
                     <ChevronRight size={10} className="shrink-0 opacity-50" />
                   )}
-                  <span className="truncate max-w-[7rem]">{segment.title || t("common.untitled", "Untitled")}</span>
+                  <span className="truncate max-w-[7rem]">
+                    <TitlePreview
+                      title={segment.title}
+                      titleMd={segment.titleMd}
+                      mathFontSize={12}
+                    />
+                  </span>
                 </span>
               ))
             )}
@@ -225,7 +254,13 @@ function PathBreadcrumb({ path }: { path: { id: string; title: string }[] }) {
                 {i > 0 && (
                   <ChevronRight size={10} className="shrink-0 opacity-50" />
                 )}
-                <span>{segment.title || t("common.untitled", "Untitled")}</span>
+                <span>
+                  <TitlePreview
+                    title={segment.title}
+                    titleMd={segment.titleMd}
+                    mathFontSize={12}
+                  />
+                </span>
               </span>
             ))}
           </div>

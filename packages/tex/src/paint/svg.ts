@@ -25,10 +25,13 @@ export function toSVG(layout: MathLayout, opts: ToSvgOptions = {}): string {
   const originY = layout.height + pad; // baseline y within the viewBox
   const body: string[] = [];
   emit(layout.box, originX, originY, layout.fontSize, color, body);
+  // overflow: visible — the metric table records TeX layout extents, not ink
+  // bounds, and some glyph ink legitimately overshoots them (°'s ring, italic
+  // overhang). Canvas never clips such ink; without this the SVG viewBox would.
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(w)}" height="${fmt(h)}" ` +
     `viewBox="0 0 ${fmt(w)} ${fmt(h)}" ` +
-    `style="vertical-align: ${fmt(-layout.depth)}px;">${body.join("")}</svg>`
+    `style="vertical-align: ${fmt(-layout.depth)}px; overflow: visible;">${body.join("")}</svg>`
   );
 }
 

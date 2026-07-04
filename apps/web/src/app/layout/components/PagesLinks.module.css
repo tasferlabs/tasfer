@@ -41,8 +41,10 @@
   overflow: hidden;
 }
 
-.linkTitle a,
-.linkTitle span {
+/* Child combinator: the label slot nests its own inline markup (the
+   TitlePreview's marks), which must not re-acquire the row-label box styles. */
+.linkTitle > a,
+.linkTitle > span {
   color: var(--foreground);
   text-decoration: none;
   display: block;
@@ -186,9 +188,9 @@
     margin-inline-start: 4px;
   }
 
-  .linkTitle a,
-  .linkTitle span,
-  .linkTitle input {
+  .linkTitle > a,
+  .linkTitle > span,
+  .linkTitle > input {
     height: 100%;
     line-height: 44px;
     padding: 0;

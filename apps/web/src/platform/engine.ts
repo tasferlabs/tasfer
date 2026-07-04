@@ -17,6 +17,7 @@ import type {
   PageMoveInput,
   PageSearchResult,
   PageCalendarItem,
+  PagePathSegment,
   PageSnapshot,
   Identity,
   Peer,
@@ -37,6 +38,9 @@ import { nanoid } from "nanoid";
 // barrel — the barrel re-exports rendering/font code that touches `document`,
 // which crashes the engine when it runs inside the SharedWorker (Phase 2).
 import { sortBlocksByOrder } from "@cypherkit/editor/sync/block-order";
+// Worker-safe itself (deep imports only) — derives the title columns from
+// blocks; the doc's op log is the source of truth for titles.
+import { deriveTitles } from "../lib/pageTitle";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
@@ -104,6 +108,7 @@ const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS pages (
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL DEFAULT '',
+    title_md      TEXT NOT NULL DEFAULT '',
     parent_id     TEXT,
     "order"       REAL NOT NULL DEFAULT 0,
     space_id      TEXT,
@@ -184,6 +189,11 @@ export class Engine implements Platform {
   /** Initialize the database schema. Call once at startup. */
   async init(): Promise<void> {
     await this.driver.db.exec(SCHEMA_SQL);
+    // Additive column adds are self-healing: SCHEMA_SQL's CREATE TABLE IF NOT
+    // EXISTS is a no-op on an existing database, so probe-and-ALTER here —
+    // ALWAYS, even in staging (where versioned migrations wait for the
+    // DevToolbar), because every query in this file assumes these columns.
+    await this.ensureAdditiveColumns();
     // In staging, migrations are applied explicitly via DevToolbar.
     if (import.meta.env.VITE_STAGING !== "true") {
       await this.applyMigrations();
@@ -206,6 +216,25 @@ export class Engine implements Platform {
       user_version: number;
     }>("PRAGMA user_version");
     return Math.max(0, SCHEMA_VERSION - (user_version as number));
+  }
+
+  /**
+   * Bring an existing database up to date with columns SCHEMA_SQL added after
+   * its tables were first created (CREATE TABLE IF NOT EXISTS won't). Safe and
+   * idempotent, so init() runs it unconditionally — unlike versioned
+   * migrations, which staging defers to the DevToolbar.
+   */
+  private async ensureAdditiveColumns(): Promise<void> {
+    // pages.title_md — the title's rich (markdown) projection, a local cache
+    // derived from doc content (see refreshDerivedTitles).
+    const cols = await this.driver.db.execute<{ name: string }>(
+      "PRAGMA table_info(pages)",
+    );
+    if (!cols.some((c) => c.name === "title_md")) {
+      await this.driver.db.exec(
+        "ALTER TABLE pages ADD COLUMN title_md TEXT NOT NULL DEFAULT ''",
+      );
+    }
   }
 
   /** Apply all pending migrations. Safe to call multiple times. */
@@ -853,6 +882,7 @@ export class Engine implements Platform {
       const rows = await this.driver.db.execute<{
         id: string;
         title: string;
+        title_md: string;
         parent_id: string | null;
         order: number;
         has_children: number;
@@ -868,6 +898,7 @@ export class Engine implements Platform {
       return rows.map((r) => ({
         id: r.id,
         title: r.title,
+        titleMd: r.title_md,
         parentId: r.parent_id,
         order: r.order,
         hasChildren: r.has_children === 1,
@@ -885,6 +916,7 @@ export class Engine implements Platform {
       const rows = await this.driver.db.execute<{
         id: string;
         title: string;
+        title_md: string;
         parent_id: string | null;
         order: number;
         has_children: number;
@@ -932,6 +964,9 @@ export class Engine implements Platform {
         if (rebuilt && blocks && blocks.length > 0) {
           // Fire-and-forget — don't block the page open on the write.
           this.snapshots.save(id, blocks, rebuilt.vv).catch(() => {});
+          // Free (blocks in hand): catch the derived title columns up to the
+          // doc if they went stale (e.g. ops applied while the app was closed).
+          this.refreshDerivedTitlesFromBlocks(id, blocks).catch(() => {});
         }
       }
 
@@ -972,6 +1007,7 @@ export class Engine implements Platform {
       return {
         id: r.id,
         title: r.title,
+        titleMd: r.title_md,
         parentId: r.parent_id,
         order: r.order,
         hasChildren: r.has_children === 1,
@@ -1004,11 +1040,12 @@ export class Engine implements Platform {
       const order = (orderRows[0]?.max_order ?? 0) + 1;
 
       await this.driver.db.run(
-        `INSERT INTO pages (id, title, parent_id, "order", space_id, task, scheduled_at, duration, all_day, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pages (id, title, title_md, parent_id, "order", space_id, task, scheduled_at, duration, all_day, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           data.title,
+          data.titleMd ?? "",
           data.parentId,
           order,
           data.spaceId ?? null,
@@ -1047,7 +1084,6 @@ export class Engine implements Platform {
         await this.emitSpaceOp(data.spaceId, {
           op: "page_add",
           pageId: id,
-          title: data.title,
           parentId: data.parentId,
           order,
           task: data.task,
@@ -1074,13 +1110,22 @@ export class Engine implements Platform {
       const sets: string[] = [];
       const params: unknown[] = [];
 
-      // Track which fields changed for space ops
+      // Track which fields changed for space ops. The title columns are NOT
+      // tracked here: they are local caches derived from the doc, whose ops
+      // are the source of truth — peers re-derive them from content ops
+      // (refreshDerivedTitles) instead of receiving them as metadata.
       const changedFields: { field: string; value: unknown }[] = [];
+      let titleChanged = false;
 
       if (data.title !== undefined) {
         sets.push("title = ?");
         params.push(data.title);
-        changedFields.push({ field: "title", value: data.title });
+        titleChanged = true;
+      }
+      if (data.titleMd !== undefined) {
+        sets.push("title_md = ?");
+        params.push(data.titleMd);
+        titleChanged = true;
       }
       if (data.color !== undefined) {
         sets.push("color = ?");
@@ -1119,7 +1164,7 @@ export class Engine implements Platform {
       }
 
       // Auto-generate space ops for metadata changes
-      if (changedFields.length > 0) {
+      if (changedFields.length > 0 || titleChanged) {
         const spaceId = await this.getPageSpaceId(data.id);
         if (spaceId) {
           for (const { field, value } of changedFields) {
@@ -1130,6 +1175,8 @@ export class Engine implements Platform {
               value,
             });
           }
+          // Title-only changes emit no ops, but still wake local listeners
+          // (other tabs sharing this engine) so their page lists refresh.
           this.notifySpaceChange(spaceId);
         }
       }
@@ -1187,11 +1234,12 @@ export class Engine implements Platform {
       const rows = await this.driver.db.execute<{
         id: string;
         title: string;
+        title_md: string;
         space_id: string | null;
         color: string | null;
         archived_at: string;
       }>(
-        `SELECT p.id, p.title, p.space_id, p.color, p.archived_at
+        `SELECT p.id, p.title, p.title_md, p.space_id, p.color, p.archived_at
            FROM pages p
            LEFT JOIN pages parent ON p.parent_id = parent.id
            LEFT JOIN spaces sp ON p.space_id = sp.id
@@ -1204,6 +1252,7 @@ export class Engine implements Platform {
       return rows.map((r) => ({
         id: r.id,
         title: r.title,
+        titleMd: r.title_md,
         spaceId: r.space_id,
         color: r.color,
         archivedAt: r.archived_at,
@@ -1217,7 +1266,6 @@ export class Engine implements Platform {
       // walking archived rows instead of live ones).
       const subtree = await this.driver.db.execute<{
         id: string;
-        title: string;
         parent_id: string | null;
         order: number;
         task: number;
@@ -1231,7 +1279,7 @@ export class Engine implements Platform {
            UNION ALL
            SELECT p.id FROM pages p JOIN subtree s ON p.parent_id = s.id WHERE p.archived_at IS NOT NULL
          )
-         SELECT p.id, p.title, p.parent_id, p."order" as "order", p.task,
+         SELECT p.id, p.parent_id, p."order" as "order", p.task,
                 p.color, p.scheduled_at, p.duration, p.all_day
            FROM pages p JOIN subtree s ON p.id = s.id`,
         [id],
@@ -1278,7 +1326,6 @@ export class Engine implements Platform {
           await this.emitSpaceOp(spaceId, {
             op: "page_add",
             pageId: r.id,
-            title: r.title,
             parentId: r.parent_id,
             order: r.order,
             task: r.task === 1,
@@ -1364,10 +1411,11 @@ export class Engine implements Platform {
       const rows = await this.driver.db.execute<{
         id: string;
         title: string | null;
+        title_md: string | null;
         parent_id: string | null;
         color: string | null;
       }>(
-        "SELECT id, title, parent_id, color FROM pages WHERE title LIKE ? AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 20",
+        "SELECT id, title, title_md, parent_id, color FROM pages WHERE title LIKE ? AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 20",
         [`%${query}%`],
       );
 
@@ -1377,6 +1425,7 @@ export class Engine implements Platform {
         results.push({
           id: r.id,
           title: r.title,
+          titleMd: r.title_md,
           parentId: r.parent_id,
           path,
           color: r.color,
@@ -1392,6 +1441,7 @@ export class Engine implements Platform {
       const rows = await this.driver.db.execute<{
         id: string;
         title: string;
+        title_md: string;
         parent_id: string | null;
         order: number;
         color: string | null;
@@ -1415,6 +1465,7 @@ export class Engine implements Platform {
         results.push({
           id: r.id,
           title: r.title,
+          titleMd: r.title_md,
           parentId: r.parent_id,
           order: r.order,
           color: r.color,
@@ -1900,6 +1951,69 @@ export class Engine implements Platform {
     ops: import("@cypherkit/editor/state-types").Operation[],
   ): Promise<void> {
     await this.insertOpsBatch(pageId, ops, Date.now());
+    // The doc ops just changed and they — not any replicated metadata — are
+    // the source of truth for the page's title columns. Re-derive them.
+    this.scheduleTitleRefresh(pageId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Derived titles — pages.title / pages.title_md are LOCAL caches of the doc
+  // ---------------------------------------------------------------------------
+
+  /** Per-page debounce timers for {@link scheduleTitleRefresh}. */
+  private titleRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /**
+   * Re-derive the title columns for a page whose content ops changed, after a
+   * short per-page debounce. Remote edits stream in as many small batches
+   * (one per broadcast), and each refresh replays the page's op log — the
+   * debounce collapses a typing burst into one rebuild.
+   */
+  private scheduleTitleRefresh(pageId: string): void {
+    const pending = this.titleRefreshTimers.get(pageId);
+    if (pending) clearTimeout(pending);
+    this.titleRefreshTimers.set(
+      pageId,
+      setTimeout(() => {
+        this.titleRefreshTimers.delete(pageId);
+        this.rebuildBlocksFromOps(pageId)
+          .then((rebuilt) => {
+            if (rebuilt) {
+              return this.refreshDerivedTitlesFromBlocks(pageId, rebuilt.blocks);
+            }
+          })
+          .catch((err) =>
+            console.warn("[Engine] Failed to refresh derived titles:", err),
+          );
+      }, 1000),
+    );
+  }
+
+  /**
+   * Update the derived title columns from blocks the caller already has (no
+   * op-log replay), notifying space listeners only when something actually
+   * changed. This is the single writer that keeps `pages.title`/`title_md`
+   * mirroring the doc — the doc's operation log stays the source of truth,
+   * and these columns are just a rebuildable index over it for list views.
+   */
+  private async refreshDerivedTitlesFromBlocks(
+    pageId: string,
+    blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
+  ): Promise<void> {
+    const { title, titleMd } = deriveTitles(blocks);
+    const rows = await this.driver.db.execute<{
+      title: string;
+      title_md: string;
+      space_id: string | null;
+    }>("SELECT title, title_md, space_id FROM pages WHERE id = ?", [pageId]);
+    if (rows.length === 0) return;
+    if (rows[0].title === title && rows[0].title_md === titleMd) return;
+
+    await this.driver.db.run(
+      "UPDATE pages SET title = ?, title_md = ?, updated_at = ? WHERE id = ?",
+      [title, titleMd, new Date().toISOString(), pageId],
+    );
+    if (rows[0].space_id) this.notifySpaceChange(rows[0].space_id);
   }
 
   /** Build a sync response for a requesting peer */
@@ -2259,12 +2373,13 @@ export class Engine implements Platform {
           [op.pageId],
         );
         if (exists.length === 0) {
+          // Title columns start empty ('' defaults) — they are derived locally
+          // from the page's content ops as they arrive (refreshDerivedTitles).
           await this.driver.db.run(
-            `INSERT INTO pages (id, title, parent_id, "order", space_id, task, color, scheduled_at, duration, all_day, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO pages (id, parent_id, "order", space_id, task, color, scheduled_at, duration, all_day, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               op.pageId,
-              op.title,
               op.parentId,
               op.order,
               op.spaceId,
@@ -2304,8 +2419,9 @@ export class Engine implements Platform {
       case "page_set": {
         if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, op.field, op.clock))
           break;
+        // No title fields here: titles are derived locally from doc content
+        // ops, never accepted as replicated metadata (see PageAdd docs).
         const fieldMap: Record<string, string> = {
-          title: "title",
           parentId: "parent_id",
           order: '"order"',
           color: "color",
@@ -2355,8 +2471,8 @@ export class Engine implements Platform {
 
   private async buildParentChain(
     parentId: string | null,
-  ): Promise<{ id: string; title: string; color?: string | null }[]> {
-    const chain: { id: string; title: string; color?: string | null }[] = [];
+  ): Promise<PagePathSegment[]> {
+    const chain: PagePathSegment[] = [];
     const visited = new Set<string>();
     let currentId = parentId;
 
@@ -2365,17 +2481,23 @@ export class Engine implements Platform {
       const rows = await this.driver.db.execute<{
         id: string;
         title: string;
+        title_md: string;
         parent_id: string | null;
         color: string | null;
       }>(
-        "SELECT id, title, parent_id, color FROM pages WHERE id = ? AND archived_at IS NULL",
+        "SELECT id, title, title_md, parent_id, color FROM pages WHERE id = ? AND archived_at IS NULL",
         [currentId],
       );
 
       if (rows.length === 0) break;
 
       const r = rows[0];
-      chain.unshift({ id: r.id, title: r.title, color: r.color });
+      chain.unshift({
+        id: r.id,
+        title: r.title,
+        titleMd: r.title_md,
+        color: r.color,
+      });
       currentId = r.parent_id;
     }
 

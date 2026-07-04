@@ -13,7 +13,7 @@
 import JSZip from "jszip";
 import { getPlatform } from "@/platform";
 import { tokenizePage, parsePage, parseFrontmatter } from "@cypherkit/editor";
-import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
+import { deriveTitles } from "@/lib/pageTitle";
 import { createPage, updatePage } from "@/app/api/pages.api";
 import { uploadImage } from "@/app/api/images.api";
 
@@ -256,10 +256,12 @@ async function importZip(
         const { content: body, metadata } = parseFrontmatter(rewritten);
         const tokens = tokenizePage(body);
         const page = parsePage(tokens);
-        const title = extractTitleFromBlocks(page.blocks) || node.name;
+        const titles = deriveTitles(page.blocks);
+        const title = titles.title || node.name;
 
         const createdPage = await createPage({
           title,
+          titleMd: titles.titleMd,
           parentId,
           spaceId,
           ...(metadata?.task && { task: true }),
@@ -313,10 +315,12 @@ async function importMarkdownFiles(
       const tokens = tokenizePage(body);
       const page = parsePage(tokens);
       const nameWithoutExt = file.name.replace(/\.(md|txt)$/i, "");
-      const title = extractTitleFromBlocks(page.blocks) || nameWithoutExt;
+      const titles = deriveTitles(page.blocks);
+      const title = titles.title || nameWithoutExt;
 
       const createdPage = await createPage({
         title,
+        titleMd: titles.titleMd,
         parentId: null,
         spaceId,
         ...(metadata?.task && { task: true }),

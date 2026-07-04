@@ -319,6 +319,18 @@
   color: var(--primary);
 }
 
+/* Live drop target while a page is dragged over the Bin link. */
+.appNavigationLink.binDropTarget {
+  background-color: color-mix(in srgb, var(--destructive), transparent 85%);
+  color: var(--destructive);
+  outline: 1px dashed var(--destructive);
+  outline-offset: -1px;
+}
+
+.appNavigationLink.binDropTarget .appNavigationLinkIcon {
+  color: var(--destructive);
+}
+
 .appNavigationLinkShortcut {
   /* margin-inline-start: auto; */
   font-size: 0.7rem;

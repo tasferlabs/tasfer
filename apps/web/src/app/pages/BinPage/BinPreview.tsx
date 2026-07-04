@@ -4,7 +4,11 @@ import { DateTime } from "luxon";
 import { RotateCcw } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { MountedEditor } from "../../MountedEditor";
-import { useGetPageSnapshots, type ArchivedPageItem } from "../../api/pages.api";
+import {
+  useGetPageSnapshots,
+  type ArchivedPageItem,
+} from "../../api/pages.api";
+import { TitlePreview } from "../../TitlePreview";
 import style from "./BinPage.module.css";
 
 interface BinPreviewProps {
@@ -49,7 +53,11 @@ export default function BinPreview({
           />
           <div className={style.previewHeading}>
             <h2 className={style.previewTitle}>
-              {item.title || t("common.untitled", "Untitled")}
+              <TitlePreview
+                title={item.title}
+                titleMd={item.titleMd}
+                mathFontSize={16}
+              />
             </h2>
             <span className={style.previewMeta}>
               {t("bin.deletedAgo", "Deleted {{time}}", { time: deletedAgo })}
@@ -64,7 +72,9 @@ export default function BinPreview({
 
       <div className={style.previewBody}>
         {isLoading ? (
-          <div className={style.previewState}>{t("common.loading", "Loading…")}</div>
+          <div className={style.previewState}>
+            {t("common.loading", "Loading…")}
+          </div>
         ) : blocks && blocks.length > 0 ? (
           <MountedEditor
             key={item.id}

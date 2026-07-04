@@ -31,6 +31,7 @@ import {
   type MarkReplacement,
   type MarkReplacementEdit,
   type MarkStyle,
+  type SelectionWrapTrigger,
 } from "./Mark";
 import { layoutMath, paintMath } from "@cypherkit/tex";
 
@@ -172,6 +173,9 @@ export class MathMark extends Mark {
   readonly togglable = true;
   readonly replacement = inlineMathReplacement;
   readonly codec = MATH_CODEC;
+  // Typing `$` over a selection wraps it as an inline chip (the selected chars
+  // become the LaTeX source); `$` again over a full chip selection unwraps it.
+  readonly selectionWrap: readonly SelectionWrapTrigger[] = [{ char: "$" }];
   style(): MarkStyle {
     return {};
   }

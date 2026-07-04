@@ -21,6 +21,7 @@ import {
   cleanSnapshotForSave,
   extractTitleFromBlocks,
 } from "@cypherkit/editor/internal";
+import { deriveTitles } from "@/lib/pageTitle";
 import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -34,6 +35,7 @@ import {
   GripHorizontal,
   Info,
   Maximize2,
+  Search,
   Trash2,
   X,
 } from "lucide-react";
@@ -58,7 +60,7 @@ import useResponsive from "../../hooks/useResponsive";
 import { MountedEditor } from "../../MountedEditor";
 import { TitleEditor } from "../../TitleEditor";
 import { appSchema } from "../../../editorSchema";
-import { DraftTagPicker } from "./DraftTagPicker";
+import { DraftParentSearch, DraftTagPicker } from "./DraftTagPicker";
 import type { DraftEvent } from "./CalendarPage";
 import style from "./CalendarPage.module.css";
 
@@ -194,6 +196,8 @@ export function EventPreview({
   // Parent page selection
   const [draftParent, setDraftParent] = useState<ISearchPage | null>(null);
   const [draftIsTask, setDraftIsTask] = useState(true);
+  // Desktop draft parent picker: search mode swaps in for the drill-down rows.
+  const [parentSearchOpen, setParentSearchOpen] = useState(false);
 
   // Mobile drawer: the schedule fields (date, duration, space, type) collapse
   // into a single summary line and expand on tap. Collapsed by default so the
@@ -285,6 +289,7 @@ export function EventPreview({
       setPos(null); // will be computed from anchor
       setDraftParent(null);
       setDraftIsTask(true);
+      setParentSearchOpen(false);
       setDetailsOpen(false);
     }
   }, [pageId, draftActive]);
@@ -563,14 +568,16 @@ export function EventPreview({
   );
 
   // Derive current parent for existing pages
+  const parentSegment = previewPage?.parents?.find(
+    (p) => p.id === previewPage.parentId,
+  );
   const currentParent: ISearchPage | null = isDraft
     ? draftParent
     : previewPage?.parentId
       ? {
           id: previewPage.parentId,
-          title:
-            previewPage.parents?.find((p) => p.id === previewPage.parentId)
-              ?.title ?? null,
+          title: parentSegment?.title ?? null,
+          titleMd: parentSegment?.titleMd ?? null,
           parentId: null,
           path: null,
         }
@@ -616,10 +623,9 @@ export function EventPreview({
   // Save edits from preview editor
   const handleSave = useCallback(
     async (data: { pageId: string; blocks: Block[] }) => {
-      const title = extractTitleFromBlocks(data.blocks);
       await updatePageApi({
         id: data.pageId,
-        title,
+        ...deriveTitles(data.blocks),
       });
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
       queryClient.invalidateQueries({ queryKey: ["pages"] });
@@ -884,12 +890,6 @@ export function EventPreview({
 
   const draftFooter = isDraft ? (
     <div className={style.previewDraftFooter}>
-      {!isMobile && (
-        <span className={style.previewDraftShortcut}>
-          {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+Enter{" "}
-          {t("calendar.toSave", "to save")}
-        </span>
-      )}
       <Button variant="ghost" size="sm" onClick={handleClose}>
         {t("common.cancel", "Cancel")}
       </Button>
@@ -1269,15 +1269,54 @@ export function EventPreview({
           </ComboboxContent>
         </Combobox>
       </div>
-      <div className={style.previewRow}>
-        <FolderOpen size={14} className={style.previewRowIcon} />
-        <PagePicker
-          spaceId={activeSpaceId}
-          value={currentParent}
-          onChange={handleParentChange}
-          excludeId={pageId || undefined}
-        />
-      </div>
+      {isDraft ? (
+        // Drafts reuse the mobile sheet's drill-down parent picker, with a
+        // search accelerator in the header: the magnifier swaps the tag rows
+        // for a flat all-pages search, and picking a result (or Esc) swaps
+        // back. The remounted picker opens its drill path to the selection.
+        <>
+          <div className={style.draftSectionHeader}>
+            <FolderOpen size={14} className={style.previewRowIcon} />
+            <span>{t("calendar.parentPage", "Parent page")}</span>
+            <button
+              type="button"
+              className={`${style.draftSectionHeaderAction} ${parentSearchOpen ? style.draftSectionHeaderActionActive : ""}`}
+              onClick={() => setParentSearchOpen((open) => !open)}
+              aria-expanded={parentSearchOpen}
+              aria-label={t("calendar.findParentPage", "Find a page")}
+              title={t("calendar.findParentPage", "Find a page")}
+            >
+              <Search size={14} />
+            </button>
+          </div>
+          {parentSearchOpen ? (
+            <DraftParentSearch
+              spaceId={activeSpaceId}
+              onSelect={(page) => {
+                handleParentChange(page);
+                setParentSearchOpen(false);
+              }}
+              onCancel={() => setParentSearchOpen(false)}
+            />
+          ) : (
+            <DraftTagPicker
+              spaceId={activeSpaceId}
+              value={currentParent}
+              onChange={handleParentChange}
+            />
+          )}
+        </>
+      ) : (
+        <div className={style.previewRow}>
+          <FolderOpen size={14} className={style.previewRowIcon} />
+          <PagePicker
+            spaceId={activeSpaceId}
+            value={currentParent}
+            onChange={handleParentChange}
+            excludeId={pageId || undefined}
+          />
+        </div>
+      )}
       {taskEventRow}
       {pageId && (
         <div className={style.previewRow}>
@@ -1287,6 +1326,25 @@ export function EventPreview({
           </Link>
         </div>
       )}
+    </>
+  );
+
+  // Desktop body: a draft leads with its title field — the popover's primary
+  // input — above the schedule rows, with the footer pinned to the bottom.
+  // The middle scrolls because the drill-down parent rows grow vertically.
+  // An existing event keeps the page body below the schedule rows.
+  const desktopBody = isDraft ? (
+    <>
+      <div className={style.previewDraftScroll}>
+        <div className={style.previewDraftTitleArea}>{editor}</div>
+        {scheduleRows}
+      </div>
+      {draftFooter}
+    </>
+  ) : (
+    <>
+      {scheduleRows}
+      <div className={style.previewEditorArea}>{editor}</div>
     </>
   );
 
@@ -1333,9 +1391,7 @@ export function EventPreview({
                 </button>
               </div>
             </div>
-            {scheduleRows}
-            <div className={style.previewEditorArea}>{editor}</div>
-            {draftFooter}
+            {desktopBody}
           </motion.div>
         )}
       </AnimatePresence>,
@@ -1399,9 +1455,7 @@ export function EventPreview({
                 </button>
               </div>
             </div>
-            {scheduleRows}
-            <div className={style.previewEditorArea}>{editor}</div>
-            {draftFooter}
+            {desktopBody}
             <div
               className={style.previewCornerTL}
               onPointerDown={(e) =>

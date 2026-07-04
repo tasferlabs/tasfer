@@ -7,7 +7,12 @@
 
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import { ITALIC_END, ITALIC_START } from "../../serlization/tokenizer";
-import { Mark, type MarkMetrics, type MarkStyle } from "./Mark";
+import {
+  Mark,
+  type MarkMetrics,
+  type MarkStyle,
+  type SelectionWrapTrigger,
+} from "./Mark";
 
 const EMPHASIS_CODEC: MarkCodec = {
   type: "emphasis",
@@ -20,6 +25,11 @@ export class EmphasisMark extends Mark {
   readonly type = "emphasis";
   readonly metrics: MarkMetrics = { italic: true };
   readonly codec = EMPHASIS_CODEC;
+  // A single markdown delimiter means emphasis: `*x*` / `_x_`.
+  readonly selectionWrap: readonly SelectionWrapTrigger[] = [
+    { char: "*", level: 1 },
+    { char: "_", level: 1 },
+  ];
   style(): MarkStyle {
     return {};
   }

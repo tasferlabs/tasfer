@@ -33,7 +33,7 @@ import {
   REGION_DRAG_START,
   SCROLL,
   TEXT_INPUT,
-  mathCommandCaretOffset,
+  mathCommandInsertion,
   mergeRegister,
   type Block,
   type CursorDragInfo,
@@ -1461,15 +1461,25 @@ function PageEditor({
               : inlineMathChipAt(editor.query.marks, block.id, caretOffset);
           if (block.type !== "math" && !chip) break;
           const active = activeBlockMathCommand(block.text, caretOffset);
-          const caret = mathCommandCaretOffset(action.latex);
+          // The formula character right after the insertion point — the rest
+          // of the block for an equation, but only up to the chip's end for
+          // inline math (text past the chip is prose, which can't fuse with a
+          // command). A letter there needs a separator space or committing
+          // `\pi` in `a\pi|a` leaves the fused unknown `\pia`;
+          // `mathCommandInsertion` appends it.
+          const following =
+            block.type === "math" || (chip && caretOffset < chip.to)
+              ? (block.text[caretOffset] ?? "")
+              : "";
+          const insertion = mathCommandInsertion(action.latex, following);
           editor.change((change) => {
             if (active) {
-              change.insertText(action.latex, {
+              change.insertText(insertion.text, {
                 from: { block: block.id, offset: active.backslashIndex },
                 to: { block: block.id, offset: caretOffset },
               });
             } else {
-              change.insertText(action.latex);
+              change.insertText(insertion.text);
             }
             // Dropping a construct at a chip's edge (a single-char chip has no
             // interior caret stop, so the construct lands just outside the math
@@ -1478,8 +1488,8 @@ function PageEditor({
             // formula. Idempotent for an interior drop already inside the mark.
             if (chip) {
               const delta = active
-                ? action.latex.length - (caretOffset - active.backslashIndex)
-                : action.latex.length;
+                ? insertion.text.length - (caretOffset - active.backslashIndex)
+                : insertion.text.length;
               change.setMark("math", {
                 active: true,
                 range: {
@@ -1489,7 +1499,10 @@ function PageEditor({
               });
             }
             const caretBase = active ? active.backslashIndex : caretOffset;
-            change.select({ block: block.id, offset: caretBase + caret });
+            change.select({
+              block: block.id,
+              offset: caretBase + insertion.caretOffset,
+            });
           });
           editor.focus();
           break;
@@ -1811,9 +1824,14 @@ function PageEditor({
   // phase before useEditor's own layout cleanup destroys the editor — so
   // editor.state / view still return live data here. (The doc's lifetime and the
   // HMR live-blocks stash are owned by useCollaborativeDoc, a level up.)
+  //
+  // Unmount alone is not enough: a full page reload/close tears the page down
+  // without running React cleanups, so we also persist on pagehide and on
+  // visibilitychange→hidden (the pair sync-lifecycle uses — mobile WebViews can
+  // kill a hidden page without ever firing pagehide).
   useLayoutEffect(() => {
     if (readonly) return;
-    return () => {
+    const persistCursor = () => {
       const editorApi = mountedRef.current?.editor;
       if (!editorApi) return;
       const range = editorApi.state.selection.range;
@@ -1830,6 +1848,16 @@ function PageEditor({
           viewportOffsetY: caretCoords?.y,
         });
       }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") persistCursor();
+    };
+    window.addEventListener("pagehide", persistCursor);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", persistCursor);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      persistCursor();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

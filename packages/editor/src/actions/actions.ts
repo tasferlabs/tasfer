@@ -78,6 +78,7 @@ import {
 } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
 import { isWordChar } from "../word-chars";
+import { wrapSelectionOnInput } from "./wrap-selection";
 
 /**
  * URL regex pattern for auto-detection.
@@ -413,6 +414,10 @@ function applyMarkdownPrefix(
     block.type = "heading1";
     removePrefix(0, 2);
     if (oldType !== "heading1") setBlockField("type", "heading1");
+  } else if (text.startsWith("> ") && schema.isBlockAllowed("quote")) {
+    block.type = "quote";
+    removePrefix(0, 2);
+    if (oldType !== "quote") setBlockField("type", "quote");
   } else if (text.match(/^-{3,}$/) && schema.isBlockAllowed("line")) {
     // Line/divider block - three or more dashes with nothing else
     // Generate text_delete for all visible chars before clearing
@@ -1041,7 +1046,22 @@ export function deleteSelectedText(state: EditorState): ActionResult {
  *
  * Phase 3 refactor: Uses CRDT helpers that return { newData, op } atomically
  */
-export function insertText(state: EditorState, input: string): ActionResult {
+export interface InsertTextOptions {
+  /**
+   * Enclose a non-collapsed selection instead of replacing it when the typed
+   * character is a wrap trigger — a bracket/quote pair, or a mark's
+   * `selectionWrap` delimiter (`*` → emphasis, `` ` `` → code, `$` → math);
+   * see `wrap-selection.ts`. Enabled by the typing path (the `INSERT_TEXT`
+   * action); IME commits and programmatic inserts keep replace semantics.
+   */
+  wrapSelection?: boolean;
+}
+
+export function insertText(
+  state: EditorState,
+  input: string,
+  options?: InsertTextOptions,
+): ActionResult {
   if (!state.document.cursor) {
     return { state, ops: [] };
   }
@@ -1061,6 +1081,13 @@ export function insertText(state: EditorState, input: string): ActionResult {
         // Block typing on selected visual block (image/math/line)
         return { state, ops: [] };
       }
+    }
+    // Auto-surround: a typed wrap trigger encloses the selection (brackets/
+    // quotes literally; a markdown delimiter applies its mark) instead of
+    // replacing it. A successful wrap is the whole edit for this keystroke.
+    if (options?.wrapSelection) {
+      const wrapped = wrapSelectionOnInput(state, input);
+      if (wrapped) return wrapped;
     }
     // For other selections, delete them first and collect ops
     const deleteResult = deleteSelectedText(state);
@@ -1095,10 +1122,12 @@ export function insertText(state: EditorState, input: string): ActionResult {
   // + `x` → `\oint x` → ∮x, never the unknown `\ointx`) and, inside a chip, asks
   // markdown auto-format to stand down so a stray `$`/`*` can't reinterpret it.
   let suppressInlineMarkdown = false;
+  let insertIndex = textIndex;
   const typed = transformTypedInput(state, oldBlock, textIndex, input);
   if (typed) {
     input = typed.input;
     suppressInlineMarkdown = typed.suppressMarkdown ?? false;
+    insertIndex = typed.insertAt ?? insertIndex;
   }
 
   // Nothing left to insert — either the keystroke was empty or a node's
@@ -1113,13 +1142,13 @@ export function insertText(state: EditorState, input: string): ActionResult {
   const { newPage: pageAfterInsert, op } = insertCharsAtPosition(
     state.document.page,
     oldBlock.id,
-    textIndex,
+    insertIndex,
     input,
     state.CRDTbinding,
   );
   ops.push(op);
 
-  const newTextIndex = textIndex + input.length;
+  const newTextIndex = insertIndex + input.length;
   let pageAcc = pageAfterInsert;
 
   // Handle active formats (when user has toggled formatting without selection)
@@ -1128,7 +1157,7 @@ export function insertText(state: EditorState, input: string): ActionResult {
       const { newPage: pageAfterFormat, op: formatOp } = markCharsInRange(
         pageAcc,
         oldBlock.id,
-        textIndex,
+        insertIndex,
         newTextIndex,
         format,
         true,
@@ -1376,11 +1405,10 @@ export function deleteText(state: EditorState): ActionResult {
           };
           ops.push(blockDeleteOp);
 
-          const newBlocks = [
-            ...state.document.page.blocks.slice(0, blockIndex),
-            ...state.document.page.blocks.slice(blockIndex + 1),
-          ];
-          const newPage = { ...state.document.page, blocks: newBlocks };
+          // Tombstone via op replay (block_delete keeps the block in the
+          // array on every replica) so the local page stays identical to what
+          // a remote peer or a reload computes from the oplog.
+          const newPage = applyOps(state.document.page, [blockDeleteOp]);
           let newState: EditorState = {
             ...state,
             document: { ...state.document, page: newPage },
@@ -1460,38 +1488,9 @@ export function deleteText(state: EditorState): ActionResult {
           };
           ops.push(blockDeleteOp);
 
-          const newBlocks = [
-            ...state.document.page.blocks.slice(0, blockIndex),
-            ...state.document.page.blocks.slice(blockIndex + 1),
-          ];
-
-          // If we deleted the last block, add an empty paragraph
-          if (newBlocks.length === 0) {
-            const emptyParagraphId = state.CRDTbinding.nextId();
-            const orderKey = orderKeyAfter(state.document.page.blocks, null);
-            const emptyParagraph: Block = {
-              id: emptyParagraphId,
-              orderKey,
-              type: "paragraph",
-              charRuns: [],
-              formats: [],
-            };
-
-            const blockInsertOp: Operation = {
-              op: "block_insert",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              orderKey,
-              blockId: emptyParagraphId,
-              blockType: "paragraph",
-            };
-            ops.push(blockInsertOp);
-
-            newBlocks.push(emptyParagraph);
-          }
-
-          const newPage = { ...state.document.page, blocks: newBlocks };
+          // Tombstone via op replay so the local page matches every replica.
+          // (No empty-doc guard needed: the previous image block survives.)
+          const newPage = applyOps(state.document.page, [blockDeleteOp]);
           let newState: EditorState = {
             ...state,
             document: { ...state.document, page: newPage },
@@ -1716,45 +1715,17 @@ export function deleteForward(state: EditorState): ActionResult {
         };
         ops.push(blockDeleteOp);
 
-        const newBlocks = [
-          ...state.document.page.blocks.slice(0, blockIndex),
-          ...state.document.page.blocks.slice(blockIndex + 1),
-        ];
-
-        // If we deleted the last block, add an empty paragraph
-        if (newBlocks.length === 0) {
-          const emptyParagraphId = state.CRDTbinding.nextId();
-          const orderKey = orderKeyAfter(state.document.page.blocks, null);
-          const emptyParagraph: Block = {
-            id: emptyParagraphId,
-            orderKey,
-            type: "paragraph",
-            charRuns: [],
-            formats: [],
-          };
-
-          const blockInsertOp: Operation = {
-            op: "block_insert",
-            id: state.CRDTbinding.nextId(),
-            clock: state.CRDTbinding.getClock(),
-            pageId: state.CRDTbinding.pageId,
-            orderKey,
-            blockId: emptyParagraphId,
-            blockType: "paragraph",
-          };
-          ops.push(blockInsertOp);
-
-          newBlocks.push(emptyParagraph);
-        }
-
-        const newPage = { ...state.document.page, blocks: newBlocks };
+        // Tombstone via op replay so the local page matches every replica —
+        // the deleted block stays in the array, so the image keeps its index.
+        // (No empty-doc guard needed: the next image block survives.)
+        const newPage = applyOps(state.document.page, [blockDeleteOp]);
         let newState: EditorState = {
           ...state,
           document: { ...state.document, page: newPage },
         };
 
-        // Select the next (image) block, which is now at blockIndex after deletion
-        const imageBlockIndex = blockIndex;
+        // Select the next (image) block
+        const imageBlockIndex = nextBlockIndex;
         const imagePosition = { blockIndex: imageBlockIndex, textIndex: 0 };
         newState = moveCursorToPosition(newState, imageBlockIndex, 0);
         newState = {
@@ -2559,20 +2530,6 @@ export function splitBlock(state: EditorState): ActionResult {
         // Create a new paragraph below the image
         const newParagraphId = state.CRDTbinding.nextId();
         const orderKey = orderKeyAfter(state.document.page.blocks, oldBlock.id);
-        const newParagraph: Block = {
-          id: newParagraphId,
-          orderKey,
-          type: "paragraph",
-          charRuns: [],
-          formats: [],
-        };
-
-        const newBlocks = [
-          ...state.document.page.blocks.slice(0, blockIndex + 1),
-          newParagraph,
-          ...state.document.page.blocks.slice(blockIndex + 1),
-        ];
-        const newPage = { ...state.document.page, blocks: newBlocks };
 
         // Create CRDT operation for new paragraph after image
         const blockInsertOp: BlockInsert = {
@@ -2586,12 +2543,21 @@ export function splitBlock(state: EditorState): ActionResult {
         };
         ops.push(blockInsertOp);
 
+        // Replay the op locally so the paragraph lands where every replica
+        // sorts it — a tombstone tied on the anchor's orderKey shifts the
+        // position, so look it up by id instead of assuming blockIndex + 1.
+        const newPage = applyOps(state.document.page, [blockInsertOp]);
         let newState: EditorState = {
           ...state,
           document: { ...state.document, page: newPage },
         };
         newState = clearSelection(newState);
-        newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+        const newParagraphIndex = findBlockIndex(newPage, newParagraphId);
+        newState = moveCursorToPosition(
+          newState,
+          newParagraphIndex !== -1 ? newParagraphIndex : blockIndex + 1,
+          0,
+        );
         return { state: newState, ops };
       }
     }
@@ -2994,8 +2960,16 @@ export function splitBlock(state: EditorState): ActionResult {
     ...state,
     document: { ...state.document, page: pageAcc },
   };
+  // Look the new block up by id — a tombstone tied on the anchor's orderKey
+  // sits between the anchor and the new block, so `blockIndex + 1` can point
+  // at a deleted block and the cursor move would silently no-op.
+  const newBlockIndex = findBlockIndex(pageAcc, newBlockId);
   return {
-    state: moveCursorToPosition(newState, blockIndex + 1, 0),
+    state: moveCursorToPosition(
+      newState,
+      newBlockIndex !== -1 ? newBlockIndex : blockIndex + 1,
+      0,
+    ),
     ops,
   };
 }
@@ -3426,20 +3400,16 @@ export function convertBlockAtCursor(
       document: { ...state.document, page: newPage },
     };
 
-    // Move the caret to the next block, creating a trailing paragraph if this
-    // was the last block (the caret can't live inside an atomic block).
-    if (blockIndex + 1 < newBlocks.length) {
-      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+    // Move the caret to the next VISIBLE block, creating a trailing paragraph
+    // when none exists (the caret can't live inside an atomic block). Index
+    // arithmetic won't do: `blocks` keeps tombstones, so `blockIndex + 1` can
+    // be a deleted block — the caret would silently stay on the atomic block.
+    const nextVisibleIndex = findNextVisibleBlockIndex(newBlocks, blockIndex);
+    if (nextVisibleIndex !== null) {
+      newState = moveCursorToPosition(newState, nextVisibleIndex, 0);
     } else {
       const newParagraphId = state.CRDTbinding.nextId();
       const orderKey = orderKeyAfter(state.document.page.blocks, block.id);
-      const newParagraph: Block = {
-        id: newParagraphId,
-        orderKey,
-        type: "paragraph",
-        charRuns: [],
-        formats: [],
-      };
 
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
@@ -3452,16 +3422,19 @@ export function convertBlockAtCursor(
       };
       ops.push(blockInsertOp);
 
-      const blocksWithNewParagraph = [...newBlocks, newParagraph];
+      // Replay the op so the paragraph lands at its canonical sorted position,
+      // then place the caret by id.
+      const pageWithParagraph = applyOps(newPage, [blockInsertOp]);
       newState = {
         ...newState,
-        document: {
-          ...newState.document,
-          page: { ...newPage, blocks: blocksWithNewParagraph },
-        },
+        document: { ...newState.document, page: pageWithParagraph },
       };
-
-      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+      const paragraphIndex = findBlockIndex(pageWithParagraph, newParagraphId);
+      newState = moveCursorToPosition(
+        newState,
+        paragraphIndex !== -1 ? paragraphIndex : blockIndex + 1,
+        0,
+      );
     }
 
     return { state: newState, ops };

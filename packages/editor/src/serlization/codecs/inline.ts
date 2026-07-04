@@ -7,12 +7,14 @@
  * format-agnostic about rich text.
  */
 
+import { titleInlineMarkdownProjection } from "../../sync/block-registry";
 import {
+  findTitleBlock,
   getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "../../sync/char-runs";
 import type { DataSchema } from "../../sync/schema";
-import type { CharRun, Mark, MarkSpan } from "../loadPage";
+import type { Block, CharRun, Mark, MarkSpan } from "../loadPage";
 import type { MarkHtmlCtx } from "./mark-codec";
 
 export interface Segment {
@@ -193,4 +195,63 @@ export function inlineToHtml(
 /** Plain text rendering: visible characters, formatting dropped. */
 export function inlineToText(charRuns: CharRun[]): string {
   return getVisibleTextFromRuns(charRuns);
+}
+
+const MAX_TITLE_MARKDOWN_VISIBLE_LENGTH = 100;
+
+/**
+ * The document title as inline MARKDOWN — the rich sibling of
+ * `extractTitleFromBlocks` (which returns the same title block's visible text
+ * with all marks stripped). Both read the block chosen by
+ * {@link findTitleBlock}, so the plain and rich projections of a page's title
+ * always describe the same content. Hosts persist this next to the plain title
+ * to drive rich title previews (sidebar rows, cards) without loading the doc.
+ *
+ * `maxLength` caps the VISIBLE length like the plain extractor, with one
+ * difference: a formatted run is emitted whole or not at all — slicing inside
+ * a mark's delimiters can corrupt its source (half a math run's LaTeX). The
+ * last run kept may therefore soft-overflow the cap, bounded at 2×.
+ */
+export function extractTitleMarkdownFromBlocks(
+  blocks: Block[] | undefined,
+  schema: DataSchema,
+  maxLength: number = MAX_TITLE_MARKDOWN_VISIBLE_LENGTH,
+): string {
+  const block = findTitleBlock(blocks);
+  if (!block) return "";
+
+  // A block whose text needs projecting into an inline context (a math block's
+  // LaTeX becomes an inline `$…$` run) is emitted whole or not at all, like a
+  // formatted run: slicing inside projected source corrupts it.
+  const project = titleInlineMarkdownProjection(block.type);
+  if (project) {
+    const text = getVisibleTextFromRuns(block.charRuns).trim();
+    if (!text || text.length > maxLength * 2) return "";
+    return project(text);
+  }
+
+  const segments = groupSegments(block.charRuns ?? [], block.formats ?? []);
+  let out = "";
+  let visible = 0;
+  for (const segment of segments) {
+    if (visible >= maxLength) break;
+
+    if (!segment.formats) {
+      const text = segment.text.slice(0, maxLength - visible);
+      out += text;
+      visible += text.length;
+      continue;
+    }
+
+    if (visible + segment.text.length > maxLength * 2) break;
+    let text = segment.text;
+    for (const format of segment.formats) {
+      const codec = schema.getMarkCodec(format.type);
+      if (codec) text = codec.toMarkdown(text, format);
+    }
+    out += text;
+    visible += segment.text.length;
+  }
+
+  return out.trim();
 }

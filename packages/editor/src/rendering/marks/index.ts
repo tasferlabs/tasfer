@@ -28,6 +28,7 @@ export {
   type MarkStyle,
   type MarkStyleCtx,
   type MarkUnderlineStyle,
+  type SelectionWrapTrigger,
 } from "./Mark";
 export { MathMark } from "./MathMark";
 export { StrikeMark } from "./StrikeMark";

@@ -268,6 +268,70 @@ export function isInsideConstruct(latex: string, offset: number): boolean {
 }
 
 /**
+ * Where a script (`^`/`_`) typed at `offset` should actually be inserted so it
+ * attaches to the WHOLE enclosing accented construct instead of growing the
+ * accent's base. A non-stretchy accent (`\dot{x}`, `\vec{v}`) decorates one
+ * symbol — it reads as a single construct — so a script typed at the end of its
+ * base slot (`\dot{x|}`, the position live editing lands the caret at after
+ * filling the materialized `\dot{}`) means "script the accented atom"
+ * (`\dot{x}^{2}`), not "expand the base under the accent" (`\dot{x^{2}}`).
+ *
+ * Returns the source offset just past the outermost such construct — nested
+ * accents escalate, so `\hat{\dot{x|}}` resolves to after the whole `\hat{…}` —
+ * or `null` when the caret isn't at the end of a non-stretchy accent's braced,
+ * non-empty base. Stretchy accents (`\widehat`, `\widetilde`) never redirect:
+ * their whole point is to span arbitrary content, so a script typed inside
+ * stays inside. Pure; the editor consults this before inserting a script char.
+ */
+export function scriptAttachOffset(
+  latex: string,
+  offset: number,
+): number | null {
+  const root = parse(latex);
+  if (root.type !== "ord") return null;
+
+  let target: number | null = null;
+  let cursor = offset;
+  for (;;) {
+    const hop = accentEndHop(root, cursor, latex);
+    if (hop === null) break;
+    target = hop;
+    cursor = hop;
+  }
+  return target;
+}
+
+/**
+ * The offset just past a non-stretchy accent whose braced, non-empty base ends
+ * exactly at `offset` (i.e. the caret sits right before the base's closing
+ * brace), or `null`. The `latex[offset] === "}"` guard skips an unterminated
+ * base (`\dot{x`), whose span ends without a brace to hop over.
+ */
+function accentEndHop(
+  node: Node,
+  offset: number,
+  latex: string,
+): number | null {
+  if (
+    node.type === "accent" &&
+    !node.stretchy &&
+    node.base.type === "ord" &&
+    node.base.body.length > 0 &&
+    offset === node.base.span.end - 1 &&
+    latex[offset] === "}"
+  ) {
+    return node.span.end;
+  }
+  for (const group of childGroups(node)) {
+    for (const child of group) {
+      const hop = accentEndHop(child, offset, latex);
+      if (hop !== null) return hop;
+    }
+  }
+  return null;
+}
+
+/**
  * The editing unit immediately before `offset` — what a Backspace there acts on.
  * `null` at the very start (`offset <= 0`).
  */

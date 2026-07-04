@@ -183,6 +183,7 @@ export {
   unitAfter,
   unitAt,
   isInsideConstruct,
+  scriptAttachOffset,
   type MathUnit,
 } from "./edit/unit";
 export {
@@ -192,6 +193,13 @@ export {
   type LatexInsert,
 } from "./edit/normalize";
 export { canRenderMathChar } from "./edit/char";
+export { escapeTypedBrace } from "./edit/brace";
+export {
+  symbolCommands,
+  operatorCommands,
+  type SymbolCommand,
+  type OperatorCommand,
+} from "./vocabulary";
 export { fontFamily, loadFonts, ALL_VARIANTS } from "./fonts/fonts";
 export type { LoadFontsOptions } from "./fonts/fonts";
 export type { FontVariant } from "./data/fontMetrics";

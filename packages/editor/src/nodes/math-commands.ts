@@ -11,7 +11,7 @@
  * and the LaTeX vocabulary is the engine's domain. The host owns only the
  * popover chrome that renders these previews and drives the insert.
  */
-import { isValidLatex } from "@cypherkit/tex";
+import { isValidLatex, operatorCommands, symbolCommands } from "@cypherkit/tex";
 
 export interface MathCommand {
   /** Stable id (also the canonical command keyword, e.g. `int`). */
@@ -32,6 +32,48 @@ export interface MathCommand {
 export function mathCommandCaretOffset(latex: string): number {
   const i = latex.indexOf("{}");
   return i >= 0 ? i + 1 : latex.length;
+}
+
+/**
+ * Whether `latex` ends in a `\`+letters control word, which a directly
+ * following letter would silently extend (`\pi` + `a` → the unknown `\pia`).
+ * The `\\` guard keeps a line-break's trailing letters from counting as a
+ * command name, mirroring the tex resolver's back-scan.
+ */
+function endsInControlWord(latex: string): boolean {
+  let i = latex.length;
+  while (i > 0 && /[a-zA-Z]/.test(latex[i - 1])) i--;
+  return (
+    i > 0 && i < latex.length && latex[i - 1] === "\\" && latex[i - 2] !== "\\"
+  );
+}
+
+/**
+ * The exact text to insert when committing a command's `latex` at a caret whose
+ * next character *within the same formula* is `following` (empty string at the
+ * formula's end), plus the caret offset within that text.
+ *
+ * Committing a command that ends in a control word (`\pi`, `\degree`, `\int`)
+ * directly before a letter would fuse them into one unknown command (`a\pi|a` +
+ * Enter → `\pia`, rendered as raw red source instead of πa) — the same fusion
+ * the typing path guards against with `mathNeedsCommandSeparator`. So a
+ * separator space is appended, and the caret lands after it: the spot between a
+ * command and its separator is a dead position with no caret stop (the space is
+ * absorbed into the command's token). Otherwise the text is `latex` verbatim
+ * and the caret sits in its first empty `{}` slot, or at its end.
+ */
+export function mathCommandInsertion(
+  latex: string,
+  following: string,
+): { text: string; caretOffset: number } {
+  const caretOffset = mathCommandCaretOffset(latex);
+  if (!/^[a-zA-Z]/.test(following) || !endsInControlWord(latex)) {
+    return { text: latex, caretOffset };
+  }
+  return {
+    text: latex + " ",
+    caretOffset: caretOffset === latex.length ? caretOffset + 1 : caretOffset,
+  };
 }
 
 // Curated for breadth + a rich preview list (mirrors the constructs Corca
@@ -593,20 +635,63 @@ const COMMANDS: readonly MathCommand[] = [
   },
 ];
 
-export const MATH_COMMANDS = COMMANDS;
+// The generated tier: the rest of the engine's vocabulary. The curated list
+// above stays a hand-picked browse experience (rich names, keywords, `{}`
+// templates), but it can never keep up with everything the renderer supports —
+// `\degree`, `\aleph`, `\liminf`, … must still be findable. So every symbol
+// and named operator the engine reports is appended here (alphabetical,
+// curated ids skipped), with the command word as its label and the glyph as a
+// search keyword. Searching spans both tiers; browsing (empty query) shows
+// only the curated tier.
+const CURATED_IDS = new Set(COMMANDS.map((c) => c.id));
+
+/** `degree` → `Degree` — the generated tier's display label. */
+function labelFromCommandName(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+const GENERATED: readonly MathCommand[] = [
+  ...symbolCommands
+    .filter((s) => !CURATED_IDS.has(s.name))
+    .map((s) => ({
+      id: s.name,
+      name: labelFromCommandName(s.name),
+      // The glyph itself, so pasting `°` into the drawer search finds \degree.
+      keywords: [s.char],
+      latex: "\\" + s.name,
+    })),
+  // Named operators render as their own upright name; the `\lim`-like ones get
+  // a subscript slot, matching the curated `\lim_{}`/`\max_{}` entries.
+  ...operatorCommands
+    .filter((o) => !CURATED_IDS.has(o.name))
+    .map((o) => ({
+      id: o.name,
+      name: labelFromCommandName(o.name),
+      keywords: ["function", "operator"],
+      latex: o.limits ? `\\${o.name}_{}` : `\\${o.name}`,
+    })),
+];
+
+export const MATH_COMMANDS: readonly MathCommand[] = [
+  ...COMMANDS,
+  ...GENERATED,
+];
 
 /**
  * Filter + rank the catalog by `query` (the text typed after `\`, letters only).
- * An empty query returns the whole catalog in its curated order. Otherwise rank:
- * exact id > id prefix > keyword prefix > name word-prefix > substring — so
- * typing `int` surfaces `\int` first, then `\iint`/`\iiint`, etc.
+ * An empty query returns the curated tier in its curated order — the browse
+ * list. A non-empty query searches the full catalog (curated + generated), so
+ * every engine-supported command is reachable by typing. Rank:
+ * exact id > id prefix > name word-prefix > keyword prefix > substring — so
+ * typing `int` surfaces `\int` first, then `\iint`/`\iiint`, etc. Curated
+ * entries come before generated ones at equal score.
  */
 export function filterMathCommands(query: string): MathCommand[] {
   const q = query.toLowerCase();
   if (!q) return [...COMMANDS];
 
   const scored: { cmd: MathCommand; score: number }[] = [];
-  for (const cmd of COMMANDS) {
+  for (const cmd of MATH_COMMANDS) {
     const score = scoreCommand(cmd, q);
     if (score > 0) scored.push({ cmd, score });
   }

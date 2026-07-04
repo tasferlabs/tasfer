@@ -85,11 +85,17 @@ export const CONVERT_BLOCK = action<{
  * Insert a string at the caret (or over the selection). Wraps `insertText` —
  * used by the Space branch (payload `" "`) and the default single-character
  * branch (payload the typed key). Emits the resulting CRDT text/format ops.
+ *
+ * This is the *typing* path, so it opts into selection wrapping: a typed
+ * bracket/quote or markdown delimiter over a held selection encloses it
+ * (literally, or by applying the delimiter's mark) instead of replacing it —
+ * see `wrap-selection.ts`. Direct `insertText` callers (IME commit, hosts)
+ * keep plain replace semantics.
  */
 export const INSERT_TEXT = stateAction<{ text: string }>(
   "insert-text",
   (state, { text }) => {
-    const result = insertText(state, text);
+    const result = insertText(state, text, { wrapSelection: true });
     return { state: result.state, ops: result.ops };
   },
 );

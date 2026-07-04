@@ -27,6 +27,7 @@ import {
   caretRect as texCaretRect,
   caretStops as texCaretStops,
   caretVertical as texCaretVertical,
+  escapeTypedBrace as texEscapeTypedBrace,
   hitTest as texHitTest,
   isInsideConstruct as texIsInsideConstruct,
   isRedundantSpace as texIsRedundantSpace,
@@ -37,6 +38,7 @@ import {
   needsCommandSeparator as texNeedsCommandSeparator,
   normalizeLatex as texNormalizeLatex,
   pendingCommandRange as texPendingCommandRange,
+  scriptAttachOffset as texScriptAttachOffset,
   selectionRects as texSelectionRects,
   toSVG,
   unitAfter as texUnitAfter,
@@ -379,7 +381,14 @@ function chipLeadingUnit(latex: string): MathUnit | null {
  * render (an Arabic letter, a CJK ideograph, an emoji — they would lay out as a
  * zero-width, caret-less "latent" glyph the user can neither see nor delete),
  * insert a space before a letter typed right after a complete command
- * (`\oint`+`x` → `\oint x`, never the unknown `\ointx`), and — inside an inline
+ * (`\oint`+`x` → `\oint x`, never the unknown `\ointx`), escape a typed brace
+ * to its literal form (`{` → `\{`, so the keystroke shows a brace glyph instead
+ * of silently opening an invisible group — raw braces still pass through where
+ * they're structural: completing a typed `\{`, opening a control word's
+ * argument, closing a raw-opened group), redirect a script
+ * (`^`/`_`) typed at the end of an accent's base to just past the construct so
+ * it scripts the accented atom as a whole (`\dot{x|}` + `^` → `\dot{x}^`, never
+ * `\dot{x^{}}` with the dot expanding over the script), and — inside an inline
  * chip — flag that inline-markdown must be suppressed (a stray `$`/`*` can't
  * reinterpret the formula). `null` outside math or when nothing needs doing.
  */
@@ -409,11 +418,31 @@ export function mathTransformTypedInput(
     // Every typed character is latent in math: swallow the keystroke (no op).
     return input.length === 0 ? null : { input: "" };
   }
-  const out =
+  let out =
     renderable.length === 1 &&
     mathNeedsCommandSeparator(latex, offset, renderable)
       ? " " + renderable
       : renderable;
+  // A typed brace means the visible character, not an invisible grouping token:
+  // rewrite it to the escaped symbol unless it's structurally meant raw here
+  // (see escapeTypedBrace). Only the single-char typing path — a multi-char
+  // insert (IME commit, programmatic) is source text and keeps its braces.
+  if (out === "{" || out === "}") {
+    out = texEscapeTypedBrace(latex, offset, out) ?? out;
+  }
+  // A script typed at the end of a non-stretchy accent's base attaches to the
+  // whole construct: hop the insert past it so `\dot{x|}` + `^` yields
+  // `\dot{x}^{…}` (the scripted accented atom), not `\dot{x^{…}}` (the accent
+  // expanding over the script). The base offset re-maps a chip-local target
+  // back to block coordinates.
+  const attach =
+    out === "^" || out === "_" ? texScriptAttachOffset(latex, offset) : null;
+  if (attach !== null) {
+    const insertAt = attach + (index - offset);
+    return insideChip
+      ? { input: out, suppressMarkdown: true, insertAt }
+      : { input: out, insertAt };
+  }
   if (insideChip) return { input: out, suppressMarkdown: true };
   // Block equation: only contribute when filtering or the separator changed input.
   return out === input ? null : { input: out };
@@ -536,6 +565,12 @@ export function mathSplitAfterInput(
  * a meaningful leading/trailing math token. Brackets and parentheses are
  * deliberately EXCLUDED: they are common math delimiters, so their edge behavior
  * stays "extend the formula" and a user wanting them as prose leaves via a space.
+ *
+ * `.` and `,` are also number characters (`3.14`, `1,000`), which this rule
+ * cannot see at the moment they are typed — the disambiguating signal is the
+ * NEXT char. {@link mathAbsorbNumericPunctuationAfterInput} repairs that case
+ * one keystroke later: a digit typed right after the ejected `.`/`,` pulls both
+ * back into the formula.
  */
 const EDGE_PROSE_PUNCTUATION = new Set([",", ".", ";", ":", "!", "?"]);
 
@@ -555,17 +590,20 @@ const EDGE_PROSE_PUNCTUATION = new Set([",", ".", ";", ":", "!", "?"]);
  *
  * `caret` is the post-insert caret, so the freshly-typed char is at `caret − 1`.
  * Returns the block range `[from, to)` to (re-)mark as math (the whole grown
- * chip), plus an optional `separatorAt` block position where a single space must
- * be inserted first so a letter typed right after a trailing command becomes a
- * new atom (`\oint` + `x` → `\oint x`, never the unknown `\ointx`); when present
- * the caller inserts that space, then marks `[from, to + 1)`. `null` when the
- * just-typed char isn't a non-space sitting at a chip edge (block equations never
- * apply — their chars are all math already).
+ * chip), plus an optional `insert` — text the caller must splice in at a block
+ * position first (extending `to` and the caret by its length) so the joined
+ * char is well-formed math: a separator space when a letter lands right after a
+ * trailing command (`\oint` + `x` → `\oint x`, never the unknown `\ointx`), or
+ * the escaping `\` when a typed brace joins (it enters the formula as the
+ * literal `\{`/`\}`, exactly as it would have typed inside — see
+ * {@link mathTransformTypedInput}). `null` when the just-typed char isn't a
+ * non-space sitting at a chip edge (block equations never apply — their chars
+ * are all math already).
  */
 export function mathJoinAtEdgeAfterInput(
   block: Block,
   caret: number,
-): { from: number; to: number; separatorAt?: number } | null {
+): { from: number; to: number; insert?: { at: number; text: string } } | null {
   if (block.type === "math" || caret <= 0 || !("charRuns" in block))
     return null;
   const typed = caret - 1;
@@ -580,14 +618,69 @@ export function mathJoinAtEdgeAfterInput(
   for (const span of getInlineMathSpans(block)) {
     // Right edge: the char landed just past the chip's last marked char.
     if (span.endIndex === typed) {
-      return mathNeedsCommandSeparator(span.latex, span.latex.length, ch)
-        ? { from: span.startIndex, to: caret, separatorAt: span.endIndex }
+      if (mathNeedsCommandSeparator(span.latex, span.latex.length, ch)) {
+        return {
+          from: span.startIndex,
+          to: caret,
+          insert: { at: span.endIndex, text: " " },
+        };
+      }
+      return texEscapeTypedBrace(span.latex, span.latex.length, ch)
+        ? {
+            from: span.startIndex,
+            to: caret,
+            insert: { at: typed, text: "\\" },
+          }
         : { from: span.startIndex, to: caret };
     }
     // Left edge: the char landed just before the chip's first marked char (the
     // insert pushed the marked run right, so the chip now starts at the caret).
     if (span.startIndex === caret) {
-      return { from: typed, to: span.endIndex };
+      return texEscapeTypedBrace(span.latex, 0, ch)
+        ? { from: typed, to: span.endIndex, insert: { at: typed, text: "\\" } }
+        : { from: typed, to: span.endIndex };
+    }
+  }
+  return null;
+}
+
+/**
+ * A digit typed right after a `.`/`,` that sits flush against a chip's right
+ * edge pulls BOTH back into the formula: the punctuation was part of a number
+ * all along.
+ *
+ * {@link mathJoinAtEdgeAfterInput} ejects edge `.`/`,` as prose because at that
+ * keystroke the two readings — sentence punctuation (`$x^2$.`) vs. number
+ * character (`$3.14$`) — are indistinguishable; only the NEXT char tells them
+ * apart. Prose essentially never puts a digit hard against a period or comma
+ * with no space, so a digit landing at `chipEnd + 1` retroactively resolves the
+ * ejected punctuation as numeric: re-mark `[chipStart, caret)` so the chip
+ * swallows the `.`/`,` and the digit together (`$3$` + `.` + `1` → `$3.1$`,
+ * `$1$` + `,` + `0` → `$1,0$`). After the absorb the caret is back at the chip's
+ * edge, so further digits extend the formula through the ordinary edge join.
+ *
+ * Only `.` and `,` qualify — the other {@link EDGE_PROSE_PUNCTUATION} marks are
+ * not number characters, so a digit after `$x$;` stays prose. Returns the block
+ * range to re-mark as math, or `null` when the just-typed char (at `caret − 1`)
+ * isn't a digit sitting exactly one past a chip edge with `.`/`,` between
+ * (block equations never apply — their chars are all math already). The result
+ * shares {@link mathJoinAtEdgeAfterInput}'s shape so the caller applies either
+ * identically; an absorb never needs an `insert` (a `.`/`,` after any trailing
+ * token — even a control word — is already well-formed math).
+ */
+export function mathAbsorbNumericPunctuationAfterInput(
+  block: Block,
+  caret: number,
+): { from: number; to: number; insert?: { at: number; text: string } } | null {
+  if (block.type === "math" || caret < 2 || !("charRuns" in block)) return null;
+  const text = getVisibleTextFromRuns(block.charRuns);
+  const digit = text[caret - 1];
+  if (digit === undefined || !/[0-9]/.test(digit)) return null;
+  const punct = text[caret - 2];
+  if (punct !== "." && punct !== ",") return null;
+  for (const span of getInlineMathSpans(block)) {
+    if (span.endIndex === caret - 2) {
+      return { from: span.startIndex, to: caret };
     }
   }
   return null;

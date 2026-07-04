@@ -47,6 +47,7 @@ import {
   hasSentinel,
   isEmptyDelta,
   isWordBoundaryChar,
+  rescueCaretBeforeSentinel,
   sentenceStartOffset,
   stripSentinel,
   SURFACE_SENTINEL,
@@ -92,10 +93,7 @@ import type {
   SchemaDefinition,
   SchemaMarkInfo,
 } from "../schema-types";
-import {
-  getCursorCoordinatesWithComposition,
-  scrollToMakeCursorVisible,
-} from "../selection";
+import { getCursorCoordinatesWithComposition } from "../selection";
 import { moveCursorToPosition } from "../selection";
 import { dropIndexAtPoint } from "../selection";
 import { isCursorBlinking } from "../selection";
@@ -161,6 +159,7 @@ import {
   insertCharsAtPosition,
   markCharsInRange,
   orderKeyAfter,
+  sortBlocksByOrder,
 } from "../sync/crdt-utils";
 import { applyOps } from "../sync/reducer";
 import { generateRestoreOperations } from "../sync/snapshot-diff";
@@ -1989,6 +1988,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       }
     }
 
+    // Re-assert the input surface's DOM caret now that focus is here. The
+    // sentinel is seeded while the surface is unfocused (setMirror cannot place
+    // a DOM caret then), and a browser granting focus without an explicit
+    // selection parks the caret at offset 0 — BEFORE the sentinel. The
+    // render-loop resync alone leaves a one-frame window where the first
+    // keystroke lands before the sentinel and the reconciliation leaks the
+    // sentinel space into the document as a spurious space; syncing here, in
+    // the synchronous focus handler, closes it. Skipped mid-composition (the
+    // browser owns the surface content then), like the render-loop call.
+    if (focused && !this._state.ui.composition?.isComposing) {
+      this.syncMirrorToSelection();
+    }
+
     this.scheduleRender();
     const currentState = this._state;
     this.listeners.forEach((listener) => listener(currentState));
@@ -2278,11 +2290,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
   };
 
-  // The current collapsed DOM caret offset within the faithful surface's text
-  // node, or `null` when the selection is absent, ranged, or not inside the
-  // surface. Used to skip rewriting an already-correct surface (which would tear
-  // down the keyboard's in-flight prediction/autocorrect session).
-  private readFaithfulCaret = (): number | null => {
+  // The current collapsed DOM caret offset within the surface's text node, or
+  // `null` when the selection is absent, ranged, or not inside the surface.
+  // Both strategies use it to decide whether the surface is truly consistent
+  // (text AND caret) before skipping a rewrite — skipping preserves the
+  // keyboard's in-flight prediction/autocorrect session, but skipping on text
+  // alone would leave a misplaced caret (e.g. before the sentinel) uncorrected.
+  private readSurfaceCaret = (): number | null => {
     if (!this.hiddenInput) return null;
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return null;
@@ -2423,7 +2437,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const consistent =
         this.hiddenInput.textContent === fullText &&
         document.activeElement === this.hiddenInput &&
-        this.readFaithfulCaret() === caret.offset;
+        this.readSurfaceCaret() === caret.offset;
       if (!consistent) {
         this.setFaithfulMirror(fullText, caret.offset);
       }
@@ -2450,8 +2464,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const target = this.SENTINEL + text.slice(mirrorStart, caret.offset);
 
     const current = this.hiddenInput.textContent ?? "";
+    // Consistent means text AND caret: the managed surface's caret always
+    // belongs at the end (a mid-word caret falls back to the bare sentinel
+    // above). Matching text with a misplaced caret — e.g. parked at offset 0,
+    // before the sentinel, by a browser granting focus without a selection —
+    // must NOT short-circuit: typing there would leak the sentinel space into
+    // the document. setMirror leaves matching text untouched, so the repair is
+    // caret-only and cheap.
     const consistent =
-      current === target && document.activeElement === this.hiddenInput;
+      current === target &&
+      document.activeElement === this.hiddenInput &&
+      this.readSurfaceCaret() === target.length;
     if (consistent) {
       // Already consistent and the keyboard owns it — don't touch the DOM (that
       // would cancel an in-flight suggestion); just keep the classifier in sync.
@@ -2774,7 +2797,20 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
-    const newSurface = this.hiddenInput.textContent ?? "";
+    let newSurface = this.hiddenInput.textContent ?? "";
+
+    // A keystroke that landed BEFORE the sentinel (a stale DOM caret at offset
+    // 0 — e.g. focus granted without an explicit selection) turns ` ` into
+    // `C `: read verbatim, the trailing sentinel space would be diffed into
+    // the document as a spurious space. Reorder the surface as if the caret had
+    // been where it belongs and reconcile only the typed characters; the next
+    // render-frame resync rewrites the DOM surface and re-places the caret.
+    const rescued = rescueCaretBeforeSentinel(
+      this.lastSurfaceValue,
+      newSurface,
+      this.SENTINEL,
+    );
+    if (rescued !== null) newSurface = rescued;
 
     // The surface lost its leading sentinel. A browser that substituted the
     // regular-space sentinel with an NBSP still COUNTS as carrying it
@@ -3899,11 +3935,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // anchor's predecessor; "after"/default inserts after the anchor itself.
       const anchor = resolvePoint(s, at ?? "caret");
       let afterBlockId: string | null;
-      let insertAt: number;
       if (!anchor) {
         // Empty doc (or unresolved): insert at the end.
         afterBlockId = null;
-        insertAt = blocks.length;
       } else if (
         typeof at === "object" &&
         "side" in at &&
@@ -3913,10 +3947,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         let prev = anchor.blockIndex - 1;
         while (prev >= 0 && blocks[prev].deleted) prev--;
         afterBlockId = prev >= 0 ? blocks[prev].id : null;
-        insertAt = anchor.blockIndex;
       } else {
         afterBlockId = anchor.blockId;
-        insertAt = anchor.blockIndex + 1;
       }
 
       const blockId = block.id ?? `b-${s.CRDTbinding.nextId()}`;
@@ -3943,8 +3975,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const newBlock = applyAttrEntries(seeded, entries);
       invalidateBlockCache(newBlock);
 
-      const newBlocks = [...blocks];
-      newBlocks.splice(insertAt, 0, newBlock);
+      // Place the block at its canonical sorted position (NOT an index splice):
+      // `blocks` keeps tombstones, and a tombstone tied on the anchor's
+      // orderKey makes "anchor index + 1" disagree with where every replica
+      // sorts the minted key.
+      const newBlocks = sortBlocksByOrder([...blocks, newBlock]);
 
       const ops: Operation[] = [
         {
@@ -5009,11 +5044,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   ): void => {
     const resolved = resolvePoint(this._state, point);
     if (!resolved) return;
+    const position: Position = {
+      blockIndex: resolved.blockIndex,
+      textIndex: resolved.offset,
+    };
     if (options?.viewportOffsetY !== undefined) {
-      const current = this.coordsAtIndexPosition({
-        blockIndex: resolved.blockIndex,
-        textIndex: resolved.offset,
-      });
+      const current = this.coordsAtIndexPosition(position);
       if (current) {
         const maxScroll = Math.max(
           0,
@@ -5028,10 +5064,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         );
         this.applyProgrammaticScroll(scrollY);
         this.pendingViewportAnchor = {
-          position: {
-            blockIndex: resolved.blockIndex,
-            textIndex: resolved.offset,
-          },
+          position,
           viewportOffsetY: options.viewportOffsetY,
           remainingCorrections: 3,
         };
@@ -5039,15 +5072,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         return;
       }
     }
-    const newScrollY = scrollToMakeCursorVisible(
-      { blockIndex: resolved.blockIndex, textIndex: resolved.offset },
-      this._state,
-      this.viewport,
-    );
-    if (newScrollY !== null) {
-      this.applyProgrammaticScroll(newScrollY);
-      this.scheduleRender();
-    }
+    // Minimum scroll to bring the point into view. Must use the same indexed
+    // block flow the painter positions blocks with (estimates for unmeasured
+    // prefixes), not an exact layout walk — the two disagree for far-off
+    // targets, which put the highlight at the wrong viewport offset. The
+    // pending-anchor corrections then converge on the true spot as heights
+    // become exact.
+    this.scrollPositionIntoView(position);
   };
 
   // ── Public facets ──────────────────────────────────────────────────────────

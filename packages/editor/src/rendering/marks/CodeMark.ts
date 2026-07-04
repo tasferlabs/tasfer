@@ -2,7 +2,12 @@
 
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import { CODE_END, CODE_START } from "../../serlization/tokenizer";
-import { Mark, type MarkStyle, type MarkStyleCtx } from "./Mark";
+import {
+  Mark,
+  type MarkStyle,
+  type MarkStyleCtx,
+  type SelectionWrapTrigger,
+} from "./Mark";
 
 const CODE_CODEC: MarkCodec = {
   type: "code",
@@ -14,6 +19,7 @@ const CODE_CODEC: MarkCodec = {
 export class CodeMark extends Mark {
   readonly type = "code";
   readonly codec = CODE_CODEC;
+  readonly selectionWrap: readonly SelectionWrapTrigger[] = [{ char: "`" }];
   style({ styles }: MarkStyleCtx): MarkStyle {
     const code = styles.textFormats.code;
     return {

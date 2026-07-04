@@ -2,38 +2,47 @@
 
 import { Callout, PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">The relay is a small, stateless service: it introduces peers and forwards encrypted bytes it cannot read. **It has no database, no accounts, and nothing worth subpoenaing.** Running your own takes one container.</p>
+<p className="dx-lede">The relay is a small, stateless signaling service: it introduces peers and forwards encrypted bytes it cannot read. **It has no database, no accounts, and nothing worth subpoenaing.** It ships as a Cloudflare Worker you deploy from the repo.</p>
+
+<h2 id="what">What it is</h2>
+
+The relay lives in [`apps/live`](https://github.com/hamza512b/cypher/tree/main/apps/live): a TypeScript Cloudflare Worker with one Durable Object per discovery topic, so peers on a topic always meet on the same instance. It exposes two endpoints:
+
+<PropsTable cols={["Endpoint", "Type", "Description"]} rows={[
+  { name: "/topic/{topic}?peerId=…", type: "WebSocket", desc: "Joins the topic's room. Signaling and encrypted fallback frames are forwarded to the addressed peer, never stored." },
+  { name: "/turn-credentials", type: "GET", desc: "Issues short-lived TURN credentials (Cloudflare Calls) so peers behind strict NAT can still connect." },
+]} />
 
 <h2 id="run">Run it</h2>
 
-The relay ships as a container image and a single static binary. Either works:
+Deploying takes a Cloudflare account and Wrangler:
 
 ```bash
-# container
-docker run -p 443:8443 \
-  -v $PWD/certs:/certs \
-  ghcr.io/hamza512b/cypher-relay:latest
+cd apps/live
+npm install
 
-# or the static binary
-cypher-relay --listen :8443 --tls-cert ./fullchain.pem --tls-key ./key.pem
+# TURN credentials for the NAT-traversal fallback (Cloudflare Calls):
+npx wrangler secret put TURN_API_TOKEN   # and set TURN_KEY_ID in wrangler.toml
+
+npx wrangler dev      # local development
+npx wrangler deploy   # deploy to your Cloudflare account
 ```
 
-Then point your app at it: `Settings → Sync → Relay → wss://relay.example.org`.
+Set your domain in `apps/live/wrangler.toml`, then build the app against it with `VITE_SIGNAL_URL=wss://signaling.example.org` — see [Use your own relay](/docs/app/sync-relay#own-relay).
 
 <h2 id="config">Configuration</h2>
 
-<PropsTable cols={["Flag", "Default", "Description"]} rows={[
-  { name: "--listen", type: ":8443", desc: "Address and port to bind the WebSocket listener." },
-  { name: "--tls-cert / --tls-key", type: "—", desc: "PEM files for WSS. Terminate TLS here or at a proxy in front." },
-  { name: "--max-room-size", type: "32", desc: "Peers allowed in one room before new joins are refused." },
-  { name: "--idle-timeout", type: "60s", desc: "Drop a peer connection after this long with no traffic." },
-  { name: "--metrics", type: "off", desc: "Expose Prometheus counters (connections, bytes forwarded) — no peer identities." },
+<PropsTable cols={["Setting", "Where", "Description"]} rows={[
+  { name: "routes", type: "wrangler.toml", desc: "The domain the Worker is served from. The default deployment uses signaling.cypher.md." },
+  { name: "TURN_KEY_ID", type: "wrangler.toml [vars]", desc: "Cloudflare Calls TURN key id, used to mint short-lived TURN credentials." },
+  { name: "TURN_API_TOKEN", type: "wrangler secret", desc: "API token for the TURN key. Stored as a Worker secret, never in the repo." },
+  { name: "VITE_SIGNAL_URL", type: "apps/web build env", desc: "Points the app at your relay. Baked in at build time." },
 ]} />
 
-<Callout kind="note" title="What it never stores.">There is no on-disk state. Restart it and nothing is lost because there was nothing to lose — no message history, no peer directory, no account table. Memory holds only the live set of currently-connected rooms.</Callout>
+<Callout kind="note" title="What it never stores.">The Worker has no database and no storage bindings. Each topic's Durable Object holds only the currently connected WebSockets in memory — restart it and nothing is lost because there was nothing to lose: no message history, no peer directory, no account table.</Callout>
 
-<h2 id="harden">Hardening notes</h2>
+<h2 id="notes">Operational notes</h2>
 
-- **Put it behind a reverse proxy** (Caddy, nginx) for automatic TLS and to keep the binary off port 443 directly.
-- **It forwards opaque ciphertext** — there is no decryption key on the server to protect, which is the whole point. Logs, even at debug level, contain no plaintext.
-- **Scale horizontally** by running several behind a load balancer with sticky sessions per room; peers in one room must land on one instance.
+- **TLS and scaling are Cloudflare's problem.** The Worker runs on Cloudflare's edge; there are no certificates to manage and no load balancer to configure.
+- **It forwards opaque ciphertext.** Signaling and fallback frames are encrypted on-device before they reach the Worker — there is no decryption key on the server to protect, which is the whole point.
+- **It is Cloudflare-specific today.** The Worker relies on Durable Objects and on Cloudflare Calls for TURN; running it on other infrastructure means porting those two pieces.
