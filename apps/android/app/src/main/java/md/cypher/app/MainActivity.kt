@@ -95,6 +95,22 @@ class MainActivity : BridgeActivity() {
         })
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // When the activity's window regains focus (app foregrounded, or a system
+        // sheet/permission dialog dismissed), the WebView is often left without
+        // Android view focus. Because Chromium gates showing the soft keyboard on
+        // the WebView holding view focus, a tap after foregrounding would focus the
+        // hidden contenteditable but never raise the IME. Re-grant view focus so
+        // Android's own keyboard logic runs on the next editable focus. This does
+        // not itself show the keyboard — it only restores the precondition for it.
+        if (hasFocus) {
+            bridge?.webView?.post {
+                bridge?.webView?.requestFocus()
+            }
+        }
+    }
+
     override fun load() {
         super.load()
 
@@ -102,6 +118,17 @@ class MainActivity : BridgeActivity() {
 
         bridge.webView.isVerticalScrollBarEnabled = false
         bridge.webView.isHorizontalScrollBarEnabled = false
+
+        // Let Android manage the soft keyboard on its own. Chromium only raises the
+        // IME for a focused contenteditable when the WebView itself holds Android
+        // *view* focus; JS `element.focus()` can't grant that. Making the WebView
+        // focusable in touch mode means a tap on the canvas gives it view focus as
+        // part of normal touch handling, so the editable focus that follows shows
+        // the keyboard. Reparenting into the custom wrapper (setupCustomViews) can
+        // leave these unset, which is why the first tap could focus text yet never
+        // open the keyboard.
+        bridge.webView.isFocusable = true
+        bridge.webView.isFocusableInTouchMode = true
 
         bridge.addWebViewListener(object : WebViewListener() {
             override fun onPageLoaded(webView: WebView) {

@@ -40,7 +40,7 @@ import { nanoid } from "nanoid";
 import { sortBlocksByOrder } from "@cypherkit/editor/sync/block-order";
 // Worker-safe itself (deep imports only) — derives the title columns from
 // blocks; the doc's op log is the source of truth for titles.
-import { deriveTitles } from "../lib/pageTitle";
+import { deriveTitles, extractBodyText } from "../lib/pageTitle";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
@@ -109,6 +109,7 @@ const SCHEMA_SQL = `
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL DEFAULT '',
     title_md      TEXT NOT NULL DEFAULT '',
+    body_text     TEXT,
     parent_id     TEXT,
     "order"       REAL NOT NULL DEFAULT 0,
     space_id      TEXT,
@@ -203,6 +204,13 @@ export class Engine implements Platform {
     // insert it.
     await this.ensureIdentity();
     await this.loadSpaceHlcCounters();
+    // Populate the body-text search index for pages that predate the column.
+    // Fire-and-forget: it replays each page's op log, so it runs in the
+    // background rather than delaying the first paint; search picks up body
+    // matches page-by-page as it completes, and titles work immediately.
+    void this.backfillBodyText().catch((err) =>
+      console.warn("[Engine] body_text backfill failed:", err),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -234,6 +242,13 @@ export class Engine implements Platform {
       await this.driver.db.exec(
         "ALTER TABLE pages ADD COLUMN title_md TEXT NOT NULL DEFAULT ''",
       );
+    }
+    // pages.body_text — the page's full-text body projection, a local cache
+    // derived from doc content (see refreshDerivedTitlesFromBlocks) backing
+    // command-center content search. Nullable so backfillBodyText can tell an
+    // un-derived row (NULL) from a genuinely empty page ('').
+    if (!cols.some((c) => c.name === "body_text")) {
+      await this.driver.db.exec("ALTER TABLE pages ADD COLUMN body_text TEXT");
     }
   }
 
@@ -1419,11 +1434,12 @@ export class Engine implements Platform {
         id: string;
         title: string | null;
         title_md: string | null;
+        body_text: string | null;
         parent_id: string | null;
         color: string | null;
       }>(
-        "SELECT id, title, title_md, parent_id, color FROM pages WHERE title LIKE ? AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 20",
-        [`%${query}%`],
+        "SELECT id, title, title_md, body_text, parent_id, color FROM pages WHERE (title LIKE ? OR body_text LIKE ?) AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 20",
+        [`%${query}%`, `%${query}%`],
       );
 
       const results: PageSearchResult[] = [];
@@ -1436,6 +1452,7 @@ export class Engine implements Platform {
           parentId: r.parent_id,
           path,
           color: r.color,
+          snippet: bodySnippet(r.body_text, query),
         });
       }
       return results;
@@ -2018,19 +2035,63 @@ export class Engine implements Platform {
     blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
   ): Promise<void> {
     const { title, titleMd } = deriveTitles(blocks);
+    const bodyText = extractBodyText(blocks);
     const rows = await this.driver.db.execute<{
       title: string;
       title_md: string;
+      body_text: string | null;
       space_id: string | null;
-    }>("SELECT title, title_md, space_id FROM pages WHERE id = ?", [pageId]);
+    }>(
+      "SELECT title, title_md, body_text, space_id FROM pages WHERE id = ?",
+      [pageId],
+    );
     if (rows.length === 0) return;
-    if (rows[0].title === title && rows[0].title_md === titleMd) return;
+    const titleChanged =
+      rows[0].title !== title || rows[0].title_md !== titleMd;
+    const bodyChanged = rows[0].body_text !== bodyText;
+    if (!titleChanged && !bodyChanged) return;
 
     await this.driver.db.run(
-      "UPDATE pages SET title = ?, title_md = ?, updated_at = ? WHERE id = ?",
-      [title, titleMd, new Date().toISOString(), pageId],
+      "UPDATE pages SET title = ?, title_md = ?, body_text = ?, updated_at = ? WHERE id = ?",
+      [title, titleMd, bodyText, new Date().toISOString(), pageId],
     );
-    if (rows[0].space_id) this.notifySpaceChange(rows[0].space_id);
+    // Only the title columns are list-visible, so a body-only change (typing in
+    // the document) refreshes the search index without churning the sidebar.
+    if (titleChanged && rows[0].space_id)
+      this.notifySpaceChange(rows[0].space_id);
+  }
+
+  /**
+   * One-time (per page) backfill of pages.body_text for the local search index.
+   * body_text is NULL on rows that predate the column, so rebuild each such
+   * page's blocks from its op log and derive the text. Runs in the background
+   * off init so it never blocks startup, and is naturally idempotent: only NULL
+   * rows are touched, and pages with no content ops get '' so an empty page is
+   * not rescanned every boot. Existing title columns are unaffected — the write
+   * only fires when a derived value actually differs.
+   */
+  private async backfillBodyText(): Promise<void> {
+    const rows = await this.driver.db.execute<{ id: string }>(
+      "SELECT id FROM pages WHERE body_text IS NULL",
+    );
+    for (const { id } of rows) {
+      try {
+        const rebuilt = await this.rebuildBlocksFromOps(id);
+        if (rebuilt) {
+          await this.refreshDerivedTitlesFromBlocks(id, rebuilt.blocks);
+        }
+        // rebuildBlocksFromOps returns null for a page with no content ops;
+        // refreshDerivedTitlesFromBlocks leaves body_text NULL when it writes
+        // an empty page, so pin the NULL rows that remain to '' — this is the
+        // one place that distinction is resolved, keeping backfill idempotent.
+        await this.driver.db.run(
+          "UPDATE pages SET body_text = '' WHERE id = ? AND body_text IS NULL",
+          [id],
+        );
+      } catch (err) {
+        console.warn("[Engine] body_text backfill failed for", id, err);
+      }
+    }
   }
 
   /** Build a sync response for a requesting peer */
@@ -2568,6 +2629,32 @@ export class Engine implements Platform {
 // =============================================================================
 // Utilities
 // =============================================================================
+
+/**
+ * A short plain-text excerpt of a page body centered on the first occurrence of
+ * `query`, for search-result previews. Returns null when the query is empty or
+ * doesn't appear in the body (e.g. it matched only the title). Newlines are
+ * flattened to spaces and elided context is marked with an ellipsis; the match
+ * itself is highlighted by the caller.
+ */
+const SNIPPET_RADIUS = 40;
+function bodySnippet(
+  bodyText: string | null,
+  query: string,
+): string | null {
+  const q = query.trim();
+  if (!q || !bodyText) return null;
+  const flat = bodyText.replace(/\s+/g, " ").trim();
+  const idx = flat.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return null;
+
+  const start = Math.max(0, idx - SNIPPET_RADIUS);
+  const end = Math.min(flat.length, idx + q.length + SNIPPET_RADIUS);
+  let snippet = flat.slice(start, end);
+  if (start > 0) snippet = "…" + snippet;
+  if (end < flat.length) snippet = snippet + "…";
+  return snippet;
+}
 
 /**
  * Exact equality of two clock version vectors. A peer present in one side with

@@ -27,6 +27,7 @@ import {
   getBlockTextContent,
   getBlockTextLength,
   selectionRangeAt,
+  transformTypedInput,
 } from "./state-utils";
 import { getEditorStyles, getTextStyle } from "./styles";
 import { isTextualBlock } from "./sync/block-registry";
@@ -261,6 +262,109 @@ export function getCursorDocumentCoords(
 }
 
 /**
+ * The vertical span + edge x a selection HANDLE must hug at one endpoint, read
+ * from the SAME highlight rects `paint` fills — never from `caretRect`. `which`
+ * is the selection's `"start"` (topmost row, its LEFT edge) or `"end"`
+ * (bottommost row, its RIGHT edge).
+ *
+ * Handles key off the painted band, not the caret, because the two disagree
+ * inside a tall construct: a boundary caret beside a `\sqrt{…}`/matrix spans the
+ * whole formula height, while the green highlight hugs just the selected glyphs.
+ * Sizing the handle from the caret then left its stem and ball dangling below the
+ * band. Reading the band's own rect keeps the stem flush and the ball at the
+ * corner for every node type (plain text is unaffected — there the line rect and
+ * the caret already coincide). Returns null when the block paints no highlight,
+ * so the caller can fall back to the caret rect.
+ */
+export function selectionHighlightEdge(
+  node: TextNode,
+  layout: TextNodeLayout,
+  selection: { anchor: Position; focus: Position; isForward: boolean },
+  blockIndex: number,
+  originX: number,
+  blockTop: number,
+  which: "start" | "end",
+): { x: number; y: number; height: number } | null {
+  const rects = node.selectionRects(
+    layout,
+    selection,
+    blockIndex,
+    originX,
+    blockTop,
+  );
+  if (rects.length === 0) return null;
+  // Rects arrive per visual row; the selection's start sits on the topmost row
+  // (leftmost on a tie), its end on the bottommost (rightmost on a tie).
+  const sorted = [...rects].sort((a, b) => a.y - b.y || a.x - b.x);
+  const r = which === "start" ? sorted[0] : sorted[sorted.length - 1];
+  return which === "start"
+    ? { x: r.x, y: r.y, height: r.height }
+    : { x: r.x + r.width, y: r.y, height: r.height };
+}
+
+/**
+ * Document-space coordinates of a selection HANDLE at one endpoint: the edge of
+ * the painted highlight (see {@link selectionHighlightEdge}), falling back to the
+ * caret rect for a block that paints no band. The handle analogue of
+ * {@link getCursorDocumentCoords}, so its stem/ball land on the green highlight
+ * rather than a boundary caret's full height.
+ */
+export function getSelectionHandleCoords(
+  position: Position,
+  which: "start" | "end",
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
+): { x: number; y: number; height: number } | null {
+  const selection = state.document.selection;
+  if (!selection) return null;
+
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block) return null;
+  const node = textNodeFor(state, block);
+  if (!node) return null;
+
+  const layout = layoutFor(
+    node,
+    block,
+    position.blockIndex,
+    maxWidth,
+    styles,
+    state.marks,
+  );
+  const blockTop = getBlockTopDocument(
+    state,
+    position.blockIndex,
+    maxWidth,
+    styles,
+    viewport,
+    visibility,
+  );
+  const edge = selectionHighlightEdge(
+    node,
+    layout,
+    selection,
+    position.blockIndex,
+    styles.canvas.paddingLeft,
+    blockTop,
+    which,
+  );
+  if (edge) return edge;
+  return node.caretRect(
+    layout,
+    position.textIndex,
+    styles.canvas.paddingLeft,
+    blockTop,
+    state,
+    block.id,
+    which,
+  );
+}
+
+/**
  * Get cursor coordinates accounting for composition text.
  * When composing, this returns the position at the END of the composition text
  * which may be on a different line if the text wrapped.
@@ -280,7 +384,6 @@ export function getCursorCoordinatesWithComposition(
   const node = textNodeFor(state, block);
   if (!node) return null;
 
-  // If not composing, use regular cursor coordinates
   if (!state.ui.composition?.isComposing || !state.ui.composition.text) {
     return getCursorDocumentCoords(position, state, viewport, styles);
   }
@@ -289,7 +392,18 @@ export function getCursorCoordinatesWithComposition(
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
   // Fold the active composition into the layout exactly as paint() does, then
-  // place the caret at the end of the composition text.
+  // place the caret at the END of the injected preview. The preview goes through
+  // the same node/mark transform as the commit (see getContentWithComposition),
+  // so in math a CJK burst injects as `\text{…}` — the caret must land after that
+  // wrapper, not `text.length` past the raw caret. Mirror that transform here.
+  const transform = transformTypedInput(
+    state,
+    block,
+    position.textIndex,
+    state.ui.composition.text,
+  );
+  const previewText = transform?.input ?? state.ui.composition.text;
+  const insertAt = transform?.insertAt ?? position.textIndex;
   const content = getContentWithComposition(block, state, position.blockIndex);
   const layout = node.computeLayout(block, maxWidth, styles, content);
   const blockTop = getBlockTopDocument(
@@ -300,7 +414,7 @@ export function getCursorCoordinatesWithComposition(
   );
   return node.caretRect(
     layout,
-    position.textIndex + state.ui.composition.text.length,
+    insertAt + previewText.length,
     styles.canvas.paddingLeft,
     blockTop,
   );
@@ -452,6 +566,28 @@ function getPositionFromPaddingClick(
   return null;
 }
 
+/**
+ * Options for resolving a viewport point to a caret position.
+ */
+export interface ViewportHitOptions {
+  /**
+   * Finger-drag resolution — used by the mobile magnifier caret-drag. Over
+   * inline/block math the caret follows the finger to its nearest stop with row
+   * hysteresis, so a vertical drag descends smoothly between a fraction's
+   * numerator and denominator instead of flickering out to the construct's
+   * boundary or twitching between the tightly-stacked rows. A precise tap omits
+   * this and uses the vertical-band hit-test.
+   */
+  readonly drag?: boolean;
+  /**
+   * The caret's current position — the hysteresis anchor for `drag`. Passed to
+   * the node's hit-test only when it lands in the same block, so a drag WITHIN a
+   * math construct is stable; a drag that crosses into another block starts
+   * fresh.
+   */
+  readonly prev?: Position | null;
+}
+
 export function getTextPositionFromViewport(
   x: number,
   y: number,
@@ -459,6 +595,7 @@ export function getTextPositionFromViewport(
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
   visibility?: VisibleBlockRange,
+  opts?: ViewportHitOptions,
 ): Position | null {
   let currentY =
     visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
@@ -524,6 +661,12 @@ export function getTextPositionFromViewport(
         styles,
         state.marks,
       );
+      // The hysteresis anchor only applies when the current caret is in THIS
+      // block; a drag that crossed block boundaries has no prior row here.
+      const prevIndex =
+        opts?.prev && opts.prev.blockIndex === block.originalIndex
+          ? opts.prev.textIndex
+          : null;
       const textIndex = node.positionFromPoint(
         block,
         layout,
@@ -531,6 +674,8 @@ export function getTextPositionFromViewport(
         y,
         styles.canvas.paddingLeft,
         currentY,
+        opts?.drag ?? false,
+        prevIndex,
       );
       return { blockIndex: block.originalIndex, textIndex };
     }
@@ -813,15 +958,21 @@ export function getSelectionHandlePositions(
     return null;
   }
 
-  // Get coordinates for anchor and focus positions
-  const anchorCoords = getCursorDocumentCoords(
+  // isTop: true means the handle circle is above the stem (at top of selection).
+  // The anchor sits at the selection's start when forward, its end when backward
+  // (and vice-versa for the focus). Each handle hugs the painted highlight's
+  // start/end edge so its stem lands on the green band, not a boundary caret.
+  const isForward = selection.isForward;
+  const anchorCoords = getSelectionHandleCoords(
     selection.anchor,
+    isForward ? "start" : "end",
     state,
     viewport,
     styles,
   );
-  const focusCoords = getCursorDocumentCoords(
+  const focusCoords = getSelectionHandleCoords(
     selection.focus,
+    isForward ? "end" : "start",
     state,
     viewport,
     styles,
@@ -831,28 +982,17 @@ export function getSelectionHandlePositions(
     return null;
   }
 
-  // Determine which is start and which is end based on selection direction
-  // isTop: true means the handle circle is above the stem (at top of selection)
-  // isTop: false means the handle circle is below the stem (at bottom of selection)
-  const isForward = selection.isForward;
-
   return {
     anchor: {
       x: anchorCoords.x,
       y: anchorCoords.y,
       height: anchorCoords.height,
-      // Anchor is at the start of selection
-      // If forward, anchor is at top (isTop=true means circle on top)
-      // If backward, anchor is at bottom (isTop=false means circle on bottom)
       isTop: isForward,
     },
     focus: {
       x: focusCoords.x,
       y: focusCoords.y,
       height: focusCoords.height,
-      // Focus is at the end of selection
-      // If forward, focus is at bottom (isTop=false)
-      // If backward, focus is at top (isTop=true)
       isTop: !isForward,
     },
   };
@@ -946,6 +1086,9 @@ export function isPointWithinSelectionRects(
         block.originalIndex,
         styles.canvas.paddingLeft,
         currentY,
+        true,
+        // Hit-test rects: a whole selected inline-math chip reports its full
+        // atomic box, so a tap anywhere on it counts as touching the selection.
         true,
       );
       for (const r of rects) {
@@ -1471,7 +1614,7 @@ function snapCrossBlockEndpoint(
  * unmoved it defaults to the range's own orientation. A collapsed selection is a
  * bare caret — legal inside a construct for editing — so it passes through.
  */
-function snapSelectionToConstructs(
+export function snapSelectionToConstructs(
   state: EditorState,
   anchor: Position,
   focus: Position,

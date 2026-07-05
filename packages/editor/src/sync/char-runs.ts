@@ -661,6 +661,24 @@ export function extractTitleFromBlocks(
 }
 
 /**
+ * The document's full searchable text: every non-empty textual block's visible
+ * text (marks stripped, math/code contributing their source text), joined with
+ * newlines. Backs the local body search index (`pages.body_text`); like the
+ * title columns it is a rebuildable cache over the doc, never replicated.
+ */
+export function extractBodyText(blocks: Block[] | undefined): string {
+  if (!blocks || blocks.length === 0) return "";
+  const parts: string[] = [];
+  for (const block of blocks) {
+    if (block.deleted) continue;
+    if (!isTextualBlock(block)) continue;
+    const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
+    if (text.trim().length > 0) parts.push(text);
+  }
+  return parts.join("\n");
+}
+
+/**
  * Truncate title to max length, breaking at word boundary if possible.
  */
 function truncateTitle(title: string, maxLength: number): string {

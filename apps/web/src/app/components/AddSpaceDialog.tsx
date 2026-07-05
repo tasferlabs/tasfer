@@ -83,8 +83,6 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       z.object({
         name: z
           .string()
-          .min(1, t("validation.spaceNameRequired", "Space name is required"))
-          .min(3, t("validation.spaceNameTooShort", "Space name is too short"))
           .max(50, t("validation.spaceNameTooLong", "Space name is too long")),
       }),
     [t],

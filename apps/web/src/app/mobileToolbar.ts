@@ -1,5 +1,4 @@
 import { filterMathCommands } from "@cypherkit/editor";
-import { CODE_LANGUAGES } from "@cypherkit/editor/internal";
 
 export type MobileToolbarBlockType =
   | "paragraph"
@@ -46,8 +45,16 @@ export type MobileToolbarIcon =
   | "outdent"
   | "todo_check"
   | "more"
+  // The matrix editor trigger — a 3×3 grid glyph. Shown when the caret sits in a
+  // tabular construct; opens the row/column editor (dialog on desktop, drawer on
+  // touch).
+  | "matrix"
   | "caret_left"
-  | "caret_right";
+  | "caret_right"
+  // The code block's language-picker trigger. Distinct from `code` (the inline
+  // mark / block-type glyph) so it doesn't read as a duplicate beside the block
+  // switcher in the code toolbar.
+  | "code_language";
 
 export type MobileToolbarAction =
   | { type: "undo" }
@@ -64,14 +71,26 @@ export type MobileToolbarAction =
   // a mobile keyboard offers no arrow keys of its own.
   | { type: "caret-left" }
   | { type: "caret-right" }
+  // Open the matrix editor (grid preview + row/column steppers) for the grid the
+  // caret sits in. The host renders it as a dialog on desktop and a drawer on
+  // touch — the same surface the desktop context menu's "Edit matrix" opens.
+  | { type: "open-matrix-editor" }
   | { type: "toggle-strikethrough" }
   | { type: "set-block"; blockType: MobileToolbarBlockType }
   | { type: "indent-list" }
   | { type: "outdent-list" }
+  // Reindent the caret's line(s) in a code block by one level. The code
+  // counterpart to the list indent/outdent controls — a soft keyboard has no
+  // Tab / Shift+Tab.
+  | { type: "indent-code" }
+  | { type: "outdent-code" }
   | { type: "toggle-todo" }
-  | { type: "set-code-language"; language: string }
   | { type: "edit-link" }
   | { type: "edit-image" }
+  // Open the code block's language picker as a drawer/sheet (the host renders it
+  // as a bottom sheet on mobile). Replaces the flat language list that used to
+  // live behind the overflow "more" button.
+  | { type: "edit-code" }
   | { type: "dismiss" };
 
 /** One construct in the contextual math row. The `latex` is both inserted on tap
@@ -100,9 +119,28 @@ export interface MobileToolbarMathRow {
 
 /** Caret-in-math context the host feeds in; null when the caret is not in math
  *  (neither a block equation nor inside an inline chip). `query` is the
- *  in-progress `\command` text, or null while browsing. */
+ *  in-progress `\command` text, or null while browsing. `canCaretLeft`/
+ *  `canCaretRight` are false when the caret sits on the formula's left/right edge
+ *  — the step in that direction would leave the math, so the toolbar's caret
+ *  control is disabled rather than silently exiting the equation. */
 export interface MobileToolbarMathContext {
   query: string | null;
+  canCaretLeft: boolean;
+  canCaretRight: boolean;
+  /** The grid construct the caret sits in (matrix/cases/aligned/array), or null.
+   *  When set, the toolbar shows a matrix control that opens the row/column
+   *  editor, seeded with these dimensions. */
+  matrix: MobileToolbarMatrixContext | null;
+}
+
+/** The grid the caret rests in — its environment, dimensions, and the caret's
+ *  cell. Seeds the matrix editor's initial row/column counts. */
+export interface MobileToolbarMatrixContext {
+  env: string;
+  rows: number;
+  cols: number;
+  row: number;
+  col: number;
 }
 
 export type MobileToolbarItem =
@@ -138,11 +176,7 @@ export type MobileToolbarItem =
 
 /** Which editing context produced the contextual layout. */
 export type MobileToolbarContextKind =
-  | "format"
-  | "list"
-  | "code"
-  | "math"
-  | "image";
+  "format" | "list" | "code" | "math" | "image";
 
 /**
  * The three-tier layout the in-webview React bar (Android/web touch) renders:
@@ -240,8 +274,8 @@ interface MobileToolbarState {
   todoChecked: boolean;
   /** Whether the caret/selection rests on an existing link mark. */
   linkActive: boolean;
-  /** Language of the current code block ("" when not in code / untagged). */
-  codeLanguage: string;
+  /** Whether a non-empty text selection exists that a new link could wrap. */
+  canCreateLink: boolean;
   math: MobileToolbarMathContext | null;
 }
 
@@ -428,30 +462,55 @@ export function createMobileToolbarModel(
     { type: "open-math-commands" },
     { enabled: state.canOpenMathCommands },
   );
+  // The matrix control — a grid glyph that opens the consolidated row/column
+  // editor (a dialog on desktop, a drawer on touch). A single button, not a menu
+  // of ops: the host surface owns the whole grid-resize interaction. It lives in
+  // the overflow drawer (see `buildLayout`'s math branch), shown only when the
+  // caret sits in a grid construct (`state.math.matrix`).
+  const matrixButton = button(
+    "matrix-editor",
+    "matrix",
+    t("editor.math.matrix.menu", "Edit matrix"),
+    { type: "open-matrix-editor" },
+  );
   const dismiss = button(
     "dismiss",
     "keyboard_dismiss",
     t("editor.dismissKeyboard", "Dismiss keyboard"),
     { type: "dismiss" },
   );
-  // Contextual settings buttons. The link control surfaces whenever the
-  // caret/selection rests on an existing link and opens the link settings
-  // drawer; the image control is the whole bar when an image block is selected
+  // Contextual settings buttons. The link control lives in the overflow drawer
+  // ("extra"): it edits the link under the caret/selection when one exists, and
+  // otherwise turns the current text selection into a new link. It is enabled in
+  // either of those cases and greyed out when neither applies (empty caret, no
+  // link). The image control is the whole bar when an image block is selected
   // and opens the image settings drawer. Both live in the shared model so every
   // shell — the in-webview Android/web bar and the native iOS accessory —
   // renders the same entry point.
-  const editLink = button(
+  const link = button(
     "edit-link",
     "link",
-    t("editor.link.editLinkTitle", "Edit Link"),
+    t("editor.link.link", "Link"),
     { type: "edit-link" },
-    { active: true },
+    {
+      active: state.linkActive,
+      enabled: state.linkActive || state.canCreateLink,
+    },
   );
   const editImage = button(
     "edit-image",
     "image",
     t("editor.image.editImage", "Edit Image"),
     { type: "edit-image" },
+  );
+  // Opens the code block's language picker drawer/sheet. Sits in the code
+  // context's contextual middle beside the block switcher; it replaces the flat
+  // language list that used to hide behind the overflow "more" button.
+  const editCode = button(
+    "edit-code",
+    "code_language",
+    t("code.selectLanguage", "Select language"),
+    { type: "edit-code" },
   );
 
   const blockMenu: MobileToolbarItem = {
@@ -479,10 +538,12 @@ export function createMobileToolbarModel(
     strikethrough,
     inlineMath,
     mathTrigger,
+    matrixButton,
     blockMenu,
     dismiss,
-    editLink,
+    link,
     editImage,
+    editCode,
   });
 
   return {
@@ -586,10 +647,12 @@ function buildLayout(
     strikethrough: MobileToolbarItem;
     inlineMath: MobileToolbarItem;
     mathTrigger: MobileToolbarItem;
+    matrixButton: MobileToolbarItem;
     blockMenu: MobileToolbarItem;
     dismiss: MobileToolbarItem;
-    editLink: MobileToolbarItem;
+    link: MobileToolbarItem;
     editImage: MobileToolbarItem;
+    editCode: MobileToolbarItem;
   },
 ): MobileToolbarLayout {
   const {
@@ -601,8 +664,9 @@ function buildLayout(
     strikethrough,
     inlineMath,
     blockMenu,
-    editLink,
+    link,
     editImage,
+    editCode,
   } = controls;
   const right = [controls.dismiss];
 
@@ -635,7 +699,9 @@ function buildLayout(
       icon: "caret_left",
       label: t("editor.math.moveCaretLeft", "Move left"),
       action: { type: "caret-left" },
-      enabled: true,
+      // Disabled on the formula's left edge: the step would exit the math, so
+      // grey it out rather than silently leaving the equation.
+      enabled: state.math.canCaretLeft,
       active: false,
     };
     const caretRight: MobileToolbarItem = {
@@ -644,11 +710,20 @@ function buildLayout(
       icon: "caret_right",
       label: t("editor.math.moveCaretRight", "Move right"),
       action: { type: "caret-right" },
-      enabled: true,
+      // Disabled on the formula's right edge (mirror of caret-left).
+      enabled: state.math.canCaretRight,
       active: false,
     };
     const caretControls: MobileToolbarItem[] =
       mathRow.query === null ? [caretLeft, caretRight] : [];
+    // The matrix editor trigger lives in the overflow drawer ("extra"), behind the
+    // "more" control — not as a standalone bar button. It's a rarely-reached
+    // structural edit, so it sits in the long tail like the drawer marks/link
+    // elsewhere rather than taking permanent width beside the caret controls.
+    // Present only when the caret sits in a grid (`state.math.matrix`).
+    const more: MobileToolbarItem[] = state.math.matrix
+      ? [controls.matrixButton]
+      : [];
     // Pin the `\` trigger as the first contextual control (right after the
     // always-leading undo/redo): the math middle is the chip row, so without this
     // there's no quick way to start a typed `\command`. It inserts `\` and opens
@@ -664,19 +739,41 @@ function buildLayout(
         ...caretControls,
       ],
       middle: { kind: "math", ...mathRow },
-      more: [],
+      more,
       right,
     };
   }
 
   if (state.blockType === "code") {
+    // Indent/outdent the current line(s), mirroring the list controls — a soft
+    // keyboard has no Tab / Shift+Tab. Both stay enabled: code nests without a
+    // depth cap, and outdent is a harmless no-op on an already-flush line.
+    const outdent: MobileToolbarItem = {
+      kind: "button",
+      id: "code-outdent",
+      icon: "outdent",
+      label: t("editor.outdent", "Outdent"),
+      action: { type: "outdent-code" },
+      enabled: true,
+      active: false,
+    };
+    const indent: MobileToolbarItem = {
+      kind: "button",
+      id: "code-indent",
+      icon: "indent",
+      label: t("editor.indent", "Indent"),
+      action: { type: "indent-code" },
+      enabled: true,
+      active: false,
+    };
     return {
       context: "code",
       left: [undo, redo],
-      middle: { kind: "items", items: [blockMenu] },
-      // Code carries no inline marks; the drawer instead holds the language
-      // list (the only code-specific control), shown as a selectable set.
-      more: codeLanguageItems(state),
+      // Code carries no inline marks. Its code-specific controls are the language
+      // picker (a searchable drawer/sheet, so the whole catalog stays reachable
+      // without a flat overflow list) and the indent/outdent pair.
+      middle: { kind: "items", items: [blockMenu, editCode, outdent, indent] },
+      more: [],
       right,
     };
   }
@@ -714,14 +811,13 @@ function buildLayout(
         active: state.todoChecked,
       });
     }
-    // A link can live inside a list item; surface its settings button too.
-    if (state.linkActive) middleItems.push(editLink);
     return {
       context: "list",
       left: [undo, redo],
       middle: { kind: "items", items: middleItems },
-      // The structural controls take the middle; marks move to the drawer.
-      more: [bold, italic, strikethrough, inlineCode, inlineMath],
+      // The structural controls take the middle; marks (and the link control)
+      // move to the drawer.
+      more: [bold, italic, strikethrough, inlineCode, inlineMath, link],
       right,
     };
   }
@@ -740,10 +836,10 @@ function buildLayout(
       bold,
       italic,
     ],
-    // The link settings button rides the contextual middle, surfacing only while
-    // the caret/selection rests on an existing link.
-    middle: { kind: "items", items: state.linkActive ? [editLink] : [] },
-    more: [strikethrough, inlineCode, inlineMath],
+    middle: { kind: "items", items: [] },
+    // The link control lives in the overflow drawer ("extra") alongside the
+    // rarer marks: it edits an existing link or creates one from the selection.
+    more: [strikethrough, inlineCode, inlineMath, link],
     right,
   };
 }
@@ -755,18 +851,6 @@ function controlsDivider(): MobileToolbarItem {
 /** Separates the block-type switcher from the inline format marks. */
 function blockDivider(): MobileToolbarItem {
   return { kind: "divider", id: "block-divider" };
-}
-
-/** The code-block language list, as selectable (label-only) drawer cells. */
-function codeLanguageItems(state: MobileToolbarState): MobileToolbarItem[] {
-  return CODE_LANGUAGES.map((lang) => ({
-    kind: "button",
-    id: `language-${lang.id}`,
-    label: lang.label,
-    action: { type: "set-code-language", language: lang.id },
-    enabled: true,
-    active: lang.id === state.codeLanguage,
-  }));
 }
 
 export function isMobileToolbarBlockType(

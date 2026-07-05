@@ -142,6 +142,14 @@
   /* Wordmark color: a lighter, more vivid emerald than --primary so the
      wordmark reads as a brighter sibling of the logo mark. */
   --wordmark-color: oklch(0.68 0.15 163);
+
+  /* macOS desktop window chrome. The Electron shell renders traffic lights at
+     `x: 16, y: 18` (apps/desktop/src/main/index.ts); these are the single
+     source of truth for every drag-region bar that sits alongside them (the app
+     header, the dev error page, the Vite HMR overlay), so content is vertically
+     centered on the lights and cleared past them horizontally. */
+  --mac-chrome-bar-height: 50px;
+  --mac-traffic-light-inset: 80px;
 }
 
 .dark {

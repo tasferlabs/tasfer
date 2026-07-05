@@ -48,11 +48,19 @@ class Parser {
     this.literalRange = opts.literalRange;
   }
 
+  // `tokenize` always terminates the stream with an `eof` token, so a well-behaved
+  // parse never reads past it. But this parser is deliberately error-tolerant
+  // (a missing `\end`, an argument-less `\text`, an unclosed group all parse), and
+  // a stray over-read must degrade to "stuck at EOF", not crash: clamp reads to the
+  // terminal `eof` token so `peek().kind` is always safe, and never advance `pos`
+  // beyond it so `next()` keeps returning `eof` instead of `undefined`.
   private peek(): Token {
-    return this.toks[this.pos];
+    return this.toks[this.pos] ?? this.toks[this.toks.length - 1];
   }
   private next(): Token {
-    return this.toks[this.pos++];
+    const t = this.peek();
+    if (this.pos < this.toks.length - 1) this.pos++;
+    return t;
   }
 
   /** Skip whitespace tokens (math mode collapses inter-atom space). */
@@ -265,7 +273,7 @@ class Parser {
     // Text-mode runs (\text, \textbf, …) — raw characters in a roman face.
     if (name in TEXT_FONTS) {
       const r = this.parseRawTextArg();
-      return { type: "text", text: r.text, variant: TEXT_FONTS[name], span: { start: cmd.start, end: r.end } };
+      return { type: "text", text: r.text, variant: TEXT_FONTS[name], charSpans: r.charSpans, span: { start: cmd.start, end: r.end } };
     }
 
     // \operatorname{…} / \operatorname* / \operatornamewithlimits.
@@ -537,16 +545,39 @@ class Parser {
    * Read a `{…}` argument as a raw string (text mode), preserving spaces.
    * Used by `\text` / `\operatorname`, whose bodies are characters, not atoms.
    */
-  private parseRawTextArg(): { text: string; end: number } {
+  private parseRawTextArg(): { text: string; end: number; charSpans: Span[] } {
     this.skipSpace();
+    // Source span of each UTF-16 code unit of `text`, in append order. Merged to
+    // per-code-point spans at the end so it aligns with `[...text]` (an astral
+    // char is two units in `text` but one code point).
+    const unitSpans: Span[] = [];
+    let text = "";
+    const push = (s: string, span: Span): void => {
+      text += s;
+      for (let k = 0; k < s.length; k++) unitSpans.push(span);
+    };
     if (this.peek().kind !== "lbrace") {
+      // A missing argument (`\text` at EOF, or flush before a group closer):
+      // yield empty text WITHOUT consuming the token. Consuming the `eof`
+      // sentinel here would advance past the token array's end, so the next
+      // `peek()` returns undefined and the parser crashes — mirror parseArg's
+      // guard. This is the live-editing case where `\text` is typed before its
+      // `{…}` has materialized.
+      const t = this.peek();
+      if (t.kind === "eof" || t.kind === "rbrace") {
+        return { text: "", end: t.start, charSpans: [] };
+      }
       // A single token argument (`\text x`).
-      const t = this.next();
-      return { text: t.kind === "command" ? t.value : t.value, end: t.end };
+      const single = this.next();
+      push(single.value, { start: single.start, end: single.end });
+      return {
+        text,
+        end: single.end,
+        charSpans: toCodePointSpans(text, unitSpans),
+      };
     }
     this.next(); // {
     let depth = 1;
-    let text = "";
     let end = this.peek().end;
     while (this.peek().kind !== "eof") {
       const t = this.peek();
@@ -557,11 +588,13 @@ class Parser {
       }
       this.next();
       end = t.end;
-      if (t.kind === "space") text += " ";
-      else if (t.kind === "command") text += t.value; // bare letters of \cmd
-      else if (t.kind !== "lbrace" && t.kind !== "rbrace") text += t.value;
+      const span = { start: t.start, end: t.end };
+      // A space RUN collapses to a single space char, spanning the whole run.
+      if (t.kind === "space") push(" ", span);
+      else if (t.kind === "command") push(t.value, span); // bare letters of \cmd
+      else if (t.kind !== "lbrace" && t.kind !== "rbrace") push(t.value, span);
     }
-    return { text, end };
+    return { text, end, charSpans: toCodePointSpans(text, unitSpans) };
   }
 
   /** Parse a length argument (`\kern2em`, `\mkern{18mu}`) → width in em. */
@@ -987,6 +1020,23 @@ function resolveInfix(nodes: Node[]): Node[] {
 
 function span(t: Token): Span {
   return { start: t.start, end: t.end };
+}
+
+/**
+ * Collapse per-code-unit spans into per-code-point spans aligned with
+ * `[...text]`: an astral character (two UTF-16 units) takes the start of its
+ * first unit and the end of its last, so a caller iterating `text` by code point
+ * gets one span per character.
+ */
+function toCodePointSpans(text: string, unitSpans: Span[]): Span[] {
+  const out: Span[] = [];
+  let u = 0;
+  for (const cp of text) {
+    const last = u + cp.length - 1;
+    out.push({ start: unitSpans[u].start, end: unitSpans[last].end });
+    u += cp.length;
+  }
+  return out;
 }
 
 /** True for an empty `{}` cell — used to drop a trailing `\\`'s phantom row. */

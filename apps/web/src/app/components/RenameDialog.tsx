@@ -214,6 +214,13 @@ function RenameDialogView({
       doc={doc}
       editable
       autoFocus
+      // Grow to fit the title instead of a fixed single line: a title holding a
+      // tall inline-math chip (e.g. a fraction) exceeds the 36px input box, and
+      // in fixed mode the canvas would scroll vertically inside that box — the
+      // stray scrollbar, plus a caret that never settles where it's tapped on
+      // touch because the tiny viewport keeps scrolling it into view. Auto-height
+      // wraps/grows the field and never scrolls, so the caret stays placeable.
+      autoHeight
       onSubmit={close}
       onCancel={close}
       placeholder={t("page.pageTitle", "Page title")}

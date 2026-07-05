@@ -18,8 +18,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Block } from "@cypherkit/editor";
 import type { CursorUser } from "@cypherkit/provider-core/cursors";
-import type { TextualBlock } from "@cypherkit/editor/internal";
-import { getVisibleTextFromRuns } from "@cypherkit/editor/internal";
+import { countWordsFromBlocks } from "@/lib/documentStats";
 import { deriveTitles } from "@/lib/pageTitle";
 import { TitlePreview } from "../TitlePreview";
 import {
@@ -79,47 +78,6 @@ import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useResponsive from "../hooks/useResponsive";
 import style from "./EditorPage.module.css";
-import { isTextualBlock } from "@cypherkit/editor/internal";
-
-// Helper function to count words from blocks
-function countWordsFromBlocks(blocks: Block[]): number {
-  let count = 0;
-
-  // CJK (Chinese, Japanese, Korean) character ranges
-  const cjkRegex =
-    /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/g;
-
-  for (const block of blocks) {
-    // Skip non-text blocks
-    if (!isTextualBlock(block)) continue;
-    if (block.deleted) continue;
-
-    // Get text from charRuns
-    const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
-
-    // Count CJK characters (each character is typically a word/concept)
-    const cjkMatches = text.match(cjkRegex);
-    if (cjkMatches) {
-      count += cjkMatches.length;
-    }
-
-    // Remove CJK characters for the remaining word count
-    const textWithoutCJK = text.replace(cjkRegex, "");
-
-    // Split by whitespace and count non-CJK words
-    const words = textWithoutCJK
-      .split(/\s+/)
-      .map((word) =>
-        // Remove punctuation from the beginning and end of each word
-        word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""),
-      )
-      .filter((word) => word.length > 0);
-
-    count += words.length;
-  }
-
-  return count;
-}
 
 const SCHEDULE_TAG_HEIGHT = 40;
 const SCHEDULE_TAG_PADDING = { paddingTop: SCHEDULE_TAG_HEIGHT } as const;
@@ -397,10 +355,6 @@ export default function EditorPage() {
     setGlobalIsSaving(isSaving);
   }, [isSaving, setGlobalIsSaving]);
 
-  // Keep a ref to isSaving for beforeunload handler (avoids stale closure)
-  const isSavingRef = useRef(isSaving);
-  isSavingRef.current = isSaving;
-
   // Handle content changes from editor (local changes only - for saving)
   // Captures current page ID to ensure save targets the correct page
   const handleContentChange = useCallback(
@@ -442,22 +396,6 @@ export default function EditorPage() {
       setOnRestoreSnapshot(null);
     };
   }, [handleRestoreSnapshot, setOnRestoreSnapshot, permission]);
-
-  // Warn user before leaving page if there are unsaved changes
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isSavingRef.current) {
-        e.preventDefault();
-        e.returnValue = "";
-        return "";
-      }
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, []);
 
   // Prompt user before in-app navigation if saving
   useNavigationPrompt(isSaving);

@@ -5,7 +5,7 @@ import {
 import { AtomicNode } from "../rendering/nodes";
 import { getBlockHeight } from "../rendering/renderer";
 import {
-  getCursorDocumentCoords,
+  getSelectionHandleCoords,
   isNodeSelection,
   scrollToMakeCursorVisible,
 } from "../selection";
@@ -163,15 +163,20 @@ function getSelectionHandlePositions(
   }
 
   const styles = getEditorStyles(state);
-  const anchorCoords = getCursorDocumentCoords(
+  // Hit-testing must key off the SAME geometry the handles are drawn at (the
+  // painted highlight's edges), or the grab target drifts from the visible ball.
+  const isForward = selection.isForward;
+  const anchorCoords = getSelectionHandleCoords(
     selection.anchor,
+    isForward ? "start" : "end",
     state,
     viewport,
     styles,
     visibility,
   );
-  const focusCoords = getCursorDocumentCoords(
+  const focusCoords = getSelectionHandleCoords(
     selection.focus,
+    isForward ? "end" : "start",
     state,
     viewport,
     styles,
@@ -181,8 +186,6 @@ function getSelectionHandlePositions(
   if (!anchorCoords || !focusCoords) {
     return null;
   }
-
-  const isForward = selection.isForward;
 
   return {
     anchor: {

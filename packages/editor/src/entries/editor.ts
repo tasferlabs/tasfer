@@ -2103,6 +2103,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Handle touchstart - track for tap detection
   private touchStartHandler = (e: TouchEvent) => {
+    // Refresh the cached canvas rect at the start of every touch gesture: the
+    // tap pipeline turns `touch.clientX/Y` into canvas coords by subtracting
+    // this rect, and the cache is otherwise only invalidated on `window`
+    // resize/scroll and `updateViewport`. A host can move the canvas without any
+    // of those firing — e.g. a bottom sheet that raises itself above the soft
+    // keyboard on focus. On iOS (Capacitor keyboard `resize: "none"`) opening
+    // the keyboard fires no window resize and no window scroll, so the rect goes
+    // stale, every tap's Y is measured against the old canvas position, and in a
+    // short editor the point falls above all blocks and collapses to offset 0 —
+    // the caret appears frozen. Reading the rect once per gesture (not per
+    // frame) is cheap and keeps taps addressing the canvas's real position.
+    this.invalidateRectCache();
+
     // Store touch start info for tap detection
     if (e.touches.length > 0) {
       this.touchStartY = e.touches[0].clientY;
@@ -2974,6 +2987,21 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (this._state.ui.mode === "suspended") {
       e.preventDefault();
       return;
+    }
+
+    // Self-heal a stranded composition flag. If we still think we're composing
+    // but the browser reports this keydown is NOT part of a composition, a prior
+    // `compositionend` was dropped or reordered — common on Android soft
+    // keyboards after accepting an autocomplete inside a code/math block, which
+    // always use the managed surface. Trust the event: clear the stale flag and
+    // fall through to normal handling so Enter (and every other key) is honored
+    // instead of being swallowed by the composition branch below.
+    if (this._state.ui.composition?.isComposing && !e.isComposing) {
+      this._state = {
+        ...this._state,
+        ui: { ...this._state.ui, composition: null },
+      };
+      this.resetSentinel();
     }
 
     // During composition (IME input), let the IME handle keys natively

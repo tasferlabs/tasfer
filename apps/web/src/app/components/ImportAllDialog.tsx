@@ -15,10 +15,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Upload } from "lucide-react";
+import { ChevronRight, Upload } from "lucide-react";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import type { ISearchPage } from "../api/pages.api";
+import { TitlePreview } from "../TitlePreview";
+import { PagePicker } from "@/components/PagePicker";
+import type { ImportParent } from "./ImportDialogProvider";
 import {
   importFilesToSpace,
   isImportableSpaceFile,
@@ -29,6 +33,16 @@ import {
 interface ImportAllDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * When set, imports go to this space and the space selector is hidden.
+   * When omitted, the user picks the target space.
+   */
+  spaceId?: string;
+  /**
+   * When set, imported pages nest under this page and the parent picker is
+   * hidden. When omitted, the user picks a parent (or top level).
+   */
+  parent?: ImportParent | null;
 }
 
 interface SpaceOption {
@@ -36,7 +50,12 @@ interface SpaceOption {
   name: string;
 }
 
-export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
+export function ImportAllDialog({
+  open,
+  onOpenChange,
+  spaceId,
+  parent,
+}: ImportAllDialogProps) {
   const { t } = useTranslation();
   const { spaces } = useSpaces();
   const queryClient = useQueryClient();
@@ -45,7 +64,15 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
     return spaces.map((s) => ({ id: s.id, name: s.name }));
   }, [spaces]);
 
+  // A caller-supplied space/parent fixes that target and hides its control.
+  const spaceFixed = spaceId != null;
+  const parentFixed = parent != null;
+
   const [selectedSpaceId, setSelectedSpaceId] = useState<string>("");
+  // Chosen parent page when the picker is shown; null means top level.
+  const [selectedParent, setSelectedParent] = useState<ISearchPage | null>(
+    null,
+  );
   const [files, setFiles] = useState<File[]>([]);
   const [phase, setPhase] = useState<"select" | "importing" | "done">("select");
   const [progress, setProgress] = useState({ done: 0, total: 0 });
@@ -58,7 +85,8 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
   // Initialize when dialog opens
   React.useEffect(() => {
     if (open) {
-      setSelectedSpaceId(allSpaces[0]?.id || "");
+      setSelectedSpaceId(spaceId || allSpaces[0]?.id || "");
+      setSelectedParent(null);
       setFiles([]);
       setPhase("select");
       setProgress({ done: 0, total: 0 });
@@ -67,7 +95,13 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
       setIsDragging(false);
       abortRef.current = false;
     }
-  }, [open, allSpaces]);
+  }, [open, allSpaces, spaceId]);
+
+  // A parent belongs to one space; switching space resets it to top level.
+  const handleSpaceChange = useCallback((id: string) => {
+    setSelectedSpaceId(id);
+    setSelectedParent(null);
+  }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -117,6 +151,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
       const importResult = await importFilesToSpace(files, selectedSpaceId, {
         onProgress: setProgress,
         isAborted: () => abortRef.current,
+        parentId: parentFixed ? parent.id : (selectedParent?.id ?? null),
       });
 
       if (!abortRef.current) {
@@ -140,7 +175,15 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
         setPhase("select");
       }
     }
-  }, [files, selectedSpaceId, queryClient, t]);
+  }, [
+    files,
+    selectedSpaceId,
+    parentFixed,
+    parent,
+    selectedParent,
+    queryClient,
+    t,
+  ]);
 
   const handleCancel = useCallback(() => {
     if (phase === "importing") {
@@ -148,6 +191,11 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
     }
     onOpenChange(false);
   }, [phase, onOpenChange]);
+
+  // When a target is fixed we hide its selector, so show where imports land.
+  const targetSpaceName =
+    allSpaces.find((s) => s.id === selectedSpaceId)?.name ||
+    t("common.untitled", "Untitled");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -227,29 +275,73 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
               className="hidden"
             />
 
-            {/* Space selector */}
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground whitespace-nowrap">
-                {t("import.to", "Import to")}
-              </span>
-              <Select
-                value={selectedSpaceId}
-                onValueChange={setSelectedSpaceId}
-              >
-                <SelectTrigger className="flex-1">
-                  <SelectValue
-                    placeholder={t("space.selectSpace", "Select space")}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {allSpaces.map((space) => (
-                    <SelectItem key={space.id} value={space.id}>
-                      {space.name || t("common.untitled", "Untitled")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Confirm the destination when a selector is hidden (fixed target). */}
+            {(spaceFixed || parentFixed) && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="whitespace-nowrap text-muted-foreground">
+                  {t("import.importingTo", "Importing to")}
+                </span>
+                <span className="flex min-w-0 items-center gap-1 font-medium">
+                  <span className="truncate">{targetSpaceName}</span>
+                  {parentFixed && (
+                    <>
+                      <ChevronRight
+                        size={14}
+                        className="shrink-0 text-muted-foreground rtl:rotate-180"
+                      />
+                      <span className="truncate">
+                        <TitlePreview
+                          title={parent.title}
+                          titleMd={parent.titleMd}
+                        />
+                      </span>
+                    </>
+                  )}
+                </span>
+              </div>
+            )}
+
+            {/* Space selector — hidden when the caller fixed the target space. */}
+            {!spaceFixed && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  {t("import.to", "Import to")}
+                </span>
+                <Select
+                  value={selectedSpaceId}
+                  onValueChange={handleSpaceChange}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue
+                      placeholder={t("space.selectSpace", "Select space")}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allSpaces.map((space) => (
+                      <SelectItem key={space.id} value={space.id}>
+                        {space.name || t("common.untitled", "Untitled")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Parent picker — hidden when the caller fixed the parent page. */}
+            {!parentFixed && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  {t("import.under", "Import under")}
+                </span>
+                <PagePicker
+                  spaceId={selectedSpaceId || null}
+                  value={selectedParent}
+                  onChange={setSelectedParent}
+                  showNoneOption
+                  className="flex-1"
+                />
+              </div>
+            )}
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 

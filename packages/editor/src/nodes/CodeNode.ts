@@ -17,7 +17,12 @@
  * `hasFormats` capability is false (see CODE_CAPS in sync/block-registry).
  */
 
-import { type ActionBus, type ActionHandler, stateAction } from "../action-bus";
+import {
+  type ActionBus,
+  type ActionHandler,
+  stateAction,
+  type StateResult,
+} from "../action-bus";
 import { insertText } from "../actions/actions";
 import {
   registerEmptyBlockBackspaceExit,
@@ -36,7 +41,7 @@ import type {
   NodePaintCtx,
   NodeRegionCtx,
 } from "../rendering/nodes/Node";
-import { moveCursorToPosition } from "../selection";
+import { moveCursorToPosition, updateSelection } from "../selection";
 import { escapeAttr, escapeHtml } from "../serlization/codecs/inline";
 import type { NodeCodec } from "../serlization/codecs/types";
 import type { Char, CharRun, MarkSpan } from "../serlization/loadPage";
@@ -51,6 +56,7 @@ import type {
   EditorStyles,
   FontStyles,
   NodeOverlay,
+  Operation,
   Position,
   RenderedBlock,
   TextStyle,
@@ -58,6 +64,7 @@ import type {
 import { updateMode } from "../state-utils";
 import { CODE_FONT_FAMILY } from "../styles";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
+import { deleteCharsInRange, insertCharsAtPosition } from "../sync/crdt-utils";
 import { cardJoinFlags } from "../sync/reducer";
 import { type CodeToken, highlightLine } from "./code-highlight";
 import {
@@ -104,6 +111,148 @@ export const INSERT_TAB = stateAction("insert-tab", (state) => {
   const r = insertText(state, "  ");
   return { state: r.state, ops: r.ops };
 });
+
+/** One indent level in a code block: two spaces, matching {@link INSERT_TAB}. */
+const INDENT_UNIT = "  ";
+
+/**
+ * Line-based indent/outdent for a code block — the toolbar's counterpart to
+ * Tab / Shift+Tab, where a soft keyboard has no such keys. It reindents every
+ * line the caret or selection touches: `indent` prepends two spaces to each
+ * line, `outdent` removes up to two leading spaces. The caret and any selection
+ * are remapped so they keep covering the same source after the whitespace
+ * shifts. A no-op (state returned unchanged, no ops) when the caret is not in a
+ * code block, or when `outdent` finds no leading whitespace to remove.
+ *
+ * This lives on the node — the editor core stays block-type-agnostic — and is
+ * exposed as two {@link stateAction}s the host binds to toolbar buttons.
+ */
+function reindentCodeBlock(
+  state: EditorState,
+  direction: "indent" | "outdent",
+): StateResult {
+  const cursor = state.document.cursor;
+  if (!cursor) return { state, ops: [] };
+  const blockIndex = cursor.position.blockIndex;
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || block.type !== "code")
+    return { state, ops: [] };
+
+  const text = getVisibleTextFromRuns(block.charRuns);
+
+  // The reindented range: the selection when it lies within this block, else the
+  // caret. Selection endpoints can be reversed, so normalize to [lo, hi].
+  const sel = state.document.selection;
+  const inThisBlock =
+    sel !== null &&
+    !sel.isCollapsed &&
+    sel.anchor.blockIndex === blockIndex &&
+    sel.focus.blockIndex === blockIndex;
+  const lo = inThisBlock
+    ? Math.min(sel.anchor.textIndex, sel.focus.textIndex)
+    : cursor.position.textIndex;
+  const hi = inThisBlock
+    ? Math.max(sel.anchor.textIndex, sel.focus.textIndex)
+    : cursor.position.textIndex;
+
+  // The line-start offsets the range touches. A selection ending exactly at a
+  // line start does not reach into that line, so scan only to `hi - 1` there.
+  const lastTouched = hi > lo ? hi - 1 : lo;
+  const lineStarts: number[] = [];
+  let scan = text.lastIndexOf("\n", lo - 1) + 1;
+  while (scan <= lastTouched) {
+    lineStarts.push(scan);
+    const nl = text.indexOf("\n", scan);
+    if (nl === -1) break;
+    scan = nl + 1;
+  }
+
+  // Per-line edits, derived from the original text. `remove` is how many leading
+  // spaces outdent strips (indent never removes); `insert` is fixed for indent.
+  const edits = lineStarts
+    .map((at) => {
+      if (direction === "indent") return { at, insert: INDENT_UNIT.length };
+      let n = 0;
+      while (n < INDENT_UNIT.length && text[at + n] === " ") n++;
+      return { at, insert: 0, remove: n };
+    })
+    .filter((e) => e.insert > 0 || (e as { remove: number }).remove > 0) as {
+    at: number;
+    insert: number;
+    remove?: number;
+  }[];
+  if (edits.length === 0) return { state, ops: [] };
+
+  // Apply from the last line up so each edit's offset stays valid against the
+  // still-unmutated earlier text.
+  const ops: Operation[] = [];
+  let page = state.document.page;
+  for (let i = edits.length - 1; i >= 0; i--) {
+    const e = edits[i];
+    if (e.insert > 0) {
+      const r = insertCharsAtPosition(
+        page,
+        block.id,
+        e.at,
+        INDENT_UNIT,
+        state.CRDTbinding,
+      );
+      page = r.newPage;
+      ops.push(r.op);
+    } else if (e.remove) {
+      const r = deleteCharsInRange(
+        page,
+        block.id,
+        e.at,
+        e.at + e.remove,
+        state.CRDTbinding,
+      );
+      page = r.newPage;
+      ops.push(r.op);
+    }
+  }
+
+  // Remap a pre-edit offset across every edit. The edits sit at distinct,
+  // non-overlapping line starts, so their shifts are independent and additive: an
+  // insert at/left of the offset pushes it right; a delete left of it pulls it
+  // left (clamped when the offset falls inside the removed run).
+  const remap = (off: number): number => {
+    let delta = 0;
+    for (const e of edits) {
+      if (e.insert > 0) {
+        if (e.at <= off) delta += e.insert;
+      } else if (e.remove) {
+        if (off >= e.at + e.remove) delta -= e.remove;
+        else if (off > e.at) delta -= off - e.at;
+      }
+    }
+    return off + delta;
+  };
+
+  let next: EditorState = { ...state, document: { ...state.document, page } };
+  next = moveCursorToPosition(
+    next,
+    blockIndex,
+    remap(cursor.position.textIndex),
+  );
+  next = inThisBlock
+    ? updateSelection(next, {
+        anchor: { blockIndex, textIndex: remap(sel.anchor.textIndex) },
+        focus: { blockIndex, textIndex: remap(sel.focus.textIndex) },
+      })
+    : updateSelection(next, null);
+  return { state: next, ops };
+}
+
+/** Indent the caret's line(s) in a code block by one level (two spaces). */
+export const INDENT_CODE = stateAction("indent-code", (state) =>
+  reindentCodeBlock(state, "indent"),
+);
+
+/** Outdent the caret's line(s) in a code block by one level (up to two spaces). */
+export const OUTDENT_CODE = stateAction("outdent-code", (state) =>
+  reindentCodeBlock(state, "outdent"),
+);
 
 export class CodeNode extends TextNode {
   readonly type = "code" as const;

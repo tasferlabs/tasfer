@@ -15,12 +15,16 @@ import {
   getInlineMathDims,
   getInlineMathOffsetAtX,
   getInlineMathSelectionRects,
+  getInlineMathWordRange,
   mathCaretMove,
   mathCommandRanges,
   mathDeleteUnit,
   mathSelectionRange,
   mathTransformTypedInput,
+  mathUnitAt,
 } from "../../nodes/math";
+// Host-wired layout so `\text{…}` CJK/unsupported glyphs typeset (see tex-host).
+import { layoutMathHost as layoutMath } from "../../nodes/tex-host";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import {
   INLINE_MATH_END,
@@ -34,7 +38,7 @@ import {
   type MarkStyle,
   type SelectionWrapTrigger,
 } from "./Mark";
-import { layoutMath, paintMath } from "@cypherkit/tex";
+import { paintMath } from "@cypherkit/tex";
 
 // Math is a REPLACEMENT mark on HTML output (renders an SVG, falling back to
 // `$…$` source when no renderer is supplied) — so it wins the run.
@@ -102,12 +106,14 @@ const inlineMathReplacement: MarkReplacement = {
       commandRangesFor(text, edit).literalRange,
     );
   },
-  hitTest(text, fontSize, localX, localY) {
+  hitTest(text, fontSize, localX, localY, drag, prevOffset) {
     return getInlineMathOffsetAtX(
       text,
       fontSize * INLINE_MATH_SCALE,
       localX,
       localY,
+      drag,
+      prevOffset,
     );
   },
   selectionRects(text, fontSize, start, end, edit) {
@@ -118,6 +124,29 @@ const inlineMathReplacement: MarkReplacement = {
       fontSize * INLINE_MATH_SCALE,
       start,
       end,
+      commandRangesFor(text, edit).literalRange,
+    );
+  },
+  wordRangeAt(text, offset) {
+    // Double-tap / double-click inside a chip selects the CONSTRUCT under the
+    // caret (the `\sqrt{…}`, the `\frac`, the script `x^{2}`), not the whole chip
+    // — the same "take the thing you're pointing at, whole" rule the block
+    // equation uses. A chip's visible chars ARE its LaTeX, so `offset` is already a
+    // source offset. Returns null for an empty chip → caller keeps the whole run.
+    const unit = mathUnitAt(text, offset);
+    return unit ? { start: unit.start, end: unit.end } : null;
+  },
+  wordRangeFromPoint(text, fontSize, localX, localY, edit) {
+    // Resolve the double-tap construct from the POINT, so an atomic command chip
+    // (`\det`, `\sin`, `\lim`) — whose only caret stops are its two edges — is
+    // still selectable: the offset path would land on a chip boundary and miss it,
+    // but the point lands on the command's glyphs. Lay out with the same
+    // `literalRange` `paint` uses so the box tree matches what is drawn.
+    return getInlineMathWordRange(
+      text,
+      fontSize * INLINE_MATH_SCALE,
+      localX,
+      localY,
       commandRangesFor(text, edit).literalRange,
     );
   },

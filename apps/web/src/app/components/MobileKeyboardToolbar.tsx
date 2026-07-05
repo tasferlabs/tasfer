@@ -1,40 +1,42 @@
 import { cn } from "@/lib/utils";
 import { renderToSVG } from "@cypherkit/editor";
 import {
-    ArrowLeft,
-    ArrowRight,
-    Bold,
-    Check,
-    Code,
-    Heading1,
-    Heading2,
-    Heading3,
-    Image,
-    IndentDecrease,
-    IndentIncrease,
-    Italic,
-    Link2,
-    List,
-    ListChecks,
-    ListOrdered,
-    Minus,
-    MoreHorizontal,
-    Pilcrow,
-    Quote,
-    Redo2,
-    Sigma,
-    Strikethrough,
-    Type,
-    Undo2,
-    X
+  ArrowLeft,
+  ArrowRight,
+  Bold,
+  Check,
+  Code,
+  Grid3x3,
+  Heading1,
+  Heading2,
+  Heading3,
+  Image,
+  IndentDecrease,
+  IndentIncrease,
+  Italic,
+  Languages,
+  Link2,
+  List,
+  ListChecks,
+  ListOrdered,
+  Minus,
+  MoreHorizontal,
+  Pilcrow,
+  Quote,
+  Redo2,
+  Sigma,
+  Strikethrough,
+  Type,
+  Undo2,
+  X,
 } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
-    MobileToolbarAction,
-    MobileToolbarIcon,
-    MobileToolbarItem,
-    MobileToolbarModel,
+  MobileToolbarAction,
+  MobileToolbarIcon,
+  MobileToolbarItem,
+  MobileToolbarModel,
 } from "../mobileToolbar";
 
 const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
@@ -77,9 +79,11 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
   outdent: <IndentDecrease className="size-5" />,
   todo_check: <Check className="size-5" />,
   more: <MoreHorizontal className="size-5" />,
+  matrix: <Grid3x3 className="size-5" />,
   keyboard_dismiss: <X className="size-5" />,
   caret_left: <ArrowLeft className="size-5" />,
   caret_right: <ArrowRight className="size-5" />,
+  code_language: <Languages className="size-5" />,
 };
 
 interface MobileKeyboardToolbarProps {
@@ -138,11 +142,11 @@ export function MobileKeyboardToolbar({
   // content (chips / "no match") while a `\command` is being typed; the empty
   // browse state must not leave a dangling divider.
   const hasMiddle =
-    middle.kind === "math"
-      ? middle.query !== null
-      : middleItems.length > 0;
+    middle.kind === "math" ? middle.query !== null : middleItems.length > 0;
 
-  // Menus can live in the left cluster or the middle; resolve the open one.
+  // Menus (block-type / code-language) live in the left cluster or the scrollable
+  // middle; resolve the open one from both. The pinned right cluster holds only
+  // buttons (the matrix trigger, dismiss).
   const menus = [...layout.left, ...middleItems].filter(
     (item): item is MenuItem => item.kind === "menu",
   );

@@ -95,13 +95,13 @@ import type {
   RenderedLine,
   TextStyle,
 } from "../state-types";
-import { isCaretScratchActive } from "../state-utils";
+import { isCaretScratchActive, transformTypedInput } from "../state-utils";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   charRunsToChars,
   getVisibleTextFromChars,
   getVisibleTextFromRuns,
-  iterateVisibleChars,
+  iterateAllChars,
 } from "../sync/char-runs";
 import type { CodeBlock } from "./CodeNode";
 import type { ListBlock } from "./ListNode";
@@ -322,35 +322,64 @@ export function getContentWithComposition(
     };
   }
 
-  const cursorTextIndex = state.document.cursor.position.textIndex;
+  const caretIndex = state.document.cursor.position.textIndex;
+
+  // Run the preview through the SAME node/mark transform the commit uses (see
+  // transformTypedInput → the caret seam). This is what keeps a formula typeset
+  // while composing: in math the transform wraps CJK into `\text{…}` (which the
+  // host font renders) or merges it into an adjacent run, so the injected preview
+  // parses instead of de-typesetting the equation into raw source, and it matches
+  // exactly what compositionend will commit. In prose the transform is a no-op,
+  // so the raw text is injected at the caret, unchanged. A transform that swallows
+  // the input (nothing renderable) shows the plain block.
+  const transform = transformTypedInput(
+    state,
+    block,
+    caretIndex,
+    compositionText,
+  );
+  const previewText = transform?.input ?? compositionText;
+  const insertAt = transform?.insertAt ?? caretIndex;
+  if (previewText.length === 0) {
+    return {
+      chars: charRunsToChars(block.charRuns),
+      formats: block.formats,
+      compositionRange: null,
+    };
+  }
 
   // Create temporary composition chars (without IDs since they're not persisted)
-  const compositionChars: Char[] = Array.from(compositionText).map(
-    (char, i) => ({
-      id: `composition-${i}`,
-      char,
-      deleted: false,
-    }),
-  );
+  const compositionChars: Char[] = Array.from(previewText).map((char, i) => ({
+    id: `composition-${i}`,
+    char,
+    deleted: false,
+  }));
 
-  // Insert composition chars at cursor position (visible index)
+  // Insert the preview chars at `insertAt` (a VISIBLE index) while keeping
+  // tombstoned chars in document order. `resolveMarkRunsFromChars` (the
+  // replacement/chip resolver used by the layout below) anchors each mark span
+  // to its exact endpoint char IDs and DROPS the span outright when an endpoint
+  // isn't present in the char array. So the array must include deleted chars —
+  // exactly what the canonical `charRunsToChars` path does. Iterating only
+  // VISIBLE chars here silently hid any chip whose boundary char had been
+  // tombstoned (common after editing a chip), flashing the whole formula to raw
+  // LaTeX for the duration of the composition even when the preview lands
+  // outside the chip. Injecting before the visible char at `insertAt` keeps the
+  // preview where the commit will land; interleaved tombstones stay put.
   const modifiedChars: Char[] = [];
   let visibleIndex = 0;
   let insertionDone = false;
 
-  // Convert charRuns to chars and insert composition
-  for (const { id, char } of iterateVisibleChars(block.charRuns)) {
-    if (visibleIndex === cursorTextIndex && !insertionDone) {
-      // Insert composition chars here
+  for (const { id, char, deleted } of iterateAllChars(block.charRuns)) {
+    if (!deleted && visibleIndex === insertAt && !insertionDone) {
       modifiedChars.push(...compositionChars);
       insertionDone = true;
     }
-
-    modifiedChars.push({ id, char, deleted: false });
-    visibleIndex++;
+    modifiedChars.push({ id, char, ...(deleted ? { deleted: true } : {}) });
+    if (!deleted) visibleIndex++;
   }
 
-  // If cursor is at the end, append composition
+  // If the insert point is at the end (past the last visible char), append it.
   if (!insertionDone) {
     modifiedChars.push(...compositionChars);
   }
@@ -359,8 +388,8 @@ export function getContentWithComposition(
     chars: modifiedChars,
     formats: block.formats, // Keep formats as-is
     compositionRange: {
-      start: cursorTextIndex,
-      end: cursorTextIndex + compositionText.length,
+      start: insertAt,
+      end: insertAt + previewText.length,
     },
   };
 }
@@ -489,6 +518,64 @@ function renderCompositionUnderline(
   const underlineEnd = Math.min(lineEndIndex, compositionEnd);
 
   if (underlineStart >= underlineEnd) return;
+
+  // Composition folded INSIDE an inline-math chip: the composed glyphs are drawn
+  // by the chip's tex formula (a `\text{…}` run), not as line text, so a flat
+  // text-width underline would land in the wrong place. Underline the composed
+  // sub-range through the chip's own selection rects instead, so it hugs the
+  // rendered glyphs — matching how a block equation underlines its preview and
+  // how the OS marks the string being composed. LTR chips only; an RTL chip falls
+  // through to the flat underline below.
+  if (!isRTL && marks) {
+    const run = replacementRuns(chars, formats, marks).find(
+      (r) => r.start <= underlineStart && underlineEnd <= r.end,
+    );
+    if (run?.replacement.selectionRects) {
+      // Clip the run to this line (a chip may have wrapped) and work against its
+      // on-this-line fragment, exactly as the interior-caret geometry does.
+      const fragStart = Math.max(run.start, lineStartIndex);
+      const fragEnd = Math.min(run.end, lineEndIndex);
+      if (underlineStart >= fragStart && underlineEnd <= fragEnd) {
+        const fragText = run.text.slice(
+          fragStart - run.start,
+          fragEnd - run.start,
+        );
+        const rects = run.replacement.selectionRects(
+          fragText,
+          textStyle.fontSize,
+          underlineStart - fragStart,
+          underlineEnd - fragStart,
+        );
+        if (rects.length > 0) {
+          const chipLeft = measureTextUpToIndex(
+            chars,
+            formats,
+            lineStartIndex,
+            fragStart,
+            textStyle.fontSize,
+            textStyle.fontWeight,
+            fontFamily,
+            fonts,
+            codePadding,
+            marks,
+          );
+          const baselineY = y + fontMetrics.ascent;
+          ctx.save();
+          ctx.strokeStyle = textStyle.color;
+          ctx.lineWidth = 1.5;
+          for (const r of rects) {
+            const uy = baselineY + r.bottom + 1;
+            ctx.beginPath();
+            ctx.moveTo(x + chipLeft + r.x, uy);
+            ctx.lineTo(x + chipLeft + r.x + r.width, uy);
+            ctx.stroke();
+          }
+          ctx.restore();
+          return;
+        }
+      }
+    }
+  }
 
   const offsetToStart = measureLineWidth(
     chars,
@@ -792,6 +879,14 @@ function computeSelectionRects(
   // selection uses this; tight range decorations (find highlights, remote
   // carets) leave it false so they hug the matched glyphs. See `selectionRects`.
   continuous = false,
+  // When true, the rects feed the point-in-selection hit-test
+  // (`isPointWithinSelectionRects`), not the painter. A selection covering a whole
+  // inline-math chip then reports the chip's full atomic box as touchable, so a tap
+  // anywhere on the selected chip — including its inflated padding, which the
+  // glyph-hugging rows don't cover — counts as touching the selection (and opens
+  // the context menu instead of collapsing). Painting leaves this false so a
+  // selected sub-part of a formula still lights up just that part.
+  hitTest = false,
 ): Rect[] {
   const start = selection.isForward ? selection.anchor : selection.focus;
   const end = selection.isForward ? selection.focus : selection.anchor;
@@ -870,7 +965,19 @@ function computeSelectionRects(
         start.textIndex >= r.start &&
         end.textIndex <= r.end,
     );
-    if (confiningRun) {
+    // Hit-testing a fully-selected chip (endpoints on the chip's atomic
+    // boundaries): skip the tight per-glyph rows so the point-in-selection test
+    // falls through to the line-box fill below, which spans the chip's full
+    // advance at full line height — a tap anywhere on the selected chip
+    // (including its inflated padding, which the glyph rows don't cover) then
+    // registers as touching the selection. Painting, and partial sub-range
+    // selections, keep the tight rows so a selected fraction lights up just it.
+    const skipTightChipRows =
+      confiningRun != null &&
+      hitTest &&
+      start.textIndex <= confiningRun.start &&
+      end.textIndex >= confiningRun.end;
+    if (confiningRun && !skipTightChipRows) {
       const chipRects: Rect[] = [];
       for (const line of layout.lines) {
         // Selection ∩ line, then clip to the chip's fragment on this line (the
@@ -1614,19 +1721,111 @@ export class TextNode extends Node<TextualBlock> {
    */
   /**
    * The word/token RANGE a double-tap at a point selects, resolved from the POINT
-   * rather than a caret offset. Plain text has no point-specific word model — its
-   * offset-based word selection is fine — so the base returns null and the caller
-   * falls back to that path. Math overrides this: a point lands the selection on
-   * the exact atom/construct under the finger, which is the only way to hit a
-   * small operator wedged between constructs. See {@link getWordRangeFromViewport}.
+   * rather than a caret offset. Plain prose has no point-specific word model — its
+   * offset-based word selection is fine — but an inline-math chip does: a point
+   * lands the selection on the exact atom/construct under the finger, and for an
+   * ATOMIC command chip (`\det`, `\sin`) it is the ONLY way to select it at all
+   * (the command has caret stops only at its edges, so a resolved offset lands on a
+   * chip boundary that the offset word-select can't see). We dispatch to the
+   * replacement's own {@link MarkReplacement.wordRangeFromPoint} and re-base its
+   * run-local range onto block indices; a block with no such chip under the point
+   * returns null and the caller falls back to the offset path. Only an UNWRAPPED
+   * chip on a non-bidi line is resolved by point — a wrapped fragment or a chip on
+   * a mixed-direction line falls back too. See {@link getWordRangeFromViewport}.
    */
   wordRangeFromPoint(
-    _layout: TextNodeLayout,
-    _x: number,
-    _y: number,
-    _originX: number,
-    _blockTopY: number,
+    layout: TextNodeLayout,
+    x: number,
+    y: number,
+    originX: number,
+    blockTopY: number,
   ): { start: number; end: number } | null {
+    if (!layout.marks) return null;
+    const runs = replacementRuns(
+      layout.chars,
+      layout.formats,
+      layout.marks,
+    ).filter((r) => r.replacement.wordRangeFromPoint);
+    if (runs.length === 0) return null;
+
+    const {
+      isRTL,
+      textStyle,
+      fontFamily,
+      fonts,
+      chars,
+      formats,
+      adjustedMaxWidth,
+    } = layout;
+    const baseX = this.baseX(layout, originX);
+    const relativeX = x - baseX;
+
+    for (const line of layout.lines) {
+      const lineTopY = blockTopY + layout.insetY + line.y;
+      if (y < lineTopY || y >= lineTopY + line.height) continue;
+
+      // Point resolution is handled only for a pure (non-bidi) line — a chip
+      // reordered inside a mixed-direction line falls back to the offset path.
+      const { runs: bidiRuns } = analyzeLineBidi(
+        line.text,
+        isRTL ? "rtl" : "ltr",
+      );
+      const baseLvl = isRTL ? 1 : 0;
+      const pureLine =
+        bidiRuns.length === 0 ||
+        (bidiRuns.length === 1 && bidiRuns[0].level === baseLvl);
+      if (!pureLine) return null;
+
+      const lineStartIndex = line.startIndex;
+      const lineEndIndex = line.endIndex;
+      const positionWidths = measureCRDTPositions(
+        chars,
+        formats,
+        lineStartIndex,
+        lineEndIndex,
+        textStyle.fontSize,
+        textStyle.fontWeight,
+        fontFamily,
+        fonts,
+        layout.marks,
+        layout.replCharWidths,
+      );
+      const lineWidth = positionWidths[positionWidths.length - 1];
+      const origin = isRTL ? adjustedMaxWidth - lineWidth : 0;
+      const baselineY =
+        lineTopY + (line.baselineOffset ?? layout.fontMetrics.ascent);
+
+      for (const run of runs) {
+        // Only a whole, unwrapped chip on this line: the replacement resolves the
+        // point against its ENTIRE LaTeX, so a fragment clipped by a wrap would
+        // mis-map the coordinates.
+        if (run.start < lineStartIndex || run.end > lineEndIndex) continue;
+        const startLocal = run.start - lineStartIndex;
+        if (startLocal + 1 >= positionWidths.length) continue;
+        // The chip is one advance; its two boundary widths give its visual edges
+        // (RTL grows the visual x from the right).
+        const eA = isRTL
+          ? origin + (lineWidth - positionWidths[startLocal])
+          : origin + positionWidths[startLocal];
+        const eB = isRTL
+          ? origin + (lineWidth - positionWidths[startLocal + 1])
+          : origin + positionWidths[startLocal + 1];
+        const chipLeftX = Math.min(eA, eB);
+        const chipRightX = Math.max(eA, eB);
+        if (relativeX < chipLeftX || relativeX > chipRightX) continue;
+        // The formula is always laid out LTR, so run-local x is the distance from
+        // its visual left edge; run-local y is the click below the baseline.
+        const local = run.replacement.wordRangeFromPoint!(
+          run.text,
+          textStyle.fontSize,
+          relativeX - chipLeftX,
+          y - baselineY,
+        );
+        if (!local) return null;
+        return { start: run.start + local.start, end: run.start + local.end };
+      }
+      return null;
+    }
     return null;
   }
 
@@ -1637,6 +1836,14 @@ export class TextNode extends Node<TextualBlock> {
     y: number,
     originX: number,
     blockTopY: number,
+    // Finger-drag (magnifier) resolution — inside an inline-math chip, follow the
+    // finger to its nearest caret stop through the chip's stacked rows (a
+    // fraction's numerator/denominator) with row hysteresis, rather than the tap
+    // path's exact per-row descent. A precise tap leaves this off.
+    drag = false,
+    // The caret's CURRENT block-text index, the hysteresis anchor for drag mode
+    // (null when there is no current caret in this block).
+    prevIndex: number | null = null,
   ): number {
     const baseX = this.baseX(layout, originX);
 
@@ -1644,7 +1851,16 @@ export class TextNode extends Node<TextualBlock> {
       const currentLineY = blockTopY + layout.insetY + line.y;
       const lineBottom = currentLineY + line.height;
       if (y >= currentLineY && y < lineBottom) {
-        return this.positionWithinLine(layout, x, y, currentLineY, line, baseX);
+        return this.positionWithinLine(
+          layout,
+          x,
+          y,
+          currentLineY,
+          line,
+          baseX,
+          drag,
+          prevIndex,
+        );
       }
     }
 
@@ -1658,6 +1874,8 @@ export class TextNode extends Node<TextualBlock> {
         blockTopY + layout.insetY + last.y,
         last,
         baseX,
+        drag,
+        prevIndex,
       );
     }
 
@@ -1676,6 +1894,8 @@ export class TextNode extends Node<TextualBlock> {
     lineTopY: number,
     line: RenderedLine,
     baseX: number,
+    drag = false,
+    prevIndex: number | null = null,
   ): number {
     const {
       isRTL,
@@ -1797,7 +2017,26 @@ export class TextNode extends Node<TextualBlock> {
         // RTL run), so a click just outside the chip snaps to the near boundary.
         const leftEdge = owner.level % 2 === 0 ? fragStart : fragEnd;
         const rightEdge = owner.level % 2 === 0 ? fragEnd : fragStart;
-        if (relativeX <= chipLeftX || relativeX >= chipRightX) {
+        // The caret's current chip-local offset — the drag hysteresis anchor.
+        // Null when the caret is not already inside this fragment.
+        const chipPrev =
+          drag &&
+          prevIndex != null &&
+          prevIndex >= fragStart &&
+          prevIndex <= fragEnd
+            ? prevIndex - fragStart
+            : null;
+        // A finger drag holding a caret STRICTLY inside the chip keeps the tex
+        // hit-test in charge even just past the chip's x-extent, mirroring a
+        // math BLOCK: tex's drag resolution owns the interior↔edge transition
+        // (2-D nearest stop + row hysteresis), instead of this x-range gate
+        // hard-flipping between resolutions at the chip's exact pixel edge.
+        const dragHeldInside =
+          chipPrev != null && chipPrev > 0 && chipPrev < fragEnd - fragStart;
+        if (
+          (relativeX <= chipLeftX || relativeX >= chipRightX) &&
+          !dragHeldInside
+        ) {
           const bestIdx = lineStartIndex + best;
           if (bestIdx > fragStart && bestIdx < fragEnd) {
             best =
@@ -1818,7 +2057,21 @@ export class TextNode extends Node<TextualBlock> {
           textStyle.fontSize,
           relativeX - chipLeftX,
           clickY - baselineY,
+          drag,
+          chipPrev,
         );
+        // Finger drag: tex may resolve to the chip's outer boundary (offset 0 /
+        // length) — the caret rests BESIDE the chip, exactly like a math
+        // block's construct edge — so no interior clamp; the tex hysteresis owns
+        // that transition. A tap keeps the interior clamp: clicking the chip's
+        // body always lands inside the formula. The formula is laid out LTR, so
+        // its boundary offsets are VISUAL edges — map them through leftEdge/
+        // rightEdge, which fold in the owning run's direction.
+        if (drag) {
+          if (offset <= 0) return leftEdge;
+          if (offset >= fragEnd - fragStart) return rightEdge;
+          return fragStart + offset;
+        }
         const lastInterior = fragText.length - 1;
         if (lastInterior < 1) return fragStart;
         return fragStart + Math.max(1, Math.min(offset, lastInterior));
@@ -1900,7 +2153,27 @@ export class TextNode extends Node<TextualBlock> {
         // map), so its left/right edges are the adjacent position widths.
         const chipLeftX = positionWidths[startLocal];
         const chipRightX = positionWidths[startLocal + 1];
-        if (relativeX <= chipLeftX || relativeX >= chipRightX) {
+        // The caret's current chip-local offset, so a finger DRAG descends into
+        // the fraction with row hysteresis (no flip on wobble). Null when the
+        // caret is not already inside this fragment.
+        const chipPrev =
+          drag &&
+          prevIndex != null &&
+          prevIndex >= fragStart &&
+          prevIndex <= fragEnd
+            ? prevIndex - fragStart
+            : null;
+        // A finger drag holding a caret STRICTLY inside the chip keeps the tex
+        // hit-test in charge even just past the chip's x-extent, mirroring a
+        // math BLOCK: tex's drag resolution owns the interior↔edge transition
+        // (2-D nearest stop + row hysteresis), instead of this x-range gate
+        // hard-flipping between resolutions at the chip's exact pixel edge.
+        const dragHeldInside =
+          chipPrev != null && chipPrev > 0 && chipPrev < fragEnd - fragStart;
+        if (
+          (relativeX <= chipLeftX || relativeX >= chipRightX) &&
+          !dragHeldInside
+        ) {
           if (bestPosition > fragStart && bestPosition < fragEnd) {
             bestPosition = relativeX <= chipLeftX ? fragStart : fragEnd;
           }
@@ -1916,7 +2189,16 @@ export class TextNode extends Node<TextualBlock> {
           textStyle.fontSize,
           relativeX - chipLeftX,
           clickY - baselineY,
+          drag,
+          chipPrev,
         );
+        // Finger drag: tex may resolve to the chip's outer boundary (offset 0 /
+        // length) — the caret rests BESIDE the chip, exactly like a math
+        // block's construct edge — so no interior clamp; the tex hysteresis owns
+        // that transition.
+        if (drag) {
+          return fragStart + Math.max(0, Math.min(offset, fragEnd - fragStart));
+        }
         // A click on the chip places the caret INSIDE the formula. The extreme
         // stops (offset 0 / the full length) collapse onto the fragment's boundary
         // index — shared with the surrounding text/adjacent fragment, so they
@@ -1945,6 +2227,10 @@ export class TextNode extends Node<TextualBlock> {
     // The local selection passes `true` to render as one continuous ribbon;
     // tight range decorations (find highlights, remote carets) leave it `false`.
     continuous = false,
+    // The point-in-selection hit-test passes `true` so a whole selected
+    // inline-math chip reports its full atomic box as touchable. See
+    // `computeSelectionRects`.
+    hitTest = false,
   ): Rect[] {
     return computeSelectionRects(
       layout,
@@ -1954,6 +2240,7 @@ export class TextNode extends Node<TextualBlock> {
       selection,
       blockIndex,
       continuous,
+      hitTest,
     );
   }
 

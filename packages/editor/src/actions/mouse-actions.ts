@@ -75,13 +75,15 @@ export const SELECT_WORD_AT_POINT = stateAction<{
   /**
    * A pre-resolved word/token range (block-text indices), when the node under the
    * pointer selects by POINT rather than by the `position` offset — a math block
-   * resolves the atom the cursor is on (see `getWordRangeFromViewport`), which is
-   * the only way to hit a small operator between constructs. The default text
-   * handler ignores it; the math node's handler consumes it.
+   * resolves the atom the cursor is on, and an inline-math chip resolves the
+   * construct under the finger (an atomic command like `\det` is reachable ONLY by
+   * point). See `getWordRangeFromViewport`. The math node's own handler consumes it
+   * for a math block; for a text block carrying a chip the default handler below
+   * threads it into the word-select.
    */
   range?: { start: number; end: number };
-}>("select-word-at-point", (state, { position }) => ({
-  state: selectWordAtPosition(state, position),
+}>("select-word-at-point", (state, { position, range }) => ({
+  state: selectWordAtPosition(state, position, range),
   ops: [],
 }));
 

@@ -64,7 +64,7 @@ export default defineConfig({
       manifest: false,
       injectManifest: {
         // Headroom above Workbox's 2 MiB default for the largest single asset.
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
       devOptions: {
         enabled: false,
@@ -100,6 +100,8 @@ export default defineConfig({
   server: {
     port: 4000,
     https: lanHttps,
+    // Replaced by our own devtools-styled overlay (see src/dev/viteErrorOverlay).
+    hmr: { overlay: false },
     proxy: {
       "/api": {
         target: "http://localhost:3000",

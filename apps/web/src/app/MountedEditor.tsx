@@ -26,16 +26,21 @@ import {
   CURSOR_DRAG_START,
   DRAG_DETENT,
   IMAGE_PASTE,
+  INDENT_CODE,
   INDENT_LIST_ITEM,
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   OPEN_CONTEXT_MENU,
   OPEN_LINK,
+  OUTDENT_CODE,
   OUTDENT_LIST_ITEM,
   REGION_DRAG_START,
   SCROLL,
   TEXT_INPUT,
   mathCommandInsertion,
+  mathMatrixContext,
+  mathMatrixResize,
+  mathSourceAtEdge,
   mergeRegister,
   type Block,
   type CursorDragInfo,
@@ -72,11 +77,11 @@ import i18next from "i18next";
 import {
   Bold,
   Check,
-  ChevronDown,
   Clipboard,
   Code,
   Copy,
   Download,
+  Grid3x3,
   Image as ImageIcon,
   Italic,
   Link,
@@ -109,9 +114,11 @@ import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { MathCommandMenu } from "../editor/MathCommandMenu";
+import { MatrixEditor } from "../editor/MatrixEditor";
 import { SlashActionMenu } from "../editor/SlashActionMenu";
 import {
   appSchema,
+  openCodeLanguageMenu,
   openImageUploadMenu,
   openLinkEditMenu,
   type LinkEditOverlayData,
@@ -136,6 +143,7 @@ import {
   type MobileToolbarAction,
   type MobileToolbarBlockType,
   type MobileToolbarMathContext,
+  type MobileToolbarMatrixContext,
   type NativeMobileToolbarModel,
 } from "./mobileToolbar";
 import {
@@ -199,6 +207,146 @@ function inlineMathChipAt<M extends { name: string; from: number; to: number }>(
     if (before && before.to === caretOffset) return before;
   }
   return undefined;
+}
+
+type EditorInstance = MountedEditorInstance["editor"];
+
+/**
+ * Where a matrix edit for the current caret would apply. Resolves the caret to a
+ * math source and a source-local offset: a block equation is its whole text; an
+ * inline chip is its own LaTeX at a chip-local offset (with `chip` carrying the
+ * block-relative bounds so the caller can map offsets back). Null when the caret
+ * is not in math. Used by both the toolbar drawer and the context menu.
+ */
+function matrixCaretTarget(editor: EditorInstance): {
+  blockId: string;
+  sourceLatex: string;
+  localOffset: number;
+  chip: { from: number; to: number } | null;
+} | null {
+  const range = editor.state.selection.range;
+  if (!range || typeof range !== "object") return null;
+  let blockId: string | undefined;
+  let offset: number | undefined;
+  if ("offset" in range && "block" in range) {
+    blockId = range.block;
+    offset = range.offset ?? 0;
+  } else if ("from" in range) {
+    const from = range.from;
+    if (
+      from &&
+      typeof from === "object" &&
+      !("side" in from) &&
+      "block" in from
+    ) {
+      blockId = from.block;
+      offset = from.offset ?? 0;
+    }
+  }
+  if (blockId === undefined || offset === undefined) return null;
+
+  const block = editor.query.block({ block: blockId, offset });
+  if (!block) return null;
+  if (block.type === "math") {
+    return {
+      blockId: block.id,
+      sourceLatex: block.text,
+      localOffset: offset,
+      chip: null,
+    };
+  }
+  const chip = inlineMathChipAt(editor.query.marks, block.id, offset);
+  if (!chip) return null;
+  return {
+    blockId: block.id,
+    sourceLatex: chip.text,
+    localOffset: offset - chip.from,
+    chip: { from: chip.from, to: chip.to },
+  };
+}
+
+/**
+ * The grid the caret sits in, in the toolbar/context-menu shape — or null when
+ * the caret is not inside a matrix. Thin adapter over {@link mathMatrixContext}
+ * that maps the caret to its math source first.
+ */
+function matrixContextForCaret(
+  editor: EditorInstance,
+): MobileToolbarMatrixContext | null {
+  const target = matrixCaretTarget(editor);
+  if (!target) return null;
+  const ctx = mathMatrixContext(target.sourceLatex, target.localOffset);
+  if (!ctx) return null;
+  return {
+    env: ctx.env,
+    rows: ctx.rows,
+    cols: ctx.cols,
+    row: ctx.row,
+    col: ctx.col,
+  };
+}
+
+/**
+ * Resize the matrix at the current caret to `rows` × `cols`. Rewrites the
+ * enclosing environment's source span through the normal `editor.change` path;
+ * for an inline chip it re-marks the (grown/shrunk) run as math so the rewrite
+ * joins the chip rather than spilling raw LaTeX. The caret is left inside the
+ * grid so a following resize still resolves it. No-op when the caret is not in a
+ * matrix. Does not touch DOM focus — the resize is driven from a dialog/drawer
+ * that must keep focus while it is open.
+ */
+function applyMatrixResize(
+  editor: EditorInstance,
+  rows: number,
+  cols: number,
+): void {
+  const target = matrixCaretTarget(editor);
+  if (!target) return;
+  const result = mathMatrixResize(
+    target.sourceLatex,
+    target.localOffset,
+    rows,
+    cols,
+  );
+  if (!result || result.edits.length === 0) return;
+
+  const base = target.chip ? target.chip.from : 0;
+  // Net length change — the chip's new end, for re-marking inline math.
+  const delta = result.edits.reduce(
+    (d, e) => d + (e.text.length - (e.end - e.start)),
+    0,
+  );
+  // Apply right-to-left (descending start) so each edit's original offsets stay
+  // valid against the yet-unmodified left side; at a shared start apply the
+  // deletion (longer range) before the insertion so the new cells land at the
+  // freed boundary.
+  const ordered = [...result.edits].sort(
+    (a, b) => b.start - a.start || b.end - b.start - (a.end - a.start),
+  );
+
+  editor.change((change) => {
+    for (const e of ordered) {
+      const from = { block: target.blockId, offset: e.start + base };
+      const to = { block: target.blockId, offset: e.end + base };
+      if (e.text.length === 0) change.deleteRange({ from, to });
+      else change.insertText(e.text, { from, to });
+    }
+    // Inline chips: appended cells land inside the math mark's extent but don't
+    // inherit it — re-mark the chip's new span so the grid stays one formula.
+    if (target.chip) {
+      const newTo = target.chip.to + delta;
+      if (newTo > target.chip.from) {
+        change.setMark("math", {
+          active: true,
+          range: {
+            from: { block: target.blockId, offset: target.chip.from },
+            to: { block: target.blockId, offset: newTo },
+          },
+        });
+      }
+    }
+    change.select({ block: target.blockId, offset: result.caret + base });
+  });
 }
 
 /**
@@ -562,12 +710,24 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
 const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   overlay,
   editor,
+  refocus,
 }) => {
   const { t } = useTranslation();
   const isMobile = useResponsive("(max-width: 768px)");
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const { blockId } = overlay;
+  // On mobile the drawer's open state is the engine's `activeMenu` (mirrored onto
+  // the descriptor's `data.open` by CypherCodeNode), so the picker can be opened
+  // from the floating chip or the keyboard toolbar's "code language" button
+  // through one source of truth. Closing clears the menu.
+  const drawerOpen = Boolean((overlay.data as { open?: boolean })?.open);
+  const closeDrawer = () => {
+    editor.host.closeActiveMenu();
+    setSearch("");
+    // Restore the mobile keyboard/toolbar after the modal drawer dismisses.
+    if (window.CypherBridge) refocus();
+  };
   const block = editor.query.block({ block: blockId });
   if (block?.type !== "code") return null;
 
@@ -600,94 +760,85 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
     "h-7 w-auto gap-1 rounded-md border-border/60 bg-background/80 px-2 shadow-none backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors";
 
   if (isMobile) {
+    // No floating chip on mobile: the code block's language is edited entirely
+    // from the keyboard toolbar's "code language" button, which opens this
+    // drawer via the `code-language` menu (see `openCodeLanguageMenu`). The
+    // component still mounts for every visible code block (the always-on overlay
+    // slot), but renders nothing until that menu targets this block.
     return (
-      <div
-        style={{
-          position: "absolute",
-          right: "8px",
-          top: "8px",
-          pointerEvents: "auto",
+      <Drawer
+        open={drawerOpen}
+        onOpenChange={(open) => {
+          if (!open) closeDrawer();
         }}
+        modal={true}
+        dismissible={true}
+        shouldScaleBackground={false}
       >
-        <Button
-          type="button"
-          variant="outline"
-          className={triggerClassName}
-          aria-label={t("code.selectLanguage", "Select language")}
-          title={t("code.selectLanguage", "Select language")}
-          onClick={() => setDrawerOpen(true)}
-        >
-          <span className="max-w-28 truncate">{currentLabel}</span>
-          <ChevronDown className="size-4 shrink-0" />
-        </Button>
-        <Drawer
-          open={drawerOpen}
-          onOpenChange={(open) => {
-            setDrawerOpen(open);
-            if (!open) setSearch("");
+        <DrawerContent
+          data-editor-overlay
+          className="md:h-[min(72vh,560px)] overflow-hidden"
+          // Focus the search field as the drawer opens (Radix would otherwise
+          // land focus on the first list item), so typing filters immediately
+          // and the soft keyboard comes up ready for the query.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            searchInputRef.current?.focus();
           }}
-          modal={true}
-          dismissible={true}
-          shouldScaleBackground={false}
         >
-          <DrawerContent
-            data-editor-overlay
-            className="md:h-[min(72vh,560px)] overflow-hidden"
-          >
-            <div className="mx-auto flex h-full w-full max-w-lg flex-col">
-              <DrawerHeader className="pb-2">
-                <DrawerTitle>
-                  {t("code.selectLanguage", "Select language")}
-                </DrawerTitle>
-              </DrawerHeader>
-              <div className="relative px-4 pb-3">
-                <Search
-                  aria-hidden="true"
-                  className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder={t("editor.search", "Search...")}
-                  aria-label={t("editor.search", "Search...")}
-                  className="h-11 ps-10"
-                />
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/50 p-2">
-                {filteredLanguages.length > 0 ? (
-                  filteredLanguages.map((option) => (
-                    <Button
-                      key={option.id}
-                      type="button"
-                      variant="ghost"
-                      className="h-11 w-full justify-start gap-3 px-3"
-                      onClick={() => {
-                        handleChange(option.label);
-                        setDrawerOpen(false);
-                        setSearch("");
-                      }}
-                    >
-                      <Check
-                        className={cn(
-                          "size-4 shrink-0",
-                          currentLabel === option.label
-                            ? "opacity-100"
-                            : "opacity-0",
-                        )}
-                      />
-                      <span>{option.label}</span>
-                    </Button>
-                  ))
-                ) : (
-                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    {t("common.noResults", "No results")}
-                  </div>
-                )}
-              </div>
+          <div className="mx-auto flex h-full w-full max-w-lg flex-col">
+            <DrawerHeader className="pb-2">
+              <DrawerTitle>
+                {t("code.selectLanguage", "Select language")}
+              </DrawerTitle>
+            </DrawerHeader>
+            <div className="relative px-4 pb-3">
+              <Search
+                aria-hidden="true"
+                className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                ref={searchInputRef}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t("editor.search", "Search...")}
+                aria-label={t("editor.search", "Search...")}
+                className="h-11 ps-10"
+              />
             </div>
-          </DrawerContent>
-        </Drawer>
-      </div>
+            <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/50 p-2">
+              {filteredLanguages.length > 0 ? (
+                filteredLanguages.map((option) => (
+                  <Button
+                    key={option.id}
+                    type="button"
+                    variant="ghost"
+                    className="h-11 w-full justify-start gap-3 px-3"
+                    onClick={() => {
+                      handleChange(option.label);
+                      closeDrawer();
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        "size-4 shrink-0",
+                        currentLabel === option.label
+                          ? "opacity-100"
+                          : "opacity-0",
+                      )}
+                    />
+                    <span>{option.label}</span>
+                  </Button>
+                ))
+              ) : (
+                <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  {t("common.noResults", "No results")}
+                </div>
+              )}
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
     );
   }
 
@@ -1147,6 +1298,41 @@ function PageEditor({
     hoveredItemId?: string | null;
   } | null>(null);
 
+  // The matrix editor surface (dialog on desktop, drawer on touch): null while
+  // closed, else the live dimensions of the grid the caret sits in. Both the
+  // context menu's "Edit matrix" and the mobile toolbar's matrix button open it;
+  // its steppers resize the grid in place, and the stored dimensions are refreshed
+  // from the caret after each edit so the preview mirrors the real matrix.
+  const [matrixEditor, setMatrixEditor] = useState<{
+    rows: number;
+    cols: number;
+  } | null>(null);
+
+  // Open the matrix editor from the current caret's grid, or no-op when the caret
+  // is not in one. Shared by the toolbar action and the context-menu item.
+  const openMatrixEditor = useCallback(() => {
+    const editor = mountedRef.current?.editor;
+    const ctx = editor ? matrixContextForCaret(editor) : null;
+    if (ctx) setMatrixEditor({ rows: ctx.rows, cols: ctx.cols });
+  }, []);
+
+  // Resize the caret's grid, then re-read its dimensions so the surface reflects
+  // the applied (and clamped) size.
+  const handleMatrixResize = useCallback((rows: number, cols: number) => {
+    const editor = mountedRef.current?.editor;
+    if (!editor) return;
+    applyMatrixResize(editor, rows, cols);
+    const ctx = matrixContextForCaret(editor);
+    setMatrixEditor(ctx ? { rows: ctx.rows, cols: ctx.cols } : { rows, cols });
+  }, []);
+
+  const closeMatrixEditor = useCallback(() => {
+    setMatrixEditor(null);
+    // Restore the caret on desktop; on touch this would re-raise the soft keyboard
+    // right after dismissing the drawer, so leave focus where the drawer left it.
+    if (!isTouchDevice()) mountedRef.current?.editor.focus();
+  }, []);
+
   // True while a text-input popover (image upload/edit or link edit) is open, so
   // the editor enters "suspended" mode and the canvas stops capturing input. These
   // popovers now render via the node/mark overlay registry; this mirror is just
@@ -1210,9 +1396,9 @@ function PageEditor({
     blockType: "paragraph" as MobileToolbarBlockType,
     listIndent: 0,
     todoChecked: false,
-    codeLanguage: "",
     math: null as MobileToolbarMathContext | null,
     linkActive: false,
+    canCreateLink: false,
   });
 
   // The soft-keyboard inset (CSS px) the editor's viewport height is reduced by,
@@ -1523,6 +1709,16 @@ function PageEditor({
           editor.dispatch(OUTDENT_LIST_ITEM);
           editor.focus();
           break;
+        case "indent-code":
+          // Indent the caret's line(s) in a code block (the soft-keyboard
+          // counterpart to Tab). Line-based, like the list indent above.
+          editor.dispatch(INDENT_CODE);
+          editor.focus();
+          break;
+        case "outdent-code":
+          editor.dispatch(OUTDENT_CODE);
+          editor.focus();
+          break;
         case "toggle-todo": {
           const block = editor.query.block();
           if (block?.type !== "todo_list") break;
@@ -1533,30 +1729,64 @@ function PageEditor({
           editor.focus();
           break;
         }
-        case "set-code-language": {
+        case "edit-code": {
+          // Open the code block's language picker as a drawer/sheet — the
+          // in-webview counterpart to the floating language chip. Rendered on
+          // mobile by the CypherCodeNode "code-language" overlay.
           const block = editor.query.block();
           if (block?.type !== "code") break;
-          editor.change((change) =>
-            change.setBlock({ language: action.language }, { block: block.id }),
-          );
-          editor.focus();
+          openCodeLanguageMenu(editor, block.id);
           break;
         }
         case "edit-link": {
-          // Open the settings drawer for the link under the caret/selection —
-          // the in-webview counterpart to the iOS bar's format button. Rendered
-          // as a drawer on mobile by the CypherLinkMark "link-edit" overlay.
+          // The drawer's link control. Edit the link under the caret/selection
+          // when one exists; otherwise turn the current text selection into a new
+          // link. Mirrors the native accessory's link button
+          // (handleFormatButtonClick). Rendered as a drawer on mobile by the
+          // CypherLinkMark "link-edit" overlay.
           const link = editor.query.marks().find((m) => m.name === "link");
-          if (!link) break;
-          openLinkEditMenu(editor, {
-            blockId: link.block,
-            startIndex: link.from,
-            endIndex: link.to,
-            url: (link.attrs.url as string | undefined) ?? "",
-            text: link.text,
-            x: 0,
-            y: 0,
-          });
+          if (link) {
+            openLinkEditMenu(editor, {
+              blockId: link.block,
+              startIndex: link.from,
+              endIndex: link.to,
+              url: (link.attrs.url as string | undefined) ?? "",
+              text: link.text,
+              x: 0,
+              y: 0,
+            });
+            break;
+          }
+          // Create from a non-empty text selection: the chosen text becomes the
+          // link's text and the drawer collects the URL.
+          const range = editor.state.selection.range;
+          const selection =
+            range && typeof range === "object" && "from" in range
+              ? range
+              : null;
+          if (
+            selection &&
+            typeof selection.from === "object" &&
+            typeof selection.to === "object"
+          ) {
+            const { from, to } = selection;
+            const block = editor.query.block(from);
+            if (block && block.type !== "image") {
+              const startIndex = "offset" in from ? (from.offset ?? 0) : 0;
+              const endIndex = "offset" in to ? (to.offset ?? 0) : 0;
+              const selectedText = block.text.substring(startIndex, endIndex);
+              openLinkEditMenu(editor, {
+                blockId: block.id,
+                startIndex,
+                endIndex,
+                url: "",
+                text: "",
+                selectedText,
+                x: 0,
+                y: 0,
+              });
+            }
+          }
           break;
         }
         case "edit-image": {
@@ -1567,12 +1797,15 @@ function PageEditor({
           openImageUploadMenu(editor, block.id, 0, 0);
           break;
         }
+        case "open-matrix-editor":
+          openMatrixEditor();
+          break;
         case "dismiss":
           dismissMobileKeyboard();
           break;
       }
     },
-    [dismissMobileKeyboard],
+    [dismissMobileKeyboard, openMatrixEditor],
   );
 
   useEffect(() => {
@@ -2495,14 +2728,15 @@ function PageEditor({
         "offset" in selectionRange
           ? (selectionRange.offset ?? 0)
           : null;
-      const insideInlineMath =
-        caretOffset !== null &&
-        activeBlock != null &&
-        inlineMathChipAt(
-          mounted.editor.query.marks,
-          activeBlock.id,
-          caretOffset,
-        ) !== undefined;
+      const inlineMathChip =
+        caretOffset !== null && activeBlock != null
+          ? inlineMathChipAt(
+              mounted.editor.query.marks,
+              activeBlock.id,
+              caretOffset,
+            )
+          : undefined;
+      const insideInlineMath = inlineMathChip !== undefined;
       const canOpenMathCommands =
         snapshot.selection.empty &&
         (rawBlockType === "math" || insideInlineMath);
@@ -2521,7 +2755,32 @@ function PageEditor({
       ) {
         const mathText = mounted.editor.query.block()?.text ?? "";
         const active = activeBlockMathCommand(mathText, caretOffset);
-        math = { query: active ? active.query : null };
+        // Edge detection runs on the math *source* the caret sits in: a block
+        // equation is the whole block text; an inline chip is its own LaTeX at a
+        // chip-local offset. A step with no further caret stop in that direction
+        // would leave the formula, so we disable the matching caret control
+        // rather than let it silently exit the math.
+        const edgeLatex = inlineMathChip ? inlineMathChip.text : mathText;
+        const edgeOffset = inlineMathChip
+          ? caretOffset - inlineMathChip.from
+          : caretOffset;
+        // The grid the caret rests in (if any) — the source/offset are the same
+        // as the edge detection above, so a chip resolves at a chip-local offset.
+        const matrixCtx = mathMatrixContext(edgeLatex, edgeOffset);
+        math = {
+          query: active ? active.query : null,
+          canCaretLeft: !mathSourceAtEdge(edgeLatex, edgeOffset, "left"),
+          canCaretRight: !mathSourceAtEdge(edgeLatex, edgeOffset, "right"),
+          matrix: matrixCtx
+            ? {
+                env: matrixCtx.env,
+                rows: matrixCtx.rows,
+                cols: matrixCtx.cols,
+                row: matrixCtx.row,
+                col: matrixCtx.col,
+              }
+            : null,
+        };
       }
 
       // Structural context for the list/code contextual rows. The fields are
@@ -2532,10 +2791,13 @@ function PageEditor({
         typeof contextAttrs.indent === "number" ? contextAttrs.indent : 0;
       const todoChecked =
         rawBlockType === "todo_list" && Boolean(contextAttrs.checked);
-      const codeLanguage =
-        rawBlockType === "code" && typeof contextAttrs.language === "string"
-          ? contextAttrs.language
-          : "";
+
+      // A non-empty text selection in a textual block can be turned into a link;
+      // this enables the drawer's link control even when no link exists yet.
+      const canCreateLink =
+        !snapshot.selection.empty &&
+        activeBlock != null &&
+        activeBlock.type !== "image";
 
       setMobileToolbar({
         canUndo: snapshot.canUndo,
@@ -2549,9 +2811,9 @@ function PageEditor({
         blockType,
         listIndent,
         todoChecked,
-        codeLanguage,
         math,
         linkActive,
+        canCreateLink,
       });
     });
 
@@ -2893,6 +3155,23 @@ function PageEditor({
       });
     }
 
+    // "Edit matrix" when the caret sits in a grid construct. Unlike Format this
+    // doesn't require a selection — a bare caret in a cell is the primary case —
+    // and it opens the same row/column editor the mobile toolbar's matrix button
+    // does (a dialog here on desktop, a drawer on touch).
+    const matrixMenuCtx =
+      !readonly && mountedRef.current
+        ? matrixContextForCaret(mountedRef.current.editor)
+        : null;
+    if (matrixMenuCtx) {
+      items.push({
+        id: "matrix",
+        label: t("editor.math.matrix.title", "Edit matrix"),
+        icon: <Grid3x3 size={16} />,
+        action: () => openMatrixEditor(),
+      });
+    }
+
     // Add Format submenu for desktop when text is selected (not in readonly mode)
     if (hasSelection && !isTouchDevice() && !readonly) {
       // The marks active across the selection (the canonical "all chars carry
@@ -3182,6 +3461,19 @@ function PageEditor({
           onClose={handleFindClose}
           currentMatch={findActiveIndex}
           totalMatches={findMatches.length}
+        />
+      )}
+
+      {/* Matrix editor — grid preview + row/column steppers. Opened by the
+          context-menu "Edit matrix" and the mobile toolbar's matrix button;
+          renders as a modal dialog on desktop and a bottom drawer on touch. */}
+      {matrixEditor && (
+        <MatrixEditor
+          open={true}
+          rows={matrixEditor.rows}
+          cols={matrixEditor.cols}
+          onResize={handleMatrixResize}
+          onClose={closeMatrixEditor}
         />
       )}
 

@@ -50,7 +50,13 @@ const NON_TOOLBAR_IMAGESETS = new Set(["Splash", "spinner"]);
 
 /** Parse the `MobileToolbarIcon` string-union to get the required icon names. */
 function readRequiredIconNames() {
-  const src = readFileSync(TOOLBAR_SOURCE, "utf8");
+  // Strip comments first: the union is delimited by the `;` after its last
+  // member, but a `;` inside a `//` explanation for one of the icons would
+  // otherwise truncate the `[^;]*` capture and silently drop every member after
+  // it (and the icons they name would never be generated).
+  const src = readFileSync(TOOLBAR_SOURCE, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "");
   const match = src.match(/export type MobileToolbarIcon =([^;]*);/);
   if (!match) {
     throw new Error(

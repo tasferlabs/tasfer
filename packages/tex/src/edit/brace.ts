@@ -67,6 +67,105 @@ export function escapeTypedBrace(
 }
 
 /**
+ * Whether a `}` typed at `offset` lands flush before the grouping `}` that closes
+ * the group the caret sits in — so the keystroke should STEP OVER that existing
+ * closer rather than insert a second (escaped) brace.
+ *
+ * The construct materializer auto-closes an argument the instant its `{` is typed
+ * (`\text{` → `\text{}`, caret between the braces). A user who then types the
+ * matching `}` themselves would otherwise get a literal `\}` wedged in
+ * (`\text{hi\}}`) — because the group is already balanced, {@link
+ * escapeTypedBrace} treats the keystroke as a literal glyph — and the formula
+ * renders a stray brace. Stepping over the closer keeps natural `\text{hi}`
+ * typing clean, matching the auto-pair behavior of every code editor.
+ *
+ * True only when the char at `offset` is a grouping `}` (a lexer `rbrace`, so a
+ * `\}` glyph never counts) that closes a group still open at the caret. Lexes
+ * rather than scanning chars so escaped braces never mislead the depth count.
+ * Pure over the source string.
+ */
+export function typedBraceSkipsCloser(latex: string, offset: number): boolean {
+  if (latex[offset] !== "}") return false;
+  let depth = 0;
+  for (const t of tokenize(latex)) {
+    if (t.start >= offset) {
+      // The token starting exactly at `offset` must be the grouping `}` we skip;
+      // and it can only close something if a group is still open here.
+      return t.start === offset && t.kind === "rbrace" && depth > 0;
+    }
+    if (t.kind === "lbrace") depth++;
+    else if (t.kind === "rbrace" && depth > 0) depth--;
+  }
+  return false;
+}
+
+/** The `\begin`/`\end` nesting depth at `offset` — how many tabular (or other)
+ *  environments enclose it. `\\` is a row separator only where this is > 0. */
+function environmentDepthAt(latex: string, offset: number): number {
+  let depth = 0;
+  for (const t of tokenize(latex)) {
+    if (t.start >= offset) break;
+    if (t.kind === "command" && t.value === "begin") depth++;
+    else if (t.kind === "command" && t.value === "end" && depth > 0) depth--;
+  }
+  return depth;
+}
+
+/**
+ * Whether a bare `\` typed immediately before source `offset` would fuse with the
+ * character already there into a single escaped/structural token, silently
+ * consuming that character's structural role.
+ *
+ * A lone `\` followed by one non-letter lexes as a single-char command — the
+ * escaped GLYPH, not the structural token: `\&` is a literal ampersand (not a
+ * column separator), `\}`/`\{` a brace glyph (not a group boundary), `\^`/`\_` a
+ * literal caret/underscore (not a script). And a `\` before another `\` inside a
+ * tabular environment forms a row-break `\\`, orphaning whatever the second `\`
+ * introduced. Each destroys a construct — a matrix cell boundary, a fraction's
+ * slot, a superscript — so a live editor wedges a command-separator space between
+ * the two instead (see the callers in `nodes/math.ts`); the lexer's own
+ * `literalStart` masks the fusion only while the `\` is the one being typed.
+ *
+ * `[` and `]` are covered too: to the lexer they're ordinary `char`s, but the
+ * PARSER reads them structurally as a `\sqrt[…]` optional-index delimiter, so
+ * `\sqrt[3\]{x}` fuses the `]` into `\]` — the index then runs past it and
+ * swallows the `{x}` radicand (leaving it empty), the exact cell-loss shape of
+ * the reported matrix bug. Outside a root index they're plain brackets, where
+ * the separator is merely a harmless space, so guarding them unconditionally is
+ * safe. (A prime `'` is likewise parser-structural, but a separator would detach
+ * it from its base rather than repair it, and typing `\` flush before an existing
+ * `'` is vanishingly rare — so it is intentionally left out.)
+ *
+ * Letters are excluded: `\`+letter is the command NAME being typed, the intended
+ * path. Ordinary atoms (`+`, digits) are excluded too — a `\+` renders as a red
+ * unknown but de-structures no construct. Whitespace / end-of-string are excluded:
+ * `\ ` is already a control space and a trailing `\` a harmless empty command.
+ * Pure over the source string.
+ */
+export function backslashFusesWith(latex: string, offset: number): boolean {
+  const ch = latex[offset];
+  if (ch === undefined) return false;
+  // `\` + one of these non-letters merges into a single-char command whose glyph
+  // replaces the structural token it escaped. `[`/`]` are structural only as a
+  // `\sqrt[…]` index delimiter; elsewhere the wedged separator is a harmless space.
+  if (
+    ch === "{" ||
+    ch === "}" ||
+    ch === "&" ||
+    ch === "^" ||
+    ch === "_" ||
+    ch === "[" ||
+    ch === "]"
+  ) {
+    return true;
+  }
+  // `\` + `\` forms `\\` — a row break, but only inside an environment; elsewhere
+  // the lexer keeps the two backslashes separate (a harmless literal backslash).
+  if (ch === "\\") return environmentDepthAt(latex, offset) > 0;
+  return false;
+}
+
+/**
  * Auto-heal: the appended closing braces that balance every unclosed grouping
  * `{` in `latex`, or an empty list when it is already balanced.
  *

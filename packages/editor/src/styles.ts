@@ -381,6 +381,11 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         minHeight: 48,
         hoverBackgroundColor: t.muted,
         hoverBorderRadius: 6,
+        // Stronger than the base 0.2 text selection: the highlight is composited
+        // over the equation's own filled card surface, not the plain document
+        // background, so it needs more presence to read as clearly as a text
+        // selection does.
+        selectionOpacity: 0.4,
         errorBackgroundColor: t.mathErrorBackground,
         placeholder: {
           backgroundColor: t.muted,

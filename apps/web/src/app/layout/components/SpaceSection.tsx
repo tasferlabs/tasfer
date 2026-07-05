@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "../../../components/ui/dropdown-menu";
 import Icons from "../../components/uiKit/Icons/Icons";
+import { useImportDialog } from "../../components/ImportDialogProvider";
 import type { ISpace } from "../../api/spaces.api";
 import {
   useIsSpaceCollapsed,
@@ -41,6 +42,7 @@ export function SpaceSection({
   onAddPage: (spaceId: string) => void;
 }) {
   const { t } = useTranslation();
+  const { openImport } = useImportDialog();
   const prefs = useSpacePrefs();
   const collapsed = useIsSpaceCollapsed(space.id);
   const name = space.name || t("common.untitled", "Untitled");
@@ -111,6 +113,9 @@ export function SpaceSection({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onInviteMembers(space.id)}>
               {t("share.inviteMembers", "Invite members")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openImport(space.id)}>
+              {t("space.import", "Import")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onArchive(space.id)}>

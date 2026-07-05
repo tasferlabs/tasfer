@@ -33,6 +33,7 @@ import {
   getBlockIndexAtPoint,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
+  snapSelectionToConstructs,
 } from "../selection";
 import type { EditorState } from "../state-types";
 import { getEditorStyles } from "../styles";
@@ -170,6 +171,8 @@ function endHandleLoupe(state: EditorState, session: InteractionSession): void {
     state.actionBus.dispatch(CURSOR_DRAG_END);
   }
   session.handleDragLoupe = null;
+  session.handleDragPrevRawFocus = null;
+  session.handleDragPrevHit = null;
 }
 
 /** Touch selection handles (anchor/focus) — drag to adjust the selection. */
@@ -205,6 +208,11 @@ const selectionHandleRegion: Region = {
         x: p.x,
         y: p.y,
       };
+      // Fresh drag: no travel history, so the first move snaps by the
+      // selection's own orientation rather than a stale direction, and the row
+      // hysteresis anchors only once the first move has resolved.
+      ctx.session.handleDragPrevRawFocus = null;
+      ctx.session.handleDragPrevHit = null;
 
       let state = ctx.state;
       const sel = state.document.selection;
@@ -259,6 +267,23 @@ const selectionHandleRegion: Region = {
         stopAutoScroll(session);
       }
 
+      // Finger-drag resolution, exactly like the single-caret magnifier drag:
+      // over a formula the focus follows the finger to its nearest caret stop
+      // through stacked constructs, instead of the tap path's leap out to a
+      // construct's boundary in the gap between rows. On a coarse (touch)
+      // pointer that band leap flickers as the finger hovers a row gap, and the
+      // construct snapper below turns that flicker into a selection that jitters
+      // between whole-construct and partial — `drag: true` is what keeps it
+      // steady (see the same fix on the caret drag in touchEvents).
+      //
+      // `prev` is the LAST frame's raw hit — the row-hysteresis anchor. Nearest-
+      // stop alone still dithers between two tightly-stacked rows when the
+      // finger sits on their midline (a fraction's bar); with the caret's rows
+      // ~1em apart every sub-pixel wobble flips the row, the snapper amplifies
+      // each flip into whole-construct-vs-partial, and the loupe bounces. The
+      // anchor must be the raw hit, not the snapped focus: a focus widened to a
+      // construct's edge sits on the OUTER baseline row, which would disarm the
+      // hysteresis exactly where it's needed.
       const newPosition = getTextPositionFromViewport(
         p.x,
         p.y,
@@ -266,7 +291,9 @@ const selectionHandleRegion: Region = {
         viewport,
         undefined,
         ctx.visibility,
+        { drag: true, prev: session.handleDragPrevHit },
       );
+      if (newPosition) session.handleDragPrevHit = newPosition;
 
       let next = state;
       if (
@@ -276,12 +303,48 @@ const selectionHandleRegion: Region = {
       ) {
         // The dragged handle is always the focus (set up in onStart); the anchor
         // is the opposite, fixed endpoint.
-        const { anchor, focus: prevFocus } = state.document.selection;
-        const newFocus = newPosition;
+        const { anchor: rawAnchor, focus: prevFocus } =
+          state.document.selection;
+
+        // Snap the raw hit-test focus so the drag never leaves a math construct
+        // half-covered: descending out through a construct escalates level by
+        // level to the whole construct, exactly like a desktop mouse/keyboard
+        // extension (both route focus through this same snapper). A partial
+        // (non-construct) span stays as dragged. The fixed anchor widens outward
+        // too, matching desktop.
+        //
+        // The snapper reads the finger's travel DIRECTION to decide "take the
+        // construct in vs drop it", and that reference must stay stable while the
+        // finger sits inside a construct — otherwise its two failure modes flicker
+        // the whole construct in and out every frame:
+        //   • feeding back the snapped focus (which jumps to the construct's
+        //     edges) flips the sign each frame;
+        //   • even the raw focus dithers between two interior stops when a finger
+        //     hovers the construct it's trying to include/exclude (worst on
+        //     shrink), flipping the sign just the same.
+        // So the reference is the last raw focus that landed at a SETTLED stop —
+        // one the snapper did NOT have to widen. While the finger is interior the
+        // reference is pinned to where it entered, so the take-in/drop decision is
+        // latched until the finger actually crosses out one side.
+        const prevRawFocus = session.handleDragPrevRawFocus ?? undefined;
+        const { anchor, focus: newFocus } = snapSelectionToConstructs(
+          state,
+          rawAnchor,
+          newPosition,
+          prevRawFocus,
+        );
+        const focusSettled =
+          newFocus.blockIndex === newPosition.blockIndex &&
+          newFocus.textIndex === newPosition.textIndex;
+        if (focusSettled) {
+          session.handleDragPrevRawFocus = newPosition;
+        }
 
         // Tick a haptic each time the held handle crosses a character or line
         // boundary, mirroring the caret cursor-drag path in touchEvents — the
-        // host maps CURSOR_DRAG_BOUNDARY to a light tap.
+        // host maps CURSOR_DRAG_BOUNDARY to a light tap. Compared against the
+        // snapped focus so it fires with the visible selection, not on interior
+        // stops the snapper collapses over.
         if (
           prevFocus.blockIndex !== newFocus.blockIndex ||
           prevFocus.textIndex !== newFocus.textIndex

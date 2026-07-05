@@ -34,8 +34,9 @@ export interface CaretStop {
    * True for a stop at a construct's OUTER edge on the parent baseline (see
    * {@link ListBox.boundary}). When a source offset is both a construct's edge
    * and an inner glyph's edge (e.g. the end of `x^{2}` is also the end of the
-   * `2`), {@link caretRect} prefers this one so the caret sits beside the whole
-   * construct on the main baseline rather than up on the script row.
+   * `2`), {@link caretRect} prefers this one — but only for a TRAILING edge (see
+   * {@link partnerX}) — so the caret sits beside a construct it just LEFT on the
+   * main baseline rather than up on the script row.
    */
   readonly boundary?: boolean;
   /**
@@ -66,6 +67,28 @@ export interface CaretStop {
 export interface HitTestOptions {
   /** Minimum width and height, in CSS pixels, of an empty-slot hit target. */
   readonly placeholderTargetSize?: number;
+  /**
+   * Finger-drag resolution: resolve to the caret stop physically NEAREST the
+   * point in 2-D, instead of the tap path's vertical-band + boundary logic. Used
+   * by the mobile magnifier caret-drag. The tap path, while the finger sits in
+   * the gap between two stacked rows (a fraction's numerator and denominator,
+   * over the fraction bar), falls back to the construct's full-height OUTER
+   * boundary and yanks the caret out beside the whole fraction — so dragging up
+   * from the denominator toward the numerator flickers out to the edge and back.
+   * Nearest-stop resolution transitions cleanly numerator↔denominator at the
+   * visual midpoint between the rows with no such leap, while still reaching
+   * whichever row the finger is closest to. A precise tap leaves this off.
+   */
+  readonly drag?: boolean;
+  /**
+   * Drag mode only: the caret's CURRENT source offset. Enables row hysteresis —
+   * the current row's stops get a vertical-distance discount so a wobbling finger
+   * must move decisively toward another row before the caret leaves the one it is
+   * on. Without it, tightly-stacked inline rows (a fraction only ~1em apart) flip
+   * on sub-pixel jitter. Null/omitted disables hysteresis (the first placement of
+   * a drag, or a formula with a single row).
+   */
+  readonly dragPrevOffset?: number | null;
 }
 
 export interface CaretRect {
@@ -139,6 +162,25 @@ function walk(
   ctx: SlotCtx = {},
 ): void {
   if (box.type === "glyph") {
+    // A shaped fallback run (Arabic, CJK, …) painted as one box carries its own
+    // interior boundary stops, already resolved for direction (an RTL run's stops
+    // decrease in offset as x grows). Use them instead of the two span edges so
+    // the caret can land between the run's characters.
+    if (box.textCarets && box.textCarets.length > 0) {
+      const top = y - box.height * fs;
+      const bottom = y + box.depth * fs;
+      for (const c of box.textCarets) {
+        out.push({
+          offset: c.offset,
+          x: x + c.dx * fs,
+          y,
+          top,
+          bottom,
+          ...ctx,
+        });
+      }
+      return;
+    }
     if (box.span && box.width > 0) {
       const top = y - box.height * fs;
       const bottom = y + box.depth * fs;
@@ -170,6 +212,26 @@ function walk(
     return;
   }
   if (box.type === "list") {
+    // An indivisible multi-glyph atom (a named operator like `\det`): its letters
+    // are span-less, so the only caret stops are the atom's two outer edges on
+    // this baseline. Emitting them here (and not descending) keeps the caret from
+    // landing between the letters of a command name. Plain baseline stops (not
+    // `boundary`) — the atom sits on the baseline, so vertical motion and the
+    // hit-test treat its edges like any glyph's.
+    if (box.unit && box.span) {
+      const top = y - box.height * fs;
+      const bottom = y + box.depth * fs;
+      out.push({ offset: box.span.start, x, y, top, bottom, ...ctx });
+      out.push({
+        offset: box.span.end,
+        x: x + box.width * fs,
+        y,
+        top,
+        bottom,
+        ...ctx,
+      });
+      return;
+    }
     // A construct whose children carry script roles (a super/subscript) gets one
     // fresh id shared by its sup and sub, so caretVertical can pair them.
     const isScripted = box.children.some((c) => c.role);
@@ -225,17 +287,104 @@ function walk(
 }
 
 /**
+ * Finger-drag hit-test (see {@link HitTestOptions.drag}): the caret stop
+ * physically nearest `(x, y)` by plain 2-D distance, taking each stop's own row
+ * baseline as its `y`. Nearest-stop resolution follows the finger smoothly
+ * through a fraction's stacked rows — a single clean transition at the midpoint
+ * between the numerator's and denominator's baselines — without the tap path's
+ * leap to the construct's outer boundary in the gap between those rows (the
+ * reported magnifier jitter). `stops` must be non-empty.
+ */
+function dragHitTest(
+  stops: CaretStop[],
+  x: number,
+  y: number,
+  prevOffset: number | null,
+  hyst: number,
+): number {
+  // The caret's current stop, for hysteresis. A source offset can own several
+  // stops (edges); any of them carries the row y.
+  const prevStop =
+    prevOffset == null
+      ? null
+      : (stops.find((s) => s.offset === prevOffset) ?? null);
+  const prevRowY = prevStop?.y ?? null;
+
+  let best = stops[0];
+  let bestD = Infinity;
+  for (const s of stops) {
+    // A construct's outer boundary sits on the parent baseline (y ≈ 0) spanning
+    // the whole construct width. While the finger is horizontally INSIDE the
+    // construct it is the physically-nearest stop whenever the finger passes near
+    // the baseline — i.e. exactly in the gap between two stacked rows — which
+    // would reintroduce the leap this mode exists to avoid. Skip it there; the
+    // finger reaches a boundary by dragging horizontally OUT of the construct,
+    // where it is no longer inside `[x, partnerX]`.
+    //
+    // The skip is hysteresis-aware at the construct's EDGE, because a hard
+    // in/out cutoff is a pixel-exact discontinuity: near the parent baseline,
+    // one pixel inside bans the boundary (an interior row wins) and one pixel
+    // outside hands it a near-zero distance — a wobbling finger flips the caret
+    // between a slot's small raised caret and the full-height edge caret every
+    // frame (the magnifier jitter at fraction edges). So, symmetric to the row
+    // hysteresis below: a caret HELD on an interior stop keeps the boundary
+    // skipped until the finger is decisively (`hyst`) past the extent, and a
+    // caret RESTING on the boundary itself keeps it live until the finger is
+    // decisively back inside.
+    if (s.boundary && s.partnerX !== undefined) {
+      const left = Math.min(s.x, s.partnerX);
+      const right = Math.max(s.x, s.partnerX);
+      if (x > left && x < right) {
+        const restingHere =
+          prevOffset === s.offset && Math.abs(x - s.x) <= hyst;
+        if (!restingHere) continue;
+      } else if (
+        prevStop !== null &&
+        !prevStop.boundary &&
+        prevStop.x > left &&
+        prevStop.x < right &&
+        x > left - hyst &&
+        x < right + hyst
+      ) {
+        continue;
+      }
+    }
+    const dx = s.x - x;
+    let dyAbs = Math.abs(s.y - y);
+    // Row hysteresis: discount the vertical distance of stops on the caret's
+    // CURRENT row, so the finger must travel more than `hyst` past the midpoint
+    // toward another row before that row wins. Keeps a wobbling finger from
+    // flipping between a fraction's tightly-stacked numerator and denominator.
+    // Only the ROW choice is affected — horizontal (dx) is untouched.
+    if (prevRowY != null && Math.abs(s.y - prevRowY) < 0.5) {
+      dyAbs = Math.max(0, dyAbs - hyst);
+    }
+    const d = dx * dx + dyAbs * dyAbs;
+    if (d < bestD) {
+      bestD = d;
+      best = s;
+    }
+  }
+  return best.offset;
+}
+
+/**
  * Source offset nearest to a click at `(x, y)`. Prefers stops whose vertical
  * band contains `y` (so a click in a numerator lands in the numerator), then
  * falls back to the horizontally-closest stop overall.
  *
  * The band preference only applies while the click sits horizontally *over* a
  * row's content (between the leftmost and rightmost in-band stop). Past that
- * extent the click is in empty space, where `y` no longer picks a row — so a
- * click in the trailing whitespace must land at the globally nearest stop (the
- * formula's true end) instead of snapping back up into a taller construct that
- * happens to sit to the left at that height (e.g. clicking right of `+a` in
- * `\frac{b}{c}+a` must land after `a`, not inside the fraction).
+ * extent the click is in empty space (a left/right margin): it resolves to the
+ * extreme caret position on the click's side via {@link marginStop}. For a
+ * WRAPPED equation that extreme is taken on the clicked visual line only (so a
+ * click right of line 1 lands at line 1's end, not the widest line's); on a
+ * single line it is the whole formula's edge (so clicking right of `+a` in
+ * `\frac{b}{c}+a` lands after `a`, not inside the fraction). A tie at that edge —
+ * an inner glyph's edge sitting exactly on a construct's outer boundary, e.g. the
+ * radicand's right edge and the whole `\sqrt{x}`'s — resolves to the OUTER edge,
+ * so a click to the right of a formula ending in a construct rests beside it, not
+ * inside it.
  */
 export function hitTest(
   layout: MathLayout,
@@ -245,6 +394,22 @@ export function hitTest(
 ): number {
   const stops = caretStops(layout);
   if (stops.length === 0) return 0;
+
+  // Finger-drag resolution: resolve to the caret stop physically nearest the
+  // finger in 2-D, with row hysteresis. See {@link dragHitTest} — it avoids the
+  // tap path's band + boundary logic (which leaps the caret to a construct's
+  // OUTER edge in the gap between stacked rows) and keeps a wobbling finger from
+  // flipping between rows. The hysteresis margin scales with the font so it is
+  // proportional to the row spacing.
+  if (options.drag) {
+    return dragHitTest(
+      stops,
+      x,
+      y,
+      options.dragPrevOffset ?? null,
+      layout.fontSize * 0.3,
+    );
+  }
 
   let best: CaretStop | null = null;
   let bestDist = Infinity;
@@ -309,11 +474,14 @@ export function hitTest(
     return bestPlaceholder.offset;
   }
   // Trust the row `y` picked only while the click is horizontally over that
-  // row's content. Past the in-band stops' extent the click is in empty space —
-  // fall back to the globally nearest stop so trailing whitespace lands at the
-  // formula's true end, not back inside a taller construct sitting to the side.
+  // row's content. Past the in-band stops' extent the click is in empty space (a
+  // margin): resolve to the extreme caret position on the click's side, kept to
+  // the clicked visual line for a wrapped equation — not a taller construct
+  // sitting to the side, nor another line's edge (see marginStop).
   const overBand = bestInBand !== null && x >= minInBandX && x <= maxInBandX;
-  const chosen = overBand ? bestInBand! : best!;
+  const chosen = overBand
+    ? bestInBand!
+    : (marginStop(stops, layout, x, y) ?? best!);
 
   // A click can land on a construct's own outer boundary while actually falling
   // *inside* its body — the classic case is the wide leading stroke of a √ sign,
@@ -361,6 +529,90 @@ export function hitTest(
   return chosen.offset;
 }
 
+/** Sub-pixel tolerance for treating two caret stops as sharing a column. */
+const EDGE_EPS = 0.01;
+
+/**
+ * The vertical band (baseline-relative px, +down) of each visual line of a
+ * WRAPPED equation, or `null` when the layout is a single line. Only the
+ * dedicated wrap container (`ListBox.lineStack`, set by `buildExpressionWrapped`)
+ * qualifies — a construct's internally stacked rows (a `\frac`'s numerator over
+ * its denominator) are NOT lines and must never split a margin click.
+ */
+function wrappedLineBands(
+  layout: MathLayout,
+): Array<{ top: number; bottom: number }> | null {
+  const root = layout.box;
+  if (root.type !== "list" || !root.lineStack || root.children.length < 2) {
+    return null;
+  }
+  const fs = layout.fontSize;
+  return root.children.map((child) => ({
+    top: (child.dy - child.box.height) * fs,
+    bottom: (child.dy + child.box.depth) * fs,
+  }));
+}
+
+/**
+ * Resolve a margin click (empty space left/right of the content) to the extreme
+ * caret position on the click's side. For a wrapped equation the candidates are
+ * restricted to the visual line the click is vertically nearest, so clicking in
+ * the margin beside a line lands at THAT line's leading/trailing edge. The pick
+ * is the horizontally-nearest stop (= the row's far edge for a genuine margin
+ * click); a tie at that edge — an inner glyph edge coincident with a construct's
+ * outer boundary (`\sqrt{x}`) — breaks toward the OUTER edge in the click's
+ * direction, so the caret rests beside the construct, not inside it. Returns
+ * `null` only when there are no stops.
+ */
+function marginStop(
+  stops: CaretStop[],
+  layout: MathLayout,
+  x: number,
+  y: number,
+): CaretStop | null {
+  let candidates = stops;
+  const bands = wrappedLineBands(layout);
+  if (bands) {
+    let band = bands[0];
+    let bandDist = Infinity;
+    for (const b of bands) {
+      const d = y < b.top ? b.top - y : y > b.bottom ? y - b.bottom : 0;
+      if (d < bandDist) {
+        bandDist = d;
+        band = b;
+      }
+    }
+    const inLine = stops.filter(
+      (s) => s.y >= band.top - 0.01 && s.y <= band.bottom + 0.01,
+    );
+    if (inLine.length > 0) candidates = inLine;
+  }
+
+  let pick: CaretStop | null = null;
+  let pickDist = Infinity;
+  for (const s of candidates) {
+    const dist = Math.abs(s.x - x);
+    if (pick === null || dist < pickDist - EDGE_EPS) {
+      pickDist = dist;
+      pick = s;
+    } else if (dist <= pickDist + EDGE_EPS) {
+      // Same column within sub-pixel tolerance (an inner glyph edge and the
+      // construct boundary sitting on it are computed independently, so their x
+      // differ by a float epsilon rather than being bit-equal): keep the stop
+      // further out in the travel direction — the larger source offset to the
+      // right of the column, the smaller to its left — so the caret rests beside
+      // the construct rather than inside it.
+      const outward =
+        x >= s.x ? s.offset > pick.offset : s.offset < pick.offset;
+      if (outward) {
+        pick = s;
+        if (dist < pickDist) pickDist = dist;
+      }
+    }
+  }
+  return pick;
+}
+
 /**
  * Minimum caret height as a fraction of the layout font size. A stop on a tiny
  * glyph (a superscript `2`, a fraction's single-letter denominator) yields a
@@ -381,9 +633,12 @@ const MIN_CARET_HEIGHT_EM = 0.5;
  * the RIGHT so it takes the RIGHTMOST stop, `"end"` (the high end) faces LEFT and
  * takes the LEFTMOST — so the caret/handle hugs the highlighted range instead of
  * drifting out across the operator's surrounding space to a neighbour's edge.
- * Omit `edge` for a bare caret: there a construct boundary wins the tie, so the
- * caret rests beside the whole construct on the main baseline (e.g. just past
- * `x^{2}`), not up on its script row.
+ * Omit `edge` for a bare caret: there a construct's TRAILING boundary wins the
+ * tie, so the caret rests beside a construct it has just left on the main
+ * baseline (e.g. just past `x^{2}`), not up on its script row. A LEADING boundary
+ * does not win — the caret keeps the height of the PRECEDING content rather than
+ * leaping to the full height of a construct just ahead of it (between `\det` and
+ * a following matrix it stays `\det`-tall, not matrix-tall).
  */
 export function caretRect(
   layout: MathLayout,
@@ -406,7 +661,19 @@ export function caretRect(
         if (s.x > best.x) best = s;
       } else if (edge === "end") {
         if (s.x < best.x) best = s;
-      } else if (s.boundary && !best.boundary) {
+      } else if (s.boundary && !best.boundary && s.partnerX! < s.x) {
+        // A construct boundary wins the bare-caret tie ONLY when it is the
+        // construct's TRAILING edge — its partner (the other outer edge) sits to
+        // its LEFT, so the construct lies BEHIND the caret. The caret then takes
+        // the height of what PRECEDES it: past `x^{2}` it drops to the main
+        // baseline beside the whole script (the construct it just left), rather
+        // than staying up on the tiny `2` row. A LEADING boundary (partner to the
+        // right, construct AHEAD) must NOT win: between `\det` and a following
+        // matrix the caret keeps `\det`'s height instead of leaping to the full
+        // height of the matrix it has not yet entered. When the previous glyph's
+        // edge coincides in x with the boundary they de-duplicate to the glyph,
+        // which already yields the preceding height — this only decides the
+        // spaced case (an operator's med/thick space before an Inner atom).
         best = s;
       }
     }
@@ -593,10 +860,31 @@ function collectAtomHits(
     return;
   }
   if (box.type === "list") {
+    // A named-operator atom (`\det`) is one unit whose letters are span-less: the
+    // whole box is the tap target, selecting the operator's own span. Emit a
+    // single hit and don't descend (there is nothing span-bearing below).
+    if (box.unit && box.span && box.width > 0) {
+      out.push({
+        left: x,
+        right: x + box.width * fs,
+        top: y - box.height * fs,
+        bottom: y + box.depth * fs,
+        glyph: { start: box.span.start, end: box.span.end },
+        construct,
+      });
+      return;
+    }
     // Descend into the nearest enclosing boundary construct so inner glyphs carry
     // it; an inline-flow wrapper (`ord`, a font command) is not a boundary and
-    // leaves the current construct in place.
-    const inner = box.boundary && box.span ? box.span : construct;
+    // leaves the current construct in place. A radical counts as a boundary
+    // construct too (its surd/vinculum have no source span of their own, so a bare
+    // radicand's glyphs would otherwise carry no construct at all) — but only as
+    // ONE level: a construct nested inside the radicand (a matrix, a `\frac`) is
+    // the CLOSER level and overrides it further down, so a double-tap takes that
+    // inner construct rather than ballooning to the whole radical. See
+    // {@link ListBox.radical}.
+    const isConstructBox = (box.boundary || box.radical === true) && box.span;
+    const inner = isConstructBox ? box.span! : construct;
     for (const child of box.children) {
       collectAtomHits(
         child.box,
@@ -758,6 +1046,32 @@ function collectSelected(
   out: { x0: number; x1: number; top: number; bottom: number; y: number }[],
 ): void {
   if (box.type === "glyph") {
+    // A shaped fallback run: highlight only the boundaries the selection covers,
+    // so selecting part of a run (e.g. two of four Arabic letters) hugs those
+    // characters. The boundary x's are visual, so min/max gives the extent for
+    // either direction.
+    if (box.textCarets && box.textCarets.length > 0) {
+      let lo = Infinity;
+      let hi = -Infinity;
+      let count = 0;
+      for (const c of box.textCarets) {
+        if (c.offset >= start && c.offset <= end) {
+          lo = Math.min(lo, c.dx);
+          hi = Math.max(hi, c.dx);
+          count++;
+        }
+      }
+      if (count >= 2) {
+        out.push({
+          x0: x + lo * fs,
+          x1: x + hi * fs,
+          top: y - box.height * fs,
+          bottom: y + box.depth * fs,
+          y,
+        });
+      }
+      return;
+    }
     if (box.span && box.span.start >= start && box.span.end <= end) {
       out.push({
         x0: x,

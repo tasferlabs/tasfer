@@ -897,6 +897,14 @@ export interface MathStyles {
   readonly minHeight: number;
   readonly hoverBackgroundColor: string;
   readonly hoverBorderRadius: number;
+  /**
+   * Opacity for the range-selection highlight painted inside a block equation.
+   * A block equation always paints its own filled card surface (code/hover
+   * background), so the shared `selection.opacity` — tuned for text sitting on
+   * the plain document background — composites too weakly over that surface to
+   * see. This stronger value restores parity with how a text selection reads.
+   */
+  readonly selectionOpacity: number;
   /** Fill for MathJax error-marker background rects (block + inline math). */
   readonly errorBackgroundColor: string;
   readonly placeholder: {

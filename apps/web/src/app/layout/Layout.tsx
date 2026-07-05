@@ -6,6 +6,7 @@ import { BottomToolDock } from "../components/BottomToolDock";
 import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
 import { DevToolbar } from "../components/DevToolbar";
 import { EditGroupDialog } from "../components/EditGroupDialog";
+import { ImportDialogProvider } from "../components/ImportDialogProvider";
 import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import { OnboardingScreen } from "../components/OnboardingScreen";
 import PeerVersionPopup from "../components/PeerVersionPopup";
@@ -30,6 +31,13 @@ import { TopActionBar } from "./TopActionBar";
 import { TopActionBarSlotProvider } from "./TopActionBarSlot";
 
 export default function Layout() {
+  // Dev-only smoke test for the error boundary: visit any page with `?boom` to
+  // trigger a render error and see the RouteErrorBoundary. No-op in production.
+  const { search } = useLocation();
+  if (import.meta.env.DEV && new URLSearchParams(search).has("boom")) {
+    throw new Error("Test error triggered via ?boom (RouteErrorBoundary smoke test)");
+  }
+
   const { isLoading, meetsMinimum } = useVersion();
 
   // Track if app ever mounted with valid version (user was working)
@@ -55,7 +63,9 @@ export default function Layout() {
                 <ActiveEditorProvider>
                   <ConfirmationDialogProvider>
                     <UnsavedChangesDialogProvider>
-                      <LayoutInner needsForceUpdate={needsForceUpdate} />
+                      <ImportDialogProvider>
+                        <LayoutInner needsForceUpdate={needsForceUpdate} />
+                      </ImportDialogProvider>
                     </UnsavedChangesDialogProvider>
                   </ConfirmationDialogProvider>
                 </ActiveEditorProvider>

@@ -330,7 +330,9 @@ export {
   CREATE_PARAGRAPH_BELOW_IMAGE,
   END_IMAGE_HANDLE_DRAG,
   EXIT_INLINE_MATH,
+  INDENT_CODE,
   INDENT_LIST_ITEM,
+  OUTDENT_CODE,
   OUTDENT_LIST_ITEM,
   SET_IMAGE_HOVER,
   SET_INLINE_MATH_HOVER,
@@ -420,7 +422,19 @@ export type {
 } from "./rendering/decorations";
 
 // Inline-math rendering — render a LaTeX run to an SVG string, and validate it.
-export { isValidLatex, renderToSVG } from "./nodes/math";
+// `mathSourceAtEdge` reports when the caret sits on a formula's edge (stepping
+// further would exit the math) — a host greys out a step-left/right control with
+// it.
+export {
+  isValidLatex,
+  mathMatrixContext,
+  mathMatrixResize,
+  mathSourceAtEdge,
+  type MatrixContext,
+  type MatrixEditResult,
+  type MatrixTextEdit,
+  renderToSVG,
+} from "./nodes/math";
 // Inline-math chip detection (host UI building math chrome reads these to know
 // when the caret is inside a chip and to recover the chip's LaTeX/offsets).
 export { getInlineMathSpans, type InlineMathSpan } from "./inline-math-spans";

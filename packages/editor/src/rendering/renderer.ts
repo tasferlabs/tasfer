@@ -10,7 +10,11 @@ import type {
 import { currentFontFamily, getFontStack } from "../fonts";
 import type { TextualBlock } from "../nodes/TextNode";
 import { getTextDirection } from "../rtl";
-import { isCursorBlinking, isNodeSelection } from "../selection";
+import {
+  isCursorBlinking,
+  isNodeSelection,
+  selectionHighlightEdge,
+} from "../selection";
 import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
 import type {
   EditorState,
@@ -1296,6 +1300,23 @@ function getPositionCoordinates(
     styles,
     marks: state.marks,
   });
+  // A handle (edge given) hugs the painted highlight's start/end rect so its stem
+  // and ball sit flush with the green band — inside a tall formula a boundary
+  // caret would instead span the whole height and dangle. Fall back to the caret
+  // rect for a block that paints no band, or for a plain caret (no edge).
+  const selection = state.document.selection;
+  if (edge && selection) {
+    const band = selectionHighlightEdge(
+      node,
+      layout,
+      selection,
+      position.blockIndex,
+      styles.canvas.paddingLeft,
+      blockTop,
+      edge,
+    );
+    if (band) return band;
+  }
   return node.caretRect(
     layout,
     position.textIndex,

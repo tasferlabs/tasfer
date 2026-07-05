@@ -65,7 +65,7 @@
 
 /* Electron macOS: clear traffic lights in panel mode */
 :global(body.electron) .sidebarPanelSlot {
-  padding-top: 50px;
+  padding-top: var(--mac-chrome-bar-height);
 }
 
 :global(body.electron:not(.electron-mac)) .sidebarPanelSlot {
@@ -114,7 +114,7 @@
 /* Electron macOS: action bar sits inside the title bar region */
 :global(body.electron) .appHeader {
   -webkit-app-region: drag;
-  height: 50px;
+  height: var(--mac-chrome-bar-height);
   padding-top: 0;
 }
 
@@ -391,7 +391,7 @@
 :global(body.electron) .appSidebarHeader {
   -webkit-app-region: drag;
   padding-left: 76px;
-  min-height: 50px;
+  min-height: var(--mac-chrome-bar-height);
 }
 
 /* RTL: sidebar is on the right, no traffic lights to clear */

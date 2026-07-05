@@ -11,7 +11,13 @@ import type { CursorState, EditorState, Page } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { resolveTheme } from "../styles";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
-import { type CodeBlock, CodeNode, INSERT_TAB } from "./CodeNode";
+import {
+  type CodeBlock,
+  CodeNode,
+  INDENT_CODE,
+  INSERT_TAB,
+  OUTDENT_CODE,
+} from "./CodeNode";
 import type { TextualBlock } from "./TextNode";
 import { describe, expect, it } from "vitest";
 
@@ -314,6 +320,137 @@ describe("CodeNode editing actions", () => {
       blockIndex: 1,
       textIndex: 5,
     });
+  });
+});
+
+describe("CodeNode indent/outdent", () => {
+  const textOf = (state: EditorState) =>
+    getVisibleTextFromRuns(
+      (state.document.page.blocks[0] as CodeBlock).charRuns,
+    );
+
+  /** Add a block-local, non-collapsed selection spanning [from, to]. */
+  function withSelection(
+    state: EditorState,
+    blockIndex: number,
+    from: number,
+    to: number,
+  ): EditorState {
+    return {
+      ...state,
+      document: {
+        ...state.document,
+        cursor: cursorAt(blockIndex, to),
+        selection: {
+          anchor: { blockIndex, textIndex: from },
+          focus: { blockIndex, textIndex: to },
+          isForward: true,
+          isCollapsed: false,
+          lastUpdate: 0,
+        },
+      },
+    };
+  }
+
+  it("indent prepends two spaces to the caret's line and shifts the caret", () => {
+    const state = withCursor(
+      createInitialState(pageWith(codeBlock("x"))),
+      cursorAt(0, 1),
+    );
+
+    const result = state.actionBus.dispatchState(INDENT_CODE, state);
+
+    expect(textOf(result.state)).toBe("  x");
+    expect(result.state.document.cursor?.position.textIndex).toBe(3);
+  });
+
+  it("outdent removes up to two leading spaces from the caret's line", () => {
+    const state = withCursor(
+      createInitialState(pageWith(codeBlock("  x"))),
+      cursorAt(0, 3),
+    );
+
+    const result = state.actionBus.dispatchState(OUTDENT_CODE, state);
+
+    expect(textOf(result.state)).toBe("x");
+    expect(result.state.document.cursor?.position.textIndex).toBe(1);
+  });
+
+  it("outdent strips only the single leading space when that is all there is", () => {
+    const state = withCursor(
+      createInitialState(pageWith(codeBlock(" x"))),
+      cursorAt(0, 2),
+    );
+
+    const result = state.actionBus.dispatchState(OUTDENT_CODE, state);
+
+    expect(textOf(result.state)).toBe("x");
+  });
+
+  it("outdent is a no-op with no ops on an already-flush line", () => {
+    const state = withCursor(
+      createInitialState(pageWith(codeBlock("x"))),
+      cursorAt(0, 1),
+    );
+
+    const result = state.actionBus.dispatchState(OUTDENT_CODE, state);
+
+    expect(result.ops).toHaveLength(0);
+    expect(textOf(result.state)).toBe("x");
+  });
+
+  it("indent reindents every line a selection spans and keeps it covering the source", () => {
+    // visible: a(0) \n(1) b(2)
+    const state = withSelection(
+      createInitialState(pageWith(codeBlock("a\nb"))),
+      0,
+      0,
+      3,
+    );
+
+    const result = state.actionBus.dispatchState(INDENT_CODE, state);
+
+    expect(textOf(result.state)).toBe("  a\n  b");
+    // Both endpoints ride the inserted whitespace, still wrapping the two lines.
+    expect(result.state.document.selection?.anchor.textIndex).toBe(2);
+    expect(result.state.document.selection?.focus.textIndex).toBe(7);
+  });
+
+  it("outdent reindents every line a selection spans", () => {
+    const state = withSelection(
+      createInitialState(pageWith(codeBlock("  a\n  b"))),
+      0,
+      0,
+      7,
+    );
+
+    const result = state.actionBus.dispatchState(OUTDENT_CODE, state);
+
+    expect(textOf(result.state)).toBe("a\nb");
+  });
+
+  it("leaves a non-code block untouched", () => {
+    const paragraph = {
+      id: "p-1",
+      orderKey: "a0",
+      deleted: false as const,
+      type: "paragraph" as const,
+      charRuns: [{ peerId: "peer", startCounter: 0, text: "hi" }],
+      formats: [],
+    };
+    const state = withCursor(
+      createInitialState(pageWith(paragraph)),
+      cursorAt(0, 2),
+    );
+
+    const result = state.actionBus.dispatchState(INDENT_CODE, state);
+
+    expect(result.ops).toHaveLength(0);
+    expect(
+      getVisibleTextFromRuns(
+        (result.state.document.page.blocks[0] as CodeBlock).charRuns,
+      ),
+    ).toBe("hi");
   });
 });
 

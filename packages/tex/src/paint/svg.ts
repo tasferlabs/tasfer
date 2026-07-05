@@ -54,9 +54,11 @@ function emit(
           : "";
       const px = t ? 0 : x;
       const py = t ? 0 : y;
+      // A text-fallback glyph (CJK, …) keeps the host font it was measured with.
+      const family = box.textFont ?? fontFamily(box.variant);
       out.push(
         `<text x="${fmt(px)}" y="${fmt(py)}"${t} ` +
-          `font-family="${fontFamily(box.variant)}" font-size="${fmt(size)}" ` +
+          `font-family="${family}" font-size="${fmt(size)}" ` +
           `fill="${fill}">${escapeXml(box.char)}</text>`,
       );
       break;

@@ -74,6 +74,24 @@ describe("empty-slot caret stops", () => {
     expect(sup!.top).toBeLessThan(base.top);
   });
 
+  it("a slot holding only spacing reads as an empty, reachable slot", () => {
+    // `\frac{\ }{}`: the numerator is a lone `\ ` control space — the separator a
+    // host inserts to keep a just-typed command-entry `\` off the slot's `}`. It
+    // paints no ink, so the slot must still get a placeholder stop (a box the caret
+    // can land in) instead of a dead, unreachable gap. Compared side by side with
+    // the truly-empty `\frac{}{}`, the numerator placeholder must be present and
+    // sit on a row above the denominator.
+    const layout = layoutMath("\\frac{\\ }{}", { fontSize: FS });
+    const stops = caretStops(layout);
+    const num = stops.find((s) => s.placeholder && s.y < 0);
+    expect(num).toBeDefined();
+    // A click centered on the numerator placeholder resolves to it, so the slot is
+    // genuinely editable (not skipped over to the denominator).
+    expect(hitTest(layout, num!.x, (num!.top + num!.bottom) / 2)).toBe(
+      num!.offset,
+    );
+  });
+
   it("a non-empty formula has no placeholder stops", () => {
     const layout = layoutMath("a+b", { fontSize: FS });
     // Every stop maps to a real source offset in [0, 3]; nothing synthetic.

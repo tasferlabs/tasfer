@@ -196,6 +196,48 @@ export function openLinkEditMenu(
 }
 
 /**
+ * The app's code node: the built-in {@link CodeNode} plus a menu-driven `open`
+ * flag on its `"code-language"` overlay slot. The engine node emits that slot for
+ * every visible code block (the language chip is always available); this override
+ * additionally marks it open whenever the active menu targets this block, so the
+ * language picker can be opened as a drawer/sheet from the mobile keyboard
+ * toolbar — not only via the chip's own tap. The flag rides the descriptor's
+ * `data`, so toggling it re-renders the React overlay (see `CodeLanguageOverlay`
+ * in MountedEditor).
+ */
+class CypherCodeNode extends CodeNode {
+  override overlays(c: NodeRegionCtx): readonly NodeOverlay[] {
+    const base = super.overlays(c);
+    if (base.length === 0) return base;
+    const menu = c.state.ui.activeMenu;
+    return base.map((o) =>
+      o.key === "code-language"
+        ? {
+            ...o,
+            data: {
+              open:
+                menu.type === "overlay" &&
+                menu.key === "code-language" &&
+                menu.blockId === o.blockId,
+            },
+          }
+        : o,
+    );
+  }
+}
+
+/**
+ * Open the language-picker drawer declared by {@link CypherCodeNode}. Co-located
+ * with the overlay's owner; hands the block off to the editor's generic
+ * `openOverlay`. The picker is a bottom sheet on mobile, so the `(x, y)` anchor
+ * is unused — pass `(0, 0)`. Used by the host keyboard toolbar's "code language"
+ * button.
+ */
+export function openCodeLanguageMenu(editor: Editor, blockId: string): void {
+  editor.host.openOverlay({ key: "code-language", blockId, x: 0, y: 0 });
+}
+
+/**
  * The block + inline-mark set this app supports.
  *
  * Declared explicitly here instead of relying on the engine's built-in
@@ -218,7 +260,7 @@ export const appSchema = new Schema(
     new QuoteNode(),
     new TextNode(),
     new ListNode(),
-    new CodeNode(),
+    new CypherCodeNode(),
   ],
   [
     new StrongMark(),

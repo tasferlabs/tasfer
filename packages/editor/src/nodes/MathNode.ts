@@ -37,6 +37,10 @@ import { POINTER_MOVE } from "../actions/pointer-actions";
 import { TAP_SELECT_WORD } from "../actions/touch-actions";
 import { measureCtxText } from "../fonts";
 import { getInlineMathAtPosition } from "../inline-math";
+import {
+  allDecorations,
+  rangeDecorationToSelection,
+} from "../rendering/decorations";
 import type { MarkRegistry } from "../rendering/marks";
 import type { CaretModel } from "../rendering/nodes/caret-model";
 import type {
@@ -75,6 +79,7 @@ import type {
   Position,
   RenderedBlock,
   RenderedLine,
+  SelectionState,
   TextStyle,
 } from "../state-types";
 import {
@@ -106,6 +111,7 @@ import {
   mathJoinAtEdgeAfterInput,
   mathMaterializeAfterInput,
   mathMergeAfterDelete,
+  mathRedundantSeparatorAfterInput,
   mathRedundantSpaceAfterInput,
   mathSelectionRange,
   mathSeparatorAfterDelete,
@@ -113,11 +119,17 @@ import {
   mathTransformTypedInput,
   mathUnitAt,
 } from "./math";
-import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
+// Host-wired layout so `\text{…}` CJK/unsupported glyphs typeset (see tex-host).
+import { layoutMathHost as layoutMath } from "./tex-host";
+import {
+  getContentWithComposition,
+  TextNode,
+  type TextNodeLayout,
+  type TextualBlock,
+} from "./TextNode";
 import {
   caretRect as texCaretRect,
   hitTest as texHitTest,
-  layoutMath,
   type MathLayout,
   paintMath,
   selectionRects as texSelectionRects,
@@ -156,6 +168,39 @@ interface MathNodeLayout extends TextNodeLayout {
   readonly mathTop: number;
   /** Width of the centered empty-block placeholder, used to align the caret. */
   readonly placeholderWidth: number;
+}
+
+// IME composition underline: a thin solid line under the string being composed,
+// mirroring the operating system's own composition marker. Shared visual weight
+// with the prose composition underline (see TextNode `renderCompositionUnderline`).
+const IME_UNDERLINE_THICKNESS = 1.5;
+
+/**
+ * Draw the IME composition underline beneath a set of tex selection rects (the
+ * composing sub-range's glyphs), one segment per visual row. `rects` are in the
+ * equation's layout space: `x` from `drawX` (the math's left edge) and `y` from
+ * `baselineY` (the row baseline, +y down), so the underline sits just under each
+ * row's glyphs including their depth.
+ */
+function drawMathCompositionUnderline(
+  ctx: CanvasRenderingContext2D,
+  rects: readonly { x: number; y: number; width: number; height: number }[],
+  drawX: number,
+  baselineY: number,
+  color: string,
+): void {
+  if (rects.length === 0) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = IME_UNDERLINE_THICKNESS;
+  for (const r of rects) {
+    const underlineY = baselineY + r.y + r.height + 1;
+    ctx.beginPath();
+    ctx.moveTo(drawX + r.x, underlineY);
+    ctx.lineTo(drawX + r.x + r.width, underlineY);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 export class MathNode extends TextNode {
@@ -277,12 +322,32 @@ export class MathNode extends TextNode {
   // ── Paint ────────────────────────────────────────────────────────────────
 
   paint(passedLayout: NodeLayout, c: NodePaintCtx): RenderedBlock {
-    const layout = passedLayout as MathNodeLayout;
     const { ctx, origin, styles, state, blockIndex } = c;
     const m = styles.blocks.math;
     const x = origin.x;
     const y = origin.y;
     const width = c.maxWidth;
+
+    // Fold an active IME composition into the equation so the composing string
+    // shows a live typeset preview (the same `\text{…}`-wrapped transform the
+    // commit uses — see `getContentWithComposition`), instead of the equation
+    // painting only its committed source. The canonical (no-composition) layout
+    // from `layout()` is reused at rest; only while composing here do we re-lay
+    // the equation out with the preview chars. `compositionRange` is the preview's
+    // source range (== LaTeX offsets in a block equation), underlined below like
+    // the OS IME marks the string being composed.
+    const composed = getContentWithComposition(c.block, state, blockIndex);
+    const layout =
+      composed.compositionRange === null
+        ? (passedLayout as MathNodeLayout)
+        : (this.computeLayout(
+            c.block as TextualBlock,
+            width,
+            styles,
+            composed,
+            c.marks,
+          ) as MathNodeLayout);
+    const compositionRange = composed.compositionRange;
 
     const lines: RenderedLine[] = [];
 
@@ -393,17 +458,43 @@ export class MathNode extends TextNode {
       const drawTop = y + layout.mathTop;
       const baselineY = drawTop + mathLayout.height;
 
+      // Range decorations (find highlights, remote-peer selections) UNDER the
+      // glyphs and behind the local selection — the same generic overlay every
+      // other node paints (see TextNode.paint / AtomicNode.paintRangeDecorations).
+      // A block equation renders its source as a typeset formula, so a peer's
+      // selection is mapped to the tex selection rects via this node's own
+      // `selectionRects`, not the raw-LaTeX text band. Without this a peer's
+      // selection over an equation is invisible while their caret (drawn centrally
+      // in the renderer, node-independently) still shows.
+      for (const deco of allDecorations(state.ui.decorations)) {
+        if (deco.kind !== "range") continue;
+        const sel = rangeDecorationToSelection(deco.range, state.document.page);
+        if (!sel || sel.isCollapsed) continue;
+        const rects = this.selectionRects(layout, sel, blockIndex, x, y);
+        if (rects.length === 0) continue;
+        this.fillRects(
+          ctx,
+          rects,
+          deco.color,
+          deco.opacity ?? styles.selection.remoteOpacity,
+          styles.selection.cornerRadius,
+        );
+      }
+
       // Selection highlight UNDER the glyphs — the "select-first" construct
       // deletion (and any range selection) draws over the rendered formula via
       // the tex selection rects (x from the math's left edge, y from baseline).
       const range = this.localSelectionRange(
-        state,
+        state.document.selection,
         blockIndex,
         layout.chars.length,
       );
       if (range) {
         // Reuse the base selection fill so math honors the themed
-        // `selection.cornerRadius` (and opacity) like text/atomic blocks.
+        // `selection.cornerRadius` (and color) like text/atomic blocks — but with
+        // a math-specific opacity: the highlight is composited over the equation's
+        // own filled card surface, not the plain document background, so the
+        // shared 0.2 (tuned for text) washes out. See `MathStyles.selectionOpacity`.
         const rects = texSelectionRects(mathLayout, range.from, range.to).map(
           (r) => ({
             x: drawX + r.x,
@@ -416,7 +507,7 @@ export class MathNode extends TextNode {
           ctx,
           rects,
           styles.selection.backgroundColor,
-          styles.selection.opacity,
+          styles.blocks.math.selectionOpacity,
           styles.selection.cornerRadius,
         );
       }
@@ -425,6 +516,25 @@ export class MathNode extends TextNode {
         color: styles.blocks.paragraph.color,
         pendingRange,
       });
+
+      // Underline the composing (IME) sub-range like the OS marks a string being
+      // composed. The preview renders as typeset glyphs (a `\text{…}` run), so the
+      // underline hugs those glyphs via the tex selection rects for the range —
+      // per visual row, so a wrapped equation underlines each row's slice.
+      if (compositionRange) {
+        drawMathCompositionUnderline(
+          ctx,
+          texSelectionRects(
+            mathLayout,
+            compositionRange.start,
+            compositionRange.end,
+          ),
+          drawX,
+          baselineY,
+          styles.blocks.paragraph.color,
+        );
+      }
+
       lines.push({
         text: latex,
         x: drawX,
@@ -467,11 +577,10 @@ export class MathNode extends TextNode {
    * to `[0, len]`; an endpoint in another block clamps to this block's edge.
    */
   private localSelectionRange(
-    state: EditorState,
+    sel: SelectionState | null,
     blockIndex: number,
     len: number,
   ): { from: number; to: number } | null {
-    const sel = state.document.selection;
     if (!sel || sel.isCollapsed) return null;
     const lo = Math.min(sel.anchor.blockIndex, sel.focus.blockIndex);
     const hi = Math.max(sel.anchor.blockIndex, sel.focus.blockIndex);
@@ -494,6 +603,45 @@ export class MathNode extends TextNode {
     const from = Math.max(0, Math.min(a, b));
     const to = Math.min(len, Math.max(a, b));
     return from < to ? { from, to } : null;
+  }
+
+  /**
+   * Selection highlight rectangles in the tex-rendered formula's geometry — the
+   * SAME rects {@link paint} fills (via {@link localSelectionRange} +
+   * `texSelectionRects`), NOT the base {@link TextNode.selectionRects} band
+   * derived from laying the raw LaTeX source out as prose. The generic selection
+   * hit-test (`isPointWithinSelectionRects`) keys off this, so a point only counts
+   * as "inside the selection" when it lands on the highlight the reader actually
+   * sees. Without the override the whole block's source-text band reads as
+   * selected, so a tap anywhere on the equation — well outside the lit range —
+   * spuriously opens the context menu instead of collapsing the selection and
+   * moving the caret. `continuous` (the base's one-ribbon flag) is irrelevant:
+   * `texSelectionRects` already returns per-row rects matching the paint.
+   */
+  selectionRects(
+    layout: TextNodeLayout,
+    selection: { anchor: Position; focus: Position; isForward: boolean },
+    blockIndex: number,
+    originX: number,
+    blockTopY: number,
+  ): { x: number; y: number; width: number; height: number }[] {
+    const l = layout as MathNodeLayout;
+    if (!l.mathLayout) return [];
+    const len = getVisibleTextFromChars(l.chars).length;
+    const range = this.localSelectionRange(
+      selection as SelectionState,
+      blockIndex,
+      len,
+    );
+    if (!range) return [];
+    const drawX = originX + l.mathOffsetX;
+    const baselineY = blockTopY + l.mathTop + l.mathLayout.height;
+    return texSelectionRects(l.mathLayout, range.from, range.to).map((r) => ({
+      x: drawX + r.x,
+      y: baselineY + r.y,
+      width: r.width,
+      height: r.height,
+    }));
   }
 
   // ── Caret geometry (via the tex bridge, not text lines) ────────────────────
@@ -568,6 +716,13 @@ export class MathNode extends TextNode {
     y: number,
     originX: number,
     blockTopY: number,
+    // Finger-drag (magnifier) resolution follows the finger to the equation's
+    // nearest caret stop with row hysteresis, instead of the tap path's exact
+    // per-row descent (see {@link TextNode.positionFromPoint}).
+    drag = false,
+    // The caret's current block-text index. A block equation's text IS the LaTeX,
+    // so the block index is the source offset the tex hysteresis anchors on.
+    prevIndex: number | null = null,
   ): number {
     const l = layout as MathNodeLayout;
     if (!l.mathLayout) return 0;
@@ -575,6 +730,8 @@ export class MathNode extends TextNode {
     const baselineY = blockTopY + l.mathTop + l.mathLayout.height;
     return texHitTest(l.mathLayout, x - baseX, y - baselineY, {
       placeholderTargetSize: isTouchDevice() ? 44 : 24,
+      drag,
+      dragPrevOffset: drag ? prevIndex : null,
     });
   }
 
@@ -1219,6 +1376,32 @@ function normalizeMathInput(
       caret = redundant.from;
       next = moveCursorToPosition(next, blockIndex, caret, true);
     }
+  }
+
+  // Drop the command-entry separator space once a command char has landed in
+  // front of it (`\frac{\a| }{}` → `\frac{\a|}{}`), so a completed command never
+  // persists the `\ ` that kept the just-typed `\` off the slot's brace. Runs on
+  // any keystroke — the trigger is a letter, not a space — and only removes a
+  // parse-neutral space wedged between the caret and a `{`/`}` (see
+  // mathRedundantSeparatorAfterInput), so it never disturbs real spacing.
+  const separatorBlock = next.document.page.blocks[blockIndex];
+  const separator =
+    separatorBlock && !separatorBlock.deleted
+      ? mathRedundantSeparatorAfterInput(separatorBlock, caret)
+      : null;
+  if (separator) {
+    const { newPage, op } = deleteCharsInRange(
+      next.document.page,
+      block.id,
+      separator.from,
+      separator.to,
+      next.CRDTbinding,
+    );
+    invalidateBlockCache(newPage.blocks[blockIndex]);
+    next = { ...next, document: { ...next.document, page: newPage } };
+    ops.push(op);
+    // The caret sits before the removed space, so its index is unchanged.
+    next = moveCursorToPosition(next, blockIndex, caret, true);
   }
 
   // Arm scratch against the post-materialize content at the (possibly moved) caret.

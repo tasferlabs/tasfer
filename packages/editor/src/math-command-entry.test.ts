@@ -181,3 +181,136 @@ describe("math command-entry flag", () => {
     expect(moved.ui.caretScratch).toBeNull();
   });
 });
+
+describe("typing \\ before a slot brace: separator, then self-heal", () => {
+  const caretOf = (s: EditorState) => s.document.cursor?.position.textIndex;
+
+  it("inserts a separator instead of eating the slot's closing brace", () => {
+    // Caret in the empty numerator of `\frac{}{}` (offset 6). Typing `\` must not
+    // fuse with the numerator's `}` into `\}` (which would de-structure the frac
+    // and spawn a stray block). It lands as `\ ` with the caret between the two,
+    // ready to keep typing the command.
+    const { state } = mathState("\\frac{}{}", 6);
+    const after = insertText(state, "\\").state;
+    expect(latexOf(after)).toBe("\\frac{\\ }{}");
+    expect(caretOf(after)).toBe(7);
+  });
+
+  it("drops the separator once a command char lands in front of it", () => {
+    // `\frac{\ }{}` (caret 7) + `a`: the numerator becomes `\a`, which no longer
+    // merges with the `}`, so the now-redundant separator is removed — the source
+    // stays clean rather than carrying a lingering space.
+    const { state } = mathState("\\frac{\\ }{}", 7);
+    const after = insertText(state, "a").state;
+    expect(latexOf(after)).toBe("\\frac{\\a}{}");
+    expect(caretOf(after)).toBe(8);
+  });
+
+  it("types out a full command in a slot with clean final source", () => {
+    // End to end: `\frac{|}{}` → type `\alpha` → `\frac{\alpha}{}`, no stray
+    // block, no leftover separator space.
+    let state = mathState("\\frac{}{}", 6).state;
+    for (const ch of "\\alpha") {
+      state = insertText(state, ch).state;
+    }
+    expect(latexOf(state)).toBe("\\frac{\\alpha}{}");
+  });
+
+  it("keeps a matrix column separator intact when a command is typed into a cell", () => {
+    // The reported bug, end to end: caret after `a`, before the `&`. Typing `\`
+    // must NOT fuse into `\&` (which merges the two cells and loses one). It lands
+    // as `\ ` protecting the `&`; completing the command (`\pi`) then drops the
+    // now-redundant separator, leaving a clean two-cell row.
+    const at = "\\begin{matrix}a".length;
+    let state = mathState("\\begin{matrix}a&b\\end{matrix}", at).state;
+    state = insertText(state, "\\").state;
+    expect(latexOf(state)).toBe("\\begin{matrix}a\\ &b\\end{matrix}");
+    for (const ch of "pi") {
+      state = insertText(state, ch).state;
+    }
+    // The `&` survives — still two cells — and no lingering separator space.
+    expect(latexOf(state)).toBe("\\begin{matrix}a\\pi&b\\end{matrix}");
+  });
+
+  it("types out an argument-less \\text command without crashing", () => {
+    // Regression: typing `\text` character by character reaches a point where the
+    // source is a bare `\text` with no `{…}` yet. Materialization re-parses it, and
+    // the parser used to consume the terminal EOF token as `\text`'s one-token
+    // argument, running past the token array and crashing the whole edit. Typing
+    // the full `\text{}` must land its slot cleanly instead.
+    let state = mathState("", 0).state;
+    for (const ch of "\\text") {
+      state = insertText(state, ch).state; // must not throw
+    }
+    expect(latexOf(state)).toBe("\\text");
+    state = insertText(state, "{").state; // slot materializes
+    expect(latexOf(state)).toBe("\\text{}");
+    for (const ch of "hi") {
+      state = insertText(state, ch).state;
+    }
+    expect(latexOf(state)).toBe("\\text{hi}");
+  });
+
+  it("keeps a \\sqrt radicand intact when a command is typed into its index", () => {
+    // `\sqrt[3]{x}`, caret after `3`, before the `]`. Typing `\pi` must not fuse
+    // into `\]` (which lets the index swallow `{x}`, emptying the radicand). It
+    // lands as `\ ` protecting the `]`; completing `\pi` drops the separator.
+    const at = "\\sqrt[3".length;
+    let state = mathState("\\sqrt[3]{x}", at).state;
+    state = insertText(state, "\\").state;
+    expect(latexOf(state)).toBe("\\sqrt[3\\ ]{x}");
+    for (const ch of "pi") {
+      state = insertText(state, ch).state;
+    }
+    // Index is now `3\pi`, the `]` still closes it, and `{x}` stays the radicand.
+    expect(latexOf(state)).toBe("\\sqrt[3\\pi]{x}");
+  });
+});
+
+describe("typing the matching } steps over an auto-inserted closer", () => {
+  const at = (s: EditorState) => s.document.cursor?.position.textIndex;
+
+  it("types a full \\text{hi} with no stray brace", () => {
+    // The reported render bug: typing `\text{hi}` keystroke by keystroke. The `{`
+    // materializes `\text{}` (caret between), and typing the closing `}` must STEP
+    // OVER the auto-inserted closer — not wedge in a literal `\}` (which renders
+    // the stray brace `\text{hi\}}` → "hi}").
+    let state = mathState("", 0).state;
+    for (const ch of "\\text{hi}") {
+      state = insertText(state, ch).state;
+    }
+    expect(latexOf(state)).toBe("\\text{hi}");
+    expect(at(state)).toBe("\\text{hi}".length); // caret parked past the closer
+  });
+
+  it("types a full \\asdsadad{x} (unknown command) with no stray brace", () => {
+    let state = mathState("", 0).state;
+    for (const ch of "\\asdsadad{x}") {
+      state = insertText(state, ch).state;
+    }
+    expect(latexOf(state)).toBe("\\asdsadad{x}");
+  });
+
+  it("steps over the empty slot's closer (`\\text{|}` + `}`)", () => {
+    let state = mathState("\\text{}", "\\text{".length).state;
+    state = insertText(state, "}").state;
+    expect(latexOf(state)).toBe("\\text{}"); // unchanged — closer skipped
+    expect(at(state)).toBe("\\text{}".length);
+  });
+
+  it("still escapes a } typed at top level (no group to close)", () => {
+    let state = mathState("a", 1).state;
+    state = insertText(state, "}").state;
+    expect(latexOf(state)).toBe("a\\}"); // literal brace glyph, not a skip
+  });
+
+  it("leaves set-notation braces escaping normally", () => {
+    // `{1,2}` typed at top level stays the visible `\{1,2\}` set — the closing `}`
+    // has no auto-inserted grouping closer at the caret, so it escapes.
+    let state = mathState("", 0).state;
+    for (const ch of "{1,2}") {
+      state = insertText(state, ch).state;
+    }
+    expect(latexOf(state)).toBe("\\{1,2\\}");
+  });
+});

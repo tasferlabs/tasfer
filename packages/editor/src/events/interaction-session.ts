@@ -128,6 +128,30 @@ export interface InteractionSession {
     x: number;
     y: number;
   } | null;
+  /**
+   * The RAW (pre-snap) focus position resolved on the previous frame of a
+   * selection-handle drag. The construct snapper reads the finger's travel
+   * DIRECTION to decide whether to take a math construct in or drop it; that
+   * direction must come from the raw finger motion, not the snapped focus it
+   * writes back — feeding the snapped focus back makes it oscillate between a
+   * construct's two edges when the finger holds still near one, flickering the
+   * selection between expand and shrink. Null between drags and on the first
+   * frame (no travel history yet). Per-instance so two editors don't clobber.
+   */
+  handleDragPrevRawFocus: Position | null;
+  /**
+   * The raw hit-test position resolved on the PREVIOUS onMove frame of a
+   * selection-handle drag — the row-hysteresis anchor fed back into the next
+   * frame's drag hit-test ({@link ViewportHitOptions.prev}), exactly like the
+   * single-caret magnifier drag anchors on the current caret. Unlike
+   * `handleDragPrevRawFocus` (the snap-direction latch, pinned while the finger
+   * is interior to a construct), this updates EVERY frame: hysteresis must
+   * anchor on the row the finger's stop actually sits on, or a finger hovering
+   * a fraction bar dithers between numerator and denominator — the snapper
+   * turns that into a focus that flips between a slot-interior caret and the
+   * whole construct's edge, bouncing the loupe. Null between drags.
+   */
+  handleDragPrevHit: Position | null;
 }
 
 export function createInteractionSession(
@@ -153,6 +177,8 @@ export function createInteractionSession(
     outOfViewIndicatorHitAreas: [],
     hostMenuCapturing: false,
     handleDragLoupe: null,
+    handleDragPrevRawFocus: null,
+    handleDragPrevHit: null,
   };
 }
 

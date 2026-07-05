@@ -189,14 +189,17 @@ export const TAP_SELECT_WORD = stateAction<
   PositionPayload & {
     /**
      * A pre-resolved word/token range (block-text indices), when the node under
-     * the tap selects by POINT rather than by the `position` offset — a math
-     * block resolves the atom the finger is on (see `getWordRangeFromViewport`).
-     * The default text handler ignores it; the math node's handler consumes it.
+     * the tap selects by POINT rather than by the `position` offset — a math block
+     * resolves the atom the finger is on, and an inline-math chip resolves the
+     * construct under the finger (an atomic command like `\det` is reachable ONLY
+     * by point). See `getWordRangeFromViewport`. The math node's handler consumes
+     * it for a math block; for a text block carrying a chip it is threaded into the
+     * word-select here.
      */
     range?: { start: number; end: number };
   }
->("tap-select-word", (state, { position }) => {
-  const next = selectWordAtPosition(state, position);
+>("tap-select-word", (state, { position, range }) => {
+  const next = selectWordAtPosition(state, position, range);
   // Host-owned context menu: signal it to close (no-op if none is open).
   state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
   return { state: next, ops: [] };

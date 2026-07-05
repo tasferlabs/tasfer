@@ -71,7 +71,7 @@ export function PagePicker({
   const customTrigger = !!children;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal>
       {customTrigger ? (
         <PopoverTrigger asChild>{children}</PopoverTrigger>
       ) : (
@@ -215,9 +215,15 @@ function PathBreadcrumb({ path }: { path: PagePathSegment[] }) {
                     mathFontSize={12}
                   />
                 </span>
-                <ChevronRight size={10} className="shrink-0 opacity-50" />
+                <ChevronRight
+                  size={10}
+                  className="shrink-0 opacity-50 rtl:rotate-180"
+                />
                 <span className="shrink-0">…</span>
-                <ChevronRight size={10} className="shrink-0 opacity-50" />
+                <ChevronRight
+                  size={10}
+                  className="shrink-0 opacity-50 rtl:rotate-180"
+                />
                 <span className="truncate max-w-[5rem]">
                   <TitlePreview
                     title={path[path.length - 1].title}
@@ -233,7 +239,10 @@ function PathBreadcrumb({ path }: { path: PagePathSegment[] }) {
                   className="flex items-center gap-0.5 min-w-0"
                 >
                   {i > 0 && (
-                    <ChevronRight size={10} className="shrink-0 opacity-50" />
+                    <ChevronRight
+                      size={10}
+                      className="shrink-0 opacity-50 rtl:rotate-180"
+                    />
                   )}
                   <span className="truncate max-w-[7rem]">
                     <TitlePreview
@@ -252,7 +261,10 @@ function PathBreadcrumb({ path }: { path: PagePathSegment[] }) {
             {path.map((segment, i) => (
               <span key={segment.id} className="flex items-center gap-0.5">
                 {i > 0 && (
-                  <ChevronRight size={10} className="shrink-0 opacity-50" />
+                  <ChevronRight
+                    size={10}
+                    className="shrink-0 opacity-50 rtl:rotate-180"
+                  />
                 )}
                 <span>
                   <TitlePreview

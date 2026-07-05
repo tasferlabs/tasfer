@@ -7,6 +7,7 @@ import {
   redirect,
 } from "react-router-dom";
 import Layout from "../layout/Layout";
+import { RouteErrorBoundary } from "./RouteErrorBoundary";
 
 const EditorPage = React.lazy(() => import("../pages/EditorPage"));
 const CalendarPage = React.lazy(
@@ -24,6 +25,7 @@ export const router = createRouter([
   {
     path: "/",
     element: <Layout />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       {
         index: true,

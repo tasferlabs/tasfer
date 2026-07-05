@@ -140,6 +140,12 @@ export interface PageSearchResult {
   parentId: string | null;
   path: PagePathSegment[] | null;
   color?: string | null;
+  /**
+   * A short plain-text excerpt of the page body around the first match, present
+   * only when the query matched the body (not just the title). The matched
+   * substring is highlighted client-side; ellipses mark elided context.
+   */
+  snippet?: string | null;
 }
 
 /** Calendar page result */

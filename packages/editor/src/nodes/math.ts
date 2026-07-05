@@ -21,7 +21,11 @@ import type {
 } from "../state-types";
 import { isTouchDevice } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
+// All math layout goes through the host-wired entry so `\text{…}` characters the
+// math fonts can't render (CJK, …) are measured/typeset via the host font.
+import { layoutMathHost as layoutMath } from "./tex-host";
 import {
+  backslashFusesWith as texBackslashFusesWith,
   balanceBraces as texBalanceBraces,
   breakpoints as texBreakpoints,
   canRenderMathChar,
@@ -34,23 +38,29 @@ import {
   isInsideConstruct as texIsInsideConstruct,
   isRedundantSpace as texIsRedundantSpace,
   isValidLatex,
-  layoutMath,
   type MathLayout,
   type MathUnit,
+  type MatrixContext,
+  matrixContextAt as texMatrixContextAt,
+  type MatrixEditResult,
+  matrixResize as texMatrixResize,
+  type MatrixTextEdit,
   needsCommandSeparator as texNeedsCommandSeparator,
   normalizeLatex as texNormalizeLatex,
   pendingCommandRange as texPendingCommandRange,
   resolveSelectionRange as texResolveSelectionRange,
   scriptAttachOffset as texScriptAttachOffset,
   selectionRects as texSelectionRects,
+  spanAtPoint as texSpanAtPoint,
   toSVG,
+  typedBraceSkipsCloser as texTypedBraceSkipsCloser,
   unitAfter as texUnitAfter,
   unitAt as texUnitAt,
   unitBefore as texUnitBefore,
 } from "@cypherkit/tex";
 
 export { isValidLatex };
-export type { MathUnit };
+export type { MathUnit, MatrixContext, MatrixEditResult, MatrixTextEdit };
 
 // ─── Caret / edit model ──────────────────────────────────────────────────────
 //
@@ -97,6 +107,55 @@ function pickStop(
         .slice()
         .reverse()
         .find((o) => o < origin) ?? null);
+}
+
+/**
+ * Whether the caret at source `offset` sits on the `dir` edge of a math source —
+ * i.e. there is no further caret stop in that direction, so stepping `dir` would
+ * leave the formula. `latex`/`offset` are source-relative: a block equation's
+ * whole LaTeX with the block offset, or an inline chip's own LaTeX with the
+ * chip-local offset. Mirrors the boundary {@link mathCaretStep} hits (both key
+ * off {@link mathCaretOffsets} + `pickStop`), so a host can grey out a
+ * step-left/right control exactly when that step would exit the math.
+ */
+export function mathSourceAtEdge(
+  latex: string,
+  offset: number,
+  dir: "left" | "right",
+): boolean {
+  return pickStop(mathCaretOffsets(latex), offset, dir) === null;
+}
+
+/**
+ * The tabular construct (`matrix`/`pmatrix`/`cases`/`aligned`/`array`/…) enclosing
+ * `offset` in a math source, and the `(row, col)` of the cell the caret sits in —
+ * or null when the caret is not inside a grid. `latex`/`offset` are source-
+ * relative like {@link mathSourceAtEdge}: a block equation's whole LaTeX with the
+ * block offset, or an inline chip's own LaTeX with the chip-local offset. A host
+ * uses this to decide whether to offer the matrix row/column controls.
+ */
+export function mathMatrixContext(
+  latex: string,
+  offset: number,
+): MatrixContext | null {
+  return texMatrixContextAt(latex, offset);
+}
+
+/**
+ * The source rewrite that resizes the grid enclosing `offset` to `rows` × `cols`,
+ * or null when the caret is not inside one. Returns a `{ start, end }` span into
+ * `latex` to replace with `text`, plus the `caret` offset to place afterward —
+ * all source-relative (add a chip's `startIndex` for inline math). Growing adds
+ * empty cells; shrinking trims from the bottom/right; the grid never drops below
+ * 1×1.
+ */
+export function mathMatrixResize(
+  latex: string,
+  offset: number,
+  rows: number,
+  cols: number,
+): MatrixEditResult | null {
+  return texMatrixResize(latex, offset, rows, cols);
 }
 
 /**
@@ -380,10 +439,110 @@ function chipLeadingUnit(latex: string): MathUnit | null {
 }
 
 /**
- * Rewrite a typed char in math content: drop characters the tex engine cannot
- * render (an Arabic letter, a CJK ideograph, an emoji — they would lay out as a
- * zero-width, caret-less "latent" glyph the user can neither see nor delete),
- * insert a space before a letter typed right after a complete command
+ * A single code point the math fonts can't render but that IS real text (a
+ * letter, number, punctuation, symbol or combining mark — CJK, kana, hangul,
+ * emoji, …), so it belongs inside a `\text{…}` run rather than being dropped as
+ * a latent math glyph. `ch` must be one code point (iterate the input with
+ * `[...input]`). Control/format/whitespace code points are excluded.
+ */
+function isMathTextChar(ch: string): boolean {
+  return !canRenderMathChar(ch) && /^[\p{L}\p{N}\p{P}\p{S}\p{M}]$/u.test(ch);
+}
+
+/**
+ * Where to merge typed text into an existing `\text{…}` run at `offset` in
+ * `latex`: the offset to insert at when the caret sits INSIDE a `\text{…}` body
+ * or immediately after its closing brace, else `null` (caller emits a fresh
+ * group). Braces nest, so the body scan tracks depth; an unterminated run
+ * (mid-edit) extends to the source end.
+ */
+function textGroupInsertPoint(latex: string, offset: number): number | null {
+  const marker = "\\text{";
+  let from = 0;
+  for (;;) {
+    const start = latex.indexOf(marker, from);
+    if (start === -1) return null;
+    const bodyStart = start + marker.length;
+    let depth = 1;
+    let i = bodyStart;
+    while (i < latex.length && depth > 0) {
+      const c = latex[i];
+      if (c === "{") depth++;
+      else if (c === "}") depth--;
+      i++;
+    }
+    const terminated = depth === 0;
+    const braceEnd = i; // just past the closing `}` (or the source end)
+    const bodyEnd = terminated ? i - 1 : i; // the `}` (or the end if unterminated)
+    if (offset >= bodyStart && offset <= bodyEnd) return offset; // inside body
+    if (terminated && offset === braceEnd) return bodyEnd; // just after `}`
+    from = braceEnd;
+  }
+}
+
+/**
+ * Plan for wrapping typed text the math fonts can't render into a `\text{…}` run
+ * at `offset` in `latex`, or `null` unless EVERY code point of `input` is such
+ * text (see {@link isMathTextChar}) — so a single math keystroke or a mixed
+ * insert falls through to the normal math path. Coordinates are the math
+ * source's (chip-local for a chip); the caller maps them back to block indices.
+ */
+function planMathTextWrap(
+  latex: string,
+  offset: number,
+  input: string,
+): { input: string; insertAt: number; caret: number } | null {
+  const cps = [...input];
+  if (cps.length === 0 || !cps.every(isMathTextChar)) return null;
+  const text = cps.join("");
+  const merge = textGroupInsertPoint(latex, offset);
+  if (merge !== null) {
+    return { input: text, insertAt: merge, caret: merge + text.length };
+  }
+  const wrapped = `\\text{${text}}`;
+  return { input: wrapped, insertAt: offset, caret: offset + wrapped.length };
+}
+
+/**
+ * The interior offset of an EMPTY brace group the caret at `offset` sits
+ * immediately AFTER (`…{}|` → the offset between its braces), or `null`. An empty
+ * `{}` is always a placeholder slot — an empty super/subscript, radicand, or text
+ * body — whose ghost box the user is meant to fill; typing or composing CONTENT
+ * with the caret parked just past it (a stop that exists because the caret can
+ * step out of the slot, and which sits visually almost on top of the interior for
+ * a zero-width empty box) should drop that content INTO the slot, not on the
+ * baseline beside it where it strands the empty box (`x^{}中`). Returns the
+ * interior so the caller redirects the insertion there.
+ */
+function emptySlotInteriorBefore(latex: string, offset: number): number | null {
+  return offset >= 2 && latex[offset - 1] === "}" && latex[offset - 2] === "{"
+    ? offset - 1
+    : null;
+}
+
+/**
+ * Whether `input` is fillable CONTENT for {@link emptySlotInteriorBefore} — every
+ * code point is renderable text (a letter/digit/CJK/emoji, wrapped or bare), not a
+ * structural keystroke (`^` `_` `{` `}` `\`) that owns its own handling below (a
+ * `^` typed at `x^{}|` must attach to `x`, never nest inside the empty slot).
+ */
+function isEmptySlotFillContent(input: string): boolean {
+  const cps = [...input];
+  return (
+    cps.length > 0 &&
+    cps.every(
+      (ch) =>
+        isMathTextChar(ch) || (canRenderMathChar(ch) && !"^_{}\\".includes(ch)),
+    )
+  );
+}
+
+/**
+ * Rewrite a typed char in math content: wrap text the tex engine cannot render
+ * as math (a CJK ideograph, kana, an emoji — otherwise a zero-width, caret-less
+ * "latent" glyph) into a `\text{…}` run, drop the few remaining unrenderable
+ * code points (control/format), insert a space before a letter typed right after
+ * a complete command
  * (`\oint`+`x` → `\oint x`, never the unknown `\ointx`), escape a typed brace
  * to its literal form (`{` → `\{`, so the keystroke shows a brace glyph instead
  * of silently opening an invisible group — raw braces still pass through where
@@ -414,6 +573,48 @@ export function mathTransformTypedInput(
     }
   }
   if (latex === null) return null;
+  const base = index - offset; // chip.startIndex (0 for a block equation)
+  // The caret sits just past an EMPTY slot (`x^{}|`, `\sqrt{}|`) — content typed
+  // or composed here fills the slot instead of landing on the baseline beside it
+  // and stranding the empty placeholder box. Redirect the insertion into the
+  // slot; CJK still wraps, so `x^{}|` + 中 → `x^{\text{中}}` and + a → `x^{a}`.
+  // Structural keystrokes are excluded (see isEmptySlotFillContent) so a `^`
+  // typed here still attaches to the base rather than nesting in the slot.
+  const slot = emptySlotInteriorBefore(latex, offset);
+  if (slot !== null && isEmptySlotFillContent(input)) {
+    const wrap = planMathTextWrap(latex, slot, input);
+    if (wrap) {
+      return {
+        input: wrap.input,
+        insertAt: wrap.insertAt + base,
+        caret: wrap.caret + base,
+        ...(insideChip ? { suppressMarkdown: true } : {}),
+      };
+    }
+    const renderable = [...input].filter(canRenderMathChar).join("");
+    if (renderable.length > 0) {
+      return {
+        input: renderable,
+        insertAt: slot + base,
+        caret: slot + base + renderable.length,
+        ...(insideChip ? { suppressMarkdown: true } : {}),
+      };
+    }
+  }
+  // Text the math fonts can't render (CJK, Japanese, …) is wrapped into a
+  // `\text{…}` run — which the host font typesets (see `tex-host`) — instead of
+  // being dropped. Fires only when the WHOLE insert is such text (the typical
+  // IME commit); mixed math+text falls through to the math path below. When the
+  // caret already sits in (or just after) a `\text{…}`, the chars merge into it.
+  const textWrap = planMathTextWrap(latex, offset, input);
+  if (textWrap) {
+    return {
+      input: textWrap.input,
+      insertAt: textWrap.insertAt + base,
+      caret: textWrap.caret + base,
+      ...(insideChip ? { suppressMarkdown: true } : {}),
+    };
+  }
   // Discard unrenderable characters before they enter the document. Iterate by
   // code point so an astral char (emoji) is dropped whole, not split.
   const renderable = [...input].filter(canRenderMathChar).join("");
@@ -426,6 +627,17 @@ export function mathTransformTypedInput(
     mathNeedsCommandSeparator(latex, offset, renderable)
       ? " " + renderable
       : renderable;
+  // Typing the matching `}` when the group's auto-inserted closer already sits at
+  // the caret (`\text{hi|}`, after the materializer closed the argument) steps
+  // OVER that `}` instead of wedging in a literal `\}` — which would render a
+  // stray brace (`\text{hi\}}` → "hi}"). No content changes; only the caret
+  // advances past the existing closer, so natural `\text{hi}` typing stays clean.
+  if (out === "}" && texTypedBraceSkipsCloser(latex, offset)) {
+    const caret = index + 1; // just past the existing `}`
+    return insideChip
+      ? { input: "", suppressMarkdown: true, caret }
+      : { input: "", caret };
+  }
   // A typed brace means the visible character, not an invisible grouping token:
   // rewrite it to the escaped symbol unless it's structurally meant raw here
   // (see escapeTypedBrace). Only the single-char typing path — a multi-char
@@ -466,6 +678,28 @@ export function mathTransformTypedInput(
     }
     if (insideChip) return { input: out, suppressMarkdown: true };
     return out === input ? null : { input: out };
+  }
+  // A bare `\` typed immediately before a structural token fuses with it into a
+  // single escaped/structural command — the GLYPH, not the token — swallowing its
+  // structural role: a grouping brace (`\frac{|}{}` + `\` → `\frac{\}{}`, the slot
+  // runs to the source end and spawns a phantom `{}` beside the construct), a
+  // matrix column separator (`a|&b` → `a\&b`, the `&` becomes a literal ampersand
+  // and the two cells merge into one — the reported bug), a script operator
+  // (`x|^2` → `x\^2`, the `2` de-scripts), a `\sqrt[…]` index bracket (`\sqrt[3|]`
+  // → `\sqrt[3\]`, the index swallows the radicand), or a row break (`|\\` in a
+  // matrix).
+  // Insert a separating space so the `\` stays a lone command-intro and the token
+  // keeps its role (`\frac{\ }{}`, `a\ &b` — balanced, no fusion), landing the
+  // caret between them so command typing continues normally. The separator is
+  // load-bearing only for the bare `\`: once a command letter follows (`\a&`) the
+  // token no longer merges, and the leftover space is render-neutral — math mode
+  // collapses it, exactly like the `\oint x` command separator, adding no caret
+  // stop (dropped by mathRedundantSeparatorAfterInput once the command grows).
+  if (out === "\\" && texBackslashFusesWith(latex, offset)) {
+    const caret = index + 1; // between the `\` and the separating space
+    return insideChip
+      ? { input: "\\ ", suppressMarkdown: true, caret }
+      : { input: "\\ ", caret };
   }
   if (insideChip) return { input: out, suppressMarkdown: true };
   // Block equation: only contribute when filtering or the separator changed input.
@@ -827,6 +1061,61 @@ export function mathRedundantSpaceAfterInput(
 
   return texIsRedundantSpace(latex, local)
     ? { from: space, to: space + 1 }
+    : null;
+}
+
+/**
+ * Drop the command-entry separator once the command it guarded has grown enough
+ * to no longer need it. When a bare `\` is typed immediately before a structural
+ * grouping brace, {@link mathTransformTypedInput} inserts a `\ ` separator so the
+ * `\` can't fuse with the brace into the escaped `\{`/`\}` (see there). That
+ * separator is load-bearing ONLY while the command is a bare `\`: the instant a
+ * command char follows (`\a}` no longer merges), the space becomes dead source
+ * that would otherwise linger in the committed formula (`\frac{\alpha }{}`).
+ *
+ * Fires after ANY keystroke (not only a typed space, unlike {@link
+ * mathRedundantSpaceAfterInput}): the trigger here is a command *letter* landing
+ * in front of the separator. Resolves the block range `[from, to)` of a space
+ * sitting immediately AFTER the caret and immediately BEFORE a `{`/`}` — the exact
+ * shape of the separator during command typing (`\a| }` → the caret is just past
+ * the letter, the space and the slot's brace follow) — when removing it is
+ * parse-neutral ({@link texIsRedundantSpace}, which returns false while the `\` is
+ * still bare because dropping the space then re-merges the brace). `null`
+ * otherwise. Narrow by design: only a redundant space wedged between the caret and
+ * a brace qualifies, so ordinary inter-atom spacing is never touched.
+ *
+ * `caret` is the post-insert caret, so the separator (if any) is at `caret`.
+ */
+export function mathRedundantSeparatorAfterInput(
+  block: Block,
+  caret: number,
+): { from: number; to: number } | null {
+  if (!("charRuns" in block)) return null;
+  const text = getVisibleTextFromRuns(block.charRuns);
+  if (text[caret] !== " ") return null;
+
+  let latex: string;
+  let local: number;
+  if (block.type === "math") {
+    latex = text;
+    local = caret;
+  } else {
+    const span = getInlineMathSpans(block).find(
+      (s) => caret >= s.startIndex && caret < s.endIndex,
+    );
+    if (!span) return null;
+    latex = span.latex;
+    local = caret - span.startIndex;
+  }
+
+  // The separator always sits flush before the structural token it protects (a
+  // brace, `&`, script, or row break — see mathTransformTypedInput); requiring
+  // that keeps this from disturbing any other (e.g. inter-atom) space near the
+  // caret. `texBackslashFusesWith` at the following offset is exactly that set.
+  if (!texBackslashFusesWith(latex, local + 1)) return null;
+
+  return texIsRedundantSpace(latex, local)
+    ? { from: caret, to: caret + 1 }
     : null;
 }
 
@@ -1287,16 +1576,51 @@ export function getInlineMathSelectionRects(
  * down). For a single-row formula `localY` 0 (the baseline) suffices; vertical
  * disambiguation (e.g. clicking a fraction's denominator) lands in a later step.
  */
+/**
+ * The construct a double-click / double-tap at a chip-local point `(localX,
+ * localY)` selects — the POINT-based counterpart to {@link mathUnitAt}, resolved
+ * straight off the rendered box tree via {@link texSpanAtPoint}. This is what
+ * makes an ATOMIC command chip (`\det`, `\sin`, `\lim`) selectable at all: such a
+ * command has caret stops only at its two edges, so an offset resolved from the
+ * tap lands on a chip boundary and the offset path can't see it — but the glyphs
+ * carry the command's whole span, so a point lands inside it. `localX` is measured
+ * from the chip's left edge, `localY` from the text baseline (+y down). Uses a
+ * finger-sized target on touch. Returns null for an empty chip.
+ */
+export function getInlineMathWordRange(
+  latex: string,
+  fontSize: number,
+  localX: number,
+  localY: number,
+  literalRange?: { start: number; end: number },
+): { start: number; end: number } | null {
+  if (!latex) return null;
+  const l = layoutMath(latex, { fontSize, displayMode: false, literalRange });
+  return texSpanAtPoint(l, localX, localY, {
+    minTargetSize: isTouchDevice() ? 44 : 24,
+  });
+}
+
 export function getInlineMathOffsetAtX(
   latex: string,
   fontSize: number,
   localX: number,
   localY = 0,
+  // Finger-drag (magnifier) resolution: resolve to the nearest caret stop in 2-D
+  // with row hysteresis, so vertical dragging descends smoothly between a
+  // fraction's numerator/denominator without flipping on finger wobble. See
+  // {@link import("@cypherkit/tex").HitTestOptions.drag}.
+  drag = false,
+  // The caret's CURRENT chip-local offset (for the hysteresis in drag mode), or
+  // null when the caret is not already inside this chip.
+  dragPrevOffset: number | null = null,
 ): number {
   if (!latex) return 0;
   const l = layoutMath(latex, { fontSize, displayMode: false });
   return texHitTest(l, localX, localY, {
     placeholderTargetSize: isTouchDevice() ? 44 : 24,
+    drag,
+    dragPrevOffset,
   });
 }
 

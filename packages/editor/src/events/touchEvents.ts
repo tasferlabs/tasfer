@@ -497,7 +497,13 @@ export function handleTouchMove(
         }
       }
 
-      // Get the new cursor position based on touch location
+      // Get the new cursor position based on touch location. Drag resolution:
+      // over a math formula, follow the finger to its nearest caret stop so the
+      // caret moves smoothly between a fraction's numerator and denominator,
+      // instead of the tap path's leap out to the fraction's boundary — the
+      // reported loupe jitter over math. `prev` is the current caret, the row
+      // hysteresis anchor that keeps tightly-stacked inline rows from flipping on
+      // finger wobble. A precise tap still uses the vertical-band hit-test.
       const newPosition = getTextPositionFromViewport(
         canvasX,
         canvasY,
@@ -505,6 +511,7 @@ export function handleTouchMove(
         viewport,
         undefined,
         visibility,
+        { drag: true, prev: state.document.cursor?.position ?? null },
       );
 
       if (newPosition) {

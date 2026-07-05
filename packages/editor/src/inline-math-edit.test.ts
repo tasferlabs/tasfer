@@ -534,13 +534,19 @@ describe("typed braces become their escaped literal form in math content", () =>
     });
   });
 
-  it("escapes } typed inside a chip's construct slot (never closes the slot)", () => {
+  it("steps over a slot's closing brace instead of inserting a literal", () => {
+    // `\frac{12|}{2}` — caret in the numerator, flush before its closing `}`.
+    // Typing `}` STEPS OVER that closer (no content change, caret advances past
+    // it) rather than wedging in a literal `\}`. The old escape-to-`\}` behavior
+    // is exactly the reported "renders wrong" bug: naturally typing a command's
+    // closing brace after the slot auto-closed left a stray brace (`\text{hi\}}`).
     const { page } = chip("\\frac{12}{2}");
     const span = getInlineMathSpans(page.blocks[0])[0];
     const caret = span.startIndex + "\\frac{12".length;
     expect(mathTransformTypedInput(page.blocks[0], caret, "}")).toEqual({
-      input: "\\}",
+      input: "",
       suppressMarkdown: true,
+      caret: caret + 1, // past the existing closer
     });
   });
 
@@ -564,5 +570,105 @@ describe("typed braces become their escaped literal form in math content", () =>
     expect(
       mathTransformTypedInput(page.blocks[0], 1, "\\frac{a}{b}"),
     ).toBeNull();
+  });
+
+  it("a \\ typed before a slot's closing brace gains a separating space", () => {
+    // Regression: caret in `\frac{|}{}`, user types `\` to start a command. Without
+    // a separator the `\` fuses with the numerator's `}` into `\}` (a brace glyph),
+    // unclosing the numerator so the parser materializes a phantom slot at the end
+    // and a stray `{}` block appears beside the fraction. The transform inserts a
+    // separating space instead — `\frac{\ }{}` (balanced, no phantom) — and lands
+    // the caret between the `\` and the space so command typing continues.
+    const eq = mathBlock("\\frac{}{}");
+    const numCaret = "\\frac{".length; // 6, inside the empty numerator
+    expect(mathTransformTypedInput(eq.page.blocks[0], numCaret, "\\")).toEqual({
+      input: "\\ ",
+      caret: numCaret + 1,
+    });
+
+    // Same at the boundary before the NEXT slot's opening brace (`\frac{}|{}`).
+    const between = "\\frac{}".length; // 7, before the denominator's `{`
+    expect(mathTransformTypedInput(eq.page.blocks[0], between, "\\")).toEqual({
+      input: "\\ ",
+      caret: between + 1,
+    });
+
+    // Inside an inline chip the same holds, plus markdown is suppressed.
+    const c = chip("\\frac{}{}");
+    const span = getInlineMathSpans(c.page.blocks[0])[0];
+    expect(
+      mathTransformTypedInput(c.page.blocks[0], span.startIndex + 6, "\\"),
+    ).toEqual({
+      input: "\\ ",
+      suppressMarkdown: true,
+      caret: span.startIndex + 7,
+    });
+  });
+
+  it("materialization no longer appends a stray block for a \\-separated frac slot", () => {
+    // With the separator in place the numerator is `\ ` (a control space), not the
+    // brace-eating `\}`, so the source stays balanced and the materializer finds
+    // nothing to fill — no phantom `{}` beside the fraction, and it holds as the
+    // command grows (`\frac{\alpha }{}`).
+    for (const latex of ["\\frac{\\ }{}", "\\frac{\\alpha }{}"]) {
+      const { page } = mathBlock(latex);
+      expect(
+        mathMaterializeAfterInput(page.blocks[0], latex.length),
+      ).toBeNull();
+    }
+  });
+
+  it("a \\ typed before a matrix column separator gains a separating space", () => {
+    // The reported bug: caret after `a`, before the `&` in a matrix row. Without a
+    // separator the `\` fuses with the `&` into `\&` — a literal ampersand, not a
+    // column separator — so the two cells merge into one and a cell is lost. The
+    // transform wedges a `\ ` control space so the `&` keeps separating the cells.
+    const eq = mathBlock("\\begin{matrix}a&b\\end{matrix}");
+    const ampCaret = "\\begin{matrix}a".length; // just before the `&`
+    expect(mathTransformTypedInput(eq.page.blocks[0], ampCaret, "\\")).toEqual({
+      input: "\\ ",
+      caret: ampCaret + 1,
+    });
+  });
+
+  it("a \\ typed before a script operator or row break gains a separating space", () => {
+    // Before `^`: without the separator `x|^2` fuses into `x\^2` (a literal caret,
+    // the `2` de-scripts). Before a matrix row break `\\`: `|\\` would extend into
+    // `\\\` and orphan the row structure.
+    const script = mathBlock("x^2");
+    expect(mathTransformTypedInput(script.page.blocks[0], 1, "\\")).toEqual({
+      input: "\\ ",
+      caret: 2,
+    });
+
+    const rows = mathBlock("\\begin{matrix}a\\\\b\\end{matrix}");
+    const rowCaret = "\\begin{matrix}a".length; // just before the `\\`
+    expect(
+      mathTransformTypedInput(rows.page.blocks[0], rowCaret, "\\"),
+    ).toEqual({
+      input: "\\ ",
+      caret: rowCaret + 1,
+    });
+  });
+
+  it("a \\ typed before a \\sqrt index bracket gains a separating space", () => {
+    // `\sqrt[3]{x}` — caret after `3`, before the `]`. Without a separator the `\`
+    // fuses into `\]`, so the optional index runs past the bracket and swallows the
+    // `{x}` radicand (leaving the root empty). The `\ ` keeps the `]` closing the
+    // index, so the radicand survives.
+    const eq = mathBlock("\\sqrt[3]{x}");
+    const idxCaret = "\\sqrt[3".length; // just before the `]`
+    expect(mathTransformTypedInput(eq.page.blocks[0], idxCaret, "\\")).toEqual({
+      input: "\\ ",
+      caret: idxCaret + 1,
+    });
+  });
+
+  it("keeps { raw right after a typed backslash in open space (completing \\{)", () => {
+    // The separator only triggers when a brace is ALREADY at the caret. A lone `\`
+    // typed in open space (next char not a brace) passes through untouched, so the
+    // two-keystroke `\` then `{` still composes the escaped `\{`.
+    const { page } = mathBlock("x");
+    expect(mathTransformTypedInput(page.blocks[0], 1, "\\")).toBeNull();
   });
 });

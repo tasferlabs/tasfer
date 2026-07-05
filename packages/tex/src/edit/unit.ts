@@ -150,6 +150,31 @@ function locate(
 }
 
 /**
+ * A single code point of a `\text{…}` run as the editing unit adjacent to the
+ * caret. A text run is one AST node (it has no child nodes to descend into), but
+ * its {@link TextNode.charSpans} give every code point its own source range, so a
+ * Backspace/Delete inside the run peels ONE character rather than escalating to
+ * wipe the whole run. Works uniformly for native-glyph text and the host-shaped
+ * fallback runs (CJK, Arabic, …): the spans are logical-order source ranges, so
+ * an RTL run deletes the logically-adjacent char (Backspace removes the char
+ * *before* the caret in source order, whatever its screen side). `null` at a run
+ * edge (caret at the body's first-char start for Backspace / last-char end for
+ * Delete) so the caller escalates to the whole `\text{…}` there.
+ */
+function textCharUnit(
+  node: Node,
+  offset: number,
+  direction: Direction,
+): MathUnit | null {
+  if (node.type !== "text") return null;
+  const span =
+    direction === "backward"
+      ? node.charSpans.find((s) => s.end === offset)
+      : node.charSpans.find((s) => s.start === offset);
+  return span ? { start: span.start, end: span.end, isConstruct: false } : null;
+}
+
+/**
  * When the caret sits inside an EMPTY script slot (`\int_{}`, `x^{}`), the unit
  * is that whole script token (`_{}` / `^{}`) — a delete peels the empty script
  * off and keeps the base, rather than escalating to the whole scripted construct
@@ -233,11 +258,15 @@ function resolve(
 
   // Nothing at this level (caret at the group's edge): escalate to the enclosing
   // construct so the whole thing is the unit rather than its braces chipped off
-  // into partial LaTeX. A caret inside an empty script slot is the exception —
-  // there the unit is just that empty script, so it can be peeled off alone.
+  // into partial LaTeX. Two exceptions peel a smaller piece: a caret inside an
+  // empty script slot takes just that empty script, and a caret inside a
+  // `\text{…}` run takes the single code point beside it (so text is edited one
+  // char at a time, not wiped whole) — both fall back to the construct at a run
+  // edge where no smaller unit resolves.
   if (parent) {
     return (
-      emptyScriptUnit(parent, offset) ?? {
+      emptyScriptUnit(parent, offset) ??
+      textCharUnit(parent, offset, direction) ?? {
         start: parent.span.start,
         end: parent.span.end,
         isConstruct: !isLeaf(parent),
@@ -546,6 +575,14 @@ export function resolveSelectionRange(
  * fraction, not the operator. `null` for an empty formula.
  */
 export function unitAt(latex: string, offset: number): MathUnit | null {
+  // Level-aware, like the caret: {@link resolveSelection} escalates a leaf to the
+  // CLOSEST enclosing construct, never further, so a click respects the nesting it
+  // lands in. A radical is one such construct — tapping a bare radicand takes the
+  // whole `\sqrt{…}` (its surd/vinculum have no source of their own, so a leaf
+  // there escalates to the root), but a nested construct filling the radicand (an
+  // inner `\frac`, a matrix) is the closer level and wins, so the double-click
+  // grabs that inner construct rather than ballooning to the whole radical. The
+  // box-tree point path (`spanAtPoint`) matches this via {@link ListBox.radical}.
   const before = resolveSelection(latex, offset, "backward");
   const after = resolveSelection(latex, offset, "forward");
   return [before, after].find((u) => u?.isConstruct) ?? after ?? before;

@@ -1,8 +1,10 @@
 /**
- * Characters the tex engine can't render (Arabic, CJK, emoji) must be discarded
- * on input in math content rather than committed to the CRDT. Left in, they lay
- * out as zero-width, caret-less glyphs — invisible "latent" source the user can
- * neither see nor delete. Renderable characters are unaffected.
+ * Text the math fonts can't render (Arabic, CJK, emoji) is wrapped into a
+ * `\text{…}` run on input — the host font typesets it (see `@cypherkit/tex`'s
+ * text fallback) — instead of being committed bare, where it would lay out as a
+ * zero-width, caret-less "latent" glyph. Code points that are neither math nor
+ * real text (control/format chars) are still discarded. Renderable math
+ * characters are unaffected.
  */
 import { insertText } from "../actions/actions";
 import { moveCursorToPosition } from "../selection";
@@ -34,15 +36,25 @@ function latexOf(state: EditorState) {
 }
 
 describe("math latent-character guard", () => {
-  it("discards an unrenderable character typed into a formula", () => {
-    const { state } = mathState("x", 1);
+  it("wraps a text character (Arabic, CJK, emoji) into a \\text run", () => {
     for (const ch of ["ع", "中", "😀"]) {
+      const { state } = mathState("x", 1);
       const after = insertText(state, ch).state;
-      expect(latexOf(after)).toBe("x"); // nothing committed
+      // Committed as \text{…} (host-font typeset), not dropped as a latent glyph.
+      expect(latexOf(after)).toBe(`x\\text{${ch}}`);
     }
   });
 
+  it("still discards a code point that is neither math nor text (control/format)", () => {
+    const { state } = mathState("x", 1);
+    // U+200B ZERO WIDTH SPACE — no math glyph, and not real text → dropped.
+    const after = insertText(state, "\u200B").state;
+    expect(latexOf(after)).toBe("x");
+  });
+
   it("strips unrenderable characters from a mixed insertion, keeping the rest", () => {
+    // A mixed math+text burst (rare outside IME) takes the math path, which keeps
+    // the math-renderable chars and drops the rest — it is not wrapped.
     const { state } = mathState("", 0);
     const after = insertText(state, "aعb").state;
     expect(latexOf(after)).toBe("ab");

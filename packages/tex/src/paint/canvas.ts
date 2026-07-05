@@ -38,7 +38,15 @@ export function paintMath(
   const prevAlign = ctx.textAlign;
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = "left";
-  paintBox(ctx, layout.box, x, y, layout.fontSize, opts.color ?? "#000", opts.pendingRange);
+  paintBox(
+    ctx,
+    layout.box,
+    x,
+    y,
+    layout.fontSize,
+    opts.color ?? "#000",
+    opts.pendingRange,
+  );
   ctx.textBaseline = prevBaseline;
   ctx.textAlign = prevAlign;
 }
@@ -55,7 +63,11 @@ function paintBox(
   switch (box.type) {
     case "glyph": {
       if (box.char === "" || (box.width === 0 && box.height === 0)) return;
-      ctx.font = `${box.size * fontSize}px "${fontFamily(box.variant)}"`;
+      // A text-fallback glyph (CJK, …) draws from the host font it was measured
+      // with; every other glyph uses the KaTeX face for its variant.
+      ctx.font = box.textFont
+        ? `${box.size * fontSize}px ${box.textFont}`
+        : `${box.size * fontSize}px "${fontFamily(box.variant)}"`;
       // A per-glyph color override marks an unknown-command placeholder (red).
       // Suppress it while this glyph belongs to a command still being typed
       // (its span falls within the pending-command range) — not an error yet.
@@ -65,7 +77,7 @@ function paintBox(
         box.span != null &&
         box.span.start >= pendingRange.start &&
         box.span.end <= pendingRange.end;
-      ctx.fillStyle = stillTyping ? color : box.color ?? color;
+      ctx.fillStyle = stillTyping ? color : (box.color ?? color);
       if (box.yScale != null && box.yScale !== 1) {
         // Scale vertically about the baseline to stretch extensible pieces.
         ctx.save();

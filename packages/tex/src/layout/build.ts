@@ -9,10 +9,16 @@ import { type AtomClass, SPACINGS, TIGHT_SPACINGS } from "../data/constants";
 import {
   atomClassOf,
   type FontVariant,
+  getCharacterMetrics,
   resolveFontVariant,
 } from "../data/fontMetrics";
 import type { SigmaName } from "../data/constants";
-import type { Node, Span } from "../parse/ast";
+import type {
+  Node,
+  Span,
+  TextFallbackChar,
+  TextFallbackRun,
+} from "../parse/ast";
 import { DISPLAY, SCRIPT, type Style, TEXT } from "../style";
 import {
   type Box,
@@ -26,6 +32,7 @@ import {
   type Placed,
   placeholderBox,
   ruleBox,
+  textFallbackBox,
 } from "./box";
 import { chooseSurd, makeDelimiter, SIZE_TO_MAX_HEIGHT } from "./delimiter";
 import { SCRIPTSCRIPT } from "../style";
@@ -383,7 +390,11 @@ export function buildExpressionWrapped(
     if (r > 0) y += rowBoxes[r - 1].depth + gap + rowBoxes[r].height;
     children.push({ box: rowBoxes[r], dx: r === 0 ? 0 : indent, dy: y });
   }
-  return listBox(children);
+  const box = listBox(children);
+  // Flag a genuine multi-line wrap so the caret hit-test can resolve a margin
+  // click to the clicked line rather than the whole formula's edge. A single-row
+  // result carries no such stack (its lone child is the whole line).
+  return rowBoxes.length > 1 ? { ...box, lineStack: true } : box;
 }
 
 /**
@@ -476,7 +487,16 @@ function buildNodeInner(node: Node, style: Style, font?: FontVariant): Built {
     case "ord": {
       // An empty group is an editable slot (a deleted-out numerator, an `x^{}`
       // script): lay out a faint placeholder so the caret has somewhere to land.
-      if (node.body.length === 0) {
+      // A slot holding only spacing paints no visible ink, so it reads as empty
+      // too — give it the same placeholder and caret stop rather than a dead,
+      // unreachable gap. The case that matters in live editing is the `\ ` control
+      // space a host inserts to keep a just-typed command-entry `\` from fusing
+      // with a following brace (`\frac{\ }{}`): without this the numerator would
+      // have neither a box nor a caret stop, leaving it impossible to click into.
+      if (
+        node.body.length === 0 ||
+        node.body.every((n) => n.type === "space")
+      ) {
         return emptySlot(node.span, style);
       }
       const box = buildExpression(node.body, style, font);
@@ -1188,10 +1208,19 @@ function buildOpName(
   style: Style,
 ): Built {
   const items: HItem[] = [];
+  // The letters of a name are span-less: they have no independent source
+  // position (the whole `\det` maps to one command span). Marking the wrapper a
+  // `unit` gives the atom two outer-edge caret stops instead of one per letter —
+  // otherwise the caret at the operator's end would snap to the first letter
+  // boundary, not its right edge.
   for (const ch of node.name) {
-    items.push(glyphBox(ch, "Main-Regular", style.sizeMultiplier, node.span));
+    items.push(glyphBox(ch, "Main-Regular", style.sizeMultiplier, null));
   }
-  const box = hbox(items, { klass: "mop", span: node.span });
+  const box: Box = {
+    ...hbox(items, { klass: "mop" }),
+    span: node.span,
+    unit: true,
+  };
   return { box, klass: "mop", isCharBox: false };
 }
 
@@ -1247,13 +1276,101 @@ function asNodes(node: Node): Node[] {
   return node.type === "ord" ? node.body : [node];
 }
 
+/**
+ * Whether a fallback run reads right-to-left — its first character is an
+ * Arabic/Hebrew letter (a fallback run is a homogeneous stretch of non-native
+ * characters, so the first is representative; CJK/emoji stay LTR). This keeps the
+ * bidi decision inside the run local and metric-free — the browser still does the
+ * actual shaping and visual ordering at paint time.
+ */
+function runIsRtl(text: string): boolean {
+  const cp = text.codePointAt(0);
+  if (cp === undefined) return false;
+  return (
+    (cp >= 0x0590 && cp <= 0x05ff) || // Hebrew
+    (cp >= 0x0600 && cp <= 0x06ff) || // Arabic
+    (cp >= 0x0700 && cp <= 0x074f) || // Syriac
+    (cp >= 0x0750 && cp <= 0x077f) || // Arabic Supplement
+    (cp >= 0x0780 && cp <= 0x07bf) || // Thaana
+    (cp >= 0x08a0 && cp <= 0x08ff) || // Arabic Extended-A
+    (cp >= 0xfb1d && cp <= 0xfb4f) || // Hebrew presentation forms
+    (cp >= 0xfb50 && cp <= 0xfdff) || // Arabic presentation forms-A
+    (cp >= 0xfe70 && cp <= 0xfeff) // Arabic presentation forms-B
+  );
+}
+
+/**
+ * Interior caret stops for one shaped fallback run — a boundary before each
+ * character and one after the last, positioned by the run's measured `edges` and
+ * resolved for its direction. For an LTR run boundary `k` sits at `edges[k]` from
+ * the left; for an RTL run the logical first character is at the RIGHT, so it
+ * sits at `width - edges[k]`. Offsets come from `charSpans`, so each stop is a
+ * real source position between two characters.
+ */
+function fallbackCarets(
+  run: TextFallbackRun,
+  charSpans: readonly Span[],
+  size: number,
+): { offset: number; dx: number }[] {
+  const carets: { offset: number; dx: number }[] = [];
+  for (let k = 0; k <= run.length; k++) {
+    const offset =
+      k < run.length
+        ? charSpans[run.start + k].start
+        : charSpans[run.start + run.length - 1].end;
+    const edge = run.rtl ? run.width - run.edges[k] : run.edges[k];
+    carets.push({ offset, dx: edge * size });
+  }
+  return carets;
+}
+
 /** A text-mode run (`\text`, `\textbf`, …) — raw chars, spaces preserved. */
 function buildText(node: Extract<Node, { type: "text" }>, style: Style): Built {
   const variant = node.variant as FontVariant;
   const items: HItem[] = [];
-  for (const ch of node.text) {
+  // Iterate by code point so an astral char (emoji) stays whole and index-aligns
+  // with the fallback runs and `charSpans` (both indexed against `[...text]`).
+  const chars = [...node.text];
+  const spans = node.charSpans;
+  const runAt = new Map<number, TextFallbackRun>();
+  for (const r of node.fallbackRuns ?? []) runAt.set(r.start, r);
+  let i = 0;
+  while (i < chars.length) {
+    // A stretch of characters the math fonts have no glyph for (CJK, Arabic, …)
+    // is drawn from the host font as ONE shaped box — so the browser joins
+    // cursive scripts and bidi-orders RTL — instead of a per-char split that
+    // renders Arabic as disconnected, reversed letters. Only present when
+    // `layoutMath` was given a `textFallback` and the chars lack native metrics.
+    const run = runAt.get(i);
+    if (run && node.fallbackFont) {
+      // The whole run's source span (its first char's start to its last char's
+      // end), so a full-run selection highlights via the covered-box path while
+      // the interior boundaries drive sub-run carets and partial highlights.
+      const runSpan: Span = {
+        start: spans[run.start].start,
+        end: spans[run.start + run.length - 1].end,
+      };
+      items.push(
+        textFallbackBox(
+          run.text,
+          style.sizeMultiplier,
+          runSpan,
+          node.fallbackFont,
+          {
+            width: run.width,
+            ascent: run.ascent,
+            depth: run.depth,
+          },
+          fallbackCarets(run, spans, style.sizeMultiplier),
+        ),
+      );
+      i += run.length;
+      continue;
+    }
+    const ch = chars[i];
     if (ch === " ") items.push({ kern: 0.333 * style.sizeMultiplier });
-    else items.push(glyphBox(ch, variant, style.sizeMultiplier, node.span));
+    else items.push(glyphBox(ch, variant, style.sizeMultiplier, spans[i]));
+    i++;
   }
   const box = hbox(items, { klass: "mord", span: node.span });
   return { box, klass: "mord", isCharBox: false };
@@ -1581,6 +1698,14 @@ function buildSqrt(node: Extract<Node, { type: "sqrt" }>, style: Style): Built {
       span: node.span,
     });
   }
+
+  // Tag the radical so the "select the unit under the finger" gesture counts the
+  // whole `\sqrt{…}` — surd, vinculum and radicand together — as a boundary
+  // construct. Its surd and vinculum carry no source span, so without this a
+  // double-tap on a bare radicand's glyph would carry no construct at all; the tag
+  // makes it select the whole radical. A construct nested inside the radicand is
+  // still the closer level and wins (level-aware). See ListBox.radical.
+  box.radical = true;
   return { box, klass: "mord", isCharBox: false };
 }
 
@@ -1691,4 +1816,135 @@ function buildUnknown(
   }
   const box = hbox(items, { klass: "mord", span: node.span });
   return { box, klass: "mord", isCharBox: false };
+}
+
+/**
+ * Attach text-fallback metrics to every `\text{…}` run in `nodes`, in place.
+ *
+ * Runs once (from {@link layoutMath}) when a host supplies a `textFallback`. For
+ * each character a `\text` run holds that the math fonts have NO metric for (CJK,
+ * emoji, accented forms the KaTeX faces omit, …), it records the host-measured
+ * size and font on the node so {@link buildText} can lay the char out and paint
+ * it from that font, instead of the invisible zero-width fallback glyph a missing
+ * metric otherwise produces. Characters that DO have a native glyph are left on
+ * the math fonts (a `null` fallback entry), so Latin text is unaffected.
+ *
+ * The walk descends into every container node, since a `\text` run can nest
+ * anywhere (a fraction numerator, a script, a matrix cell).
+ */
+export function annotateTextFallback(
+  nodes: Node[],
+  fontFamily: string,
+  measure: (text: string) => TextFallbackChar,
+): void {
+  for (const node of nodes) annotateNode(node, fontFamily, measure);
+}
+
+function annotateNode(
+  node: Node,
+  font: string,
+  measure: (text: string) => TextFallbackChar,
+): void {
+  switch (node.type) {
+    case "text": {
+      const variant = node.variant as FontVariant;
+      const chars = [...node.text];
+      // A char needs the host font when it's not a space and the math fonts have
+      // no glyph for it (CJK, Arabic, emoji, …).
+      const needsFallback = chars.map(
+        (ch) => ch !== " " && getCharacterMetrics(ch, variant, 1) === null,
+      );
+      // Group maximal stretches of `(fallback char | space)`, then trim the
+      // boundary spaces: what's left is a run of fallback chars plus the spaces
+      // BETWEEN them. Measuring and painting that whole substring as one unit is
+      // what makes the browser shape it — Arabic joins cursively and RTL text
+      // bidi-orders — where a per-char split would not. Boundary spaces fall
+      // outside the run and stay ordinary kerns (see `buildText`).
+      const runs: TextFallbackRun[] = [];
+      let i = 0;
+      while (i < chars.length) {
+        if (!(needsFallback[i] || chars[i] === " ")) {
+          i++;
+          continue;
+        }
+        const groupStart = i;
+        while (i < chars.length && (needsFallback[i] || chars[i] === " ")) i++;
+        let start = groupStart;
+        let end = i;
+        while (start < end && chars[start] === " ") start++;
+        while (end > start && chars[end - 1] === " ") end--;
+        // A group that was all spaces (no fallback char) trims to empty — skip it.
+        if (start >= end) continue;
+        const runChars = chars.slice(start, end);
+        const text = runChars.join("");
+        const m = measure(text);
+        // Per-boundary cumulative advance, so the caret can stop between the
+        // characters of this one shaped box. Measured per growing prefix and
+        // clamped monotonic within [0, width] — cursive shaping can make an
+        // isolated-form prefix wider than its in-context contribution, which
+        // would otherwise put a later boundary left of an earlier one.
+        const edges: number[] = [0];
+        for (let k = 1; k < runChars.length; k++) {
+          const raw = measure(runChars.slice(0, k).join("")).width;
+          edges.push(Math.min(m.width, Math.max(edges[k - 1], raw)));
+        }
+        edges.push(m.width);
+        runs.push({
+          start,
+          length: end - start,
+          text,
+          width: m.width,
+          ascent: m.ascent,
+          depth: m.depth,
+          edges,
+          rtl: runIsRtl(text),
+        });
+      }
+      if (runs.length > 0) {
+        node.fallbackRuns = runs;
+        node.fallbackFont = font;
+      }
+      return;
+    }
+    case "ord":
+    case "leftright":
+    case "style":
+      node.body.forEach((n) => annotateNode(n, font, measure));
+      return;
+    case "supsub":
+      for (const n of [node.base, node.sup, node.sub]) {
+        if (n) annotateNode(n, font, measure);
+      }
+      return;
+    case "frac":
+      annotateNode(node.num, font, measure);
+      annotateNode(node.den, font, measure);
+      return;
+    case "sqrt":
+      if (node.index) annotateNode(node.index, font, measure);
+      annotateNode(node.body, font, measure);
+      return;
+    case "stack":
+      annotateNode(node.script, font, measure);
+      annotateNode(node.base, font, measure);
+      return;
+    case "array":
+      for (const row of node.rows) {
+        for (const cell of row) annotateNode(cell, font, measure);
+      }
+      return;
+    case "accent":
+    case "not":
+      annotateNode(node.base, font, measure);
+      return;
+    case "overunder":
+    case "mathfont":
+    case "mclass":
+    case "boxed":
+    case "phantom":
+      annotateNode(node.body, font, measure);
+      return;
+    default:
+      return;
+  }
 }

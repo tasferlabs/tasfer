@@ -15,7 +15,7 @@ import {
 } from "../rendering/scrollbar";
 import { getTextPositionFromViewport } from "../selection";
 import { hasActiveSelectionHighlight } from "../selection";
-import { updateCursor } from "../selection";
+import { snapSelectionToConstructs, updateCursor } from "../selection";
 import { updateSelectionFocus } from "../selection";
 import type {
   EditorEvent,
@@ -343,18 +343,42 @@ export function handleEvents(
     // Resolve against the re-pointed `viewport` (autoScroll already advanced its
     // scrollY this frame), whose default `paddingTop - scrollY` anchor is the
     // post-scroll painted top.
+    //
+    // Same drag resolution + hysteresis anchor as the handle region's onMove —
+    // this tick runs EVERY frame while the finger is within the edge zone, so a
+    // tap-path resolution here silently overwrites the drag path's result each
+    // frame; over stacked math rows the two disagree and the focus (and loupe)
+    // flicker between them.
     const position = getTextPositionFromViewport(
       session.autoScroll.lastPointerX,
       session.autoScroll.lastPointerY,
       state,
       viewport,
+      undefined,
+      undefined,
+      { drag: true, prev: session.handleDragPrevHit },
     );
+    if (position) session.handleDragPrevHit = position;
 
     if (position && state.document.selection) {
       // The dragged handle is always the focus (set up in the handle region's
-      // onStart); the anchor is the opposite, fixed endpoint.
-      const { anchor } = state.document.selection;
-      const newFocus = position;
+      // onStart); the anchor is the opposite, fixed endpoint. Snap through the
+      // same construct snapper as the region's onMove (same direction latch),
+      // so an edge-held drag agrees with the move path about construct
+      // coverage instead of flickering raw↔snapped.
+      const { anchor: rawAnchor } = state.document.selection;
+      const { anchor, focus: newFocus } = snapSelectionToConstructs(
+        state,
+        rawAnchor,
+        position,
+        session.handleDragPrevRawFocus ?? undefined,
+      );
+      if (
+        newFocus.blockIndex === position.blockIndex &&
+        newFocus.textIndex === position.textIndex
+      ) {
+        session.handleDragPrevRawFocus = position;
+      }
 
       const isForward =
         anchor.blockIndex < newFocus.blockIndex ||
@@ -398,11 +422,21 @@ export function handleEvents(
     // Resolve against the re-pointed `viewport` (autoScroll already advanced its
     // scrollY this frame), whose default `paddingTop - scrollY` anchor is the
     // post-scroll painted top.
+    //
+    // Same drag resolution + hysteresis anchor as the touchmove caret drag —
+    // this tick runs EVERY frame while the finger is within the edge zone
+    // (even when the scroll is clamped at the document ends), so a tap-path
+    // resolution here silently overwrites the drag path's caret each frame;
+    // over stacked math rows the two disagree and the caret (and magnifier)
+    // bounce between rows — the reported jitter.
     const position = getTextPositionFromViewport(
       session.autoScroll.lastPointerX,
       session.autoScroll.lastPointerY,
       state,
       viewport,
+      undefined,
+      undefined,
+      { drag: true, prev: state.document.cursor?.position ?? null },
     );
 
     if (position) {

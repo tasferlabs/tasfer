@@ -52,6 +52,47 @@ describe("unitBefore — plain leaves (deleted outright)", () => {
   });
 });
 
+describe("unit inside a \\text{…} run — one code point at a time", () => {
+  // `\text{` is 6 chars; letters occupy source offsets 6.. ; `}` follows.
+  it("Backspace peels the single char before the caret (LTR text)", () => {
+    // "\text{abc}", caret after `b` (offset 8) → delete just `b`.
+    expect(back("\\text{abc}", 8)).toEqual([7, 8, false]);
+    // caret after `c` (offset 9) → delete just `c`, leaving `\text{ab}`.
+    expect(back("\\text{abc}", 9)).toEqual([8, 9, false]);
+  });
+
+  it("Delete peels the single char after the caret (LTR text)", () => {
+    // "\text{abc}", caret before `b` (offset 7) → delete just `b`.
+    expect(fwd("\\text{abc}", 7)).toEqual([7, 8, false]);
+  });
+
+  it("Arabic (RTL) deletes the logically-adjacent char, not the whole run", () => {
+    // "\text{عربي}" — letters ع ر ب ي at 6,7,8,9. Backspace at offset 8 removes
+    // the source char BEFORE it (ر, [7,8)) — logical order, whatever the screen
+    // side — instead of selecting the whole run as one construct.
+    expect(back("\\text{عربي}", 8)).toEqual([7, 8, false]);
+    expect(fwd("\\text{عربي}", 8)).toEqual([8, 9, false]);
+    // The last logical char (ي) sits at the run's left edge on screen but is
+    // still what Backspace at offset 10 removes.
+    expect(back("\\text{عربي}", 10)).toEqual([9, 10, false]);
+  });
+
+  it("escalates to the whole run at its body edges", () => {
+    // Backspace at the body start (offset 6) / Delete at the body end (offset 10)
+    // has no char to peel on that side, so the whole `\text{…}` is the unit.
+    expect(back("\\text{عربي}", 6)).toEqual([0, 11, true]);
+    expect(fwd("\\text{عربي}", 10)).toEqual([0, 11, true]);
+  });
+
+  it("deletes an astral code point (emoji) whole", () => {
+    // "\text{😀b}" — the emoji is one code point spanning two UTF-16 units
+    // (offsets 6..8), `b` at 8. Backspace after `b` deletes `b`; Backspace after
+    // the emoji deletes the whole emoji, never half a surrogate pair.
+    expect(back("\\text{😀b}", 9)).toEqual([8, 9, false]);
+    expect(back("\\text{😀b}", 8)).toEqual([6, 8, false]);
+  });
+});
+
 describe("unitBefore — constructs (selected first)", () => {
   it("the whole fraction when the caret is just after it", () => {
     expect(back("\\frac{a}{b}", 11)).toEqual([0, 11, true]);
@@ -264,6 +305,28 @@ describe("unitAt — double-click selects the construct under the pointer, whole
 
   it("a square root from a glyph of its body", () => {
     expect(at("\\sqrt{xy}", 7)).toEqual([0, 9, true]);
+  });
+
+  it("takes the CLOSEST level inside a radical, not the whole radical", () => {
+    // A radical is a boundary construct, but level-aware like `\frac`: a click on
+    // the inner `\frac` filling the radicand selects that inner fraction (the
+    // closest level), not the whole `\sqrt{…}`. Tapping a bare radicand glyph, with
+    // no inner construct closer, still takes the whole radical (see below).
+    const latex = "\\sqrt{\\frac{a}{b}}";
+    const frac = latex.indexOf("\\frac"); // 6
+    const afterA = latex.indexOf("{a}") + 2; // inside the numerator, after `a`
+    expect(at(latex, afterA)).toEqual([frac, latex.length - 1, true]);
+    // A bare radicand (`\sqrt{xy}`) has no inner construct, so a glyph there
+    // escalates to the whole radical — its closest enclosing construct.
+    expect(at("\\sqrt{xy}", 7)).toEqual([0, 9, true]);
+    // The index of `\sqrt[3]{x}` is a bare leaf too — the whole radical is the
+    // closest construct enclosing it.
+    const indexed = "\\sqrt[3]{x}";
+    expect(at(indexed, indexed.indexOf("3") + 1)).toEqual([
+      0,
+      indexed.length,
+      true,
+    ]);
   });
 
   it("a lone top-level token selects itself, not its neighbours", () => {

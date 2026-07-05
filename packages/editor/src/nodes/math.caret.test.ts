@@ -15,7 +15,9 @@ import {
   getInlineMathDims,
   getInlineMathOffsetAtX,
   getInlineMathOffsetVertical,
+  mathCaretOffsets,
   mathDeleteUnit,
+  mathSourceAtEdge,
 } from "./math";
 import { describe, expect, it } from "vitest";
 
@@ -81,6 +83,46 @@ describe("inline-math caret bridge", () => {
     const x1 = getInlineMathCaretX(latex, FS, mid);
     const x2 = getInlineMathCaretX(latex, FS * 2, mid);
     expect(x2).toBeCloseTo(x1 * 2, 1);
+  });
+});
+
+// The edge predicate a host uses to grey out a step-left/right control: it is
+// true exactly when there is no further caret stop in that direction, i.e. the
+// same boundary `mathCaretStep` returns `null` at.
+describe("mathSourceAtEdge", () => {
+  it("reports both edges of a flat formula", () => {
+    const latex = "x+y";
+    // Left boundary: no stop further left, so left is an edge; right is not.
+    expect(mathSourceAtEdge(latex, 0, "left")).toBe(true);
+    expect(mathSourceAtEdge(latex, 0, "right")).toBe(false);
+    // Right boundary: mirror image.
+    expect(mathSourceAtEdge(latex, latex.length, "right")).toBe(true);
+    expect(mathSourceAtEdge(latex, latex.length, "left")).toBe(false);
+  });
+
+  it("an interior stop is on neither edge", () => {
+    const latex = "x+y";
+    const interior = mathCaretOffsets(latex).find(
+      (o) => o !== 0 && o !== latex.length,
+    )!;
+    expect(mathSourceAtEdge(latex, interior, "left")).toBe(false);
+    expect(mathSourceAtEdge(latex, interior, "right")).toBe(false);
+  });
+
+  it("an empty formula is an edge in both directions", () => {
+    expect(mathSourceAtEdge("", 0, "left")).toBe(true);
+    expect(mathSourceAtEdge("", 0, "right")).toBe(true);
+  });
+
+  it("a whole construct is atomic — its far edge is the formula edge", () => {
+    // `\frac{a}{b}` stops only at construct boundaries; stepping right from the
+    // last stop leaves the formula.
+    const latex = "\\frac{a}{b}";
+    const stops = mathCaretOffsets(latex);
+    expect(mathSourceAtEdge(latex, stops[stops.length - 1], "right")).toBe(
+      true,
+    );
+    expect(mathSourceAtEdge(latex, stops[0], "left")).toBe(true);
   });
 });
 

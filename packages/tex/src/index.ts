@@ -13,12 +13,13 @@
  * mirroring `@cypherkit/editor`. Keep this surface tight.
  */
 import {
+  annotateTextFallback,
   buildExpression,
   buildExpressionWrapped,
   topLevelBreakOffsets,
 } from "./layout/build";
 import type { Box } from "./layout/box";
-import type { Node } from "./parse/ast";
+import type { Node, TextFallbackChar } from "./parse/ast";
 import { parse } from "./parse/parser";
 import { DISPLAY, TEXT } from "./style";
 
@@ -56,6 +57,28 @@ export interface LayoutOptions {
    * Ignored unless `maxWidth` is set.
    */
   wrapLineGap?: number;
+  /**
+   * Host font for characters inside `\text{…}` that the math fonts can't render
+   * (CJK, emoji, …). When supplied, such a char is measured with `measure` and
+   * typeset from `fontFamily` at paint time, instead of laying out as the
+   * invisible zero-width fallback glyph (so `\text{中文}` shows the actual
+   * characters). Omit (the default) to keep the engine glyph-metric-only —
+   * unrenderable chars then stay invisible, as before. Latin text is unaffected
+   * either way (it has native KaTeX glyphs).
+   */
+  textFallback?: TextFallback;
+}
+
+/**
+ * A host-provided text face for the `\text{…}` fallback (see
+ * {@link LayoutOptions.textFallback}). `measure` returns em metrics (at size 1)
+ * for a single character — the host reads them off a canvas (e.g. `measureText`
+ * at a reference size, divided back to em). `fontFamily` is the CSS family the
+ * same characters are painted with, so measurement and paint agree.
+ */
+export interface TextFallback {
+  readonly fontFamily: string;
+  readonly measure: (text: string) => TextFallbackChar;
 }
 
 export interface MathLayout {
@@ -122,6 +145,16 @@ export function layoutMath(
   const displayMode = opts.displayMode ?? false;
   const ast = parse(latex, { literalRange: opts.literalRange });
   const nodes = ast.type === "ord" ? ast.body : [ast];
+  // Measure any `\text{…}` characters the math fonts can't render (CJK, …) from
+  // the host font, so they lay out at their true width instead of collapsing to
+  // the invisible zero-width glyph. No-op without a `textFallback`.
+  if (opts.textFallback) {
+    annotateTextFallback(
+      nodes,
+      opts.textFallback.fontFamily,
+      opts.textFallback.measure,
+    );
+  }
   const style = displayMode ? DISPLAY : TEXT;
   // Layout is computed in em; a px width budget converts at the current size.
   const box =
@@ -190,13 +223,25 @@ export {
   type MathUnit,
 } from "./edit/unit";
 export {
+  matrixContextAt,
+  matrixResize,
+  type MatrixContext,
+  type MatrixEditResult,
+  type MatrixTextEdit,
+} from "./edit/matrix";
+export {
   normalizeLatex,
   isRedundantSpace,
   type LatexNormalization,
   type LatexInsert,
 } from "./edit/normalize";
 export { canRenderMathChar } from "./edit/char";
-export { escapeTypedBrace, balanceBraces } from "./edit/brace";
+export {
+  escapeTypedBrace,
+  balanceBraces,
+  backslashFusesWith,
+  typedBraceSkipsCloser,
+} from "./edit/brace";
 export {
   symbolCommands,
   operatorCommands,
@@ -206,6 +251,7 @@ export {
 export { fontFamily, loadFonts, ALL_VARIANTS } from "./fonts/fonts";
 export type { LoadFontsOptions } from "./fonts/fonts";
 export type { FontVariant } from "./data/fontMetrics";
+export type { TextFallbackChar } from "./parse/ast";
 
 // The laid-out box tree (`Box`/`GlyphBox`/`RuleBox`/`ListBox`/`PlaceholderBox`),
 // the parse AST (`Node`/`Span`), and `parse`/`ParseOptions` are brittle engine

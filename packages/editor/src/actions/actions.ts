@@ -1139,6 +1139,16 @@ export function insertText(
   // Return whatever ops the selection-deletion above produced; don't ask the
   // CRDT layer to insert an empty run.
   if (input.length === 0) {
+    // A transform may still reposition the caret with no content change — e.g.
+    // typing `}` steps over a group's auto-inserted closer instead of adding a
+    // literal `\}` (see mathTransformTypedInput). Honor that caret move; the
+    // moved caret also clears command-entry scratch.
+    if (caretOverride != null) {
+      return {
+        state: moveCursorToPosition(state, blockIndex, caretOverride),
+        ops,
+      };
+    }
     return { state, ops };
   }
 
@@ -2339,6 +2349,12 @@ function findWordEnd(text: string, index: number): number {
 export function selectWordAtPosition(
   state: EditorState,
   position: Position,
+  // A word/token range (block-text indices) the caller already resolved from the
+  // tap POINT — for a chip whose content is atomic (`\det`) the point is the only
+  // way in (see {@link TextNode.wordRangeFromPoint}), since a resolved offset lands
+  // on a chip boundary the offset path below can't descend into. When supplied it
+  // wins outright; otherwise we resolve from `position`'s offset.
+  pointRange?: { start: number; end: number },
 ): EditorState {
   // SAFETY: Convert to CRDT position and back for validation against concurrent updates
   const positionCRDT = positionToCRDT(state.document.page, position);
@@ -2356,11 +2372,16 @@ export function selectWordAtPosition(
 
   // Replacement marks (e.g. an inline-math chip) are atomic to the reader — they
   // render as a formula, not the raw LaTeX behind them — so a double-click that
-  // lands inside one selects the WHOLE chip rather than running word logic over
-  // its source (which would grab a single LaTeX sub-token, or nothing when the
-  // click lands on a non-word char like `^`). Keyed on the generic `replacement`
-  // facet, so this stays mark-agnostic. Strictly-interior only: a click at a
-  // chip boundary falls through to select the adjacent text word.
+  // lands inside one selects a structural sub-unit rather than running prose word
+  // logic over its source (which would grab a single LaTeX sub-token, or nothing
+  // when the click lands on a non-word char like `^`). The replacement decides
+  // what "the thing under the caret" is via its generic `wordRangeAt` facet —
+  // inline math returns the whole CONSTRUCT the offset sits in (a `\sqrt{…}`, a
+  // `\frac`, a script), so a double-tap takes just that construct, not the entire
+  // chip. A replacement with no `wordRangeAt` (or a null answer) falls back to the
+  // whole run. Keyed on the generic facet, so this stays mark-agnostic.
+  // Strictly-interior only: a click at a chip boundary falls through to select the
+  // adjacent text word.
   const chipRun = resolveMarkRuns(block).find(
     (run) =>
       state.marks.get(run.name)?.replacement &&
@@ -2369,9 +2390,24 @@ export function selectWordAtPosition(
   );
   let wordStart: number;
   let wordEnd: number;
-  if (chipRun) {
-    wordStart = chipRun.startIndex;
-    wordEnd = chipRun.endIndex;
+  if (pointRange) {
+    // The point already landed on the exact atom/construct (a chip's own resolver
+    // ran on the box tree) — take it as-is.
+    wordStart = pointRange.start;
+    wordEnd = pointRange.end;
+  } else if (chipRun) {
+    const replacement = state.marks.get(chipRun.name)?.replacement;
+    const unit = replacement?.wordRangeAt?.(
+      chipRun.text,
+      textIndex - chipRun.startIndex,
+    );
+    if (unit) {
+      wordStart = chipRun.startIndex + unit.start;
+      wordEnd = chipRun.startIndex + unit.end;
+    } else {
+      wordStart = chipRun.startIndex;
+      wordEnd = chipRun.endIndex;
+    }
   } else {
     // Check if we're on a word character (see isWordChar)
     const isOnWord = textIndex < text.length && isWordChar(text[textIndex]);

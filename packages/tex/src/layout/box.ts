@@ -9,10 +9,7 @@
  * its baseline below the parent baseline (negative = up, as for a superscript).
  */
 import type { AtomClass } from "../data/constants";
-import {
-  type FontVariant,
-  getCharacterMetrics,
-} from "../data/fontMetrics";
+import { type FontVariant, getCharacterMetrics } from "../data/fontMetrics";
 import type { Span } from "../parse/ast";
 
 export interface Dim {
@@ -36,6 +33,23 @@ export interface GlyphBox extends Dim {
   readonly color?: string;
   /** Vertical scale applied at paint time (extensible delimiter pieces). */
   readonly yScale?: number;
+  /**
+   * CSS font-family to draw this glyph with, INSTEAD of the KaTeX face for
+   * `variant`. Set only for a text-mode fallback glyph — a character (CJK, …)
+   * the math fonts have no metric for, sized from the host font (see
+   * {@link textFallbackBox}). Its dimensions are real, so paint draws it
+   * normally rather than skipping it as the zero-width fallback glyph.
+   */
+  readonly textFont?: string;
+  /**
+   * Interior caret stops for a host-shaped fallback run (Arabic, CJK, …), one per
+   * inter-character boundary, so the caret can land BETWEEN the characters of a
+   * run painted as a single box. `dx` is the boundary's offset (em, pre-scaled
+   * like `width`) from this box's left edge — already resolved for the run's
+   * direction, so an RTL run's stops decrease in `offset` as `dx` grows. When
+   * present, the caret layer uses these instead of the box's two span edges.
+   */
+  readonly textCarets?: readonly { offset: number; dx: number }[];
 }
 
 /**
@@ -120,6 +134,39 @@ export interface ListBox extends Dim {
    */
   boundary?: boolean;
   /**
+   * Set on the container a wrapped expression stacks its visual lines into (see
+   * `buildExpressionWrapped`): its direct children ARE the wrap rows, laid out at
+   * increasing `dy`. It lets the caret hit-test tell these genuine visual lines
+   * apart from a construct's internal stacked rows (a `\frac`'s numerator over its
+   * denominator), so a click in the margin beside one wrapped line resolves to
+   * THAT line's edge rather than the whole formula's.
+   */
+  lineStack?: boolean;
+  /**
+   * Set on a radical's outer box (a `\sqrt{…}`). A radical's surd and vinculum are
+   * decoration that carry no source span of their own, so the "select the unit
+   * under the finger" gesture (double-tap / double-click) counts the radical as a
+   * boundary construct: the point resolver, on entering a box flagged here, adopts
+   * the radical's own span as the current construct — so a tap on a bare radicand's
+   * glyph selects the whole `\sqrt{…}` (surd, vinculum and radicand together)
+   * rather than nothing. It is only ONE level, though: a construct nested inside
+   * the radicand (a `\frac`, a matrix) is the closer level and overrides it, so a
+   * double-tap there takes that inner construct — the same level-awareness `\frac`
+   * and scripts already have.
+   */
+  radical?: boolean;
+  /**
+   * Set on an indivisible multi-glyph atom — a named operator (`\det`, `\sin`,
+   * `\operatorname{lcm}`). Its letters have no independent source position: the
+   * whole name maps to one command span. So the caret only stops at the atom's
+   * two OUTER edges (never between the letters), and the double-tap "select the
+   * unit under the finger" gesture selects the whole name. The letter glyphs are
+   * span-less; this box owns the span. Without it each letter would carry the
+   * full command span and emit a spurious interior caret stop at every letter
+   * boundary (see {@link caretStops} / {@link spanAtPoint}).
+   */
+  unit?: boolean;
+  /**
    * Italic correction carried from a single wrapped symbol (a big-operator
    * glyph) so a following sub/superscript can offset by it exactly as it would
    * for a bare glyph base — the op glyph is wrapped in a list (to shift it onto
@@ -166,6 +213,40 @@ export function glyphBox(
     width: m.width,
     height: m.height,
     depth: m.depth,
+  };
+}
+
+/**
+ * A text-mode glyph box for a run of characters the math fonts can't render
+ * (CJK, Arabic, emoji, …), sized from host-font metrics (em, size 1) and painted
+ * with `font`. `char` may hold the whole shaped run — one `fillText` so the
+ * browser joins cursive scripts and bidi-orders RTL — not just a single glyph.
+ * `size` is the style's size multiplier, so metrics scale exactly like a
+ * {@link glyphBox} (whose metric lookup bakes in `size`). Unlike the zero-width
+ * fallback glyph a missing metric produces, this carries real dimensions so it
+ * lays out and paints as normal text.
+ */
+export function textFallbackBox(
+  char: string,
+  size: number,
+  span: Span | null,
+  font: string,
+  m: { width: number; ascent: number; depth: number },
+  textCarets?: readonly { offset: number; dx: number }[],
+): GlyphBox {
+  return {
+    type: "glyph",
+    char,
+    variant: "Main-Regular",
+    size,
+    italic: 0,
+    skew: 0,
+    span,
+    textFont: font,
+    width: m.width * size,
+    height: m.ascent * size,
+    depth: m.depth * size,
+    textCarets,
   };
 }
 

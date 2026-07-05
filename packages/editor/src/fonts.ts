@@ -181,6 +181,7 @@ export function notifyFontsLoaded(): void {
   // and force ctx.font re-assignment so canvases resolve the loaded faces
   metricsCache = new Map();
   charWidthCache = new Map();
+  texFallbackCache = new Map();
   fontEpoch++;
   // Notify listeners (editor re-render)
   const cbs = fontReadyCallbacks.splice(0);
@@ -199,6 +200,7 @@ export function notifyFontsChanged(): void {
   // stacks, and force ctx.font re-assignment on measurement canvases
   metricsCache = new Map();
   charWidthCache = new Map();
+  texFallbackCache = new Map();
   fontEpoch++;
   // Notify listeners so the editor re-renders
   const cbs = fontReadyCallbacks.splice(0);
@@ -331,6 +333,55 @@ export function measureCtxText(
   return ctx.measureText(text).width;
 }
 
+// Em metrics for @cypherkit/tex's `\text{…}` fallback, keyed by
+// `fontFamily|char`. Pure (a browser fact about a CSS family + glyph), so like
+// charWidthCache it is instance-independent; flushed with the other caches when
+// faces load/change.
+// eslint-disable-next-line local/no-global-mutable-state -- pure per-(family,char) em-metrics cache; instance-independent, so two instances can't collide.
+let texFallbackCache = new Map<
+  string,
+  { width: number; ascent: number; depth: number }
+>();
+
+// Reference pixel size the fallback is measured at. Canvas text advance scales
+// linearly with size for a given family, so em = px / REF is size-independent.
+const TEX_FALLBACK_REF_PX = 100;
+
+/**
+ * Measure a single character for the tex `\text{…}` fallback (see
+ * {@link getTexTextFallback}), in em at size 1, using `fontFamily`. The math
+ * engine calls this for characters its own fonts have no glyph for (CJK, emoji,
+ * …) so they lay out at their true width; the same `fontFamily` paints them, so
+ * geometry and paint agree. Height/depth come from the font's bounding box for a
+ * stable line size across scripts.
+ */
+export function measureTexFallbackEm(
+  text: string,
+  fontFamily: string,
+): { width: number; ascent: number; depth: number } {
+  const cacheKey = `${fontFamily}|${text}`;
+  const cached = texFallbackCache.get(cacheKey);
+  if (cached) return cached;
+
+  const ctx = getMeasurementCanvas();
+  ctx.font = `${TEX_FALLBACK_REF_PX}px ${fontFamily}`;
+  // We set ctx.font directly (not via applyFont); drop the applyFont cache entry
+  // for this ctx so the next applyFont re-applies rather than trusting a stale key.
+  lastAppliedFont.delete(ctx);
+  const m = ctx.measureText(text);
+  const metrics = {
+    width: m.width / TEX_FALLBACK_REF_PX,
+    ascent:
+      (m.fontBoundingBoxAscent || TEX_FALLBACK_REF_PX * 0.88) /
+      TEX_FALLBACK_REF_PX,
+    depth:
+      (m.fontBoundingBoxDescent || TEX_FALLBACK_REF_PX * 0.12) /
+      TEX_FALLBACK_REF_PX,
+  };
+  texFallbackCache.set(cacheKey, metrics);
+  return metrics;
+}
+
 // Helper: Check if a char is within a format span
 function isCharInSpan(
   charIndex: number,
@@ -384,6 +435,28 @@ export function batchChars(
   let currentBatch: TextBatch | null = null;
   let visibleIndex = 0;
 
+  // Resolve each span's char-array index range ONCE. The shared
+  // getFormatsAtIndex resolves a span's endpoints with a linear findIndex per
+  // char, so calling it in this per-char loop was O(chars² × spans) — the
+  // dominant hit-test cost on a long single-run line (a matrix's LaTeX source).
+  // An id→index map makes the per-char lookup O(spans).
+  const indexOfId = new Map<string, number>();
+  for (let i = 0; i < chars.length; i++) indexOfId.set(chars[i].id, i);
+  const spanRanges = formats.map((span) => ({
+    format: span.format,
+    start: indexOfId.get(span.startCharId) ?? -1,
+    end: indexOfId.get(span.endCharId) ?? -1,
+  }));
+  const formatsAtIndex = (i: number): Mark[] => {
+    const active: Mark[] = [];
+    for (const r of spanRanges) {
+      if (r.start !== -1 && r.end !== -1 && i >= r.start && i <= r.end) {
+        active.push(r.format);
+      }
+    }
+    return active;
+  };
+
   for (let i = 0; i < chars.length; i++) {
     const char = chars[i];
 
@@ -400,7 +473,7 @@ export function batchChars(
       break;
     }
 
-    const charFormats = getFormatsAtIndex(i, chars, formats);
+    const charFormats = formatsAtIndex(i);
     const formatKey = getFormatKey(charFormats);
 
     if (currentBatch && getFormatKey(currentBatch.formats) === formatKey) {
@@ -471,9 +544,21 @@ export function measureBatchedText(
  * Calculate cumulative widths for all character positions in a range.
  * Optimized for cursor positioning while preserving Arabic ligatures.
  *
- * For Arabic and other connected scripts, ligatures can form across formatting boundaries.
- * To measure positions accurately, we measure from the line start for each position,
- * ensuring ligatures are formed correctly throughout the entire line.
+ * The range is batched ONCE (by formatting run) and, within each batch, its
+ * prefix strings are measured as whole strings — exactly how the painter lays a
+ * line down: `ctx.fillText(batch.text, x)` per run, runs placed left to right
+ * (TextNode.paint). Measuring each prefix whole keeps within-run kerning and
+ * cursive joins (Arabic and other connected scripts) byte-identical to the
+ * paint, so the caret lands on the rendered glyph boundary. Because runs are
+ * painted independently, cross-run width is additive here too — matching the
+ * painter, which advances `x` by each run's measured width.
+ *
+ * This replaced a per-position `measureTextUpToIndex` call that re-batched the
+ * whole prefix on every position and, through the linear id lookups in
+ * `getFormatsAtIndex`, degraded to roughly O(n³) on a long single-run line — a
+ * large matrix's LaTeX source while it is being edited. Batching once collapses
+ * that to a single formatting pass plus the prefix measurements, with identical
+ * output.
  *
  * @param chars - CRDT character array
  * @param formats - Format spans
@@ -498,25 +583,118 @@ export function measureCRDTPositions(
 ): number[] {
   const lineLength = endIndex - startIndex;
   const positions: number[] = new Array(lineLength + 1);
-
   positions[0] = 0;
+  if (lineLength <= 0) return positions;
 
-  // For each position, measure from the start to that position
-  // This ensures Arabic ligatures are formed correctly across formatting boundaries
-  for (let i = 1; i <= lineLength; i++) {
-    positions[i] = measureTextUpToIndex(
-      chars,
-      formats,
-      startIndex,
-      startIndex + i,
+  // Batch the visible range once (by formatting run), instead of re-batching a
+  // growing prefix for every position.
+  const batches = batchChars(chars, formats, startIndex, endIndex, marks);
+  const hasReplacement = batches.some((b) => b.replacement);
+
+  // A replacement run (inline-math chip) renders as one glyph box, so its whole
+  // rendered width rides on its first char (0 on the rest) unless the layout
+  // recorded per-fragment widths for a wrapped chip (`replCharWidths`). Resolve
+  // each replacement span's visible-index range and rendered width ONCE here.
+  // measureTextUpToIndex rebuilt these maps on every call; driving it per
+  // position made hit-testing a line with a chip O(n²) (the profiled cost).
+  const replSpans: { start: number; end: number; width: number }[] = [];
+  if (hasReplacement && !replCharWidths) {
+    const visIdxOfId = new Map<string, number>();
+    const visibleChars: string[] = [];
+    let v = 0;
+    for (const c of chars) {
+      if (c.deleted) continue;
+      visIdxOfId.set(c.id, v++);
+      visibleChars.push(c.char);
+    }
+    for (const f of formats) {
+      const repl = marks?.get(f.format.type)?.replacement;
+      if (!repl) continue;
+      const s = visIdxOfId.get(f.startCharId);
+      const e = visIdxOfId.get(f.endCharId);
+      if (s === undefined || e === undefined) continue;
+      const dims = repl.measure(
+        visibleChars.slice(s, e + 1).join(""),
+        fontSize,
+      );
+      // A render error (dims undefined) makes the chip fall back to its plain
+      // source width; NaN flags that so the batch takes the text path below.
+      replSpans.push({ start: s, end: e, width: dims ? dims.width : NaN });
+    }
+  }
+
+  // `widthBefore` is the summed width of completed batches; each position is that
+  // plus the current batch's contribution. For text runs that contribution is
+  // the whole-prefix measurement (kerning / cursive joins), matching the
+  // painter's per-run fillText; for replacement runs it is the additive per-char
+  // model above. Output is identical to the old per-position path, without its
+  // per-position re-batching and map rebuilds.
+  let pos = 1;
+  let widthBefore = 0;
+  let visIdx = startIndex;
+
+  const textPrefixWidths = (batch: TextBatch): void => {
+    const weight = batch.bold ? "bold" : baseFontWeight;
+    const style = batch.italic ? "italic" : "normal";
+    const { text } = batch;
+    for (let k = 1; k < text.length; k++) {
+      positions[pos++] =
+        widthBefore +
+        measureCtxText(
+          text.slice(0, k),
+          fontSize,
+          weight,
+          fontFamily,
+          fonts,
+          style,
+        );
+    }
+    widthBefore += measureCtxText(
+      text,
       fontSize,
-      baseFontWeight,
+      weight,
       fontFamily,
       fonts,
-      0,
-      marks,
-      replCharWidths,
+      style,
     );
+    positions[pos++] = widthBefore;
+  };
+
+  for (const batch of batches) {
+    const len = batch.text.length;
+
+    if (!batch.replacement) {
+      textPrefixWidths(batch);
+      visIdx += len;
+      continue;
+    }
+
+    if (replCharWidths) {
+      // Wrapped-chip fragment: each char carries its recorded on-this-line width.
+      let acc = widthBefore;
+      for (let k = 0; k < len; k++) {
+        acc += replCharWidths.get(visIdx + k) ?? 0;
+        positions[pos++] = acc;
+      }
+      widthBefore = acc;
+      visIdx += len;
+      continue;
+    }
+
+    // Atomic chip: full width on the run's first char, but only when this batch
+    // begins the span — a fragment that can't see the chip's start contributes
+    // nothing (matches measureTextUpToIndex's span fixup).
+    const span = replSpans.find(
+      (s) => s.start <= visIdx && s.end >= visIdx + len - 1,
+    );
+    if (span && Number.isNaN(span.width)) {
+      textPrefixWidths(batch); // render error → source width, as batched measure does
+    } else {
+      const w = span && visIdx === span.start ? span.width : 0;
+      for (let k = 1; k <= len; k++) positions[pos++] = widthBefore + w;
+      widthBefore += w;
+    }
+    visIdx += len;
   }
 
   return positions;

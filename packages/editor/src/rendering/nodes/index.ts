@@ -28,7 +28,13 @@ import { QuoteNode } from "../../nodes/QuoteNode";
 import { TextNode } from "../../nodes/TextNode";
 import { Node, NodeRegistry } from "./Node";
 
-export { type CodeBlock, CodeNode, INSERT_TAB } from "../../nodes/CodeNode";
+export {
+  type CodeBlock,
+  CodeNode,
+  INDENT_CODE,
+  INSERT_TAB,
+  OUTDENT_CODE,
+} from "../../nodes/CodeNode";
 export {
   CANCEL_IMAGE_HANDLE_DRAG,
   cancelImageHandleDrag,

@@ -11,6 +11,7 @@ import {
   useGetPages,
 } from "../../api/pages.api";
 import { useConfirmation } from "../../components/ConfirmationDialog";
+import { useImportDialog } from "../../components/ImportDialogProvider";
 import { RenameDialog } from "../../components/RenameDialog";
 import { TitlePreview } from "../../TitlePreview";
 import Icons from "../../components/uiKit/Icons/Icons";
@@ -27,7 +28,7 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "../../../components/ui/drawer";
-import { Ellipsis, LoaderCircle } from "lucide-react";
+import { Download, Ellipsis, LoaderCircle } from "lucide-react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
@@ -81,6 +82,7 @@ export function PageLink({
   const queryClient = useQueryClient();
 
   const { getConfirmation } = useConfirmation();
+  const { openImport } = useImportDialog();
   const navigate = useNavigate();
   const { id: currentPageId } = useParams<{ id: string }>();
   const wasDraggingRef = useRef(false);
@@ -288,6 +290,17 @@ export function PageLink({
     });
   }
 
+  function handleImport() {
+    if (!spaceId) return;
+    // Expand now so the imported children are visible once they arrive.
+    setIsExpanded(true);
+    openImport(spaceId, {
+      id: data.id,
+      title: data.title,
+      titleMd: data.titleMd,
+    });
+  }
+
   function handleColorChange(newColor: string | null) {
     updatePage({ id: data.id, color: newColor });
     // Optimistically update cache
@@ -411,6 +424,7 @@ export function PageLink({
             onDelete={handleDelete}
             isDeleting={isDeleting}
             onAdd={handleAdd}
+            onImport={handleImport}
             isCreating={isCreating}
             t={t}
           />
@@ -453,6 +467,7 @@ export function PageLink({
                   onDelete={handleDelete}
                   isDeleting={isDeleting}
                   onAdd={handleAdd}
+                  onImport={handleImport}
                   isCreating={isCreating}
                   color={data.color}
                   t={t}
@@ -542,6 +557,7 @@ function PageLinkMenuContent({
   onDelete,
   isDeleting,
   onAdd,
+  onImport,
   isCreating,
   color,
   t,
@@ -552,6 +568,7 @@ function PageLinkMenuContent({
   onDelete: () => void;
   isDeleting: boolean;
   onAdd: () => void;
+  onImport: () => void;
   isCreating: boolean;
   color: string | null | undefined;
   t: TFunction;
@@ -583,6 +600,16 @@ function PageLinkMenuContent({
             <Icons.Plus width={18} height={18} />
           )}
           {t("page.addSubpage", "Add subpage")}
+        </button>
+        <button
+          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
+          onClick={() => {
+            onClose();
+            onImport();
+          }}
+        >
+          <Download size={18} />
+          {t("import.title", "Import")}
         </button>
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-destructive text-start"
@@ -626,6 +653,7 @@ function PageLinkMenu({
   onDelete,
   isDeleting,
   onAdd,
+  onImport,
   isCreating,
   t,
 }: {
@@ -638,6 +666,7 @@ function PageLinkMenu({
   onDelete: () => void;
   isDeleting: boolean;
   onAdd: () => void;
+  onImport: () => void;
   isCreating: boolean;
   t: TFunction;
 }) {
@@ -660,6 +689,7 @@ function PageLinkMenu({
     onDelete,
     isDeleting,
     onAdd,
+    onImport,
     isCreating,
     color,
     t,

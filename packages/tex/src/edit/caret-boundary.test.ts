@@ -40,6 +40,41 @@ describe("construct boundary stops — exit to top level", () => {
     expect(end.bottom).toBeCloseTo(0, 1);
   });
 
+  it("a caret before a following construct keeps the PRECEDING height, not the construct's", () => {
+    // `\det\left(\frac{a}{b}\right)`: offset 4 sits between `\det` and the
+    // delimited construct. The op's med/thick space keeps `\det`'s trailing edge
+    // (short, main baseline) and the construct's LEADING boundary (tall, full
+    // delimiter height) from de-duplicating. A bare caret there must take `\det`'s
+    // height — the content it follows — not leap to the full height of the matrix
+    // it has not yet entered (the reported bug: a huge caret beside `det`).
+    const l = layoutMath("\\det\\left(\\frac{a}{b}\\right)", {
+      fontSize: 22,
+      displayMode: true,
+    });
+    const detEnd = caretStops(l).find((s) => s.offset === 4 && !s.boundary)!; // `\det`'s trailing edge
+    const caret = caretRect(l, 4)!;
+    expect(caret.x).toBeCloseTo(detEnd.x, 1); // rests at the op's edge, not the delimiter's
+    expect(caret.bottom - caret.top).toBeCloseTo(detEnd.bottom - detEnd.top, 1);
+    // …and it is far shorter than the whole delimited construct beside it.
+    const whole = caretRect(l, "\\det\\left(\\frac{a}{b}\\right)".length)!;
+    expect(caret.bottom - caret.top).toBeLessThan(
+      (whole.bottom - whole.top) / 2,
+    );
+  });
+
+  it("a TRAILING boundary still wins so the caret exits beside the construct", () => {
+    // The complement of the above: after the whole delimited construct (end of
+    // source), the trailing boundary must win so the caret spans the construct it
+    // just left — on the main baseline, not up in the fraction.
+    const l = layoutMath("\\det\\left(\\frac{a}{b}\\right)", {
+      fontSize: 22,
+      displayMode: true,
+    });
+    const end = caretRect(l, "\\det\\left(\\frac{a}{b}\\right)".length)!;
+    expect(end.bottom).toBeCloseTo(l.depth, 0); // reaches the construct's full depth
+    expect(end.top).toBeCloseTo(-l.height, 0); // …and its full height
+  });
+
   it("boundary stops do not divert vertical navigation between rows", () => {
     // ↑ from the denominator still reaches the numerator slot, not the
     // main-baseline boundary stop that sits between the two rows.

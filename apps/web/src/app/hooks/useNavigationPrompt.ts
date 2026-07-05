@@ -9,7 +9,10 @@ import { useUnsavedChangesDialog } from "../components/UnsavedChangesDialog";
  * - Browser back/forward buttons
  * - Programmatic navigation (navigate())
  *
- * Note: Page refresh/close is handled separately via beforeunload in EditorPage.
+ * This is the sole unsaved-work guard. A hard tab refresh/close on web is left
+ * unguarded by design: it can't be intercepted with a themed dialog (browsers
+ * only allow the native beforeunload prompt there) and the case doesn't exist on
+ * the native mobile shells, so we don't special-case it.
  *
  * @param when - Condition to check before allowing navigation
  */

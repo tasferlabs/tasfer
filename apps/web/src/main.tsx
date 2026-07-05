@@ -14,6 +14,7 @@ import { ThemeProvider } from "./app/hooks/useTheme";
 import { router } from "./app/routes/Router";
 import { initNativeDevToolsSync } from "./lib/devTools";
 import LoadingScreen from "./components/ui/loading-screen";
+import { MobileAppGate } from "./app/components/MobileAppGate/MobileAppGate";
 import { loadFonts, loadArabicFonts } from "./fonts";
 import "./i18n";
 import i18next from "i18next";
@@ -131,6 +132,7 @@ const App = () => (
             <VersionProvider>
               <Suspense fallback={<LoadingScreen />}>
                 <RouterProvider router={router} />
+                <MobileAppGate />
               </Suspense>
             </VersionProvider>
           </ToastProvider>

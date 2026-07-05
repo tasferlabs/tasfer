@@ -2,10 +2,15 @@ import { SELECT_ALL } from "../actions/edit-actions";
 import { EXTEND_SELECTION_RIGHT } from "../actions/keyboard-actions";
 import { SELECT_WORD_AT_POINT } from "../actions/mouse-actions";
 import { TAP_SELECT_WORD } from "../actions/touch-actions";
-import { startSelection, updateSelectionFocus } from "../selection";
+import {
+  snapSelectionToConstructs,
+  startSelection,
+  updateSelectionFocus,
+} from "../selection";
 import type { CursorState, Page } from "../state-types";
 import { createInitialState } from "../state-utils";
-import type { MathBlock } from "./MathNode";
+import { getEditorStyles } from "../styles";
+import { type MathBlock, MathNode } from "./MathNode";
 import { describe, expect, it } from "vitest";
 
 function mathBlock(latex: string): MathBlock {
@@ -248,6 +253,128 @@ describe("MathNode range selection snaps to whole constructs", () => {
   });
 });
 
+describe("mobile selection-handle drag snaps level-by-level", () => {
+  // The touch selection-handle drag (chromeRegions `selectionHandleRegion`
+  // onMove) writes the focus from a raw, row-accurate hit-test, so the finger
+  // can reach a fraction's stacked rows. It then routes that focus through the
+  // SAME `snapSelectionToConstructs` every desktop extension uses, so dragging a
+  // handle out through a construct escalates to the whole construct level by
+  // level — while a partial span that never straddles a construct's slots is
+  // left exactly as dragged (a "half construct" the user is mid-selecting).
+  const snap = (latex: string, anchor: number, rawFocus: number) => {
+    const page: Page = { id: "p", title: "M", blocks: [mathBlock(latex)] };
+    const state = createInitialState(page);
+    return snapSelectionToConstructs(
+      state,
+      { blockIndex: 0, textIndex: anchor },
+      { blockIndex: 0, textIndex: rawFocus },
+      undefined,
+    );
+  };
+
+  it("escalates a focus dragged into a fraction to the whole construct", () => {
+    // Anchor after the fraction; the finger drags the focus into the denominator
+    // (raw stop 9). The half-covered fraction snaps out to its far edge — whole.
+    const latex = "\\frac{a}{b}"; // [0, 11)
+    const { anchor, focus } = snap(latex, latex.length, 9);
+
+    expect(anchor.textIndex).toBe(latex.length);
+    expect(focus.textIndex).toBe(0);
+  });
+
+  it("takes each nested construct whole as the drag descends level by level", () => {
+    // "\frac{x^2}{d}": the finger drags the focus into the numerator's script
+    // base. The nearest construct straddled — the inner `x^2` — is taken whole,
+    // not the outer fraction and not the bare `x`.
+    const latex = "\\frac{x^2}{d}"; // inner script x^2 spans [6, 9)
+    const { anchor, focus } = snap(latex, 6, 8);
+
+    expect(anchor.textIndex).toBe(6);
+    expect(focus.textIndex).toBe(9);
+  });
+
+  it("leaves a half-construct partial span exactly as dragged", () => {
+    // Both endpoints sit inside one slot (`ab` in the numerator): the user is
+    // mid-selecting a fragment, so nothing balloons — the partial stays partial.
+    const latex = "\\frac{ab}{c}"; // numerator `ab` spans [6, 8)
+    const { anchor, focus } = snap(latex, 6, 7);
+
+    expect(anchor.textIndex).toBe(6);
+    expect(focus.textIndex).toBe(7);
+  });
+
+  // The onMove loop must return the SAME selection every frame while the finger
+  // dwells inside a construct — otherwise the whole construct flickers in and out
+  // between expand and shrink. This simulates that loop for a sequence of raw
+  // hit-test focuses, updating the travel-direction reference by one of three
+  // rules so the stable one can be told apart from the two that flicker:
+  //   • "settled" — the fix: advance the reference only when the finger lands at
+  //     a stop the snapper did NOT widen, so an interior dwell stays latched.
+  //   • "raw"     — advance every frame to the raw focus: a finger dithering
+  //     between two INTERIOR stops flips the travel sign each frame.
+  //   • "snapped" — advance to the snapped focus (the original bug): the focus
+  //     jumps to the construct's edges, flipping the sign even when held still.
+  const driveDrag = (
+    latex: string,
+    anchor: number,
+    rawSequence: number[],
+    reference: "settled" | "raw" | "snapped",
+  ): number[] => {
+    const page: Page = { id: "p", title: "M", blocks: [mathBlock(latex)] };
+    const state = createInitialState(page);
+    const anchorPos = { blockIndex: 0, textIndex: anchor };
+    let prev: { blockIndex: number; textIndex: number } | undefined = undefined;
+    const focuses: number[] = [];
+    for (const rawIndex of rawSequence) {
+      const raw = { blockIndex: 0, textIndex: rawIndex };
+      const snapped = snapSelectionToConstructs(state, anchorPos, raw, prev);
+      const settled = snapped.focus.textIndex === raw.textIndex;
+      if (reference === "snapped") prev = snapped.focus;
+      else if (reference === "raw") prev = raw;
+      else if (settled) prev = raw;
+      focuses.push(snapped.focus.textIndex);
+    }
+    return focuses;
+  };
+
+  it("holds a steady selection when the finger rests near a construct edge", () => {
+    // "\frac{a}{b}+c": anchor after everything, finger held in the denominator.
+    // Every frame resolves to the same snapped focus — no expand/shrink flicker.
+    const latex = "\\frac{a}{b}+c"; // fraction [0, 11)
+    const focuses = driveDrag(latex, latex.length, [9, 9, 9, 9], "settled");
+
+    expect(new Set(focuses).size).toBe(1);
+  });
+
+  it("holds steady even when the raw hit-test dithers between interior stops", () => {
+    // The real shrink flicker: a finger hovering the fraction it is trying to
+    // exclude resolves alternately to two interior stops. The latched reference
+    // keeps the decision fixed, so the selection never oscillates.
+    const latex = "\\frac{a}{b}+c";
+    const focuses = driveDrag(latex, latex.length, [8, 9, 8, 9, 8], "settled");
+
+    expect(new Set(focuses).size).toBe(1);
+  });
+
+  it("guards the regression: a per-frame raw reference flickers on dither", () => {
+    // Advancing the reference every frame (not only at settled stops) lets the
+    // interior dither flip the travel sign each frame — the residual flicker.
+    const latex = "\\frac{a}{b}+c";
+    const focuses = driveDrag(latex, latex.length, [8, 9, 8, 9, 8], "raw");
+
+    expect(new Set(focuses).size).toBeGreaterThan(1);
+  });
+
+  it("guards the regression: feeding back the snapped focus oscillates at rest", () => {
+    // The original bug — the snapped focus jumps to the construct's edges, so
+    // even a perfectly still finger flickers the selection.
+    const latex = "\\frac{a}{b}+c";
+    const focuses = driveDrag(latex, latex.length, [9, 9, 9, 9], "snapped");
+
+    expect(new Set(focuses).size).toBeGreaterThan(1);
+  });
+});
+
 describe("MathNode Shift+Arrow crosses a construct in one extra press", () => {
   // The caret must park on the snapped focus, not the interior stop the move
   // landed on — otherwise crossing a construct costs one press per interior stop.
@@ -272,6 +399,73 @@ describe("MathNode Shift+Arrow crosses a construct in one extra press", () => {
     // the following paragraph — no "stuck" repeats.
     state = state.actionBus.dispatchState(EXTEND_SELECTION_RIGHT, state).state;
     expect(state.document.selection?.focus.blockIndex).toBe(1);
+  });
+});
+
+describe("MathNode selection rects hug the rendered formula", () => {
+  // Regression: the hit-test that decides "did this tap land inside the
+  // selection" (`isPointWithinSelectionRects`) reads the node's `selectionRects`.
+  // MathNode must return the tex-rendered highlight geometry (what `paint`
+  // draws), NOT the base TextNode band derived from laying the raw LaTeX source
+  // out as prose — otherwise the whole equation reads as "inside the selection",
+  // so a tap anywhere on it spuriously opens the context menu instead of
+  // collapsing the selection and moving the caret.
+  const PADDING_LEFT = 24;
+
+  function layoutFor(latex: string) {
+    const page: Page = { id: "p", title: "M", blocks: [mathBlock(latex)] };
+    const state = createInitialState(page);
+    const node = new MathNode();
+    const layout = node.computeLayout(
+      state.document.page.blocks[0] as MathBlock,
+      600,
+      getEditorStyles(state),
+      undefined,
+      state.marks,
+    );
+    return { node, layout };
+  }
+
+  function rectsForRange(latex: string, from: number, to: number) {
+    const { node, layout } = layoutFor(latex);
+    const selection = {
+      anchor: { blockIndex: 0, textIndex: from },
+      focus: { blockIndex: 0, textIndex: to },
+      isForward: true,
+      isCollapsed: from === to,
+    };
+    return {
+      layout,
+      rects: node.selectionRects(layout, selection, 0, PADDING_LEFT, 0),
+    };
+  }
+
+  it("highlights only the selected atom, not the whole equation band", () => {
+    // Select just the leading `x` of `x+y`: the highlight hugs that glyph, so a
+    // tap at the formula's right edge is OUTSIDE the selection.
+    const { layout, rects } = rectsForRange("x+y", 0, 1);
+    const fullWidth = layout.mathLayout!.width;
+
+    expect(rects.length).toBeGreaterThan(0);
+    const selectedWidth = Math.max(...rects.map((r) => r.width));
+    // A single glyph is a small fraction of the whole formula's width — proving
+    // the rect is tex geometry, not a source-text band spanning the block.
+    expect(selectedWidth).toBeLessThan(fullWidth * 0.6);
+
+    // No rect covers the formula's far right edge (well past the selected `x`).
+    const rightEdge = PADDING_LEFT + layout.mathOffsetX + fullWidth - 1;
+    const covered = rects.some(
+      (r) => rightEdge >= r.x && rightEdge <= r.x + r.width,
+    );
+    expect(covered).toBe(false);
+  });
+
+  it("returns no rects for a collapsed caret", () => {
+    expect(rectsForRange("x+y", 1, 1).rects).toEqual([]);
+  });
+
+  it("returns no rects for an empty equation", () => {
+    expect(rectsForRange("", 0, 0).rects).toEqual([]);
   });
 });
 
