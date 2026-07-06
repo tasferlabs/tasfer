@@ -15,6 +15,8 @@ import type {
   PageCreateInput,
   PageUpdateInput,
   PageMoveInput,
+  PageSubtreeItem,
+  RecreatePageInput,
   PageSearchResult,
   PageCalendarItem,
   PagePathSegment,
@@ -1369,6 +1371,11 @@ export class Engine implements Platform {
       }
     },
 
+    // In-space reparent/reorder only. A cross-space move is not a reparent: it
+    // recreates the dragged subtree as fresh pages in the target space (new
+    // ids, copied content) and removes the originals — see recreateInSpace /
+    // purgeMovedSubtree, orchestrated by the app layer (src/lib/spaceMove.ts)
+    // so it can drive a progress bar over large subtrees.
     move: async (data: PageMoveInput): Promise<void> => {
       const spaceId = await this.getPageSpaceId(data.id);
 
@@ -1409,6 +1416,137 @@ export class Engine implements Platform {
         });
         this.notifySpaceChange(spaceId);
       }
+    },
+
+    // --- Cross-space move (recreate model) ------------------------------------
+    // A page belongs to exactly one space, keyed by its id, and its content ops
+    // are scoped by that id. Rather than smuggle a shared id between two space
+    // logs (which forces an unresolvable page_add/page_remove race for peers in
+    // both spaces), a cross-space move recreates the subtree as fresh pages in
+    // the destination, then tombstones the originals via the normal delete()
+    // path. Each space then cleanly owns its own ids. The app layer orchestrates
+    // subtree() + recreateInSpace() so it can show progress over a large
+    // subtree; source removal reuses delete() (ops are never hard-deleted — the
+    // op log is the source of truth, and removal is a tombstone).
+
+    subtree: async (pageId: string): Promise<PageSubtreeItem[]> => {
+      // Depth orders the rows parent-before-child, so the orchestrator can
+      // recreate a parent (and learn its new id) before any of its children.
+      const rows = await this.driver.db.execute<{
+        id: string;
+        parent_id: string | null;
+        order: number;
+      }>(
+        `WITH RECURSIVE subtree(id, parent_id, "order", depth) AS (
+           SELECT id, parent_id, "order", 0 FROM pages
+             WHERE id = ? AND archived_at IS NULL
+           UNION ALL
+           SELECT p.id, p.parent_id, p."order", s.depth + 1
+             FROM pages p JOIN subtree s ON p.parent_id = s.id
+             WHERE p.archived_at IS NULL
+         )
+         SELECT id, parent_id, "order" FROM subtree ORDER BY depth, "order"`,
+        [pageId],
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        parentId: r.parent_id,
+        order: r.order,
+      }));
+    },
+
+    recreateInSpace: async (input: RecreatePageInput): Promise<string> => {
+      const src = await this.driver.db.execute<{
+        title: string;
+        title_md: string;
+        body_text: string | null;
+        task: number;
+        color: string | null;
+        scheduled_at: string | null;
+        duration: number | null;
+        all_day: number | null;
+        recurrence_id: string | null;
+      }>(
+        `SELECT title, title_md, body_text, task, color, scheduled_at,
+                duration, all_day, recurrence_id
+           FROM pages WHERE id = ?`,
+        [input.sourceId],
+      );
+      invariant(src.length > 0, "recreateInSpace: source page not found");
+      const s = src[0];
+
+      const newId = nanoid(10);
+      const now = new Date().toISOString();
+
+      // Append to the end of the destination's children when no order is given
+      // (a "nest under this parent" drop), mirroring pages.move.
+      let order = input.order;
+      if (order === undefined) {
+        const orderRows = await this.driver.db.execute<{
+          max_order: number | null;
+        }>(
+          input.parentId === null
+            ? 'SELECT MAX("order") as max_order FROM pages WHERE parent_id IS NULL AND space_id IS ? AND archived_at IS NULL'
+            : 'SELECT MAX("order") as max_order FROM pages WHERE parent_id = ? AND archived_at IS NULL',
+          input.parentId === null ? [input.spaceId] : [input.parentId],
+        );
+        order = (orderRows[0]?.max_order ?? 0) + 1;
+      }
+
+      // Copy the row verbatim into the target space, overriding only identity,
+      // placement, and timestamps. Title/body columns are carried over so the
+      // page shows correctly in the list immediately, without waiting for the
+      // async title re-derive.
+      await this.driver.db.run(
+        `INSERT INTO pages (id, title, title_md, body_text, parent_id, "order",
+                            space_id, task, color, scheduled_at, duration,
+                            all_day, recurrence_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newId,
+          s.title,
+          s.title_md,
+          s.body_text,
+          input.parentId,
+          order,
+          input.spaceId,
+          s.task,
+          s.color,
+          s.scheduled_at,
+          s.duration,
+          s.all_day,
+          s.recurrence_id,
+          now,
+          now,
+        ],
+      );
+
+      // Copy the content ops under the new page's scope. Block ids are
+      // page-local, so duplicating them into a distinct scope is safe.
+      const contentOps = await this.ops.load(input.sourceId);
+      if (contentOps.length > 0) {
+        await this.insertOpsBatch(newId, contentOps, Date.now());
+      }
+
+      // Announce the new page to the target space and hand peers its content so
+      // it isn't blank until a full re-sync.
+      await this.emitSpaceOp(input.spaceId, {
+        op: "page_add",
+        pageId: newId,
+        parentId: input.parentId,
+        order,
+        task: s.task === 1,
+        color: s.color ?? undefined,
+        scheduledAt: s.scheduled_at ?? null,
+        duration: s.duration ?? null,
+        allDay: s.all_day === null ? null : s.all_day === 1,
+      });
+      if (contentOps.length > 0) {
+        this.replicator?.pushPageOps(input.spaceId, newId, contentOps);
+      }
+      this.notifySpaceChange(input.spaceId);
+
+      return newId;
     },
 
     reorder: async (id: string, order: number): Promise<void> => {

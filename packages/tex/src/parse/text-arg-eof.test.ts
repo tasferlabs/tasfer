@@ -51,4 +51,12 @@ describe("text-mode command with no argument at EOF", () => {
     const textNode = node.body.find((n) => n.type === "text");
     expect(textNode?.text).toBe("x");
   });
+
+  it("maps \\textbackslash inside raw text to a literal backslash", () => {
+    const node = parse("\\text{\\textbackslash{}x}") as {
+      body: Array<{ type: string; text?: string }>;
+    };
+    const textNode = node.body.find((n) => n.type === "text");
+    expect(textNode?.text).toBe("\\x");
+  });
 });

@@ -34,6 +34,25 @@ describe("empty-slot caret stops", () => {
     expect(hitTest(layout, slot.x, (slot.top + slot.bottom) / 2)).toBe(6);
   });
 
+  it("an empty text group gets a stop between its braces", () => {
+    const layout = layoutMath("\\text{}", { fontSize: FS });
+    const slot = caretStops(layout).find((s) => s.offset === 6);
+    expect(slot).toBeDefined();
+    expect(hitTest(layout, slot!.x, (slot!.top + slot!.bottom) / 2)).toBe(6);
+  });
+
+  it("an empty text group inside a matrix cell stays reachable", () => {
+    const latex = "\\begin{matrix}a\\text{}&b\\end{matrix}";
+    const layout = layoutMath(latex, { fontSize: FS });
+    const slot = caretStops(layout).find(
+      (s) => s.offset === "\\begin{matrix}a\\text{".length,
+    );
+    expect(slot).toBeDefined();
+    expect(hitTest(layout, slot!.x, (slot!.top + slot!.bottom) / 2)).toBe(
+      "\\begin{matrix}a\\text{".length,
+    );
+  });
+
   it("enlarges an empty slot's hit target without changing its visual box", () => {
     const layout = layoutMath("\\frac{}{b}", { fontSize: FS });
     const slot = caretStops(layout).find((s) => s.offset === 6)!;

@@ -120,6 +120,10 @@
   touch-action: none;
 }
 
+:global(body.electron) .resizer {
+  -webkit-app-region: no-drag;
+}
+
 /* Fill the whole 6px handle on hover/drag, matching the main app sidebar's
    resize bar width rather than a thin hairline. */
 .resizer::after {

@@ -26,6 +26,24 @@ function afterCommandIntro(latex: string, offset: number): boolean {
 }
 
 /**
+ * The caret sits flush after a control WORD — a `\` + one or more letters
+ * (`\text`, `\begin`, `\sqrt`) ending exactly at `offset`. Unlike {@link
+ * afterCommandIntro} this requires at least one letter, so it excludes a lone
+ * `\` (whose following `{` is the escaped brace glyph `\{`, not an argument).
+ *
+ * A `{` typed here opens the command's argument. On its own that raw `{` is left
+ * unclosed and the end-of-source brace heal then swallows every trailing atom
+ * into the argument (`x+y` + `\text{` → `\text{x+y}`); the host uses this to
+ * auto-close the argument at the caret (`\text{}`) instead — see the brace
+ * handling in `nodes/math.ts`. Pure over the source string.
+ */
+export function afterCommandWord(latex: string, offset: number): boolean {
+  let i = offset;
+  while (i > 0 && /[a-zA-Z]/.test(latex[i - 1])) i--;
+  return i < offset && latex[i - 1] === "\\" && latex[i - 2] !== "\\";
+}
+
+/**
  * Whether an unclosed `{` group opened before `offset` exists in `latex` — a
  * raw `}` typed at `offset` would close it rather than dangle. Balanced over
  * the WHOLE string so a caret inside an already-closed construct slot
@@ -113,56 +131,41 @@ function environmentDepthAt(latex: string, offset: number): number {
 
 /**
  * Whether a bare `\` typed immediately before source `offset` would fuse with the
- * character already there into a single escaped/structural token, silently
- * consuming that character's structural role.
+ * character already there into a single token, silently consuming that
+ * character's role.
  *
- * A lone `\` followed by one non-letter lexes as a single-char command — the
- * escaped GLYPH, not the structural token: `\&` is a literal ampersand (not a
- * column separator), `\}`/`\{` a brace glyph (not a group boundary), `\^`/`\_` a
- * literal caret/underscore (not a script). And a `\` before another `\` inside a
- * tabular environment forms a row-break `\\`, orphaning whatever the second `\`
- * introduced. Each destroys a construct — a matrix cell boundary, a fraction's
- * slot, a superscript — so a live editor wedges a command-separator space between
- * the two instead (see the callers in `nodes/math.ts`); the lexer's own
+ * A typed `\` swallows whatever follows it: a letter run becomes the command NAME
+ * (`\`+`int` → the command `\int`, the existing `int` gone), and a single
+ * non-letter becomes a one-char command whose glyph replaces the structural token
+ * it escaped (`\&` a literal ampersand, not a column separator; `\}`/`\{` a brace
+ * glyph, not a group boundary; `\^`/`\_` a literal, not a script). `[`/`]` lex as
+ * ordinary chars but the PARSER reads them as a `\sqrt[…]` index delimiter, so
+ * `\sqrt[3\]{x}` fuses `]`→`\]` and the index swallows the radicand. A `\` before
+ * another `\` inside a tabular environment forms a row-break `\\`. Every case
+ * destroys the adjacent construct — a command, a cell boundary, a slot, a script
+ * — so a live editor wedges a command-separator space between the two (see the
+ * callers in `nodes/math.ts`), keeping the `\` a lone command-intro; the lexer's
  * `literalStart` masks the fusion only while the `\` is the one being typed.
  *
- * `[` and `]` are covered too: to the lexer they're ordinary `char`s, but the
- * PARSER reads them structurally as a `\sqrt[…]` optional-index delimiter, so
- * `\sqrt[3\]{x}` fuses the `]` into `\]` — the index then runs past it and
- * swallows the `{x}` radicand (leaving it empty), the exact cell-loss shape of
- * the reported matrix bug. Outside a root index they're plain brackets, where
- * the separator is merely a harmless space, so guarding them unconditionally is
- * safe. (A prime `'` is likewise parser-structural, but a separator would detach
- * it from its base rather than repair it, and typing `\` flush before an existing
- * `'` is vanishingly rare — so it is intentionally left out.)
+ * The guard therefore fires for ANY adjacent character that is not:
+ *  - whitespace or end-of-string — `\ ` is already a control space and a trailing
+ *    `\` a harmless empty command;
+ *  - a prime `'` — parser-structural, but a separator would detach it from its
+ *    base rather than repair it, and typing `\` flush before a `'` is vanishingly
+ *    rare (see KaTeX prime handling), so it is intentionally left unguarded;
+ *  - a second `\` OUTSIDE a tabular environment — there the lexer keeps the two
+ *    backslashes separate (a harmless literal `\\`), so no fusion occurs.
  *
- * Letters are excluded: `\`+letter is the command NAME being typed, the intended
- * path. Ordinary atoms (`+`, digits) are excluded too — a `\+` renders as a red
- * unknown but de-structures no construct. Whitespace / end-of-string are excluded:
- * `\ ` is already a control space and a trailing `\` a harmless empty command.
  * Pure over the source string.
  */
 export function backslashFusesWith(latex: string, offset: number): boolean {
   const ch = latex[offset];
-  if (ch === undefined) return false;
-  // `\` + one of these non-letters merges into a single-char command whose glyph
-  // replaces the structural token it escaped. `[`/`]` are structural only as a
-  // `\sqrt[…]` index delimiter; elsewhere the wedged separator is a harmless space.
-  if (
-    ch === "{" ||
-    ch === "}" ||
-    ch === "&" ||
-    ch === "^" ||
-    ch === "_" ||
-    ch === "[" ||
-    ch === "]"
-  ) {
-    return true;
-  }
+  if (ch === undefined || /\s/.test(ch)) return false;
+  if (ch === "'") return false;
   // `\` + `\` forms `\\` — a row break, but only inside an environment; elsewhere
   // the lexer keeps the two backslashes separate (a harmless literal backslash).
   if (ch === "\\") return environmentDepthAt(latex, offset) > 0;
-  return false;
+  return true;
 }
 
 /**

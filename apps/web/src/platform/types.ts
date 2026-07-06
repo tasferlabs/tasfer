@@ -131,6 +131,25 @@ export interface PageMoveInput {
   order?: number;
 }
 
+/** One node of a page subtree, parent-before-child, for a cross-space move. */
+export interface PageSubtreeItem {
+  id: string;
+  parentId: string | null;
+  order: number;
+}
+
+/** Recreate a single source page as a fresh page in another space. */
+export interface RecreatePageInput {
+  /** Existing page whose content and metadata are copied. */
+  sourceId: string;
+  /** Space the new page is created in. */
+  spaceId: string;
+  /** Parent for the new page — already remapped to a target-space id, or null. */
+  parentId: string | null;
+  /** Sort order among the new parent's children; omit to append to the end. */
+  order?: number;
+}
+
 /** Search result */
 export interface PageSearchResult {
   id: string;
@@ -501,8 +520,21 @@ export interface Platform {
     listArchived(): Promise<ArchivedPageItem[]>;
     /** Restore a soft-deleted page (and its archived subtree) */
     restore(id: string): Promise<void>;
-    /** Move a page to a new parent */
+    /** Move a page to a new parent (in-space reparent/reorder only) */
     move(data: PageMoveInput): Promise<void>;
+    /**
+     * Enumerate a page and all its descendants, parent-before-child, for a
+     * cross-space move. Each item carries the id/parent/order needed to
+     * recreate the tree in another space.
+     */
+    subtree(pageId: string): Promise<PageSubtreeItem[]>;
+    /**
+     * Recreate one source page as a brand-new page (new id) in the target
+     * space, copying its content and metadata but overriding parent/order.
+     * Returns the new id. Drives the app-layer cross-space move orchestrator,
+     * which supplies the already-remapped parent.
+     */
+    recreateInSpace(input: RecreatePageInput): Promise<string>;
     /** Reorder a page within its parent */
     reorder(id: string, order: number): Promise<void>;
     /** Search pages by title */

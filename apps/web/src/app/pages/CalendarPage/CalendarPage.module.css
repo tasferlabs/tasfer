@@ -300,6 +300,10 @@
   overflow: hidden;
 }
 
+:global(body.electron) .previewPopover {
+  -webkit-app-region: no-drag;
+}
+
 .previewPopoverHeader {
   display: flex;
   align-items: center;

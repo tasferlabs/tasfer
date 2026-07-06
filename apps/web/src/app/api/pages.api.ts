@@ -181,7 +181,6 @@ interface IMovePage {
   id: string;
   parentId: string | null;
   order?: number;
-  spaceId?: string;
 }
 
 export async function movePage(data: IMovePage): Promise<void> {

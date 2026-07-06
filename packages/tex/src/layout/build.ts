@@ -1331,6 +1331,20 @@ function buildText(node: Extract<Node, { type: "text" }>, style: Style): Built {
   // Iterate by code point so an astral char (emoji) stays whole and index-aligns
   // with the fallback runs and `charSpans` (both indexed against `[...text]`).
   const chars = [...node.text];
+  if (chars.length === 0) {
+    const m = style.sizeMultiplier;
+    const inside =
+      node.span.end - node.span.start >= 2 ? node.span.end - 1 : node.span.end;
+    return {
+      box: placeholderBox(inside, {
+        width: 0.4 * m,
+        height: sig(style, "xHeight"),
+        depth: 0,
+      }),
+      klass: "mord",
+      isCharBox: false,
+    };
+  }
   const spans = node.charSpans;
   const runAt = new Map<number, TextFallbackRun>();
   for (const r of node.fallbackRuns ?? []) runAt.set(r.start, r);

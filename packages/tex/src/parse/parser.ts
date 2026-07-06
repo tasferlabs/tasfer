@@ -8,13 +8,7 @@
  * render the valid part of every intermediate string.
  */
 import { mathSymbols, type SymbolInfo } from "../data/symbols";
-import type {
-  MClassNode,
-  Node,
-  PhantomNode,
-  Span,
-  StyleNode,
-} from "./ast";
+import type { MClassNode, Node, PhantomNode, Span, StyleNode } from "./ast";
 import { type Token, tokenize } from "./lexer";
 
 export interface ParseOptions {
@@ -77,10 +71,7 @@ class Parser {
    * Parse a run of atoms until a stop token (or a stop command like `right`),
    * which is left unconsumed for the caller.
    */
-  private parseExpression(
-    stop: Token["kind"][],
-    stopCommand?: string,
-  ): Node[] {
+  private parseExpression(stop: Token["kind"][], stopCommand?: string): Node[] {
     const out: Node[] = [];
     for (;;) {
       this.skipSpace();
@@ -147,7 +138,11 @@ class Parser {
       }
       const body = sup.type === "ord" ? [...sup.body] : [sup];
       body.push(arg);
-      sup = { type: "ord", body, span: { start: sup.span.start, end: arg.span.end } };
+      sup = {
+        type: "ord",
+        body,
+        span: { start: sup.span.start, end: arg.span.end },
+      };
     };
 
     while (k === "sup" || k === "sub" || this.isPrime()) {
@@ -156,7 +151,11 @@ class Parser {
         while (this.isPrime()) {
           const p = this.next();
           end = p.end;
-          appendSup({ type: "atom", info: mathSymbols["\\prime"], span: span(p) });
+          appendSup({
+            type: "atom",
+            info: mathSymbols["\\prime"],
+            span: span(p),
+          });
         }
       } else {
         const marker = this.next(); // ^ or _
@@ -230,7 +229,12 @@ class Parser {
     if (name === "begin") return this.parseEnvironment(cmd);
 
     if (name in MATH_OPERATORS) {
-      return { type: "opname", name, limits: MATH_OPERATORS[name], span: span(cmd) };
+      return {
+        type: "opname",
+        name,
+        limits: MATH_OPERATORS[name],
+        span: span(cmd),
+      };
     }
 
     if (name in MATH_FONTS) {
@@ -247,14 +251,26 @@ class Parser {
     // slash through the following atom (drawn as a canvas path — no font glyph).
     if (name === "not") {
       const base = this.parseArg();
-      return { type: "not", base, span: { start: cmd.start, end: base.span.end } };
+      return {
+        type: "not",
+        base,
+        span: { start: cmd.start, end: base.span.end },
+      };
     }
     if (name === "neq" || name === "ne") {
-      const base: Node = { type: "atom", info: symbolFor("="), span: span(cmd) };
+      const base: Node = {
+        type: "atom",
+        info: symbolFor("="),
+        span: span(cmd),
+      };
       return { type: "not", base, span: span(cmd) };
     }
     if (name === "notin") {
-      const base: Node = { type: "atom", info: mathSymbols["\\in"], span: span(cmd) };
+      const base: Node = {
+        type: "atom",
+        info: mathSymbols["\\in"],
+        span: span(cmd),
+      };
       return { type: "not", base, span: span(cmd) };
     }
 
@@ -263,7 +279,13 @@ class Parser {
     if (frac) {
       const num = this.parseArg();
       const den = this.parseArg();
-      return { type: "frac", num, den, ...frac, span: { start: cmd.start, end: den.span.end } };
+      return {
+        type: "frac",
+        num,
+        den,
+        ...frac,
+        span: { start: cmd.start, end: den.span.end },
+      };
     }
     // Infix forms (\over, \choose, …) — resolved against the enclosing group.
     if (name in INFIX_FORMS) {
@@ -273,50 +295,94 @@ class Parser {
     // Text-mode runs (\text, \textbf, …) — raw characters in a roman face.
     if (name in TEXT_FONTS) {
       const r = this.parseRawTextArg();
-      return { type: "text", text: r.text, variant: TEXT_FONTS[name], charSpans: r.charSpans, span: { start: cmd.start, end: r.end } };
+      return {
+        type: "text",
+        text: r.text,
+        variant: TEXT_FONTS[name],
+        charSpans: r.charSpans,
+        span: { start: cmd.start, end: r.end },
+      };
     }
 
     // \operatorname{…} / \operatorname* / \operatornamewithlimits.
     if (name === "operatorname" || name === "operatornamewithlimits") {
       let limits = name === "operatornamewithlimits";
-      if (name === "operatorname" && this.peek().kind === "char" && this.peek().value === "*") {
+      if (
+        name === "operatorname" &&
+        this.peek().kind === "char" &&
+        this.peek().value === "*"
+      ) {
         this.next();
         limits = true;
       }
       const r = this.parseRawTextArg();
-      return { type: "opname", name: r.text, limits, span: { start: cmd.start, end: r.end } };
+      return {
+        type: "opname",
+        name: r.text,
+        limits,
+        span: { start: cmd.start, end: r.end },
+      };
     }
 
     // Atom-class overrides (\mathbin, \mathrel, …, \mathop).
     if (name in MCLASS_FORMS) {
       const body = this.parseArg();
-      return { type: "mclass", mclass: MCLASS_FORMS[name], body, span: { start: cmd.start, end: body.span.end } };
+      return {
+        type: "mclass",
+        mclass: MCLASS_FORMS[name],
+        body,
+        span: { start: cmd.start, end: body.span.end },
+      };
     }
 
     // Stacking (\overset, \underset, \stackrel).
     if (name === "overset" || name === "underset" || name === "stackrel") {
       const script = this.parseArg();
       const base = this.parseArg();
-      return { type: "stack", kind: name, script, base, span: { start: cmd.start, end: base.span.end } };
+      return {
+        type: "stack",
+        kind: name,
+        script,
+        base,
+        span: { start: cmd.start, end: base.span.end },
+      };
     }
 
     if (name === "boxed" || name === "fbox") {
       const body = this.parseArg();
-      return { type: "boxed", body, span: { start: cmd.start, end: body.span.end } };
+      return {
+        type: "boxed",
+        body,
+        span: { start: cmd.start, end: body.span.end },
+      };
     }
 
     if (name in PHANTOM_FORMS) {
       const body = this.parseArg();
-      return { type: "phantom", kind: PHANTOM_FORMS[name], body, span: { start: cmd.start, end: body.span.end } };
+      return {
+        type: "phantom",
+        kind: PHANTOM_FORMS[name],
+        body,
+        span: { start: cmd.start, end: body.span.end },
+      };
     }
     if (name === "mathstrut") {
-      const base: Node = { type: "atom", info: symbolFor("("), span: span(cmd) };
+      const base: Node = {
+        type: "atom",
+        info: symbolFor("("),
+        span: span(cmd),
+      };
       return { type: "phantom", kind: "vphantom", body: base, span: span(cmd) };
     }
 
     // Modulo macros.
     if (name === "bmod") {
-      const body: Node = { type: "opname", name: "mod", limits: false, span: span(cmd) };
+      const body: Node = {
+        type: "opname",
+        name: "mod",
+        limits: false,
+        span: span(cmd),
+      };
       return { type: "mclass", mclass: "mbin", body, span: span(cmd) };
     }
     if (name === "pmod" || name === "mod" || name === "pod") {
@@ -335,8 +401,17 @@ class Parser {
 
     // Blackboard-bold number-set shortcuts (\R, \N, \Z, …).
     if (name in BLACKBOARD) {
-      const body: Node = { type: "atom", info: symbolFor(BLACKBOARD[name]), span: span(cmd) };
-      return { type: "mathfont", variant: "AMS-Regular", body, span: span(cmd) };
+      const body: Node = {
+        type: "atom",
+        info: symbolFor(BLACKBOARD[name]),
+        span: span(cmd),
+      };
+      return {
+        type: "mathfont",
+        variant: "AMS-Regular",
+        body,
+        span: span(cmd),
+      };
     }
     // Symbol aliases (\sdot → \cdot, \darr → \downarrow, …).
     if (name in SYMBOL_ALIASES) {
@@ -348,8 +423,16 @@ class Parser {
       const info = mathSymbols[LOGIC_RELS[name]];
       if (info) {
         const thick = 5 / 18;
-        const sp = (): Node => ({ type: "space", width: thick, span: span(cmd) });
-        const body: Node[] = [sp(), { type: "atom", info, span: span(cmd) }, sp()];
+        const sp = (): Node => ({
+          type: "space",
+          width: thick,
+          span: span(cmd),
+        });
+        const body: Node[] = [
+          sp(),
+          { type: "atom", info, span: span(cmd) },
+          sp(),
+        ];
         return { type: "ord", body, span: span(cmd) };
       }
     }
@@ -358,15 +441,27 @@ class Parser {
     // baseline dots (we approximate the context rule).
     if (name in DOTS) {
       const d = DOTS[name];
-      return { type: "atom", info: { font: "main", group: d.group, char: d.char }, span: span(cmd) };
+      return {
+        type: "atom",
+        info: { font: "main", group: d.group, char: d.char },
+        span: span(cmd),
+      };
     }
 
     if (name === "colon") {
-      return { type: "atom", info: { font: "main", group: "punct", char: ":" }, span: span(cmd) };
+      return {
+        type: "atom",
+        info: { font: "main", group: "punct", char: ":" },
+        span: span(cmd),
+      };
     }
     if (name === "imath" || name === "jmath") {
       const ch = name === "imath" ? "ı" : "ȷ";
-      return { type: "atom", info: { font: "main", group: "mathord", char: ch }, span: span(cmd) };
+      return {
+        type: "atom",
+        info: { font: "main", group: "mathord", char: ch },
+        span: span(cmd),
+      };
     }
     // A stray `\end` (error-tolerant): swallow its name, render nothing.
     if (name === "end") {
@@ -417,7 +512,13 @@ class Parser {
         right = this.parseDelim();
         end = r.end;
       }
-      return { type: "leftright", left, right, body, span: { start: cmd.start, end } };
+      return {
+        type: "leftright",
+        left,
+        right,
+        body,
+        span: { start: cmd.start, end },
+      };
     }
 
     const sized = DELIM_SIZES[name];
@@ -476,12 +577,17 @@ class Parser {
    */
   private parseEnvironment(begin: Token): Node {
     const env = this.parseEnvName();
-    const colAlign = env === "array" || env === "subarray"
-      ? this.parseColSpec()
-      : undefined;
+    const colAlign =
+      env === "array" || env === "subarray" ? this.parseColSpec() : undefined;
 
     const rows: Node[][] = [];
     let row: Node[] = [];
+    // A consumed `&` promises another cell in this row, even an empty one. When
+    // the loop then breaks at `\end`/eof (which happens BEFORE parsing that cell),
+    // the promised cell is materialized after the loop — otherwise `a&b\\c&\end`
+    // would drop the empty bottom-right cell, and one Backspace emptying a cell
+    // would destroy it (the reported matrix bug).
+    let cellPending = false;
     for (;;) {
       this.skipSpace();
       const t = this.peek();
@@ -492,10 +598,12 @@ class Parser {
       const body = this.parseExpression(["amp", "dbackslash"], "end");
       const last = body.length ? body[body.length - 1].span.end : cellStart;
       row.push({ type: "ord", body, span: { start: cellStart, end: last } });
+      cellPending = false;
 
       const sep = this.peek();
       if (sep.kind === "amp") {
         this.next();
+        cellPending = true;
       } else if (sep.kind === "dbackslash") {
         this.next();
         rows.push(row);
@@ -503,6 +611,13 @@ class Parser {
       } else {
         break; // eof or \end
       }
+    }
+    // Materialize the empty cell a trailing `&` promised (the loop broke before
+    // creating it). It always follows a real cell, so it never forms a lone
+    // empty row.
+    if (cellPending) {
+      const at = this.peek().start;
+      row.push({ type: "ord", body: [], span: { start: at, end: at } });
     }
     // A non-empty final row, or a trailing row that isn't just one empty cell.
     if (row.length && !(row.length === 1 && isEmptyOrd(row[0]))) rows.push(row);
@@ -513,7 +628,13 @@ class Parser {
       this.parseEnvName();
       end = this.toks[this.pos - 1].end;
     }
-    return { type: "array", env, rows, colAlign, span: { start: begin.start, end } };
+    return {
+      type: "array",
+      env,
+      rows,
+      colAlign,
+      span: { start: begin.start, end },
+    };
   }
 
   /** Read a `{name}` group as a plain string (environment name). */
@@ -564,10 +685,18 @@ class Parser {
       // guard. This is the live-editing case where `\text` is typed before its
       // `{…}` has materialized.
       const t = this.peek();
-      if (t.kind === "eof" || t.kind === "rbrace") {
+      // Only a genuine single CHARACTER is a braceless argument (`\text x`).
+      // Structural tokens (a column separator `&`, a row break `\\`, `\end`, a
+      // group closer `}`, eof) must NOT be consumed: an unbraced `\text` typed
+      // into a matrix would otherwise swallow the following `&`/`\\` as its
+      // argument and merge cells (`a\text&b` → one cell). Yield empty text
+      // WITHOUT advancing so the token keeps its role — mirror parseArg's guard;
+      // consuming the `eof` sentinel would also run `peek()` past the array end
+      // and crash. This is the live-editing case where `\text` is typed before
+      // its `{…}` has materialized.
+      if (t.kind !== "char") {
         return { text: "", end: t.start, charSpans: [] };
       }
-      // A single token argument (`\text x`).
       const single = this.next();
       push(single.value, { start: single.start, end: single.end });
       return {
@@ -584,14 +713,19 @@ class Parser {
       if (t.kind === "lbrace") depth++;
       else if (t.kind === "rbrace") {
         depth--;
-        if (depth === 0) { end = t.end; this.next(); break; }
+        if (depth === 0) {
+          end = t.end;
+          this.next();
+          break;
+        }
       }
       this.next();
       end = t.end;
       const span = { start: t.start, end: t.end };
       // A space RUN collapses to a single space char, spanning the whole run.
       if (t.kind === "space") push(" ", span);
-      else if (t.kind === "command") push(t.value, span); // bare letters of \cmd
+      else if (t.kind === "command")
+        push(t.value === "textbackslash" ? "\\" : t.value, span);
       else if (t.kind !== "lbrace" && t.kind !== "rbrace") push(t.value, span);
     }
     return { text, end, charSpans: toCodePointSpans(text, unitSpans) };
@@ -607,7 +741,10 @@ class Parser {
     // sign + digits + dot + unit letters, read off the raw char/command stream.
     while (this.peek().kind === "char") {
       const c = this.peek().value;
-      if (/[-+0-9.a-zA-Z]/.test(c)) { s += c; this.next(); } else break;
+      if (/[-+0-9.a-zA-Z]/.test(c)) {
+        s += c;
+        this.next();
+      } else break;
     }
     if (braced && this.peek().kind === "rbrace") this.next();
     const m = s.match(/^([-+]?[0-9]*\.?[0-9]+)\s*([a-zA-Z]*)$/);
@@ -615,17 +752,31 @@ class Parser {
     const n = parseFloat(m[1]);
     const unit = m[2] || unitDefault;
     switch (unit) {
-      case "mu": return n / 18;
-      case "pt": return n / 10; // ptPerEm = 10
-      case "ex": return n * 0.431; // ≈ xHeight
-      case "em": default: return n;
+      case "mu":
+        return n / 18;
+      case "pt":
+        return n / 10; // ptPerEm = 10
+      case "ex":
+        return n * 0.431; // ≈ xHeight
+      case "em":
+      default:
+        return n;
     }
   }
 
   /** Build `\pmod{n}` / `\mod{n}` / `\pod{n}` as a parenthesized "mod" group. */
   private makeMod(name: "pmod" | "mod" | "pod", arg: Node, cmd: Token): Node {
-    const sp = (w: number): Node => ({ type: "space", width: w, span: span(cmd) });
-    const mod: Node = { type: "opname", name: "mod", limits: false, span: span(cmd) };
+    const sp = (w: number): Node => ({
+      type: "space",
+      width: w,
+      span: span(cmd),
+    });
+    const mod: Node = {
+      type: "opname",
+      name: "mod",
+      limits: false,
+      span: span(cmd),
+    };
     const open: Node = { type: "atom", info: symbolFor("("), span: span(cmd) };
     const close: Node = { type: "atom", info: symbolFor(")"), span: span(cmd) };
     let body: Node[];
@@ -638,7 +789,8 @@ class Parser {
   /** An optional `[ … ]` argument (e.g. the root index of `\sqrt[3]{x}`). */
   private parseOptionalArg(): Node | null {
     this.skipSpace();
-    if (!(this.peek().kind === "char" && this.peek().value === "[")) return null;
+    if (!(this.peek().kind === "char" && this.peek().value === "["))
+      return null;
     const open = this.next(); // [
     const body: Node[] = [];
     while (this.peek().kind !== "eof") {
@@ -693,8 +845,19 @@ const SPACES: Record<string, number> = {
 
 /** Accents (over the base). `widehat`/`widetilde` stretch to the base width. */
 const ACCENTS = new Set([
-  "hat", "widehat", "tilde", "widetilde", "bar", "vec",
-  "dot", "ddot", "acute", "grave", "check", "breve", "mathring",
+  "hat",
+  "widehat",
+  "tilde",
+  "widetilde",
+  "bar",
+  "vec",
+  "dot",
+  "ddot",
+  "acute",
+  "grave",
+  "check",
+  "breve",
+  "mathring",
 ]);
 
 /** Accents whose glyph stretches to span the whole base. */
@@ -702,7 +865,10 @@ const STRETCHY_ACCENTS = new Set(["widehat", "widetilde"]);
 
 /** Full-width rules / stretchy braces placed over or under their body. */
 const OVER_UNDER = new Set([
-  "overline", "underline", "overbrace", "underbrace",
+  "overline",
+  "underline",
+  "overbrace",
+  "underbrace",
 ]);
 
 /**
@@ -712,16 +878,52 @@ const OVER_UNDER = new Set([
  */
 export const MATH_OPERATORS: Record<string, boolean> = {
   // No limits (scripts on the side).
-  arcsin: false, arccos: false, arctan: false, arctg: false, arcctg: false,
-  arg: false, cos: false, cosec: false, cosh: false, cot: false, cotg: false,
-  coth: false, csc: false, ctg: false, cth: false, deg: false, dim: false,
-  exp: false, hom: false, ker: false, lg: false, ln: false, log: false,
-  sec: false, sin: false, sinh: false, sh: false, tan: false, tanh: false,
-  tg: false, th: false,
+  arcsin: false,
+  arccos: false,
+  arctan: false,
+  arctg: false,
+  arcctg: false,
+  arg: false,
+  cos: false,
+  cosec: false,
+  cosh: false,
+  cot: false,
+  cotg: false,
+  coth: false,
+  csc: false,
+  ctg: false,
+  cth: false,
+  deg: false,
+  dim: false,
+  exp: false,
+  hom: false,
+  ker: false,
+  lg: false,
+  ln: false,
+  log: false,
+  sec: false,
+  sin: false,
+  sinh: false,
+  sh: false,
+  tan: false,
+  tanh: false,
+  tg: false,
+  th: false,
   // Limits (scripts above/below in display).
-  det: true, gcd: true, inf: true, lim: true, liminf: true, limsup: true,
-  max: true, min: true, Pr: true, sup: true, injlim: true, projlim: true,
-  argmax: true, argmin: true,
+  det: true,
+  gcd: true,
+  inf: true,
+  lim: true,
+  liminf: true,
+  limsup: true,
+  max: true,
+  min: true,
+  Pr: true,
+  sup: true,
+  injlim: true,
+  projlim: true,
+  argmax: true,
+  argmin: true,
 };
 
 /** Font/alphabet commands → the face variant their argument is set in. */
@@ -743,14 +945,30 @@ const MATH_FONTS: Record<string, string> = {
 /** Prefix fraction commands → their `FracNode` overrides. */
 const FRAC_FORMS: Record<
   string,
-  { hasRule?: boolean; leftDelim?: string; rightDelim?: string; forceStyle?: "display" | "text"; continued?: boolean }
+  {
+    hasRule?: boolean;
+    leftDelim?: string;
+    rightDelim?: string;
+    forceStyle?: "display" | "text";
+    continued?: boolean;
+  }
 > = {
   dfrac: { forceStyle: "display" },
   tfrac: { forceStyle: "text" },
   cfrac: { forceStyle: "display", continued: true },
   binom: { hasRule: false, leftDelim: "(", rightDelim: ")" },
-  dbinom: { hasRule: false, leftDelim: "(", rightDelim: ")", forceStyle: "display" },
-  tbinom: { hasRule: false, leftDelim: "(", rightDelim: ")", forceStyle: "text" },
+  dbinom: {
+    hasRule: false,
+    leftDelim: "(",
+    rightDelim: ")",
+    forceStyle: "display",
+  },
+  tbinom: {
+    hasRule: false,
+    leftDelim: "(",
+    rightDelim: ")",
+    forceStyle: "text",
+  },
 };
 
 /** Infix fraction operators → bar/delimiter form (style stays ambient). */
@@ -831,17 +1049,42 @@ const LENGTH_KERNS: Record<string, "em" | "mu"> = {
 
 /** Blackboard-bold number-set shortcuts → the letter to set in `\mathbb`. */
 const BLACKBOARD: Record<string, string> = {
-  R: "R", N: "N", Z: "Z", C: "C", Q: "Q", H: "H",
-  Reals: "R", reals: "R", Complex: "C", cnums: "C", natnums: "N",
+  R: "R",
+  N: "N",
+  Z: "Z",
+  C: "C",
+  Q: "Q",
+  H: "H",
+  Reals: "R",
+  reals: "R",
+  Complex: "C",
+  cnums: "C",
+  natnums: "N",
 };
 
 /** Simple symbol aliases → the canonical command in `mathSymbols`. */
 const SYMBOL_ALIASES: Record<string, string> = {
-  darr: "\\downarrow", uarr: "\\uparrow", larr: "\\leftarrow", rarr: "\\rightarrow",
-  lang: "\\langle", rang: "\\rangle", sdot: "\\cdot", plusmn: "\\pm",
-  infin: "\\infty", exist: "\\exists", isin: "\\in", empty: "\\emptyset",
-  weierp: "\\wp", image: "\\Im", real: "\\Re", alef: "\\aleph", alefsym: "\\aleph",
-  bull: "\\bullet", sect: "\\S", gets: "\\leftarrow", owns: "\\ni",
+  darr: "\\downarrow",
+  uarr: "\\uparrow",
+  larr: "\\leftarrow",
+  rarr: "\\rightarrow",
+  lang: "\\langle",
+  rang: "\\rangle",
+  sdot: "\\cdot",
+  plusmn: "\\pm",
+  infin: "\\infty",
+  exist: "\\exists",
+  isin: "\\in",
+  empty: "\\emptyset",
+  weierp: "\\wp",
+  image: "\\Im",
+  real: "\\Re",
+  alef: "\\aleph",
+  alefsym: "\\aleph",
+  bull: "\\bullet",
+  sect: "\\S",
+  gets: "\\leftarrow",
+  owns: "\\ni",
 };
 
 /** Logical connectives → the relation glyph, rendered spaced (`\;sym\;`). */
@@ -898,11 +1141,31 @@ const KNOWN_COMMAND_NAMES: ReadonlySet<string> = new Set<string>([
     .filter((k) => k.startsWith("\\"))
     .map((k) => k.slice(1)),
   // Control words handled by inline branches in `parseCommand`.
-  "begin", "end", "not", "neq", "ne", "notin",
-  "operatorname", "operatornamewithlimits",
-  "overset", "underset", "stackrel", "boxed", "fbox", "mathstrut",
-  "bmod", "pmod", "mod", "pod", "colon", "imath", "jmath",
-  "frac", "sqrt", "left", "right",
+  "begin",
+  "end",
+  "not",
+  "neq",
+  "ne",
+  "notin",
+  "operatorname",
+  "operatornamewithlimits",
+  "overset",
+  "underset",
+  "stackrel",
+  "boxed",
+  "fbox",
+  "mathstrut",
+  "bmod",
+  "pmod",
+  "mod",
+  "pod",
+  "colon",
+  "imath",
+  "jmath",
+  "frac",
+  "sqrt",
+  "left",
+  "right",
 ]);
 
 /** Whether `name` could still grow into a known command (`inf` → `infty`). */

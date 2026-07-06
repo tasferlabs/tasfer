@@ -216,6 +216,8 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     listArchived: { kind: "request" },
     restore: { kind: "request" },
     move: { kind: "request" },
+    subtree: { kind: "request" },
+    recreateInSpace: { kind: "request" },
     reorder: { kind: "request" },
     search: { kind: "request" },
     calendar: { kind: "request" },
