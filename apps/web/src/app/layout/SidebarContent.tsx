@@ -35,6 +35,8 @@ import { getDisplayName } from "@cypherkit/provider-core/cursors";
 import { useArchiveSpace } from "../api/spaces.api";
 import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
 import { useConfirmation } from "../components/ConfirmationDialog";
+import { useToast, type ToastHandle } from "../components/Toast";
+import { movePageAcrossSpaces } from "@/lib/spaceMove";
 import Icons from "../components/uiKit/Icons/Icons";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
@@ -124,6 +126,7 @@ export function SidebarContent({
   const navigate = useNavigate();
   const isFine = useResponsive("(pointer: fine)");
   const { getConfirmation } = useConfirmation();
+  const { toast } = useToast();
   const { panelRef, hasPanel, setSlotMounted } = useSidebarPanel();
   const [activeId, setActiveId] = useState<string | null>(null);
   // Holds the `data.current` of whatever is being dragged — a page (IListPage)
@@ -335,6 +338,65 @@ export function SidebarContent({
     };
   }
 
+  /**
+   * A cross-space move recreates the dragged subtree in the target space and
+   * removes the originals (src/lib/spaceMove). It bypasses react-query, so we
+   * refresh the page lists by hand and follow a moved-open page to its new id.
+   * Progress is surfaced only for a large subtree; small moves stay silent.
+   */
+  async function moveAcrossSpaces(
+    activeData: IListPage,
+    targetSpaceId: string,
+    targetParentId: string | null,
+    order?: number,
+  ) {
+    const LARGE_MOVE_THRESHOLD = 20;
+    const label = (done: number, total: number) =>
+      t("page.movingProgress", "Moving {{done}}/{{total}}…", { done, total });
+    // Held in an object so the onProgress closure can lazily create it without
+    // the control-flow analysis narrowing a captured `let` to `never`.
+    const progress: { toast: ToastHandle | null } = { toast: null };
+    try {
+      const { idMap } = await movePageAcrossSpaces(
+        activeData.id,
+        targetSpaceId,
+        {
+          targetParentId,
+          order,
+          onProgress: ({ done, total }) => {
+            if (total <= LARGE_MOVE_THRESHOLD) return;
+            if (progress.toast) {
+              progress.toast.update({ message: label(done, total) });
+            } else {
+              progress.toast = toast.loading(label(done, total));
+            }
+          },
+        },
+      );
+      progress.toast?.update({
+        variant: "success",
+        message: t("page.moveDone", "Moved"),
+      });
+      // The orchestrator writes outside react-query — the source subtree is now
+      // archived and the target gained new pages, so refresh both lists.
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
+      // If the open page was in the moved subtree its old id is gone — follow
+      // it to the recreated page so the editor doesn't land on a dead route.
+      if (currentPageId && idMap.has(currentPageId)) {
+        navigate(`/page/${idMap.get(currentPageId)}`);
+      }
+    } catch (err) {
+      console.error("[SidebarContent] cross-space move failed", err);
+      const message = t("page.moveFailed", "Move failed");
+      if (progress.toast) {
+        progress.toast.update({ variant: "error", message });
+      } else {
+        toast.error(message);
+      }
+    }
+  }
+
   async function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
     setActiveDragData(null);
@@ -456,9 +518,6 @@ export function SidebarContent({
       if (!confirmed) return;
     }
 
-    // Build the spaceId param only when cross-space
-    const spaceIdParam = isCrossSpace ? targetSpaceId : undefined;
-
     // Scenarios 1 & 2: Drop on a "before"/"after" insertion zone.
     if (
       overData?.type === "drop-zone" &&
@@ -496,12 +555,20 @@ export function SidebarContent({
           overData.targetPageId,
           overData.position,
         );
-        movePage({
-          id: activeData.id,
-          parentId: targetParentId,
-          order: placement?.order,
-          spaceId: spaceIdParam,
-        });
+        if (isCrossSpace) {
+          await moveAcrossSpaces(
+            activeData,
+            targetSpaceId!,
+            targetParentId,
+            placement?.order,
+          );
+        } else {
+          movePage({
+            id: activeData.id,
+            parentId: targetParentId,
+            order: placement?.order,
+          });
+        }
       }
     }
     // Scenario 3: Drop on "inside" zone (nest under the hovered page).
@@ -517,11 +584,14 @@ export function SidebarContent({
       }
 
       // Order omitted → the engine appends to the new parent's children.
-      movePage({
-        id: activeData.id,
-        parentId: newParentId,
-        spaceId: spaceIdParam,
-      });
+      if (isCrossSpace) {
+        await moveAcrossSpaces(activeData, targetSpaceId!, newParentId);
+      } else {
+        movePage({
+          id: activeData.id,
+          parentId: newParentId,
+        });
+      }
     }
     // Scenario 4: Drop on the pages area (append to the end of that list).
     else if (overData?.type === "pages-area") {
@@ -542,12 +612,13 @@ export function SidebarContent({
         // No-op: the page is already last in this list.
         if (siblings[siblings.length - 1]?.id === activeData.id) return;
         reorderPage({ id: activeData.id, order });
+      } else if (isCrossSpace) {
+        await moveAcrossSpaces(activeData, targetSpaceId!, targetParentId, order);
       } else {
         movePage({
           id: activeData.id,
           parentId: targetParentId,
           order,
-          spaceId: spaceIdParam,
         });
       }
     }

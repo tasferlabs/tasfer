@@ -46,6 +46,15 @@ pointer, keyboard, clipboard, and selection actions may live in shared action
 modules. Event-derived data should be resolved by the event layer and passed in
 the action payload so action transforms remain pure.
 
+## Math editing
+
+Block and inline LaTeX editing has a recurring source-corruption problem rooted
+in its flat-string edit model. Before changing `packages/tex/src/edit`,
+`packages/tex/src/parse`, or the math nodes in `packages/editor/src`, read
+[`math-editing-corruption.md`](math-editing-corruption.md): it records the
+reproduced root causes and the phased plan to fix the bug class rather than
+patch further instances.
+
 ## CRDT and persistence
 
 The operation log is authoritative. Reducers materialize document state from

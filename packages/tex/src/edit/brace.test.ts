@@ -5,6 +5,7 @@
  * a group the user opened raw.
  */
 import {
+  afterCommandWord,
   backslashFusesWith,
   balanceBraces,
   escapeTypedBrace,
@@ -169,14 +170,48 @@ describe("backslashFusesWith", () => {
     expect(backslashFusesWith("a\\frac{x}{y}", 1)).toBe(false); // `\` before `\frac`
   });
 
-  it("does NOT fuse with a letter (that starts a command name) or an ordinary atom", () => {
-    expect(backslashFusesWith("xy", 1)).toBe(false); // before a letter
-    expect(backslashFusesWith("a+b", 1)).toBe(false); // before `+`
-    expect(backslashFusesWith("a2", 1)).toBe(false); // before a digit
+  it("fuses with a letter (which it would swallow into the command name)", () => {
+    // `\`+`int` → the command `\int`, the existing letters gone — so a separator
+    // is wedged. This is the fix for `\frac{\pia}{b}`-style letter fusion.
+    expect(backslashFusesWith("xy", 1)).toBe(true); // before a letter
+    expect(backslashFusesWith("int", 0)).toBe(true);
+  });
+
+  it("fuses with an ordinary atom (digit or operator)", () => {
+    // `\+`/`\2` are unknown single-char commands that absorb the atom; guarding
+    // them keeps `+`/`2` as their own atoms.
+    expect(backslashFusesWith("a+b", 1)).toBe(true); // before `+`
+    expect(backslashFusesWith("a2", 1)).toBe(true); // before a digit
+  });
+
+  it("does NOT fuse with whitespace or end-of-string", () => {
     expect(backslashFusesWith("a b", 1)).toBe(false); // before a space
     expect(backslashFusesWith("x", 1)).toBe(false); // end of string
-    // A prime is parser-structural, but a separator would detach it from its base
-    // rather than repair it, so it is intentionally not guarded (see the docs).
+  });
+
+  it("does NOT fuse with a prime (a separator would detach it from its base)", () => {
     expect(backslashFusesWith("x'", 1)).toBe(false); // before a prime
+  });
+});
+
+describe("afterCommandWord", () => {
+  it("is true flush after a control word (its argument opener)", () => {
+    expect(afterCommandWord("\\text", 5)).toBe(true);
+    expect(afterCommandWord("\\begin", 6)).toBe(true);
+    expect(afterCommandWord("x\\fra", 5)).toBe(true); // in-progress command
+    expect(afterCommandWord("\\sqrt[3]", 5)).toBe(true); // flush after `\sqrt`
+  });
+
+  it("is false after a lone `\\` (its `{` is the escaped glyph, not an argument)", () => {
+    expect(afterCommandWord("\\", 1)).toBe(false);
+  });
+
+  it("is false after a row-break `\\\\` (its trailing `\\` intro is no command)", () => {
+    expect(afterCommandWord("a\\\\", 3)).toBe(false);
+  });
+
+  it("is false in plain content", () => {
+    expect(afterCommandWord("x+1", 3)).toBe(false);
+    expect(afterCommandWord("\\text{hi}", 7)).toBe(false); // mid-body
   });
 });

@@ -555,9 +555,14 @@ describe("typed braces become their escaped literal form in math content", () =>
     expect(mathTransformTypedInput(page.blocks[0], 1, "{")).toBeNull();
   });
 
-  it("keeps { raw after a control word (opening its argument)", () => {
+  it("auto-closes a control word's argument (`\\text{` → `\\text{}`)", () => {
+    // A raw `{` opening a command argument closes at the caret instead of being
+    // left to run to the source end and swallow the trailing content.
     const { page } = mathBlock("\\text");
-    expect(mathTransformTypedInput(page.blocks[0], 5, "{")).toBeNull();
+    expect(mathTransformTypedInput(page.blocks[0], 5, "{")).toEqual({
+      input: "{}",
+      caret: 6, // between the auto-inserted braces
+    });
   });
 
   it("keeps } raw while a raw-opened group is unclosed", () => {

@@ -1149,6 +1149,36 @@ export function getVisualBlockSelectionIndex(
 }
 
 /**
+ * Whether a vertical arrow is *extending an existing range selection* (Shift+Arrow
+ * over a non-collapsed selection), as opposed to making the first step of one or
+ * moving a bare caret. In that state vertical movement is block/line-granular:
+ * intra-block row navigation (a formula's stacked slots — a fraction's halves, a
+ * script, an inline chip's rows) must be skipped so the focus leaves the block via
+ * ordinary line nav.
+ *
+ * Descending into those rows while a range is being extended is both pointless and
+ * broken: {@link snapSelectionToConstructs} forbids a selection from partially
+ * covering a construct, so the interior offset the row-step lands on is immediately
+ * snapped back to the construct's (or block's) edge — the focus then oscillates on
+ * that edge, press after press, never advancing past the equation (the reported
+ * "Shift+Arrow gets stuck at a math block"). Because the first Shift step runs off
+ * a still-collapsed selection it descends once (selecting the whole construct via
+ * that same snap); every step after is block-granular and escapes cleanly.
+ *
+ * Plain caret movement clears the selection first, so this is false there and a
+ * lone caret still navigates a formula's rows. See {@link moveCursorUp} /
+ * {@link moveCursorDown}.
+ */
+function extendingRangeSelection(state: EditorState): boolean {
+  const sel = state.document.selection;
+  if (!sel) return false;
+  return (
+    sel.anchor.blockIndex !== sel.focus.blockIndex ||
+    sel.anchor.textIndex !== sel.focus.textIndex
+  );
+}
+
+/**
  * Move cursor up by one line (not block)
  * If on the first line of a block, moves to the last line of the previous block
  */
@@ -1189,9 +1219,12 @@ export function moveCursorUp(
 
   // In-block vertical navigation (e.g. inside a formula): a node/mark whose
   // content stacks rows first moves between those rows; only when there is no row
-  // above does it fall through to changing text lines.
-  const vUp = caretVerticalStep(state, currentBlock, textIndex, "up");
-  if (vUp !== null) return moveCursorToPosition(state, blockIndex, vUp);
+  // above does it fall through to changing text lines. Skipped while extending a
+  // range selection — see {@link extendingRangeSelection}.
+  if (!extendingRangeSelection(state)) {
+    const vUp = caretVerticalStep(state, currentBlock, textIndex, "up");
+    if (vUp !== null) return moveCursorToPosition(state, blockIndex, vUp);
+  }
 
   const node = textNodeFor(state, currentBlock);
   if (!node) return state;
@@ -1316,9 +1349,12 @@ export function moveCursorDown(
 
   // In-block vertical navigation (e.g. inside a formula): a node/mark whose
   // content stacks rows first moves between those rows; only when there is no row
-  // below does it fall through to changing text lines.
-  const vDown = caretVerticalStep(state, currentBlock, textIndex, "down");
-  if (vDown !== null) return moveCursorToPosition(state, blockIndex, vDown);
+  // below does it fall through to changing text lines. Skipped while extending a
+  // range selection — see {@link extendingRangeSelection}.
+  if (!extendingRangeSelection(state)) {
+    const vDown = caretVerticalStep(state, currentBlock, textIndex, "down");
+    if (vDown !== null) return moveCursorToPosition(state, blockIndex, vDown);
+  }
 
   const node = textNodeFor(state, currentBlock);
   if (!node) return state;

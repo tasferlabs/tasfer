@@ -69,21 +69,32 @@ const DEFAULT_HEIGHT = 420;
 const MIN_WIDTH = 300;
 const MIN_HEIGHT = 300;
 const GAP = 8;
+const POPOVER_AUTO_TOP_GAP = 72;
 const DRAG_OUT_BUFFER = 40;
+
+function clampPopoverTop(top: number, height: number, topGap = GAP) {
+  const maxTop = window.innerHeight - height - GAP;
+  const minTop = Math.min(topGap, Math.max(GAP, maxTop));
+  return Math.max(minTop, Math.min(top, Math.max(minTop, maxTop)));
+}
 
 function computePosition(
   anchor: DOMRect | null,
   width: number,
   height: number,
 ) {
-  const maxH = window.innerHeight - 2 * GAP;
+  const maxH = window.innerHeight - POPOVER_AUTO_TOP_GAP - GAP;
   const clampedH = Math.min(height, maxH);
   const isRtl = i18next.dir() === "rtl";
 
   if (!anchor) {
     const clampedW = Math.min(width, window.innerWidth - 2 * GAP);
     return {
-      top: Math.max(GAP, (window.innerHeight - clampedH) / 2),
+      top: clampPopoverTop(
+        (window.innerHeight - clampedH) / 2,
+        clampedH,
+        POPOVER_AUTO_TOP_GAP,
+      ),
       left: Math.max(GAP, (window.innerWidth - clampedW) / 2),
       width: clampedW,
       height: clampedH,
@@ -134,18 +145,22 @@ function computePosition(
       top = anchor.top - GAP - clampedH;
     } else {
       // Not enough room above or below either — center in viewport
-      top = Math.max(GAP, (window.innerHeight - clampedH) / 2);
+      top = clampPopoverTop(
+        (window.innerHeight - clampedH) / 2,
+        clampedH,
+        POPOVER_AUTO_TOP_GAP,
+      );
       left = Math.max(GAP, (window.innerWidth - clampedW) / 2);
     }
 
     top ??= 0;
-    top = Math.max(GAP, Math.min(top, window.innerHeight - clampedH - GAP));
+    top = clampPopoverTop(top, clampedH, POPOVER_AUTO_TOP_GAP);
     return { top, left, width: clampedW, height: clampedH };
   }
 
   // Vertically center relative to anchor, clamped to viewport
   top = anchor.top + anchor.height / 2 - clampedH / 2;
-  top = Math.max(GAP, Math.min(top, window.innerHeight - clampedH - GAP));
+  top = clampPopoverTop(top, clampedH, POPOVER_AUTO_TOP_GAP);
 
   return { top, left, width: clampedW, height: clampedH };
 }
@@ -326,13 +341,13 @@ export function EventPreview({
             const newLeft = e.clientX - DEFAULT_WIDTH / 2;
             setSize({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
             setPos({
-              top: Math.max(GAP, newTop),
+              top: clampPopoverTop(newTop, DEFAULT_HEIGHT),
               left: Math.max(GAP, newLeft),
             });
             dragRef.current = {
               startX: e.clientX,
               startY: e.clientY,
-              startTop: newTop,
+              startTop: clampPopoverTop(newTop, DEFAULT_HEIGHT),
               startLeft: newLeft,
             };
           }
@@ -344,13 +359,7 @@ export function EventPreview({
           const w = el?.offsetWidth ?? DEFAULT_WIDTH;
           const h = el?.offsetHeight ?? DEFAULT_HEIGHT;
           setPos({
-            top: Math.max(
-              GAP,
-              Math.min(
-                dragRef.current.startTop + dy,
-                window.innerHeight - h - GAP,
-              ),
-            ),
+            top: clampPopoverTop(dragRef.current.startTop + dy, h),
             left: Math.max(
               GAP,
               Math.min(
@@ -410,9 +419,13 @@ export function EventPreview({
         let newTop = invertY ? startTop + (startH - newH) : startTop;
         let newLeft = invertX ? startLeft + (startW - newW) : startLeft;
         // Clamp so the popover stays within the viewport
-        if (newTop < GAP) {
-          newH = newH + (newTop - GAP);
-          newTop = GAP;
+        const minTop = Math.min(
+          GAP,
+          Math.max(GAP, window.innerHeight - MIN_HEIGHT - GAP),
+        );
+        if (newTop < minTop) {
+          newH = newH + (newTop - minTop);
+          newTop = minTop;
           if (newH < MIN_HEIGHT) newH = MIN_HEIGHT;
         }
         if (newLeft < GAP) {

@@ -25,6 +25,7 @@ import { getVisibleTextFromRuns } from "../sync/char-runs";
 // math fonts can't render (CJK, …) are measured/typeset via the host font.
 import { layoutMathHost as layoutMath } from "./tex-host";
 import {
+  afterCommandWord as texAfterCommandWord,
   backslashFusesWith as texBackslashFusesWith,
   balanceBraces as texBalanceBraces,
   breakpoints as texBreakpoints,
@@ -515,9 +516,11 @@ function planMathTextWrap(
  * interior so the caller redirects the insertion there.
  */
 function emptySlotInteriorBefore(latex: string, offset: number): number | null {
-  return offset >= 2 && latex[offset - 1] === "}" && latex[offset - 2] === "{"
-    ? offset - 1
-    : null;
+  if (offset < 2 || latex[offset - 1] !== "}" || latex[offset - 2] !== "{") {
+    return null;
+  }
+  if (latex.slice(0, offset - 2).endsWith("\\textbackslash")) return null;
+  return offset - 1;
 }
 
 /**
@@ -574,6 +577,15 @@ export function mathTransformTypedInput(
   }
   if (latex === null) return null;
   const base = index - offset; // chip.startIndex (0 for a block equation)
+  const textInsert = textGroupInsertPoint(latex, offset);
+  if (textInsert !== null && input === "\\") {
+    return {
+      input: "\\ ",
+      insertAt: textInsert + base,
+      caret: textInsert + base + 1,
+      ...(insideChip ? { suppressMarkdown: true } : {}),
+    };
+  }
   // The caret sits just past an EMPTY slot (`x^{}|`, `\sqrt{}|`) — content typed
   // or composed here fills the slot instead of landing on the baseline beside it
   // and stranding the empty placeholder box. Redirect the insertion into the
@@ -637,6 +649,22 @@ export function mathTransformTypedInput(
     return insideChip
       ? { input: "", suppressMarkdown: true, caret }
       : { input: "", caret };
+  }
+  // A `{` opening a control WORD's argument (`\text{`, `\begin{`, a `\sqrt`
+  // index) auto-closes at the caret — `\text{}` with the caret between the
+  // braces — mirroring the `^{}` script box above. Left raw, that `{` opens a
+  // group running to the source end, and the end-of-source brace heal
+  // (mathBalanceAfterInput) then makes its swallow of every trailing atom
+  // permanent (`x+y` + `\text{` → `\text{x+y}`, the reported corruption). A lone
+  // `\`+`{` is the escaped glyph `\{`, not an argument, so afterCommandWord
+  // (which needs ≥1 command letter) excludes it. The user's own closing `}` later
+  // steps OVER this inserted closer via texTypedBraceSkipsCloser, keeping natural
+  // `\text{hi}` typing clean.
+  if (out === "{" && texAfterCommandWord(latex, offset)) {
+    const caret = index + 1; // between the auto-inserted braces
+    return insideChip
+      ? { input: "{}", suppressMarkdown: true, caret }
+      : { input: "{}", caret };
   }
   // A typed brace means the visible character, not an invisible grouping token:
   // rewrite it to the escaped symbol unless it's structurally meant raw here
@@ -1092,20 +1120,28 @@ export function mathRedundantSeparatorAfterInput(
 ): { from: number; to: number } | null {
   if (!("charRuns" in block)) return null;
   const text = getVisibleTextFromRuns(block.charRuns);
-  if (text[caret] !== " ") return null;
+  // The separator sits AT the caret during command typing (`\a| }`). After an
+  // argument auto-closes (`\text{|}`), though, the caret lands INSIDE the fresh
+  // braces and the now-dead separator sits one past the closer (`\text{|} x` —
+  // the space at caret+1); catch that too so the argument insert leaves no stray
+  // separator behind. Deletion stays gated on texIsRedundantSpace below, which is
+  // parse-neutral, so widening the search never removes a load-bearing space.
+  const sepAt =
+    text[caret] === " " ? caret : text[caret + 1] === " " ? caret + 1 : -1;
+  if (sepAt === -1) return null;
 
   let latex: string;
   let local: number;
   if (block.type === "math") {
     latex = text;
-    local = caret;
+    local = sepAt;
   } else {
     const span = getInlineMathSpans(block).find(
-      (s) => caret >= s.startIndex && caret < s.endIndex,
+      (s) => sepAt >= s.startIndex && sepAt < s.endIndex,
     );
     if (!span) return null;
     latex = span.latex;
-    local = caret - span.startIndex;
+    local = sepAt - span.startIndex;
   }
 
   // The separator always sits flush before the structural token it protects (a
@@ -1115,7 +1151,7 @@ export function mathRedundantSeparatorAfterInput(
   if (!texBackslashFusesWith(latex, local + 1)) return null;
 
   return texIsRedundantSpace(latex, local)
-    ? { from: caret, to: caret + 1 }
+    ? { from: sepAt, to: sepAt + 1 }
     : null;
 }
 

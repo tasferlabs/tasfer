@@ -241,6 +241,7 @@ export {
   balanceBraces,
   backslashFusesWith,
   typedBraceSkipsCloser,
+  afterCommandWord,
 } from "./edit/brace";
 export {
   symbolCommands,
