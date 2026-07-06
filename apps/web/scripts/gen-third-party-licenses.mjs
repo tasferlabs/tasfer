@@ -47,10 +47,14 @@ const FIRST_PARTY = /^(@cypherkit\/|@cypher\/|@cypher-examples\/|cypher(-|$))/;
 function npmTree(cwd) {
   let out;
   try {
+    // `shell: true` is required on Windows, where npm is a `npm.cmd` shim that
+    // Node refuses to spawn directly (EINVAL) since the CVE-2024-27980 fix; the
+    // shell also resolves it via PATHEXT. The args are fixed literals with no
+    // shell metacharacters, so there is nothing to quote or inject.
     out = execFileSync(
       "npm",
       ["ls", "--omit=dev", "--all", "--long", "--json"],
-      { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
+      { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, shell: true },
     );
   } catch (err) {
     // `npm ls` exits non-zero on peer/optional warnings but still prints JSON.
