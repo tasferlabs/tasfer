@@ -134,10 +134,12 @@
   --editor-cover-image-overlay: oklch(0.92 0.004 286.32 / 5%);
 
   /* Display face for the "Cypher" wordmark only. Geometric, crystalline
-     letterforms that echo the polygonal cut of the emerald mark. */
+     letterforms that echo the polygonal cut of the emerald mark. Space Grotesk
+     is Latin-only; Noto Sans Arabic backs it for the non-wordmark callers that
+     can receive user text (e.g. an avatar monogram). */
   --font-display:
-    "Space Grotesk", "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
+    "Space Grotesk", "Noto Sans Arabic", "Poppins", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
   /* Wordmark color: a lighter, more vivid emerald than --primary so the
      wordmark reads as a brighter sibling of the logo mark. */

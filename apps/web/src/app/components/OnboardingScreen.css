@@ -19,9 +19,13 @@
     0 2px 6px oklch(0 0 0 / 0.04),
     0 12px 32px oklch(0 0 0 / 0.10),
     0 28px 56px oklch(0 0 0 / 0.06);
+  /* Noto Sans Arabic sits behind Poppins, which has no Arabic coverage: Latin
+     runs stay in Poppins, Arabic resolves here instead of the OS fallback. The
+     face is only present once `loadArabicFonts()` has run (Arabic locale only);
+     until then this entry is inert. */
   --ob-font-sans:
-    "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+    "Poppins", "Noto Sans Arabic", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
 
   /* Fixed (not min-) height so this element is itself the bounded scroll
      container — with min-height it would grow to fit content and overflow-y
