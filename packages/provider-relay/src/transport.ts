@@ -39,7 +39,15 @@ type Envelope =
 
 /** Encode bytes for a JSON `data` envelope. */
 function toB64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes));
+  // Convert in slices: spreading the whole array into String.fromCharCode
+  // overflows the engine's argument limit on large frames (an initial CRDT
+  // catch-up easily exceeds it).
+  let binary = "";
+  const SLICE = 0x8000;
+  for (let i = 0; i < bytes.length; i += SLICE) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + SLICE));
+  }
+  return btoa(binary);
 }
 
 /** Decode the base64 payload of a `data` envelope back to bytes. */

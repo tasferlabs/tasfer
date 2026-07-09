@@ -204,6 +204,13 @@ export class WebrtcTransport implements Transport {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     const peer = new WebrtcPeer(remoteId, pc);
     this.peers.set(remoteId, peer);
+    // A closed data channel means this connection is done for good (there is
+    // no renegotiation) — release the map slot right away so the peer can
+    // reconnect under the same id instead of being shadowed by a dead entry
+    // until the connection state catches up.
+    peer.onClose(() => {
+      if (this.peers.get(remoteId) === peer) this.removePeer(remoteId);
+    });
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         this.wsSend({ type: "signal", target: remoteId, data: { type: "ice", candidate: e.candidate.toJSON() } });
@@ -225,7 +232,11 @@ export class WebrtcTransport implements Transport {
   }
 
   private async handlePeerJoin(remoteId: string): Promise<void> {
-    if (remoteId === this.peerId || this.peers.has(remoteId)) return;
+    if (remoteId === this.peerId) return;
+    // The server announces each peer to us exactly once per session (a repeat
+    // means it reconnected — e.g. a page reload — and its old connection is
+    // dead on our side too, even if ICE hasn't noticed yet). Replace it.
+    if (this.peers.has(remoteId)) this.removePeer(remoteId);
     const peer = this.setupPeer(remoteId);
     // Deterministic initiator avoids both sides offering at once.
     if (this.peerId > remoteId) {
@@ -246,6 +257,14 @@ export class WebrtcTransport implements Transport {
     let peer = this.peers.get(from);
     if (data.type === "offer") {
       if (!data.sdp) return;
+      // The initiator creates exactly one offer per connection, so a second
+      // offer from a known peer means it started over (its previous session is
+      // gone even if our side still looks connected). Replace the stale entry;
+      // answering on the old RTCPeerConnection would throw.
+      if (peer && peer.pc.remoteDescription) {
+        this.removePeer(from);
+        peer = undefined;
+      }
       if (!peer) {
         peer = this.setupPeer(from);
         peer.pc.ondatachannel = (e) => peer!._setChannel(e.channel, () => this.fireJoin(peer!));
@@ -257,7 +276,9 @@ export class WebrtcTransport implements Transport {
     } else if (data.type === "answer" && peer && data.sdp) {
       await peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
     } else if (data.type === "ice" && peer && data.candidate) {
-      await peer.pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      // A candidate can belong to a connection we just replaced — dropping it
+      // is safe (the new session generates its own), throwing is not.
+      await peer.pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
     }
   }
 

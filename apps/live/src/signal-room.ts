@@ -48,6 +48,14 @@ export class SignalRoom extends DurableObject {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
+    // Evict any previous socket for this peerId (a reconnect takes over its
+    // identity). Otherwise the stale socket shadows the new one in signal
+    // routing, and its eventual close would broadcast a spurious peer-left
+    // that tears down the reconnected peer everywhere.
+    for (const stale of this.ctx.getWebSockets(peerId)) {
+      try { stale.close(4000, "replaced by a newer connection"); } catch { /* already gone */ }
+    }
+
     // Accept with peerId as tag (survives hibernation)
     this.ctx.acceptWebSocket(server, [peerId]);
 
@@ -89,6 +97,8 @@ export class SignalRoom extends DurableObject {
     if (!fromId) return;
 
     if (msg.type === "signal" || msg.type === "relay") {
+      // Guard the tag lookup: getWebSockets(undefined) would match every socket.
+      if (typeof msg.target !== "string") return;
       const target = this.findPeer(msg.target);
       if (target) {
         try {
@@ -110,6 +120,12 @@ export class SignalRoom extends DurableObject {
     const peerId = this.ctx.getTags(ws)[0];
     if (!peerId) return;
 
+    // A replacement socket with the same peerId may still be connected (this
+    // close is an eviction, not a departure) — the peer is not gone.
+    for (const peer of this.ctx.getWebSockets(peerId)) {
+      if (peer !== ws) return;
+    }
+
     const leaveMsg = JSON.stringify({ type: "peer-left", peerId });
     for (const peer of this.ctx.getWebSockets()) {
       if (peer !== ws) {
@@ -127,10 +143,6 @@ export class SignalRoom extends DurableObject {
 
   /** Find a connected peer's WebSocket by peerId tag. */
   private findPeer(peerId: string): WebSocket | undefined {
-    for (const ws of this.ctx.getWebSockets()) {
-      const tags = this.ctx.getTags(ws);
-      if (tags[0] === peerId) return ws;
-    }
-    return undefined;
+    return this.ctx.getWebSockets(peerId)[0];
   }
 }

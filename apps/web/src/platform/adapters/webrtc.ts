@@ -163,27 +163,47 @@ function chunkMessage(data: Uint8Array): Uint8Array[] {
   return chunks;
 }
 
+/**
+ * Ceiling on one reassembled message. Far above any real ops batch, but keeps
+ * a misbehaving peer from ballooning memory through the reassembly buffer.
+ */
+const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
+
 /** Reassembly buffer for incoming chunked messages from a single peer. */
 class ChunkAssembler {
   private pending = new Map<number, { chunks: (Uint8Array | null)[]; received: number; totalSize: number }>();
 
   /**
    * Process an incoming frame. Returns the complete message once all chunks
-   * arrive, or null if still waiting for more chunks.
+   * arrive, or null if still waiting for more chunks. Malformed or
+   * protocol-violating frames are dropped, never thrown on: the peer is
+   * remote input.
    */
   process(frame: Uint8Array): Uint8Array | null {
+    if (frame.byteLength === 0) return null;
     if (frame[0] === FLAG_SINGLE) {
       return frame.subarray(1);
     }
+    if (frame[0] !== FLAG_CHUNKED || frame.byteLength < CHUNK_HEADER_SIZE) return null;
 
     const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
     const msgId = view.getUint32(1);
     const chunkIndex = view.getUint16(5);
     const totalChunks = view.getUint16(7);
     const payload = frame.subarray(CHUNK_HEADER_SIZE);
+    if (totalChunks === 0 || chunkIndex >= totalChunks) return null;
 
     let entry = this.pending.get(msgId);
+    if (entry && entry.chunks.length !== totalChunks) {
+      // Contradictory totals for one msgId — discard the poisoned message.
+      this.pending.delete(msgId);
+      return null;
+    }
     if (!entry) {
+      // The channel is ordered and a sender emits one message's frames
+      // back-to-back, so a new msgId means any incomplete message will never
+      // finish — drop it rather than hold its buffers forever.
+      this.pending.clear();
       entry = { chunks: new Array(totalChunks).fill(null), received: 0, totalSize: 0 };
       this.pending.set(msgId, entry);
     }
@@ -192,9 +212,13 @@ class ChunkAssembler {
       entry.chunks[chunkIndex] = payload;
       entry.received++;
       entry.totalSize += payload.byteLength;
+      if (entry.totalSize > MAX_MESSAGE_BYTES) {
+        this.pending.delete(msgId);
+        return null;
+      }
     }
 
-    if (entry.received < totalChunks) return null;
+    if (entry.received < entry.chunks.length) return null;
 
     // All chunks received — reassemble
     this.pending.delete(msgId);
