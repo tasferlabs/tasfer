@@ -155,6 +155,9 @@ export interface NetworkDriver {
    * Join a discovery topic. Peers joining the same topic will find each other.
    * For replication: topic = SHA-256(sorted(pubKeyA, pubKeyB)) per peer pair.
    * For pairing: topic = random one-time hex.
+   *
+   * Throws if {@link registerTopicKey} was not called for this topic: signaling
+   * is encrypted unconditionally, never downgraded to cleartext.
    */
   join(topic: Uint8Array): Promise<NetworkTopic>;
 

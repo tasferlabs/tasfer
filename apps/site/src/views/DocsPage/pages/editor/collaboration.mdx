@@ -7,11 +7,13 @@ import { Callout, PropsTable } from "../../docsComponents";
 <h2 id="providers">Choosing a provider</h2>
 
 <PropsTable cols={["Provider", "Transport", "Use it when"]} rows={[
-  { name: "provider-relay", type: "WebSocket relay", desc: "Peers behind NATs/firewalls. The relay introduces peers and forwards encrypted updates it cannot read." },
-  { name: "provider-webrtc", type: "Peer-to-peer", desc: "Direct browser-to-browser once introduced. Lowest latency; needs a small signaling step." },
+  { name: "provider-relay", type: "WebSocket relay", desc: "Peers behind NATs/firewalls. The relay introduces peers and forwards their updates — it can read them, so run one you trust." },
+  { name: "provider-webrtc", type: "Peer-to-peer", desc: "Direct browser-to-browser once introduced. Lowest latency; needs a small signaling step. Data channels are encrypted end to end." },
   { name: "provider-indexeddb", type: "Local disk", desc: "Not a network provider — persists the CRDT to IndexedDB so reloads are instant and offline-complete." },
   { name: "custom", type: "Anything", desc: "Implement the Transport interface (from @cypherkit/provider-core) and hand it to createProvider — sync over your own backend, BroadcastChannel, or a file watcher." },
 ]} />
+
+<Callout kind="note" title="A relay sees your documents.">`provider-relay` does not encrypt: it base64-encodes frames so the relay never has to parse them, which is not the same thing. A relay operator can read and modify every document that passes through, and the peer id on each frame is self-asserted, so a peer in the room can forge frames attributed to another peer. Point it at a relay you control. `provider-webrtc` is the one that keeps the server out of the data path — once ICE completes, document bytes flow directly between peers over DTLS-encrypted DataChannels, and the signaling server only ever sees connection metadata.</Callout>
 
 <h2 id="stack">Stack them</h2>
 

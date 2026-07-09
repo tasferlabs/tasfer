@@ -162,6 +162,12 @@ export function cursorPresenceToDecorations(
   defaultName?: string,
   labelIcon?: readonly LabelIconShape[],
 ): Decoration[] {
+  // Presence is whatever a peer published — the protocol only routes it, it
+  // does not validate the shape. A peer with no `user` (or a hostile one) must
+  // render nothing, not throw: the caller loops over every peer, so one bad
+  // payload would otherwise break cursor rendering for the whole room.
+  if (!isCursorPresence(presence)) return [];
+
   const color = presence.user.color || getColorForPeer(peerId);
 
   if (presence.selection) {
@@ -224,6 +230,38 @@ function isAbsolutePoint(p: unknown): p is CursorPoint {
     "offset" in p &&
     typeof (p as { offset: unknown }).offset === "number"
   );
+}
+
+/**
+ * Whether a value published through a provider's presence channel is a
+ * {@link CursorPresence} this module can render. Remote peers are untrusted
+ * input: `state` is `Record<string, unknown>` on the wire and nothing upstream
+ * checks it against this shape.
+ */
+function isCursorPresence(p: unknown): p is CursorPresence {
+  if (typeof p !== "object" || p === null) return false;
+  const { user, caret, selection } = p as Partial<CursorPresence>;
+
+  // `getDisplayName` trims `name`; the caret label reads `avatar` and `color`.
+  if (typeof user !== "object" || user === null) return false;
+  if (user.name !== undefined && typeof user.name !== "string") return false;
+  if (user.color !== undefined && typeof user.color !== "string") return false;
+  if (
+    user.avatar !== undefined &&
+    user.avatar !== null &&
+    typeof user.avatar !== "string"
+  ) {
+    return false;
+  }
+
+  if (caret != null && !isAbsolutePoint(caret)) return false;
+  if (selection != null) {
+    if (typeof selection !== "object") return false;
+    if (!isAbsolutePoint(selection.from) || !isAbsolutePoint(selection.to)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 const presenceLayer = (peerId: string) => `presence:${peerId}`;

@@ -17,9 +17,20 @@
  * OTHER origin — a local editor edit, or a second stacked provider such as
  * IndexedDB — ARE broadcast, which is exactly what you want.
  *
- * Assumes a (near-)complete mesh: every peer is connected to every other, so an
- * edit reaches everyone in one hop and remote ops are not re-gossiped. WebRTC
- * rooms and a shared BroadcastChannel bus both satisfy this.
+ * Assumes a COMPLETE mesh: every peer is connected to every other, so an edit
+ * reaches everyone in one hop and remote ops are not re-gossiped. A shared
+ * BroadcastChannel bus satisfies this by construction, and so does a relay that
+ * forwards to every room member.
+ *
+ * WebRTC does not, always. `@cypherkit/provider-webrtc` drops a peer whose ICE
+ * negotiation fails, which is routine between two symmetric NATs with no TURN.
+ * If A–B and B–C connect but A–C does not, B never forwards A's ops to C, and
+ * the only catch-up — the `hello` handshake — runs once, at join. A and C then
+ * stay divergent for as long as the session lasts, silently.
+ *
+ * Closing that hole needs either op re-gossip or periodic anti-entropy (re-send
+ * `hello` on a timer). Until then a transport MUST deliver a complete mesh, or
+ * accept that partitions do not heal.
  */
 
 import type { Doc, Operation } from "@cypherkit/editor";
@@ -93,7 +104,7 @@ export function createProvider(options: CreateProviderOptions): Provider {
         if (missing.length > 0) sendTo(peer, { t: "ops", ops: missing });
         // Catch a freshly-joined peer up on our presence too.
         if (localPresence) {
-          sendTo(peer, { t: "pres", id: doc.peerId, state: localPresence });
+          sendTo(peer, { t: "pres", state: localPresence });
         }
         break;
       }
@@ -104,8 +115,13 @@ export function createProvider(options: CreateProviderOptions): Provider {
         break;
       }
       case "pres": {
-        if (msg.state === null) remotePresence.delete(msg.id);
-        else remotePresence.set(msg.id, msg.state);
+        // Attributed to the peer it arrived on, never to a self-declared id:
+        // that is the only identity the transport authenticates, and it is the
+        // key `detachPeer`/`onPeerLeave` clean up under. Trusting the wire
+        // would let a peer overwrite another's cursor and would strand the
+        // entry forever once that peer left.
+        if (msg.state === null) remotePresence.delete(peer.id);
+        else remotePresence.set(peer.id, msg.state);
         emitPresence();
         break;
       }
@@ -152,13 +168,18 @@ export function createProvider(options: CreateProviderOptions): Provider {
     broadcast({ t: "ops", ops: update.ops });
   });
 
-  void transport.connect();
+  // A transport that cannot reach its server rejects here. Nothing awaits this,
+  // so an unhandled rejection would take down a Node/worker host; report it and
+  // let the caller observe connectivity through the `sync` event instead.
+  void Promise.resolve(transport.connect()).catch((err: unknown) => {
+    console.error("[provider] transport failed to connect:", err);
+  });
 
   // ── Public surface ──────────────────────────────────────────────────────--
   const presence: Presence = {
     set(state) {
       localPresence = state;
-      broadcast({ t: "pres", id: doc.peerId, state });
+      broadcast({ t: "pres", state });
     },
     getLocal: () => localPresence,
     getRemote: remotePresenceList,

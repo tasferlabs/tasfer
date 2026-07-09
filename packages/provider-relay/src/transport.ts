@@ -3,10 +3,21 @@
  *
  * The network-relay sibling of the WebRTC transport. Where WebRTC upgrades each
  * pair to a direct DataChannel, this keeps a single WebSocket to a relay server
- * that blindly forwards opaque byte frames between the clients sharing a room —
- * the natural fit when direct P2P is blocked (symmetric NATs, no TURN) but a
- * relay is reachable. Document bytes still travel end-to-end encrypted, so the
- * relay genuinely cannot read the content; it only shuffles frames around.
+ * that blindly forwards byte frames between the clients sharing a room — the
+ * natural fit when direct P2P is blocked (symmetric NATs, no TURN) but a relay
+ * is reachable.
+ *
+ * ── Trust ────────────────────────────────────────────────────────────────────
+ * This transport applies NO cryptography. Frames are base64-encoded, not
+ * encrypted, so a relay operator (or anyone who can observe the WebSocket) can
+ * read and tamper with every document that passes through. The `from` field on
+ * each envelope is self-asserted and unauthenticated, so a peer in the room can
+ * also forge frames attributed to another peer.
+ *
+ * Treat the relay as a trusted party: run one you control, or wrap this
+ * transport in one that encrypts and authenticates. The WebRTC transport is the
+ * one that keeps the server out of the data path — its DataChannels are
+ * DTLS-encrypted and, once ICE completes, bytes never touch the server.
  *
  * The relay is treated as a dumb broadcast bus (a sender never receives its own
  * posts), so peers find each other with the same handshake as the
@@ -37,6 +48,24 @@ type Envelope =
   | { kind: "data"; from: string; to: string; data: string }
   | { kind: "leave"; from: string };
 
+/** Whether a decoded JSON frame is an {@link Envelope}. Frames are remote input. */
+function isEnvelope(v: unknown): v is Envelope {
+  if (typeof v !== "object" || v === null) return false;
+  const env = v as Record<string, unknown>;
+  if (typeof env.from !== "string") return false;
+  switch (env.kind) {
+    case "join":
+    case "leave":
+      return true;
+    case "announce":
+      return typeof env.to === "string";
+    case "data":
+      return typeof env.to === "string" && typeof env.data === "string";
+    default:
+      return false;
+  }
+}
+
 /** Encode bytes for a JSON `data` envelope. */
 function toB64(bytes: Uint8Array): string {
   // Convert in slices: spreading the whole array into String.fromCharCode
@@ -50,9 +79,18 @@ function toB64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/** Decode the base64 payload of a `data` envelope back to bytes. */
-function fromB64(b64: string): Uint8Array {
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+/**
+ * Decode the base64 payload of a `data` envelope back to bytes, or null if it
+ * is not base64. `atob` throws on malformed input, and the payload comes
+ * straight off the wire from an unauthenticated peer.
+ */
+function fromB64(b64: unknown): Uint8Array | null {
+  if (typeof b64 !== "string") return null;
+  try {
+    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
 }
 
 class RelayPeer implements TransportPeer {
@@ -152,12 +190,13 @@ export class RelayTransport implements Transport {
 
   private onMessage(raw: string): void {
     if (this.destroyed) return;
-    let env: Envelope;
+    let env: unknown;
     try {
-      env = JSON.parse(raw) as Envelope;
+      env = JSON.parse(raw) as unknown;
     } catch {
       return;
     }
+    if (!isEnvelope(env)) return;
     // Guard against a relay that echoes to the sender: never treat our own
     // frames as a remote peer.
     if (env.from === this.localId) return;
@@ -188,15 +227,17 @@ export class RelayTransport implements Transport {
       case "announce":
         if (env.to === this.localId) this.register(env.from);
         break;
-      case "data":
-        if (env.to === this.localId) {
-          // Self-register the sender if we haven't seen it yet: a `data` frame
-          // can outrun the `announce` that would register it, and dropping it
-          // would lose a catch-up `hello`. register() is idempotent.
-          this.register(env.from);
-          this.peers.get(env.from)?._receive(fromB64(env.data));
-        }
+      case "data": {
+        if (env.to !== this.localId) break;
+        const bytes = fromB64(env.data);
+        if (!bytes) break;
+        // Self-register the sender if we haven't seen it yet: a `data` frame
+        // can outrun the `announce` that would register it, and dropping it
+        // would lose a catch-up `hello`. register() is idempotent.
+        this.register(env.from);
+        this.peers.get(env.from)?._receive(bytes);
         break;
+      }
       case "leave":
         this.drop(env.from);
         break;

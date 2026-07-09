@@ -136,11 +136,45 @@ export function compressCharIds(ids: string[]): CharRange[] {
   return runs;
 }
 
-/** Expand runs back to a flat charId array. */
+/**
+ * Ceiling on the charIds one op may expand to. A run is three JSON tokens but
+ * expands to `count` strings, so a ~40-byte frame can ask for billions of
+ * allocations. That is a synchronous hang, not a throw — no try/catch upstream
+ * would save the tab — so the bound has to be enforced before the loop runs.
+ *
+ * Far above any real op: a run this long would mean a single edit touching more
+ * characters than a document holds.
+ */
+const MAX_EXPANDED_CHAR_IDS = 1_000_000;
+
+/** Expand runs back to a flat charId array. Throws on hostile input. */
 export function expandCharRanges(runs: CharRange[]): string[] {
-  const ids: string[] = [];
+  if (!Array.isArray(runs)) throw new Error("charRanges: not an array");
+
+  let total = 0;
+  for (const run of runs) {
+    if (!Array.isArray(run) || run.length !== 3) {
+      throw new Error("charRanges: malformed run");
+    }
+    const [peer, start, count] = run;
+    if (
+      typeof peer !== "string" ||
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(count) ||
+      count < 0
+    ) {
+      throw new Error("charRanges: malformed run");
+    }
+    total += count;
+    if (total > MAX_EXPANDED_CHAR_IDS) {
+      throw new Error(`charRanges: expansion exceeds ${MAX_EXPANDED_CHAR_IDS} ids`);
+    }
+  }
+
+  const ids: string[] = new Array(total);
+  let i = 0;
   for (const [peer, start, count] of runs) {
-    for (let i = 0; i < count; i++) ids.push(`${peer}:${start + i}`);
+    for (let n = 0; n < count; n++) ids[i++] = `${peer}:${start + n}`;
   }
   return ids;
 }

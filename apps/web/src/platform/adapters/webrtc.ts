@@ -8,7 +8,9 @@
  * Architecture:
  *   - Each topic gets its own WebSocket to the Cloudflare Worker
  *   - All signaling payloads (SDP, ICE) are AES-GCM encrypted before
- *     leaving the device — Cloudflare only sees opaque blobs
+ *     leaving the device — Cloudflare only sees opaque blobs. A topic cannot
+ *     be joined without its key, so this holds unconditionally: there is no
+ *     cleartext fallback (`join()` throws rather than downgrade).
  *   - After signaling, data flows directly peer-to-peer over DataChannels
  *   - If ICE fails, falls back to relay through CF (also encrypted)
  *
@@ -34,8 +36,15 @@ const STUN_ONLY_CONFIG: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
-/** How long before we re-fetch TURN credentials (refresh well before 24h TTL). */
-const TURN_CREDENTIAL_REFRESH_MS = 12 * 60 * 60 * 1000; // 12h
+/**
+ * How long before we re-fetch TURN credentials. The Worker mints them with a
+ * 1h TTL, so this refreshes at half-life: a peer connection created at any
+ * moment gets credentials that are still valid.
+ */
+const TURN_CREDENTIAL_REFRESH_MS = 30 * 60 * 1000; // 30m
+
+/** Cool-off after a failed credential fetch, so a down endpoint isn't hammered. */
+const TURN_CREDENTIAL_RETRY_MS = 60 * 1000; // 1m
 
 // =============================================================================
 // E2E Encryption — AES-256-GCM with HKDF-derived keys
@@ -130,9 +139,12 @@ const FLAG_SINGLE = 0x00;
 const FLAG_CHUNKED = 0x01;
 const CHUNK_HEADER_SIZE = 9; // 1 flag + 4 msgId + 2 chunkIndex + 2 totalChunks
 
-let nextChunkMsgId = 0;
-
-function chunkMessage(data: Uint8Array): Uint8Array[] {
+/**
+ * Split `data` into DataChannel-sized frames. `msgId` scopes the chunks of one
+ * message; each peer owns its own counter (a module-level counter would be
+ * shared mutable state across every topic and editor on the page).
+ */
+function chunkMessage(data: Uint8Array, msgId: number): Uint8Array[] {
   if (data.byteLength <= MAX_CHUNK_PAYLOAD) {
     // Fits in a single frame — prepend flag byte
     const frame = new Uint8Array(1 + data.byteLength);
@@ -141,7 +153,6 @@ function chunkMessage(data: Uint8Array): Uint8Array[] {
     return [frame];
   }
 
-  const msgId = (nextChunkMsgId++) & 0xFFFFFFFF;
   const totalChunks = Math.ceil(data.byteLength / MAX_CHUNK_PAYLOAD);
   const chunks: Uint8Array[] = [];
 
@@ -153,7 +164,7 @@ function chunkMessage(data: Uint8Array): Uint8Array[] {
     const frame = new Uint8Array(CHUNK_HEADER_SIZE + payload.byteLength);
     const view = new DataView(frame.buffer);
     frame[0] = FLAG_CHUNKED;
-    view.setUint32(1, msgId);
+    view.setUint32(1, msgId >>> 0);
     view.setUint16(5, i);
     view.setUint16(7, totalChunks);
     frame.set(payload, CHUNK_HEADER_SIZE);
@@ -168,6 +179,17 @@ function chunkMessage(data: Uint8Array): Uint8Array[] {
  * a misbehaving peer from ballooning memory through the reassembly buffer.
  */
 const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * How many partially-received messages one peer may have in flight.
+ *
+ * The DataChannel is ordered, so in practice only one message is ever being
+ * reassembled. The relay path is not so simple: frames there are individually
+ * encrypted and decrypted, and a `pending.clear()` on every new msgId would let
+ * two interleaved messages silently evict each other. Holding a few and
+ * evicting the oldest is bounded and loses nothing that was going to complete.
+ */
+const MAX_PENDING_MESSAGES = 4;
 
 /** Reassembly buffer for incoming chunked messages from a single peer. */
 class ChunkAssembler {
@@ -200,10 +222,14 @@ class ChunkAssembler {
       return null;
     }
     if (!entry) {
-      // The channel is ordered and a sender emits one message's frames
-      // back-to-back, so a new msgId means any incomplete message will never
-      // finish — drop it rather than hold its buffers forever.
-      this.pending.clear();
+      // Evict the oldest in-flight message once too many are open, rather than
+      // assuming a new msgId means every other one is abandoned. Map iteration
+      // is insertion-ordered, so the first key is the oldest.
+      while (this.pending.size >= MAX_PENDING_MESSAGES) {
+        const oldest = this.pending.keys().next().value;
+        if (oldest === undefined) break;
+        this.pending.delete(oldest);
+      }
       entry = { chunks: new Array(totalChunks).fill(null), received: 0, totalSize: 0 };
       this.pending.set(msgId, entry);
     }
@@ -249,6 +275,7 @@ class WebRtcPeer implements NetworkPeer {
   private dcReady: Promise<void>;
   private resolveDcReady!: () => void;
   private assembler = new ChunkAssembler();
+  private nextMsgId = 0;
 
   constructor(remotePublicKey: string, pc: RTCPeerConnection) {
     this.remotePublicKey = remotePublicKey;
@@ -299,7 +326,7 @@ class WebRtcPeer implements NetworkPeer {
   }
 
   send(data: Uint8Array): void {
-    const chunks = chunkMessage(data);
+    const chunks = chunkMessage(data, this.nextMsgId++);
     if (this.dc?.readyState === "open") {
       for (const chunk of chunks) this._sendRaw(chunk);
     } else {
@@ -339,15 +366,22 @@ class WebRtcPeer implements NetworkPeer {
 
 class RelayPeer implements NetworkPeer {
   readonly remotePublicKey: string;
-  private relaySend: (target: string, data: string) => void;
+  private relaySend: (target: string, data: string) => Promise<void>;
   private messageListeners = new Set<(data: Uint8Array) => void>();
   private closeListeners = new Set<() => void>();
   private closed = false;
   private assembler = new ChunkAssembler();
+  private nextMsgId = 0;
+  /** Serializes sends: each chunk is separately encrypted, and `crypto.subtle`
+   *  does not resolve in call order. Without this the relay would emit the
+   *  chunks of two messages interleaved. */
+  private sendQueue: Promise<void> = Promise.resolve();
+  /** Bytes chunked but not yet handed to the socket. Read by `flush()`. */
+  private pendingBytes = 0;
 
   constructor(
     remotePublicKey: string,
-    relaySend: (target: string, data: string) => void,
+    relaySend: (target: string, data: string) => Promise<void>,
   ) {
     this.remotePublicKey = remotePublicKey;
     this.relaySend = relaySend;
@@ -355,10 +389,29 @@ class RelayPeer implements NetworkPeer {
 
   send(data: Uint8Array): void {
     if (this.closed) return;
-    const chunks = chunkMessage(data);
-    for (const chunk of chunks) {
-      this.relaySend(this.remotePublicKey, uint8ToBase64(chunk));
-    }
+    const chunks = chunkMessage(data, this.nextMsgId++);
+    const batchBytes = chunks.reduce((n, c) => n + c.byteLength, 0);
+    this.pendingBytes += batchBytes;
+
+    this.sendQueue = this.sendQueue.then(async () => {
+      let unsent = batchBytes;
+      try {
+        for (const chunk of chunks) {
+          if (this.closed) break;
+          await this.relaySend(this.remotePublicKey, uint8ToBase64(chunk));
+          unsent -= chunk.byteLength;
+          this.pendingBytes -= chunk.byteLength;
+        }
+      } catch (e) {
+        console.error(
+          `[WebRTC] relay send failed remote=${this.remotePublicKey.slice(0, 8)}`,
+          e,
+        );
+      } finally {
+        // Whatever never went out must not stay counted, or flush() spins.
+        this.pendingBytes -= unsent;
+      }
+    });
   }
 
   /** Called by the topic when a relay message arrives for this peer */
@@ -379,9 +432,13 @@ class RelayPeer implements NetworkPeer {
     return () => { this.closeListeners.delete(cb); };
   }
 
-  /** Relay sends go straight out over the CF WebSocket — nothing is buffered here. */
+  /**
+   * Bytes chunked but not yet written to the CF WebSocket. Non-zero while the
+   * send queue drains its per-chunk encryption, which is what `flush()` needs
+   * to wait for before `pause()` tears the socket down.
+   */
   bufferedAmount(): number {
-    return 0;
+    return this.pendingBytes;
   }
 
   close(): void {
@@ -402,12 +459,14 @@ class WebRtcTopic implements NetworkTopic {
   private localPeerId: string;
   private topicHex: string;
   private signalUrl: string;
-  private encKey: CryptoKey | null;
-  private rtcConfig: RTCConfiguration;
+  /** Never null: a topic without a key would signal in cleartext. See `join()`. */
+  private encKey: CryptoKey;
+  /** Read per connection, not captured: TURN credentials expire and are refreshed. */
+  private getRtcConfig: () => RTCConfiguration;
   private ws: WebSocket | null = null;
   private wsReady: Promise<void> = Promise.resolve();
-  private resolveWsReady!: () => void;
-  private rejectWsReady!: (err: Error) => void;
+  /** Serializes inbound frame handling — see {@link enqueueWsMessage}. */
+  private inbound: Promise<void> = Promise.resolve();
   private destroyed = false;
   private suspended = false;
   private reconnectAttempt = 0;
@@ -421,14 +480,14 @@ class WebRtcTopic implements NetworkTopic {
     localPeerId: string,
     topicHex: string,
     signalUrl: string,
-    encKey: CryptoKey | null,
-    rtcConfig: RTCConfiguration,
+    encKey: CryptoKey,
+    getRtcConfig: () => RTCConfiguration,
   ) {
     this.localPeerId = localPeerId;
     this.topicHex = topicHex;
     this.signalUrl = signalUrl;
     this.encKey = encKey;
-    this.rtcConfig = rtcConfig;
+    this.getRtcConfig = getRtcConfig;
   }
 
   /** Connect to the CF Worker and start receiving signals. */
@@ -444,37 +503,56 @@ class WebRtcTopic implements NetworkTopic {
     if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve();
     if (this.ws?.readyState === WebSocket.CONNECTING) return this.wsReady;
 
-    this.wsReady = new Promise((resolve, reject) => {
-      this.resolveWsReady = resolve;
-      this.rejectWsReady = reject;
-    });
+    // A CLOSING socket falls through the guards above. Drop the reference now,
+    // which is what makes `isCurrent()` false for its handlers: they may still
+    // settle their own `wsReady` (so nothing awaiting it hangs), but they must
+    // not touch state that now belongs to the socket we are about to install.
+    this.ws = null;
 
-    const url = `${this.signalUrl}/topic/${this.topicHex}?peerId=${this.localPeerId}`;
+    // Captured per call rather than stored on the instance: a superseded
+    // socket's handlers would otherwise settle the *next* socket's promise.
+    let resolveReady!: () => void;
+    let rejectReady!: (err: Error) => void;
+    this.wsReady = new Promise((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    });
+    // The reconnect timer calls ensureWs() and ignores the result, so nothing
+    // may be awaiting this. Mark it handled; `connect()` still sees the throw.
+    this.wsReady.catch(() => {});
+
+    const url = `${this.signalUrl}/topic/${this.topicHex}?peerId=${encodeURIComponent(this.localPeerId)}`;
     const topicShort = this.topicHex.slice(0, 8);
 
+    let socket: WebSocket;
     try {
-      this.ws = new WebSocket(url);
+      socket = new WebSocket(url);
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       console.error(`[WS] failed to create WebSocket topic=${topicShort} url=${url}:`, err.message);
-      this.rejectWsReady(err);
+      rejectReady(err);
       return this.wsReady;
     }
+    this.ws = socket;
 
+    /** False once this socket has been superseded or torn down. */
+    const isCurrent = () => this.ws === socket;
     let opened = false;
 
-    this.ws.onopen = () => {
+    socket.onopen = () => {
+      if (!isCurrent()) return;
       opened = true;
       console.log(`[WS] connected topic=${topicShort} peer=${this.localPeerId.slice(0, 8)}`);
       this.reconnectAttempt = 0;
-      this.resolveWsReady();
+      resolveReady();
     };
 
-    this.ws.onmessage = (e) => {
-      this.handleWsMessage(e.data);
+    socket.onmessage = (e) => {
+      if (!isCurrent()) return;
+      this.enqueueWsMessage(e.data);
     };
 
-    this.ws.onclose = (ev) => {
+    socket.onclose = (ev) => {
       console.log(`[WS] closed topic=${topicShort} code=${ev.code} clean=${ev.wasClean} reason=${ev.reason || "(none)"}`);
       if (!ev.wasClean) {
         console.error(`[WS] unexpected close topic=${topicShort} code=${ev.code} reason=${ev.reason || "(none)"}`);
@@ -483,12 +561,18 @@ class WebRtcTopic implements NetworkTopic {
       // If the socket closed before onopen fired, reject the pending promise
       // so callers don't hang forever.
       if (!opened) {
-        this.rejectWsReady(new Error(`WebSocket closed before open (code=${ev.code})`));
+        rejectReady(new Error(`WebSocket closed before open (code=${ev.code})`));
       }
+
+      // Superseded socket: a newer one owns the peers, the reconnect timer and
+      // the `ws` reference. Touching any of them here would tear down a live
+      // connection and start a second reconnect loop.
+      if (!isCurrent()) return;
 
       // Tear down peer connections but keep listeners so reconnected peers
       // re-trigger handlePeerJoin in the Replicator.
       this._reset();
+      this.ws = null;
 
       // Skip reconnect when destroyed (terminal) or suspended (backgrounded):
       // suspend() closed this socket on purpose and resume() will re-open it.
@@ -497,7 +581,6 @@ class WebRtcTopic implements NetworkTopic {
       // Reconnect with exponential backoff (1s, 2s, 4s, 8s, max 30s)
       const delay = Math.min(1000 * 2 ** this.reconnectAttempt, 30000);
       this.reconnectAttempt++;
-      this.ws = null;
       console.log(`[WS] reconnecting topic=${topicShort} attempt=${this.reconnectAttempt} delay=${delay}ms`);
 
       this.reconnectTimer = setTimeout(() => {
@@ -506,12 +589,29 @@ class WebRtcTopic implements NetworkTopic {
       }, delay);
     };
 
-    this.ws.onerror = () => {
+    socket.onerror = () => {
       console.error(`[WS] connection error topic=${topicShort} url=${url}`);
       // onerror is always followed by onclose, which handles reconnection
     };
 
     return this.wsReady;
+  }
+
+  /**
+   * Hand an inbound frame to the serialized handler chain.
+   *
+   * Each frame decrypts asynchronously, and `crypto.subtle` does not resolve in
+   * call order — processing them concurrently lets an `ice` frame overtake the
+   * `offer` that creates its RTCPeerConnection (the candidate is then dropped),
+   * and lets relay chunks reassemble out of order. One at a time, in arrival
+   * order, is the only thing the signaling protocol will tolerate.
+   */
+  private enqueueWsMessage(raw: unknown): void {
+    this.inbound = this.inbound
+      .then(() => this.handleWsMessage(raw))
+      .catch((e) => {
+        console.error(`[WS] message handler failed topic=${this.topicHex.slice(0, 8)}`, e);
+      });
   }
 
   private wsSend(msg: unknown) {
@@ -527,13 +627,12 @@ class WebRtcTopic implements NetworkTopic {
   // ---------------------------------------------------------------------------
 
   private async sendSignal(target: string, data: unknown): Promise<void> {
-    const payload = JSON.stringify(data);
-    const encrypted = this.encKey ? await encrypt(this.encKey, payload) : payload;
+    const encrypted = await encrypt(this.encKey, JSON.stringify(data));
     this.wsSend({ type: "signal", target, data: encrypted });
   }
 
   private async sendRelay(target: string, data: string): Promise<void> {
-    const encrypted = this.encKey ? await encrypt(this.encKey, data) : data;
+    const encrypted = await encrypt(this.encKey, data);
     this.wsSend({ type: "relay", target, data: encrypted });
   }
 
@@ -546,45 +645,66 @@ class WebRtcTopic implements NetworkTopic {
     try {
       msg = JSON.parse(typeof raw === "string" ? raw : raw.toString());
     } catch { return; }
+    if (typeof msg !== "object" || msg === null) return;
 
     const topicShort = this.topicHex.slice(0, 8);
+    // The signaling server is untrusted (it is the party this file encrypts
+    // against), so its frames are validated before they are dereferenced.
+    const isPeerId = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 
     switch (msg.type) {
-      case "peers":
-        console.log(`[WS] peers topic=${topicShort} count=${msg.peerIds.length} ids=[${msg.peerIds.map((id: string) => id.slice(0, 8)).join(", ")}]`);
-        for (const peerId of msg.peerIds) {
-          this._handlePeerJoin(peerId);
+      case "peers": {
+        if (!Array.isArray(msg.peerIds)) return;
+        const peerIds: string[] = msg.peerIds.filter(isPeerId);
+        console.log(`[WS] peers topic=${topicShort} count=${peerIds.length} ids=[${peerIds.map((id) => id.slice(0, 8)).join(", ")}]`);
+        for (const peerId of peerIds) {
+          await this._handlePeerJoin(peerId);
         }
         break;
+      }
       case "peer-join":
+        if (!isPeerId(msg.peerId)) return;
         console.log(`[WS] peer-join topic=${topicShort} peer=${msg.peerId.slice(0, 8)}`);
-        this._handlePeerJoin(msg.peerId);
+        await this._handlePeerJoin(msg.peerId);
         break;
       case "peer-left":
+        if (!isPeerId(msg.peerId)) return;
         console.log(`[WS] peer-left topic=${topicShort} peer=${msg.peerId.slice(0, 8)}`);
         this._handlePeerLeft(msg.peerId);
         break;
       case "signal": {
-        const decrypted = this.encKey
-          ? await decrypt(this.encKey, msg.data)
-          : msg.data;
+        if (!isPeerId(msg.from) || typeof msg.data !== "string") return;
+        const decrypted = await decrypt(this.encKey, msg.data);
         if (decrypted === null) {
-          console.error(`[WebRTC] signal decryption failed from=${msg.from?.slice(0, 8)}`);
+          console.error(`[WebRTC] signal decryption failed from=${msg.from.slice(0, 8)}`);
           return;
         }
-        const data = typeof decrypted === "string" ? JSON.parse(decrypted) : decrypted;
-        this._handleSignal(msg.from, data);
+        // The plaintext is peer-controlled: a room member can encrypt garbage.
+        let data: unknown;
+        try {
+          data = JSON.parse(decrypted);
+        } catch {
+          console.error(`[WebRTC] signal payload is not JSON from=${msg.from.slice(0, 8)}`);
+          return;
+        }
+        if (typeof data !== "object" || data === null) return;
+        await this._handleSignal(msg.from, data);
         break;
       }
       case "relay": {
-        const decrypted = this.encKey
-          ? await decrypt(this.encKey, msg.data)
-          : msg.data;
+        if (!isPeerId(msg.from) || typeof msg.data !== "string") return;
+        const decrypted = await decrypt(this.encKey, msg.data);
         if (decrypted === null) {
-          console.error(`[WebRTC] relay decryption failed from=${msg.from?.slice(0, 8)}`);
+          console.error(`[WebRTC] relay decryption failed from=${msg.from.slice(0, 8)}`);
           return;
         }
-        const bytes = base64ToUint8(decrypted);
+        let bytes: Uint8Array;
+        try {
+          bytes = base64ToUint8(decrypted);
+        } catch {
+          console.error(`[WebRTC] relay payload is not base64 from=${msg.from.slice(0, 8)}`);
+          return;
+        }
         this._handleRelayMessage(msg.from, bytes);
         break;
       }
@@ -596,12 +716,17 @@ class WebRtcTopic implements NetworkTopic {
   // ---------------------------------------------------------------------------
 
   async _handlePeerJoin(remotePeerId: string) {
+    // The room can name us back: a reconnect under the same peerId leaves the
+    // old socket briefly alive, and the server lists it as a peer. Connecting
+    // to ourselves wedges a peer slot forever — `isInitiator` is false for
+    // equal ids, so the responder branch would wait for a channel nobody opens.
+    if (remotePeerId === this.localPeerId) return;
     if (this.peers.has(remotePeerId)) return;
 
     const rShort = remotePeerId.slice(0, 8);
     const topicShort = this.topicHex.slice(0, 8);
 
-    const pc = new RTCPeerConnection(this.rtcConfig);
+    const pc = new RTCPeerConnection(this.getRtcConfig());
     const peer = new WebRtcPeer(remotePeerId, pc);
     this.peers.set(remotePeerId, peer);
 
@@ -611,7 +736,9 @@ class WebRtcTopic implements NetworkTopic {
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        this.sendSignal(remotePeerId, { type: "ice", candidate: e.candidate });
+        void this.sendSignal(remotePeerId, { type: "ice", candidate: e.candidate }).catch(
+          (err) => console.error(`[WebRTC] failed to send ice remote=${rShort}`, err),
+        );
       }
     };
 
@@ -643,10 +770,18 @@ class WebRtcTopic implements NetworkTopic {
         for (const cb of this.joinListeners) cb(peer);
       });
 
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      console.log(`[WebRTC] sent offer remote=${rShort}`);
-      this.sendSignal(remotePeerId, { type: "offer", sdp: offer });
+      // A peer-left (or suspend) arriving while these await can close `pc`, and
+      // both calls then reject. Drop the half-built peer rather than leave it
+      // in the map with no offer ever sent.
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        console.log(`[WebRTC] sent offer remote=${rShort}`);
+        await this.sendSignal(remotePeerId, { type: "offer", sdp: offer });
+      } catch (e) {
+        console.error(`[WebRTC] offer failed remote=${rShort}`, e);
+        this._removePeer(remotePeerId);
+      }
     } else {
       pc.ondatachannel = (e) => {
         peer._setDataChannel(e.channel, () => {
@@ -687,13 +822,15 @@ class WebRtcTopic implements NetworkTopic {
       }
 
       if (!peer) {
-        const pc = new RTCPeerConnection(this.rtcConfig);
+        const pc = new RTCPeerConnection(this.getRtcConfig());
         peer = new WebRtcPeer(from, pc);
         this.peers.set(from, peer);
 
         pc.onicecandidate = (e) => {
           if (e.candidate) {
-            this.sendSignal(from, { type: "ice", candidate: e.candidate });
+            void this.sendSignal(from, { type: "ice", candidate: e.candidate }).catch(
+              (err) => console.error(`[WebRTC] failed to send ice remote=${fShort}`, err),
+            );
           }
         };
 
@@ -718,16 +855,35 @@ class WebRtcTopic implements NetworkTopic {
         };
       }
 
-      await (peer as WebRtcPeer).pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-      const answer = await (peer as WebRtcPeer).pc.createAnswer();
-      await (peer as WebRtcPeer).pc.setLocalDescription(answer);
-      this.sendSignal(from, { type: "answer", sdp: answer });
+      // Everything below is driven by a remote peer's SDP. Malformed or
+      // out-of-state descriptions reject; without a catch the rejection escapes
+      // the message queue and the half-built peer is stranded in the map.
+      try {
+        await (peer as WebRtcPeer).pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        const answer = await (peer as WebRtcPeer).pc.createAnswer();
+        await (peer as WebRtcPeer).pc.setLocalDescription(answer);
+        await this.sendSignal(from, { type: "answer", sdp: answer });
+      } catch (e) {
+        console.error(`[WebRTC] failed to answer offer from=${fShort}`, e);
+        this._removePeer(from);
+      }
     } else if (data.type === "answer") {
       if (!peer) return;
-      await (peer as WebRtcPeer).pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      try {
+        await (peer as WebRtcPeer).pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      } catch (e) {
+        console.error(`[WebRTC] failed to apply answer from=${fShort}`, e);
+      }
     } else if (data.type === "ice") {
       if (!peer) return;
-      await (peer as WebRtcPeer).pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      // A candidate can belong to a connection we just replaced, or arrive
+      // before the remote description is set. Dropping it is safe — the session
+      // generates its own — but throwing is not.
+      try {
+        await (peer as WebRtcPeer).pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } catch (e) {
+        console.warn(`[WebRTC] dropped ice candidate from=${fShort}`, e);
+      }
     }
   }
 
@@ -747,9 +903,9 @@ class WebRtcTopic implements NetworkTopic {
     existing.close();
 
     // Create a relay peer that sends through the CF WebSocket (encrypted)
-    const relayPeer = new RelayPeer(remotePeerId, (target, data) => {
-      this.sendRelay(target, data);
-    });
+    const relayPeer = new RelayPeer(remotePeerId, (target, data) =>
+      this.sendRelay(target, data),
+    );
     this.peers.set(remotePeerId, relayPeer);
 
     console.log(`[WebRTC] ICE failed for ${remotePeerId.slice(0, 8)}… — falling back to relay`);
@@ -873,11 +1029,20 @@ class WebRtcNetworkDriver implements NetworkDriver {
   private topicKeys = new Map<string, Uint8Array>();
   private rtcConfig: RTCConfiguration = STUN_ONLY_CONFIG;
   private credentialsFetchedAt = 0;
+  private credentialsFailedAt = 0;
   private credentialsFetching: Promise<void> | null = null;
+  private refreshTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(signalUrl: string) {
     this.signalUrl = signalUrl;
   }
+
+  /**
+   * The ICE configuration a new RTCPeerConnection should use. Topics call this
+   * per connection rather than capturing the config, so a topic that outlives a
+   * credential rotation still builds connections with valid TURN credentials.
+   */
+  private readonly currentRtcConfig = (): RTCConfiguration => this.rtcConfig;
 
   setLocalId(id: string): void {
     this.localPeerId = id;
@@ -893,18 +1058,24 @@ class WebRtcNetworkDriver implements NetworkDriver {
 
   /**
    * Fetch short-lived TURN credentials from the Worker and cache them.
-   * Falls back to STUN-only if the endpoint is unavailable (e.g. not yet configured).
-   * Credentials are refreshed after TURN_CREDENTIAL_REFRESH_MS (12h).
+   * Falls back to STUN-only if the endpoint is unavailable (e.g. not yet
+   * configured). The endpoint is topic-scoped: naming a topic is the capability
+   * that authorizes minting, so a topic we are about to join is passed through.
+   *
+   * `force` bypasses the freshness check for the periodic rotation.
    */
-  private async ensureTurnCredentials(): Promise<void> {
+  private async ensureTurnCredentials(topicHex: string, force = false): Promise<void> {
     const now = Date.now();
-    if (now - this.credentialsFetchedAt < TURN_CREDENTIAL_REFRESH_MS) return;
+    if (!force && now - this.credentialsFetchedAt < TURN_CREDENTIAL_REFRESH_MS) return;
+    if (now - this.credentialsFailedAt < TURN_CREDENTIAL_RETRY_MS) return;
     if (this.credentialsFetching) return this.credentialsFetching;
 
     this.credentialsFetching = (async () => {
       try {
         const httpUrl = this.signalUrl.replace(/^wss?:\/\//, (m) => m === "wss://" ? "https://" : "http://");
-        const res = await fetch(`${httpUrl}/turn-credentials`, { signal: AbortSignal.timeout(5000) });
+        const res = await fetch(`${httpUrl}/topic/${topicHex}/turn-credentials`, {
+          signal: AbortSignal.timeout(5000),
+        });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const { iceServers } = await res.json() as { iceServers: RTCIceServer };
         this.rtcConfig = {
@@ -914,10 +1085,12 @@ class WebRtcNetworkDriver implements NetworkDriver {
           ],
         };
         this.credentialsFetchedAt = Date.now();
+        this.credentialsFailedAt = 0;
         console.log("[WebRTC] TURN credentials fetched");
       } catch (e) {
         console.warn("[WebRTC] TURN credentials unavailable, using STUN only:", e);
         this.rtcConfig = STUN_ONLY_CONFIG;
+        this.credentialsFailedAt = Date.now();
       } finally {
         this.credentialsFetching = null;
       }
@@ -926,19 +1099,37 @@ class WebRtcNetworkDriver implements NetworkDriver {
     return this.credentialsFetching;
   }
 
+  /**
+   * Rotate TURN credentials for as long as any topic is open. Without this a
+   * long-lived topic would keep building peer connections from credentials that
+   * expired at their TTL.
+   */
+  private startCredentialRefresh(): void {
+    if (this.refreshTimer) return;
+    this.refreshTimer = setInterval(() => {
+      const topicHex = this.topics.keys().next().value;
+      if (!topicHex) return;
+      void this.ensureTurnCredentials(topicHex, true);
+    }, TURN_CREDENTIAL_REFRESH_MS);
+  }
+
   async join(topic: Uint8Array): Promise<NetworkTopic> {
     const hex = Array.from(topic).map((b) => b.toString(16).padStart(2, "0")).join("");
     if (this.topics.has(hex)) return this.topics.get(hex)!;
 
     invariant(this.localPeerId, "NetworkDriver: setLocalId() must be called before join()");
 
-    await this.ensureTurnCredentials();
-
-    // Derive AES-GCM key from the raw topic key (if registered)
+    // Fail closed. Signaling carries SDP, ICE candidates (which leak local
+    // addresses), and — on relay fallback — document bytes. Joining without a
+    // key would send all of it to the relay in cleartext, so refuse instead.
     const rawKey = this.topicKeys.get(hex);
-    const encKey = rawKey ? await deriveAesKey(rawKey, `cypher-signal:${hex}`) : null;
+    invariant(rawKey, `NetworkDriver: registerTopicKey() must be called before join(${hex.slice(0, 8)}…)`);
+    const encKey = await deriveAesKey(rawKey, `cypher-signal:${hex}`);
 
-    const nt = new WebRtcTopic(this.localPeerId, hex, this.signalUrl, encKey, this.rtcConfig);
+    await this.ensureTurnCredentials(hex);
+    this.startCredentialRefresh();
+
+    const nt = new WebRtcTopic(this.localPeerId, hex, this.signalUrl, encKey, this.currentRtcConfig);
     this.topics.set(hex, nt);
 
     await nt.connect();
@@ -981,6 +1172,10 @@ class WebRtcNetworkDriver implements NetworkDriver {
   }
 
   async destroy(): Promise<void> {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
     for (const [, topic] of this.topics) {
       await topic.destroy();
     }

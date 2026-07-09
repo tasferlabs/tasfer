@@ -155,7 +155,9 @@ export class WebrtcTransport implements Transport {
     if (this.connecting) return this.connecting;
     this.connecting = (async () => {
       const topicHex = await sha256Hex(this.room);
-      const url = `${this.signaling}/topic/${topicHex}?peerId=${this.peerId}`;
+      // `peerId` is a caller-supplied string: `#` would truncate the query and
+      // `&`/`=` would inject parameters, so the server would see a different id.
+      const url = `${this.signaling}/topic/${topicHex}?peerId=${encodeURIComponent(this.peerId)}`;
       await new Promise<void>((resolve, reject) => {
         const ws = new WebSocket(url);
         this.ws = ws;
@@ -168,6 +170,12 @@ export class WebrtcTransport implements Transport {
         };
       });
     })();
+    // Do not memoize a failure: a rejected promise cached here would make every
+    // later connect() replay the same error, so one transient outage at startup
+    // would be permanent.
+    this.connecting.catch(() => {
+      this.connecting = null;
+    });
     return this.connecting;
   }
 
@@ -242,9 +250,15 @@ export class WebrtcTransport implements Transport {
     if (this.peerId > remoteId) {
       const dc = peer.pc.createDataChannel("cypher", { ordered: true });
       peer._setChannel(dc, () => this.fireJoin(peer));
-      const offer = await peer.pc.createOffer();
-      await peer.pc.setLocalDescription(offer);
-      this.wsSend({ type: "signal", target: remoteId, data: { type: "offer", sdp: offer } });
+      // A `peer-left` arriving while these await closes the connection and both
+      // reject. Drop the peer rather than leak it with no offer ever sent.
+      try {
+        const offer = await peer.pc.createOffer();
+        await peer.pc.setLocalDescription(offer);
+        this.wsSend({ type: "signal", target: remoteId, data: { type: "offer", sdp: offer } });
+      } catch {
+        this.removePeer(remoteId);
+      }
     } else {
       peer.pc.ondatachannel = (e) => peer._setChannel(e.channel, () => this.fireJoin(peer));
     }
@@ -269,12 +283,22 @@ export class WebrtcTransport implements Transport {
         peer = this.setupPeer(from);
         peer.pc.ondatachannel = (e) => peer!._setChannel(e.channel, () => this.fireJoin(peer!));
       }
-      await peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-      const answer = await peer.pc.createAnswer();
-      await peer.pc.setLocalDescription(answer);
-      this.wsSend({ type: "signal", target: from, data: { type: "answer", sdp: answer } });
+      // Anyone who knows the room can send SDP. Invalid or out-of-state
+      // descriptions reject; unhandled, they would escape `void this.onSignal`
+      // and strand the peer we just created with a live RTCPeerConnection.
+      try {
+        await peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        const answer = await peer.pc.createAnswer();
+        await peer.pc.setLocalDescription(answer);
+        this.wsSend({ type: "signal", target: from, data: { type: "answer", sdp: answer } });
+      } catch {
+        this.removePeer(from);
+      }
     } else if (data.type === "answer" && peer && data.sdp) {
-      await peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      // Same: a duplicate or out-of-state answer must not fault the socket.
+      await peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).catch(() => {
+        this.removePeer(from);
+      });
     } else if (data.type === "ice" && peer && data.candidate) {
       // A candidate can belong to a connection we just replaced — dropping it
       // is safe (the new session generates its own), throwing is not.

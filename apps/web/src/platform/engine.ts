@@ -356,7 +356,7 @@ export class Engine implements Platform {
         return { ext, data };
       },
       storeAssetData: async (hash: string, ext: string, data: Uint8Array) => {
-        const path = `${this.driver.basePath}/assets/${hash}.${ext}`;
+        const path = `${this.driver.basePath}/assets/${assetFileName(hash, ext)}`;
         if (!(await this.driver.fs.exists(path))) {
           await this.driver.fs.write(path, data);
         }
@@ -1770,7 +1770,7 @@ export class Engine implements Platform {
       const buffer = new Uint8Array(await file.arrayBuffer());
       const hash = await hashBytes(buffer);
       const ext = file.name.split(".").pop() || "bin";
-      const path = `${this.driver.basePath}/assets/${hash}.${ext}`;
+      const path = `${this.driver.basePath}/assets/${assetFileName(hash, ext)}`;
 
       if (!(await this.driver.fs.exists(path))) {
         await this.driver.fs.write(path, buffer);
@@ -2808,6 +2808,23 @@ function vvEqual(
     if ((a[k] ?? -1) !== (b[k] ?? -1)) return false;
   }
   return true;
+}
+
+/**
+ * Filename for an asset stored under `assets/`, as `<sha256-hex>.<ext>`.
+ *
+ * Both components can originate off-device: a peer supplies them in a binary
+ * asset frame, and `ext` also comes from a picked file's name. This is the one
+ * place the path is assembled, so it is where they are constrained — a hash
+ * must be a full SHA-256 digest, and anything that is not a short alphanumeric
+ * extension degrades to `bin`. Neither component can then escape `assets/`.
+ */
+export function assetFileName(hash: string, ext: string): string {
+  if (!/^[0-9a-f]{64}$/.test(hash)) {
+    throw new Error(`Invalid asset hash: ${hash}`);
+  }
+  const lower = ext.toLowerCase();
+  return `${hash}.${/^[a-z0-9]{1,8}$/.test(lower) ? lower : "bin"}`;
 }
 
 async function hashBytes(data: Uint8Array): Promise<string> {

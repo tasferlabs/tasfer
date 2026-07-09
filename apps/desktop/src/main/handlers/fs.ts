@@ -9,9 +9,21 @@ import { ipcMain, app } from "electron";
 import fs from "fs";
 import path from "path";
 
-/** Resolve a relative path from the Engine to an absolute path in userData. */
+/**
+ * Resolve a relative path from the Engine to an absolute path in userData.
+ *
+ * Paths reaching these handlers are not all locally authored — an asset
+ * filename is derived from bytes a remote peer sent. `path.join` collapses
+ * `..` segments, so it alone would happily resolve outside userData. Every
+ * handler funnels through here, so the containment check belongs here.
+ */
 function resolve(relativePath: string): string {
-  return path.join(app.getPath("userData"), relativePath);
+  const root = app.getPath("userData");
+  const abs = path.join(root, relativePath);
+  if (abs !== root && !abs.startsWith(root + path.sep)) {
+    throw new Error(`Refusing path outside the app data directory: ${relativePath}`);
+  }
+  return abs;
 }
 
 export function registerFsHandlers() {

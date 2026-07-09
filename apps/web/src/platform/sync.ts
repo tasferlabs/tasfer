@@ -942,11 +942,18 @@ export class Replicator {
       `[Sync] joining topic=${topicHex} for peer=${remotePubKey.slice(0, 8)}`,
     );
 
-    // Register the E2E encryption key for this topic before joining
+    // Register the E2E encryption key for this topic before joining. Without a
+    // shared key we cannot encrypt signaling, and join() refuses to send it in
+    // cleartext — a peer we have not completed pairing with is simply not
+    // connectable yet, which is the correct outcome.
     const sharedKeyHex = await this.host.getPeerSharedKey(remotePubKey);
-    if (sharedKeyHex) {
-      this.network.registerTopicKey(topicHex, hexToBytes(sharedKeyHex));
+    if (!sharedKeyHex) {
+      console.warn(
+        `[Sync] no shared key for peer=${remotePubKey.slice(0, 8)} — not connecting`,
+      );
+      return;
     }
+    this.network.registerTopicKey(topicHex, hexToBytes(sharedKeyHex));
 
     const topic = await this.network.join(hexToBytes(topicHex));
     this.topics.set(topicHex, { topic, remotePubKey });
@@ -970,7 +977,9 @@ export class Replicator {
     const unsub = netPeer.onMessage((data) => {
       // Binary asset-data frames start with BINARY_ASSET_TAG, not '{' (0x7B)
       if (data[0] === BINARY_ASSET_TAG) {
-        this.handleBinaryAssetData(data);
+        void this.handleBinaryAssetData(data).catch((e) => {
+          console.error("[Sync] asset frame rejected:", e);
+        });
         return;
       }
       const msg = decode(data);
@@ -1493,21 +1502,47 @@ export class Replicator {
     conn.netPeer.send(frame);
   }
 
+  /**
+   * Handle a binary asset-data frame from a peer.
+   *
+   * Every byte here is remote input, and `ext` ends up in a filesystem path, so
+   * the frame is validated before it reaches the host: it must be well-formed,
+   * it must answer a request *we* made, and its bytes must actually hash to the
+   * hash it claims. Asset data is only ever sent in reply to an `asset-req`
+   * (see {@link handleAssetReq}), so an unsolicited frame is never legitimate.
+   */
   private async handleBinaryAssetData(frame: Uint8Array) {
     // Layout: [BINARY_ASSET_TAG][32 hash bytes][1 ext-len][ext bytes][data]
+    const HEADER_SIZE = 1 + 32 + 1;
+    if (frame.length < HEADER_SIZE) return;
+
     let off = 1; // skip tag
     const hash = bytesToHex(frame.slice(off, off + 32)); off += 32;
     const extLen = frame[off++];
+    if (frame.length < HEADER_SIZE + extLen) return;
     const ext = dec.decode(frame.slice(off, off + extLen)); off += extLen;
     const data = frame.slice(off);
 
+    // Unsolicited: nobody asked for this hash. Dropping it denies a peer the
+    // ability to plant a file we never requested.
+    const callbacks = this.pendingAssetRequests.get(hash);
+    if (!callbacks) return;
+
+    // The hash names the content. Storing bytes that hash to something else
+    // would let a peer bind arbitrary content to a hash other peers resolve.
+    if ((await sha256Hex(data)) !== hash) {
+      console.error(
+        `[Sync] asset ${hash.slice(0, 8)} failed hash verification — discarded`,
+      );
+      return;
+    }
+
     await this.host.storeAssetData(hash, ext, data);
 
-    const callbacks = this.pendingAssetRequests.get(hash);
-    if (callbacks) {
-      this.pendingAssetRequests.delete(hash);
-      for (const cb of callbacks) cb(true);
-    }
+    // Re-read: an await elapsed, and the 10s timeout may have settled these.
+    if (!this.pendingAssetRequests.has(hash)) return;
+    this.pendingAssetRequests.delete(hash);
+    for (const cb of callbacks) cb(true);
   }
 
   // ---------------------------------------------------------------------------
@@ -1697,6 +1732,19 @@ export class Replicator {
 // =============================================================================
 // Utilities
 // =============================================================================
+
+/**
+ * SHA-256 of raw bytes, as lowercase hex. Matches how assets are named.
+ * Slices to the view's own range — passing `.buffer` would hash the whole
+ * backing store whenever the caller hands us a subarray.
+ */
+async function sha256Hex(data: Uint8Array): Promise<string> {
+  const bytes = data.buffer.slice(
+    data.byteOffset,
+    data.byteOffset + data.byteLength,
+  ) as ArrayBuffer;
+  return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+}
 
 /**
  * Compute a deterministic topic for a peer pair.

@@ -21,7 +21,8 @@
   },
   "scripts": {
     "build": "tsdown",
-    "dev": "tsdown --watch"
+    "dev": "tsdown --watch",
+    "test": "vitest run"
   },
   "peerDependencies": {
     "@cypherkit/editor": "*",
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "tsdown": "^0.22.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   }
 }
