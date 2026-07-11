@@ -1,16 +1,19 @@
 /**
- * `escapeTypedBrace`: a brace typed into a formula becomes the visible escaped
- * symbol (`\{`/`\}`) unless the raw grouping token is structurally meant there —
- * completing a `\{` being typed, opening a control word's argument, or closing
- * a group the user opened raw.
+ * `escapeTypedBrace`: a brace typed into a formula ALWAYS becomes the visible
+ * escaped symbol (`\{`/`\}`) — even flush after a command word — with one raw
+ * exception: completing a `\{` the user is typing themselves. (Closing a group
+ * opened raw in pasted/imported source is the other, non-typing, raw case.)
  */
 import {
-  afterCommandWord,
   backslashFusesWith,
   balanceBraces,
+  escapeStrayCloseBraces,
   escapeTypedBrace,
-  typedBraceSkipsCloser,
+  escapeTypedReserved,
+  inRawTextArg,
+  strayCloseBraceInserts,
 } from "./brace";
+import { layoutMath, caretStops } from "../index";
 import { parse } from "../parse/parser";
 import { describe, expect, it } from "vitest";
 
@@ -36,10 +39,17 @@ describe("escapeTypedBrace", () => {
     expect(escapeTypedBrace("\\", 1, "}")).toBeNull();
   });
 
-  it("keeps a brace raw after a control word (opening its argument)", () => {
-    expect(escapeTypedBrace("\\text", 5, "{")).toBeNull();
-    expect(escapeTypedBrace("\\begin", 6, "{")).toBeNull();
-    expect(escapeTypedBrace("x\\fra", 5, "{")).toBeNull(); // in-progress command
+  it("escapes a brace after a command word — a typed { never opens an argument", () => {
+    // `\text{`, `\begin{`, `\frac{` no longer auto-open an argument: a typed brace
+    // is always a literal glyph, so it escapes. Constructs get their `{}` slots
+    // from materialization/paste, not from this single-char typing path.
+    expect(escapeTypedBrace("\\text", 5, "{")).toBe("\\{");
+    expect(escapeTypedBrace("\\begin", 6, "{")).toBe("\\{");
+    expect(escapeTypedBrace("\\frac", 5, "{")).toBe("\\{");
+    // In-progress and dead-end runs escape too — no special case remains.
+    expect(escapeTypedBrace("\\tex", 4, "{")).toBe("\\{");
+    expect(escapeTypedBrace("x\\fra", 5, "{")).toBe("\\{");
+    expect(escapeTypedBrace("\\asdf", 5, "{")).toBe("\\{");
   });
 
   it("escapes after a row-break \\\\ (its trailing \\ is no command intro)", () => {
@@ -61,6 +71,51 @@ describe("escapeTypedBrace", () => {
   it("does not count escaped braces when balancing groups", () => {
     // `\{` is a symbol, not an opener: nothing is open, so the brace escapes.
     expect(escapeTypedBrace("\\{a", 3, "}")).toBe("\\}");
+  });
+});
+
+describe("escapeTypedReserved", () => {
+  it("escapes $, #, % and & to their literal glyphs", () => {
+    expect(escapeTypedReserved("x+1", 3, "$")).toBe("\\$");
+    expect(escapeTypedReserved("x+1", 3, "#")).toBe("\\#");
+    expect(escapeTypedReserved("x+1", 3, "%")).toBe("\\%");
+    expect(escapeTypedReserved("x+1", 3, "&")).toBe("\\&");
+    expect(escapeTypedReserved("", 0, "&")).toBe("\\&");
+  });
+
+  it("does not claim other characters (braces, scripts, backslash, letters)", () => {
+    for (const c of ["{", "}", "^", "_", "\\", "a", "1", "~"]) {
+      expect(escapeTypedReserved("x", 1, c)).toBeNull();
+    }
+  });
+
+  it("keeps the char raw right after a lone backslash (completing the escape)", () => {
+    // `\` + `&` is the user typing `\&` themselves — don't double-escape.
+    expect(escapeTypedReserved("\\", 1, "&")).toBeNull();
+    expect(escapeTypedReserved("a\\", 2, "$")).toBeNull();
+  });
+
+  it("still escapes after a row-break \\\\ (not a lone escaping backslash)", () => {
+    expect(escapeTypedReserved("a\\\\", 3, "&")).toBe("\\&");
+  });
+
+  it("keeps a & raw inside a matrix environment (real column separator)", () => {
+    const inMatrix = "\\begin{matrix}a".length; // caret after the first cell
+    expect(escapeTypedReserved("\\begin{matrix}a", inMatrix, "&")).toBeNull();
+  });
+
+  it("escapes a & once the environment has closed", () => {
+    const after = "\\begin{matrix}a\\end{matrix}".length;
+    expect(
+      escapeTypedReserved("\\begin{matrix}a\\end{matrix}", after, "&"),
+    ).toBe("\\&");
+  });
+
+  it("keeps $/#/% raw right after a backslash but escapes them otherwise", () => {
+    // Non-& reserved chars are never column separators, so only the
+    // escape-completion exception applies.
+    expect(escapeTypedReserved("\\begin{matrix}", 14, "$")).toBe("\\$");
+    expect(escapeTypedReserved("\\", 1, "%")).toBeNull();
   });
 });
 
@@ -106,32 +161,57 @@ describe("balanceBraces", () => {
   });
 });
 
-describe("typedBraceSkipsCloser", () => {
-  it("skips the auto-inserted closer flush at the caret", () => {
-    // `\text{hi|}` — caret before the group's `}`. Typing `}` steps over it.
-    expect(typedBraceSkipsCloser("\\text{hi}", "\\text{hi".length)).toBe(true);
-    // Empty just-materialized argument `\text{|}`.
-    expect(typedBraceSkipsCloser("\\text{}", "\\text{".length)).toBe(true);
-    // A construct slot's closer (`\frac{a|}{b}`).
-    expect(typedBraceSkipsCloser("\\frac{a}{b}", "\\frac{a".length)).toBe(true);
+describe("escapeStrayCloseBraces", () => {
+  it("no-ops on source with no stray close", () => {
+    for (const s of [
+      "",
+      "x+1",
+      "\\frac{a}{b}",
+      "{a{b}c}",
+      "{abc",
+      "\\}",
+      "\\{",
+    ]) {
+      expect(escapeStrayCloseBraces(s)).toBe(s);
+    }
   });
 
-  it("does NOT skip when there is no open group to close", () => {
-    // A stray `}` with nothing open: it is not a slot closer.
-    expect(typedBraceSkipsCloser("a}", 1)).toBe(false);
-    // Caret AFTER the closer (`\text{hi}|`) — nothing at the caret to skip.
-    expect(typedBraceSkipsCloser("\\text{hi}", "\\text{hi}".length)).toBe(
-      false,
-    );
-    // The char at the offset isn't a `}` at all.
-    expect(typedBraceSkipsCloser("\\text{hi}", "\\text{h".length)).toBe(false);
+  it("escapes a lone stray close to its literal glyph", () => {
+    expect(escapeStrayCloseBraces("}")).toBe("\\}");
+    expect(escapeStrayCloseBraces("}}")).toBe("\\}\\}");
+    expect(escapeStrayCloseBraces("a}b")).toBe("a\\}b");
   });
 
-  it("does NOT treat an escaped `\\}` glyph as a skippable closer", () => {
-    // `\{a\}` set notation — the `}` at this offset is the second half of a `\}`
-    // literal glyph (no token starts there), not a grouping closer, so a typed
-    // `}` must not skip. Offset points at that `}` (`\`,`{`,`a`,`\` = 4 chars).
-    expect(typedBraceSkipsCloser("\\{a\\}", "\\{a\\".length)).toBe(false);
+  it("leaves a matched close alone and escapes only the excess", () => {
+    // The first `}` closes `{a`; the second matches nothing.
+    expect(escapeStrayCloseBraces("{a}}")).toBe("{a}\\}");
+    expect(escapeStrayCloseBraces("\\frac{a}{b}}")).toBe("\\frac{a}{b}\\}");
+  });
+
+  it("is idempotent", () => {
+    const once = escapeStrayCloseBraces("}a}");
+    expect(escapeStrayCloseBraces(once)).toBe(once);
+  });
+
+  it("makes an all-stray-close source editable — the reported $$}$$ dead cell", () => {
+    // Before: `}` parses to nothing, so the layout has zero caret stops — a
+    // blank block the caret can't enter. After escaping it is a real brace glyph.
+    expect(caretStops(layoutMath("}", { fontSize: 18 }))).toHaveLength(0);
+    const safe = escapeStrayCloseBraces("}");
+    expect(
+      caretStops(layoutMath(safe, { fontSize: 18 })).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("strayCloseBraceInserts gives the CRDT-op form (a `\\` before each stray)", () => {
+    expect(strayCloseBraceInserts("x+1")).toEqual([]);
+    expect(strayCloseBraceInserts("}")).toEqual([{ at: 0, text: "\\" }]);
+    expect(strayCloseBraceInserts("a}b}")).toEqual([
+      { at: 1, text: "\\" },
+      { at: 3, text: "\\" },
+    ]);
+    // A matched close is not an insert; only the excess is.
+    expect(strayCloseBraceInserts("{a}}")).toEqual([{ at: 3, text: "\\" }]);
   });
 });
 
@@ -194,24 +274,38 @@ describe("backslashFusesWith", () => {
   });
 });
 
-describe("afterCommandWord", () => {
-  it("is true flush after a control word (its argument opener)", () => {
-    expect(afterCommandWord("\\text", 5)).toBe(true);
-    expect(afterCommandWord("\\begin", 6)).toBe(true);
-    expect(afterCommandWord("x\\fra", 5)).toBe(true); // in-progress command
-    expect(afterCommandWord("\\sqrt[3]", 5)).toBe(true); // flush after `\sqrt`
+describe("inRawTextArg", () => {
+  it("is true anywhere inside a `\\text{…}` body, flush against either brace", () => {
+    // `\text{ab}` — body chars are at offsets 6 (`a`) and 7 (`b`); the closing
+    // `}` is at 8. Inside spans just-after `{` (6) through the `}` position (8).
+    expect(inRawTextArg("\\text{ab}", 6)).toBe(true); // flush after `{`
+    expect(inRawTextArg("\\text{ab}", 7)).toBe(true); // mid-body
+    expect(inRawTextArg("\\text{ab}", 8)).toBe(true); // flush before `}`
   });
 
-  it("is false after a lone `\\` (its `{` is the escaped glyph, not an argument)", () => {
-    expect(afterCommandWord("\\", 1)).toBe(false);
+  it("is false in math mode: before the body and just past the closing `}`", () => {
+    expect(inRawTextArg("\\text{ab}", 5)).toBe(false); // on the `{`
+    expect(inRawTextArg("\\text{ab}", 9)).toBe(false); // just past `}` (math again)
+    expect(inRawTextArg("x+1", 2)).toBe(false); // no text run at all
   });
 
-  it("is false after a row-break `\\\\` (its trailing `\\` intro is no command)", () => {
-    expect(afterCommandWord("a\\\\", 3)).toBe(false);
+  it("covers the whole \\text font family and \\operatorname", () => {
+    expect(inRawTextArg("\\textbf{x}", 8)).toBe(true);
+    expect(inRawTextArg("\\texttt{x}", 8)).toBe(true);
+    expect(inRawTextArg("\\operatorname{x}", 14)).toBe(true);
   });
 
-  it("is false in plain content", () => {
-    expect(afterCommandWord("x+1", 3)).toBe(false);
-    expect(afterCommandWord("\\text{hi}", 7)).toBe(false); // mid-body
+  it("tracks nested braces and an unterminated (mid-edit) body", () => {
+    // Nested group inside the text body stays inside until the OUTER `}`.
+    expect(inRawTextArg("\\text{a{b}c}", 9)).toBe(true); // inside the nested `{b}`
+    expect(inRawTextArg("\\text{a{b}c}", 11)).toBe(true); // after it, before outer `}`
+    // Unterminated body (the closing brace not yet typed) extends to the end.
+    expect(inRawTextArg("\\text{ab", 8)).toBe(true);
+  });
+
+  it("does not treat an escaped brace inside the body as the terminator", () => {
+    // `\{` is a literal glyph, not a group boundary, so the body runs to the real
+    // closing `}` — the offset after `\{` is still inside.
+    expect(inRawTextArg("\\text{a\\{b}", 9)).toBe(true);
   });
 });

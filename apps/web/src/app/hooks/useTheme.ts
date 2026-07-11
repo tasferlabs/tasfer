@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { invariant } from "@shared/invariant";
+import { setNativeColorScheme } from "@/platform/bridge";
 
 export type Theme = "light" | "dark" | "system";
 
@@ -46,8 +47,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         metaColorScheme.setAttribute("content", scheme);
       }
 
-      // Sync to native platform
-      window.CypherBridge?.editor.setColorScheme(scheme);
+      // Sync to native platform. Covers both the iOS/Android CypherBridge and
+      // the Electron desktop bridge (window.cypher), so OS-drawn chrome like the
+      // native context menu follows the in-app theme rather than the desktop
+      // environment's theme. `theme` (the setting, incl. "system") is passed as
+      // the source so desktop keeps deferring to the OS in system mode.
+      setNativeColorScheme(scheme, theme);
     };
 
     // Update effective theme based on theme setting

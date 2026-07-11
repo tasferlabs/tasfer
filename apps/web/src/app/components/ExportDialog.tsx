@@ -11,10 +11,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FileCode, FileType, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, FileCode, FileType, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
@@ -117,6 +118,16 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const { currentBlocks, pageId } = usePageSettings();
   const isMobile = useResponsive("(max-width: 768px)");
   const [isExporting, setIsExporting] = useState(false);
+  // Mobile only: the self-contained export HTML held for on-screen preview
+  // before the user commits to generating/sharing the PDF. Null = show the
+  // format picker; a string = show the preview step. The PDF is generated from
+  // this exact HTML, so previewing it is a faithful preview of the export.
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) setPreviewHtml(null);
+    onOpenChange(next);
+  };
 
   const getBaseName = () => {
     const title = extractTitleFromBlocks(currentBlocks) || "document";
@@ -135,7 +146,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   ) => {
     const blob = new Blob([content], { type: mimeType });
     await downloadFile(blob, `${getBaseName()}.${extension}`, mimeType);
-    onOpenChange(false);
+    handleOpenChange(false);
   };
 
   const fetchMetadata = async (): Promise<PageMetadata | undefined> => {
@@ -245,41 +256,59 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     else win.addEventListener("load", () => void triggerPrint());
   };
 
-  const handleExportPdf = async () => {
-    setIsExporting(true);
-    try {
-      const html = await buildExportHtml();
-      const baseName = getBaseName();
+  // Turn the export HTML into a PDF and hand it off (native share sheet, Electron
+  // download, or the web print dialog). Shared by the desktop one-tap flow and
+  // the mobile preview's confirm button.
+  // Turn the export HTML into a PDF and hand it off (native share sheet, Electron
+  // download, or the web print dialog). Always called from the preview's confirm
+  // button, so `html` is already built — the web fallback's `window.open` runs
+  // synchronously inside that click and isn't treated as a blocked popup.
+  const deliverPdf = async (html: string) => {
+    const baseName = getBaseName();
 
-      // Native (iOS/Android): render PDF in the WebView, then share via system sheet
-      const bridge = getBridge();
-      if (bridge?.files.htmlToPdf) {
-        const pdfBase64 = await bridge.files.htmlToPdf(html);
-        if (pdfBase64) {
-          const blob = base64ToBlob(pdfBase64, "application/pdf");
-          await downloadFile(blob, `${baseName}.pdf`, "application/pdf");
-          onOpenChange(false);
-          return;
-        }
-        // fall through to print-window fallback if native returned null
-      }
-
-      // Electron: silent printToPDF in main process, then download via existing flow
-      const electron = (window as unknown as ElectronWindow).cypher;
-      if (electron?.invoke) {
-        const buf = (await electron.invoke(
-          "pdf:generate",
-          html,
-        )) as ArrayBuffer;
-        const blob = new Blob([buf], { type: "application/pdf" });
+    // Native (iOS/Android): render PDF in the WebView, then share via system sheet
+    const bridge = getBridge();
+    if (bridge?.files.htmlToPdf) {
+      const pdfBase64 = await bridge.files.htmlToPdf(html);
+      if (pdfBase64) {
+        const blob = base64ToBlob(pdfBase64, "application/pdf");
         await downloadFile(blob, `${baseName}.pdf`, "application/pdf");
-        onOpenChange(false);
         return;
       }
+      // fall through to print-window fallback if native returned null
+    }
 
-      // Web fallback: open new window and trigger system print dialog
-      await printViaWindow(html);
-      onOpenChange(false);
+    // Electron: silent printToPDF in main process, then download via existing flow
+    const electron = (window as unknown as ElectronWindow).cypher;
+    if (electron?.invoke) {
+      const buf = (await electron.invoke("pdf:generate", html)) as ArrayBuffer;
+      const blob = new Blob([buf], { type: "application/pdf" });
+      await downloadFile(blob, `${baseName}.pdf`, "application/pdf");
+      return;
+    }
+
+    // Web fallback: open new window and trigger system print dialog
+    await printViaWindow(html);
+  };
+
+  // Step 1 (drawer on mobile, dialog on desktop): build the self-contained HTML
+  // and switch to the preview so the user sees the document before committing.
+  const handlePreviewPdf = async () => {
+    setIsExporting(true);
+    try {
+      setPreviewHtml(await buildExportHtml());
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Step 2: the user has seen the preview and confirmed the download.
+  const handleConfirmPdf = async () => {
+    if (!previewHtml) return;
+    setIsExporting(true);
+    try {
+      await deliverPdf(previewHtml);
+      handleOpenChange(false);
     } finally {
       setIsExporting(false);
     }
@@ -334,7 +363,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
 
       const blob = await zip.generateAsync({ type: "blob" });
       await downloadFile(blob, `${baseName}.zip`, "application/zip");
-      onOpenChange(false);
+      handleOpenChange(false);
     } finally {
       setIsExporting(false);
     }
@@ -342,103 +371,185 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
 
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
+      <Drawer open={open} onOpenChange={handleOpenChange}>
         <DrawerContent>
-          <div className="mx-auto w-full max-w-sm pb-6">
-            <DrawerHeader>
-              <DrawerTitle>
-                {t("export.document", "Export document")}
-              </DrawerTitle>
-            </DrawerHeader>
-            <div className="px-4 space-y-2">
-              <Button
-                variant="outline"
-                className="w-full justify-start gap-3 h-auto py-3"
-                onClick={handleExportPdf}
-                disabled={isExporting}
-              >
-                {isExporting ? (
-                  <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
-                ) : (
-                  <FileType className="h-5 w-5 text-muted-foreground" />
-                )}
-                <div className="flex flex-col items-start">
-                  <span className="font-medium">{t("export.pdf", "PDF")}</span>
-                  <span className="text-xs text-muted-foreground">.pdf</span>
-                </div>
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full justify-start gap-3 h-auto py-3"
-                onClick={handleExportMarkdown}
-                disabled={isExporting}
-              >
-                {isExporting ? (
-                  <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
-                ) : (
-                  <FileCode className="h-5 w-5 text-muted-foreground" />
-                )}
-                <div className="flex flex-col items-start">
-                  <span className="font-medium">
-                    {isExporting
-                      ? t("export.exporting", "Exporting...")
-                      : t("common.markdown", "Markdown")}
-                  </span>
-                  <span className="text-xs text-muted-foreground">.md</span>
-                </div>
-              </Button>
+          {previewHtml !== null ? (
+            // Preview step: show the document as it will be exported, then let
+            // the user confirm the download or go back to the format picker.
+            <div className="flex flex-1 flex-col min-h-0">
+              <DrawerHeader>
+                <DrawerTitle>{t("export.previewPdf", "Preview PDF")}</DrawerTitle>
+              </DrawerHeader>
+              <div className="flex-1 min-h-0 px-4">
+                <iframe
+                  title={t("export.previewPdf", "Preview PDF")}
+                  srcDoc={previewHtml}
+                  sandbox=""
+                  className="h-full min-h-[50vh] w-full rounded-lg border border-border bg-white"
+                />
+              </div>
+              <div className="flex gap-2 p-4">
+                <Button
+                  variant="outline"
+                  className="flex-1 gap-2"
+                  onClick={() => setPreviewHtml(null)}
+                  disabled={isExporting}
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  {t("common.back", "Back")}
+                </Button>
+                <Button
+                  className="flex-1 gap-2"
+                  onClick={handleConfirmPdf}
+                  disabled={isExporting}
+                >
+                  {isExporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  {t("export.downloadPdf", "Download PDF")}
+                </Button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="mx-auto w-full max-w-sm pb-6">
+              <DrawerHeader>
+                <DrawerTitle>
+                  {t("export.document", "Export document")}
+                </DrawerTitle>
+              </DrawerHeader>
+              <div className="px-4 space-y-2">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-3 h-auto py-3"
+                  onClick={handlePreviewPdf}
+                  disabled={isExporting}
+                >
+                  {isExporting ? (
+                    <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+                  ) : (
+                    <FileType className="h-5 w-5 text-muted-foreground" />
+                  )}
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">
+                      {t("export.pdf", "PDF")}
+                    </span>
+                    <span className="text-xs text-muted-foreground">.pdf</span>
+                  </div>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-3 h-auto py-3"
+                  onClick={handleExportMarkdown}
+                  disabled={isExporting}
+                >
+                  {isExporting ? (
+                    <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+                  ) : (
+                    <FileCode className="h-5 w-5 text-muted-foreground" />
+                  )}
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">
+                      {isExporting
+                        ? t("export.exporting", "Exporting...")
+                        : t("common.markdown", "Markdown")}
+                    </span>
+                    <span className="text-xs text-muted-foreground">.md</span>
+                  </div>
+                </Button>
+              </div>
+            </div>
+          )}
         </DrawerContent>
       </Drawer>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t("export.document", "Export document")}</DialogTitle>
-          <DialogDescription>
-            {t(
-              "export.chooseFormat",
-              "Choose a format to export your document",
-            )}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid grid-cols-3 gap-3">
-          <button
-            onClick={handleExportPdf}
-            disabled={isExporting}
-            className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isExporting ? (
-              <Loader2 className="h-8 w-8 mb-2 text-muted-foreground animate-spin" />
-            ) : (
-              <FileType className="h-8 w-8 mb-2 text-muted-foreground" />
-            )}
-            <span className="font-medium">{t("export.pdf", "PDF")}</span>
-            <span className="text-xs text-muted-foreground">.pdf</span>
-          </button>
-          <button
-            onClick={handleExportMarkdown}
-            disabled={isExporting}
-            className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isExporting ? (
-              <Loader2 className="h-8 w-8 mb-2 text-muted-foreground animate-spin" />
-            ) : (
-              <FileCode className="h-8 w-8 mb-2 text-muted-foreground" />
-            )}
-            <span className="font-medium">
-              {isExporting
-                ? t("export.exporting", "Exporting...")
-                : t("common.markdown", "Markdown")}
-            </span>
-            <span className="text-xs text-muted-foreground">.md</span>
-          </button>
-        </div>
-      </DialogContent>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      {previewHtml !== null ? (
+        // Preview step: show the document as it will be exported, then let the
+        // user confirm the download or go back to the format picker.
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t("export.previewPdf", "Preview PDF")}</DialogTitle>
+          </DialogHeader>
+          <iframe
+            title={t("export.previewPdf", "Preview PDF")}
+            srcDoc={previewHtml}
+            sandbox=""
+            className="h-[65vh] w-full rounded-lg border border-border bg-white"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => setPreviewHtml(null)}
+              disabled={isExporting}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              {t("common.back", "Back")}
+            </Button>
+            <Button
+              className="gap-2"
+              onClick={handleConfirmPdf}
+              disabled={isExporting}
+            >
+              {isExporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              {t("export.downloadPdf", "Download PDF")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      ) : (
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("export.document", "Export document")}</DialogTitle>
+            <DialogDescription>
+              {t(
+                "export.chooseFormat",
+                "Choose a format to export your document",
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-3 gap-3">
+            <button
+              onClick={handlePreviewPdf}
+              disabled={isExporting}
+              className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isExporting ? (
+                <Loader2 className="h-8 w-8 mb-2 text-muted-foreground animate-spin" />
+              ) : (
+                <FileType className="h-8 w-8 mb-2 text-muted-foreground" />
+              )}
+              <span className="font-medium">{t("export.pdf", "PDF")}</span>
+              <span className="text-xs text-muted-foreground">.pdf</span>
+            </button>
+            <button
+              onClick={handleExportMarkdown}
+              disabled={isExporting}
+              className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isExporting ? (
+                <Loader2 className="h-8 w-8 mb-2 text-muted-foreground animate-spin" />
+              ) : (
+                <FileCode className="h-8 w-8 mb-2 text-muted-foreground" />
+              )}
+              <span className="font-medium">
+                {isExporting
+                  ? t("export.exporting", "Exporting...")
+                  : t("common.markdown", "Markdown")}
+              </span>
+              <span className="text-xs text-muted-foreground">.md</span>
+            </button>
+          </div>
+        </DialogContent>
+      )}
     </Dialog>
   );
 }

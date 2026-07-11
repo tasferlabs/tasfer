@@ -52,6 +52,7 @@ import {
   CODE_LANGUAGES,
   cleanSnapshotForSave,
   clearFailedImageCache,
+  canHaveFormats,
   codeLanguageLabel,
   isTextualBlock,
   isTouchDevice,
@@ -3172,11 +3173,24 @@ function PageEditor({
       });
     }
 
-    // Add Format submenu for desktop when text is selected (not in readonly mode)
-    if (hasSelection && !isTouchDevice() && !readonly) {
-      // The marks active across the selection (the canonical "all chars carry
-      // it" reading, with explicit/caret-inherited formats folded in).
-      const marks = mountedRef.current?.editor.state.activeMarks;
+    // Add Format submenu for desktop when text is selected (not in readonly
+    // mode). Blocks that can't carry inline marks — math and code, per the block
+    // registry's `hasFormats: false` — never offer formatting, matching the
+    // mobile toolbar, which drops the mark buttons in those contexts.
+    // The marks active across the selection (the canonical "all chars carry it"
+    // reading, with explicit/caret-inherited formats folded in).
+    const marks = mountedRef.current?.editor.state.activeMarks;
+    const blockAllowsFormats = block ? canHaveFormats(block.type) : true;
+    // A selection whose every character carries the math mark is an inline-math
+    // run; formatting doesn't apply there either, mirroring the mobile toolbar.
+    const selectionIsInlineMath = marks?.has("math") ?? false;
+    if (
+      hasSelection &&
+      !isTouchDevice() &&
+      !readonly &&
+      blockAllowsFormats &&
+      !selectionIsInlineMath
+    ) {
       const isBold = marks?.has("strong") ?? false;
       const isItalic = marks?.has("emphasis") ?? false;
       const isCode = marks?.has("code") ?? false;

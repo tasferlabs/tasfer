@@ -1799,33 +1799,34 @@ function vecPath(sizeMult: number): Box {
 }
 
 /**
- * An unrecognized command — a visible red placeholder, never an error.
+ * An unrecognized command — laid out as its literal source (`\` `a` `l`), always,
+ * in the ordinary text color. Whether the user is typing it right now (`\al` on
+ * the way to `\alpha`) or it is committed/pasted source, an unknown command shows
+ * exactly the characters it is made of: the backslash is never hidden, so a stray
+ * or misspelled command stays visible instead of silently accumulating as inert
+ * letters.
  *
- * An unknown command (`\al` on the way to `\alpha`) is NOT a construct yet — the
- * user is still typing it. So each character gets its OWN single-char source
- * span (`\` `a` `l` → [0,1) [1,2) [2,3)) rather than every glyph carrying the
- * whole `[0,3)` command span. That makes the caret step through it letter by
- * letter (instead of snapping to the leading `\`) and a delete remove one
- * character at a time — exactly like the plain text it effectively is. A
- * *recognized* command stays one atomic token, as it should. The token text
- * tiles its source range exactly (`\` + name), so char `i` is at `span.start + i`.
+ * Each character gets its OWN single-char span (`\` `a` `l` → [0,1) [1,2) [2,3))
+ * rather than every glyph carrying the whole command span, so the caret steps
+ * through it letter by letter and a delete removes one character at a time —
+ * exactly the plain text it effectively is. The token text tiles its source range
+ * exactly (`\` + name), so char `i` is at `span.start + i`.
+ *
+ * A *recognized* command never reaches here — it stays one atomic token upstream.
  */
 function buildUnknown(
   node: Extract<Node, { type: "unknown" }>,
   style: Style,
 ): Built {
-  const text = "\\" + node.name;
   const start = node.span.start;
   const items: HItem[] = [];
+  const text = "\\" + node.name;
   for (let i = 0; i < text.length; i++) {
     items.push(
-      glyphBox(
-        text[i],
-        "Main-Regular",
-        style.sizeMultiplier,
-        { start: start + i, end: start + i + 1 },
-        "#c01616",
-      ),
+      glyphBox(text[i], "Main-Regular", style.sizeMultiplier, {
+        start: start + i,
+        end: start + i + 1,
+      }),
     );
   }
   const box = hbox(items, { klass: "mord", span: node.span });

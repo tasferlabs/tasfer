@@ -236,17 +236,34 @@ describe("MINIMIZED reproductions (now fixed: the separator keeps the neighbor)"
     expect(typeAt("\\sqrt{x}", 6, "\\pi")).toBe("\\sqrt{\\pi x}");
   });
 
-  it("\\text{hi}: \\pi typed before `hi` keeps `hi` intact (π is text-mode)", () => {
-    // The separator stops the fusion, so `hi` survives verbatim. `\pi` inside a
-    // `\text{}` run is text mode, so it reads as the letters "pi", not the π
-    // glyph — correct LaTeX, not corruption; the neighbor is preserved.
-    expect(typeAt("\\text{hi}", 6, "\\pi")).toBe("\\text{\\pi hi}");
-    expect(sigOf("\\text{\\pi hi}").texts).toEqual(["pi hi"]);
+  it("\\text{hi}: \\pi typed before `hi` enters as literal text, keeps `hi`", () => {
+    // Inside a `\text{}` run the content is prose, not math: a typed `\` is a
+    // literal backslash (`\textbackslash{}`), not a command intro, so `\pi`
+    // reads as the visible characters "\pi" and `hi` survives verbatim. The old
+    // behavior (`\text{\pi hi}`) instead dropped the backslash and typeset "pi
+    // hi" — π was never rendered and the keystroke was silently lost.
+    expect(typeAt("\\text{hi}", 6, "\\pi")).toBe(
+      "\\text{\\textbackslash{}pihi}",
+    );
+    expect(sigOf("\\text{\\textbackslash{}pihi}").texts).toEqual(["\\pihi"]);
   });
 
-  it("\\text{hi}: \\pi typed MID-text keeps the trailing letter", () => {
-    expect(typeAt("\\text{hi}", 7, "\\pi")).toBe("\\text{h\\pi i}");
-    expect(sigOf("\\text{h\\pi i}").texts).toEqual(["hpi i"]);
+  it("\\text{hi}: \\pi typed MID-text keeps the trailing letter, no data loss", () => {
+    expect(typeAt("\\text{hi}", 7, "\\pi")).toBe(
+      "\\text{h\\textbackslash{}pii}",
+    );
+    expect(sigOf("\\text{h\\textbackslash{}pii}").texts).toEqual(["h\\pii"]);
+  });
+
+  it("\\text{}: a \\ then letters never swallows a keystroke (the reported bug)", () => {
+    // The reported corruption: caret in an empty `\text{}`, type `\hi`. The `\`
+    // used to enter a bare `\ ` control space that seeded a fake command run
+    // (`\h`), and the next letter was then REJECTED as an unknown command — `\hi`
+    // isn't real — so the `i` silently vanished. In text mode `\` is a literal
+    // backslash, so every character survives as visible text.
+    const typed = typeAt("\\text{}", 6, "\\hi");
+    expect(typed).toBe("\\text{\\textbackslash{}hi}");
+    expect(sigOf(typed).texts).toEqual(["\\hi"]);
   });
 
   it("matrix: \\pi typed at a cell's start keeps the cell content", () => {

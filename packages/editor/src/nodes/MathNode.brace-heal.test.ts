@@ -102,4 +102,48 @@ describe("block-equation brace auto-heal", () => {
     expect(mathBalancedLatex(BROKEN)).toBe(BROKEN + "}");
     expect(mathBalancedLatex("\\frac{a}{b}")).toBe("\\frac{a}{b}");
   });
+
+  it("import escapes a stray close so $$}$$ isn't a blank, caret-less block", () => {
+    // A lone `}` parses to nothing: the block is non-empty (so no placeholder
+    // shows) yet draws nothing and has no caret stop — a dead cell. Import escapes
+    // it to the literal `\}` glyph, giving the block real caret stops.
+    expect(mathBalancedLatex("}")).toBe("\\}");
+    expect(mathBalancedLatex("a}b")).toBe("a\\}b");
+
+    const { state, blockId } = mathState(mathBalancedLatex("}"), 0);
+    const block = state.document.page.blocks[0];
+    expect(block.id).toBe(blockId);
+    // The caret can now step through the equation (a real glyph exists), where a
+    // bare `}` block offered no stop at all.
+    expect(mathCaretStep(block, 0, "right")).not.toBeNull();
+  });
+});
+
+describe("block-equation heal on change", () => {
+  it("escapes a stray } on the first keystroke, making a dead $$}$$ block editable", () => {
+    // A lone `}` parses to nothing: non-empty source that draws nothing and offers
+    // zero caret stops. The committed CRDT source bypasses import sanitization, so
+    // it heals the moment it is changed — the first keystroke escapes the stray to
+    // the literal `\}` glyph, which lays out with real caret stops.
+    const { state } = mathState("}", 0);
+    const after = insertText(state, "x").state;
+    expect(latexOf(after)).toBe("x\\}");
+    const block = after.document.page.blocks[0];
+    // A real caret stop now exists (a bare `}` offered none).
+    expect(mathCaretStep(block, 0, "right")).not.toBeNull();
+  });
+
+  it("escapes a stray } on delete too (any change heals)", () => {
+    // `}a` — caret after `a`, backspace it: the delete-path heal escapes the
+    // surviving stray `}` so the block doesn't collapse back into a dead cell.
+    const { state } = mathState("}a", 2);
+    const after = state.actionBus.dispatchState(DELETE_BACKWARD, state).state;
+    expect(latexOf(after)).toBe("\\}");
+  });
+
+  it("leaves a brace-clean equation untouched on edit", () => {
+    const { state } = mathState("x+1", 3);
+    const after = insertText(state, "2").state;
+    expect(latexOf(after)).toBe("x+12");
+  });
 });

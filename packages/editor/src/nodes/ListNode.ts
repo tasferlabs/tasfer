@@ -25,13 +25,13 @@ import {
   toggleTodoChecked,
 } from "../actions/actions";
 import { currentFontFamily, getFontMetrics, getFontStack } from "../fonts";
-import { getBlockTextContent, mergeBlockStyle } from "../node-shared";
+import { mergeBlockStyle } from "../node-shared";
 import type {
   BlockRuntimeState,
   NodeHitRegion,
   NodeRegionCtx,
 } from "../rendering/nodes/Node";
-import { getTextDirection } from "../rtl";
+import { getBlockDirection } from "../rtl";
 import type { NodeCodec } from "../serlization/codecs/types";
 import {
   type Block,
@@ -310,7 +310,7 @@ export class ListNode extends TextNode {
           const checkboxSize = styles.list.todo.checkboxSize;
 
           // RTL puts the marker gutter on the right side
-          const isRTL = getTextDirection(getBlockTextContent(block)) === "rtl";
+          const isRTL = getBlockDirection(block, c.marks) === "rtl";
           const adjustedMaxWidth = c.maxWidth - indentOffset - markerWidth;
           const checkboxX = isRTL
             ? c.origin.x + indentOffset + adjustedMaxWidth + 2

@@ -29,8 +29,6 @@ export interface GlyphBox extends Dim {
   /** Kern to the skewchar — used to center an accent over the glyph. */
   readonly skew: number;
   readonly span: Span | null;
-  /** Override paint color (e.g. red for unknown-command placeholders). */
-  readonly color?: string;
   /** Vertical scale applied at paint time (extensible delimiter pieces). */
   readonly yScale?: number;
   /**
@@ -183,7 +181,6 @@ export function glyphBox(
   variant: FontVariant,
   size: number,
   span: Span | null,
-  color?: string,
 ): GlyphBox {
   const m = getCharacterMetrics(char, variant, size);
   if (!m) {
@@ -195,7 +192,6 @@ export function glyphBox(
       italic: 0,
       skew: 0,
       span,
-      color,
       width: 0,
       height: 0,
       depth: 0,
@@ -209,7 +205,6 @@ export function glyphBox(
     italic: m.italic,
     skew: m.skew,
     span,
-    color,
     width: m.width,
     height: m.height,
     depth: m.depth,

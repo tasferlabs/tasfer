@@ -78,6 +78,40 @@ describe("mathJoinAtEdgeAfterInput — edge typing", () => {
     const block = loadPage("aa $\\text{ab$}").blocks[0];
     expect(mathJoinAtEdgeAfterInput(block, 12)).toEqual({ from: 3, to: 12 });
   });
+
+  it("a letter ABSORBED into the chip's tail still gets its command separator", () => {
+    // The `\`-menu-commit bug: a letter typed flush after a chip whose trailing
+    // token is a control word (`\degree`) is pulled INTO the mark span as its new
+    // last char (span.endIndex === caret, not `typed`) rather than landing just
+    // past it as prose. The right-edge branch never sees it, so `\degree`+`C`
+    // fused into the unknown `\degreeC`. Here the whole "\degree C-less" span
+    // already carries the absorbed `C`; the join must splice a separator space
+    // before it so the source stays the well-formed `\degree C` (renders °C).
+    const block = loadPage("$\\degreeC$").blocks[0];
+    expect(mathJoinAtEdgeAfterInput(block, 8)).toEqual({
+      from: 0,
+      to: 8,
+      insert: { at: 7, text: " " },
+    });
+  });
+
+  it("a `{` absorbed into the chip's tail is escaped, never opening a group", () => {
+    // Same absorbed path, brace case: a `{` pulled into the tail would open a
+    // group and de-structure the formula. It escapes to the literal `\{` instead.
+    const block = loadPage("$x{$").blocks[0];
+    expect(mathJoinAtEdgeAfterInput(block, 2)).toEqual({
+      from: 0,
+      to: 2,
+      insert: { at: 1, text: "\\" },
+    });
+  });
+
+  it("an ordinary letter absorbed into the tail needs no fix (extends the formula)", () => {
+    // `$x$` + `y` absorbed → `$xy$`: a plain atom, no trailing command to fuse
+    // with and no brace, so the absorbed char is already valid — no join edit.
+    const block = loadPage("$xy$").blocks[0];
+    expect(mathJoinAtEdgeAfterInput(block, 2)).toBeNull();
+  });
 });
 
 describe("mathAbsorbNumericPunctuationAfterInput — digit resolves edge punctuation as numeric", () => {

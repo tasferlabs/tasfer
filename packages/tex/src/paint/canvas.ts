@@ -10,17 +10,8 @@ import { fontFamily } from "../fonts/fonts";
 import type { MathLayout } from "../index";
 
 export interface PaintOptions {
-  /** Base text color (CSS string). Per-glyph colors override it. */
+  /** Base text color (CSS string). */
   color?: string;
-  /**
-   * Source range of a command the user is *still typing* (`\al` on the way to
-   * `\alpha`). Glyphs whose span falls within it skip their red "unknown
-   * command" placeholder color and paint in the base `color` instead — the
-   * command isn't an error yet, just in progress. Resolve it with
-   * `pendingCommandRange`; once the caret moves off the run it no longer matches
-   * and the red shows. Omit for static rendering (export, the menu previews).
-   */
-  pendingRange?: { start: number; end: number };
 }
 
 /**
@@ -38,15 +29,7 @@ export function paintMath(
   const prevAlign = ctx.textAlign;
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = "left";
-  paintBox(
-    ctx,
-    layout.box,
-    x,
-    y,
-    layout.fontSize,
-    opts.color ?? "#000",
-    opts.pendingRange,
-  );
+  paintBox(ctx, layout.box, x, y, layout.fontSize, opts.color ?? "#000");
   ctx.textBaseline = prevBaseline;
   ctx.textAlign = prevAlign;
 }
@@ -58,7 +41,6 @@ function paintBox(
   y: number,
   fontSize: number,
   color: string,
-  pendingRange?: { start: number; end: number },
 ): void {
   switch (box.type) {
     case "glyph": {
@@ -68,16 +50,7 @@ function paintBox(
       ctx.font = box.textFont
         ? `${box.size * fontSize}px ${box.textFont}`
         : `${box.size * fontSize}px "${fontFamily(box.variant)}"`;
-      // A per-glyph color override marks an unknown-command placeholder (red).
-      // Suppress it while this glyph belongs to a command still being typed
-      // (its span falls within the pending-command range) — not an error yet.
-      const stillTyping =
-        box.color != null &&
-        pendingRange != null &&
-        box.span != null &&
-        box.span.start >= pendingRange.start &&
-        box.span.end <= pendingRange.end;
-      ctx.fillStyle = stillTyping ? color : (box.color ?? color);
+      ctx.fillStyle = color;
       if (box.yScale != null && box.yScale !== 1) {
         // Scale vertically about the baseline to stretch extensible pieces.
         ctx.save();
@@ -143,7 +116,6 @@ function paintBox(
           y + child.dy * fontSize,
           fontSize,
           color,
-          pendingRange,
         );
       }
       break;

@@ -69,7 +69,7 @@ import {
   type NodeLayoutCtx,
   type NodePaintCtx,
 } from "../rendering/nodes/Node";
-import { getTextDirection } from "../rtl";
+import { getBlockDirection } from "../rtl";
 import type { InputCtx, NodeCodec } from "../serlization/codecs/types";
 import type {
   Block,
@@ -1358,8 +1358,9 @@ export class TextNode extends Node<TextualBlock> {
     const fonts = styles.fonts;
     const codePadding = styles.textFormats.code.padding;
 
-    const isRTL =
-      getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
+    // Source characters an inline-math chip renders over must not count toward
+    // the block's direction, so this reads marks, not just the raw runs.
+    const isRTL = getBlockDirection(block, marks) === "rtl";
 
     // Leading inset (list indent + marker gutter) is a per-type hook: zero for
     // headings/paragraph, computed from `indent` for list blocks. Baking it into

@@ -1959,7 +1959,7 @@ export function moveToPreviousWord(state: EditorState): EditorState {
   }
 
   // Check if current block is RTL
-  const isRTL = isBlockRTL(block.charRuns);
+  const isRTL = isBlockRTL(block, state.marks);
 
   if (isRTL) {
     // In RTL, "previous word" (Ctrl+Left) should move visually left, which is logically forward
@@ -2031,7 +2031,7 @@ export function moveToNextWord(state: EditorState): EditorState {
   }
 
   // Check if current block is RTL
-  const isRTL = isBlockRTL(block.charRuns);
+  const isRTL = isBlockRTL(block, state.marks);
 
   if (isRTL) {
     // In RTL, "next word" (Ctrl+Right) should move visually right, which is logically backward

@@ -38,8 +38,18 @@ function inkBounds(
   data: Uint8ClampedArray,
   w: number,
   h: number,
-): { left: number; right: number; top: number; bottom: number; count: number } | null {
-  let left = w, right = -1, top = h, bottom = -1, count = 0;
+): {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  count: number;
+} | null {
+  let left = w,
+    right = -1,
+    top = h,
+    bottom = -1,
+    count = 0;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       if (data[(y * w + x) * 4 + 3] > 16) {
@@ -87,7 +97,10 @@ const RENDER_CORPUS: [string, boolean][] = [
 
 /** Whether the inked pixels skew red (mean R clearly above mean G/B). */
 function inkIsReddish(data: Uint8ClampedArray, w: number, h: number): boolean {
-  let r = 0, g = 0, b = 0, n = 0;
+  let r = 0,
+    g = 0,
+    b = 0,
+    n = 0;
   for (let i = 0; i < w * h; i++) {
     const a = data[i * 4 + 3];
     if (a > 16) {
@@ -101,30 +114,48 @@ function inkIsReddish(data: Uint8ClampedArray, w: number, h: number): boolean {
   return r / n > g / n + 40 && r / n > b / n + 40;
 }
 
-function renderUnknownIsRed(pendingRange?: { start: number; end: number }) {
-  // `\al` is an unrecognized command (lays out as a red placeholder); its source
-  // is [0,3), so a pending range of {0,3} means "still being typed".
-  const m = layoutMath("\\al", { fontSize: FS, displayMode: false });
+function renderUnknownIsRed(literalRange?: { start: number; end: number }) {
+  // `\al` is an unrecognized command, source [0,3). It always renders as its
+  // literal source (`\al`) in the ordinary text color — no red error state, and
+  // no hidden neutralization; `literalRange` only affects whether a *known*
+  // command in the run resolves, not the color.
+  const m = layoutMath("\\al", {
+    fontSize: FS,
+    displayMode: false,
+    literalRange,
+  });
   const cw = Math.ceil(m.width) + MARGIN * 2;
   const ch = Math.ceil(m.height + m.depth) + MARGIN * 2;
   const canvas = createCanvas(cw, ch);
   const ctx = canvas.getContext("2d");
-  paintMath(ctx as unknown as CanvasRenderingContext2D, m, MARGIN, MARGIN + m.height, {
-    color: "#000000",
-    pendingRange,
-  });
+  paintMath(
+    ctx as unknown as CanvasRenderingContext2D,
+    m,
+    MARGIN,
+    MARGIN + m.height,
+    { color: "#000000" },
+  );
   return inkIsReddish(ctx.getImageData(0, 0, cw, ch).data, cw, ch);
 }
 
-describe("unknown-command error color is suppressed while typing", () => {
-  it("renders red when not in a pending range", () => {
-    expect(renderUnknownIsRed(undefined)).toBe(true);
-  });
-  it("suppresses red across the whole in-progress command", () => {
+describe("unknown command renders as literal source, never a red error", () => {
+  it("draws in the ordinary text color, committed or being typed", () => {
+    expect(renderUnknownIsRed(undefined)).toBe(false);
     expect(renderUnknownIsRed({ start: 0, end: 3 })).toBe(false);
   });
-  it("keeps red when the pending range doesn't cover it", () => {
-    expect(renderUnknownIsRed({ start: 5, end: 8 })).toBe(true);
+  it("lays out its literal `\\name` at one width regardless of edit state", () => {
+    // Both parses draw the same 3 glyphs (`\` `a` `l`) — a single geometry, so
+    // the caret (read off either) can never diverge from the painted glyphs.
+    const committed = layoutMath("\\al", { fontSize: FS, displayMode: false });
+    const typing = layoutMath("\\al", {
+      fontSize: FS,
+      displayMode: false,
+      literalRange: { start: 0, end: 3 },
+    });
+    expect(committed.width).toBeCloseTo(typing.width);
+    // The backslash is really drawn: `\al` is wider than the bare letters `al`.
+    const bare = layoutMath("al", { fontSize: FS, displayMode: false });
+    expect(committed.width).toBeGreaterThan(bare.width);
   });
 });
 

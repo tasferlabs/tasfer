@@ -887,5 +887,7 @@
   "wordCount.charactersNoSpaces": "الأحرف (بدون مسافات)",
   "wordCount.sentences": "الجمل",
   "wordCount.paragraphs": "الفقرات",
-  "wordCount.readingTime": "وقت القراءة"
+  "wordCount.readingTime": "وقت القراءة",
+  "export.previewPdf": "معاينة PDF",
+  "export.downloadPdf": "تنزيل PDF"
 }

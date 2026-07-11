@@ -53,14 +53,15 @@ const MATH_CODEC: MarkCodec = {
     priority: 0,
     replace: true,
     render: (_inner, _mark, ctx) => {
+      const latex = ctx.text;
       // The clipboard prefers source: emit the `$…$` LaTeX so a copied chip
       // pastes as editable inline math, instead of the SVG file export wants.
-      if (ctx.preferSource) return `$${ctx.escapeHtml(ctx.text)}$`;
+      if (ctx.preferSource) return `$${ctx.escapeHtml(latex)}$`;
       try {
         if (!ctx.renderMathSVG) throw new Error("no math renderer");
-        return ctx.renderMathSVG(ctx.text, false);
+        return ctx.renderMathSVG(latex, false);
       } catch {
-        return `<code>$${ctx.escapeHtml(ctx.text)}$</code>`;
+        return `<code>$${ctx.escapeHtml(latex)}$</code>`;
       }
     },
   },
@@ -181,10 +182,8 @@ const inlineMathReplacement: MarkReplacement = {
     // glyphs simply don't paint (dimensions are already exact), and the host's
     // font-load redraw fills them in. Lay out with the same `literalRange` the
     // caller measured with, so a command being typed (`\in`) is drawn as literal
-    // source — at exactly the width reserved for it — instead of flashing ∈. The
-    // `pendingRange` keeps a half-typed command (`\al`) from flashing red until
-    // the caret moves on.
-    const { literalRange, pendingRange } = commandRangesFor(text, edit);
+    // source — at exactly the width reserved for it — instead of flashing ∈.
+    const { literalRange } = commandRangesFor(text, edit);
     const layout = layoutMath(text, {
       fontSize: fontSize * INLINE_MATH_SCALE,
       displayMode: false,
@@ -192,7 +191,6 @@ const inlineMathReplacement: MarkReplacement = {
     });
     paintMath(ctx, layout, drawX, y, {
       color: styles.blocks.paragraph.color,
-      pendingRange,
     });
   },
 };

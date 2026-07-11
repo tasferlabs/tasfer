@@ -221,15 +221,33 @@ describe("caret model", () => {
     expect(backIn).not.toBe(0);
   });
 
-  it("steps through an unknown command character by character", () => {
-    // "\al" is unrecognized (mid-typing "\alpha"). It is NOT a construct yet, so
-    // the caret must stop at every source offset (0..3) — like plain text — not
-    // just the run's outer edges. This is what makes the caret follow the typing
-    // instead of snapping back to the leading `\`.
-    const layout = layoutMath("\\al", { fontSize: 16 });
+  it("steps through an in-progress command character by character", () => {
+    // "\al" flagged as the command being typed (literalRange) is laid out as its
+    // literal source. It is NOT a construct yet, so the caret must stop at every
+    // source offset (0..3) — like plain text — not just the run's outer edges.
+    // This is what makes the caret follow the typing instead of snapping back to
+    // the leading `\`.
+    const layout = layoutMath("\\al", {
+      fontSize: 16,
+      literalRange: { start: 0, end: 3 },
+    });
     const offsets = caretStops(layout).map((s) => s.offset);
     for (const o of [0, 1, 2, 3]) expect(offsets).toContain(o);
     // The stop at the trailing edge sits to the RIGHT of the one at the `\`.
+    const xAt = (o: number) => caretRect(layout, o)!.x;
+    expect(xAt(3)).toBeGreaterThan(xAt(1));
+    expect(xAt(1)).toBeGreaterThan(xAt(0));
+  });
+
+  it("steps a committed unknown command exactly like an in-progress one", () => {
+    // Even with no literalRange (`\al` is committed/pasted source, not being
+    // typed), an unknown command draws its literal `\al` — the backslash is never
+    // hidden. So its caret geometry is identical to the in-progress case: a stop
+    // at every source offset (0..3), including the `\` at 1. This single geometry
+    // is what keeps the painted glyphs and the caret from diverging.
+    const layout = layoutMath("\\al", { fontSize: 16 });
+    const offsets = caretStops(layout).map((s) => s.offset);
+    for (const o of [0, 1, 2, 3]) expect(offsets).toContain(o);
     const xAt = (o: number) => caretRect(layout, o)!.x;
     expect(xAt(3)).toBeGreaterThan(xAt(1));
     expect(xAt(1)).toBeGreaterThan(xAt(0));

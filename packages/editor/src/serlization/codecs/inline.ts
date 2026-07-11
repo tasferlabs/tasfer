@@ -7,10 +7,12 @@
  * format-agnostic about rich text.
  */
 
+import { resolveMarkRunsFromChars } from "../../inline-math-spans";
 import { titleInlineMarkdownProjection } from "../../sync/block-registry";
 import {
   findTitleBlock,
   getVisibleTextFromRuns,
+  iterateAllChars,
   iterateVisibleChars,
 } from "../../sync/char-runs";
 import type { DataSchema } from "../../sync/schema";
@@ -48,40 +50,38 @@ export function groupSegments(
   charRuns: CharRun[],
   formats: MarkSpan[],
 ): Segment[] {
-  const visibleChars: Array<{ id: string; char: string }> = [];
-  for (const { id, char } of iterateVisibleChars(charRuns)) {
-    visibleChars.push({ id, char });
+  const visibleChars: string[] = [];
+  for (const { char } of iterateVisibleChars(charRuns)) {
+    visibleChars.push(char);
   }
 
   if (visibleChars.length === 0) return [];
 
-  // Build format map: charId -> Set<formatKey>
-  const formatMap = new Map<string, Set<string>>();
-  for (const span of formats) {
-    const startIdx = visibleChars.findIndex((c) => c.id === span.startCharId);
-    const endIdx = visibleChars.findIndex((c) => c.id === span.endCharId);
-    if (startIdx === -1 || endIdx === -1) continue;
-
-    for (let i = startIdx; i <= endIdx; i++) {
-      const charId = visibleChars[i].id;
-      if (!formatMap.has(charId)) {
-        formatMap.set(charId, new Set());
-      }
-      const key =
-        span.format.type +
-        (span.format.attrs?.url ? `:${span.format.attrs.url}` : "");
-      formatMap.get(charId)!.add(key);
-    }
+  // Resolve each mark to its surviving visible-char range through the SAME
+  // tombstone-tolerant resolver the render/caret path uses
+  // ({@link resolveMarkRunsFromChars}, keyed off document-order ordinals over all
+  // chars). The former strict `findIndex` over only visible chars dropped a whole
+  // span the instant either endpoint char was tombstoned — so an inline-math chip
+  // whose leading/trailing char had been deleted during editing lost its "math"
+  // mark on the way out and serialized as raw `$…$` LaTeX (visible to the reader
+  // in the exported PDF/Markdown), even though the canvas still painted it typeset.
+  // Going through the same resolver keeps export and render in agreement.
+  const runs = resolveMarkRunsFromChars(iterateAllChars(charRuns), formats);
+  const formatKeys: Set<string>[] = visibleChars.map(() => new Set<string>());
+  for (const run of runs) {
+    const url = run.attrs.url;
+    const key = run.name + (typeof url === "string" && url ? `:${url}` : "");
+    for (let i = run.startIndex; i < run.endIndex; i++) formatKeys[i].add(key);
   }
 
   const segments: Segment[] = [];
   let currentChars: string[] = [];
   let currentFormatKeys = new Set<string>();
 
-  for (const char of visibleChars) {
-    const charFormats = formatMap.get(char.id) || new Set<string>();
+  for (let i = 0; i < visibleChars.length; i++) {
+    const charFormats = formatKeys[i];
     if (setsEqual(currentFormatKeys, charFormats)) {
-      currentChars.push(char.char);
+      currentChars.push(visibleChars[i]);
     } else {
       if (currentChars.length > 0) {
         segments.push({
@@ -89,7 +89,7 @@ export function groupSegments(
           formats: formatKeysToFormats(currentFormatKeys),
         });
       }
-      currentChars = [char.char];
+      currentChars = [visibleChars[i]];
       currentFormatKeys = new Set(charFormats);
     }
   }

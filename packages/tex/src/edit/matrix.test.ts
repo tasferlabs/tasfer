@@ -49,6 +49,16 @@ describe("matrixContextAt", () => {
     });
   });
 
+  it("resolves a whole-matrix selection whose start rests on the opening", () => {
+    // Double-clicking a cell selects the entire grid, so the selection start is
+    // the array's span.start. That offset must still resolve the enclosing grid.
+    expect(matrixContextAt(M, 0)).toMatchObject({
+      env: "matrix",
+      row: 0,
+      col: 0,
+    });
+  });
+
   it("returns null outside any grid", () => {
     expect(matrixContextAt("a+b", 1)).toBeNull();
     expect(matrixContextAt("\\frac{a}{b}", 6)).toBeNull();

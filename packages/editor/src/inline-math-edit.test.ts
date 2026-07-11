@@ -534,19 +534,36 @@ describe("typed braces become their escaped literal form in math content", () =>
     });
   });
 
-  it("steps over a slot's closing brace instead of inserting a literal", () => {
-    // `\frac{12|}{2}` — caret in the numerator, flush before its closing `}`.
-    // Typing `}` STEPS OVER that closer (no content change, caret advances past
-    // it) rather than wedging in a literal `\}`. The old escape-to-`\}` behavior
-    // is exactly the reported "renders wrong" bug: naturally typing a command's
-    // closing brace after the slot auto-closed left a stray brace (`\text{hi\}}`).
+  it("escapes a `}` typed before an existing group's closer to a literal glyph", () => {
+    // `\text{hi|}` (a pre-existing, balanced run) — caret flush before the closing
+    // `}`. A typed `}` NEVER steps over a construct's closer: it is a literal brace
+    // glyph the user wants IN the group, so it escapes to `\}` (`\text{hi\}}`),
+    // exactly like the fraction-slot case below. Group `{}` come from
+    // materialization/paste, not from this typing path, so there is no auto-pair
+    // closer to step over.
+    const { page } = chip("\\text{hi}");
+    const span = getInlineMathSpans(page.blocks[0])[0];
+    const caret = span.startIndex + "\\text{hi".length;
+    expect(mathTransformTypedInput(page.blocks[0], caret, "}")).toEqual({
+      input: "\\}",
+      suppressMarkdown: true,
+    });
+  });
+
+  it("escapes a `}` typed at a fraction slot's end to a literal glyph", () => {
+    // `\frac{12|}{2}` — caret in the numerator, flush before its closing `}`. A
+    // fraction's `{}` slots are MATERIALIZED (`\frac` → `\frac{}{}`), not a brace
+    // pair the user typed and had auto-closed, so a typed `}` here is a literal
+    // brace glyph the user wants IN the slot — it escapes to `\}` (`\frac{12\}}{2}`)
+    // instead of stepping over the closer. Stepping over stranded the caret in the
+    // `}{` gap, so the next typed `}` escaped into the denominator
+    // (`\frac{12}\}{2}` — a stray brace under the bar, the reported corruption).
     const { page } = chip("\\frac{12}{2}");
     const span = getInlineMathSpans(page.blocks[0])[0];
     const caret = span.startIndex + "\\frac{12".length;
     expect(mathTransformTypedInput(page.blocks[0], caret, "}")).toEqual({
-      input: "",
+      input: "\\}",
       suppressMarkdown: true,
-      caret: caret + 1, // past the existing closer
     });
   });
 
@@ -555,13 +572,15 @@ describe("typed braces become their escaped literal form in math content", () =>
     expect(mathTransformTypedInput(page.blocks[0], 1, "{")).toBeNull();
   });
 
-  it("auto-closes a control word's argument (`\\text{` → `\\text{}`)", () => {
-    // A raw `{` opening a command argument closes at the caret instead of being
-    // left to run to the source end and swallow the trailing content.
+  it("escapes a `{` typed after a command word (no argument auto-open)", () => {
+    // A typed `{` never opens a command's argument — even flush after `\text`, it
+    // is a literal brace glyph, so it escapes to `\{` (`\text\{`). This makes the
+    // "raw `{` runs to the source end and swallows the trailing content" corruption
+    // unrepresentable; a `\text{…}` run enters via materialization or paste, not
+    // this single-char typing path.
     const { page } = mathBlock("\\text");
     expect(mathTransformTypedInput(page.blocks[0], 5, "{")).toEqual({
-      input: "{}",
-      caret: 6, // between the auto-inserted braces
+      input: "\\{",
     });
   });
 
@@ -675,5 +694,109 @@ describe("typed braces become their escaped literal form in math content", () =>
     // two-keystroke `\` then `{` still composes the escaped `\{`.
     const { page } = mathBlock("x");
     expect(mathTransformTypedInput(page.blocks[0], 1, "\\")).toBeNull();
+  });
+});
+
+describe("typed $, #, %, & become their escaped literal form in math content", () => {
+  it("escapes $, #, % typed in a block equation to their literal glyphs", () => {
+    for (const [ch, escaped] of [
+      ["$", "\\$"],
+      ["#", "\\#"],
+      ["%", "\\%"],
+    ] as const) {
+      const { page } = mathBlock("x+1");
+      expect(mathTransformTypedInput(page.blocks[0], 3, ch)).toEqual({
+        input: escaped,
+      });
+    }
+  });
+
+  it("escapes a & typed outside a matrix (a raw & would be dropped by the parser)", () => {
+    const { page } = mathBlock("a");
+    expect(mathTransformTypedInput(page.blocks[0], 1, "&")).toEqual({
+      input: "\\&",
+    });
+  });
+
+  it("keeps a & raw inside a matrix cell (real column separator)", () => {
+    // Caret after the first cell's content: the `&` moves to the next column and
+    // must stay a structural separator, not become a literal ampersand glyph.
+    const { page } = mathBlock("\\begin{matrix}a&b\\end{matrix}");
+    const caret = "\\begin{matrix}a".length;
+    expect(mathTransformTypedInput(page.blocks[0], caret, "&")).toBeNull();
+  });
+
+  it("keeps the char raw right after a typed backslash (completing the escape)", () => {
+    // Two-keystroke `\` then `&` composes `\&` — the second keystroke must not
+    // escape again into `\\&`.
+    const { page } = mathBlock("\\");
+    expect(mathTransformTypedInput(page.blocks[0], 1, "&")).toBeNull();
+    expect(mathTransformTypedInput(page.blocks[0], 1, "$")).toBeNull();
+  });
+
+  it("suppresses markdown when escaping inside an inline chip", () => {
+    // Caret between the two chars, clearly interior to the chip — a stray `$`
+    // there must not be left raw to reinterpret the surrounding markdown.
+    const { page } = chip("ab");
+    const span = getInlineMathSpans(page.blocks[0])[0];
+    expect(
+      mathTransformTypedInput(page.blocks[0], span.startIndex + 1, "$"),
+    ).toEqual({ input: "\\$", suppressMarkdown: true });
+  });
+
+  it("a multi-char insert keeps its raw chars (source text, not a keystroke)", () => {
+    // No single-char escape applies, and the insert is unchanged, so the
+    // transform reports nothing to do (the `&` stays raw source text).
+    const { page } = mathBlock("x");
+    expect(mathTransformTypedInput(page.blocks[0], 1, "a&b")).toBeNull();
+  });
+});
+
+describe("typing an unknown command is never blocked (keystrokes always land)", () => {
+  it("lets a letter through even when it builds an unknown command", () => {
+    // `\fra` + `k` → `\frak`. `\frak` isn't a real command, but the keystroke is
+    // NEVER swallowed — the user's action always takes effect (it renders as an
+    // unknown command, not silently dropped). `null` = insert `k` verbatim.
+    const { page } = mathBlock("\\fra");
+    expect(mathTransformTypedInput(page.blocks[0], 4, "k")).toBeNull();
+    // A dead-end first letter right after a lone `\` lands too.
+    const b = mathBlock("\\");
+    expect(mathTransformTypedInput(b.page.blocks[0], 1, "Y")).toBeNull();
+  });
+
+  it("passes a completing letter straight through", () => {
+    // `\fra` + `c` → `\frac`.
+    const { page } = mathBlock("\\fra");
+    expect(mathTransformTypedInput(page.blocks[0], 4, "c")).toBeNull();
+  });
+
+  it("still separates a letter after a COMPLETE command (a new atom)", () => {
+    // `\alpha` + `s` is the variable `s`, separated so it doesn't fuse into the
+    // unknown `\alphas` — a separator space, not a blocked keystroke.
+    const { page } = mathBlock("\\alpha");
+    expect(mathTransformTypedInput(page.blocks[0], 6, "s")).toEqual({
+      input: " s",
+    });
+  });
+
+  it("never touches plain-text letters", () => {
+    const { page } = mathBlock("ab");
+    expect(mathTransformTypedInput(page.blocks[0], 2, "c")).toBeNull();
+  });
+
+  it("lands the keystroke (suppressing markdown) inside an inline chip", () => {
+    // Caret interior to the chip, at the trailing edge of the `\fra` run (before
+    // the `x`) — typing `k` builds `\frakx`, and the keystroke still lands.
+    const { page } = chip("\\frax");
+    const span = getInlineMathSpans(page.blocks[0])[0];
+    expect(
+      mathTransformTypedInput(page.blocks[0], span.startIndex + 4, "k"),
+    ).toEqual({ input: "k", suppressMarkdown: true });
+  });
+
+  it("keeps a multi-char insert intact (source text)", () => {
+    // A paste of `\frak` is source, not a keystroke — inserted verbatim.
+    const { page } = mathBlock("x");
+    expect(mathTransformTypedInput(page.blocks[0], 1, "\\frak")).toBeNull();
   });
 });

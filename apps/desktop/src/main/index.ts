@@ -23,6 +23,7 @@ import { registerCryptoHandlers } from "./handlers/crypto";
 import { registerUpdaterHandlers } from "./handlers/updater";
 import { registerPdfHandlers } from "./handlers/pdf";
 import { registerContextMenuHandlers } from "./handlers/contextMenu";
+import { registerThemeHandlers } from "./handlers/theme";
 
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -401,6 +402,7 @@ app.whenReady().then(() => {
   registerUpdaterHandlers();
   registerPdfHandlers();
   registerContextMenuHandlers();
+  registerThemeHandlers();
 
   // IPC handlers for custom menu bar actions (Windows/Linux renderer menu)
   ipcMain.handle("app:reload", () => mainWindow?.webContents.reload());

@@ -64,14 +64,16 @@ const CASES: Case[] = [
     host: "",
     caret: 0,
     seq: "\\text{hi}",
-    expected: "\\text{hi}",
+    // A typed `{`/`}` always escapes: `\text{` no longer opens an argument, so
+    // typing the braces yields the visible glyphs, not a text run.
+    expected: "\\text\\{hi\\}",
   },
   {
     name: "control: caret at end of x+y, \\text{hi}",
     host: "x+y",
     caret: 3,
     seq: "\\text{hi}",
-    expected: "x+y\\text{hi}",
+    expected: "x+y\\text\\{hi\\}",
   },
   // ── Mid-formula: content AFTER the caret ──
   {
@@ -79,35 +81,38 @@ const CASES: Case[] = [
     host: "x+y",
     caret: 0,
     seq: "\\text{",
-    expected: "\\text{}x+y", // ACTUAL: "\\text{x+y}"
+    // The `{` escapes to `\{`; the trailing `x+y` stays put (no swallow, since a
+    // typed `{` never opens a group). Pre-fix (raw `{` opened a healed group): "\\text{x+y}".
+    expected: "\\text\\{x+y",
   },
   {
     name: "caret at 0 of x+y, type \\text{hi}",
     host: "x+y",
     caret: 0,
     seq: "\\text{hi}",
-    expected: "\\text{hi}x+y", // ACTUAL: "\\text{hi\\}x+y}"
+    expected: "\\text\\{hi\\}x+y", // pre-fix: "\\text{hi\\}x+y}"
   },
   {
     name: "frac numerator: \\frac{a|}{b} type \\text{",
     host: "\\frac{a}{b}",
     caret: 7,
     seq: "\\text{",
-    expected: "\\frac{a\\text{}}{b}", // ACTUAL: "\\frac{a\\text{}{b}}{}"
+    // The `{` escapes inside the numerator; the frac slots are untouched.
+    expected: "\\frac{a\\text\\{}{b}", // pre-fix: "\\frac{a\\text{}{b}}{}"
   },
   {
     name: "frac numerator: \\frac{a|}{b} type \\text{hi}",
     host: "\\frac{a}{b}",
     caret: 7,
     seq: "\\text{hi}",
-    expected: "\\frac{a\\text{hi}}{b}", // ACTUAL: "\\frac{a\\text{hi}{b}}{}"
+    expected: "\\frac{a\\text\\{hi\\}}{b}", // pre-fix: "\\frac{a\\text{hi}{b}}{}"
   },
   {
     name: "empty frac numerator: \\frac{|}{b} type \\text{hi}",
     host: "\\frac{}{b}",
     caret: 6,
     seq: "\\text{hi}",
-    expected: "\\frac{\\text{hi}}{b}", // ACTUAL: "\\frac{\\text{hi}{b}}{}"
+    expected: "\\frac{\\text\\{hi\\}}{b}", // pre-fix: "\\frac{\\text{hi}{b}}{}"
   },
   // ── \text before existing content that starts with a letter ──
   {
@@ -115,7 +120,7 @@ const CASES: Case[] = [
     host: "ab+c",
     caret: 0,
     seq: "\\text{",
-    expected: "\\text{}ab+c", // ACTUAL: "\\text{ab+c}"
+    expected: "\\text\\{ab+c", // pre-fix: "\\text{ab+c}"
   },
   // ── Matrix cell ──
   {
@@ -132,7 +137,8 @@ const CASES: Case[] = [
     host: "\\begin{matrix}a&b\\end{matrix}",
     caret: "\\begin{matrix}a".length,
     seq: "\\text{hi}",
-    expected: "\\begin{matrix}a\\text{hi}&b\\end{matrix}", // ACTUAL: "\\begin{matrix}a\\text{hi\\}&b\\end{matrix}}"
+    // Braces escape; the `&` column separator survives, grid stays 2 columns.
+    expected: "\\begin{matrix}a\\text\\{hi\\}&b\\end{matrix}", // pre-fix: "…\\text{hi\\}&b…}"
   },
   // ── Brackets around \text ──
   // NOTE: typing inside a `\sqrt[…]` optional index is a KNOWN-REMAINING residual
@@ -165,7 +171,7 @@ const CASES: Case[] = [
     host: "x+y",
     caret: 0,
     seq: "\\textrm{",
-    expected: "\\textrm{}x+y", // ACTUAL: "\\textrm{x+y}"
+    expected: "\\textrm\\{x+y", // pre-fix: "\\textrm{x+y}"
   },
   // ── \text then brace with caret inside existing \text body start ──
   {
@@ -174,6 +180,20 @@ const CASES: Case[] = [
     caret: 6,
     seq: "{",
     expected: "\\text{\\{hi}", // passes
+  },
+  // ── Braces typed into a fraction numerator (reported screenshot) ──
+  // Every typed brace is a literal glyph inside the numerator: each `{` escapes to
+  // `\{`, and each `}` escapes to `\}` — a fraction's slot `{}` is materialized,
+  // not a user-typed auto-pair, so a typed `}` never steps over its structural
+  // closer. Pre-fix the closer stepped over, stranding the caret in the `}{` gap so
+  // the second `}` escaped into the DENOMINATOR (`\frac{\{\{\{\{\{\{}\}{}` — a stray
+  // brace beneath the bar, the reported render).
+  {
+    name: "frac numerator: {{{{{{}} (screenshot)",
+    host: "\\frac{}{}",
+    caret: 6,
+    seq: "{{{{{{}}",
+    expected: "\\frac{\\{\\{\\{\\{\\{\\{\\}\\}}{}", // ACTUAL: "\\frac{\\{\\{\\{\\{\\{\\{}\\}{}"
   },
 ];
 
@@ -189,14 +209,15 @@ describe("repro: \\text + braces/brackets corruption", () => {
     });
   }
 
-  it("MINIMAL: any raw { typed after a command intro swallows trailing content", () => {
-    // Host `+`, caret 0. Three keystrokes: `\`, `t`, `{`. The `{` passes through
-    // raw (afterCommandIntro), balanceBraces appends the healing `}` at the END
-    // of the source, so the user's `+` is swallowed into the new group.
+  it("MINIMAL: a raw { typed after a command intro no longer swallows trailing content", () => {
+    // Host `+`, caret 0. Three keystrokes: `\`, `t`, `{`. `\t` is not a complete
+    // command, so its `{` is a literal brace glyph, not an argument opener: it
+    // escapes to `\{` and the user's `+` stays put. (Pre-fix the raw `{` opened a
+    // group that balanceBraces healed at the source end, swallowing the `+`.)
     const actual = typeSeq("+", 0, "\\t{");
 
     console.log(`MINIMAL actual=${JSON.stringify(actual)}`);
-    expect(actual).toBe("\\t{}+"); // empty slot at caret, `+` untouched — pre-fix: "\\t{+}"
+    expect(actual).toBe("\\t\\{+"); // escaped brace, `+` untouched — pre-fix: "\\t{+}"
   });
 
   it("ORACLE: matrix keeps 2 columns after typing \\text in a cell", () => {

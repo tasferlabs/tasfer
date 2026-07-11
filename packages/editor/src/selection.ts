@@ -7,7 +7,7 @@ import {
 import type { MarkRegistry } from "./rendering/marks";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import { getBlockHeight } from "./rendering/renderer";
-import { getTextDirection } from "./rtl";
+import { getBlockDirection } from "./rtl";
 import type { Block, CharRun, MarkSpan } from "./serlization/loadPage";
 import type {
   CursorState,
@@ -31,7 +31,6 @@ import {
 } from "./state-utils";
 import { getEditorStyles, getTextStyle } from "./styles";
 import { isTextualBlock } from "./sync/block-registry";
-import { getVisibleTextFromRuns } from "./sync/char-runs";
 import {
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
@@ -169,8 +168,7 @@ export function getTextIndexAtRelativePosition(
   }
 
   // Check if this is RTL text
-  const isRTL =
-    getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
+  const isRTL = getBlockDirection(block, marks) === "rtl";
 
   if (!isRTL) {
     // LTR: simple logical positioning
@@ -2021,8 +2019,7 @@ export function moveCursorLeft(state: EditorState): EditorState {
   }
 
   // Check if current block is RTL
-  const isRTL =
-    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
+  const isRTL = getBlockDirection(currentBlock, state.marks) === "rtl";
 
   if (isRTL) {
     // In RTL text, visual left is logical forward (increment)
@@ -2050,9 +2047,7 @@ export function moveCursorLeft(state: EditorState): EditorState {
         if (!isTextualBlock(nextBlock)) {
           return state;
         }
-        const nextIsRTL =
-          getTextDirection(getVisibleTextFromRuns(nextBlock.charRuns)) ===
-          "rtl";
+        const nextIsRTL = getBlockDirection(nextBlock, state.marks) === "rtl";
 
         if (nextIsRTL) {
           // Next block is RTL, position at start (visual right edge)
@@ -2089,9 +2084,7 @@ export function moveCursorLeft(state: EditorState): EditorState {
           return state;
         }
         const prevBlockLength = getBlockTextLength(prevBlock);
-        const prevIsRTL =
-          getTextDirection(getVisibleTextFromRuns(prevBlock.charRuns)) ===
-          "rtl";
+        const prevIsRTL = getBlockDirection(prevBlock, state.marks) === "rtl";
 
         if (prevIsRTL) {
           // Previous block is RTL, position at end (visual left edge)
@@ -2139,8 +2132,7 @@ export function moveCursorRight(state: EditorState): EditorState {
   const currentBlockLength = getBlockTextLength(currentBlock);
 
   // Check if current block is RTL
-  const isRTL =
-    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
+  const isRTL = getBlockDirection(currentBlock, state.marks) === "rtl";
 
   if (isRTL) {
     // In RTL text, visual right is logical backward (decrement)
@@ -2167,9 +2159,7 @@ export function moveCursorRight(state: EditorState): EditorState {
           return state;
         }
         const prevBlockLength = getBlockTextLength(prevBlock);
-        const prevIsRTL =
-          getTextDirection(getVisibleTextFromRuns(prevBlock.charRuns)) ===
-          "rtl";
+        const prevIsRTL = getBlockDirection(prevBlock, state.marks) === "rtl";
 
         if (prevIsRTL) {
           // Previous block is RTL, position at end (visual left edge)
@@ -2205,9 +2195,7 @@ export function moveCursorRight(state: EditorState): EditorState {
         if (!isTextualBlock(nextBlock)) {
           return state;
         }
-        const nextIsRTL =
-          getTextDirection(getVisibleTextFromRuns(nextBlock.charRuns)) ===
-          "rtl";
+        const nextIsRTL = getBlockDirection(nextBlock, state.marks) === "rtl";
 
         if (nextIsRTL) {
           // Next block is RTL, position at start (visual right edge)

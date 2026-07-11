@@ -87,11 +87,15 @@ function childNodes(node: Node): Node[] {
   }
 }
 
-/** The innermost array whose span strictly brackets `offset`, or null. */
+/** The innermost array containing `offset`, or null. An offset resting exactly on
+ *  the opening boundary counts as inside (mirroring {@link cellAt}'s `<=`), so a
+ *  whole-matrix selection — whose start is the array's `span.start`, as produced by
+ *  double-clicking the grid — still resolves its enclosing array. The end stays
+ *  exclusive so an offset between two sibling arrays belongs to the following one. */
 function deepestArrayAt(root: Node, offset: number): ArrayNode | null {
   let best: ArrayNode | null = null;
   const visit = (n: Node): void => {
-    if (n.type === "array" && offset > n.span.start && offset < n.span.end) {
+    if (n.type === "array" && offset >= n.span.start && offset < n.span.end) {
       // A nested array is a descendant, visited after this assignment, so it
       // overwrites `best` — leaving the deepest containing array.
       best = n;

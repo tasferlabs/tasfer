@@ -155,6 +155,46 @@ export function isNative(): boolean {
 }
 
 /**
+ * Push the color scheme to the native host so OS-drawn chrome (context menus,
+ * tray, application menu) matches the in-app theme.
+ *
+ * `scheme` is the resolved light/dark used for immediate rendering. `source` is
+ * the user's theme setting — pass "system" so hosts that can defer to the OS
+ * keep following it (and OS theme changes still propagate); it defaults to the
+ * resolved scheme when the caller has no distinct setting.
+ *
+ * iOS/Android receive the resolved scheme through the unified CypherBridge.
+ * Electron desktop has no CypherBridge — it uses the generic `window.cypher`
+ * IPC bridge (see `nativeContextMenu`) — and would otherwise leave `nativeTheme`
+ * following the desktop environment's theme (e.g. dark GTK under i3), so we
+ * route the `source` over that bridge and let the main process drive
+ * `nativeTheme.themeSource`. Plain web is a no-op. Fire-and-forget: a missing or
+ * failing host must never break theming.
+ */
+export function setNativeColorScheme(
+  scheme: "light" | "dark",
+  source: "light" | "dark" | "system" = scheme,
+): void {
+  try {
+    void getBridge()?.editor.setColorScheme(scheme);
+  } catch (e) {
+    console.debug("setColorScheme (native bridge) failed:", e);
+  }
+  try {
+    const desktop = (
+      window as unknown as {
+        cypher?: {
+          invoke(channel: string, ...args: unknown[]): Promise<unknown>;
+        };
+      }
+    ).cypher;
+    void desktop?.invoke("editor:setColorScheme", source);
+  } catch (e) {
+    console.debug("setColorScheme (desktop bridge) failed:", e);
+  }
+}
+
+/**
  * Fire device haptic feedback from host UI (sidebar, calendar, context menus).
  * Uses the native shell's haptic when present, else the web Vibration API.
  */

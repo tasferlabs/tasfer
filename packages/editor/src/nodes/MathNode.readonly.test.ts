@@ -36,10 +36,11 @@ function mathPage(): Page {
   return { id: "page-1", title: "Math", blocks: [mathBlock("x^2")] };
 }
 
-// Drive a desktop pointer move that lands squarely on the (only) math block.
-function hoverMathBlock(state: EditorState): EditorState {
+// Drive a desktop pointer move at `canvasX` on the (only) math block's row.
+// Defaults to a point inside the content column (paddingLeft is 40 on desktop).
+function hoverMathBlock(state: EditorState, canvasX = 100): EditorState {
   return state.actionBus.dispatchState(POINTER_MOVE, state, {
-    canvasX: 10,
+    canvasX,
     canvasY: 10,
     textPosition: null,
     blockUnderPoint: 0,
@@ -61,5 +62,25 @@ describe("math hover in readonly", () => {
       createInitialState(mathPage(), { mode: "readonly" }),
     );
     expect(next.ui.hoveredMathBlockIndex).toBeNull();
+  });
+});
+
+describe("math hover horizontal bounds", () => {
+  // The backdrop fills the content column, so hovering the page margins beside
+  // the equation (same row, but left of paddingLeft) must not light the block.
+  it("does not light the block when hovering the left page margin", () => {
+    const next = hoverMathBlock(createInitialState(mathPage()), 10);
+    expect(next.ui.hoveredMathBlockIndex).toBeNull();
+  });
+
+  it("does not light the block when hovering the right page margin", () => {
+    // viewport.width (600) - paddingRight (40) = 560 is the content-column edge.
+    const next = hoverMathBlock(createInitialState(mathPage()), 580);
+    expect(next.ui.hoveredMathBlockIndex).toBeNull();
+  });
+
+  it("lights the block when hovering inside the content column", () => {
+    const next = hoverMathBlock(createInitialState(mathPage()), 300);
+    expect(next.ui.hoveredMathBlockIndex).toBe(0);
   });
 });

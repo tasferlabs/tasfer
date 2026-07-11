@@ -137,13 +137,17 @@ backslash guards, which do hold for `\` typed directly before `&`/`\\`.
 
 ### Cross-cutting: no gate, silent parser recovery, no fuzzing
 
-- No validation gate exists between keystroke and commit. `isValidLatex`
-  (`packages/tex/src/index.ts:104`) is used only by a command-catalog test.
+- No *full* validation gate exists between keystroke and commit. `isValidLatex`
+  (`packages/tex/src/index.ts:104`) is used only by a command-catalog test. A
+  keystroke-time reserved-char escape exists (`escapeTypedReserved`) — see
+  [Phase 0.2](#phase-02--keystroke-time-input-narrowing).
 - The parser silently discards `&`/`\\` inside an unclosed group via the
   non-progress guard (`parser.ts:104`).
 - The renderer paints unknown commands as raw red LaTeX to the *reader*
   (`layout/build.ts:1788`), violating the agent.md rule that a reader never sees
-  raw source. (Tracked as an independent fix.)
+  raw source. A typed unknown command (`\frak`) is NOT blocked (blocking a
+  keystroke is worse than showing red), so this renderer fix is the real remedy
+  and is tracked independently.
 
 ## History taxonomy (evidence of the treadmill)
 
@@ -186,10 +190,20 @@ are needed (agent.md).
 
 ### Phase 0 — kill the live bugs (small, localized) — DONE
 
-1. When a typed `{` opens a control word's argument, insert `{}` and place the
-   caret inside (`afterCommandWord` in `edit/brace.ts`, used by the brace path in
-   `nodes/math.ts`, mirroring the `^{}` auto-close; `typedBraceSkipsCloser`
-   handles the user's own closing `}`). Fixes the RC1 swallow family.
+1. A typed `{`/`}` ALWAYS escapes to its literal glyph (`\{`/`\}`) — even flush
+   after a command word — via `escapeTypedBrace` in `edit/brace.ts`, used by the
+   brace path in `nodes/math.ts`. A typed brace never opens an argument and never
+   steps over a construct's closer, so a keystroke can neither materialize an
+   auto-closed group nor reach into a neighbouring construct slot. Fixes the RC1
+   swallow family (and the frac-slot stray-brace corruption) by construction: the
+   whole "raw `{` runs to the source end and swallows the suffix" hazard is
+   unrepresentable. `\text{…}` and other argument-bearing constructs enter through
+   materialization (the `\` command palette) or pasted/imported source, neither of
+   which takes the single-char typing path. The only raw-brace exception is the
+   escape glyph the user types themselves (a lone `\` before the caret makes
+   `\`+`{` the literal `\{`). *(Superseded the original auto-close approach —
+   `afterCommandWord` / `typedBraceSkipsCloser` / `typedBraceClosesFractionSlot`
+   are removed; universal escaping is simpler and closes the class outright.)*
 2. Inverted `backslashFusesWith` from a non-letter blacklist to "a typed `\`
    fuses with any adjacent non-whitespace char" (keeping the `\\`-in-environment
    rule and the prime exclusion). Fixes RC2 typed path.
@@ -204,9 +218,9 @@ Landed with a runnable regression corpus (the 38 reproduced cases, driven
 through the real `insertText` pipeline):
 `packages/editor/src/math-text-brace-corruption.test.ts`,
 `math-backslash-fusion.test.ts`, and
-`nodes/math-matrix-cell-integrity.test.ts`. A redundant-separator cleanup was
-extended (`mathRedundantSeparatorAfterInput`) so the argument auto-close leaves
-no stray separator space (still gated by the parse-neutral `isRedundantSpace`).
+`nodes/math-matrix-cell-integrity.test.ts`. A redundant-separator cleanup
+(`mathRedundantSeparatorAfterInput`, gated by the parse-neutral `isRedundantSpace`)
+drops stray separator spaces left by the backslash-fusion guard.
 
 Known-remaining (distinct mechanisms, NOT among the four Phase 0 fixes; the
 first two are tracked as `it.fails` in the corpus, the last two as documented
@@ -231,6 +245,78 @@ carve-outs in the keystroke fuzzer):
 
 Fold the first two into a Phase 0.1; the last two are inherent to flat-string
 editing and are the province of the Phase 2 gate / Phase 4 rewrite.
+
+### Phase 0.2 — keystroke-time input narrowing — DONE
+
+One localized guard on the single-char typing path (`mathTransformTypedInput`,
+`nodes/math.ts`) keeps a class of invalid source from ever entering the document.
+It mirrors `escapeTypedBrace`'s "rewrite the keystroke before commit" shape and is
+a pure function over the source string, so it composes with the Phase 0 fixes
+without a new gate stage. Multi-char inserts (IME commit, paste) are treated as
+source text and bypass it, leaving those to the parser's existing handling. (A
+second guard, an unknown-command *reject*, originally lived here but was removed —
+it blocked keystrokes; see item 2.)
+
+1. **Reserved-character escaping** (`escapeTypedReserved`,
+   `packages/tex/src/edit/brace.ts`). A typed `$`, `#`, `%`, or `&` is rewritten
+   to its literal glyph (`\$`, `\#`, `\%`, `\&`) instead of acting as a math
+   toggle / macro parameter / comment / column separator. This closes a real
+   data-loss path: a bare `&` outside a tabular environment is dropped by the
+   parser entirely (`parser.ts` non-progress guard), so the keystroke silently
+   vanished. Carve-outs keep raw syntax where it is meant: a `&` inside a
+   `\begin{…}` environment stays a column separator, and a char typed flush after
+   a lone `\` completes the escape the user is already writing (`\` + `&` → `\&`,
+   not `\\&`). The existing brace path (`escapeTypedBrace`) already covered
+   `{`/`}`; together these escape every reserved char that has a math-mode literal
+   (`^`/`_`/`\` remain structural and are handled by the script/backslash paths).
+
+2. ~~**Unknown-command disallow** (`typedCommandCharRejected`)~~ — **REMOVED.**
+   This originally swallowed a letter that would grow the control word being typed
+   into a command not in the known list (`\fra` + `k` → the dead-end `\frak` was
+   rejected). It was reverted because it **blocks a user action**: a keystroke must
+   always land, so typing `\frak` (or any unknown/in-progress command) now enters
+   the source verbatim. Unknown commands fall to the red "unknown command"
+   rendering (the systemic gap above) rather than being un-typeable — a rendering
+   concern, not a reason to drop keystrokes. `needsCommandSeparator` still fires
+   after a *complete* command so `\alpha` + `s` separates to `\alpha s` (that is a
+   render-neutral space, not a blocked keystroke), and `KNOWN_COMMAND_NAMES` /
+   `isCommandNamePrefix` remain for that separator.
+
+Coverage: `escapeTypedReserved` unit tests in `packages/tex/src/edit/brace.test.ts`;
+end-to-end keystroke behavior in `packages/editor/src/inline-math-edit.test.ts`
+(incl. "typing an unknown command is never blocked").
+
+### Phase 0.3 — text-mode input is literal, not command — DONE
+
+Root cause of the reported `\text{\…}` corruption: the math-mode command-word
+machinery ran INSIDE a `\text{…}` body, where content is prose, not math. Typing
+`\` in a text run entered a bare `\ ` control space (`textGroupInsertPoint` branch
+in `nodes/math.ts`) that seeded a fake command run.
+This also mis-"fixed" the RC2 text case: `\text{hi}` + `\pi` produced
+`\text{\pi hi}`, which typesets "pi hi" (backslash invisible, π never rendered).
+
+The fix keys typed input on a single new predicate, `inRawTextArg`
+(`packages/tex/src/edit/brace.ts`, using the parser's `RAW_TEXT_COMMANDS` — the
+`\text` font family and `\operatorname*`): the region the parser reads as literal
+characters (`parseRawTextArg`). Inside it, `mathTransformTypedInput`:
+
+- escapes a typed `\` to the literal backslash glyph `\textbackslash{}` (the `{}`
+  separates it from a following letter with no visible space; the parser maps it
+  to `\`, and `emptySlotInteriorBefore` already excludes that `{}` from slot
+  fill), instead of the command-seeding `\ `;
+- skips `needsCommandSeparator` (letters are prose, not command suffixes).
+
+So `\hi` typed in a text run is the visible literal text `\hi` — every character
+preserved, nothing typeset-invisible, the enclosing matrix grid untouched. This
+resolves the RC2 text-mode sub-case properly (the reader now sees `\pi`, not a
+vanished backslash). The math-mode `\`-fusion guards (`backslashFusesWith`, the
+matrix/script/slot separators) are unchanged; they only fire outside text bodies.
+
+Coverage: `inRawTextArg` unit tests in `packages/tex/src/edit/brace.test.ts`;
+end-to-end (real action bus) in `packages/editor/src/math-backslash-fusion.test.ts`
+(no-swallow, lossless `\pi`/`\hi` in text) and
+`packages/editor/src/math-matrix-input-integration.test.ts` (grid intact while a
+`\`+letters run is typed in a matrix text cell).
 
 ### Phase 1 — regression corpus + keystroke fuzzer — DONE
 

@@ -216,14 +216,7 @@ export interface TextNode {
 export interface MClassNode {
   readonly type: "mclass";
   readonly mclass:
-    | "mord"
-    | "mbin"
-    | "mrel"
-    | "mopen"
-    | "mclose"
-    | "mpunct"
-    | "minner"
-    | "mop";
+    "mord" | "mbin" | "mrel" | "mopen" | "mclose" | "mpunct" | "minner" | "mop";
   readonly body: Node;
   readonly span: Span;
 }
@@ -277,7 +270,7 @@ export interface SpaceNode {
   readonly span: Span;
 }
 
-/** An unrecognized command — rendered as a visible placeholder, never thrown. */
+/** An unrecognized command — rendered as its literal `\name` source, never thrown. */
 export interface UnknownNode {
   readonly type: "unknown";
   readonly name: string;

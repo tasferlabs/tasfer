@@ -238,10 +238,12 @@ export {
 export { canRenderMathChar } from "./edit/char";
 export {
   escapeTypedBrace,
+  escapeTypedReserved,
   balanceBraces,
+  escapeStrayCloseBraces,
+  strayCloseBraceInserts,
   backslashFusesWith,
-  typedBraceSkipsCloser,
-  afterCommandWord,
+  inRawTextArg,
 } from "./edit/brace";
 export {
   symbolCommands,

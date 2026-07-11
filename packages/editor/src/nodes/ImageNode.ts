@@ -258,6 +258,20 @@ interface ImageGeometry {
 }
 
 /**
+ * Effective length of a resize bar. The configured `length` is the target, but
+ * on a small image a fixed-length bar overflows the image edges — a 100px
+ * vertical bar centered on a 40px-tall image spills ~30px past the top and
+ * bottom. Clamp the bar to the image's extent along its axis, keeping an 8px
+ * margin at each end while space allows, so it always reads as a handle sitting
+ * inside the image. Both the renderer and the hit-tester route through this so
+ * the drawn bar and its hit area never disagree.
+ */
+function fitBarLength(configured: number, extent: number): number {
+  const END_MARGIN = 8;
+  return Math.max(0, Math.min(configured, extent - END_MARGIN * 2));
+}
+
+/**
  * Which resize drag handle (if any) is under the pointer, given the drawn
  * image rect. `extraTolerance` widens the hit area beyond the visible bar
  * (mouse: 4px, touch: 12px).
@@ -283,11 +297,16 @@ export function getDragHandleAtPoint(
   // Extra tolerance for easier hovering/tapping (pixels beyond the visible bar)
   const tolerance = extraTolerance;
 
+  // Bar lengths are clamped to the image so a small image's handles don't
+  // overflow its edges (see fitBarLength); the render path clamps identically.
+  const verticalLength = fitBarLength(vertical.length, imageHeight);
+  const horizontalLength = fitBarLength(horizontal.length, imageWidth);
+
   // Left vertical bar (centered vertically with specified length)
   const leftBarX = imageX + vertical.inset;
   const leftBarWidth = vertical.thickness;
-  const leftBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
-  const leftBarHeight = vertical.length;
+  const leftBarY = imageY + (imageHeight - verticalLength) / 2; // Center vertically
+  const leftBarHeight = verticalLength;
 
   if (
     x >= leftBarX - tolerance &&
@@ -301,8 +320,8 @@ export function getDragHandleAtPoint(
   // Right vertical bar (centered vertically with specified length)
   const rightBarX = imageX + imageWidth - vertical.inset - vertical.thickness;
   const rightBarWidth = vertical.thickness;
-  const rightBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
-  const rightBarHeight = vertical.length;
+  const rightBarY = imageY + (imageHeight - verticalLength) / 2; // Center vertically
+  const rightBarHeight = verticalLength;
 
   if (
     x >= rightBarX - tolerance &&
@@ -316,8 +335,8 @@ export function getDragHandleAtPoint(
   // Bottom horizontal bar (centered horizontally with specified length)
   // Only active in cover mode
   if (objectFit === "cover") {
-    const bottomBarX = imageX + (imageWidth - horizontal.length) / 2; // Center horizontally
-    const bottomBarWidth = horizontal.length;
+    const bottomBarX = imageX + (imageWidth - horizontalLength) / 2; // Center horizontally
+    const bottomBarWidth = horizontalLength;
     const bottomBarY =
       imageY + imageHeight - horizontal.inset - horizontal.thickness;
     const bottomBarHeight = horizontal.thickness;
@@ -1307,30 +1326,35 @@ function renderImageDragHandles(
     ctx.restore();
   };
 
+  // Clamp bar lengths to the image so handles never overflow a small image's
+  // edges; getDragHandleAtPoint clamps identically so hit areas match.
+  const verticalLength = fitBarLength(vertical.length, height);
+  const horizontalLength = fitBarLength(horizontal.length, width);
+
   // Left vertical bar
   renderBar(
     x + vertical.inset,
-    y + (height - vertical.length) / 2,
+    y + (height - verticalLength) / 2,
     vertical.thickness,
-    vertical.length,
+    verticalLength,
     hoveredHandle === "left",
   );
 
   // Right vertical bar
   renderBar(
     x + width - vertical.inset - vertical.thickness,
-    y + (height - vertical.length) / 2,
+    y + (height - verticalLength) / 2,
     vertical.thickness,
-    vertical.length,
+    verticalLength,
     hoveredHandle === "right",
   );
 
   // Bottom horizontal bar (cover mode only)
   if (showBottomHandle) {
     renderBar(
-      x + (width - horizontal.length) / 2,
+      x + (width - horizontalLength) / 2,
       y + height - horizontal.inset - horizontal.thickness,
-      horizontal.length,
+      horizontalLength,
       horizontal.thickness,
       hoveredHandle === "bottom",
     );

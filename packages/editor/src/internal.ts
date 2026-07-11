@@ -73,7 +73,7 @@ export {
   getBlockTextLength,
   isTouchDevice,
 } from "./state-utils";
-export { isTextualBlock } from "./sync/block-registry";
+export { canHaveFormats, isTextualBlock } from "./sync/block-registry";
 export {
   extractTitleFromBlocks,
   findTitleBlock,

@@ -88,6 +88,7 @@ import {
   isTouchDevice,
   updateMode,
 } from "../state-utils";
+import { getEditorStyles } from "../styles";
 import { findBlockIndex } from "../sync/block-lookup";
 import {
   getVisibleTextFromChars,
@@ -103,11 +104,11 @@ import { applyOps, cardJoinFlags } from "../sync/reducer";
 import {
   mathAbsorbNumericPunctuationAfterInput,
   mathArmScratch,
-  mathBalanceAfterInput,
   mathBalancedLatex,
   mathCaretMove,
   mathCommandRanges,
   mathDeleteUnit,
+  mathHealAfterInput,
   mathJoinAtEdgeAfterInput,
   mathMaterializeAfterInput,
   mathMergeAfterDelete,
@@ -442,7 +443,7 @@ export class MathNode extends TextNode {
       const commandEntryActive =
         caretIndex !== null &&
         isCaretScratchActive(state, c.block.id, caretIndex);
-      const { literalRange, pendingRange } = mathCommandRanges(
+      const { literalRange } = mathCommandRanges(
         latex,
         caretIndex,
         commandEntryActive,
@@ -514,7 +515,6 @@ export class MathNode extends TextNode {
 
       paintMath(ctx, mathLayout, drawX, baselineY, {
         color: styles.blocks.paragraph.color,
-        pendingRange,
       });
 
       // Underline the composing (IME) sub-range like the OS marks a string being
@@ -1002,10 +1002,18 @@ export class MathNode extends TextNode {
         // so simply leaving them untouched keeps them null in a readonly editor.
         if (state.ui.isReadonlyBase) return { state, ops: [] };
         // Whole-block hover: the pointer is genuinely over a (now textual) math
-        // block. Gate on `blockUnderPoint` (bounds-exact), NOT `textPosition`
+        // block. Gate on `blockUnderPoint` (row-exact), NOT `textPosition`
         // (which clamps to the last block), so hovering the empty space below a
-        // trailing equation doesn't light it.
+        // trailing equation doesn't light it. `blockUnderPoint` only resolves the
+        // vertical band, so also require the pointer to be horizontally inside the
+        // content column — the same rect the backdrop fills — so hovering the page
+        // margins beside the equation doesn't light it either.
+        const styles = getEditorStyles(state);
+        const withinContentColumn =
+          canvasX >= styles.canvas.paddingLeft &&
+          canvasX < viewport.width - styles.canvas.paddingRight;
         const mathBlockIndex =
+          withinContentColumn &&
           blockUnderPoint !== null &&
           state.document.page.blocks[blockUnderPoint]?.type === "math"
             ? blockUnderPoint
@@ -1116,15 +1124,17 @@ export class MathNode extends TextNode {
       const separated = separateBlockMath(merged.state, blockIndex, textIndex);
       let next = separated.state;
       const ops: Operation[] = [...merged.ops, ...separated.ops];
-      // Auto-heal grouping braces the same way the input path does: a delete that
+      // Auto-heal brace corruption the same way the input path does: a delete that
       // left an unclosed `{` (or one that landed in an already-imbalanced block)
       // regains the caret stop past the construct instead of trapping every
-      // trailing offset inside the open group. Idempotent, so balanced content
-      // no-ops. Runs on the caret's own position so a chip is resolved from it.
+      // trailing offset inside the open group, and a committed stray `}` is escaped
+      // to `\}` so a `$$}$$`-style dead cell becomes editable the moment it is
+      // changed. Idempotent, so brace-clean content no-ops. Runs on the caret's own
+      // position so a chip is resolved from it.
       const balanceBlock = next.document.page.blocks[blockIndex];
       const bal =
         balanceBlock && !balanceBlock.deleted
-          ? mathBalanceAfterInput(balanceBlock, textIndex)
+          ? mathHealAfterInput(balanceBlock, textIndex)
           : null;
       if (bal && bal.inserts.length > 0) {
         next = applyMathInserts(
@@ -1185,7 +1195,7 @@ function selectMathRange(
 
 /**
  * Apply a math content plan (`{ inserts, caret, markRange? }` from
- * {@link mathBalanceAfterInput} / {@link mathMaterializeAfterInput}) as real CRDT
+ * {@link mathHealAfterInput} / {@link mathMaterializeAfterInput}) as real CRDT
  * ops: splice each insert in right-to-left (so an earlier `at` stays valid as
  * later inserts shift text), re-mark the grown chip when a `markRange` is given
  * (an inline chip's new braces land at its right edge, outside the math mark),
@@ -1300,17 +1310,18 @@ function normalizeMathInput(
     next = moveCursorToPosition(next, blockIndex, caret, true);
   }
 
-  // Auto-heal unbalanced grouping braces BEFORE materializing, so the materializer
-  // works on balanced source. An unclosed `{` (only ever from pasted/imported
-  // LaTeX — typed braces are escaped and materialization inserts balanced pairs)
-  // makes its group run to the source end, swallowing every trailing offset so no
-  // caret can sit after the construct; appending the missing `}` restores that
-  // right-side exit position. Render-neutral and idempotent, so it no-ops on the
-  // balanced source normal typing produces.
+  // Auto-heal brace corruption BEFORE materializing, so the materializer works on
+  // healed source. Both directions of imbalance only ever come from pasted /
+  // imported / op-log LaTeX — typed braces are escaped and materialization inserts
+  // balanced pairs: an unclosed `{` makes its group run to the source end,
+  // swallowing every trailing offset so no caret can sit after the construct
+  // (appending the missing `}` restores that exit), and a stray `}` is escaped to
+  // `\}` so a `$$}$$`-style dead cell gains real caret stops on this very edit.
+  // Render-neutral and idempotent, so it no-ops on the source normal typing produces.
   const balanceBlock = next.document.page.blocks[blockIndex];
   const bal =
     balanceBlock && !balanceBlock.deleted
-      ? mathBalanceAfterInput(balanceBlock, caret)
+      ? mathHealAfterInput(balanceBlock, caret)
       : null;
   if (bal && bal.inserts.length > 0) {
     const applied = applyMathInserts(next, block.id, blockIndex, bal, ops);

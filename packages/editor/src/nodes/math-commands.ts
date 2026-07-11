@@ -678,6 +678,39 @@ export const MATH_COMMANDS: readonly MathCommand[] = [
 ];
 
 /**
+ * Whether `prefix` (the letters typed after a `\`, no backslash) could still
+ * grow into a longer catalog *environment* command — e.g. `pma` → `pmatrix`,
+ * `bm` → `bmatrix`. Only the `\begin{…}` entries (the matrix family, `cases`,
+ * `aligned`) count; their ids ARE the environment names.
+ *
+ * The live typing path consults this in two places, both to keep the source (and
+ * thus the letters-only `\`-menu query) intact while the user types toward one of
+ * these longer names past a shorter complete engine command:
+ *
+ *  - the `\command`-separator that keeps a completed control word from swallowing
+ *    the next letter (`\oint` + `x` → `\oint x`). `\pm` is a complete command (±),
+ *    so `\pm` + `a` would separate into `\pm atrix`, stranding the query;
+ *  - argument materialization (`\bm` → `\bm{}`, the bold-math command auto-opening
+ *    its slot), which would divert the following letters INTO the braces
+ *    (`\bm{atrix}`) instead of extending the control word toward `\bmatrix`.
+ *
+ * Scoped to environments on purpose: a symbol/accent whose name is also a prefix
+ * (`\dot` → `\doteq`, `\bar` → `\barwedge`) is a common leaf the user genuinely
+ * wants materialized (`\dot{}`), so those must NOT be suppressed. An environment
+ * name, by contrast, is never a useful bare control word — it only reaches the
+ * document through the menu's `\begin{…}` expansion.
+ */
+export function isMathEnvironmentCommandPrefix(prefix: string): boolean {
+  if (!prefix) return false;
+  return MATH_COMMANDS.some(
+    (c) =>
+      c.latex.startsWith("\\begin{") &&
+      c.id.length > prefix.length &&
+      c.id.startsWith(prefix),
+  );
+}
+
+/**
  * Filter + rank the catalog by `query` (the text typed after `\`, letters only).
  * An empty query returns the curated tier in its curated order — the browse
  * list. A non-empty query searches the full catalog (curated + generated), so

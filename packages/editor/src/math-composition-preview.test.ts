@@ -206,8 +206,9 @@ describe("IME composition still commits into math", () => {
   });
 
   it("commits the composed text inside an inline chip, keeping the math mark", () => {
-    const { page, binding } = inlineChip("\\alpha");
-    let state = focusedAt(page, binding, 0, 3); // strictly inside the chip
+    // Plain content (not a command): composing a letter mid-chip is legitimate.
+    const { page, binding } = inlineChip("x+y");
+    let state = focusedAt(page, binding, 0, 1); // strictly inside the chip
     state = handleCompositionStart(state, compositionEvent("z")).state;
 
     const { state: after } = handleCompositionEnd(

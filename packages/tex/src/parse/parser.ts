@@ -996,6 +996,20 @@ const TEXT_FONTS: Record<string, string> = {
   textsf: "SansSerif-Regular",
 };
 
+/**
+ * Commands whose argument the parser reads as a raw literal-text run (see
+ * {@link Parser.parseRawTextArg}): the `\text` font family and `\operatorname*`.
+ * Inside such a body a `\` is a literal backslash and letters are prose — NOT a
+ * math control word — so the edit layer keeps command-word machinery (build /
+ * reject / separate) out of these regions, where it would otherwise eat prose
+ * keystrokes. Exposed for `inRawTextArg` in `edit/brace.ts`.
+ */
+export const RAW_TEXT_COMMANDS: ReadonlySet<string> = new Set<string>([
+  ...Object.keys(TEXT_FONTS),
+  "operatorname",
+  "operatornamewithlimits",
+]);
+
 /** Atom-class wrappers → resulting class. */
 const MCLASS_FORMS: Record<string, MClassNode["mclass"]> = {
   mathord: "mord",

@@ -46,7 +46,7 @@ function emit(
   switch (box.type) {
     case "glyph": {
       if (box.char === "" || (box.width === 0 && box.height === 0)) return;
-      const fill = box.color ?? color;
+      const fill = color;
       const size = box.size * fs;
       const t =
         box.yScale != null && box.yScale !== 1

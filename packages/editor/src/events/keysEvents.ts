@@ -46,7 +46,7 @@ import {
   INSERT_TAB,
   OUTDENT_LIST_ITEM,
 } from "../rendering/nodes";
-import { getTextDirection } from "../rtl";
+import { getBlockDirection } from "../rtl";
 import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
@@ -64,7 +64,6 @@ import type {
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
-import { getBlockTextContent } from "../state-utils";
 import { isPreformattedType, isTextualBlock } from "../sync/block-registry";
 import { redoState, undoState } from "../sync/crdt-undo";
 import type { Operation } from "../sync/sync";
@@ -365,7 +364,7 @@ export function handleKeyDown(
           const selectionIsRTL =
             selStartBlock &&
             isTextualBlock(selStartBlock) &&
-            getTextDirection(getBlockTextContent(selStartBlock)) === "rtl";
+            getBlockDirection(selStartBlock, state.marks) === "rtl";
 
           if (selectionIsRTL) {
             // RTL: ArrowLeft = visual left = move to end (forward in logical order)
@@ -470,7 +469,7 @@ export function handleKeyDown(
           const selectionIsRTL =
             selEndBlock &&
             isTextualBlock(selEndBlock) &&
-            getTextDirection(getBlockTextContent(selEndBlock)) === "rtl";
+            getBlockDirection(selEndBlock, state.marks) === "rtl";
 
           if (selectionIsRTL) {
             // RTL: ArrowRight = visual right = move to start (backward in logical order)

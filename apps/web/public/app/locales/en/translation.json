@@ -907,5 +907,7 @@
   "wordCount.charactersNoSpaces": "Characters (no spaces)",
   "wordCount.sentences": "Sentences",
   "wordCount.paragraphs": "Paragraphs",
-  "wordCount.readingTime": "Reading time"
+  "wordCount.readingTime": "Reading time",
+  "export.previewPdf": "Preview PDF",
+  "export.downloadPdf": "Download PDF"
 }

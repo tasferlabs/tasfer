@@ -248,12 +248,16 @@ describe("parse literalRange — in-progress command stays literal", () => {
     // The caller marks `\in` as still-being-typed (its `\` at offset 0): it
     // parses as a literal `unknown` instead of flashing the ∈ symbol.
     const range = pendingCommandRange("\\in", 3)!;
-    expect(unknownNames(parse("\\in", { literalRange: range }))).toEqual(["in"]);
+    expect(unknownNames(parse("\\in", { literalRange: range }))).toEqual([
+      "in",
+    ]);
   });
 
   it("only affects the command whose `\\` sits at literalRange.start", () => {
     // A range pointing elsewhere leaves the command resolved.
-    expect(unknownNames(parse("\\in", { literalRange: { start: 5, end: 8 } }))).toEqual([]);
+    expect(
+      unknownNames(parse("\\in", { literalRange: { start: 5, end: 8 } })),
+    ).toEqual([]);
     // Mid-string: `x+\in`, the `\` is at offset 2.
     const r = pendingCommandRange("x+\\in", 5)!;
     expect(unknownNames(parse("x+\\in", { literalRange: r }))).toEqual(["in"]);
@@ -263,7 +267,9 @@ describe("parse literalRange — in-progress command stays literal", () => {
     // `\in\int` while typing the first one — only `\in` goes literal; the
     // second stays a resolved operator (so the geometry of the rest is intact).
     const r = { start: 0, end: 3 };
-    expect(unknownNames(parse("\\in\\int", { literalRange: r }))).toEqual(["in"]);
+    expect(unknownNames(parse("\\in\\int", { literalRange: r }))).toEqual([
+      "in",
+    ]);
   });
 
   it("makes the literal command wider than its resolved symbol", () => {

@@ -134,7 +134,9 @@ describe("keyboard integration: \\text in a matrix cell (block equation)", () =>
     let s = blockState("\\begin{matrix}a&b\\end{matrix}", CELL1_END);
     s = typeKeys(s, "\\text{");
     const src = blockLatex(s);
-    expect(src).toBe("\\begin{matrix}a\\text{}&b\\end{matrix}");
+    // The `{` escapes to `\{` (a typed brace never opens an argument), and the
+    // `&` column separator survives — the 2-column grid is intact.
+    expect(src).toBe("\\begin{matrix}a\\text\\{&b\\end{matrix}");
     expect(mathMatrixContext(src, CELL1_END)?.cols).toBe(2);
     expect(mathMatrixContext(src, caretOffset(s))?.cols).toBe(2);
   });
@@ -144,7 +146,7 @@ describe("keyboard integration: \\text in a matrix cell (block equation)", () =>
     let s = blockState("\\begin{matrix}a&b\\end{matrix}", at);
     s = typeKeys(s, "\\text{");
     const src = blockLatex(s);
-    expect(src).toBe("\\begin{matrix}a\\text{}&b\\end{matrix}");
+    expect(src).toBe("\\begin{matrix}a\\text\\{&b\\end{matrix}");
     expect(mathMatrixContext(src, at)?.cols).toBe(2);
     expect(mathMatrixContext(src, caretOffset(s))?.cols).toBe(2);
   });
@@ -154,22 +156,34 @@ describe("keyboard integration: \\text in a matrix cell (block equation)", () =>
     let s = blockState("\\begin{matrix}a&b\\end{matrix}", at);
     s = typeKeys(s, "\\text{");
     const src = blockLatex(s);
-    expect(src).toBe("\\begin{matrix}a&\\text{}b\\end{matrix}");
+    expect(src).toBe("\\begin{matrix}a&\\text\\{b\\end{matrix}");
     const live = mathMatrixContext(src, caretOffset(s));
     expect(live?.cols).toBe(2);
     expect(live?.col).toBe(1);
   });
 
-  it("typing \\ inside a matrix text cell keeps command entry active", () => {
-    let s = blockState("\\begin{matrix}a&b\\end{matrix}", CELL1_END);
-    s = typeKeys(s, "\\text{\\");
+  it("typing \\ inside a PRE-EXISTING matrix text cell enters a literal backslash, keeps the grid", () => {
+    // Editing INSIDE an existing `\text{}` run (from materialization/paste — a
+    // typed `\text{` no longer creates one): the content is prose, not math, so a
+    // typed `\` is the literal backslash glyph (`\textbackslash{}`), NOT a command
+    // intro that would seed a fake command run and eat following letters. The `&`
+    // still separates the cells, so the 2-column grid is intact.
+    const host = "\\begin{matrix}a\\text{}&b\\end{matrix}";
+    const inside = "\\begin{matrix}a\\text{".length; // caret between the `\text{}` braces
+    let s = blockState(host, inside);
+    s = typeKeys(s, "\\");
     const src = blockLatex(s);
-    expect(src).toBe("\\begin{matrix}a\\text{\\ }&b\\end{matrix}");
+    expect(src).toBe(
+      "\\begin{matrix}a\\text{\\textbackslash{}}&b\\end{matrix}",
+    );
     const live = mathMatrixContext(src, caretOffset(s));
     expect(live?.cols).toBe(2);
     expect(live?.col).toBe(0);
-    expect(src[caretOffset(s) - 1]).toBe("\\");
-    expect(src[caretOffset(s)]).toBe(" ");
+    // Following letters land as plain text (no command building, no data loss).
+    s = typeKeys(s, "hi");
+    expect(blockLatex(s)).toBe(
+      "\\begin{matrix}a\\text{\\textbackslash{}hi}&b\\end{matrix}",
+    );
   });
 
   it("typing partial \\text{ before a row separator keeps the row break", () => {
@@ -177,7 +191,7 @@ describe("keyboard integration: \\text in a matrix cell (block equation)", () =>
     let s = blockState("\\begin{matrix}a\\\\b\\end{matrix}", at);
     s = typeKeys(s, "\\text{");
     const src = blockLatex(s);
-    expect(src).toBe("\\begin{matrix}a\\text{}\\\\b\\end{matrix}");
+    expect(src).toBe("\\begin{matrix}a\\text\\{\\\\b\\end{matrix}");
     const ctx = mathMatrixContext(src, at);
     const live = mathMatrixContext(src, caretOffset(s));
     expect(ctx?.cols).toBe(1);
@@ -190,7 +204,7 @@ describe("keyboard integration: \\text in a matrix cell (block equation)", () =>
     let s = blockState("\\begin{matrix}a&b\\end{matrix}", CELL1_END);
     s = typeKeys(s, "\\text{x}");
     const src = blockLatex(s);
-    expect(src).toBe("\\begin{matrix}a\\text{x}&b\\end{matrix}");
+    expect(src).toBe("\\begin{matrix}a\\text\\{x\\}&b\\end{matrix}");
     expect(mathMatrixContext(src, CELL1_END)?.cols).toBe(2);
   });
 
@@ -199,7 +213,7 @@ describe("keyboard integration: \\text in a matrix cell (block equation)", () =>
     let s = blockState("\\begin{matrix}a&b\\end{matrix}", at);
     s = typeKeys(s, "\\text{x}");
     const src = blockLatex(s);
-    expect(src).toBe("\\begin{matrix}a&b\\text{x}\\end{matrix}");
+    expect(src).toBe("\\begin{matrix}a&b\\text\\{x\\}\\end{matrix}");
     expect(mathMatrixContext(src, at)?.cols).toBe(2);
   });
 
@@ -220,7 +234,7 @@ describe("keyboard integration: \\text in a matrix cell (inline math)", () => {
     s = typeKeys(s, "\\text{x}");
     const spans = getInlineMathSpans(s.document.page.blocks[0]);
     expect(spans).toHaveLength(1);
-    expect(spans[0].latex).toBe("\\begin{matrix}a\\text{x}&b\\end{matrix}");
+    expect(spans[0].latex).toBe("\\begin{matrix}a\\text\\{x\\}&b\\end{matrix}");
     expect(mathMatrixContext(spans[0].latex, CELL1_END)?.cols).toBe(2);
   });
 });

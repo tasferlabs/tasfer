@@ -9,13 +9,13 @@ import type {
 } from "../events/interaction-session";
 import { currentFontFamily, getFontStack } from "../fonts";
 import type { TextualBlock } from "../nodes/TextNode";
-import { getTextDirection } from "../rtl";
+import { getBlockDirection, getTextDirection } from "../rtl";
 import {
   isCursorBlinking,
   isNodeSelection,
   selectionHighlightEdge,
 } from "../selection";
-import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
+import type { Block, Char, MarkSpan } from "../serlization/loadPage";
 import type {
   EditorState,
   EditorStyles,
@@ -29,11 +29,7 @@ import { isTouchDevice } from "../state-utils";
 import { getEditorStyles } from "../styles";
 import { findBlock } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
-import {
-  getCharIdFromRun,
-  getVisibleTextFromChars,
-  isCharDeleted,
-} from "../sync/char-runs";
+import { getVisibleTextFromChars } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
 import type { BlockHeightIndex } from "./block-height-index";
 import { caretLandingProgress, caretLandingShape } from "./caret-landing";
@@ -47,24 +43,6 @@ import type { MarkRegistry } from "./marks";
 import type { NodeRegionCtx, NodeRegistry } from "./nodes";
 import { getContentWithComposition, TextNode, UnknownNode } from "./nodes";
 import { renderScrollbar } from "./scrollbar";
-
-/**
- * Convert charRuns to Char[] for compatibility with measurement functions
- */
-function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
-  if (!charRuns) return [];
-  const chars: Char[] = [];
-  for (const run of charRuns) {
-    for (let offset = 0; offset < run.text.length; offset++) {
-      chars.push({
-        id: getCharIdFromRun(run, offset),
-        char: run.text[offset],
-        deleted: isCharDeleted(run, offset),
-      });
-    }
-  }
-  return chars;
-}
 
 // Helper to get a block's flow height. The base height comes from the block's
 // layout, which is memoized on the block (see Node.layout / memoizeNodeLayout),
@@ -938,10 +916,10 @@ function renderCaretDecorations(
       const labelWidth = textWidth + iconSpace + labelPadding * 2;
       const labelHeight = contentHeight + labelPadding * 2;
 
-      // Detect RTL to position label on the correct side of cursor
-      const blockChars = charRunsToChars(block.charRuns);
-      const blockText = getVisibleTextFromChars(blockChars);
-      const isCursorRTL = getTextDirection(blockText) === "rtl";
+      // Detect RTL to position label on the correct side of cursor. Uses the
+      // block direction (inline-math source excluded), matching how the block
+      // itself lays out, so the label sits on the same side as the caret.
+      const isCursorRTL = getBlockDirection(block, state.marks) === "rtl";
 
       // In RTL, label extends to the left of cursor; in LTR, to the right
       let labelX = isCursorRTL ? cursorPos.x - labelWidth : cursorPos.x;
