@@ -152,6 +152,15 @@
      centered on the lights and cleared past them horizontally. */
   --mac-chrome-bar-height: 50px;
   --mac-traffic-light-inset: 80px;
+
+  /* Time-of-day scale for the timezone picker's day bars and row dots
+     (interpolated with color-mix in timezoneData.ts). Muted so the bars sit
+     quietly on the light popover: deep slate night, soft amber dawn/dusk,
+     warm cream day. */
+  --timeofday-night: oklch(0.35 0.045 275);
+  --timeofday-dawn: oklch(0.78 0.09 70);
+  --timeofday-day: oklch(0.9 0.055 90);
+  --timeofday-dusk: oklch(0.65 0.08 50);
 }
 
 .dark {
@@ -218,6 +227,13 @@
 
   /* Wordmark stays the same lighter emerald in dark mode. */
   --wordmark-color: oklch(0.74 0.16 163);
+
+  /* Time-of-day scale, dimmed for the dark popover: night stays just above
+     the surface, daylight is softened so it doesn't glare. */
+  --timeofday-night: oklch(0.28 0.035 275);
+  --timeofday-dawn: oklch(0.6 0.09 65);
+  --timeofday-day: oklch(0.78 0.06 90);
+  --timeofday-dusk: oklch(0.52 0.08 50);
 }
 
 @layer base {

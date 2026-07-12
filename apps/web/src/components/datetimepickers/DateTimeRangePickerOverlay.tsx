@@ -8,7 +8,7 @@ import { DateTime } from 'luxon';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getLuxon, padValue, plusDatetime } from './utils';
-import { TimePicker } from './TimePicker';
+import { TimeFields } from './TimeFields';
 import { getWeekStart, formatDatePreferred } from '@/lib/dateTimePreferences';
 
 type RangePickerOverlayProps = {
@@ -364,22 +364,20 @@ export function DateTimeRangePickerOverlay({
     <div className={cn('flex gap-3', isDesktop ? 'flex-row' : 'flex-col')}>
       <div className="flex-1">
         <span className="text-xs text-muted-foreground mb-1 block">{t("calendar.startTime", "Start time")}</span>
-        <TimePicker
+        <TimeFields
           selectedHour={startSelectedHour}
           setSelectedHour={setStartSelectedHour}
           selectedMinute={startSelectedMinute}
           setSelectedMinute={setStartSelectedMinute}
-          value={startValue}
         />
       </div>
       <div className="flex-1">
         <span className="text-xs text-muted-foreground mb-1 block">{t("calendar.endTime", "End time")}</span>
-        <TimePicker
+        <TimeFields
           selectedHour={endSelectedHour}
           setSelectedHour={setEndSelectedHour}
           selectedMinute={endSelectedMinute}
           setSelectedMinute={setEndSelectedMinute}
-          value={endValue}
         />
       </div>
     </div>
@@ -405,7 +403,10 @@ export function DateTimeRangePickerOverlay({
   if (!isDesktop) {
     return (
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-        <DialogContent className="max-w-[400px] p-4 pt-6 max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-[400px] p-4 pt-6 max-h-[90vh] overflow-y-auto"
+          onEscapeKeyDown={(e) => e.stopPropagation()}
+        >
           <DialogTitle className="sr-only">{t("common.date", "Date")}</DialogTitle>
           {component}
           <div className="flex justify-end mt-2">
@@ -419,13 +420,17 @@ export function DateTimeRangePickerOverlay({
   }
 
   return (
-    <Popover open={open} onOpenChange={(v) => !v && onClose()}>
+    <Popover modal open={open} onOpenChange={(v) => !v && onClose()}>
       <PopoverAnchor />
-      <PopoverContent className="w-auto p-3" align="center">
+      <PopoverContent
+        className="w-auto p-3"
+        align="center"
+        onEscapeKeyDown={(e) => e.stopPropagation()}
+      >
         {component}
         <div className="flex justify-end mt-2">
           <Button onClick={onClose} variant="secondary" size="sm">
-            Done
+            {t("common.done", "Done")}
           </Button>
         </div>
       </PopoverContent>

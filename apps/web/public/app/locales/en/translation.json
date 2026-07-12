@@ -207,10 +207,13 @@
   "common.add": "add",
   "common.archive": "Archive",
   "common.archiveKw": "archive",
+  "common.apply": "Apply",
   "common.areYouSure": "Are you sure?",
   "common.avatar": "Avatar",
   "common.back": "Back",
   "common.cancel": "Cancel",
+  "common.hour": "Hour",
+  "common.minute": "Minute",
   "common.discard": "Discard",
   "common.close": "Close",
   "common.closeKw": "close",
@@ -909,5 +912,13 @@
   "wordCount.paragraphs": "Paragraphs",
   "wordCount.readingTime": "Reading time",
   "export.previewPdf": "Preview PDF",
-  "export.downloadPdf": "Download PDF"
+  "export.downloadPdf": "Download PDF",
+  "timePicker.title": "Select Time",
+  "timePicker.dial": "Clock dial",
+  "datePicker.title": "Select Date",
+  "timezone.pickerLabel": "Time zone",
+  "timezone.searchPlaceholder": "Search city or GMT offset…",
+  "timezone.noResults": "No matches. Try a city name or an offset like GMT+2.",
+  "timezone.suggested": "Suggested",
+  "timezone.allZones": "All time zones"
 }

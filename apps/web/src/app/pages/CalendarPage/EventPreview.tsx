@@ -1,4 +1,5 @@
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
+import { TimezonePicker } from "@/components/timezonepicker/TimezonePicker";
 import { PagePicker } from "@/components/PagePicker";
 import { useConfirmation } from "@/app/components/ConfirmationDialog";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ import {
   Clock,
   Copy,
   FolderOpen,
+  Globe,
   GripHorizontal,
   Info,
   Maximize2,
@@ -602,6 +604,10 @@ export function EventPreview({
   useEffect(() => {
     if (!isActive || sidebarMode || isMobile) return;
     function handlePointerDown(e: PointerEvent) {
+      // While a modal Radix layer (e.g. the date picker popover) is open it
+      // disables pointer events on <body>, so the click that dismisses it
+      // targets <html>. That click belongs to the modal layer, not to us.
+      if (document.body.style.pointerEvents === "none") return;
       const target = e.target as Node;
       if (
         target instanceof Element &&
@@ -821,7 +827,9 @@ export function EventPreview({
     </div>
   );
 
-  const tz = DateTime.local().zoneName;
+  // View-only time zone for the schedule fields: the stored instant is
+  // unchanged, it is just displayed and edited in the chosen zone.
+  const [tz, setTz] = useState(() => DateTime.local().zoneName);
   const dateValue = isDraft
     ? (draft?.scheduledAt ?? null)
     : (previewPage?.scheduledAt ?? null);
@@ -1082,6 +1090,10 @@ export function EventPreview({
         </Combobox>
       </div>
       <div className={style.previewRow}>
+        <Globe size={14} className={style.previewRowIcon} />
+        <TimezonePicker value={tz} onChange={setTz} />
+      </div>
+      <div className={style.previewRow}>
         <FolderOpen size={14} className={style.previewRowIcon} />
         <PagePicker
           spaceId={activeSpaceId}
@@ -1156,6 +1168,10 @@ export function EventPreview({
               </ComboboxList>
             </ComboboxContent>
           </Combobox>
+        </div>
+        <div className={style.previewRow}>
+          <Globe size={16} className={style.previewRowIcon} />
+          <TimezonePicker value={tz} onChange={setTz} />
         </div>
       </div>
 
@@ -1281,6 +1297,10 @@ export function EventPreview({
             </ComboboxList>
           </ComboboxContent>
         </Combobox>
+      </div>
+      <div className={style.previewRow}>
+        <Globe size={14} className={style.previewRowIcon} />
+        <TimezonePicker value={tz} onChange={setTz} />
       </div>
       {isDraft ? (
         // Drafts reuse the mobile sheet's drill-down parent picker, with a
