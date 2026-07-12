@@ -5,20 +5,26 @@
  * layout onto a canvas. `layoutMath` is synchronous and returns exact pixel
  * dimensions (metrics are a data table, not an async measurement).
  *
- * This module IS the curated public contract: it deals in `latex` strings and
- * the opaque `MathLayout` handle (which you create with `layoutMath` and hand
- * straight to `paintMath` / the caret helpers without inspecting). The brittle
- * internals it's built on — the laid-out box tree and the parse AST — live in
- * the explicitly-unstable `@cypherkit/tex/internal` entry (see ./internal.ts),
+ * This module IS the curated public contract: it deals in `latex` strings, the
+ * stable identity-bearing `MathDocument`, the opaque `MathLayout` handle, and
+ * identity-keyed `MathDocumentLayout` geometry. The brittle internals they're
+ * built on — the laid-out box tree and rendering parse AST — live in the
+ * explicitly-unstable `@cypherkit/tex/internal` entry (see ./internal.ts),
  * mirroring `@cypherkit/editor`. Keep this surface tight.
  */
+import {
+  createMathDocumentLayout,
+  type MathDocumentLayout,
+} from "./document/layout";
+import type { MathDocument } from "./document/model";
+import { projectMathDocumentSource } from "./document/print";
+import type { Box } from "./layout/box";
 import {
   annotateTextFallback,
   buildExpression,
   buildExpressionWrapped,
   topLevelBreakOffsets,
 } from "./layout/build";
-import type { Box } from "./layout/box";
 import type { Node, TextFallbackChar } from "./parse/ast";
 import { parse } from "./parse/parser";
 import { DISPLAY, TEXT } from "./style";
@@ -68,6 +74,9 @@ export interface LayoutOptions {
    */
   textFallback?: TextFallback;
 }
+
+/** Source-offset-free options for the identity-bearing document layout API. */
+export type MathDocumentLayoutOptions = Omit<LayoutOptions, "literalRange">;
 
 /**
  * A host-provided text face for the `\text{…}` fallback (see
@@ -183,6 +192,25 @@ export function layoutMath(
 }
 
 /**
+ * Lay out an authoritative identity-bearing math tree.
+ *
+ * The current painter still consumes the mature source-span layout engine, so
+ * this function makes a transient canonical projection and immediately maps
+ * its boxes/carets back to stable document ids. The source is never returned as
+ * editable state: callers mutate `document`, then lay it out again.
+ */
+export function layoutMathDocument(
+  document: MathDocument,
+  opts: MathDocumentLayoutOptions = {},
+): MathDocumentLayout {
+  const projection = projectMathDocumentSource(document);
+  return createMathDocumentLayout(
+    projection,
+    layoutMath(projection.latex, opts),
+  );
+}
+
+/**
  * Source offsets where `latex` may be line-broken at top level — before each
  * binary operator / relation. Empty when the formula has no such break (a single
  * atom, one big construct). A caller wrapping inline math into running text uses
@@ -195,66 +223,115 @@ export function breakpoints(latex: string): number[] {
   return topLevelBreakOffsets(ast.type === "ord" ? ast.body : [ast], TEXT);
 }
 
-export { needsCommandSeparator, pendingCommandRange } from "./parse/parser";
-export { paintMath, type PaintOptions } from "./paint/canvas";
-export { toSVG, type ToSvgOptions } from "./paint/svg";
+export type { FontVariant } from "./data/fontMetrics";
 export {
-  caretStops,
-  hitTest,
-  caretRect,
-  caretVertical,
-  selectionRects,
-  spanAtPoint,
-} from "./edit/caret";
+  hitTestMathDocument,
+  type MathDocumentBounds,
+  type MathDocumentCaretAddress,
+  mathDocumentCaretFromSourceOffset,
+  type MathDocumentCaretPosition,
+  type MathDocumentCaretStop,
+  mathDocumentCaretStop,
+  mathDocumentCaretVertical,
+  type MathDocumentFieldPosition,
+  type MathDocumentHitTestOptions,
+  type MathDocumentItemLayout,
+  type MathDocumentItemType,
+  type MathDocumentLayout,
+  type MathDocumentRowPosition,
+} from "./document/layout";
+export {
+  backslashFusesWith,
+  balanceBraces,
+  escapeStrayCloseBraces,
+  escapeTypedBrace,
+  escapeTypedReserved,
+  inRawTextArg,
+  strayCloseBraceInserts,
+} from "./edit/brace";
 export type {
-  CaretStop,
   CaretRect,
+  CaretStop,
   HitTestOptions,
   SelectionRect,
   SpanAtPointOptions,
 } from "./edit/caret";
 export {
-  unitBefore,
-  unitAfter,
-  unitAt,
-  resolveSelectionRange,
-  isInsideConstruct,
-  scriptAttachOffset,
-  type MathUnit,
-} from "./edit/unit";
+  caretRect,
+  caretStops,
+  caretVertical,
+  hitTest,
+  selectionRects,
+  spanAtPoint,
+} from "./edit/caret";
+export { canRenderMathChar } from "./edit/char";
 export {
-  matrixContextAt,
-  matrixResize,
   type MatrixContext,
+  matrixContextAt,
   type MatrixEditResult,
+  matrixResize,
   type MatrixTextEdit,
 } from "./edit/matrix";
 export {
-  normalizeLatex,
   isRedundantSpace,
-  type LatexNormalization,
   type LatexInsert,
+  type LatexNormalization,
+  normalizeLatex,
 } from "./edit/normalize";
-export { canRenderMathChar } from "./edit/char";
 export {
-  escapeTypedBrace,
-  escapeTypedReserved,
-  balanceBraces,
-  escapeStrayCloseBraces,
-  strayCloseBraceInserts,
-  backslashFusesWith,
-  inRawTextArg,
-} from "./edit/brace";
+  isInsideConstruct,
+  type MathUnit,
+  resolveSelectionRange,
+  scriptAttachOffset,
+  unitAfter,
+  unitAt,
+  unitBefore,
+} from "./edit/unit";
+export type { LoadFontsOptions } from "./fonts/fonts";
+export { ALL_VARIANTS, fontFamily, loadFonts } from "./fonts/fonts";
+export { paintMath, type PaintOptions } from "./paint/canvas";
+export { toSVG, type ToSvgOptions } from "./paint/svg";
+export type { TextFallbackChar } from "./parse/ast";
+export { needsCommandSeparator, pendingCommandRange } from "./parse/parser";
 export {
-  symbolCommands,
+  type OperatorCommand,
   operatorCommands,
   type SymbolCommand,
-  type OperatorCommand,
+  symbolCommands,
 } from "./vocabulary";
-export { fontFamily, loadFonts, ALL_VARIANTS } from "./fonts/fonts";
-export type { LoadFontsOptions } from "./fonts/fonts";
-export type { FontVariant } from "./data/fontMetrics";
-export type { TextFallbackChar } from "./parse/ast";
+
+// Stable structured-editing model. Unlike the rendering AST, these values have
+// persistent ids and are safe for hosts to store, edit, and expose publicly.
+export {
+  type AllocatedIdentity,
+  createDeterministicIdentityAllocator,
+  type IdentityAllocator,
+  type MathDelimited,
+  type MathDocument,
+  mathDocumentsSemanticallyEqual,
+  type MathFraction,
+  type MathItemId,
+  type MathMatrix,
+  type MathMatrixCell,
+  type MathMatrixRow,
+  type MathNode,
+  type MathOperator,
+  type MathRadical,
+  type MathRawLatex,
+  type MathRawText,
+  type MathRoot,
+  type MathRow,
+  type MathScripts,
+  type MathSymbol,
+  type MathSymbolClass,
+  type MathText,
+  type MathTextVariant,
+  parseAllocatedIdentity,
+  parseMathDocument,
+  type ParseMathDocumentOptions,
+  printMathDocument,
+  printMathRow,
+} from "./document/index";
 
 // The laid-out box tree (`Box`/`GlyphBox`/`RuleBox`/`ListBox`/`PlaceholderBox`),
 // the parse AST (`Node`/`Span`), and `parse`/`ParseOptions` are brittle engine

@@ -33,6 +33,13 @@ export function serializeToText(
   };
 
   return live
-    .map((block) => schema.getCodec(block.type)?.text.output(block, ctx) ?? "")
+    .map((block) => {
+      const blockCtx: OutputCtx = {
+        ...ctx,
+        inline: (charRuns, formats) =>
+          inlineToText(charRuns, formats, schema, block.structuredContent),
+      };
+      return schema.getCodec(block.type)?.text.output(block, blockCtx) ?? "";
+    })
     .join("\n\n");
 }

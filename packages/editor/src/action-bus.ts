@@ -423,9 +423,9 @@ export const DRAG_DETENT = action("drag-detent");
 
 /**
  * Local text was just inserted into a block by a keystroke — the host-facing
- * "input" signal (a higher-level, index-based sibling of the CRDT `text_insert`
- * op). Payload: the inserted `text` and the `blockIndex`/`textIndex` where it
- * landed. Observe-only.
+ * "input" signal (a higher-level sibling of the CRDT `text_insert` op). Flat
+ * text reports `blockIndex`/`textIndex`; a structured feature also reports its
+ * stable `contentPoint`. Observe-only.
  *
  * This is the edge-trigger menus/typeaheads build on: a slash plugin opens its
  * menu when it sees a `/` inserted here (edge-triggered, so the menu doesn't
@@ -437,6 +437,8 @@ export const TEXT_INPUT = action<{
   text: string;
   blockIndex: number;
   textIndex: number;
+  /** Stable nested landing point when a structured feature consumed the key. */
+  contentPoint?: import("./structured-selection").ContentPoint;
 }>("text-input");
 
 /**

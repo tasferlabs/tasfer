@@ -5,6 +5,7 @@
  * strong, `` ` `` → code, `$` → math, `~` → strike). See `wrap-selection.ts`.
  */
 
+import { mathTestSchema, mathTestStateOptions } from "../__testutils__/math";
 import { loadPage } from "../serlization/loadPage";
 import type { EditorState, Position } from "../state-types";
 import { createInitialState } from "../state-utils";
@@ -19,7 +20,10 @@ function stateWithSelection(
   anchor: Position,
   focus: Position,
 ): EditorState {
-  const state = createInitialState(loadPage(markdown));
+  const state = createInitialState(
+    loadPage(markdown, mathTestSchema.data),
+    mathTestStateOptions(),
+  );
   return {
     ...state,
     document: {

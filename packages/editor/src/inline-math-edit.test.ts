@@ -6,6 +6,7 @@
  * actions call), with ONE binding so char HLCs stay monotonic exactly as in the
  * live editor (a freshly-typed char sorts after the formula's chars).
  */
+import { createMathTestSyncEngine } from "./__testutils__/math";
 import { getInlineMathSpans } from "./inline-math-spans";
 import {
   mathDeleteUnit,
@@ -21,13 +22,13 @@ import {
   insertCharsAtPosition,
   markCharsInRange,
 } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
 /** A paragraph holding one inline-math chip `latex`, built from a single binding. */
 function chip(latex: string) {
   const binding = createCRDTbinding("inline-math-edit", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
@@ -49,7 +50,7 @@ function chip(latex: string) {
 /** A block equation whose char-run text IS `latex`, built from a single binding. */
 function mathBlock(latex: string) {
   const binding = createCRDTbinding("inline-math-edit", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;

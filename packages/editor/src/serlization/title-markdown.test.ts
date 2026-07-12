@@ -5,17 +5,21 @@
  * formatted run when truncating (half a math run's LaTeX is corrupt source).
  */
 
-import { getBaseDataSchema } from "../baseDataSchema";
+import { mathTestSchema } from "../__testutils__/math";
 import { renderToSVG } from "../nodes/math";
 import { extractTitleFromBlocks, findTitleBlock } from "../sync/char-runs";
 import { extractTitleMarkdownFromBlocks, inlineToHtml } from "./codecs/inline";
 import { loadPage } from "./loadPage";
 import { describe, expect, it } from "vitest";
 
-const schema = getBaseDataSchema();
+const schema = mathTestSchema.data;
 
 function titleMd(md: string, maxLength?: number): string {
-  return extractTitleMarkdownFromBlocks(loadPage(md).blocks, schema, maxLength);
+  return extractTitleMarkdownFromBlocks(
+    loadPage(md, schema).blocks,
+    schema,
+    maxLength,
+  );
 }
 
 describe("extractTitleMarkdownFromBlocks", () => {
@@ -27,7 +31,7 @@ describe("extractTitleMarkdownFromBlocks", () => {
 
   it("agrees with the plain extractor on which block is the title", () => {
     const md = "plain paragraph first\n\n# Heading *later*\n";
-    const blocks = loadPage(md).blocks;
+    const blocks = loadPage(md, schema).blocks;
     // Plain extractor prefers the heading; the markdown extractor must too.
     expect(extractTitleFromBlocks(blocks)).toBe("Heading later");
     expect(extractTitleMarkdownFromBlocks(blocks, schema)).toBe(
@@ -87,7 +91,7 @@ describe("title markdown → preview HTML (the TitlePreview pipeline)", () => {
   it("renders marks as HTML and math as typeset SVG, never raw LaTeX", () => {
     // The persisted titleMd record string, re-parsed the way a preview does.
     const md = titleMd("# The **famous** $E=mc^2$ law");
-    const block = findTitleBlock(loadPage(md).blocks)!;
+    const block = findTitleBlock(loadPage(md, schema).blocks)!;
     const html = inlineToHtml(
       block.charRuns ?? [],
       block.formats ?? [],
@@ -105,7 +109,7 @@ describe("title markdown → preview HTML (the TitlePreview pipeline)", () => {
     // preview re-parse yields an inline math run and typesets it.
     const md = titleMd("$$\nE=mc^2\n$$");
     expect(md).toBe("$E=mc^2$");
-    const block = findTitleBlock(loadPage(md).blocks)!;
+    const block = findTitleBlock(loadPage(md, schema).blocks)!;
     const html = inlineToHtml(
       block.charRuns ?? [],
       block.formats ?? [],

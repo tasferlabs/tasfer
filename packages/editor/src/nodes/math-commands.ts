@@ -480,6 +480,12 @@ const COMMANDS: readonly MathCommand[] = [
     keywords: ["mapsto", "arrow"],
     latex: "\\mapsto",
   },
+  {
+    id: "uparrow",
+    name: "Up arrow",
+    keywords: ["arrow", "up"],
+    latex: "\\uparrow",
+  },
 
   // Functions
   { id: "sin", name: "Sine", keywords: ["sin", "trig"], latex: "\\sin" },
@@ -676,6 +682,33 @@ export const MATH_COMMANDS: readonly MathCommand[] = [
   ...COMMANDS,
   ...GENERATED,
 ];
+
+/**
+ * Resolve a fully typed command when no longer catalog id shares it as a
+ * prefix, or when `following` proves that no longer match can be typed. The
+ * tree editor can therefore keep `\\in` scratch while the user types `\\int`,
+ * but commits `\\sin` before `(` or an unrelated following letter.
+ */
+export function unambiguousMathCommandCompletion(
+  command: string,
+  following?: string,
+): { readonly id: string; readonly latex: string } | undefined {
+  const exact = MATH_COMMANDS.find((candidate) => candidate.id === command);
+  if (!exact) return undefined;
+  const hasLongerPrefix = MATH_COMMANDS.some(
+    (candidate) =>
+      candidate.id.length > command.length && candidate.id.startsWith(command),
+  );
+  const extensionStillMatches =
+    following !== undefined &&
+    /^[A-Za-z]$/.test(following) &&
+    MATH_COMMANDS.some((candidate) =>
+      candidate.id.startsWith(command + following),
+    );
+  return hasLongerPrefix && (following === undefined || extensionStillMatches)
+    ? undefined
+    : { id: exact.id, latex: exact.latex };
+}
 
 /**
  * Whether `prefix` (the letters typed after a `\`, no backslash) could still

@@ -8,3 +8,14 @@ out
 !.env.example
 internal
 .claude
+# design-sync (claude.ai/design)
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+# generated converter inputs (recreate via .design-sync/regen-inputs.mjs)
+apps/web/.ds-entry.tsx
+apps/web/.ds-compiled.css
+apps/web/.ds-tsconfig.json
+apps/web/.ds-groups/

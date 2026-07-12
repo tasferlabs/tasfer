@@ -29,6 +29,7 @@ import {
 } from "../action-bus";
 import type { ChangeApi, DocRange } from "../entries/editor";
 import { invalidateBlockCache } from "../rendering/renderer";
+import type { AnySchemaDefinition } from "../schema-types";
 import {
   caretAtBlockBottom,
   caretAtBlockTop,
@@ -72,11 +73,14 @@ import {
  * first (a slash plugin passes its "/filter" trigger range as a {@link DocRange}).
  */
 export const CONVERT_BLOCK = action<{
-  type: Block["type"];
+  type: string;
   strip?: DocRange;
 }>("convert-block", (c: ChangeApi, { type, strip }) => {
   if (strip) c.deleteRange(strip);
-  c.setBlock({ type });
+  // The action vocabulary is schema-open: optional/custom feature types are
+  // validated by the receiving editor's runtime schema. Erase the base-schema
+  // default only at this internal dispatch boundary.
+  (c as ChangeApi<AnySchemaDefinition>).setBlock({ type });
 });
 
 // ─── Text input ──────────────────────────────────────────────────────────────
@@ -222,7 +226,7 @@ function selectPreviousContainedBlockAtBoundary(
       ...next,
       document: {
         ...next.document,
-        page: applyOps(next.document.page, [blockDeleteOp]),
+        page: applyOps(next.document.page, [blockDeleteOp], state.schema),
       },
     };
   }
@@ -368,7 +372,7 @@ export function registerEmptyBlockBackspaceExit(
         field: "type",
         value: "paragraph",
       };
-      const page = applyOps(state.document.page, [op]);
+      const page = applyOps(state.document.page, [op], state.schema);
       invalidateBlockCache(page.blocks[blockIndex]);
       const next = clearSelection(state);
       return {

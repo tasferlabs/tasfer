@@ -8,14 +8,17 @@
  * range decoration and asserts the highlight fill is emitted, with a rest control
  * and a local-selection sanity check.
  */
+import {
+  createMathTestState,
+  createMathTestSyncEngine,
+} from "./__testutils__/math";
 import { setDecorationLayer } from "./rendering/decorations";
 import { renderBlock } from "./rendering/renderer";
 import { updateSelection } from "./selection";
 import type { EditorState } from "./state-types";
-import { createInitialState } from "./state-utils";
 import { getEditorStyles } from "./styles";
 import { insertCharsAtPosition } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { beforeAll, describe, expect, it } from "vitest";
 
 beforeAll(() => {
@@ -118,7 +121,7 @@ function paintFirstBlock(state: EditorState) {
 
 function blockEquation(latex: string) {
   const binding = createCRDTbinding("remote-sel", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
   engine.emit([blockOp]);
   const page = insertCharsAtPosition(
@@ -129,7 +132,7 @@ function blockEquation(latex: string) {
     binding,
   ).newPage;
   return {
-    state: createInitialState(page, { crdtBinding: binding }),
+    state: createMathTestState(page, { crdtBinding: binding }),
     blockId: blockOp.blockId,
   };
 }

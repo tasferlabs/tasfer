@@ -9,10 +9,11 @@
  * covered: entering it snaps to the whole construct. Drives `mathSelectionRange`
  * directly (the level-aware snap the shift-select / drag paths funnel through).
  */
+import { createMathTestSyncEngine } from "./__testutils__/math";
 import { getInlineMathSpans } from "./inline-math-spans";
 import { mathSelectionRange } from "./nodes/math";
 import { insertCharsAtPosition, markCharsInRange } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -21,7 +22,7 @@ import { describe, expect, it } from "vitest";
  */
 function flankedChip(latex: string) {
   const binding = createCRDTbinding("inline-math-partial", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;

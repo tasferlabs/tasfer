@@ -2,7 +2,6 @@
 // helper also runs inside the platform engine's SharedWorker (deriving titles
 // from received content ops), and the root/`internal` barrels pull rendering
 // and font code that touches `document` at module init.
-import { getBaseDataSchema } from "@cypherkit/editor/baseDataSchema";
 import { extractTitleMarkdownFromBlocks } from "@cypherkit/editor/serlization/codecs/inline";
 import type { Block } from "@cypherkit/editor/serlization/loadPage";
 import { isHeadingType } from "@cypherkit/editor/sync/block-registry";
@@ -11,6 +10,7 @@ import {
   extractTitleFromBlocks,
   findTitleBlock,
 } from "@cypherkit/editor/sync/char-runs";
+import { appDataSchema } from "../appDataSchema";
 
 /**
  * The page's full-text body projection (every textual block's visible text),
@@ -38,7 +38,7 @@ export function deriveTitles(blocks: Block[] | undefined): {
 } {
   return {
     title: extractTitleFromBlocks(blocks),
-    titleMd: extractTitleMarkdownFromBlocks(blocks, getBaseDataSchema()),
+    titleMd: extractTitleMarkdownFromBlocks(blocks, appDataSchema),
   };
 }
 

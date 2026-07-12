@@ -29,6 +29,10 @@ import {
   pasteFromSystemClipboard,
 } from "../actions/clipboard";
 import { COPY, CUT } from "../actions/input-actions";
+import {
+  expandSelectionAroundStructuredMarks,
+  rangeIntersectsStructuredMark,
+} from "../actions/structured-marks";
 import { BLUR_SELECTION_CLEAR_DELAY } from "../constants";
 import { IS_DEV } from "../env";
 import { edgeScrollDelta } from "../events/autoScroll";
@@ -104,8 +108,10 @@ import { clearSelection } from "../selection";
 import { updateSelection } from "../selection";
 import {
   type Block,
+  type CharRun,
   loadPage,
   type Mark,
+  type MarkSpan,
   type Page,
 } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
@@ -130,16 +136,22 @@ import {
   updateMode,
 } from "../state-utils";
 import {
+  cloneContentSelection,
+  type ContentPoint,
+  type ContentSelection,
+  isContentSelectionCollapsed,
+  normalizeContentPoint,
+  reconcileContentSelectionState,
+  updateContentSelection,
+} from "../structured-selection";
+import {
   getEditorStyles,
   mergeTheme,
   resolveNodeStrings,
   resolveTheme,
 } from "../styles";
-import { findBlockIndex } from "../sync/block-lookup";
+import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import {
-  canHaveFormats,
-  createDefaultBlock,
-  getBlockFieldNames,
   isPlainStyleObject,
   isPreformattedType,
   isStyleField,
@@ -162,8 +174,16 @@ import {
   orderKeyAfter,
   sortBlocksByOrder,
 } from "../sync/crdt-utils";
-import { applyOps } from "../sync/reducer";
+import type { IdentityAllocator } from "../sync/id";
+import { applyOp, applyOps } from "../sync/reducer";
 import { generateRestoreOperations } from "../sync/snapshot-diff";
+import {
+  canonicalizeStructuredDocument,
+  hasStructuredBlockAuthority,
+  hasStructuredContent,
+  type StructuredDocument,
+  type StructuredMutation,
+} from "../sync/structured-content";
 import { getVisibleBlocks } from "../sync/sync";
 import type { CanvasLayers } from "./layers";
 
@@ -214,6 +234,18 @@ function applyAttrEntries<B extends Block>(
     }
   }
   return { ...block, ...flat, ...(style ? { style } : {}) } as B;
+}
+
+/** Runtime storage guard for schema-declared textual extension blocks. */
+function hasTextStorage(
+  block: Block,
+): block is Block & { charRuns: CharRun[]; formats: MarkSpan[] } {
+  return (
+    "charRuns" in block &&
+    Array.isArray(block.charRuns) &&
+    "formats" in block &&
+    Array.isArray(block.formats)
+  );
 }
 
 /**
@@ -298,6 +330,14 @@ type RuntimeBlockPatch = {
  * explicit, CRDT-stable position without reaching into editor internals.
  */
 export interface ChangeApi<S extends SchemaDefinition = AnySchemaDefinition> {
+  /**
+   * The document CRDT's authoritative identity allocator for this change.
+   * Feature controllers use it for every new persisted node/character id, then
+   * pass their generic mutations to {@link editContent}. Do not retain it or
+   * create a feature-specific generator around it.
+   */
+  readonly identities: IdentityAllocator;
+
   // ── inline ──────────────────────────────────────────────────────────────
   /**
    * Insert `text`, replacing `range`. `range` defaults to the live selection —
@@ -329,6 +369,24 @@ export interface ChangeApi<S extends SchemaDefinition = AnySchemaDefinition> {
       range?: DocRange;
     },
   ): this;
+
+  // ── structured content ──────────────────────────────────────────────────
+  /**
+   * Apply generic CRDT mutations to one structured attachment. This is the
+   * node-agnostic write seam for feature controllers (math, diagrams, …): the
+   * edits join this change's single undo/broadcast transaction. Invalid or
+   * inapplicable mutations are no-ops.
+   */
+  editContent(
+    blockId: string,
+    contentId: string,
+    edits: StructuredMutation | readonly StructuredMutation[],
+  ): this;
+  /**
+   * Set or clear an identity-bearing selection inside structured content as
+   * part of this change. Entering content selection clears the flat caret/range.
+   */
+  selectContent(selection: ContentSelection | null): this;
 
   // ── block ───────────────────────────────────────────────────────────────
   /**
@@ -406,6 +464,12 @@ export interface EditorStateSnapshot {
     readonly empty: boolean;
     readonly range: DocRange | null;
   };
+  /**
+   * The active identity-bearing caret/range inside a structured attachment.
+   * Separate from {@link selection}, so ordinary {@link DocPoint} behavior is
+   * unchanged. This plain-data value can be published directly as presence.
+   */
+  readonly contentSelection: ContentSelection | null;
   /** Inline marks active at the caret / across the selection. */
   readonly activeMarks: ReadonlySet<Mark["type"]>;
   /** Whether {@link EditorApi.undo} would currently change the document. */
@@ -460,6 +524,16 @@ export interface EditorViewApi {
    * `"caret"` to anchor an IME/autocomplete overlay to the current caret.
    */
   coordsAtPos: (point: DocPoint) => {
+    x: number;
+    y: number;
+    height: number;
+  } | null;
+  /**
+   * Map an identity-bearing structured-content point to viewport coordinates.
+   * The owning node resolves its own tree geometry; returns `null` when the
+   * point or attachment is stale or the node has no content-caret renderer.
+   */
+  coordsAtContent: (point: ContentPoint) => {
     x: number;
     y: number;
     height: number;
@@ -637,6 +711,11 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * point read deliberately does not.
    */
   marks(at?: DocPoint): MarkInfo<S>[];
+  /**
+   * Detached snapshot of one structured attachment, addressed without knowing
+   * its node class. Returns `null` for a missing block/content id.
+   */
+  content(blockId: string, contentId: string): StructuredDocument | null;
 }
 
 /**
@@ -1312,6 +1391,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             this._state.CRDTbinding.getPeerId(),
           )
         : newState;
+    this._state = reconcileContentSelectionState(this._state);
 
     // Broadcast ops to peers (if any)
     if (ops.length > 0 && this.broadcastFn) {
@@ -1486,6 +1566,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // unwindowed) before recording undo, so a windowed editor's navigation can
     // never leave a caret pointing at a block it doesn't render.
     this._state = this.clampToWindow(this._state);
+    this._state = reconcileContentSelectionState(this._state);
 
     // Record operations to undo stack (only if not from undo/redo). Undo/redo
     // already updates undoManager internally, so check if it changed.
@@ -1587,12 +1668,24 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         if (prevState.document.selection !== this._state.document.selection) {
           this.dirtyLayers.content = true;
         }
+        if (
+          prevState.document.contentSelection !==
+          this._state.document.contentSelection
+        ) {
+          this.dirtyLayers.content = true;
+          this.dirtyLayers.cursor = true;
+        }
 
         // Check if cursor position changed (requires cursor layer update)
         const cursorPositionChanged =
           prevState.document.cursor?.position !==
           this._state.document.cursor?.position;
-        if (cursorPositionChanged) {
+        const contentCaretPositionChanged =
+          prevState.document.contentSelection?.focus !==
+          this._state.document.contentSelection?.focus;
+        const caretPositionChanged =
+          cursorPositionChanged || contentCaretPositionChanged;
+        if (caretPositionChanged) {
           this.dirtyLayers.cursor = true;
         }
 
@@ -1604,10 +1697,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
           prevState.document.page !== this._state.document.page;
         if (
           this.caretJumpPending &&
-          cursorPositionChanged &&
+          caretPositionChanged &&
           !contentChanged &&
-          prevState.document.cursor &&
-          this._state.document.cursor &&
+          (prevState.document.cursor || prevState.document.contentSelection) &&
+          (this._state.document.cursor ||
+            this._state.document.contentSelection) &&
           !this.reducedMotionQuery?.matches
         ) {
           this.caretLandingStartedAt = Date.now();
@@ -1636,11 +1730,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       }
 
       // Check if cursor blink state changed (for cursor animation)
-      const currentCursorBlinkState = this._state.document.cursor
-        ? isCursorBlinking(
-            this._state.document.cursor,
-            getEditorStyles(this._state),
-          )
+      const activeCaretForBlink =
+        this._state.document.cursor ??
+        (this._state.document.contentSelection
+          ? {
+              position: { blockIndex: 0, textIndex: 0 },
+              lastUpdate: this._state.document.contentSelection.lastUpdate ?? 0,
+            }
+          : null);
+      const currentCursorBlinkState = activeCaretForBlink
+        ? isCursorBlinking(activeCaretForBlink, getEditorStyles(this._state))
         : false;
       const cursorBlinkChanged =
         this.lastCursorBlinkState !== currentCursorBlinkState;
@@ -2390,6 +2489,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // Node/mark-agnostic — the same preformatted/replacement signal the input
   // mirror uses to keep source away from the OS keyboard.
   private caretInVerbatimSource = (): boolean => {
+    const nested = this._state.document.contentSelection;
+    if (nested) {
+      const block = findBlock(this._state.document.page, nested.focus.blockId);
+      const document = block?.structuredContent?.[nested.focus.contentId];
+      if (block && document?.authority === "block") return true;
+    }
+
     const caret = resolvePoint(this._state, "caret");
     if (!caret) return false;
     const block = this._state.document.page.blocks[caret.blockIndex];
@@ -2424,6 +2530,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // Cheap signature of the current selection/caret, to avoid recomputing the
   // (potentially large) selection text on every render frame.
   private selectionSignature = (s: EditorState): string => {
+    const nested = s.document.contentSelection;
+    if (nested) {
+      const point = (value: ContentPoint): string =>
+        value.kind === "text"
+          ? `text:${value.blockId}:${value.contentId}:${value.nodeId}:${value.field}:${value.afterCharId ?? ""}:${value.affinity}`
+          : `gap:${value.blockId}:${value.contentId}:${value.parentId}:${value.slot}:${value.afterNodeId ?? ""}:${value.affinity}`;
+      return `content:${point(nested.anchor)}-${point(nested.focus)}`;
+    }
     const sel = s.document.selection;
     if (sel && !sel.isCollapsed) {
       return `sel:${sel.anchor.blockIndex}:${sel.anchor.textIndex}-${sel.focus.blockIndex}:${sel.focus.textIndex}`;
@@ -2455,6 +2569,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.applyAutosuggestForCaret();
 
     const selection = this._state.document.selection;
+    const contentSelection = this._state.document.contentSelection;
+    const hasRangedSelection =
+      (!!selection && !selection.isCollapsed) ||
+      (!!contentSelection && !isContentSelectionCollapsed(contentSelection));
 
     // Mirroring a non-collapsed selection as a *ranged* DOM selection on the
     // hidden contenteditable is what lets the native (hardware-key) copy/cut
@@ -2466,9 +2584,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // the ranged surface is only needed for the native copy/cut event — that
     // path forces it on demand via `forceRangedSelection`.
     const mirrorRangedSelection =
-      !!selection &&
-      !selection.isCollapsed &&
-      (forceRangedSelection || !isTouchDevice());
+      hasRangedSelection && (forceRangedSelection || !isTouchDevice());
 
     const sig = this.selectionSignature(this._state);
     const sigUnchanged = sig === this.lastSelectionSig;
@@ -2483,7 +2599,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         return;
       }
       // No plain text (e.g. an image-only selection) — fall through to caret.
-    } else if (selection && !selection.isCollapsed) {
+    } else if (hasRangedSelection) {
       // Touch device with a live selection: leave the collapsed caret surface in
       // place so the soft keyboard stays up while text is selected.
       return;
@@ -2822,7 +2938,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // text, so drive the edit from the event (the document insert/delete is
     // selection-aware) and let the render loop re-establish the word surface.
     const selection = this._state.document.selection;
-    if (selection && !selection.isCollapsed) {
+    const contentSelection = this._state.document.contentSelection;
+    if (
+      (selection && !selection.isCollapsed) ||
+      (contentSelection && !isContentSelectionCollapsed(contentSelection))
+    ) {
       if (
         inputEvent.data != null &&
         (it === "insertText" || it === "insertReplacementText")
@@ -3251,7 +3371,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         e.preventDefault();
         e.stopPropagation();
         if (e.repeat) return;
-        const markdown = serializeToMarkdown(this._state.document.page.blocks);
+        const markdown = serializeToMarkdown(
+          this._state.document.page.blocks,
+          undefined,
+          { schema: this._state.schema },
+        );
         const blob = new Blob([markdown], { type: "text/markdown" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -3586,6 +3710,30 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     );
   };
 
+  private coordsAtContentPoint = (
+    point: ContentPoint,
+  ): { x: number; y: number; height: number } | null => {
+    const normalized = normalizeContentPoint(this._state.document.page, point);
+    if (!normalized) return null;
+    const blockIndex = findBlockIndex(
+      this._state.document.page,
+      normalized.blockId,
+    );
+    if (blockIndex < 0) return null;
+    const working = updateContentSelection(this._state, {
+      anchor: normalized,
+      focus: normalized,
+      lastUpdate: this._state.document.contentSelection?.lastUpdate,
+    });
+    return getIndexedCursorViewportCoords(
+      { blockIndex, textIndex: 0 },
+      working,
+      this.viewport,
+      getEditorStyles(working),
+      this.blockHeights,
+    );
+  };
+
   /**
    * Scroll a (possibly off-screen) index position the minimum amount needed to
    * bring it into view, then keep correcting over the next few frames until it
@@ -3781,7 +3929,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const pageChanged = prev.document.page !== next.document.page;
       const selectionChanged =
         prev.document.cursor?.position !== next.document.cursor?.position ||
-        prev.document.selection !== next.document.selection;
+        prev.document.selection !== next.document.selection ||
+        prev.document.contentSelection !== next.document.contentSelection;
       const focusGained = !prev.view.isFocused && next.view.isFocused;
       const focusLost = prev.view.isFocused && !next.view.isFocused;
       prev = next;
@@ -3857,7 +4006,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   getMarkdown = (): string => {
-    return serializeToMarkdown(this._state.document.page.blocks);
+    return serializeToMarkdown(this._state.document.page.blocks, undefined, {
+      schema: this._state.schema,
+    });
   };
 
   setMarkdown = (markdown: string): void => {
@@ -3907,6 +4058,44 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     (s) =>
       insertText(s, text);
 
+  /**
+   * Give an installed feature first refusal over one explicit flat range.
+   *
+   * The public ChangeApi speaks block ids/source offsets for compatibility,
+   * while a feature may own the target as structured content. Its read-only
+   * ownership facet decides whether to route through normal input rules; core
+   * never switches on a node type here. A returned result is the complete
+   * replacement transaction (an inline `mark`, if requested by the caller, is
+   * intentionally inapplicable to feature-owned structured content).
+   */
+  private featureOwnedInlineRangeInput = (
+    s: EditorState,
+    blockId: string,
+    start: number,
+    end: number,
+    text: string,
+  ): ActionResult | null => {
+    const blockIndex = findBlockIndex(s.document.page, blockId);
+    const block = s.document.page.blocks[blockIndex];
+    const targeted = selectTarget(s, {
+      from: { block: blockId, offset: start },
+      to: { block: blockId, offset: end },
+    });
+    if (
+      block &&
+      !block.deleted &&
+      rangeIntersectsStructuredMark(block, start, end, s.schema)
+    ) {
+      // A public offset may clip a compatibility projection. Promote it to the
+      // same whole-unit mixed selection used by interactive editing, then let
+      // normal insertion replace prose plus the complete attachment atomically.
+      return insertText(expandSelectionAroundStructuredMarks(targeted), text);
+    }
+    return targeted.schema.features.ownsInput("before-insert", targeted, text)
+      ? insertText(targeted, text)
+      : null;
+  };
+
   // Build a ChangeApi over a working-state/ops accumulator. Each method queues
   // a StateAction by threading the accumulator forward, then returns the same
   // builder so calls chain. Nothing is committed here — commitChange does that.
@@ -3920,6 +4109,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       ctx.ops.push(...r.ops);
     };
     const c: ChangeApi = {
+      get identities() {
+        return ctx.state.CRDTbinding;
+      },
       insertText: (text, range, mark) => {
         // Hot path: typing at the caret / over the selection. The free
         // `insertText` is selection-aware (multi-block) and inherits the pending
@@ -3945,7 +4137,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       },
       deleteRange: (range) => {
         if (range === undefined || range === "selection") {
-          apply((s) => deleteSelectedText(s));
+          apply((s) =>
+            s.document.contentSelection ||
+            (s.document.selection &&
+              !s.document.selection.isCollapsed &&
+              s.schema.features.ownsInput("before-insert", s, ""))
+              ? insertText(s, "")
+              : deleteSelectedText(s),
+          );
         } else {
           apply((s) => {
             const r = resolveInlineRange(s, range);
@@ -3979,6 +4178,50 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             )(s);
           });
         }
+        return c;
+      },
+      editContent: (blockId, contentId, edits) => {
+        apply((s) => {
+          if (!contentId) return { state: s, ops: [] };
+          const blockIndex = findBlockIndex(s.document.page, blockId);
+          const block = s.document.page.blocks[blockIndex];
+          if (!block || block.deleted) return { state: s, ops: [] };
+
+          let page = s.document.page;
+          const ops: Operation[] = [];
+          const mutations = Array.isArray(edits) ? edits : [edits];
+          for (const edit of mutations) {
+            const op: Operation = {
+              op: "content_edit",
+              id: s.CRDTbinding.nextId(),
+              clock: s.CRDTbinding.getClock(),
+              pageId: s.CRDTbinding.pageId,
+              blockId,
+              contentId,
+              edit,
+            };
+            const next = applyOp(page, op, s.schema);
+            if (next === page) continue;
+            page = next;
+            ops.push(op);
+          }
+          if (ops.length === 0) return { state: s, ops };
+          invalidateBlockCache(page.blocks[blockIndex]);
+          return {
+            state: reconcileContentSelectionState({
+              ...s,
+              document: { ...s.document, page },
+            }),
+            ops,
+          };
+        });
+        return c;
+      },
+      selectContent: (selection) => {
+        apply((s) => ({
+          state: updateContentSelection(s, cloneContentSelection(selection)),
+          ops: [],
+        }));
         return c;
       },
       insertBlock: (block: RuntimeBlockInput, at?: DocPoint) => {
@@ -4039,7 +4282,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
       const blockId = block.id ?? `b-${s.CRDTbinding.nextId()}`;
       const orderKey = orderKeyAfter(blocks, afterBlockId);
-      const seeded = createDefaultBlock(block.type, blockId, orderKey);
+      const seeded = s.schema.createDefaultBlock(block.type, blockId, orderKey);
       if (!seeded) return { state: s, ops: [] };
 
       // Caller-supplied own attrs beyond the structural fields become block_set.
@@ -4134,12 +4377,24 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // No-op when unrestricted.
       if (resolvedType !== undefined && s.schema.isBlockAllowed(resolvedType)) {
         const caretIdx = s.document.cursor?.position.blockIndex;
-        const r =
+        let r =
           idx === caretIdx
             ? convertBlockAtCursor(state, {
                 type: resolvedType as Block["type"],
               })
             : this.setBlockTypeAction(idx, resolvedType)(state);
+        // The caret-aware legacy conversion still knows only its built-in
+        // descriptor table. If it cannot model an extension type, fall back to
+        // the schema-driven generic morph instead of silently dropping the
+        // public `change().setBlock({ type })` request.
+        if (
+          idx === caretIdx &&
+          r.state === state &&
+          r.ops.length === 0 &&
+          state.document.page.blocks[idx]?.type !== resolvedType
+        ) {
+          r = this.setBlockTypeAction(idx, resolvedType)(state);
+        }
         state = r.state;
         ops.push(...r.ops);
       }
@@ -4168,18 +4423,33 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const blocks = s.document.page.blocks;
       const block = blocks[blockIndex];
       if (!block || block.deleted) return { state: s, ops: [] };
+      // Generic morph reconstructs the block and cannot carry block-scoped
+      // structured documents. This includes supplemental mark attachments: its
+      // copied mark attrs would otherwise retain a now-orphaned contentId.
+      if (hasStructuredContent(block)) {
+        return { state: s, ops: [] };
+      }
 
-      const defaults = createDefaultBlock(type, block.id, block.orderKey ?? "");
+      const defaults = s.schema.createDefaultBlock(
+        type,
+        block.id,
+        block.orderKey ?? "",
+      );
       if (!defaults) return { state: s, ops: [] };
       // Carry the source text/marks over only when both sides are textual;
       // otherwise the target type's defaults stand (a void block has no text).
       let newBlock: Block = defaults;
-      if (isTextualBlock(defaults) && isTextualBlock(block)) {
+      if (
+        s.schema.isTextual(type) &&
+        s.schema.isTextual(block.type) &&
+        hasTextStorage(defaults) &&
+        hasTextStorage(block)
+      ) {
         newBlock = {
           ...defaults,
           charRuns: block.charRuns,
-          formats: canHaveFormats(type) ? block.formats : [],
-        };
+          formats: s.schema.hasFormats(type) ? block.formats : [],
+        } as Block;
       }
       invalidateBlockCache(newBlock);
 
@@ -4197,7 +4467,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
           value: type,
         },
       ];
-      for (const field of getBlockFieldNames(type)) {
+      for (const field of s.schema.getFieldNames(type)) {
         if (field === "type") continue;
         const value = (newBlock as unknown as Record<string, unknown>)[field];
         if (value === undefined) continue;
@@ -4237,6 +4507,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       ctx.ops.length > 0
         ? recordUndoOps(prev, ctx.state, ctx.ops, prev.CRDTbinding.getPeerId())
         : ctx.state;
+    this._state = reconcileContentSelectionState(this._state);
     if (ctx.ops.length > 0 && this.broadcastFn) this.emitLocalOps(ctx.ops);
     this.scheduleRender();
     const currentState = this._state;
@@ -4384,6 +4655,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     return result;
   };
 
+  private queryContent = (
+    blockId: string,
+    contentId: string,
+  ): StructuredDocument | null => {
+    const blockIndex = findBlockIndex(this._state.document.page, blockId);
+    const block = this._state.document.page.blocks[blockIndex];
+    if (!block || block.deleted) return null;
+    const document = block.structuredContent?.[contentId];
+    return document ? canonicalizeStructuredDocument(document) : null;
+  };
+
   copy = async (
     docRange?: DocRange | null,
     selectRange?: boolean,
@@ -4476,8 +4758,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const result = undoState(this._state);
     if (result.state === this._state) return false;
     this._state = result.state;
+    this._state = reconcileContentSelectionState(this._state);
     this.scheduleRender();
-    this.listeners.forEach((listener) => listener(result.state));
+    this.listeners.forEach((listener) => listener(this._state));
     // Broadcast inverse operations to sync engine
     if (result.ops.length > 0 && this.broadcastFn) {
       this.emitLocalOps(result.ops);
@@ -4489,8 +4772,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const result = redoState(this._state);
     if (result.state === this._state) return false;
     this._state = result.state;
+    this._state = reconcileContentSelectionState(this._state);
     this.scheduleRender();
-    this.listeners.forEach((listener) => listener(result.state));
+    this.listeners.forEach((listener) => listener(this._state));
     // Broadcast redo operations to sync engine
     if (result.ops.length > 0 && this.broadcastFn) {
       this.emitLocalOps(result.ops);
@@ -4515,7 +4799,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const block = blocks[blockIndex];
       if (!block || block.deleted || !isTextualBlock(block))
         return { state: s, ops: [] };
+      if (hasStructuredBlockAuthority(block)) return { state: s, ops: [] };
       if (end <= start) return { state: s, ops: [] };
+      if (
+        rangeIntersectsStructuredMark(block, start, end, s.schema, mark.type)
+      ) {
+        return { state: s, ops: [] };
+      }
 
       // The mark's per-mark data (e.g. a link url) rides on mark.attrs.
       const { newPage, op } = markCharsInRange(
@@ -4717,6 +5007,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       if (text.length === 0)
         return this.deleteInlineRangeAction(blockId, start, end)(s);
 
+      const featureResult = this.featureOwnedInlineRangeInput(
+        s,
+        blockId,
+        start,
+        end,
+        text,
+      );
+      if (featureResult) return featureResult;
+      if (hasStructuredBlockAuthority(block)) return { state: s, ops: [] };
+
       const ops: Operation[] = [];
 
       // Replace the chars in [start, end) with `text`, then (optionally) apply
@@ -4772,6 +5072,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       if (!block || block.deleted || !isTextualBlock(block))
         return { state: s, ops: [] };
       if (end <= start) return { state: s, ops: [] };
+
+      const featureResult = this.featureOwnedInlineRangeInput(
+        s,
+        blockId,
+        start,
+        end,
+        "",
+      );
+      if (featureResult) return featureResult;
+      if (hasStructuredBlockAuthority(block)) return { state: s, ops: [] };
 
       const { newPage, op } = deleteCharsInRange(
         s.document.page,
@@ -4938,6 +5248,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // A remote edit can insert/delete blocks before the windowed block, shifting
     // a stale caret out of the window — snap it back (no-op when unwindowed).
     this._state = this.clampToWindow(this._state);
+    this._state = reconcileContentSelectionState(this._state);
 
     // Mark document height as dirty since page content changed
     this.documentHeightDirty = true;
@@ -4966,12 +5277,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       peerId: this._state.CRDTbinding.getPeerId(),
       nextId: this._state.CRDTbinding.nextId,
       getClock: this._state.CRDTbinding.getClock,
+      schema: this._state.schema,
     });
 
     if (ops.length === 0) return;
 
     // Apply operations to local state
-    const newPage = applyOps(currentPage, ops);
+    const newPage = applyOps(currentPage, ops, this._state.schema);
 
     // Clear all block caches
     clearAllBlockCaches(newPage.blocks);
@@ -5000,6 +5312,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
               }
             : null,
         selection: null,
+        contentSelection: null,
       },
     };
 
@@ -5064,6 +5377,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
           this._state.document.selection.isCollapsed,
         range: docSelection(this._state),
       },
+      contentSelection: cloneContentSelection(
+        this._state.document.contentSelection,
+      ),
       activeMarks: docMarks(this._state, undefined),
       canUndo: canUndoState(this._state),
       canRedo: canRedoState(this._state),
@@ -5178,10 +5494,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     block: this.queryBlock,
     blocks: this.queryBlocks,
     marks: (at?: DocPoint) => queryMarkInfos(this._state, at),
+    content: this.queryContent,
   };
 
   view: EditorViewApi = {
     coordsAtPos: this.coordsAtPos,
+    coordsAtContent: this.coordsAtContentPoint,
     updateViewport: this.updateViewport,
     getScrollY: this.getScrollY,
     getStyles: this.getStyles,

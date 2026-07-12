@@ -9,7 +9,7 @@
  * chaining.
  */
 
-import { getBaseDataSchema } from "../baseDataSchema";
+import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
 import { generateNKeysBetween } from "../sync/fractional-index";
 import { extractCounter, extractPeerId } from "../sync/id";
 import type { DataSchema } from "../sync/schema";
@@ -133,7 +133,7 @@ function generateEmptyTree(): Page {
 
 export default function parsePage(
   tokens: Token[],
-  schema: DataSchema = getBaseDataSchema(),
+  schema: DataSchema = getCompatibilityDataSchema(),
 ): Page {
   const tree = generateEmptyTree();
 
@@ -317,8 +317,12 @@ function parseCharsAndFormats(context: ParserContext): {
       pendingLink = null;
     }
     // Handle text content - create chars
-    else if (node.content) {
-      for (const char of node.content) {
+    else if (node.raw ?? node.content) {
+      // A decoded token (for example an optional feature's fenced syntax)
+      // retains its exact source. When no active codec/mark claimed it, parse
+      // that source literally rather than losing delimiters or attributes.
+      const content = node.raw ?? node.content;
+      for (const char of content) {
         const charId = generateCharId(context);
         chars.push({ id: charId, char, deleted: false });
 

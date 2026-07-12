@@ -6,6 +6,7 @@
  * drift from per-type behavior.
  */
 
+import { mathTestSchema } from "../__testutils__/math";
 import { getInlineMathSpans } from "../inline-math-spans";
 import { moveCursorToPosition } from "../selection";
 import type { Block, CharRun } from "../serlization/loadPage";
@@ -258,9 +259,10 @@ describe("repairMathBackslashes", () => {
   // `\\degree` where the source had `\degree`. The math chip then renders the
   // stray backslash literally. Pin the repair so the chip's LaTeX is verbatim.
   const latexOf = (markdown: string) =>
-    loadPage(repairMathBackslashes(markdown)).blocks.flatMap((b) =>
-      getInlineMathSpans(b).map((s) => s.latex),
-    );
+    loadPage(
+      repairMathBackslashes(markdown),
+      mathTestSchema.data,
+    ).blocks.flatMap((b) => getInlineMathSpans(b).map((s) => s.latex));
 
   it("collapses doubled backslashes inside inline math (turndown artifact)", () => {
     // `$T_1=100\degree C$` round-trips through turndown as `\\degree`.

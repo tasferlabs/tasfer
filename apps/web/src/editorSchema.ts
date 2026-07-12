@@ -1,5 +1,4 @@
 import {
-  baseDataSchema,
   CodeMark,
   type Editor,
   EmphasisMark,
@@ -8,18 +7,24 @@ import {
   LinkMark,
   ListNode,
   type MarkOverlayCtx,
-  MathMark,
-  MathNode,
   QuoteNode,
   type NodeActivateCtx,
   type NodeActivation,
   type NodeRegionCtx,
+  type MountedEditor,
   Schema,
+  type SchemaDefinitionOf,
   StrikeMark,
   StrongMark,
   TextNode,
 } from "@cypherkit/editor";
 import { CodeNode, type NodeOverlay } from "@cypherkit/editor/internal";
+import {
+  mathInlineTreeInputRules,
+  MathMark,
+  MathNode,
+} from "@cypherkit/editor/math";
+import { appDataSchema } from "./appDataSchema";
 import { getPlatform } from "@/platform";
 
 /**
@@ -109,7 +114,7 @@ class CypherImageNode extends ImageNode {
  * a placeholder image opens the same overlay via {@link CypherImageNode.activate}.
  */
 export function openImageUploadMenu(
-  editor: Editor,
+  editor: AppEditor,
   blockId: string,
   x: number,
   y: number,
@@ -182,7 +187,7 @@ export interface LinkEditOverlayData {
  * space (the overlay shifts it into viewport space).
  */
 export function openLinkEditMenu(
-  editor: Editor,
+  editor: AppEditor,
   args: LinkEditOverlayData & { x: number; y: number },
 ): void {
   const { x, y, blockId, ...data } = args;
@@ -233,7 +238,7 @@ class CypherCodeNode extends CodeNode {
  * is unused — pass `(0, 0)`. Used by the host keyboard toolbar's "code language"
  * button.
  */
-export function openCodeLanguageMenu(editor: Editor, blockId: string): void {
+export function openCodeLanguageMenu(editor: AppEditor, blockId: string): void {
   editor.host.openOverlay({ key: "code-language", blockId, x: 0, y: 0 });
 }
 
@@ -246,13 +251,13 @@ export function openCodeLanguageMenu(editor: Editor, blockId: string): void {
  * is a one-line edit in this file. It mirrors the built-in set, except the image
  * node is our hash-resolving {@link CypherImageNode}.
  *
- * The CRDT + serialization half stays `baseDataSchema` (the built-in block
- * descriptors/codecs are unchanged); what we own here is the rendering node/mark
- * view list. Pass `appSchema` to `useEditor({ schema })` and `appSchema.data` to
- * `createDoc({ schema })` so the editor view and the document agree.
+ * The CRDT + serialization half is the app-owned `appDataSchema`: core data plus
+ * the optional math data facets. The interactive schema adds math's tree input
+ * rules and the matching rendering node/mark view list. Reducers and workers do
+ * not need those authoring rules to replay the resulting structured operations.
  */
 export const appSchema = new Schema(
-  baseDataSchema,
+  appDataSchema.withFeatures({ inputRules: mathInlineTreeInputRules }),
   [
     new LineNode(),
     new CypherImageNode(),
@@ -268,6 +273,11 @@ export const appSchema = new Schema(
     new StrikeMark(),
     new CodeMark(),
     new CypherLinkMark(),
-    new MathMark(),
+    new MathMark({ treeEditing: true }),
   ],
 );
+
+/** Public editor types specialized to the feature set this app installed. */
+export type AppSchemaDefinition = SchemaDefinitionOf<typeof appSchema>;
+export type AppEditor = Editor<AppSchemaDefinition>;
+export type AppMountedEditor = MountedEditor<AppSchemaDefinition>;

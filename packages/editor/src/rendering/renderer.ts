@@ -26,6 +26,7 @@ import type {
   VisibleBlockRange,
 } from "../state-types";
 import { isTouchDevice } from "../state-utils";
+import { isContentSelectionCollapsed } from "../structured-selection";
 import { getEditorStyles } from "../styles";
 import { findBlock } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
@@ -126,6 +127,7 @@ export function invalidateAffectedBlocks(
       case "text_delete":
       case "mark_set":
       case "block_set":
+      case "content_edit":
         affectedBlockIds.add(op.blockId);
         break;
       case "block_insert":
@@ -1083,7 +1085,19 @@ export function renderCursorLayer(
     );
   }
 
-  // Only render if cursor exists, editor is focused, and cursor is visible (not blinking)
+  const flatCursor = state.document.cursor;
+  const contentSelection = state.document.contentSelection;
+  const activeCaret =
+    flatCursor ??
+    (contentSelection
+      ? {
+          position: { blockIndex: 0, textIndex: 0 },
+          lastUpdate: contentSelection.lastUpdate ?? 0,
+        }
+      : null);
+
+  // Only render if one caret currency exists, the editor is focused, and the
+  // caret is visible (not blinking).
   // Don't render cursor in readonly mode.
   // While a cursor drag (the loupe/magnifier gesture) is active, force the caret
   // solid: the magnifier composites this layer, and a paused finger that stops
@@ -1091,10 +1105,10 @@ export function renderCursorLayer(
   // vanish from the loupe.
   const isCursorDragging = session.touch?.isCursorDrag === true;
   if (
-    !state.document.cursor ||
+    !activeCaret ||
     !state.view.isFocused ||
     state.ui.mode === "readonly" ||
-    (!isCursorDragging && isCursorBlinking(state.document.cursor, styles))
+    (!isCursorDragging && isCursorBlinking(activeCaret, styles))
   ) {
     ctx.restore();
     return;
@@ -1102,13 +1116,22 @@ export function renderCursorLayer(
 
   // Don't show cursor when there's an active selection
   const hasActiveSelection =
-    state.document.selection && !state.document.selection.isCollapsed;
+    (state.document.selection && !state.document.selection.isCollapsed) ||
+    (contentSelection && !isContentSelectionCollapsed(contentSelection));
   if (hasActiveSelection) {
     ctx.restore();
     return;
   }
 
-  const cursorBlockIndex = state.document.cursor.position.blockIndex;
+  const cursorBlockIndex = flatCursor
+    ? flatCursor.position.blockIndex
+    : state.document.page.blocks.findIndex(
+        (candidate) => candidate.id === contentSelection!.focus.blockId,
+      );
+  if (cursorBlockIndex < 0) {
+    ctx.restore();
+    return;
+  }
   const block = state.document.page.blocks[cursorBlockIndex];
   if (!block || block.deleted) return;
 
@@ -1172,7 +1195,7 @@ export function renderCursorLayer(
   } = getContentWithComposition(block, state, cursorBlockIndex);
 
   // Calculate the target cursor position (original position + composition offset if composing)
-  let targetCursorIndex = state.document.cursor.position.textIndex;
+  let targetCursorIndex = flatCursor?.position.textIndex ?? 0;
   if (compositionRange && state.ui.composition?.isComposing) {
     const offset = Math.max(
       0,

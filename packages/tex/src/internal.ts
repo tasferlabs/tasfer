@@ -6,7 +6,8 @@
  * but which is **NOT a public contract**. It carries no semver guarantee:
  * symbols may be renamed, reshaped, or removed in any release. External
  * consumers should depend only on the package root (`@cypherkit/tex`), whose
- * surface deals in `latex` strings and the opaque `MathLayout` handle.
+ * surface deals in `latex` strings, stable `MathDocument` values, and the
+ * opaque `MathLayout` handle.
  *
  * Mirrors `@cypherkit/editor/internal`: the root is the curated contract, this
  * entry is the explicitly-unstable escape hatch (reachable through the package's
@@ -34,3 +35,8 @@ export type {
 export type { Node, Span } from "./parse/ast";
 export type { ParseOptions } from "./parse/parser";
 export { parse } from "./parse/parser";
+
+// ── Structured-document projection bridge ───────────────────────────────────
+// The resulting MathDocument is stable/public, but accepting the unstable
+// parser AST directly is not. Hosts should normally call `parseMathDocument`.
+export { projectMathAst, type ProjectMathAstOptions } from "./document/project";

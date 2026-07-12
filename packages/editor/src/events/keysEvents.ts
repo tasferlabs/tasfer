@@ -26,6 +26,7 @@ import {
   EXTEND_SELECTION_UP,
   EXTEND_SELECTION_WORD_LEFT,
   EXTEND_SELECTION_WORD_RIGHT,
+  MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_PAGE_DOWN,
@@ -219,6 +220,36 @@ export function handleKeyDown(
 
   // Tab - indent/outdent list items
   if (key === "Tab") {
+    if (state.document.contentSelection) {
+      event.preventDefault();
+      const result = state.actionBus.dispatchState(MOVE_CONTENT_TAB, state, {
+        backward: keyEvent.shiftKey,
+      });
+      ensureCursorVisible(
+        result.state,
+        state,
+        viewport,
+        updateViewportCallback,
+        visibility,
+      );
+      return { state: result.state, ops: result.ops };
+    }
+    // Give any structured node a chance to promote a bridge cursor and own Tab
+    // before list/code handling or browser focus traversal.
+    const contentMove = state.actionBus.dispatchState(MOVE_CONTENT_TAB, state, {
+      backward: keyEvent.shiftKey,
+    });
+    if (contentMove.claimed) {
+      event.preventDefault();
+      ensureCursorVisible(
+        contentMove.state,
+        state,
+        viewport,
+        updateViewportCallback,
+        visibility,
+      );
+      return { state: contentMove.state, ops: contentMove.ops };
+    }
     if (state.document.cursor) {
       const { blockIndex: blockIndex } = state.document.cursor.position;
       const block = state.document.page.blocks[blockIndex];
@@ -863,6 +894,23 @@ export function handleKeyDown(
             blockIndex: inserted.position.blockIndex,
             textIndex: inserted.position.textIndex - key.length,
           });
+        } else {
+          const contentPoint = newState.document.contentSelection?.focus;
+          if (contentPoint) {
+            const blockIndex = newState.document.page.blocks.findIndex(
+              (block) => block.id === contentPoint.blockId && !block.deleted,
+            );
+            if (blockIndex >= 0) {
+              state.actionBus.dispatch(TEXT_INPUT, {
+                text: key,
+                blockIndex,
+                // Structured positions carry identity, not one generic source
+                // offset. Host adapters derive their own projection if needed.
+                textIndex: 0,
+                contentPoint,
+              });
+            }
+          }
         }
         break;
       }

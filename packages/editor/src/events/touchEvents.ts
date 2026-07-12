@@ -36,6 +36,8 @@ import {
 } from "../constants";
 import { endScrollbarDrag } from "../rendering/scrollbar";
 import {
+  getContentPointDocumentCoords,
+  getContentSelectionFromViewport,
   getCursorDocumentCoords,
   getTextPositionFromViewport,
   getWordRangeFromViewport,
@@ -50,6 +52,10 @@ import type {
   VisibleBlockRange,
 } from "../state-types";
 import { closeActiveMenu } from "../state-utils";
+import {
+  contentPointsEqual,
+  updateContentSelection,
+} from "../structured-selection";
 import { getEditorStyles } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
@@ -208,18 +214,26 @@ export function handleTouchStart(
       // grab, and the loupe must not pop over it.
       let isTouchingCursor = false;
       if (
-        state.document.cursor &&
+        (state.document.cursor || state.document.contentSelection) &&
         !isTouchingSelection &&
         !hasActiveSelectionHighlight(state) &&
         state.ui.mode !== "readonly"
       ) {
-        const cursorCoords = getCursorDocumentCoords(
-          state.document.cursor.position,
-          state,
-          viewport,
-          undefined,
-          visibility,
-        );
+        const cursorCoords = state.document.cursor
+          ? getCursorDocumentCoords(
+              state.document.cursor.position,
+              state,
+              viewport,
+              undefined,
+              visibility,
+            )
+          : getContentPointDocumentCoords(
+              state.document.contentSelection!.focus,
+              state,
+              viewport,
+              undefined,
+              visibility,
+            );
         if (cursorCoords) {
           // Convert document coords to viewport coords
           const cursorScreenX = cursorCoords.x;
@@ -497,36 +511,65 @@ export function handleTouchMove(
         }
       }
 
-      // Get the new cursor position based on touch location. Drag resolution:
-      // over a math formula, follow the finger to its nearest caret stop so the
-      // caret moves smoothly between a fraction's numerator and denominator,
-      // instead of the tap path's leap out to the fraction's boundary — the
-      // reported loupe jitter over math. `prev` is the current caret, the row
-      // hysteresis anchor that keeps tightly-stacked inline rows from flipping on
-      // finger wobble. A precise tap still uses the vertical-band hit-test.
-      const newPosition = getTextPositionFromViewport(
-        canvasX,
-        canvasY,
-        state,
-        viewport,
-        undefined,
-        visibility,
-        { drag: true, prev: state.document.cursor?.position ?? null },
-      );
-
-      if (newPosition) {
-        const prevPosition = state.document.cursor?.position;
-        // Trigger haptic when cursor crosses a character or line boundary
+      // Follow either caret currency. Structured nodes resolve directly to a
+      // stable endpoint; ordinary text keeps the index-space path. Both use
+      // nearest-stop drag geometry and feed the previous stop back for row
+      // hysteresis inside stacked math slots.
+      let moved = false;
+      const currentContent = state.document.contentSelection;
+      if (currentContent) {
+        const hit = getContentSelectionFromViewport(
+          canvasX,
+          canvasY,
+          state,
+          viewport,
+          "touch",
+          undefined,
+          visibility,
+          {
+            drag: true,
+            previousContentPoint: currentContent.focus,
+          },
+        );
         if (
-          prevPosition &&
-          (prevPosition.blockIndex !== newPosition.blockIndex ||
-            prevPosition.textIndex !== newPosition.textIndex)
+          hit &&
+          hit.focus.blockId === currentContent.focus.blockId &&
+          hit.focus.contentId === currentContent.focus.contentId
         ) {
-          state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
+          if (!contentPointsEqual(currentContent.focus, hit.focus)) {
+            state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
+          }
+          const next = updateContentSelection(state, hit);
+          if (next.document.contentSelection) {
+            state = next;
+            moved = true;
+          }
         }
+      } else {
+        const newPosition = getTextPositionFromViewport(
+          canvasX,
+          canvasY,
+          state,
+          viewport,
+          undefined,
+          visibility,
+          { drag: true, prev: state.document.cursor?.position ?? null },
+        );
+        if (newPosition) {
+          const prevPosition = state.document.cursor?.position;
+          if (
+            prevPosition &&
+            (prevPosition.blockIndex !== newPosition.blockIndex ||
+              prevPosition.textIndex !== newPosition.textIndex)
+          ) {
+            state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
+          }
+          state = updateCursor(state, newPosition);
+          moved = true;
+        }
+      }
 
-        state = updateCursor(state, newPosition);
-
+      if (moved) {
         state.actionBus.dispatch(CURSOR_DRAG_MOVE, {
           touchX: canvasX,
           touchY: canvasY,
@@ -1251,8 +1294,18 @@ export function handleTouchEnd(
           state = edge.state;
           ops.push(...edge.ops);
         } else {
+          const contentSelection = getContentSelectionFromViewport(
+            tapPosition.x,
+            tapPosition.y,
+            state,
+            viewport,
+            "touch",
+            styles,
+            visibility,
+          );
           state = state.actionBus.dispatchState(TAP_PLACE_CURSOR, state, {
             position,
+            contentSelection,
           }).state;
         }
       }

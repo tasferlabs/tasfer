@@ -10,15 +10,16 @@
  * before the delete is applied.
  */
 
+import { createMathTestSyncEngine } from "../../__testutils__/math";
 import { invertOperation } from "../inverse";
 import { applyOp } from "../reducer";
-import { createCRDTbinding, createSyncEngine } from "../sync";
+import { createCRDTbinding } from "../sync";
 import { describe, expect, it } from "vitest";
 
 describe("math block delete + undo", () => {
   it("restores the math block and its displayMode from the captured inverse", () => {
     const binding = createCRDTbinding("math-undo-page", "p001");
-    const engine = createSyncEngine(binding);
+    const engine = createMathTestSyncEngine(binding);
 
     const insertOp = engine.createBlockInsert(null, "math", {
       displayMode: true,

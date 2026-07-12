@@ -9,17 +9,16 @@
  *  - strike       → strike-through
  *  - code         → a colored chip + fill color
  *  - link         → link color + underline
- *  - math         → a replacement renderer (draws a MathJax SVG instead of glyphs)
  *
  * Hosts compose a {@link MarkRegistry} from these (or a subset / their own
- * subclasses) at mount; `createDefaultMarkRegistry()` builds the full set.
+ * subclasses) at mount; optional feature marks such as math are installed by
+ * their feature extension and are deliberately absent from the default set.
  */
 
 import { CodeMark } from "./CodeMark";
 import { EmphasisMark } from "./EmphasisMark";
 import { LinkMark } from "./LinkMark";
 import { Mark, MarkRegistry } from "./Mark";
-import { MathMark } from "./MathMark";
 import { StrikeMark } from "./StrikeMark";
 import { StrongMark } from "./StrongMark";
 
@@ -35,7 +34,6 @@ export function defaultMarks(): Mark[] {
     new StrikeMark(),
     new CodeMark(),
     new LinkMark(),
-    new MathMark(),
   ];
 }
 

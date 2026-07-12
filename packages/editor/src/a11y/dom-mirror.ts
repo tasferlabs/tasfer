@@ -103,14 +103,25 @@ export function blockHtml(
 ): string {
   const codec = schema.getCodec(block.type);
   if (!codec) return "";
-  return codec.html.output(block, ctx ?? makeOutputCtx(schema));
+  const resolved = makeOutputCtx(schema, block);
+  return codec.html.output(
+    block,
+    ctx ? { ...ctx, inline: resolved.inline } : resolved,
+  );
 }
 
-function makeOutputCtx(schema: DataSchema): OutputCtx {
+function makeOutputCtx(schema: DataSchema, block?: Block): OutputCtx {
   return {
     format: "html",
     inline: (charRuns, formats) =>
-      inlineToHtml(charRuns, formats, schema, undefined, true),
+      inlineToHtml(
+        charRuns,
+        formats,
+        schema,
+        undefined,
+        true,
+        block?.structuredContent,
+      ),
     mapAssetUrl: (url) => url,
     preferSource: true,
   };

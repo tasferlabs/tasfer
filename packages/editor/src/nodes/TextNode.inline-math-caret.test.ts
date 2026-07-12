@@ -7,23 +7,25 @@
  * the formula lands inside it; the surrounding text/space is how you land
  * outside.
  */
-import { createDefaultMarkRegistry } from "../rendering/marks";
+import {
+  createMathTestMarkRegistry,
+  createMathTestState,
+  loadMathPage,
+} from "../__testutils__/math";
 import { startSelection, updateSelectionFocus } from "../selection";
-import { loadPage } from "../serlization/loadPage";
-import { createInitialState } from "../state-utils";
 import { resolveTheme } from "../styles";
 import { TextNode, type TextualBlock } from "./TextNode";
 import { describe, expect, it } from "vitest";
 
 describe("TextNode inline-math chip click → inside", () => {
   const styles = resolveTheme({});
-  const marks = createDefaultMarkRegistry();
+  const marks = createMathTestMarkRegistry();
   const node = new TextNode();
 
   // "aa $x^2$": "aa " is indices 0..2, the chip "x^2" spans [3, 6).
   const chipStart = 3;
   const chipEnd = 6;
-  const block = loadPage("aa $x^2$").blocks[0] as TextualBlock;
+  const block = loadMathPage("aa $x^2$").blocks[0] as TextualBlock;
   const layout = node.computeLayout(block, 1000, styles, undefined, marks);
 
   // Boundary carets sit at the chip's painted x-range edges.
@@ -52,7 +54,7 @@ describe("TextNode inline-math chip click → inside", () => {
   });
 
   it("a single-char chip has no interior, so a click falls to its edge", () => {
-    const single = loadPage("aa $x$").blocks[0] as TextualBlock;
+    const single = loadMathPage("aa $x$").blocks[0] as TextualBlock;
     const l = node.computeLayout(single, 1000, styles, undefined, marks);
     const start = 3;
     const leftX = node.caretRect(l, start, 0, 0).x;
@@ -65,7 +67,8 @@ describe("TextNode inline-math chip click → inside", () => {
     // "aa $\frac{a}{b}$": "aa " is 0..2, the chip `\frac{a}{b}` spans [3, 14).
     // Within the chip's LaTeX the numerator `a` is at offset 6 and the
     // denominator `b` at offset 9 → block indices 9 and 12.
-    const fracBlock = loadPage("aa $\\frac{a}{b}$").blocks[0] as TextualBlock;
+    const fracBlock = loadMathPage("aa $\\frac{a}{b}$")
+      .blocks[0] as TextualBlock;
     const fracLayout = node.computeLayout(
       fracBlock,
       1000,
@@ -196,8 +199,8 @@ describe("inline-math chip range selection snaps to whole constructs", () => {
   // Shift+Arrow endpoint that lands inside the chip's fraction must widen to the
   // whole construct, just like a block equation — you can't select PART of it.
   const dragSelect = (anchorIndex: number, focusIndex: number) => {
-    const page = loadPage("aa $\\frac{a}{b}$");
-    let state = createInitialState(page);
+    const page = loadMathPage("aa $\\frac{a}{b}$");
+    let state = createMathTestState(page);
     state = startSelection(state, { blockIndex: 0, textIndex: anchorIndex });
     state = updateSelectionFocus(state, {
       blockIndex: 0,
@@ -223,11 +226,11 @@ describe("inline-math chip range selection snaps to whole constructs", () => {
 
 describe("inline-math chip magnifier caret-drag descends into fraction rows", () => {
   const styles = resolveTheme({});
-  const marks = createDefaultMarkRegistry();
+  const marks = createMathTestMarkRegistry();
   const node = new TextNode();
 
   // "aa $\frac{a}{b}$": chip [3, 14); numerator `a` → block 9, denominator `b` → 12.
-  const block = loadPage("aa $\\frac{a}{b}$").blocks[0] as TextualBlock;
+  const block = loadMathPage("aa $\\frac{a}{b}$").blocks[0] as TextualBlock;
   const layout = node.computeLayout(block, 1000, styles, undefined, marks);
   const x = node.caretRect(layout, 9, 0, 0).x; // over the numerator/denominator
   const y0 = layout.lines[0].y;
@@ -273,13 +276,13 @@ describe("inline-math chip magnifier caret-drag descends into fraction rows", ()
 
 describe("inline-math chip drag holds steady at the chip's outer edge", () => {
   const styles = resolveTheme({});
-  const marks = createDefaultMarkRegistry();
+  const marks = createMathTestMarkRegistry();
   const node = new TextNode();
 
   // Chip first so its real (tex-measured) width anchors the geometry — jsdom
   // measures the plain-text tail as zero-width. "\frac{a}{b}" spans [0, 11);
   // numerator `a` stops at 6/7, denominator `b` at 9/10, boundaries 0 and 11.
-  const block = loadPage("$\\frac{a}{b}$ aa").blocks[0] as TextualBlock;
+  const block = loadMathPage("$\\frac{a}{b}$ aa").blocks[0] as TextualBlock;
   const layout = node.computeLayout(block, 1000, styles, undefined, marks);
   const chipRightX = node.caretRect(layout, 11, 0, 0).x;
   const numRect = node.caretRect(layout, 7, 0, 0);

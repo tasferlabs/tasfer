@@ -260,7 +260,7 @@ export class QuoteNode extends TextNode {
             field: "type",
             value: "paragraph",
           };
-          const page = applyOps(state.document.page, [op]);
+          const page = applyOps(state.document.page, [op], state.schema);
           invalidateBlockCache(page.blocks[blockIndex]);
           const next = clearSelection(state);
           return {
@@ -284,7 +284,7 @@ export class QuoteNode extends TextNode {
           blockId: newParagraphId,
           blockType: "paragraph",
         };
-        const page = applyOps(state.document.page, [op]);
+        const page = applyOps(state.document.page, [op], state.schema);
         const paragraphIndex = page.blocks.findIndex(
           (candidate) => candidate.id === newParagraphId,
         );

@@ -12,4 +12,5 @@ export default libConfig({
   alias: {
     "@shared": resolve(here, "../../shared"),
   },
+  exclude: ["!src/**/__testutils__/**"],
 });

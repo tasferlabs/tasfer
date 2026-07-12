@@ -17,6 +17,7 @@
 
 import type { Mark } from "../loadPage";
 import { type TokenType } from "../tokenizer";
+import type { ReplacementRenderer } from "./types";
 
 /** Helpers passed to an HTML codec so it needn't import the serializer. */
 export interface MarkHtmlCtx {
@@ -24,8 +25,8 @@ export interface MarkHtmlCtx {
   readonly text: string;
   readonly escapeHtml: (s: string) => string;
   readonly escapeAttr: (s: string) => string;
-  /** Inline math renderer, when the host supplied one. */
-  readonly renderMathSVG?: (latex: string, displayMode: boolean) => string;
+  /** Feature replacement renderer, when the host supplied one. */
+  readonly renderReplacement?: ReplacementRenderer;
   /**
    * Consumer prefers editable source over a rendered replacement — see
    * {@link import("./types").OutputCtx.preferSource}. A replacement mark (inline

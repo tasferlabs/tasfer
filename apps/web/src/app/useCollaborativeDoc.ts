@@ -32,6 +32,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { getPlatform } from "@/platform";
 import { appSchema } from "../editorSchema";
+import type { AppSchemaDefinition } from "../editorSchema";
 import { useP2PRoom, type SyncState } from "./hooks/useP2PRoom";
 
 /**
@@ -64,7 +65,7 @@ export interface AwarenessChannel {
 /** The shared doc + collaboration handles handed down to editor surfaces. */
 export interface CollaborativeDoc {
   /** The shared CRDT document — the single source of truth for the page. */
-  doc: Doc;
+  doc: Doc<AppSchemaDefinition>;
   /** Awareness transport for presence (publish local, subscribe to peers). */
   awareness: AwarenessChannel;
   /** This tab's identity + cursor color, or a blank placeholder until it loads. */
@@ -108,7 +109,7 @@ export function useCollaborativeDoc({
   const liveBlocksRef = useRef<{ blocks: Block[]; pageId: string } | null>(
     null,
   );
-  const docRef = useRef<Doc | null>(null);
+  const docRef = useRef<Doc<AppSchemaDefinition> | null>(null);
 
   // Room callback refs, set by the effects below (ops) or by `awareness.connect`
   // (presence). Held in refs so wiring them never re-joins the room.

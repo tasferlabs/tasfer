@@ -92,17 +92,17 @@ import {
  *
  * Compatibility rules (see also the "Releasing Updates And Compatibility"
  * note at /docs/internals/compatibility):
- *  - The `Operation` union is append-only. Never reshape an existing op type;
- *    add new op/block/mark types instead, and gate emitting them on the peer's
- *    negotiated `protocolVersion` so an older peer never receives ops it would
- *    drop (a dropped op breaks CRDT convergence permanently).
+ *  - The `Operation` union is append-only. Never reshape an existing op type.
+ *    A protocol mismatch blocks replication in both directions: an older peer
+ *    may drop a new op, while its old merge semantics may emit operations that
+ *    are unsafe for a newer authoritative projection.
  *  - Received unknown ops/blocks/marks are preserved in the log, never rejected
  *    (see reducer.applyOp's default case and UnknownNode).
  *
  * Bump on any protocol-level change; a higher remote value means "the peer may
  * speak things we don't yet understand".
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 // =============================================================================
 // ReplicatorHost — what the Replicator needs from the Engine
@@ -292,12 +292,11 @@ interface PeerConnection {
   /** Wire-codec version the peer advertised in `hello` (undefined until received). */
   remoteWireVersion?: number;
   /**
-   * Set when the peer's {@link WIRE_VERSION} differs from ours: its ops cannot
-   * be reliably decoded, so we refuse all data exchange with it (no sync-pull,
-   * no sends, inbound non-hello messages dropped). A *protocol*-only mismatch
-   * does NOT set this — those peers still sync (forward-compat by design).
+   * True only after `hello` negotiated an exact protocol + wire match. Undefined
+   * before the handshake and false on either mismatch; in both cases every
+   * non-hello send/receive is blocked.
    */
-  wireIncompatible?: boolean;
+  versionCompatible?: boolean;
 }
 
 /** Represents a local peer's membership in a page's awareness room — who is present, their display info, and the latest cursor/selection state for each remote participant. */
@@ -427,7 +426,10 @@ export class Replicator {
   /** Per-room awareness throttle state (50 ms leading+trailing) */
   private awarenessThrottle = new Map<
     string,
-    { timer: ReturnType<typeof setTimeout> | null; pending: CursorPresence | null }
+    {
+      timer: ReturnType<typeof setTimeout> | null;
+      pending: CursorPresence | null;
+    }
   >();
 
   /** True while suspended for app backgrounding (see pause()/resume()). */
@@ -476,7 +478,9 @@ export class Replicator {
           await this.connectToPeer(peer.publicKey);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          console.error(`[Sync] failed to connect to peer ${peer.publicKey.slice(0, 8)}: ${msg}`);
+          console.error(
+            `[Sync] failed to connect to peer ${peer.publicKey.slice(0, 8)}: ${msg}`,
+          );
         }
       }
     }
@@ -495,7 +499,10 @@ export class Replicator {
       for (const spaceId of existing.sharedSpaces) {
         if (!prev.has(spaceId)) {
           const response = await this.host.buildSyncResponse(spaceId, {}, {});
-          if (response.spaceOps.length > 0 || Object.keys(response.pageOps).length > 0) {
+          if (
+            response.spaceOps.length > 0 ||
+            Object.keys(response.pageOps).length > 0
+          ) {
             this.sendDirect(existing, {
               type: "sync-data",
               spaceId,
@@ -596,7 +603,9 @@ export class Replicator {
           await this.connectToPeer(peer.publicKey);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          console.error(`[Sync] resume: failed to connect to peer ${peer.publicKey.slice(0, 8)}: ${msg}`);
+          console.error(
+            `[Sync] resume: failed to connect to peer ${peer.publicKey.slice(0, 8)}: ${msg}`,
+          );
         }
       }
     }
@@ -749,7 +758,11 @@ export class Replicator {
     }
   }
 
-  private _broadcastAwareness(room: RoomState, roomId: string, state: CursorPresence): void {
+  private _broadcastAwareness(
+    room: RoomState,
+    roomId: string,
+    state: CursorPresence,
+  ): void {
     this.broadcastToSpacePeers(room.spaceId, {
       type: "awareness",
       pageId: roomId,
@@ -793,9 +806,10 @@ export class Replicator {
    * {@link PROTOCOL_VERSION} or {@link WIRE_VERSION} differs from ours, so the
    * host can surface "an update is available" / "this peer is outdated".
    *
-   * When `info.wireCompatible` is false the replicator additionally **refuses**
-   * the peer — it exchanges no ops/awareness in either direction — since its
-   * ops can't be reliably decoded. A protocol-only mismatch still syncs.
+   * Every mismatch is blocking: the replicator exchanges no ops/awareness in
+   * either direction until a later `hello` advertises exact protocol and wire
+   * versions. `wireCompatible` still reports whether the byte codec itself
+   * matched; `syncCompatible` reports the complete negotiation result.
    */
   onPeerVersionMismatch(cb: (info: PeerVersionInfo) => void): () => void {
     this.versionMismatchListeners.add(cb);
@@ -977,6 +991,7 @@ export class Replicator {
     const unsub = netPeer.onMessage((data) => {
       // Binary asset-data frames start with BINARY_ASSET_TAG, not '{' (0x7B)
       if (data[0] === BINARY_ASSET_TAG) {
+        if (this.peers.get(remotePubKey)?.versionCompatible !== true) return;
         void this.handleBinaryAssetData(data).catch((e) => {
           console.error("[Sync] asset frame rejected:", e);
         });
@@ -1072,10 +1087,13 @@ export class Replicator {
   // ---------------------------------------------------------------------------
 
   private async handleMessage(fromPubKey: string, msg: Message) {
-    // Refuse a wire-incompatible peer: its ops would mis-decode, so drop
-    // everything except `hello` (which re-runs version negotiation and could
-    // clear the flag if the peer later advertises a compatible version).
-    if (msg.type !== "hello" && this.peers.get(fromPubKey)?.wireIncompatible) {
+    // `hello` is the gate, not just a notification. Before negotiation, or on
+    // either version mismatch, drop everything else. A later matching hello can
+    // reopen the connection without tearing down the transport.
+    if (
+      msg.type !== "hello" &&
+      this.peers.get(fromPubKey)?.versionCompatible !== true
+    ) {
       return;
     }
 
@@ -1159,12 +1177,11 @@ export class Replicator {
     conn.remoteProtocolVersion = remoteProtocolVersion;
     conn.remoteWireVersion = remoteWireVersion;
 
-    const protocolMatch = remoteProtocolVersion === PROTOCOL_VERSION;
+    const protocolCompatible = remoteProtocolVersion === PROTOCOL_VERSION;
     const wireCompatible = remoteWireVersion === WIRE_VERSION;
-    // Refuse data exchange only on wire incompatibility — a protocol-only
-    // mismatch (same wire) still syncs, since unknown ops degrade gracefully.
-    conn.wireIncompatible = !wireCompatible;
-    if (protocolMatch && wireCompatible) return;
+    const syncCompatible = protocolCompatible && wireCompatible;
+    conn.versionCompatible = syncCompatible;
+    if (syncCompatible) return;
 
     const direction =
       remoteProtocolVersion > PROTOCOL_VERSION ||
@@ -1175,7 +1192,7 @@ export class Replicator {
       `[Sync] version mismatch with ${conn.publicKey.slice(0, 8)}: ` +
         `protocol ${remoteProtocolVersion} (local ${PROTOCOL_VERSION}), ` +
         `wire ${remoteWireVersion} (local ${WIRE_VERSION}) — ${direction}` +
-        (wireCompatible ? "" : "; ops may not decode correctly"),
+        "; sync refused until both versions match",
     );
 
     const info: PeerVersionInfo = {
@@ -1184,7 +1201,9 @@ export class Replicator {
       remoteWireVersion,
       localProtocolVersion: PROTOCOL_VERSION,
       localWireVersion: WIRE_VERSION,
+      protocolCompatible,
       wireCompatible,
+      syncCompatible,
     };
     for (const cb of this.versionMismatchListeners) cb(info);
   }
@@ -1195,9 +1214,9 @@ export class Replicator {
     if (!conn) return;
 
     this.checkPeerVersion(conn, msg);
-    if (conn.wireIncompatible) {
+    if (conn.versionCompatible !== true) {
       console.warn(
-        `[Sync] refusing to sync with ${fromPubKey.slice(0, 8)}: incompatible wire version`,
+        `[Sync] refusing to sync with ${fromPubKey.slice(0, 8)}: incompatible protocol or wire version`,
       );
       // Still record the contact, but exchange no ops/awareness with it.
       await this.host.updatePeerLastSeen(fromPubKey);
@@ -1268,7 +1287,9 @@ export class Replicator {
   private async handleSyncPull(fromPubKey: string, msg: SyncPullMsg) {
     const conn = this.peers.get(fromPubKey);
     if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
-      console.warn(`[Sync] dropped sync-pull for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`);
+      console.warn(
+        `[Sync] dropped sync-pull for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`,
+      );
       return;
     }
 
@@ -1292,7 +1313,9 @@ export class Replicator {
     // The data may contain space_set + member_add ops that bootstrap a space
     // the remote peer created with us as a member.
     if (!conn) {
-      console.warn(`[Sync] dropped sync-data for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (no connection)`);
+      console.warn(
+        `[Sync] dropped sync-data for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (no connection)`,
+      );
       return;
     }
 
@@ -1320,7 +1343,9 @@ export class Replicator {
     if (wasUnknown) {
       await this.recomputeSharedSpaces(conn);
       if (conn.sharedSpaces.has(msg.spaceId)) {
-        console.log(`[Sync] bootstrapped space ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)}`);
+        console.log(
+          `[Sync] bootstrapped space ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)}`,
+        );
         const spaceVV = await this.host.getSpaceVV(msg.spaceId);
         const pageVVs = await this.host.getPageVVs(msg.spaceId);
         this.sendDirect(conn, {
@@ -1338,7 +1363,9 @@ export class Replicator {
   private async handleSpaceOps(fromPubKey: string, msg: SpaceOpsMsg) {
     const conn = this.peers.get(fromPubKey);
     if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
-      console.warn(`[Sync] dropped space-ops for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`);
+      console.warn(
+        `[Sync] dropped space-ops for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`,
+      );
       return;
     }
 
@@ -1348,7 +1375,9 @@ export class Replicator {
   private async handlePageOps(fromPubKey: string, msg: PageOpsMsg) {
     const conn = this.peers.get(fromPubKey);
     if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
-      console.warn(`[Sync] dropped page-ops for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`);
+      console.warn(
+        `[Sync] dropped page-ops for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`,
+      );
       return;
     }
 
@@ -1491,12 +1520,16 @@ export class Replicator {
     // Layout: [BINARY_ASSET_TAG][32 raw hash bytes][1 ext-len byte][ext][data]
     const hashBytes = hexToBytes(msg.hash);
     const extBytes = enc.encode(asset.ext);
-    const frame = new Uint8Array(1 + 32 + 1 + extBytes.length + asset.data.length);
+    const frame = new Uint8Array(
+      1 + 32 + 1 + extBytes.length + asset.data.length,
+    );
     let off = 0;
     frame[off++] = BINARY_ASSET_TAG;
-    frame.set(hashBytes, off); off += 32;
+    frame.set(hashBytes, off);
+    off += 32;
     frame[off++] = extBytes.length;
-    frame.set(extBytes, off); off += extBytes.length;
+    frame.set(extBytes, off);
+    off += extBytes.length;
     frame.set(asset.data, off);
 
     conn.netPeer.send(frame);
@@ -1517,10 +1550,12 @@ export class Replicator {
     if (frame.length < HEADER_SIZE) return;
 
     let off = 1; // skip tag
-    const hash = bytesToHex(frame.slice(off, off + 32)); off += 32;
+    const hash = bytesToHex(frame.slice(off, off + 32));
+    off += 32;
     const extLen = frame[off++];
     if (frame.length < HEADER_SIZE + extLen) return;
-    const ext = dec.decode(frame.slice(off, off + extLen)); off += extLen;
+    const ext = dec.decode(frame.slice(off, off + extLen));
+    off += extLen;
     const data = frame.slice(off);
 
     // Unsolicited: nobody asked for this hash. Dropping it denies a peer the
@@ -1624,12 +1659,15 @@ export class Replicator {
     }
 
     // Fire completion callback (engine will trust peer, add members, etc.)
-    await session.callbacks.onComplete?.({
-      publicKey: msg.publicKey,
-      name: msg.name,
-      trusted: true,
-      lastSeen: new Date().toISOString(),
-    }, session.spaceName || undefined);
+    await session.callbacks.onComplete?.(
+      {
+        publicKey: msg.publicKey,
+        name: msg.name,
+        trusted: true,
+        lastSeen: new Date().toISOString(),
+      },
+      session.spaceName || undefined,
+    );
 
     // Establish replication connection to the new peer
     await this.addPeer(msg.publicKey);
@@ -1649,7 +1687,7 @@ export class Replicator {
 
   /** Send a message directly to a specific connected peer (with logging). */
   private sendDirect(conn: PeerConnection, msg: Message) {
-    if (conn.wireIncompatible) return;
+    if (conn.versionCompatible !== true) return;
     const data = encode(msg);
     logNet("send", conn.publicKey, msg, data.byteLength);
     conn.netPeer.send(data);
@@ -1658,7 +1696,7 @@ export class Replicator {
   private broadcastToSpacePeers(spaceId: string, msg: Message) {
     const data = encode(msg);
     for (const conn of this.peers.values()) {
-      if (conn.wireIncompatible) continue;
+      if (conn.versionCompatible !== true) continue;
       if (conn.sharedSpaces.has(spaceId)) {
         logNet("send", conn.publicKey, msg, data.byteLength);
         conn.netPeer.send(data);
@@ -1669,7 +1707,7 @@ export class Replicator {
   private sendToPeer(peerId: string, msg: Message) {
     // peerId might be a truncated public key (first 32 chars) — match by prefix
     for (const conn of this.peers.values()) {
-      if (conn.wireIncompatible) continue;
+      if (conn.versionCompatible !== true) continue;
       if (conn.publicKey === peerId || conn.publicKey.startsWith(peerId)) {
         const data = encode(msg);
         logNet("send", conn.publicKey, msg, data.byteLength);
@@ -1743,7 +1781,9 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
     data.byteOffset,
     data.byteOffset + data.byteLength,
   ) as ArrayBuffer;
-  return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+  return bytesToHex(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+  );
 }
 
 /**

@@ -12,13 +12,16 @@
  *   - after typing a COMPLETE command (`\pi`), no `unknown` node exists and
  *     the π glyph actually typesets
  */
+import {
+  createMathTestState,
+  createMathTestSyncEngine,
+} from "./__testutils__/math";
 import { insertText } from "./actions/actions";
 import { moveCursorToPosition } from "./selection";
 import type { EditorState } from "./state-types";
-import { createInitialState } from "./state-utils";
 import { getVisibleTextFromRuns } from "./sync/char-runs";
 import { insertCharsAtPosition } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { caretStops, layoutMath } from "@cypherkit/tex";
 import { parse } from "@cypherkit/tex/internal";
 import { describe, expect, it } from "vitest";
@@ -27,7 +30,7 @@ import { describe, expect, it } from "vitest";
  * harness as math-command-entry.test.ts.) */
 function mathState(latex: string, caret: number) {
   const binding = createCRDTbinding("repro-backslash", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
   engine.emit([blockOp]);
   let page = engine.getState();
@@ -40,7 +43,7 @@ function mathState(latex: string, caret: number) {
       binding,
     ).newPage;
   }
-  let state = createInitialState(page, { crdtBinding: binding });
+  let state = createMathTestState(page, { crdtBinding: binding });
   state = moveCursorToPosition(state, 0, caret);
   return state;
 }

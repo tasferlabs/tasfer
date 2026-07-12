@@ -314,7 +314,7 @@ export function createDoc<D extends SchemaDefinition = BaseSchemaDefinition>(
     initialBlocks = [];
   } else {
     // Empty editable doc: same starter block an empty editor gets.
-    initialBlocks = loadPage("").blocks;
+    initialBlocks = loadPage("", schema).blocks;
   }
 
   page = { id: pageId, title: "", blocks: initialBlocks };

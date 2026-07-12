@@ -4,7 +4,10 @@ import type { MarkRegistry } from "./rendering/marks/Mark";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
 import type { Block, CharRun, Mark, Page } from "./serlization/loadPage";
+import type { ContentPoint, ContentSelection } from "./structured-selection";
 import type { DataSchema } from "./sync/schema";
+import type { StructuredMutation } from "./sync/structured-content";
+import type { IdentityAllocator } from "@shared/identity";
 
 // =============================================================================
 // CRDT Types — P2P Offline-Tolerant Live Updates
@@ -167,6 +170,17 @@ export interface BlockSet extends BaseOp {
   value: unknown;
 }
 
+/** Apply one schema-agnostic mutation to a structured attachment on a block. */
+export interface ContentEdit extends BaseOp {
+  op: "content_edit";
+  /** Block that owns the attachment. */
+  blockId: string;
+  /** Stable attachment identity (the structured document's root id). */
+  contentId: string;
+  /** Initialization or one normalized tree/text mutation. */
+  edit: StructuredMutation;
+}
+
 /**
  * Union of all operation types.
  */
@@ -176,7 +190,8 @@ export type Operation =
   | MarkSet
   | BlockInsert
   | BlockDelete
-  | BlockSet;
+  | BlockSet
+  | ContentEdit;
 
 /**
  * Version vector tracking seen operations per peer.
@@ -249,13 +264,16 @@ export interface DocumentState {
   readonly page: Page;
   readonly cursor: CursorState | null;
   readonly selection: SelectionState | null;
+  /** Active caret/range inside a structured attachment, separate from DocPoint. */
+  readonly contentSelection: ContentSelection | null;
 }
 
 // Composition State - IME input composition tracking
 export interface CompositionState {
   readonly isComposing: boolean;
   readonly text: string;
-  readonly startPosition: Position;
+  /** Stable start in either flat block text or an extension-owned document. */
+  readonly startPosition: Position | ContentPoint;
   readonly cursorOffset: number; // Cursor position within composition text
 }
 
@@ -577,8 +595,10 @@ export interface UndoGroup {
   readonly peerId?: string; // User who performed these operations
   readonly cursorBefore: CRDTCursorState | null; // Cursor state before operations (restored on undo)
   readonly selectionBefore: CRDTSelectionState | null; // Selection state before operations (restored on undo)
+  readonly contentSelectionBefore: ContentSelection | null;
   readonly cursorAfter: CRDTCursorState | null; // Cursor state after operations (restored on redo)
   readonly selectionAfter: CRDTSelectionState | null; // Selection state after operations (restored on redo)
+  readonly contentSelectionAfter: ContentSelection | null;
 }
 
 export interface UndoManagerState {
@@ -1423,10 +1443,13 @@ export interface FontMetrics {
  * in place. It is intentionally NOT part of any undo/redo snapshot — it is
  * ambient instance context, not immutable document state.
  */
-export interface CRDTbinding {
+export interface CRDTbinding extends IdentityAllocator {
   /** The page this binding generates operations for. */
   readonly pageId: string;
-  /** Generate the next unique id. Advances the internal id counter. */
+  /**
+   * Generate the next unique identity in this page/peer collision domain.
+   * This is the authoritative allocator for every live persisted feature.
+   */
   nextId(): string;
   /** Get the current clock, ticking it forward. Returns a fresh copy. */
   getClock(): HLC;

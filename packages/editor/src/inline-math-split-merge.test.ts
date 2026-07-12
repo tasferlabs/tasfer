@@ -4,6 +4,10 @@
  * rather than the raw CRDT helpers — so it exercises the observers MathNode wires
  * in `registerActions`, exactly as a keystroke would at runtime.
  */
+import {
+  createMathTestState,
+  createMathTestSyncEngine,
+} from "./__testutils__/math";
 import { deleteText, insertText } from "./actions/actions";
 import {
   DELETE_BACKWARD,
@@ -13,15 +17,14 @@ import {
 import { getInlineMathSpans } from "./inline-math-spans";
 import { moveCursorToPosition } from "./selection";
 import type { CursorState, EditorState } from "./state-types";
-import { createInitialState } from "./state-utils";
 import { insertCharsAtPosition, markCharsInRange } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
 /** A live editor state whose single paragraph holds one inline-math chip `latex`. */
 function editorWithChip(latex: string, caret: number) {
   const binding = createCRDTbinding("split-merge", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
@@ -38,7 +41,7 @@ function editorWithChip(latex: string, caret: number) {
     binding,
   ).newPage;
 
-  const s0 = createInitialState(page, { crdtBinding: binding });
+  const s0 = createMathTestState(page, { crdtBinding: binding });
   const cursor: CursorState = {
     position: { blockIndex: 0, textIndex: caret },
     lastUpdate: 0,

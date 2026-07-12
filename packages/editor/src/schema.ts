@@ -10,8 +10,8 @@
  *   const editor = createEditor({ element, schema });
  *
  * `defineNode` / `defineMark` build the spec objects; `baseSchema` is the
- * built-in set. Schemas are immutable — `extend()` returns a new one — so two
- * editors can hold different schemas on the same page (the project's
+ * math-free core set. Schemas are immutable — `extend()` and `use()` return a new one
+ * — so two editors can hold different schemas on the same page (the project's
  * no-shared-mutable-state rule).
  *
  * v1 scope: custom block types are LEAF, void nodes (no text content, no
@@ -21,6 +21,7 @@
  */
 
 import { getBaseDataSchema } from "./baseDataSchema";
+import type { FeatureFacets } from "./feature-facets";
 import { defaultMarks, Mark } from "./rendering/marks";
 import { defaultNodes } from "./rendering/nodes";
 import { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
@@ -97,6 +98,35 @@ export interface SchemaExtension {
 }
 
 /**
+ * A reusable editor feature installed with {@link Schema.use}.
+ *
+ * A feature contributes the block-node and inline-mark facets accepted by the
+ * lower-level {@link Schema.extend} API plus schema-scoped input, Markdown,
+ * action, and theme facets. This distinct public shape is the stable composition
+ * boundary for extension packages; new feature capabilities can be added here
+ * without changing how consumers install them.
+ *
+ * `name` is optional metadata for tooling and diagnostics. Composition is
+ * structural and immutable; a name is not a global registration key and does
+ * not cause features to be deduplicated.
+ *
+ * Preserve literal node and mark types when exporting a feature by using
+ * `satisfies` rather than widening the value with a type annotation:
+ *
+ * ```ts
+ * export const callouts = {
+ *   name: "callouts",
+ *   nodes: [defineNode("callout")],
+ * } as const satisfies FeatureExtension;
+ *
+ * const schema = baseSchema.use(callouts);
+ * ```
+ */
+export interface FeatureExtension extends SchemaExtension, FeatureFacets {
+  readonly name?: string;
+}
+
+/**
  * The authoring allow-list passed to {@link Schema.restrict}. Names are the
  * schema's own registered block/mark types (so they autocomplete). Omit a key to
  * leave that dimension unrestricted; `marks: []` yields a format-free field. The
@@ -138,7 +168,7 @@ type ExtensionDefinition<E extends SchemaExtension> = {
 /**
  * An immutable editor schema: the data facets (`data`) plus the nodes the
  * editor renders (`nodes`). Build the default with `baseSchema`, derive
- * variants with `extend()`.
+ * variants with `extend()` or compose reusable features with `use()`.
  */
 export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
   readonly data: DataSchema<D>;
@@ -198,6 +228,36 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
   }
 
   /**
+   * Install one reusable feature and return a new schema.
+   *
+   * `use()` is the public composition boundary for extension packages. Today a
+   * {@link FeatureExtension} registers nodes and marks through the same
+   * normalization as {@link extend}, including exact schema type inference, then
+   * installs its cross-type facets on the derived data schema. Keeping the
+   * methods separate prevents the low-level node/mark registration API from
+   * becoming a framework-wide hook bag.
+   *
+   * ```ts
+   * const callouts = {
+   *   name: "callouts",
+   *   nodes: [defineNode("callout")],
+   * } as const satisfies FeatureExtension;
+   *
+   * const schema = baseSchema.use(callouts);
+   * ```
+   */
+  use<const F extends FeatureExtension>(
+    feature: F,
+  ): Schema<MergeSchema<D, ExtensionDefinition<F>>> {
+    const extended = this.extend(feature);
+    return new Schema(
+      extended.data.withFeatures(feature),
+      extended.nodes,
+      extended.marks,
+    );
+  }
+
+  /**
    * Derive a schema that restricts which registered types the local user may
    * author — the ProseMirror-style whitelist. Rendering is untouched (the same
    * nodes/marks), so this only gates creation: a restricted editor still paints
@@ -216,6 +276,9 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
     );
   }
 }
+
+/** Extract the compile-time document definition carried by a {@link Schema}. */
+export type SchemaDefinitionOf<S> = S extends Schema<infer D> ? D : never;
 
 /**
  * Resolve a custom mark's serialization codec, keeping the {@link Mark} instance
@@ -259,9 +322,10 @@ function toBlockSpec(entry: BlockSpec | Node): BlockSpec {
 }
 
 /**
- * The default schema — every built-in block and mark type, and the built-in
- * nodes. The node/mark instances come straight from `defaultNodes()` /
- * `defaultMarks()` (the single source of truth for the built-in set), so this
+ * The default schema — every core block and mark type, and the core nodes.
+ * Optional features such as math are absent. The node/mark instances come
+ * straight from `defaultNodes()` / `defaultMarks()` (the single source of truth
+ * for the core set), so this
  * never drifts from them. Immutable; derive variants with `baseSchema.extend(...)`.
  */
 export const baseSchema: Schema<BaseSchemaDefinition> = new Schema(

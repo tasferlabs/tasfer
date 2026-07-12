@@ -7,19 +7,21 @@
  * flip an otherwise-Latin paragraph to RTL. Only the surrounding prose decides
  * the block's base direction.
  */
-import { createDefaultMarkRegistry } from "../rendering/marks";
-import { loadPage } from "../serlization/loadPage";
+import {
+  createMathTestMarkRegistry,
+  loadMathPage,
+} from "../__testutils__/math";
 import { resolveTheme } from "../styles";
 import { TextNode, type TextualBlock } from "./TextNode";
 import { describe, expect, it } from "vitest";
 
 describe("block direction ignores inline-math source", () => {
   const styles = resolveTheme({});
-  const marks = createDefaultMarkRegistry();
+  const marks = createMathTestMarkRegistry();
   const node = new TextNode();
 
   const directionOf = (markdown: string) => {
-    const block = loadPage(markdown).blocks[0] as TextualBlock;
+    const block = loadMathPage(markdown).blocks[0] as TextualBlock;
     return node.computeLayout(block, 400, styles, undefined, marks).isRTL;
   };
 

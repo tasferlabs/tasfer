@@ -108,7 +108,7 @@ export function Toolbar({ editor }: { editor: CypherEditor | null }) {
 
 In React, render `<Toolbar editor={editor} />` just above the editor's `<div ref={containerRef} />` — it stays in sync automatically, no manual `paint()`.
 
-<Callout kind="tip" title="Markdown shortcuts are already on.">Type `**bold**`, `## ` at the start of a line, or `- ` for a bullet — the built-in input rules transform them as you type. Delimiters also wrap a held selection: `(`/`[`/`{`/quotes enclose it literally, while a markdown delimiter applies its meaning — `*` italicizes (press again for bold), `` ` `` makes code, `$` makes inline math. Your toolbar and the shortcuts edit the same state.</Callout>
+<Callout kind="tip" title="Markdown shortcuts are already on.">Type `**bold**`, `## ` at the start of a line, or `- ` for a bullet — the built-in input rules transform them as you type. Delimiters also wrap a held selection: `(`/`[`/`{`/quotes enclose it literally, while a markdown delimiter applies its meaning — `*` italicizes (press again for bold) and `` ` `` makes code. Dollar signs stay literal in this core setup; install the opt-in [`mathExtension`](/docs/editor/api-schema#math) when the product needs inline or display math. Your toolbar and the shortcuts edit the same state.</Callout>
 
 <h2 id="persist">Step 3 — Persist locally</h2>
 

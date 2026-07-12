@@ -17,15 +17,14 @@
  * over a state that carries a selection, then commit the focus exactly as the
  * `EXTEND_SELECTION_UP`/`_DOWN` actions do (`updateSelectionFocus`).
  */
+import { createMathTestState, loadMathPage } from "./__testutils__/math";
 import {
   moveCursorDown,
   moveCursorUp,
   startSelection,
   updateSelectionFocus,
 } from "./selection";
-import { loadPage } from "./serlization/loadPage";
 import type { EditorState, Position } from "./state-types";
-import { createInitialState } from "./state-utils";
 import { describe, expect, it } from "vitest";
 
 function place(s: EditorState, blockIndex: number, textIndex: number) {
@@ -80,7 +79,7 @@ describe("block math — Shift+Arrow selection never sticks", () => {
   const PAGE = "above\n\n$$\\frac{a}{b}$$\n\nbelow";
 
   it("Shift+ArrowDown from above extends through the equation into the block below", () => {
-    const s = place(createInitialState(loadPage(PAGE)), 0, 0);
+    const s = place(createMathTestState(loadMathPage(PAGE)), 0, 0);
     expect(s.document.page.blocks[2].type).toBe("math");
     // Blocks: 0 para, 1 para, 2 math, 3 para, 4 para. Escape means the focus
     // gets past the math block (index > 2).
@@ -88,7 +87,7 @@ describe("block math — Shift+Arrow selection never sticks", () => {
   });
 
   it("Shift+ArrowUp from below extends through the equation into the block above", () => {
-    const s = place(createInitialState(loadPage(PAGE)), 4, 5);
+    const s = place(createMathTestState(loadMathPage(PAGE)), 4, 5);
     expect(s.document.page.blocks[2].type).toBe("math");
     extendUntilBlock(s, "up", 0);
   });
@@ -97,7 +96,7 @@ describe("block math — Shift+Arrow selection never sticks", () => {
     // Anchor inside the numerator: the first Shift+Down selects the whole
     // fraction (via the construct snap); the next must leave the block, not bounce.
     const numOff = "\\frac{a}{b}".indexOf("{a}") + 1;
-    const s = place(createInitialState(loadPage(PAGE)), 2, numOff);
+    const s = place(createMathTestState(loadMathPage(PAGE)), 2, numOff);
     extendUntilBlock(s, "down", 4);
   });
 
@@ -107,7 +106,7 @@ describe("block math — Shift+Arrow selection never sticks", () => {
     const f = "\\frac{a}{b}";
     const aOff = f.indexOf("{a}") + 1;
     const bOff = f.indexOf("{b}") + 1;
-    const s = place(createInitialState(loadPage(`$$${f}$$`)), 0, aOff);
+    const s = place(createMathTestState(loadMathPage(`$$${f}$$`)), 0, aOff);
     const down = moveCursorDown(s);
     expect(down.document.cursor?.position.blockIndex).toBe(0);
     expect(down.document.cursor?.position.textIndex).toBeGreaterThanOrEqual(

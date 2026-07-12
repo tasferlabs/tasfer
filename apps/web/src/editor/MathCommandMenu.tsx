@@ -2,14 +2,15 @@ import * as Popover from "@radix-ui/react-popover";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { TEXT_INPUT } from "@cypherkit/editor";
 import {
-  type Editor,
   filterMathCommands,
+  INSERT_MATH_COMMAND,
   type MathCommand,
   mathCommandInsertion,
   renderToSVG,
-  TEXT_INPUT,
-} from "@cypherkit/editor";
+} from "@cypherkit/editor/math";
+import { activeTreeMath, treeMathSelectionAt } from "./treeMath";
 import useResponsive from "../app/hooks/useResponsive";
 import {
   Drawer,
@@ -19,10 +20,11 @@ import {
 } from "../components/ui/drawer";
 import { Input } from "../components/ui/input";
 import { ScrollArea } from "../components/ui/scroll-area";
+import type { AppEditor } from "../editorSchema";
 
 interface MathCommandMenuProps {
   /** The editor this menu observes for `\` input inside a math chip. */
-  editor: Editor;
+  editor: AppEditor;
   /** The editor surface's viewport rect, for translating caret coords to screen. */
   getContainerRect: () => DOMRect | null | undefined;
   /**
@@ -79,10 +81,21 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
   const select = React.useCallback(
     (cmd: MathCommand) => {
       const t = triggerRef.current;
+      const tree = activeTreeMath(editor);
+      if (t && tree?.blockId === t.blockId) {
+        const following = tree.source[tree.sourceOffset] ?? "";
+        const insertion = mathCommandInsertion(cmd.latex, following);
+        editor.dispatch(INSERT_MATH_COMMAND, {
+          text: insertion.text,
+          caretOffset: insertion.caretOffset,
+        });
+        close();
+        return;
+      }
       const range = editor.state.selection.range;
       const caretIndex =
         range && typeof range === "object" && "offset" in range
-          ? range.offset ?? 0
+          ? (range.offset ?? 0)
           : null;
       if (!t || caretIndex === null) return;
       // For an inline chip, capture its span before the edit so we can keep the
@@ -92,21 +105,33 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         block: t.blockId,
         offset: t.backslashIndex,
       });
-      const chip =
-        block && block.type !== "math"
-          ? editor.query
-              .marks({ block: t.blockId, offset: t.backslashIndex })
-              .find((m) => m.name === "math")
-          : undefined;
+      // A display equation may still be carrying legacy compatibility text
+      // until its first edit. Send command commits through the structural
+      // action even in that state: the math extension owns lazy migration and
+      // can replace the trailing `\\query` without exposing command characters
+      // to the generic range editor.
+      if (block?.type === "math") {
+        const following = block.text[caretIndex] ?? "";
+        const insertion = mathCommandInsertion(cmd.latex, following);
+        editor.dispatch(INSERT_MATH_COMMAND, {
+          text: insertion.text,
+          caretOffset: insertion.caretOffset,
+        });
+        close();
+        return;
+      }
+      const chip = block
+        ? editor.query
+            .marks({ block: t.blockId, offset: t.backslashIndex })
+            .find((m) => m.name === "math")
+        : undefined;
       // The formula character right after the replaced run — the rest of the
       // block for an equation, but only up to the chip's end for inline math
       // (text past the chip is prose, which can't fuse with a command). A
       // letter there needs a separator space or committing `\pi` in `a\pi|a`
       // leaves the fused unknown `\pia`; `mathCommandInsertion` appends it.
       const following =
-        block?.type === "math" || (chip && caretIndex < chip.to)
-          ? (block?.text[caretIndex] ?? "")
-          : "";
+        chip && caretIndex < chip.to ? (block?.text[caretIndex] ?? "") : "";
       const insertion = mathCommandInsertion(cmd.latex, following);
       // Replace the typed "\query" with the construct (one undo step).
       editor.change((c) => {
@@ -148,15 +173,22 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
     const recompute = () => {
       const t = triggerRef.current;
       if (!t) return;
+      const tree = activeTreeMath(editor);
       const range = editor.state.selection.range;
-      if (!range || typeof range !== "object" || !("offset" in range)) {
-        return close();
-      }
-      const block = editor.query.block(range);
+      const flatPoint =
+        range && typeof range === "object" && "offset" in range ? range : null;
+      if (!tree && !flatPoint) return close();
+      const block = tree
+        ? editor.query.block({ block: tree.blockId })
+        : editor.query.block(flatPoint!);
       if (!block) return close();
 
-      const text = block.text;
-      const caretIndex = range.offset ?? 0;
+      const text = tree?.source ?? block.text;
+      const caretIndex = tree?.sourceOffset ?? flatPoint?.offset ?? 0;
+      if (tree && t.backslashIndex < 0) {
+        t.backslashIndex = Math.max(0, caretIndex - 1);
+        triggerRef.current = { ...t };
+      }
       // Close when the caret left the `\` run: different block, moved at/before
       // the `\`, or the `\` itself was deleted.
       if (
@@ -173,7 +205,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       // `select` re-marks the inserted construct so replacing the span's start
       // anchor doesn't orphan it. Query at the backslash (always inside the run)
       // rather than the caret, whose right edge is exclusive.
-      if (block.type !== "math") {
+      if (!tree && block.type !== "math") {
         const chip = editor.query
           .marks({ block: block.id, offset: t.backslashIndex })
           .find((m) => m.name === "math");
@@ -186,10 +218,15 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       const query = text.slice(t.backslashIndex + 1, caretIndex);
       if (!/^[a-zA-Z]*$/.test(query)) return close();
 
-      const coords = editor.view.coordsAtPos({
-        block: block.id,
-        offset: t.backslashIndex,
-      });
+      const triggerSelection = tree
+        ? treeMathSelectionAt(tree, t.backslashIndex)
+        : null;
+      const coords = tree
+        ? editor.view.coordsAtContent(triggerSelection?.focus ?? tree.point)
+        : editor.view.coordsAtPos({
+            block: block.id,
+            offset: t.backslashIndex,
+          });
       const rect = getContainerRect();
       if (!coords || !rect) return;
       const x = rect.left + coords.x;
@@ -208,13 +245,18 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
     // keeps typing into the math; touch devices move search into a drawer.
     const offInput = editor.registerAction(
       TEXT_INPUT,
-      ({ text, textIndex }) => {
+      ({ text, textIndex, contentPoint }) => {
         if (text !== "\\") return;
         // The `\` was just typed at the caret, so the caret block IS the trigger
         // block; `recompute` validates the math context.
-        const block = editor.query.block();
+        const block = contentPoint
+          ? editor.query.block({ block: contentPoint.blockId })
+          : editor.query.block();
         if (!block) return;
-        triggerRef.current = { blockId: block.id, backslashIndex: textIndex };
+        triggerRef.current = {
+          blockId: block.id,
+          backslashIndex: contentPoint ? -1 : textIndex,
+        };
       },
     );
     const offSub = editor.subscribe(recompute);

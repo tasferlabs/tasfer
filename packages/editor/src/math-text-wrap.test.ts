@@ -7,16 +7,17 @@
  * These pin `mathTransformTypedInput`'s rewrite (pure over the block); the render
  * side (`\text` typesetting via the host font) is covered in `@cypherkit/tex`.
  */
+import { createMathTestSyncEngine } from "./__testutils__/math";
 import { mathDeleteUnit, mathTransformTypedInput } from "./nodes/math";
 import type { Block } from "./serlization/loadPage";
 import { insertCharsAtPosition, markCharsInRange } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
 /** A display math block whose char-run text IS `latex`. */
 function mathBlock(latex: string): Block {
   const binding = createCRDTbinding("wrap", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const op = engine.createBlockInsert(null, "math", { displayMode: true });
   engine.emit([op]);
   const page = insertCharsAtPosition(
@@ -33,7 +34,7 @@ function mathBlock(latex: string): Block {
  *  optional plain text before/after. */
 function chipBlock(before: string, latex: string, after = ""): Block {
   const binding = createCRDTbinding("wrap", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const op = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([op]);
   const id = op.blockId;

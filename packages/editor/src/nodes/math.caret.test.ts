@@ -6,8 +6,8 @@
  * the formula. These run on `@cypherkit/tex`'s real data-table layout, so they
  * are deterministic without a canvas.
  */
+import { loadMathPage } from "../__testutils__/math";
 import { getInlineMathSpans } from "../inline-math-spans";
-import { loadPage } from "../serlization/loadPage";
 import { deleteFromRuns, iterateVisibleChars } from "../sync/char-runs";
 import {
   getInlineMathCaretRect,
@@ -90,6 +90,13 @@ describe("inline-math caret bridge", () => {
 // true exactly when there is no further caret stop in that direction, i.e. the
 // same boundary `mathCaretStep` returns `null` at.
 describe("mathSourceAtEdge", () => {
+  it("moves forward through empty matrix cells after a fraction", () => {
+    const latex = String.raw`\frac{a}{b}\begin{pmatrix}&{}\\{}&{}\end{pmatrix}`;
+    expect(mathCaretOffsets(latex)).toEqual([
+      0, 6, 7, 9, 10, 11, 26, 28, 32, 35, 49,
+    ]);
+  });
+
   it("reports both edges of a flat formula", () => {
     const latex = "x+y";
     // Left boundary: no stop further left, so left is an edge; right is not.
@@ -132,7 +139,7 @@ describe("mathSourceAtEdge", () => {
 // LaTeX offsets that a pure-tex test can't.
 describe("inline-math vertical nav over a parsed chip", () => {
   it("a numerator caret moves down into the denominator", () => {
-    const block = loadPage("$\\frac{a}{b}$").blocks[0];
+    const block = loadMathPage("$\\frac{a}{b}$").blocks[0];
     const spans = getInlineMathSpans(block);
     expect(spans).toHaveLength(1);
     const { latex } = spans[0];
@@ -152,7 +159,7 @@ describe("inline-math vertical nav over a parsed chip", () => {
   });
 
   it("a flat chip has no vertical move (caller exits to the line)", () => {
-    const block = loadPage("$a+b$").blocks[0];
+    const block = loadMathPage("$a+b$").blocks[0];
     const { latex } = getInlineMathSpans(block)[0];
     expect(getInlineMathOffsetVertical(latex, FS, 1, "up")).toBeNull();
     expect(getInlineMathOffsetVertical(latex, FS, 1, "down")).toBeNull();
@@ -162,7 +169,7 @@ describe("inline-math vertical nav over a parsed chip", () => {
   // the placeholder box carries a caret stop, so ↑ from the denominator lands in
   // the empty numerator and the caret there hugs the numerator row.
   it("the caret can navigate into and sit in an empty numerator slot", () => {
-    const block = loadPage("$\\frac{}{b}$").blocks[0];
+    const block = loadMathPage("$\\frac{}{b}$").blocks[0];
     const { latex } = getInlineMathSpans(block)[0];
     expect(latex).toBe("\\frac{}{b}");
 
@@ -186,7 +193,7 @@ describe("inline-math vertical nav over a parsed chip", () => {
 // tombstones the span's `startCharId`, yet the surviving chars still resolve.
 describe("inline-math first/last-unit deletion keeps the rest of the chip", () => {
   it("backspacing the first unit targets only that unit, not the whole chip", () => {
-    const block = loadPage("$abc$").blocks[0];
+    const block = loadMathPage("$abc$").blocks[0];
     const span = getInlineMathSpans(block)[0];
     expect(span).toMatchObject({ startIndex: 0, latex: "abc" });
 
@@ -200,7 +207,7 @@ describe("inline-math first/last-unit deletion keeps the rest of the chip", () =
   });
 
   it("backspacing at the right edge enters the chip and targets its last unit", () => {
-    const block = loadPage("$abc$").blocks[0];
+    const block = loadMathPage("$abc$").blocks[0];
     const span = getInlineMathSpans(block)[0];
     expect(span).toMatchObject({ startIndex: 0, endIndex: 3, latex: "abc" });
 
@@ -215,7 +222,7 @@ describe("inline-math first/last-unit deletion keeps the rest of the chip", () =
   });
 
   it("deleting forward at the left edge enters the chip and targets its first unit", () => {
-    const block = loadPage("$abc$").blocks[0];
+    const block = loadMathPage("$abc$").blocks[0];
     const span = getInlineMathSpans(block)[0];
 
     // Caret resting just before the chip — Delete must remove the leading unit
@@ -229,7 +236,7 @@ describe("inline-math first/last-unit deletion keeps the rest of the chip", () =
   });
 
   it("a span whose leading anchor char is deleted still resolves to the rest", () => {
-    const block = loadPage("$abc$").blocks[0];
+    const block = loadMathPage("$abc$").blocks[0];
     const firstId = [...iterateVisibleChars(block.charRuns)][0].id;
 
     const pruned = {
@@ -243,7 +250,7 @@ describe("inline-math first/last-unit deletion keeps the rest of the chip", () =
   });
 
   it("deleting every char in the span drops it entirely", () => {
-    const block = loadPage("$ab$").blocks[0];
+    const block = loadMathPage("$ab$").blocks[0];
     const ids = [...iterateVisibleChars(block.charRuns)].map((c) => c.id);
     const pruned = { ...block, charRuns: deleteFromRuns(block.charRuns, ids) };
     expect(getInlineMathSpans(pruned)).toHaveLength(0);

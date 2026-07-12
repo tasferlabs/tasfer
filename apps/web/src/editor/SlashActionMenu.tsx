@@ -21,7 +21,8 @@ import React, {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { CONVERT_BLOCK, type Editor, TEXT_INPUT } from "@cypherkit/editor";
+import { CONVERT_BLOCK, TEXT_INPUT } from "@cypherkit/editor";
+import type { AppEditor } from "../editorSchema";
 import { isTouchDevice } from "@cypherkit/editor/internal";
 import { ScrollArea } from "../components/ui/scroll-area";
 
@@ -265,7 +266,7 @@ function useCategoryLabels(): Record<string, string> {
 }
 interface SlashActionMenuProps {
   /** The editor this menu observes for `/` input and drives via `CONVERT_BLOCK`. */
-  editor: Editor;
+  editor: AppEditor;
   /** The editor surface's viewport rect, for translating caret coords to screen. */
   getContainerRect: () => DOMRect | null | undefined;
 }

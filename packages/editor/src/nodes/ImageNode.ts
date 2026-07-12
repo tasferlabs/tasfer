@@ -1732,7 +1732,11 @@ export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
     // (appending + `afterBlockIndex + 1` only agrees when the image is the
     // literal last array element — trailing tombstones break both), then place
     // the caret by id.
-    const newPage = applyOps(state.document.page, [blockInsertOp]);
+    const newPage = applyOps(
+      state.document.page,
+      [blockInsertOp],
+      state.schema,
+    );
 
     let next = {
       ...state,

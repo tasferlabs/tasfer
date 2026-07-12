@@ -9,6 +9,10 @@
  * raw source, and it matches exactly what compositionend commits. Plain prose
  * folds the raw text in at the caret, unchanged.
  */
+import {
+  createMathTestState,
+  createMathTestSyncEngine,
+} from "./__testutils__/math";
 import { startComposition } from "./composition";
 import {
   handleCompositionEnd,
@@ -22,7 +26,6 @@ import { getContentWithComposition } from "./nodes/TextNode";
 import { moveCursorToPosition } from "./selection";
 import type { Page } from "./serlization/loadPage";
 import type { EditorState, ViewportState } from "./state-types";
-import { createInitialState } from "./state-utils";
 import { getVisibleTextFromRuns } from "./sync/char-runs";
 import {
   deleteCharsInRange,
@@ -32,7 +35,6 @@ import {
 import {
   type CRDTbinding as CRDTbindingType,
   createCRDTbinding,
-  createSyncEngine,
 } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
@@ -49,7 +51,7 @@ function focusedAt(
   blockIndex: number,
   textIndex: number,
 ): EditorState {
-  let state = createInitialState(page, { crdtBinding: binding });
+  let state = createMathTestState(page, { crdtBinding: binding });
   state = { ...state, view: { ...state.view, isFocused: true } };
   state = moveCursorToPosition(state, blockIndex, textIndex);
   return state;
@@ -68,7 +70,7 @@ function composingAt(
 
 function mathBlock(latex: string) {
   const binding = createCRDTbinding("math-preview", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
   engine.emit([blockOp]);
   const page = insertCharsAtPosition(
@@ -84,7 +86,7 @@ function mathBlock(latex: string) {
 /** Paragraph: inline-math chip `latex` at `[0, latex.length]`, then `trailing`. */
 function inlineChip(latex: string, trailing = "") {
   const binding = createCRDTbinding("math-preview", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
@@ -165,7 +167,7 @@ describe("IME composition preview in math is wrapped, not withheld", () => {
 
   it("folds a raw preview inline in plain prose (unchanged)", () => {
     const binding = createCRDTbinding("math-preview", "peer-1");
-    const engine = createSyncEngine(binding);
+    const engine = createMathTestSyncEngine(binding);
     const blockOp = engine.createBlockInsert(null, "paragraph", {});
     engine.emit([blockOp]);
     const page = insertCharsAtPosition(
@@ -234,7 +236,7 @@ describe("IME preview keeps a chip typeset when a boundary char is tombstoned", 
   // even with the caret on the chip's outer edge (preview lands OUTSIDE the chip).
   function chipWithTombstonedEnd() {
     const binding = createCRDTbinding("math-preview", "peer-1");
-    const engine = createSyncEngine(binding);
+    const engine = createMathTestSyncEngine(binding);
     const blockOp = engine.createBlockInsert(null, "paragraph", {});
     engine.emit([blockOp]);
     const blockId = blockOp.blockId;

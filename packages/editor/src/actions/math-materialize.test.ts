@@ -7,6 +7,7 @@
  * like picking the construct from the `\` command menu. Idempotent: typing inside
  * an already-braced construct never adds more braces.
  */
+import { mathTestStateOptions } from "../__testutils__/math";
 import type { MathBlock } from "../nodes/MathNode";
 import type { CursorState, EditorState, Page } from "../state-types";
 import { createInitialState } from "../state-utils";
@@ -28,7 +29,7 @@ function mathBlock(latex: string): MathBlock {
 
 function stateWith(latex: string, caret: number): EditorState {
   const page: Page = { id: "page-1", title: "t", blocks: [mathBlock(latex)] };
-  const s0 = createInitialState(page);
+  const s0 = createInitialState(page, mathTestStateOptions());
   const cursor: CursorState = {
     position: { blockIndex: 0, textIndex: caret },
     lastUpdate: 0,

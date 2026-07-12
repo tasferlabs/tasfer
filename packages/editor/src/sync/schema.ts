@@ -21,6 +21,12 @@
  * schema; nothing is ever mutated in place.
  */
 
+import {
+  emptyFeatureFacets,
+  FeatureFacetRegistry,
+  type FeatureFacets,
+  type FeatureFacetSource,
+} from "../feature-facets";
 import type {
   AnySchemaDefinition,
   MergeSchema,
@@ -65,7 +71,7 @@ export interface MarkSpec<
   readonly _attrs?: A;
 }
 
-export interface DataSchemaExtension {
+export interface DataSchemaExtension extends FeatureFacets {
   readonly blocks?: readonly BlockSpecCore[];
   readonly marks?: readonly MarkSpec[];
 }
@@ -116,6 +122,8 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   private readonly markStartTokens: ReadonlyMap<TokenType, string>;
   /** Inline-mark close-token → mark type. */
   private readonly markEndTokens: ReadonlyMap<TokenType, string>;
+  /** Optional feature-wide behavior installed on this immutable schema. */
+  readonly features: FeatureFacetRegistry;
 
   constructor(
     blockSpecs: readonly BlockSpecCore[],
@@ -124,6 +132,7 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
       readonly blocks?: ReadonlySet<string>;
       readonly marks?: ReadonlySet<string>;
     },
+    features: FeatureFacetRegistry = emptyFeatureFacets,
   ) {
     const blocks = new Map<string, BlockSpecCore>();
     const tokenDispatch = new Map<TokenType, BlockCodec>();
@@ -161,6 +170,7 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     this.htmlTagDispatch = htmlTagDispatch;
     this.markStartTokens = markStartTokens;
     this.markEndTokens = markEndTokens;
+    this.features = features;
   }
 
   /** Whether a block type is known to this schema. */
@@ -170,6 +180,12 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
 
   getDescriptor(type: string): BlockTypeDescriptor | undefined {
     return this.blocks.get(type)?.descriptor;
+  }
+
+  /** Every CRDT-backed field declared by a registered block type. */
+  getFieldNames(type: string): readonly string[] {
+    const descriptor = this.getDescriptor(type);
+    return descriptor ? Object.keys(descriptor.fields) : [];
   }
 
   getCodec(type: string): BlockCodec | undefined {
@@ -247,6 +263,13 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     // validated by value (JSON-serializable), not against a per-type descriptor,
     // so every block type can carry style without enumerating keys.
     if (isStyleField(field)) return isValidStyleValue(value);
+    // A type morph is validated against the TARGET registration, not the
+    // source descriptor. Custom descriptors deliberately validate their own
+    // literal type, which would otherwise make paragraph → extension morphs
+    // impossible to replay even though both types belong to this schema.
+    if (field === "type") {
+      return typeof value === "string" && this.hasBlock(value);
+    }
     const descriptor = this.getDescriptor(type);
     if (!descriptor) return false;
     const fieldDescriptor = descriptor.fields[field];
@@ -323,10 +346,15 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
       restriction.marks === undefined
         ? this.allowedMarks
         : this.buildAllowedMarkSet(restriction.marks);
-    return new DataSchema(this.blockSpecs(), this.markSpecs(), {
-      blocks: allowedBlocks,
-      marks: allowedMarks,
-    });
+    return new DataSchema(
+      this.blockSpecs(),
+      this.markSpecs(),
+      {
+        blocks: allowedBlocks,
+        marks: allowedMarks,
+      },
+      this.features,
+    );
   }
 
   private buildAllowedBlockSet(names: readonly string[]): ReadonlySet<string> {
@@ -377,10 +405,28 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   ): DataSchema<MergeSchema<D, DataSchemaExtensionDefinition<E>>> {
     const blocks = [...this.blockSpecs(), ...(ext.blocks ?? [])];
     const marks = [...this.markSpecs(), ...(ext.marks ?? [])];
-    return new DataSchema(blocks, marks, {
-      blocks: this.allowedBlocks,
-      marks: this.allowedMarks,
-    });
+    return new DataSchema(
+      blocks,
+      marks,
+      {
+        blocks: this.allowedBlocks,
+        marks: this.allowedMarks,
+      },
+      this.features.extend(ext),
+    );
+  }
+
+  /** Install feature-wide facets without changing the registered type set. */
+  withFeatures(feature: FeatureFacetSource): DataSchema<D> {
+    return new DataSchema(
+      this.blockSpecs(),
+      this.markSpecs(),
+      {
+        blocks: this.allowedBlocks,
+        marks: this.allowedMarks,
+      },
+      this.features.extend(feature),
+    );
   }
 
   /** The block specs this schema was built from (deduped by primary type). */

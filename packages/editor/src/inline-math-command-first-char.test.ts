@@ -6,19 +6,20 @@
  * resulting formula is re-marked as math. This pins that engine behavior — the
  * invariant `MathCommandMenu`'s `select` relies on.
  */
+import { createMathTestSyncEngine } from "./__testutils__/math";
 import { getInlineMathSpans } from "./inline-math-spans";
 import {
   deleteCharsInRange,
   insertCharsAtPosition,
   markCharsInRange,
 } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
 // "aa <latex>" with the chip math-marked over [3, 3+len).
 function chip(latex: string) {
   const binding = createCRDTbinding("first-char-cmd", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;

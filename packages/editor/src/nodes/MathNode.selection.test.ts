@@ -1,3 +1,4 @@
+import { createMathTestState } from "../__testutils__/math";
 import { SELECT_ALL } from "../actions/edit-actions";
 import { EXTEND_SELECTION_RIGHT } from "../actions/keyboard-actions";
 import { SELECT_WORD_AT_POINT } from "../actions/mouse-actions";
@@ -8,7 +9,6 @@ import {
   updateSelectionFocus,
 } from "../selection";
 import type { CursorState, Page } from "../state-types";
-import { createInitialState } from "../state-utils";
 import { getEditorStyles } from "../styles";
 import { type MathBlock, MathNode } from "./MathNode";
 import { describe, expect, it } from "vitest";
@@ -31,7 +31,7 @@ function selectAt(latex: string, textIndex: number) {
     title: "Math",
     blocks: [mathBlock(latex)],
   };
-  const state = createInitialState(page);
+  const state = createMathTestState(page);
   return state.actionBus.dispatchState(SELECT_WORD_AT_POINT, state, {
     position: { blockIndex: 0, textIndex },
   }).state.document.selection;
@@ -43,7 +43,7 @@ function tapSelectAt(latex: string, textIndex: number) {
     title: "Math",
     blocks: [mathBlock(latex)],
   };
-  const state = createInitialState(page);
+  const state = createMathTestState(page);
   return state.actionBus.dispatchState(TAP_SELECT_WORD, state, {
     position: { blockIndex: 0, textIndex },
   }).state.document.selection;
@@ -65,7 +65,7 @@ function stateWithMathCaret(latex: string, textIndex: number) {
       },
     ],
   };
-  const state = createInitialState(page);
+  const state = createMathTestState(page);
   const cursor: CursorState = {
     position: { blockIndex: 0, textIndex },
     lastUpdate: 0,
@@ -134,7 +134,7 @@ describe("MathNode double-click selection", () => {
         },
       ],
     };
-    const state = createInitialState(page);
+    const state = createMathTestState(page);
     const selection = state.actionBus.dispatchState(
       SELECT_WORD_AT_POINT,
       state,
@@ -161,7 +161,7 @@ describe("MathNode range selection snaps to whole constructs", () => {
       title: "Math",
       blocks: [mathBlock(latex)],
     };
-    let state = createInitialState(page);
+    let state = createMathTestState(page);
     state = startSelection(state, {
       blockIndex: 0,
       textIndex: anchorIndex,
@@ -241,7 +241,7 @@ describe("MathNode range selection snaps to whole constructs", () => {
     // "select less" case. Emulate the two drag events with two focus updates.
     const latex = "\\frac{a}{b}"; // [0, 11)
     const page: Page = { id: "p", title: "M", blocks: [mathBlock(latex)] };
-    let state = createInitialState(page);
+    let state = createMathTestState(page);
     state = startSelection(state, { blockIndex: 0, textIndex: latex.length });
     // First drag left into the denominator → whole fraction selected.
     state = updateSelectionFocus(state, { blockIndex: 0, textIndex: 9 });
@@ -263,7 +263,7 @@ describe("mobile selection-handle drag snaps level-by-level", () => {
   // left exactly as dragged (a "half construct" the user is mid-selecting).
   const snap = (latex: string, anchor: number, rawFocus: number) => {
     const page: Page = { id: "p", title: "M", blocks: [mathBlock(latex)] };
-    const state = createInitialState(page);
+    const state = createMathTestState(page);
     return snapSelectionToConstructs(
       state,
       { blockIndex: 0, textIndex: anchor },
@@ -321,7 +321,7 @@ describe("mobile selection-handle drag snaps level-by-level", () => {
     reference: "settled" | "raw" | "snapped",
   ): number[] => {
     const page: Page = { id: "p", title: "M", blocks: [mathBlock(latex)] };
-    const state = createInitialState(page);
+    const state = createMathTestState(page);
     const anchorPos = { blockIndex: 0, textIndex: anchor };
     let prev: { blockIndex: number; textIndex: number } | undefined = undefined;
     const focuses: number[] = [];
@@ -414,7 +414,7 @@ describe("MathNode selection rects hug the rendered formula", () => {
 
   function layoutFor(latex: string) {
     const page: Page = { id: "p", title: "M", blocks: [mathBlock(latex)] };
-    const state = createInitialState(page);
+    const state = createMathTestState(page);
     const node = new MathNode();
     const layout = node.computeLayout(
       state.document.page.blocks[0] as MathBlock,

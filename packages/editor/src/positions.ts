@@ -201,6 +201,12 @@ export function resolveBlockIndex(
   s: EditorState,
   at: DocPoint | undefined,
 ): number {
+  if (at === undefined && s.document.contentSelection) {
+    return findBlockIndex(
+      s.document.page,
+      s.document.contentSelection.focus.blockId,
+    );
+  }
   const p = resolvePoint(s, at ?? "caret");
   return p ? p.blockIndex : -1;
 }
@@ -220,6 +226,17 @@ export function resolveBlockSpan(
     const sel = getSelectionRange(s);
     if (sel)
       return { startIndex: sel.start.blockIndex, endIndex: sel.end.blockIndex };
+    const content = s.document.contentSelection;
+    if (content) {
+      const anchor = findBlockIndex(s.document.page, content.anchor.blockId);
+      const focus = findBlockIndex(s.document.page, content.focus.blockId);
+      if (anchor >= 0 && focus >= 0) {
+        return {
+          startIndex: Math.min(anchor, focus),
+          endIndex: Math.max(anchor, focus),
+        };
+      }
+    }
     const caret = resolvePoint(s, "caret");
     return caret
       ? { startIndex: caret.blockIndex, endIndex: caret.blockIndex }
@@ -270,6 +287,7 @@ export function toBlockData(block: Block): BlockData {
     "formats",
     "orderKey",
     "deleted",
+    "structuredContent",
   ]);
   const attrs: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(block)) {

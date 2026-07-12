@@ -65,9 +65,12 @@ import type {
 import {
   type BlockRuntimeState,
   Node,
+  type NodeContentHitCtx,
+  type NodeContentHitOptions,
   type NodeLayout,
   type NodeLayoutCtx,
   type NodePaintCtx,
+  type Point,
 } from "../rendering/nodes/Node";
 import { getBlockDirection } from "../rtl";
 import type { InputCtx, NodeCodec } from "../serlization/codecs/types";
@@ -96,6 +99,7 @@ import type {
   TextStyle,
 } from "../state-types";
 import { isCaretScratchActive, transformTypedInput } from "../state-utils";
+import type { ContentSelection } from "../structured-selection";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   charRunsToChars,
@@ -103,9 +107,9 @@ import {
   getVisibleTextFromRuns,
   iterateAllChars,
 } from "../sync/char-runs";
+import type { StructuredContentMap } from "../sync/structured-content";
 import type { CodeBlock } from "./CodeNode";
 import type { ListBlock } from "./ListNode";
-import type { MathBlock } from "./MathNode";
 import type { QuoteBlock } from "./QuoteNode";
 
 /**
@@ -120,6 +124,8 @@ interface ReplacementRun {
   readonly start: number;
   readonly end: number;
   readonly text: string;
+  readonly compatibilityText: string;
+  readonly mark: Mark;
   readonly replacement: MarkReplacement;
 }
 
@@ -138,16 +144,25 @@ function replacementRuns(
   chars: Char[],
   formats: MarkSpan[],
   marks: MarkRegistry,
+  attachments?: StructuredContentMap,
 ): ReplacementRun[] {
   if (!formats.some((f) => marks.get(f.format.type)?.replacement)) return [];
   const runs: ReplacementRun[] = [];
   for (const run of resolveMarkRunsFromChars(chars, formats)) {
     const replacement = marks.get(run.name)?.replacement;
     if (!replacement) continue;
+    const mark: Mark = {
+      type: run.name,
+      ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
+    };
+    const text =
+      replacement.source?.(run.text, { mark, attachments }) ?? run.text;
     runs.push({
       start: run.startIndex,
       end: run.endIndex,
-      text: run.text,
+      text,
+      compatibilityText: run.text,
+      mark,
       replacement,
     });
   }
@@ -163,6 +178,51 @@ function enclosingReplacementRun(
     if (index > run.start && index < run.end) return run;
   }
   return null;
+}
+
+/** Canonical replacement source for an on-line compatibility-run fragment. */
+function replacementFragmentText(
+  run: ReplacementRun,
+  fragmentStart: number,
+  fragmentEnd: number,
+): string {
+  if (
+    run.text !== run.compatibilityText ||
+    (fragmentStart === run.start && fragmentEnd === run.end)
+  ) {
+    return run.text;
+  }
+  return run.text.slice(fragmentStart - run.start, fragmentEnd - run.start);
+}
+
+interface ReplacementFragment {
+  readonly run: ReplacementRun;
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+  /** Range in the run's canonical replacement source represented by `text`. */
+  readonly sourceRange: { readonly start: number; readonly end: number };
+}
+
+/** Resolve one marked run's intersection with a wrapped textual line. */
+function replacementFragment(
+  run: ReplacementRun,
+  lineStart: number,
+  lineEnd: number,
+): ReplacementFragment | null {
+  const start = Math.max(run.start, lineStart);
+  const end = Math.min(run.end, lineEnd);
+  if (end <= start) return null;
+  const compatibleProjection = run.text === run.compatibilityText;
+  return {
+    run,
+    start,
+    end,
+    text: replacementFragmentText(run, start, end),
+    sourceRange: compatibleProjection
+      ? { start: start - run.start, end: end - run.start }
+      : { start: 0, end: run.text.length },
+  };
 }
 
 /**
@@ -200,6 +260,8 @@ export interface TextNodeLayout extends NodeLayout {
    *  measurement reserve a replacement run's rendered width (e.g. an inline-math
    *  chip), keeping them in sync with wrap + paint. */
   readonly marks?: MarkRegistry;
+  /** Structured attachments available to replacement-run source resolvers. */
+  readonly structuredContent?: StructuredContentMap;
   readonly codePadding: number;
   readonly fontMetrics: FontMetrics;
   readonly lineHeight: number;
@@ -230,9 +292,88 @@ export interface TextNodeLayout extends NodeLayout {
   readonly replCharWidths: Map<number, number>;
 }
 
+interface ReplacementFragmentGeometry extends ReplacementFragment {
+  /** Visual x bounds relative to the block's text-area origin. */
+  readonly left: number;
+  readonly right: number;
+}
+
+/**
+ * Resolve a replacement fragment's visual box on one line.
+ *
+ * The stored run is logical-order data, while the canvas box may be reordered
+ * by bidi. Keeping this calculation shared by nested caret and nested hit-test
+ * prevents the two paths from disagreeing about an RTL-embedded replacement.
+ */
+function replacementFragmentGeometry(
+  layout: TextNodeLayout,
+  line: RenderedLine,
+  run: ReplacementRun,
+): ReplacementFragmentGeometry | null {
+  const fragment = replacementFragment(run, line.startIndex, line.endIndex);
+  if (!fragment) return null;
+  const widths = measureCRDTPositions(
+    layout.chars,
+    layout.formats,
+    line.startIndex,
+    line.endIndex,
+    layout.textStyle.fontSize,
+    layout.textStyle.fontWeight,
+    layout.fontFamily,
+    layout.fonts,
+    layout.marks,
+    layout.replCharWidths,
+  );
+  const startLocal = fragment.start - line.startIndex;
+  if (startLocal + 1 >= widths.length) return null;
+  const { runs, visual } = analyzeLineBidi(
+    line.text,
+    layout.isRTL ? "rtl" : "ltr",
+  );
+  const baseLevel = layout.isRTL ? 1 : 0;
+  const pureLine =
+    runs.length === 0 || (runs.length === 1 && runs[0].level === baseLevel);
+  let edgeA: number;
+  let edgeB: number;
+  if (pureLine) {
+    if (layout.isRTL) {
+      edgeA = layout.adjustedMaxWidth - widths[startLocal];
+      edgeB = layout.adjustedMaxWidth - widths[startLocal + 1];
+    } else {
+      edgeA = widths[startLocal];
+      edgeB = widths[startLocal + 1];
+    }
+  } else {
+    const lineWidth = widths[widths.length - 1];
+    const origin = layout.isRTL ? layout.adjustedMaxWidth - lineWidth : 0;
+    const runLeft = new Map<(typeof runs)[number], number>();
+    let cursor = origin;
+    for (const bidiRun of visual) {
+      runLeft.set(bidiRun, cursor);
+      cursor += widths[bidiRun.end] - widths[bidiRun.start];
+    }
+    const owner = runs.find(
+      (bidiRun) => startLocal >= bidiRun.start && startLocal < bidiRun.end,
+    );
+    if (!owner) return null;
+    const ownerLeft = runLeft.get(owner) ?? origin;
+    const visualX = (index: number): number =>
+      owner.level % 2 === 0
+        ? ownerLeft + (widths[index] - widths[owner.start])
+        : ownerLeft + (widths[owner.end] - widths[index]);
+    edgeA = visualX(startLocal);
+    edgeB = visualX(startLocal + 1);
+  }
+  return {
+    ...fragment,
+    left: Math.min(edgeA, edgeB),
+    right: Math.max(edgeA, edgeB),
+  };
+}
+
 /** Arguments to the {@link TextNode.renderLineText} glyph-drawing hook. */
-export interface RenderLineTextArgs {
-  readonly block: TextualBlock;
+export interface RenderLineTextArgs<B extends TextualBlockBase = TextualBlock> {
+  readonly block: B;
   readonly ctx: CanvasRenderingContext2D;
   readonly chars: Char[];
   readonly formats: MarkSpan[];
@@ -256,24 +397,22 @@ export interface RenderLineTextArgs {
   readonly commandEntryActive: boolean;
 }
 
-export interface Heading extends BlockRuntimeState {
-  type: "heading1" | "heading2" | "heading3";
-  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: MarkSpan[]; // Format spans reference char IDs
+/** Structural text-bearing block accepted by the reusable TextNode base. */
+export interface TextualBlockBase extends BlockRuntimeState {
+  type: string;
+  charRuns: CharRun[];
+  formats: MarkSpan[];
 }
-export interface Paragraph extends BlockRuntimeState {
+
+export interface Heading extends TextualBlockBase {
+  type: "heading1" | "heading2" | "heading3";
+}
+export interface Paragraph extends TextualBlockBase {
   type: "paragraph";
-  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: MarkSpan[]; // Format spans reference char IDs
 }
 
 export type TextBlock = Heading | Paragraph;
-export type TextualBlock =
-  | TextBlock
-  | ListBlock
-  | CodeBlock
-  | MathBlock
-  | QuoteBlock;
+export type TextualBlock = TextBlock | ListBlock | CodeBlock | QuoteBlock;
 
 // ---------------------------------------------------------------------------
 // Composition injection (shared with the renderer's cursor layer)
@@ -536,10 +675,7 @@ function renderCompositionUnderline(
       const fragStart = Math.max(run.start, lineStartIndex);
       const fragEnd = Math.min(run.end, lineEndIndex);
       if (underlineStart >= fragStart && underlineEnd <= fragEnd) {
-        const fragText = run.text.slice(
-          fragStart - run.start,
-          fragEnd - run.start,
-        );
+        const fragText = replacementFragmentText(run, fragStart, fragEnd);
         const rects = run.replacement.selectionRects(
           fragText,
           textStyle.fontSize,
@@ -634,6 +770,8 @@ interface ComposedMarkStyle {
   underline?: MarkUnderlineStyle;
   /** Replacement renderer (inline math): draws its own glyphs, measured atomically. */
   replacement?: MarkReplacement;
+  /** Stored mark that owns `replacement`, including its attachment attrs. */
+  replacementMark?: Mark;
 }
 
 /**
@@ -658,12 +796,14 @@ function composeMarkStyle(
   let plainColor: string | undefined;
   let underline: MarkUnderlineStyle | undefined;
   let replacement: MarkReplacement | undefined;
+  let replacementMark: Mark | undefined;
 
   for (const format of formats) {
     const mark = marks.get(format.type);
     if (!mark) continue;
     if (mark.replacement) {
       replacement = mark.replacement;
+      replacementMark = format;
       continue;
     }
     const s = mark.style({ styles, mark: format });
@@ -683,6 +823,7 @@ function composeMarkStyle(
     underline,
     color: chipColor ?? plainColor,
     replacement,
+    replacementMark,
   };
 }
 
@@ -706,8 +847,20 @@ function renderLine(
   hoveredInlineMath: { startIndex: number; endIndex: number } | null = null,
   caretIndex: number | null = null,
   commandEntryActive: boolean = false,
+  attachments?: StructuredContentMap,
 ) {
   ctx.direction = isRTL ? "rtl" : "ltr";
+
+  // Resolve canonical replacement sources from the COMPLETE marked runs once.
+  // A wrapped paint batch is only a compatibility-text fragment; asking its
+  // `source` hook directly would return the complete attached projection for
+  // every line and paint the whole replacement repeatedly.
+  const resolvedReplacements = replacementRuns(
+    chars,
+    formats,
+    marks,
+    attachments,
+  );
 
   const batches: TextBatch[] = batchChars(
     chars,
@@ -734,6 +887,20 @@ function renderLine(
     // atomic unit — they win the run. Fall through to plain text only when the
     // replacement can't render (measure returns null), matching prior behavior.
     if (style.replacement) {
+      const owner = resolvedReplacements.find(
+        (run) =>
+          run.replacement === style.replacement &&
+          batchVisibleStart >= run.start &&
+          batchVisibleEnd <= run.end,
+      );
+      const replacementText = owner
+        ? replacementFragmentText(owner, batchVisibleStart, batchVisibleEnd)
+        : style.replacementMark
+          ? (style.replacement.source?.(batch.text, {
+              mark: style.replacementMark,
+              attachments,
+            }) ?? batch.text)
+          : batch.text;
       const hovered =
         hoveredInlineMath !== null &&
         batchVisibleStart >= hoveredInlineMath.startIndex &&
@@ -755,14 +922,14 @@ function renderLine(
         editing: commandEntryActive,
       };
       const dims = style.replacement.measure(
-        batch.text,
+        replacementText,
         textStyle.fontSize,
         edit,
       );
       if (dims) {
         style.replacement.paint({
           ctx,
-          text: batch.text,
+          text: replacementText,
           x: currentX,
           y,
           fontSize: textStyle.fontSize,
@@ -959,7 +1126,12 @@ function computeSelectionRects(
     end.blockIndex === blockIndex &&
     end.textIndex > start.textIndex
   ) {
-    const confiningRun = replacementRuns(chars, formats, marks).find(
+    const confiningRun = replacementRuns(
+      chars,
+      formats,
+      marks,
+      layout.structuredContent,
+    ).find(
       (r) =>
         r.replacement.selectionRects &&
         start.textIndex >= r.start &&
@@ -987,9 +1159,10 @@ function computeSelectionRects(
         if (selEnd <= selStart) continue;
         const fragStart = Math.max(confiningRun.start, line.startIndex);
         const fragEnd = Math.min(confiningRun.end, line.endIndex);
-        const fragText = confiningRun.text.slice(
-          fragStart - confiningRun.start,
-          fragEnd - confiningRun.start,
+        const fragText = replacementFragmentText(
+          confiningRun,
+          fragStart,
+          fragEnd,
         );
         const rowRects = confiningRun.replacement.selectionRects?.(
           fragText,
@@ -1040,7 +1213,7 @@ function computeSelectionRects(
   ): number => {
     if (!isRTL && marks) {
       const run = enclosingReplacementRun(
-        replacementRuns(chars, formats, marks),
+        replacementRuns(chars, formats, marks, layout.structuredContent),
         index,
       );
       // Descend into the chip's FRAGMENT on this line (run clipped to the line),
@@ -1048,7 +1221,7 @@ function computeSelectionRects(
       const fragStart = run ? Math.max(run.start, line.startIndex) : 0;
       const fragEnd = run ? Math.min(run.end, line.endIndex) : 0;
       const fragText = run
-        ? run.text.slice(fragStart - run.start, fragEnd - run.start)
+        ? replacementFragmentText(run, fragStart, fragEnd)
         : "";
       const localOffset = run ? index - fragStart : 0;
       const replCaret = run?.replacement.caretRect?.(
@@ -1255,10 +1428,12 @@ function headingLevel(ctx: InputCtx): number {
 // TextNode
 // ---------------------------------------------------------------------------
 
-export class TextNode extends Node<TextualBlock> {
+export class TextNode<
+  B extends TextualBlockBase = TextualBlock,
+> extends Node<B> {
   // Representative type; the view is registered under every `types` key. Typed
   // wide (not the "paragraph" literal) so ListNode can override both.
-  readonly type: TextualBlock["type"] = "paragraph";
+  readonly type: B["type"] = "paragraph" as B["type"];
   readonly types: readonly string[] = TEXT_BLOCK_TYPES;
 
   /**
@@ -1267,7 +1442,7 @@ export class TextNode extends Node<TextualBlock> {
    * hooks (`textStyle`, `leadingInset`, `contentInsetY`) as exact layout.
    */
   estimateHeight(c: NodeLayoutCtx): number {
-    const block = c.block as TextualBlock;
+    const block = c.block as unknown as B;
     const textStyle = mergeBlockStyle(
       this.textStyle(c.styles, block.type),
       block.style,
@@ -1306,7 +1481,7 @@ export class TextNode extends Node<TextualBlock> {
    * before TextNode's left-side leading inset.
    */
   protected estimateLayoutMaxWidth(
-    _block: TextualBlock,
+    _block: B,
     maxWidth: number,
     _styles: EditorStyles,
   ): number {
@@ -1325,7 +1500,7 @@ export class TextNode extends Node<TextualBlock> {
     // override, so it never reads or pollutes this canonical cache.
     return memoizeNodeLayout(c.block, c.maxWidth, () =>
       this.computeLayout(
-        c.block as TextualBlock,
+        c.block as unknown as B,
         c.maxWidth,
         c.styles,
         undefined,
@@ -1340,7 +1515,7 @@ export class TextNode extends Node<TextualBlock> {
    * persisted runs, matching the previous render/caret/hit-test behavior.
    */
   computeLayout(
-    block: TextualBlock,
+    block: B,
     maxWidth: number,
     styles: EditorStyles,
     content?: {
@@ -1387,6 +1562,7 @@ export class TextNode extends Node<TextualBlock> {
       // RTL lines keep an inline-math chip atomic (no operator split), matching
       // the RTL caret/selection/paint paths, which treat a chip atomically.
       !isRTL,
+      block.structuredContent,
     );
 
     const fontMetrics = getFontMetrics(
@@ -1402,7 +1578,9 @@ export class TextNode extends Node<TextualBlock> {
     const textDescent = Number.isFinite(fontMetrics.descent)
       ? fontMetrics.descent
       : textStyle.fontSize * 0.2;
-    const replacements = marks ? replacementRuns(chars, formats, marks) : [];
+    const replacements = marks
+      ? replacementRuns(chars, formats, marks, block.structuredContent)
+      : [];
 
     // Build line boxes with the exact startIndex/endIndex accounting (including
     // consumed wrap spaces) used by every downstream pass. x/y are relative.
@@ -1431,10 +1609,7 @@ export class TextNode extends Node<TextualBlock> {
         const fragStart = Math.max(run.start, lineStartIndex);
         const fragEnd = Math.min(run.end, lineEndIndex);
         if (fragEnd <= fragStart) continue;
-        const fragText = run.text.slice(
-          fragStart - run.start,
-          fragEnd - run.start,
-        );
+        const fragText = replacementFragmentText(run, fragStart, fragEnd);
         const dims = run.replacement.measure(fragText, textStyle.fontSize);
         if (!dims) continue;
         replCharWidths.set(fragStart, dims.width);
@@ -1482,6 +1657,7 @@ export class TextNode extends Node<TextualBlock> {
       fontFamily,
       fonts,
       marks,
+      structuredContent: block.structuredContent,
       codePadding,
       fontMetrics,
       lineHeight,
@@ -1553,6 +1729,49 @@ export class TextNode extends Node<TextualBlock> {
       ? layout.fontMetrics.ascent
       : textStyle.fontSize * 0.8;
 
+    const nestedPoint = state?.document.contentSelection?.focus;
+    if (blockId && nestedPoint?.blockId === blockId && layout.marks) {
+      const run = replacementRuns(
+        chars,
+        formats,
+        layout.marks,
+        layout.structuredContent,
+      ).find(
+        (candidate) =>
+          candidate.mark.attrs?.contentId === nestedPoint.contentId &&
+          candidate.replacement.contentCaretRect,
+      );
+      if (run) {
+        for (const line of layout.lines) {
+          const fragment = replacementFragmentGeometry(layout, line, run);
+          if (!fragment) continue;
+          const nestedCaret = run.replacement.contentCaretRect?.(
+            fragment.text,
+            textStyle.fontSize,
+            nestedPoint,
+            {
+              blockId,
+              mark: run.mark,
+              attachments: layout.structuredContent,
+              sourceRange: fragment.sourceRange,
+            },
+          );
+          if (!nestedCaret) continue;
+          const baselineY =
+            blockTopY +
+            insetY +
+            line.y +
+            (line.baselineOffset ?? layout.fontMetrics.ascent);
+          return {
+            x: baseX + fragment.left + nestedCaret.x,
+            y: baselineY + nestedCaret.top,
+            height: nestedCaret.bottom - nestedCaret.top,
+            exact: true,
+          };
+        }
+      }
+    }
+
     for (const line of layout.lines) {
       if (textIndex >= line.startIndex && textIndex <= line.endIndex) {
         const currentY = blockTopY + insetY + line.y;
@@ -1566,7 +1785,12 @@ export class TextNode extends Node<TextualBlock> {
           isRTL || !layout.marks
             ? null
             : enclosingReplacementRun(
-                replacementRuns(chars, formats, layout.marks),
+                replacementRuns(
+                  chars,
+                  formats,
+                  layout.marks,
+                  layout.structuredContent,
+                ),
                 textIndex,
               );
         // A chip may have wrapped across lines: work against its FRAGMENT on the
@@ -1576,7 +1800,7 @@ export class TextNode extends Node<TextualBlock> {
         const fragStart = run ? Math.max(run.start, line.startIndex) : 0;
         const fragEnd = run ? Math.min(run.end, line.endIndex) : 0;
         const fragText = run
-          ? run.text.slice(fragStart - run.start, fragEnd - run.start)
+          ? replacementFragmentText(run, fragStart, fragEnd)
           : "";
         // While an edit is in progress inside this run, read the caret off the
         // same `edit` the run paints with (a command kept literal, `\in` not ∈)
@@ -1713,6 +1937,63 @@ export class TextNode extends Node<TextualBlock> {
     };
   }
 
+  /** Direct nested hit-test for replacement marks with structured content. */
+  override contentSelectionFromPoint(
+    layoutValue: NodeLayout,
+    local: Point,
+    c: NodeContentHitCtx<B>,
+    options: NodeContentHitOptions,
+  ): ContentSelection | null {
+    const layout = layoutValue as TextNodeLayout;
+    if (!layout.marks) return null;
+    const runs = replacementRuns(
+      layout.chars,
+      layout.formats,
+      layout.marks,
+      layout.structuredContent,
+    ).filter((run) => run.replacement.contentSelectionFromPoint);
+    if (runs.length === 0) return null;
+
+    const baseX = this.baseX(layout, 0);
+    const pointX = local.x - baseX;
+    for (const line of layout.lines) {
+      const lineTop = layout.insetY + line.y;
+      if (local.y < lineTop || local.y >= lineTop + line.height) continue;
+      const baseline =
+        lineTop + (line.baselineOffset ?? layout.fontMetrics.ascent);
+      for (const run of runs) {
+        const fragment = replacementFragmentGeometry(layout, line, run);
+        if (!fragment) continue;
+        const previousOwnedByRun =
+          options.drag &&
+          options.previousPoint?.contentId === run.mark.attrs?.contentId;
+        if (
+          !previousOwnedByRun &&
+          (pointX < fragment.left || pointX > fragment.right)
+        ) {
+          continue;
+        }
+        const selection = run.replacement.contentSelectionFromPoint?.(
+          fragment.text,
+          layout.textStyle.fontSize,
+          pointX - fragment.left,
+          local.y - baseline,
+          {
+            blockId: c.block.id,
+            mark: run.mark,
+            attachments: layout.structuredContent,
+            sourceRange: fragment.sourceRange,
+            pointerType: options.pointerType,
+            drag: options.drag,
+            previousPoint: options.previousPoint,
+          },
+        );
+        if (selection) return selection;
+      }
+    }
+    return null;
+  }
+
   /**
    * Click → caret text index within the block. `x`/`y` are absolute in the
    * caller's coordinate space; `blockTopY` the block's top; `originX` the left
@@ -1746,6 +2027,7 @@ export class TextNode extends Node<TextualBlock> {
       layout.chars,
       layout.formats,
       layout.marks,
+      layout.structuredContent,
     ).filter((r) => r.replacement.wordRangeFromPoint);
     if (runs.length === 0) return null;
 
@@ -1831,7 +2113,7 @@ export class TextNode extends Node<TextualBlock> {
   }
 
   positionFromPoint(
-    _block: TextualBlock,
+    _block: B,
     layout: TextNodeLayout,
     x: number,
     y: number,
@@ -1989,7 +2271,12 @@ export class TextNode extends Node<TextualBlock> {
       // math chip embedded in an RTL line never enters the formula (it snaps to a
       // run boundary), so the chip cannot be selected or edited.
       for (const run of layout.marks
-        ? replacementRuns(chars, formats, layout.marks)
+        ? replacementRuns(
+            chars,
+            formats,
+            layout.marks,
+            layout.structuredContent,
+          )
         : []) {
         if (!run.replacement.hitTest) continue;
         const fragStart = Math.max(run.start, lineStartIndex);
@@ -2047,10 +2334,7 @@ export class TextNode extends Node<TextualBlock> {
         }
         // The chip's formula is always laid out LTR, so the run-local x is the
         // distance from its visual left edge regardless of surrounding direction.
-        const fragText = run.text.slice(
-          fragStart - run.start,
-          fragEnd - run.start,
-        );
+        const fragText = replacementFragmentText(run, fragStart, fragEnd);
         const baselineY =
           lineTopY + (line.baselineOffset ?? layout.fontMetrics.ascent);
         const offset = run.replacement.hitTest(
@@ -2134,7 +2418,12 @@ export class TextNode extends Node<TextualBlock> {
       // an interior index (they all collapse to the right edge); pull it back to
       // the near edge. Needs the registry to find runs / their replacements.
       for (const run of layout.marks
-        ? replacementRuns(chars, formats, layout.marks)
+        ? replacementRuns(
+            chars,
+            formats,
+            layout.marks,
+            layout.structuredContent,
+          )
         : []) {
         if (!run.replacement.hitTest) continue;
         // Hit-test against the chip's FRAGMENT on this line (the run clipped to
@@ -2146,10 +2435,7 @@ export class TextNode extends Node<TextualBlock> {
         if (fragEnd <= fragStart) continue;
         const startLocal = fragStart - lineStartIndex;
         if (startLocal + 1 >= positionWidths.length) continue;
-        const fragText = run.text.slice(
-          fragStart - run.start,
-          fragEnd - run.start,
-        );
+        const fragText = replacementFragmentText(run, fragStart, fragEnd);
         // The fragment's first char carries its whole on-line width (the override
         // map), so its left/right edges are the adjacent position widths.
         const chipLeftX = positionWidths[startLocal];
@@ -2251,7 +2537,10 @@ export class TextNode extends Node<TextualBlock> {
    * overlays, and the placeholder. Returns absolute line boxes.
    */
   paint(passedLayout: NodeLayout, c: NodePaintCtx): RenderedBlock {
-    const block = c.block as TextualBlock;
+    const block = c.block as unknown as B;
+    // Page storage keeps a closed core union for discriminated narrowing;
+    // schema-installed text blocks cross that representation boundary here.
+    const runtimeBlock = block as unknown as Block;
     const { ctx, state, styles, blockIndex, maxWidth } = c;
     const x = c.origin.x;
     const y = c.origin.y;
@@ -2260,7 +2549,7 @@ export class TextNode extends Node<TextualBlock> {
     // block, the registry-provided layout (plain content) is exactly what we
     // need — reuse it to avoid a second wrap. Only re-layout when composition
     // text must be folded in.
-    const content = getContentWithComposition(block, state, blockIndex);
+    const content = getContentWithComposition(runtimeBlock, state, blockIndex);
     const layout =
       content.compositionRange === null
         ? (passedLayout as TextNodeLayout)
@@ -2295,7 +2584,7 @@ export class TextNode extends Node<TextualBlock> {
     }
 
     const renderedLines: RenderedLine[] = [];
-    const fullContent = getBlockTextContent(block);
+    const fullContent = getBlockTextContent(runtimeBlock);
 
     // Highlight the hovered chip, or the one being edited — both are recorded in
     // `inlineMathHover` (the open path sets it to the edited run's range).
@@ -2493,7 +2782,7 @@ export class TextNode extends Node<TextualBlock> {
       height: layout.height - insetY - textStyle.paddingBottom,
     };
 
-    return { block, bounds, lines: renderedLines };
+    return { block: runtimeBlock, bounds, lines: renderedLines };
   }
 
   protected fillRects(
@@ -2594,7 +2883,7 @@ export class TextNode extends Node<TextualBlock> {
    * without any of them re-checking the block type.
    */
   protected leadingInset(
-    _block: TextualBlock,
+    _block: B,
     _styles: EditorStyles,
   ): { indentOffset: number; markerWidth: number } {
     return { indentOffset: 0, markerWidth: 0 };
@@ -2617,7 +2906,7 @@ export class TextNode extends Node<TextualBlock> {
    * search, composition underline, and placeholder are still drawn by `paint`
    * around this call, so an override only controls the glyph fill.
    */
-  protected renderLineText(p: RenderLineTextArgs): void {
+  protected renderLineText(p: RenderLineTextArgs<B>): void {
     renderLine(
       p.ctx,
       p.chars,
@@ -2635,6 +2924,7 @@ export class TextNode extends Node<TextualBlock> {
       p.hoveredInlineMath,
       p.caretIndex,
       p.commandEntryActive,
+      p.block.structuredContent,
     );
   }
 
@@ -2644,7 +2934,7 @@ export class TextNode extends Node<TextualBlock> {
    * Baked into the layout (and its height), so caret/hit-test/selection/paint
    * all start from `blockTop + insetY` without re-checking the block type.
    */
-  protected contentInsetY(_block: TextualBlock, _styles: EditorStyles): number {
+  protected contentInsetY(_block: B, _styles: EditorStyles): number {
     return 0;
   }
 
@@ -2656,7 +2946,7 @@ export class TextNode extends Node<TextualBlock> {
    * neighbour hints (`block.nextType`) available for the decision.
    */
   protected contentPaddingBottom(
-    _block: TextualBlock,
+    _block: B,
     _styles: EditorStyles,
     textStyle: TextStyle,
   ): number {
@@ -2686,6 +2976,7 @@ export class TextNode extends Node<TextualBlock> {
     // LTR-only: split a wide inline-math chip at its operators (false in RTL,
     // where a formula stays an atomic LTR box — see `wrapText`).
     allowReplacementBreaks: boolean = true,
+    attachments?: StructuredContentMap,
   ): WrappedLine[] {
     return wrapText(
       chars,
@@ -2699,6 +2990,7 @@ export class TextNode extends Node<TextualBlock> {
       compositionRange,
       marks,
       allowReplacementBreaks,
+      attachments,
     );
   }
 
@@ -2708,7 +3000,7 @@ export class TextNode extends Node<TextualBlock> {
    */
   protected paintMarker(
     _ctx: CanvasRenderingContext2D,
-    _block: TextualBlock,
+    _block: B,
     _markerX: number,
     _lineTopY: number,
     _layout: TextNodeLayout,
@@ -2733,7 +3025,7 @@ export class TextNode extends Node<TextualBlock> {
 
   /** Placeholder text shown when the block is empty and focused. */
   protected placeholderText(
-    block: TextualBlock,
+    block: B,
     styles: EditorStyles,
     _state: EditorState,
   ): string {

@@ -4,11 +4,12 @@ import { PropsTable } from "../../docsComponents";
 
 <p className="dx-lede">
   A `Schema` declares what a document is made of: the block types and inline
-  marks the editor understands. The default `baseSchema` covers every built-in
-  type; derive your own with `baseSchema.extend(...)`.
+  marks the editor understands. The default `baseSchema` contains the small core
+  set; compose optional features with `baseSchema.use(...)`, or register ad-hoc
+  node and mark specs with `baseSchema.extend(...)`.
 </p>
 
-<h2 id="base">Built-in block types</h2>
+<h2 id="base">Core block types</h2>
 
 <PropsTable
   cols={["Block type", "Markdown", "Notes"]}
@@ -26,6 +27,8 @@ import { PropsTable } from "../../docsComponents";
     { name: "bullet_list", type: "- ", desc: "Unordered list item." },
     { name: "numbered_list", type: "1. ", desc: "Ordered list item." },
     { name: "todo_list", type: "- [ ] ", desc: "Checkable task item." },
+    { name: "quote", type: "> ", desc: "Block quotation." },
+    { name: "code", type: "```", desc: "Fenced verbatim code block." },
     {
       name: "image",
       type: "![alt](url)",
@@ -36,13 +39,12 @@ import { PropsTable } from "../../docsComponents";
       type: "---",
       desc: 'Leaf horizontal divider (the classic "hr").',
     },
-    { name: "math", type: "$$ … $$", desc: "Leaf block-level math." },
   ]}
 />
 
-<h2 id="marks">Built-in inline marks</h2>
+<h2 id="marks">Core inline marks</h2>
 
-Marks are inline formatting carried on runs of text. The CRDT names are `strong`/`emphasis`/`strike` (not bold/italic/strikethrough). The togglable ones flip across the selection with `change((c) => c.setMark(name))`; `link` and `math` carry data, so they're applied with an explicit range and attrs — `setMark(name, { attrs, range })` — instead.
+Marks are inline formatting carried on runs of text. The CRDT names are `strong`/`emphasis`/`strike` (not bold/italic/strikethrough). The togglable ones flip across the selection with `change((c) => c.setMark(name))`; `link` carries data, so it is applied with an explicit range and attrs — `setMark(name, { attrs, range })` — instead.
 
 <PropsTable
   cols={["Mark", "Markdown", "Togglable", "Notes"]}
@@ -56,29 +58,156 @@ Marks are inline formatting carried on runs of text. The CRDT names are `strong`
       type: "[text](url)",
       desc: "No — carries a url on attrs; applied via setMark(name, { attrs, range }).",
     },
-    {
-      name: "math",
-      type: "$…$",
-      desc: "No — a run of LaTeX rendered as a chip; applied via setMark(name, { attrs, range }).",
-    },
   ]}
 />
 
-<h2 id="extend">Extending</h2>
+<h2 id="math">Optional math</h2>
 
-`extend` takes _arrays_ of node and mark specs and returns a new, immutable schema — the base is never mutated, so two editors on one page can run different schemas:
+Math is a feature, not a core node type. The root `@cypherkit/editor` entry and
+`baseSchema` do not load `@cypherkit/tex`, so hosts that do not need formulae
+pay no math dependency or authoring cost. Install display math (`$$…$$`) and
+inline math (`$…$`) together from the dedicated entry point:
+
+```bash
+npm install @cypherkit/editor @cypherkit/tex
+```
 
 ```ts
-import { baseSchema, defineNode, defineMark } from "@cypherkit/editor";
+// appDataSchema.ts — safe to import from workers and persistence code
+import { baseDataSchema } from "@cypherkit/editor";
+import { mathDataExtension } from "@cypherkit/editor/math/data";
 
-const schema = baseSchema.extend({
-  nodes: [defineNode("callout", { attrs: { tone: { default: "note" } } })],
-  marks: [defineMark("highlight", { attrs: { color: { default: "yellow" } } })],
+export const appDataSchema = baseDataSchema.extend(mathDataExtension());
+
+// editorSchema.ts — imported only by the interactive editor surface
+import { baseSchema, createEditor } from "@cypherkit/editor";
+import { mathExtension } from "@cypherkit/editor/math";
+
+export const appSchema = baseSchema.use(mathExtension());
+
+const editor = createEditor({
+  element,
+  markdown: String.raw`Euler: $e^{i\pi}+1=0$`,
+  schema: appSchema,
 });
 ```
 
-The schema's type is inferred and carried through `Doc`, `Editor`, the React
-bindings, `ChangeApi`, and `query`. You do not pass a generic manually:
+`appSchema` is the canvas/editor half; the independently composed
+`appDataSchema` is the worker-safe persistence and serialization half. They
+register the same math block, mark, codecs, Markdown syntax, and structured
+shape, while only `appSchema.data` carries live authoring rules. Keep the two
+definitions paired, but keep their modules separate so a worker importing the
+data schema cannot evaluate the interactive graph.
+
+If a worker should not import the interactive math view, compose the data-only
+entry there. It installs the same block/mark codecs, Markdown syntax, and
+structured-document adapters without constructing `MathNode`, `MathMark`, or
+the live input/selection stack:
+
+```ts
+import { baseDataSchema } from "@cypherkit/editor";
+import { mathDataExtension } from "@cypherkit/editor/math/data";
+
+export const workerDataSchema = baseDataSchema.extend(mathDataExtension());
+```
+
+Workers do not choose `displayEditing` or `inlineEditing`: structured
+`content_edit` operations are schema-agnostic and replay through this data
+schema. Both options belong to the full `mathExtension` used by an interactive
+editor:
+
+```ts
+const treeMathSchema = baseSchema.use(
+  mathExtension({
+    displayEditing: "tree",
+    inlineEditing: "tree",
+  }),
+);
+```
+
+The defaults remain `"legacy"`, so enabling either tree writer is a deliberate
+collaborative rollout decision. Current legacy-mode clients render attached
+inline math as a whole atomic selection unit without mutating individual
+compatibility characters; clients
+from before the attachment guard must be excluded through protocol/version
+negotiation.
+
+```ts
+import {
+  createDoc,
+  createEditor,
+  parsePage,
+  serializeToMarkdown,
+  tokenizePage,
+} from "@cypherkit/editor";
+
+const doc = createDoc({ markdown: savedMarkdown, schema: appDataSchema });
+const attachedEditor = createEditor({ element, doc, schema: appSchema });
+const page = parsePage(
+  tokenizePage(importedMarkdown, appDataSchema),
+  appDataSchema,
+);
+const output = serializeToMarkdown(page.blocks, undefined, {
+  schema: appDataSchema,
+});
+```
+
+Without `mathExtension`, dollar-delimited input remains literal text: the
+parser preserves both `$...$` and `$$...$$` source instead of silently
+interpreting or discarding it. That lets a math-free client retain content from
+a newer or differently configured peer until the feature is installed. Legacy
+editing stores LaTeX in the ordinary text CRDT; either opt-in tree mode stores a
+`MathDocument` as the authority and derives LaTeX for rendering and interchange.
+The feature also exposes `MathDocument`,
+`mathDocumentToStructured`, `structuredToMathDocument`, and
+`parseLegacyMathDocumentInit`; editor core supplies the generic `content_edit`
+tree/text CRDT those adapters target. Tree-backed display math owns its block;
+tree-backed inline math is a supplemental attachment referenced by the covering
+mark. Neither path dual-writes a second editable LaTeX representation.
+
+<h2 id="extend">Extending</h2>
+
+`use` installs a reusable feature bundle. Feature objects can contribute nodes,
+marks, live-input rules, Markdown syntax recognizers, action hooks, and theme or
+string defaults. Those facets are immutable and scoped to the resulting schema,
+so two editors can install different feature sets on the same page:
+
+```ts
+import {
+  baseSchema,
+  defineMark,
+  defineNode,
+  type FeatureExtension,
+} from "@cypherkit/editor";
+
+export const calloutFeature = {
+  name: "callouts",
+  nodes: [defineNode("callout", { attrs: { tone: { default: "note" } } })],
+  marks: [defineMark("highlight", { attrs: { color: { default: "yellow" } } })],
+} as const satisfies FeatureExtension;
+
+const schema = baseSchema.use(calloutFeature);
+```
+
+Use `as const satisfies FeatureExtension` for exported feature values: it
+checks the public feature contract while retaining literal node, mark, and
+attribute types for the resulting `Editor` API. The optional `name` is metadata,
+not a deduplication key; calling `use` twice composes twice, with the same
+later-definition-wins behavior as `extend`.
+
+For one-off registration, `extend` remains the lower-level API. It takes
+_arrays_ of node and mark specs and returns a new, immutable schema:
+
+```ts
+const oneOffSchema = baseSchema.extend({
+  nodes: [defineNode("one_off")],
+});
+```
+
+Both methods leave the base untouched, so two editors on one page can run
+different schemas. The schema's type is inferred and carried through `Doc`,
+`Editor`, the React bindings, `ChangeApi`, and `query`; you do not pass a generic
+manually:
 
 ```ts
 const editor = createEditor({ element, schema });
@@ -99,10 +228,11 @@ if (block?.type === "callout") {
 
 <h2 id="restrict">Restricting (allowed types)</h2>
 
-`extend` decides which types _exist_. `restrict` decides which of them the local
-user may _author_ — the ProseMirror-style allow-list. It returns a new immutable
-schema, leaves the full registry (and therefore rendering) untouched, and is the
-tool for constrained fields like a single-line title or a plain-text comment box:
+`use` and `extend` decide which types _exist_. `restrict` decides which of them
+the local user may _author_ — the ProseMirror-style allow-list. It returns a new
+immutable schema, leaves the full registry (and therefore rendering) untouched,
+and is the tool for constrained fields like a single-line title or a plain-text
+comment box:
 
 ```ts
 // A title field: the user can only ever produce a heading1, with no inline marks.
@@ -111,8 +241,8 @@ const title = createEditor({ element, schema: titleSchema });
 ```
 
 - Omit a key to leave that dimension unrestricted; `marks: []` is a genuinely
-  format-free field. Every name must already be registered (apply `extend` first,
-  `restrict` last).
+  format-free field. Every name must already be registered (apply `use` /
+  `extend` first, `restrict` last).
 - The `paragraph` fallback is **always** creatable and cannot be excluded, so a
   document can never become unrepresentable — you never need to list it.
 - The default `baseSchema` is unrestricted: without a `restrict` call every
@@ -157,9 +287,17 @@ live — with no extra sync wiring (collaboration lives on the doc, not the
 surface).
 
 ```ts
-import { createDoc, createEditor, baseSchema, titleBlockWindow } from "@cypherkit/editor";
+import {
+  createDoc,
+  createEditor,
+  baseSchema,
+  titleBlockWindow,
+} from "@cypherkit/editor";
 
-const doc = createDoc({ markdown: "# My page\n\nBody…", schema: baseSchema.data });
+const doc = createDoc({
+  markdown: "# My page\n\nBody…",
+  schema: baseSchema.data,
+});
 
 // Full body editor over the whole doc.
 const body = createEditor({ element: bodyEl, doc });
@@ -257,4 +395,8 @@ const schema = baseSchema.extend({
 });
 ```
 
-Both `defineNode` and `defineMark` return specs you pass to `extend`. See [Custom nodes & marks](/docs/editor/custom-nodes) for the class-first authoring style, node-owned strings, overlay slots, and how the data round-trips through Markdown.
+Both `defineNode` and `defineMark` return specs you can pass directly to `extend`
+or bundle in a `FeatureExtension` installed with `use`. See [Custom nodes &
+marks](/docs/editor/custom-nodes) for the class-first authoring style,
+node-owned strings, overlay slots, and how the data round-trips through
+Markdown.

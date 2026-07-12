@@ -9,6 +9,7 @@
  * while the caret kept descending into it — so the painted chip and the live
  * caret diverged. These pin the two paths together over the resolver they share.
  */
+import { createMathTestSyncEngine } from "./__testutils__/math";
 import {
   getInlineMathSpans,
   resolveMarkRunsFromChars,
@@ -20,12 +21,12 @@ import {
   insertCharsAtPosition,
   markCharsInRange,
 } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
 function chip(latex: string) {
   const binding = createCRDTbinding("render-res", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;

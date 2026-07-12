@@ -72,6 +72,16 @@ export const MOVE_CURSOR_RIGHT = stateAction("move-cursor-right", (state) => ({
 }));
 
 /**
+ * Move between feature-owned nested slots with Tab/Shift+Tab. The default is a
+ * no-op so ordinary blocks still let the browser move focus; a structured node
+ * claims it through its per-instance action registration.
+ */
+export const MOVE_CONTENT_TAB = stateAction<{ backward: boolean }>(
+  "move-content-tab",
+  (state) => ({ state, ops: [] }),
+);
+
+/**
  * Move the caret up one visual line (ArrowUp), collapsing any active selection
  * first. Pure cursor move, no ops.
  */

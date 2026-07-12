@@ -22,6 +22,7 @@ import {
 } from "../rendering/scrollbar";
 import {
   getBlockIndexAtPoint,
+  getContentSelectionFromViewport,
   getCursorDocumentCoords,
   getTextPositionFromViewport,
   getWordRangeFromViewport,
@@ -36,6 +37,7 @@ import type {
   VisibleBlockRange,
 } from "../state-types";
 import { closeActiveMenu, setLinkHover, updateMode } from "../state-utils";
+import { updateContentSelection } from "../structured-selection";
 import { getEditorStyles } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
@@ -381,10 +383,23 @@ export function handleMouseDown(
 
   // Nothing claimed the click: place the caret. If Shift is held, extend the
   // selection; otherwise start a new selection and enter select mode.
+  const contentSelection = getContentSelectionFromViewport(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    "mouse",
+    styles,
+    visibility,
+  );
   return {
     state: state.actionBus.dispatchState(PLACE_CURSOR_AT_POINT, state, {
       position,
-      extend: !!(event.shiftKey && state.document.selection),
+      extend: !!(
+        event.shiftKey &&
+        (state.document.selection || state.document.contentSelection)
+      ),
+      contentSelection,
     }).state,
     ops,
   };
@@ -538,25 +553,56 @@ export function handleMouseMove(
     return state;
   }
 
-  const position = getTextPositionFromViewport(
-    canvasX,
-    canvasY,
-    state,
-    viewport,
-    undefined,
-    visibility,
-  );
+  let newState: EditorState;
+  const contentSelection = state.document.contentSelection;
+  if (contentSelection) {
+    const hit = getContentSelectionFromViewport(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      "mouse",
+      undefined,
+      visibility,
+      {
+        drag: true,
+        previousContentPoint: contentSelection.focus,
+      },
+    );
+    if (
+      !hit ||
+      hit.focus.blockId !== contentSelection.anchor.blockId ||
+      hit.focus.contentId !== contentSelection.anchor.contentId
+    ) {
+      return state;
+    }
+    const updated = updateContentSelection(state, {
+      anchor: contentSelection.anchor,
+      focus: hit.focus,
+      lastUpdate: Date.now(),
+    });
+    if (!updated.document.contentSelection) return state;
+    newState = updated;
+  } else {
+    const position = getTextPositionFromViewport(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      undefined,
+      visibility,
+    );
+    if (!position) return state;
 
-  if (!position) return state;
-
-  let newState = updateSelectionFocus(state, position);
-  // `updateSelectionFocus` may have widened the focus out of a math construct;
-  // park the caret on that snapped focus (not the raw interior hit) so the drag
-  // resumes from the construct's edge rather than re-snapping every pixel.
-  newState = updateCursor(
-    newState,
-    newState.document.selection?.focus ?? position,
-  );
+    newState = updateSelectionFocus(state, position);
+    // `updateSelectionFocus` may have widened the focus out of a math construct;
+    // park the caret on that snapped focus (not the raw interior hit) so the drag
+    // resumes from the construct's edge rather than re-snapping every pixel.
+    newState = updateCursor(
+      newState,
+      newState.document.selection?.focus ?? position,
+    );
+  }
 
   const isNearEdge =
     canvasY < EDGE_SCROLL_THRESHOLD ||

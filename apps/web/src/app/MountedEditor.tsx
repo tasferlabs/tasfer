@@ -37,17 +37,20 @@ import {
   REGION_DRAG_START,
   SCROLL,
   TEXT_INPUT,
-  mathCommandInsertion,
-  mathMatrixContext,
-  mathMatrixResize,
-  mathSourceAtEdge,
   mergeRegister,
   type Block,
   type CursorDragInfo,
   type Decoration,
   type DocPoint,
-  type MountedEditor as MountedEditorInstance,
 } from "@cypherkit/editor";
+import {
+  INSERT_MATH_COMMAND,
+  RESIZE_MATH_MATRIX,
+  mathCommandInsertion,
+  mathMatrixContext,
+  mathMatrixResize,
+  mathSourceAtEdge,
+} from "@cypherkit/editor/math";
 import {
   CODE_LANGUAGES,
   cleanSnapshotForSave,
@@ -115,6 +118,11 @@ import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { MathCommandMenu } from "../editor/MathCommandMenu";
+import {
+  activeTreeMath,
+  treeMathAtAnchor,
+  treeMathAtFocus,
+} from "../editor/treeMath";
 import { MatrixEditor } from "../editor/MatrixEditor";
 import { SlashActionMenu } from "../editor/SlashActionMenu";
 import {
@@ -123,6 +131,7 @@ import {
   openImageUploadMenu,
   openLinkEditMenu,
   type LinkEditOverlayData,
+  type AppMountedEditor as MountedEditorInstance,
 } from "../editorSchema";
 import { useSafeAreaInsets } from "./hooks/useSafeAreaInsets";
 import { cn } from "../lib/utils";
@@ -274,9 +283,24 @@ function matrixCaretTarget(editor: EditorInstance): {
 function matrixContextForCaret(
   editor: EditorInstance,
 ): MobileToolbarMatrixContext | null {
-  const target = matrixCaretTarget(editor);
-  if (!target) return null;
-  const ctx = mathMatrixContext(target.sourceLatex, target.localOffset);
+  // Structured math keeps its authoritative source and nested focus outside the
+  // legacy flat selection. Resolve it first so the matrix action is available
+  // both at a tree caret and while a construct inside MathNode/MathMark is held.
+  const treeFocus = treeMathAtFocus(editor);
+  const treeAnchor = treeMathAtAnchor(editor);
+  const treeTargets = [treeFocus, treeAnchor].filter(
+    (target): target is NonNullable<typeof target> => target !== null,
+  );
+  // A whole construct selection ends immediately after the matrix. That focus
+  // is outside the environment's exclusive source span, while its anchor is on
+  // the opening boundary; probe both endpoints before declaring no matrix.
+  const treeCtx = treeTargets
+    .map((target) => mathMatrixContext(target.source, target.sourceOffset))
+    .find((ctx) => ctx !== null);
+  const target = treeTargets.length === 0 ? matrixCaretTarget(editor) : null;
+  const ctx =
+    treeCtx ??
+    (target ? mathMatrixContext(target.sourceLatex, target.localOffset) : null);
   if (!ctx) return null;
   return {
     env: ctx.env,
@@ -301,6 +325,10 @@ function applyMatrixResize(
   rows: number,
   cols: number,
 ): void {
+  if (treeMathAtFocus(editor)) {
+    editor.dispatch(RESIZE_MATH_MATRIX, { rows, cols });
+    return;
+  }
   const target = matrixCaretTarget(editor);
   if (!target) return;
   const result = mathMatrixResize(
@@ -1578,6 +1606,17 @@ function PageEditor({
           editor.focus();
           break;
         case "open-math-commands": {
+          const tree = activeTreeMath(editor);
+          if (tree) {
+            editor.dispatch(TEXT_INPUT, {
+              text: "\\",
+              blockIndex: 0,
+              textIndex: tree.sourceOffset,
+            });
+            editor.change((change) => change.insertText("\\"));
+            editor.focus();
+            break;
+          }
           const range = editor.state.selection.range;
           if (
             !range ||
@@ -1617,6 +1656,19 @@ function PageEditor({
           // `{}` slot. Works in both math contexts the row shows in: a block
           // equation, or an inline chip (its LaTeX lives in the block text, so
           // the offsets below are block-relative either way).
+          const tree = activeTreeMath(editor);
+          if (tree) {
+            const insertion = mathCommandInsertion(
+              action.latex,
+              tree.source[tree.sourceOffset] ?? "",
+            );
+            editor.dispatch(INSERT_MATH_COMMAND, {
+              text: insertion.text,
+              caretOffset: insertion.caretOffset,
+            });
+            editor.focus();
+            break;
+          }
           const range = editor.state.selection.range;
           if (
             !range ||
@@ -1629,13 +1681,26 @@ function PageEditor({
           const block = editor.query.block(range);
           if (!block) break;
           const caretOffset = range.offset ?? 0;
+          if (block.type === "math") {
+            const insertion = mathCommandInsertion(
+              action.latex,
+              block.text[caretOffset] ?? "",
+            );
+            editor.dispatch(INSERT_MATH_COMMAND, {
+              text: insertion.text,
+              caretOffset: insertion.caretOffset,
+            });
+            editor.focus();
+            break;
+          }
           // The inline chip the caret rests in or abuts (either edge counts).
-          // Null in a block equation, whose whole text is LaTeX.
-          const chip =
-            block.type === "math"
-              ? undefined
-              : inlineMathChipAt(editor.query.marks, block.id, caretOffset);
-          if (block.type !== "math" && !chip) break;
+          // Display equations returned above through the structural action.
+          const chip = inlineMathChipAt(
+            editor.query.marks,
+            block.id,
+            caretOffset,
+          );
+          if (!chip) break;
           const active = activeBlockMathCommand(block.text, caretOffset);
           // The formula character right after the insertion point — the rest
           // of the block for an equation, but only up to the chip's end for
@@ -1644,9 +1709,7 @@ function PageEditor({
           // `\pi` in `a\pi|a` leaves the fused unknown `\pia`;
           // `mathCommandInsertion` appends it.
           const following =
-            block.type === "math" || (chip && caretOffset < chip.to)
-              ? (block.text[caretOffset] ?? "")
-              : "";
+            caretOffset < chip.to ? (block.text[caretOffset] ?? "") : "";
           const insertion = mathCommandInsertion(action.latex, following);
           editor.change((change) => {
             if (active) {
@@ -2720,15 +2783,17 @@ function PageEditor({
       // selection-aware (intersection across the span + pending caret toggles)
       // mark set, so it replaces the old per-char format scan.
       const activeBlock = mounted.editor.query.block();
+      const treeMath = activeTreeMath(mounted.editor);
       const rawBlockType = activeBlock?.type ?? "paragraph";
       const blockType = toolbarBlockTypeFromQueryBlock(activeBlock);
       const selectionRange = snapshot.selection.range;
       const caretOffset =
-        selectionRange &&
+        treeMath?.sourceOffset ??
+        (selectionRange &&
         typeof selectionRange === "object" &&
         "offset" in selectionRange
           ? (selectionRange.offset ?? 0)
-          : null;
+          : null);
       const inlineMathChip =
         caretOffset !== null && activeBlock != null
           ? inlineMathChipAt(
@@ -2739,7 +2804,7 @@ function PageEditor({
           : undefined;
       const insideInlineMath = inlineMathChip !== undefined;
       const canOpenMathCommands =
-        snapshot.selection.empty &&
+        (snapshot.selection.empty || treeMath !== null) &&
         (rawBlockType === "math" || insideInlineMath);
 
       // Contextual math row. Present whenever the caret rests in math — a block
@@ -2750,11 +2815,12 @@ function PageEditor({
       // `\command`, or null while browsing.
       let math: MobileToolbarMathContext | null = null;
       if (
-        snapshot.selection.empty &&
+        (snapshot.selection.empty || treeMath !== null) &&
         (rawBlockType === "math" || insideInlineMath) &&
         caretOffset !== null
       ) {
-        const mathText = mounted.editor.query.block()?.text ?? "";
+        const mathText =
+          treeMath?.source ?? mounted.editor.query.block()?.text ?? "";
         const active = activeBlockMathCommand(mathText, caretOffset);
         // Edge detection runs on the math *source* the caret sits in: a block
         // equation is the whole block text; an inline chip is its own LaTeX at a
@@ -2787,7 +2853,9 @@ function PageEditor({
       // Structural context for the list/code contextual rows. The fields are
       // read off the current block; they default to inert values off-context so
       // the layout builder simply falls back to the formatting row.
-      const contextAttrs = activeBlock?.attrs ?? {};
+      const contextAttrs = (activeBlock?.attrs ?? {}) as Readonly<
+        Record<string, unknown>
+      >;
       const listIndent =
         typeof contextAttrs.indent === "number" ? contextAttrs.indent : 0;
       const todoChecked =

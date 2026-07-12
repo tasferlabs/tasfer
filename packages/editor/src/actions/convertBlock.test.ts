@@ -7,6 +7,7 @@
  * preserve text for textual targets, and emit a `block_set type` op.
  */
 
+import { mathTestStateOptions } from "../__testutils__/math";
 import type { Block, Paragraph } from "../serlization/loadPage";
 import type { BlockSet, CursorState, EditorState, Page } from "../state-types";
 import { createInitialState } from "../state-utils";
@@ -34,7 +35,10 @@ function cursorAt(blockIndex: number, textIndex: number): CursorState {
 }
 
 function convert(type: Block["type"]) {
-  const state0: EditorState = createInitialState(pageWith(paragraph("hello")));
+  const state0: EditorState = createInitialState(
+    pageWith(paragraph("hello")),
+    mathTestStateOptions(),
+  );
   const state = {
     ...state0,
     document: { ...state0.document, cursor: cursorAt(0, 5) },

@@ -3,8 +3,15 @@ import {
   getSelectionRange,
   insertText,
 } from "../actions/actions";
+import {
+  cloneStructuredBlockContent,
+  expandSelectionAroundStructuredMarks,
+  resolveStructuredMarkRanges,
+} from "../actions/structured-marks";
+import type { FeatureContentSelectionSlice } from "../feature-facets";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
+import { escapeHtml } from "../serlization/codecs/inline";
 import { serializeToHTMLFragment } from "../serlization/htmlSerializer";
 import type {
   Block,
@@ -32,6 +39,7 @@ import type {
   TextInsert,
 } from "../state-types";
 import { getBlockTextLength } from "../state-utils";
+import { isContentSelectionCollapsed } from "../structured-selection";
 import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import { sortBlocksByOrder } from "../sync/block-order";
 import {
@@ -53,7 +61,16 @@ import {
 } from "../sync/crdt-utils";
 import { createIdGenerator, generateBlockId } from "../sync/id";
 import { applyOps, findNextVisibleBlockIndex } from "../sync/reducer";
-import { createMarkdownContent } from "defuddle/full";
+import type { DataSchema } from "../sync/schema";
+import Defuddle from "defuddle/full";
+
+// `defuddle/full` publishes a UMD/CommonJS runtime behind ESM-looking types.
+// Node's ESM loader therefore exposes its callable default (with this helper as
+// a static property), not the declared named export. Reading that property keeps
+// both native ESM/headless consumers and browser bundlers on the same path.
+const { createMarkdownContent } = Defuddle as typeof Defuddle & {
+  createMarkdownContent: typeof import("defuddle/full").createMarkdownContent;
+};
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
   return generateBlockId(binding.nextId);
@@ -430,16 +447,16 @@ function extractFormatsForChars(
  * Feeds the accessibility input mirror (`getSelectionPlainText`); the rich
  * copy/cut payloads are markdown + HTML, not this.
  */
-function blocksToPlainText(blocks: Block[]): string {
-  return serializeToText(blocks);
+function blocksToPlainText(blocks: Block[], schema: DataSchema): string {
+  return serializeToText(blocks, { schema });
 }
 
 /**
  * Convert blocks to markdown with formatting
  */
-function blocksToMarkdown(blocks: Block[]): string {
+function blocksToMarkdown(blocks: Block[], schema: DataSchema): string {
   // Use the proper serializer that handles inline formatting
-  return serializeToMarkdown(blocks);
+  return serializeToMarkdown(blocks, undefined, { schema });
 }
 
 /**
@@ -485,10 +502,14 @@ function decodeClipboardMarkdown(base64: string): string {
  * without this a copied equation lands as a non-editable image. File export
  * (which wants the rendered formula) leaves the flag off.
  */
-function blocksToHTML(blocks: Block[], markdown: string): string {
+function blocksToHTML(
+  blocks: Block[],
+  markdown: string,
+  schema: DataSchema,
+): string {
   return (
     encodeClipboardMarkdown(markdown) +
-    serializeToHTMLFragment(blocks, { preferSource: true })
+    serializeToHTMLFragment(blocks, { preferSource: true, schema })
   );
 }
 
@@ -529,6 +550,25 @@ export interface ClipboardReadResult {
   html?: string;
 }
 
+/** Resolve a nested range through the serializer installed by its feature. */
+function getStructuredSelectionSlice(
+  state: EditorState,
+): FeatureContentSelectionSlice | undefined {
+  const selection = state.document.contentSelection;
+  if (!selection || isContentSelectionCollapsed(selection)) return undefined;
+  const { anchor, focus } = selection;
+  if (
+    anchor.blockId !== focus.blockId ||
+    anchor.contentId !== focus.contentId
+  ) {
+    return undefined;
+  }
+  const block = findBlock(state.document.page, focus.blockId);
+  const document = block?.structuredContent?.[focus.contentId];
+  if (!block || block.deleted || !document) return undefined;
+  return state.schema.features.serializeContentSelection(document, selection);
+}
+
 /**
  * Build the clipboard representations of the current selection synchronously.
  * Returns `null` when there is no (non-empty) selection. Used both by the async
@@ -538,14 +578,27 @@ export interface ClipboardReadResult {
 export function buildClipboardPayload(
   state: EditorState,
 ): ClipboardPayload | null {
+  const structured = getStructuredSelectionSlice(state);
+  if (structured) {
+    const markdown = structured.markdown ?? structured.plainText;
+    return {
+      plainText: structured.plainText,
+      markdown,
+      html:
+        encodeClipboardMarkdown(markdown) +
+        (structured.html ?? `<span>${escapeHtml(structured.plainText)}</span>`),
+    };
+  }
+
+  state = expandSelectionAroundStructuredMarks(state);
   const selectedContent = getSelectedContent(state);
   if (!selectedContent) return null;
   const { blocks } = selectedContent;
   if (blocks.length === 0) return null;
-  const markdown = blocksToMarkdown(blocks);
+  const markdown = blocksToMarkdown(blocks, state.schema);
   return {
-    plainText: blocksToPlainText(blocks),
-    html: blocksToHTML(blocks, markdown),
+    plainText: blocksToPlainText(blocks, state.schema),
+    html: blocksToHTML(blocks, markdown, state.schema),
     markdown,
   };
 }
@@ -562,11 +615,15 @@ export function buildClipboardPayload(
  * drag-select over a large document.
  */
 export function getSelectionPlainText(state: EditorState): string {
+  const structured = getStructuredSelectionSlice(state);
+  if (structured) return structured.plainText;
+
+  state = expandSelectionAroundStructuredMarks(state);
   const selectedContent = getSelectedContent(state, false);
   if (!selectedContent) return "";
   const { blocks } = selectedContent;
   if (blocks.length === 0) return "";
-  return blocksToPlainText(blocks);
+  return blocksToPlainText(blocks, state.schema);
 }
 
 /**
@@ -619,18 +676,23 @@ export async function cutSelectionToClipboard(
   clipboard?: HostClipboard,
 ): Promise<{ success: boolean; result: ActionResult | null }> {
   try {
-    const selectedContent = getSelectedContent(state);
-    if (!selectedContent) return { success: false, result: null };
-
-    const { blocks } = selectedContent;
-    if (blocks.length === 0) return { success: false, result: null };
+    const payload = buildClipboardPayload(state);
+    if (!payload) return { success: false, result: null };
 
     let success = await copySelectionToClipboard(state, clipboard);
 
     if (success) {
       const stateWithUndo = state;
 
-      const result = deleteSelectedText(stateWithUndo);
+      const result =
+        stateWithUndo.document.contentSelection ||
+        stateWithUndo.schema.features.ownsInput(
+          "before-insert",
+          stateWithUndo,
+          "",
+        )
+          ? insertText(stateWithUndo, "")
+          : deleteSelectedText(stateWithUndo);
       return { success: true, result };
     }
 
@@ -793,7 +855,11 @@ function containExternalImages(blocks: Block[]): Block[] {
  * the same parser the plain-text path uses. This keeps a single, well-tested
  * Markdown -> blocks pipeline and inherits defuddle's HTML cleanup.
  */
-export function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
+export function parseHTMLToBlocks(
+  html: string,
+  binding: CRDTbinding,
+  schema?: DataSchema,
+): Block[] {
   if (!html.trim()) return [];
 
   // Our own copies carry the canonical Markdown in a leading marker comment.
@@ -805,6 +871,7 @@ export function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
       return parsePlainTextToBlocks(
         decodeClipboardMarkdown(marker[1]),
         binding,
+        schema,
       );
     } catch (error) {
       console.error("Failed to decode Cypher clipboard payload:", error);
@@ -824,17 +891,23 @@ export function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
   markdown = stripFragmentLinks(markdown);
   markdown = repairMathBackslashes(markdown);
   if (!markdown.trim()) return [];
-  return containExternalImages(parsePlainTextToBlocks(markdown, binding));
+  return containExternalImages(
+    parsePlainTextToBlocks(markdown, binding, schema),
+  );
 }
 
 /**
  * Parse plain text into blocks
  * Respects markdown formatting including inline formats
  */
-function parsePlainTextToBlocks(text: string, binding: CRDTbinding): Block[] {
+function parsePlainTextToBlocks(
+  text: string,
+  binding: CRDTbinding,
+  schema?: DataSchema,
+): Block[] {
   try {
     // Use the markdown parser to properly handle inline formatting
-    const page = loadPage(text);
+    const page = loadPage(text, schema);
     return page.blocks;
   } catch (error) {
     console.error(
@@ -891,6 +964,7 @@ function insertBlocksAtCursor(
   blocks: Block[],
 ): ActionResult {
   if (blocks.length === 0) return { state, ops: [] };
+  state = expandSelectionAroundStructuredMarks(state);
 
   // Coerce pasted/inserted blocks to the schema's authoring allow-list before any
   // op is emitted — the single parsed->committed boundary for every paste entry
@@ -907,7 +981,7 @@ function insertBlocksAtCursor(
   // title wants. (normalizeBlocks already stripped disallowed marks; this drops
   // the marks too, since plain text carries none.)
   if (state.view.window?.singleBlock) {
-    const text = blocksToPlainText(blocks)
+    const text = blocksToPlainText(blocks, state.schema)
       .replace(/\s*\n\s*/g, " ")
       .trim();
     return text.length > 0 ? insertText(state, text) : { state, ops: [] };
@@ -1108,7 +1182,7 @@ function insertBlocksAtCursor(
             value: true,
           };
           ops.push(formatOp);
-          pageAcc = applyOps(pageAcc, [formatOp]);
+          pageAcc = applyOps(pageAcc, [formatOp], state.schema);
         }
       }
     }
@@ -1180,6 +1254,23 @@ function insertBlocksAtCursor(
       afterChars,
       currentBlock.charRuns,
     );
+    const afterContainsStructuredMark = resolveStructuredMarkRanges(
+      currentBlock,
+      state.schema,
+    ).some((run) => run.endIndex > textIndex);
+    const cloneAfterStructuredContent = (targetBlockId: string) =>
+      afterContainsStructuredMark
+        ? cloneStructuredBlockContent(
+            currentBlock,
+            targetBlockId,
+            state.CRDTbinding,
+            state.schema,
+          )
+        : {
+            structuredContent: {},
+            clonedContentIds: {},
+            ops: [] as const,
+          };
 
     // Delete text after cursor in current block
     let pasteWorkPage = newState.document.page;
@@ -1230,11 +1321,13 @@ function insertBlocksAtCursor(
     const trailingSpillType = hostAbsorbsParagraphs
       ? currentBlock.type
       : "paragraph";
-    const appendTrailingParagraph = (anchorId: string) => {
+    const appendTrailingParagraph = (anchorId: string): boolean => {
       const visibleAfter = afterChars.filter((c) => !c.deleted);
-      if (visibleAfter.length === 0) return;
+      if (visibleAfter.length === 0) return true;
 
       const trailingBlockId = globalGenerateBlockId(state.CRDTbinding);
+      const clonedContent = cloneAfterStructuredContent(trailingBlockId);
+      if (!clonedContent) return false;
       const orderKey = orderKeyAfter(blocksWithResults(), anchorId);
       const newAfterChars: Char[] = visibleAfter.map((c) => ({
         id: state.CRDTbinding.nextId(),
@@ -1256,6 +1349,14 @@ function insertBlocksAtCursor(
               ...f,
               startCharId: newStartId,
               endCharId: newEndId,
+              format:
+                state.schema.features.cloneStructuredMark(f.format.type, {
+                  mark: f.format,
+                  sourceBlockId: currentBlock.id,
+                  targetBlockId: trailingBlockId,
+                  attachments: currentBlock.structuredContent,
+                  clonedContentIds: clonedContent.clonedContentIds,
+                }) ?? f.format,
               clock: state.CRDTbinding.getClock(),
             };
           }
@@ -1269,6 +1370,9 @@ function insertBlocksAtCursor(
         type: trailingSpillType,
         charRuns: charsToRuns(newAfterChars),
         formats: newAfterFormats,
+        ...(Object.keys(clonedContent.structuredContent).length > 0
+          ? { structuredContent: clonedContent.structuredContent }
+          : {}),
       } as Block;
       invalidateBlockCache(afterBlock);
 
@@ -1282,6 +1386,7 @@ function insertBlocksAtCursor(
         blockType: trailingSpillType,
       };
       ops.push(afterBlockInsertOp);
+      ops.push(...clonedContent.ops);
 
       const textInsertOp: TextInsert = {
         op: "text_insert",
@@ -1321,6 +1426,7 @@ function insertBlocksAtCursor(
 
       resultBlocks.push(afterBlock);
       lastInsertedBlockId = trailingBlockId;
+      return true;
     };
 
     // Handle first block
@@ -1406,7 +1512,9 @@ function insertBlocksAtCursor(
       const firstBlock: Block = {
         ...currentBlock,
         charRuns: firstBlockCharRuns,
-        formats: firstBlockFormats,
+        // Keep spans over the tombstoned tail: undo revives those original
+        // character identities, and their formatting must revive with them.
+        formats: [...firstBlockFormats, ...afterFormats],
       };
       invalidateBlockCache(firstBlock);
       resultBlocks.push(firstBlock);
@@ -1419,7 +1527,7 @@ function insertBlocksAtCursor(
       const firstBlock: Block = {
         ...currentBlock,
         charRuns: charsToRuns(beforeChars),
-        formats: beforeFormats,
+        formats: [...beforeFormats, ...afterFormats],
       };
       invalidateBlockCache(firstBlock);
       resultBlocks.push(firstBlock);
@@ -1572,6 +1680,8 @@ function insertBlocksAtCursor(
       if (isTextualBlock(lastPastedBlock)) {
         // Last block: pasted content + after content from current block
         const lastBlockId = globalGenerateBlockId(state.CRDTbinding);
+        const clonedContent = cloneAfterStructuredContent(lastBlockId);
+        if (!clonedContent) return { state, ops: [] };
 
         // Generate new chars with new IDs for pasted content
         const visiblePastedChars: Array<{ id: string; char: string }> = [];
@@ -1636,6 +1746,14 @@ function insertBlocksAtCursor(
                 ...f,
                 startCharId: newStartId,
                 endCharId: newEndId,
+                format:
+                  state.schema.features.cloneStructuredMark(f.format.type, {
+                    mark: f.format,
+                    sourceBlockId: currentBlock.id,
+                    targetBlockId: lastBlockId,
+                    attachments: currentBlock.structuredContent,
+                    clonedContentIds: clonedContent.clonedContentIds,
+                  }) ?? f.format,
                 clock: state.CRDTbinding.getClock(),
               };
             }
@@ -1657,6 +1775,9 @@ function insertBlocksAtCursor(
           orderKey,
           charRuns: charsToRuns(allNewChars),
           formats: allNewFormats,
+          ...(Object.keys(clonedContent.structuredContent).length > 0
+            ? { structuredContent: clonedContent.structuredContent }
+            : {}),
         };
         invalidateBlockCache(lastBlock);
 
@@ -1670,6 +1791,7 @@ function insertBlocksAtCursor(
           blockType: lastBlock.type as any,
         };
         ops.push(lastBlockInsertOp);
+        ops.push(...clonedContent.ops);
 
         // Add text_insert operation for the block's content
         if (allNewChars.length > 0) {
@@ -1735,14 +1857,18 @@ function insertBlocksAtCursor(
         pushAtomicBlockOps(lastPastedBlock, newAtomicBlockId, orderKey);
         resultBlocks.push(newAtomicBlock);
         lastInsertedBlockId = newAtomicBlockId;
-        appendTrailingParagraph(newAtomicBlockId);
+        if (!appendTrailingParagraph(newAtomicBlockId)) {
+          return { state, ops: [] };
+        }
       }
     } else {
       // Single-block paste: the block itself was already handled above. If the
       // pasted block is atomic and the cursor had after-content, spill it into a
       // trailing paragraph (atomic blocks can't hold the tail text).
       if (!isTextualBlock(firstPastedBlock)) {
-        appendTrailingParagraph(lastInsertedBlockId);
+        if (!appendTrailingParagraph(lastInsertedBlockId)) {
+          return { state, ops: [] };
+        }
       }
     }
 
@@ -1855,9 +1981,21 @@ export function pasteFromClipboardEvent(
     text = clipboardData.getData("text/plain") || clipboardData.getData("text");
   }
 
+  state = expandSelectionAroundStructuredMarks(state);
+
+  // A nested selection is owned by its feature, not by the flat block parser.
+  // Paste the plain flavor through the same input-rule transaction as typing so
+  // it can replace a structured range and preserve tree invariants.
+  if (
+    state.document.contentSelection ||
+    state.schema.features.ownsInput("before-insert", state, text)
+  ) {
+    return text ? insertText(state, text) : null;
+  }
+
   // Try to get HTML first
   if (html) {
-    const blocks = parseHTMLToBlocks(html, state.CRDTbinding);
+    const blocks = parseHTMLToBlocks(html, state.CRDTbinding, state.schema);
     if (blocks.length > 0) {
       return insertBlocksAtCursor(state, blocks);
     }
@@ -1870,7 +2008,11 @@ export function pasteFromClipboardEvent(
 
   // Fallback to plain text
   if (text) {
-    const blocks = parsePlainTextToBlocks(text, state.CRDTbinding);
+    const blocks = parsePlainTextToBlocks(
+      text,
+      state.CRDTbinding,
+      state.schema,
+    );
     if (blocks.length > 0) {
       return insertBlocksAtCursor(state, blocks);
     }
@@ -1906,7 +2048,21 @@ export function pasteFromClipboardEventAsPlainText(
         return;
       }
 
-      const blocks = parsePlainTextToBlocks(text, state.CRDTbinding);
+      state = expandSelectionAroundStructuredMarks(state);
+
+      if (
+        state.document.contentSelection ||
+        state.schema.features.ownsInput("before-insert", state, text)
+      ) {
+        resolve(insertText(state, text));
+        return;
+      }
+
+      const blocks = parsePlainTextToBlocks(
+        text,
+        state.CRDTbinding,
+        state.schema,
+      );
       if (blocks.length === 0) {
         resolve(null);
         return;
@@ -1943,6 +2099,7 @@ export async function pasteFromSystemClipboard(
   | null
 > {
   try {
+    state = expandSelectionAroundStructuredMarks(state);
     let html = "";
     let text = "";
     let imageBlob: Blob | null = null;
@@ -1956,14 +2113,24 @@ export async function pasteFromSystemClipboard(
       } catch (error) {
         console.error("Failed to read host clipboard:", error);
       }
+      if (
+        state.document.contentSelection ||
+        state.schema.features.ownsInput("before-insert", state, text)
+      ) {
+        return text ? insertText(state, text) : null;
+      }
       // HTML first (matches the navigator path) so a Cypher round-trip stays
       // lossless via the html marker; otherwise fall back to plain text.
       if (html) {
-        const blocks = parseHTMLToBlocks(html, state.CRDTbinding);
+        const blocks = parseHTMLToBlocks(html, state.CRDTbinding, state.schema);
         if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
       }
       if (text) {
-        const blocks = parsePlainTextToBlocks(text, state.CRDTbinding);
+        const blocks = parsePlainTextToBlocks(
+          text,
+          state.CRDTbinding,
+          state.schema,
+        );
         if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
       }
       return null;
@@ -1997,10 +2164,17 @@ export async function pasteFromSystemClipboard(
       text = await navigator.clipboard.readText();
     }
 
+    if (
+      state.document.contentSelection ||
+      state.schema.features.ownsInput("before-insert", state, text)
+    ) {
+      return text ? insertText(state, text) : null;
+    }
+
     // Prefer HTML (matches the synchronous Cmd/Ctrl+V path): an image copied
     // from a web page carries both `text/html` with an `<img>` and the bytes.
     if (html) {
-      const blocks = parseHTMLToBlocks(html, state.CRDTbinding);
+      const blocks = parseHTMLToBlocks(html, state.CRDTbinding, state.schema);
       if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
     }
     // Pasted raw image (e.g. a screenshot) — insert a block and report the file
@@ -2014,7 +2188,11 @@ export async function pasteFromSystemClipboard(
       return result ? { ...result, pastedImageFile: file } : null;
     }
     if (text) {
-      const blocks = parsePlainTextToBlocks(text, state.CRDTbinding);
+      const blocks = parsePlainTextToBlocks(
+        text,
+        state.CRDTbinding,
+        state.schema,
+      );
       if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
     }
     return null;

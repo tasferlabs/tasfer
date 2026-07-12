@@ -4,15 +4,17 @@
  * caret/hit-test follow the reflowed slices. Pairs with the engine-level
  * `packages/tex` breakpoints/wrap tests.
  */
-import { createDefaultMarkRegistry } from "../rendering/marks";
-import { loadPage } from "../serlization/loadPage";
+import {
+  createMathTestMarkRegistry,
+  loadMathPage,
+} from "../__testutils__/math";
 import { resolveTheme } from "../styles";
 import { TextNode, type TextualBlock } from "./TextNode";
 import { describe, expect, it } from "vitest";
 
 describe("TextNode inline-math reflow", () => {
   const styles = resolveTheme({});
-  const marks = createDefaultMarkRegistry();
+  const marks = createMathTestMarkRegistry();
   const node = new TextNode();
 
   // A formula with many top-level operators and no spaces, so every wrap is a
@@ -21,13 +23,13 @@ describe("TextNode inline-math reflow", () => {
   const latex = "a+b+c+d+e+f+g+h+i+j+k+l+m+n+o+p";
 
   it("keeps a wide formula on one line when it fits", () => {
-    const block = loadPage(`$${latex}$`).blocks[0] as TextualBlock;
+    const block = loadMathPage(`$${latex}$`).blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 4000, styles, undefined, marks);
     expect(layout.lines.length).toBe(1);
   });
 
   it("splits a wide formula across lines at operators", () => {
-    const block = loadPage(`$${latex}$`).blocks[0] as TextualBlock;
+    const block = loadMathPage(`$${latex}$`).blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 120, styles, undefined, marks);
 
     expect(layout.lines.length).toBeGreaterThan(1);
@@ -40,7 +42,7 @@ describe("TextNode inline-math reflow", () => {
   });
 
   it("grows each line's height around its math fragment", () => {
-    const block = loadPage(`$${latex}$`).blocks[0] as TextualBlock;
+    const block = loadMathPage(`$${latex}$`).blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 120, styles, undefined, marks);
     for (const line of layout.lines) {
       expect(line.height).toBeGreaterThan(layout.lineHeight * 0.9);
@@ -48,7 +50,7 @@ describe("TextNode inline-math reflow", () => {
   });
 
   it("stacks the wrapped lines top to bottom with no overlap", () => {
-    const block = loadPage(`$${latex}$`).blocks[0] as TextualBlock;
+    const block = loadMathPage(`$${latex}$`).blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 120, styles, undefined, marks);
     for (let i = 1; i < layout.lines.length; i++) {
       expect(layout.lines[i].y).toBe(
@@ -58,7 +60,7 @@ describe("TextNode inline-math reflow", () => {
   });
 
   it("places a caret deep in the formula on its continuation line", () => {
-    const block = loadPage(`$${latex}$`).blocks[0] as TextualBlock;
+    const block = loadMathPage(`$${latex}$`).blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 120, styles, undefined, marks);
     const lastLine = layout.lines[layout.lines.length - 1];
 
@@ -72,7 +74,7 @@ describe("TextNode inline-math reflow", () => {
   });
 
   it("round-trips a click on a continuation line back into the formula", () => {
-    const block = loadPage(`$${latex}$`).blocks[0] as TextualBlock;
+    const block = loadMathPage(`$${latex}$`).blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 120, styles, undefined, marks);
     const lastLine = layout.lines[layout.lines.length - 1];
 
@@ -98,7 +100,7 @@ describe("TextNode inline-math reflow", () => {
 
   it("flows trailing text after the last fragment, not the whole formula", () => {
     // Text after a wrapped chip continues from the last fragment's line.
-    const block = loadPage(`$${latex}$ tail`).blocks[0] as TextualBlock;
+    const block = loadMathPage(`$${latex}$ tail`).blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 120, styles, undefined, marks);
     const joined = layout.lines.map((l) => l.text).join("");
     // "tail" survives intact somewhere after the formula.

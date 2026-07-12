@@ -10,6 +10,7 @@ import {
   MATH_COMMANDS,
   mathCommandCaretOffset,
   mathCommandInsertion,
+  unambiguousMathCommandCompletion,
 } from "./math-commands";
 import { isValidLatex } from "@cypherkit/tex";
 import { describe, expect, it } from "vitest";
@@ -60,6 +61,14 @@ describe("math command catalog", () => {
     browse.forEach((c, i) => expect(c.id).toBe(MATH_COMMANDS[i].id));
   });
 
+  it("includes the up arrow in the browsable math constructs", () => {
+    expect(filterMathCommands("")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "uparrow", latex: "\\uparrow" }),
+      ]),
+    );
+  });
+
   it("engine symbols outside the curated tier are findable (\\degree)", () => {
     const degree = filterMathCommands("degree");
     expect(degree[0]?.id).toBe("degree");
@@ -77,6 +86,29 @@ describe("math command catalog", () => {
 
   it("a non-matching query returns nothing", () => {
     expect(filterMathCommands("zzzznope")).toHaveLength(0);
+  });
+
+  it("commits exact commands only after their catalog prefix is unambiguous", () => {
+    expect(unambiguousMathCommandCompletion("sqrt")).toEqual({
+      id: "sqrt",
+      latex: String.raw`\sqrt{}`,
+    });
+    expect(unambiguousMathCommandCompletion("alpha")).toEqual({
+      id: "alpha",
+      latex: String.raw`\alpha`,
+    });
+    expect(unambiguousMathCommandCompletion("in")).toBeUndefined();
+    expect(unambiguousMathCommandCompletion("sin")).toBeUndefined();
+    expect(unambiguousMathCommandCompletion("sin", "h")).toBeUndefined();
+    expect(unambiguousMathCommandCompletion("sin", "(")).toEqual({
+      id: "sin",
+      latex: String.raw`\sin`,
+    });
+    expect(unambiguousMathCommandCompletion("sin", "x")).toEqual({
+      id: "sin",
+      latex: String.raw`\sin`,
+    });
+    expect(unambiguousMathCommandCompletion("not-a-command")).toBeUndefined();
   });
 });
 

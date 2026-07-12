@@ -22,15 +22,16 @@ export {
   MarkRegistry,
   type MarkReplacement,
   type MarkReplacementCaret,
+  type MarkReplacementContentCtx,
   type MarkReplacementDims,
   type MarkReplacementEdit,
   type MarkReplacementPaintCtx,
+  type MarkReplacementSourceCtx,
   type MarkStyle,
   type MarkStyleCtx,
   type MarkUnderlineStyle,
   type SelectionWrapTrigger,
 } from "./Mark";
-export { MathMark } from "./MathMark";
 export { StrikeMark } from "./StrikeMark";
 export { StrongMark } from "./StrongMark";
 export {

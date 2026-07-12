@@ -43,6 +43,7 @@ import { sortBlocksByOrder } from "@cypherkit/editor/sync/block-order";
 // Worker-safe itself (deep imports only) — derives the title columns from
 // blocks; the doc's op log is the source of truth for titles.
 import { deriveTitles, extractBodyText } from "../lib/pageTitle";
+import { appDataSchema } from "../appDataSchema";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
@@ -72,6 +73,10 @@ interface EngineReplicator {
 // =============================================================================
 
 const SCHEMA_VERSION = 0;
+// Bump whenever the materialized Block projection gains persisted semantics
+// that an older snapshot writer could have omitted while still sharing the same
+// op-log frontier (v2 adds generic structured-content attachments).
+const PAGE_SNAPSHOT_FORMAT = 2;
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS identity (
@@ -1707,13 +1712,13 @@ export class Engine implements Platform {
         ) {
           deferredOps.push(op);
         } else {
-          state = applyOp(state, op);
+          state = applyOp(state, op, appDataSchema);
         }
 
         if (sampleIndices.has(i)) {
           let snapshotState = state;
           for (const deferred of deferredOps) {
-            snapshotState = applyOp(snapshotState, deferred);
+            snapshotState = applyOp(snapshotState, deferred, appDataSchema);
           }
           results.push({
             id: `${op.clock.counter}-${op.clock.peerId}`,
@@ -1988,6 +1993,7 @@ export class Engine implements Platform {
         peerId,
         nextId,
         getClock,
+        schema: appDataSchema,
         existingFirstBlockId: `__init_block__:${pageId}`,
       });
       await this.ops.persist(pageId, ops);
@@ -2044,7 +2050,7 @@ export class Engine implements Platform {
         // and screen sizes.
         const cleanBlocks = blocks.map(({ cachedLayout: _l, ...b }) => b);
         const data = new TextEncoder().encode(
-          JSON.stringify({ vv, blocks: cleanBlocks }),
+          JSON.stringify({ format: PAGE_SNAPSHOT_FORMAT, vv, blocks: cleanBlocks }),
         );
         await this.driver.fs.write(this.snapshotPath(pageId), data);
       } catch (err) {
@@ -2064,7 +2070,12 @@ export class Engine implements Platform {
       // Snapshots written before the vv-token format (or otherwise malformed)
       // lack `vv`; treat them as untrusted so the caller replays the log and
       // rewrites a well-formed snapshot.
-      if (!parsed || typeof parsed.vv !== "object" || parsed.vv === null) {
+      if (
+        !parsed ||
+        parsed.format !== PAGE_SNAPSHOT_FORMAT ||
+        typeof parsed.vv !== "object" ||
+        parsed.vv === null
+      ) {
         return null;
       }
       return parsed;
@@ -2752,7 +2763,7 @@ export class Engine implements Platform {
     if (ops.length === 0) return null;
 
     const { rebuildState } = await import("@cypherkit/editor/sync/reducer");
-    const page = rebuildState(pageId, ops);
+    const page = rebuildState(pageId, ops, appDataSchema);
     if (page.blocks.length === 0) return null;
 
     const vv: Record<string, number> = {};

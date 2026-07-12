@@ -5,6 +5,7 @@
  * even when the grabbed handle is the selection's anchor — onStart swaps the
  * stored endpoints so the dragged end is always the focus.
  */
+import { mathTestStateOptions } from "../__testutils__/math";
 import { CURSOR_DRAG_BOUNDARY } from "../action-bus";
 import type { MathBlock } from "../nodes/MathNode";
 import {
@@ -262,7 +263,7 @@ function withNumeratorSelection(
       },
     ],
   };
-  const state = createInitialState(page);
+  const state = createInitialState(page, mathTestStateOptions());
   return {
     ...state,
     document: {

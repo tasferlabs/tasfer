@@ -36,6 +36,7 @@ import {
 } from "@cypherkit/editor/internal";
 import { deriveTitles } from "@/lib/pageTitle";
 import { type Block } from "@cypherkit/editor";
+import { appDataSchema } from "@/appDataSchema";
 
 interface ImportDialogProps {
   open: boolean;
@@ -242,8 +243,8 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         }
 
         const { content: body, metadata } = parseFrontmatter(markdown);
-        const tokens = tokenizePage(body);
-        const page = parsePage(tokens);
+        const tokens = tokenizePage(body, appDataSchema);
+        const page = parsePage(tokens, appDataSchema);
 
         // Check if current page has content
         if (!isPageEmpty(currentBlocks)) {

@@ -18,6 +18,7 @@ export type {
   NodeCodec,
   OutputCtx,
   ParsedTag,
+  ReplacementRenderer,
   SerialFormat,
   TextCodec,
 } from "./types";

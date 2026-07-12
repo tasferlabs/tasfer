@@ -14,13 +14,13 @@
  * Location when run: packages/editor/src/nodes/__repro_matrix-cells.test.ts
  * Run: cd packages/editor && npx vitest run src/nodes/__repro_matrix-cells.test.ts
  */
+import { createMathTestState } from "../__testutils__/math";
 import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
   INSERT_TEXT,
 } from "../actions/edit-actions";
 import type { CursorState, EditorState, Page } from "../state-types";
-import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { mathCaretOffsets, mathMatrixContext } from "./math";
 import type { MathBlock } from "./MathNode";
@@ -46,7 +46,7 @@ function stateAt(latex: string, textIndex: number): EditorState {
     position: { blockIndex: 0, textIndex },
     lastUpdate: 0,
   };
-  const state = createInitialState(page);
+  const state = createMathTestState(page);
   return { ...state, document: { ...state.document, cursor } };
 }
 

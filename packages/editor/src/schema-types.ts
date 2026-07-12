@@ -31,7 +31,6 @@ export interface BaseSchemaDefinition extends SchemaDefinition {
     readonly todo_list: Record<string, unknown>;
     readonly code: Record<string, unknown>;
     readonly image: Record<string, unknown>;
-    readonly math: Record<string, unknown>;
     readonly quote: Record<string, unknown>;
     readonly line: Record<string, unknown>;
   };
@@ -41,7 +40,6 @@ export interface BaseSchemaDefinition extends SchemaDefinition {
     readonly strike: Record<never, never>;
     readonly code: Record<never, never>;
     readonly link: { readonly url: string };
-    readonly math: Record<never, never>;
   };
 }
 

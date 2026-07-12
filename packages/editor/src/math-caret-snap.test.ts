@@ -5,8 +5,8 @@
  * delete or `\inxt` by a keystroke. This pins both the stop set
  * (`mathCaretOffsets`) and the horizontal-movement snap (`mathCaretStep`).
  */
+import { loadMathPage } from "./__testutils__/math";
 import { mathCaretOffsets, mathCaretStep } from "./nodes/math";
-import { loadPage } from "./serlization/loadPage";
 import { getVisibleTextFromRuns } from "./sync/char-runs";
 import { describe, expect, it } from "vitest";
 
@@ -73,7 +73,7 @@ describe("mathCaretOffsets — commands are atomic", () => {
 
 describe("mathCaretStep — horizontal movement snaps over a command", () => {
   function mathBlock(latex: string) {
-    const block = loadPage(`$$${latex}$$`).blocks[0];
+    const block = loadMathPage(`$$${latex}$$`).blocks[0];
     expect(block.type).toBe("math");
     expect(getVisibleTextFromRuns(block.charRuns)).toBe(latex);
     return block;
@@ -97,7 +97,7 @@ describe("mathCaretStep — horizontal movement snaps over a command", () => {
   });
 
   it("returns null in a plain-text block (caller does its ±1 step)", () => {
-    const para = loadPage("hello").blocks[0];
+    const para = loadMathPage("hello").blocks[0];
     expect(para.type).toBe("paragraph");
     expect(mathCaretStep(para, 2, "right")).toBeNull();
   });

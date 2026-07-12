@@ -98,10 +98,6 @@ export { cleanSnapshotForSave } from "./sync/reducer";
 // Shared image cache (content-addressed bitmaps) + failed-load reset.
 export { clearFailedImageCache, imageCache } from "./rendering/renderer";
 
-// Full `\`-command catalog behind a host's math autocomplete (the curated
-// `filterMathCommands`/`MathCommand` live at the root).
-export { MATH_COMMANDS } from "./nodes/math-commands";
-
 // Font internals not part of the curated font surface (`notifyFonts*` are root).
 // `getFontMetrics` lets a host lay out chrome around the same line boxes the
 // engine renders (e.g. vertically centering a compact single-line editor).

@@ -28,7 +28,7 @@ import type {
   TypedInputTransform,
   ViewWindow,
 } from "./state-types";
-import { resolveNodeStrings, resolveTheme } from "./styles";
+import { mergeTheme, resolveNodeStrings, resolveTheme } from "./styles";
 import type { DataSchema } from "./sync/schema";
 
 export {
@@ -97,7 +97,20 @@ export function createInitialState(
   // The host's raw theme, resolved once into the full style tree. Stored
   // per-instance (not a module global) so two editors on a page style
   // independently and the engine never reads the DOM.
-  const theme: EditorTheme = options?.theme ?? {};
+  const featureTheme = schema.features.resolveThemeDefaults();
+  // Feature defaults sit below the host theme: an installed feature can ship a
+  // usable palette/string catalog, while each editor instance remains free to
+  // override any leaf. The facet contract is intentionally open so extension
+  // packages can own keys the core EditorTheme type does not enumerate.
+  const theme = mergeTheme(
+    {
+      tokens: featureTheme.tokens,
+      styles: featureTheme.styles,
+      strings: featureTheme.strings,
+      nodeStrings: featureTheme.nodeStrings,
+    } as EditorTheme,
+    options?.theme ?? {},
+  );
   const resolvedStyles = resolveTheme(theme);
   // Node string catalogs (image/math status labels, …) resolved per-instance
   // from each registered node's defaults overlaid with theme.nodeStrings.
@@ -115,6 +128,7 @@ export function createInitialState(
   for (const mark of marks.markList()) {
     mark.registerActions?.(actionBus);
   }
+  schema.features.registerActions(actionBus);
 
   return {
     CRDTbinding,
@@ -129,6 +143,7 @@ export function createInitialState(
       page,
       cursor: null,
       selection: null,
+      contentSelection: null,
     },
     ui: {
       mode: (options?.mode ?? "edit") as EditorMode,
@@ -198,6 +213,7 @@ export function createInitialCursorState(state: EditorState): EditorState {
     ...state,
     document: {
       ...state.document,
+      contentSelection: null,
       cursor: {
         position: {
           blockIndex: 0,

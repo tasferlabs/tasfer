@@ -15,12 +15,7 @@ import type { DbRow, DbRunResult } from "./driver";
 // =============================================================================
 
 /** Device type identifier */
-export type DeviceType =
-  | "laptop"
-  | "desktop"
-  | "phone"
-  | "tablet"
-  | "";
+export type DeviceType = "laptop" | "desktop" | "phone" | "tablet" | "";
 
 /** User identity — local device owner */
 export interface Identity {
@@ -391,22 +386,38 @@ export interface SyncEvents {
 
 /** Events for page lifecycle changes from other devices/peers */
 export interface PageEvents {
-  onPageCreated: (page: { id: string; title: string | null; parentId: string | null; order: number }) => void;
+  onPageCreated: (page: {
+    id: string;
+    title: string | null;
+    parentId: string | null;
+    order: number;
+  }) => void;
   onPageDeleted: (pageId: string) => void;
-  onPageMoved: (pageId: string, oldParentId: string | null, newParentId: string | null) => void;
-  onPageReordered: (pageId: string, parentId: string | null, order: number) => void;
+  onPageMoved: (
+    pageId: string,
+    oldParentId: string | null,
+    newParentId: string | null,
+  ) => void;
+  onPageReordered: (
+    pageId: string,
+    parentId: string | null,
+    order: number,
+  ) => void;
   onPageTitleUpdated: (pageId: string, title: string) => void;
 }
 
 /** Connection state */
-export type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
+export type ConnectionState =
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "error";
 
 /**
  * Versions a remote peer advertised in its `hello`, with our local values for
  * comparison. Surfaced via `sync.onPeerVersionMismatch` whenever either number
- * differs so the host can notify the user. `wireCompatible: false` means the
- * byte-level op encoding differs — the replicator refuses that peer entirely
- * (no ops exchanged in either direction); a protocol-only mismatch still syncs.
+ * differs so the host can notify the user. Replication requires an exact match
+ * for both numbers; `wireCompatible` separately describes only the byte codec.
  */
 export interface PeerVersionInfo {
   publicKey: string;
@@ -414,8 +425,12 @@ export interface PeerVersionInfo {
   remoteWireVersion: number;
   localProtocolVersion: number;
   localWireVersion: number;
+  /** True when both peers implement the same operation/merge semantics. */
+  protocolCompatible: boolean;
   /** True when the byte-level wire encoding matches (ops are decodable). */
   wireCompatible: boolean;
+  /** True only when replication is allowed in either direction. */
+  syncCompatible: boolean;
 }
 
 // =============================================================================
@@ -507,7 +522,11 @@ export interface Platform {
 
   pages: {
     /** List pages — filter by space, optionally by parent */
-    list(spaceId: string, parentId?: string | null, options?: { includeTasks?: boolean }): Promise<PageListItem[]>;
+    list(
+      spaceId: string,
+      parentId?: string | null,
+      options?: { includeTasks?: boolean },
+    ): Promise<PageListItem[]>;
     /** Get a single page with content */
     get(id: string): Promise<PageFull>;
     /** Create a new page */
@@ -670,5 +689,4 @@ export interface Platform {
     /** Apply all pending migrations. */
     applyMigrations(): Promise<void>;
   };
-
 }

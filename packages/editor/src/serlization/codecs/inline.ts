@@ -16,8 +16,16 @@ import {
   iterateVisibleChars,
 } from "../../sync/char-runs";
 import type { DataSchema } from "../../sync/schema";
-import type { Block, CharRun, Mark, MarkSpan } from "../loadPage";
+import type { StructuredContentMap } from "../../sync/structured-content";
+import {
+  type Block,
+  type CharRun,
+  type Mark,
+  markKey,
+  type MarkSpan,
+} from "../loadPage";
 import type { MarkHtmlCtx } from "./mark-codec";
+import type { ReplacementRenderer } from "./types";
 
 export interface Segment {
   text: string;
@@ -32,15 +40,15 @@ function setsEqual(a: Set<string>, b: Set<string>): boolean {
   return true;
 }
 
-function formatKeysToFormats(keys: Set<string>): Mark[] | undefined {
+function formatKeysToFormats(
+  keys: Set<string>,
+  formatsByKey: ReadonlyMap<string, Mark>,
+): Mark[] | undefined {
   if (keys.size === 0) return undefined;
   const formats: Mark[] = [];
   for (const key of keys) {
-    if (key.startsWith("link:")) {
-      formats.push({ type: "link", attrs: { url: key.slice(5) } });
-    } else {
-      formats.push({ type: key });
-    }
+    const format = formatsByKey.get(key);
+    if (format) formats.push(format);
   }
   return formats.length > 0 ? formats : undefined;
 }
@@ -68,9 +76,14 @@ export function groupSegments(
   // Going through the same resolver keeps export and render in agreement.
   const runs = resolveMarkRunsFromChars(iterateAllChars(charRuns), formats);
   const formatKeys: Set<string>[] = visibleChars.map(() => new Set<string>());
+  const formatsByKey = new Map<string, Mark>();
   for (const run of runs) {
-    const url = run.attrs.url;
-    const key = run.name + (typeof url === "string" && url ? `:${url}` : "");
+    const format: Mark = {
+      type: run.name,
+      ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
+    };
+    const key = markKey(format);
+    formatsByKey.set(key, format);
     for (let i = run.startIndex; i < run.endIndex; i++) formatKeys[i].add(key);
   }
 
@@ -86,7 +99,7 @@ export function groupSegments(
       if (currentChars.length > 0) {
         segments.push({
           text: currentChars.join(""),
-          formats: formatKeysToFormats(currentFormatKeys),
+          formats: formatKeysToFormats(currentFormatKeys, formatsByKey),
         });
       }
       currentChars = [visibleChars[i]];
@@ -97,7 +110,7 @@ export function groupSegments(
   if (currentChars.length > 0) {
     segments.push({
       text: currentChars.join(""),
-      formats: formatKeysToFormats(currentFormatKeys),
+      formats: formatKeysToFormats(currentFormatKeys, formatsByKey),
     });
   }
 
@@ -127,11 +140,12 @@ export function inlineToMarkdown(
   charRuns: CharRun[],
   formats: MarkSpan[],
   schema: DataSchema,
+  attachments?: StructuredContentMap,
 ): string {
   const segments = groupSegments(charRuns, formats);
   let content = "";
   for (const segment of segments) {
-    let text = segment.text;
+    let text = resolveStructuredSegmentText(segment, schema, attachments);
     if (segment.formats) {
       for (const format of segment.formats) {
         const codec = schema.getMarkCodec(format.type);
@@ -154,20 +168,22 @@ export function inlineToHtml(
   charRuns: CharRun[],
   formats: MarkSpan[],
   schema: DataSchema,
-  renderMathSVG?: (latex: string, displayMode: boolean) => string,
+  renderReplacement?: ReplacementRenderer,
   preferSource?: boolean,
+  attachments?: StructuredContentMap,
 ): string {
   const segments = groupSegments(charRuns, formats);
   return segments
     .map((seg) => {
-      const escaped = escapeHtml(seg.text);
+      const text = resolveStructuredSegmentText(seg, schema, attachments);
+      const escaped = escapeHtml(text);
       if (!seg.formats) return escaped;
 
       const ctx: MarkHtmlCtx = {
-        text: seg.text,
+        text,
         escapeHtml,
         escapeAttr,
-        renderMathSVG,
+        renderReplacement,
         preferSource,
       };
       const entries = seg.formats
@@ -202,11 +218,12 @@ export function inlineToText(
   charRuns: CharRun[],
   formats: MarkSpan[],
   schema: DataSchema,
+  attachments?: StructuredContentMap,
 ): string {
   const segments = groupSegments(charRuns, formats);
   let content = "";
   for (const segment of segments) {
-    let text = segment.text;
+    let text = resolveStructuredSegmentText(segment, schema, attachments);
     if (segment.formats) {
       for (const format of segment.formats) {
         const toText = schema.getMarkCodec(format.type)?.toText;
@@ -216,6 +233,22 @@ export function inlineToText(
     content += text;
   }
   return content;
+}
+
+function resolveStructuredSegmentText(
+  segment: Segment,
+  schema: DataSchema,
+  attachments: StructuredContentMap | undefined,
+): string {
+  for (const mark of segment.formats ?? []) {
+    const source = schema.features.resolveStructuredMark(mark.type, {
+      mark,
+      compatibilityText: segment.text,
+      attachments,
+    });
+    if (source !== undefined) return source;
+  }
+  return segment.text;
 }
 
 const MAX_TITLE_MARKDOWN_VISIBLE_LENGTH = 100;

@@ -13,7 +13,10 @@ import {
   getScrollbarStyles,
   updateScrollbarFadeOpacity,
 } from "../rendering/scrollbar";
-import { getTextPositionFromViewport } from "../selection";
+import {
+  getContentSelectionFromViewport,
+  getTextPositionFromViewport,
+} from "../selection";
 import { hasActiveSelectionHighlight } from "../selection";
 import { snapSelectionToConstructs, updateCursor } from "../selection";
 import { updateSelectionFocus } from "../selection";
@@ -27,6 +30,7 @@ import type {
 } from "../state-types";
 import type { Operation } from "../state-types";
 import { closeActiveMenu } from "../state-utils";
+import { updateContentSelection } from "../structured-selection";
 import { applyEdgeScroll } from "./autoScroll";
 import {
   handleCompositionEnd,
@@ -215,11 +219,24 @@ export function handleEvents(
         undefined,
         visibility,
       );
+      const contentSelection = getContentSelectionFromViewport(
+        session.touch.currentTouchX,
+        session.touch.currentTouchY,
+        state,
+        viewport,
+        "touch",
+        undefined,
+        visibility,
+      );
 
       if (session.touch.isTouchingSelection) {
         // On selected text: show the context menu immediately.
         session.touch.isLongPress = true;
-        if (position && !state.document.selection) {
+        if (
+          position &&
+          !state.document.selection &&
+          !state.document.contentSelection
+        ) {
           state = updateCursor(state, position);
         }
 
@@ -251,7 +268,12 @@ export function handleEvents(
         // a hold there falls through to the plain context-menu long-press below.
         // The drag-move / hold-to-menu-on-release behavior is then owned by the
         // shared isCursorDrag branches (handleTouchMove/End).
-        state = updateCursor(state, position);
+        const nested = contentSelection
+          ? updateContentSelection(state, contentSelection)
+          : state;
+        state = nested.document.contentSelection
+          ? nested
+          : updateCursor(state, position);
         state = closeActiveMenu({
           ...state,
           ui: {

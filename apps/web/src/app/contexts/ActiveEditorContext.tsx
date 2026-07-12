@@ -5,12 +5,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { MountedEditor as MountedEditorInstance } from "@cypherkit/editor";
+import type { AppEditor } from "@/editorSchema";
 
 /**
  * The live editor handle currently driving the page, or `null` when no editor
  * is mounted (loading / error / non-editor route). This is the same
- * {@link MountedEditorInstance.editor} handle the host holds; the primary
+ * app-specialized editor handle the host holds; the primary
  * {@link MountedEditor} on the editor page registers it here on mount and
  * clears it on unmount (readonly previews never register — see
  * `EditorPage`/`MountedEditor`).
@@ -20,7 +20,7 @@ import type { MountedEditor as MountedEditorInstance } from "@cypherkit/editor";
  * scoped React context (not a module global) so it stays per app-instance and
  * never clobbers a second editor mounted elsewhere on the page.
  */
-export type ActiveEditorHandle = MountedEditorInstance["editor"];
+export type ActiveEditorHandle = AppEditor;
 
 interface ActiveEditorContextType {
   readonly editor: ActiveEditorHandle | null;

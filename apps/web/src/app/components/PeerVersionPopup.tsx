@@ -2,57 +2,25 @@ import { Button } from "@/components/ui/button";
 import { getPlatform } from "@/platform";
 import type { PeerVersionInfo } from "@/platform/types";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 /**
- * Notifies the user about a version mismatch with a connected device. Two
- * severities, both surfaced from `sync.onPeerVersionMismatch`:
- *
- *  - "blocking" — the peer is *wire*-incompatible (`wireCompatible === false`),
- *    so the replicator refuses it (no ops exchanged in either direction). The
- *    user must update or the device won't sync. Re-surfaces on every mismatch.
- *  - "info" — the peer speaks a newer *protocol* (same wire) and WE are behind.
- *    Sync still works (unknown ops degrade gracefully); this is a soft "update
- *    for the latest features" nudge. Shown at most once per newer protocol
- *    version (dismissed versions are remembered) so reconnects don't nag.
- *
- * A protocol mismatch where the *peer* is the older one is never shown — it's
- * not actionable for this user. Local editing is never affected either way.
+ * Notifies the user about a version mismatch with a connected device.
+ * Every protocol or wire mismatch is blocking: authoritative structured
+ * content cannot safely exchange ops with peers running older merge semantics.
+ * Re-surfaces on every mismatch so the user knows which device must update.
  */
-
-type Severity = "blocking" | "info";
-interface Notice {
-  info: PeerVersionInfo;
-  severity: Severity;
-}
 
 export default function PeerVersionPopup() {
   const { t } = useTranslation();
-  const [notice, setNotice] = useState<Notice | null>(null);
-  // Protocol versions whose "info" notice the user already dismissed — so we
-  // don't re-nag on every reconnect to a peer on that same newer version.
-  const dismissedInfoVersions = useRef<Set<number>>(new Set());
+  const [notice, setNotice] = useState<PeerVersionInfo | null>(null);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
     try {
       unsub = getPlatform().sync.onPeerVersionMismatch((next) => {
-        if (!next.wireCompatible) {
-          // Blocking: sync is refused — always surface.
-          setNotice({ info: next, severity: "blocking" });
-          return;
-        }
-        // Protocol-only mismatch: only nudge when WE are the outdated side, and
-        // only once per newer version. (A newer-peer-but-older case isn't ours
-        // to act on.)
-        if (next.remoteProtocolVersion <= next.localProtocolVersion) return;
-        if (dismissedInfoVersions.current.has(next.remoteProtocolVersion))
-          return;
-        // Never let an info notice clobber an active blocking one.
-        setNotice((cur) =>
-          cur?.severity === "blocking" ? cur : { info: next, severity: "info" },
-        );
+        if (!next.syncCompatible) setNotice(next);
       });
     } catch {
       // Platform not initialized yet — nothing to subscribe to.
@@ -60,38 +28,26 @@ export default function PeerVersionPopup() {
     return () => unsub?.();
   }, []);
 
-  const dismiss = () => {
-    if (notice?.severity === "info") {
-      dismissedInfoVersions.current.add(notice.info.remoteProtocolVersion);
-    }
-    setNotice(null);
-  };
+  const dismiss = () => setNotice(null);
 
   const showPopup = notice !== null;
-  const isInfo = notice?.severity === "info";
-  // For the blocking case, our app is behind when the peer's wire is newer.
+  // Our app is behind when either negotiated version is newer on the peer.
   const localOutdated = notice
-    ? notice.info.remoteWireVersion > notice.info.localWireVersion
+    ? notice.remoteProtocolVersion > notice.localProtocolVersion ||
+      notice.remoteWireVersion > notice.localWireVersion
     : false;
 
-  const title = isInfo
-    ? t("sync.versionUpdateAvailableTitle", "A connected device is newer")
-    : t("sync.versionIncompatibleTitle", "Can't sync with a device");
+  const title = t("sync.versionIncompatibleTitle", "Can't sync with a device");
 
-  const body = isInfo
+  const body = localOutdated
     ? t(
-        "sync.versionUpdateAvailableBody",
-        "A device you're connected to is running a newer version of Cypher. Everything still syncs — update the app to get the latest features.",
+        "sync.versionIncompatibleUpdate",
+        "A device you're connected to is running a newer version of Cypher. Update the app to sync with it. Your local edits are unaffected.",
       )
-    : localOutdated
-      ? t(
-          "sync.versionIncompatibleUpdate",
-          "A device you're connected to is running a newer version of Cypher. Update the app to sync with it. Your local edits are unaffected.",
-        )
-      : t(
-          "sync.versionIncompatiblePeerOld",
-          "A device you're connected to is running an older version of Cypher and can't sync until it's updated. Your local edits are unaffected.",
-        );
+    : t(
+        "sync.versionIncompatiblePeerOld",
+        "A device you're connected to is running an older version of Cypher and can't sync until it's updated. Your local edits are unaffected.",
+      );
 
   const popupVariants = {
     hidden: { y: 80, opacity: 0 },
@@ -115,8 +71,7 @@ export default function PeerVersionPopup() {
           animate="visible"
           exit="exit"
           variants={popupVariants}
-          // Blocking is assertive ("alert"); the info nudge is polite ("status").
-          role={isInfo ? "status" : "alert"}
+          role="alert"
           aria-labelledby="peer-version-popup-title"
           aria-describedby="peer-version-popup-description"
         >

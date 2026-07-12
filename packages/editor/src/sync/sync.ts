@@ -6,6 +6,7 @@
  * and subscribing to state changes.
  */
 
+import { getBaseDataSchema } from "../baseDataSchema";
 import { IS_DEV } from "../env";
 import type { Block, Char, CharRun, Mark, Page } from "../serlization/loadPage";
 import type { CRDTbinding } from "../state-types";
@@ -15,6 +16,7 @@ import type {
   BlockProps,
   BlockSet,
   BlockType,
+  ContentEdit,
   HLC,
   MarkSet,
   Operation,
@@ -36,6 +38,11 @@ import {
 } from "./id";
 import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
 import { findCharIdAtPosition } from "./reducer";
+import type { DataSchema } from "./schema";
+import type {
+  StructuredDocument,
+  StructuredMutation,
+} from "./structured-content";
 
 // ==========================================================================
 // CRDT Context (per editor instance)
@@ -102,7 +109,8 @@ export function createCRDTbinding(
 
 /**
  * Scan a page's blocks for the highest id-counter value present anywhere —
- * block ids and char-run counters. The page-level counterpart of
+ * block ids plus flat and nested structured node/character identities. The
+ * page-level counterpart of
  * `maxOpIdCounter`, for documents loaded as blocks (parsed markdown,
  * snapshots) rather than as an op log. Used to advance the local idGen past
  * every counter in the loaded document so new local ids never alias an
@@ -114,13 +122,42 @@ export function createCRDTbinding(
 export function maxPageIdCounter(blocks: readonly Block[]): number {
   let max = 0;
   for (const block of blocks) {
-    const bc = extractCounter(block.id);
+    const bc = observedIdentityCounter(block.id);
     if (bc > max) max = bc;
     if (isTextualBlock(block)) {
       for (const run of block.charRuns ?? []) {
         const lastCounter = run.startCounter + run.text.length - 1;
         if (lastCounter > max) max = lastCounter;
       }
+    }
+    for (const document of Object.values(block.structuredContent ?? {})) {
+      max = Math.max(max, maxStructuredDocumentIdCounter(document));
+    }
+  }
+  return max;
+}
+
+function maxCharRunCounter(runs: readonly CharRun[]): number {
+  let max = 0;
+  for (const run of runs) {
+    max = Math.max(max, run.startCounter + run.text.length - 1);
+  }
+  return max;
+}
+
+function observedIdentityCounter(id: string): number {
+  const counter = extractCounter(id);
+  return Number.isSafeInteger(counter) && counter >= 0 ? counter : 0;
+}
+
+export function maxStructuredDocumentIdCounter(
+  document: StructuredDocument,
+): number {
+  let max = observedIdentityCounter(document.rootId);
+  for (const node of Object.values(document.nodes)) {
+    max = Math.max(max, observedIdentityCounter(node.id));
+    for (const runs of Object.values(node.textFields)) {
+      max = Math.max(max, maxCharRunCounter(runs));
     }
   }
   return max;
@@ -135,15 +172,30 @@ export function maxPageIdCounter(blocks: readonly Block[]): number {
 export function maxOpIdCounter(ops: readonly Operation[]): number {
   let max = 0;
   for (const op of ops) {
-    const c = extractCounter(op.id);
+    const c = observedIdentityCounter(op.id);
     if (c > max) max = c;
     if (op.op === "block_insert") {
-      const bc = extractCounter(op.blockId);
+      const bc = observedIdentityCounter(op.blockId);
       if (bc > max) max = bc;
     } else if (op.op === "text_insert") {
       for (const run of op.charRuns) {
         const lastCounter = run.startCounter + run.text.length - 1;
         if (lastCounter > max) max = lastCounter;
+      }
+    } else if (op.op === "content_edit") {
+      max = Math.max(max, observedIdentityCounter(op.contentId));
+      if (op.edit.kind === "document_init") {
+        max = Math.max(max, maxStructuredDocumentIdCounter(op.edit.document));
+      } else if (op.edit.kind === "node_insert") {
+        max = Math.max(max, observedIdentityCounter(op.edit.node.id));
+        for (const runs of Object.values(op.edit.node.textFields ?? {})) {
+          max = Math.max(max, maxCharRunCounter(runs));
+        }
+      } else if (op.edit.kind === "text_insert") {
+        max = Math.max(max, maxCharRunCounter(op.edit.charRuns));
+        max = Math.max(max, observedIdentityCounter(op.edit.nodeId));
+      } else if (op.edit.kind !== "document_delete") {
+        max = Math.max(max, observedIdentityCounter(op.edit.nodeId));
       }
     }
   }
@@ -157,6 +209,7 @@ export type {
   BlockProps,
   BlockSet,
   BlockType,
+  ContentEdit,
   HLC,
   MarkSet,
   Operation,
@@ -264,6 +317,11 @@ export interface SyncEngine {
   ): BlockInsert;
   createBlockDelete(blockId: string): BlockDelete;
   createBlockSet(blockId: string, field: string, value: unknown): BlockSet;
+  createContentEdit(
+    blockId: string,
+    contentId: string,
+    edit: StructuredMutation,
+  ): ContentEdit;
 
   // Convenience methods (position/range based).
   /** Insert text at a visible position in a block (char IDs auto-generated). */
@@ -314,7 +372,10 @@ export interface SyncEngine {
  * // Apply remote operations
  * engine.apply(remoteOps);
  */
-export function createSyncEngine(binding: CRDTbinding): SyncEngine {
+export function createSyncEngine(
+  binding: CRDTbinding,
+  schema: DataSchema = getBaseDataSchema(),
+): SyncEngine {
   let opLog: OpLog = createOpLog(binding.pageId);
   const listeners = new Set<StateChangeListener>();
 
@@ -517,6 +578,20 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
     };
   }
 
+  function createContentEdit(
+    blockId: string,
+    contentId: string,
+    edit: StructuredMutation,
+  ): ContentEdit {
+    return {
+      ...createBaseOp(),
+      op: "content_edit",
+      blockId,
+      contentId,
+      edit,
+    };
+  }
+
   return {
     getPeerId(): string {
       return binding.getPeerId();
@@ -532,21 +607,21 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
 
     loadOperations(ops: Operation[]): void {
       for (const op of ops) {
-        opLog = appendOp(opLog, op);
+        opLog = appendOp(opLog, op, schema);
       }
       advanceBindingPast(ops);
     },
 
     emit(ops: Operation[]): void {
       for (const op of ops) {
-        opLog = appendOp(opLog, op);
+        opLog = appendOp(opLog, op, schema);
       }
       // Don't notify listeners for local ops - EditorState is already updated
     },
 
     apply(ops: Operation[]): void {
       advanceBindingPast(ops);
-      opLog = mergeOps(opLog, ops);
+      opLog = mergeOps(opLog, ops, schema);
       notifyListeners();
     },
 
@@ -616,6 +691,7 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
     createBlockInsert,
     createBlockDelete,
     createBlockSet: createBlockSetOp,
+    createContentEdit,
 
     insertText(blockId: string, position: number, text: string): TextInsert {
       const block = findBlock(getState(), blockId);

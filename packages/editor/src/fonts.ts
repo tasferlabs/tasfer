@@ -23,6 +23,7 @@ import type {
   FontStyles,
 } from "./state-types";
 import { charRunsToChars } from "./sync/char-runs";
+import type { StructuredContentMap } from "./sync/structured-content";
 
 // Re-exported so the package root can surface `FontFamily`.
 export type { FontFamily };
@@ -876,6 +877,7 @@ export function wrapText(
   // here would only diverge from them. An atomic chip still wraps as a WHOLE unit
   // (moves to its own line; overflows/cuts if wider than the line).
   allowReplacementBreaks: boolean = true,
+  attachments?: StructuredContentMap,
 ): WrappedLine[] {
   // Get visible text
   const visibleChars = chars.filter((c) => !c.deleted);
@@ -940,10 +942,27 @@ export function wrapText(
     const startVis = run.startIndex;
     const endVis = run.endIndex - 1;
     if (endVis < startVis) continue;
-    const text = run.text;
+    const mark: Mark = {
+      type: run.name,
+      ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
+    };
+    const text =
+      replacement.source?.(run.text, { mark, attachments }) ?? run.text;
     const dims = replacement.measure(text, fontSize);
     if (!dims) continue; // fall through to plain-text widths on render error
     for (let i = startVis; i <= endVis; i++) chipChars.add(i);
+
+    // Attached replacements may project a canonical source whose character
+    // count no longer matches the compatibility run. There is no generic,
+    // identity-safe mapping from compatibility offsets to that source, so keep
+    // this projection atomic. It can still wrap as a whole unit. Replacements
+    // whose canonical source matches their compatibility characters retain the
+    // existing internal-break behavior below.
+    if (text !== run.text) {
+      segFirstWidth.set(startVis, dims.width);
+      for (let v = startVis + 1; v <= endVis; v++) chipTail.add(v);
+      continue;
+    }
 
     // Segment boundaries within the run: [0, ...interior breaks, length]. In RTL
     // the chip stays atomic (no interior breaks), so it's one whole segment.

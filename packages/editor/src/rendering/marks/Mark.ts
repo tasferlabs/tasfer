@@ -38,6 +38,11 @@ import type {
   NodeOverlay,
   ViewportState,
 } from "../../state-types";
+import type {
+  ContentPoint,
+  ContentSelection,
+} from "../../structured-selection";
+import type { StructuredContentMap } from "../../sync/structured-content";
 import type { CaretModel } from "../nodes/caret-model";
 
 /**
@@ -185,6 +190,35 @@ export interface MarkReplacementPaintCtx {
   readonly requestRedraw: () => void;
 }
 
+/** Persisted context available while resolving one replacement-mark run. */
+export interface MarkReplacementSourceCtx {
+  /** The stored mark for this exact run, including feature attrs/contentId. */
+  readonly mark: MarkData;
+  /** Supplemental structured attachments owned by the containing block. */
+  readonly attachments: StructuredContentMap | undefined;
+}
+
+/** Structured-caret context for a replacement run in one textual block. */
+export interface MarkReplacementContentCtx extends MarkReplacementSourceCtx {
+  readonly blockId: string;
+  /**
+   * Canonical-source range represented by the `text` argument for this visual
+   * fragment. A replacement can use this projection to keep an identity-backed
+   * nested caret in the fragment that owns it when one marked run wraps across
+   * lines. Omitted means the text represents the complete replacement source.
+   *
+   * This is geometry metadata only: nested selection remains expressed as
+   * stable {@link ContentPoint} identities rather than flattened text offsets.
+   */
+  readonly sourceRange?: {
+    readonly start: number;
+    readonly end: number;
+  };
+  readonly pointerType?: "mouse" | "touch";
+  readonly drag?: boolean;
+  readonly previousPoint?: ContentPoint | null;
+}
+
 /**
  * A mark that REPLACES glyph rendering for its run — inline math draws a
  * rendered formula instead of the LaTeX characters. The run measures as an
@@ -194,6 +228,28 @@ export interface MarkReplacementPaintCtx {
  * the atomic-boundary behavior. The normal style/text path is skipped for the run.
  */
 export interface MarkReplacement {
+  /**
+   * Resolve the canonical source painted/measured for this run. Omit to use the
+   * marked compatibility characters unchanged. The returned string affects
+   * replacement geometry only; flat-text indices continue to address the
+   * compatibility run, while structured caret hooks own attached content.
+   */
+  source?(compatibilityText: string, c: MarkReplacementSourceCtx): string;
+  /** Stable nested caret geometry for an attached replacement run. */
+  contentCaretRect?(
+    text: string,
+    fontSize: number,
+    point: ContentPoint,
+    c: MarkReplacementContentCtx,
+  ): MarkReplacementCaret | null;
+  /** Map a run-local point directly to an identity-bearing nested selection. */
+  contentSelectionFromPoint?(
+    text: string,
+    fontSize: number,
+    localX: number,
+    localY: number,
+    c: MarkReplacementContentCtx,
+  ): ContentSelection | null;
   /**
    * Size of the rendered run, or `null` if it can't render (caller falls back to
    * text). `edit` lets an in-progress token (`\in`) measure as its literal source

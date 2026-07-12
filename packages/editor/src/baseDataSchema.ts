@@ -1,6 +1,6 @@
 /**
  * baseDataSchema — the default canvas-free document schema, assembled from the
- * built-in node instances.
+ * core node instances. Optional features (including math) extend it explicitly.
  *
  * Each block type's serialization now lives as methods on its node (so a block's
  * rendering and round-trip share one file). `codecFromNode` adapts each node
@@ -64,8 +64,9 @@ function buildBaseMarkSpecs(): MarkSpec[] {
 let cachedBaseDataSchema: DataSchema<BaseSchemaDefinition> | null = null;
 
 /**
- * The default schema: every built-in block and mark type. Immutable — derive
- * variants with `getBaseDataSchema().extend(...)`, never mutate it.
+ * The default schema: every core block and mark type. Optional feature types are
+ * deliberately absent. Immutable — derive variants with
+ * `getBaseDataSchema().extend(...)`, never mutate it.
  */
 export function getBaseDataSchema(): DataSchema<BaseSchemaDefinition> {
   return (cachedBaseDataSchema ??= new DataSchema(
@@ -80,12 +81,15 @@ export function getBaseDataSchema(): DataSchema<BaseSchemaDefinition> {
  * on its node; this looks it up through the schema, so a new block type's refs
  * are picked up with no caller changes.
  */
-export function collectAssetRefs(blocks: Block[]): string[] {
+export function collectAssetRefs(
+  blocks: Block[],
+  schema: DataSchema = getBaseDataSchema(),
+): string[] {
   const seen = new Set<string>();
   const refs: string[] = [];
   for (const block of blocks) {
     if (block.deleted) continue;
-    const codec = getBaseDataSchema().getCodec(block.type);
+    const codec = schema.getCodec(block.type);
     if (!codec?.assetRefs) continue;
     for (const ref of codec.assetRefs(block)) {
       if (!ref || seen.has(ref)) continue;

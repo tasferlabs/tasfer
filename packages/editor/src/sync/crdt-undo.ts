@@ -2,6 +2,10 @@ import { invalidateAffectedBlocks } from "../rendering/renderer";
 import type { EditorState, UndoGroup, UndoManagerState } from "../state-types";
 import type { Operation } from "../state-types";
 import {
+  captureContentSelection,
+  restoreContentSelection,
+} from "../structured-selection";
+import {
   captureCRDTCursor,
   captureCRDTSelection,
   restoreCursor,
@@ -41,8 +45,10 @@ export function recordUndoOps(
 
   const cursorBefore = captureCRDTCursor(stateBefore);
   const selectionBefore = captureCRDTSelection(stateBefore);
+  const contentSelectionBefore = captureContentSelection(stateBefore);
   const cursorAfter = captureCRDTCursor(stateAfter);
   const selectionAfter = captureCRDTSelection(stateAfter);
+  const contentSelectionAfter = captureContentSelection(stateAfter);
 
   // Capture inverses now, against stateBefore. invertOperations folds
   // applyOp through `ops` so each op's inverse is computed against the
@@ -50,8 +56,9 @@ export function recordUndoOps(
   const inverses = invertOperations(
     ops,
     stateBefore.document.page,
-    applyOp,
+    (page, op) => applyOp(page, op, stateBefore.schema),
     stateAfter.CRDTbinding,
+    stateBefore.schema,
   );
 
   const undoGroup: UndoGroup = {
@@ -60,8 +67,10 @@ export function recordUndoOps(
     peerId,
     cursorBefore,
     selectionBefore,
+    contentSelectionBefore,
     cursorAfter,
     selectionAfter,
+    contentSelectionAfter,
   };
 
   return {
@@ -147,7 +156,7 @@ export function undoState(state: EditorState): {
   const inverseOps = refreshOps(undoGroup.inverses, state.CRDTbinding);
 
   // Apply inverse operations to the page
-  const newPage = applyOps(state.document.page, inverseOps);
+  const newPage = applyOps(state.document.page, inverseOps, state.schema);
 
   // Create state with new page
   let newState: EditorState = {
@@ -163,6 +172,10 @@ export function undoState(state: EditorState): {
   // Restore cursor/selection to the state BEFORE the operation was performed
   newState = restoreCursor(newState, undoGroup.cursorBefore);
   newState = restoreSelection(newState, undoGroup.selectionBefore);
+  newState = restoreContentSelection(
+    newState,
+    undoGroup.contentSelectionBefore,
+  );
 
   // Update undo/redo stacks
   const newUndoStack = [
@@ -179,8 +192,10 @@ export function undoState(state: EditorState): {
     peerId: currentPeerId,
     cursorBefore: undoGroup.cursorBefore,
     selectionBefore: undoGroup.selectionBefore,
+    contentSelectionBefore: undoGroup.contentSelectionBefore,
     cursorAfter: undoGroup.cursorAfter,
     selectionAfter: undoGroup.selectionAfter,
+    contentSelectionAfter: undoGroup.contentSelectionAfter,
   };
 
   return {
@@ -233,7 +248,7 @@ export function redoState(state: EditorState): {
   const redoOps = refreshOps(redoGroupData.operations, state.CRDTbinding);
 
   // Apply redo operations to the page
-  const newPage = applyOps(state.document.page, redoOps);
+  const newPage = applyOps(state.document.page, redoOps, state.schema);
 
   // Create state with new page
   let newState: EditorState = {
@@ -249,6 +264,10 @@ export function redoState(state: EditorState): {
   // Restore cursor/selection to the state AFTER the operation was performed
   newState = restoreCursor(newState, redoGroupData.cursorAfter);
   newState = restoreSelection(newState, redoGroupData.selectionAfter);
+  newState = restoreContentSelection(
+    newState,
+    redoGroupData.contentSelectionAfter,
+  );
 
   // Update undo/redo stacks
   const newRedoStack = [
@@ -264,8 +283,10 @@ export function redoState(state: EditorState): {
     peerId: currentPeerId,
     cursorBefore: redoGroupData.cursorBefore,
     selectionBefore: redoGroupData.selectionBefore,
+    contentSelectionBefore: redoGroupData.contentSelectionBefore,
     cursorAfter: redoGroupData.cursorAfter,
     selectionAfter: redoGroupData.selectionAfter,
+    contentSelectionAfter: redoGroupData.contentSelectionAfter,
   };
 
   return {

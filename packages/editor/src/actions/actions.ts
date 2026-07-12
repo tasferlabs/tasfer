@@ -1,5 +1,6 @@
 import { TEXT_INPUTTED } from "../action-bus";
 import { isCJKCharacter } from "../cjk";
+import { runFeatureInputRules } from "../feature-facets";
 import { resolveMarkRuns } from "../inline-math-spans";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isBlockRTL } from "../rtl";
@@ -77,7 +78,19 @@ import {
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
+import {
+  hasStructuredBlockAuthority,
+  hasStructuredContent,
+} from "../sync/structured-content";
 import { isWordChar } from "../word-chars";
+import {
+  cursorInsideStructuredMark,
+  expandSelectionAroundStructuredMarks,
+  rangeIntersectsStructuredMark,
+  resolveStructuredMarkRanges,
+  selectionIntersectsStructuredMark,
+  selectionPartiallyIntersectsStructuredMark,
+} from "./structured-marks";
 import { wrapSelectionOnInput } from "./wrap-selection";
 
 /**
@@ -230,7 +243,6 @@ function detectAndApplyInlineMarkdown(
       format: { type: "emphasis" },
     },
     { regex: /~~([^~]+)~~$/, markerLen: 2, format: { type: "strike" } },
-    { regex: /\$([^$\n]+)\$$/, markerLen: 1, format: { type: "math" } },
     { regex: /`([^`]+)`$/, markerLen: 1, format: { type: "code" } },
   ];
 
@@ -303,6 +315,10 @@ function applyMarkdownPrefix(
   if (!isTextualBlock(block)) {
     return { block, ops: [] };
   }
+  // Prefix conversion reconstructs/morphs the block through generic flat ops.
+  // Structured attachments are block-scoped, including supplemental mark
+  // documents, so keep the literal prefix until a feature owns the conversion.
+  if (hasStructuredContent(block)) return { block, ops: [] };
   const text = getVisibleTextFromRuns(block.charRuns);
   const ops: Operation[] = [];
   const oldType = block.type;
@@ -440,29 +456,6 @@ function applyMarkdownPrefix(
     (block as any).type = "line";
     (block as any).charRuns = [];
     setBlockField("type", "line");
-  } else if (text === "$$" && schema.isBlockAllowed("math")) {
-    // Math block - $$ on its own line
-    const allCharIds: string[] = [];
-    for (const { id } of iterateVisibleChars(block.charRuns)) {
-      allCharIds.push(id);
-    }
-    if (allCharIds.length > 0) {
-      block.charRuns = deleteFromRuns(block.charRuns, allCharIds);
-      const deleteOp: TextDelete = {
-        op: "text_delete",
-        id: binding.nextId(),
-        clock: binding.getClock(),
-        pageId: binding.pageId,
-        blockId: block.id,
-        charIds: allCharIds,
-      };
-      ops.push(deleteOp);
-    }
-    (block as any).type = "math";
-    (block as any).displayMode = true;
-    (block as any).charRuns = [];
-    (block as any).formats = [];
-    setBlockField("type", "math");
   } else if (text === "```" && schema.isBlockAllowed("code")) {
     // Code block — three backticks on their own line. Like math (and unlike the
     // void `line`), code is textual, so the caret stays inside the (now empty)
@@ -539,6 +532,22 @@ export function mergeBlocksOps(
     : 0;
   let insertedRange: { blockId: string; from: number; to: number } | null =
     null;
+
+  // Generic block joining only knows how to transfer compatibility charRuns.
+  // If either side is owned by a structured attachment, deleting the source or
+  // appending into the target would silently lose one side's authoritative
+  // content. A feature-specific join can later provide a lossless transaction;
+  // until then, conservatively leave both blocks untouched.
+  if (
+    hasStructuredBlockAuthority(source) ||
+    hasStructuredBlockAuthority(target) ||
+    // Supplemental documents are scoped to their owning block. The generic
+    // merge can copy compatibility chars + mark attrs, but it cannot move the
+    // referenced attachment before tombstoning `source`.
+    resolveStructuredMarkRanges(source, schema).length > 0
+  ) {
+    return { newPage: page, ops, joinPoint, insertedRange };
+  }
 
   // Non-textual source can't contribute content; just tombstone it.
   if (isTextualBlock(source) && isTextualBlock(target)) {
@@ -717,8 +726,16 @@ function applyDeleteUnit(
 export function deleteSelectedText(state: EditorState): ActionResult {
   // Note: Cache will naturally miss due to content length change
   // Only clear for multi-block operations below
+  state = expandSelectionAroundStructuredMarks(state);
   const range = getSelectionRange(state);
   if (!range) return { state, ops: [] };
+
+  // An attached mark's flat characters are a compatibility projection, not a
+  // second editable authority. Mixed flat ranges expand clipped edge marks to
+  // whole atomic units; only a still-partial projection is refused here.
+  if (selectionPartiallyIntersectsStructuredMark(state)) {
+    return { state, ops: [] };
+  }
 
   const ops: Operation[] = [];
   let { start, end } = range;
@@ -876,6 +893,99 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     const endBlock = state.document.page.blocks[end.blockIndex];
     if (!startBlock || startBlock.deleted || !endBlock || endBlock.deleted) {
       return { state, ops: [] };
+    }
+
+    const startHasStructuredAuthority = hasStructuredBlockAuthority(startBlock);
+    const endHasStructuredAuthority = hasStructuredBlockAuthority(endBlock);
+    if (startHasStructuredAuthority || endHasStructuredAuthority) {
+      // A flat cross-block range cannot address an internal tree position.
+      // Treat an authoritative endpoint as one atomic block while preserving
+      // the unselected prose endpoint. This restores replacement/cut semantics
+      // without ever editing the tree's compatibility projection.
+      let page = state.document.page;
+      let survivorBlockId: string | undefined;
+      let survivorTextIndex = 0;
+
+      if (!startHasStructuredAuthority && isTextualBlock(startBlock)) {
+        const startLength = getVisibleLength(startBlock.charRuns);
+        if (start.textIndex < startLength) {
+          const deleted = deleteCharsInRange(
+            page,
+            startBlock.id,
+            start.textIndex,
+            startLength,
+            state.CRDTbinding,
+          );
+          page = deleted.newPage;
+          ops.push(deleted.op);
+        }
+        survivorBlockId = startBlock.id;
+        survivorTextIndex = start.textIndex;
+      } else if (!endHasStructuredAuthority && isTextualBlock(endBlock)) {
+        if (end.textIndex > 0) {
+          const deleted = deleteCharsInRange(
+            page,
+            endBlock.id,
+            0,
+            end.textIndex,
+            state.CRDTbinding,
+          );
+          page = deleted.newPage;
+          ops.push(deleted.op);
+        }
+        survivorBlockId = endBlock.id;
+      }
+
+      const deleteFrom =
+        survivorBlockId === startBlock.id
+          ? start.blockIndex + 1
+          : start.blockIndex;
+      const deleteTo =
+        survivorBlockId === endBlock.id ? end.blockIndex - 1 : end.blockIndex;
+      const deleteOps: Operation[] = [];
+      for (let i = deleteFrom; i <= deleteTo; i++) {
+        const block = state.document.page.blocks[i];
+        if (!block || block.deleted || block.id === survivorBlockId) continue;
+        deleteOps.push({
+          op: "block_delete",
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
+          blockId: block.id,
+        });
+      }
+      ops.push(...deleteOps);
+      page = applyOps(page, deleteOps);
+
+      if (!survivorBlockId) {
+        const blockId = state.CRDTbinding.nextId();
+        const insert: BlockInsert = {
+          op: "block_insert",
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
+          orderKey: orderKeyAfter(page.blocks, null),
+          blockId,
+          blockType: "paragraph",
+        };
+        ops.push(insert);
+        page = applyOps(page, [insert]);
+        survivorBlockId = blockId;
+      }
+
+      const survivorIndex = findBlockIndex(page, survivorBlockId);
+      const survivor = page.blocks[survivorIndex];
+      if (survivor) invalidateBlockCache(survivor);
+      let newState: EditorState = {
+        ...state,
+        document: { ...state.document, page },
+      };
+      newState = moveCursorToPosition(
+        newState,
+        survivorIndex,
+        survivorTextIndex,
+      );
+      return { state: clearSelection(newState), ops };
     }
 
     // Handle case where selection includes image blocks
@@ -1062,11 +1172,36 @@ export function insertText(
   input: string,
   options?: InsertTextOptions,
 ): ActionResult {
-  if (!state.document.cursor) {
+  // A structured feature owns its nested caret separately from the flat block
+  // cursor. Give schema input rules first refusal whenever either currency is
+  // active; only the legacy flat-text path below requires `cursor` itself.
+  if (!state.document.cursor && !state.document.contentSelection) {
     return { state, ops: [] };
   }
 
+  // A mixed prose/tree selection remains a normal flat editor range, but every
+  // structured mark it touches is an atomic unit. Expand clipped edge formulas
+  // before feature ownership and replacement logic inspect the transaction.
+  state = expandSelectionAroundStructuredMarks(state);
+
   const ops: Operation[] = [];
+  const originalInput = input;
+  const beforeFeature = runFeatureInputRules(
+    state.schema.features,
+    "before-insert",
+    state,
+    originalInput,
+  );
+  state = beforeFeature.state;
+  ops.push(...beforeFeature.ops);
+  if (beforeFeature.handled) return { state, ops };
+  if (
+    selectionPartiallyIntersectsStructuredMark(state) ||
+    cursorInsideStructuredMark(state)
+  ) {
+    return { state, ops };
+  }
+  if (!state.document.cursor) return { state, ops };
 
   // Block typing on a selected image (but allow deletion via deleteSelectedText elsewhere)
   if (state.document.selection && !state.document.selection.isCollapsed) {
@@ -1190,8 +1325,7 @@ export function insertText(
   const inCodeBlock = isPreformattedType(oldBlock.type);
 
   // Inline markdown detection (only on closing delimiter characters)
-  const isClosingDelimiter =
-    input === "*" || input === "`" || input === "~" || input === "$";
+  const isClosingDelimiter = input === "*" || input === "`" || input === "~";
   // A transform-supplied caret (a script box's interior) overrides the default
   // "after the inserted text" landing. Scripts aren't closing delimiters, so the
   // markdown path below never reassigns this.
@@ -1289,15 +1423,30 @@ export function insertText(
   newState = moveCursorToPosition(newState, blockIndex, finalTextIndex, true);
   newState = updateMode(newState, "edit");
 
+  // Feature-owned live-input transforms run after the raw insertion and core
+  // markdown rules, but before node/mark post-input normalization. This keeps a
+  // feature-created construct in the same transaction and lets its own
+  // TEXT_INPUTTED observer see the transformed document (for example, an
+  // optional structured mark may materialize placeholders immediately).
+  const afterFeature = runFeatureInputRules(
+    newState.schema.features,
+    "after-insert",
+    newState,
+    originalInput,
+  );
+  newState = afterFeature.state;
+  ops.push(...afterFeature.ops);
+
   // Post-insert normalization: a node/mark observes TEXT_INPUTTED to materialize
   // an incomplete construct this edit just completed (e.g. `\frac` → `\frac{}{}`,
   // landing the caret in the numerator) and/or arm caret-anchored scratch. The
   // dispatch runs INSIDE this same edit transform, so any placeholder ops an
   // observer emits join this transaction's `ops` (one CRDT change / undo entry /
   // broadcast) — and a block whose node/mark has nothing to fill is untouched.
+  const transformedCursor = newState.document.cursor?.position;
   const settled = newState.actionBus.dispatchState(TEXT_INPUTTED, newState, {
-    blockIndex,
-    textIndex: finalTextIndex,
+    blockIndex: transformedCursor?.blockIndex ?? blockIndex,
+    textIndex: transformedCursor?.textIndex ?? finalTextIndex,
   });
   newState = settled.state;
   ops.push(...settled.ops);
@@ -1355,6 +1504,16 @@ export function deleteText(state: EditorState): ActionResult {
   // through to the normal character backspace / block-start merge below.
   const backUnit = resolveDeleteUnit(state, oldBlock, textIndex, "backward");
   if (backUnit) {
+    if (
+      rangeIntersectsStructuredMark(
+        oldBlock,
+        backUnit.from,
+        backUnit.to,
+        state.schema,
+      )
+    ) {
+      return { state, ops: [] };
+    }
     return applyDeleteUnit(
       state,
       blockIndex,
@@ -1366,6 +1525,16 @@ export function deleteText(state: EditorState): ActionResult {
   }
 
   if (textIndex > 0) {
+    if (
+      rangeIntersectsStructuredMark(
+        oldBlock,
+        textIndex - 1,
+        textIndex,
+        state.schema,
+      )
+    ) {
+      return { state, ops: [] };
+    }
     // Delete one character before cursor using CRDT helper
     const { newPage, op } = deleteCharsInRange(
       state.document.page,
@@ -1672,6 +1841,16 @@ export function deleteForward(state: EditorState): ActionResult {
   // character delete / block-merge below.
   const fwdUnit = resolveDeleteUnit(state, oldBlock, textIndex, "forward");
   if (fwdUnit) {
+    if (
+      rangeIntersectsStructuredMark(
+        oldBlock,
+        fwdUnit.from,
+        fwdUnit.to,
+        state.schema,
+      )
+    ) {
+      return { state, ops: [] };
+    }
     return applyDeleteUnit(
       state,
       blockIndex,
@@ -1683,6 +1862,16 @@ export function deleteForward(state: EditorState): ActionResult {
   }
 
   if (textIndex < oldText.length) {
+    if (
+      rangeIntersectsStructuredMark(
+        oldBlock,
+        textIndex,
+        textIndex + 1,
+        state.schema,
+      )
+    ) {
+      return { state, ops: [] };
+    }
     // Delete character after cursor using CRDT helper
     const { newPage, op } = deleteCharsInRange(
       state.document.page,
@@ -2120,6 +2309,11 @@ export function deleteWordForward(state: EditorState): ActionResult {
         findWordDeleteBoundaryRight(oldText, textIndex),
         "right",
       );
+    if (
+      rangeIntersectsStructuredMark(oldBlock, textIndex, endIndex, state.schema)
+    ) {
+      return { state, ops: [] };
+    }
     const { newPage, op } = deleteCharsInRange(
       state.document.page,
       oldBlock.id,
@@ -2239,6 +2433,16 @@ export function deleteWordBackward(state: EditorState): ActionResult {
         findWordDeleteBoundaryLeft(oldText, textIndex),
         "left",
       );
+    if (
+      rangeIntersectsStructuredMark(
+        oldBlock,
+        startIndex,
+        textIndex,
+        state.schema,
+      )
+    ) {
+      return { state, ops: [] };
+    }
     const { newPage, op } = deleteCharsInRange(
       state.document.page,
       oldBlock.id,
@@ -2607,6 +2811,19 @@ export function splitBlock(state: EditorState): ActionResult {
   }
 
   if (!isTextualBlock(oldBlock)) {
+    return { state, ops: [] };
+  }
+
+  // A supplemental structured mark is stored on this block while its flat
+  // characters are only a compatibility projection. Generic split can copy
+  // chars + mark attrs to block 2, but cannot move the referenced attachment.
+  // Refuse every split that would move any part of such a run; splitting after
+  // all authoritative runs remains safe because they stay with this block.
+  if (
+    resolveStructuredMarkRanges(oldBlock, state.schema).some(
+      (run) => run.endIndex > textIndex,
+    )
+  ) {
     return { state, ops: [] };
   }
 
@@ -3126,6 +3343,13 @@ export function toggleFormat(
 
   const range = getSelectionRange(state);
 
+  // Removing/reapplying the same mark type would detach or overwrite the attrs
+  // that address its authoritative structured document. Other composable marks
+  // may still be applied without touching that ownership link.
+  if (range && selectionIntersectsStructuredMark(state, formatType)) {
+    return { state, ops: [] };
+  }
+
   // If no selection, toggle format in UI's active formats
   if (!range) {
     if (!state.document.cursor) {
@@ -3387,6 +3611,14 @@ export function convertBlockAtCursor(
 
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return { state, ops: [] };
+
+  // Structured documents are scoped to this block. Core has no lossless,
+  // feature-agnostic morph for either block authority or supplemental mark
+  // attachments, so refuse conversion instead of orphaning persisted contentId
+  // references while emitting only block_set(type).
+  if (hasStructuredContent(block)) {
+    return { state, ops: [] };
+  }
 
   // Converting TO a non-textual (atomic) block — image/math/line or any custom
   // void type. One path for all of them: the new block is the target type's

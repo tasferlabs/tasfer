@@ -23,7 +23,6 @@ import { CodeNode } from "../../nodes/CodeNode";
 import { ImageNode } from "../../nodes/ImageNode";
 import { LineNode } from "../../nodes/LineNode";
 import { ListNode } from "../../nodes/ListNode";
-import { MathNode } from "../../nodes/MathNode";
 import { QuoteNode } from "../../nodes/QuoteNode";
 import { TextNode } from "../../nodes/TextNode";
 import { Node, NodeRegistry } from "./Node";
@@ -57,12 +56,6 @@ export {
   OUTDENT_LIST_ITEM,
   TOGGLE_TODO_CHECKED,
 } from "../../nodes/ListNode";
-export {
-  EXIT_INLINE_MATH,
-  MathNode,
-  SET_INLINE_MATH_HOVER,
-  SET_MATH_BLOCK_HOVER,
-} from "../../nodes/MathNode";
 export { type QuoteBlock, QuoteNode } from "../../nodes/QuoteNode";
 export {
   getContentWithComposition,
@@ -78,6 +71,8 @@ export {
   type NodeActivateCtx,
   type NodeActivation,
   type NodeAtomicHit,
+  type NodeContentHitCtx,
+  type NodeContentHitOptions,
   type NodeHitRegion,
   type NodeLayout,
   type NodeLayoutCtx,
@@ -95,15 +90,13 @@ export { UnknownNode } from "./UnknownNode";
  * side effects and no module-init ordering hazards.
  *
  * `TextNode` backs headings + paragraph; `ListNode` (a subclass) backs the
- * bullet/numbered/todo family. They register under disjoint type keys, so a
- * host can drop list support entirely by omitting `ListNode` from a custom
- * `nodes` list passed to `mountEditor`.
+ * bullet/numbered/todo family. Optional feature nodes (notably math) are not in
+ * this list: hosts install them through feature extensions.
  */
 export function defaultNodes(): Node[] {
   return [
     new LineNode(),
     new ImageNode(),
-    new MathNode(),
     new QuoteNode(),
     new CodeNode(),
     new TextNode(),

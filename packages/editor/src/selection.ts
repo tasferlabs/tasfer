@@ -29,7 +29,15 @@ import {
   selectionRangeAt,
   transformTypedInput,
 } from "./state-utils";
+import {
+  type ContentPoint,
+  type ContentSelection,
+  isContentSelectionCollapsed,
+  normalizeContentPoint,
+  updateContentSelection,
+} from "./structured-selection";
 import { getEditorStyles, getTextStyle } from "./styles";
+import { findBlockIndex } from "./sync/block-lookup";
 import { isTextualBlock } from "./sync/block-registry";
 import {
   findNextVisibleBlockIndex,
@@ -256,6 +264,33 @@ export function getCursorDocumentCoords(
     blockTop,
     state,
     block.id,
+  );
+}
+
+/** Stable structured-point counterpart to {@link getCursorDocumentCoords}. */
+export function getContentPointDocumentCoords(
+  point: ContentPoint,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
+): { x: number; y: number; height: number } | null {
+  const normalized = normalizeContentPoint(state.document.page, point);
+  if (!normalized) return null;
+  const blockIndex = findBlockIndex(state.document.page, normalized.blockId);
+  if (blockIndex < 0) return null;
+  const working = updateContentSelection(state, {
+    anchor: normalized,
+    focus: normalized,
+    lastUpdate: state.document.contentSelection?.lastUpdate,
+  });
+  if (!working.document.contentSelection) return null;
+  return getCursorDocumentCoords(
+    { blockIndex, textIndex: 0 },
+    working,
+    viewport,
+    styles,
+    visibility,
   );
 }
 
@@ -584,6 +619,8 @@ export interface ViewportHitOptions {
    * fresh.
    */
   readonly prev?: Position | null;
+  /** Stable nested endpoint used when a node applies drag-row hysteresis. */
+  readonly previousContentPoint?: ContentPoint | null;
 }
 
 export function getTextPositionFromViewport(
@@ -721,6 +758,89 @@ export function getTextPositionFromViewport(
     };
   }
 
+  return null;
+}
+
+/**
+ * Resolve a viewport point through the owning node's optional structured
+ * content hit-test. This deliberately parallels
+ * {@link getTextPositionFromViewport}: the engine owns the block-flow walk and
+ * the node owns its internal geometry. A node that has no structured
+ * attachment returns `null`, preserving the ordinary flat-cursor path.
+ */
+export function getContentSelectionFromViewport(
+  x: number,
+  y: number,
+  state: EditorState,
+  viewport: ViewportState,
+  pointerType: "mouse" | "touch",
+  styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
+  opts?: ViewportHitOptions,
+): ContentSelection | null {
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  if (
+    x < styles.canvas.paddingLeft ||
+    x > styles.canvas.paddingLeft + maxWidth
+  ) {
+    return null;
+  }
+
+  let currentY =
+    visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
+  const visibleBlocks = state.view.visibleBlocks;
+  const startIndex = visibility?.start ?? 0;
+  for (
+    let visibleIdx = startIndex;
+    visibleIdx < visibleBlocks.length;
+    visibleIdx++
+  ) {
+    const block = visibleBlocks[visibleIdx];
+    const blockHeight = getBlockHeight(
+      state.nodes,
+      state.marks,
+      block,
+      maxWidth,
+      styles,
+      visibleIdx === 0,
+    );
+    if (y >= currentY && y < currentY + blockHeight) {
+      const node = state.nodes.get(block.type);
+      if (!node) return null;
+      const layout = node.layout({
+        block,
+        blockIndex: block.originalIndex,
+        maxWidth,
+        isFirst: visibleIdx === 0,
+        styles,
+        marks: state.marks,
+      });
+      return node.contentSelectionFromPoint(
+        layout,
+        { x: x - styles.canvas.paddingLeft, y: y - currentY },
+        {
+          state,
+          block,
+          blockIndex: block.originalIndex,
+          maxWidth,
+          isFirst: visibleIdx === 0,
+          styles,
+          marks: state.marks,
+        },
+        {
+          pointerType,
+          drag: opts?.drag,
+          previousPoint:
+            opts?.previousContentPoint ??
+            state.document.contentSelection?.focus ??
+            null,
+        },
+      );
+    }
+    if (currentY > viewport.height) break;
+    currentY += blockHeight;
+  }
   return null;
 }
 
@@ -1114,6 +1234,8 @@ export function isPointWithinSelectionRects(
  * selection is up.
  */
 export function hasActiveSelectionHighlight(state: EditorState): boolean {
+  const content = state.document.contentSelection;
+  if (content && !isContentSelectionCollapsed(content)) return true;
   const sel = state.document.selection;
   if (!sel) return false;
   if (!sel.isCollapsed) return true;
@@ -1798,6 +1920,7 @@ export function clearSelection(state: EditorState): EditorState {
     document: {
       ...state.document,
       selection: null,
+      contentSelection: null,
     },
   };
 }
@@ -1821,6 +1944,7 @@ export function updateCursor(
     ui,
     document: {
       ...state.document,
+      contentSelection: null,
       cursor: position
         ? {
             position,
@@ -1838,6 +1962,7 @@ export function updateSelection(
     ...state,
     document: {
       ...state.document,
+      contentSelection: null,
       selection: !!updates
         ? {
             anchor: updates.anchor,

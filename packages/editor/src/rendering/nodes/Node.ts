@@ -41,6 +41,10 @@ import type {
   TextStyle,
   ViewportState,
 } from "../../state-types";
+import type {
+  ContentPoint,
+  ContentSelection,
+} from "../../structured-selection";
 import type { MarkRegistry } from "../marks";
 import type { CaretModel } from "./caret-model";
 
@@ -84,6 +88,12 @@ export interface BlockRuntimeState {
    */
   orderKey?: string;
   /**
+   * Optional normalized structured attachments owned by this block. The core
+   * CRDT reducer preserves and merges these by stable content id without
+   * interpreting their feature-owned `kind` (math, diagram, …).
+   */
+  structuredContent?: import("../../sync/structured-content").StructuredContentMap;
+  /**
    * Transient render hints: the `type` of the adjacent *visible* (non-deleted)
    * blocks, stamped by `getVisibleBlocks`. They let a node lay itself out aware
    * of its neighbours — e.g. consecutive quotes tighten their shared edge — the
@@ -106,6 +116,18 @@ export interface BlockRuntimeState {
    * "no override".
    */
   style?: Record<string, unknown>;
+}
+
+/**
+ * Structural block shape accepted by a rendering node.
+ *
+ * The persisted core {@link Block} union intentionally contains only the base
+ * package's blocks. Optional feature nodes specialize {@link Node} with their
+ * own block shape (for example the math package's display block) without
+ * forcing that feature type into the root declaration graph.
+ */
+export interface NodeBlock extends BlockRuntimeState {
+  readonly type: string;
 }
 
 /** Geometry + styles available without a canvas (measurement, height passes). */
@@ -137,6 +159,23 @@ export interface NodePaintCtx extends NodeLayoutCtx {
    * without reaching for a module global.
    */
   readonly requestRedraw: () => void;
+}
+
+/** Pointer-hit context for entering a node-owned structured attachment. */
+export interface NodeContentHitCtx<
+  B extends NodeBlock = NodeBlock,
+> extends Omit<NodeLayoutCtx, "block"> {
+  readonly state: EditorState;
+  readonly block: B;
+}
+
+/** Gesture details that can affect a node's nested caret hit-test. */
+export interface NodeContentHitOptions {
+  readonly pointerType: NodePointerType;
+  /** Finger/magnifier drag uses nearest-stop geometry with row hysteresis. */
+  readonly drag?: boolean;
+  /** Stable current endpoint used as the drag hysteresis anchor. */
+  readonly previousPoint?: ContentPoint | null;
 }
 
 /** A point in block-local canvas coordinates. */
@@ -240,7 +279,7 @@ export interface NodeAtomicHit {
  * registered in the node registry. Generic over the concrete block shape so
  * subclasses get a narrowed `block`.
  */
-export abstract class Node<B extends Block = Block> {
+export abstract class Node<B extends NodeBlock = NodeBlock> {
   /** The block type string this node handles. */
   abstract readonly type: B["type"];
 
@@ -334,6 +373,24 @@ export abstract class Node<B extends Block = Block> {
    */
   hitTest(_layout: NodeLayout, _local: Point, c: NodeLayoutCtx): Position {
     return { blockIndex: c.blockIndex, textIndex: 0 };
+  }
+
+  /**
+   * Optionally map a block-local point into a structured-content selection.
+   *
+   * This is the nested counterpart to {@link hitTest}: the view asks the node
+   * that owns the geometry, but the result is the editor's generic
+   * identity-bearing selection currency. Core pointer code therefore never
+   * needs to know whether the attachment is math, a diagram, or another tree.
+   * Returning `null` keeps ordinary flat-cursor behavior unchanged.
+   */
+  contentSelectionFromPoint(
+    _layout: NodeLayout,
+    _local: Point,
+    _c: NodeContentHitCtx<B>,
+    _options: NodeContentHitOptions,
+  ): ContentSelection | null {
+    return null;
   }
 
   /**

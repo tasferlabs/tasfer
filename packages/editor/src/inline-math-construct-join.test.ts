@@ -11,15 +11,16 @@
  * only re-marks the single last-typed char, so a multi-char construct would split.
  * These tests pin the raw-insert gap and the union-remark fix the host depends on.
  */
+import { createMathTestSyncEngine } from "./__testutils__/math";
 import { getInlineMathSpans } from "./inline-math-spans";
 import { insertCharsAtPosition, markCharsInRange } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
 /** A page whose single paragraph holds one inline-math chip `latex` at [0, len). */
 function chip(latex: string) {
   const binding = createCRDTbinding("construct-join", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;

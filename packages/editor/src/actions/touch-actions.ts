@@ -36,6 +36,10 @@ import {
 import { type Block } from "../serlization/loadPage";
 import type { Position } from "../state-types";
 import { closeActiveMenu, setActiveMenu, updateMode } from "../state-utils";
+import {
+  type ContentSelection,
+  updateContentSelection,
+} from "../structured-selection";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   getSelectionRange,
@@ -46,6 +50,8 @@ import {
 /** A resolved text position from {@link getTextPositionFromViewport}. */
 interface PositionPayload {
   position: Position;
+  /** Node-resolved nested caret for content taps. Ignored by gutter actions. */
+  contentSelection?: ContentSelection | null;
 }
 
 // ─── Padding taps (clear / reposition, no ops) ───────────────────────────────
@@ -216,7 +222,15 @@ export const TAP_SELECT_WORD = stateAction<
  */
 export const TAP_PLACE_CURSOR = stateAction<PositionPayload>(
   "tap-place-cursor",
-  (state, { position }) => {
+  (state, { position, contentSelection }) => {
+    if (contentSelection) {
+      let next = updateContentSelection(state, contentSelection);
+      if (next.document.contentSelection) {
+        next = updateMode(next, "edit");
+        state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
+        return { state: next, ops: [] };
+      }
+    }
     let next = clearSelection(state);
     next = updateCursor(next, position);
     next = updateMode(next, "edit");

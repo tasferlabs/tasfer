@@ -14,13 +14,21 @@
  * folds `applyOp` through the batch to materialise these intermediate
  * states; callers pass `applyOp` in to avoid a circular import.
  */
-import type { Block, Char, Mark, Page } from "../serlization/loadPage";
+import type {
+  Block,
+  Char,
+  CharRun,
+  Mark,
+  MarkSpan,
+  Page,
+} from "../serlization/loadPage";
 import { areMarksEqual } from "../serlization/loadPage";
 import type { CRDTbinding } from "../state-types";
 import type {
   BlockDelete,
   BlockInsert,
   BlockSet,
+  ContentEdit,
   MarkSet,
   Operation,
   TextDelete,
@@ -41,6 +49,21 @@ import {
   isCharIdInRange,
   iterateAllChars,
 } from "./char-runs";
+import type { DataSchema } from "./schema";
+import { invertStructuredEdit } from "./structured-content";
+
+function hasTextStorage(
+  block: Block,
+  schema?: DataSchema,
+): block is Block & { charRuns: CharRun[]; formats: MarkSpan[] } {
+  return (
+    (schema ? schema.isTextual(block.type) : isTextualBlock(block)) &&
+    "charRuns" in block &&
+    Array.isArray(block.charRuns) &&
+    "formats" in block &&
+    Array.isArray(block.formats)
+  );
+}
 
 // =============================================================================
 // Per-op inversion
@@ -81,6 +104,46 @@ function invertTextInsert(
   };
 }
 
+function invertContentEdit(
+  op: ContentEdit,
+  pageBefore: Page,
+  binding: CRDTbinding,
+): ContentEdit[] {
+  const document = findBlock(pageBefore, op.blockId)?.structuredContent?.[
+    op.contentId
+  ];
+  if (op.edit.kind === "document_init") {
+    // Initialization is add-only CRDT infrastructure. Deleting it during undo
+    // could erase a concurrent edit that has not arrived (or sorts later).
+    return [];
+  }
+  if (op.edit.kind === "document_delete") {
+    return document
+      ? [
+          {
+            op: "content_edit",
+            id: binding.nextId(),
+            clock: binding.getClock(),
+            pageId: op.pageId,
+            blockId: op.blockId,
+            contentId: op.contentId,
+            edit: { kind: "document_init", document },
+          },
+        ]
+      : [];
+  }
+  if (!document) return [];
+  return invertStructuredEdit(op.edit, document).map((edit) => ({
+    op: "content_edit",
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: op.pageId,
+    blockId: op.blockId,
+    contentId: op.contentId,
+    edit,
+  }));
+}
+
 /**
  * Compute the inverse of a text delete operation.
  * Inverse: Re-insert the deleted characters.
@@ -94,12 +157,13 @@ function invertTextDelete(
   op: TextDelete,
   pageBefore: Page,
   binding: CRDTbinding,
+  schema?: DataSchema,
 ): TextInsert | null {
   const block = findBlock(pageBefore, op.blockId);
 
   if (!block) return null;
   if (block.deleted) return null;
-  if (!isTextualBlock(block)) return null;
+  if (!hasTextStorage(block, schema)) return null;
 
   // Capture the chars that will be deleted (they're still visible).
   const charIdSet = new Set(op.charIds);
@@ -155,9 +219,10 @@ function invertFormatSet(
   op: MarkSet,
   pageBefore: Page,
   binding: CRDTbinding,
+  schema?: DataSchema,
 ): MarkSet[] {
   const block = findBlock(pageBefore, op.blockId);
-  if (!block || block.deleted || !isTextualBlock(block)) return [];
+  if (!block || block.deleted || !hasTextStorage(block, schema)) return [];
 
   // Look up the prior value of `op.format.type` on each affected char.
   // For overlapping same-type spans we pick the one with the latest HLC
@@ -260,24 +325,28 @@ function invertBlockInsert(op: BlockInsert, binding: CRDTbinding): BlockDelete {
  * Compute the inverse of a block delete operation.
  *
  * Reads the block from `pageBefore` (where it still exists, not yet
- * tombstoned). Uses the block-type registry to extract every field's value
+ * tombstoned). Uses the document schema to extract every field's value
  * into `initialProps`, so adding a new field to a block type doesn't require
- * touching this function — the registry is the single source of truth.
+ * touching this function — the schema is the single source of truth.
  */
 function invertBlockDelete(
   op: BlockDelete,
   pageBefore: Page,
   binding: CRDTbinding,
+  schema?: DataSchema,
 ): BlockInsert | null {
   const block: Block | undefined = pageBefore.blocks.find(
     (b) => b.id === op.blockId,
   );
   if (!block || block.deleted) return null;
 
-  const descriptor = getBlockDescriptor(block.type);
+  const descriptor =
+    schema?.getDescriptor(block.type) ?? getBlockDescriptor(block.type);
   if (!descriptor) return null;
   const initialProps: Record<string, unknown> = {};
-  for (const fieldName of getBlockFieldNames(block.type)) {
+  const fieldNames =
+    schema?.getFieldNames(block.type) ?? getBlockFieldNames(block.type);
+  for (const fieldName of fieldNames) {
     if (fieldName === "type") continue;
     initialProps[fieldName] =
       descriptor.fields[fieldName].extractForInverse(block);
@@ -302,18 +371,20 @@ function invertBlockDelete(
 /**
  * Compute the inverse of a block set operation.
  *
- * Reads the prior value of the field from `pageBefore`. Uses the registry's
+ * Reads the prior value of the field from `pageBefore`. Uses the schema's
  * `extractForInverse` so type-specific extraction lives in one place.
  */
 function invertBlockSet(
   op: BlockSet,
   pageBefore: Page,
   binding: CRDTbinding,
+  schema?: DataSchema,
 ): BlockSet | null {
   const block = findBlock(pageBefore, op.blockId);
   if (!block || block.deleted) return null;
 
-  const descriptor = getBlockDescriptor(block.type);
+  const descriptor =
+    schema?.getDescriptor(block.type) ?? getBlockDescriptor(block.type);
   let previousValue: unknown;
   if (op.field === "type") {
     previousValue = block.type;
@@ -354,6 +425,7 @@ export function invertOperation(
   op: Operation,
   pageBefore: Page,
   binding: CRDTbinding,
+  schema?: DataSchema,
 ): Operation[] {
   switch (op.op) {
     case "text_insert": {
@@ -361,21 +433,23 @@ export function invertOperation(
       return inv ? [inv] : [];
     }
     case "text_delete": {
-      const inv = invertTextDelete(op, pageBefore, binding);
+      const inv = invertTextDelete(op, pageBefore, binding, schema);
       return inv ? [inv] : [];
     }
     case "mark_set":
-      return invertFormatSet(op, pageBefore, binding);
+      return invertFormatSet(op, pageBefore, binding, schema);
     case "block_insert":
       return [invertBlockInsert(op, binding)];
     case "block_delete": {
-      const inv = invertBlockDelete(op, pageBefore, binding);
+      const inv = invertBlockDelete(op, pageBefore, binding, schema);
       return inv ? [inv] : [];
     }
     case "block_set": {
-      const inv = invertBlockSet(op, pageBefore, binding);
+      const inv = invertBlockSet(op, pageBefore, binding, schema);
       return inv ? [inv] : [];
     }
+    case "content_edit":
+      return invertContentEdit(op, pageBefore, binding);
     default:
       return [];
   }
@@ -398,6 +472,7 @@ export function invertOperations(
   pageBefore: Page,
   applyOp: (page: Page, op: Operation) => Page,
   binding: CRDTbinding,
+  schema?: DataSchema,
 ): Operation[] {
   // Materialise the per-op pre-state.
   const preStates: Page[] = new Array(ops.length);
@@ -410,7 +485,7 @@ export function invertOperations(
   // Invert each op against its own pre-state, in reverse order.
   const inverses: Operation[] = [];
   for (let i = ops.length - 1; i >= 0; i--) {
-    for (const inv of invertOperation(ops[i], preStates[i], binding)) {
+    for (const inv of invertOperation(ops[i], preStates[i], binding, schema)) {
       inverses.push(inv);
     }
   }

@@ -10,8 +10,11 @@
  * with the paint/caret path, so wrap survives the delete. Pairs with
  * `inline-math-render-resolution.test.ts` (which pins render↔edit resolution).
  */
+import {
+  createMathTestMarkRegistry,
+  createMathTestSyncEngine,
+} from "../__testutils__/math";
 import { resolveMarkRunsFromChars } from "../inline-math-spans";
-import { createDefaultMarkRegistry } from "../rendering/marks";
 import type { Block } from "../serlization/loadPage";
 import { resolveTheme } from "../styles";
 import { charRunsToChars } from "../sync/char-runs";
@@ -20,13 +23,13 @@ import {
   insertCharsAtPosition,
   markCharsInRange,
 } from "../sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "../sync/sync";
+import { createCRDTbinding } from "../sync/sync";
 import { TextNode, type TextualBlock } from "./TextNode";
 import { describe, expect, it } from "vitest";
 
 describe("TextNode inline-math reflow survives anchor-char delete", () => {
   const styles = resolveTheme({});
-  const marks = createDefaultMarkRegistry();
+  const marks = createMathTestMarkRegistry();
   const node = new TextNode();
 
   // Wide formula, many top-level operators, no spaces — every wrap is a math
@@ -35,7 +38,7 @@ describe("TextNode inline-math reflow survives anchor-char delete", () => {
 
   function chipBlock(src: string) {
     const binding = createCRDTbinding("wrap-del", "peer-1");
-    const engine = createSyncEngine(binding);
+    const engine = createMathTestSyncEngine(binding);
     const blockOp = engine.createBlockInsert(null, "paragraph", {});
     engine.emit([blockOp]);
     const blockId = blockOp.blockId;

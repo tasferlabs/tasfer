@@ -5,7 +5,7 @@
  * and browser checks; here we pin the logic that governs surgical updates.
  */
 
-import { baseDataSchema } from "../index";
+import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
 import type { Block } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
 import type { Operation } from "../state-types";
@@ -17,10 +17,10 @@ import {
 } from "./dom-mirror";
 import { describe, expect, it } from "vitest";
 
-// The prebuilt default schema from the package entry, assembled there in a
-// node-init-safe order (assembling it directly from baseDataSchema mid
-// import-cycle hits a temporal-dead-zone — see baseDataSchema.ts).
-const schema = baseDataSchema;
+// Schema-optional parsing retains the legacy math-enabled contract, so the
+// mirror must consume the matching compatibility schema in these fixtures.
+// Explicitly passing baseDataSchema here would intentionally make math unknown.
+const schema = getCompatibilityDataSchema();
 
 function op(blockId: string): Operation {
   return { op: "text_insert", blockId } as unknown as Operation;

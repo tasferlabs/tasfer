@@ -402,13 +402,14 @@ const lineDescriptor = {
 const mathDescriptor = {
   type: "math",
   capabilities: MATH_CAPS,
-  defaults: (id: string, orderKey: string): Block => ({
-    ...makeBase(id, orderKey),
-    type: "math",
-    charRuns: [],
-    formats: [],
-    displayMode: true,
-  }),
+  defaults: (id: string, orderKey: string): Block =>
+    ({
+      ...makeBase(id, orderKey),
+      type: "math",
+      charRuns: [],
+      formats: [],
+      displayMode: true,
+    }) as unknown as Block,
   fields: {
     type: typeField,
     displayMode: displayModeField,

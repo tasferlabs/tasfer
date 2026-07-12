@@ -21,6 +21,7 @@ import {
   toggleFormat,
 } from "./actions/actions";
 import { createDoc } from "./doc";
+import { mathExtension } from "./math-extension";
 import { baseSchema } from "./schema";
 import type { Block, Page } from "./serlization/loadPage";
 import { normalizeBlocks } from "./serlization/normalize";
@@ -32,9 +33,10 @@ import { describe, expect, it } from "vitest";
 // ── fixtures ──────────────────────────────────────────────────────────────
 
 /** A title-like schema: only heading1 is creatable, no marks. */
-const titleSchema = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
+const fullSchema = baseSchema.use(mathExtension());
+const titleSchema = fullSchema.restrict({ blocks: ["heading1"], marks: [] });
 /** A plain-text field: only the paragraph fallback, no marks. */
-const plainSchema = baseSchema.restrict({ blocks: [], marks: [] });
+const plainSchema = fullSchema.restrict({ blocks: [], marks: [] });
 
 function textual(
   type: Block["type"],

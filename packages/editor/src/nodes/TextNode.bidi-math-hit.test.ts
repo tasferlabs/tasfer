@@ -8,17 +8,19 @@
  * math could neither be entered nor selected. See computeSelectionRects /
  * positionWithinLine.
  */
+import {
+  createMathTestMarkRegistry,
+  createMathTestState,
+  loadMathPage,
+} from "../__testutils__/math";
 import { selectWordAtPosition } from "../actions/actions";
-import { createDefaultMarkRegistry } from "../rendering/marks";
-import { loadPage } from "../serlization/loadPage";
-import { createInitialState } from "../state-utils";
 import { resolveTheme } from "../styles";
 import { TextNode, type TextualBlock } from "./TextNode";
 import { describe, expect, it } from "vitest";
 
 describe("TextNode inline-math chip click inside a bidi (RTL) line", () => {
   const styles = resolveTheme({});
-  const marks = createDefaultMarkRegistry();
+  const marks = createMathTestMarkRegistry();
   const node = new TextNode();
 
   const chipRange = (layout: ReturnType<TextNode["computeLayout"]>) => {
@@ -50,14 +52,14 @@ describe("TextNode inline-math chip click inside a bidi (RTL) line", () => {
   };
 
   it("Arabic word + chip on a wide line", () => {
-    const block = loadPage("اااا $x^2$").blocks[0] as TextualBlock;
+    const block = loadMathPage("اااا $x^2$").blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 1000, styles, undefined, marks);
     expect(layout.isRTL).toBe(true);
     landsInside(block, layout);
   });
 
   it("Arabic word + chip on a narrow line (chip pushed by wrap)", () => {
-    const block = loadPage("اااا اتاااار كلمة أخرى $x^2$")
+    const block = loadMathPage("اااا اتاااار كلمة أخرى $x^2$")
       .blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 120, styles, undefined, marks);
     expect(layout.isRTL).toBe(true);
@@ -71,11 +73,11 @@ describe("TextNode inline-math chip click inside a bidi (RTL) line", () => {
   // whole chip IS one script construct, so the construct == the whole chip. Same
   // in LTR and RTL.
   const wholeChip = (content: string) => {
-    const page = loadPage(content);
+    const page = loadMathPage(content);
     const block = page.blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 1000, styles, undefined, marks);
     const { start, end } = chipRange(layout);
-    const state = createInitialState(page);
+    const state = createMathTestState(page);
     // Interior index landing on `^` — a non-word char, the worst case.
     const sel = selectWordAtPosition(state, {
       blockIndex: 0,
@@ -100,12 +102,12 @@ describe("TextNode inline-math chip click inside a bidi (RTL) line", () => {
   // construct, leaving the trailing `+1` unselected — the "first construct under
   // the caret", not the whole chip.
   it("double-click inside a multi-construct chip selects only that construct", () => {
-    const page = loadPage("aa $\\sqrt{x}+1$");
+    const page = loadMathPage("aa $\\sqrt{x}+1$");
     const block = page.blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 1000, styles, undefined, marks);
     const text = layout.chars.map((c) => c.char).join("");
     const chipStart = text.indexOf("\\sqrt");
-    const state = createInitialState(page);
+    const state = createMathTestState(page);
     // A finger landing inside the root's body (the `x`, chip-local offset 6).
     const sel = selectWordAtPosition(state, {
       blockIndex: 0,
@@ -125,11 +127,11 @@ describe("TextNode inline-math chip click inside a bidi (RTL) line", () => {
 // at all (desktop click and mobile tap both route through here).
 describe("TextNode double-click on an atomic-command chip (\\det) by point", () => {
   const styles = resolveTheme({});
-  const marks = createDefaultMarkRegistry();
+  const marks = createMathTestMarkRegistry();
   const node = new TextNode();
 
   it("resolves the whole command from a point anywhere over the chip", () => {
-    const page = loadPage("$\\det$ aa");
+    const page = loadMathPage("$\\det$ aa");
     const block = page.blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 1000, styles, undefined, marks);
     const text = layout.chars.map((c) => c.char).join("");
@@ -151,8 +153,8 @@ describe("TextNode double-click on an atomic-command chip (\\det) by point", () 
   });
 
   it("selectWordAtPosition applies a caller-resolved point range verbatim", () => {
-    const page = loadPage("$\\det$ aa");
-    const state = createInitialState(page);
+    const page = loadMathPage("$\\det$ aa");
+    const state = createMathTestState(page);
     // The position resolves to a chip boundary (0), but the point range is [0,4].
     const sel = selectWordAtPosition(
       state,
@@ -165,8 +167,8 @@ describe("TextNode double-click on an atomic-command chip (\\det) by point", () 
 
   it("without the point range, an offset on the chip boundary selects nothing", () => {
     // Proves the regression's cause: the offset path alone cannot select `\det`.
-    const page = loadPage("$\\det$ aa");
-    const state = createInitialState(page);
+    const page = loadMathPage("$\\det$ aa");
+    const state = createMathTestState(page);
     const sel = selectWordAtPosition(state, {
       blockIndex: 0,
       textIndex: 0,

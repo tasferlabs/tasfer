@@ -12,7 +12,11 @@
 import { measureTexFallbackEm } from "../fonts";
 import {
   layoutMath,
+  layoutMathDocument,
   type LayoutOptions,
+  type MathDocument,
+  type MathDocumentLayout,
+  type MathDocumentLayoutOptions,
   type MathLayout,
   type TextFallback,
 } from "@cypherkit/tex";
@@ -39,4 +43,12 @@ export function layoutMathHost(
   opts: LayoutOptions = {},
 ): MathLayout {
   return layoutMath(latex, { ...opts, textFallback: TEXT_FALLBACK });
+}
+
+/** Identity-keyed tree layout with the same host text fallback as legacy math. */
+export function layoutMathDocumentHost(
+  document: MathDocument,
+  opts: MathDocumentLayoutOptions = {},
+): MathDocumentLayout {
+  return layoutMathDocument(document, { ...opts, textFallback: TEXT_FALLBACK });
 }

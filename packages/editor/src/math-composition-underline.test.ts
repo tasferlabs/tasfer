@@ -11,14 +11,17 @@
  * `moveTo→lineTo→stroke` segments (was an underline drawn?). A no-composition
  * control asserts the underline is present ONLY while composing.
  */
+import {
+  createMathTestState,
+  createMathTestSyncEngine,
+} from "./__testutils__/math";
 import { startComposition } from "./composition";
 import { renderBlock } from "./rendering/renderer";
 import { moveCursorToPosition } from "./selection";
 import type { EditorState } from "./state-types";
-import { createInitialState } from "./state-utils";
 import { getEditorStyles } from "./styles";
 import { insertCharsAtPosition, markCharsInRange } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { beforeAll, describe, expect, it } from "vitest";
 
 beforeAll(() => {
@@ -124,7 +127,7 @@ function paintFirstBlock(state: EditorState): Recorded {
 
 function blockEquation(latex: string) {
   const binding = createCRDTbinding("comp-underline", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
   engine.emit([blockOp]);
   const page = insertCharsAtPosition(
@@ -134,12 +137,12 @@ function blockEquation(latex: string) {
     latex,
     binding,
   ).newPage;
-  return createInitialState(page, { crdtBinding: binding });
+  return createMathTestState(page, { crdtBinding: binding });
 }
 
 function inlineChip(latex: string) {
   const binding = createCRDTbinding("comp-underline", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
@@ -159,7 +162,7 @@ function inlineChip(latex: string) {
     true,
     binding,
   ).newPage;
-  return createInitialState(page, { crdtBinding: binding });
+  return createMathTestState(page, { crdtBinding: binding });
 }
 
 function focus(state: EditorState): EditorState {

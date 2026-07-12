@@ -1,13 +1,13 @@
 import {
-  baseDataSchema,
   parsePage,
-  renderToSVG,
   tokenizePage,
 } from "@cypherkit/editor";
 import { findTitleBlock, inlineToHtml } from "@cypherkit/editor/internal";
+import { renderToSVG } from "@cypherkit/editor/math";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
+import { appDataSchema } from "../appDataSchema";
 import style from "./TitlePreview.module.css";
 
 /**
@@ -30,13 +30,20 @@ function titleMarkdownToHtml(
 
   let html = "";
   try {
-    const block = findTitleBlock(parsePage(tokenizePage(titleMd)).blocks);
+    const block = findTitleBlock(
+      parsePage(tokenizePage(titleMd, appDataSchema), appDataSchema).blocks,
+    );
     if (block) {
       html = inlineToHtml(
         block.charRuns ?? [],
         block.formats ?? [],
-        baseDataSchema,
-        (latex, displayMode) => renderToSVG(latex, displayMode, mathFontSize),
+        appDataSchema,
+        (type, source, displayMode) => {
+          if (type !== "math") {
+            throw new Error(`Unsupported replacement: ${type}`);
+          }
+          return renderToSVG(source, displayMode, mathFontSize);
+        },
       );
     }
   } catch {

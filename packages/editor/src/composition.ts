@@ -1,11 +1,12 @@
 import type { EditorState, Position } from "./state-types";
+import type { ContentPoint } from "./structured-selection";
 
 // Composition (IME) State Management
 
 export function startComposition(
   state: EditorState,
   text: string,
-  startPosition: Position,
+  startPosition: Position | ContentPoint,
 ): EditorState {
   return {
     ...state,

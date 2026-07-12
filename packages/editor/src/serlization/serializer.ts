@@ -6,7 +6,7 @@
  * item's number depends on its neighbors), and the trailing-newline rule.
  */
 
-import { getBaseDataSchema } from "../baseDataSchema";
+import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import type { DataSchema } from "../sync/schema";
 import type { OutputCtx } from "./codecs";
@@ -51,7 +51,7 @@ export function serializeToMarkdown(
   metadata?: PageMetadata,
   options?: MarkdownSerializeOptions,
 ): string {
-  const schema = options?.schema ?? getBaseDataSchema();
+  const schema = options?.schema ?? getCompatibilityDataSchema();
 
   // Filter out deleted blocks (CRDT tombstones)
   blocks = blocks.filter((block) => !block.deleted);
@@ -96,7 +96,12 @@ export function serializeToMarkdown(
 
     const codec = schema.getCodec(block.type);
     if (!codec) return "";
-    return codec.markdown.output(block, { ...ctx, listNumber });
+    return codec.markdown.output(block, {
+      ...ctx,
+      inline: (charRuns, formats) =>
+        inlineToMarkdown(charRuns, formats, schema, block.structuredContent),
+      listNumber,
+    });
   });
 
   const result = serializedBlocks.join("\n");

@@ -31,6 +31,10 @@ import {
 } from "../selection";
 import type { ActiveMenu, Position } from "../state-types";
 import { setActiveMenu, updateMode } from "../state-utils";
+import {
+  type ContentSelection,
+  updateContentSelection,
+} from "../structured-selection";
 
 // ─── Cursor placement (single click) ─────────────────────────────────────────
 
@@ -43,7 +47,30 @@ import { setActiveMenu, updateMode } from "../state-utils";
 export const PLACE_CURSOR_AT_POINT = stateAction<{
   position: Position;
   extend: boolean;
-}>("place-cursor-at-point", (state, { position, extend }) => {
+  /** Node-resolved nested caret; absent keeps ordinary flat placement. */
+  contentSelection?: ContentSelection | null;
+}>("place-cursor-at-point", (state, { position, extend, contentSelection }) => {
+  if (contentSelection) {
+    const current = state.document.contentSelection;
+    const selection =
+      extend &&
+      current &&
+      current.anchor.blockId === contentSelection.focus.blockId &&
+      current.anchor.contentId === contentSelection.focus.contentId
+        ? {
+            anchor: current.anchor,
+            focus: contentSelection.focus,
+            lastUpdate: Date.now(),
+          }
+        : contentSelection;
+    const nested = updateContentSelection(state, selection);
+    if (nested.document.contentSelection) {
+      return {
+        state: updateMode(nested, "select"),
+        ops: [],
+      };
+    }
+  }
   let newState = updateCursor(state, position);
   if (extend) {
     newState = updateSelectionFocus(newState, position);

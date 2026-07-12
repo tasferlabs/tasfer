@@ -48,6 +48,7 @@ import {
   markCharsInRange,
   selectionRangeToCRDT,
 } from "../sync/crdt-utils";
+import { rangeIntersectsStructuredMark } from "./structured-marks";
 
 /**
  * Literal auto-surround pairs: typing the open char over a selection encloses
@@ -148,6 +149,26 @@ function wrapWithMarks(
 
   const segments = formatableSegments(state, start, end);
   if (segments.length === 0) return null;
+  if (
+    claimed.some(({ type }) =>
+      segments.some((segment) => {
+        const block = state.document.page.blocks[segment.blockIndex];
+        return (
+          !!block &&
+          !block.deleted &&
+          rangeIntersectsStructuredMark(
+            block,
+            segment.from,
+            segment.to,
+            state.schema,
+            type,
+          )
+        );
+      }),
+    )
+  ) {
+    return { state, ops: [] };
+  }
 
   // A mark counts as applied only when EVERY selected format-capable char has
   // it — a partially-marked selection reads as "not applied", so the next

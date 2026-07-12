@@ -12,6 +12,8 @@
  * violating the "a reader never sees raw math source" invariant. `groupSegments`
  * now shares the tolerant resolver, so export and render agree.
  */
+import { createMathTestSyncEngine, mathTestSchema } from "./__testutils__/math";
+import { renderToSVG } from "./nodes/math";
 import { serializeToHTML } from "./serlization/htmlSerializer";
 import { serializeToMarkdown } from "./serlization/serializer";
 import {
@@ -19,13 +21,13 @@ import {
   insertCharsAtPosition,
   markCharsInRange,
 } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
 /** A paragraph "pre <math>latex</math> post" with the chip fully marked. */
 function chipDoc(latex: string) {
   const binding = createCRDTbinding("ser-res", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
@@ -52,6 +54,14 @@ function chipDoc(latex: string) {
 }
 
 describe("inline-math export/render resolution agree", () => {
+  const markdownOptions = { schema: mathTestSchema.data };
+  const htmlOptions = {
+    title: "t",
+    schema: mathTestSchema.data,
+    renderReplacement: (_type: string, source: string, displayMode: boolean) =>
+      renderToSVG(source, displayMode, 14),
+  };
+
   it("a chip whose TRAILING anchor char is tombstoned still serializes as math", () => {
     const { page, blockId, binding, pre } = chipDoc("x^2");
     // Delete the formula's last char ('2') — the mark span's end anchor.
@@ -64,8 +74,8 @@ describe("inline-math export/render resolution agree", () => {
       binding,
     );
 
-    const md = serializeToMarkdown(newPage.blocks);
-    const html = serializeToHTML(newPage.blocks, { title: "t" });
+    const md = serializeToMarkdown(newPage.blocks, undefined, markdownOptions);
+    const html = serializeToHTML(newPage.blocks, htmlOptions);
 
     // Markdown keeps the surviving formula in `$…$`, never as bare text.
     expect(md).toContain("$x^$");
@@ -85,8 +95,8 @@ describe("inline-math export/render resolution agree", () => {
       binding,
     );
 
-    const md = serializeToMarkdown(newPage.blocks);
-    const html = serializeToHTML(newPage.blocks, { title: "t" });
+    const md = serializeToMarkdown(newPage.blocks, undefined, markdownOptions);
+    const html = serializeToHTML(newPage.blocks, htmlOptions);
 
     expect(md).toContain("$b$");
     expect(html).toContain("<svg");

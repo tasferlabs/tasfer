@@ -11,6 +11,7 @@
  * React edit overlay and HTML export), and a validity check.
  */
 import { getInlineMathSpans, type InlineMathSpan } from "../inline-math-spans";
+import { normalizeMathSource } from "../math/source";
 import type { CaretMotion } from "../rendering/nodes/caret-model";
 import type { Block } from "../serlization/loadPage";
 import type {
@@ -22,6 +23,7 @@ import type {
 import { isTouchDevice } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { isMathEnvironmentCommandPrefix } from "./math-commands";
+import type { MathBlock } from "./MathNode";
 // All math layout goes through the host-wired entry so `\text{…}` characters the
 // math fonts can't render (CJK, …) are measured/typeset via the host font.
 import { layoutMathHost as layoutMath } from "./tex-host";
@@ -34,7 +36,6 @@ import {
   type CaretStop,
   caretStops as texCaretStops,
   caretVertical as texCaretVertical,
-  escapeStrayCloseBraces as texEscapeStrayCloseBraces,
   escapeTypedBrace as texEscapeTypedBrace,
   escapeTypedReserved as texEscapeTypedReserved,
   hitTest as texHitTest,
@@ -66,6 +67,13 @@ import {
 export { isValidLatex };
 export type { MathUnit, MatrixContext, MatrixEditResult, MatrixTextEdit };
 
+/**
+ * Math helpers serve both ordinary core text blocks carrying an inline math
+ * mark and the optional feature's display block. Keeping that union local to
+ * the math entry avoids admitting the feature block into core's public Block.
+ */
+type MathCapableBlock = Block | MathBlock;
+
 // ─── Caret / edit model ──────────────────────────────────────────────────────
 //
 // The math-specific answers behind the generic caret/edit seam (see the hooks on
@@ -81,7 +89,7 @@ const INLINE_NAV_FONT_SIZE = 18;
 
 /** The block's full LaTeX source (its visible char-run text). Only the math
  * block branch calls this; a non-textual block (no char runs) has none. */
-function blockLatex(block: Block): string {
+function blockLatex(block: MathCapableBlock): string {
   return "charRuns" in block ? getVisibleTextFromRuns(block.charRuns) : "";
 }
 
@@ -172,7 +180,7 @@ export function mathMatrixResize(
  * chip's far edge into the surrounding text.
  */
 export function mathCaretStep(
-  block: Block,
+  block: MathCapableBlock,
   index: number,
   dir: "left" | "right",
 ): number | null {
@@ -201,7 +209,7 @@ export function mathCaretStep(
  * beyond `index` — the caller then leaves the formula via ordinary line nav.
  */
 export function mathCaretVerticalStep(
-  block: Block,
+  block: MathCapableBlock,
   index: number,
   dir: "up" | "down",
 ): number | null {
@@ -239,7 +247,7 @@ export function mathCaretVerticalStep(
  * Returns `null` when `target` isn't inside math content (caller uses it as-is).
  */
 export function mathCaretTokenClamp(
-  block: Block,
+  block: MathCapableBlock,
   target: number,
   dir: "left" | "right",
 ): number | null {
@@ -258,7 +266,7 @@ export function mathCaretTokenClamp(
  * by MathNode (block equations) and MathMark (inline chips).
  */
 export function mathCaretMove(
-  block: Block,
+  block: MathCapableBlock,
   index: number,
   motion: CaretMotion,
 ): number | null {
@@ -344,7 +352,7 @@ function separatorAwareUnitAfter(
  * {@link separatorAwareUnitBefore}). `null` when the caret isn't in math content.
  */
 export function mathDeleteUnit(
-  block: Block,
+  block: MathCapableBlock,
   index: number,
   dir: "backward" | "forward",
 ): CaretDeleteUnit | null {
@@ -566,7 +574,7 @@ function isEmptySlotFillContent(input: string): boolean {
  * reinterpret the formula). `null` outside math or when nothing needs doing.
  */
 export function mathTransformTypedInput(
-  block: Block,
+  block: MathCapableBlock,
   index: number,
   input: string,
 ): TypedInputTransform | null {
@@ -764,7 +772,7 @@ export function mathTransformTypedInput(
  * Read back via `isCaretScratchActive`. Purely cosmetic.
  */
 export function mathArmScratch(
-  block: Block,
+  block: MathCapableBlock,
   index: number,
 ): CaretScratch | null {
   let latex: string | null = null;
@@ -809,10 +817,7 @@ export function mathArmScratch(
  * {@link mathHealAfterInput}.
  */
 export function mathBalancedLatex(latex: string): string {
-  const escaped = texEscapeStrayCloseBraces(latex);
-  const b = texBalanceBraces(escaped);
-  if (!b.changed) return escaped;
-  return b.inserts.reduce((s, i) => s + i.text, escaped);
+  return normalizeMathSource(latex);
 }
 
 /**
@@ -842,7 +847,7 @@ export function mathBalancedLatex(latex: string): string {
  * balance closers append at the source end and shift nothing.
  */
 export function mathHealAfterInput(
-  block: Block,
+  block: MathCapableBlock,
   index: number,
 ): ContentMaterialization | null {
   if (block.type === "math") {
@@ -897,7 +902,7 @@ export function mathHealAfterInput(
  * alone, so this never fights a user typing braces manually.
  */
 export function mathMaterializeAfterInput(
-  block: Block,
+  block: MathCapableBlock,
   index: number,
 ): ContentMaterialization | null {
   if (block.type === "math") {
@@ -952,7 +957,7 @@ export function mathMaterializeAfterInput(
  * `\oint x` space stays put).
  */
 export function mathSplitAfterInput(
-  block: Block,
+  block: MathCapableBlock,
   caret: number,
 ): { from: number; to: number } | null {
   if (block.type === "math" || caret <= 0 || !("charRuns" in block))
@@ -1018,7 +1023,7 @@ const EDGE_PROSE_PUNCTUATION = new Set([",", ".", ";", ":", "!", "?"]);
  * are all math already).
  */
 export function mathJoinAtEdgeAfterInput(
-  block: Block,
+  block: MathCapableBlock,
   caret: number,
 ): { from: number; to: number; insert?: { at: number; text: string } } | null {
   if (block.type === "math" || caret <= 0 || !("charRuns" in block))
@@ -1124,7 +1129,7 @@ export function mathJoinAtEdgeAfterInput(
  * token — even a control word — is already well-formed math).
  */
 export function mathAbsorbNumericPunctuationAfterInput(
-  block: Block,
+  block: MathCapableBlock,
   caret: number,
 ): { from: number; to: number; insert?: { at: number; text: string } } | null {
   if (block.type === "math" || caret < 2 || !("charRuns" in block)) return null;
@@ -1162,7 +1167,7 @@ export function mathAbsorbNumericPunctuationAfterInput(
  * `caret` is the post-insert caret, so the freshly-typed space is at `caret − 1`.
  */
 export function mathRedundantSpaceAfterInput(
-  block: Block,
+  block: MathCapableBlock,
   caret: number,
 ): { from: number; to: number } | null {
   if (caret <= 0 || !("charRuns" in block)) return null;
@@ -1214,7 +1219,7 @@ export function mathRedundantSpaceAfterInput(
  * `caret` is the post-insert caret, so the separator (if any) is at `caret`.
  */
 export function mathRedundantSeparatorAfterInput(
-  block: Block,
+  block: MathCapableBlock,
   caret: number,
 ): { from: number; to: number } | null {
   if (!("charRuns" in block)) return null;
@@ -1277,7 +1282,10 @@ export interface MathMergePlan {
  * between `\sin` ⎵ `x` re-merges to a valid `\sin x` (a separator is reinserted).
  * `null` when nothing is adjacent (the common case).
  */
-export function mathMergeAfterDelete(block: Block): MathMergePlan[] | null {
+export function mathMergeAfterDelete(
+  block: MathCapableBlock,
+): MathMergePlan[] | null {
+  if (block.type === "math") return null;
   const spans = getInlineMathSpans(block).sort(
     (a, b) => a.startIndex - b.startIndex,
   );
@@ -1328,7 +1336,7 @@ export function mathMergeAfterDelete(block: Block): MathMergePlan[] | null {
  * this direct check. `caret` is the post-delete caret offset (the weld point).
  */
 export function mathSeparatorAfterDelete(
-  block: Block,
+  block: MathCapableBlock,
   caret: number,
 ): number | null {
   if (block.type !== "math") return null;
@@ -1503,7 +1511,7 @@ export function mathUnitAt(latex: string, offset: number): MathUnit | null {
  *   Endpoints in plain text stay put.
  */
 export function mathSelectionRange(
-  block: Block,
+  block: MathCapableBlock,
   anchor: number,
   focus: number,
   focusEdge: "start" | "end",

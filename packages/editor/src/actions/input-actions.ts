@@ -29,6 +29,7 @@ import type { EditorState } from "../state-types";
 import type { Operation } from "../sync/sync";
 import { deleteSelectedText, getSelectionRange, insertText } from "./actions";
 import { pasteFromClipboardEvent } from "./clipboard";
+import { selectionIntersectsStructuredMark } from "./structured-marks";
 
 // ─── Composition (IME) ───────────────────────────────────────────────────────
 
@@ -52,11 +53,21 @@ export const COMPOSITION_START = stateAction<CompositionTextPayload>(
   (state, { data }) => {
     const ops: Operation[] = [];
 
-    // When composition starts, save the current cursor position
-    if (!state.document.cursor) return { state, ops };
+    // A composition may start in either flat block text or an extension-owned
+    // structured document. Structured ranges stay intact until compositionend,
+    // where the feature's normal insert rule replaces them atomically. Deleting
+    // them here would make a cancelled IME session destructive.
+    if (!state.document.cursor && !state.document.contentSelection) {
+      return { state, ops };
+    }
 
     // Delete any selected text first (like normal typing would)
-    if (state.document.selection && !state.document.selection.isCollapsed) {
+    if (
+      state.document.selection &&
+      !state.document.selection.isCollapsed &&
+      !selectionIntersectsStructuredMark(state) &&
+      !state.schema.features.ownsInput("before-insert", state, data)
+    ) {
       const range = getSelectionRange(state);
       if (range) {
         const result = deleteSelectedText(state);
@@ -65,9 +76,12 @@ export const COMPOSITION_START = stateAction<CompositionTextPayload>(
       }
     }
 
-    // Store the starting position for composition
-    if (!state.document.cursor) return { state, ops };
-    const startPosition = state.document.cursor.position;
+    // Store the stable starting point for composition. `insertText` still uses
+    // the live selection on commit, so concurrent structured edits can be
+    // reconciled before the final string lands.
+    const startPosition = state.document.cursor
+      ? state.document.cursor.position
+      : { ...state.document.contentSelection!.focus };
 
     return {
       state: {
@@ -124,10 +138,17 @@ export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
         ...state,
         document: {
           ...state.document,
-          // Keep cursor active (not blinking) during composition updates
+          // Keep the active caret (flat or structured) from blinking during
+          // composition updates.
           cursor: state.document.cursor
             ? {
                 ...state.document.cursor,
+                lastUpdate: Date.now(),
+              }
+            : null,
+          contentSelection: state.document.contentSelection
+            ? {
+                ...state.document.contentSelection,
                 lastUpdate: Date.now(),
               }
             : null,
@@ -160,7 +181,7 @@ export const COMPOSITION_END = stateAction<CompositionTextPayload>(
     const ops: Operation[] = [];
 
     // Insert the final composed text
-    if (data && state.document.cursor) {
+    if (data && (state.document.cursor || state.document.contentSelection)) {
       const result = insertText(state, data);
       state = result.state;
       ops.push(...result.ops);
@@ -200,7 +221,13 @@ export const COPY = action("copy");
  * deletion is observable/overridable.
  */
 export const CUT = stateAction("cut", (state) => {
-  const result = deleteSelectedText(state);
+  const result =
+    state.document.contentSelection ||
+    (state.document.selection &&
+      !state.document.selection.isCollapsed &&
+      state.schema.features.ownsInput("before-insert", state, ""))
+      ? insertText(state, "")
+      : deleteSelectedText(state);
   return { state: result.state, ops: result.ops };
 });
 

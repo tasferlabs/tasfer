@@ -10,6 +10,7 @@ import type {
   BlockDelete,
   BlockInsert,
   BlockSet,
+  ContentEdit,
   HLC,
   MarkSet,
   Operation,
@@ -24,6 +25,9 @@ import {
 } from "./block-registry";
 import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
 import { generateKeyBetween } from "./fractional-index";
+import type { DataSchema } from "./schema";
+import { canonicalizeStructuredDocument } from "./structured-content";
+import type { IdentityAllocator } from "@shared/identity";
 
 // =============================================================================
 // Types
@@ -44,6 +48,23 @@ export interface BlockChanges {
   typeChanged?: { from: string; to: string };
   textChanged?: { from: string; to: string };
   propsChanged?: Array<{ field: string; from: unknown; to: unknown }>;
+}
+
+function hasTextStorage(
+  block: Block,
+  schema?: DataSchema,
+): block is Block & { charRuns: CharRun[]; formats: MarkSpan[] } {
+  return (
+    (schema ? schema.isTextual(block.type) : isTextualBlock(block)) &&
+    "charRuns" in block &&
+    Array.isArray(block.charRuns) &&
+    "formats" in block &&
+    Array.isArray(block.formats)
+  );
+}
+
+function fieldNames(schema: DataSchema | undefined, type: string) {
+  return schema?.getFieldNames(type) ?? getBlockFieldNames(type);
 }
 
 export interface PageDiff {
@@ -69,6 +90,7 @@ export interface PageDiff {
 export function diffPageWithSnapshot(
   currentBlocks: Block[],
   snapshotBlocks: Block[],
+  schema?: DataSchema,
 ): PageDiff {
   const currentMap = new Map<string, Block>();
   const snapshotMap = new Map<string, Block>();
@@ -102,7 +124,7 @@ export function diffPageWithSnapshot(
       });
     } else {
       // Block exists in both - check for modifications
-      const changes = diffBlocks(currentBlock, snapshotBlock);
+      const changes = diffBlocks(currentBlock, snapshotBlock, schema);
       if (changes) {
         blockDiffs.push({
           type: "modified",
@@ -147,7 +169,11 @@ export function diffPageWithSnapshot(
 /**
  * Compare two blocks and return changes if any.
  */
-function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
+function diffBlocks(
+  current: Block,
+  snapshot: Block,
+  schema?: DataSchema,
+): BlockChanges | null {
   const changes: BlockChanges = {};
   let hasChanges = false;
 
@@ -156,7 +182,7 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
     hasChanges = true;
   }
 
-  if (isTextualBlock(current) && isTextualBlock(snapshot)) {
+  if (hasTextStorage(current, schema) && hasTextStorage(snapshot, schema)) {
     const currentText = getVisibleTextFromRuns(current.charRuns);
     const snapshotText = getVisibleTextFromRuns(snapshot.charRuns);
 
@@ -169,7 +195,7 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
   const propsChanged: Array<{ field: string; from: unknown; to: unknown }> = [];
 
   if (current.type === snapshot.type) {
-    for (const fieldName of getBlockFieldNames(current.type)) {
+    for (const fieldName of fieldNames(schema, current.type)) {
       if (fieldName === "type") continue;
       const currentVal = (current as unknown as Record<string, unknown>)[
         fieldName
@@ -218,15 +244,15 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
 /**
  * Context needed to generate operations from blocks.
  */
-export interface OpsContext {
+export interface OpsContext extends IdentityAllocator {
   /** Page ID for operations */
   pageId: string;
   /** Peer ID for char runs */
   peerId: string;
-  /** Function to generate unique IDs */
-  nextId: () => string;
   /** Function to get current HLC */
   getClock: () => HLC;
+  /** Schema that owns block defaults/fields. Defaults to the base schema. */
+  schema?: DataSchema;
   /**
    * When set, the first non-deleted block reuses this block ID and its
    * block_insert op is skipped (the block already exists in the DB).
@@ -243,6 +269,7 @@ export interface OpsContext {
 export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
   const ops: Operation[] = [];
   const { pageId, peerId, nextId, getClock } = ctx;
+  const schema = ctx.schema;
 
   // Running fractional-index key — each block chains after the previous one,
   // so the emitted sequence preserves the input order.
@@ -299,7 +326,53 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
       } as BlockSet);
     }
 
-    if (isTextualBlock(block)) {
+    // Clone each attachment exactly once before rewriting any covering marks.
+    // The resulting source→target map is the only cross-facet contract: core
+    // knows neither which mark attr holds a reference nor how a document kind
+    // rekeys its own root/internal identities.
+    const clonedContentIds: Record<string, string> = {};
+    const clonedStructuredContent: Array<{
+      readonly contentId: string;
+      readonly document: ReturnType<typeof canonicalizeStructuredDocument>;
+    }> = [];
+    const targetContentIds = new Set<string>();
+    for (const contentId of Object.keys(block.structuredContent ?? {}).sort()) {
+      const sourceDocument = canonicalizeStructuredDocument(
+        block.structuredContent![contentId],
+      );
+      const cloned =
+        newBlockId !== block.id
+          ? schema?.features.cloneStructuredContent({
+              document: sourceDocument,
+              sourceBlockId: block.id,
+              targetBlockId: newBlockId,
+              sourceContentId: contentId,
+              identities: { nextId },
+            })
+          : undefined;
+      const targetContentId = cloned?.contentId ?? contentId;
+      const targetDocument = canonicalizeStructuredDocument(
+        cloned?.document ?? sourceDocument,
+      );
+      if (targetDocument.rootId !== targetContentId) {
+        throw new Error(
+          `Structured clone for "${contentId}" returned a mismatched root id`,
+        );
+      }
+      if (targetContentIds.has(targetContentId)) {
+        throw new Error(
+          `Structured clone returned duplicate content id "${targetContentId}"`,
+        );
+      }
+      targetContentIds.add(targetContentId);
+      clonedContentIds[contentId] = targetContentId;
+      clonedStructuredContent.push({
+        contentId: targetContentId,
+        document: targetDocument,
+      });
+    }
+
+    if (hasTextStorage(block, schema)) {
       const visibleOldChars: Array<{ id: string; char: string }> = [];
       for (const { id, char } of iterateVisibleChars(block.charRuns)) {
         visibleOldChars.push({ id, char });
@@ -319,10 +392,26 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
           const newStartId = oldToNewCharIdMap.get(f.startCharId);
           const newEndId = oldToNewCharIdMap.get(f.endCharId);
           if (newStartId && newEndId) {
+            const clonedMark =
+              newBlockId !== block.id
+                ? schema?.features.cloneStructuredMark(f.format.type, {
+                    mark: f.format,
+                    sourceBlockId: block.id,
+                    targetBlockId: newBlockId,
+                    attachments: block.structuredContent,
+                    clonedContentIds,
+                  })
+                : undefined;
+            if (clonedMark && clonedMark.type !== f.format.type) {
+              throw new Error(
+                `Structured mark clone for "${f.format.type}" returned type "${clonedMark.type}"`,
+              );
+            }
             return {
               ...f,
               startCharId: newStartId,
               endCharId: newEndId,
+              format: clonedMark ?? f.format,
               clock: getClock(),
             };
           }
@@ -375,14 +464,14 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
       }
     }
 
-    // Unknown (custom) block type: the built-in registry can't supply field
-    // defaults to diff against, so emit only the block_insert (done above) and
-    // skip prop ops. A schema-aware diff path would handle these; until then,
-    // custom blocks degrade rather than crash.
-    const descriptor = getBlockDescriptor(block.type);
+    // Registered fields are diffed against this schema's defaults. An unknown
+    // block still degrades safely to its block_insert, preserving the existing
+    // forward-compatible behavior for peers missing an extension.
+    const descriptor =
+      schema?.getDescriptor(block.type) ?? getBlockDescriptor(block.type);
     const defaultBlock = descriptor?.defaults(newBlockId, orderKey);
     if (defaultBlock) {
-      for (const fieldName of getBlockFieldNames(block.type)) {
+      for (const fieldName of fieldNames(schema, block.type)) {
         if (fieldName === "type") continue;
         const currentVal = (block as unknown as Record<string, unknown>)[
           fieldName
@@ -418,6 +507,21 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
         field: styleField(key),
         value,
       } as BlockSet);
+    }
+
+    for (const attachment of clonedStructuredContent) {
+      ops.push({
+        op: "content_edit",
+        id: nextId(),
+        clock: getClock(),
+        pageId,
+        blockId: newBlockId,
+        contentId: attachment.contentId,
+        edit: {
+          kind: "document_init",
+          document: attachment.document,
+        },
+      } as ContentEdit);
     }
 
     prevOrderKey = orderKey;
@@ -473,8 +577,9 @@ export function generateRestoreOperations(ctx: RestoreContext): Operation[] {
 export function arePagesEqual(
   currentBlocks: Block[],
   snapshotBlocks: Block[],
+  schema?: DataSchema,
 ): boolean {
-  const diff = diffPageWithSnapshot(currentBlocks, snapshotBlocks);
+  const diff = diffPageWithSnapshot(currentBlocks, snapshotBlocks, schema);
   return (
     diff.stats.added === 0 &&
     diff.stats.removed === 0 &&

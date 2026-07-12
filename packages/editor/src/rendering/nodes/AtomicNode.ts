@@ -15,23 +15,24 @@
 import { memoizeNodeLayout } from "../../node-shared";
 import type { Image } from "../../nodes/ImageNode";
 import type { Line } from "../../nodes/LineNode";
-import type { MathBlock } from "../../nodes/MathNode";
-import type { Block } from "../../serlization/loadPage";
 import type { BlockBounds, RenderedBlock } from "../../state-types";
 import { allDecorations, rangeDecorationToSelection } from "../decorations";
 import {
   Node,
+  type NodeBlock,
   type NodeLayout,
   type NodeLayoutCtx,
   type NodePaintCtx,
   type Point,
 } from "./Node";
 
-// Visual blocks contain visual content (images, lines, math, etc.). Each concrete
-// type lives next to its own view; this is just the union over them.
-export type VisualBlock = Image | Line | MathBlock;
+// Visual blocks built into the core package. Optional visual feature blocks
+// specialize AtomicNode through its generic without joining this root union.
+export type VisualBlock = Image | Line;
 
-export abstract class AtomicNode<B extends Block = Block> extends Node<B> {
+export abstract class AtomicNode<
+  B extends NodeBlock = NodeBlock,
+> extends Node<B> {
   /**
    * Vertical flow the block consumes, including its own trailing padding.
    * This is what the height pass returns and the document layout advances by.

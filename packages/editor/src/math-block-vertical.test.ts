@@ -7,18 +7,17 @@
  * exactly as the inline-math chips already do. These drive the real
  * `moveCursorUp`/`moveCursorDown` over a fabricated state (no canvas mount).
  */
+import { createMathTestState, loadMathPage } from "./__testutils__/math";
 import { moveCursorDown, moveCursorUp } from "./selection";
-import { loadPage } from "./serlization/loadPage";
 import type { CursorState, EditorState } from "./state-types";
-import { createInitialState } from "./state-utils";
 import { getVisibleTextFromRuns } from "./sync/char-runs";
 import { describe, expect, it } from "vitest";
 
 function mathState(latex: string): EditorState {
-  const page = loadPage(`$$${latex}$$`);
+  const page = loadMathPage(`$$${latex}$$`);
   expect(page.blocks[0].type).toBe("math");
   expect(getVisibleTextFromRuns(page.blocks[0].charRuns)).toBe(latex);
-  return createInitialState(page);
+  return createMathTestState(page);
 }
 
 function at(s: EditorState, textIndex: number): EditorState {
@@ -58,8 +57,8 @@ describe("block math — vertical caret navigation", () => {
 
   it("exits the block (changes block) when there is no row beyond the edge slot", () => {
     // A trailing paragraph gives ArrowDown somewhere to land.
-    const page = loadPage("$$\\frac{a}{b}$$\n\ntail");
-    const s = createInitialState(page);
+    const page = loadMathPage("$$\\frac{a}{b}$$\n\ntail");
+    const s = createMathTestState(page);
     const bOff = "\\frac{a}{b}".indexOf("{b}") + 1;
 
     // ↓ from the denominator (bottom slot) leaves the math block.

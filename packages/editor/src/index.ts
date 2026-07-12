@@ -2,12 +2,13 @@
  * @cypherkit/editor — the curated public API.
  *
  * This module IS the contract owed to external consumers. The package exposes
- * exactly two entry points (see `package.json` `exports`): this root, and the
- * explicitly-unstable `@cypherkit/editor/internal` (engine machinery + host
- * plumbing, no semver guarantee). The former `./*` wildcard — which made every
- * source file a frozen public entry point — has been removed. Keep this surface
- * tight: prefer adding capability as new node/mark types or facets over new
- * top-level exports, and never re-export engine internals here.
+ * the stable root plus explicit optional-feature entries such as
+ * `@cypherkit/editor/math`. Engine machinery and first-party host plumbing live
+ * under `@cypherkit/editor/internal` (no semver guarantee); legacy deep entries
+ * remain available while first-party consumers migrate. Keep this root surface
+ * tight: prefer adding capability through nodes, marks, and feature facets over
+ * new top-level exports. Math's historical root exports remain as compatibility
+ * aliases; new integrations should use the explicit `./math` entry.
  */
 
 // Mount / lifecycle
@@ -32,11 +33,12 @@ export {
   ImageNode,
   LineNode,
   ListNode,
-  MathNode,
   Node,
   type NodeActivateCtx,
   type NodeActivation,
   type NodeAtomicHit,
+  type NodeContentHitCtx,
+  type NodeContentHitOptions,
   type NodeHitRegion,
   type NodePointerType,
   type NodeRegionCtx,
@@ -45,6 +47,9 @@ export {
   TextNode,
   type TextSpan,
 } from "./rendering/nodes";
+// Compatibility alias. New feature-oriented consumers should import this from
+// `@cypherkit/editor/math` and install `mathExtension()` explicitly.
+export { type MathBlock, MathNode } from "./nodes/MathNode";
 
 // Inline marks. `Mark` is the base class to subclass for a custom mark's
 // on-canvas paint (its `style()` returns the visual channels — color, a chip,
@@ -60,14 +65,17 @@ export {
   type MarkChipStyle,
   type MarkOverlayCtx,
   type MarkReplacement,
+  type MarkReplacementContentCtx,
+  type MarkReplacementSourceCtx,
   type MarkStyle,
   type MarkStyleCtx,
   type MarkUnderlineStyle,
-  MathMark,
   type SelectionWrapTrigger,
   StrikeMark,
   StrongMark,
 } from "./rendering/marks";
+// Compatibility alias; see the MathNode note above.
+export { MathMark } from "./rendering/marks/MathMark";
 
 // Interaction regions are an internal concept — there is no host-level region
 // API. Built-in chrome regions (scrollbar, selection handles, peer indicators)
@@ -126,8 +134,9 @@ export { createDoc, PERSISTED_DOC_VERSION } from "./doc";
 export { invariant, InvariantError } from "@shared/invariant";
 
 // Schema & extensibility — declare custom block types (`defineNode`) and inline
-// marks (`defineMark`), bundle them with `baseSchema.extend(...)`, and pass the
-// result to `createEditor({ schema })` / `createDoc({ schema: schema.data })`.
+// marks (`defineMark`), register ad-hoc specs with `baseSchema.extend(...)` or
+// bundle reusable features for `baseSchema.use(...)`, and pass the result to
+// `createEditor({ schema })` / `createDoc({ schema: schema.data })`.
 // The canvas-free `DataSchema` (`schema.data`) carries the CRDT + serialization
 // facets; the full `Schema` adds the rendering nodes. v1 custom nodes are leaf
 // void blocks that round-trip through a generic `<x-type …>` HTML tag.
@@ -138,6 +147,36 @@ export { invariant, InvariantError } from "@shared/invariant";
 export { getBaseDataSchema } from "./baseDataSchema";
 import { getBaseDataSchema as resolveBaseDataSchema } from "./baseDataSchema";
 export const baseDataSchema = resolveBaseDataSchema();
+export type {
+  FeatureActionHook,
+  FeatureContentSelectionCtx,
+  FeatureContentSelectionSerializer,
+  FeatureContentSelectionSlice,
+  FeatureFacets,
+  FeatureInputPhase,
+  FeatureInputRule,
+  FeatureInputRuleCtx,
+  FeatureStructuredContentCloneCtx,
+  FeatureStructuredContentCloneFacet,
+  FeatureStructuredContentCloneResult,
+  FeatureStructuredMarkAttachment,
+  FeatureStructuredMarkCloneCtx,
+  FeatureStructuredMarkCreateCtx,
+  FeatureStructuredMarkCreateResult,
+  FeatureStructuredMarkFacet,
+  FeatureStructuredMarkResolveCtx,
+  FeatureSyntaxCtx,
+  FeatureSyntaxMatch,
+  FeatureSyntaxRule,
+  FeatureSyntaxToken,
+  FeatureThemeDefaults,
+  ResolvedFeatureThemeDefaults,
+} from "./feature-facets";
+export {
+  FeatureFacetRegistry,
+  matchFeatureSyntax,
+  runFeatureInputRules,
+} from "./feature-facets";
 export { UnknownNode } from "./rendering/nodes";
 export { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
 export type {
@@ -145,7 +184,9 @@ export type {
   BlockSpec,
   DefineMarkConfig,
   DefineNodeConfig,
+  FeatureExtension,
   MarkDef,
+  SchemaDefinitionOf,
   SchemaExtension,
   SchemaRestriction,
 } from "./schema";
@@ -279,6 +320,7 @@ export {
   EXTEND_SELECTION_UP,
   EXTEND_SELECTION_WORD_LEFT,
   EXTEND_SELECTION_WORD_RIGHT,
+  MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_PAGE_DOWN,
@@ -326,17 +368,21 @@ export {
 } from "./rendering/marks";
 // Built-in node commands (co-located with the node each acts on).
 export {
+  EXIT_INLINE_MATH,
+  INSERT_MATH_COMMAND,
+  RESIZE_MATH_MATRIX,
+  SET_INLINE_MATH_HOVER,
+  SET_MATH_BLOCK_HOVER,
+} from "./nodes/MathNode";
+export {
   CANCEL_IMAGE_HANDLE_DRAG,
   CREATE_PARAGRAPH_BELOW_IMAGE,
   END_IMAGE_HANDLE_DRAG,
-  EXIT_INLINE_MATH,
   INDENT_CODE,
   INDENT_LIST_ITEM,
   OUTDENT_CODE,
   OUTDENT_LIST_ITEM,
   SET_IMAGE_HOVER,
-  SET_INLINE_MATH_HOVER,
-  SET_MATH_BLOCK_HOVER,
   START_IMAGE_HANDLE_DRAG,
   TOGGLE_TODO_CHECKED,
   UPDATE_IMAGE_HANDLE_DRAG,
@@ -348,6 +394,7 @@ export {
 // attrs }` record a run carries, reachable as `MarkStyleCtx.mark`.
 export type { Block, Page, Mark as StoredMark } from "./serlization/loadPage";
 export type {
+  ContentEdit,
   EditorState,
   EditorStyles,
   EditorTheme,
@@ -360,6 +407,63 @@ export type {
   VersionVector,
   ViewWindow,
 } from "./state-types";
+export type {
+  ContentGapPoint,
+  ContentPoint,
+  ContentSelection,
+  ContentSelectionAffinity,
+  ContentTextPoint,
+} from "./structured-selection";
+export {
+  captureContentSelection,
+  cloneContentSelection,
+  contentGapPointsEqual,
+  contentPointsEqual,
+  contentSelectionsEqual,
+  contentTextPointsEqual,
+  isContentSelectionCollapsed,
+  isSameContentGapSlot,
+  isSameContentTextField,
+  normalizeContentGapPoint,
+  normalizeContentPoint,
+  normalizeContentSelection,
+  normalizeContentTextPoint,
+  reconcileContentSelectionState,
+  resolveContentTextPointOffset,
+  restoreContentSelection,
+  updateContentSelection,
+} from "./structured-selection";
+export {
+  type AllocatedIdentity,
+  createDeterministicIdentityAllocator,
+  type IdentityAllocator,
+  parseAllocatedIdentity,
+} from "./sync/id";
+export type {
+  StructuredContentMap,
+  StructuredDocument,
+  StructuredEdit,
+  StructuredMutation,
+  StructuredNode,
+  StructuredNodeSeed,
+  StructuredPlacement,
+  StructuredValue,
+} from "./sync/structured-content";
+export {
+  applyStructuredEdit,
+  applyStructuredEdits,
+  applyStructuredMutation,
+  canonicalizeStructuredDocument,
+  createStructuredDocument,
+  getStructuredChildren,
+  getStructuredNode,
+  getStructuredText,
+  hasStructuredBlockAuthority,
+  hasStructuredContent,
+  invertStructuredEdit,
+  structuredContentId,
+  validateStructuredDocument,
+} from "./sync/structured-content";
 
 // View windows — scope an editor to a subset of a shared doc's blocks (the
 // `window` option on `mountEditor`/`createEditor`/`useEditor`). `titleBlockWindow`
@@ -401,10 +505,15 @@ export { DEFAULT_TOKENS, mergeTheme, resolveTheme } from "./styles";
 // Serialization — project a document to Markdown / HTML, parse Markdown back
 // into blocks, and collect the asset urls a block tree references.
 export { collectAssetRefs } from "./baseDataSchema";
+export type { ReplacementRenderer } from "./serlization/codecs";
+export type { HtmlSerializeOptions } from "./serlization/htmlSerializer";
 export { serializeToHTML } from "./serlization/htmlSerializer";
 export { parseFrontmatter } from "./serlization/loadPage";
 export { default as parsePage } from "./serlization/parser";
-export type { PageMetadata } from "./serlization/serializer";
+export type {
+  MarkdownSerializeOptions,
+  PageMetadata,
+} from "./serlization/serializer";
 export { serializeToMarkdown } from "./serlization/serializer";
 export { default as tokenizePage } from "./serlization/tokenizer";
 
@@ -421,10 +530,10 @@ export type {
   RangeDecoration,
 } from "./rendering/decorations";
 
-// Inline-math rendering — render a LaTeX run to an SVG string, and validate it.
-// `mathSourceAtEdge` reports when the caret sits on a formula's edge (stepping
-// further would exit the math) — a host greys out a step-left/right control with
-// it.
+// Legacy root math surface. The explicit `@cypherkit/editor/math` entry is the
+// preferred home for new consumers, but moving these symbols must not break
+// existing applications.
+export { getInlineMathSpans, type InlineMathSpan } from "./inline-math-spans";
 export {
   isValidLatex,
   mathMatrixContext,
@@ -435,15 +544,13 @@ export {
   type MatrixTextEdit,
   renderToSVG,
 } from "./nodes/math";
-// Inline-math chip detection (host UI building math chrome reads these to know
-// when the caret is inside a chip and to recover the chip's LaTeX/offsets).
-export { getInlineMathSpans, type InlineMathSpan } from "./inline-math-spans";
-// The `\` command catalog behind the host's math autocomplete menu.
 export {
   filterMathCommands,
+  MATH_COMMANDS,
   type MathCommand,
   mathCommandCaretOffset,
   mathCommandInsertion,
+  unambiguousMathCommandCompletion,
 } from "./nodes/math-commands";
 
 // Host-convenience helpers (block/format/selection readers), the low-level

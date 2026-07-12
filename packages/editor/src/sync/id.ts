@@ -13,6 +13,13 @@
 
 import type { Block } from "../serlization/loadPage";
 
+export {
+  type AllocatedIdentity,
+  createDeterministicIdentityAllocator,
+  type IdentityAllocator,
+  parseAllocatedIdentity,
+} from "@shared/identity";
+
 /**
  * URL-safe alphabet for peer ids. 64 chars so a random byte masked to 6 bits
  * maps uniformly onto it. Must never contain ":" — compound ids are

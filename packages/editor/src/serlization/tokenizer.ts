@@ -1,7 +1,17 @@
+import {
+  emptyFeatureFacets,
+  type FeatureFacetRegistry,
+  type FeatureSyntaxRule,
+  matchFeatureSyntax,
+} from "../feature-facets";
+import type { DataSchema } from "../sync/schema";
+
 interface TokenizerState {
   content: string;
   index: number;
   startOfLine: boolean;
+  features: FeatureFacetRegistry;
+  legacyMath: boolean;
 }
 export const HEADING_1 = "heading1";
 export const HEADING_2 = "heading2";
@@ -69,11 +79,25 @@ type VisibleTokenType =
   | "quote"
   | FormatTokenType
   | ListTokenType;
-export type TokenType = VisibleTokenType | "newline";
+/**
+ * Token vocabulary consumed by schema codecs. Core literals stay in the union
+ * for autocomplete, while the open-string branch lets an optional feature pair
+ * its own syntax recognizer and codec without editing this module.
+ */
+export type TokenType =
+  | VisibleTokenType
+  | "newline"
+  | (string & Record<never, never>);
 
 export type VisibleToken = {
   type: VisibleTokenType;
   content: string;
+  /**
+   * Exact source consumed for this token when `content` is a decoded payload.
+   * Parsers whose active schema does not claim the token use this value as
+   * literal fallback text, so optional syntax never destroys user input.
+   */
+  raw?: string;
 };
 
 type NewLineToken = {
@@ -82,11 +106,13 @@ type NewLineToken = {
 
 export type Token = NewLineToken | VisibleToken;
 
-export default function tokenizePage(content: string) {
+export default function tokenizePage(content: string, schema?: DataSchema) {
   const state = {
     index: 0,
     startOfLine: true,
     content,
+    features: schema?.features ?? emptyFeatureFacets,
+    legacyMath: schema === undefined,
   };
   const tokens: Token[] = [];
   while (!isEnd(state)) {
@@ -128,8 +154,17 @@ export default function tokenizePage(content: string) {
     } else if (state.startOfLine && tryTokenizeQuote(state, tokens)) {
       // Block quote marker was tokenized; parse the rest as inline content.
       state.startOfLine = false;
-    } else if (state.startOfLine && tryTokenizeMathBlock(state, tokens)) {
-      // Math block was tokenized, continue
+    } else if (
+      state.startOfLine &&
+      tryTokenizeFeature(state, tokens, "block")
+    ) {
+      // An installed feature recognized a block-level construct.
+    } else if (
+      state.legacyMath &&
+      state.startOfLine &&
+      tryTokenizeLegacyMathBlock(state, tokens)
+    ) {
+      // Schema-optional tokenization retains the historical built-in syntax.
     } else if (state.startOfLine && tryTokenizeCodeBlock(state, tokens)) {
       // Fenced code block was tokenized, continue
     } else {
@@ -139,10 +174,82 @@ export default function tokenizePage(content: string) {
   return tokens;
 }
 
+function tryTokenizeLegacyMathBlock(
+  state: TokenizerState,
+  tokens: Token[],
+): boolean {
+  if (current(state) !== "$" || peek(state) !== "$") return false;
+  let cursor = 2;
+  if (peek(state, cursor) === "\n") cursor += 1;
+  else if (peek(state, cursor) === "\r" && peek(state, cursor + 1) === "\n") {
+    cursor += 2;
+  }
+  const contentStart = cursor;
+  while (
+    state.index + cursor + 1 < state.content.length &&
+    !(
+      state.content[state.index + cursor] === "$" &&
+      state.content[state.index + cursor + 1] === "$"
+    )
+  ) {
+    cursor += 1;
+  }
+  if (state.index + cursor + 1 >= state.content.length) return false;
+
+  let latex = state.content.slice(
+    state.index + contentStart,
+    state.index + cursor,
+  );
+  if (latex.endsWith("\n")) latex = latex.slice(0, -1);
+  if (latex.endsWith("\r")) latex = latex.slice(0, -1);
+  tokens.push({ type: MATH_BLOCK, content: latex });
+  next(state, cursor + 2);
+  if (!isEnd(state) && current(state) === "\n") {
+    tokens.push({ type: NEWLINE });
+    next(state);
+  } else if (!isEnd(state) && current(state) === "\r" && peek(state) === "\n") {
+    tokens.push({ type: NEWLINE });
+    next(state, 2);
+  }
+  return true;
+}
+
 function tryTokenizeQuote(state: TokenizerState, tokens: Token[]): boolean {
   if (current(state) !== ">") return false;
   tokens.push({ type: QUOTE, content: ">" });
   next(state, peek(state) === " " ? 2 : 1);
+  return true;
+}
+
+/** Ask the active schema's optional features to recognize source at the cursor. */
+function tryTokenizeFeature(
+  state: TokenizerState,
+  tokens: Token[],
+  scope: FeatureSyntaxRule["scope"],
+): boolean {
+  const recognized = matchFeatureSyntax(state.features, scope, {
+    source: state.content,
+    offset: state.index,
+    startOfLine: state.startOfLine,
+  });
+  if (!recognized) return false;
+
+  for (const emitted of recognized.match.tokens) {
+    if (emitted.type === NEWLINE) {
+      tokens.push({ type: NEWLINE });
+      continue;
+    }
+    tokens.push({
+      type: emitted.type as VisibleTokenType,
+      content: emitted.content ?? emitted.raw ?? "",
+      ...(emitted.raw === undefined ? {} : { raw: emitted.raw }),
+    });
+  }
+
+  const end = state.index + recognized.match.length;
+  const last = state.content[end - 1];
+  state.index = end;
+  state.startOfLine = last === "\n" || last === "\r";
   return true;
 }
 // Try to tokenize horizontal rule (--- or more dashes at start of line)
@@ -185,58 +292,6 @@ function tryTokenizeHorizontalRule(
   }
 
   return false;
-}
-
-// Try to tokenize display math block ($$...$$) at start of line
-function tryTokenizeMathBlock(state: TokenizerState, tokens: Token[]): boolean {
-  const char = current(state);
-  if (char !== "$" || peek(state) !== "$") return false;
-
-  // Find closing $$
-  let i = 2; // Skip opening $$
-  // Skip optional newline after opening $$
-  if (peek(state, i) === "\n") i++;
-  else if (peek(state, i) === "\r" && peek(state, i + 1) === "\n") i += 2;
-
-  const contentStart = i;
-  let found = false;
-
-  while (state.index + i < state.content.length) {
-    if (
-      state.content[state.index + i] === "$" &&
-      state.index + i + 1 < state.content.length &&
-      state.content[state.index + i + 1] === "$"
-    ) {
-      found = true;
-      break;
-    }
-    i++;
-  }
-
-  if (!found) return false;
-
-  let latex = state.content.slice(state.index + contentStart, state.index + i);
-  // Trim trailing newline before closing $$
-  if (latex.endsWith("\n")) latex = latex.slice(0, -1);
-  if (latex.endsWith("\r")) latex = latex.slice(0, -1);
-
-  tokens.push({
-    type: MATH_BLOCK,
-    content: latex,
-  });
-
-  next(state, i + 2); // Skip content + closing $$
-
-  // Skip optional trailing newline
-  if (!isEnd(state) && current(state) === "\n") {
-    tokens.push({ type: "newline" });
-    next(state);
-  } else if (!isEnd(state) && current(state) === "\r" && peek(state) === "\n") {
-    tokens.push({ type: "newline" });
-    next(state, 2);
-  }
-
-  return true;
 }
 
 // Try to tokenize a fenced code block (```lang\n...\n```) at start of line.
@@ -697,40 +752,10 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
       const text = current(state);
       tokens.push({ type: TEXT, content: text });
       next(state);
-    }
-    // Check for inline math ($...$) - does not nest, content is verbatim LaTeX.
-    // Single $ only; $$ at start of line is the display math block (handled elsewhere).
-    else if (char === "$") {
-      const start = state.index;
-      next(state); // consume opening $
-
-      // Find closing $ on the same line. Reject empty content.
-      let foundEnd = false;
-      const contentStart = state.index;
-      while (
-        !isEnd(state) &&
-        current(state) !== "\n" &&
-        current(state) !== "\r"
-      ) {
-        if (current(state) === "$") {
-          foundEnd = true;
-          break;
-        }
-        next(state);
-      }
-
-      if (foundEnd && state.index > contentStart) {
-        const latex = state.content.slice(contentStart, state.index);
-        tokens.push({ type: INLINE_MATH_START, content: "$" });
-        tokens.push({ type: TEXT, content: latex });
-        tokens.push({ type: INLINE_MATH_END, content: "$" });
-        next(state); // consume closing $
-      } else {
-        // Not a valid inline math, treat the $ as literal text
-        state.index = start;
-        tokens.push({ type: TEXT, content: "$" });
-        next(state);
-      }
+    } else if (tryTokenizeFeature(state, tokens, "inline")) {
+      // An installed feature recognized an inline construct.
+    } else if (state.legacyMath && tryTokenizeLegacyInlineMath(state, tokens)) {
+      // Schema-optional tokenization retains the historical built-in syntax.
     }
     // Check for code (backticks) - code doesn't nest
     else if (char === "`") {
@@ -816,6 +841,36 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
       tokenizeRegularText(state, tokens);
     }
   }
+}
+
+function tryTokenizeLegacyInlineMath(
+  state: TokenizerState,
+  tokens: Token[],
+): boolean {
+  if (current(state) !== "$") return false;
+  const start = state.index;
+  next(state);
+  const contentStart = state.index;
+  while (
+    !isEnd(state) &&
+    current(state) !== "\n" &&
+    current(state) !== "\r" &&
+    current(state) !== "$"
+  ) {
+    next(state);
+  }
+  if (current(state) !== "$" || state.index === contentStart) {
+    state.index = start;
+    return false;
+  }
+  tokens.push({ type: INLINE_MATH_START, content: "$" });
+  tokens.push({
+    type: TEXT,
+    content: state.content.slice(contentStart, state.index),
+  });
+  tokens.push({ type: INLINE_MATH_END, content: "$" });
+  next(state);
+  return true;
 }
 
 /**

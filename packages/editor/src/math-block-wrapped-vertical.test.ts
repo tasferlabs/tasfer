@@ -19,10 +19,9 @@
  * first layout, since the measurement canvas is lazily built — to force real
  * text wrapping and exercise the path.
  */
+import { createMathTestState, loadMathPage } from "./__testutils__/math";
 import { moveCursorDown } from "./selection";
-import { loadPage } from "./serlization/loadPage";
 import type { CursorState, EditorState, ViewportState } from "./state-types";
-import { createInitialState } from "./state-utils";
 import { getEditorStyles } from "./styles";
 import { getVisibleTextFromRuns } from "./sync/char-runs";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -101,12 +100,12 @@ function at(s: EditorState, textIndex: number): EditorState {
 
 describe("block math — vertical navigation out of a text-wrapping equation", () => {
   it("the same text wraps as a paragraph but the equation stays one logical line", () => {
-    const para = createInitialState(loadPage(LATEX));
+    const para = createMathTestState(loadMathPage(LATEX));
     expect(para.document.page.blocks[0].type).toBe("paragraph");
     // Sanity: at this width the plain text genuinely wraps into several lines…
     expect(layoutBlock(para, 0).lines.length).toBeGreaterThan(1);
 
-    const math = createInitialState(loadPage(`$$${LATEX}$$`));
+    const math = createMathTestState(loadMathPage(`$$${LATEX}$$`));
     expect(math.document.page.blocks[0].type).toBe("math");
     expect(getVisibleTextFromRuns(math.document.page.blocks[0].charRuns)).toBe(
       LATEX,
@@ -120,7 +119,7 @@ describe("block math — vertical navigation out of a text-wrapping equation", (
   });
 
   it("ArrowDown from anywhere in the equation always escapes — never traps the caret", () => {
-    const s = createInitialState(loadPage(`$$${LATEX}$$\n\ntail`));
+    const s = createMathTestState(loadMathPage(`$$${LATEX}$$\n\ntail`));
     const styles = getEditorStyles(s);
     // Populate the layout cache so caretVerticalStep reads the wrapped math rows.
     layoutBlock(s, 0);

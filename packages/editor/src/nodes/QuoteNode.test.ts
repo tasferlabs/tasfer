@@ -1,3 +1,4 @@
+import { mathTestStateOptions } from "../__testutils__/math";
 import { insertText } from "../actions/actions";
 import { DELETE_BACKWARD, SPLIT_BLOCK } from "../actions/edit-actions";
 import { getBlockHeight } from "../rendering/renderer";
@@ -37,7 +38,10 @@ describe("QuoteNode serialization", () => {
 describe("cardJoinFlags (adjacent card coupling)", () => {
   // Any state carries the full node registry; the join only reads each node's
   // joinGroup, so one shared registry serves every fixture below.
-  const nodes = createInitialState(pageWith(paragraphBlock("x"))).nodes;
+  const nodes = createInitialState(
+    pageWith(paragraphBlock("x")),
+    mathTestStateOptions(),
+  ).nodes;
   const join = (blocks: Block[], index: number) =>
     cardJoinFlags(nodes, blocks, index);
 

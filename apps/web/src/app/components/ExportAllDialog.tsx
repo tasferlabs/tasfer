@@ -12,14 +12,12 @@ import { Button } from "../../components/ui/button";
 import { getPages, getPage, type IListPage } from "../api/pages.api";
 import { getPlatform } from "@/platform";
 import { useSpaces } from "../contexts/SpaceContext";
-import {
-  serializeToMarkdown,
-  type PageMetadata,
-} from "@cypherkit/editor";
+import { serializeToMarkdown, type PageMetadata } from "@cypherkit/editor";
 import { downloadFile } from "@/downloadFile";
 import { collectAssetRefs } from "@cypherkit/editor";
 import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
+import { appDataSchema } from "@/appDataSchema";
 
 interface ExportAllDialogProps {
   open: boolean;
@@ -169,10 +167,12 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
           const fullPage = await getPage(listPage.id);
           const blocks = fullPage.blocks || [];
           const metadata = extractPageMetadata(fullPage);
-          const markdown = serializeToMarkdown(blocks, metadata);
+          const markdown = serializeToMarkdown(blocks, metadata, {
+            schema: appDataSchema,
+          });
 
           // Collect image IDs from block asset references
-          for (const ref of collectAssetRefs(blocks)) {
+          for (const ref of collectAssetRefs(blocks, appDataSchema)) {
             const imgId = extractImageId(ref);
             if (imgId) imageIds.add(imgId);
           }

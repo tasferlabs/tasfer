@@ -25,6 +25,11 @@
 import type { Block } from "../../serlization/loadPage";
 import type { CaretDeleteUnit, TypedInputTransform } from "../../state-types";
 
+/** Structural block currency accepted by a node's caret model. */
+export interface CaretBlock {
+  readonly type: string;
+}
+
 /** A half-open run of block text, `[start, end)`. */
 export interface TextSpan {
   readonly start: number;
@@ -44,7 +49,7 @@ export type CaretMotion =
   | "up"
   | "down";
 
-export interface CaretModel<B extends Block = Block> {
+export interface CaretModel<B extends CaretBlock = Block> {
   /**
    * The ranges of the block's text that are **atomic units**: the caret steps
    * over them as one stop, a delete on an edge removes the whole span, and

@@ -24,12 +24,14 @@ import { serializeToHTML } from "@cypherkit/editor";
 import { collectAssetRefs } from "@cypherkit/editor";
 import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
 import { imageCache } from "@cypherkit/editor/internal";
+import { renderToSVG } from "@cypherkit/editor/math";
 import { getPlatform } from "@/platform";
 import { getTexFontUrl } from "@/fonts";
 import { getPage } from "../api/pages.api";
 import type { PageMetadata } from "@cypherkit/editor";
 import { downloadFile } from "@/downloadFile";
 import { getBridge } from "@/platform/bridge";
+import { appDataSchema } from "@/appDataSchema";
 
 interface ElectronWindow {
   cypher?: { invoke(channel: string, ...args: unknown[]): Promise<unknown> };
@@ -208,7 +210,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const buildExportHtml = async (): Promise<string> => {
     // Resolve image URLs to data URLs so they survive across windows / native renderers
     const imageUrlMap = new Map<string, string>();
-    for (const url of collectAssetRefs(currentBlocks)) {
+    for (const url of collectAssetRefs(currentBlocks, appDataSchema)) {
       const blob = await fetchImageBlob(url);
       if (blob) {
         try {
@@ -220,13 +222,32 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     }
 
     const title = getBaseName();
-    const html = serializeToHTML(currentBlocks, { title, imageUrlMap });
+    const renderReplacement = (
+      type: string,
+      source: string,
+      displayMode: boolean,
+    ) => {
+      if (type !== "math") throw new Error(`Unsupported replacement: ${type}`);
+      return renderToSVG(source, displayMode);
+    };
+    const html = serializeToHTML(currentBlocks, {
+      title,
+      imageUrlMap,
+      schema: appDataSchema,
+      renderReplacement,
+    });
 
     // If the document has math, re-emit with the used faces inlined so the
     // formulas render in the print context. No math → the first pass is final.
     const extraCss = await buildMathFontFaceCss(html);
     if (!extraCss) return html;
-    return serializeToHTML(currentBlocks, { title, imageUrlMap, extraCss });
+    return serializeToHTML(currentBlocks, {
+      title,
+      imageUrlMap,
+      extraCss,
+      schema: appDataSchema,
+      renderReplacement,
+    });
   };
 
   const printViaWindow = async (html: string) => {
@@ -318,12 +339,14 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     const metadata = await fetchMetadata();
 
     // All asset references owned by the blocks (handles blob:, /api/images/, etc.)
-    const assetUrls = collectAssetRefs(currentBlocks);
+    const assetUrls = collectAssetRefs(currentBlocks, appDataSchema);
 
     // No images → plain .md download
     if (assetUrls.length === 0) {
       downloadTextFile(
-        serializeToMarkdown(currentBlocks, metadata),
+        serializeToMarkdown(currentBlocks, metadata, {
+          schema: appDataSchema,
+        }),
         "md",
         "text/markdown",
       );
@@ -353,6 +376,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       // Asset urls become bundle-relative paths via the serializer itself —
       // no post-hoc rewriting of the markdown string.
       const markdown = serializeToMarkdown(currentBlocks, metadata, {
+        schema: appDataSchema,
         mapAssetUrl: (url) => {
           const fileName = urlToFileName.get(url);
           return fileName ? `./images/${fileName}` : url;
@@ -378,7 +402,9 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             // the user confirm the download or go back to the format picker.
             <div className="flex flex-1 flex-col min-h-0">
               <DrawerHeader>
-                <DrawerTitle>{t("export.previewPdf", "Preview PDF")}</DrawerTitle>
+                <DrawerTitle>
+                  {t("export.previewPdf", "Preview PDF")}
+                </DrawerTitle>
               </DrawerHeader>
               <div className="flex-1 min-h-0 px-4">
                 <iframe

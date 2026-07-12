@@ -8,18 +8,21 @@
  * `scriptAttachOffset` redirect in `mathTransformTypedInput`), the direct
  * counterpart of the accent redirect already covered elsewhere.
  */
+import {
+  createMathTestState,
+  createMathTestSyncEngine,
+} from "./__testutils__/math";
 import { insertText } from "./actions/actions";
 import { moveCursorToPosition } from "./selection";
 import type { EditorState } from "./state-types";
-import { createInitialState } from "./state-utils";
 import { getVisibleTextFromRuns } from "./sync/char-runs";
 import { insertCharsAtPosition } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
 function mathState(latex: string, caret: number) {
   const binding = createCRDTbinding("math-script-attach", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
@@ -28,7 +31,7 @@ function mathState(latex: string, caret: number) {
   if (latex) {
     page = insertCharsAtPosition(page, blockId, 0, latex, binding).newPage;
   }
-  let state = createInitialState(page, { crdtBinding: binding });
+  let state = createMathTestState(page, { crdtBinding: binding });
   state = moveCursorToPosition(state, 0, caret);
   return { state, blockId };
 }

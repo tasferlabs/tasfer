@@ -1,3 +1,4 @@
+import { createMathTestState } from "../__testutils__/math";
 import { DELETE_BACKWARD, DELETE_FORWARD } from "../actions/edit-actions";
 import { getInlineMathSpans } from "../inline-math-spans";
 import { getSelectionHandlePositions, isNodeSelection } from "../selection";
@@ -7,7 +8,6 @@ import type {
   Page,
   ViewportState,
 } from "../state-types";
-import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
 import type { MathBlock } from "./MathNode";
@@ -36,7 +36,7 @@ function mathBlock(latex: string): MathBlock {
 }
 
 function stateWithCursor(page: Page, cursor: CursorState): EditorState {
-  const state = createInitialState(page);
+  const state = createMathTestState(page);
   return {
     ...state,
     document: { ...state.document, cursor },

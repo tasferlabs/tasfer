@@ -26,14 +26,21 @@
  * This `types` module stays dependency-light (types + tokenizer only). The
  * parser/serializers dispatch through the per-instance `DataSchema` the editor
  * holds — not a static codec registry — so there is no parser→registry cycle;
- * and math rendering reaches the codec via `OutputCtx.renderMathSVG`, never a
- * direct MathJax import.
+ * and feature-owned replacement rendering reaches codecs through
+ * `OutputCtx.renderReplacement`, never a feature import in the core serializer.
  */
 
 import type { Block, CharRun, MarkSpan } from "../loadPage";
 import type { Token, TokenType } from "../tokenizer";
 
 export type SerialFormat = "markdown" | "html" | "text";
+
+/** Host renderer for a feature-owned replacement (math, diagram, embed, …). */
+export type ReplacementRenderer = (
+  type: string,
+  source: string,
+  displayMode: boolean,
+) => string;
 
 /** Context handed to every `output()` call. Built by the per-format orchestrator. */
 export interface OutputCtx {
@@ -47,11 +54,8 @@ export interface OutputCtx {
   mapAssetUrl(url: string): string;
   /** 1-based item number, set by the markdown orchestrator for numbered list items. */
   readonly listNumber?: number;
-  /**
-   * Host-supplied LaTeX → SVG renderer (HTML output only). Injected by the
-   * HTML orchestrator so codec modules never import the MathJax bundle.
-   */
-  readonly renderMathSVG?: (latex: string, displayMode: boolean) => string;
+  /** Host-supplied renderer for feature-owned HTML replacements. */
+  readonly renderReplacement?: ReplacementRenderer;
   /**
    * When true, a node/mark that normally emits a *rendered replacement* in HTML
    * (math → an SVG image) should instead emit its editable SOURCE. Set on the

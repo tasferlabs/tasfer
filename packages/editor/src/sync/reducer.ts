@@ -18,6 +18,7 @@ import type {
   BlockInsert,
   BlockSet,
   BlockType,
+  ContentEdit,
   MarkSet,
   Operation,
   TextDelete,
@@ -45,6 +46,12 @@ import {
 import { sortBlocksByOrder } from "./crdt-utils";
 import { compareHLC } from "./hlc";
 import type { DataSchema } from "./schema";
+import {
+  applyStructuredMutation,
+  canonicalizeStructuredDocument,
+  hasStructuredContent,
+  type StructuredContentMap,
+} from "./structured-content";
 
 /**
  * Create an empty page state.
@@ -180,6 +187,40 @@ function applyTextDelete(state: Page, op: TextDelete): Page {
     ...state,
     blocks: newBlocks,
   };
+}
+
+/** Apply a feature-owned structured mutation without interpreting its kind. */
+function applyContentEdit(state: Page, op: ContentEdit): Page {
+  const blockIndex = findBlockIndex(state, op.blockId);
+  if (blockIndex === -1 || op.contentId.length === 0) return state;
+  const block = state.blocks[blockIndex];
+  if (!block) return state;
+
+  const current = block.structuredContent?.[op.contentId];
+  const next = applyStructuredMutation(current, op.contentId, op.edit);
+  if (next === current) return state;
+  if (!next) {
+    if (!current) return state;
+    const structuredContent = { ...(block.structuredContent ?? {}) };
+    delete structuredContent[op.contentId];
+    const blocks = [...state.blocks];
+    blocks[blockIndex] = {
+      ...block,
+      structuredContent:
+        Object.keys(structuredContent).length > 0
+          ? structuredContent
+          : undefined,
+    };
+    return { ...state, blocks };
+  }
+
+  const structuredContent: StructuredContentMap = {
+    ...(block.structuredContent ?? {}),
+    [op.contentId]: next,
+  };
+  const blocks = [...state.blocks];
+  blocks[blockIndex] = { ...block, structuredContent };
+  return { ...state, blocks };
 }
 
 /**
@@ -504,6 +545,13 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
 
   if (op.field === "type") {
     const newType = op.value as BlockType;
+    // Structured attachments are block-scoped. Generic morph reconstructs a
+    // fresh block and cannot carry either authoritative or supplemental
+    // documents across that boundary, so refuse it on every replica instead of
+    // leaving persisted mark contentIds pointing at discarded attachments.
+    if (hasStructuredContent(block)) {
+      return state;
+    }
     const newBlock = createEmptyBlock(
       block.id,
       block.orderKey ?? "",
@@ -585,6 +633,8 @@ export function applyOp(
       return applyBlockDelete(state, op);
     case "block_set":
       return applyBlockSet(state, op, schema);
+    case "content_edit":
+      return applyContentEdit(state, op);
     default:
       // Unknown operation type
       return state;
@@ -739,8 +789,19 @@ export function cleanSnapshotForSave(blocks: Block[]): Block[] {
   // Drop the transient render hints (`cachedLayout` and the neighbour-type
   // stamps) — all are derived from the live view and recomputed on load.
   return blocks.map(
-    ({ cachedLayout: _l, prevType: _p, nextType: _n, ...rest }) =>
-      rest as Block,
+    ({ cachedLayout: _l, prevType: _p, nextType: _n, ...rest }) => {
+      if (!rest.structuredContent) return rest as Block;
+      const structuredContent: Record<
+        string,
+        ReturnType<typeof canonicalizeStructuredDocument>
+      > = {};
+      for (const contentId of Object.keys(rest.structuredContent).sort()) {
+        structuredContent[contentId] = canonicalizeStructuredDocument(
+          rest.structuredContent[contentId],
+        );
+      }
+      return { ...rest, structuredContent } as Block;
+    },
   );
 }
 

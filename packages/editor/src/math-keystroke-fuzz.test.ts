@@ -41,13 +41,16 @@
  * Reproduce a totality failure with FUZZ_SEED=<printed seed>. Scale the walk
  * with FUZZ_RUNS (sequences per seed) and FUZZ_OPS (keystrokes per sequence).
  */
+import {
+  createMathTestState,
+  createMathTestSyncEngine,
+} from "./__testutils__/math";
 import { deleteText, insertText } from "./actions/actions";
 import { moveCursorToPosition } from "./selection";
 import type { EditorState } from "./state-types";
-import { createInitialState } from "./state-utils";
 import { getVisibleTextFromRuns } from "./sync/char-runs";
 import { insertCharsAtPosition } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { caretStops, layoutMath, normalizeLatex } from "@cypherkit/tex";
 import { parse } from "@cypherkit/tex/internal";
 import { describe, expect, it } from "vitest";
@@ -82,7 +85,7 @@ class Rng {
 
 function mathState(latex: string, caret: number): EditorState {
   const binding = createCRDTbinding("fuzz-keystroke", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
   engine.emit([blockOp]);
   let page = engine.getState();
@@ -95,7 +98,7 @@ function mathState(latex: string, caret: number): EditorState {
       binding,
     ).newPage;
   }
-  let state = createInitialState(page, { crdtBinding: binding });
+  let state = createMathTestState(page, { crdtBinding: binding });
   state = moveCursorToPosition(state, 0, caret);
   return state;
 }

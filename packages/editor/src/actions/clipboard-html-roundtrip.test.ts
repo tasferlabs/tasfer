@@ -9,6 +9,7 @@
  * list indent — all dropped by the old rendered-HTML→defuddle path — survive.
  */
 
+import { mathTestSchema, mathTestStateOptions } from "../__testutils__/math";
 import type { Block, Page } from "../serlization/loadPage";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
@@ -26,7 +27,7 @@ function pageWith(...blocks: Page["blocks"]): Page {
 
 /** Select every block start→end so the whole document is on the clipboard. */
 function selectAll(page: Page) {
-  const state = createInitialState(page);
+  const state = createInitialState(page, mathTestStateOptions());
   const lastIndex = page.blocks.length - 1;
   const last = page.blocks[lastIndex];
   const lastLen =
@@ -159,7 +160,11 @@ describe("clipboard text/html round-trip", () => {
   it("round-trips image sizing, block math, and list indent losslessly", () => {
     const payload = buildClipboardPayload(selectAll(source));
     const binding = createCRDTbinding("page-2", "peer-b");
-    const blocks = parseHTMLToBlocks(payload!.html, binding);
+    const blocks = parseHTMLToBlocks(
+      payload!.html,
+      binding,
+      mathTestSchema.data,
+    );
 
     const image = blocks.find((b) => b.type === "image") as
       | (Block & { url: string; width: unknown; objectFit: unknown })
@@ -204,6 +209,7 @@ describe("clipboard text/html round-trip", () => {
     const blocks = parseHTMLToBlocks(
       wrapped,
       createCRDTbinding("page-w", "peer-w"),
+      mathTestSchema.data,
     );
 
     expect(blocks).toHaveLength(1);
@@ -228,6 +234,7 @@ describe("clipboard text/html round-trip", () => {
     const blocks = parseHTMLToBlocks(
       payload!.html,
       createCRDTbinding("page-3", "peer-c"),
+      mathTestSchema.data,
     );
     const text = blocks
       .filter((b): b is Block & { charRuns: never } => "charRuns" in b)

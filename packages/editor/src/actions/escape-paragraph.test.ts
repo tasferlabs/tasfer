@@ -11,6 +11,7 @@
  * do not escape. These drive the pure helpers over fabricated state (no canvas
  * mount).
  */
+import { mathTestSchema, mathTestStateOptions } from "../__testutils__/math";
 import { loadPage } from "../serlization/loadPage";
 import type { CursorState, EditorState, ViewportState } from "../state-types";
 import { createInitialState, getBlockTextContent } from "../state-utils";
@@ -26,7 +27,14 @@ import {
 import { describe, expect, it } from "vitest";
 
 function stateFrom(markdown: string): EditorState {
-  return createInitialState(loadPage(markdown));
+  return createInitialState(
+    loadPage(markdown, mathTestSchema.data),
+    mathTestStateOptions(),
+  );
+}
+
+function loadMathPage(markdown: string) {
+  return loadPage(markdown, mathTestSchema.data);
 }
 
 function withCaret(
@@ -54,11 +62,11 @@ const VIEWPORT: ViewportState = {
 
 describe("selfContained capability", () => {
   it("is set on self-contained blocks and off for ordinary text", () => {
-    expect(isSelfContained(loadPage("```\nx\n```").blocks[0])).toBe(true);
-    expect(isSelfContained(loadPage("$$x$$").blocks[0])).toBe(true);
-    expect(isSelfContained(loadPage("> hi").blocks[0])).toBe(true);
-    expect(isSelfContained(loadPage("hello").blocks[0])).toBe(false);
-    expect(isSelfContained(loadPage("# title").blocks[0])).toBe(false);
+    expect(isSelfContained(loadMathPage("```\nx\n```").blocks[0])).toBe(true);
+    expect(isSelfContained(loadMathPage("$$x$$").blocks[0])).toBe(true);
+    expect(isSelfContained(loadMathPage("> hi").blocks[0])).toBe(true);
+    expect(isSelfContained(loadMathPage("hello").blocks[0])).toBe(false);
+    expect(isSelfContained(loadMathPage("# title").blocks[0])).toBe(false);
   });
 });
 

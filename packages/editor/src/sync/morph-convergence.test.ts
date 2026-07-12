@@ -11,6 +11,7 @@
  * divergence. This pins both sides to the same empty `formats`.
  */
 
+import { mathTestSchema, mathTestStateOptions } from "../__testutils__/math";
 import { convertBlockAtCursor } from "../actions/actions";
 import type { MarkSpan, Paragraph } from "../serlization/loadPage";
 import type { BlockSet, EditorState, Page } from "../state-types";
@@ -52,6 +53,7 @@ describe.each(["math", "code"])(
       // Originating peer: convert via the action.
       const base: EditorState = createInitialState(
         pageWith(formattedParagraph()),
+        mathTestStateOptions(),
       );
       const originator: EditorState = {
         ...base,
@@ -70,7 +72,7 @@ describe.each(["math", "code"])(
       // Remote peer: same starting paragraph, replays only the emitted ops.
       let remotePage = pageWith(formattedParagraph());
       for (const op of ops) {
-        remotePage = applyOp(remotePage, op);
+        remotePage = applyOp(remotePage, op, mathTestSchema.data);
       }
       const remoteBlock = remotePage.blocks[0];
       expect(remoteBlock.type).toBe(target);

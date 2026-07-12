@@ -17,6 +17,7 @@ import { tokenizePage, parsePage, parseFrontmatter } from "@cypherkit/editor";
 import { deriveTitles, hasHeadingTitle } from "@/lib/pageTitle";
 import { createPage, updatePage } from "@/app/api/pages.api";
 import { uploadImage } from "@/app/api/images.api";
+import { appDataSchema } from "@/appDataSchema";
 
 /** A page reconstructed from the ZIP folder layout. */
 interface PageNode {
@@ -289,7 +290,10 @@ function buildImportedPage(
   isMarkdown: boolean,
 ): { blocks: Block[]; title: string; titleMd: string } {
   if (isMarkdown) {
-    const blocks = parsePage(tokenizePage(body)).blocks;
+    const blocks = parsePage(
+      tokenizePage(body, appDataSchema),
+      appDataSchema,
+    ).blocks;
     if (hasHeadingTitle(blocks)) {
       const { title, titleMd } = deriveTitles(blocks);
       return { blocks, title, titleMd };
@@ -300,7 +304,10 @@ function buildImportedPage(
   // (the engine re-derives the title from the blocks). Cased slugs like
   // `my-note` are humanized to `My Note` first.
   const displayName = humanizeFileName(fileName);
-  const blocks = parsePage(tokenizePage(`# ${displayName}\n\n${body}`)).blocks;
+  const blocks = parsePage(
+    tokenizePage(`# ${displayName}\n\n${body}`, appDataSchema),
+    appDataSchema,
+  ).blocks;
   const { title, titleMd } = deriveTitles(blocks);
   return { blocks, title: title || displayName, titleMd };
 }

@@ -4,16 +4,15 @@
  * Per-block-type markup lives in the block codecs (./codecs). This file owns
  * the cross-block concerns: <ul>/<ol> group wrapping (adjacent list items
  * share one parent element), edge trimming of empty blocks, and the document
- * shell. It is also where the MathJax renderer is injected into the codec
- * context — keeping the heavy ../nodes/math import out of the parser/codec chain.
+ * shell. Hosts can inject feature replacement renderers; schema-optional legacy
+ * calls retain the historical built-in math renderer.
  */
 
-import { getBaseDataSchema } from "../baseDataSchema";
+import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
 import { renderToSVG } from "../nodes/math";
-import { isTextualBlock } from "../sync/block-registry";
 import { iterateVisibleChars } from "../sync/char-runs";
 import type { DataSchema } from "../sync/schema";
-import type { OutputCtx } from "./codecs";
+import type { OutputCtx, ReplacementRenderer } from "./codecs";
 import { escapeHtml, inlineToHtml } from "./codecs/inline";
 import type { Block } from "./loadPage";
 
@@ -37,7 +36,16 @@ const STYLES = `
   @media print { html, body { margin: 0; padding: 0; max-width: none; } body > *:first-child { margin-top: 0; } a { color: inherit; text-decoration: none; } }
 `;
 
-interface RenderOptions {
+function renderLegacyReplacement(
+  type: string,
+  source: string,
+  displayMode: boolean,
+): string {
+  if (type !== "math") throw new Error(`No renderer for ${type}`);
+  return renderToSVG(source, displayMode);
+}
+
+export interface HtmlSerializeOptions {
   title?: string;
   /** Asset url → replacement url (e.g. data URIs for self-contained export). */
   imageUrlMap?: Map<string, string>;
@@ -51,6 +59,8 @@ interface RenderOptions {
   extraCss?: string;
   /** Block/mark types in play. Defaults to the built-in set. */
   schema?: DataSchema;
+  /** Render feature-owned replacements such as math or diagrams. */
+  renderReplacement?: ReplacementRenderer;
   /**
    * Emit editable source instead of rendered replacements (math → `$$…$$`
    * rather than an SVG). Set by the clipboard path so copied math pastes as
@@ -87,8 +97,8 @@ function flushLists(stack: ListGroup[], target: number): string {
   return out;
 }
 
-function isEmptyTextualBlock(b: Block): boolean {
-  if (!isTextualBlock(b)) return false;
+function isEmptyTextualBlock(b: Block, schema: DataSchema): boolean {
+  if (!schema.isTextual(b.type) || !("charRuns" in b)) return false;
   for (const _ of iterateVisibleChars(b.charRuns)) return false;
   return true;
 }
@@ -102,12 +112,14 @@ function isEmptyTextualBlock(b: Block): boolean {
  */
 export function serializeToHTMLFragment(
   blocks: Block[],
-  options: RenderOptions = {},
+  options: HtmlSerializeOptions = {},
 ): string {
-  const schema = options.schema ?? getBaseDataSchema();
+  const schema = options.schema ?? getCompatibilityDataSchema();
+  const renderReplacement =
+    options.renderReplacement ?? renderLegacyReplacement;
   const live = blocks.filter((b) => !b.deleted);
-  while (live.length > 0 && isEmptyTextualBlock(live[0])) live.shift();
-  while (live.length > 0 && isEmptyTextualBlock(live[live.length - 1]))
+  while (live.length > 0 && isEmptyTextualBlock(live[0], schema)) live.shift();
+  while (live.length > 0 && isEmptyTextualBlock(live[live.length - 1], schema))
     live.pop();
 
   const ctx: OutputCtx = {
@@ -117,11 +129,11 @@ export function serializeToHTMLFragment(
         charRuns,
         formats,
         schema,
-        renderToSVG,
+        renderReplacement,
         options.preferSource,
       ),
     mapAssetUrl: (url) => options.imageUrlMap?.get(url) ?? url,
-    renderMathSVG: renderToSVG,
+    renderReplacement,
     preferSource: options.preferSource,
   };
 
@@ -135,6 +147,18 @@ export function serializeToHTMLFragment(
   for (const block of live) {
     const codec = schema.getCodec(block.type);
     if (!codec) continue;
+    const blockCtx: OutputCtx = {
+      ...ctx,
+      inline: (charRuns, formats) =>
+        inlineToHtml(
+          charRuns,
+          formats,
+          schema,
+          renderReplacement,
+          options.preferSource,
+          block.structuredContent,
+        ),
+    };
 
     const kind = schema.listKind(block.type);
     if (kind) {
@@ -161,12 +185,14 @@ export function serializeToHTMLFragment(
       }
 
       // The codec emits the <li> element; the group owns the <ul>/<ol>.
-      listStack[listStack.length - 1].html.push(codec.html.output(block, ctx));
+      listStack[listStack.length - 1].html.push(
+        codec.html.output(block, blockCtx),
+      );
       continue;
     }
 
     closeAllLists();
-    parts.push(codec.html.output(block, ctx));
+    parts.push(codec.html.output(block, blockCtx));
   }
 
   closeAllLists();
@@ -175,7 +201,7 @@ export function serializeToHTMLFragment(
 
 export function serializeToHTML(
   blocks: Block[],
-  options: RenderOptions = {},
+  options: HtmlSerializeOptions = {},
 ): string {
   const body = serializeToHTMLFragment(blocks, options);
   const title = options.title ? escapeHtml(options.title) : "Document";

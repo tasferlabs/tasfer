@@ -9,6 +9,54 @@
  * text color and it stays crisp at any DPI.
  */
 
+import type { ActionBus } from "../../action-bus";
+import {
+  DELETE_BACKWARD,
+  DELETE_FORWARD,
+  DELETE_WORD_BACKWARD,
+  DELETE_WORD_FORWARD,
+  SPLIT_BLOCK,
+} from "../../actions/edit-actions";
+import {
+  EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_LEFT,
+  EXTEND_SELECTION_RIGHT,
+  EXTEND_SELECTION_UP,
+  MOVE_CONTENT_TAB,
+  MOVE_CURSOR_DOWN,
+  MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_RIGHT,
+  MOVE_CURSOR_UP,
+} from "../../actions/keyboard-actions";
+import { TEXT_CLICK } from "../../actions/pointer-actions";
+import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "../../math/actions";
+import {
+  getInlineMathStructuredDocument,
+  getStructuredMathMarkSource,
+  mathMarkCodec,
+  mathMarkContentId,
+  structuredToMathDocument,
+} from "../../math/data";
+import {
+  deleteActiveInlineMathTree,
+  enterInlineMathTreeAtPosition,
+  exitActiveInlineMathTreeHorizontally,
+  exitActiveInlineMathTreeForBlockSplit,
+  extendActiveInlineMathTreeSelectionHorizontally,
+  extendActiveInlineMathTreeSelectionVertically,
+  hasActiveInlineMathTreeCaret,
+  insertActiveInlineMathTreeCommand,
+  moveActiveInlineMathTreeCaret,
+  moveActiveInlineMathTreeCaretVertically,
+  ownsInlineMathTreeDelete,
+  resizeActiveInlineMathTreeMatrix,
+} from "../../math/inline-tree-state";
+import {
+  contentPointToMathDocumentPosition,
+  contentPointToMathTreeCaret,
+  mathDocumentPositionToContentPoint,
+  mathTreeCaretToContentSelection,
+} from "../../math/tree-selection";
 import {
   getInlineMathBreakpoints,
   getInlineMathCaretRect,
@@ -24,12 +72,11 @@ import {
   mathUnitAt,
 } from "../../nodes/math";
 // Host-wired layout so `\text{…}` CJK/unsupported glyphs typeset (see tex-host).
-import { layoutMathHost as layoutMath } from "../../nodes/tex-host";
-import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import {
-  INLINE_MATH_END,
-  INLINE_MATH_START,
-} from "../../serlization/tokenizer";
+  layoutMathDocumentHost,
+  layoutMathHost as layoutMath,
+} from "../../nodes/tex-host";
+import type { EditorState } from "../../state-types";
 import type { CaretModel } from "../nodes/caret-model";
 import {
   Mark,
@@ -38,34 +85,12 @@ import {
   type MarkStyle,
   type SelectionWrapTrigger,
 } from "./Mark";
-import { paintMath } from "@cypherkit/tex";
-
-// Math is a REPLACEMENT mark on HTML output (renders an SVG, falling back to
-// `$…$` source when no renderer is supplied) — so it wins the run.
-const MATH_CODEC: MarkCodec = {
-  type: "math",
-  toMarkdown: (t) => `$${t}$`,
-  // Plain-text clipboard flavor: keep the `$…$` source so a copied chip pastes
-  // as readable LaTeX, not bare delimiterless characters.
-  toText: (t) => `$${t}$`,
-  tokens: { start: INLINE_MATH_START, end: INLINE_MATH_END },
-  html: {
-    priority: 0,
-    replace: true,
-    render: (_inner, _mark, ctx) => {
-      const latex = ctx.text;
-      // The clipboard prefers source: emit the `$…$` LaTeX so a copied chip
-      // pastes as editable inline math, instead of the SVG file export wants.
-      if (ctx.preferSource) return `$${ctx.escapeHtml(latex)}$`;
-      try {
-        if (!ctx.renderMathSVG) throw new Error("no math renderer");
-        return ctx.renderMathSVG(latex, false);
-      } catch {
-        return `<code>$${ctx.escapeHtml(latex)}$</code>`;
-      }
-    },
-  },
-};
+import {
+  hitTestMathDocument,
+  mathDocumentCaretFromSourceOffset,
+  mathDocumentCaretStop,
+  paintMath,
+} from "@cypherkit/tex";
 
 /**
  * The `\command`-run ranges (literal + pending) for this chip, derived from the
@@ -91,7 +116,133 @@ function commandRangesFor(text: string, edit: MarkReplacementEdit | undefined) {
  */
 const INLINE_MATH_SCALE = 1.4;
 
+function sourceRangeOwnsOffset(
+  range: { readonly start: number; readonly end: number },
+  offset: number,
+  sourceLength: number,
+): boolean {
+  return (
+    offset >= range.start &&
+    (offset < range.end ||
+      (range.end === sourceLength && offset === sourceLength))
+  );
+}
+
+function isWholeSourceRange(
+  range: { readonly start: number; readonly end: number },
+  sourceLength: number,
+): boolean {
+  return range.start === 0 && range.end === sourceLength;
+}
+
 const inlineMathReplacement: MarkReplacement = {
+  source: (compatibilityText, { mark, attachments }) =>
+    getStructuredMathMarkSource(mark, attachments) ?? compatibilityText,
+  contentCaretRect(text, fontSize, point, context) {
+    const document = getInlineMathStructuredDocument(
+      context.mark,
+      context.attachments,
+    );
+    const position = document
+      ? contentPointToMathDocumentPosition(document, point)
+      : null;
+    if (!document || !position) return null;
+    const math = structuredToMathDocument(document);
+    if (!math) return null;
+    const layout = layoutMathDocumentHost(math, {
+      fontSize: fontSize * INLINE_MATH_SCALE,
+      displayMode: false,
+    });
+    const stop = mathDocumentCaretStop(layout, position);
+    if (!stop) return null;
+    const source =
+      getStructuredMathMarkSource(context.mark, context.attachments) ?? text;
+    const range = context.sourceRange ?? { start: 0, end: source.length };
+    if (!sourceRangeOwnsOffset(range, stop.sourceOffset, source.length)) {
+      return null;
+    }
+    if (isWholeSourceRange(range, source.length)) {
+      return { x: stop.x, top: stop.top, bottom: stop.bottom };
+    }
+    return getInlineMathCaretRect(
+      text,
+      fontSize * INLINE_MATH_SCALE,
+      stop.sourceOffset - range.start,
+    );
+  },
+  contentSelectionFromPoint(text, fontSize, localX, localY, context) {
+    const contentId = mathMarkContentId(context.mark);
+    const document = getInlineMathStructuredDocument(
+      context.mark,
+      context.attachments,
+    );
+    const math = document ? structuredToMathDocument(document) : undefined;
+    if (!contentId || !document || !math) return null;
+    const layout = layoutMathDocumentHost(math, {
+      fontSize: fontSize * INLINE_MATH_SCALE,
+      displayMode: false,
+    });
+    const source =
+      getStructuredMathMarkSource(context.mark, context.attachments) ?? text;
+    const range = context.sourceRange ?? { start: 0, end: source.length };
+    const previousPosition = context.previousPoint
+      ? contentPointToMathDocumentPosition(document, context.previousPoint)
+      : null;
+    const previousStop = previousPosition
+      ? mathDocumentCaretStop(layout, previousPosition)
+      : null;
+    const previousFragmentOffset =
+      previousStop &&
+      sourceRangeOwnsOffset(range, previousStop.sourceOffset, source.length)
+        ? previousStop.sourceOffset - range.start
+        : null;
+    const stop = isWholeSourceRange(range, source.length)
+      ? hitTestMathDocument(layout, localX, localY, {
+          placeholderTargetSize: context.pointerType === "touch" ? 44 : 24,
+          ...(context.drag ? { drag: true } : {}),
+          ...(context.drag && previousPosition
+            ? { dragPrevPosition: previousPosition }
+            : {}),
+        })
+      : mathDocumentCaretFromSourceOffset(
+          layout,
+          Math.min(
+            range.end,
+            range.start +
+              getInlineMathOffsetAtX(
+                text,
+                fontSize * INLINE_MATH_SCALE,
+                localX,
+                localY,
+                context.drag,
+                previousFragmentOffset,
+              ),
+          ),
+        );
+    if (!stop) return null;
+    const positions = [...stop.positions].sort((left, right) =>
+      left.kind === right.kind ? 0 : left.kind === "field" ? -1 : 1,
+    );
+    for (const position of positions) {
+      const point = mathDocumentPositionToContentPoint(
+        context.blockId,
+        contentId,
+        document,
+        position,
+      );
+      if (!point) continue;
+      const caret = contentPointToMathTreeCaret(document, point);
+      if (!caret) continue;
+      const selection = mathTreeCaretToContentSelection(
+        context.blockId,
+        contentId,
+        document,
+        caret,
+      );
+      if (selection) return selection;
+    }
+    return null;
+  },
   measure(text, fontSize, edit) {
     return getInlineMathDims(
       text,
@@ -196,6 +347,13 @@ const inlineMathReplacement: MarkReplacement = {
 };
 
 export class MathMark extends Mark {
+  private readonly treeEditing: boolean;
+
+  constructor(options: { readonly treeEditing?: boolean } = {}) {
+    super();
+    this.treeEditing = options.treeEditing === true;
+  }
+
   readonly type = "math";
   // Togglable over a selection: a chip's visible chars ARE its LaTeX, so
   // wrapping the selection just marks it as math (no extra input, unlike a
@@ -203,7 +361,7 @@ export class MathMark extends Mark {
   // typed text forms the chip — since a zero-width chip can't exist.
   readonly togglable = true;
   readonly replacement = inlineMathReplacement;
-  readonly codec = MATH_CODEC;
+  readonly codec = mathMarkCodec;
   // Typing `$` over a selection wraps it as an inline chip (the selected chars
   // become the LaTeX source); `$` again over a full chip selection unwraps it.
   readonly selectionWrap: readonly SelectionWrapTrigger[] = [{ char: "$" }];
@@ -211,28 +369,140 @@ export class MathMark extends Mark {
     return {};
   }
 
+  registerActions(bus: ActionBus): void {
+    if (this.treeEditing) {
+      bus.registerState(
+        TEXT_CLICK,
+        (state, { position }) =>
+          enterInlineMathTreeAtPosition(
+            state,
+            position.blockIndex,
+            position.textIndex,
+          ),
+        90,
+      );
+    }
+    const remove =
+      (direction: "backward" | "forward") => (state: EditorState) => {
+        if (this.treeEditing) {
+          const edited = deleteActiveInlineMathTree(state, direction);
+          if (edited) return edited;
+        }
+        return ownsInlineMathTreeDelete(state, direction)
+          ? { state, ops: [], handled: true as const }
+          : undefined;
+      };
+    bus.registerState(DELETE_BACKWARD, remove("backward"), 110);
+    bus.registerState(DELETE_WORD_BACKWARD, remove("backward"), 110);
+    bus.registerState(DELETE_FORWARD, remove("forward"), 110);
+    bus.registerState(DELETE_WORD_FORWARD, remove("forward"), 110);
+    // Enter cannot reach the generic block split while a structured mark owns
+    // the caret (nested selection deliberately clears the flat cursor). Move
+    // to the chip's safe trailing boundary, then let the normal SPLIT_BLOCK
+    // handlers/default continue with the threaded state.
+    bus.registerState(
+      SPLIT_BLOCK,
+      (state) => exitActiveInlineMathTreeForBlockSplit(state),
+      110,
+    );
+
+    const move =
+      (motion: "arrow-left" | "arrow-right") => (state: EditorState) => {
+        const moved = this.treeEditing
+          ? moveActiveInlineMathTreeCaret(state, motion)
+          : undefined;
+        if (moved) return moved;
+        if (!hasActiveInlineMathTreeCaret(state)) return undefined;
+        return exitActiveInlineMathTreeHorizontally(
+          state,
+          motion === "arrow-left" ? "left" : "right",
+        );
+      };
+    bus.registerState(MOVE_CURSOR_LEFT, move("arrow-left"), 110);
+    bus.registerState(MOVE_CURSOR_RIGHT, move("arrow-right"), 110);
+    bus.registerState(
+      MOVE_CONTENT_TAB,
+      (state, { backward }) => {
+        const moved = this.treeEditing
+          ? moveActiveInlineMathTreeCaret(state, backward ? "shift-tab" : "tab")
+          : undefined;
+        if (moved) return moved;
+        return hasActiveInlineMathTreeCaret(state)
+          ? { state, ops: [], handled: true as const }
+          : undefined;
+      },
+      110,
+    );
+    const moveVertical = (direction: "up" | "down") => (state: EditorState) => {
+      const moved = this.treeEditing
+        ? moveActiveInlineMathTreeCaretVertically(state, direction)
+        : undefined;
+      if (moved) return moved;
+      return hasActiveInlineMathTreeCaret(state)
+        ? { state, ops: [], handled: true as const }
+        : undefined;
+    };
+    bus.registerState(MOVE_CURSOR_UP, moveVertical("up"), 110);
+    bus.registerState(MOVE_CURSOR_DOWN, moveVertical("down"), 110);
+    const extendVertical =
+      (direction: "up" | "down") => (state: EditorState) => {
+        const moved = this.treeEditing
+          ? extendActiveInlineMathTreeSelectionVertically(state, direction)
+          : undefined;
+        if (moved) return moved;
+        return hasActiveInlineMathTreeCaret(state)
+          ? { state, ops: [], handled: true as const }
+          : undefined;
+      };
+    bus.registerState(EXTEND_SELECTION_UP, extendVertical("up"), 110);
+    bus.registerState(EXTEND_SELECTION_DOWN, extendVertical("down"), 110);
+    const extendHorizontal =
+      (direction: "left" | "right") => (state: EditorState) => {
+        const moved = this.treeEditing
+          ? extendActiveInlineMathTreeSelectionHorizontally(state, direction)
+          : undefined;
+        if (moved) return moved;
+        return hasActiveInlineMathTreeCaret(state)
+          ? { state, ops: [], handled: true as const }
+          : undefined;
+      };
+    bus.registerState(EXTEND_SELECTION_LEFT, extendHorizontal("left"), 110);
+    bus.registerState(EXTEND_SELECTION_RIGHT, extendHorizontal("right"), 110);
+    bus.registerState(
+      INSERT_MATH_COMMAND,
+      (state, { text, caretOffset }) =>
+        insertActiveInlineMathTreeCommand(state, text, caretOffset) ??
+        (hasActiveInlineMathTreeCaret(state)
+          ? { state, ops: [], handled: true as const }
+          : undefined),
+      110,
+    );
+    bus.registerState(
+      RESIZE_MATH_MATRIX,
+      (state, { rows, cols }) =>
+        resizeActiveInlineMathTreeMatrix(state, rows, cols) ??
+        (hasActiveInlineMathTreeCaret(state)
+          ? { state, ops: [], handled: true as const }
+          : undefined),
+      110,
+    );
+  }
+
   // ── Caret model (inline chip) ───────────────────────────────────────────────
   // A chip's visible chars ARE its LaTeX, so a chip-local offset is
   // `blockIndex − span.startIndex`. The chip isn't an opaque atom — the caret
   // descends into it — so it overrides `move`/`deleteUnit` (the shared math model
   // in `nodes/math` finds the chip the index sits in and answers per-chip) rather
-  // than declaring `atomicSpans`. A block equation is the MathNode's concern, so
-  // these decline it (`block.type === "math"` → null; the seam consults the node
-  // first anyway — belt-and-braces). The post-edit *effect* (materialize a
-  // construct / arm scratch) is owned by MathNode's TEXT_INPUTTED observer, which
-  // covers inline chips too — so there is none here.
+  // than declaring `atomicSpans`. A block equation is the MathNode's concern;
+  // this mark model is invoked only for a resolved inline run. The post-edit
+  // *effect* (materialize a construct / arm scratch) is owned by MathNode's
+  // TEXT_INPUTTED observer, which covers inline chips too — so there is none here.
   readonly caret: CaretModel = {
-    move: (block, index, motion) =>
-      block.type === "math" ? null : mathCaretMove(block, index, motion),
-    deleteUnit: (block, index, dir) =>
-      block.type === "math" ? null : mathDeleteUnit(block, index, dir),
+    move: (block, index, motion) => mathCaretMove(block, index, motion),
+    deleteUnit: (block, index, dir) => mathDeleteUnit(block, index, dir),
     transformInput: (block, index, input) =>
-      block.type === "math"
-        ? null
-        : mathTransformTypedInput(block, index, input),
+      mathTransformTypedInput(block, index, input),
     selectionRange: (block, anchor, focus, focusEdge) =>
-      block.type === "math"
-        ? null
-        : mathSelectionRange(block, anchor, focus, focusEdge),
+      mathSelectionRange(block, anchor, focus, focusEdge),
   };
 }

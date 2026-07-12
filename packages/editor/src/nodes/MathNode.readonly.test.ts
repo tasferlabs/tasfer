@@ -7,9 +7,9 @@
  * mode a readonly editor enters for copy.
  */
 
+import { createMathTestState } from "../__testutils__/math";
 import { POINTER_MOVE } from "../actions/pointer-actions";
 import type { EditorState, Page, ViewportState } from "../state-types";
-import { createInitialState } from "../state-utils";
 import type { MathBlock } from "./MathNode";
 import { describe, expect, it } from "vitest";
 
@@ -53,13 +53,13 @@ function hoverMathBlock(state: EditorState, canvasX = 100): EditorState {
 
 describe("math hover in readonly", () => {
   it("an editable editor lights the hovered math block", () => {
-    const next = hoverMathBlock(createInitialState(mathPage()));
+    const next = hoverMathBlock(createMathTestState(mathPage()));
     expect(next.ui.hoveredMathBlockIndex).toBe(0);
   });
 
   it("a readonly editor never lights the hovered math block", () => {
     const next = hoverMathBlock(
-      createInitialState(mathPage(), { mode: "readonly" }),
+      createMathTestState(mathPage(), { mode: "readonly" }),
     );
     expect(next.ui.hoveredMathBlockIndex).toBeNull();
   });
@@ -69,18 +69,18 @@ describe("math hover horizontal bounds", () => {
   // The backdrop fills the content column, so hovering the page margins beside
   // the equation (same row, but left of paddingLeft) must not light the block.
   it("does not light the block when hovering the left page margin", () => {
-    const next = hoverMathBlock(createInitialState(mathPage()), 10);
+    const next = hoverMathBlock(createMathTestState(mathPage()), 10);
     expect(next.ui.hoveredMathBlockIndex).toBeNull();
   });
 
   it("does not light the block when hovering the right page margin", () => {
     // viewport.width (600) - paddingRight (40) = 560 is the content-column edge.
-    const next = hoverMathBlock(createInitialState(mathPage()), 580);
+    const next = hoverMathBlock(createMathTestState(mathPage()), 580);
     expect(next.ui.hoveredMathBlockIndex).toBeNull();
   });
 
   it("lights the block when hovering inside the content column", () => {
-    const next = hoverMathBlock(createInitialState(mathPage()), 300);
+    const next = hoverMathBlock(createMathTestState(mathPage()), 300);
     expect(next.ui.hoveredMathBlockIndex).toBe(0);
   });
 });

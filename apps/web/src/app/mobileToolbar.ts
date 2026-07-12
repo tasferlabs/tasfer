@@ -1,4 +1,4 @@
-import { filterMathCommands } from "@cypherkit/editor";
+import { filterMathCommands } from "@cypherkit/editor/math";
 
 export type MobileToolbarBlockType =
   | "paragraph"

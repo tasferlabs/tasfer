@@ -147,6 +147,28 @@ export function getVisiblePositionOfChar(
   return -1;
 }
 
+/**
+ * Resolve an identity-anchored character gap to a visible UTF-16 offset.
+ *
+ * Unlike {@link getVisiblePositionOfChar}, a tombstoned anchor remains a valid
+ * boundary: it resolves after every visible character that physically precedes
+ * it in the RGA. `null` is the field start. A missing identity returns `null`.
+ */
+export function getVisibleOffsetAfterChar(
+  runs: CharRun[] | undefined,
+  afterCharId: string | null,
+): number | null {
+  if (afterCharId === null) return 0;
+  if (!runs || !Array.isArray(runs)) return null;
+
+  let visibleOffset = 0;
+  for (const { id, deleted } of iterateAllChars(runs)) {
+    if (id === afterCharId) return visibleOffset + (deleted ? 0 : 1);
+    if (!deleted) visibleOffset += 1;
+  }
+  return null;
+}
+
 // =============================================================================
 // Text Extraction
 // =============================================================================

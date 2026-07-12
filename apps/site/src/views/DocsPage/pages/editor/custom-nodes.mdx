@@ -53,7 +53,7 @@ const schema = baseSchema.extend({ nodes: [new CalloutNode()] });
 
 <h2 id="strings">Localized strings live on the node</h2>
 
-A node owns the canvas strings it paints — status labels, prompts — as a `strings` catalog of English defaults. The editor ships no i18n library; a localized host overrides per type via `theme.nodeStrings`. Read them inside `draw` with the protected `str(state, key)` helper. (The built-in image and math nodes own their labels exactly this way — they're no longer in a global string table.)
+A node owns the canvas strings it paints — status labels, prompts — as a `strings` catalog of English defaults. The editor ships no i18n library; a localized host overrides per type via `theme.nodeStrings`. Read them inside `draw` with the protected `str(state, key)` helper. (The core image node and the opt-in math node own their labels exactly this way — they're no longer in a global string table.)
 
 ```ts
 class CalloutNode extends AtomicNode {
@@ -108,8 +108,8 @@ editor.host.collectOverlays().forEach((o) => {
 
 <Callout kind="note" title="The engine stays headless.">
   `overlays()` returns data, never JSX — so the same node works in a React host,
-  a vanilla-DOM host, or none at all. It's the seam the built-in image and math
-  popovers are migrating onto.
+  a vanilla-DOM host, or none at all. It's the seam the core image and opt-in
+  math popovers are migrating onto.
 </Callout>
 
 <h2 id="mark">Define a mark</h2>
@@ -129,7 +129,7 @@ const marked = defineMark("highlight", {
 });
 ```
 
-A `Mark` subclass can also declare `selectionWrap` — the typed delimiters that apply it over a held selection, VS Code-style auto-surround with markdown meaning. Typing a trigger char while text is selected applies the mark instead of replacing the selection (the built-ins declare `` ` `` → code, `~` → strike, `$` → inline math). Marks sharing a char at different `level`s cycle with the delimiter count on repeated presses, the way emphasis (`*`, level 1) and strong (`*`, level 2) walk *em* → **strong** → ***both*** → plain:
+A `Mark` subclass can also declare `selectionWrap` — the typed delimiters that apply it over a held selection, VS Code-style auto-surround with markdown meaning. Typing a trigger char while text is selected applies the mark instead of replacing the selection (the core marks declare `` ` `` → code and `~` → strike; the optional math extension declares `$` → inline math). Marks sharing a char at different `level`s cycle with the delimiter count on repeated presses, the way emphasis (`*`, level 1) and strong (`*`, level 2) walk *em* → **strong** → ***both*** → plain:
 
 ```ts
 class HighlightMark extends Mark {

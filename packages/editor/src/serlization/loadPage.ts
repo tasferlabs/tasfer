@@ -1,3 +1,4 @@
+import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
 import type { CodeBlock } from "../nodes/CodeNode";
 import type { ListBlock } from "../nodes/ListNode";
 import type { QuoteBlock } from "../nodes/QuoteNode";
@@ -110,11 +111,11 @@ export function areMarkArraysEqual(
   return true;
 }
 
-// Block is a union of the built-in block types. It is deliberately CLOSED: an
+// Block is a union of the core block types. It is deliberately CLOSED: an
 // open member with a non-literal `type` would de-discriminate the union and
 // break every `block.type === "…"` narrow across the engine.
 //
-// Custom (schema-registered) block types are represented at runtime as
+// Optional-feature and custom (schema-registered) block types are represented at runtime as
 // Block-shaped objects whose `type` is a custom name and whose extra fields are
 // top-level keys. They reach the closed `Block` type via a cast at the
 // `defineNode` boundary (`asBlock`); the generic engine code only ever touches
@@ -204,8 +205,11 @@ export function parseFrontmatter(content: string): {
 }
 
 export function loadPage(content: string, schema?: DataSchema): Page {
+  // Schema-optional callers retain the pre-feature-split built-in set. Passing
+  // an explicit schema remains the way to opt into a precise feature set.
+  schema ??= getCompatibilityDataSchema();
   const { content: body, metadata } = parseFrontmatter(content);
-  const tokens = tokenizePage(body);
+  const tokens = tokenizePage(body, schema);
   const page = parsePage(tokens, schema);
   if (metadata) page.metadata = metadata;
   // Coerce the parsed blocks to the schema's authoring allow-list — the import

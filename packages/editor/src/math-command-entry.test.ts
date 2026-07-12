@@ -14,26 +14,30 @@
  * NAVIGATION and the delete-unit computation itself stay untouched — they parse
  * the real source, so a committed command stays one atomic token.
  */
+import {
+  createMathTestState,
+  createMathTestSyncEngine,
+} from "./__testutils__/math";
 import { insertText } from "./actions/actions";
 import { DELETE_BACKWARD } from "./actions/edit-actions";
 import { mathArmScratch } from "./nodes/math";
 import { mathCommandInsertion } from "./nodes/math-commands";
 import { moveCursorToPosition, updateCursor } from "./selection";
 import type { EditorState } from "./state-types";
-import { createInitialState, isCaretScratchActive } from "./state-utils";
+import { isCaretScratchActive } from "./state-utils";
 import { getVisibleTextFromRuns } from "./sync/char-runs";
 import {
   deleteCharsInRange,
   insertCharsAtPosition,
   markCharsInRange,
 } from "./sync/crdt-utils";
-import { createCRDTbinding, createSyncEngine } from "./sync/sync";
+import { createCRDTbinding } from "./sync/sync";
 import { describe, expect, it } from "vitest";
 
 /** A block-equation editor state holding `latex`, with the caret at `caret`. */
 function mathState(latex: string, caret: number) {
   const binding = createCRDTbinding("math-cmd-entry", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
@@ -42,7 +46,7 @@ function mathState(latex: string, caret: number) {
   if (latex) {
     page = insertCharsAtPosition(page, blockId, 0, latex, binding).newPage;
   }
-  let state = createInitialState(page, { crdtBinding: binding });
+  let state = createMathTestState(page, { crdtBinding: binding });
   state = moveCursorToPosition(state, 0, caret);
   return { state, blockId };
 }
@@ -53,7 +57,7 @@ function mathState(latex: string, caret: number) {
  */
 function chipState(latex: string, caret: number) {
   const binding = createCRDTbinding("inline-cmd-entry", "peer-1");
-  const engine = createSyncEngine(binding);
+  const engine = createMathTestSyncEngine(binding);
   const blockOp = engine.createBlockInsert(null, "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
@@ -69,7 +73,7 @@ function chipState(latex: string, caret: number) {
     true,
     binding,
   ).newPage;
-  let state = createInitialState(page, { crdtBinding: binding });
+  let state = createMathTestState(page, { crdtBinding: binding });
   state = moveCursorToPosition(state, 0, caret);
   return { state, blockId };
 }
@@ -415,7 +419,7 @@ describe("typing a letter after a `\\`-menu command commit does not fuse", () =>
    * into the chip's mark span instead of landing beside it as prose. */
   function committedChipState(prefix: string, query: string, command: string) {
     const binding = createCRDTbinding("menu-commit", "peer-1");
-    const engine = createSyncEngine(binding);
+    const engine = createMathTestSyncEngine(binding);
     const blockOp = engine.createBlockInsert(null, "paragraph", {});
     engine.emit([blockOp]);
     const blockId = blockOp.blockId;
@@ -461,7 +465,7 @@ describe("typing a letter after a `\\`-menu command commit does not fuse", () =>
       binding,
     ).newPage;
 
-    let state = createInitialState(page, { crdtBinding: binding });
+    let state = createMathTestState(page, { crdtBinding: binding });
     state = moveCursorToPosition(
       state,
       0,

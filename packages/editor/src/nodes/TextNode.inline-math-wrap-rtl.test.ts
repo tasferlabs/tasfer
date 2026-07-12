@@ -11,15 +11,17 @@
  * operators, while the LTR counterpart (see `TextNode.inline-math-wrap.test.ts`)
  * does.
  */
-import { createDefaultMarkRegistry } from "../rendering/marks";
-import { loadPage } from "../serlization/loadPage";
+import {
+  createMathTestMarkRegistry,
+  loadMathPage,
+} from "../__testutils__/math";
 import { resolveTheme } from "../styles";
 import { TextNode, type TextualBlock } from "./TextNode";
 import { describe, expect, it } from "vitest";
 
 describe("TextNode inline-math reflow — RTL keeps the chip atomic", () => {
   const styles = resolveTheme({});
-  const marks = createDefaultMarkRegistry();
+  const marks = createMathTestMarkRegistry();
   const node = new TextNode();
 
   // A wide formula made of top-level operators (an LTR line would split it at
@@ -27,7 +29,7 @@ describe("TextNode inline-math reflow — RTL keeps the chip atomic", () => {
   const latex = "a+b+c+d+e+f+g+h+i+j+k+l+m+n+o+p";
 
   it("does not split a wide chip at operators in an RTL line", () => {
-    const block = loadPage(`مرحبا بالعالم وأهلا $${latex}$`)
+    const block = loadMathPage(`مرحبا بالعالم وأهلا $${latex}$`)
       .blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 120, styles, undefined, marks);
     expect(layout.isRTL).toBe(true);
@@ -43,7 +45,7 @@ describe("TextNode inline-math reflow — RTL keeps the chip atomic", () => {
   });
 
   it("LTR control: the same formula DOES split at operators", () => {
-    const block = loadPage(`hello $${latex}$`).blocks[0] as TextualBlock;
+    const block = loadMathPage(`hello $${latex}$`).blocks[0] as TextualBlock;
     const layout = node.computeLayout(block, 120, styles, undefined, marks);
     expect(layout.isRTL).toBe(false);
     const splitLeads = layout.lines
