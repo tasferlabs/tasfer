@@ -11,7 +11,10 @@ import { cn } from "@/lib/utils"
  *    to true. While a modal Radix layer is open, Radix sets
  *    `pointer-events: none` on <body>; custom outside-click handlers (e.g.
  *    EventPreview's) must ignore pointerdowns in that state, because that
- *    click belongs to the modal layer.
+ *    click belongs to the modal layer. They must check in the CAPTURE phase:
+ *    Radix dismisses the layer synchronously (flushSync) from a
+ *    document-level listener and restores the body style before the same
+ *    event reaches bubble listeners.
  * 2. A dismissing interaction closes ONE layer only. Radix already scopes
  *    the outside click when modal; Escape must additionally stop propagating
  *    (see PopoverContent) so it never reaches window/document listeners of

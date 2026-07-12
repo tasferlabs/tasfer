@@ -599,16 +599,20 @@ export function EventPreview({
       : null;
 
   // Close on click outside (popover mode only).
-  // We stop pointerdown propagation from inside the popover (see onPointerDown
-  // on the popover div) so the window handler only fires for true outside clicks.
+  // Listens in the CAPTURE phase: when a modal Radix layer (date picker,
+  // timezone picker, combobox, ...) is dismissed by an outside pointerdown,
+  // Radix closes it synchronously (flushSync) from a document-level listener
+  // and restores <body>'s pointer-events before the event would reach a
+  // bubble listener. Capture runs first, while <body> still has
+  // pointer-events: none, so the dismissing click is reliably attributed to
+  // the modal layer instead of closing this popover too.
   useEffect(() => {
     if (!isActive || sidebarMode || isMobile) return;
     function handlePointerDown(e: PointerEvent) {
-      // While a modal Radix layer (e.g. the date picker popover) is open it
-      // disables pointer events on <body>, so the click that dismisses it
-      // targets <html>. That click belongs to the modal layer, not to us.
+      // A modal Radix layer is open; this click belongs to that layer.
       if (document.body.style.pointerEvents === "none") return;
       const target = e.target as Node;
+      if (popoverRef.current?.contains(target)) return;
       if (
         target instanceof Element &&
         target.closest(
@@ -621,11 +625,11 @@ export function EventPreview({
     }
     // Delay listener to avoid closing on the same click that opened it
     const timer = setTimeout(() => {
-      window.addEventListener("pointerdown", handlePointerDown);
+      window.addEventListener("pointerdown", handlePointerDown, true);
     }, 0);
     return () => {
       clearTimeout(timer);
-      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
     };
   }, [isActive, onClose, sidebarMode, isMobile]);
 
