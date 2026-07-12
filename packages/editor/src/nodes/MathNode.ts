@@ -68,6 +68,7 @@ import {
 import {
   backspaceActiveMathTree,
   deleteForwardActiveMathTree,
+  enterAdjacentMathTreeHorizontally,
   exitActiveMathTreeHorizontally,
   exitActiveMathTreeVertically,
   extendActiveMathTreeSelectionHorizontally,
@@ -1314,7 +1315,7 @@ export class MathNode extends TextNode<MathBlock> {
         moveActiveMathTreeCaret(state, "arrow-left") ??
         (hasActiveMathTreeCaret(state)
           ? exitActiveMathTreeHorizontally(state, "left")
-          : undefined),
+          : enterAdjacentMathTreeHorizontally(state, "left")),
       100,
     );
     bus.registerState(
@@ -1323,7 +1324,7 @@ export class MathNode extends TextNode<MathBlock> {
         moveActiveMathTreeCaret(state, "arrow-right") ??
         (hasActiveMathTreeCaret(state)
           ? exitActiveMathTreeHorizontally(state, "right")
-          : undefined),
+          : enterAdjacentMathTreeHorizontally(state, "right")),
       100,
     );
     bus.registerState(

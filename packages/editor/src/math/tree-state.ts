@@ -4,6 +4,7 @@ import type { FeatureInputRule } from "../feature-facets";
 import { getBlockTextLength } from "../node-shared";
 import { unambiguousMathCommandCompletion } from "../nodes/math-commands";
 import type { MathBlock } from "../nodes/MathNode";
+import { getBlockDirection } from "../rtl";
 import {
   moveCursorLeft,
   moveCursorRight,
@@ -18,6 +19,7 @@ import {
   updateContentSelection,
 } from "../structured-selection";
 import { findBlockIndex } from "../sync/block-lookup";
+import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { deleteCharsInRange, orderKeyAfter } from "../sync/crdt-utils";
 import { createDeterministicIdentityAllocator } from "../sync/id";
@@ -57,6 +59,7 @@ import {
 } from "./tree-edit";
 import {
   contentPointToMathTreeCaret,
+  mathContentSelectionFromSourceOffset,
   mathSourceRangeFromContentSelection,
   mathTreeCaretFromSourceOffset,
   mathTreeCaretToContentSelection,
@@ -177,6 +180,89 @@ export function exitActiveMathTreeHorizontally(
   );
   return {
     state: direction === "left" ? moveCursorLeft(flat) : moveCursorRight(flat),
+    ops: [],
+    handled: true,
+  };
+}
+
+/**
+ * Enter an adjacent tree-authoritative display equation from a neighbouring
+ * block, landing at the edge that faces the caret.
+ *
+ * A materialized equation keeps an EMPTY compatibility projection so that
+ * {@link exitActiveMathTreeHorizontally} can treat its lone offset zero as both
+ * block edges and step straight out. That same collapse breaks the reverse trip:
+ * a plain cursor stepping in from the RIGHT lands on offset zero — the equation's
+ * LEFT edge, before the whole formula — and then steps back out instead of
+ * reaching the last cell (the reported "jumps to the start of the matrix").
+ *
+ * So when a collapsed compatibility caret sits at the edge of its block facing
+ * the move and the adjacent visible block is a materialized equation, promote
+ * directly to a structured caret at that equation's NEAR edge: moving left enters
+ * at its right edge (source end), moving right at its left edge (offset zero).
+ * The offset-zero (left) case matches where the old projection already landed, so
+ * only the right-edge entry changes behavior; both now yield a real structured
+ * caret rather than an ambiguous compatibility offset. Returns undefined for
+ * anything else — a non-edge caret, an active range, an RTL block (whose visual
+ * left is logical forward), or a non-math / not-yet-materialized neighbour — so
+ * ordinary cursor movement is untouched.
+ */
+export function enterAdjacentMathTreeHorizontally(
+  state: EditorState,
+  direction: "left" | "right",
+): MathTreeStateEditResult | undefined {
+  // Only a plain, collapsed compatibility caret can bridge in; a live structured
+  // caret or an open range is handled by the movers above.
+  if (state.document.contentSelection) return undefined;
+  const cursor = state.document.cursor;
+  if (!cursor) return undefined;
+  if (state.document.selection && !state.document.selection.isCollapsed) {
+    return undefined;
+  }
+  const { blockIndex, textIndex } = cursor.position;
+  const currentBlock = state.document.page.blocks[blockIndex];
+  if (!currentBlock || currentBlock.deleted) return undefined;
+  // Visual left/right only equals logical back/forward in LTR; leave RTL blocks
+  // to the ordinary mover so we never bridge on the wrong side.
+  if (
+    isTextualBlock(currentBlock) &&
+    getBlockDirection(currentBlock, state.marks) === "rtl"
+  ) {
+    return undefined;
+  }
+  // The caret must sit on the block edge the move steps off of.
+  const atEdge =
+    direction === "left"
+      ? textIndex === 0
+      : textIndex === getBlockTextLength(currentBlock);
+  if (!atEdge) return undefined;
+
+  const adjacentIndex =
+    direction === "left"
+      ? findPreviousVisibleBlockIndex(state.document.page.blocks, blockIndex)
+      : findNextVisibleBlockIndex(state.document.page.blocks, blockIndex);
+  if (adjacentIndex === null) return undefined;
+  const adjacent = state.document.page.blocks[adjacentIndex] as
+    | Block
+    | MathBlock
+    | undefined;
+  if (!adjacent || adjacent.deleted || adjacent.type !== "math") {
+    return undefined;
+  }
+  const document = getMathStructuredDocument(adjacent);
+  if (!document) return undefined;
+
+  const source = getStructuredMathSource(adjacent) ?? "";
+  const sourceOffset = direction === "left" ? source.length : 0;
+  const selection = mathContentSelectionFromSourceOffset(
+    adjacent.id,
+    mathContentIdForBlock(adjacent.id),
+    document,
+    sourceOffset,
+  );
+  if (!selection) return undefined;
+  return {
+    state: updateContentSelection(state, selection),
     ops: [],
     handled: true,
   };
