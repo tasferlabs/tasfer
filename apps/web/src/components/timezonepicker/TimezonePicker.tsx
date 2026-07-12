@@ -207,7 +207,9 @@ export function TimezonePicker({
   };
 
   return (
-    <Popover.Root open={open} onOpenChange={handleOpenChange}>
+    // Modal per the layered-surface contract in components/ui/popover.tsx:
+    // the background stays inert while the picker is open.
+    <Popover.Root modal open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger asChild disabled={disabled}>
         <button
           type="button"
@@ -242,6 +244,9 @@ export function TimezonePicker({
             event.preventDefault();
             inputRef.current?.focus();
           }}
+          // Escape dismisses only this layer; see the layered-surface
+          // contract in components/ui/popover.tsx.
+          onEscapeKeyDown={(event) => event.stopPropagation()}
         >
           <Command
             shouldFilter={false}

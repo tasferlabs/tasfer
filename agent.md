@@ -16,6 +16,12 @@ directly to HTML canvas and stores document state in a CRDT.
 - Keep public editor documentation accurate when changing a public API.
 - A math block must never show raw LaTeX to the reader. It always renders the
   typeset formula; source is only ever visible while that block is being edited.
+- Floating surfaces (popovers, dropdowns, dialogs, pickers) follow the
+  layered-surface contract documented in
+  `apps/web/src/components/ui/popover.tsx`: the background is inert while the
+  surface is open, and each outside click or Escape dismisses exactly one
+  layer. Build new surfaces on the `apps/web/src/components/ui` wrappers, or
+  replicate both rules.
 
 ## Compatibility status
 

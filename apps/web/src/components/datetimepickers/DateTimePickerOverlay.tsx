@@ -541,10 +541,7 @@ export function DateTimePickerOverlay({
   if (!isDesktop) {
     return (
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-        <DialogContent
-          className="max-w-sm p-4 pt-8"
-          onEscapeKeyDown={(e) => e.stopPropagation()}
-        >
+        <DialogContent className="max-w-sm p-4 pt-8">
           <DialogTitle className="sr-only">
             {type === "time" ? t("common.time", "Time") : t("common.date", "Date")}
           </DialogTitle>
@@ -555,13 +552,9 @@ export function DateTimePickerOverlay({
   }
 
   return (
-    <Popover modal open={open} onOpenChange={(v) => !v && onClose()}>
+    <Popover open={open} onOpenChange={(v) => !v && onClose()}>
       <PopoverAnchor />
-      <PopoverContent
-        className="w-auto min-w-[300px] p-2 py-4"
-        align="center"
-        onEscapeKeyDown={(e) => e.stopPropagation()}
-      >
+      <PopoverContent className="w-auto min-w-[300px] p-2 py-4" align="center">
         {component}
       </PopoverContent>
     </Popover>

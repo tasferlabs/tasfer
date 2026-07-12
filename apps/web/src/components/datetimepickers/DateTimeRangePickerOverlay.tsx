@@ -403,10 +403,7 @@ export function DateTimeRangePickerOverlay({
   if (!isDesktop) {
     return (
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-        <DialogContent
-          className="max-w-[400px] p-4 pt-6 max-h-[90vh] overflow-y-auto"
-          onEscapeKeyDown={(e) => e.stopPropagation()}
-        >
+        <DialogContent className="max-w-[400px] p-4 pt-6 max-h-[90vh] overflow-y-auto">
           <DialogTitle className="sr-only">{t("common.date", "Date")}</DialogTitle>
           {component}
           <div className="flex justify-end mt-2">
@@ -420,13 +417,9 @@ export function DateTimeRangePickerOverlay({
   }
 
   return (
-    <Popover modal open={open} onOpenChange={(v) => !v && onClose()}>
+    <Popover open={open} onOpenChange={(v) => !v && onClose()}>
       <PopoverAnchor />
-      <PopoverContent
-        className="w-auto p-3"
-        align="center"
-        onEscapeKeyDown={(e) => e.stopPropagation()}
-      >
+      <PopoverContent className="w-auto p-3" align="center">
         {component}
         <div className="flex justify-end mt-2">
           <Button onClick={onClose} variant="secondary" size="sm">

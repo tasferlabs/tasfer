@@ -3,10 +3,28 @@ import { Popover as PopoverPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Layered-surface contract (applies to every floating surface in the app —
+ * popovers, dialogs, dropdowns, selects, comboboxes, and any future one):
+ *
+ * 1. The background is inert while the surface is open, so `modal` defaults
+ *    to true. While a modal Radix layer is open, Radix sets
+ *    `pointer-events: none` on <body>; custom outside-click handlers (e.g.
+ *    EventPreview's) must ignore pointerdowns in that state, because that
+ *    click belongs to the modal layer.
+ * 2. A dismissing interaction closes ONE layer only. Radix already scopes
+ *    the outside click when modal; Escape must additionally stop propagating
+ *    (see PopoverContent) so it never reaches window/document listeners of
+ *    surfaces underneath.
+ *
+ * New floating components should either build on these wrappers or replicate
+ * both rules.
+ */
 function Popover({
+  modal = true,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+  return <PopoverPrimitive.Root data-slot="popover" modal={modal} {...props} />
 }
 
 function PopoverTrigger({
@@ -20,6 +38,7 @@ function PopoverContent({
   align = "center",
   sideOffset = 4,
   collisionPadding,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
@@ -29,6 +48,12 @@ function PopoverContent({
         align={align}
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
+        // Escape dismisses only this layer; see the layered-surface contract
+        // on Popover above.
+        onEscapeKeyDown={(e) => {
+          onEscapeKeyDown?.(e)
+          e.stopPropagation()
+        }}
         className={cn(
           "z-50 flex w-72 max-h-[var(--radix-popover-content-available-height)] origin-(--radix-popover-content-transform-origin) flex-col gap-4 rounded-md bg-popover p-4 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
