@@ -53,6 +53,19 @@ describe("empty-slot caret stops", () => {
     );
   });
 
+  it("does not paint a redundant empty group after filled matrix content", () => {
+    const clean = layoutMath("\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}", {
+      fontSize: FS,
+    });
+    const stranded = layoutMath(
+      "\\begin{pmatrix}a{}&b{}\\\\c{}&d{}\\end{pmatrix}",
+      { fontSize: FS },
+    );
+
+    expect(caretStops(stranded).some((stop) => stop.placeholder)).toBe(false);
+    expect(stranded.width).toBeCloseTo(clean.width, 5);
+  });
+
   it("enlarges an empty slot's hit target without changing its visual box", () => {
     const layout = layoutMath("\\frac{}{b}", { fontSize: FS });
     const slot = caretStops(layout).find((s) => s.offset === 6)!;

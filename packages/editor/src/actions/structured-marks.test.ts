@@ -214,7 +214,7 @@ describe("structured mark creation seam", () => {
     ).toBe("a$xy$\nb");
   });
 
-  it("does not tombstone a source block that owns a supplemental attachment", () => {
+  it("clones and re-addresses supplemental attachments when joining blocks", () => {
     const initial = createMathTestState(loadMathPage("before\nxy"));
     const attached = attachRange(initial, 1, 0, 2).state;
     const [target, source] = attached.document.page.blocks;
@@ -226,12 +226,95 @@ describe("structured mark creation seam", () => {
       attached.schema,
     );
 
-    expect(result.ops).toEqual([]);
-    expect(result.newPage).toBe(attached.document.page);
+    expect(result.ops.map((op) => op.op)).toEqual([
+      "content_edit",
+      "text_insert",
+      "mark_set",
+      "block_delete",
+    ]);
+    expect(
+      result.newPage.blocks.filter((block) => !block.deleted),
+    ).toHaveLength(1);
     expect(
       serializeToMarkdown(result.newPage.blocks, undefined, {
         schema: attached.schema,
       }),
+    ).toBe("before$xy$");
+
+    const joined = result.newPage.blocks.find(
+      (block) => block.id === target.id && !block.deleted,
+    );
+    expect(joined).toBeDefined();
+    const run = joined ? resolveMarkRuns(joined)[0] : undefined;
+    const sourceContentId = resolveMarkRuns(source)[0]?.attrs.contentId;
+    const joinedContentId = run?.attrs.contentId;
+    expect(typeof joinedContentId).toBe("string");
+    expect(joinedContentId).not.toBe(sourceContentId);
+    if (typeof joinedContentId === "string") {
+      expect(joined?.structuredContent?.[joinedContentId]?.rootId).toBe(
+        joinedContentId,
+      );
+    }
+
+    const after: EditorState = {
+      ...attached,
+      document: { ...attached.document, page: result.newPage },
+    };
+    const recorded = recordUndoOps(
+      attached,
+      after,
+      result.ops,
+      attached.CRDTbinding.getPeerId(),
+    );
+    const undone = undoState(recorded).state;
+    expect(
+      serializeToMarkdown(undone.document.page.blocks, undefined, {
+        schema: undone.schema,
+      }),
     ).toBe("before\n$xy$");
+    const redone = redoState(undone).state;
+    expect(
+      serializeToMarkdown(redone.document.page.blocks, undefined, {
+        schema: redone.schema,
+      }),
+    ).toBe("before$xy$");
+  });
+
+  it("preserves distinct attachments when both joined blocks contain structured marks", () => {
+    const initial = createMathTestState(loadMathPage("a\nb"));
+    const targetAttached = attachRange(initial, 0, 0, 1).state;
+    const attached = attachRange(targetAttached, 1, 0, 1).state;
+    const [target, source] = attached.document.page.blocks;
+    const result = mergeBlocksOps(
+      attached.document.page,
+      source,
+      target,
+      attached.CRDTbinding,
+      attached.schema,
+    );
+
+    expect(
+      serializeToMarkdown(result.newPage.blocks, undefined, {
+        schema: attached.schema,
+      }),
+    ).toBe("$a$$b$");
+    const joined = result.newPage.blocks.find(
+      (block) => block.id === target.id && !block.deleted,
+    );
+    expect(joined).toBeDefined();
+    const contentIds = joined
+      ? resolveMarkRuns(joined).map((run) => run.attrs.contentId)
+      : [];
+    expect(contentIds).toHaveLength(2);
+    expect(new Set(contentIds).size).toBe(2);
+    for (const contentId of contentIds) {
+      expect(typeof contentId).toBe("string");
+      if (typeof contentId === "string") {
+        expect(joined?.structuredContent?.[contentId]?.rootId).toBe(contentId);
+      }
+    }
+    expect(
+      applyOps(attached.document.page, result.ops, attached.schema),
+    ).toEqual(result.newPage);
   });
 });

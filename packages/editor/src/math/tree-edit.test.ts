@@ -1,4 +1,5 @@
 import { iterateAllChars } from "../sync/char-runs";
+import { generateKeyBetween } from "../sync/fractional-index";
 import {
   createDeterministicIdentityAllocator,
   type IdentityAllocator,
@@ -576,6 +577,53 @@ describe("structured math tree editing", () => {
 
     expect(new Set(cellRows).size).toBe(4);
     expect(caret).toEqual(rowCaret(outerRow.id, matrix.id));
+  });
+
+  it("visits every visible empty group in a row", () => {
+    const matrix = matrixDocument(
+      String.raw`\begin{bmatrix}{}&{}\end{bmatrix}`,
+    );
+    const outerRow = child(matrix, matrix.rootId, "body", "row");
+    const matrixNode = child(matrix, outerRow.id, "children", "matrix");
+    const matrixRow = child(matrix, matrixNode.id, "rows", "matrix-row");
+    const cells = getStructuredChildren(matrix, matrixRow.id, "cells");
+    const firstBody = child(matrix, cells[0].id, "body", "row");
+    const secondBody = child(matrix, cells[1].id, "body", "row");
+    const firstPlaceholder = child(
+      matrix,
+      firstBody.id,
+      "children",
+      "raw-latex",
+    );
+    const secondPlaceholder = child(
+      matrix,
+      secondBody.id,
+      "children",
+      "raw-latex",
+    );
+    const document = applyStructuredEdit(matrix, {
+      kind: "node_move",
+      nodeId: secondPlaceholder.id,
+      placement: {
+        parentId: firstBody.id,
+        slot: "children",
+        orderKey: generateKeyBetween(firstPlaceholder.placement.orderKey, null),
+      },
+    });
+    const body = firstBody;
+    const placeholders = getStructuredChildren(document, body.id, "children");
+    expect(placeholders).toHaveLength(2);
+
+    const first = rowCaret(body.id, null);
+    const second = moveMathTreeCaret(document, first, "arrow-right");
+    const after = moveMathTreeCaret(document, second.caret, "arrow-right");
+
+    expect(second.caret).toEqual(rowCaret(body.id, placeholders[0].id));
+    expect(after.caret).toEqual(rowCaret(secondBody.id, null));
+
+    const last = rowCaret(body.id, placeholders[1].id);
+    const backToFirst = moveMathTreeCaret(document, last, "arrow-left");
+    expect(backToFirst.caret).toEqual(rowCaret(body.id, placeholders[0].id));
   });
 
   it("crosses a matrix cell containing an empty braced placeholder in one press", () => {

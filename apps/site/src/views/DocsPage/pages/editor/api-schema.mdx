@@ -111,26 +111,16 @@ import { mathDataExtension } from "@cypherkit/editor/math/data";
 export const workerDataSchema = baseDataSchema.extend(mathDataExtension());
 ```
 
-Workers do not choose `displayEditing` or `inlineEditing`: structured
-`content_edit` operations are schema-agnostic and replay through this data
-schema. Both options belong to the full `mathExtension` used by an interactive
-editor:
+Structured `content_edit` operations are schema-agnostic and replay through
+this data schema. Interactive editors install the full extension:
 
 ```ts
-const treeMathSchema = baseSchema.use(
-  mathExtension({
-    displayEditing: "tree",
-    inlineEditing: "tree",
-  }),
-);
+const mathSchema = baseSchema.use(mathExtension());
 ```
 
-The defaults remain `"legacy"`, so enabling either tree writer is a deliberate
-collaborative rollout decision. Current legacy-mode clients render attached
-inline math as a whole atomic selection unit without mutating individual
-compatibility characters; clients
-from before the attachment guard must be excluded through protocol/version
-negotiation.
+Display and inline editing both use structured `MathDocument` operations.
+Existing flat LaTeX is migrated lazily on first edit; compatibility characters
+are retained only where needed for import and interchange.
 
 ```ts
 import {
@@ -155,9 +145,10 @@ const output = serializeToMarkdown(page.blocks, undefined, {
 Without `mathExtension`, dollar-delimited input remains literal text: the
 parser preserves both `$...$` and `$$...$$` source instead of silently
 interpreting or discarding it. That lets a math-free client retain content from
-a newer or differently configured peer until the feature is installed. Legacy
-editing stores LaTeX in the ordinary text CRDT; either opt-in tree mode stores a
-`MathDocument` as the authority and derives LaTeX for rendering and interchange.
+a newer or differently configured peer until the feature is installed.
+Imported legacy documents may store LaTeX in the ordinary text CRDT. Once
+edited, a `MathDocument` is authoritative and LaTeX is derived for rendering
+and interchange.
 The feature also exposes `MathDocument`,
 `mathDocumentToStructured`, `structuredToMathDocument`, and
 `parseLegacyMathDocumentInit`; editor core supplies the generic `content_edit`

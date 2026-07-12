@@ -134,29 +134,26 @@ provides generic structured-content operations, deterministic reduction, undo,
 and snapshot replay; the optional math feature provides `MathDocument` ↔
 structured-store adapters plus an atomic legacy-LaTeX initializer.
 
-Tree-backed editing for display `MathNode`s is rolling out behind an explicit
-feature option:
+Interactive math editing uses the structured `MathDocument` model:
 
 ```ts
 import { baseDataSchema, baseSchema } from "@cypherkit/editor";
 import { mathExtension } from "@cypherkit/editor/math";
 import { mathDataExtension } from "@cypherkit/editor/math/data";
 
-baseSchema.use(mathExtension({ displayEditing: "tree" }));
+baseSchema.use(mathExtension());
 baseDataSchema.extend(mathDataExtension());
 ```
 
-The Cypher app enables this mode. A legacy display formula is initialized into
-the structured CRDT when it is first edited in tree mode; from then on the tree
+An imported legacy display formula is initialized into the structured CRDT
+when it is first edited; from then on the tree
 is the single authority and canonical LaTeX is derived only for rendering and
 interchange. Nested selection points and layout caret stops refer to stable
-row, slot, node, and character identities, including empty fraction slots. The
-default remains the compatibility path for hosts that have not opted in.
+row, slot, node, and character identities, including empty fraction slots.
 
-All interactive peers sharing a collaborative document must coordinate the
-same `displayEditing` setting. Data-only reducers and workers have no editing
-mode: `mathDataExtension()` supplies codecs, syntax, and structured adapters so
-they can replay either operation shape without importing live input or canvas
+Data-only reducers and workers have no editing mode: `mathDataExtension()`
+supplies codecs, syntax, and structured adapters so they can replay imported
+legacy data and structured operations without importing live input or canvas
 code.
 
 The `document_init` operation is monotonic and add-only. Undo does not remove
@@ -165,11 +162,9 @@ that the undoing peer has not observed. Undo may restore the legacy
 character-run shadow, but the tree remains authoritative and the next tree edit
 cleans that shadow again.
 
-This is a vertical slice, not the end of the migration. Inline `MathMark`
-editing still uses the legacy LaTeX text CRDT. Nested-range editing and
-clipboard behavior, document-native IME composition, direct editor hit testing
-into tree positions, and splitting an existing raw-text leaf for arbitrary
-in-place structural insertion remain follow-up work.
+Inline `MathMark` editing uses a supplemental structured document referenced by
+the covering mark. Compatibility characters remain an import/interchange
+projection, not a second editable LaTeX representation.
 
 ## What works today
 

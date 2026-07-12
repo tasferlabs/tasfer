@@ -14,7 +14,7 @@ import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
 import { mathDataExtension } from "./data";
-import { mathInlineTreeInputRules, mathTreeInputRules } from "./input-rules";
+import { mathInputRules } from "./input-rules";
 import { describe, expect, it } from "vitest";
 
 function source(state: EditorState): string {
@@ -160,7 +160,7 @@ describe("optional math live-input rules", () => {
 
   it("keeps full-extension input facets available to custom editor schemas", () => {
     const appDataSchema = mathTestSchema.data;
-    expect(mathTreeInputRules.map((rule) => rule.id)).toContain(
+    expect(mathInputRules.map((rule) => rule.id)).toContain(
       "math.inline-tree.attached-projection-guard",
     );
     expect(
@@ -177,10 +177,10 @@ describe("optional math live-input rules", () => {
     expect(result.document.page.blocks[0].type).toBe("math");
   });
 
-  it("offers explicit schemas one combined display-and-inline tree bundle", () => {
+  it("offers explicit schemas the combined structured math bundle", () => {
     const schema = getBaseDataSchema()
       .extend(mathDataExtension())
-      .withFeatures({ inputRules: mathInlineTreeInputRules });
+      .withFeatures({ inputRules: mathInputRules });
     const ids = schema.features
       .inputRules("before-insert")
       .map((rule) => rule.id);
@@ -188,6 +188,6 @@ describe("optional math live-input rules", () => {
     expect(ids).toContain("math.inline-tree.input");
     expect(ids).toContain("math.tree.migrate");
     expect(ids).toContain("math.inline-tree.attached-projection-guard");
-    expect(mathInlineTreeInputRules[0].id).toBe("math.inline-tree.input");
+    expect(mathInputRules[0].id).toBe("math.inline-tree.input");
   });
 });

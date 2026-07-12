@@ -20,7 +20,7 @@ import {
 import { isValidLatex } from "@cypherkit/tex";
 import { describe, expect, it } from "vitest";
 
-const schema = baseSchema.use(mathExtension({ displayEditing: "tree" }));
+const schema = baseSchema.use(mathExtension());
 
 function legacyEquation(latex: string): EditorState {
   const binding = createCRDTbinding("tree-corruption", "local");

@@ -40,8 +40,8 @@ import {
 import {
   deleteActiveInlineMathTree,
   enterInlineMathTreeAtPosition,
-  exitActiveInlineMathTreeHorizontally,
   exitActiveInlineMathTreeForBlockSplit,
+  exitActiveInlineMathTreeHorizontally,
   extendActiveInlineMathTreeSelectionHorizontally,
   extendActiveInlineMathTreeSelectionVertically,
   hasActiveInlineMathTreeCaret,
@@ -347,11 +347,8 @@ const inlineMathReplacement: MarkReplacement = {
 };
 
 export class MathMark extends Mark {
-  private readonly treeEditing: boolean;
-
-  constructor(options: { readonly treeEditing?: boolean } = {}) {
+  constructor() {
     super();
-    this.treeEditing = options.treeEditing === true;
   }
 
   readonly type = "math";
@@ -370,24 +367,20 @@ export class MathMark extends Mark {
   }
 
   registerActions(bus: ActionBus): void {
-    if (this.treeEditing) {
-      bus.registerState(
-        TEXT_CLICK,
-        (state, { position }) =>
-          enterInlineMathTreeAtPosition(
-            state,
-            position.blockIndex,
-            position.textIndex,
-          ),
-        90,
-      );
-    }
+    bus.registerState(
+      TEXT_CLICK,
+      (state, { position }) =>
+        enterInlineMathTreeAtPosition(
+          state,
+          position.blockIndex,
+          position.textIndex,
+        ),
+      90,
+    );
     const remove =
       (direction: "backward" | "forward") => (state: EditorState) => {
-        if (this.treeEditing) {
-          const edited = deleteActiveInlineMathTree(state, direction);
-          if (edited) return edited;
-        }
+        const edited = deleteActiveInlineMathTree(state, direction);
+        if (edited) return edited;
         return ownsInlineMathTreeDelete(state, direction)
           ? { state, ops: [], handled: true as const }
           : undefined;
@@ -408,9 +401,7 @@ export class MathMark extends Mark {
 
     const move =
       (motion: "arrow-left" | "arrow-right") => (state: EditorState) => {
-        const moved = this.treeEditing
-          ? moveActiveInlineMathTreeCaret(state, motion)
-          : undefined;
+        const moved = moveActiveInlineMathTreeCaret(state, motion);
         if (moved) return moved;
         if (!hasActiveInlineMathTreeCaret(state)) return undefined;
         return exitActiveInlineMathTreeHorizontally(
@@ -423,9 +414,10 @@ export class MathMark extends Mark {
     bus.registerState(
       MOVE_CONTENT_TAB,
       (state, { backward }) => {
-        const moved = this.treeEditing
-          ? moveActiveInlineMathTreeCaret(state, backward ? "shift-tab" : "tab")
-          : undefined;
+        const moved = moveActiveInlineMathTreeCaret(
+          state,
+          backward ? "shift-tab" : "tab",
+        );
         if (moved) return moved;
         return hasActiveInlineMathTreeCaret(state)
           ? { state, ops: [], handled: true as const }
@@ -434,9 +426,7 @@ export class MathMark extends Mark {
       110,
     );
     const moveVertical = (direction: "up" | "down") => (state: EditorState) => {
-      const moved = this.treeEditing
-        ? moveActiveInlineMathTreeCaretVertically(state, direction)
-        : undefined;
+      const moved = moveActiveInlineMathTreeCaretVertically(state, direction);
       if (moved) return moved;
       return hasActiveInlineMathTreeCaret(state)
         ? { state, ops: [], handled: true as const }
@@ -446,9 +436,10 @@ export class MathMark extends Mark {
     bus.registerState(MOVE_CURSOR_DOWN, moveVertical("down"), 110);
     const extendVertical =
       (direction: "up" | "down") => (state: EditorState) => {
-        const moved = this.treeEditing
-          ? extendActiveInlineMathTreeSelectionVertically(state, direction)
-          : undefined;
+        const moved = extendActiveInlineMathTreeSelectionVertically(
+          state,
+          direction,
+        );
         if (moved) return moved;
         return hasActiveInlineMathTreeCaret(state)
           ? { state, ops: [], handled: true as const }
@@ -458,9 +449,10 @@ export class MathMark extends Mark {
     bus.registerState(EXTEND_SELECTION_DOWN, extendVertical("down"), 110);
     const extendHorizontal =
       (direction: "left" | "right") => (state: EditorState) => {
-        const moved = this.treeEditing
-          ? extendActiveInlineMathTreeSelectionHorizontally(state, direction)
-          : undefined;
+        const moved = extendActiveInlineMathTreeSelectionHorizontally(
+          state,
+          direction,
+        );
         if (moved) return moved;
         return hasActiveInlineMathTreeCaret(state)
           ? { state, ops: [], handled: true as const }

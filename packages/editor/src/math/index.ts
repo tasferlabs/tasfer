@@ -9,11 +9,8 @@
 export { getInlineMathSpans, type InlineMathSpan } from "../inline-math-spans";
 export {
   type MathBlockAttrs,
-  type MathDisplayEditing,
   mathExtension,
-  type MathExtensionOptions,
   type MathFeatureExtension,
-  type MathInlineEditing,
 } from "../math-extension";
 export {
   isValidLatex,
@@ -44,9 +41,5 @@ export {
 } from "../nodes/MathNode";
 export { MathMark } from "../rendering/marks/MathMark";
 export * from "./data";
-export {
-  mathInlineTreeInputRules,
-  mathInputRules,
-  mathTreeInputRules,
-} from "./input-rules";
+export { mathInputRules } from "./input-rules";
 export * from "./tree-selection";

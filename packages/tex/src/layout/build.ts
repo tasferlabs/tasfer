@@ -245,7 +245,12 @@ export function buildExpression(
   style: Style,
   font?: FontVariant,
 ): ListBox {
-  const built = nodes.map((n) => buildNode(n, style, font));
+  // Nodes here are siblings in ordinary math flow. A bare empty group among
+  // them (`a{}`) is a TeX no-op, not an editable construct slot; rendering it
+  // as a placeholder leaves a ghost cell beside otherwise-filled content.
+  // Required argument/cell rows call buildNode directly and keep placeholders.
+  const emptyOrdIsSlot = !expressionHasVisibleContent(nodes);
+  const built = nodes.map((n) => buildNode(n, style, font, emptyOrdIsSlot));
   const items: HItem[] = [];
   for (let i = 0; i < built.length; i++) {
     if (i > 0 && !built[i - 1].isSpace && !built[i].isSpace) {
@@ -255,6 +260,19 @@ export function buildExpression(
     items.push(built[i].box);
   }
   return hbox(items);
+}
+
+/** Whether an expression has ink besides empty/spacing-only groups. */
+function expressionHasVisibleContent(nodes: readonly Node[]): boolean {
+  return nodes.some(
+    (node) =>
+      node.type !== "space" &&
+      !(
+        node.type === "ord" &&
+        (node.body.length === 0 ||
+          node.body.every((child) => child.type === "space"))
+      ),
+  );
 }
 
 /** Glue (root em) between two adjacent atom classes at `style`. */
@@ -311,7 +329,8 @@ export function buildExpressionWrapped(
   wrap: WrapOptions,
   font?: FontVariant,
 ): ListBox {
-  const built = nodes.map((n) => buildNode(n, style, font));
+  const emptyOrdIsSlot = !expressionHasVisibleContent(nodes);
+  const built = nodes.map((n) => buildNode(n, style, font, emptyOrdIsSlot));
   const n = built.length;
   if (n === 0) return hbox([]);
 
@@ -448,8 +467,13 @@ const BOUNDARY_CONSTRUCTS = new Set<Node["type"]>([
   "not",
 ]);
 
-function buildNode(node: Node, style: Style, font?: FontVariant): Built {
-  const built = buildNodeInner(node, style, font);
+function buildNode(
+  node: Node,
+  style: Style,
+  font?: FontVariant,
+  emptyOrdIsSlot = true,
+): Built {
+  const built = buildNodeInner(node, style, font, emptyOrdIsSlot);
   // Tag genuine constructs so the caret layer can offer top-level stops at their
   // outer edges (see ListBox.boundary). The box already carries `node.span`.
   if (
@@ -462,7 +486,12 @@ function buildNode(node: Node, style: Style, font?: FontVariant): Built {
   return built;
 }
 
-function buildNodeInner(node: Node, style: Style, font?: FontVariant): Built {
+function buildNodeInner(
+  node: Node,
+  style: Style,
+  font?: FontVariant,
+  emptyOrdIsSlot = true,
+): Built {
   switch (node.type) {
     case "atom": {
       // Big operators (∑ ∫ ∏ …) render larger and centered on the axis.
@@ -497,7 +526,12 @@ function buildNodeInner(node: Node, style: Style, font?: FontVariant): Built {
         node.body.length === 0 ||
         node.body.every((n) => n.type === "space")
       ) {
-        return emptySlot(node.span, style);
+        if (emptyOrdIsSlot) return emptySlot(node.span, style);
+        return {
+          box: listBox([], { width: 0, klass: "mord", span: node.span }),
+          klass: "mord",
+          isCharBox: false,
+        };
       }
       const box = buildExpression(node.body, style, font);
       box.span = node.span;

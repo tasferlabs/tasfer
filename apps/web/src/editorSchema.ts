@@ -20,7 +20,7 @@ import {
 } from "@cypherkit/editor";
 import { CodeNode, type NodeOverlay } from "@cypherkit/editor/internal";
 import {
-  mathInlineTreeInputRules,
+  mathInputRules,
   MathMark,
   MathNode,
 } from "@cypherkit/editor/math";
@@ -257,7 +257,7 @@ export function openCodeLanguageMenu(editor: AppEditor, blockId: string): void {
  * not need those authoring rules to replay the resulting structured operations.
  */
 export const appSchema = new Schema(
-  appDataSchema.withFeatures({ inputRules: mathInlineTreeInputRules }),
+  appDataSchema.withFeatures({ inputRules: mathInputRules }),
   [
     new LineNode(),
     new CypherImageNode(),
@@ -273,7 +273,7 @@ export const appSchema = new Schema(
     new StrikeMark(),
     new CodeMark(),
     new CypherLinkMark(),
-    new MathMark({ treeEditing: true }),
+    new MathMark(),
   ],
 );
 

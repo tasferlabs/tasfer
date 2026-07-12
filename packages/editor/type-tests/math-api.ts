@@ -18,7 +18,6 @@ import {
 import {
   type MathDocumentNode,
   mathExtension,
-  type MathExtensionOptions,
   type MathFeatureExtension,
   MathNode,
 } from "../dist/math/index.mjs";
@@ -69,9 +68,5 @@ void dataSyntax;
 void featureSyntax;
 void featureInputs;
 
-const treeOptions: MathExtensionOptions = {
-  displayEditing: "tree",
-  inlineEditing: "tree",
-};
-const treeMath: MathFeatureExtension = mathExtension(treeOptions);
-void treeMath;
+const structuredMath: MathFeatureExtension = mathExtension();
+void structuredMath;

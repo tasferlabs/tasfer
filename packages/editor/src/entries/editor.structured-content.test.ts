@@ -98,13 +98,10 @@ function createTestEditor() {
   return { editor, blockId: page.blocks[0].id };
 }
 
-function createMathEditor(
-  displayEditing: "legacy" | "tree",
-  markdown = "$$\nabcd\n$$",
-) {
-  const schema = baseSchema.use(mathExtension({ displayEditing }));
+function createMathEditor(markdown = "$$\nabcd\n$$") {
+  const schema = baseSchema.use(mathExtension());
   const page = loadPage(markdown, schema.data);
-  const binding = createCRDTbinding(page.id, `public-math-${displayEditing}`);
+  const binding = createCRDTbinding(page.id, "public-math");
   const editor = new Editor(
     canvasLayers(),
     createInitialState(page, {
@@ -321,7 +318,7 @@ describe("Editor structured-content public API", () => {
       },
     ];
     for (const edit of edits) {
-      const { editor, blockId } = createMathEditor("tree");
+      const { editor, blockId } = createMathEditor();
       const broadcasts: Operation[][] = [];
       editor.setBroadcast((ops) => broadcasts.push(ops));
       const range = {
@@ -339,24 +336,6 @@ describe("Editor structured-content public API", () => {
       ).toBe(true);
       editor.destroy();
     }
-  });
-
-  it("keeps explicit ChangeApi ranges flat in legacy math mode", () => {
-    const { editor, blockId } = createMathEditor("legacy");
-    const broadcasts: Operation[][] = [];
-    editor.setBroadcast((ops) => broadcasts.push(ops));
-
-    expect(
-      editor.change((change) =>
-        change.insertText("X", {
-          from: { block: blockId, offset: 1 },
-          to: { block: blockId, offset: 3 },
-        }),
-      ),
-    ).toBe(true);
-    expect(editor.getMarkdown()).toBe("$$\naXd\n$$");
-    expect(broadcasts[0].some((op) => op.op === "content_edit")).toBe(false);
-    editor.destroy();
   });
 
   it("treats peer-attached inline marks as atomic public-range and cut units", async () => {
@@ -482,7 +461,7 @@ describe("Editor structured-content public API", () => {
   });
 
   it("routes ChangeApi deleteRange(selection) through feature ownership", () => {
-    const { editor, blockId } = createMathEditor("tree");
+    const { editor, blockId } = createMathEditor();
     editor.setSelection({
       from: { block: blockId, offset: 1 },
       to: { block: blockId, offset: 3 },
@@ -494,10 +473,7 @@ describe("Editor structured-content public API", () => {
   });
 
   it("deletes an authoritative endpoint atomically in a cross-block range", () => {
-    const { editor, blockIds } = createMathEditor(
-      "tree",
-      "$$\nabc\n$$\n\noutside",
-    );
+    const { editor, blockIds } = createMathEditor("$$\nabc\n$$\n\noutside");
     editor.setSelection({
       from: { block: blockIds[0], offset: 1 },
       to: { block: blockIds[0], offset: 2 },
@@ -518,7 +494,7 @@ describe("Editor structured-content public API", () => {
   });
 
   it("refuses a public block morph while structured content owns the block", () => {
-    const { editor, blockId } = createMathEditor("tree");
+    const { editor, blockId } = createMathEditor();
     const broadcasts: Operation[][] = [];
     editor.setBroadcast((ops) => broadcasts.push(ops));
 

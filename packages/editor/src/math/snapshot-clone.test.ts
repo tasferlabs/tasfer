@@ -20,7 +20,7 @@ import {
 import { printMathDocument } from "@cypherkit/tex/data";
 import { describe, expect, it } from "vitest";
 
-const schema = baseSchema.use(mathExtension({ displayEditing: "tree" }));
+const schema = baseSchema.use(mathExtension());
 const LATEX = String.raw`\frac{a}{b}+\sqrt{x}`;
 
 function treeBlock() {

@@ -1745,6 +1745,17 @@ function moveRightFromRowGap(
   const resolved = resolveCaret(document, gap);
   if (!resolved || resolved.kind !== "row") return undefined;
   const children = getStructuredChildren(document, gap.rowId, "children");
+  // When a row consists entirely of empty groups, every group is rendered as
+  // its own placeholder box. The gap before the first group already addresses
+  // the first box, so advance one boundary at a time instead of skipping the
+  // whole run. A single placeholder still exits the row in one press (not two),
+  // which keeps empty matrix-cell traversal unchanged.
+  if (
+    rowHasMultipleVisibleEmptyGroups(document, children) &&
+    resolved.position < children.length - 1
+  ) {
+    return rowCaret(resolved.row.id, children[resolved.position].id);
+  }
   let nextIndex = resolved.position;
   while (isEmptyNavigationPlaceholder(document, children[nextIndex])) {
     nextIndex += 1;
@@ -1784,6 +1795,14 @@ function moveLeftFromRowGap(
   const resolved = resolveCaret(document, gap);
   if (!resolved || resolved.kind !== "row") return undefined;
   const children = getStructuredChildren(document, gap.rowId, "children");
+  // Reverse of moveRightFromRowGap's visible empty-group traversal. The gap
+  // after the last group addresses the last box when entering from the right.
+  if (
+    rowHasMultipleVisibleEmptyGroups(document, children) &&
+    resolved.position > 1
+  ) {
+    return rowCaret(resolved.row.id, children[resolved.position - 2].id);
+  }
   let previousIndex = resolved.position - 1;
   while (isEmptyNavigationPlaceholder(document, children[previousIndex])) {
     previousIndex -= 1;
@@ -2401,6 +2420,21 @@ function isEmptyNavigationPlaceholder(
   return (
     node.type === "raw-latex" &&
     getStructuredText(document, node.id, "latex") === "{}"
+  );
+}
+
+/** Multiple empty groups are multiple painted boxes, not one scaffold run. */
+function rowHasMultipleVisibleEmptyGroups(
+  document: StructuredDocument,
+  children: readonly StructuredNode[],
+): boolean {
+  return (
+    children.length > 1 &&
+    children.every(
+      (child) =>
+        child.type === "raw-latex" &&
+        getStructuredText(document, child.id, "latex") === "{}",
+    )
   );
 }
 

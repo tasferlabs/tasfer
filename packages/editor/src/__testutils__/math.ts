@@ -8,7 +8,17 @@ import type { CRDTbinding } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { createSyncEngine } from "../sync/sync";
 
-export const mathTestSchema = baseSchema.use(mathExtension());
+// Historical flat-source suites still exercise import-time compatibility and
+// the pure source/caret helpers. Keep that coverage isolated from the public
+// extension, which installs structured display and inline editing exclusively.
+const compatibilityMathExtension = mathExtension();
+export const mathTestSchema = baseSchema.use({
+  ...compatibilityMathExtension,
+  inputRules: compatibilityMathExtension.inputRules.filter(
+    (rule) =>
+      rule.id !== "math.inline-tree.input" && rule.id !== "math.tree.migrate",
+  ),
+});
 
 export function createMathTestNodeRegistry() {
   return createNodeRegistry(mathTestSchema.nodes);

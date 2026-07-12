@@ -60,9 +60,7 @@ import { mathContentSelectionFromSourceOffset } from "./tree-selection";
 import { printMathDocument } from "@cypherkit/tex/data";
 import { describe, expect, it } from "vitest";
 
-const inlineTreeSchema = baseSchema.use(
-  mathExtension({ inlineEditing: "tree" }),
-);
+const inlineTreeSchema = baseSchema.use(mathExtension());
 const legacyInlineSchema = baseSchema.use(mathExtension());
 
 function legacyChip(peer = "inline-test", markdown = "$x$"): EditorState {

@@ -209,35 +209,14 @@ const inlineDollarRule: FeatureInputRule = {
   },
 };
 
-/** Compatibility authoring rules that keep display equations in char runs. */
+/** Structured display-math migration/editing plus the math authoring shortcuts. */
 export const mathInputRules = [
+  inlineMathTreeInputRule,
+  mathTreeMigrationInputRule,
   mathTreeInputRule,
   inlineMathAttachedProjectionGuard,
   displayDollarRule,
   inlineDollarRule,
-] as const satisfies readonly [
-  FeatureInputRule,
-  FeatureInputRule,
-  FeatureInputRule,
-  FeatureInputRule,
-];
-
-/** Tree-authoritative display editing plus the existing math shortcuts. */
-export const mathTreeInputRules = [
-  mathTreeMigrationInputRule,
-  ...mathInputRules,
-] as const satisfies readonly [
-  FeatureInputRule,
-  FeatureInputRule,
-  FeatureInputRule,
-  FeatureInputRule,
-  FeatureInputRule,
-];
-
-/** Tree-authoritative display and inline math for explicit/custom schemas. */
-export const mathInlineTreeInputRules = [
-  inlineMathTreeInputRule,
-  ...mathTreeInputRules,
 ] as const satisfies readonly [
   FeatureInputRule,
   FeatureInputRule,

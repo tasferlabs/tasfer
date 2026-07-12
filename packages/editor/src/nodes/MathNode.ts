@@ -331,31 +331,34 @@ function demoteActiveStructuredMathBlock(
   }
 
   const source = mathBlockSource(block);
+  const supplemental =
+    source.length > 0
+      ? state.schema.features.cloneStructuredContent({
+          document: {
+            version: document.version,
+            kind: document.kind,
+            rootId: document.rootId,
+            nodes: document.nodes,
+          },
+          sourceBlockId: block.id,
+          targetBlockId: block.id,
+          sourceContentId: document.rootId,
+          identities: state.CRDTbinding,
+        })
+      : undefined;
+  if (source.length > 0 && !supplemental) return undefined;
   const ops: Operation[] = [];
+  let page = state.document.page;
   const operationBase = () => ({
     id: state.CRDTbinding.nextId(),
     clock: state.CRDTbinding.getClock(),
     pageId: state.CRDTbinding.pageId,
   });
-  const setParagraph: Operation = {
-    op: "block_set",
-    ...operationBase(),
-    blockId: block.id,
-    field: "type",
-    value: "paragraph",
-  };
-  ops.push(setParagraph);
-  // `block_set(type)` is the replicated intent; locally materialize the
-  // registered textual shape just like the legacy demotion path does.
-  const paragraph: Block = {
-    ...block,
-    type: "paragraph",
-    formats: [],
-  };
-  const convertedBlocks = [...state.document.page.blocks];
-  convertedBlocks[blockIndex] = paragraph;
-  let page = { ...state.document.page, blocks: convertedBlocks };
 
+  // Remove block authority before morphing. Generic block morphs correctly
+  // reject blocks that still own structured content, so emitting `block_set`
+  // first made remote replay retain a math block while the originating editor
+  // manually showed a paragraph.
   const removeAuthority: Operation = {
     op: "content_edit",
     ...operationBase(),
@@ -366,19 +369,39 @@ function demoteActiveStructuredMathBlock(
   ops.push(removeAuthority);
   page = applyOps(page, [removeAuthority], state.schema);
 
-  if (source.length > 0) {
-    const supplemental: StructuredDocument = {
-      version: document.version,
-      kind: document.kind,
-      rootId: document.rootId,
-      nodes: document.nodes,
-    };
+  // A lazily-migrated tree may still carry compatibility characters. They are
+  // only a projection and can be stale. Reusing them and then inserting the
+  // canonical source produced a short marked copy followed by raw LaTeX.
+  const compatibilityLength = getVisibleTextFromRuns(block.charRuns).length;
+  if (compatibilityLength > 0) {
+    const deleted = deleteCharsInRange(
+      page,
+      block.id,
+      0,
+      compatibilityLength,
+      state.CRDTbinding,
+    );
+    ops.push(deleted.op);
+    page = deleted.newPage;
+  }
+
+  const setParagraph: Operation = {
+    op: "block_set",
+    ...operationBase(),
+    blockId: block.id,
+    field: "type",
+    value: "paragraph",
+  };
+  ops.push(setParagraph);
+  page = applyOps(page, [setParagraph], state.schema);
+
+  if (source.length > 0 && supplemental) {
     const reattach: Operation = {
       op: "content_edit",
       ...operationBase(),
       blockId: block.id,
-      contentId: document.rootId,
-      edit: { kind: "document_init", document: supplemental },
+      contentId: supplemental.contentId,
+      edit: { kind: "document_init", document: supplemental.document },
     };
     ops.push(reattach);
     page = applyOps(page, [reattach], state.schema);
@@ -397,7 +420,7 @@ function demoteActiveStructuredMathBlock(
       block.id,
       0,
       source.length,
-      { type: "math", attrs: { contentId: document.rootId } },
+      { type: "math", attrs: { contentId: supplemental.contentId } },
       true,
       state.CRDTbinding,
     );

@@ -187,7 +187,7 @@ describe("content_edit operation", () => {
     expect(applyOps(refused, inverses)).toEqual(incremental);
   });
 
-  it("refuses replayed type morphs that would discard supplemental content", () => {
+  it("carries supplemental content across replayed type morphs", () => {
     const blockId = "supplemental:10";
     const contentId = "supplemental:11";
     const supplemental = document(contentId);
@@ -226,7 +226,7 @@ describe("content_edit operation", () => {
       applyOps(empty, operations),
       rebuildState("page", [...operations].reverse()),
     ]) {
-      expect(page.blocks[0].type).toBe("paragraph");
+      expect(page.blocks[0].type).toBe("heading1");
       expect(page.blocks[0].structuredContent?.[contentId]).toEqual(
         supplemental,
       );

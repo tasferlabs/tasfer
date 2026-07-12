@@ -29,6 +29,7 @@ import {
   MOVE_CURSOR_UP,
 } from "../actions/keyboard-actions";
 import { handleKeyDown } from "../events/keysEvents";
+import { resolveMarkRuns } from "../inline-math-spans";
 import { mathExtension } from "../math-extension";
 import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "../nodes/MathNode";
 import { createMarkRegistry } from "../rendering/marks";
@@ -74,10 +75,7 @@ import {
 } from "@cypherkit/tex";
 import { describe, expect, it } from "vitest";
 
-const treeMathSchema = baseSchema.use(
-  mathExtension({ displayEditing: "tree" }),
-);
-const legacyMathSchema = baseSchema.use(mathExtension());
+const treeMathSchema = baseSchema.use(mathExtension());
 
 const viewport: ViewportState = {
   width: 800,
@@ -116,18 +114,6 @@ function stateFromPage(
     schema: treeMathSchema.data,
     nodes: createNodeRegistry(treeMathSchema.nodes),
     marks: createMarkRegistry(treeMathSchema.marks),
-    crdtBinding: binding,
-  });
-}
-
-function legacyStateFromPage(
-  page: ReturnType<typeof loadPage>,
-  binding: ReturnType<typeof createCRDTbinding>,
-): EditorState {
-  return createInitialState(page, {
-    schema: legacyMathSchema.data,
-    nodes: createNodeRegistry(legacyMathSchema.nodes),
-    marks: createMarkRegistry(legacyMathSchema.marks),
     crdtBinding: binding,
   });
 }
@@ -323,19 +309,24 @@ describe("tree-backed display math state integration", () => {
 
     const result = before.actionBus.dispatchState(DELETE_BACKWARD, before);
     const converted = result.state.document.page.blocks[0];
-    const attachment = converted.structuredContent?.[original.rootId];
+    const inlineContentId = resolveMarkRuns(converted)[0]?.attrs.contentId;
+    const attachment =
+      typeof inlineContentId === "string"
+        ? converted.structuredContent?.[inlineContentId]
+        : undefined;
 
     expect(result.claimed).toBe(true);
     expect(operationKinds(result.ops)).toEqual([
-      "block_set",
       "content:document_delete",
+      "block_set",
       "content:document_init",
       "text_insert",
       "mark_set",
     ]);
     expect(converted.type).toBe("paragraph");
+    expect(inlineContentId).not.toBe(original.rootId);
     expect(attachment?.authority).toBeUndefined();
-    expect(attachment?.nodes).toEqual(original.nodes);
+    expect(attachment?.rootId).toBe(inlineContentId);
     expect(
       serializeToMarkdown(result.state.document.page.blocks, undefined, {
         schema: result.state.schema,
@@ -346,6 +337,75 @@ describe("tree-backed display math state integration", () => {
       blockIndex: 0,
       textIndex: 2,
     });
+    expect(applyOps(before.document.page, result.ops, before.schema)).toEqual(
+      result.state.document.page,
+    );
+
+    const recorded = recordUndoOps(
+      before,
+      result.state,
+      result.ops,
+      before.CRDTbinding.getPeerId(),
+    );
+    const undone = undoState(recorded).state;
+    expect(undone.document.page.blocks[0].type).toBe("math");
+    expect(getStructuredMathSource(block(undone))).toBe("ab");
+    const redone = redoState(undone).state;
+    expect(
+      serializeToMarkdown(redone.document.page.blocks, undefined, {
+        schema: redone.schema,
+      }),
+    ).toBe("$ab$");
+  });
+
+  it("drops stale compatibility source when demoting structured display math", () => {
+    const seeded = typeText(treeState("$$\n\n$$"), "ab").state;
+    const staleBlock = block(seeded);
+    const selected = selectActiveTreeText(seeded, 0, 0);
+    const before: EditorState = {
+      ...selected,
+      document: {
+        ...selected.document,
+        page: {
+          ...selected.document.page,
+          blocks: selected.document.page.blocks.map((candidate) =>
+            candidate.id === staleBlock.id
+              ? {
+                  ...candidate,
+                  charRuns: [
+                    {
+                      peerId: "stale-projection",
+                      startCounter: 1,
+                      text: String.raw`ab\frac{}{}\begin{pmatrix}{}&{}\\{}&{}\end{pmatrix}`,
+                    },
+                  ],
+                }
+              : candidate,
+          ),
+        },
+      },
+    };
+
+    const result = before.actionBus.dispatchState(DELETE_BACKWARD, before);
+    const converted = result.state.document.page.blocks[0];
+
+    expect(operationKinds(result.ops)).toEqual([
+      "content:document_delete",
+      "text_delete",
+      "block_set",
+      "content:document_init",
+      "text_insert",
+      "mark_set",
+    ]);
+    expect(getVisibleTextFromRuns(converted.charRuns)).toBe("ab");
+    expect(
+      serializeToMarkdown(result.state.document.page.blocks, undefined, {
+        schema: result.state.schema,
+      }),
+    ).toBe("$ab$");
+    expect(applyOps(before.document.page, result.ops, before.schema)).toEqual(
+      result.state.document.page,
+    );
   });
 
   it("emits a nested TEXT_INPUT signal when a tree consumes backslash", () => {
@@ -385,9 +445,9 @@ describe("tree-backed display math state integration", () => {
     });
   });
 
-  it("keeps an existing tree authoritative in legacy migration mode", () => {
+  it("keeps an existing tree authoritative during migration", () => {
     const seeded = typeText(treeState("$$\n\n$$"), "ab").state;
-    let state = legacyStateFromPage(seeded.document.page, seeded.CRDTbinding);
+    let state = stateFromPage(seeded.document.page, seeded.CRDTbinding);
     state = placeFlatTreeCursor(state, 2);
 
     const result = insertText(state, "c");
@@ -1295,37 +1355,6 @@ describe("tree-backed display math state integration", () => {
     expect(legacySource(result.state)).toBe("");
     expect(treeSource(result.state)).toBe("abc");
     expect(contentTextOffset(result.state)).toBe(0);
-  });
-
-  it("preserves flat deletion when the schema explicitly uses legacy mode", () => {
-    let before = legacyStateFromPage(
-      loadPage("$$\nabc\n$$", legacyMathSchema.data),
-      createCRDTbinding("default-page", "legacy-delete"),
-    );
-    before = moveCursorToPosition(before, 0, 3);
-
-    const result = before.actionBus.dispatchState(DELETE_BACKWARD, before);
-
-    expect(operationKinds(result.ops)).toEqual(["text_delete"]);
-    expect(legacySource(result.state)).toBe("ab");
-    expect(treeSource(result.state)).toBeUndefined();
-    expect(result.state.document.cursor?.position.textIndex).toBe(2);
-
-    const pasted = pasteFromClipboardEvent(
-      moveCursorToPosition(
-        legacyStateFromPage(
-          loadPage("$$\nabcd\n$$", legacyMathSchema.data),
-          createCRDTbinding("default-page", "legacy-paste"),
-        ),
-        0,
-        2,
-      ),
-      {} as ClipboardEvent,
-      { html: "", text: "X", imageFile: null },
-    );
-    expect(pasted).not.toBeNull();
-    expect(legacySource(pasted!.state)).toBe("abXcd");
-    expect(treeSource(pasted!.state)).toBeUndefined();
   });
 
   it("resizes a structured matrix through the public action and undoes it", () => {

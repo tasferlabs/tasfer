@@ -84,6 +84,7 @@ import {
 } from "../sync/structured-content";
 import { isWordChar } from "../word-chars";
 import {
+  cloneStructuredBlockContent,
   cursorInsideStructuredMark,
   expandSelectionAroundStructuredMarks,
   rangeIntersectsStructuredMark,
@@ -533,20 +534,34 @@ export function mergeBlocksOps(
   let insertedRange: { blockId: string; from: number; to: number } | null =
     null;
 
-  // Generic block joining only knows how to transfer compatibility charRuns.
-  // If either side is owned by a structured attachment, deleting the source or
-  // appending into the target would silently lose one side's authoritative
-  // content. A feature-specific join can later provide a lossless transaction;
-  // until then, conservatively leave both blocks untouched.
+  // A block-authoritative attachment cannot be flattened into another block by
+  // generic char-run operations. Supplemental attachments are different: their
+  // feature clone facets can mint target-scoped identities, and the covering
+  // marks can then be re-addressed to those clones below.
   if (
     hasStructuredBlockAuthority(source) ||
-    hasStructuredBlockAuthority(target) ||
-    // Supplemental documents are scoped to their owning block. The generic
-    // merge can copy compatibility chars + mark attrs, but it cannot move the
-    // referenced attachment before tombstoning `source`.
-    resolveStructuredMarkRanges(source, schema).length > 0
+    hasStructuredBlockAuthority(target)
   ) {
     return { newPage: page, ops, joinPoint, insertedRange };
+  }
+
+  const sourceStructuredMarks = resolveStructuredMarkRanges(source, schema);
+  const clonedContent =
+    sourceStructuredMarks.length > 0
+      ? cloneStructuredBlockContent(source, target.id, binding, schema)
+      : {
+          structuredContent: {},
+          clonedContentIds: {},
+          ops: [] as const,
+        };
+  // A feature that cannot clone one of its attachments keeps the old
+  // conservative behavior: do not tombstone the only block that owns it.
+  if (!clonedContent) {
+    return { newPage: page, ops, joinPoint, insertedRange };
+  }
+  if (clonedContent.ops.length > 0) {
+    ops.push(...clonedContent.ops);
+    pageAcc = applyOps(pageAcc, [...clonedContent.ops], schema);
   }
 
   // Non-textual source can't contribute content; just tombstone it.
@@ -599,6 +614,14 @@ export function mergeBlocksOps(
             )
             .map((id) => sourceToInserted.get(id)!);
           if (coveredIds.length === 0) continue;
+          const format =
+            schema.features.cloneStructuredMark(span.format.type, {
+              mark: span.format,
+              sourceBlockId: source.id,
+              targetBlockId: target.id,
+              attachments: source.structuredContent,
+              clonedContentIds: clonedContent.clonedContentIds,
+            }) ?? span.format;
           formatOps.push({
             op: "mark_set",
             id: binding.nextId(),
@@ -606,13 +629,13 @@ export function mergeBlocksOps(
             pageId: binding.pageId,
             blockId: target.id,
             charIds: coveredIds,
-            format: span.format,
+            format,
             value: true,
           });
         }
         if (formatOps.length > 0) {
           ops.push(...formatOps);
-          pageAcc = applyOps(pageAcc, formatOps);
+          pageAcc = applyOps(pageAcc, formatOps, schema);
         }
       }
     }
@@ -626,7 +649,7 @@ export function mergeBlocksOps(
     blockId: source.id,
   };
   ops.push(deleteOp);
-  pageAcc = applyOps(pageAcc, [deleteOp]);
+  pageAcc = applyOps(pageAcc, [deleteOp], schema);
 
   // Post-merge markdown detection on the surviving paragraph (e.g. backspacing
   // such that target's text now starts with "1. " should convert it to a

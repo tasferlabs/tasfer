@@ -49,7 +49,7 @@ import type { DataSchema } from "./schema";
 import {
   applyStructuredMutation,
   canonicalizeStructuredDocument,
-  hasStructuredContent,
+  hasStructuredBlockAuthority,
   type StructuredContentMap,
 } from "./structured-content";
 
@@ -545,11 +545,12 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
 
   if (op.field === "type") {
     const newType = op.value as BlockType;
-    // Structured attachments are block-scoped. Generic morph reconstructs a
-    // fresh block and cannot carry either authoritative or supplemental
-    // documents across that boundary, so refuse it on every replica instead of
-    // leaving persisted mark contentIds pointing at discarded attachments.
-    if (hasStructuredContent(block)) {
+    // Generic flat morphs cannot reinterpret a block-authoritative document.
+    // Supplemental attachments are safe to carry unchanged: their identities
+    // remain scoped to this same block, and if the target cannot retain their
+    // referencing marks they become harmless add-only infrastructure that undo
+    // or a later operation may reference again.
+    if (hasStructuredBlockAuthority(block)) {
       return state;
     }
     const newBlock = createEmptyBlock(
@@ -560,7 +561,7 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
     );
     if (!newBlock) return state;
 
-    const updatedBlock: Block =
+    const morphedBlock: Block =
       schema.canMorphTo(block.type, newType) &&
       isTextualBlock(block) &&
       isTextualBlock(newBlock)
@@ -577,6 +578,12 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
             // old layout cache is invalid for the new type — let it recompute.
           }
         : newBlock;
+    const updatedBlock: Block = block.structuredContent
+      ? ({
+          ...morphedBlock,
+          structuredContent: block.structuredContent,
+        } as Block)
+      : morphedBlock;
 
     const newBlocks = [...state.blocks];
     newBlocks[blockIndex] = updatedBlock;

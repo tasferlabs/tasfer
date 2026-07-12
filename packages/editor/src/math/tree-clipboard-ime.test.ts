@@ -31,7 +31,7 @@ import {
 import { mathSourceRangeFromContentSelection } from "./tree-selection";
 import { describe, expect, it } from "vitest";
 
-const schema = baseSchema.use(mathExtension({ displayEditing: "tree" }));
+const schema = baseSchema.use(mathExtension());
 const viewport = {
   width: 800,
   height: 600,

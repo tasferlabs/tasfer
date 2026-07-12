@@ -40,7 +40,7 @@ import type {
 import { mathDocumentCaretStop } from "@cypherkit/tex";
 import { describe, expect, it } from "vitest";
 
-const schema = baseSchema.use(mathExtension({ displayEditing: "tree" }));
+const schema = baseSchema.use(mathExtension());
 const viewport: ViewportState = {
   width: 800,
   height: 600,
