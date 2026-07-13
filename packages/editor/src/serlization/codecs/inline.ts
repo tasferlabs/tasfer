@@ -241,7 +241,7 @@ function resolveStructuredSegmentText(
   attachments: StructuredContentMap | undefined,
 ): string {
   for (const mark of segment.formats ?? []) {
-    const source = schema.features.resolveStructuredMark(mark.type, {
+    const source = schema.resolveStructuredMark(mark.type, {
       mark,
       compatibilityText: segment.text,
       attachments,

@@ -1,6 +1,5 @@
 import { CONVERT_STRUCTURED_BLOCK, TEXT_INPUTTED } from "../action-bus";
 import { isCJKCharacter } from "../cjk";
-import { runFeatureInputRules } from "../feature-facets";
 import { resolveMarkRuns } from "../inline-math-spans";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isBlockRTL } from "../rtl";
@@ -642,7 +641,7 @@ export function mergeBlocksOps(
             .map((id) => sourceToInserted.get(id)!);
           if (coveredIds.length === 0) continue;
           const format =
-            schema.features.cloneStructuredMark(span.format.type, {
+            schema.cloneStructuredMark(span.format.type, {
               mark: span.format,
               sourceBlockId: source.id,
               targetBlockId: target.id,
@@ -1296,8 +1295,7 @@ export function insertText(
 
   const ops: Operation[] = [];
   const originalInput = input;
-  const beforeFeature = runFeatureInputRules(
-    state.schema.features,
+  const beforeFeature = state.schema.runInputRules(
     "before-insert",
     state,
     originalInput,
@@ -1543,8 +1541,7 @@ export function insertText(
   // feature-created construct in the same transaction and lets its own
   // TEXT_INPUTTED observer see the transformed document (for example, an
   // optional structured mark may materialize placeholders immediately).
-  const afterFeature = runFeatureInputRules(
-    newState.schema.features,
+  const afterFeature = newState.schema.runInputRules(
     "after-insert",
     newState,
     originalInput,

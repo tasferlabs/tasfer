@@ -21,7 +21,11 @@
  */
 
 import { getBaseDataSchema } from "./baseDataSchema";
-import type { FeatureFacets } from "./feature-facets";
+import type {
+  FeatureFacets,
+  StructuredMarkFacet,
+  SyntaxRule,
+} from "./feature-facets";
 import { defaultMarks, Mark } from "./rendering/marks";
 import { defaultNodes } from "./rendering/nodes";
 import { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
@@ -52,6 +56,7 @@ import {
   type BlockSpecCore,
   type DataSchema,
   type MarkSpec,
+  type StructuredKindSpec,
 } from "./sync/schema";
 import { invariant } from "@shared/invariant";
 
@@ -95,16 +100,23 @@ export interface SchemaExtension {
    * a separate `marks` option.
    */
   readonly marks?: readonly MarkDef[];
+  /**
+   * Adapters for structured document KINDS this extension brings (clipboard
+   * selection serialization, snapshot clone re-addressing). A kind is its own
+   * registration axis — display math and inline math share one kind — so
+   * these ride the extension rather than a single node or mark spec.
+   */
+  readonly structuredKinds?: readonly StructuredKindSpec[];
 }
 
 /**
  * A reusable editor feature installed with {@link Schema.use}.
  *
- * A feature contributes the block-node and inline-mark facets accepted by the
- * lower-level {@link Schema.extend} API plus schema-scoped input, Markdown,
- * action, and theme facets. This distinct public shape is the stable composition
- * boundary for extension packages; new feature capabilities can be added here
- * without changing how consumers install them.
+ * A feature contributes the block-node, inline-mark, and structured-kind
+ * facets accepted by the lower-level {@link Schema.extend} API plus the
+ * cross-type input, action, and theme facets. This distinct public shape is
+ * the stable composition boundary for extension packages; new feature
+ * capabilities can be added here without changing how consumers install them.
  *
  * `name` is optional metadata for tooling and diagnostics. Composition is
  * structural and immutable; a name is not a global registration key and does
@@ -194,24 +206,20 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
     const specs = ext.nodes?.map(toBlockSpec) ?? [];
     const markDefs = ext.marks ?? [];
     const data = this.data.extend({
-      blocks: specs.map(
-        ({ type, descriptor, codec }): BlockSpecCore => ({
-          type,
-          descriptor,
-          codec,
-        }),
-      ),
-      // Strip the render facet — DataSchema stays canvas-free (mirrors how the
-      // block path drops `node` before reaching `this.data.extend`). The codec
-      // is resolved from the render Mark when present (the Mark is the single
-      // source of truth for its facets); `defineMark`'s `codec` is the fallback
-      // only for a data-only mark with no render instance to carry it.
-      marks: markDefs.map(
-        (mark): MarkSpec => ({
-          type: mark.type,
-          codec: resolveMarkCodec(mark),
-        }),
-      ),
+      // Strip ONLY the render facet (the Node) and forward the rest of the
+      // spec structurally, so a data-side field added to BlockSpecCore can
+      // never be silently dropped on the canvas path.
+      blocks: specs.map(({ node: _node, ...core }): BlockSpecCore => core),
+      // Same structural strip for marks — `render` is the one canvas facet.
+      // The codec is resolved from the render Mark when present (the Mark is
+      // the single source of truth for its facets); `defineMark`'s `codec` is
+      // the fallback only for a data-only mark with no render instance to
+      // carry it.
+      marks: markDefs.map((mark): MarkSpec => {
+        const { render: _render, ...core } = mark;
+        return { ...core, codec: resolveMarkCodec(mark) };
+      }),
+      structuredKinds: ext.structuredKinds,
     }) as DataSchema<MergeSchema<D, ExtensionDefinition<E>>>;
     const nodes = [...this.nodes, ...specs.map((spec) => spec.node)];
     // Fold each custom mark's render facet into the rendering list (built-ins +
@@ -356,6 +364,18 @@ export interface DefineMarkConfig<
    */
   readonly codec?: MarkCodec;
   /**
+   * Markdown recognizers owned by this mark type (inline scope, normally).
+   * Emitted tokens are only consumed when a codec claims them, so a custom
+   * syntax rule needs a hand-written `codec` with matching `tokens`.
+   */
+  readonly markdownSyntax?: readonly SyntaxRule[];
+  /**
+   * Structured-content behavior of this mark type (attachment initialization,
+   * canonical-source resolution, clone rewrites), dispatched by the declared
+   * mark type.
+   */
+  readonly structured?: StructuredMarkFacet;
+  /**
    * Compile-time declaration of data carried in `mark.attrs`. Runtime mark
    * validation remains owned by the mark/action using it; this declaration
    * makes `ChangeApi.setMark` and `query.marks` schema-aware.
@@ -377,7 +397,13 @@ export function defineMark<
   const T extends string,
   const A extends Record<string, unknown> = Record<string, never>,
 >(type: T, config: DefineMarkConfig<A> = {}): MarkDef<T, InferAttrs<A>> {
-  return { type, codec: config.codec, render: config.render };
+  return {
+    type,
+    codec: config.codec,
+    render: config.render,
+    markdownSyntax: config.markdownSyntax,
+    structured: config.structured,
+  };
 }
 
 // ─── defineNode ──────────────────────────────────────────────────────────────
@@ -404,6 +430,14 @@ export interface DefineNodeConfig<
   render?: BoxRenderStyle;
   /** A custom Node to render with, instead of the generated BoxNode. */
   node?: Node;
+  /**
+   * Markdown recognizers owned by this block type (block scope, normally).
+   * Emitted tokens are only consumed when a codec claims them, so a custom
+   * syntax rule requires a node that supplies its own serialization codec with
+   * matching `markdown.tokens` — the generated `<x-type/>` round-trip claims
+   * none.
+   */
+  markdownSyntax?: readonly SyntaxRule[];
   /**
    * Markdown output for the generic box/config style. Defaults to the generic
    * `<x-type …attrs>` round-trip that `parseMarkdown` (also generated) reads
@@ -553,7 +587,13 @@ function buildLeafSpec<T extends string, A extends Record<string, AttrSpec>>(
     codec = buildGenericTagCodec(type, config, attrs, attrNames);
   }
 
-  return { type, descriptor, codec, node };
+  return {
+    type,
+    descriptor,
+    codec,
+    markdownSyntax: config.markdownSyntax,
+    node,
+  };
 }
 
 /**

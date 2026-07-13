@@ -148,36 +148,30 @@ export { getBaseDataSchema } from "./baseDataSchema";
 import { getBaseDataSchema as resolveBaseDataSchema } from "./baseDataSchema";
 export const baseDataSchema = resolveBaseDataSchema();
 export type {
+  ContentSelectionCtx,
+  ContentSelectionResolver,
+  ContentSelectionSerializer,
+  ContentSelectionSlice,
   FeatureActionHook,
-  FeatureContentSelectionCtx,
-  FeatureContentSelectionResolveCtx,
-  FeatureContentSelectionResolver,
-  FeatureContentSelectionSerializer,
-  FeatureContentSelectionSlice,
   FeatureFacets,
   FeatureInputPhase,
   FeatureInputRule,
   FeatureInputRuleCtx,
-  FeatureStructuredContentCloneCtx,
-  FeatureStructuredContentCloneFacet,
-  FeatureStructuredContentCloneResult,
-  FeatureStructuredMarkAttachment,
-  FeatureStructuredMarkCloneCtx,
-  FeatureStructuredMarkCreateCtx,
-  FeatureStructuredMarkCreateResult,
-  FeatureStructuredMarkFacet,
-  FeatureStructuredMarkResolveCtx,
-  FeatureSyntaxCtx,
-  FeatureSyntaxMatch,
-  FeatureSyntaxRule,
-  FeatureSyntaxToken,
   FeatureThemeDefaults,
   ResolvedFeatureThemeDefaults,
-} from "./feature-facets";
-export {
-  FeatureFacetRegistry,
-  matchFeatureSyntax,
-  runFeatureInputRules,
+  StructuredContentClone,
+  StructuredContentCloneCtx,
+  StructuredContentCloneResult,
+  StructuredMarkAttachment,
+  StructuredMarkCloneCtx,
+  StructuredMarkCreateCtx,
+  StructuredMarkCreateResult,
+  StructuredMarkFacet,
+  StructuredMarkResolveCtx,
+  SyntaxCtx,
+  SyntaxMatch,
+  SyntaxRule,
+  SyntaxToken,
 } from "./feature-facets";
 export { UnknownNode } from "./rendering/nodes";
 export { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
@@ -216,8 +210,11 @@ export type { CustomBlock } from "./serlization/loadPage";
 export type {
   BlockSpecCore,
   DataSchema,
+  DataSchemaExtension,
   DataSchemaExtensionDefinition,
   MarkSpec,
+  StructuredKindAdapters,
+  StructuredKindSpec,
 } from "./sync/schema";
 
 // Action bus — declare imperative actions (`action`) that hosts hook

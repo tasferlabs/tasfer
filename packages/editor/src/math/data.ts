@@ -2,17 +2,19 @@
  * Canvas-free data facet of the optional math feature.
  *
  * Import this entry in workers, persistence code, and Markdown tooling. It
- * registers the CRDT shape and codecs without constructing MathNode/MathMark or
- * importing their canvas interaction stack. Interactive hosts normally install
- * the full bundle from `@cypherkit/editor/math` instead.
+ * registers the CRDT shape, codecs, Markdown syntax, and structured-content
+ * adapters without constructing MathNode/MathMark or importing their canvas
+ * interaction/selection stack (including the `@cypherkit/tex` layout engine —
+ * this entry reaches only `@cypherkit/tex/data`). Interactive hosts normally
+ * install the full bundle from `@cypherkit/editor/math` instead, which adds
+ * the rendering classes, live input rules, and the clipboard selection
+ * serializer.
  */
 
 import type {
-  FeatureContentSelectionResolver,
-  FeatureContentSelectionSerializer,
-  FeatureStructuredContentCloneFacet,
-  FeatureStructuredMarkFacet,
-  FeatureSyntaxRule,
+  StructuredContentCloneCtx,
+  StructuredContentCloneResult,
+  SyntaxRule,
 } from "../feature-facets";
 import { escapeHtml } from "../serlization/codecs/inline";
 import type { MarkCodec } from "../serlization/codecs/mark-codec";
@@ -26,7 +28,11 @@ import {
   type VisibleToken,
 } from "../serlization/tokenizer";
 import { BLOCK_REGISTRY } from "../sync/block-registry";
-import type { BlockSpecCore, MarkSpec } from "../sync/schema";
+import type {
+  BlockSpecCore,
+  MarkSpec,
+  StructuredKindSpec,
+} from "../sync/schema";
 import { cloneStructuredDocumentWithFreshIdentities } from "../sync/structured-content";
 import {
   type MathMarkAttrs,
@@ -37,16 +43,8 @@ import {
   getStructuredMathSource,
   MATH_STRUCTURED_KIND,
   mathContentIdForBlock,
-  structuredToMathDocument,
   validateStructuredMathDocument,
 } from "./structured";
-import { getMathTreeRangeText } from "./tree-edit";
-import {
-  contentPointToMathTreeCaret,
-  mathSourceRangeFromContentSelection,
-  snapMathContentSelection,
-} from "./tree-selection";
-import { printMathDocument } from "@cypherkit/tex/data";
 
 export { normalizeMathSource } from "./source";
 
@@ -57,15 +55,7 @@ export type MathBlockAttrs = {
 export type MathDataExtension = {
   readonly blocks: readonly [BlockSpecCore<"math", MathBlockAttrs>];
   readonly marks: readonly [MarkSpec<"math", MathMarkAttrs>];
-  readonly markdownSyntax: readonly FeatureSyntaxRule[];
-  readonly contentSelections: readonly [FeatureContentSelectionSerializer];
-  readonly contentSelectionResolvers: readonly [
-    FeatureContentSelectionResolver,
-  ];
-  readonly structuredMarks: readonly [FeatureStructuredMarkFacet];
-  readonly structuredContentClones: readonly [
-    FeatureStructuredContentCloneFacet,
-  ];
+  readonly structuredKinds: readonly [StructuredKindSpec];
 };
 
 type MathTextBlock = Pick<Block, "id" | "structuredContent"> & {
@@ -145,146 +135,112 @@ export const mathMarkCodec: MarkCodec = {
   },
 };
 
-/** Markdown recognizers owned by the optional feature, not editor core. */
-export const mathMarkdownSyntax = [
-  {
-    id: "math.display-dollar-fence",
-    scope: "block",
-    priority: 100,
-    match: ({ source, offset }) => {
-      if (!source.startsWith("$$", offset)) return undefined;
-
-      let cursor = offset + 2;
-      if (source[cursor] === "\n") cursor += 1;
-      else if (source[cursor] === "\r" && source[cursor + 1] === "\n") {
-        cursor += 2;
-      }
-      const contentStart = cursor;
-      const close = source.indexOf("$$", cursor);
-      if (close < 0) return undefined;
-
-      let latex = source.slice(contentStart, close);
-      if (latex.endsWith("\n")) latex = latex.slice(0, -1);
-      if (latex.endsWith("\r")) latex = latex.slice(0, -1);
-
-      const fenceEnd = close + 2;
-      let end = fenceEnd;
-      const tokens: Array<{
-        type: string;
-        content?: string;
-        raw?: string;
-      }> = [
-        {
-          type: MATH_BLOCK,
-          content: latex,
-          raw: source.slice(offset, fenceEnd),
-        },
-      ];
-      if (source[end] === "\n") {
-        end += 1;
-        tokens.push({ type: NEWLINE });
-      } else if (source[end] === "\r" && source[end + 1] === "\n") {
-        end += 2;
-        tokens.push({ type: NEWLINE });
-      }
-      return { length: end - offset, tokens };
-    },
-  },
-  {
-    id: "math.inline-dollar-delimiter",
-    scope: "inline",
-    priority: 50,
-    match: ({ source, offset }) => {
-      if (source[offset] !== "$") return undefined;
-      let close = offset + 1;
-      while (
-        close < source.length &&
-        source[close] !== "\n" &&
-        source[close] !== "\r" &&
-        source[close] !== "$"
-      ) {
-        close += 1;
-      }
-      if (source[close] !== "$" || close === offset + 1) return undefined;
-      return {
-        length: close - offset + 1,
-        tokens: [
-          { type: INLINE_MATH_START, content: "$", raw: "$" },
-          { type: "text", content: source.slice(offset + 1, close) },
-          { type: INLINE_MATH_END, content: "$", raw: "$" },
-        ],
-      };
-    },
-  },
-] as const satisfies readonly [FeatureSyntaxRule, FeatureSyntaxRule];
-
-/** Clipboard projection for the losslessly editable subset of a math range. */
-export const mathContentSelectionSerializer = {
-  id: "math.structured-selection",
-  kind: MATH_STRUCTURED_KIND,
+/**
+ * `$$…$$` display-math recognizer, carried on the math BLOCK spec — the codec
+ * that claims its MATH_BLOCK token rides the same spec.
+ */
+export const mathDisplaySyntaxRule = {
+  id: "math.display-dollar-fence",
+  scope: "block",
   priority: 100,
-  serialize: ({ document, selection }) => {
-    const anchor = contentPointToMathTreeCaret(document, selection.anchor);
-    const focus = contentPointToMathTreeCaret(document, selection.focus);
-    if (!anchor || !focus) return undefined;
-    const selected = getMathTreeRangeText(document, { anchor, focus });
-    if (selected.handled) {
-      return { plainText: selected.text, markdown: selected.text };
-    }
+  match: ({ source, offset }) => {
+    if (!source.startsWith("$$", offset)) return undefined;
 
-    // A whole semantic child (for example a selected fraction) is not literal
-    // raw text, but its canonical source projection is a lossless clipboard
-    // representation. Cross-slot ranges remain rejected by the range resolver.
-    if (selected.reason !== "unsupported-position") return undefined;
-    const math = structuredToMathDocument(document);
-    const range = mathSourceRangeFromContentSelection(document, selection);
-    if (!math || !range) return undefined;
-    const source = printMathDocument(math).slice(range.from, range.to);
-    return { plainText: source, markdown: source };
+    let cursor = offset + 2;
+    if (source[cursor] === "\n") cursor += 1;
+    else if (source[cursor] === "\r" && source[cursor + 1] === "\n") {
+      cursor += 2;
+    }
+    const contentStart = cursor;
+    const close = source.indexOf("$$", cursor);
+    if (close < 0) return undefined;
+
+    let latex = source.slice(contentStart, close);
+    if (latex.endsWith("\n")) latex = latex.slice(0, -1);
+    if (latex.endsWith("\r")) latex = latex.slice(0, -1);
+
+    const fenceEnd = close + 2;
+    let end = fenceEnd;
+    const tokens: Array<{
+      type: string;
+      content?: string;
+      raw?: string;
+    }> = [
+      {
+        type: MATH_BLOCK,
+        content: latex,
+        raw: source.slice(offset, fenceEnd),
+      },
+    ];
+    if (source[end] === "\n") {
+      end += 1;
+      tokens.push({ type: NEWLINE });
+    } else if (source[end] === "\r" && source[end + 1] === "\n") {
+      end += 2;
+      tokens.push({ type: NEWLINE });
+    }
+    return { length: end - offset, tokens };
   },
-} satisfies FeatureContentSelectionSerializer;
+} as const satisfies SyntaxRule;
 
 /**
- * Keep every committed nested math range construct-atomic. Core routes each
- * non-collapsed selection through this resolver, so a drag, shift+click, or
- * API range that would rest inside a construct the anchor is not in snaps to
- * cover that construct whole (see {@link snapMathContentSelection}).
+ * `$…$` inline-math recognizer, carried on the math MARK spec — the mark codec
+ * claims the INLINE_MATH_START/END tokens it emits.
  */
-export const mathContentSelectionResolver = {
-  id: "math.structured-selection-resolver",
-  kind: MATH_STRUCTURED_KIND,
-  priority: 100,
-  resolve: ({ document, selection }) =>
-    snapMathContentSelection(document, selection),
-} satisfies FeatureContentSelectionResolver;
+export const mathInlineSyntaxRule = {
+  id: "math.inline-dollar-delimiter",
+  scope: "inline",
+  priority: 50,
+  match: ({ source, offset }) => {
+    if (source[offset] !== "$") return undefined;
+    let close = offset + 1;
+    while (
+      close < source.length &&
+      source[close] !== "\n" &&
+      source[close] !== "\r" &&
+      source[close] !== "$"
+    ) {
+      close += 1;
+    }
+    if (source[close] !== "$" || close === offset + 1) return undefined;
+    return {
+      length: close - offset + 1,
+      tokens: [
+        { type: INLINE_MATH_START, content: "$", raw: "$" },
+        { type: "text", content: source.slice(offset + 1, close) },
+        { type: INLINE_MATH_END, content: "$", raw: "$" },
+      ],
+    };
+  },
+} as const satisfies SyntaxRule;
 
 /** Re-address a display equation when snapshot restore mints a new block id. */
-export const mathStructuredContentCloneFacet = {
-  id: "math.structured-content-clone",
-  kind: MATH_STRUCTURED_KIND,
-  priority: 100,
-  clone: ({ document, targetBlockId, identities }) => {
-    const contentId =
-      document.authority === "block"
-        ? mathContentIdForBlock(targetBlockId)
-        : identities.nextId();
-    const cloned = validateStructuredMathDocument(
-      cloneStructuredDocumentWithFreshIdentities(
-        document,
-        contentId,
-        identities,
-      ),
-    );
-    return cloned ? { contentId, document: cloned } : undefined;
-  },
-} satisfies FeatureStructuredContentCloneFacet;
+export function cloneMathStructuredContent({
+  document,
+  targetBlockId,
+  identities,
+}: StructuredContentCloneCtx): StructuredContentCloneResult | undefined {
+  const contentId =
+    document.authority === "block"
+      ? mathContentIdForBlock(targetBlockId)
+      : identities.nextId();
+  const cloned = validateStructuredMathDocument(
+    cloneStructuredDocumentWithFreshIdentities(document, contentId, identities),
+  );
+  return cloned ? { contentId, document: cloned } : undefined;
+}
 
 /**
- * Build the persistence/serialization facet of math.
+ * Build the persistence/serialization facet of math. Everything registers on
+ * the spec that owns it: the block spec carries the display syntax rule, the
+ * mark spec carries the inline rule and the structured-mark behavior, and the
+ * shared structured KIND (display blocks and inline supplemental attachments
+ * both use it) carries the snapshot clone adapter.
  *
- * Live input rules intentionally belong to the full interactive extension, so
- * importing this worker-safe entry cannot reach the editor selection, canvas,
- * or rendering graph.
+ * Live input rules and the clipboard selection serializer intentionally belong
+ * to the full interactive extension, so importing this worker-safe entry
+ * cannot reach the editor selection stack, the tex layout engine, the canvas,
+ * or the rendering graph.
  */
 export function mathDataExtension(): MathDataExtension {
   return {
@@ -293,14 +249,20 @@ export function mathDataExtension(): MathDataExtension {
         type: "math",
         descriptor: BLOCK_REGISTRY.math,
         codec: mathBlockCodec,
+        markdownSyntax: [mathDisplaySyntaxRule],
       },
     ],
-    marks: [{ type: "math", codec: mathMarkCodec }],
-    markdownSyntax: mathMarkdownSyntax,
-    contentSelections: [mathContentSelectionSerializer],
-    contentSelectionResolvers: [mathContentSelectionResolver],
-    structuredMarks: [mathStructuredMarkFacet],
-    structuredContentClones: [mathStructuredContentCloneFacet],
+    marks: [
+      {
+        type: "math",
+        codec: mathMarkCodec,
+        markdownSyntax: [mathInlineSyntaxRule],
+        structured: mathStructuredMarkFacet,
+      },
+    ],
+    structuredKinds: [
+      { kind: MATH_STRUCTURED_KIND, clone: cloneMathStructuredContent },
+    ],
   };
 }
 

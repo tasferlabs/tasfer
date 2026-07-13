@@ -1,4 +1,8 @@
-import type { FeatureInputRule, FeatureSyntaxRule } from "../dist/index.mjs";
+import type {
+  FeatureExtension,
+  FeatureInputRule,
+  SyntaxRule,
+} from "../dist/index.mjs";
 import {
   EXIT_INLINE_MATH as legacyExitInlineMath,
   filterMathCommands as legacyFilterMathCommands,
@@ -54,19 +58,36 @@ const structuredContentId: string = structuredMark.contentId;
 void mathMarkAttrs;
 void structuredContentId;
 
-// Extension metadata is intentionally count-agnostic. Adding a syntax or
-// input rule must not become a breaking change in the emitted public type.
-declare const syntaxRules: readonly FeatureSyntaxRule[];
+// Facets ride the owning spec. The spec-carried rule lists stay
+// count-agnostic: adding a syntax or input rule must not become a breaking
+// change in the emitted public type.
+declare const syntaxRules: readonly SyntaxRule[];
 declare const inputRules: readonly FeatureInputRule[];
 declare const dataExtension: MathDataExtension;
-const dataSyntax: MathDataExtension["markdownSyntax"] = syntaxRules;
+const dataBlockSyntax: readonly SyntaxRule[] | undefined =
+  dataExtension.blocks[0].markdownSyntax;
+const dataMarkSyntax: readonly SyntaxRule[] | undefined =
+  dataExtension.marks[0].markdownSyntax;
 // @ts-expect-error Data schemas intentionally do not carry live authoring rules.
 dataExtension.inputRules;
-const featureSyntax: MathFeatureExtension["markdownSyntax"] = syntaxRules;
+// @ts-expect-error Markdown syntax rides the specs, not the bundle.
+dataExtension.markdownSyntax;
 const featureInputs: MathFeatureExtension["inputRules"] = inputRules;
-void dataSyntax;
-void featureSyntax;
+const featureKinds: MathFeatureExtension["structuredKinds"] =
+  mathExtension().structuredKinds;
+void dataBlockSyntax;
+void dataMarkSyntax;
 void featureInputs;
+void featureKinds;
+
+// A bundle authored against the removed facet-list registration fails to
+// compile: the relocated keys are tombstoned on the feature surface.
+const staleBundle = {
+  name: "stale",
+  // @ts-expect-error Markdown syntax now rides the owning spec.
+  markdownSyntax: syntaxRules,
+} satisfies FeatureExtension;
+void staleBundle;
 
 const structuredMath: MathFeatureExtension = mathExtension();
 void structuredMath;

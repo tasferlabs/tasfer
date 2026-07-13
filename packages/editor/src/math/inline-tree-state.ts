@@ -730,7 +730,7 @@ function flatDeleteInlineMathContext(
 }
 
 function isInlineMathTreeEnabled(state: EditorState): boolean {
-  return state.schema.features
+  return state.schema
     .inputRules("before-insert")
     .some((rule) => rule.id === inlineMathTreeInputRule.id);
 }

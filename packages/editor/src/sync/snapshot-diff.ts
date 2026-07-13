@@ -342,7 +342,7 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
       );
       const cloned =
         newBlockId !== block.id
-          ? schema?.features.cloneStructuredContent({
+          ? schema?.cloneStructuredContent({
               document: sourceDocument,
               sourceBlockId: block.id,
               targetBlockId: newBlockId,
@@ -394,7 +394,7 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
           if (newStartId && newEndId) {
             const clonedMark =
               newBlockId !== block.id
-                ? schema?.features.cloneStructuredMark(f.format.type, {
+                ? schema?.cloneStructuredMark(f.format.type, {
                     mark: f.format,
                     sourceBlockId: block.id,
                     targetBlockId: newBlockId,

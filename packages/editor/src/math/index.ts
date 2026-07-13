@@ -41,6 +41,11 @@ export {
   SET_MATH_BLOCK_HOVER,
 } from "../nodes/MathNode";
 export { MathMark } from "../rendering/marks/MathMark";
+export {
+  mathContentSelectionKind,
+  resolveMathContentSelection,
+  serializeMathContentSelection,
+} from "./content-selection";
 export * from "./data";
 export { mathInputRules } from "./input-rules";
 export * from "./tree-selection";

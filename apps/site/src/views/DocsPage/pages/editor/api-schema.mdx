@@ -93,16 +93,23 @@ const editor = createEditor({
 ```
 
 `appSchema` is the canvas/editor half; the independently composed
-`appDataSchema` is the worker-safe persistence and serialization half. They
-register the same math block, mark, codecs, Markdown syntax, and structured
-shape, while only `appSchema.data` carries live authoring rules. Keep the two
+`appDataSchema` is the worker-safe persistence and serialization half. Each
+piece registers once, on the spec that owns it: the math block spec carries its
+codec and the `$$…$$` display recognizer, the math mark spec carries the `$…$`
+inline recognizer and the structured-mark behavior, and a `structuredKinds`
+entry for the shared `"math"` kind carries the snapshot clone adapter. The full
+`appSchema` additionally installs the rendering classes, the `"math"` kind's
+selection adapters (the clipboard serializer and the range resolver that keeps
+committed selections construct-atomic), and the live input rules. Keep the two
 definitions paired, but keep their modules separate so a worker importing the
 data schema cannot evaluate the interactive graph.
 
 If a worker should not import the interactive math view, compose the data-only
-entry there. It installs the same block/mark codecs, Markdown syntax, and
-structured-document adapters without constructing `MathNode`, `MathMark`, or
-the live input/selection stack:
+entry there. It registers the specs above — codecs, Markdown syntax,
+structured-mark behavior, and the kind's clone adapter — without constructing
+`MathNode`, `MathMark`, or the live input/selection stack (the kind's selection
+adapters resolve selections through the `@cypherkit/tex` layout engine, so they
+deliberately belong to the full extension):
 
 ```ts
 import { baseDataSchema } from "@cypherkit/editor";
@@ -164,9 +171,12 @@ equation.
 <h2 id="extend">Extending</h2>
 
 `use` installs a reusable feature bundle. Feature objects can contribute nodes,
-marks, live-input rules, Markdown syntax recognizers, action hooks, and theme or
-string defaults. Those facets are immutable and scoped to the resulting schema,
-so two editors can install different feature sets on the same page:
+marks, structured-kind adapters, live-input rules, action hooks, and theme or
+string defaults. Markdown syntax recognizers and structured-content behavior
+are not feature keys: they ride the node and mark specs themselves
+(`markdownSyntax` on both, `structured` on marks), so each type registers once
+with everything it owns. All facets are immutable and scoped to the resulting
+schema, so two editors can install different feature sets on the same page:
 
 ```ts
 import {
@@ -348,6 +358,11 @@ Declares a custom block type. v1 custom nodes are leaf (`content: "none"`) void 
       desc: "A custom canvas Node to render with, instead of the generated box. Owns its own draw/hit-test/overlays.",
     },
     {
+      name: "markdownSyntax",
+      type: "SyntaxRule[]",
+      desc: "Markdown recognizers owned by this block type (block scope, normally). Emitted tokens are consumed only when a codec claims them — the generic <x-type/> round-trip claims none, so a custom rule requires a node that supplies its own serialization codec with matching markdown.tokens.",
+    },
+    {
       name: "toMarkdown / toHtml / toText",
       type: "(block) => string",
       desc: "Override the default generic-tag serialization. Override toMarkdown only if you ensure the result re-parses.",
@@ -371,6 +386,16 @@ Declares a custom inline mark. With no config it registers a replicated, togglab
       name: "codec",
       type: "MarkCodec",
       desc: "Markdown/HTML round-trip — delimiters (==text==) and an HTML tag. Omit and the mark survives via the CRDT but is dropped on markdown export.",
+    },
+    {
+      name: "markdownSyntax",
+      type: "SyntaxRule[]",
+      desc: "Markdown recognizers owned by this mark type (inline scope, normally). Emitted tokens are consumed only when a codec claims them, so a custom rule needs a hand-written codec with matching tokens.",
+    },
+    {
+      name: "structured",
+      type: "StructuredMarkFacet",
+      desc: "Structured-content behavior of this mark type — attachment initialization (create), canonical-source resolution (resolve), and clone rewrites (clone) — dispatched by the declared mark type.",
     },
     {
       name: "attrs",

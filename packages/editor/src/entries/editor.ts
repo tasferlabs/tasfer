@@ -4092,7 +4092,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // normal insertion replace prose plus the complete attachment atomically.
       return insertText(expandSelectionAroundStructuredMarks(targeted), text);
     }
-    return targeted.schema.features.ownsInput("before-insert", targeted, text)
+    return targeted.schema.ownsInput("before-insert", targeted, text)
       ? insertText(targeted, text)
       : null;
   };
@@ -4142,7 +4142,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             s.document.contentSelection ||
             (s.document.selection &&
               !s.document.selection.isCollapsed &&
-              s.schema.features.ownsInput("before-insert", s, ""))
+              s.schema.ownsInput("before-insert", s, ""))
               ? insertText(s, "")
               : deleteSelectedText(s),
           );

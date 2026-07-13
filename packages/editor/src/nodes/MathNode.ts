@@ -446,7 +446,7 @@ function demoteActiveStructuredMathBlock(
   const source = mathBlockSource(block);
   const supplemental =
     source.length > 0
-      ? state.schema.features.cloneStructuredContent({
+      ? state.schema.cloneStructuredContent({
           document: {
             version: document.version,
             kind: document.kind,
@@ -597,7 +597,7 @@ function promoteInlineMathChipBlock(
     | { readonly contentId: string; readonly document: StructuredDocument }
     | undefined;
   if (run.document && run.contentId) {
-    const cloned = state.schema.features.cloneStructuredContent({
+    const cloned = state.schema.cloneStructuredContent({
       document: { ...run.document, authority: "block" },
       sourceBlockId: block.id,
       targetBlockId: block.id,

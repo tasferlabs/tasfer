@@ -391,10 +391,7 @@ export function updateContentSelection(
     const document =
       block?.structuredContent?.[contentSelection.anchor.contentId];
     const resolved = document
-      ? state.schema.features.resolveContentSelection(
-          document,
-          contentSelection,
-        )
+      ? state.schema.resolveContentSelection(document, contentSelection)
       : undefined;
     if (resolved) {
       contentSelection = normalizeContentSelection(

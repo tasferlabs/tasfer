@@ -1,16 +1,12 @@
-import {
-  emptyFeatureFacets,
-  type FeatureFacetRegistry,
-  type FeatureSyntaxRule,
-  matchFeatureSyntax,
-} from "../feature-facets";
+import type { SyntaxRule } from "../feature-facets";
 import type { DataSchema } from "../sync/schema";
 
 interface TokenizerState {
   content: string;
   index: number;
   startOfLine: boolean;
-  features: FeatureFacetRegistry;
+  /** Absent for schema-optional callers — no extension syntax is consulted. */
+  schema: DataSchema | undefined;
   legacyMath: boolean;
 }
 export const HEADING_1 = "heading1";
@@ -111,7 +107,7 @@ export default function tokenizePage(content: string, schema?: DataSchema) {
     index: 0,
     startOfLine: true,
     content,
-    features: schema?.features ?? emptyFeatureFacets,
+    schema,
     legacyMath: schema === undefined,
   };
   const tokens: Token[] = [];
@@ -221,17 +217,18 @@ function tryTokenizeQuote(state: TokenizerState, tokens: Token[]): boolean {
   return true;
 }
 
-/** Ask the active schema's optional features to recognize source at the cursor. */
+/** Ask the active schema's spec-carried syntax rules to recognize the cursor. */
 function tryTokenizeFeature(
   state: TokenizerState,
   tokens: Token[],
-  scope: FeatureSyntaxRule["scope"],
+  scope: SyntaxRule["scope"],
 ): boolean {
-  const recognized = matchFeatureSyntax(state.features, scope, {
-    source: state.content,
-    offset: state.index,
-    startOfLine: state.startOfLine,
-  });
+  const recognized =
+    state.schema?.matchSyntax(scope, {
+      source: state.content,
+      offset: state.index,
+      startOfLine: state.startOfLine,
+    }) ?? null;
   if (!recognized) return false;
 
   for (const emitted of recognized.match.tokens) {

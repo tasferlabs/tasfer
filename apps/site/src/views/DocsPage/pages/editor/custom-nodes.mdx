@@ -173,6 +173,16 @@ if (block?.type === "callout") {
 }
 ```
 
+A spec carries every facet its type owns — there is no separate facet registry.
+Both `defineNode` and `defineMark` accept `markdownSyntax`, the Markdown
+recognizers for the type's own syntax, and `defineMark` also accepts
+`structured` for structured-content behavior (attachment initialization,
+canonical-source resolution, clone rewrites). A custom syntax rule only takes
+effect when a codec claims the tokens it emits; the generic `<x-type/>`
+round-trip claims none, so pair the rule with a hand-written codec — the way
+the optional math specs carry the `$$…$$` and `$…$` recognizers next to the
+codecs that read them.
+
 <Callout kind="tip" title="Schema changes are CRDT-safe.">
   Blocks are addressed by type *name* in the replicated log, so a peer running
   the same schema merges your callouts cleanly. A peer that *doesn't* have the

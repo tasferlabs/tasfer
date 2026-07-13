@@ -1,12 +1,10 @@
 import { action, createActionBus } from "./action-bus";
-import {
-  FeatureFacetRegistry,
-  type FeatureFacetSource,
-  matchFeatureSyntax,
-  runFeatureInputRules,
-} from "./feature-facets";
+import { getBaseDataSchema } from "./baseDataSchema";
+import type { FeatureFacetSource, SyntaxRule } from "./feature-facets";
+import { mathDataExtension } from "./math/data";
+import { mathExtension } from "./math-extension";
 import { baseSchema } from "./schema";
-import { loadPage } from "./serlization/loadPage";
+import { loadPage, type Mark } from "./serlization/loadPage";
 import type { EditorState, Operation } from "./state-types";
 import { createInitialState } from "./state-utils";
 import type { ContentSelection } from "./structured-selection";
@@ -16,7 +14,7 @@ import { describe, expect, it } from "vitest";
 const STATE = { marker: "initial" } as unknown as EditorState;
 const OP = { op: "test" } as unknown as Operation;
 
-describe("FeatureFacetRegistry", () => {
+describe("cross-type feature facets (withFeatures)", () => {
   it("is immutable and orders rules by priority then installation", () => {
     const first = {
       inputRules: [
@@ -34,8 +32,8 @@ describe("FeatureFacetRegistry", () => {
         },
       ],
     } as const satisfies FeatureFacetSource;
-    const base = new FeatureFacetRegistry();
-    const used = base.extend(first).extend({
+    const base = getBaseDataSchema();
+    const used = base.withFeatures(first).withFeatures({
       inputRules: [
         {
           id: "lower",
@@ -54,44 +52,34 @@ describe("FeatureFacetRegistry", () => {
     ]);
   });
 
-  it("replaces a repeated facet id at the later installation position", () => {
-    const registry = new FeatureFacetRegistry()
-      .extend({
-        markdownSyntax: [
-          { id: "math-inline", scope: "inline", match: () => undefined },
-          { id: "mention", scope: "inline", match: () => undefined },
+  it("replaces a repeated input-rule id at the later installation position", () => {
+    const first = {
+      id: "shortcut",
+      phase: "after-insert",
+      priority: 5,
+      apply: () => undefined,
+    } as const;
+    const schema = getBaseDataSchema()
+      .withFeatures({
+        inputRules: [
+          first,
+          { id: "other", phase: "after-insert", apply: () => undefined },
         ],
       })
-      .extend({
-        markdownSyntax: [
-          {
-            id: "math-inline",
-            scope: "inline",
-            match: () => ({
-              length: 1,
-              tokens: [{ type: "math_start", raw: "$" }],
-            }),
-          },
-        ],
+      .withFeatures({
+        inputRules: [{ ...first, priority: 0 }],
       });
 
-    expect(registry.syntaxRules().map((rule) => rule.id)).toEqual([
-      "mention",
-      "math-inline",
+    expect(schema.inputRules("after-insert").map((rule) => rule.id)).toEqual([
+      "other",
+      "shortcut",
     ]);
-    expect(
-      matchFeatureSyntax(registry, "inline", {
-        source: "$x$",
-        offset: 0,
-        startOfLine: false,
-      })?.match.tokens[0]?.raw,
-    ).toBe("$");
   });
 
   it("threads input state/ops and stops when a rule handles the phase", () => {
     const calls: string[] = [];
     const changed = { marker: "changed" } as unknown as EditorState;
-    const registry = new FeatureFacetRegistry().extend({
+    const schema = getBaseDataSchema().withFeatures({
       inputRules: [
         {
           id: "observe",
@@ -124,14 +112,14 @@ describe("FeatureFacetRegistry", () => {
       ],
     });
 
-    const result = runFeatureInputRules(registry, "after-insert", STATE, "$$");
+    const result = schema.runInputRules("after-insert", STATE, "$$");
     expect(calls).toEqual(["observe:$$", "claim"]);
     expect(result).toEqual({ state: changed, ops: [OP], handled: true });
   });
 
   it("queries input ownership without applying the rule", () => {
     let applied = false;
-    const registry = new FeatureFacetRegistry().extend({
+    const schema = getBaseDataSchema().withFeatures({
       inputRules: [
         {
           id: "structured-input",
@@ -145,45 +133,15 @@ describe("FeatureFacetRegistry", () => {
       ],
     });
 
-    expect(registry.ownsInput("before-insert", STATE, "x")).toBe(true);
-    expect(registry.ownsInput("before-insert", STATE, "y")).toBe(false);
+    expect(schema.ownsInput("before-insert", STATE, "x")).toBe(true);
+    expect(schema.ownsInput("before-insert", STATE, "y")).toBe(false);
     expect(applied).toBe(false);
-  });
-
-  it("runs block syntax only at line start and rejects invalid matches", () => {
-    const registry = new FeatureFacetRegistry().extend({
-      markdownSyntax: [
-        {
-          id: "display",
-          scope: "block",
-          match: () => ({
-            length: 0,
-            tokens: [{ type: "display_math" }],
-          }),
-        },
-      ],
-    });
-
-    expect(
-      matchFeatureSyntax(registry, "block", {
-        source: "x$$",
-        offset: 1,
-        startOfLine: false,
-      }),
-    ).toBeNull();
-    expect(() =>
-      matchFeatureSyntax(registry, "block", {
-        source: "$$",
-        offset: 0,
-        startOfLine: true,
-      }),
-    ).toThrow(/display.*invalid match/);
   });
 
   it("registers feature action hooks in deterministic order", () => {
     const seen: string[] = [];
     const signal = action("feature-test");
-    const registry = new FeatureFacetRegistry().extend({
+    const schema = getBaseDataSchema().withFeatures({
       actions: [
         {
           id: "later",
@@ -207,18 +165,259 @@ describe("FeatureFacetRegistry", () => {
     });
     const bus = createActionBus();
 
-    registry.registerActions(bus);
+    schema.registerActions(bus);
     bus.notify(signal);
     expect(seen).toEqual(["first", "later"]);
   });
 
-  it("dispatches structured selection serialization by document kind", () => {
-    const registry = new FeatureFacetRegistry().extend({
-      contentSelections: [
+  it("deep-merges theme defaults in installation order", () => {
+    const schema = getBaseDataSchema()
+      .withFeatures({
+        theme: {
+          id: "math-theme",
+          tokens: { accent: "green" },
+          styles: {
+            blocks: { math: { padding: 12, color: "black" } },
+          },
+          strings: { math: { placeholder: "Equation" } },
+        },
+      })
+      .withFeatures({
+        theme: {
+          id: "host-feature-theme",
+          styles: { blocks: { math: { color: "navy" } } },
+          nodeStrings: { math: { error: "Invalid equation" } },
+        },
+      });
+
+    expect(schema.resolveThemeDefaults()).toEqual({
+      tokens: { accent: "green" },
+      styles: {
+        blocks: { math: { padding: 12, color: "navy" } },
+      },
+      strings: { math: { placeholder: "Equation" } },
+      nodeStrings: { math: { error: "Invalid equation" } },
+    });
+  });
+
+  it("layers installed feature theme defaults below host overrides", () => {
+    const schema = baseSchema.use({
+      theme: {
+        id: "surface-defaults",
+        styles: { canvas: { paddingTop: 33, paddingBottom: 44 } },
+      },
+    });
+    const state = createInitialState(loadPage("", schema.data), {
+      schema: schema.data,
+      theme: { styles: { canvas: { paddingTop: 55 } } },
+    });
+
+    expect(state.resolvedStyles.canvas.paddingTop).toBe(55);
+    expect(state.resolvedStyles.canvas.paddingBottom).toBe(44);
+  });
+
+  it("rejects bundles still carrying relocated facet lists", () => {
+    const schema = getBaseDataSchema();
+    for (const key of [
+      "markdownSyntax",
+      "contentSelections",
+      "contentSelectionResolvers",
+      "structuredMarks",
+      "structuredContentClones",
+    ]) {
+      const stale = { [key]: [] } as unknown as FeatureFacetSource;
+      expect(() => schema.withFeatures(stale)).toThrow(key);
+      expect(() => schema.extend(stale as never)).toThrow(key);
+    }
+  });
+
+  it("rejects cross-type facets handed to extend() instead of withFeatures()", () => {
+    const schema = getBaseDataSchema();
+    for (const [key, value] of [
+      ["inputRules", []],
+      ["actions", []],
+      ["theme", { id: "stale-theme" }],
+    ] as const) {
+      expect(() => schema.extend({ [key]: value } as never)).toThrow(
+        new RegExp(`${key}.*withFeatures`),
+      );
+    }
+    // withFeatures() itself keeps accepting them, of course.
+    expect(() => schema.withFeatures({ inputRules: [] })).not.toThrow();
+  });
+});
+
+describe("spec-carried facets", () => {
+  const mention = {
+    id: "mention",
+    scope: "inline",
+    match: () => undefined,
+  } as const satisfies SyntaxRule;
+
+  it("derives one ordered syntax list from the registered specs", () => {
+    const schema = getBaseDataSchema().extend({
+      marks: [
         {
-          id: "diagram.clipboard",
+          type: "mention",
+          markdownSyntax: [
+            mention,
+            {
+              id: "hashtag",
+              scope: "inline",
+              priority: 10,
+              match: () => undefined,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(schema.syntaxRules("inline").map((rule) => rule.id)).toEqual([
+      "hashtag",
+      "mention",
+    ]);
+    expect(getBaseDataSchema().syntaxRules()).toEqual([]);
+  });
+
+  it("replaces an overridden spec's facets wholesale", () => {
+    const schema = getBaseDataSchema()
+      .extend({
+        marks: [
+          {
+            type: "mention",
+            markdownSyntax: [
+              mention,
+              { id: "hashtag", scope: "inline", match: () => undefined },
+            ],
+          },
+        ],
+      })
+      .extend({
+        marks: [
+          {
+            type: "mention",
+            markdownSyntax: [
+              {
+                id: "mention",
+                scope: "inline",
+                match: () => ({
+                  length: 1,
+                  tokens: [{ type: "mention_start", raw: "@" }],
+                }),
+              },
+            ],
+          },
+        ],
+      });
+
+    // The overriding spec's rule set wins wholesale: no stale "hashtag" rule
+    // survives from the replaced registration.
+    expect(schema.syntaxRules().map((rule) => rule.id)).toEqual(["mention"]);
+    expect(
+      schema.matchSyntax("inline", {
+        source: "@x",
+        offset: 0,
+        startOfLine: false,
+      })?.match.tokens[0]?.raw,
+    ).toBe("@");
+  });
+
+  it("rejects one syntax rule id registered by two different specs", () => {
+    expect(() =>
+      getBaseDataSchema().extend({
+        marks: [
+          { type: "mention", markdownSyntax: [mention] },
+          { type: "hashtag", markdownSyntax: [mention] },
+        ],
+      }),
+    ).toThrow(/registered by more than one spec/);
+  });
+
+  it("runs block syntax only at line start and rejects invalid matches", () => {
+    const schema = getBaseDataSchema().extend({
+      marks: [
+        {
+          type: "display",
+          markdownSyntax: [
+            {
+              id: "display",
+              scope: "block",
+              match: () => ({
+                length: 0,
+                tokens: [{ type: "display_math" }],
+              }),
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(
+      schema.matchSyntax("block", {
+        source: "x$$",
+        offset: 1,
+        startOfLine: false,
+      }),
+    ).toBeNull();
+    expect(() =>
+      schema.matchSyntax("block", {
+        source: "$$",
+        offset: 0,
+        startOfLine: true,
+      }),
+    ).toThrow(/display.*invalid match/);
+  });
+
+  it("dispatches structured-mark behavior by the mark spec's own type", () => {
+    const mark = { name: "wiki" } as unknown as Mark;
+    const schema = getBaseDataSchema().extend({
+      marks: [
+        {
+          type: "wiki",
+          structured: {
+            resolve: ({ compatibilityText }) => `wiki:${compatibilityText}`,
+            references: ({ compatibilityText }) => [`ref:${compatibilityText}`],
+          },
+        },
+      ],
+    });
+
+    expect(
+      schema.resolveStructuredMark("wiki", {
+        mark,
+        compatibilityText: "page",
+        attachments: undefined,
+      }),
+    ).toBe("wiki:page");
+    expect(
+      schema.resolveStructuredMark("strong", {
+        mark,
+        compatibilityText: "page",
+        attachments: undefined,
+      }),
+    ).toBeUndefined();
+    expect(
+      schema.structuredMarkReferences("wiki", {
+        mark,
+        compatibilityText: "page",
+        attachments: undefined,
+      }),
+    ).toEqual(["ref:page"]);
+    expect(
+      schema.structuredMarkReferences("strong", {
+        mark,
+        compatibilityText: "page",
+        attachments: undefined,
+      }),
+    ).toEqual([]);
+  });
+
+  it("dispatches structured selection serialization by document kind", () => {
+    const schema = getBaseDataSchema().extend({
+      structuredKinds: [
+        {
           kind: "diagram",
-          serialize: ({ selection }) => ({
+          contentSelection: ({ selection }) => ({
             plainText: `${selection.anchor.kind}->${selection.focus.kind}`,
           }),
         },
@@ -251,60 +450,221 @@ describe("FeatureFacetRegistry", () => {
       },
     } satisfies ContentSelection;
 
-    expect(registry.serializeContentSelection(document, selection)).toEqual({
+    expect(schema.serializeContentSelection(document, selection)).toEqual({
       plainText: "gap->text",
     });
     expect(
-      registry.serializeContentSelection(
+      schema.serializeContentSelection(
         { ...document, kind: "uninstalled" },
         selection,
       ),
     ).toBeUndefined();
   });
 
-  it("deep-merges theme defaults in installation order", () => {
-    const registry = new FeatureFacetRegistry()
-      .extend({
-        theme: {
-          id: "math-theme",
-          tokens: { accent: "green" },
-          styles: {
-            blocks: { math: { padding: 12, color: "black" } },
-          },
-          strings: { math: { placeholder: "Equation" } },
+  it("dispatches structured selection resolution by document kind", () => {
+    const schema = getBaseDataSchema().extend({
+      structuredKinds: [
+        {
+          kind: "diagram",
+          resolveSelection: ({ selection }) => ({
+            anchor: selection.focus,
+            focus: selection.anchor,
+          }),
         },
-      })
-      .extend({
-        theme: {
-          id: "host-feature-theme",
-          styles: { blocks: { math: { color: "navy" } } },
-          nodeStrings: { math: { error: "Invalid equation" } },
-        },
-      });
-
-    expect(registry.resolveThemeDefaults()).toEqual({
-      tokens: { accent: "green" },
-      styles: {
-        blocks: { math: { padding: 12, color: "navy" } },
-      },
-      strings: { math: { placeholder: "Equation" } },
-      nodeStrings: { math: { error: "Invalid equation" } },
+      ],
     });
+    const document = {
+      version: 1,
+      kind: "diagram",
+      rootId: "root",
+      nodes: {},
+    } satisfies StructuredDocument;
+    const anchor = {
+      kind: "gap",
+      blockId: "block",
+      contentId: "root",
+      parentId: "root",
+      slot: "children",
+      afterNodeId: null,
+      affinity: "forward",
+    } as const;
+    const focus = { ...anchor, affinity: "backward" } as const;
+
+    expect(schema.resolveContentSelection(document, { anchor, focus })).toEqual(
+      { anchor: focus, focus: anchor },
+    );
+    expect(
+      schema.resolveContentSelection(
+        { ...document, kind: "uninstalled" },
+        { anchor, focus },
+      ),
+    ).toBeUndefined();
   });
 
-  it("layers installed feature theme defaults below host overrides", () => {
-    const schema = baseSchema.use({
-      theme: {
-        id: "surface-defaults",
-        styles: { canvas: { paddingTop: 33, paddingBottom: 44 } },
-      },
+  it("merges disjoint kind adapters and rejects a duplicated one", () => {
+    const withSelection = getBaseDataSchema().extend({
+      structuredKinds: [
+        { kind: "diagram", contentSelection: () => ({ plainText: "d" }) },
+      ],
     });
-    const state = createInitialState(loadPage("", schema.data), {
-      schema: schema.data,
-      theme: { styles: { canvas: { paddingTop: 55 } } },
+    const withBoth = withSelection.extend({
+      structuredKinds: [{ kind: "diagram", clone: () => undefined }],
+    });
+    const document = {
+      version: 1,
+      kind: "diagram",
+      rootId: "root",
+      nodes: {},
+    } satisfies StructuredDocument;
+
+    expect(
+      withBoth.serializeContentSelection(document, {} as ContentSelection),
+    ).toEqual({ plainText: "d" });
+    expect(Object.isFrozen(withBoth.structuredKind("diagram"))).toBe(true);
+    expect(() =>
+      withBoth.extend({
+        structuredKinds: [
+          { kind: "diagram", contentSelection: () => undefined },
+        ],
+      }),
+    ).toThrow(/two contentSelection serializers/);
+    expect(() =>
+      withBoth.extend({
+        structuredKinds: [{ kind: "diagram", clone: () => undefined }],
+      }),
+    ).toThrow(/two clone adapters/);
+    const withResolver = withBoth.extend({
+      structuredKinds: [{ kind: "diagram", resolveSelection: () => undefined }],
+    });
+    expect(() =>
+      withResolver.extend({
+        structuredKinds: [
+          { kind: "diagram", resolveSelection: () => undefined },
+        ],
+      }),
+    ).toThrow(/two selection resolvers/);
+    expect(() =>
+      getBaseDataSchema().extend({
+        structuredKinds: [{ kind: "", clone: () => undefined }],
+      }),
+    ).toThrow(/empty kind/);
+  });
+
+  it("keeps unscoped syntax rules globally priority-ordered across scopes", () => {
+    const schema = getBaseDataSchema().extend({
+      marks: [
+        {
+          type: "mention",
+          markdownSyntax: [
+            {
+              id: "low-block",
+              scope: "block",
+              priority: 1,
+              match: () => undefined,
+            },
+            {
+              id: "high-inline",
+              scope: "inline",
+              priority: 10,
+              match: () => undefined,
+            },
+          ],
+        },
+      ],
     });
 
-    expect(state.resolvedStyles.canvas.paddingTop).toBe(55);
-    expect(state.resolvedStyles.canvas.paddingBottom).toBe(44);
+    expect(schema.syntaxRules().map((rule) => rule.id)).toEqual([
+      "high-inline",
+      "low-block",
+    ]);
+  });
+
+  it("replaces an overridden BLOCK spec's facets wholesale too", () => {
+    const custom = {
+      id: "math.custom-fence",
+      scope: "block",
+      priority: 100,
+      match: () => undefined,
+    } as const satisfies SyntaxRule;
+    const base = getBaseDataSchema().extend(mathDataExtension());
+    const overridden = base.extend({
+      blocks: [{ ...mathDataExtension().blocks[0], markdownSyntax: [custom] }],
+    });
+
+    expect(overridden.syntaxRules().map((rule) => rule.id)).toEqual([
+      "math.custom-fence",
+      "math.inline-dollar-delimiter",
+    ]);
+  });
+
+  it("preserves facets and dispatch order across derivation chains", () => {
+    const schema = getBaseDataSchema()
+      .extend({
+        marks: [{ type: "mention", markdownSyntax: [mention] }],
+        structuredKinds: [
+          { kind: "diagram", contentSelection: () => ({ plainText: "d" }) },
+        ],
+      })
+      .withFeatures({
+        inputRules: [
+          { id: "rule", phase: "before-insert", apply: () => undefined },
+        ],
+      })
+      .restrict({ marks: [] });
+    const document = {
+      version: 1,
+      kind: "diagram",
+      rootId: "root",
+      nodes: {},
+    } satisfies StructuredDocument;
+
+    expect(schema.syntaxRules().map((rule) => rule.id)).toEqual(["mention"]);
+    expect(schema.inputRules("before-insert").map((rule) => rule.id)).toEqual([
+      "rule",
+    ]);
+    expect(
+      schema.serializeContentSelection(document, {} as ContentSelection),
+    ).toEqual({ plainText: "d" });
+  });
+
+  it("gives extend(mathDataExtension) and use(mathExtension) the same data dispatch", () => {
+    const data = getBaseDataSchema().extend(mathDataExtension());
+    const full = baseSchema.use(mathExtension()).data;
+
+    expect(data.syntaxRules().map((rule) => rule.id)).toEqual(
+      full.syntaxRules().map((rule) => rule.id),
+    );
+    expect(data.syntaxRules().map((rule) => rule.id)).toEqual([
+      "math.display-dollar-fence",
+      "math.inline-dollar-delimiter",
+    ]);
+    expect(data.structuredMark("math")).toBeDefined();
+    expect(full.structuredMark("math")).toBeDefined();
+
+    // The clipboard selection serializer is interactive-only: the worker-safe
+    // data extension registers the kind's clone adapter, the full extension
+    // additionally installs the selection serializer.
+    expect(data.structuredKind("math")?.clone).toBeDefined();
+    expect(data.structuredKind("math")?.contentSelection).toBeUndefined();
+    expect(data.structuredKind("math")?.resolveSelection).toBeUndefined();
+    expect(full.structuredKind("math")?.clone).toBeDefined();
+    expect(full.structuredKind("math")?.contentSelection).toBeDefined();
+    expect(full.structuredKind("math")?.resolveSelection).toBeDefined();
+    const document = {
+      version: 1,
+      kind: "math",
+      rootId: "root",
+      nodes: {},
+    } satisfies StructuredDocument;
+    const emptySelection = {} as ContentSelection;
+    expect(
+      data.serializeContentSelection(document, emptySelection),
+    ).toBeUndefined();
+
+    // The full schema installs math's live input rules; the data schema none.
+    expect(data.inputRules("before-insert")).toEqual([]);
+    expect(full.inputRules("before-insert").map((rule) => rule.id)).toContain(
+      "math.tree.migrate",
+    );
   });
 });

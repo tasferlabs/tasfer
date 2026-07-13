@@ -56,7 +56,7 @@ describe("optional math live-input rules", () => {
 
     expect(schema.hasBlock("math")).toBe(true);
     expect(schema.hasMark("math")).toBe(true);
-    expect(schema.features.inputRules("after-insert")).toEqual([]);
+    expect(schema.inputRules("after-insert")).toEqual([]);
     expect(source(inline)).toBe("$x$");
     expect(resolveMarkRuns(inline.document.page.blocks[0])).toEqual([]);
   });
@@ -164,7 +164,7 @@ describe("optional math live-input rules", () => {
       "math.inline-tree.attached-projection-guard",
     );
     expect(
-      appDataSchema.features.inputRules("after-insert").map((rule) => rule.id),
+      appDataSchema.inputRules("after-insert").map((rule) => rule.id),
     ).toEqual([
       "math.input.display-dollar-pair",
       "math.input.inline-dollar-pair",
@@ -181,9 +181,7 @@ describe("optional math live-input rules", () => {
     const schema = getBaseDataSchema()
       .extend(mathDataExtension())
       .withFeatures({ inputRules: mathInputRules });
-    const ids = schema.features
-      .inputRules("before-insert")
-      .map((rule) => rule.id);
+    const ids = schema.inputRules("before-insert").map((rule) => rule.id);
 
     expect(ids).toContain("math.inline-tree.input");
     expect(ids).toContain("math.tree.migrate");

@@ -66,7 +66,7 @@ export const COMPOSITION_START = stateAction<CompositionTextPayload>(
       state.document.selection &&
       !state.document.selection.isCollapsed &&
       !selectionIntersectsStructuredMark(state) &&
-      !state.schema.features.ownsInput("before-insert", state, data)
+      !state.schema.ownsInput("before-insert", state, data)
     ) {
       const range = getSelectionRange(state);
       if (range) {
@@ -225,7 +225,7 @@ export const CUT = stateAction("cut", (state) => {
     state.document.contentSelection ||
     (state.document.selection &&
       !state.document.selection.isCollapsed &&
-      state.schema.features.ownsInput("before-insert", state, ""))
+      state.schema.ownsInput("before-insert", state, ""))
       ? insertText(state, "")
       : deleteSelectedText(state);
   return { state: result.state, ops: result.ops };

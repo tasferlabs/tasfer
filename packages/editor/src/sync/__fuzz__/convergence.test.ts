@@ -14,6 +14,8 @@
  * FUZZ_SEED. Override the workload with FUZZ_SEED / FUZZ_PEERS / FUZZ_OPS.
  */
 
+import { getBaseDataSchema } from "../../baseDataSchema";
+import { mathDataExtension } from "../../math/data";
 import { type Block, type Mark, type Page } from "../../serlization/loadPage";
 import type { BlockType, Operation } from "../../state-types";
 import { isTextualBlock } from "../block-registry";
@@ -21,6 +23,7 @@ import { getVisibleLengthFromRuns } from "../char-runs";
 import { orderKeyAfter } from "../crdt-utils";
 import { generateKeyBetween } from "../fractional-index";
 import { rebuildState } from "../reducer";
+import type { DataSchema } from "../schema";
 import { createCRDTbinding, createSyncEngine, type SyncEngine } from "../sync";
 import { describe, expect, it } from "vitest";
 
@@ -67,6 +70,8 @@ interface FuzzArgs {
   peers: number;
   ops: number;
   seed: number;
+  /** Peer schema; the default (math-free) exercises unregistered-type drops. */
+  schema?: DataSchema;
 }
 
 function mulberry32(seed: number): () => number {
@@ -450,7 +455,10 @@ interface FailureInfo {
   detail: string;
 }
 
-function checkConvergence(engines: SyncEngine[]): FailureInfo | null {
+function checkConvergence(
+  engines: SyncEngine[],
+  schema?: DataSchema,
+): FailureInfo | null {
   // 0) All peers should have received the same set of ops.
   const opCounts = engines.map((e) => e.getOperations().length);
   for (let i = 1; i < opCounts.length; i++) {
@@ -483,7 +491,7 @@ function checkConvergence(engines: SyncEngine[]): FailureInfo | null {
   for (const engine of engines) {
     const incremental = engine.getState();
     const ops = engine.getOperations();
-    const rebuilt = rebuildState(engine.getPageId(), ops);
+    const rebuilt = rebuildState(engine.getPageId(), ops, schema);
     if (canonicalJSON(incremental) !== canonicalJSON(rebuilt)) {
       return {
         reason: `peer ${engine.getPeerId()} incremental state diverges from rebuildState`,
@@ -500,14 +508,22 @@ function checkConvergence(engines: SyncEngine[]): FailureInfo | null {
   return null;
 }
 
-function runFuzz(args: FuzzArgs): FailureInfo | null {
+interface FuzzRun {
+  failure: FailureInfo | null;
+  /** Block types present in the converged state — vacuity guard for variants. */
+  blockTypes: ReadonlySet<string>;
+}
+
+function runFuzz(args: FuzzArgs): FuzzRun {
   const rng = new Random(mulberry32(args.seed));
 
   const pageId = "fuzz-page";
   const engines: SyncEngine[] = [];
   for (let i = 0; i < args.peers; i++) {
     const peerId = ensureMonotonic(String(i));
-    engines.push(createSyncEngine(createCRDTbinding(pageId, peerId)));
+    engines.push(
+      createSyncEngine(createCRDTbinding(pageId, peerId), args.schema),
+    );
   }
 
   // Peer 0 creates the initial paragraph block. Everyone else applies it
@@ -549,7 +565,12 @@ function runFuzz(args: FuzzArgs): FailureInfo | null {
 
   fullFlush(engines, pending);
 
-  return checkConvergence(engines);
+  return {
+    failure: checkConvergence(engines, args.schema),
+    blockTypes: new Set(
+      engines[0].getState().blocks.map((block) => block.type),
+    ),
+  };
 }
 
 function envInt(name: string, fallback: number): number {
@@ -569,7 +590,7 @@ describe("multi-peer convergence fuzz", () => {
 
   for (const seed of fixedSeeds) {
     it(`converges (seed=${seed}, peers=${peers}, ops=${ops})`, () => {
-      const failure = runFuzz({ peers, ops, seed });
+      const { failure } = runFuzz({ peers, ops, seed });
       expect(
         failure,
         failure ? `${failure.reason}\n${failure.detail}` : undefined,
@@ -580,12 +601,36 @@ describe("multi-peer convergence fuzz", () => {
   it("converges (random or FUZZ_SEED seed)", () => {
     const seed = envInt("FUZZ_SEED", Math.floor(Math.random() * 1e9));
     console.log(`fuzz seed=${seed} (re-run with FUZZ_SEED=${seed})`);
-    const failure = runFuzz({ peers, ops, seed });
+    const { failure } = runFuzz({ peers, ops, seed });
     expect(
       failure,
       failure
         ? `seed=${seed}\n${failure.reason}\n${failure.detail}`
         : undefined,
     ).toBeNull();
+  });
+
+  // The default schema DROPS math ops (unregistered type), so the runs above
+  // never exercise math replay. This variant installs the spec-carried math
+  // data extension on every peer so `math` morphs and their text edits
+  // materialize — in the incremental states AND in the rebuild — and must
+  // converge. The blockTypes assertion keeps the run non-vacuous: the fixed
+  // seeds are chosen so at least one math block survives in the final state.
+  it(`converges with the math data extension installed (peers=${peers}, ops=${ops})`, () => {
+    const schema = getBaseDataSchema().extend(mathDataExtension());
+    let sawMath = false;
+    for (const seed of [987654, 24680, 555111]) {
+      const { failure, blockTypes } = runFuzz({ peers, ops, seed, schema });
+      expect(
+        failure,
+        failure
+          ? `seed=${seed}\n${failure.reason}\n${failure.detail}`
+          : undefined,
+      ).toBeNull();
+      sawMath ||= blockTypes.has("math");
+    }
+    expect(sawMath, "no seed materialized a math block — vacuous run").toBe(
+      true,
+    );
   });
 });

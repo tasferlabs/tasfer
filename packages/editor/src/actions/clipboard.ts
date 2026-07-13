@@ -8,7 +8,7 @@ import {
   expandSelectionAroundStructuredMarks,
   resolveStructuredMarkRanges,
 } from "../actions/structured-marks";
-import type { FeatureContentSelectionSlice } from "../feature-facets";
+import type { ContentSelectionSlice } from "../feature-facets";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import { escapeHtml } from "../serlization/codecs/inline";
@@ -565,7 +565,7 @@ export interface ClipboardReadResult {
 /** Resolve a nested range through the serializer installed by its feature. */
 function getStructuredSelectionSlice(
   state: EditorState,
-): FeatureContentSelectionSlice | undefined {
+): ContentSelectionSlice | undefined {
   const selection = state.document.contentSelection;
   if (!selection || isContentSelectionCollapsed(selection)) return undefined;
   const { anchor, focus } = selection;
@@ -578,7 +578,7 @@ function getStructuredSelectionSlice(
   const block = findBlock(state.document.page, focus.blockId);
   const document = block?.structuredContent?.[focus.contentId];
   if (!block || block.deleted || !document) return undefined;
-  return state.schema.features.serializeContentSelection(document, selection);
+  return state.schema.serializeContentSelection(document, selection);
 }
 
 /**
@@ -698,11 +698,7 @@ export async function cutSelectionToClipboard(
 
       const result =
         stateWithUndo.document.contentSelection ||
-        stateWithUndo.schema.features.ownsInput(
-          "before-insert",
-          stateWithUndo,
-          "",
-        )
+        stateWithUndo.schema.ownsInput("before-insert", stateWithUndo, "")
           ? insertText(stateWithUndo, "")
           : deleteSelectedText(stateWithUndo);
       return { success: true, result };
@@ -1362,7 +1358,7 @@ function insertBlocksAtCursor(
               startCharId: newStartId,
               endCharId: newEndId,
               format:
-                state.schema.features.cloneStructuredMark(f.format.type, {
+                state.schema.cloneStructuredMark(f.format.type, {
                   mark: f.format,
                   sourceBlockId: currentBlock.id,
                   targetBlockId: trailingBlockId,
@@ -1759,7 +1755,7 @@ function insertBlocksAtCursor(
                 startCharId: newStartId,
                 endCharId: newEndId,
                 format:
-                  state.schema.features.cloneStructuredMark(f.format.type, {
+                  state.schema.cloneStructuredMark(f.format.type, {
                     mark: f.format,
                     sourceBlockId: currentBlock.id,
                     targetBlockId: lastBlockId,
@@ -2000,7 +1996,7 @@ export function pasteFromClipboardEvent(
   // it can replace a structured range and preserve tree invariants.
   if (
     state.document.contentSelection ||
-    state.schema.features.ownsInput("before-insert", state, text)
+    state.schema.ownsInput("before-insert", state, text)
   ) {
     return text ? insertText(state, text) : null;
   }
@@ -2064,7 +2060,7 @@ export function pasteFromClipboardEventAsPlainText(
 
       if (
         state.document.contentSelection ||
-        state.schema.features.ownsInput("before-insert", state, text)
+        state.schema.ownsInput("before-insert", state, text)
       ) {
         resolve(insertText(state, text));
         return;
@@ -2127,7 +2123,7 @@ export async function pasteFromSystemClipboard(
       }
       if (
         state.document.contentSelection ||
-        state.schema.features.ownsInput("before-insert", state, text)
+        state.schema.ownsInput("before-insert", state, text)
       ) {
         return text ? insertText(state, text) : null;
       }
@@ -2178,7 +2174,7 @@ export async function pasteFromSystemClipboard(
 
     if (
       state.document.contentSelection ||
-      state.schema.features.ownsInput("before-insert", state, text)
+      state.schema.ownsInput("before-insert", state, text)
     ) {
       return text ? insertText(state, text) : null;
     }

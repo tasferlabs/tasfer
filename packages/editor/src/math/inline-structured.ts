@@ -12,7 +12,7 @@
  * and `mark_set` in the same editor transaction.
  */
 
-import type { FeatureStructuredMarkFacet } from "../feature-facets";
+import type { StructuredMarkFacet } from "../feature-facets";
 import type { Char, CharRun, Mark, MarkSpan } from "../serlization/loadPage";
 import { iterateAllChars } from "../sync/char-runs";
 import type { IdentityAllocator } from "../sync/id";
@@ -128,11 +128,11 @@ export function createStructuredMathMarkAttachment(
   };
 }
 
-/** Node-agnostic schema facet used by generic mark creation/serialization. */
+/**
+ * Structured-content behavior of the math mark, carried on its spec
+ * (`MarkSpec.structured`) and dispatched by the spec's own type.
+ */
 export const mathStructuredMarkFacet = {
-  id: "math.structured-mark",
-  markType: "math",
-  priority: 100,
   create: ({ text, identities }) => {
     const created = createStructuredMathMarkAttachment(text, identities);
     return {
@@ -158,7 +158,7 @@ export const mathStructuredMarkFacet = {
         }
       : undefined;
   },
-} satisfies FeatureStructuredMarkFacet;
+} satisfies StructuredMarkFacet;
 
 /** Canonical source for a referenced supplemental MathDocument. */
 export function getStructuredMathMarkSource(

@@ -97,7 +97,7 @@ export function createInitialState(
   // The host's raw theme, resolved once into the full style tree. Stored
   // per-instance (not a module global) so two editors on a page style
   // independently and the engine never reads the DOM.
-  const featureTheme = schema.features.resolveThemeDefaults();
+  const featureTheme = schema.resolveThemeDefaults();
   // Feature defaults sit below the host theme: an installed feature can ship a
   // usable palette/string catalog, while each editor instance remains free to
   // override any leaf. The facet contract is intentionally open so extension
@@ -128,7 +128,7 @@ export function createInitialState(
   for (const mark of marks.markList()) {
     mark.registerActions?.(actionBus);
   }
-  schema.features.registerActions(actionBus);
+  schema.registerActions(actionBus);
 
   return {
     CRDTbinding,

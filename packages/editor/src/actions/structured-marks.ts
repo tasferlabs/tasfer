@@ -79,7 +79,7 @@ export function cloneStructuredBlockContent(
     const document = canonicalizeStructuredDocument(
       sourceContent[sourceContentId],
     );
-    const cloned = schema.features.cloneStructuredContent({
+    const cloned = schema.cloneStructuredContent({
       document,
       sourceBlockId: source.id,
       targetBlockId,
@@ -118,7 +118,7 @@ export function resolveStructuredMarkRanges(
   if (!isTextualBlock(block)) return [];
   const attachments = block.structuredContent;
   return resolveMarkRuns(block).flatMap((run) => {
-    const source = schema.features.resolveStructuredMark(run.name, {
+    const source = schema.resolveStructuredMark(run.name, {
       mark: {
         type: run.name,
         ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
@@ -315,7 +315,7 @@ export function structuredMarkRunSourceDiverged(
   schema: DataSchema,
 ): boolean {
   if (!isTextualBlock(block)) return false;
-  const source = schema.features.resolveStructuredMark(run.name, {
+  const source = schema.resolveStructuredMark(run.name, {
     mark: {
       type: run.name,
       ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
@@ -342,17 +342,14 @@ export function structuredMarkRunForContentPoint(
   if (!block || block.deleted || !isTextualBlock(block)) return null;
   const attachments = block.structuredContent;
   for (const run of resolveMarkRuns(block)) {
-    const references = state.schema.features.structuredMarkReferences(
-      run.name,
-      {
-        mark: {
-          type: run.name,
-          ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
-        },
-        compatibilityText: run.text,
-        attachments,
+    const references = state.schema.structuredMarkReferences(run.name, {
+      mark: {
+        type: run.name,
+        ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
       },
-    );
+      compatibilityText: run.text,
+      attachments,
+    });
     if (references.includes(point.contentId)) {
       return { blockIndex, startIndex: run.startIndex, endIndex: run.endIndex };
     }
@@ -460,7 +457,7 @@ export function structuredMarkAttachmentCleanupOps(
     readonly attrs: Record<string, unknown>;
     readonly text: string;
   }): readonly string[] =>
-    schema.features.structuredMarkReferences(run.name, {
+    schema.structuredMarkReferences(run.name, {
       mark: {
         type: run.name,
         ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
@@ -544,7 +541,7 @@ export function createFeatureMarkInRange(
     return { newPage: page, ops: [], format: requested };
   }
 
-  const created = schema.features.createStructuredMark(requested.type, {
+  const created = schema.createStructuredMark(requested.type, {
     mark: requested,
     text,
     identities: binding,

@@ -1,18 +1,32 @@
 /**
- * Feature-wide extension facets.
+ * Extension facets — the behavior a document type or feature contributes
+ * beyond rendering.
  *
- * Nodes and marks already own behavior that is local to one document type
- * (rendering, caret semantics, codecs, action handlers, and node strings).
- * These contracts cover the remaining cross-type pieces an optional feature
- * may need: live-input rules, markdown syntax recognizers, feature-level action
- * hooks, and theme defaults.
+ * Type- and kind-owned behavior is registered exactly once, on the spec that
+ * owns it, and the schema derives keyed dispatch from those specs (see
+ * `sync/schema.ts`); there is no separate facet registry to keep in sync:
  *
- * The registry is immutable and per-schema. It deliberately has no module-level
- * registration API: `Schema.use(feature)` folds a feature's facets into a new
- * registry, and each editor receives that registry with its schema. Rules are
- * ordered by explicit priority (high first), then installation order. Reusing a
- * facet id replaces its earlier definition at the later installation position,
- * which makes overrides deterministic without deduplicating by feature name.
+ *   - `BlockSpecCore.markdownSyntax` / `MarkSpec.markdownSyntax` — Markdown
+ *     recognizers ({@link SyntaxRule}) for that type's syntax.
+ *   - `MarkSpec.structured` — structured-content behavior of one mark type
+ *     ({@link StructuredMarkFacet}), keyed by the spec's own `type`.
+ *   - `DataSchemaExtension.structuredKinds` — adapters for one structured
+ *     document kind ({@link ContentSelectionSerializer},
+ *     {@link ContentSelectionResolver}, {@link StructuredContentClone}). A
+ *     kind is its own entity: display math and inline math share the `"math"`
+ *     kind, so these adapters are not owned by a single block or mark type.
+ *
+ * What remains a *feature bundle* surface ({@link FeatureFacets}, installed
+ * with `Schema.use` / `DataSchema.withFeatures`) is only the genuinely
+ * cross-type pieces: live-input rules that must fire while typing in other
+ * blocks, feature-level action hooks, and theme defaults. Those are ordered by
+ * explicit priority (high first), then installation order; reusing a facet id
+ * replaces the earlier definition at the later installation position, which
+ * makes overrides deterministic without deduplicating by feature name.
+ *
+ * Input-rule ids are load-bearing: dispatch gates match on `rule.id` (for
+ * example math's tree-migration gate checks that its migration rule is
+ * installed), so a feature must keep its rule ids stable.
  */
 
 import type { ActionBus, StateResult } from "./action-bus";
@@ -26,7 +40,7 @@ import type {
 } from "./sync/structured-content";
 import type { IdentityAllocator } from "@shared/identity";
 
-/** Shared identity/order fields for dispatchable feature facets. */
+/** Shared identity/order fields for dispatchable, list-ordered facets. */
 export interface OrderedFeatureFacet {
   /** Stable id used for diagnostics and intentional replacement. */
   readonly id: string;
@@ -70,8 +84,8 @@ export interface FeatureInputRule extends OrderedFeatureFacet {
   ): (StateResult & { readonly handled?: boolean }) | undefined;
 }
 
-/** Token emitted by a feature markdown recognizer. */
-export interface FeatureSyntaxToken {
+/** Token emitted by a spec-owned markdown recognizer. */
+export interface SyntaxToken {
   /** Open token vocabulary; codecs claim the strings they understand. */
   readonly type: string;
   /** Decoded token payload, when the token carries content. */
@@ -80,27 +94,29 @@ export interface FeatureSyntaxToken {
   readonly raw?: string;
 }
 
-/** Read-only cursor passed to a feature markdown recognizer. */
-export interface FeatureSyntaxCtx {
+/** Read-only cursor passed to a markdown recognizer. */
+export interface SyntaxCtx {
   readonly source: string;
   readonly offset: number;
   readonly startOfLine: boolean;
 }
 
 /** A successful syntax recognition at the current source offset. */
-export interface FeatureSyntaxMatch {
+export interface SyntaxMatch {
   /** Number of UTF-16 code units consumed; must be a positive integer. */
   readonly length: number;
-  readonly tokens: readonly FeatureSyntaxToken[];
+  readonly tokens: readonly SyntaxToken[];
 }
 
 /**
- * A tokenizer extension. Block rules are considered only at start-of-line;
- * inline rules are considered everywhere the core tokenizer asks extensions.
+ * A tokenizer extension, carried on the block or mark spec whose codec claims
+ * the emitted tokens. Block rules are considered only at start-of-line; inline
+ * rules are considered everywhere the core tokenizer asks extensions. The
+ * schema folds every spec's rules into one deterministic dispatch list.
  */
-export interface FeatureSyntaxRule extends OrderedFeatureFacet {
+export interface SyntaxRule extends OrderedFeatureFacet {
   readonly scope: "block" | "inline";
-  match(ctx: FeatureSyntaxCtx): FeatureSyntaxMatch | undefined;
+  match(ctx: SyntaxCtx): SyntaxMatch | undefined;
 }
 
 /** A feature-level action-bus installer not naturally owned by one node/mark. */
@@ -109,7 +125,7 @@ export interface FeatureActionHook extends OrderedFeatureFacet {
 }
 
 /** Clipboard-safe representations of a selected slice of structured content. */
-export interface FeatureContentSelectionSlice {
+export interface ContentSelectionSlice {
   readonly plainText: string;
   /** Falls back to `plainText` when omitted. */
   readonly markdown?: string;
@@ -118,58 +134,47 @@ export interface FeatureContentSelectionSlice {
 }
 
 /** Data-only context for serializing an extension-owned nested selection. */
-export interface FeatureContentSelectionCtx {
+export interface ContentSelectionCtx {
   readonly document: StructuredDocument;
   readonly selection: ContentSelection;
 }
 
 /**
- * Serialize a range inside one structured-document kind.
+ * Serialize a range inside one structured-document kind, registered on the
+ * schema through a `structuredKinds` entry.
  *
  * This is a schema facet rather than a core switch on node names: an editor
  * without that feature installs no serializer, while any future structured
- * block can add clipboard support without changing the editor engine.
+ * block can add clipboard support without changing the editor engine. Return
+ * `undefined` when the range cannot be losslessly encoded.
  */
-export interface FeatureContentSelectionSerializer extends OrderedFeatureFacet {
-  /** StructuredDocument.kind claimed by this serializer. */
-  readonly kind: string;
-  /** Return undefined when this serializer cannot losslessly encode the range. */
-  serialize(
-    ctx: FeatureContentSelectionCtx,
-  ): FeatureContentSelectionSlice | undefined;
-}
-
-/** Context for adjusting one nested range inside a structured-document kind. */
-export interface FeatureContentSelectionResolveCtx {
-  readonly document: StructuredDocument;
-  readonly selection: ContentSelection;
-}
+export type ContentSelectionSerializer = (
+  ctx: ContentSelectionCtx,
+) => ContentSelectionSlice | undefined;
 
 /**
- * Adjust a nested range before it becomes the active selection.
+ * Adjust a nested range before it becomes the active selection, registered on
+ * the schema through a `structuredKinds` entry.
  *
- * Core commits every non-collapsed nested selection through this facet, so a
- * feature keeps its ranges structurally valid no matter which gesture produced
+ * Core commits every non-collapsed nested selection through this adapter, so a
+ * kind keeps its ranges structurally valid no matter which gesture produced
  * them — a drag, shift+click, keyboard extension, or the public API. Display
  * math uses it to snap a range so it never partially covers a construct. Like
  * the serializer above, this is a schema facet rather than a core switch on
- * document kinds.
+ * document kinds. Return `undefined` to keep the range exactly as produced.
  */
-export interface FeatureContentSelectionResolver extends OrderedFeatureFacet {
-  /** StructuredDocument.kind claimed by this resolver. */
-  readonly kind: string;
-  /** Return undefined to keep the range exactly as produced. */
-  resolve(ctx: FeatureContentSelectionResolveCtx): ContentSelection | undefined;
-}
+export type ContentSelectionResolver = (
+  ctx: ContentSelectionCtx,
+) => ContentSelection | undefined;
 
 /** One supplemental attachment initialized alongside a newly-created mark. */
-export interface FeatureStructuredMarkAttachment {
+export interface StructuredMarkAttachment {
   readonly contentId: string;
   readonly edit: StructuredMutation;
 }
 
 /** Data-only context for feature initialization of a new inline mark. */
-export interface FeatureStructuredMarkCreateCtx {
+export interface StructuredMarkCreateCtx {
   /** Mark requested by the generic authoring action. */
   readonly mark: Mark;
   /** Visible text that the new mark will cover. */
@@ -178,22 +183,22 @@ export interface FeatureStructuredMarkCreateCtx {
   readonly identities: IdentityAllocator;
 }
 
-export interface FeatureStructuredMarkCreateResult {
+export interface StructuredMarkCreateResult {
   /** Mark persisted by `mark_set`, normally enriched with a contentId attr. */
   readonly mark: Mark;
   /** Initializers emitted in the same transaction before the mark operation. */
-  readonly attachments: readonly FeatureStructuredMarkAttachment[];
+  readonly attachments: readonly StructuredMarkAttachment[];
 }
 
 /** Data-only context for resolving a structured mark's canonical source. */
-export interface FeatureStructuredMarkResolveCtx {
+export interface StructuredMarkResolveCtx {
   readonly mark: Mark;
   readonly compatibilityText: string;
   readonly attachments: StructuredContentMap | undefined;
 }
 
 /** Context for rewriting a mark after its block attachments were cloned once. */
-export interface FeatureStructuredMarkCloneCtx {
+export interface StructuredMarkCloneCtx {
   readonly mark: Mark;
   readonly sourceBlockId: string;
   readonly targetBlockId: string;
@@ -203,34 +208,33 @@ export interface FeatureStructuredMarkCloneCtx {
 }
 
 /**
- * Optional structured-content behavior owned by one mark type.
+ * Optional structured-content behavior owned by one mark type, carried on that
+ * mark's spec (`MarkSpec.structured`) and keyed by the spec's own `type`.
  *
- * Core authoring and serializers dispatch this facet by `markType`; they never
- * import the feature. `create` runs only for an explicitly new mark, avoiding
- * accidental replacement of an existing attachment when a range is extended.
+ * Core authoring and serializers dispatch this facet through the schema; they
+ * never import the feature. `create` runs only for an explicitly new mark,
+ * avoiding accidental replacement of an existing attachment when a range is
+ * extended.
  */
-export interface FeatureStructuredMarkFacet extends OrderedFeatureFacet {
-  readonly markType: string;
-  create?(
-    ctx: FeatureStructuredMarkCreateCtx,
-  ): FeatureStructuredMarkCreateResult | undefined;
+export interface StructuredMarkFacet {
+  create?(ctx: StructuredMarkCreateCtx): StructuredMarkCreateResult | undefined;
   /** Return undefined when the compatibility characters remain authoritative. */
-  resolve?(ctx: FeatureStructuredMarkResolveCtx): string | undefined;
+  resolve?(ctx: StructuredMarkResolveCtx): string | undefined;
   /**
    * Rewrite attachment references after snapshot/import cloned each source
    * document exactly once. Return undefined when this mark needs no rewrite.
    */
-  clone?(ctx: FeatureStructuredMarkCloneCtx): Mark | undefined;
+  clone?(ctx: StructuredMarkCloneCtx): Mark | undefined;
   /**
    * Attachment content ids this mark references. Core lifecycle code uses
    * these to delete a mark's attachments in the same transaction that deletes
    * the whole mark, so no block accumulates unreachable structured content.
    */
-  references?(ctx: FeatureStructuredMarkResolveCtx): readonly string[];
+  references?(ctx: StructuredMarkResolveCtx): readonly string[];
 }
 
 /** Context for cloning one attachment onto a block with a fresh identity. */
-export interface FeatureStructuredContentCloneCtx {
+export interface StructuredContentCloneCtx {
   readonly document: StructuredDocument;
   readonly sourceBlockId: string;
   readonly targetBlockId: string;
@@ -239,24 +243,23 @@ export interface FeatureStructuredContentCloneCtx {
   readonly identities: IdentityAllocator;
 }
 
-export interface FeatureStructuredContentCloneResult {
+export interface StructuredContentCloneResult {
   readonly contentId: string;
   readonly document: StructuredDocument;
 }
 
 /**
- * Rewrite attachment addressing when a snapshot/import mints a new block id.
+ * Rewrite attachment addressing when a snapshot/import mints a new block id,
+ * registered on the schema through a `structuredKinds` entry.
  *
  * Core defaults to copying an attachment unchanged. A document kind whose
  * addressing derives from the containing block (for example display math)
- * contributes this facet so snapshot code remains node/feature agnostic.
+ * contributes this adapter so snapshot code remains node/feature agnostic.
+ * Return `undefined` to fall back to the unchanged copy.
  */
-export interface FeatureStructuredContentCloneFacet extends OrderedFeatureFacet {
-  readonly kind: string;
-  clone(
-    ctx: FeatureStructuredContentCloneCtx,
-  ): FeatureStructuredContentCloneResult | undefined;
-}
+export type StructuredContentClone = (
+  ctx: StructuredContentCloneCtx,
+) => StructuredContentCloneResult | undefined;
 
 /**
  * Open theme fragments contributed by a feature.
@@ -276,19 +279,29 @@ export interface FeatureThemeDefaults {
   readonly nodeStrings?: Readonly<Record<string, unknown>>;
 }
 
-/** The non-node/mark facets accepted by a reusable feature bundle. */
+/**
+ * The cross-type facets accepted by a reusable feature bundle — the pieces no
+ * single node, mark, or structured kind can own. Everything else registers on
+ * the owning spec (see the module doc); the tombstoned keys below make a
+ * bundle still carrying the old shape fail to compile.
+ */
 export interface FeatureFacets {
   readonly inputRules?: readonly FeatureInputRule[];
-  readonly markdownSyntax?: readonly FeatureSyntaxRule[];
   readonly actions?: readonly FeatureActionHook[];
-  readonly contentSelections?: readonly FeatureContentSelectionSerializer[];
-  readonly contentSelectionResolvers?: readonly FeatureContentSelectionResolver[];
-  readonly structuredMarks?: readonly FeatureStructuredMarkFacet[];
-  readonly structuredContentClones?: readonly FeatureStructuredContentCloneFacet[];
   readonly theme?: FeatureThemeDefaults;
+  /** Removed — Markdown recognizers ride the owning spec's `markdownSyntax`. */
+  readonly markdownSyntax?: never;
+  /** Removed — selection serializers ride `structuredKinds[].contentSelection`. */
+  readonly contentSelections?: never;
+  /** Removed — selection resolvers ride `structuredKinds[].resolveSelection`. */
+  readonly contentSelectionResolvers?: never;
+  /** Removed — structured-mark behavior rides the mark spec's `structured`. */
+  readonly structuredMarks?: never;
+  /** Removed — clone adapters ride `structuredKinds[].clone`. */
+  readonly structuredContentClones?: never;
 }
 
-/** A feature-shaped value accepted by the facet registry. */
+/** A feature-shaped value accepted by `DataSchema.withFeatures`. */
 export interface FeatureFacetSource extends FeatureFacets {
   /** Metadata only; never used as a global registration/deduplication key. */
   readonly name?: string;
@@ -302,286 +315,10 @@ export interface ResolvedFeatureThemeDefaults {
 }
 
 /**
- * Immutable, deterministic collection of feature-wide facets.
- *
- * `Schema` owns one of these alongside its DataSchema/node/mark lists. Public
- * arrays are returned as copies so consumers cannot mutate later editor mounts.
+ * Upsert facets by id: a reused id replaces the earlier definition at the
+ * later installation position. @internal — schema derivation helper.
  */
-export class FeatureFacetRegistry {
-  private readonly inputs: readonly FeatureInputRule[];
-  private readonly syntax: readonly FeatureSyntaxRule[];
-  private readonly actionHooks: readonly FeatureActionHook[];
-  private readonly themes: readonly FeatureThemeDefaults[];
-  private readonly selectionSerializers: readonly FeatureContentSelectionSerializer[];
-  private readonly selectionResolvers: readonly FeatureContentSelectionResolver[];
-  private readonly structuredMarkFacets: readonly FeatureStructuredMarkFacet[];
-  private readonly structuredContentCloneFacets: readonly FeatureStructuredContentCloneFacet[];
-
-  constructor(
-    inputs: readonly FeatureInputRule[] = [],
-    syntax: readonly FeatureSyntaxRule[] = [],
-    actionHooks: readonly FeatureActionHook[] = [],
-    themes: readonly FeatureThemeDefaults[] = [],
-    selectionSerializers: readonly FeatureContentSelectionSerializer[] = [],
-    structuredMarkFacets: readonly FeatureStructuredMarkFacet[] = [],
-    structuredContentCloneFacets: readonly FeatureStructuredContentCloneFacet[] = [],
-    selectionResolvers: readonly FeatureContentSelectionResolver[] = [],
-  ) {
-    this.inputs = [...inputs];
-    this.syntax = [...syntax];
-    this.actionHooks = [...actionHooks];
-    this.themes = [...themes];
-    this.selectionSerializers = [...selectionSerializers];
-    this.selectionResolvers = [...selectionResolvers];
-    this.structuredMarkFacets = [...structuredMarkFacets];
-    this.structuredContentCloneFacets = [...structuredContentCloneFacets];
-  }
-
-  /** Return a new registry with this feature's facets installed. */
-  extend(feature: FeatureFacetSource): FeatureFacetRegistry {
-    return new FeatureFacetRegistry(
-      upsertById(this.inputs, feature.inputRules ?? []),
-      upsertById(this.syntax, feature.markdownSyntax ?? []),
-      upsertById(this.actionHooks, feature.actions ?? []),
-      feature.theme ? upsertById(this.themes, [feature.theme]) : this.themes,
-      upsertById(this.selectionSerializers, feature.contentSelections ?? []),
-      upsertById(this.structuredMarkFacets, feature.structuredMarks ?? []),
-      upsertById(
-        this.structuredContentCloneFacets,
-        feature.structuredContentClones ?? [],
-      ),
-      upsertById(
-        this.selectionResolvers,
-        feature.contentSelectionResolvers ?? [],
-      ),
-    );
-  }
-
-  /** Input rules for one phase in deterministic dispatch order. */
-  inputRules(phase: FeatureInputPhase): readonly FeatureInputRule[] {
-    return ordered(this.inputs.filter((rule) => rule.phase === phase));
-  }
-
-  /** Whether an installed rule owns this input before flat-text fallback. */
-  ownsInput(
-    phase: FeatureInputPhase,
-    state: EditorState,
-    input: string,
-  ): boolean {
-    const ctx = { state, input } satisfies FeatureInputRuleCtx;
-    return this.inputRules(phase).some((rule) => rule.owns?.(ctx) === true);
-  }
-
-  /** Syntax recognizers in deterministic dispatch order. */
-  syntaxRules(
-    scope?: FeatureSyntaxRule["scope"],
-  ): readonly FeatureSyntaxRule[] {
-    const rules = scope
-      ? this.syntax.filter((rule) => rule.scope === scope)
-      : this.syntax;
-    return ordered(rules);
-  }
-
-  /** Action hooks in deterministic registration order. */
-  actions(): readonly FeatureActionHook[] {
-    return ordered(this.actionHooks);
-  }
-
-  /** Install every feature-level action hook into one editor's action bus. */
-  registerActions(bus: ActionBus): void {
-    for (const hook of this.actions()) hook.register(bus);
-  }
-
-  /** Structured-selection serializers in deterministic dispatch order. */
-  contentSelections(
-    kind?: string,
-  ): readonly FeatureContentSelectionSerializer[] {
-    const serializers = kind
-      ? this.selectionSerializers.filter((entry) => entry.kind === kind)
-      : this.selectionSerializers;
-    return ordered(serializers);
-  }
-
-  /** Ask the installed feature for a lossless encoding of one nested range. */
-  serializeContentSelection(
-    document: StructuredDocument,
-    selection: ContentSelection,
-  ): FeatureContentSelectionSlice | undefined {
-    for (const serializer of this.contentSelections(document.kind)) {
-      const slice = serializer.serialize({ document, selection });
-      if (slice) return slice;
-    }
-    return undefined;
-  }
-
-  /** Let the owning feature adjust one nested range before it becomes active. */
-  resolveContentSelection(
-    document: StructuredDocument,
-    selection: ContentSelection,
-  ): ContentSelection | undefined {
-    for (const resolver of ordered(
-      this.selectionResolvers.filter((entry) => entry.kind === document.kind),
-    )) {
-      const resolved = resolver.resolve({ document, selection });
-      if (resolved) return resolved;
-    }
-    return undefined;
-  }
-
-  /** Highest-priority structured initializer for one newly-created mark. */
-  createStructuredMark(
-    markType: string,
-    ctx: FeatureStructuredMarkCreateCtx,
-  ): FeatureStructuredMarkCreateResult | undefined {
-    for (const facet of ordered(
-      this.structuredMarkFacets.filter(
-        (candidate) => candidate.markType === markType,
-      ),
-    )) {
-      const created = facet.create?.(ctx);
-      if (created) return created;
-    }
-    return undefined;
-  }
-
-  /** Resolve a structured mark's canonical source without a feature import. */
-  resolveStructuredMark(
-    markType: string,
-    ctx: FeatureStructuredMarkResolveCtx,
-  ): string | undefined {
-    for (const facet of ordered(
-      this.structuredMarkFacets.filter(
-        (candidate) => candidate.markType === markType,
-      ),
-    )) {
-      const source = facet.resolve?.(ctx);
-      if (source !== undefined) return source;
-    }
-    return undefined;
-  }
-
-  /** Attachment content ids referenced by one mark, across its facets. */
-  structuredMarkReferences(
-    markType: string,
-    ctx: FeatureStructuredMarkResolveCtx,
-  ): readonly string[] {
-    const ids = new Set<string>();
-    for (const facet of ordered(
-      this.structuredMarkFacets.filter(
-        (candidate) => candidate.markType === markType,
-      ),
-    )) {
-      for (const id of facet.references?.(ctx) ?? []) ids.add(id);
-    }
-    return [...ids];
-  }
-
-  /** Rewrite a structured mark to the attachment ids cloned for its block. */
-  cloneStructuredMark(
-    markType: string,
-    ctx: FeatureStructuredMarkCloneCtx,
-  ): Mark | undefined {
-    for (const facet of ordered(
-      this.structuredMarkFacets.filter(
-        (candidate) => candidate.markType === markType,
-      ),
-    )) {
-      const cloned = facet.clone?.(ctx);
-      if (cloned) return cloned;
-    }
-    return undefined;
-  }
-
-  /** Ask a document-kind adapter to re-address one cloned attachment. */
-  cloneStructuredContent(
-    ctx: FeatureStructuredContentCloneCtx,
-  ): FeatureStructuredContentCloneResult | undefined {
-    for (const facet of ordered(
-      this.structuredContentCloneFacets.filter(
-        (candidate) => candidate.kind === ctx.document.kind,
-      ),
-    )) {
-      const cloned = facet.clone(ctx);
-      if (cloned) return cloned;
-    }
-    return undefined;
-  }
-
-  /** Resolve all feature theme defaults, with later installations winning. */
-  resolveThemeDefaults(): ResolvedFeatureThemeDefaults {
-    let tokens: Record<string, unknown> = {};
-    let styles: Record<string, unknown> = {};
-    let strings: Record<string, unknown> = {};
-    let nodeStrings: Record<string, unknown> = {};
-    for (const theme of this.themes) {
-      tokens = mergeTree(tokens, theme.tokens);
-      styles = mergeTree(styles, theme.styles);
-      strings = mergeTree(strings, theme.strings);
-      nodeStrings = mergeTree(nodeStrings, theme.nodeStrings);
-    }
-    return { tokens, styles, strings, nodeStrings };
-  }
-}
-
-/** A shared empty value; safe because registries are immutable. */
-export const emptyFeatureFacets = new FeatureFacetRegistry();
-
-/**
- * Run one live-input phase, threading state and accumulating CRDT ops.
- * Intended for the core input action once a Schema carries the registry.
- */
-export function runFeatureInputRules(
-  registry: FeatureFacetRegistry,
-  phase: FeatureInputPhase,
-  state: EditorState,
-  input: string,
-): StateResult & { readonly handled: boolean } {
-  let current = state;
-  const ops: StateResult["ops"] = [];
-  for (const rule of registry.inputRules(phase)) {
-    const result = rule.apply({ state: current, input });
-    if (!result) continue;
-    current = result.state;
-    ops.push(...result.ops);
-    if (result.handled) return { state: current, ops, handled: true };
-  }
-  return { state: current, ops, handled: false };
-}
-
-/**
- * Ask registered syntax rules for the first valid match at a source position.
- * Invalid zero-length/overrun matches fail loudly instead of hanging the
- * tokenizer or consuming source nondeterministically.
- */
-export function matchFeatureSyntax(
-  registry: FeatureFacetRegistry,
-  scope: FeatureSyntaxRule["scope"],
-  ctx: FeatureSyntaxCtx,
-): {
-  readonly rule: FeatureSyntaxRule;
-  readonly match: FeatureSyntaxMatch;
-} | null {
-  for (const rule of registry.syntaxRules(scope)) {
-    if (scope === "block" && !ctx.startOfLine) continue;
-    const match = rule.match(ctx);
-    if (!match) continue;
-    if (
-      !Number.isInteger(match.length) ||
-      match.length <= 0 ||
-      ctx.offset < 0 ||
-      ctx.offset + match.length > ctx.source.length ||
-      match.tokens.length === 0
-    ) {
-      throw new Error(
-        `Feature syntax rule "${rule.id}" returned an invalid match at offset ${ctx.offset}`,
-      );
-    }
-    return { rule, match };
-  }
-  return null;
-}
-
-function upsertById<T extends { readonly id: string }>(
+export function upsertFacetsById<T extends { readonly id: string }>(
   existing: readonly T[],
   incoming: readonly T[],
 ): readonly T[] {
@@ -595,7 +332,13 @@ function upsertById<T extends { readonly id: string }>(
   return next;
 }
 
-function ordered<T extends OrderedFeatureFacet>(facets: readonly T[]): T[] {
+/**
+ * Deterministic dispatch order: priority descending, then installation order.
+ * @internal — schema derivation helper.
+ */
+export function orderedFacets<T extends OrderedFeatureFacet>(
+  facets: readonly T[],
+): T[] {
   return facets
     .map((facet, index) => ({ facet, index }))
     .sort(
@@ -603,6 +346,26 @@ function ordered<T extends OrderedFeatureFacet>(facets: readonly T[]): T[] {
         (b.facet.priority ?? 0) - (a.facet.priority ?? 0) || a.index - b.index,
     )
     .map(({ facet }) => facet);
+}
+
+/**
+ * Fold feature theme defaults in installation order (later wins per leaf).
+ * @internal — schema derivation helper.
+ */
+export function resolveFeatureThemeDefaults(
+  themes: readonly FeatureThemeDefaults[],
+): ResolvedFeatureThemeDefaults {
+  let tokens: Record<string, unknown> = {};
+  let styles: Record<string, unknown> = {};
+  let strings: Record<string, unknown> = {};
+  let nodeStrings: Record<string, unknown> = {};
+  for (const theme of themes) {
+    tokens = mergeTree(tokens, theme.tokens);
+    styles = mergeTree(styles, theme.styles);
+    strings = mergeTree(strings, theme.strings);
+    nodeStrings = mergeTree(nodeStrings, theme.nodeStrings);
+  }
+  return { tokens, styles, strings, nodeStrings };
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

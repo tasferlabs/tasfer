@@ -31,8 +31,8 @@ describe("math data extension", () => {
     );
     worker.loadOperations(author.getOperations());
 
-    expect(schema.features.inputRules("before-insert")).toEqual([]);
-    expect(schema.features.inputRules("after-insert")).toEqual([]);
+    expect(schema.inputRules("before-insert")).toEqual([]);
+    expect(schema.inputRules("after-insert")).toEqual([]);
     expect(getStructuredMathSource(worker.getState().blocks[0])).toBe(
       String.raw`\frac{a}{b}`,
     );
