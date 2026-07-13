@@ -357,6 +357,104 @@ describe("structured math tree editing", () => {
     expectSemanticallyEqual(undone, document);
   });
 
+  it("backspaces from an empty matrix cell to the previous cell's end", () => {
+    const document = matrixDocument(
+      String.raw`\begin{pmatrix}a&b\\c&\end{pmatrix}`,
+    );
+    const matrix = child(document, bodyRowId(document), "children", "matrix");
+    const rows = getStructuredChildren(document, matrix.id, "rows");
+    const lastCells = getStructuredChildren(document, rows[1].id, "cells");
+    const emptyBody = child(document, lastCells[1].id, "body", "row");
+    const cBody = child(document, lastCells[0].id, "body", "row");
+    const cText = child(document, cBody.id, "children", "raw-text");
+
+    const result = backspaceMathTree(document, rowCaret(emptyBody.id, null));
+
+    expect(result.handled).toBe(true);
+    expect(result.edits).toEqual([]);
+    expect(result.caret).toEqual(
+      textCaret(cBody.id, cText.id, visibleCharacterIds(cText).at(-1)!),
+    );
+  });
+
+  it("backspaces past a {} placeholder cell without deleting the scaffold", () => {
+    const document = matrixDocument(
+      String.raw`\begin{pmatrix}a&b\\c&{}\end{pmatrix}`,
+    );
+    const matrix = child(document, bodyRowId(document), "children", "matrix");
+    const rows = getStructuredChildren(document, matrix.id, "rows");
+    const lastCells = getStructuredChildren(document, rows[1].id, "cells");
+    const emptyBody = child(document, lastCells[1].id, "body", "row");
+    const placeholder = child(document, emptyBody.id, "children", "raw-latex");
+    const cBody = child(document, lastCells[0].id, "body", "row");
+    const cText = child(document, cBody.id, "children", "raw-text");
+
+    const result = backspaceMathTree(
+      document,
+      rowCaret(emptyBody.id, placeholder.id),
+    );
+
+    expect(result.handled).toBe(true);
+    expect(result.edits).toEqual([]);
+    expect(result.caret).toEqual(
+      textCaret(cBody.id, cText.id, visibleCharacterIds(cText).at(-1)!),
+    );
+  });
+
+  it("backspaces out of an empty first matrix cell to before the matrix", () => {
+    const document = matrixDocument(
+      String.raw`\begin{pmatrix}&b\\c&d\end{pmatrix}`,
+    );
+    const outerRowId = bodyRowId(document);
+    const matrix = child(document, outerRowId, "children", "matrix");
+    const rows = getStructuredChildren(document, matrix.id, "rows");
+    const firstCells = getStructuredChildren(document, rows[0].id, "cells");
+    const emptyBody = child(document, firstCells[0].id, "body", "row");
+
+    const result = backspaceMathTree(document, rowCaret(emptyBody.id, null));
+
+    expect(result.handled).toBe(true);
+    expect(result.edits).toEqual([]);
+    expect(result.caret).toEqual(rowCaret(outerRowId, null));
+  });
+
+  it("keeps backspace inert at the start of a non-empty matrix cell", () => {
+    const document = matrixDocument(
+      String.raw`\begin{pmatrix}a&b\\c&d\end{pmatrix}`,
+    );
+    const matrix = child(document, bodyRowId(document), "children", "matrix");
+    const rows = getStructuredChildren(document, matrix.id, "rows");
+    const lastCells = getStructuredChildren(document, rows[1].id, "cells");
+    const dBody = child(document, lastCells[1].id, "body", "row");
+
+    const result = backspaceMathTree(document, rowCaret(dBody.id, null));
+
+    expect(result.handled).toBe(false);
+    expect(result.reason).toBe("no-navigation-target");
+  });
+
+  it("forward-deletes from an empty matrix cell into the next cell's start", () => {
+    const document = matrixDocument(
+      String.raw`\begin{pmatrix}a&\\c&d\end{pmatrix}`,
+    );
+    const matrix = child(document, bodyRowId(document), "children", "matrix");
+    const rows = getStructuredChildren(document, matrix.id, "rows");
+    const firstCells = getStructuredChildren(document, rows[0].id, "cells");
+    const emptyBody = child(document, firstCells[1].id, "body", "row");
+    const secondCells = getStructuredChildren(document, rows[1].id, "cells");
+    const cBody = child(document, secondCells[0].id, "body", "row");
+    const cText = child(document, cBody.id, "children", "raw-text");
+
+    const result = deleteForwardMathTree(
+      document,
+      rowCaret(emptyBody.id, null),
+    );
+
+    expect(result.handled).toBe(true);
+    expect(result.edits).toEqual([]);
+    expect(result.caret).toEqual(textCaret(cBody.id, cText.id, null));
+  });
+
   it("completes a trailing literal \\frac and removes an exhausted text leaf", () => {
     const document = mathDocument("");
     const rowId = bodyRowId(document);

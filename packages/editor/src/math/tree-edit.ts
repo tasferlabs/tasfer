@@ -1516,6 +1516,16 @@ function backspaceAtRowGap(
     if (removed) return removed;
   }
 
+  // A visually empty matrix cell has nothing to delete: its topology belongs
+  // to the matrix, not the caret. Backspace degrades to arrow-left so the
+  // caret walks back through the grid (or out of the matrix from the first
+  // cell) instead of silently consuming the key or peeling an invisible
+  // placeholder.
+  if (isVisuallyEmptyMatrixCellRow(document, resolved.row.id)) {
+    const destination = moveLeftFromRowGap(document, gap);
+    if (destination) return success(destination, []);
+  }
+
   const children = getStructuredChildren(document, resolved.row.id, "children");
   const previous = children[resolved.position - 1];
   if (!previous) return failure(originalCaret, "no-navigation-target");
@@ -1572,6 +1582,14 @@ function deleteForwardAtRowGap(
   const resolved = resolveCaret(document, gap);
   if (!resolved || resolved.kind !== "row") {
     return failure(originalCaret, "invalid-caret");
+  }
+
+  // Mirror of the Backspace rule: forward Delete in a visually empty matrix
+  // cell degrades to arrow-right instead of claiming a no-op or peeling an
+  // invisible placeholder.
+  if (isVisuallyEmptyMatrixCellRow(document, resolved.row.id)) {
+    const destination = moveRightFromRowGap(document, gap);
+    if (destination) return success(destination, []);
   }
 
   const children = getStructuredChildren(document, resolved.row.id, "children");
@@ -2402,6 +2420,43 @@ function onlyChild(
   return children.length === 1 && children[0].type === type
     ? children[0]
     : undefined;
+}
+
+/** Whether `rowId` is the editable body row of a live matrix cell. */
+function isMatrixCellBodyRow(
+  document: StructuredDocument,
+  rowId: string,
+): boolean {
+  const row = document.nodes[rowId];
+  const cellId = row?.placement.parentId;
+  const cell = cellId ? document.nodes[cellId] : undefined;
+  return Boolean(
+    row &&
+    !row.deleted &&
+    row.type === "row" &&
+    row.placement.slot === "body" &&
+    cell &&
+    !cell.deleted &&
+    cell.type === "matrix-cell",
+  );
+}
+
+/**
+ * Whether one matrix cell body paints as a single empty placeholder box. A
+ * truly childless cell, an exhausted raw-text leaf, and the `{}` scaffold the
+ * matrix template seeds all render identically, so deletion treats them alike.
+ * Multiple `{}` groups are excluded: those are distinct visible boxes.
+ */
+function isVisuallyEmptyMatrixCellRow(
+  document: StructuredDocument,
+  rowId: string,
+): boolean {
+  if (!isMatrixCellBodyRow(document, rowId)) return false;
+  const children = getStructuredChildren(document, rowId, "children");
+  return (
+    !rowHasMultipleVisibleEmptyGroups(document, children) &&
+    children.every((child) => isEmptyNavigationPlaceholder(document, child))
+  );
 }
 
 function isSemanticallyEmptyRow(
