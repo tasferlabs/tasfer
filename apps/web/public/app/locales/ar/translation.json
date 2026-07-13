@@ -194,10 +194,13 @@
   "common.add": "إضافة",
   "common.archive": "أرشفة",
   "common.archiveKw": "أرشفة",
+  "common.apply": "تطبيق",
   "common.areYouSure": "هل أنت متأكد؟",
   "common.avatar": "الصورة الشخصية",
   "common.back": "رجوع",
   "common.cancel": "إلغاء",
+  "common.hour": "الساعة",
+  "common.minute": "الدقيقة",
   "common.close": "إغلاق",
   "common.closeKw": "إغلاق",
   "common.color": "اللون",
@@ -889,5 +892,13 @@
   "wordCount.paragraphs": "الفقرات",
   "wordCount.readingTime": "وقت القراءة",
   "export.previewPdf": "معاينة PDF",
-  "export.downloadPdf": "تنزيل PDF"
+  "export.downloadPdf": "تنزيل PDF",
+  "timePicker.title": "تحديد الوقت",
+  "timePicker.dial": "قرص الساعة",
+  "datePicker.title": "تحديد التاريخ",
+  "timezone.pickerLabel": "المنطقة الزمنية",
+  "timezone.searchPlaceholder": "ابحث عن مدينة أو إزاحة GMT…",
+  "timezone.noResults": "لا توجد نتائج مطابقة. جرّب اسم مدينة أو إزاحة مثل GMT+2.",
+  "timezone.suggested": "مقترحة",
+  "timezone.allZones": "كل المناطق الزمنية"
 }

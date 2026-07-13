@@ -48,6 +48,7 @@ function DialogOverlay({
 function DialogContent({
   className,
   children,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content>) {
   return (
@@ -55,6 +56,12 @@ function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        // Escape dismisses only this layer; see the layered-surface contract
+        // in components/ui/popover.tsx.
+        onEscapeKeyDown={(e) => {
+          onEscapeKeyDown?.(e)
+          e.stopPropagation()
+        }}
         className={cn(
           "data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 bg-background ring-foreground/10 gap-6 rounded-xl p-6 ring-1 duration-100 sm:max-w-lg fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 outline-none overflow-hidden",
           className

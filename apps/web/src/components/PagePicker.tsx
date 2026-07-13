@@ -71,7 +71,7 @@ export function PagePicker({
   const customTrigger = !!children;
 
   return (
-    <Popover open={open} onOpenChange={setOpen} modal>
+    <Popover open={open} onOpenChange={setOpen}>
       {customTrigger ? (
         <PopoverTrigger asChild>{children}</PopoverTrigger>
       ) : (

@@ -8,7 +8,7 @@ import { DateTime } from 'luxon';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getLuxon, padValue, plusDatetime } from './utils';
-import { TimePicker } from './TimePicker';
+import { TimeFields } from './TimeFields';
 import { getWeekStart, formatDatePreferred } from '@/lib/dateTimePreferences';
 
 type RangePickerOverlayProps = {
@@ -364,22 +364,20 @@ export function DateTimeRangePickerOverlay({
     <div className={cn('flex gap-3', isDesktop ? 'flex-row' : 'flex-col')}>
       <div className="flex-1">
         <span className="text-xs text-muted-foreground mb-1 block">{t("calendar.startTime", "Start time")}</span>
-        <TimePicker
+        <TimeFields
           selectedHour={startSelectedHour}
           setSelectedHour={setStartSelectedHour}
           selectedMinute={startSelectedMinute}
           setSelectedMinute={setStartSelectedMinute}
-          value={startValue}
         />
       </div>
       <div className="flex-1">
         <span className="text-xs text-muted-foreground mb-1 block">{t("calendar.endTime", "End time")}</span>
-        <TimePicker
+        <TimeFields
           selectedHour={endSelectedHour}
           setSelectedHour={setEndSelectedHour}
           selectedMinute={endSelectedMinute}
           setSelectedMinute={setEndSelectedMinute}
-          value={endValue}
         />
       </div>
     </div>
@@ -425,7 +423,7 @@ export function DateTimeRangePickerOverlay({
         {component}
         <div className="flex justify-end mt-2">
           <Button onClick={onClose} variant="secondary" size="sm">
-            Done
+            {t("common.done", "Done")}
           </Button>
         </div>
       </PopoverContent>

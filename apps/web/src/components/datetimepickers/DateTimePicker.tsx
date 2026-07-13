@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Calendar, X } from 'lucide-react';
 import { DateTime } from 'luxon';
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 import { DateTimeInputGroup } from './DateTimeInputGroup';
 import { DateTimePickerOverlay } from './DateTimePickerOverlay';
 import { getLuxon, toNumberOrNull } from './utils';
@@ -98,6 +99,7 @@ const EgDateTimePicker = React.forwardRef(
       }
     }
 
+    const { t } = useTranslation();
     const id = useId();
     const inputRef = useRef<HTMLInputElement>(null);
     const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -265,6 +267,7 @@ const EgDateTimePicker = React.forwardRef(
               variant="ghost"
               size={size === 'small' ? 'icon-xs' : 'icon-sm'}
               disabled={disabled}
+              aria-label={t('common.clear', 'Clear')}
               onClick={() => {
                 handleChange(null);
                 setSelectedYear('');
@@ -282,6 +285,9 @@ const EgDateTimePicker = React.forwardRef(
               variant="ghost"
               size={size === 'small' ? 'icon-xs' : 'icon-sm'}
               disabled={disabled}
+              aria-label={t('calendar.openCalendar', 'Open calendar')}
+              aria-haspopup="dialog"
+              aria-expanded={datePickerOpen}
               onClick={() => setDatePickerOpen(true)}
             >
               <Calendar className={size === 'small' ? 'size-4' : 'size-5'} />

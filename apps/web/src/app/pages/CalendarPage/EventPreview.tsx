@@ -1,4 +1,5 @@
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
+import { TimezonePicker } from "@/components/timezonepicker/TimezonePicker";
 import { PagePicker } from "@/components/PagePicker";
 import { useConfirmation } from "@/app/components/ConfirmationDialog";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ import {
   Clock,
   Copy,
   FolderOpen,
+  Globe,
   GripHorizontal,
   Info,
   Maximize2,
@@ -597,12 +599,20 @@ export function EventPreview({
       : null;
 
   // Close on click outside (popover mode only).
-  // We stop pointerdown propagation from inside the popover (see onPointerDown
-  // on the popover div) so the window handler only fires for true outside clicks.
+  // Listens in the CAPTURE phase: when a modal Radix layer (date picker,
+  // timezone picker, combobox, ...) is dismissed by an outside pointerdown,
+  // Radix closes it synchronously (flushSync) from a document-level listener
+  // and restores <body>'s pointer-events before the event would reach a
+  // bubble listener. Capture runs first, while <body> still has
+  // pointer-events: none, so the dismissing click is reliably attributed to
+  // the modal layer instead of closing this popover too.
   useEffect(() => {
     if (!isActive || sidebarMode || isMobile) return;
     function handlePointerDown(e: PointerEvent) {
+      // A modal Radix layer is open; this click belongs to that layer.
+      if (document.body.style.pointerEvents === "none") return;
       const target = e.target as Node;
+      if (popoverRef.current?.contains(target)) return;
       if (
         target instanceof Element &&
         target.closest(
@@ -615,11 +625,11 @@ export function EventPreview({
     }
     // Delay listener to avoid closing on the same click that opened it
     const timer = setTimeout(() => {
-      window.addEventListener("pointerdown", handlePointerDown);
+      window.addEventListener("pointerdown", handlePointerDown, true);
     }, 0);
     return () => {
       clearTimeout(timer);
-      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
     };
   }, [isActive, onClose, sidebarMode, isMobile]);
 
@@ -821,7 +831,9 @@ export function EventPreview({
     </div>
   );
 
-  const tz = DateTime.local().zoneName;
+  // View-only time zone for the schedule fields: the stored instant is
+  // unchanged, it is just displayed and edited in the chosen zone.
+  const [tz, setTz] = useState(() => DateTime.local().zoneName);
   const dateValue = isDraft
     ? (draft?.scheduledAt ?? null)
     : (previewPage?.scheduledAt ?? null);
@@ -1082,6 +1094,10 @@ export function EventPreview({
         </Combobox>
       </div>
       <div className={style.previewRow}>
+        <Globe size={14} className={style.previewRowIcon} />
+        <TimezonePicker value={tz} onChange={setTz} />
+      </div>
+      <div className={style.previewRow}>
         <FolderOpen size={14} className={style.previewRowIcon} />
         <PagePicker
           spaceId={activeSpaceId}
@@ -1156,6 +1172,10 @@ export function EventPreview({
               </ComboboxList>
             </ComboboxContent>
           </Combobox>
+        </div>
+        <div className={style.previewRow}>
+          <Globe size={16} className={style.previewRowIcon} />
+          <TimezonePicker value={tz} onChange={setTz} />
         </div>
       </div>
 
@@ -1281,6 +1301,10 @@ export function EventPreview({
             </ComboboxList>
           </ComboboxContent>
         </Combobox>
+      </div>
+      <div className={style.previewRow}>
+        <Globe size={14} className={style.previewRowIcon} />
+        <TimezonePicker value={tz} onChange={setTz} />
       </div>
       {isDraft ? (
         // Drafts reuse the mobile sheet's drill-down parent picker, with a
