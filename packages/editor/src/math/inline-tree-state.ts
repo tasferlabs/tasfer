@@ -8,10 +8,10 @@ import {
 } from "../actions/structured-marks";
 import type { FeatureInputRule } from "../feature-facets";
 import { unambiguousMathCommandCompletion } from "../nodes/math-commands";
+import type { TextualBlock } from "../nodes/TextNode";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { getBlockDirection } from "../rtl";
 import { moveCursorToPosition } from "../selection";
-import type { Block } from "../serlization/loadPage";
 import type {
   ContentEdit,
   EditorState,
@@ -61,7 +61,7 @@ import {
 import { printMathDocument } from "@cypherkit/tex/data";
 
 interface InlineMathTreeContext {
-  readonly block: Block;
+  readonly block: TextualBlock;
   readonly blockIndex: number;
   readonly run: ResolvedInlineMathRun;
   readonly contentId: string;

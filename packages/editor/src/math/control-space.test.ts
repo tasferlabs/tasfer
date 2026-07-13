@@ -16,7 +16,10 @@ import type { EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { createCRDTbinding } from "../sync/sync";
-import { getMathStructuredDocument, getStructuredMathSource } from "./structured";
+import {
+  getMathStructuredDocument,
+  getStructuredMathSource,
+} from "./structured";
 import { describe, expect, it } from "vitest";
 
 const treeMathSchema = baseSchema.use(mathExtension());
@@ -69,8 +72,6 @@ describe("control space entry in a structured math block", () => {
 
   it("keeps typing after the control space in a fresh leaf", () => {
     const state = typeText(treeState("$$\n\n$$"), "\\ x");
-    expect(getStructuredMathSource(state.document.page.blocks[0])).toBe(
-      "\\ x",
-    );
+    expect(getStructuredMathSource(state.document.page.blocks[0])).toBe("\\ x");
   });
 });
