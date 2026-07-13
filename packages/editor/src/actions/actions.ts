@@ -1,4 +1,4 @@
-import { TEXT_INPUTTED } from "../action-bus";
+import { CONVERT_STRUCTURED_BLOCK, TEXT_INPUTTED } from "../action-bus";
 import { isCJKCharacter } from "../cjk";
 import { runFeatureInputRules } from "../feature-facets";
 import { resolveMarkRuns } from "../inline-math-spans";
@@ -91,6 +91,8 @@ import {
   resolveStructuredMarkRanges,
   selectionIntersectsStructuredMark,
   selectionPartiallyIntersectsStructuredMark,
+  structuredMarkAttachmentCleanupOps,
+  structuredMarkRunSourceDiverged,
 } from "./structured-marks";
 import { wrapSelectionOnInput } from "./wrap-selection";
 
@@ -306,22 +308,27 @@ function detectAndApplyInlineMarkdown(
  * Apply markdown prefix detection to a block.
  * Detects patterns like "#", "##", "- [ ]", etc. and updates block type/properties.
  * Mutates the block in-place by removing the prefix from chars array.
+ * `removedPrefixLength` is how many visible chars were stripped from the block
+ * start; callers must shift any caret they place afterwards left by that much.
  */
 function applyMarkdownPrefix(
   block: Block,
   binding: CRDTbinding,
   schema: DataSchema,
   preserveType: boolean = false,
-): { block: Block; ops: Operation[] } {
+): { block: Block; ops: Operation[]; removedPrefixLength: number } {
   if (!isTextualBlock(block)) {
-    return { block, ops: [] };
+    return { block, ops: [], removedPrefixLength: 0 };
   }
   // Prefix conversion reconstructs/morphs the block through generic flat ops.
   // Structured attachments are block-scoped, including supplemental mark
   // documents, so keep the literal prefix until a feature owns the conversion.
-  if (hasStructuredContent(block)) return { block, ops: [] };
+  if (hasStructuredContent(block)) {
+    return { block, ops: [], removedPrefixLength: 0 };
+  }
   const text = getVisibleTextFromRuns(block.charRuns);
   const ops: Operation[] = [];
+  let removedPrefixLength = 0;
   const oldType = block.type;
 
   // Calculate indent level from leading spaces (2 spaces = 1 indent)
@@ -351,6 +358,7 @@ function applyMarkdownPrefix(
         charIds,
       };
       ops.push(deleteOp);
+      removedPrefixLength += charIds.length;
     }
   };
 
@@ -453,6 +461,7 @@ function applyMarkdownPrefix(
         charIds: allCharIds,
       };
       ops.push(deleteOp);
+      removedPrefixLength += allCharIds.length;
     }
     (block as any).type = "line";
     (block as any).charRuns = [];
@@ -479,6 +488,7 @@ function applyMarkdownPrefix(
         charIds: allCharIds,
       };
       ops.push(deleteOp);
+      removedPrefixLength += allCharIds.length;
     }
     (block as any).type = "code";
     (block as any).language = "";
@@ -492,7 +502,7 @@ function applyMarkdownPrefix(
     }
     // Chars stay as-is with formatting preserved
   }
-  return { block, ops };
+  return { block, ops, removedPrefixLength };
 }
 
 /**
@@ -525,6 +535,7 @@ export function mergeBlocksOps(
   ops: Operation[];
   joinPoint: number;
   insertedRange: { blockId: string; from: number; to: number } | null;
+  removedPrefixLength: number;
 } {
   const ops: Operation[] = [];
   let pageAcc = page;
@@ -533,6 +544,10 @@ export function mergeBlocksOps(
     : 0;
   let insertedRange: { blockId: string; from: number; to: number } | null =
     null;
+  // Visible chars the post-merge markdown detection stripped from the block
+  // start ("1. " → numbered list). Callers placing a caret at a pre-merge
+  // offset must shift it left by this much.
+  let removedPrefixLength = 0;
 
   // A block-authoritative attachment cannot be flattened into another block by
   // generic char-run operations. Supplemental attachments are different: their
@@ -542,7 +557,13 @@ export function mergeBlocksOps(
     hasStructuredBlockAuthority(source) ||
     hasStructuredBlockAuthority(target)
   ) {
-    return { newPage: page, ops, joinPoint, insertedRange };
+    return {
+      newPage: page,
+      ops,
+      joinPoint,
+      insertedRange,
+      removedPrefixLength,
+    };
   }
 
   const sourceStructuredMarks = resolveStructuredMarkRanges(source, schema);
@@ -557,7 +578,13 @@ export function mergeBlocksOps(
   // A feature that cannot clone one of its attachments keeps the old
   // conservative behavior: do not tombstone the only block that owns it.
   if (!clonedContent) {
-    return { newPage: page, ops, joinPoint, insertedRange };
+    return {
+      newPage: page,
+      ops,
+      joinPoint,
+      insertedRange,
+      removedPrefixLength,
+    };
   }
   if (clonedContent.ops.length > 0) {
     ops.push(...clonedContent.ops);
@@ -665,14 +692,21 @@ export function mergeBlocksOps(
     isTextualBlock(targetAfterMerge)
   ) {
     const clone = { ...targetAfterMerge } as Block;
-    const { ops: prefixOps } = applyMarkdownPrefix(clone, binding, schema);
-    if (prefixOps.length > 0) {
-      ops.push(...prefixOps);
-      pageAcc = applyOps(pageAcc, prefixOps);
+    const prefix = applyMarkdownPrefix(clone, binding, schema);
+    if (prefix.ops.length > 0) {
+      ops.push(...prefix.ops);
+      pageAcc = applyOps(pageAcc, prefix.ops);
+      removedPrefixLength = prefix.removedPrefixLength;
     }
   }
 
-  return { newPage: pageAcc, ops, joinPoint, insertedRange };
+  return {
+    newPage: pageAcc,
+    ops,
+    joinPoint,
+    insertedRange,
+    removedPrefixLength,
+  };
 }
 
 // Helper function to get selection range in proper order (start to end)
@@ -864,7 +898,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     end = freshRange.end;
 
     // Handle text block deletion using CRDT helper
-    const { newPage: pageAfterDelete, op } = deleteCharsInRange(
+    const { newPage: pageAfterCharDelete, op } = deleteCharsInRange(
       state.document.page,
       block.id,
       start.textIndex,
@@ -872,6 +906,23 @@ export function deleteSelectedText(state: EditorState): ActionResult {
       state.CRDTbinding,
     );
     ops.push(op);
+
+    // A structured mark wholly inside the range dies with its chars; delete
+    // the attachments it referenced in the same transaction (computed against
+    // the pre-delete block, whose runs are still resolvable).
+    const attachmentCleanupOps = structuredMarkAttachmentCleanupOps(
+      block,
+      start.textIndex,
+      end.textIndex,
+      state.CRDTbinding,
+      state.schema,
+    );
+    ops.push(...attachmentCleanupOps);
+    const pageAfterDelete = applyOps(
+      pageAfterCharDelete,
+      attachmentCleanupOps,
+      state.schema,
+    );
 
     const blockCopy = pageAfterDelete.blocks[start.blockIndex];
 
@@ -881,10 +932,15 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     // already-promoted heading/list — or a code block holding literal "- foo" —
     // must not silently re-morph when its text is edited. (This is the same
     // "paragraph is the base type" convention as the schema's fallback codec.)
+    let removedPrefixLength = 0;
     if (block.type === "paragraph") {
-      ops.push(
-        ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema).ops,
+      const prefix = applyMarkdownPrefix(
+        blockCopy,
+        state.CRDTbinding,
+        state.schema,
       );
+      ops.push(...prefix.ops);
+      removedPrefixLength = prefix.removedPrefixLength;
     }
 
     invalidateBlockCache(blockCopy);
@@ -896,7 +952,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     newState = moveCursorToPosition(
       newState,
       start.blockIndex,
-      start.textIndex,
+      Math.max(0, start.textIndex - removedPrefixLength),
     );
     newState = clearSelection(newState);
     return { state: newState, ops };
@@ -939,8 +995,15 @@ export function deleteSelectedText(state: EditorState): ActionResult {
             startLength,
             state.CRDTbinding,
           );
-          page = deleted.newPage;
-          ops.push(deleted.op);
+          const cleanup = structuredMarkAttachmentCleanupOps(
+            startBlock,
+            start.textIndex,
+            startLength,
+            state.CRDTbinding,
+            state.schema,
+          );
+          page = applyOps(deleted.newPage, cleanup, state.schema);
+          ops.push(deleted.op, ...cleanup);
         }
         survivorBlockId = startBlock.id;
         survivorTextIndex = start.textIndex;
@@ -953,8 +1016,15 @@ export function deleteSelectedText(state: EditorState): ActionResult {
             end.textIndex,
             state.CRDTbinding,
           );
-          page = deleted.newPage;
-          ops.push(deleted.op);
+          const cleanup = structuredMarkAttachmentCleanupOps(
+            endBlock,
+            0,
+            end.textIndex,
+            state.CRDTbinding,
+            state.schema,
+          );
+          page = applyOps(deleted.newPage, cleanup, state.schema);
+          ops.push(deleted.op, ...cleanup);
         }
         survivorBlockId = endBlock.id;
       }
@@ -1098,7 +1168,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     // Both are text blocks - delete text from start and end, merge blocks
     // Delete from start position to end of start block
     const startBlockLen = getVisibleLength(startBlock.charRuns);
-    const { newPage: pageAfterStartDelete, op: startDeleteOp } =
+    const { newPage: pageAfterStartCharDelete, op: startDeleteOp } =
       deleteCharsInRange(
         state.document.page,
         startBlock.id,
@@ -1107,6 +1177,19 @@ export function deleteSelectedText(state: EditorState): ActionResult {
         state.CRDTbinding,
       );
     ops.push(startDeleteOp);
+    const startCleanupOps = structuredMarkAttachmentCleanupOps(
+      startBlock,
+      start.textIndex,
+      startBlockLen,
+      state.CRDTbinding,
+      state.schema,
+    );
+    ops.push(...startCleanupOps);
+    const pageAfterStartDelete = applyOps(
+      pageAfterStartCharDelete,
+      startCleanupOps,
+      state.schema,
+    );
 
     // Get the chars to keep from end block (after end.textIndex)
     const endBlockText = getBlockTextContent(endBlock);
@@ -1147,13 +1230,17 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     const startBlockIndex = newPage.blocks.findIndex(
       (b: Block) => b.id === startBlock.id,
     );
+    let removedPrefixLength = 0;
     if (startBlockIndex !== -1) {
       const blockCopy = newPage.blocks[startBlockIndex];
       if (startBlock.type === "paragraph") {
-        ops.push(
-          ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema)
-            .ops,
+        const prefix = applyMarkdownPrefix(
+          blockCopy,
+          state.CRDTbinding,
+          state.schema,
         );
+        ops.push(...prefix.ops);
+        removedPrefixLength = prefix.removedPrefixLength;
       }
       invalidateBlockCache(blockCopy);
     }
@@ -1166,7 +1253,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     newState = moveCursorToPosition(
       newState,
       start.blockIndex,
-      start.textIndex,
+      Math.max(0, start.textIndex - removedPrefixLength),
     );
     newState = clearSelection(newState);
     return { state: newState, ops };
@@ -1367,14 +1454,13 @@ export function insertText(
       // applyMarkdownPrefix mutates the block in place, so we operate on the
       // pre-markdown page's block directly.
       const blockBeforeMarkdown = pageAcc.blocks[blockIndex];
-      ops.push(
-        ...applyMarkdownPrefix(
-          blockBeforeMarkdown,
-          state.CRDTbinding,
-          state.schema,
-          oldBlock.type !== "paragraph",
-        ).ops,
+      const inlinePrefix = applyMarkdownPrefix(
+        blockBeforeMarkdown,
+        state.CRDTbinding,
+        state.schema,
+        oldBlock.type !== "paragraph",
       );
+      ops.push(...inlinePrefix.ops);
       invalidateBlockCache(blockBeforeMarkdown);
 
       let stateBeforeMarkdown: EditorState = {
@@ -1392,7 +1478,10 @@ export function insertText(
       state = stateBeforeMarkdown;
 
       pageAcc = markdownResult.newPage;
-      finalTextIndex = markdownResult.newTextIndex;
+      finalTextIndex = Math.max(
+        0,
+        markdownResult.newTextIndex - inlinePrefix.removedPrefixLength,
+      );
       ops.push(...markdownResult.ops);
     }
   }
@@ -1422,14 +1511,17 @@ export function insertText(
   // latest copy. Skipped inside code blocks (verbatim — see `inCodeBlock`).
   const blockCopy = pageAcc.blocks[blockIndex];
   if (!inCodeBlock) {
-    ops.push(
-      ...applyMarkdownPrefix(
-        blockCopy,
-        state.CRDTbinding,
-        state.schema,
-        oldBlock.type !== "paragraph",
-      ).ops,
+    const prefix = applyMarkdownPrefix(
+      blockCopy,
+      state.CRDTbinding,
+      state.schema,
+      oldBlock.type !== "paragraph",
     );
+    ops.push(...prefix.ops);
+    // The caret sits after the just-typed text; a stripped prefix ("# ") came
+    // off the block start before it, so the caret shifts left with the text
+    // ("# |hello" → "|hello", not "he|llo").
+    finalTextIndex = Math.max(0, finalTextIndex - prefix.removedPrefixLength);
   }
   invalidateBlockCache(blockCopy);
 
@@ -1569,10 +1661,15 @@ export function deleteText(state: EditorState): ActionResult {
     ops.push(op);
 
     const blockCopy = newPage.blocks[blockIndex];
+    let removedPrefixLength = 0;
     if (oldBlock.type === "paragraph") {
-      ops.push(
-        ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema).ops,
+      const prefix = applyMarkdownPrefix(
+        blockCopy,
+        state.CRDTbinding,
+        state.schema,
       );
+      ops.push(...prefix.ops);
+      removedPrefixLength = prefix.removedPrefixLength;
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -1581,7 +1678,12 @@ export function deleteText(state: EditorState): ActionResult {
     };
 
     // Preserve active formats when deleting during typing (e.g., pressing backspace while in bold mode)
-    newState = moveCursorToPosition(newState, blockIndex, textIndex - 1, true);
+    newState = moveCursorToPosition(
+      newState,
+      blockIndex,
+      Math.max(0, textIndex - 1 - removedPrefixLength),
+      true,
+    );
     return { state: newState, ops };
   } else {
     // A single-block surface never merges its block into (or outdents/deletes
@@ -1752,7 +1854,11 @@ export function deleteText(state: EditorState): ActionResult {
       const blockToPreserve = prevIsEmpty ? oldBlock : prevBlock;
       const blockToDelete = prevIsEmpty ? prevBlock : oldBlock;
 
-      const { newPage, ops: mergeOps } = mergeBlocksOps(
+      const {
+        newPage,
+        ops: mergeOps,
+        removedPrefixLength,
+      } = mergeBlocksOps(
         state.document.page,
         blockToDelete,
         blockToPreserve,
@@ -1774,11 +1880,11 @@ export function deleteText(state: EditorState): ActionResult {
       };
       // Cursor lands at the join point: end of preserved block's pre-merge
       // text when prev had content; start of preserved (old) block when prev
-      // was empty.
+      // was empty. A markdown prefix the merge stripped shifts it left.
       newState = moveCursorToPosition(
         newState,
         survivingIdx !== -1 ? survivingIdx : prevBlockIndex,
-        prevIsEmpty ? 0 : prevText.length,
+        prevIsEmpty ? 0 : Math.max(0, prevText.length - removedPrefixLength),
       );
       return { state: newState, ops };
     } else {
@@ -1906,10 +2012,15 @@ export function deleteForward(state: EditorState): ActionResult {
     ops.push(op);
 
     const blockCopy = newPage.blocks[blockIndex];
+    let removedPrefixLength = 0;
     if (oldBlock.type === "paragraph") {
-      ops.push(
-        ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema).ops,
+      const prefix = applyMarkdownPrefix(
+        blockCopy,
+        state.CRDTbinding,
+        state.schema,
       );
+      ops.push(...prefix.ops);
+      removedPrefixLength = prefix.removedPrefixLength;
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -1917,7 +2028,12 @@ export function deleteForward(state: EditorState): ActionResult {
       document: { ...state.document, page: newPage },
     };
     // Preserve active formats when deleting during typing
-    newState = moveCursorToPosition(newState, blockIndex, textIndex, true);
+    newState = moveCursorToPosition(
+      newState,
+      blockIndex,
+      Math.max(0, textIndex - removedPrefixLength),
+      true,
+    );
     return { state: newState, ops };
   } else {
     // A single-block surface never merges its block into a neighbour outside the
@@ -1932,31 +2048,38 @@ export function deleteForward(state: EditorState): ActionResult {
       // Merge with next block, preserving formatting
       const nextBlock = state.document.page.blocks[nextBlockIndex];
 
-      // If next block is not a text block (e.g., image), delete the current text block
-      if (!isTextualBlock(nextBlock)) {
-        // Delete the current text block
-        const blockDeleteOp: Operation = {
-          op: "block_delete",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: oldBlock.id,
-        };
-        ops.push(blockDeleteOp);
+      // If next block is not a text block (e.g., image) or is a contained
+      // textual block (code/math — never merged with a neighbour's text),
+      // select it as a whole-block node selection — and, like the Backspace
+      // mirror (`selectPreviousContainedBlockAtBoundary`), only delete the
+      // current text block when it is empty. Forward-delete at `hello|`
+      // before an image or equation must not destroy the paragraph.
+      if (!isTextualBlock(nextBlock) || isPreformattedType(nextBlock.type)) {
+        const imagePosition = { blockIndex: nextBlockIndex, textIndex: 0 };
+        let newState = state;
 
-        // Tombstone via op replay so the local page matches every replica —
-        // the deleted block stays in the array, so the image keeps its index.
-        // (No empty-doc guard needed: the next image block survives.)
-        const newPage = applyOps(state.document.page, [blockDeleteOp]);
-        let newState: EditorState = {
-          ...state,
-          document: { ...state.document, page: newPage },
-        };
+        if (oldText.length === 0) {
+          const blockDeleteOp: Operation = {
+            op: "block_delete",
+            id: state.CRDTbinding.nextId(),
+            clock: state.CRDTbinding.getClock(),
+            pageId: state.CRDTbinding.pageId,
+            blockId: oldBlock.id,
+          };
+          ops.push(blockDeleteOp);
 
-        // Select the next (image) block
-        const imageBlockIndex = nextBlockIndex;
-        const imagePosition = { blockIndex: imageBlockIndex, textIndex: 0 };
-        newState = moveCursorToPosition(newState, imageBlockIndex, 0);
+          // Tombstone via op replay so the local page matches every replica —
+          // the deleted block stays in the array, so the next block keeps its
+          // index. (No empty-doc guard needed: the next block survives.)
+          const newPage = applyOps(state.document.page, [blockDeleteOp]);
+          newState = {
+            ...state,
+            document: { ...state.document, page: newPage },
+          };
+        }
+
+        // Select the next block as a whole
+        newState = moveCursorToPosition(newState, nextBlockIndex, 0);
         newState = {
           ...newState,
           document: {
@@ -1978,7 +2101,11 @@ export function deleteForward(state: EditorState): ActionResult {
       const blockToPreserve = currentIsEmpty ? nextBlock : oldBlock;
       const blockToDelete = currentIsEmpty ? oldBlock : nextBlock;
 
-      const { newPage, ops: mergeOps } = mergeBlocksOps(
+      const {
+        newPage,
+        ops: mergeOps,
+        removedPrefixLength,
+      } = mergeBlocksOps(
         state.document.page,
         blockToDelete,
         blockToPreserve,
@@ -2000,10 +2127,11 @@ export function deleteForward(state: EditorState): ActionResult {
       };
       // Cursor stays at the join point: textIndex (end of preserved old's
       // pre-merge text) when old was non-empty; 0 (start of next) otherwise.
+      // A markdown prefix the merge stripped shifts it left.
       newState = moveCursorToPosition(
         newState,
         survivingIdx !== -1 ? survivingIdx : blockIndex,
-        currentIsEmpty ? 0 : textIndex,
+        currentIsEmpty ? 0 : Math.max(0, textIndex - removedPrefixLength),
       );
       return { state: newState, ops };
     }
@@ -2347,10 +2475,15 @@ export function deleteWordForward(state: EditorState): ActionResult {
     ops.push(op);
 
     const blockCopy = newPage.blocks[blockIndex];
+    let removedPrefixLength = 0;
     if (oldBlock.type === "paragraph") {
-      ops.push(
-        ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema).ops,
+      const prefix = applyMarkdownPrefix(
+        blockCopy,
+        state.CRDTbinding,
+        state.schema,
       );
+      ops.push(...prefix.ops);
+      removedPrefixLength = prefix.removedPrefixLength;
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -2358,7 +2491,12 @@ export function deleteWordForward(state: EditorState): ActionResult {
       document: { ...state.document, page: newPage },
     };
     // Preserve active formats when deleting during typing
-    newState = moveCursorToPosition(newState, blockIndex, textIndex, true);
+    newState = moveCursorToPosition(
+      newState,
+      blockIndex,
+      Math.max(0, textIndex - removedPrefixLength),
+      true,
+    );
     return { state: newState, ops };
   } else {
     // Check for next visible block
@@ -2373,16 +2511,22 @@ export function deleteWordForward(state: EditorState): ActionResult {
         return { state, ops };
       }
 
-      // At end of line - merge with next block, preserving formatting
+      // At end of line - merge with next block, preserving formatting.
+      // Visual blocks and contained textual blocks (code/math) never merge
+      // their content into a neighbour; word-delete stops at the boundary.
       const nextBlock = state.document.page.blocks[nextBlockIndex];
-      if (!isTextualBlock(nextBlock)) {
+      if (!isTextualBlock(nextBlock) || isPreformattedType(nextBlock.type)) {
         return { state, ops };
       }
       const currentIsEmpty = oldText.length === 0;
       const blockToPreserve = currentIsEmpty ? nextBlock : oldBlock;
       const blockToDelete = currentIsEmpty ? oldBlock : nextBlock;
 
-      const { newPage, ops: mergeOps } = mergeBlocksOps(
+      const {
+        newPage,
+        ops: mergeOps,
+        removedPrefixLength,
+      } = mergeBlocksOps(
         state.document.page,
         blockToDelete,
         blockToPreserve,
@@ -2405,7 +2549,7 @@ export function deleteWordForward(state: EditorState): ActionResult {
       newState = moveCursorToPosition(
         newState,
         survivingIdx !== -1 ? survivingIdx : blockIndex,
-        currentIsEmpty ? 0 : textIndex,
+        currentIsEmpty ? 0 : Math.max(0, textIndex - removedPrefixLength),
       );
       return { state: newState, ops };
     }
@@ -2476,10 +2620,15 @@ export function deleteWordBackward(state: EditorState): ActionResult {
     ops.push(op);
 
     const blockCopy = newPage.blocks[blockIndex];
+    let removedPrefixLength = 0;
     if (oldBlock.type === "paragraph") {
-      ops.push(
-        ...applyMarkdownPrefix(blockCopy, state.CRDTbinding, state.schema).ops,
+      const prefix = applyMarkdownPrefix(
+        blockCopy,
+        state.CRDTbinding,
+        state.schema,
       );
+      ops.push(...prefix.ops);
+      removedPrefixLength = prefix.removedPrefixLength;
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -2487,7 +2636,12 @@ export function deleteWordBackward(state: EditorState): ActionResult {
       document: { ...state.document, page: newPage },
     };
     // Preserve active formats when deleting during typing
-    newState = moveCursorToPosition(newState, blockIndex, startIndex, true);
+    newState = moveCursorToPosition(
+      newState,
+      blockIndex,
+      Math.max(0, startIndex - removedPrefixLength),
+      true,
+    );
     return { state: newState, ops };
   } else if (blockIndex > 0) {
     // Special handling for list blocks at textIndex 0: don't delete/merge, just return
@@ -2506,7 +2660,11 @@ export function deleteWordBackward(state: EditorState): ActionResult {
     const blockToPreserve = prevIsEmpty ? oldBlock : prevBlock;
     const blockToDelete = prevIsEmpty ? prevBlock : oldBlock;
 
-    const { newPage, ops: mergeOps } = mergeBlocksOps(
+    const {
+      newPage,
+      ops: mergeOps,
+      removedPrefixLength,
+    } = mergeBlocksOps(
       state.document.page,
       blockToDelete,
       blockToPreserve,
@@ -2529,7 +2687,7 @@ export function deleteWordBackward(state: EditorState): ActionResult {
     newState = moveCursorToPosition(
       newState,
       survivingIdx !== -1 ? survivingIdx : blockIndex - 1,
-      prevIsEmpty ? 0 : prevText.length,
+      prevIsEmpty ? 0 : Math.max(0, prevText.length - removedPrefixLength),
     );
     return { state: newState, ops };
   }
@@ -2607,13 +2765,14 @@ export function selectWordAtPosition(
   // `\frac`, a script), so a double-tap takes just that construct, not the entire
   // chip. A replacement with no `wordRangeAt` (or a null answer) falls back to the
   // whole run. Keyed on the generic facet, so this stays mark-agnostic.
-  // Strictly-interior only: a click at a chip boundary falls through to select the
-  // adjacent text word.
-  const chipRun = resolveMarkRuns(block).find(
+  // Strictly-interior only: a click at a chip boundary falls through to the
+  // boundary rules below (adjacent text word, else the chip itself).
+  const replacementRunsInBlock = resolveMarkRuns(block).filter(
     (run) =>
-      state.marks.get(run.name)?.replacement &&
-      textIndex > run.startIndex &&
-      textIndex < run.endIndex,
+      state.marks.get(run.name)?.replacement && run.endIndex > run.startIndex,
+  );
+  const chipRun = replacementRunsInBlock.find(
+    (run) => textIndex > run.startIndex && textIndex < run.endIndex,
   );
   let wordStart: number;
   let wordEnd: number;
@@ -2624,10 +2783,15 @@ export function selectWordAtPosition(
     wordEnd = pointRange.end;
   } else if (chipRun) {
     const replacement = state.marks.get(chipRun.name)?.replacement;
-    const unit = replacement?.wordRangeAt?.(
-      chipRun.text,
-      textIndex - chipRun.startIndex,
-    );
+    // An attached run whose canonical source has outrun its flat chars has no
+    // meaningful interior offsets — `wordRangeAt` would resolve constructs
+    // against stale source. Such a chip is atomic: take the whole run.
+    const unit = structuredMarkRunSourceDiverged(block, chipRun, state.schema)
+      ? null
+      : replacement?.wordRangeAt?.(
+          chipRun.text,
+          textIndex - chipRun.startIndex,
+        );
     if (unit) {
       wordStart = chipRun.startIndex + unit.start;
       wordEnd = chipRun.startIndex + unit.end;
@@ -2636,17 +2800,55 @@ export function selectWordAtPosition(
       wordEnd = chipRun.endIndex;
     }
   } else {
-    // Check if we're on a word character (see isWordChar)
-    const isOnWord = textIndex < text.length && isWordChar(text[textIndex]);
+    // Boundary offsets treat an adjacent replacement run (an inline-math chip)
+    // as the word it visually is. A run's chars are its raw source (LaTeX), so
+    // prose word logic must neither start inside one nor scan across its edges.
+    const runStartingHere = replacementRunsInBlock.find(
+      (run) => run.startIndex === textIndex,
+    );
+    const runEndingHere = replacementRunsInBlock.find(
+      (run) => run.endIndex === textIndex,
+    );
+    const isOnWord =
+      !runStartingHere &&
+      textIndex < text.length &&
+      isWordChar(text[textIndex]);
+    // Clamps so a word beside a chip never drags chip source into the selection.
+    const scanFloor = Math.max(
+      0,
+      ...replacementRunsInBlock
+        .filter((run) => run.endIndex <= textIndex)
+        .map((run) => run.endIndex),
+    );
+    const scanCeil = Math.min(
+      text.length,
+      ...replacementRunsInBlock
+        .filter((run) => run.startIndex >= textIndex)
+        .map((run) => run.startIndex),
+    );
 
-    if (!isOnWord) {
-      // If not on a word, don't select anything
+    if (isOnWord) {
+      wordStart = Math.max(findWordStart(text, textIndex), scanFloor);
+      wordEnd = Math.min(findWordEnd(text, textIndex), scanCeil);
+    } else if (runStartingHere) {
+      // Pointing at a chip's leading edge selects the chip whole.
+      wordStart = runStartingHere.startIndex;
+      wordEnd = runStartingHere.endIndex;
+    } else if (runEndingHere) {
+      // Pointing at a chip's trailing edge — e.g. a double-click past the end
+      // of a line that ends in a chip — selects the chip whole.
+      wordStart = runEndingHere.startIndex;
+      wordEnd = runEndingHere.endIndex;
+    } else if (textIndex > 0 && isWordChar(text[textIndex - 1])) {
+      // Not on a word but right after one (a click past the line end, or on
+      // the space following a word): select the word that just ended, matching
+      // native text fields.
+      wordStart = Math.max(findWordStart(text, textIndex), scanFloor);
+      wordEnd = textIndex;
+    } else {
+      // Nothing word-like at or before the point.
       return state;
     }
-
-    // Find word boundaries
-    wordStart = findWordStart(text, textIndex);
-    wordEnd = findWordEnd(text, textIndex);
   }
 
   // If we're not in a word, don't select anything
@@ -3637,10 +3839,19 @@ export function convertBlockAtCursor(
 
   // Structured documents are scoped to this block. Core has no lossless,
   // feature-agnostic morph for either block authority or supplemental mark
-  // attachments, so refuse conversion instead of orphaning persisted contentId
-  // references while emitting only block_set(type).
+  // attachments, so offer the conversion to the owning feature (which can
+  // convert losslessly through CONVERT_STRUCTURED_BLOCK), and otherwise refuse
+  // instead of orphaning persisted contentId references while emitting only
+  // block_set(type).
   if (hasStructuredContent(block)) {
-    return { state, ops: [] };
+    const owned = state.actionBus.dispatchState(
+      CONVERT_STRUCTURED_BLOCK,
+      state,
+      { blockIndex, type: params.type },
+    );
+    return owned.claimed
+      ? { state: owned.state, ops: owned.ops }
+      : { state, ops: [] };
   }
 
   // Converting TO a non-textual (atomic) block — image/math/line or any custom

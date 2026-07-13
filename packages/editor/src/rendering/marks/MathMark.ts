@@ -39,9 +39,11 @@ import {
 } from "../../math/data";
 import {
   deleteActiveInlineMathTree,
+  enterAdjacentInlineMathTreeHorizontally,
   enterInlineMathTreeAtPosition,
   exitActiveInlineMathTreeForBlockSplit,
   exitActiveInlineMathTreeHorizontally,
+  exitActiveInlineMathTreeSelectionHorizontally,
   extendActiveInlineMathTreeSelectionHorizontally,
   extendActiveInlineMathTreeSelectionVertically,
   hasActiveInlineMathTreeCaret,
@@ -55,6 +57,7 @@ import {
   contentPointToMathDocumentPosition,
   contentPointToMathTreeCaret,
   mathDocumentPositionToContentPoint,
+  mathSourceRangeFromContentSelection,
   mathTreeCaretToContentSelection,
 } from "../../math/tree-selection";
 import {
@@ -116,6 +119,28 @@ function commandRangesFor(text: string, edit: MarkReplacementEdit | undefined) {
  */
 const INLINE_MATH_SCALE = 1.4;
 
+/**
+ * Reserved geometry for an EMPTY chip — a formula whose last content was
+ * deleted but whose chip survives as an editable slot. Mirrors tex's
+ * `emptySlot` placeholder for an empty group (~0.4 em wide, x-height tall) so
+ * an empty formula reads as the same faint editable box an empty numerator
+ * does. Returning real dims here is load-bearing: a `null` measure makes the
+ * line renderer fall back to the run's stale compatibility characters, which
+ * then paint as ghost prose that no longer matches the canonical (empty)
+ * source. `fontSize` is the already-scaled chip font size.
+ */
+function emptyChipDims(fontSize: number): {
+  width: number;
+  height: number;
+  depthBelowBaseline: number;
+} {
+  return {
+    width: 0.4 * fontSize,
+    height: 0.45 * fontSize,
+    depthBelowBaseline: 0,
+  };
+}
+
 function sourceRangeOwnsOffset(
   range: { readonly start: number; readonly end: number },
   offset: number,
@@ -168,6 +193,36 @@ const inlineMathReplacement: MarkReplacement = {
       text,
       fontSize * INLINE_MATH_SCALE,
       stop.sourceOffset - range.start,
+    );
+  },
+  contentSelectionRects(text, fontSize, selection, context) {
+    const document = getInlineMathStructuredDocument(
+      context.mark,
+      context.attachments,
+    );
+    const math = document ? structuredToMathDocument(document) : undefined;
+    if (!document || !math) return null;
+    const layout = layoutMathDocumentHost(math, {
+      fontSize: fontSize * INLINE_MATH_SCALE,
+      displayMode: false,
+    });
+    const range = mathSourceRangeFromContentSelection(
+      document,
+      selection,
+      layout,
+    );
+    if (!range) return null;
+    const source =
+      getStructuredMathMarkSource(context.mark, context.attachments) ?? text;
+    const fragment = context.sourceRange ?? { start: 0, end: source.length };
+    const from = Math.max(range.from, fragment.start);
+    const to = Math.min(range.to, fragment.end);
+    if (to <= from) return null;
+    return getInlineMathSelectionRects(
+      text,
+      fontSize * INLINE_MATH_SCALE,
+      from - fragment.start,
+      to - fragment.start,
     );
   },
   contentSelectionFromPoint(text, fontSize, localX, localY, context) {
@@ -244,6 +299,7 @@ const inlineMathReplacement: MarkReplacement = {
     return null;
   },
   measure(text, fontSize, edit) {
+    if (text.length === 0) return emptyChipDims(fontSize * INLINE_MATH_SCALE);
     return getInlineMathDims(
       text,
       fontSize * INLINE_MATH_SCALE,
@@ -251,6 +307,10 @@ const inlineMathReplacement: MarkReplacement = {
     );
   },
   caretRect(text, fontSize, offset, edit) {
+    if (text.length === 0) {
+      const dims = emptyChipDims(fontSize * INLINE_MATH_SCALE);
+      return { x: 0, top: -dims.height, bottom: 0 };
+    }
     return getInlineMathCaretRect(
       text,
       fontSize * INLINE_MATH_SCALE,
@@ -259,6 +319,7 @@ const inlineMathReplacement: MarkReplacement = {
     );
   },
   hitTest(text, fontSize, localX, localY, drag, prevOffset) {
+    if (text.length === 0) return 0;
     return getInlineMathOffsetAtX(
       text,
       fontSize * INLINE_MATH_SCALE,
@@ -311,6 +372,17 @@ const inlineMathReplacement: MarkReplacement = {
     const mathStyle = styles.textFormats.inlineMath;
     const mathWidth = dims.width;
     const drawX = isRTL ? x - mathWidth : x;
+
+    if (text.length === 0) {
+      // The faint translucent slot tex paints for an empty group — the empty
+      // chip is exactly that: an editable slot awaiting content.
+      ctx.save();
+      ctx.globalAlpha *= 0.12;
+      ctx.fillStyle = styles.blocks.paragraph.color;
+      ctx.fillRect(drawX, y - dims.height, dims.width, dims.height);
+      ctx.restore();
+      return;
+    }
 
     if (hovered) {
       const padding = mathStyle.padding;
@@ -369,12 +441,21 @@ export class MathMark extends Mark {
   registerActions(bus: ActionBus): void {
     bus.registerState(
       TEXT_CLICK,
-      (state, { position }) =>
-        enterInlineMathTreeAtPosition(
-          state,
-          position.blockIndex,
-          position.textIndex,
-        ),
+      (state, { position, modifiers }) =>
+        // A Shift+click with an active selection/caret is an EXTENSION gesture:
+        // leave it unclaimed so the generic caret placement extends the flat
+        // range across the chip (snapping covers it whole) instead of dropping
+        // the caret into the chip's tree.
+        modifiers.shift &&
+        (state.document.selection ||
+          state.document.cursor ||
+          state.document.contentSelection)
+          ? undefined
+          : enterInlineMathTreeAtPosition(
+              state,
+              position.blockIndex,
+              position.textIndex,
+            ),
       90,
     );
     const remove =
@@ -401,13 +482,12 @@ export class MathMark extends Mark {
 
     const move =
       (motion: "arrow-left" | "arrow-right") => (state: EditorState) => {
+        const direction = motion === "arrow-left" ? "left" : "right";
         const moved = moveActiveInlineMathTreeCaret(state, motion);
         if (moved) return moved;
-        if (!hasActiveInlineMathTreeCaret(state)) return undefined;
-        return exitActiveInlineMathTreeHorizontally(
-          state,
-          motion === "arrow-left" ? "left" : "right",
-        );
+        return hasActiveInlineMathTreeCaret(state)
+          ? exitActiveInlineMathTreeHorizontally(state, direction)
+          : enterAdjacentInlineMathTreeHorizontally(state, direction);
       };
     bus.registerState(MOVE_CURSOR_LEFT, move("arrow-left"), 110);
     bus.registerState(MOVE_CURSOR_RIGHT, move("arrow-right"), 110);
@@ -454,6 +534,14 @@ export class MathMark extends Mark {
           direction,
         );
         if (moved) return moved;
+        // At the formula edge the nested selection can't grow further: hand
+        // the gesture to the flat model (chip covered whole) so Shift+Arrow
+        // keeps selecting into the host text.
+        const exited = exitActiveInlineMathTreeSelectionHorizontally(
+          state,
+          direction,
+        );
+        if (exited) return exited;
         return hasActiveInlineMathTreeCaret(state)
           ? { state, ops: [], handled: true as const }
           : undefined;

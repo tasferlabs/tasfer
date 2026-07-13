@@ -29,6 +29,7 @@ import { resolveMarkRuns } from "../inline-math-spans";
 import { mathExtension } from "../math-extension";
 import type { TextNode, TextNodeLayout } from "../nodes/TextNode";
 import { createMarkRegistry } from "../rendering/marks";
+import { MathMark } from "../rendering/marks/MathMark";
 import { createNodeRegistry } from "../rendering/nodes";
 import { baseSchema } from "../schema";
 import { moveCursorToPosition, updateSelection } from "../selection";
@@ -233,7 +234,7 @@ describe("interactive structured MathMark", () => {
     },
   );
 
-  it("keeps peer-attached shadows atomic on a legacy client", () => {
+  it("routes a flat caret inside an attached run through the tree", () => {
     const before = peerAttachedLegacyState();
     const block = before.document.page.blocks[0];
     const contentId =
@@ -251,19 +252,26 @@ describe("interactive structured MathMark", () => {
     };
     expect(contentId).toBeTruthy();
 
+    // Flat caret at "ax|yb" is strictly inside the attached run. Typing and
+    // deleting promote into the tree — like a display block — mutating only
+    // the attachment, never its compatibility projection.
     const inserted = insertText(before, "Q");
-    expect(inserted.ops).toEqual([]);
+    expect(inserted.ops.length).toBeGreaterThan(0);
     expect(compatibilitySource(inserted.state)).toBe("axyb");
-    expect(source(inserted.state)).toBe("xy");
+    expect(source(inserted.state)).toBe("xQy");
+    expect(inserted.state.document.contentSelection).not.toBeNull();
 
     const backward = before.actionBus.dispatchState(DELETE_BACKWARD, before);
+    expect(backward.claimed).toBe(true);
+    expect(backward.ops.length).toBeGreaterThan(0);
+    expect(compatibilitySource(backward.state)).toBe("axyb");
+    expect(source(backward.state)).toBe("y");
+
     const forward = before.actionBus.dispatchState(DELETE_FORWARD, before);
-    for (const deleted of [backward, forward]) {
-      expect(deleted.claimed).toBe(true);
-      expect(deleted.ops).toEqual([]);
-      expect(compatibilitySource(deleted.state)).toBe("axyb");
-      expect(source(deleted.state)).toBe("xy");
-    }
+    expect(forward.claimed).toBe(true);
+    expect(forward.ops.length).toBeGreaterThan(0);
+    expect(compatibilitySource(forward.state)).toBe("axyb");
+    expect(source(forward.state)).toBe("x");
 
     const selected = updateSelection(before, {
       anchor: { blockIndex: 0, textIndex: 0 },
@@ -272,7 +280,216 @@ describe("interactive structured MathMark", () => {
     const cut = selected.actionBus.dispatchState(CUT, selected);
     expect(cut.ops.length).toBeGreaterThan(0);
     expect(compatibilitySource(cut.state)).toBe("b");
-    expect(source(cut.state)).toBe("xy");
+    // Cutting the whole projection deletes the mark's attachment with it —
+    // nothing references the document once the covering chars are tombstones.
+    expect(source(cut.state)).toBeUndefined();
+    expect(
+      Object.keys(cut.state.document.page.blocks[0].structuredContent ?? {}),
+    ).toHaveLength(0);
+  });
+
+  it("migrates a legacy run when a flat caret types inside it", () => {
+    const before = legacyChip("inline-flat-migrate", "$xy$");
+    expect(inlineMathDocument(before)).toBeUndefined();
+
+    const inserted = insertText(before, "Q");
+
+    expect(inserted.ops.length).toBeGreaterThan(0);
+    expect(inlineMathDocument(inserted.state)).toBeDefined();
+    expect(canonicalSource(inserted.state)).toBe("xQy");
+    expect(inserted.state.document.contentSelection).not.toBeNull();
+    // The compatibility projection is left for legacy renderers, untouched.
+    expect(compatibilitySource(inserted.state)).toBe("xy");
+  });
+
+  it.each([
+    ["Backspace", DELETE_BACKWARD, "right"],
+    ["Delete", DELETE_FORWARD, "left"],
+  ] as const)(
+    "%s at a chip's flat edge selects the facing construct before deleting",
+    (_label, action, edge) => {
+      const source = String.raw`\frac{a}{b}`;
+      const before = legacyChip(`inline-flat-edge-${edge}`, `$${source}$`);
+      const run = resolveMarkRuns(before.document.page.blocks[0]).find(
+        (candidate) => candidate.name === "math",
+      );
+      if (!run) throw new Error("expected an inline math run");
+      const at = moveCursorToPosition(
+        before,
+        0,
+        edge === "right" ? run.endIndex : run.startIndex,
+      );
+
+      const selected = at.actionBus.dispatchState(action, at);
+      expect(selected.claimed).toBe(true);
+      expect(canonicalSource(selected.state)).toBe(source);
+      expect(selected.state.document.contentSelection?.anchor).not.toEqual(
+        selected.state.document.contentSelection?.focus,
+      );
+
+      const deleted = selected.state.actionBus.dispatchState(
+        action,
+        selected.state,
+      );
+      expect(canonicalSource(deleted.state)).toBe("");
+    },
+  );
+
+  it("exposes highlight rects for the construct selected before deletion", () => {
+    // Backspace at an inline matrix's trailing edge selects the matrix through
+    // the tree (a nested selection — the flat cursor/range is cleared), so the
+    // highlight must come from the replacement's contentSelectionRects seam.
+    // Regression: the seam didn't exist and the selection was invisible.
+    const source = String.raw`\begin{pmatrix}a&b\\c&d\end{pmatrix}`;
+    const before = legacyChip("inline-select-rects", `$${source}$`);
+    const run = resolveMarkRuns(before.document.page.blocks[0]).find(
+      (candidate) => candidate.name === "math",
+    );
+    if (!run) throw new Error("expected an inline math run");
+    const at = moveCursorToPosition(before, 0, run.endIndex);
+
+    const selected = at.actionBus.dispatchState(DELETE_BACKWARD, at).state;
+    const contentSelection = selected.document.contentSelection;
+    expect(contentSelection).not.toBeNull();
+    expect(contentSelection?.anchor).not.toEqual(contentSelection?.focus);
+
+    const block = selected.document.page.blocks[0];
+    if (!("formats" in block)) throw new Error("expected a textual block");
+    const mark = block.formats[0]?.format;
+    const text =
+      getStructuredMathMarkSource(mark, block.structuredContent) ?? "";
+    const rects = new MathMark().replacement?.contentSelectionRects?.(
+      text,
+      16,
+      contentSelection!,
+      { blockId: block.id, mark, attachments: block.structuredContent },
+    );
+    expect(rects?.length).toBeGreaterThan(0);
+    for (const rect of rects!) {
+      expect(rect.width).toBeGreaterThan(0);
+      expect(rect.bottom).toBeGreaterThan(rect.top);
+    }
+  });
+
+  it("removes an emptied chip on the next delete and restores it on undo", () => {
+    // "a[xy]b" with the caret after the chip. Two Backspaces empty the formula
+    // through the tree; the chip survives as an empty, still-editable nested
+    // caret rather than vanishing mid-thought.
+    let state = moveCursorToPosition(peerAttachedLegacyState(), 0, 3);
+    for (let presses = 0; presses < 2; presses++) {
+      state = state.actionBus.dispatchState(DELETE_BACKWARD, state).state;
+    }
+    expect(canonicalSource(state)).toBe("");
+    expect(state.document.contentSelection).not.toBeNull();
+    expect(compatibilitySource(state)).toBe("axyb");
+
+    // The next Backspace deletes the chip itself: stale compatibility chars,
+    // covering mark, and attachment all go, leaving a plain flat caret. This
+    // is what used to strand an invisible, undeletable ghost run.
+    const removed = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+    expect(removed.claimed).toBe(true);
+    expect(compatibilitySource(removed.state)).toBe("ab");
+    expect(inlineMathDocument(removed.state)).toBeUndefined();
+    expect(resolveMarkRuns(removed.state.document.page.blocks[0])).toHaveLength(
+      0,
+    );
+    expect(removed.state.document.contentSelection).toBeNull();
+    expect(removed.state.document.cursor?.position).toEqual({
+      blockIndex: 0,
+      textIndex: 1,
+    });
+    expect(
+      serializeToMarkdown(removed.state.document.page.blocks, undefined, {
+        schema: removed.state.schema,
+      }),
+    ).toBe("ab");
+
+    const recorded = recordUndoOps(
+      state,
+      removed.state,
+      removed.ops,
+      state.CRDTbinding.getPeerId(),
+    );
+    const undone = undoState(recorded).state;
+    expect(compatibilitySource(undone)).toBe("axyb");
+    expect(canonicalSource(undone)).toBe("");
+  });
+
+  it("hands a boundary-facing delete back to the host text", () => {
+    // Nested caret at the formula's first stop: Backspace faces out of the
+    // chip. Nothing inside can be consumed, so the caret exits to the host
+    // text at the chip edge instead of dying as a claimed no-op; the next
+    // press continues into the surrounding prose.
+    const atStart = enterMathOffset(legacyChip("inline-exit-left", "$xy$"), 0);
+    const left = atStart.actionBus.dispatchState(DELETE_BACKWARD, atStart);
+    expect(left.claimed).toBe(true);
+    expect(left.ops).toEqual([]);
+    expect(canonicalSource(left.state)).toBe("xy");
+    expect(left.state.document.contentSelection).toBeNull();
+    expect(left.state.document.cursor?.position).toEqual({
+      blockIndex: 0,
+      textIndex: 0,
+    });
+
+    const atEnd = enterMathOffset(legacyChip("inline-exit-right", "$xy$"), 2);
+    const right = atEnd.actionBus.dispatchState(DELETE_FORWARD, atEnd);
+    expect(right.claimed).toBe(true);
+    expect(right.ops).toEqual([]);
+    expect(canonicalSource(right.state)).toBe("xy");
+    expect(right.state.document.contentSelection).toBeNull();
+    expect(right.state.document.cursor?.position).toEqual({
+      blockIndex: 0,
+      textIndex: 2,
+    });
+  });
+
+  it("reserves placeholder geometry for an empty chip", () => {
+    // An empty formula must still measure: a null measure makes the renderer
+    // fall back to the run's stale compatibility characters — the "ghost
+    // text" regression — instead of the placeholder slot.
+    const replacement = new MathMark().replacement;
+    const dims = replacement.measure("", 16);
+    expect(dims).not.toBeNull();
+    expect(dims!.width).toBeGreaterThan(0);
+    expect(dims!.height).toBeGreaterThan(0);
+    expect(replacement.caretRect?.("", 16, 0)).toEqual({
+      x: 0,
+      top: -dims!.height,
+      bottom: 0,
+    });
+    expect(replacement.hitTest?.("", 16, 5, 0)).toBe(0);
+  });
+
+  it("enters an attached chip's tree from its flat edges with arrows", () => {
+    const before = peerAttachedLegacyState();
+
+    const fromEnd = moveCursorToPosition(before, 0, 3);
+    const left = fromEnd.actionBus.dispatchState(MOVE_CURSOR_LEFT, fromEnd);
+    expect(left.claimed).toBe(true);
+    expect(left.ops).toEqual([]);
+    expect(left.state.document.contentSelection).not.toBeNull();
+    expect(left.state.document.cursor).toBeNull();
+
+    const fromStart = moveCursorToPosition(before, 0, 1);
+    const right = fromStart.actionBus.dispatchState(
+      MOVE_CURSOR_RIGHT,
+      fromStart,
+    );
+    expect(right.claimed).toBe(true);
+    expect(right.ops).toEqual([]);
+    expect(right.state.document.contentSelection).not.toBeNull();
+    expect(right.state.document.cursor).toBeNull();
+  });
+
+  it("does not enter or migrate an unattached legacy run on arrows", () => {
+    const before = legacyChip("inline-arrow-legacy", "$xy$");
+    const atStart = moveCursorToPosition(before, 0, 0);
+
+    const moved = atStart.actionBus.dispatchState(MOVE_CURSOR_RIGHT, atStart);
+
+    expect(moved.ops).toEqual([]);
+    expect(moved.state.document.contentSelection).toBeNull();
+    expect(inlineMathDocument(moved.state)).toBeUndefined();
   });
 
   it("expands mixed prose/math selections to whole attached formulas", () => {

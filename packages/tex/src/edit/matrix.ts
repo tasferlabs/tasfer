@@ -137,7 +137,50 @@ export function matrixContextAt(
   offset: number,
 ): MatrixContext | null {
   const root = parse(latex);
-  const array = deepestArrayAt(root, offset);
+  return arrayContext(deepestArrayAt(root, offset), offset);
+}
+
+/**
+ * The tabular environment a source *range* addresses, or null when the range
+ * touches none. A range selection has no single caret offset, and its endpoints
+ * routinely sit just outside the construct it sweeps — a drag across a whole
+ * matrix anchors before `\begin` and focuses on the exclusive span end, so both
+ * endpoint probes via {@link matrixContextAt} miss. Resolution: the deepest
+ * array containing the whole range (a selection inside one cell, or exactly the
+ * construct), else the first array the range overlaps (a sweep across it). The
+ * reported cell is where the range enters the grid. Endpoints may come in
+ * either order; a collapsed range belongs to {@link matrixContextAt} instead.
+ */
+export function matrixContextInRange(
+  latex: string,
+  start: number,
+  end: number,
+): MatrixContext | null {
+  const lo = Math.min(start, end);
+  const hi = Math.max(start, end);
+  const root = parse(latex);
+  let containing: ArrayNode | null = null;
+  let overlapping: ArrayNode | null = null;
+  const visit = (n: Node): void => {
+    if (n.type === "array") {
+      // Descendants are visited after their ancestor, so the deepest
+      // containing array wins; the first overlap found is the outermost.
+      if (n.span.start <= lo && hi <= n.span.end) containing = n;
+      if (!overlapping && n.span.start < hi && lo < n.span.end) {
+        overlapping = n;
+      }
+    }
+    for (const child of childNodes(n)) visit(child);
+  };
+  visit(root);
+  const array = containing ?? overlapping;
+  return arrayContext(array, lo);
+}
+
+function arrayContext(
+  array: ArrayNode | null,
+  offset: number,
+): MatrixContext | null {
   if (!array) return null;
   const { row, col } = cellAt(array, offset);
   const cols = array.rows.reduce((max, r) => Math.max(max, r.length), 0);

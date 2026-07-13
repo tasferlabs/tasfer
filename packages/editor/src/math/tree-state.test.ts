@@ -20,6 +20,7 @@ import {
   CUT,
 } from "../actions/input-actions";
 import {
+  EXTEND_SELECTION_DOWN,
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
   MOVE_CONTENT_TAB,
@@ -28,6 +29,10 @@ import {
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
 } from "../actions/keyboard-actions";
+import {
+  SELECT_LINE_AT_POINT,
+  SELECT_WORD_AT_POINT,
+} from "../actions/mouse-actions";
 import { handleKeyDown } from "../events/keysEvents";
 import { resolveMarkRuns } from "../inline-math-spans";
 import { mathExtension } from "../math-extension";
@@ -66,7 +71,11 @@ import {
   getStructuredMathSource,
   structuredToMathDocument,
 } from "./structured";
-import { mathContentSelectionFromSourceOffset } from "./tree-selection";
+import {
+  contentPointToMathTreeCaret,
+  mathContentSelectionFromSourceOffset,
+  mathSourceRangeFromContentSelection,
+} from "./tree-selection";
 import { deleteActiveMathTreeSelection } from "./tree-state";
 import {
   isValidLatex,
@@ -333,9 +342,10 @@ describe("tree-backed display math state integration", () => {
       }),
     ).toBe("$ab$");
     expect(result.state.document.contentSelection).toBeNull();
+    // The caret stays at the leading edge where the backspace happened.
     expect(result.state.document.cursor?.position).toEqual({
       blockIndex: 0,
-      textIndex: 2,
+      textIndex: 0,
     });
     expect(applyOps(before.document.page, result.ops, before.schema)).toEqual(
       result.state.document.page,
@@ -1100,11 +1110,63 @@ describe("tree-backed display math state integration", () => {
         selected.state.document.contentSelection?.focus,
       );
 
+      // The construct IS the whole equation here, so the selection covers the
+      // entire block (painted as a full-card highlight) — the second press
+      // deletes the block itself, not just its content.
       const deleted = selected.state.actionBus.dispatchState(
         action,
         selected.state,
       );
-      expect(treeSource(deleted.state)).toBe("");
+      expect(block(deleted.state).deleted).toBe(true);
+    },
+  );
+
+  it.each([
+    ["plain text", "aa"],
+    ["a construct", String.raw`\frac{a}{b}`],
+  ] as const)(
+    "deletes the whole block when a triple-click selection over %s is deleted",
+    (_label, source) => {
+      const before = treeState(`$$\n${source}\n$$`);
+      const selected = before.actionBus.dispatchState(
+        SELECT_LINE_AT_POINT,
+        before,
+        { position: { blockIndex: 0, textIndex: 0 } },
+      );
+      expect(selected.claimed).toBe(true);
+
+      const deleted = selected.state.actionBus.dispatchState(
+        DELETE_BACKWARD,
+        selected.state,
+      );
+      expect(deleted.claimed).toBe(true);
+      expect(block(deleted.state).deleted).toBe(true);
+    },
+  );
+
+  it.each([
+    ["Backspace", DELETE_BACKWARD, 13],
+    ["Delete", DELETE_FORWARD, 2],
+  ] as const)(
+    "%s deletes only the selected construct when the equation has more content",
+    (_label, action, offset) => {
+      const source = String.raw`x+\frac{a}{b}`;
+      const before = moveCursorToPosition(
+        treeState(`$$\n${source}\n$$`),
+        0,
+        offset,
+      );
+
+      const selected = before.actionBus.dispatchState(action, before);
+      expect(selected.claimed).toBe(true);
+      expect(treeSource(selected.state)).toBe(source);
+
+      const deleted = selected.state.actionBus.dispatchState(
+        action,
+        selected.state,
+      );
+      expect(block(deleted.state).deleted).toBeUndefined();
+      expect(treeSource(deleted.state)).toBe("x+");
     },
   );
 
@@ -1452,6 +1514,306 @@ describe("tree-backed display math state integration", () => {
       latex.length,
     );
     if (!anchor || !focus) throw new Error("expected matrix boundary range");
+    const selected = updateContentSelection(state, {
+      anchor: anchor.focus,
+      focus: focus.focus,
+    });
+
+    const resized = selected.actionBus.dispatchState(
+      RESIZE_MATH_MATRIX,
+      selected,
+      { rows: 3, cols: 3 },
+    );
+    const resizedDocument = getMathStructuredDocument(block(resized.state));
+    const math = resizedDocument
+      ? structuredToMathDocument(resizedDocument)
+      : undefined;
+    const matrix = math?.root.body.children.find(
+      (node) => node.type === "matrix",
+    );
+    expect(resized.claimed).toBe(true);
+    expect(resized.ops.length).toBeGreaterThan(0);
+    expect(matrix?.type).toBe("matrix");
+    if (matrix?.type !== "matrix") throw new Error("expected matrix");
+    expect(matrix.rows).toHaveLength(3);
+    expect(matrix.rows.every((row) => row.cells.length === 3)).toBe(true);
+  });
+
+  it("promotes a double-click construct selection to the nested model", () => {
+    // Double-clicking a matrix resolves the whole construct, but committing it
+    // as a flat range over a tree-backed equation points into a phantom source
+    // (the legacy text is empty): copy and the host's matrix probes read "",
+    // so "Edit matrix" never appears. The gesture must land as contentSelection.
+    const latex = String.raw`\frac{a}{b}\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
+    let state = moveCursorToPosition(
+      treeState(`$$\n${latex}\n$$`),
+      0,
+      latex.length,
+    );
+    state = insertText(state, "").state;
+    expect(getMathStructuredDocument(block(state))).toBeDefined();
+    const spanStart = latex.indexOf("\\begin");
+
+    const selected = state.actionBus.dispatchState(
+      SELECT_WORD_AT_POINT,
+      state,
+      {
+        position: { blockIndex: 0, textIndex: spanStart + 1 },
+        range: { start: spanStart, end: latex.length },
+      },
+    );
+    expect(selected.claimed).toBe(true);
+    const content = selected.state.document.contentSelection;
+    expect(content).not.toBeNull();
+    expect(selected.state.document.selection).toBeNull();
+
+    const resized = selected.state.actionBus.dispatchState(
+      RESIZE_MATH_MATRIX,
+      selected.state,
+      { rows: 3, cols: 3 },
+    );
+    const resizedDocument = getMathStructuredDocument(block(resized.state));
+    const math = resizedDocument
+      ? structuredToMathDocument(resizedDocument)
+      : undefined;
+    const matrix = math?.root.body.children.find(
+      (node) => node.type === "matrix",
+    );
+    expect(resized.claimed).toBe(true);
+    expect(matrix?.type).toBe("matrix");
+    if (matrix?.type !== "matrix") throw new Error("expected matrix");
+    expect(matrix.rows).toHaveLength(3);
+    expect(matrix.rows.every((row) => row.cells.length === 3)).toBe(true);
+  });
+
+  it("selects the whole equation as a nested selection on triple-click", () => {
+    // The default triple-click line select reads the block's flat text, which
+    // a tree-backed equation leaves empty — nothing would be selected. The
+    // math node claims the gesture and selects the whole equation nested.
+    const latex = String.raw`\frac{a}{b}\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
+    let state = moveCursorToPosition(
+      treeState(`$$\n${latex}\n$$`),
+      0,
+      latex.length,
+    );
+    state = insertText(state, "").state;
+    expect(getMathStructuredDocument(block(state))).toBeDefined();
+
+    const selected = state.actionBus.dispatchState(
+      SELECT_LINE_AT_POINT,
+      state,
+      { position: { blockIndex: 0, textIndex: 0 } },
+    );
+    expect(selected.claimed).toBe(true);
+    expect(selected.state.document.contentSelection).not.toBeNull();
+    expect(selected.state.document.selection).toBeNull();
+
+    // The whole-equation selection contains the matrix, so the resize dialog
+    // must reach it through the swept range.
+    const resized = selected.state.actionBus.dispatchState(
+      RESIZE_MATH_MATRIX,
+      selected.state,
+      { rows: 3, cols: 3 },
+    );
+    const resizedDocument = getMathStructuredDocument(block(resized.state));
+    const math = resizedDocument
+      ? structuredToMathDocument(resizedDocument)
+      : undefined;
+    const matrix = math?.root.body.children.find(
+      (node) => node.type === "matrix",
+    );
+    expect(resized.claimed).toBe(true);
+    expect(matrix?.type).toBe("matrix");
+    if (matrix?.type !== "matrix") throw new Error("expected matrix");
+    expect(matrix.rows).toHaveLength(3);
+    expect(matrix.rows.every((row) => row.cells.length === 3)).toBe(true);
+  });
+
+  it("takes a matrix whole when shift+right steps into it from outside", () => {
+    // Extending the selection with shift+arrows must never leave the focus
+    // inside a construct the anchor is not in — that partial state cannot be
+    // painted or edited sensibly. One step across the matrix boundary selects
+    // the whole matrix.
+    const latex = String.raw`x\begin{bmatrix}a&b\\c&d\end{bmatrix}y`;
+    let state = moveCursorToPosition(
+      treeState(`$$\n${latex}\n$$`),
+      0,
+      latex.length,
+    );
+    state = insertText(state, "").state;
+    const document = getMathStructuredDocument(block(state));
+    if (!document) throw new Error("expected structured matrix");
+    const spanStart = latex.indexOf("\\begin");
+    const spanEnd = latex.indexOf("\\end{bmatrix}") + "\\end{bmatrix}".length;
+    const caret = mathContentSelectionFromSourceOffset(
+      block(state).id,
+      document.rootId,
+      document,
+      spanStart,
+    );
+    if (!caret) throw new Error("expected caret before the matrix");
+    state = updateContentSelection(state, caret);
+
+    const extended = state.actionBus.dispatchState(
+      EXTEND_SELECTION_RIGHT,
+      state,
+    );
+    expect(extended.claimed).toBe(true);
+    const selection = extended.state.document.contentSelection;
+    const after = getMathStructuredDocument(block(extended.state));
+    if (!selection || !after) throw new Error("expected nested selection");
+    expect(mathSourceRangeFromContentSelection(after, selection)).toEqual({
+      from: spanStart,
+      to: spanEnd,
+    });
+    // Both endpoints rest in the matrix's own row — never inside a cell.
+    const anchorCaret = contentPointToMathTreeCaret(after, selection.anchor);
+    const focusCaret = contentPointToMathTreeCaret(after, selection.focus);
+    expect(anchorCaret?.rowId).toBe(focusCaret?.rowId);
+  });
+
+  it("keeps a shift+right extension inside one cell within that cell", () => {
+    // The snap is level-aware: both endpoints share the cell's slot, so the
+    // selection stays a partial in-cell range instead of ballooning out.
+    const latex = String.raw`\begin{bmatrix}ab&c\\d&e\end{bmatrix}`;
+    let state = moveCursorToPosition(
+      treeState(`$$\n${latex}\n$$`),
+      0,
+      latex.length,
+    );
+    state = insertText(state, "").state;
+    const document = getMathStructuredDocument(block(state));
+    if (!document) throw new Error("expected structured matrix");
+    const cellStart = latex.indexOf("ab");
+    const caret = mathContentSelectionFromSourceOffset(
+      block(state).id,
+      document.rootId,
+      document,
+      cellStart,
+    );
+    if (!caret) throw new Error("expected caret inside the cell");
+    state = updateContentSelection(state, caret);
+
+    const extended = state.actionBus.dispatchState(
+      EXTEND_SELECTION_RIGHT,
+      state,
+    );
+    expect(extended.claimed).toBe(true);
+    const selection = extended.state.document.contentSelection;
+    const after = getMathStructuredDocument(block(extended.state));
+    if (!selection || !after) throw new Error("expected nested selection");
+    expect(mathSourceRangeFromContentSelection(after, selection)).toEqual({
+      from: cellStart,
+      to: cellStart + 1,
+    });
+  });
+
+  it("takes the matrix whole when shift+down crosses into another cell", () => {
+    const latex = String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
+    let state = moveCursorToPosition(
+      treeState(`$$\n${latex}\n$$`),
+      0,
+      latex.length,
+    );
+    state = insertText(state, "").state;
+    const document = getMathStructuredDocument(block(state));
+    if (!document) throw new Error("expected structured matrix");
+    const caret = mathContentSelectionFromSourceOffset(
+      block(state).id,
+      document.rootId,
+      document,
+      latex.indexOf("a"),
+    );
+    if (!caret) throw new Error("expected caret inside the first cell");
+    state = updateContentSelection(state, caret);
+
+    const extended = state.actionBus.dispatchState(
+      EXTEND_SELECTION_DOWN,
+      state,
+    );
+    expect(extended.claimed).toBe(true);
+    const selection = extended.state.document.contentSelection;
+    const after = getMathStructuredDocument(block(extended.state));
+    if (!selection || !after) throw new Error("expected nested selection");
+    expect(mathSourceRangeFromContentSelection(after, selection)).toEqual({
+      from: 0,
+      to: latex.length,
+    });
+  });
+
+  it("snaps a raw committed range that half-covers the matrix", () => {
+    // Gestures that combine two resolved points directly — shift+click, a
+    // mouse drag, the public API — commit through updateContentSelection,
+    // whose resolver facet must apply the same construct-atomic rule the
+    // shift+arrow extension applies before committing.
+    const latex = String.raw`x\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
+    let state = moveCursorToPosition(
+      treeState(`$$\n${latex}\n$$`),
+      0,
+      latex.length,
+    );
+    state = insertText(state, "").state;
+    const document = getMathStructuredDocument(block(state));
+    if (!document) throw new Error("expected structured matrix");
+    const anchor = mathContentSelectionFromSourceOffset(
+      block(state).id,
+      document.rootId,
+      document,
+      0,
+    );
+    const focus = mathContentSelectionFromSourceOffset(
+      block(state).id,
+      document.rootId,
+      document,
+      latex.indexOf("a&"),
+    );
+    if (!anchor || !focus) throw new Error("expected bridge carets");
+
+    state = updateContentSelection(state, {
+      anchor: anchor.focus,
+      focus: focus.focus,
+      lastUpdate: Date.now(),
+    });
+    const selection = state.document.contentSelection;
+    const after = getMathStructuredDocument(block(state));
+    if (!selection || !after) throw new Error("expected nested selection");
+    expect(mathSourceRangeFromContentSelection(after, selection)).toEqual({
+      from: 0,
+      to: latex.length,
+    });
+    const anchorCaret = contentPointToMathTreeCaret(after, selection.anchor);
+    const focusCaret = contentPointToMathTreeCaret(after, selection.focus);
+    expect(anchorCaret?.rowId).toBe(focusCaret?.rowId);
+  });
+
+  it("resizes a matrix swept by a drag that starts before the construct", () => {
+    // A mouse drag across the parentheses anchors a step or more before the
+    // matrix (here: before the `x` sibling) and focuses past it, so neither
+    // endpoint is adjacent to the construct. The range must still resolve it.
+    const latex = String.raw`\frac{a}{b}x\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
+    let state = moveCursorToPosition(
+      treeState(`$$\n${latex}\n$$`),
+      0,
+      latex.length,
+    );
+    state = insertText(state, "").state;
+    const document = getMathStructuredDocument(block(state));
+    if (!document) throw new Error("expected structured matrix");
+    const blockId = block(state).id;
+    const contentId = document.rootId;
+    const anchor = mathContentSelectionFromSourceOffset(
+      blockId,
+      contentId,
+      document,
+      latex.indexOf("x"),
+    );
+    const focus = mathContentSelectionFromSourceOffset(
+      blockId,
+      contentId,
+      document,
+      latex.length,
+    );
+    if (!anchor || !focus) throw new Error("expected drag range");
     const selected = updateContentSelection(state, {
       anchor: anchor.focus,
       focus: focus.focus,

@@ -20,11 +20,13 @@
 import {
   type ActionBus,
   CONTENT_DELETED,
+  CONVERT_STRUCTURED_BLOCK,
   stateAction,
   type StateHandler,
   type StateResult,
   TEXT_INPUTTED,
 } from "../action-bus";
+import { deleteSelectedText } from "../actions/actions";
 import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
@@ -44,18 +46,24 @@ import {
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
 } from "../actions/keyboard-actions";
-import { SELECT_WORD_AT_POINT } from "../actions/mouse-actions";
+import {
+  SELECT_LINE_AT_POINT,
+  SELECT_WORD_AT_POINT,
+} from "../actions/mouse-actions";
 import { POINTER_MOVE } from "../actions/pointer-actions";
 import { rangeIntersectsStructuredMark } from "../actions/structured-marks";
-import { TAP_SELECT_WORD } from "../actions/touch-actions";
+import { TAP_SELECT_LINE, TAP_SELECT_WORD } from "../actions/touch-actions";
 import { measureCtxText } from "../fonts";
 import { getInlineMathAtPosition } from "../inline-math";
 import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "../math/actions";
 import { mathBlockNodeCodec } from "../math/data";
+import { resolveStructuredInlineMathRuns } from "../math/inline-structured";
 import {
   getMathDocumentForBlock,
   getMathStructuredDocument,
   getStructuredMathSource,
+  mathContentIdForBlock,
+  parseLegacyMathDocumentInit,
 } from "../math/structured";
 import {
   contentPointToMathDocumentPosition,
@@ -132,9 +140,11 @@ import {
   contentPointsEqual,
   type ContentSelection,
   isContentSelectionCollapsed,
+  updateContentSelection,
 } from "../structured-selection";
 import { getEditorStyles } from "../styles";
 import { findBlockIndex } from "../sync/block-lookup";
+import { isTextualBlock } from "../sync/block-registry";
 import {
   getVisibleTextFromChars,
   getVisibleTextFromRuns,
@@ -146,7 +156,10 @@ import {
   orderKeyAfter,
 } from "../sync/crdt-utils";
 import { applyOps, cardJoinFlags } from "../sync/reducer";
-import type { StructuredDocument } from "../sync/structured-content";
+import {
+  getStructuredText,
+  type StructuredDocument,
+} from "../sync/structured-content";
 import {
   mathAbsorbNumericPunctuationAfterInput,
   mathArmScratch,
@@ -183,11 +196,13 @@ import {
   type MathDocumentCaretStop,
   mathDocumentCaretStop,
   type MathDocumentLayout,
+  type MathDocumentLayoutOptions,
   type MathLayout,
   paintMath,
   selectionRects as texSelectionRects,
   spanAtPoint as texSpanAtPoint,
 } from "@cypherkit/tex";
+import type { MathNode as MathTreeNode, MathRow } from "@cypherkit/tex/data";
 
 // Math block — a display LaTeX equation. `charRuns` is the legacy/interchange
 // source until a structured attachment exists, after which it is only a
@@ -302,6 +317,103 @@ function mathBlockAt(state: EditorState, blockIndex: number): MathBlock | null {
     | MathBlock
     | undefined;
   return block && !block.deleted && block.type === "math" ? block : null;
+}
+
+/**
+ * The math block whose ENTIRE equation the current selection covers (via
+ * triple-click or the first Ctrl/Cmd+A), or null. Such a selection covers
+ * everything the block holds, so Backspace and Delete remove the whole block,
+ * like a node selection, instead of leaving an empty equation behind. An
+ * already-flat node selection is excluded: the generic whole-block delete
+ * branch owns it.
+ */
+function wholeEquationSelectionBlockIndex(state: EditorState): number | null {
+  const content = state.document.contentSelection;
+  if (content) {
+    if (content.anchor.blockId !== content.focus.blockId) return null;
+    const blockIndex = state.document.page.blocks.findIndex(
+      (candidate) =>
+        candidate.id === content.focus.blockId && !candidate.deleted,
+    );
+    if (blockIndex < 0) return null;
+    const block = mathBlockAt(state, blockIndex);
+    const document = block ? getMathStructuredDocument(block) : undefined;
+    const math = block ? getMathDocumentForBlock(block) : undefined;
+    if (!block || !document || !math) return null;
+    // Structural check, deliberately NOT the source-offset bridge: each
+    // endpoint must sit AT an end of the root row. A partial selection inside
+    // an atomic construct (a withheld `\sin` scratch) snaps to the full source
+    // range through the bridge, but its endpoints live mid-field — that must
+    // stay a content delete.
+    const rootRow = math.root.body;
+    if (rootRow.children.length === 0) return null;
+    if (isContentSelectionCollapsed(content)) return null;
+    const anchor = contentPointToMathDocumentPosition(document, content.anchor);
+    const focus = contentPointToMathDocumentPosition(document, content.focus);
+    if (!anchor || !focus) return null;
+    const whole =
+      (atRootRowEdge(rootRow, anchor, "start") &&
+        atRootRowEdge(rootRow, focus, "end")) ||
+      (atRootRowEdge(rootRow, anchor, "end") &&
+        atRootRowEdge(rootRow, focus, "start"));
+    return whole ? blockIndex : null;
+  }
+  const sel = state.document.selection;
+  if (!sel || sel.isCollapsed || isNodeSelection(sel)) return null;
+  if (sel.anchor.blockIndex !== sel.focus.blockIndex) return null;
+  const blockIndex = sel.anchor.blockIndex;
+  const block = mathBlockAt(state, blockIndex);
+  if (!block) return null;
+  const length = mathBlockSource(block).length;
+  if (length === 0) return null;
+  const from = Math.min(sel.anchor.textIndex, sel.focus.textIndex);
+  const to = Math.max(sel.anchor.textIndex, sel.focus.textIndex);
+  return from <= 0 && to >= length ? blockIndex : null;
+}
+
+/**
+ * Whether `position` sits AT the given end of the equation's root row — either
+ * the row gap itself, or the matching boundary of a text field in the row's
+ * first/last child (a click-made selection resolves to field aliases of the
+ * same visual boundary, not row gaps). Positions strictly inside a field are
+ * never edges.
+ */
+function atRootRowEdge(
+  rootRow: MathRow,
+  position: MathDocumentCaretPosition,
+  edge: "start" | "end",
+): boolean {
+  if (position.rowId !== rootRow.id) return false;
+  if (position.kind === "row") {
+    return position.offset === (edge === "start" ? 0 : rootRow.children.length);
+  }
+  const index = rootRow.children.findIndex(
+    (child) => child.id === position.nodeId,
+  );
+  if (index < 0) return false;
+  if (edge === "start") return index === 0 && position.offset === 0;
+  const value = mathNodeFieldValue(rootRow.children[index], position.field);
+  return (
+    index === rootRow.children.length - 1 &&
+    value !== null &&
+    position.offset === value.length
+  );
+}
+
+function mathNodeFieldValue(
+  node: MathTreeNode,
+  field: "text" | "latex" | "name",
+): string | null {
+  switch (field) {
+    case "text":
+      return node.type === "raw-text" || node.type === "text"
+        ? node.text
+        : null;
+    case "latex":
+      return node.type === "raw-latex" ? node.latex : null;
+    case "name":
+      return node.type === "operator" ? node.name : null;
+  }
 }
 
 /** Losslessly reuse a display tree as the supplemental tree of an inline mark. */
@@ -436,7 +548,155 @@ function demoteActiveStructuredMathBlock(
     document: { ...state.document, page },
   };
   next = clearSelection(next);
-  next = moveCursorToPosition(next, blockIndex, source.length);
+  // Backspace only demotes at the equation's leading edge, so the caret stays
+  // there: before the inline formula, not after it.
+  next = moveCursorToPosition(next, blockIndex, 0);
+  return { state: next, ops, handled: true };
+}
+
+/**
+ * Losslessly reuse an inline chip's tree as a display equation — the mirror of
+ * {@link demoteActiveStructuredMathBlock}, for the "turn into math block"
+ * conversion. Core refuses to convert any block that owns structured content
+ * (a generic flat morph would orphan the persisted attachment) and offers it
+ * through {@link CONVERT_STRUCTURED_BLOCK} instead; this handler claims the
+ * offer when the target is `math` and the block's visible content is exactly
+ * one inline math chip plus insignificant whitespace (e.g. the separator space
+ * a slash command left behind). Anything else — chips embedded in prose,
+ * multiple chips, a non-math structured attachment — stays refused: prose has
+ * no home inside a display equation.
+ */
+function promoteInlineMathChipBlock(
+  state: EditorState,
+  blockIndex: number,
+  targetType: string,
+): { state: EditorState; ops: Operation[]; handled: true } | undefined {
+  if (targetType !== "math" || state.ui.composition) return undefined;
+  if (mathBlockAt(state, blockIndex)) return undefined;
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return undefined;
+  const runs = resolveStructuredInlineMathRuns(block);
+  if (runs.length !== 1 || runs[0].attachmentConflict) return undefined;
+  const run = runs[0];
+  const visibleText = getVisibleTextFromRuns(block.charRuns);
+  const outsideChip =
+    visibleText.slice(0, run.startIndex) + visibleText.slice(run.endIndex);
+  if (outsideChip.trim().length > 0) return undefined;
+
+  // `latex` is canonical: the attached tree's printed source when the chip has
+  // migrated, otherwise the chip's own characters. The flat chars of an
+  // attached chip are only a (possibly stale) compatibility projection.
+  const source = run.latex;
+
+  // Build the display document before emitting any op, so a tree that cannot
+  // be re-addressed refuses cleanly. An attached chip is cloned — stamping
+  // block authority routes the math clone adapter to this block's stable
+  // display root — while a legacy chip's source parses fresh, exactly like a
+  // display equation's lazy migration.
+  let display:
+    | { readonly contentId: string; readonly document: StructuredDocument }
+    | undefined;
+  if (run.document && run.contentId) {
+    const cloned = state.schema.features.cloneStructuredContent({
+      document: { ...run.document, authority: "block" },
+      sourceBlockId: block.id,
+      targetBlockId: block.id,
+      sourceContentId: run.contentId,
+      identities: state.CRDTbinding,
+    });
+    if (!cloned) return undefined;
+    display = cloned;
+  } else if (source.length > 0) {
+    display = {
+      contentId: mathContentIdForBlock(block.id),
+      document: parseLegacyMathDocumentInit(source, {
+        contentId: mathContentIdForBlock(block.id),
+        identityAllocator: state.CRDTbinding,
+      }).document,
+    };
+  }
+
+  const operationBase = () => ({
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+  });
+  const ops: Operation[] = [];
+  let page = state.document.page;
+
+  // Drop the chip's supplemental attachment first: the display root replaces
+  // it as the one authority, and a leftover supplemental document would sit
+  // unreachable on the morphed block.
+  if (run.document && run.contentId) {
+    const removeAttachment: Operation = {
+      op: "content_edit",
+      ...operationBase(),
+      blockId: block.id,
+      contentId: run.contentId,
+      edit: { kind: "document_delete" },
+    };
+    ops.push(removeAttachment);
+    page = applyOps(page, [removeAttachment], state.schema);
+  }
+
+  // The marked chars are only the chip's compatibility projection (plus any
+  // whitespace); a tree-backed display block keeps its flat text empty, so
+  // clear everything rather than promoting a stale copy to equation source.
+  if (visibleText.length > 0) {
+    const deleted = deleteCharsInRange(
+      page,
+      block.id,
+      0,
+      visibleText.length,
+      state.CRDTbinding,
+    );
+    ops.push(deleted.op);
+    page = deleted.newPage;
+  }
+
+  const setMath: Operation = {
+    op: "block_set",
+    ...operationBase(),
+    blockId: block.id,
+    field: "type",
+    value: "math",
+  };
+  ops.push(setMath);
+  page = applyOps(page, [setMath], state.schema);
+
+  if (display) {
+    const attachRoot: Operation = {
+      op: "content_edit",
+      ...operationBase(),
+      blockId: block.id,
+      contentId: display.contentId,
+      edit: { kind: "document_init", document: display.document },
+    };
+    ops.push(attachRoot);
+    page = applyOps(page, [attachRoot], state.schema);
+  }
+
+  const converted = page.blocks[findBlockIndex(page, block.id)];
+  if (converted) invalidateBlockCache(converted);
+  let next: EditorState = {
+    ...state,
+    document: { ...state.document, page },
+  };
+  next = clearSelection(next);
+  // The conversion reads as "keep editing the same formula", so the caret
+  // lands inside the equation at its end — the nested mirror of where the
+  // flat caret sat after the chip.
+  const caret = display
+    ? mathContentSelectionFromSourceOffset(
+        block.id,
+        display.contentId,
+        display.document,
+        source.length,
+      )
+    : null;
+  next = caret
+    ? updateContentSelection(next, caret)
+    : moveCursorToPosition(next, blockIndex, 0);
   return { state: next, ops, handled: true };
 }
 
@@ -580,6 +840,7 @@ export class MathNode extends TextNode<MathBlock> {
   private layoutDocumentEquation(
     block: MathBlock,
     contentWidth: number,
+    literalCaret?: MathDocumentLayoutOptions["literalCaret"],
   ): MathDocumentLayout | null {
     const document = getMathDocumentForBlock(block);
     if (!document) return null;
@@ -589,7 +850,51 @@ export class MathNode extends TextNode<MathBlock> {
       maxWidth: Math.max(0, contentWidth - 2 * BLOCK_MATH_PADDING_X),
       wrapIndent: BLOCK_MATH_WRAP_INDENT,
       wrapLineGap: BLOCK_MATH_LINE_GAP,
+      ...(literalCaret ? { literalCaret } : {}),
     });
+  }
+
+  /**
+   * The stable field caret to lay a tree-backed equation out against while a
+   * command is being typed there, or undefined. Command entry lives ONLY in a
+   * raw-text field (a committed command is a semantic node), so the collapsed
+   * nested caret sitting right after a `\`+letters run IS the pending state —
+   * no armed scratch flag exists for tree input. The pending-vs-resolved
+   * decision itself (a complete command that can't grow renders resolved) stays
+   * with the layout's `pendingCommandRange`; this only spots the cheap textual
+   * precondition so the resting paint path never re-lays out.
+   */
+  private pendingDocumentCommandCaret(
+    state: EditorState,
+    block: Block | MathBlock,
+  ): MathDocumentLayoutOptions["literalCaret"] {
+    const selection = state.document.contentSelection;
+    if (
+      !selection ||
+      selection.focus.blockId !== block.id ||
+      !isContentSelectionCollapsed(selection)
+    ) {
+      return undefined;
+    }
+    const document = getMathStructuredDocument(block);
+    if (!document) return undefined;
+    const position = contentPointToMathDocumentPosition(
+      document,
+      selection.focus,
+    );
+    if (!position || position.kind !== "field" || position.field !== "text") {
+      return undefined;
+    }
+    const prefix = getStructuredText(document, position.nodeId, "text").slice(
+      0,
+      position.offset,
+    );
+    if (!/\\[A-Za-z]*$/.test(prefix)) return undefined;
+    return {
+      nodeId: position.nodeId,
+      field: position.field,
+      offset: position.offset,
+    };
   }
 
   // ── Layout ───────────────────────────────────────────────────────────────
@@ -635,11 +940,13 @@ export class MathNode extends TextNode<MathBlock> {
         : structuredSource;
     const m = styles.blocks.math;
     const mathDocumentLayout = this.layoutDocumentEquation(block, maxWidth);
-    // An empty authoritative row still has real placeholder/caret geometry;
-    // only a legacy empty block falls back to the prose-style prompt.
-    const mathLayout =
-      mathDocumentLayout ??
-      (latex ? this.layoutEquation(latex, maxWidth) : null);
+    // An empty equation — legacy or authoritative tree — falls back to the
+    // prose-style prompt: a null `mathLayout` routes paint and the caret
+    // through the placeholder branch, while `mathDocumentLayout` stays set so
+    // structured hit testing and input keep working on the empty row.
+    const mathLayout = latex
+      ? (mathDocumentLayout ?? this.layoutEquation(latex, maxWidth))
+      : null;
     const mh = mathLayout ? mathLayout.height + mathLayout.depth : 0;
     const contentH = Math.max(m.minHeight, mh);
     const height = contentH + m.paddingTop + m.paddingBottom;
@@ -767,6 +1074,28 @@ export class MathNode extends TextNode<MathBlock> {
     ]);
     ctx.fill();
 
+    // A node selection of this whole block (what Backspace/Delete from a
+    // neighbouring block produces) selects the equation as one atomic unit, so
+    // highlight the entire card surface — not just the typeset glyphs. An
+    // empty equation has no glyphs at all; without this the selection would be
+    // invisible.
+    const nodeSelected =
+      isNodeSelection(state.document.selection) &&
+      state.document.selection?.anchor.blockIndex === blockIndex;
+    if (nodeSelected) {
+      ctx.globalAlpha = styles.blocks.math.selectionOpacity;
+      ctx.fillStyle = styles.selection.backgroundColor;
+      ctx.beginPath();
+      ctx.roundRect(x, y, width, layout.height, [
+        topRadius,
+        topRadius,
+        bottomRadius,
+        bottomRadius,
+      ]);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
     if (!layout.mathLayout) {
       const selection = state.document.selection;
       const cursorInThisBlock =
@@ -826,12 +1155,30 @@ export class MathNode extends TextNode<MathBlock> {
         caretIndex,
         commandEntryActive,
       );
-      const mathLayout = literalRange
-        ? this.layoutEquation(latex, width, literalRange)
-        : layout.mathLayout;
-      const mathOffsetX = literalRange
-        ? Math.max(0, (width - mathLayout.width) / 2)
-        : layout.mathOffsetX;
+      // Tree-backed twin of the legacy literal re-layout below: the nested
+      // caret's pending `\command` scratch is kept literal by the identity-keyed
+      // layout itself, so `\pm` shows as source en route to `\pmatrix` instead
+      // of flashing ±. `caretRect` derives from the same layout, so the caret
+      // tracks the painted source glyphs.
+      const literalCaret = treeBacked
+        ? this.pendingDocumentCommandCaret(state, c.block)
+        : undefined;
+      const literalDocumentLayout = literalCaret
+        ? this.layoutDocumentEquation(
+            c.block as unknown as MathBlock,
+            width,
+            literalCaret,
+          )
+        : null;
+      const mathLayout = treeBacked
+        ? (literalDocumentLayout ?? layout.mathLayout)
+        : literalRange
+          ? this.layoutEquation(latex, width, literalRange)
+          : layout.mathLayout;
+      const mathOffsetX =
+        literalDocumentLayout || literalRange
+          ? Math.max(0, (width - mathLayout.width) / 2)
+          : layout.mathOffsetX;
 
       const drawX = x + mathOffsetX;
       const drawTop = y + layout.mathTop;
@@ -880,7 +1227,12 @@ export class MathNode extends TextNode<MathBlock> {
               blockIndex,
               layout.chars.length,
             );
-      if (range) {
+      // A node selection already lit the whole card above — don't re-fill the
+      // glyph rects on top of it. A range covering the entire equation still
+      // highlights only the typeset glyphs — the full-card wash is reserved
+      // for the flat node selection, so selecting the content never reads as
+      // selecting the block itself.
+      if (range && !nodeSelected) {
         // Reuse the base selection fill so math honors the themed
         // `selection.cornerRadius` (and color) like text/atomic blocks — but with
         // a math-specific opacity: the highlight is composited over the equation's
@@ -981,11 +1333,8 @@ export class MathNode extends TextNode<MathBlock> {
     if (blockIndex < lo || blockIndex > hi) return null;
     // A node selection of this whole equation (the math/code sentinel: a
     // non-collapsed selection whose endpoints share one position — what
-    // Backspace from the following block produces) highlights the entire LaTeX,
-    // not a zero-width slice. Without this the block would read as a stray caret.
-    if (isNodeSelection(sel) && sel.anchor.blockIndex === blockIndex) {
-      return len > 0 ? { from: 0, to: len } : null;
-    }
+    // Backspace from the following block produces) never reaches here: both
+    // `paint` and `selectionRects` light the full card surface for it instead.
     const at = (p: Position) =>
       p.blockIndex < blockIndex
         ? 0
@@ -1020,6 +1369,21 @@ export class MathNode extends TextNode<MathBlock> {
     blockTopY: number,
   ): { x: number; y: number; width: number; height: number }[] {
     const l = layout as MathNodeLayout;
+    // A node selection of this whole block paints the full card surface (see
+    // `paint`), so report that same rect — a tap anywhere on the lit card
+    // counts as inside the selection. This also covers an empty equation,
+    // which has no glyph rects at all.
+    const sel = selection as SelectionState;
+    if (isNodeSelection(sel) && sel.anchor.blockIndex === blockIndex) {
+      return [
+        {
+          x: originX,
+          y: blockTopY,
+          width: l.adjustedMaxWidth,
+          height: l.height,
+        },
+      ];
+    }
     if (!l.mathLayout) return [];
     const len = getVisibleTextFromChars(l.chars).length;
     const range = this.localSelectionRange(
@@ -1070,12 +1434,29 @@ export class MathNode extends TextNode<MathBlock> {
       const position = document
         ? contentPointToMathDocumentPosition(document, contentPoint)
         : null;
+      // While a command is being typed at this caret, read the geometry off the
+      // layout that keeps it literal — matching what paint draws — so the caret
+      // tracks the source text (`\pm`), not the resolved glyph (±).
+      const literalCaret = block
+        ? this.pendingDocumentCommandCaret(state, block)
+        : undefined;
+      const literalDocumentLayout = literalCaret
+        ? this.layoutDocumentEquation(
+            block as unknown as MathBlock,
+            l.adjustedMaxWidth,
+            literalCaret,
+          )
+        : null;
+      const documentLayout = literalDocumentLayout ?? l.mathDocumentLayout;
       const stop = position
-        ? mathDocumentCaretStop(l.mathDocumentLayout, position)
+        ? mathDocumentCaretStop(documentLayout, position)
         : null;
       if (stop) {
-        const baseX = originX + l.mathOffsetX;
-        const baselineY = blockTopY + l.mathTop + l.mathDocumentLayout.height;
+        const mathOffsetX = literalDocumentLayout
+          ? Math.max(0, (l.adjustedMaxWidth - documentLayout.width) / 2)
+          : l.mathOffsetX;
+        const baseX = originX + mathOffsetX;
+        const baselineY = blockTopY + l.mathTop + documentLayout.height;
         return {
           x: baseX + stop.x,
           y: baselineY + stop.top,
@@ -1268,6 +1649,45 @@ export class MathNode extends TextNode<MathBlock> {
       (state) => demoteActiveStructuredMathBlock(state),
       120,
     );
+    // The demote's mirror: a "turn into math" conversion of a block whose only
+    // content is one inline chip. Core's conversion refuses blocks that own
+    // structured content and offers them through this seam instead.
+    bus.registerState(
+      CONVERT_STRUCTURED_BLOCK,
+      (state, { blockIndex, type }) =>
+        promoteInlineMathChipBlock(state, blockIndex, type),
+      100,
+    );
+    // A selection covering the whole equation leaves nothing worth keeping —
+    // deleting it removes the block itself, not just its content, instead of
+    // stranding an empty equation. Convert to the flat whole-block node
+    // selection and reuse the generic block delete (tombstone, only-block
+    // guard, cursor). Runs above the tree delete (100), which would empty the
+    // equation.
+    const deleteWholeEquationSelection: StateHandler<void> = (state) => {
+      const blockIndex = wholeEquationSelectionBlockIndex(state);
+      if (blockIndex === null) return;
+      const position: Position = { blockIndex, textIndex: 0 };
+      let next = updateContentSelection(state, null);
+      next = {
+        ...next,
+        document: {
+          ...next.document,
+          selection: {
+            anchor: position,
+            focus: position,
+            isForward: true,
+            isCollapsed: false,
+            lastUpdate: Date.now(),
+          },
+        },
+      };
+      return { ...deleteSelectedText(next), handled: true };
+    };
+    bus.registerState(DELETE_BACKWARD, deleteWholeEquationSelection, 110);
+    bus.registerState(DELETE_FORWARD, deleteWholeEquationSelection, 110);
+    bus.registerState(DELETE_WORD_BACKWARD, deleteWholeEquationSelection, 110);
+    bus.registerState(DELETE_WORD_FORWARD, deleteWholeEquationSelection, 110);
     // Structured display equations claim editing/navigation before the legacy
     // LaTeX char-run handlers. All mutations are generic `content_edit` ops;
     // inline MathMark remains on the compatibility path in this slice.
@@ -1530,6 +1950,33 @@ export class MathNode extends TextNode<MathBlock> {
     bus.registerState(SELECT_WORD_AT_POINT, selectMathWord, 50);
     bus.registerState(TAP_SELECT_WORD, selectMathWord, 50);
 
+    // A triple-click / triple-tap selects the "line" under the pointer. An
+    // equation renders as a single line whose source has no prose lines, so
+    // claim both gestures and select the whole equation — the default line
+    // select reads the block's flat text, which a tree-backed equation leaves
+    // empty. Same range as the first Ctrl/Cmd+A above. It stays a content
+    // (nested) selection — copy and the matrix dialogs act on it — but paint
+    // lights the full card surface for it, like a node selection.
+    const selectMathLine: StateHandler<{ position: Position }> = (
+      state,
+      { position },
+    ) => {
+      const block = mathBlockAt(state, position.blockIndex);
+      if (!block) return;
+      return {
+        state: selectMathRange(
+          state,
+          position.blockIndex,
+          0,
+          mathBlockSource(block).length,
+        ),
+        ops: [],
+        handled: true,
+      };
+    };
+    bus.registerState(SELECT_LINE_AT_POINT, selectMathLine, 50);
+    bus.registerState(TAP_SELECT_LINE, selectMathLine, 50);
+
     bus.registerState(
       POINTER_MOVE,
       (state, { textPosition, blockUnderPoint, canvasX, viewport }) => {
@@ -1715,6 +2162,34 @@ function selectMathRange(
   from: number,
   to: number,
 ): EditorState {
+  // A tree-backed equation's flat projection is a phantom (its legacy text is
+  // empty), so a flat range over it cannot be read back — copy, the context
+  // menu, and matrix editing would all see "". Promote the gesture to the
+  // stable nested selection the tree owns; source offsets index the same
+  // canonical projection the caller's hit test used.
+  const block = mathBlockAt(state, blockIndex);
+  const document = block ? getMathStructuredDocument(block) : undefined;
+  if (block && document) {
+    const anchor = mathContentSelectionFromSourceOffset(
+      block.id,
+      document.rootId,
+      document,
+      from,
+    );
+    const focus = mathContentSelectionFromSourceOffset(
+      block.id,
+      document.rootId,
+      document,
+      to,
+    );
+    if (anchor && focus) {
+      return updateContentSelection(state, {
+        anchor: anchor.focus,
+        focus: focus.focus,
+        lastUpdate: Date.now(),
+      });
+    }
+  }
   const start: Position = { blockIndex, textIndex: from };
   const end: Position = { blockIndex, textIndex: to };
   let next = moveCursorToPosition(state, blockIndex, to);

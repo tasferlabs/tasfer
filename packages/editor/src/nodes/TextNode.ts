@@ -99,7 +99,10 @@ import type {
   TextStyle,
 } from "../state-types";
 import { isCaretScratchActive, transformTypedInput } from "../state-utils";
-import type { ContentSelection } from "../structured-selection";
+import {
+  type ContentSelection,
+  isContentSelectionCollapsed,
+} from "../structured-selection";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   charRunsToChars,
@@ -2096,6 +2099,13 @@ export class TextNode<
         const chipLeftX = Math.min(eA, eB);
         const chipRightX = Math.max(eA, eB);
         if (relativeX < chipLeftX || relativeX > chipRightX) continue;
+        // The resolved local range indexes the run's canonical source, but the
+        // returned range must index FLAT chars. When the two have diverged (an
+        // attached chip's tree edits leave the compatibility chars behind),
+        // no interior mapping exists — the double-click takes the chip whole.
+        if (run.text !== run.compatibilityText) {
+          return { start: run.start, end: run.end };
+        }
         // The formula is always laid out LTR, so run-local x is the distance from
         // its visual left edge; run-local y is the click below the baseline.
         const local = run.replacement.wordRangeFromPoint!(
@@ -2747,6 +2757,68 @@ export class TextNode<
         styles.selection.opacity,
         styles.selection.cornerRadius,
       );
+    }
+
+    // Nested selection held inside a replacement run (an inline chip's
+    // construct-before-delete highlight, a tree range selection). Entering
+    // structured content deliberately clears the flat cursor/range, so the
+    // local-selection ribbon above never fires — paint the highlight through
+    // the run's own geometry instead, mirroring the display equation
+    // (MathNode's contentSelection path).
+    const nestedSel = state.document.contentSelection;
+    if (
+      nestedSel &&
+      !isContentSelectionCollapsed(nestedSel) &&
+      nestedSel.focus.blockId === block.id &&
+      layout.marks
+    ) {
+      const run = replacementRuns(
+        renderChars,
+        renderFormats,
+        layout.marks,
+        layout.structuredContent,
+      ).find(
+        (candidate) =>
+          candidate.mark.attrs?.contentId === nestedSel.focus.contentId &&
+          candidate.replacement.contentSelectionRects,
+      );
+      if (run) {
+        const baseX = this.baseX(layout, x);
+        const rects: Rect[] = [];
+        for (const line of layout.lines) {
+          const fragment = replacementFragmentGeometry(layout, line, run);
+          if (!fragment) continue;
+          const fragRects = run.replacement.contentSelectionRects?.(
+            fragment.text,
+            textStyle.fontSize,
+            nestedSel,
+            {
+              blockId: block.id,
+              mark: run.mark,
+              attachments: layout.structuredContent,
+              sourceRange: fragment.sourceRange,
+            },
+          );
+          if (!fragRects) continue;
+          const baselineY =
+            y + insetY + line.y + (line.baselineOffset ?? fontMetrics.ascent);
+          for (const r of fragRects) {
+            rects.push({
+              x: baseX + fragment.left + r.x,
+              y: baselineY + r.top,
+              width: r.width,
+              height: r.bottom - r.top,
+            });
+          }
+        }
+        this.fillRects(
+          ctx,
+          rects,
+          styles.selection.backgroundColor,
+          styles.selection.opacity,
+          styles.selection.cornerRadius,
+        );
+      }
     }
 
     // Placeholder (empty block, in edit mode, not composing/selecting). Shown

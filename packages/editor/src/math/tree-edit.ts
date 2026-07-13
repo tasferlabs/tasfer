@@ -568,7 +568,8 @@ export function getMathTreeMatrixContext(
 
 /**
  * Editing caret for a matrix target represented either by an interior caret or
- * by the select-first range around the whole construct.
+ * by a same-row range holding the whole construct — the select-first range, or
+ * a mouse drag whose endpoints rest a step outside the parentheses.
  */
 export function mathTreeMatrixTargetCaret(
   document: StructuredDocument,
@@ -580,19 +581,31 @@ export function mathTreeMatrixTargetCaret(
   if (!math) return caret;
   const anchor = resolveCaret(math, range.anchor);
   const focus = resolveCaret(math, range.focus);
-  if (
-    !anchor ||
-    !focus ||
-    anchor.kind !== "row" ||
-    focus.kind !== "row" ||
-    anchor.row.id !== focus.row.id ||
-    Math.abs(anchor.position - focus.position) !== 1
-  ) {
-    return caret;
-  }
+  if (!anchor || !focus || anchor.row.id !== focus.row.id) return caret;
   const children = getStructuredChildren(math, anchor.row.id, "children");
-  const matrix = children[Math.min(anchor.position, focus.position)];
-  if (!matrix || matrix.type !== "matrix") return caret;
+  // Child-gap bounds of one endpoint. A drag endpoint may rest inside a text
+  // run rather than on a child gap; a matrix can never hide inside a run, so
+  // widening such an endpoint to the run's own boundaries only ever adds that
+  // run — never a sibling — to the sweep.
+  const gapBounds = (
+    resolved: NonNullable<ReturnType<typeof resolveCaret>>,
+  ): { start: number; end: number } | undefined => {
+    if (resolved.kind === "row") {
+      return { start: resolved.position, end: resolved.position };
+    }
+    const index = children.findIndex((node) => node.id === resolved.node.id);
+    return index < 0 ? undefined : { start: index, end: index + 1 };
+  };
+  const anchorBounds = gapBounds(anchor);
+  const focusBounds = gapBounds(focus);
+  if (!anchorBounds || !focusBounds) return caret;
+  const matrix = children
+    .slice(
+      Math.min(anchorBounds.start, focusBounds.start),
+      Math.max(anchorBounds.end, focusBounds.end),
+    )
+    .find((node) => node.type === "matrix");
+  if (!matrix) return caret;
   const matrixRow = getStructuredChildren(math, matrix.id, "rows")[0];
   const cell = matrixRow
     ? getStructuredChildren(math, matrixRow.id, "cells")[0]

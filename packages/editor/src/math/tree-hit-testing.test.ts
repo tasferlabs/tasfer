@@ -5,6 +5,7 @@ import {
   type InteractionSession,
   type TouchState,
 } from "../events/interaction-session";
+import { handleKeyDown } from "../events/keysEvents";
 import { handleMouseDown, handleMouseMove } from "../events/mouseEvents";
 import { handleTouchEnd, handleTouchMove } from "../events/touchEvents";
 import { mathExtension } from "../math-extension";
@@ -13,7 +14,7 @@ import { createMarkRegistry } from "../rendering/marks";
 import { createNodeRegistry } from "../rendering/nodes";
 import type { NodeLayout } from "../rendering/nodes/Node";
 import { baseSchema } from "../schema";
-import { getContentSelectionFromViewport } from "../selection";
+import { getContentSelectionFromViewport, updateFocus } from "../selection";
 import { loadPage } from "../serlization/loadPage";
 import type {
   EditorState,
@@ -191,6 +192,48 @@ function touchEnd(
 }
 
 describe("structured display-math hit testing", () => {
+  it("triple-click then Backspace deletes the whole equation block", () => {
+    // The full pointer flow, not a dispatched action: click-made selections
+    // resolve to FIELD aliases of the equation edges (text positions), not row
+    // gaps, and the whole-block delete must recognize them.
+    const value = geometry(treeMathState("aa"));
+    let state = updateFocus(value.state, true);
+    const x = viewport.width / 2;
+    const y = value.blockTop + 20;
+    const session = createInteractionSession(createChromeRegionRegistry());
+    const event = {
+      button: 0,
+      x,
+      y,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+    } as MouseEvent;
+    for (let click = 0; click < 3; click++) {
+      state = handleMouseDown(
+        state,
+        viewport,
+        event,
+        { left: 0, top: 0 },
+        viewport.documentHeight,
+        session,
+        visibility(value),
+      ).state;
+    }
+    expect(state.document.contentSelection).not.toBeNull();
+
+    const deleted = handleKeyDown(state, viewport, {
+      key: "Backspace",
+      code: "Backspace",
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: () => {},
+    } as unknown as Event);
+    expect(deleted.state.document.page.blocks[0].deleted).toBe(true);
+  });
+
   it("lands directly in the numerator and denominator raw-text fields", () => {
     const value = geometry(treeMathState(String.raw`\frac{ab}{cd}`));
     const document = getMathStructuredDocument(
@@ -325,7 +368,10 @@ describe("structured display-math hit testing", () => {
       parentId: math.root.body.id,
       afterNodeId: null,
     });
-    expect(value.layout.mathOffsetX).toBeGreaterThan(0);
+    // An empty equation paints the prose-style prompt (no equation layout),
+    // but keeps the structured layout so it stays clickable above.
+    expect(value.layout.mathLayout).toBeNull();
+    expect(value.layout.mathDocumentLayout).not.toBeNull();
   });
 
   it("falls back from an unsupported semantic field to an editable row gap", () => {

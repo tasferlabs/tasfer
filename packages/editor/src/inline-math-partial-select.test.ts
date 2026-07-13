@@ -49,6 +49,50 @@ function flankedChip(latex: string) {
   return { block, span };
 }
 
+/**
+ * A paragraph reading `AB` + chip `latex1` + `CD` + chip `latex2` + `EF`, so two
+ * chips are flanked and separated by plain text. Returns the block plus both
+ * chips' block spans.
+ */
+function twoChips(latex1: string, latex2: string) {
+  const binding = createCRDTbinding("inline-math-partial-2", "peer-1");
+  const engine = createMathTestSyncEngine(binding);
+  const blockOp = engine.createBlockInsert(null, "paragraph", {});
+  engine.emit([blockOp]);
+  const blockId = blockOp.blockId;
+
+  const text = `AB${latex1}CD${latex2}EF`;
+  let page = insertCharsAtPosition(
+    engine.getState(),
+    blockId,
+    0,
+    text,
+    binding,
+  ).newPage;
+  page = markCharsInRange(
+    page,
+    blockId,
+    2,
+    2 + latex1.length,
+    { type: "math" },
+    true,
+    binding,
+  ).newPage;
+  const start2 = 2 + latex1.length + 2;
+  page = markCharsInRange(
+    page,
+    blockId,
+    start2,
+    start2 + latex2.length,
+    { type: "math" },
+    true,
+    binding,
+  ).newPage;
+  const block = page.blocks[0];
+  const [span1, span2] = getInlineMathSpans(block);
+  return { block, span1, span2 };
+}
+
 describe("inline-math — partial selection across a chip", () => {
   it("a forward selection entering the chip rests at an interior stop", () => {
     // `AB` `x+y` `CD`: chip is [2,5), interior stops at 3 (after x) and 4 (after +).
@@ -96,6 +140,62 @@ describe("inline-math — partial selection across a chip", () => {
     const aOffset = "\\frac{a}{b}".indexOf("{a}") + 1; // the numerator glyph
     const r = mathSelectionRange(block, 0, span.startIndex + aOffset, "end");
     expect(r).toEqual({ anchor: 0, focus: span.endIndex });
+  });
+
+  it("endpoints in two different chips select both chips whole", () => {
+    const { block, span1, span2 } = twoChips("x+y", "a+b");
+    // Anchor one stop inside chip 1, focus one stop inside chip 2: the range
+    // spans two constructs, so both snap to whole-chip edges.
+    const r = mathSelectionRange(
+      block,
+      span1.startIndex + 1,
+      span2.startIndex + 1,
+      "end",
+    );
+    expect(r).toEqual({ anchor: span1.startIndex, focus: span2.endIndex });
+  });
+
+  it("a focus entering a SECOND chip takes it whole, not partially", () => {
+    const { block, span2 } = twoChips("x+y", "a+b");
+    // Anchor in the leading text, selection already swept over all of chip 1;
+    // the focus now rests one stop inside chip 2. With another construct
+    // engaged, chip 2 is atomic.
+    const r = mathSelectionRange(block, 0, span2.startIndex + 1, "end");
+    expect(r).toEqual({ anchor: 0, focus: span2.endIndex });
+  });
+
+  it("shrinking back out of the second chip drops it whole", () => {
+    const { block, span2 } = twoChips("x+y", "a+b");
+    // Focus travelling LEFT (focusEdge "start") rests inside chip 2 on the way
+    // back: it snaps to the chip's near edge, dropping the whole chip.
+    const r = mathSelectionRange(block, 0, span2.endIndex - 1, "start");
+    expect(r).toEqual({ anchor: 0, focus: span2.startIndex });
+  });
+
+  it("an interior anchor widens to its whole chip once a second chip is engaged", () => {
+    const { block, span1, span2 } = twoChips("x+y", "a+b");
+    // Anchor parked inside chip 1, focus dragged past chip 2 into the trailing
+    // text: two constructs engaged, so the anchor's partial coverage widens out.
+    const focus = span2.endIndex + 1;
+    const r = mathSelectionRange(block, span1.startIndex + 1, focus, "end");
+    expect(r).toEqual({ anchor: span1.startIndex, focus });
+  });
+
+  it("a backward selection into a second chip takes it whole", () => {
+    const { block, span1, span2 } = twoChips("x+y", "a+b");
+    // Anchor in the trailing text, focus travelling left rests inside chip 1
+    // with chip 2 already swept over: chip 1 snaps whole.
+    const anchor = span2.endIndex + 2;
+    const r = mathSelectionRange(block, anchor, span1.endIndex - 1, "start");
+    expect(r).toEqual({ anchor, focus: span1.startIndex });
+  });
+
+  it("with only one chip engaged, partial entry is unchanged by a second chip elsewhere", () => {
+    const { block, span1 } = twoChips("x+y", "a+b");
+    // Focus one stop inside chip 1, chip 2 untouched: the single-construct
+    // partial-selection behavior still applies.
+    const r = mathSelectionRange(block, 0, span1.startIndex + 1, "end");
+    expect(r).toEqual({ anchor: 0, focus: span1.startIndex + 1 });
   });
 
   it("both endpoints inside one chip still resolve at the chip's own levels", () => {

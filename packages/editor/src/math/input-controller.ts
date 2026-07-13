@@ -115,6 +115,18 @@ function commitCommandBoundary(
       { caret: "end" },
     );
   }
+  if (command.length === 0 && input === " ") {
+    // `\␣` is LaTeX's control space. Commit it as one atomic node: leaving the
+    // literal `\` and ` ` characters in the text leaf would expose a caret
+    // position inside the command and let later edits split it apart.
+    return replaceMathTreeRangeWithSemanticLatex(
+      document,
+      range,
+      "\\ ",
+      identities,
+      { caret: "end", forceAtomic: true },
+    );
+  }
   if (command.length === 0 && input === "\\") {
     // Matrix topology belongs to identity-bearing matrix-row/matrix-cell nodes,
     // never to text typed in a cell body. Complete the pending backslash as a

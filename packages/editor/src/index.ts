@@ -150,6 +150,8 @@ export const baseDataSchema = resolveBaseDataSchema();
 export type {
   FeatureActionHook,
   FeatureContentSelectionCtx,
+  FeatureContentSelectionResolveCtx,
+  FeatureContentSelectionResolver,
   FeatureContentSelectionSerializer,
   FeatureContentSelectionSlice,
   FeatureFacets,

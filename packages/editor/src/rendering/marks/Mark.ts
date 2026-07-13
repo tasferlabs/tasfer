@@ -251,6 +251,20 @@ export interface MarkReplacement {
     c: MarkReplacementContentCtx,
   ): ContentSelection | null;
   /**
+   * Highlight rectangles for a nested (identity-bearing) selection held inside
+   * this run — the selection analogue of {@link contentCaretRect}. The nested
+   * selection deliberately clears the flat cursor/range, so without this seam a
+   * range selected inside an attached run (e.g. a construct selected before
+   * deletion) would have no visible highlight. Return `null` when the selection
+   * doesn't resolve within the fragment described by `c.sourceRange`.
+   */
+  contentSelectionRects?(
+    text: string,
+    fontSize: number,
+    selection: ContentSelection,
+    c: MarkReplacementContentCtx,
+  ): MarkReplacementSelectionRect[] | null;
+  /**
    * Size of the rendered run, or `null` if it can't render (caller falls back to
    * text). `edit` lets an in-progress token (`\in`) measure as its literal source
    * rather than its resolved symbol, so the reserved width matches what

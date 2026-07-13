@@ -23,6 +23,7 @@
 
 import { stateAction } from "../action-bus";
 import { selectLineAtPosition, selectWordAtPosition } from "../actions/actions";
+import { extendSelectionOutOfStructuredMark } from "../actions/structured-marks";
 import {
   clearSelection,
   startSelection,
@@ -50,26 +51,44 @@ export const PLACE_CURSOR_AT_POINT = stateAction<{
   /** Node-resolved nested caret; absent keeps ordinary flat placement. */
   contentSelection?: ContentSelection | null;
 }>("place-cursor-at-point", (state, { position, extend, contentSelection }) => {
+  const current = state.document.contentSelection;
   if (contentSelection) {
-    const current = state.document.contentSelection;
-    const selection =
-      extend &&
-      current &&
+    const sameNestedContext =
+      !!current &&
       current.anchor.blockId === contentSelection.focus.blockId &&
-      current.anchor.contentId === contentSelection.focus.contentId
-        ? {
-            anchor: current.anchor,
-            focus: contentSelection.focus,
-            lastUpdate: Date.now(),
-          }
-        : contentSelection;
-    const nested = updateContentSelection(state, selection);
-    if (nested.document.contentSelection) {
-      return {
-        state: updateMode(nested, "select"),
-        ops: [],
-      };
+      current.anchor.contentId === contentSelection.focus.contentId;
+    // Shift+click extends whatever selection is already active. Only an
+    // extension within the same attachment stays nested; with a flat selection
+    // or caret active, the click extends the FLAT range across the chip —
+    // construct snapping covers it whole — instead of dropping the selection
+    // into the chip's tree.
+    const extendsAcrossModels =
+      extend &&
+      !sameNestedContext &&
+      !!(state.document.selection || state.document.cursor || current);
+    if (!extendsAcrossModels) {
+      const selection =
+        extend && sameNestedContext
+          ? {
+              anchor: current.anchor,
+              focus: contentSelection.focus,
+              lastUpdate: Date.now(),
+            }
+          : contentSelection;
+      const nested = updateContentSelection(state, selection);
+      if (nested.document.contentSelection) {
+        return {
+          state: updateMode(nested, "select"),
+          ops: [],
+        };
+      }
     }
+  }
+  if (extend && current) {
+    // Extending OUT of a nested selection (Shift+click in the host text while
+    // the caret sits inside a chip): cover the mark whole and continue flat.
+    const exited = extendSelectionOutOfStructuredMark(state, position);
+    if (exited) return { state: exited, ops: [] };
   }
   let newState = updateCursor(state, position);
   if (extend) {

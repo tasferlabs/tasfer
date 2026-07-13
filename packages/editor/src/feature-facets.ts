@@ -139,6 +139,29 @@ export interface FeatureContentSelectionSerializer extends OrderedFeatureFacet {
   ): FeatureContentSelectionSlice | undefined;
 }
 
+/** Context for adjusting one nested range inside a structured-document kind. */
+export interface FeatureContentSelectionResolveCtx {
+  readonly document: StructuredDocument;
+  readonly selection: ContentSelection;
+}
+
+/**
+ * Adjust a nested range before it becomes the active selection.
+ *
+ * Core commits every non-collapsed nested selection through this facet, so a
+ * feature keeps its ranges structurally valid no matter which gesture produced
+ * them — a drag, shift+click, keyboard extension, or the public API. Display
+ * math uses it to snap a range so it never partially covers a construct. Like
+ * the serializer above, this is a schema facet rather than a core switch on
+ * document kinds.
+ */
+export interface FeatureContentSelectionResolver extends OrderedFeatureFacet {
+  /** StructuredDocument.kind claimed by this resolver. */
+  readonly kind: string;
+  /** Return undefined to keep the range exactly as produced. */
+  resolve(ctx: FeatureContentSelectionResolveCtx): ContentSelection | undefined;
+}
+
 /** One supplemental attachment initialized alongside a newly-created mark. */
 export interface FeatureStructuredMarkAttachment {
   readonly contentId: string;
@@ -198,6 +221,12 @@ export interface FeatureStructuredMarkFacet extends OrderedFeatureFacet {
    * document exactly once. Return undefined when this mark needs no rewrite.
    */
   clone?(ctx: FeatureStructuredMarkCloneCtx): Mark | undefined;
+  /**
+   * Attachment content ids this mark references. Core lifecycle code uses
+   * these to delete a mark's attachments in the same transaction that deletes
+   * the whole mark, so no block accumulates unreachable structured content.
+   */
+  references?(ctx: FeatureStructuredMarkResolveCtx): readonly string[];
 }
 
 /** Context for cloning one attachment onto a block with a fresh identity. */
@@ -253,6 +282,7 @@ export interface FeatureFacets {
   readonly markdownSyntax?: readonly FeatureSyntaxRule[];
   readonly actions?: readonly FeatureActionHook[];
   readonly contentSelections?: readonly FeatureContentSelectionSerializer[];
+  readonly contentSelectionResolvers?: readonly FeatureContentSelectionResolver[];
   readonly structuredMarks?: readonly FeatureStructuredMarkFacet[];
   readonly structuredContentClones?: readonly FeatureStructuredContentCloneFacet[];
   readonly theme?: FeatureThemeDefaults;
@@ -283,6 +313,7 @@ export class FeatureFacetRegistry {
   private readonly actionHooks: readonly FeatureActionHook[];
   private readonly themes: readonly FeatureThemeDefaults[];
   private readonly selectionSerializers: readonly FeatureContentSelectionSerializer[];
+  private readonly selectionResolvers: readonly FeatureContentSelectionResolver[];
   private readonly structuredMarkFacets: readonly FeatureStructuredMarkFacet[];
   private readonly structuredContentCloneFacets: readonly FeatureStructuredContentCloneFacet[];
 
@@ -294,12 +325,14 @@ export class FeatureFacetRegistry {
     selectionSerializers: readonly FeatureContentSelectionSerializer[] = [],
     structuredMarkFacets: readonly FeatureStructuredMarkFacet[] = [],
     structuredContentCloneFacets: readonly FeatureStructuredContentCloneFacet[] = [],
+    selectionResolvers: readonly FeatureContentSelectionResolver[] = [],
   ) {
     this.inputs = [...inputs];
     this.syntax = [...syntax];
     this.actionHooks = [...actionHooks];
     this.themes = [...themes];
     this.selectionSerializers = [...selectionSerializers];
+    this.selectionResolvers = [...selectionResolvers];
     this.structuredMarkFacets = [...structuredMarkFacets];
     this.structuredContentCloneFacets = [...structuredContentCloneFacets];
   }
@@ -316,6 +349,10 @@ export class FeatureFacetRegistry {
       upsertById(
         this.structuredContentCloneFacets,
         feature.structuredContentClones ?? [],
+      ),
+      upsertById(
+        this.selectionResolvers,
+        feature.contentSelectionResolvers ?? [],
       ),
     );
   }
@@ -377,6 +414,20 @@ export class FeatureFacetRegistry {
     return undefined;
   }
 
+  /** Let the owning feature adjust one nested range before it becomes active. */
+  resolveContentSelection(
+    document: StructuredDocument,
+    selection: ContentSelection,
+  ): ContentSelection | undefined {
+    for (const resolver of ordered(
+      this.selectionResolvers.filter((entry) => entry.kind === document.kind),
+    )) {
+      const resolved = resolver.resolve({ document, selection });
+      if (resolved) return resolved;
+    }
+    return undefined;
+  }
+
   /** Highest-priority structured initializer for one newly-created mark. */
   createStructuredMark(
     markType: string,
@@ -407,6 +458,22 @@ export class FeatureFacetRegistry {
       if (source !== undefined) return source;
     }
     return undefined;
+  }
+
+  /** Attachment content ids referenced by one mark, across its facets. */
+  structuredMarkReferences(
+    markType: string,
+    ctx: FeatureStructuredMarkResolveCtx,
+  ): readonly string[] {
+    const ids = new Set<string>();
+    for (const facet of ordered(
+      this.structuredMarkFacets.filter(
+        (candidate) => candidate.markType === markType,
+      ),
+    )) {
+      for (const id of facet.references?.(ctx) ?? []) ids.add(id);
+    }
+    return [...ids];
   }
 
   /** Rewrite a structured mark to the attachment ids cloned for its block. */

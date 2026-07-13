@@ -19,7 +19,6 @@ import {
 } from "../selection";
 import { hasActiveSelectionHighlight } from "../selection";
 import { snapSelectionToConstructs, updateCursor } from "../selection";
-import { updateSelectionFocus } from "../selection";
 import type {
   EditorEvent,
   EditorState,
@@ -42,6 +41,7 @@ import { handlePaste } from "./genericEvents";
 import { type InteractionSession, stopAutoScroll } from "./interaction-session";
 import { handleContextMenu, handleKeyDown } from "./keysEvents";
 import {
+  extendDragSelectionToPoint,
   handleMouseDown,
   handleMouseMove,
   handleMouseUp,
@@ -339,18 +339,16 @@ export function handleEvents(
     // Update selection based on new scroll position
     // Resolve against the re-pointed `viewport` (autoScroll already advanced its
     // scrollY this frame), whose default `paddingTop - scrollY` anchor is the
-    // post-scroll painted top.
-    const position = getTextPositionFromViewport(
-      session.autoScroll.lastPointerX,
-      session.autoScroll.lastPointerY,
-      state,
-      viewport,
-    );
-
-    if (position) {
-      state = updateSelectionFocus(state, position);
-      state = updateCursor(state, position);
-    }
+    // post-scroll painted top. Model-aware: a drag inside structured content
+    // (tree math) extends its nested contentSelection — flat re-resolution here
+    // would destroy it on every edge frame (see extendDragSelectionToPoint).
+    state =
+      extendDragSelectionToPoint(
+        state,
+        session.autoScroll.lastPointerX,
+        session.autoScroll.lastPointerY,
+        viewport,
+      ) ?? state;
   } else if (session.autoScroll.isActive && state.ui.selectionHandleDrag) {
     // Apply auto-scroll for selection handle drag (touch)
     autoScroll(session.autoScroll.lastPointerY, true);

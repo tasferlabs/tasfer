@@ -426,6 +426,7 @@ class Parser {
         const sp = (): Node => ({
           type: "space",
           width: thick,
+          synthetic: true,
           span: span(cmd),
         });
         const body: Node[] = [
@@ -769,6 +770,7 @@ class Parser {
     const sp = (w: number): Node => ({
       type: "space",
       width: w,
+      synthetic: true,
       span: span(cmd),
     });
     const mod: Node = {

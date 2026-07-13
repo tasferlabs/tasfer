@@ -38,6 +38,7 @@ import type { Position } from "../state-types";
 import { closeActiveMenu, setActiveMenu, updateMode } from "../state-utils";
 import {
   type ContentSelection,
+  isContentSelectionCollapsed,
   updateContentSelection,
 } from "../structured-selection";
 import { isTextualBlock } from "../sync/block-registry";
@@ -273,7 +274,12 @@ export const OPEN_CONTEXT_MENU_AT = stateAction<{
   state.actionBus.dispatch(OPEN_CONTEXT_MENU, {
     x: point.x,
     y: point.y,
-    hasSelection: !!getSelectionRange(state),
+    // A ranged selection counts whichever model holds it: the flat block range
+    // or a nested structured range (a held construct inside structured math).
+    hasSelection:
+      !!getSelectionRange(state) ||
+      (!!state.document.contentSelection &&
+        !isContentSelectionCollapsed(state.document.contentSelection)),
   });
   return { state, ops: [] };
 });

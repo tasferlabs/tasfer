@@ -12,6 +12,7 @@
  */
 
 import type {
+  FeatureContentSelectionResolver,
   FeatureContentSelectionSerializer,
   FeatureInputRule,
   FeatureStructuredContentCloneFacet,
@@ -34,6 +35,9 @@ export type MathFeatureExtension = {
   readonly markdownSyntax: readonly FeatureSyntaxRule[];
   readonly inputRules: readonly FeatureInputRule[];
   readonly contentSelections: readonly [FeatureContentSelectionSerializer];
+  readonly contentSelectionResolvers: readonly [
+    FeatureContentSelectionResolver,
+  ];
   readonly structuredMarks: readonly [FeatureStructuredMarkFacet];
   readonly structuredContentClones: readonly [
     FeatureStructuredContentCloneFacet,
@@ -61,6 +65,7 @@ export function mathExtension(): MathFeatureExtension {
     ],
     markdownSyntax: data.markdownSyntax,
     contentSelections: data.contentSelections,
+    contentSelectionResolvers: data.contentSelectionResolvers,
     structuredMarks: data.structuredMarks,
     structuredContentClones: data.structuredContentClones,
     inputRules: mathInputRules,

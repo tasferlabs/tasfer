@@ -2,12 +2,14 @@
 
 import {
   cursorInsideStructuredMark,
+  extendSelectionOutOfStructuredMark,
   flatDeleteTouchesStructuredMark,
   selectionPartiallyIntersectsStructuredMark,
 } from "../actions/structured-marks";
 import type { FeatureInputRule } from "../feature-facets";
 import { unambiguousMathCommandCompletion } from "../nodes/math-commands";
 import { invalidateBlockCache } from "../rendering/renderer";
+import { getBlockDirection } from "../rtl";
 import { moveCursorToPosition } from "../selection";
 import type { Block } from "../serlization/loadPage";
 import type {
@@ -23,6 +25,7 @@ import {
 } from "../structured-selection";
 import { findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
+import { deleteCharsInRange } from "../sync/crdt-utils";
 import { applyOp } from "../sync/reducer";
 import type { StructuredDocument } from "../sync/structured-content";
 import { maxStructuredDocumentIdCounter } from "../sync/sync";
@@ -39,10 +42,10 @@ import {
 import { structuredToMathDocument } from "./structured";
 import {
   adjacentMathTreeConstructRange,
-  mathTreeMatrixTargetCaret,
   type MathTreeCaret,
   type MathTreeEditFailure,
   type MathTreeEditResult,
+  mathTreeMatrixTargetCaret,
   type MathTreeMotion,
   type MathTreeRange,
   moveMathTreeCaret,
@@ -55,6 +58,7 @@ import {
   mathTreeCaretToContentSelection,
   moveMathTreeCaretVertically,
 } from "./tree-selection";
+import { printMathDocument } from "@cypherkit/tex/data";
 
 interface InlineMathTreeContext {
   readonly block: Block;
@@ -149,13 +153,32 @@ export function enterInlineMathTreeAtPosition(
   });
 }
 
-/** Backspace/Delete while an inline attachment owns the nested caret. */
+/**
+ * Backspace/Delete while an inline attachment owns the deletion.
+ *
+ * A nested caret always qualifies. A collapsed flat caret qualifies when the
+ * deletion faces into a run — strictly inside it, or resting on the edge the
+ * deletion enters through (Backspace at the trailing edge, Delete at the
+ * leading edge) — mirroring the display block: the caret promotes into the
+ * tree (lazily migrating a legacy run) and large constructs are selected
+ * before they are deleted.
+ */
 export function deleteActiveInlineMathTree(
   state: EditorState,
   direction: "backward" | "forward",
 ): InlineMathTreeStateResult | undefined {
-  const context = activeInlineMathContext(state);
+  const context =
+    activeInlineMathContext(state) ??
+    flatDeleteInlineMathContext(state, direction);
   if (!context) return undefined;
+  // Deleting the formula's last content keeps an EMPTY chip — a live nested
+  // caret the author can keep typing into (serialized as `$$`). Deleting once
+  // more removes the chip itself — attachment, mark chars, and all — and hands
+  // the caret back to the host text where the chip stood. Without this, the
+  // empty chip is an invisible, undeletable run of stale compatibility chars.
+  if (isEmptyInlineMathDocument(context.document)) {
+    return removeInlineMathChip(state, context);
+  }
   if (!context.range) {
     const range = adjacentMathTreeConstructRange(
       context.document,
@@ -171,7 +194,84 @@ export function deleteActiveInlineMathTree(
     direction,
     unambiguousMathCommandCompletion,
   );
+  // A collapsed delete facing out of the formula (Backspace at its first caret
+  // stop, Delete at its last) has nothing to consume inside. Hand the caret to
+  // the host text at that chip edge instead of claiming a dead no-op, so the
+  // next press continues into the surrounding prose.
+  if (!edited.handled && !context.range && !context.migration) {
+    const outward = moveMathTreeCaret(
+      context.document,
+      context.caret,
+      direction === "backward" ? "arrow-left" : "arrow-right",
+    );
+    if (!outward.handled) {
+      return {
+        state: moveCursorToPosition(
+          updateContentSelection(state, null),
+          context.blockIndex,
+          direction === "backward"
+            ? context.run.startIndex
+            : context.run.endIndex,
+        ),
+        ops: [],
+        handled: true,
+      };
+    }
+  }
   return settleInlineMathMutation(state, context, edited);
+}
+
+function isEmptyInlineMathDocument(document: StructuredDocument): boolean {
+  const math = structuredToMathDocument(document);
+  return !!math && printMathDocument(math).length === 0;
+}
+
+/**
+ * Delete one whole chip: its supplemental document (when persisted) and its
+ * flat compatibility characters, whose tombstones dissolve the covering mark.
+ * The caret lands where the chip's leading edge was, as a plain flat cursor.
+ */
+function removeInlineMathChip(
+  state: EditorState,
+  context: InlineMathTreeContext,
+): InlineMathTreeStateResult {
+  let page = state.document.page;
+  const ops: Operation[] = [];
+  // A migration-in-flight context derived its document from the flat chars and
+  // never persisted it, so there is no attachment to delete in that case.
+  if (!context.migration?.init) {
+    const op = contentEdit(state, context.block.id, context.contentId, {
+      kind: "document_delete",
+    });
+    page = applyOp(page, op, state.schema);
+    ops.push(op);
+  }
+  if (context.run.endIndex > context.run.startIndex) {
+    const deleted = deleteCharsInRange(
+      page,
+      context.block.id,
+      context.run.startIndex,
+      context.run.endIndex,
+      state.CRDTbinding,
+    );
+    page = deleted.newPage;
+    ops.push(deleted.op);
+  }
+  const blockIndex = findBlockIndex(page, context.block.id);
+  if (blockIndex >= 0) invalidateBlockCache(page.blocks[blockIndex]);
+  const withPage = updateContentSelection(
+    { ...state, document: { ...state.document, page } },
+    null,
+  );
+  return {
+    state: moveCursorToPosition(
+      withPage,
+      blockIndex >= 0 ? blockIndex : context.blockIndex,
+      context.run.startIndex,
+    ),
+    ops,
+    handled: true,
+  };
 }
 
 function selectInlineMathConstruct(
@@ -331,6 +431,28 @@ export function extendActiveInlineMathTreeSelectionHorizontally(
   };
 }
 
+/**
+ * Extend OUT of the formula when a horizontal Shift+Arrow is already at its
+ * edge: the nested selection degrades to a flat selection covering the chip
+ * whole, so the next press continues into the host prose instead of the
+ * keystroke dying at the formula boundary. RTL host blocks keep the claimed
+ * no-op (their visual left is logical forward, like the enter bridge).
+ */
+export function exitActiveInlineMathTreeSelectionHorizontally(
+  state: EditorState,
+  direction: "left" | "right",
+): InlineMathTreeStateResult | undefined {
+  const context = activeInlineMathContext(state);
+  if (!context) return undefined;
+  if (getBlockDirection(context.block, state.marks) === "rtl") return undefined;
+  const exited = extendSelectionOutOfStructuredMark(state, {
+    blockIndex: context.blockIndex,
+    textIndex:
+      direction === "right" ? context.run.endIndex : context.run.startIndex,
+  });
+  return exited ? { state: exited, ops: [], handled: true } : undefined;
+}
+
 /** Whether a nested selection currently belongs to an attached inline tree. */
 export function hasActiveInlineMathTreeCaret(state: EditorState): boolean {
   return ownsActiveInlineMathContentSelection(state);
@@ -356,6 +478,64 @@ export function exitActiveInlineMathTreeHorizontally(
       context.blockIndex,
       direction === "left" ? context.run.startIndex : context.run.endIndex,
     ),
+    ops: [],
+    handled: true,
+  };
+}
+
+/**
+ * Enter an attached inline tree when horizontal movement reaches a chip edge.
+ *
+ * The inline counterpart of the display block's adjacent-equation bridge: a
+ * collapsed flat caret resting on the run edge that faces the move promotes to
+ * a structured caret at that same edge, so the next arrows walk the formula's
+ * tree stops instead of the stale flat compatibility characters. Legacy runs
+ * without an attachment are left to their flat semantics — pure navigation
+ * must not emit migration ops. RTL host blocks are also left to the ordinary
+ * mover, since their visual left is logical forward.
+ */
+export function enterAdjacentInlineMathTreeHorizontally(
+  state: EditorState,
+  direction: "left" | "right",
+): InlineMathTreeStateResult | undefined {
+  if (state.document.contentSelection) return undefined;
+  const cursor = state.document.cursor;
+  if (!cursor) return undefined;
+  if (state.document.selection && !state.document.selection.isCollapsed) {
+    return undefined;
+  }
+  const { blockIndex, textIndex } = cursor.position;
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return undefined;
+  if (getBlockDirection(block, state.marks) === "rtl") return undefined;
+  const run = resolveStructuredInlineMathRuns(block).find(
+    (candidate) =>
+      !!candidate.document &&
+      (direction === "right"
+        ? candidate.startIndex === textIndex
+        : candidate.endIndex === textIndex),
+  );
+  if (!run?.contentId || !run.document) return undefined;
+  const math = structuredToMathDocument(run.document);
+  if (!math) return undefined;
+  const caret = mathTreeCaretFromSourceOffset(
+    block.id,
+    run.contentId,
+    math,
+    run.document,
+    direction === "right" ? 0 : run.latex.length,
+  );
+  const selection = caret
+    ? mathTreeCaretToContentSelection(
+        block.id,
+        run.contentId,
+        run.document,
+        caret,
+      )
+    : null;
+  if (!selection) return undefined;
+  return {
+    state: updateContentSelection(state, selection),
     ops: [],
     handled: true,
   };
@@ -487,10 +667,72 @@ function ownsActiveInlineMathContentSelection(state: EditorState): boolean {
 function editableInlineMathContext(
   state: EditorState,
 ): InlineMathTreeContext | undefined {
-  // Flat chip edges retain their established prose/join/split semantics. A
-  // direct click first promotes the run through `enterInlineMathTreeAtPosition`;
-  // only that stable nested caret opts subsequent input into tree authority.
-  return activeInlineMathContext(state);
+  // A stable nested caret always owns input. A collapsed flat caret strictly
+  // inside a run promotes on first input — the inline counterpart of the
+  // display block's lazy tree migration — while flat chip edges retain their
+  // established prose/join/split semantics.
+  const active = activeInlineMathContext(state);
+  if (active) return active;
+  const position = collapsedFlatCursorPosition(state);
+  if (!position) return undefined;
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return undefined;
+  const strictlyInside = resolveStructuredInlineMathRuns(block).some(
+    (run) =>
+      position.textIndex > run.startIndex && position.textIndex < run.endIndex,
+  );
+  return strictlyInside
+    ? inlineContextFromFlatPosition(
+        state,
+        position.blockIndex,
+        position.textIndex,
+      )
+    : undefined;
+}
+
+/** The flat caret, when no nested selection or flat range outranks it. */
+function collapsedFlatCursorPosition(
+  state: EditorState,
+): { readonly blockIndex: number; readonly textIndex: number } | undefined {
+  if (state.document.contentSelection) return undefined;
+  if (state.document.selection && !state.document.selection.isCollapsed) {
+    return undefined;
+  }
+  return state.document.cursor?.position;
+}
+
+/** Promote a flat caret whose directional deletion faces into a run. */
+function flatDeleteInlineMathContext(
+  state: EditorState,
+  direction: "backward" | "forward",
+): InlineMathTreeContext | undefined {
+  const position = collapsedFlatCursorPosition(state);
+  if (!position) return undefined;
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return undefined;
+  const faced = resolveStructuredInlineMathRuns(block).find((run) =>
+    direction === "backward"
+      ? position.textIndex > run.startIndex &&
+        position.textIndex <= run.endIndex
+      : position.textIndex >= run.startIndex &&
+        position.textIndex < run.endIndex,
+  );
+  if (!faced) return undefined;
+  // An existing attachment is authoritative in every math mode. A legacy run
+  // migrates on delete only when this schema installed the inline tree rule,
+  // so compatibility schemas retain their flat char-run behavior.
+  if (!faced.document && !isInlineMathTreeEnabled(state)) return undefined;
+  return inlineContextFromFlatPosition(
+    state,
+    position.blockIndex,
+    position.textIndex,
+  );
+}
+
+function isInlineMathTreeEnabled(state: EditorState): boolean {
+  return state.schema.features
+    .inputRules("before-insert")
+    .some((rule) => rule.id === inlineMathTreeInputRule.id);
 }
 
 function activeInlineMathContext(
@@ -564,19 +806,24 @@ function inlineContextFromFlatPosition(
   if (!planned.ok) return undefined;
   const math = structuredToMathDocument(planned.document);
   if (!math) return undefined;
+  // Flat offsets index the compatibility projection, which an attached run's
+  // tree edits leave behind. Clamping to the canonical source keeps at least
+  // the run edges (offset 0 and the source end) mapping losslessly.
+  const clampToSource = (textIndex: number): number =>
+    Math.max(0, Math.min(textIndex - run.startIndex, run.latex.length));
   const caret = mathTreeCaretFromSourceOffset(
     block.id,
     planned.contentId,
     math,
     planned.document,
-    focusIndex - run.startIndex,
+    clampToSource(focusIndex),
   );
   const anchor = mathTreeCaretFromSourceOffset(
     block.id,
     planned.contentId,
     math,
     planned.document,
-    anchorIndex - run.startIndex,
+    clampToSource(anchorIndex),
   );
   if (!caret || !anchor) return undefined;
   state.CRDTbinding.advanceIdCounter(

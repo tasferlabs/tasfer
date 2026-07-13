@@ -11,6 +11,7 @@
  * React edit overlay and HTML export), and a validity check.
  */
 import { getInlineMathSpans, type InlineMathSpan } from "../inline-math-spans";
+import { resolveStructuredInlineMathRuns } from "../math/inline-structured";
 import { normalizeMathSource } from "../math/source";
 import type { CaretMotion } from "../rendering/nodes/caret-model";
 import type { Block } from "../serlization/loadPage";
@@ -21,6 +22,7 @@ import type {
   TypedInputTransform,
 } from "../state-types";
 import { isTouchDevice } from "../state-utils";
+import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { isMathEnvironmentCommandPrefix } from "./math-commands";
 import type { MathBlock } from "./MathNode";
@@ -47,6 +49,7 @@ import {
   type MathUnit,
   type MatrixContext,
   matrixContextAt as texMatrixContextAt,
+  matrixContextInRange as texMatrixContextInRange,
   type MatrixEditResult,
   matrixResize as texMatrixResize,
   type MatrixTextEdit,
@@ -108,6 +111,26 @@ function chipAt(
   return null;
 }
 
+/**
+ * Whether `span` is an ATTACHED chip whose canonical tree source has outrun its
+ * flat compatibility characters (tree edits deliberately don't rewrite them).
+ * Chip-local flat offsets then no longer measure real caret stops — the layouts
+ * paint the canonical source while the flat ruler counts stale chars — so such
+ * a chip is ATOMIC to the flat model: interior stops, partial selection, and
+ * construct sub-selection are tree-mode concerns. Cheap in the common case: a
+ * block with no attachments can never diverge.
+ */
+function chipSourceDiverged(block: Block, span: InlineMathSpan): boolean {
+  if (!isTextualBlock(block) || !block.structuredContent) return false;
+  return resolveStructuredInlineMathRuns(block).some(
+    (run) =>
+      run.startIndex === span.startIndex &&
+      run.endIndex === span.endIndex &&
+      !!run.document &&
+      run.latex !== run.compatibilityLatex,
+  );
+}
+
 function pickStop(
   stops: number[],
   origin: number,
@@ -154,6 +177,23 @@ export function mathMatrixContext(
 }
 
 /**
+ * The tabular construct a *selected source range* addresses, or null when the
+ * selection touches none. A drag across a whole matrix anchors before `\begin`
+ * and focuses on the exclusive end of the environment's span, so probing either
+ * endpoint with {@link mathMatrixContext} misses; this resolves the deepest
+ * construct containing the range, else the first one the range sweeps across.
+ * Endpoints are source-relative like {@link mathMatrixContext} and may come in
+ * either order. Use {@link mathMatrixContext} for a collapsed caret.
+ */
+export function mathMatrixContextInRange(
+  latex: string,
+  start: number,
+  end: number,
+): MatrixContext | null {
+  return texMatrixContextInRange(latex, start, end);
+}
+
+/**
  * The source rewrite that resizes the grid enclosing `offset` to `rows` × `cols`,
  * or null when the caret is not inside one. Returns a `{ start, end }` span into
  * `latex` to replace with `text`, plus the `caret` offset to place afterward —
@@ -193,6 +233,10 @@ export function mathCaretStep(
         ? index >= span.startIndex && index < span.endIndex
         : index > span.startIndex && index <= span.endIndex;
     if (!inside) continue;
+    if (chipSourceDiverged(block, span)) {
+      // No trustworthy interior stops: the flat caret crosses the chip whole.
+      return dir === "right" ? span.endIndex : span.startIndex;
+    }
     const local = pickStop(
       mathCaretOffsets(span.latex),
       index - span.startIndex,
@@ -230,7 +274,9 @@ export function mathCaretVerticalStep(
     return getBlockMathOffsetVertical(blockLatex(block), index, dir);
   }
   const span = chipAt(block, index, "inside");
-  if (!span) return null;
+  // A diverged chip's stale source can't answer row navigation — leave the
+  // formula through ordinary line nav instead of landing on a phantom offset.
+  if (!span || chipSourceDiverged(block, span)) return null;
   const local = getInlineMathOffsetVertical(
     span.latex,
     INLINE_NAV_FONT_SIZE,
@@ -1509,6 +1555,11 @@ export function mathUnitAt(latex: string, offset: number): MathUnit | null {
  *   edge, i.e. once it has selected fully out the other side. A nested construct
  *   is still never partially covered (that snap lives in `resolveSelectionRange`).
  *   Endpoints in plain text stay put.
+ *
+ * Partial coverage is per-selection exclusive to ONE chip: as soon as the range
+ * engages a second chip (endpoints in two different chips, or a whole chip swept
+ * over on the way into another), every in-chip endpoint snaps to its chip's
+ * edges — a selection spanning constructs treats each construct as a whole.
  */
 export function mathSelectionRange(
   block: MathCapableBlock,
@@ -1522,7 +1573,19 @@ export function mathSelectionRange(
   }
   const chipA = chipAt(block, anchor, "inside");
   const chipF = chipAt(block, focus, "inside");
+  // A diverged chip (attached, tree-edited past its compatibility chars) has no
+  // meaningful flat interior — every in-chip endpoint snaps to its edges.
+  const divergedA = !!chipA && chipSourceDiverged(block, chipA);
+  const divergedF = !!chipF && chipSourceDiverged(block, chipF);
   if (chipA && chipF && chipA.startIndex === chipF.startIndex) {
+    if (divergedA) {
+      // Whole chip, preserving the range's orientation.
+      const forward = anchor <= focus;
+      return {
+        anchor: forward ? chipA.startIndex : chipA.endIndex,
+        focus: forward ? chipA.endIndex : chipA.startIndex,
+      };
+    }
     // Both endpoints inside one chip: resolve at that chip's own LaTeX levels.
     const r = texResolveSelectionRange(
       chipA.latex,
@@ -1540,13 +1603,35 @@ export function mathSelectionRange(
   // DIFFERENT chip). A chip is NOT atomic for selection — its own top-level
   // tokens are selectable — so a range crossing into a chip may rest at an
   // interior stop (partial selection) and covers the whole chip only once it
-  // reaches the far edge. Resolve each in-chip endpoint at that chip's own LaTeX
+  // reaches the far edge. That partial coverage is legal only while the chip is
+  // the ONLY math construct the selection engages: once the range spans a SECOND
+  // chip (each endpoint in a different chip, or one endpoint's chip plus another
+  // chip swept over in between), the selection operates at the text level, where
+  // every chip is atomic — each in-chip endpoint snaps to its chip's edge, the
+  // anchor widening outward and the focus in its direction of travel (so "select
+  // less" still drops a whole chip).
+  const forward = anchor < focus;
+  const lo = Math.min(anchor, focus);
+  const hi = Math.max(anchor, focus);
+  const engagedChips = getInlineMathSpans(block).filter(
+    (s) => s.startIndex < hi && s.endIndex > lo,
+  );
+  if (engagedChips.length > 1 || divergedA || divergedF) {
+    return {
+      anchor: chipA ? (forward ? chipA.startIndex : chipA.endIndex) : anchor,
+      focus: chipF
+        ? focusEdge === "end"
+          ? chipF.endIndex
+          : chipF.startIndex
+        : focus,
+    };
+  }
+  // Single engaged chip: resolve each in-chip endpoint at that chip's own LaTeX
   // levels, treating the opposite endpoint as sitting at this chip's NEAR
   // boundary (0 or its length): for the anchor that boundary lies on the focus's
   // side, for the focus on the anchor's. This reuses the both-inside level-aware
   // snap, so a nested construct is still never partially covered. A plain-text
   // endpoint stays put.
-  const forward = anchor < focus;
   const resolveIn = (
     chip: InlineMathSpan,
     localOffset: number,

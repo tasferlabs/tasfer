@@ -165,15 +165,17 @@ describe("TextNode double-click on an atomic-command chip (\\det) by point", () 
     expect(sel?.focus.textIndex).toBe(4);
   });
 
-  it("without the point range, an offset on the chip boundary selects nothing", () => {
-    // Proves the regression's cause: the offset path alone cannot select `\det`.
+  it("without the point range, an offset on the chip boundary selects the chip whole", () => {
+    // The offset path can't see the command's interior (its only caret stops
+    // are the chip edges), so the boundary offset falls back to treating the
+    // chip as the word it visually is and selects it whole.
     const page = loadMathPage("$\\det$ aa");
     const state = createMathTestState(page);
     const sel = selectWordAtPosition(state, {
       blockIndex: 0,
       textIndex: 0,
     }).document.selection;
-    // Boundary offset, `\` is not a word char → no selection from the offset path.
-    expect(sel == null || sel.isCollapsed).toBe(true);
+    expect(sel?.anchor.textIndex).toBe(0);
+    expect(sel?.focus.textIndex).toBe(4);
   });
 });

@@ -8,6 +8,7 @@
  */
 
 import type {
+  FeatureContentSelectionResolver,
   FeatureContentSelectionSerializer,
   FeatureStructuredContentCloneFacet,
   FeatureStructuredMarkFacet,
@@ -43,6 +44,7 @@ import { getMathTreeRangeText } from "./tree-edit";
 import {
   contentPointToMathTreeCaret,
   mathSourceRangeFromContentSelection,
+  snapMathContentSelection,
 } from "./tree-selection";
 import { printMathDocument } from "@cypherkit/tex/data";
 
@@ -57,6 +59,9 @@ export type MathDataExtension = {
   readonly marks: readonly [MarkSpec<"math", MathMarkAttrs>];
   readonly markdownSyntax: readonly FeatureSyntaxRule[];
   readonly contentSelections: readonly [FeatureContentSelectionSerializer];
+  readonly contentSelectionResolvers: readonly [
+    FeatureContentSelectionResolver,
+  ];
   readonly structuredMarks: readonly [FeatureStructuredMarkFacet];
   readonly structuredContentClones: readonly [
     FeatureStructuredContentCloneFacet,
@@ -239,6 +244,20 @@ export const mathContentSelectionSerializer = {
   },
 } satisfies FeatureContentSelectionSerializer;
 
+/**
+ * Keep every committed nested math range construct-atomic. Core routes each
+ * non-collapsed selection through this resolver, so a drag, shift+click, or
+ * API range that would rest inside a construct the anchor is not in snaps to
+ * cover that construct whole (see {@link snapMathContentSelection}).
+ */
+export const mathContentSelectionResolver = {
+  id: "math.structured-selection-resolver",
+  kind: MATH_STRUCTURED_KIND,
+  priority: 100,
+  resolve: ({ document, selection }) =>
+    snapMathContentSelection(document, selection),
+} satisfies FeatureContentSelectionResolver;
+
 /** Re-address a display equation when snapshot restore mints a new block id. */
 export const mathStructuredContentCloneFacet = {
   id: "math.structured-content-clone",
@@ -279,6 +298,7 @@ export function mathDataExtension(): MathDataExtension {
     marks: [{ type: "math", codec: mathMarkCodec }],
     markdownSyntax: mathMarkdownSyntax,
     contentSelections: [mathContentSelectionSerializer],
+    contentSelectionResolvers: [mathContentSelectionResolver],
     structuredMarks: [mathStructuredMarkFacet],
     structuredContentClones: [mathStructuredContentCloneFacet],
   };

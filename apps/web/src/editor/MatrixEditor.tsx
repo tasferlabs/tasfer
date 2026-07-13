@@ -67,11 +67,7 @@ export function MatrixEditor({
   const setCols = (next: number) => onResize(rows, Math.max(MIN_DIM, next));
 
   const content = (
-    <div className="flex flex-col items-center gap-5 p-4">
-      <MatrixPreview rows={rows} cols={cols} />
-      <div className="text-xs tabular-nums text-muted-foreground">
-        {rows} × {cols}
-      </div>
+    <div className="flex flex-col items-center gap-5">
       <div className="flex w-full flex-col gap-3">
         <Stepper
           label={t("editor.math.matrix.rows", "Rows")}
@@ -89,6 +85,11 @@ export function MatrixEditor({
           decrementLabel={t("editor.math.matrix.removeColumn", "Remove column")}
           incrementLabel={t("editor.math.matrix.addColumn", "Add column")}
         />
+      </div>
+
+      <MatrixPreview rows={rows} cols={cols} />
+      <div className="text-xs tabular-nums text-muted-foreground">
+        {rows} × {cols}
       </div>
     </div>
   );
@@ -144,16 +145,21 @@ export function MatrixEditor({
  *  matrix's dimensions, never its LaTeX content. */
 function MatrixPreview({ rows, cols }: { rows: number; cols: number }) {
   return (
-    <div
-      className="grid gap-1"
-      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-    >
-      {Array.from({ length: rows * cols }, (_, i) => (
-        <div
-          key={i}
-          className="size-5 rounded-sm border border-border bg-muted/50"
-        />
-      ))}
+    // 140px = a MAX_DIM (6) grid of size-5 (20px) cells with gap-1 (4px):
+    // 6·20 + 5·4. min-* rather than fixed so an oversized imported grid can
+    // still overflow instead of clipping.
+    <div className="flex min-h-[140px] min-w-[140px] items-center justify-center">
+      <div
+        className="grid gap-1"
+        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+      >
+        {Array.from({ length: rows * cols }, (_, i) => (
+          <div
+            key={i}
+            className="size-5 rounded-sm border border-border bg-muted/50"
+          />
+        ))}
+      </div>
     </div>
   );
 }

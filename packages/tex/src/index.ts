@@ -14,10 +14,14 @@
  */
 import {
   createMathDocumentLayout,
+  type MathDocumentFieldPosition,
   type MathDocumentLayout,
 } from "./document/layout";
 import type { MathDocument } from "./document/model";
-import { projectMathDocumentSource } from "./document/print";
+import {
+  type MathDocumentSourceProjection,
+  projectMathDocumentSource,
+} from "./document/print";
 import type { Box } from "./layout/box";
 import {
   annotateTextFallback,
@@ -26,7 +30,7 @@ import {
   topLevelBreakOffsets,
 } from "./layout/build";
 import type { Node, TextFallbackChar } from "./parse/ast";
-import { parse } from "./parse/parser";
+import { parse, pendingCommandRange } from "./parse/parser";
 import { DISPLAY, TEXT } from "./style";
 
 export interface LayoutOptions {
@@ -76,7 +80,21 @@ export interface LayoutOptions {
 }
 
 /** Source-offset-free options for the identity-bearing document layout API. */
-export type MathDocumentLayoutOptions = Omit<LayoutOptions, "literalRange">;
+export type MathDocumentLayoutOptions = Omit<LayoutOptions, "literalRange"> & {
+  /**
+   * Stable field position of the caret while the user is typing INSIDE an
+   * editable text field — the identity-keyed equivalent of
+   * {@link LayoutOptions.literalRange}. When the caret sits at the trailing
+   * edge of a `\`+letters run that is still pending (see
+   * `pendingCommandRange`), that run is laid out as its literal source text
+   * (`\pm` while heading to `\pmatrix`) instead of resolving to its symbol
+   * (±). Uncommitted command scratch only ever lives in a raw-text field, so a
+   * caret anywhere else (or a committed semantic node) never goes literal.
+   * Callers can't express this as source offsets — the canonical projection is
+   * internal — hence the stable address.
+   */
+  literalCaret?: Pick<MathDocumentFieldPosition, "nodeId" | "field" | "offset">;
+};
 
 /**
  * A host-provided text face for the `\text{…}` fallback (see
@@ -204,10 +222,36 @@ export function layoutMathDocument(
   opts: MathDocumentLayoutOptions = {},
 ): MathDocumentLayout {
   const projection = projectMathDocumentSource(document);
+  const { literalCaret, ...layoutOpts } = opts;
+  const literalRange = literalCaret
+    ? (projectedPendingCommandRange(projection, literalCaret) ?? undefined)
+    : undefined;
   return createMathDocumentLayout(
     projection,
-    layoutMath(projection.latex, opts),
+    layoutMath(projection.latex, { ...layoutOpts, literalRange }),
   );
+}
+
+/**
+ * The projected-source range of the command still being typed at `caret`, or
+ * null. Field anchors exist at every character boundary of an editable field,
+ * so the caret's stable address resolves to one exact source offset; the
+ * pending-vs-resolved decision is then `pendingCommandRange`'s, identical to
+ * the source-offset API.
+ */
+function projectedPendingCommandRange(
+  projection: MathDocumentSourceProjection,
+  caret: Pick<MathDocumentFieldPosition, "nodeId" | "field" | "offset">,
+): { start: number; end: number } | null {
+  const anchor = projection.anchors.find(
+    (candidate) =>
+      candidate.kind === "field" &&
+      candidate.nodeId === caret.nodeId &&
+      candidate.field === caret.field &&
+      candidate.offset === caret.offset,
+  );
+  if (!anchor) return null;
+  return pendingCommandRange(projection.latex, anchor.sourceOffset);
 }
 
 /**
@@ -268,6 +312,7 @@ export { canRenderMathChar } from "./edit/char";
 export {
   type MatrixContext,
   matrixContextAt,
+  matrixContextInRange,
   type MatrixEditResult,
   matrixResize,
   type MatrixTextEdit,

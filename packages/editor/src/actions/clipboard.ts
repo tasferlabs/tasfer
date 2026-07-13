@@ -284,6 +284,18 @@ function getSelectedContent(
       };
     }
 
+    // A node selection (non-collapsed, zero-width — a math/code block held
+    // whole, via Backspace from a neighbour or triple-click) means the entire
+    // block, not an empty text slice.
+    if (start.textIndex === end.textIndex) {
+      return {
+        blocks: [block],
+        isPartial: false,
+        start,
+        end,
+      };
+    }
+
     // Extract the selected portion of chars and formats
     const selectedChars = extractCharsInRange(
       block.charRuns,

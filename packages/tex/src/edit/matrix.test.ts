@@ -7,7 +7,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { parse } from "../parse/parser";
-import { matrixContextAt, matrixResize, type MatrixTextEdit } from "./matrix";
+import {
+  matrixContextAt,
+  matrixContextInRange,
+  matrixResize,
+  type MatrixTextEdit,
+} from "./matrix";
 
 /** Apply a resize and return the full resulting LaTeX (or null if not a grid). */
 function resize(
@@ -75,6 +80,65 @@ describe("matrixContextAt", () => {
     const inner = nested.indexOf("\\begin{matrix}");
     const innerCell = nested.indexOf("{}", inner) + 1;
     expect(matrixContextAt(nested, innerCell)).toMatchObject({ env: "matrix" });
+  });
+});
+
+describe("matrixContextInRange", () => {
+  // A formula with content on both sides of the grid, so a sweep can start
+  // before `\begin` the way a mouse drag across the parentheses does.
+  const F = `\\frac{a}{b} ${M} c`;
+  const spanStart = F.indexOf("\\begin");
+  const spanEnd = F.indexOf("\\end{matrix}") + "\\end{matrix}".length;
+
+  it("resolves a drag whose endpoints rest just outside the grid", () => {
+    // Anchor before `\begin`, focus on the exclusive span end: both endpoint
+    // probes miss, the swept range must still resolve the environment.
+    expect(matrixContextAt(F, spanStart - 1)).toBeNull();
+    expect(matrixContextAt(F, spanEnd)).toBeNull();
+    expect(matrixContextInRange(F, spanStart - 1, spanEnd)).toMatchObject({
+      env: "matrix",
+      rows: 2,
+      cols: 2,
+    });
+  });
+
+  it("accepts endpoints in either order", () => {
+    expect(matrixContextInRange(F, spanEnd, spanStart - 1)).toMatchObject({
+      env: "matrix",
+    });
+  });
+
+  it("resolves exactly the construct's span", () => {
+    expect(matrixContextInRange(F, spanStart, spanEnd)).toMatchObject({
+      env: "matrix",
+    });
+  });
+
+  it("resolves a range inside one cell to its cell", () => {
+    const lastCell = F.lastIndexOf("{}") + 1;
+    expect(matrixContextInRange(F, lastCell, lastCell + 1)).toMatchObject({
+      row: 1,
+      col: 1,
+    });
+  });
+
+  it("returns null when the range touches no grid", () => {
+    expect(matrixContextInRange(F, 0, spanStart - 1)).toBeNull();
+    expect(matrixContextInRange("a+b", 0, 3)).toBeNull();
+  });
+
+  it("prefers the deepest grid containing the range", () => {
+    const nested =
+      "\\begin{pmatrix}\\begin{matrix}{}&{}\\\\{}&{}\\end{matrix}&{}\\\\{}&{}\\end{pmatrix}";
+    const innerStart = nested.indexOf("\\begin{matrix}");
+    const innerEnd = nested.indexOf("\\end{matrix}") + "\\end{matrix}".length;
+    expect(matrixContextInRange(nested, innerStart, innerEnd)).toMatchObject({
+      env: "matrix",
+    });
+    // Sweeping the whole outer construct addresses the outer grid.
+    expect(matrixContextInRange(nested, 0, nested.length)).toMatchObject({
+      env: "pmatrix",
+    });
   });
 });
 

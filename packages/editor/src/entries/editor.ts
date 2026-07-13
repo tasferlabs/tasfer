@@ -3,6 +3,7 @@ import {
   type Action,
   type ActionHandler,
   CLOSE_CONTEXT_MENU,
+  CONVERT_STRUCTURED_BLOCK,
   DEFAULT_ACTION_PRIORITY,
   type DispatchArgs,
   IMAGE_PASTE,
@@ -4426,8 +4427,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // Generic morph reconstructs the block and cannot carry block-scoped
       // structured documents. This includes supplemental mark attachments: its
       // copied mark attrs would otherwise retain a now-orphaned contentId.
+      // Offer the conversion to the owning feature first (which can convert
+      // losslessly through CONVERT_STRUCTURED_BLOCK); refuse when unclaimed.
       if (hasStructuredContent(block)) {
-        return { state: s, ops: [] };
+        const owned = s.actionBus.dispatchState(CONVERT_STRUCTURED_BLOCK, s, {
+          blockIndex,
+          type,
+        });
+        return owned.claimed
+          ? { state: owned.state, ops: owned.ops }
+          : { state: s, ops: [] };
       }
 
       const defaults = s.schema.createDefaultBlock(

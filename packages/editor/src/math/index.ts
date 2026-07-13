@@ -15,6 +15,7 @@ export {
 export {
   isValidLatex,
   mathMatrixContext,
+  mathMatrixContextInRange,
   mathMatrixResize,
   mathSourceAtEdge,
   type MatrixContext,

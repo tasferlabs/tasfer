@@ -372,10 +372,37 @@ export function updateContentSelection(
   state: EditorState,
   selection: ContentSelection | null,
 ): EditorState {
-  const contentSelection = normalizeContentSelection(
+  let contentSelection = normalizeContentSelection(
     state.document.page,
     selection,
   );
+  // Every non-collapsed range passes through the owning feature's resolver
+  // facet, so a range lands with the feature's structural discipline no matter
+  // which gesture produced it — a drag, shift+click, keyboard extension, or
+  // the public API. (Math, for example, never half-covers a construct.)
+  if (
+    contentSelection &&
+    !contentPointsEqual(contentSelection.anchor, contentSelection.focus)
+  ) {
+    const block = findBlock(
+      state.document.page,
+      contentSelection.anchor.blockId,
+    );
+    const document =
+      block?.structuredContent?.[contentSelection.anchor.contentId];
+    const resolved = document
+      ? state.schema.features.resolveContentSelection(
+          document,
+          contentSelection,
+        )
+      : undefined;
+    if (resolved) {
+      contentSelection = normalizeContentSelection(
+        state.document.page,
+        resolved,
+      );
+    }
+  }
   if (
     contentSelectionsEqual(state.document.contentSelection, contentSelection) &&
     (!contentSelection || (!state.document.cursor && !state.document.selection))

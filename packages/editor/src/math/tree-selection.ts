@@ -22,6 +22,8 @@ import {
   mathDocumentCaretStop,
   mathDocumentCaretVertical,
   type MathDocumentLayout,
+  printMathDocument,
+  resolveSelectionRange,
 } from "@cypherkit/tex";
 
 /** Convert a generic collapsed selection endpoint to the math editor currency. */
@@ -328,6 +330,136 @@ export function mathSourceRangeFromContentSelection(
     from: Math.min(anchor.sourceOffset, focus.sourceOffset),
     to: Math.max(anchor.sourceOffset, focus.sourceOffset),
   };
+}
+
+/**
+ * Extend a nested selection to a new focus caret without ever partially
+ * covering a construct. Both endpoints are bridged to canonical source offsets
+ * and snapped by tex's level-aware range rules: a selection whose endpoints
+ * share a slot (one cell, one numerator) is left exactly as it is, while a
+ * focus that crossed into a different slot takes that construct whole — and
+ * the anchor, if it sits inside a construct of its own, widens outward to
+ * cover it. `travel` is the focus's direction of movement, which decides
+ * whether the construct it entered is taken in or dropped ("select less").
+ * Falls back to the unsnapped extension when a bridge offset cannot be
+ * resolved, and returns null only when the focus caret itself is invalid.
+ */
+export function extendMathTreeContentSelection(
+  blockId: string,
+  contentId: string,
+  document: StructuredDocument,
+  anchor: ContentPoint,
+  focusCaret: MathTreeCaret,
+  travel: "start" | "end",
+): ContentSelection | null {
+  const target = mathTreeCaretToContentSelection(
+    blockId,
+    contentId,
+    document,
+    focusCaret,
+  );
+  if (!target) return null;
+  const plain: ContentSelection = {
+    anchor,
+    focus: target.focus,
+    lastUpdate: target.lastUpdate,
+  };
+  const anchorOffset = mathSourceOffsetFromContentPoint(document, anchor);
+  const focusOffset = mathSourceOffsetFromContentPoint(document, target.focus);
+  if (anchorOffset === null || focusOffset === null) return plain;
+  return (
+    snapMathSelectionPoints(
+      document,
+      plain,
+      anchorOffset,
+      focusOffset,
+      travel,
+    ) ?? plain
+  );
+}
+
+/**
+ * Snap a nested math range so it never partially covers a construct, biased
+ * away from the anchor: a focus resting inside a construct the anchor is not
+ * in takes it whole. This is the gesture-agnostic rule the selection-resolver
+ * facet applies to every committed range (drags, shift+click, the public
+ * API). Shift+arrows pre-snap in {@link extendMathTreeContentSelection} with
+ * their true direction of travel — which this bias cannot know — so "select
+ * less" can drop a construct; their output is already clean when it arrives
+ * here. Returns undefined when the range needs no adjustment (or cannot be
+ * bridged to source offsets).
+ */
+export function snapMathContentSelection(
+  document: StructuredDocument,
+  selection: ContentSelection,
+): ContentSelection | undefined {
+  const anchorOffset = mathSourceOffsetFromContentPoint(
+    document,
+    selection.anchor,
+  );
+  const focusOffset = mathSourceOffsetFromContentPoint(
+    document,
+    selection.focus,
+  );
+  if (
+    anchorOffset === null ||
+    focusOffset === null ||
+    anchorOffset === focusOffset
+  ) {
+    return undefined;
+  }
+  return snapMathSelectionPoints(
+    document,
+    selection,
+    anchorOffset,
+    focusOffset,
+    focusOffset > anchorOffset ? "end" : "start",
+  );
+}
+
+/** Bridge both endpoints to source offsets, snap, and rebuild stable points. */
+function snapMathSelectionPoints(
+  document: StructuredDocument,
+  selection: ContentSelection,
+  anchorOffset: number,
+  focusOffset: number,
+  travel: "start" | "end",
+): ContentSelection | undefined {
+  const math = structuredToMathDocument(document);
+  if (!math) return undefined;
+  const snapped = resolveSelectionRange(
+    printMathDocument(math),
+    anchorOffset,
+    focusOffset,
+    travel,
+  );
+  if (snapped.anchor === anchorOffset && snapped.focus === focusOffset) {
+    return undefined;
+  }
+  // Snapped offsets land on construct edges, which are caret stops in the
+  // shared row, so the round-trip through the bridge is exact. Endpoints the
+  // snap left alone keep their original stable identities.
+  const { blockId, contentId } = selection.anchor;
+  const anchor =
+    snapped.anchor === anchorOffset
+      ? selection.anchor
+      : mathContentSelectionFromSourceOffset(
+          blockId,
+          contentId,
+          document,
+          snapped.anchor,
+        )?.focus;
+  const focus =
+    snapped.focus === focusOffset
+      ? selection.focus
+      : mathContentSelectionFromSourceOffset(
+          blockId,
+          contentId,
+          document,
+          snapped.focus,
+        )?.focus;
+  if (!anchor || !focus) return undefined;
+  return { anchor, focus, lastUpdate: selection.lastUpdate };
 }
 
 /** Promote a transient source offset to a collapsed stable content selection. */

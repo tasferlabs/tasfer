@@ -155,6 +155,11 @@ The feature also exposes `MathDocument`,
 tree/text CRDT those adapters target. Tree-backed display math owns its block;
 tree-backed inline math is a supplemental attachment referenced by the covering
 mark. Neither path dual-writes a second editable LaTeX representation.
+The two forms convert into each other losslessly: Backspace at a display
+equation's leading edge demotes it to an inline chip, and converting a block
+whose only content is one inline chip to `math` — `setBlock({ type: "math" })`,
+a slash command, or a context menu — promotes the same tree to a display
+equation.
 
 <h2 id="extend">Extending</h2>
 

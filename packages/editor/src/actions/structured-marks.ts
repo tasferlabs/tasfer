@@ -1,7 +1,13 @@
 /** Generic authoring seam for marks that own structured attachments. */
 
 import { resolveMarkRuns } from "../inline-math-spans";
-import { moveCursorToPosition, updateSelection } from "../selection";
+import {
+  moveCursorToPosition,
+  startSelection,
+  updateCursor,
+  updateSelection,
+  updateSelectionFocus,
+} from "../selection";
 import type { Block, Mark, Page } from "../serlization/loadPage";
 import type {
   ContentEdit,
@@ -10,7 +16,11 @@ import type {
   Operation,
   Position,
 } from "../state-types";
-import { findBlock } from "../sync/block-lookup";
+import {
+  type ContentPoint,
+  updateContentSelection,
+} from "../structured-selection";
+import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { markCharsInRange } from "../sync/crdt-utils";
@@ -287,6 +297,100 @@ export function expandSelectionAroundStructuredMarks(
   );
 }
 
+/**
+ * Whether an attached run's canonical source has outrun its flat compatibility
+ * characters (tree edits deliberately leave them behind). Run-local flat
+ * offsets then no longer index anything real, so callers must treat the run as
+ * one atomic unit instead of resolving its interior. `false` for a run whose
+ * mark resolves no structured source (a plain legacy run edits its chars
+ * directly and can never diverge).
+ */
+export function structuredMarkRunSourceDiverged(
+  block: Block,
+  run: {
+    readonly name: string;
+    readonly attrs: Record<string, unknown>;
+    readonly text: string;
+  },
+  schema: DataSchema,
+): boolean {
+  if (!isTextualBlock(block)) return false;
+  const source = schema.features.resolveStructuredMark(run.name, {
+    mark: {
+      type: run.name,
+      ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
+    },
+    compatibilityText: run.text,
+    attachments: block.structuredContent,
+  });
+  return source !== undefined && source !== run.text;
+}
+
+/**
+ * The replacement-mark run whose structured attachment owns `point`, resolved
+ * through the generic references facet (the core names no mark type). Returns
+ * the run's flat projection bounds, or `null` when the point's block/content
+ * no longer resolves — e.g. the attachment belongs to a whole-block node
+ * rather than an inline mark.
+ */
+export function structuredMarkRunForContentPoint(
+  state: EditorState,
+  point: ContentPoint,
+): { blockIndex: number; startIndex: number; endIndex: number } | null {
+  const blockIndex = findBlockIndex(state.document.page, point.blockId);
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return null;
+  const attachments = block.structuredContent;
+  for (const run of resolveMarkRuns(block)) {
+    const references = state.schema.features.structuredMarkReferences(
+      run.name,
+      {
+        mark: {
+          type: run.name,
+          ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
+        },
+        compatibilityText: run.text,
+        attachments,
+      },
+    );
+    if (references.includes(point.contentId)) {
+      return { blockIndex, startIndex: run.startIndex, endIndex: run.endIndex };
+    }
+  }
+  return null;
+}
+
+/**
+ * Degrade the active nested selection to a FLAT selection so a gesture can
+ * continue into the host text — the text↔structured-mark crossing for drags
+ * and Shift+Click. Interior nested stops don't map losslessly onto flat
+ * offsets (an attached run's tree edits leave the compatibility projection
+ * behind), so the mark is covered whole: the anchor lands on the run edge
+ * facing away from `target`, and the focus extends to `target` through the
+ * ordinary construct-snapping path. Returns `null` when the nested selection
+ * doesn't belong to an inline mark run (e.g. a block-level attachment).
+ */
+export function extendSelectionOutOfStructuredMark(
+  state: EditorState,
+  target: Position,
+): EditorState | null {
+  const content = state.document.contentSelection;
+  if (!content) return null;
+  const run = structuredMarkRunForContentPoint(state, content.anchor);
+  if (!run) return null;
+  const targetIsBefore =
+    target.blockIndex < run.blockIndex ||
+    (target.blockIndex === run.blockIndex &&
+      target.textIndex <= run.startIndex);
+  const anchor: Position = {
+    blockIndex: run.blockIndex,
+    textIndex: targetIsBefore ? run.endIndex : run.startIndex,
+  };
+  let next = updateContentSelection(state, null);
+  next = startSelection(updateCursor(next, anchor), anchor);
+  return updateSelectionFocus(next, target);
+}
+
 /** Whether flat typing would land inside (not merely beside) tree authority. */
 export function cursorInsideStructuredMark(
   state: EditorState,
@@ -327,6 +431,68 @@ export function flatDeleteTouchesStructuredMark(
   const to =
     direction === "backward" ? position.textIndex : position.textIndex + 1;
   return rangeIntersectsStructuredMark(block, from, to, state.schema, markType);
+}
+
+/**
+ * Attachment cleanup for deleting `[startIndex, endIndex)` from `block`.
+ *
+ * A structured mark wholly inside the deleted range dies with its characters:
+ * its span stops resolving once every covered char is tombstoned. Deleting the
+ * chars alone would strand the attachments it references as unreachable
+ * structured content, so the same transaction deletes those documents. An
+ * attachment still referenced by a run outside the range is kept, and runs
+ * merely clipped by the range keep everything — callers expand clipped edges
+ * to whole projections before deleting.
+ */
+export function structuredMarkAttachmentCleanupOps(
+  block: Block,
+  startIndex: number,
+  endIndex: number,
+  binding: CRDTbinding,
+  schema: DataSchema,
+): ContentEdit[] {
+  if (endIndex <= startIndex || !isTextualBlock(block)) return [];
+  const attachments = block.structuredContent;
+  if (!attachments || Object.keys(attachments).length === 0) return [];
+
+  const references = (run: {
+    readonly name: string;
+    readonly attrs: Record<string, unknown>;
+    readonly text: string;
+  }): readonly string[] =>
+    schema.features.structuredMarkReferences(run.name, {
+      mark: {
+        type: run.name,
+        ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
+      },
+      compatibilityText: run.text,
+      attachments,
+    });
+
+  const dying = new Set<string>();
+  const surviving = new Set<string>();
+  for (const run of resolveMarkRuns(block)) {
+    const wholeRunDies =
+      run.startIndex >= startIndex && run.endIndex <= endIndex;
+    for (const contentId of references(run)) {
+      (wholeRunDies ? dying : surviving).add(contentId);
+    }
+  }
+
+  const ops: ContentEdit[] = [];
+  for (const contentId of [...dying].sort()) {
+    if (surviving.has(contentId) || !attachments[contentId]) continue;
+    ops.push({
+      op: "content_edit",
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: binding.pageId,
+      blockId: block.id,
+      contentId,
+      edit: { kind: "document_delete" },
+    });
+  }
+  return ops;
 }
 
 function orderedPositions(

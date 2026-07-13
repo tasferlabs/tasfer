@@ -13,6 +13,10 @@ import {
   SELECT_WORD_AT_POINT,
 } from "../actions/mouse-actions";
 import { POINTER_MOVE, TEXT_CLICK } from "../actions/pointer-actions";
+import {
+  extendSelectionOutOfStructuredMark,
+  structuredMarkRunForContentPoint,
+} from "../actions/structured-marks";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
 import {
   getScrollbarStyles,
@@ -237,13 +241,51 @@ export function handleMouseDown(
     };
   }
 
+  // Track click for double/triple click detection. Tracked before the padding
+  // branches so a double/triple click in the side padding still counts — it
+  // selects the word/line at the position the padding click maps to.
+  const currentTime = Date.now();
+  const currentPosition = { x: canvasX, y: canvasY };
+
+  let isMultiClick = false;
+  let clickCount = 1;
+
+  if (
+    state.view.clickTracker.lastClickPosition &&
+    currentTime - state.view.clickTracker.lastClickTime <= DOUBLE_CLICK_TIME &&
+    isWithinClickDistance(
+      currentPosition,
+      state.view.clickTracker.lastClickPosition,
+    )
+  ) {
+    clickCount = state.view.clickTracker.count + 1;
+    isMultiClick = true;
+  }
+
+  // Update state with new click tracker info
+  state = {
+    ...state,
+    view: {
+      ...state.view,
+      clickTracker: {
+        count: clickCount,
+        lastClickTime: currentTime,
+        lastClickPosition: currentPosition,
+      },
+    },
+  };
+
   // Check if clicking in left/right padding area
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   const isClickInLeftPadding = canvasX < styles.canvas.paddingLeft;
   const isClickInRightPadding = canvasX > styles.canvas.paddingLeft + maxWidth;
 
-  // If clicking in left/right padding, position cursor at start/end of line and clear selection
+  // A click in the left/right padding maps to the nearest line edge. A single
+  // click places the caret there; a double/triple click selects the word/line
+  // at that edge — the same selection a click inside the content would make, so
+  // a line that starts/ends with an inline construct (e.g. a math chip) is
+  // selectable from the gutter like normal text.
   if (isClickInLeftPadding || isClickInRightPadding) {
     const paddingPosition = getTextPositionFromViewport(
       canvasX,
@@ -255,6 +297,22 @@ export function handleMouseDown(
     );
 
     if (paddingPosition) {
+      if (isMultiClick && clickCount >= 3) {
+        return {
+          state: state.actionBus.dispatchState(SELECT_LINE_AT_POINT, state, {
+            position: paddingPosition,
+          }).state,
+          ops,
+        };
+      }
+      if (isMultiClick && clickCount === 2) {
+        return {
+          state: state.actionBus.dispatchState(SELECT_WORD_AT_POINT, state, {
+            position: paddingPosition,
+          }).state,
+          ops,
+        };
+      }
       return {
         state: state.actionBus.dispatchState(
           PLACE_CURSOR_IN_SIDE_PADDING,
@@ -288,38 +346,6 @@ export function handleMouseDown(
     // Keep active selection and just switch to edit mode
     return { state: updateMode(state, "edit"), ops };
   }
-
-  // Track click for double/triple click detection
-  const currentTime = Date.now();
-  const currentPosition = { x: canvasX, y: canvasY };
-
-  let isMultiClick = false;
-  let clickCount = 1;
-
-  if (
-    state.view.clickTracker.lastClickPosition &&
-    currentTime - state.view.clickTracker.lastClickTime <= DOUBLE_CLICK_TIME &&
-    isWithinClickDistance(
-      currentPosition,
-      state.view.clickTracker.lastClickPosition,
-    )
-  ) {
-    clickCount = state.view.clickTracker.count + 1;
-    isMultiClick = true;
-  }
-
-  // Update state with new click tracker info
-  state = {
-    ...state,
-    view: {
-      ...state.view,
-      clickTracker: {
-        count: clickCount,
-        lastClickTime: currentTime,
-        lastClickPosition: currentPosition,
-      },
-    },
-  };
 
   // Handle triple-click: always select line (even inside selection)
   if (isMultiClick && clickCount >= 3) {
@@ -404,6 +430,106 @@ export function handleMouseDown(
     ops,
   };
 }
+/**
+ * Extend the in-progress drag selection to the pointer, in whichever selection
+ * model owns the drag. An active nested `contentSelection` (a caret or range
+ * inside structured content, e.g. tree math) extends within its own content
+ * while the pointer stays over its own mark run. Once the pointer resolves to
+ * a flat position OUTSIDE that run — the drag crossed out of the chip into the
+ * host text — the drag degrades to a flat selection that covers the mark whole
+ * (interior nested stops don't map losslessly onto flat offsets) and keeps
+ * extending, so one drag sweeps from inside a formula out across normal text.
+ * Without a nested selection, the flat block selection extends with construct
+ * snapping, parking the caret on the snapped focus so the next step resumes
+ * from a construct's edge rather than re-snapping every pixel.
+ *
+ * Returns `null` when the pointer resolves to nothing the active model can
+ * extend to — the caller keeps its current state. Used by the mousemove drag
+ * and by the per-frame edge auto-scroll re-resolution, which must agree on the
+ * model or the edge frames destroy the structured selection mid-drag.
+ */
+export function extendDragSelectionToPoint(
+  state: EditorState,
+  canvasX: number,
+  canvasY: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): EditorState | null {
+  const contentSelection = state.document.contentSelection;
+  if (contentSelection) {
+    // The mark's own hit-test is sticky during a drag (it keeps claiming the
+    // pointer for row hysteresis), so the exit test is the FLAT position: once
+    // it lands strictly outside the run's projection, the drag has left the
+    // chip and crosses into the host text.
+    const flatPosition = getTextPositionFromViewport(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      undefined,
+      visibility,
+    );
+    const run = structuredMarkRunForContentPoint(
+      state,
+      contentSelection.anchor,
+    );
+    const pointerLeftMark =
+      !!flatPosition &&
+      !!run &&
+      (flatPosition.blockIndex !== run.blockIndex ||
+        flatPosition.textIndex < run.startIndex ||
+        flatPosition.textIndex > run.endIndex);
+    if (pointerLeftMark) {
+      return extendSelectionOutOfStructuredMark(state, flatPosition);
+    }
+    const hit = getContentSelectionFromViewport(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      "mouse",
+      undefined,
+      visibility,
+      {
+        drag: true,
+        previousContentPoint: contentSelection.focus,
+      },
+    );
+    if (
+      !hit ||
+      hit.focus.blockId !== contentSelection.anchor.blockId ||
+      hit.focus.contentId !== contentSelection.anchor.contentId
+    ) {
+      return null;
+    }
+    const updated = updateContentSelection(state, {
+      anchor: contentSelection.anchor,
+      focus: hit.focus,
+      lastUpdate: Date.now(),
+    });
+    return updated.document.contentSelection ? updated : null;
+  }
+  const position = getTextPositionFromViewport(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    undefined,
+    visibility,
+  );
+  if (!position) return null;
+
+  let newState = updateSelectionFocus(state, position);
+  // `updateSelectionFocus` may have widened the focus out of a math construct;
+  // park the caret on that snapped focus (not the raw interior hit) so the drag
+  // resumes from the construct's edge rather than re-snapping every pixel.
+  newState = updateCursor(
+    newState,
+    newState.document.selection?.focus ?? position,
+  );
+  return newState;
+}
+
 export function handleMouseMove(
   state: EditorState,
   viewport: ViewportState,
@@ -553,56 +679,15 @@ export function handleMouseMove(
     return state;
   }
 
-  let newState: EditorState;
-  const contentSelection = state.document.contentSelection;
-  if (contentSelection) {
-    const hit = getContentSelectionFromViewport(
-      canvasX,
-      canvasY,
-      state,
-      viewport,
-      "mouse",
-      undefined,
-      visibility,
-      {
-        drag: true,
-        previousContentPoint: contentSelection.focus,
-      },
-    );
-    if (
-      !hit ||
-      hit.focus.blockId !== contentSelection.anchor.blockId ||
-      hit.focus.contentId !== contentSelection.anchor.contentId
-    ) {
-      return state;
-    }
-    const updated = updateContentSelection(state, {
-      anchor: contentSelection.anchor,
-      focus: hit.focus,
-      lastUpdate: Date.now(),
-    });
-    if (!updated.document.contentSelection) return state;
-    newState = updated;
-  } else {
-    const position = getTextPositionFromViewport(
-      canvasX,
-      canvasY,
-      state,
-      viewport,
-      undefined,
-      visibility,
-    );
-    if (!position) return state;
-
-    newState = updateSelectionFocus(state, position);
-    // `updateSelectionFocus` may have widened the focus out of a math construct;
-    // park the caret on that snapped focus (not the raw interior hit) so the drag
-    // resumes from the construct's edge rather than re-snapping every pixel.
-    newState = updateCursor(
-      newState,
-      newState.document.selection?.focus ?? position,
-    );
-  }
+  const extended = extendDragSelectionToPoint(
+    state,
+    canvasX,
+    canvasY,
+    viewport,
+    visibility,
+  );
+  if (!extended) return state;
+  const newState = extended;
 
   const isNearEdge =
     canvasY < EDGE_SCROLL_THRESHOLD ||

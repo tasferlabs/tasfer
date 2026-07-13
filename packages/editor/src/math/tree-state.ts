@@ -6,6 +6,7 @@ import { unambiguousMathCommandCompletion } from "../nodes/math-commands";
 import type { MathBlock } from "../nodes/MathNode";
 import { getBlockDirection } from "../rtl";
 import {
+  isNodeSelection,
   moveCursorLeft,
   moveCursorRight,
   moveCursorToPosition,
@@ -59,6 +60,7 @@ import {
 } from "./tree-edit";
 import {
   contentPointToMathTreeCaret,
+  extendMathTreeContentSelection,
   mathContentSelectionFromSourceOffset,
   mathSourceRangeFromContentSelection,
   mathTreeCaretFromSourceOffset,
@@ -393,7 +395,11 @@ export function moveActiveMathTreeCaretVertically(
     : undefined;
 }
 
-/** Extend a nested display-math selection vertically without flattening it. */
+/**
+ * Extend a nested display-math selection vertically without flattening it.
+ * The moved endpoint is snapped so no construct is ever partially covered —
+ * stepping from one matrix cell into another selects the whole matrix.
+ */
 export function extendActiveMathTreeSelectionVertically(
   state: EditorState,
   direction: "up" | "down",
@@ -406,27 +412,30 @@ export function extendActiveMathTreeSelectionVertically(
     context.caret,
     direction,
   );
-  const target = caret
-    ? mathTreeCaretToContentSelection(
+  const selection = caret
+    ? extendMathTreeContentSelection(
         context.block.id,
         context.contentId,
         context.document,
+        current.anchor,
         caret,
+        direction === "down" ? "end" : "start",
       )
     : null;
-  if (!target) return undefined;
+  if (!selection) return undefined;
   return {
-    state: updateContentSelection(state, {
-      anchor: current.anchor,
-      focus: target.focus,
-      lastUpdate: target.lastUpdate,
-    }),
+    state: updateContentSelection(state, selection),
     ops: [],
     handled: true,
   };
 }
 
-/** Extend a nested display-math selection by one logical tree caret. */
+/**
+ * Extend a nested display-math selection by one logical tree caret. The moved
+ * endpoint is snapped so no construct is ever partially covered: a caret step
+ * that descends into a fraction, matrix, or other construct the anchor is not
+ * inside takes that construct whole instead of landing in its guts.
+ */
 export function extendActiveMathTreeSelectionHorizontally(
   state: EditorState,
   direction: "left" | "right",
@@ -440,19 +449,17 @@ export function extendActiveMathTreeSelectionHorizontally(
     direction === "left" ? "arrow-left" : "arrow-right",
   );
   if (!moved.handled) return undefined;
-  const target = mathTreeCaretToContentSelection(
+  const selection = extendMathTreeContentSelection(
     context.block.id,
     context.contentId,
     context.document,
+    current.anchor,
     moved.caret,
+    direction === "right" ? "end" : "start",
   );
-  if (!target) return undefined;
+  if (!selection) return undefined;
   return {
-    state: updateContentSelection(state, {
-      anchor: current.anchor,
-      focus: target.focus,
-      lastUpdate: target.lastUpdate,
-    }),
+    state: updateContentSelection(state, selection),
     ops: [],
     handled: true,
   };
@@ -889,6 +896,10 @@ function contentSelectionOwnsMathTree(state: EditorState): boolean {
 function flatSelectionOwnsMathTree(state: EditorState): boolean {
   const selection = state.document.selection;
   if (!selection || selection.isCollapsed) return false;
+  // A node selection holds the block whole. Deleting it is core's atomic
+  // whole-block branch — safe for an authoritative tree — so the tree must
+  // not claim it into a no-op.
+  if (isNodeSelection(selection)) return false;
   // Cross-block ranges belong to the host document. Core treats an
   // authoritative display block as an atomic endpoint, so claiming the range
   // here would turn otherwise-safe typing/cut/paste into a no-op.

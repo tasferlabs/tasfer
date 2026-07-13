@@ -582,13 +582,20 @@ function buildNodeInner(
         isCharBox: false,
       };
     }
-    case "space":
-      return {
-        box: listBox([], { width: node.width * style.sizeMultiplier }),
-        klass: "mord",
-        isCharBox: false,
-        isSpace: true,
-      };
+    case "space": {
+      // An explicit spacing command (`\ `, `\quad`, `\,`) is a real source
+      // atom: carrying its span as a `unit` gives it caret stops at its two
+      // edges and a tap/selection target, even though it draws no ink — else a
+      // formula holding only `\ ` has no caret stop at all. Synthetic parser
+      // padding shares its host command's span, and a zero/negative kern has
+      // no extent to bracket; both stay span-less (caret-invisible).
+      const box = listBox([], { width: node.width * style.sizeMultiplier });
+      if (!node.synthetic && node.width > 0) {
+        box.span = node.span;
+        box.unit = true;
+      }
+      return { box, klass: "mord", isCharBox: false, isSpace: true };
+    }
     case "unknown":
       return buildUnknown(node, style);
   }

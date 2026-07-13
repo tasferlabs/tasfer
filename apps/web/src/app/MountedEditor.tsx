@@ -48,6 +48,7 @@ import {
   RESIZE_MATH_MATRIX,
   mathCommandInsertion,
   mathMatrixContext,
+  mathMatrixContextInRange,
   mathMatrixResize,
   mathSourceAtEdge,
 } from "@cypherkit/editor/math";
@@ -232,12 +233,15 @@ function matrixCaretTarget(editor: EditorInstance): {
   blockId: string;
   sourceLatex: string;
   localOffset: number;
+  /** Far end of a same-block range selection; equals `localOffset` at a caret. */
+  localEnd: number;
   chip: { from: number; to: number } | null;
 } | null {
   const range = editor.state.selection.range;
   if (!range || typeof range !== "object") return null;
   let blockId: string | undefined;
   let offset: number | undefined;
+  let end: number | undefined;
   if ("offset" in range && "block" in range) {
     blockId = range.block;
     offset = range.offset ?? 0;
@@ -251,6 +255,16 @@ function matrixCaretTarget(editor: EditorInstance): {
     ) {
       blockId = from.block;
       offset = from.offset ?? 0;
+      const to = "to" in range ? range.to : undefined;
+      if (
+        to &&
+        typeof to === "object" &&
+        !("side" in to) &&
+        "block" in to &&
+        to.block === blockId
+      ) {
+        end = to.offset ?? 0;
+      }
     }
   }
   if (blockId === undefined || offset === undefined) return null;
@@ -262,6 +276,7 @@ function matrixCaretTarget(editor: EditorInstance): {
       blockId: block.id,
       sourceLatex: block.text,
       localOffset: offset,
+      localEnd: end ?? offset,
       chip: null,
     };
   }
@@ -271,6 +286,8 @@ function matrixCaretTarget(editor: EditorInstance): {
     blockId: block.id,
     sourceLatex: chip.text,
     localOffset: offset - chip.from,
+    // A range reaching past the chip still only addresses this chip's LaTeX.
+    localEnd: Math.min(end ?? offset, chip.to) - chip.from,
     chip: { from: chip.from, to: chip.to },
   };
 }
@@ -294,13 +311,37 @@ function matrixContextForCaret(
   // A whole construct selection ends immediately after the matrix. That focus
   // is outside the environment's exclusive source span, while its anchor is on
   // the opening boundary; probe both endpoints before declaring no matrix.
-  const treeCtx = treeTargets
+  const treeEndpointCtx = treeTargets
     .map((target) => mathMatrixContext(target.source, target.sourceOffset))
     .find((ctx) => ctx !== null);
+  // A mouse drag across the matrix can anchor before `\begin` AND focus on the
+  // exclusive span end — both endpoint probes miss. Resolve the swept range.
+  const treeRangeCtx =
+    treeFocus &&
+    treeAnchor &&
+    treeFocus.blockId === treeAnchor.blockId &&
+    treeFocus.contentId === treeAnchor.contentId &&
+    treeFocus.sourceOffset !== treeAnchor.sourceOffset
+      ? mathMatrixContextInRange(
+          treeFocus.source,
+          treeAnchor.sourceOffset,
+          treeFocus.sourceOffset,
+        )
+      : null;
+  const treeCtx = treeEndpointCtx ?? treeRangeCtx;
   const target = treeTargets.length === 0 ? matrixCaretTarget(editor) : null;
   const ctx =
     treeCtx ??
-    (target ? mathMatrixContext(target.sourceLatex, target.localOffset) : null);
+    (target
+      ? (mathMatrixContext(target.sourceLatex, target.localOffset) ??
+        (target.localEnd !== target.localOffset
+          ? mathMatrixContextInRange(
+              target.sourceLatex,
+              target.localOffset,
+              target.localEnd,
+            )
+          : null))
+      : null);
   if (!ctx) return null;
   return {
     env: ctx.env,
@@ -2831,22 +2872,15 @@ function PageEditor({
         const edgeOffset = inlineMathChip
           ? caretOffset - inlineMathChip.from
           : caretOffset;
-        // The grid the caret rests in (if any) — the source/offset are the same
-        // as the edge detection above, so a chip resolves at a chip-local offset.
-        const matrixCtx = mathMatrixContext(edgeLatex, edgeOffset);
+        // The grid the caret rests in (if any). `matrixContextForCaret` covers
+        // every selection shape the desktop context menu resolves — a caret in
+        // a cell, a whole-construct selection, a sweep across the parentheses —
+        // so the grid controls stay available while the matrix is selected.
         math = {
           query: active ? active.query : null,
           canCaretLeft: !mathSourceAtEdge(edgeLatex, edgeOffset, "left"),
           canCaretRight: !mathSourceAtEdge(edgeLatex, edgeOffset, "right"),
-          matrix: matrixCtx
-            ? {
-                env: matrixCtx.env,
-                rows: matrixCtx.rows,
-                cols: matrixCtx.cols,
-                row: matrixCtx.row,
-                col: matrixCtx.col,
-              }
-            : null,
+          matrix: matrixContextForCaret(mounted.editor),
         };
       }
 

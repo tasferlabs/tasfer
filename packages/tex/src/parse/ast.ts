@@ -267,6 +267,12 @@ export interface InfixNode {
 export interface SpaceNode {
   readonly type: "space";
   readonly width: number;
+  /**
+   * Parser-manufactured padding (around `\iff`, inside `\pmod`) that shares its
+   * host command's span. It must stay caret-invisible: stops of its own would
+   * duplicate the host's source offsets at different x positions.
+   */
+  readonly synthetic?: true;
   readonly span: Span;
 }
 

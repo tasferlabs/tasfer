@@ -478,6 +478,23 @@ export const CONTENT_DELETED = stateAction<{
 }>("content-deleted", (state) => ({ state, ops: [] }));
 
 /**
+ * A block that owns structured content is being converted to another type —
+ * dispatched by the core conversion paths (the caret conversion and the
+ * generic `setBlock({ type })` morph) *instead of* refusing outright, so the
+ * feature that owns the attachment can run the conversion losslessly. Core
+ * cannot: a generic flat morph would orphan the persisted structured document
+ * (or duplicate its stale compatibility projection as real content). A feature
+ * handler claims (`handled: true`) with the complete transaction — e.g. math
+ * promotes a paragraph whose only content is one attached inline chip into a
+ * tree-backed display equation. Default is identity; an unclaimed dispatch
+ * leaves the conversion refused, exactly as before this seam existed.
+ */
+export const CONVERT_STRUCTURED_BLOCK = stateAction<{
+  blockIndex: number;
+  type: string;
+}>("convert-structured-block", (state) => ({ state, ops: [] }));
+
+/**
  * Payload for {@link IMAGE_PASTE}: the pasted file and the stable id of the
  * image block created to hold it.
  */

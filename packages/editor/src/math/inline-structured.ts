@@ -142,6 +142,10 @@ export const mathStructuredMarkFacet = {
   },
   resolve: ({ mark, attachments }) =>
     getStructuredMathMarkSource(mark, attachments),
+  references: ({ mark }) => {
+    const contentId = mathMarkContentId(mark);
+    return contentId ? [contentId] : [];
+  },
   clone: ({ mark, clonedContentIds }) => {
     const sourceContentId = mathMarkContentId(mark);
     const contentId = sourceContentId

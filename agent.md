@@ -1,21 +1,18 @@
 # Agent Guide
 
-Cypher is a local-first, peer-to-peer markdown editor. Its editor engine renders
+Cypher is a local-first, peer-to-peer, canvas based editor. Its editor engine renders
 directly to HTML canvas and stores document state in a CRDT.
 
 ## Non-negotiable rules
 
-- Find the root cause before changing code. Check adjacent paths and edge cases.
-- Do not run `git stash` unless the user explicitly requests it.
+- Do not run `git stash`, `git checkout` or similar unless the user explicitly requests it.
 - Do not introduce mutable global state. Multiple editors must work on one page;
   keep state in instances, arguments, or scoped context.
-- The editor core must remain node- and mark-agnostic. Put type-specific behavior
-  in that node or mark. If the extension API cannot express a behavior, add a
-  general extension mechanism instead of a type-name check in core code.
-- All user-facing strings must use i18next. Add translation keys with the UI text.
+- The editor core must remain node- and mark-agnostic. So that users who use package can opt in what to use.
+- All user-facing strings must be i18n'd. Add translation keys with the UI text.
 - Keep public editor documentation accurate when changing a public API.
-- A math block must never show raw LaTeX to the reader. It always renders the
-  typeset formula; source is only ever visible while that block is being edited.
+- Never do things with git with your intuitive, if unsure please consult me.
+- Stop wasting time on meaningless tests, there is no test for ux
 
 ## Compatibility status
 
@@ -29,32 +26,20 @@ they are currently design guidance, not a constraint.
 
 ## Repository map
 
-| Path | Responsibility |
-| --- | --- |
-| `packages/editor` | Framework-agnostic canvas editor, document model, CRDT, actions, schema |
-| `packages/tex` | Canvas-native LaTeX layout and rendering |
-| `packages/react` | React bindings for the editor |
-| `packages/provider-*` | Persistence and collaboration providers |
-| `apps/web` | Main React host and cross-platform product logic |
-| `apps/desktop` | Electron wrapper and native IPC |
-| `apps/live` | Stateless WebRTC signaling relay |
-| `apps/site` | Marketing site and public documentation |
-| `apps/ios`, `apps/android` | Capacitor native wrappers |
+| Path                       | Responsibility                                                          |
+| -------------------------- | ----------------------------------------------------------------------- |
+| `packages/editor`          | Framework-agnostic canvas editor, document model, CRDT, actions, schema |
+| `packages/tex`             | Canvas-native LaTeX layout and rendering                                |
+| `packages/react`           | React bindings for the editor                                           |
+| `packages/provider-*`      | Persistence and collaboration providers                                 |
+| `apps/web`                 | Main React host and cross-platform product logic                        |
+| `apps/desktop`             | Electron wrapper and native IPC                                         |
+| `apps/live`                | Stateless WebRTC signaling relay                                        |
+| `apps/site`                | Marketing site and public documentation                                 |
+| `apps/ios`, `apps/android` | Capacitor native wrappers                                               |
 
 There is no root package manager workspace. Run commands from the relevant
 package or application directory.
-
-## Canonical commands
-
-| Area | Command | Purpose |
-| --- | --- | --- |
-| `apps/web` | `npm run build` | Canonical typecheck and production build |
-| `apps/web` | `npm run dev` | Vite development server on port 4000 |
-| `packages/editor` | `npm test` | Vitest CRDT and regression tests |
-| `packages/editor` | `npm run lint` | ESLint and custom editor rules |
-| `packages/editor` | `npm run format:check` | Prettier verification |
-| `apps/site` | `npm run build` | Build public docs and marketing site |
-| `apps/live` | `npm run dev` | Run signaling relay on port 8080 |
 
 ## Architecture invariants
 
@@ -88,26 +73,11 @@ Update the relevant page whenever its public contract changes.
 
 ## Verification
 
-Run the smallest checks that cover the changed behavior:
-
-| Change | Required verification |
-| --- | --- |
-| Editor state, actions, CRDT, schema | `packages/editor`: tests and lint |
-| Public editor types consumed by web | `apps/web`: build |
-| React host or platform code | `apps/web`: build |
-| Public docs | `apps/site`: build |
-| Formatting-heavy change | Relevant package: format check |
-
-For CRDT failures, preserve the printed seed. Use `FUZZ_SEED`, `FUZZ_PEERS`, and
-`FUZZ_OPS` to reproduce or scale fuzz runs.
-
 Canvas content is not reliably visible to DOM-based browser automation, and text
-input uses a hidden contenteditable surface. Prefer unit tests and the web build
-for engine behavior. Browser checks remain useful for React overlays, menus,
-popovers, and other DOM-rendered chrome.
+input uses a hidden contenteditable surface. Automation has hard time to deal with.
+For things you can not test reliably as this please consult me.
 
 ## Before finishing
 
-- Confirm the change addresses the root cause, not only the observed symptom.
-- Check for affected call sites, tests, public exports, and documentation.
-- Run the relevant verification commands and report anything not run.
+- Check for affected call sites, similar issues, i18n key sets, and
+  documentation.

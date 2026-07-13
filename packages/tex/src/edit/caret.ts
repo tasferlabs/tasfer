@@ -152,6 +152,25 @@ interface ConstructGen {
   next: number;
 }
 
+/**
+ * Vertical extent of a box's caret stops / tap target, in pixels about its own
+ * baseline. An ink-less box (an explicit spacing command's `\ `/`\quad` unit —
+ * zero height AND depth) would yield a degenerate zero-height caret and an
+ * unhittable target, so it gets a nominal x-height rise instead. The box's
+ * layout dimensions are untouched — only what the caret/hit layer reports.
+ */
+const INKLESS_RISE_EM = 0.43;
+function boxExtent(
+  box: { height: number; depth: number },
+  y: number,
+  fs: number,
+): { top: number; bottom: number } {
+  if (box.height === 0 && box.depth === 0) {
+    return { top: y - INKLESS_RISE_EM * fs, bottom: y };
+  }
+  return { top: y - box.height * fs, bottom: y + box.depth * fs };
+}
+
 function walk(
   box: Box,
   x: number,
@@ -219,8 +238,7 @@ function walk(
     // `boundary`) — the atom sits on the baseline, so vertical motion and the
     // hit-test treat its edges like any glyph's.
     if (box.unit && box.span) {
-      const top = y - box.height * fs;
-      const bottom = y + box.depth * fs;
+      const { top, bottom } = boxExtent(box, y, fs);
       out.push({ offset: box.span.start, x, y, top, bottom, ...ctx });
       out.push({
         offset: box.span.end,
@@ -864,11 +882,12 @@ function collectAtomHits(
     // whole box is the tap target, selecting the operator's own span. Emit a
     // single hit and don't descend (there is nothing span-bearing below).
     if (box.unit && box.span && box.width > 0) {
+      const { top, bottom } = boxExtent(box, y, fs);
       out.push({
         left: x,
         right: x + box.width * fs,
-        top: y - box.height * fs,
-        bottom: y + box.depth * fs,
+        top,
+        bottom,
         glyph: { start: box.span.start, end: box.span.end },
         construct,
       });
@@ -1103,11 +1122,12 @@ function collectSelected(
       // Vertical extent stays the construct's own height/depth so stacked slots
       // (a fraction's halves) remain fully covered.
       const drawn = box.boundary ? null : drawnXBounds(box, x, fs);
+      const { top, bottom } = boxExtent(box, y, fs);
       out.push({
         x0: drawn ? drawn.x0 : x,
         x1: drawn ? drawn.x1 : x + box.width * fs,
-        top: y - box.height * fs,
-        bottom: y + box.depth * fs,
+        top,
+        bottom,
         y,
       });
       return;

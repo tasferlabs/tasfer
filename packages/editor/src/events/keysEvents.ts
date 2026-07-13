@@ -49,6 +49,7 @@ import {
 } from "../rendering/nodes";
 import { getBlockDirection } from "../rtl";
 import {
+  getContentSelectionFromViewport,
   getCursorDocumentCoords,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
@@ -65,6 +66,10 @@ import type {
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
+import {
+  isContentSelectionCollapsed,
+  updateContentSelection,
+} from "../structured-selection";
 import { isPreformattedType, isTextualBlock } from "../sync/block-registry";
 import { redoState, undoState } from "../sync/crdt-undo";
 import type { Operation } from "../sync/sync";
@@ -964,10 +969,26 @@ export function handleContextMenu(
   // Always open context menu at click position if we have a valid position
   // Preserve existing selection for copy/cut operations
   if (position) {
-    // Only update cursor/clear selection if there's no selection active
-    // This preserves "Select All" and other selections when right-clicking
-    if (!state.document.selection) {
-      state = updateCursor(state, position);
+    // Only move the caret when no selection is active — flat or nested (a held
+    // construct inside structured math) — so "Select All" and other selections
+    // survive a right-click. A bare caret resolves structured-first: inside a
+    // tree-authoritative equation the flat projection is an empty compatibility
+    // stub, so a flat `updateCursor` there would both land nowhere meaningful
+    // and destroy the live nested caret the menu's actions need.
+    const heldContentRange =
+      !!state.document.contentSelection &&
+      !isContentSelectionCollapsed(state.document.contentSelection);
+    if (!state.document.selection && !heldContentRange) {
+      const contentSelection = getContentSelectionFromViewport(
+        canvasX,
+        canvasY,
+        state,
+        viewport,
+        "mouse",
+      );
+      state = contentSelection
+        ? updateContentSelection(state, contentSelection)
+        : updateCursor(state, position);
     }
 
     // Clear link hover tooltip and slash menu when opening context menu
@@ -981,11 +1002,15 @@ export function handleContextMenu(
 
     // Headless: the engine doesn't own the menu — it signals the host, which
     // renders its own context menu. `x`/`y` are canvas coords; the host adds its
-    // container rect.
+    // container rect. A ranged selection counts whichever model holds it: the
+    // flat block range or a nested structured range.
     state.actionBus.dispatch(OPEN_CONTEXT_MENU, {
       x: canvasX,
       y: canvasY,
-      hasSelection: !!getSelectionRange(state),
+      hasSelection:
+        !!getSelectionRange(state) ||
+        (!!state.document.contentSelection &&
+          !isContentSelectionCollapsed(state.document.contentSelection)),
     });
   }
 
