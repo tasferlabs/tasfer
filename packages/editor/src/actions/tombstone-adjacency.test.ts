@@ -170,7 +170,7 @@ describe("MathNode SPLIT_BLOCK exit over a tied tombstone", () => {
   it("lands the caret in the new paragraph, not on the tombstone", () => {
     const s = stateWith(
       [
-        block("math", "b-x:2", "a1", "x+1"),
+        block("math" as Block["type"], "b-x:2", "a1", "x+1"),
         tombstone("b-x:1", "a1"),
         block("paragraph", "b-x:0", "a2", "next"),
       ],

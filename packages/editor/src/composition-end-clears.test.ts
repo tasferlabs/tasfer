@@ -14,6 +14,7 @@
  */
 import { startComposition } from "./composition";
 import { handleCompositionEnd } from "./events/compositionEvents";
+import type { Paragraph } from "./nodes/TextNode";
 import { moveCursorToPosition } from "./selection";
 import type { EditorState, ViewportState } from "./state-types";
 import { createInitialState } from "./state-utils";
@@ -103,7 +104,7 @@ describe("compositionend always clears the composition flag", () => {
     );
 
     expect(after.ui.composition).toBeNull();
-    const text = after.document.page.blocks[0].charRuns
+    const text = (after.document.page.blocks[0] as Paragraph).charRuns
       .map((r) => r.text)
       .join("");
     expect(text).toBe("hiあ");

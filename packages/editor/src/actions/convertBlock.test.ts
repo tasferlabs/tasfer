@@ -60,7 +60,7 @@ describe("convertBlockAtCursor — atomic targets", () => {
   });
 
   it("converts to a math block", () => {
-    const { block, typeOps } = convert("math");
+    const { block, typeOps } = convert("math" as Block["type"]);
     expect(block.type).toBe("math");
     expect((block as unknown as { displayMode: boolean }).displayMode).toBe(
       true,

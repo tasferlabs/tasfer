@@ -558,7 +558,7 @@ describe("tree-backed display math state integration", () => {
     ).toBe(true);
     for (const node of Object.values(document?.nodes ?? {})) {
       if (node.type !== "raw-text") continue;
-      expect(getVisibleTextFromRuns(node.textFields.text)).not.toMatch(
+      expect(getVisibleTextFromRuns([...node.textFields.text])).not.toMatch(
         /[\\{}^_&]/,
       );
     }
@@ -572,7 +572,7 @@ describe("tree-backed display math state integration", () => {
         ).state;
         expect(
           isValidLatex(treeSource(deleted) ?? ""),
-          `${action.type} at ${offset}: ${treeSource(deleted)}`,
+          `${action.name} at ${offset}: ${treeSource(deleted)}`,
         ).toBe(true);
       }
     }
@@ -596,7 +596,7 @@ describe("tree-backed display math state integration", () => {
         visible.some(
           (node) =>
             node.type === "raw-text" &&
-            /[\\{}^_&]/.test(getVisibleTextFromRuns(node.textFields.text)),
+            /[\\{}^_&]/.test(getVisibleTextFromRuns([...node.textFields.text])),
         ),
       ).toBe(false);
     }
@@ -620,7 +620,7 @@ describe("tree-backed display math state integration", () => {
         visible.some(
           (node) =>
             node.type === "raw-text" &&
-            getVisibleTextFromRuns(node.textFields.text).includes("\\"),
+            getVisibleTextFromRuns([...node.textFields.text]).includes("\\"),
         ),
       ).toBe(false);
     }
@@ -635,7 +635,7 @@ describe("tree-backed display math state integration", () => {
       rowBreakNodes.some(
         (node) =>
           node.type === "raw-text" &&
-          getVisibleTextFromRuns(node.textFields.text).includes("\\"),
+          getVisibleTextFromRuns([...node.textFields.text]).includes("\\"),
       ),
     ).toBe(false);
 
@@ -646,7 +646,7 @@ describe("tree-backed display math state integration", () => {
       ).some(
         (node) =>
           node.type === "raw-text" &&
-          getVisibleTextFromRuns(node.textFields.text) === String.raw`\wa`,
+          getVisibleTextFromRuns([...node.textFields.text]) === String.raw`\wa`,
       ),
     ).toBe(true);
 
@@ -728,7 +728,7 @@ describe("tree-backed display math state integration", () => {
       visible.some(
         (node) =>
           node.type === "raw-text" &&
-          /[{}^_&]/.test(getVisibleTextFromRuns(node.textFields.text)),
+          /[{}^_&]/.test(getVisibleTextFromRuns([...node.textFields.text])),
       ),
     ).toBe(false);
     expect(isValidLatex(treeSource(inserted) ?? "")).toBe(true);
@@ -795,7 +795,7 @@ describe("tree-backed display math state integration", () => {
         ).state;
         expect(
           isValidLatex(treeSource(candidate) ?? ""),
-          `${action.type} at ${offset}: ${treeSource(candidate)}`,
+          `${action.name} at ${offset}: ${treeSource(candidate)}`,
         ).toBe(true);
       }
     }
@@ -1532,6 +1532,9 @@ describe("tree-backed display math state integration", () => {
     const extended = state.actionBus.dispatchState(
       EXTEND_SELECTION_DOWN,
       state,
+      {
+        viewport,
+      },
     );
     expect(extended.claimed).toBe(true);
     const selection = extended.state.document.contentSelection;
@@ -1692,7 +1695,7 @@ describe("tree-backed display math state integration", () => {
     const document = getMathStructuredDocument(block(state));
     const math = document ? structuredToMathDocument(document) : undefined;
     const matrix = math?.root.body.children[1];
-    if (!document || matrix?.type !== "matrix") {
+    if (!document || !math || matrix?.type !== "matrix") {
       throw new Error("expected structured matrix");
     }
     const afterFraction = mathContentSelectionFromSourceOffset(
@@ -1754,7 +1757,7 @@ describe("tree-backed display math state integration", () => {
       (item) => item.type === "paragraph",
     )!;
     const math = state.document.page.blocks.find(
-      (item) => item.type === "math",
+      (item) => (item.type as string) === "math",
     )!;
     state = {
       ...state,
@@ -1937,7 +1940,7 @@ describe("tree-backed display math state integration", () => {
       Object.values(document?.nodes ?? {}).some(
         (node) =>
           node.type === "raw-text" &&
-          getVisibleTextFromRuns(node.textFields.text).includes(
+          getVisibleTextFromRuns([...node.textFields.text]).includes(
             String.raw`\sqrt`,
           ),
       ),

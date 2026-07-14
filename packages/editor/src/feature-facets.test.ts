@@ -369,14 +369,18 @@ describe("spec-carried facets", () => {
   });
 
   it("dispatches structured-mark behavior by the mark spec's own type", () => {
-    const mark = { name: "wiki" } as unknown as Mark;
+    // The facet only ever sees the stored mark + the block's attachments, so
+    // the fake resolves from its own attrs — proving the ctx is passed through
+    // and the dispatch keys on the SPEC's type, not on anything in the ctx.
+    const mark = { type: "wiki", attrs: { page: "page" } } as unknown as Mark;
+    const pageOf = (m: Mark) => (m.attrs as { page: string }).page;
     const schema = getBaseDataSchema().extend({
       marks: [
         {
           type: "wiki",
           structured: {
-            resolve: ({ compatibilityText }) => `wiki:${compatibilityText}`,
-            references: ({ compatibilityText }) => [`ref:${compatibilityText}`],
+            resolve: ({ mark: m }) => `wiki:${pageOf(m)}`,
+            references: ({ mark: m }) => [`ref:${pageOf(m)}`],
           },
         },
       ],
@@ -385,28 +389,24 @@ describe("spec-carried facets", () => {
     expect(
       schema.resolveStructuredMark("wiki", {
         mark,
-        compatibilityText: "page",
         attachments: undefined,
       }),
     ).toBe("wiki:page");
     expect(
       schema.resolveStructuredMark("strong", {
         mark,
-        compatibilityText: "page",
         attachments: undefined,
       }),
     ).toBeUndefined();
     expect(
       schema.structuredMarkReferences("wiki", {
         mark,
-        compatibilityText: "page",
         attachments: undefined,
       }),
     ).toEqual(["ref:page"]);
     expect(
       schema.structuredMarkReferences("strong", {
         mark,
-        compatibilityText: "page",
         attachments: undefined,
       }),
     ).toEqual([]);

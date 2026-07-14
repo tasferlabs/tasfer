@@ -244,7 +244,7 @@ function tryGenerateOp(
         block.type === "heading1" ||
         block.type === "heading2" ||
         block.type === "heading3" ||
-        block.type === "math"
+        (block.type as string) === "math"
       ) {
         const newType = rng.pick([
           "paragraph",
@@ -574,7 +574,13 @@ function runFuzz(args: FuzzArgs): FuzzRun {
 }
 
 function envInt(name: string, fallback: number): number {
-  const raw = process.env[name];
+  // Vitest runs in Node, but this browser-lib tsconfig has no Node globals.
+  const env = (
+    globalThis as {
+      process?: { env?: Record<string, string | undefined> };
+    }
+  ).process?.env;
+  const raw = env?.[name];
   if (!raw) return fallback;
   const n = parseInt(raw, 10);
   return Number.isFinite(n) ? n : fallback;

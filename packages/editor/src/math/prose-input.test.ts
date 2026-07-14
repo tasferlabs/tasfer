@@ -9,6 +9,7 @@
  * consecutive keystrokes extend ONE run (cursive Arabic only shapes joined
  * forms within a single run), and delete peels the run per character.
  */
+import { iterateAllChars } from "../sync/char-runs";
 import { createDeterministicIdentityAllocator } from "../sync/id";
 import {
   applyStructuredEdits,
@@ -23,9 +24,11 @@ import {
 import {
   backspaceMathTree,
   deleteForwardMathTree,
+  deleteMathTreeRange,
   isMathProseText,
   type MathTreeCaret,
   type MathTreeEditResult,
+  moveMathTreeCaret,
 } from "./tree-edit";
 import { printMathDocument } from "@cypherkit/tex/data";
 import { describe, expect, it } from "vitest";
@@ -138,6 +141,131 @@ describe("deleting inside a prose run", () => {
   });
 });
 
+describe("caret movement through a prose run", () => {
+  it("arrow-left walks the run per character instead of hopping it whole", () => {
+    const session = startSession();
+    session.type("中文");
+    const chars = proseChars(session);
+    const node = proseNode(session);
+
+    // Gap after the run → after 中 → run start; the next press is the
+    // formula's outer edge, which the host exit bridges own.
+    session.commit(
+      moveMathTreeCaret(session.document, session.caret, "arrow-left"),
+    );
+    expect(session.caret).toEqual({
+      kind: "text",
+      rowId: session.rowId,
+      nodeId: node.id,
+      field: "text",
+      afterCharId: chars[0].id,
+    });
+    session.commit(
+      moveMathTreeCaret(session.document, session.caret, "arrow-left"),
+    );
+    expect(session.caret).toMatchObject({ kind: "text", afterCharId: null });
+    expect(
+      moveMathTreeCaret(session.document, session.caret, "arrow-left").handled,
+    ).toBe(false);
+  });
+
+  it("arrow-right enters the run at its first character", () => {
+    const session = startSession();
+    session.type("中文");
+    const chars = proseChars(session);
+    const node = proseNode(session);
+
+    session.caret = { kind: "row", rowId: session.rowId, afterNodeId: null };
+    session.commit(
+      moveMathTreeCaret(session.document, session.caret, "arrow-right"),
+    );
+    expect(session.caret).toEqual({
+      kind: "text",
+      rowId: session.rowId,
+      nodeId: node.id,
+      field: "text",
+      afterCharId: chars[0].id,
+    });
+    session.commit(
+      moveMathTreeCaret(session.document, session.caret, "arrow-right"),
+    );
+    expect(session.caret).toMatchObject({
+      kind: "text",
+      afterCharId: chars[1].id,
+    });
+    expect(
+      moveMathTreeCaret(session.document, session.caret, "arrow-right").handled,
+    ).toBe(false);
+  });
+});
+
+describe("editing at a caret inside a prose run", () => {
+  it("splices typed prose at the caret position", () => {
+    const session = startSession();
+    session.type("中文");
+    const chars = proseChars(session);
+    session.caret = textCaretAfter(session, chars[0].id);
+    session.type("字");
+    expect(session.source()).toBe("\\text{中字文}");
+    expect(session.textNodeCount()).toBe(1);
+  });
+
+  it("keeps renderable characters typed mid-run as literal prose", () => {
+    const session = startSession();
+    session.type("中文");
+    const chars = proseChars(session);
+    session.caret = textCaretAfter(session, chars[0].id);
+    session.type("x");
+    expect(session.source()).toBe("\\text{中x文}");
+    expect(session.textNodeCount()).toBe(1);
+  });
+
+  it("backspace inside the run deletes the character before the caret", () => {
+    const session = startSession();
+    session.type("中文字");
+    const chars = proseChars(session);
+    session.caret = textCaretAfter(session, chars[1].id);
+    session.commit(backspaceMathTree(session.document, session.caret));
+    expect(session.source()).toBe("\\text{中字}");
+    expect(session.caret).toMatchObject({
+      kind: "text",
+      afterCharId: chars[0].id,
+    });
+  });
+
+  it("deletes a partial in-run selection character by character", () => {
+    const session = startSession();
+    session.type("中文字");
+    const chars = proseChars(session);
+    session.commit(
+      deleteMathTreeRange(session.document, {
+        anchor: textCaretAfter(session, chars[0].id),
+        focus: textCaretAfter(session, chars[2].id),
+      }),
+    );
+    expect(session.source()).toBe("\\text{中}");
+  });
+
+  it("replaces a partial in-run selection with typed prose", () => {
+    const session = startSession();
+    session.type("中文字");
+    const chars = proseChars(session);
+    const result = applyMathTreeInputToDocument(
+      session.document,
+      session.caret,
+      {
+        anchor: textCaretAfter(session, null),
+        focus: textCaretAfter(session, chars[1].id),
+      },
+      "本",
+      session.identities,
+      () => undefined,
+    );
+    session.commit(result);
+    expect(session.source()).toBe("\\text{本字}");
+  });
+});
+
 interface ProseSession {
   document: StructuredDocument;
   caret: MathTreeCaret;
@@ -148,6 +276,35 @@ interface ProseSession {
   source(): string;
   textNodeCount(): number;
   selectAll(): { anchor: MathTreeCaret; focus: MathTreeCaret };
+}
+
+function proseNode(session: ProseSession) {
+  const node = getStructuredChildren(
+    session.document,
+    session.rowId,
+    "children",
+  ).find((child) => child.type === "text");
+  if (!node) throw new Error("expected one prose text node");
+  return node;
+}
+
+function proseChars(session: ProseSession) {
+  return [...iterateAllChars([...(proseNode(session).textFields.text ?? [])])]
+    .filter((entry) => !entry.deleted)
+    .map(({ id, char }) => ({ id, char }));
+}
+
+function textCaretAfter(
+  session: ProseSession,
+  afterCharId: string | null,
+): MathTreeCaret {
+  return {
+    kind: "text",
+    rowId: session.rowId,
+    nodeId: proseNode(session).id,
+    field: "text",
+    afterCharId,
+  };
 }
 
 function startSession(): ProseSession {

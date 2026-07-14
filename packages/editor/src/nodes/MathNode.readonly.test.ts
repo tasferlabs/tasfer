@@ -34,7 +34,8 @@ function mathBlock(latex: string): MathBlock {
 }
 
 function mathPage(): Page {
-  return { id: "page-1", title: "Math", blocks: [mathBlock("x^2")] };
+  // "math" sits outside the closed core Block union, hence the crossing cast.
+  return { id: "page-1", title: "Math", blocks: [mathBlock("x^2") as never] };
 }
 
 // Drive a desktop pointer move at `canvasX` on the (only) math block's row.

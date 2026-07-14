@@ -49,7 +49,7 @@ export function contentPointToMathTreeCaret(
   if (
     !node ||
     node.deleted ||
-    node.type !== "raw-text" ||
+    (node.type !== "raw-text" && node.type !== "text") ||
     !rowId ||
     node.placement.slot !== "children"
   ) {
@@ -85,7 +85,13 @@ export function mathTreeCaretToContentSelection(
     };
   } else {
     const node = document.nodes[caret.nodeId];
-    if (!node || node.deleted || node.type !== "raw-text") return null;
+    if (
+      !node ||
+      node.deleted ||
+      (node.type !== "raw-text" && node.type !== "text")
+    ) {
+      return null;
+    }
     if (
       caret.afterCharId &&
       !findCharInRuns([...(node.textFields.text ?? [])], caret.afterCharId)
@@ -247,7 +253,7 @@ export function mathDocumentPositionToContentPoint(
 
 /**
  * Resolve a transient canonical-source caret to the nearest position supported
- * by the first tree-editing slice (row gaps and raw-text fields).
+ * by the tree editor (row gaps and character-editable leaf fields).
  */
 export function mathTreeCaretFromSourceOffset(
   blockId: string,

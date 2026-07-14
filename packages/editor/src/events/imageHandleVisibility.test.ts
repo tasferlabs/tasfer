@@ -85,7 +85,7 @@ function stateWithSelection(
   const state = createInitialState(pageOf(types));
   return {
     ...state,
-    document: { ...state.document, selection },
+    document: { ...state.document, selection: selection ?? null },
   };
 }
 

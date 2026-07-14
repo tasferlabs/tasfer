@@ -13,7 +13,10 @@
  */
 import { createMathTestMarkRegistry, loadMathPage } from "./__testutils__/math";
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "./feature-facets";
-import { getInlineMathSpans, resolveMarkRunsFromChars } from "./inline-math-spans";
+import {
+  getInlineMathSpans,
+  resolveMarkRunsFromChars,
+} from "./inline-math-spans";
 import { resolveStructuredInlineMathRuns } from "./math/inline-structured";
 import type { TextualBlock } from "./nodes/TextNode";
 import { charRunsToChars } from "./sync/char-runs";

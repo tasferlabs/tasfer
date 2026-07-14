@@ -20,12 +20,22 @@
  * of the serializers — it is not weight this entry adds.
  */
 
+// Vitest executes this in Node, but the package's tsconfig deliberately has no
+// Node type declarations (the library is host-independent), so the two Node
+// builtins resolve untyped.
+// @ts-expect-error -- no Node types in this browser-lib tsconfig
 import { existsSync, readFileSync } from "node:fs";
+// @ts-expect-error -- no Node types in this browser-lib tsconfig
 import { dirname, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const SRC_ROOT = resolve(__dirname, "..");
-const ENTRY = resolve(__dirname, "data.ts");
+// `__dirname` is CJS-only; derive this module's directory from its URL.
+const HERE = decodeURIComponent(new URL(".", import.meta.url).pathname).replace(
+  /\/$/,
+  "",
+);
+const SRC_ROOT = resolve(HERE, "..");
+const ENTRY = resolve(HERE, "data.ts");
 
 /** Interactive math stack — must never enter the data entry's closure. */
 const BANNED_MODULES = [

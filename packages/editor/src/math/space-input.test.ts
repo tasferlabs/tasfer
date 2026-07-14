@@ -45,11 +45,11 @@ function treeState(markdown: string): EditorState {
 }
 
 function backspace(state: EditorState): EditorState {
-  return state.actionBus.dispatchState(DELETE_BACKWARD, state, undefined).state;
+  return state.actionBus.dispatchState(DELETE_BACKWARD, state).state;
 }
 
 function enter(state: EditorState): EditorState {
-  return state.actionBus.dispatchState(SPLIT_BLOCK, state, undefined).state;
+  return state.actionBus.dispatchState(SPLIT_BLOCK, state).state;
 }
 
 function typeText(state: EditorState, text: string): EditorState {

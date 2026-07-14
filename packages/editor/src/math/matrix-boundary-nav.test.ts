@@ -49,7 +49,7 @@ function treeState(markdown: string): EditorState {
 
 function mathBlockIndex(state: EditorState): number {
   return state.document.page.blocks.findIndex(
-    (b) => !b.deleted && b.type === "math",
+    (b) => !b.deleted && (b.type as string) === "math",
   );
 }
 

@@ -14,6 +14,7 @@ import {
 } from "../__testutils__/math";
 import { insertText } from "../actions/actions";
 import { DELETE_BACKWARD } from "../actions/edit-actions";
+import type { MathBlock } from "../nodes/MathNode";
 import { moveCursorToPosition } from "../selection";
 import type { EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
@@ -41,9 +42,9 @@ function mathState(latex: string, caret: number) {
 }
 
 function latexOf(state: EditorState, blockIndex = 0) {
-  return getVisibleTextFromRuns(
-    state.document.page.blocks[blockIndex].charRuns,
-  );
+  // "math" sits outside the closed core Block union, hence the crossing cast.
+  const block = state.document.page.blocks[blockIndex] as never as MathBlock;
+  return getVisibleTextFromRuns(block.charRuns);
 }
 
 const BROKEN = "\\frac{a}{b}+\\sqrt{H}-\\frac{aaaa}{bbbb+\\frac{a}{b}";

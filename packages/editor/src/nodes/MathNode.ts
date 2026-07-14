@@ -139,7 +139,6 @@ import {
   updateMode,
 } from "../state-utils";
 import {
-  contentPointsEqual,
   type ContentSelection,
   isContentSelectionCollapsed,
   updateContentSelection,
@@ -285,7 +284,6 @@ function sourceChars(source: string): Char[] {
   return chars;
 }
 
-
 function mathBlockSource(block: MathBlock): string {
   return (
     getStructuredMathSource(block) ?? getVisibleTextFromRuns(block.charRuns)
@@ -398,7 +396,12 @@ function mathNodeFieldValue(
   }
 }
 
-/** Losslessly reuse a display tree as the supplemental tree of an inline mark. */
+/**
+ * Losslessly reuse a display tree as the supplemental tree of an inline mark.
+ * An EMPTY equation has no tree worth keeping inline: the first press selects
+ * the block whole (node selection, no mutation) so the next press deletes it —
+ * the same two-step gesture as backspacing into the block from following prose.
+ */
 function demoteActiveStructuredMathBlock(
   state: EditorState,
 ): { state: EditorState; ops: Operation[]; handled: true } | undefined {
@@ -415,33 +418,55 @@ function demoteActiveStructuredMathBlock(
   if (!block || !document || selection.focus.contentId !== document.rootId) {
     return undefined;
   }
-  const start = mathContentSelectionFromSourceOffset(
-    block.id,
-    document.rootId,
-    document,
-    0,
-  );
-  if (!start || !contentPointsEqual(selection.focus, start.focus)) {
+  // Structural edge check, deliberately NOT point equality against the
+  // source-offset bridge: the same visual boundary has several caret
+  // representations (the root row gap, a field alias at offset 0 of the first
+  // child, the text point left behind after deleting an equation's last
+  // character). Comparing against one canonical form made the others fall
+  // through to the tree handler's claimed no-op — a dead Backspace.
+  const math = getMathDocumentForBlock(block);
+  const position = math
+    ? contentPointToMathDocumentPosition(document, selection.focus)
+    : null;
+  if (!math || !position || !atRootRowEdge(math.root.body, position, "start")) {
     return undefined;
   }
 
   const source = mathBlockSource(block);
-  const supplemental =
-    source.length > 0
-      ? state.schema.cloneStructuredContent({
-          document: {
-            version: document.version,
-            kind: document.kind,
-            rootId: document.rootId,
-            nodes: document.nodes,
-          },
-          sourceBlockId: block.id,
-          targetBlockId: block.id,
-          sourceContentId: document.rootId,
-          identities: state.CRDTbinding,
-        })
-      : undefined;
-  if (source.length > 0 && !supplemental) return undefined;
+  if (source.length === 0) {
+    const position: Position = { blockIndex, textIndex: 0 };
+    let next = updateContentSelection(state, null);
+    // The flat cursor anchors the follow-up press: the generic delete resolves
+    // the node selection only when a cursor exists.
+    next = moveCursorToPosition(next, blockIndex, 0);
+    next = {
+      ...next,
+      document: {
+        ...next.document,
+        selection: {
+          anchor: position,
+          focus: position,
+          isForward: true,
+          isCollapsed: false,
+          lastUpdate: Date.now(),
+        },
+      },
+    };
+    return { state: next, ops: [], handled: true };
+  }
+  const supplemental = state.schema.cloneStructuredContent({
+    document: {
+      version: document.version,
+      kind: document.kind,
+      rootId: document.rootId,
+      nodes: document.nodes,
+    },
+    sourceBlockId: block.id,
+    targetBlockId: block.id,
+    sourceContentId: document.rootId,
+    identities: state.CRDTbinding,
+  });
+  if (!supplemental) return undefined;
   const ops: Operation[] = [];
   let page = state.document.page;
   const operationBase = () => ({
@@ -489,38 +514,36 @@ function demoteActiveStructuredMathBlock(
   ops.push(setParagraph);
   page = applyOps(page, [setParagraph], state.schema);
 
-  if (source.length > 0 && supplemental) {
-    const reattach: Operation = {
-      op: "content_edit",
-      ...operationBase(),
-      blockId: block.id,
-      contentId: supplemental.contentId,
-      edit: { kind: "document_init", document: supplemental.document },
-    };
-    ops.push(reattach);
-    page = applyOps(page, [reattach], state.schema);
+  const reattach: Operation = {
+    op: "content_edit",
+    ...operationBase(),
+    blockId: block.id,
+    contentId: supplemental.contentId,
+    edit: { kind: "document_init", document: supplemental.document },
+  };
+  ops.push(reattach);
+  page = applyOps(page, [reattach], state.schema);
 
-    const inserted = insertCharsAtPosition(
-      page,
-      block.id,
-      0,
-      STRUCTURED_MARK_ANCHOR_CHAR,
-      state.CRDTbinding,
-    );
-    page = inserted.newPage;
-    ops.push(inserted.op);
-    const marked = markCharsInRange(
-      page,
-      block.id,
-      0,
-      1,
-      { type: "math", attrs: { contentId: supplemental.contentId } },
-      true,
-      state.CRDTbinding,
-    );
-    page = marked.newPage;
-    ops.push(marked.op);
-  }
+  const inserted = insertCharsAtPosition(
+    page,
+    block.id,
+    0,
+    STRUCTURED_MARK_ANCHOR_CHAR,
+    state.CRDTbinding,
+  );
+  page = inserted.newPage;
+  ops.push(inserted.op);
+  const marked = markCharsInRange(
+    page,
+    block.id,
+    0,
+    1,
+    { type: "math", attrs: { contentId: supplemental.contentId } },
+    true,
+    state.CRDTbinding,
+  );
+  page = marked.newPage;
+  ops.push(marked.op);
 
   const converted = page.blocks[findBlockIndex(page, block.id)];
   if (converted) invalidateBlockCache(converted);
@@ -1730,6 +1753,14 @@ export class MathNode extends TextNode<MathBlock> {
     // handler, whose safe no-op at the root boundary would otherwise claim it.
     bus.registerState(
       DELETE_BACKWARD,
+      (state) => demoteActiveStructuredMathBlock(state),
+      120,
+    );
+    // Word deletion routes through the same one-unit tree controller below, so
+    // at the leading edge it demotes like plain Backspace — otherwise the tree
+    // handler's claimed no-op would leave it dead there.
+    bus.registerState(
+      DELETE_WORD_BACKWARD,
       (state) => demoteActiveStructuredMathBlock(state),
       120,
     );

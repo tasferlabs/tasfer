@@ -7,6 +7,7 @@
  * projections.
  */
 
+import type { Paragraph } from "./nodes/TextNode";
 import {
   activeCaretMarks,
   docMarks,
@@ -17,7 +18,6 @@ import {
   selectTarget,
   toBlockData,
 } from "./positions";
-import type { Paragraph } from "./nodes/TextNode";
 import type { Block, Page } from "./serlization/loadPage";
 import type { CursorState, EditorState, SelectionState } from "./state-types";
 import { createInitialState } from "./state-utils";

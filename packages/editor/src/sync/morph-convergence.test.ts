@@ -14,7 +14,7 @@
 import { mathTestSchema, mathTestStateOptions } from "../__testutils__/math";
 import { convertBlockAtCursor } from "../actions/actions";
 import type { Paragraph } from "../nodes/TextNode";
-import type { MarkSpan, Page } from "../serlization/loadPage";
+import type { Block, MarkSpan, Page } from "../serlization/loadPage";
 import type { BlockSet, EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { applyOp } from "./reducer";
@@ -64,7 +64,9 @@ describe.each(["math", "code"])(
         },
       };
       const { state: localState, ops } = convertBlockAtCursor(originator, {
-        type: target,
+        // "math" sits outside the closed core Block["type"] union; cast at the
+        // feature boundary as the defineNode idiom does.
+        type: target as Block["type"],
       });
       const localBlock = localState.document.page.blocks[0];
       expect(localBlock.type).toBe(target);

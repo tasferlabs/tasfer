@@ -57,7 +57,7 @@ describe("control space entry in a structured math block", () => {
       nodes.some(
         (node) =>
           node.type === "raw-latex" &&
-          getVisibleTextFromRuns(node.textFields.latex ?? []) === "\\ ",
+          getVisibleTextFromRuns([...(node.textFields.latex ?? [])]) === "\\ ",
       ),
     ).toBe(true);
     // The committed leaf keeps no literal backslash or space characters.
@@ -65,7 +65,9 @@ describe("control space entry in a structured math block", () => {
       nodes.some(
         (node) =>
           node.type === "raw-text" &&
-          /[\\ ]/.test(getVisibleTextFromRuns(node.textFields.text ?? [])),
+          /[\\ ]/.test(
+            getVisibleTextFromRuns([...(node.textFields.text ?? [])]),
+          ),
       ),
     ).toBe(false);
   });

@@ -428,7 +428,7 @@ describe("dispatchState threading and op accumulation", () => {
     let observedDelta = 0;
     bus.register(
       cmd,
-      ((state: EditorState, p: { delta: number }) => {
+      ((_state: EditorState, p: { delta: number }) => {
         observedDelta = p.delta;
       }) as never,
       10,

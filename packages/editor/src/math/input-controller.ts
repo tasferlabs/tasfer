@@ -18,7 +18,6 @@ import {
   insertMathTextWithCompletion,
   isMathProseText,
   type MathCommandCompletionResolver,
-  mathProseLatex,
   type MathTreeCaret,
   type MathTreeEditResult,
   type MathTreeRange,
@@ -88,17 +87,29 @@ export function applyMathTreeInputToDocument(
   // commits as a `\text{…}` run: stored bare it projects as a zero-width
   // latent glyph and the keystroke looks silently dropped. The legacy flat
   // path wrapped this in `mathTransformTypedInput`; the tree boundary owns
-  // the rule now that it claims input first.
+  // the rule now that it claims input first. A selection is deleted first so
+  // the prose lands wherever the deletion caret rests — splicing INTO a
+  // surviving `text` run (keeping cursive shaping joined) instead of minting
+  // an adjacent `\text{…}` sibling.
   if (!semantic && isMathProseText(text)) {
-    return safeRange
-      ? replaceMathTreeRangeWithSemanticLatex(
-          document,
-          safeRange,
-          mathProseLatex(text),
-          identities,
-          { caret: "end" },
-        )
-      : insertMathProseText(document, caret, text, identities);
+    if (!safeRange) {
+      return insertMathProseText(document, caret, text, identities);
+    }
+    const deleted = deleteMathTreeRange(document, safeRange);
+    if (!deleted.handled) return deleted;
+    const afterDelete = applyStructuredEdits(document, deleted.edits);
+    const inserted = insertMathProseText(
+      afterDelete,
+      deleted.caret,
+      text,
+      identities,
+    );
+    if (!inserted.handled) return { ...inserted, caret: safeRange.focus };
+    return {
+      handled: true,
+      edits: [...deleted.edits, ...inserted.edits],
+      caret: inserted.caret,
+    };
   }
   return safeRange
     ? semantic

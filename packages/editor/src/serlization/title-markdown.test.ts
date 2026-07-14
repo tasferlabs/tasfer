@@ -100,7 +100,7 @@ describe("title markdown → preview HTML (the TitlePreview pipeline)", () => {
       block.charRuns ?? [],
       block.formats ?? [],
       schema,
-      (latex, displayMode) => renderToSVG(latex, displayMode, 14),
+      (_type, source, displayMode) => renderToSVG(source, displayMode, 14),
       undefined,
       block.structuredContent,
     );
@@ -120,7 +120,7 @@ describe("title markdown → preview HTML (the TitlePreview pipeline)", () => {
       block.charRuns ?? [],
       block.formats ?? [],
       schema,
-      (latex, displayMode) => renderToSVG(latex, displayMode, 14),
+      (_type, source, displayMode) => renderToSVG(source, displayMode, 14),
       undefined,
       block.structuredContent,
     );

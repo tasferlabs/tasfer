@@ -14,10 +14,12 @@ const callout = defineNode("callout", {
 const schema = baseSchema.extend({ nodes: [callout] }).data;
 
 function calloutBlock(tone: string): Block {
+  // The extension-owned `tone` field sits outside the closed core Block
+  // union; cross the boundary the way `asBlock`/defineNode does.
   return {
     ...schema.createDefaultBlock("callout", "original", "a0")!,
     tone,
-  } as Block;
+  } as unknown as Block;
 }
 
 describe("custom-schema replay helpers", () => {
@@ -57,7 +59,9 @@ describe("custom-schema replay helpers", () => {
     const [inverse] = invertOperation(op, page, binding, schema);
     expect(inverse.op).toBe("block_insert");
     if (inverse.op !== "block_insert") throw new Error("expected insert");
-    expect(inverse.initialProps?.tone).toBe("danger");
+    expect((inverse.initialProps as { tone?: string } | undefined)?.tone).toBe(
+      "danger",
+    );
 
     const restored = applyOps(createEmptyPageState("page"), [inverse], schema);
     expect((restored.blocks[0] as unknown as { tone: string }).tone).toBe(

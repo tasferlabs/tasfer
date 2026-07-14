@@ -172,13 +172,13 @@ describe("structured content selection", () => {
     expect(
       normalizeContentSelection(page(), {
         ...valid,
-        focus: { ...valid.focus, field: "missing" },
+        focus: { ...(valid.focus as ContentTextPoint), field: "missing" },
       }),
     ).toBeNull();
     expect(
       normalizeContentSelection(page(), {
         ...valid,
-        focus: { ...valid.focus, nodeId: PARENT_ID },
+        focus: { ...(valid.focus as ContentTextPoint), nodeId: PARENT_ID },
       }),
     ).toBeNull();
   });

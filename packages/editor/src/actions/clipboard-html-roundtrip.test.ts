@@ -180,7 +180,7 @@ describe("clipboard text/html round-trip", () => {
 
     // Math content travels in the marker's markdown and re-imports as a
     // fresh block-authority attachment; the flat text stays empty.
-    const math = blocks.find((b) => b.type === "math") as
+    const math = blocks.find((b) => (b.type as string) === "math") as
       | (Block & { charRuns: CharRun[]; displayMode: boolean })
       | undefined;
     expect(math).toBeDefined();

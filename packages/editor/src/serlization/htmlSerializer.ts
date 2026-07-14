@@ -11,8 +11,8 @@
 import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
 import { renderToSVG } from "../nodes/math";
 import { iterateVisibleChars } from "../sync/char-runs";
-import { hasStructuredBlockAuthority } from "../sync/structured-content";
 import type { DataSchema } from "../sync/schema";
+import { hasStructuredBlockAuthority } from "../sync/structured-content";
 import type { OutputCtx, ReplacementRenderer } from "./codecs";
 import { escapeHtml, inlineToHtml } from "./codecs/inline";
 import type { Block } from "./loadPage";

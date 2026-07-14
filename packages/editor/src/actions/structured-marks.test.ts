@@ -96,7 +96,11 @@ describe("structured mark creation seam", () => {
   it("replays to the same page and undoes the whole creation transaction", () => {
     const before = createMathTestState(loadMathPage("x"));
     const { result, state: after } = attach(before);
-    const replayed = applyOps(before.document.page, result.ops, before.schema);
+    const replayed = applyOps(
+      before.document.page,
+      [...result.ops],
+      before.schema,
+    );
     expect(replayed).toEqual(result.newPage);
 
     const recorded = recordUndoOps(

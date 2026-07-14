@@ -129,6 +129,44 @@ describe("backspace at the start of a math block", () => {
     });
   });
 
+  it("selects an emptied equation whole, then deletes it on the next press", () => {
+    // Deleting the last character leaves the caret as a text point inside the
+    // emptied node — an alias of the leading edge, not the canonical root row
+    // gap. The edge check must accept it structurally; matching one canonical
+    // caret shape made every further Backspace a claimed no-op (a dead key on
+    // an empty equation). An empty equation has no tree worth keeping inline,
+    // so instead of demoting it the press selects the block whole — the same
+    // two-step gesture as backspacing into it from the following prose.
+    let state = stateFor("$$\nx\n$$", "select-emptied");
+    state = treeCaretAt(state, 0, 1);
+
+    const emptied = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+    expect(blockSource(emptied.state, 0)).toBe("");
+    expect(emptied.state.document.page.blocks[0].type).toBe("math");
+
+    const selected = emptied.state.actionBus.dispatchState(
+      DELETE_BACKWARD,
+      emptied.state,
+    );
+    // Pure selection, no mutation: the block stays and paints selected.
+    expect(selected.claimed).toBe(true);
+    expect(selected.ops).toHaveLength(0);
+    expect(selected.state.document.page.blocks[0].type).toBe("math");
+    expect(selected.state.document.contentSelection).toBeNull();
+    expect(isNodeSelection(selected.state.document.selection)).toBe(true);
+    expect(selected.state.document.selection).toMatchObject({
+      anchor: { blockIndex: 0, textIndex: 0 },
+      focus: { blockIndex: 0, textIndex: 0 },
+    });
+
+    const deleted = selected.state.actionBus.dispatchState(
+      DELETE_BACKWARD,
+      selected.state,
+    );
+    expect(deleted.ops.map((op) => op.op)).toContain("block_delete");
+    expect(deleted.state.document.page.blocks[0].deleted).toBe(true);
+  });
+
   it("does not demote from a caret in the equation's interior", () => {
     let state = stateFor("$$\nx+y\n$$", "demote-interior");
     state = treeCaretAt(state, 0, 2); // after the `+`

@@ -29,7 +29,12 @@ function mathBlock(latex: string): MathBlock {
 }
 
 function stateWith(latex: string, caret: number): EditorState {
-  const page: Page = { id: "page-1", title: "t", blocks: [mathBlock(latex)] };
+  // "math" sits outside the closed core Block union, hence the crossing cast.
+  const page: Page = {
+    id: "page-1",
+    title: "t",
+    blocks: [mathBlock(latex) as never],
+  };
   const s0 = createInitialState(page, mathTestStateOptions());
   const cursor: CursorState = {
     position: { blockIndex: 0, textIndex: caret },
@@ -39,7 +44,8 @@ function stateWith(latex: string, caret: number): EditorState {
 }
 
 function text(s: EditorState) {
-  return getVisibleTextFromRuns(s.document.page.blocks[0].charRuns ?? []);
+  const block = s.document.page.blocks[0] as never as MathBlock;
+  return getVisibleTextFromRuns(block.charRuns ?? []);
 }
 
 describe("math construct materialization on type", () => {

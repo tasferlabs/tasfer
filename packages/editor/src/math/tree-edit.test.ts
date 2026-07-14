@@ -661,7 +661,7 @@ describe("structured math tree editing", () => {
     );
     const outerRow = child(document, document.rootId, "body", "row");
     const matrix = child(document, outerRow.id, "children", "matrix");
-    let caret = rowCaret(outerRow.id, null);
+    let caret: MathTreeCaret = rowCaret(outerRow.id, null);
     const visited = new Set<string>();
     const cellRows: string[] = [];
 

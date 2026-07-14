@@ -44,7 +44,7 @@ export interface MathRowCaret {
   readonly afterNodeId: string | null;
 }
 
-/** A stable gap inside the editable field of one raw-text leaf. */
+/** A stable gap inside the editable field of a raw-text or `text` leaf. */
 export interface MathTextCaret {
   readonly kind: "text";
   readonly rowId: string;
@@ -266,7 +266,7 @@ interface FractionSlot {
   readonly slot: "numerator" | "denominator";
 }
 
-/** Insert literal math text at a row gap or inside a raw-text leaf. */
+/** Insert literal math text at a row gap or inside a character-editable leaf. */
 export function insertMathText(
   document: StructuredDocument,
   caret: MathTreeCaret,
@@ -382,8 +382,9 @@ export function mathProseLatex(text: string): string {
  * `\text{中}\text{文}` siblings: cursive scripts (Arabic) only take their
  * joined forms within a single run, and one run keeps the projected source
  * readable. The caret a prose commit leaves behind is the gap right after the
- * `text` node, so a caret in that gap appends to the node; anywhere else the
- * input commits a fresh semantic `\text{…}`.
+ * `text` node, so a caret in that gap appends to the node; a caret inside a
+ * `text` node splices at its position; anywhere else the input commits a
+ * fresh semantic `\text{…}`.
  */
 export function insertMathProseText(
   document: StructuredDocument,
@@ -396,6 +397,10 @@ export function insertMathProseText(
   const resolved = resolveCaret(math, caret);
   if (!resolved) return failure(caret, "invalid-caret");
   if (text.length === 0) return success(caret, []);
+
+  if (resolved.kind === "text" && resolved.node.type === "text") {
+    return insertMathText(math, caret, text, identities);
+  }
 
   if (resolved.kind === "row" && resolved.position > 0) {
     const children = getStructuredChildren(math, resolved.row.id, "children");
@@ -535,6 +540,7 @@ export function insertMathSemanticLatex(
     | {
         readonly id: string;
         readonly characters: readonly Char[];
+        readonly source: StructuredNode;
       }
     | undefined;
   if (site.split) {
@@ -544,7 +550,7 @@ export function insertMathSemanticLatex(
         id: guarded.identities.nextId(),
         char,
       }));
-      rightLeaf = { id, characters };
+      rightLeaf = { id, characters, source: site.split.source };
     } catch {
       return failure(caret, guarded.reason() ?? "invalid-semantic-source");
     }
@@ -577,9 +583,11 @@ export function insertMathSemanticLatex(
       kind: "node_insert",
       node: {
         id: rightLeaf.id,
-        type: "raw-text",
+        // Splitting preserves the leaf kind: the suffix of a `\text{…}` prose
+        // run stays prose instead of degrading to lexable raw-text source.
+        type: rightLeaf.source.type,
         placement: targetPlacements.at(-1)!,
-        attrs: {},
+        attrs: { ...rightLeaf.source.attrs },
         textFields: { text: charsToRuns([...rightLeaf.characters]) },
       },
     });
@@ -882,7 +890,10 @@ export function completeMathCommand(
   if (!math) return failure(caret, "not-math-document");
   const resolved = resolveCaret(math, caret);
   if (!resolved) return failure(caret, "invalid-caret");
-  if (resolved.kind !== "text") return failure(caret, "no-command");
+  // Command entry lives in raw-text scratch; `text` prose never completes.
+  if (resolved.kind !== "text" || resolved.node.type !== "raw-text") {
+    return failure(caret, "no-command");
+  }
 
   const source = resolved.visibleCharacters
     .slice(0, resolved.position)
@@ -1110,10 +1121,11 @@ export function replaceMathTreeRange(
 }
 
 /**
- * Extract literal source for a supported range of raw-text siblings.
- * Structural children are deliberately reported as unsupported: callers that
- * need their canonical LaTeX must use the math document printer rather than
- * pretending a generic text concatenation is lossless.
+ * Extract literal characters for a supported range of character-editable
+ * leaves (raw-text source, `\text{…}` prose). Structural children are
+ * deliberately reported as unsupported: callers that need their canonical
+ * LaTeX must use the math document printer rather than pretending a generic
+ * text concatenation is lossless.
  */
 export function getMathTreeRangeText(
   document: StructuredDocument,
@@ -1131,7 +1143,7 @@ export function getMathTreeRangeText(
   let text = "";
   for (let index = 0; index < ordered.range.children.length; index++) {
     const node = ordered.range.children[index];
-    if (node.type === "raw-text") {
+    if (isCharacterEditableLeaf(node)) {
       const characters = visibleCharacters(node);
       const bounds = selectedTextBounds(
         ordered.range,
@@ -1207,6 +1219,18 @@ export function backspaceMathTree(
       resolveCommand,
     );
     if (atomic) return atomic;
+    if (
+      resolved.node.type === "text" &&
+      resolved.visibleCharacters.length === 1
+    ) {
+      // Prose runs go with their final character; see backspaceAtRowGap.
+      const before = gapBeforeNode(math, resolved.row.id, resolved.node.id);
+      if (before) {
+        return success(before, [
+          { kind: "node_delete", nodeId: resolved.node.id },
+        ]);
+      }
+    }
     const deleted = resolved.visibleCharacters[resolved.position - 1];
     const previous = resolved.visibleCharacters[resolved.position - 2];
     return success(
@@ -1250,6 +1274,18 @@ export function deleteForwardMathTree(
     if (atomic) return atomic;
     const deleted = resolved.visibleCharacters[resolved.position];
     if (deleted) {
+      if (
+        resolved.node.type === "text" &&
+        resolved.visibleCharacters.length === 1
+      ) {
+        // Prose runs go with their final character; see backspaceAtRowGap.
+        const before = gapBeforeNode(math, resolved.row.id, resolved.node.id);
+        if (before) {
+          return success(before, [
+            { kind: "node_delete", nodeId: resolved.node.id },
+          ]);
+        }
+      }
       return success(
         textCaret(
           resolved.row.id,
@@ -1282,6 +1318,8 @@ function atomicCommandDeletion(
   resolveCommand: MathCommandCompletionResolver | undefined,
 ): MathTreeEditResult | undefined {
   if (!resolveCommand || characterIndex < 0) return undefined;
+  // Only raw-text lexes as source; `text` prose never contains command runs.
+  if (resolved.node.type !== "raw-text") return undefined;
   const source = resolved.visibleCharacters.map(({ char }) => char).join("");
   const commands = source.matchAll(/\\([A-Za-z]+)/g);
   for (const match of commands) {
@@ -1315,7 +1353,9 @@ function expandAtomicEndpoint(
   resolveCommand: MathCommandCompletionResolver,
 ): MathTreeCaret {
   const resolved = endpoint.resolved;
-  if (resolved.kind !== "text") return endpoint.caret;
+  if (resolved.kind !== "text" || resolved.node.type !== "raw-text") {
+    return endpoint.caret;
+  }
   const source = resolved.visibleCharacters.map(({ char }) => char).join("");
   for (const match of source.matchAll(/\\([A-Za-z]+)/g)) {
     const start = match.index;
@@ -1800,9 +1840,15 @@ function backspaceAtRowGap(
   const previous = children[resolved.position - 1];
   if (!previous) return failure(originalCaret, "no-navigation-target");
 
-  if (previous.type === "raw-text") {
+  if (isCharacterEditableLeaf(previous)) {
     const characters = visibleCharacters(previous);
-    if (characters.length === 0) {
+    // A `text` node exists only to carry prose: deleting its final character
+    // removes the node with it, so no invisible `\text{}` husk stays in the
+    // source. Raw-text keeps its empty leaf — it is command-entry scratch.
+    if (
+      characters.length === 0 ||
+      (previous.type === "text" && characters.length === 1)
+    ) {
       return success(gapBeforeNode(document, resolved.row.id, previous.id)!, [
         { kind: "node_delete", nodeId: previous.id },
       ]);
@@ -1832,27 +1878,6 @@ function backspaceAtRowGap(
     return destination
       ? success(destination, [])
       : failure(originalCaret, "no-navigation-target");
-  }
-
-  // A `text` node is an editable prose run, not an opaque atom: peel its last
-  // character (mirroring flat-source `\text{…}` editing) and remove the node
-  // only once its final character goes.
-  if (previous.type === "text") {
-    const characters = visibleCharacters(previous);
-    if (characters.length > 1) {
-      return success(gap, [
-        {
-          kind: "text_delete",
-          nodeId: previous.id,
-          field: "text",
-          charIds: [characters.at(-1)!.id],
-        },
-      ]);
-    }
-    const before = gapBeforeNode(document, resolved.row.id, previous.id);
-    return before
-      ? success(before, [{ kind: "node_delete", nodeId: previous.id }])
-      : failure(originalCaret, "invalid-caret");
   }
 
   if (isAtomicMathLeaf(previous)) {
@@ -1885,9 +1910,14 @@ function deleteForwardAtRowGap(
 
   const children = getStructuredChildren(document, resolved.row.id, "children");
   const next = children[resolved.position];
-  if (next?.type === "raw-text") {
+  if (next && isCharacterEditableLeaf(next)) {
     const characters = visibleCharacters(next);
-    if (characters.length === 0) {
+    // Mirror of the Backspace rule: a `text` node goes with its final
+    // character instead of leaving an invisible `\text{}` husk.
+    if (
+      characters.length === 0 ||
+      (next.type === "text" && characters.length === 1)
+    ) {
       return success(gap, [{ kind: "node_delete", nodeId: next.id }]);
     }
     return success(originalCaret, [
@@ -1910,23 +1940,6 @@ function deleteForwardAtRowGap(
     return destination
       ? success(destination, [])
       : failure(originalCaret, "no-navigation-target");
-  }
-
-  // Mirror of the Backspace rule for prose runs: forward delete peels the
-  // run's first character and removes the node only with its last one.
-  if (next?.type === "text") {
-    const characters = visibleCharacters(next);
-    if (characters.length > 1) {
-      return success(originalCaret, [
-        {
-          kind: "text_delete",
-          nodeId: next.id,
-          field: "text",
-          charIds: [characters[0].id],
-        },
-      ]);
-    }
-    return success(originalCaret, [{ kind: "node_delete", nodeId: next.id }]);
   }
 
   if (next && isAtomicMathLeaf(next)) {
@@ -2247,18 +2260,18 @@ function moveLeftFromRowGap(
 /**
  * Advance right by one visible stop from the gap before `node`.
  *
- * A raw-text start and the row gap immediately before it share the same painted
- * caret geometry. Returning the text start would therefore consume an arrow
- * press without moving the caret. Enter the first character instead. Atomic
- * nodes similarly move from their leading edge to their trailing edge, while
- * multi-row constructs remain enterable.
+ * A text-leaf start and the row gap immediately before it share the same
+ * painted caret geometry. Returning the text start would therefore consume an
+ * arrow press without moving the caret. Enter the first character instead.
+ * Atomic nodes similarly move from their leading edge to their trailing edge,
+ * while multi-row constructs remain enterable.
  */
 function moveIntoNextNode(
   document: StructuredDocument,
   rowId: string,
   node: StructuredNode,
 ): MathTreeCaret {
-  if (node.type === "raw-text") {
+  if (isCharacterEditableLeaf(node)) {
     const first = visibleCharacters(node)[0];
     return first
       ? textCaret(rowId, node.id, first.id)
@@ -2276,7 +2289,7 @@ function moveIntoPreviousNode(
   rowId: string,
   node: StructuredNode,
 ): MathTreeCaret {
-  if (node.type === "raw-text") {
+  if (isCharacterEditableLeaf(node)) {
     const characters = visibleCharacters(node);
     return textCaret(rowId, node.id, characters.at(-2)?.id ?? null);
   }
@@ -2368,7 +2381,7 @@ function enterNode(
   node: StructuredNode,
   edge: "start" | "end",
 ): MathTreeCaret {
-  if (node.type === "raw-text") {
+  if (isCharacterEditableLeaf(node)) {
     const characters = visibleCharacters(node);
     return textCaret(
       rowId,
@@ -2648,7 +2661,7 @@ function editsForOrderedRange(range: ResolvedOrderedRange): StructuredEdit[] {
   const edits: StructuredEdit[] = [];
   for (let index = 0; index < range.children.length; index++) {
     const node = range.children[index];
-    if (node.type !== "raw-text") {
+    if (!isCharacterEditableLeaf(node)) {
       if (isFullySelectedChild(range, index)) {
         edits.push({ kind: "node_delete", nodeId: node.id });
       }
@@ -2866,7 +2879,7 @@ function nodeHasSemanticContent(
   node: StructuredNode,
 ): boolean {
   return (
-    node.type !== "raw-text" ||
+    !isCharacterEditableLeaf(node) ||
     getStructuredText(document, node.id, "text").length > 0
   );
 }
@@ -2877,7 +2890,9 @@ function isEmptyNavigationPlaceholder(
   node: StructuredNode | undefined,
 ): boolean {
   if (!node) return false;
-  if (node.type === "raw-text") return visibleCharacters(node).length === 0;
+  if (isCharacterEditableLeaf(node)) {
+    return visibleCharacters(node).length === 0;
+  }
   return (
     node.type === "raw-latex" &&
     getStructuredText(document, node.id, "latex") === "{}"

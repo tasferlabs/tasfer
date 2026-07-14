@@ -10,9 +10,9 @@ import { handleMouseDown, handleMouseMove } from "../events/mouseEvents";
 import { handleTouchEnd, handleTouchMove } from "../events/touchEvents";
 import { mathExtension } from "../math-extension";
 import { MathNode } from "../nodes/MathNode";
+import type { TextNodeLayout } from "../nodes/TextNode";
 import { createMarkRegistry } from "../rendering/marks";
 import { createNodeRegistry } from "../rendering/nodes";
-import type { NodeLayout } from "../rendering/nodes/Node";
 import { baseSchema } from "../schema";
 import { getContentSelectionFromViewport, updateFocus } from "../selection";
 import { loadPage } from "../serlization/loadPage";
@@ -35,6 +35,7 @@ import {
 import type {
   MathDocumentCaretPosition,
   MathDocumentLayout,
+  MathLayout,
 } from "@cypherkit/tex";
 import { mathDocumentCaretStop } from "@cypherkit/tex";
 import { describe, expect, it } from "vitest";
@@ -47,7 +48,11 @@ const viewport: ViewportState = {
   documentHeight: 600,
 };
 
-interface TestMathLayout extends NodeLayout {
+// The private MathNodeLayout shape this suite reads back — a TextNodeLayout
+// (so it can be handed straight back to MathNode geometry hooks) augmented
+// with the equation placement fields the tests assert on.
+interface TestMathLayout extends TextNodeLayout {
+  readonly mathLayout: MathLayout | null;
   readonly mathDocumentLayout: MathDocumentLayout;
   readonly mathOffsetX: number;
   readonly mathTop: number;

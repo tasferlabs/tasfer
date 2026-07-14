@@ -23,7 +23,7 @@ import {
 import { createDoc } from "./doc";
 import { mathExtension } from "./math-extension";
 import { baseSchema } from "./schema";
-import type { Block, Page } from "./serlization/loadPage";
+import type { Block, MarkSpan, Page } from "./serlization/loadPage";
 import { normalizeBlocks } from "./serlization/normalize";
 import type { BlockInsert, CursorState, EditorState } from "./state-types";
 import { createInitialState } from "./state-utils";
@@ -195,12 +195,16 @@ describe("normalizeBlocks", () => {
       ],
     } as unknown as Block;
     const [out] = normalizeBlocks([withMark], plainSchema.data);
-    expect((out as { formats: [] }).formats).toEqual([]);
+    expect((out as { formats: MarkSpan[] }).formats).toEqual([]);
   });
 
   it("coerces a disallowed math block, keeping its LaTeX as text", () => {
     const [out] = normalizeBlocks(
-      [textual("math", "m-1", "a0", "x^2", { displayMode: true })],
+      [
+        textual("math" as Block["type"], "m-1", "a0", "x^2", {
+          displayMode: true,
+        }),
+      ],
       plainSchema.data,
     );
     expect(out.type).toBe("paragraph");

@@ -182,8 +182,9 @@ describe("optional math live-input rules", () => {
 
     const redone = redoState(undone).state;
     expect(redone.document.page.blocks[0].type).toBe("math");
-    expect(getMathStructuredDocument(redone.document.page.blocks[0]))
-      .toBeDefined();
+    expect(
+      getMathStructuredDocument(redone.document.page.blocks[0]),
+    ).toBeDefined();
   });
 
   it("keeps full-extension input facets available to custom editor schemas", () => {

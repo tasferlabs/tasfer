@@ -537,10 +537,12 @@ describe("interactive structured MathMark", () => {
         "charRuns" in candidate &&
         getVisibleTextFromRuns(candidate.charRuns) === `second${A}b`,
     );
-    const contentId = tail
-      ? resolveMarkRuns(tail).find((run) => run.attrs.contentId)?.attrs
-          .contentId
-      : undefined;
+    const contentId = (
+      tail
+        ? resolveMarkRuns(tail).find((run) => run.attrs.contentId)?.attrs
+            .contentId
+        : undefined
+    ) as string | undefined;
     expect(typeof contentId).toBe("string");
     expect(contentId && tail?.structuredContent?.[contentId]).toBeDefined();
     expect(
@@ -722,7 +724,7 @@ describe("interactive structured MathMark", () => {
       Object.values(document.nodes).some(
         (node) =>
           node.type === "raw-text" &&
-          getVisibleTextFromRuns(node.textFields.text).includes("sqrt"),
+          getVisibleTextFromRuns([...node.textFields.text]).includes("sqrt"),
       ),
     ).toBe(false);
 
