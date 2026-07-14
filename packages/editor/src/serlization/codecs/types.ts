@@ -30,6 +30,7 @@
  * `OutputCtx.renderReplacement`, never a feature import in the core serializer.
  */
 
+import type { StructuredContentMap } from "../../sync/structured-content";
 import type { Block, CharRun, MarkSpan } from "../loadPage";
 import type { Token, TokenType } from "../tokenizer";
 
@@ -87,9 +88,15 @@ export interface InputCtx {
   nextBlockId(): string;
   /**
    * Parse inline tokens up to the end of line into CRDT runs + format spans.
-   * Consumes the trailing newline.
+   * Consumes the trailing newline. Structured marks (e.g. inline math) arrive
+   * with their eager attachments in `structuredContent`; a codec that uses
+   * inline text must carry it onto the block.
    */
-  inlineText(): { charRuns: CharRun[]; formats: MarkSpan[] };
+  inlineText(): {
+    charRuns: CharRun[];
+    formats: MarkSpan[];
+    structuredContent?: StructuredContentMap;
+  };
   /**
    * Build CRDT runs from a literal string — no inline-mark parsing, newlines
    * kept verbatim. For blocks whose text is raw source (e.g. code). The caller

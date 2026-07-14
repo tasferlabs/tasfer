@@ -3,16 +3,12 @@
  *
  * A "turn into math" conversion (slash menu, context menu, public
  * `setBlock({ type: "math" })`) of a paragraph whose only content is one
- * inline math chip must survive the chip owning a structured attachment.
- * Core's generic conversion refuses blocks with structured content — a flat
- * morph would orphan the persisted document, and an attached chip's flat
- * characters are only a (possibly stale) compatibility projection — so it
- * offers the conversion through CONVERT_STRUCTURED_BLOCK, and MathNode claims
- * it: the supplemental tree becomes the block's display authority, losslessly.
- *
- * Regression: before this seam the conversion silently no-opped the moment the
- * chip had been structurally edited (its structured attachment persisted),
- * while an untouched `$…$` chip still converted through the textual path.
+ * inline math chip must be lossless. The chip's formula lives exclusively in
+ * its supplemental attachment — the flat text is just the anchor char — so a
+ * generic flat morph would orphan the persisted document. Core refuses the
+ * textual path for blocks with structured content and offers the conversion
+ * through CONVERT_STRUCTURED_BLOCK; MathNode claims it and the supplemental
+ * tree becomes the block's display authority.
  */
 import { convertBlockAtCursor, insertText } from "../actions/actions";
 import { mathExtension } from "../math-extension";
@@ -55,24 +51,26 @@ function typeString(state: EditorState, text: string): EditorState {
 }
 
 /**
- * A paragraph whose only content is one inline chip that owns a persisted
- * structured attachment: type the `$…$` source, enter the chip (a click),
- * and make one tree edit so the attachment materializes and the flat chars
- * become a stale projection. Returns the state with a flat caret parked at
- * the block start (chip boundary), like a caret returning from prose.
+ * A paragraph whose only content is one inline chip: type the `$…$` source
+ * (the input rule mints the attachment eagerly), enter the chip at its flat
+ * boundary, and make one tree edit so the promoted content demonstrably
+ * comes from the live tree, not the originally typed source. Returns the
+ * state with a flat caret parked at the block start (chip boundary), like a
+ * caret returning from prose.
  */
 function attachedChipState(latex: string): EditorState {
   let state = emptyState();
   state = moveCursorToPosition(state, 0, 0);
   state = typeString(state, `$${latex}$`);
-  const entered = enterInlineMathTreeAtPosition(state, 0, 5, {
+  // The chip is the single anchor char at [0, 1); enter at its trailing edge.
+  const entered = enterInlineMathTreeAtPosition(state, 0, 1, {
     allowBoundary: true,
   });
   if (!entered) throw new Error("expected to enter the inline chip");
   state = insertText(entered.state, "b").state;
   const block = state.document.page.blocks[0];
   if (!hasStructuredContent(block)) {
-    throw new Error("expected the chip edit to persist an attachment");
+    throw new Error("expected the chip to own a structured attachment");
   }
   return moveCursorToPosition(state, 0, 0);
 }
@@ -101,17 +99,17 @@ describe("inline chip → display equation promote", () => {
     const run = resolveStructuredInlineMathRuns(
       before as never as InlineMathHostBlock,
     )[0];
-    // Canonical tree source (with the "b" edit) vs the stale projection.
-    expect(run.latex).not.toBe(run.compatibilityLatex);
+    // The tree edit made after typing is part of the canonical source.
+    expect(run.latex).toBe(`${LATEX}b`);
 
     const { state: converted, ops } = convertBlockAtCursor(state, {
       type: MATH,
     });
     const block = converted.document.page.blocks[0];
     expect(block.type).toBe(MATH);
-    // The display tree carries the canonical source, not the stale chars.
+    // The display tree carries the chip's canonical source.
     expect(getStructuredMathSource(block)).toBe(run.latex);
-    // Flat text stays empty — a tree-backed equation has no legacy source.
+    // Flat text stays empty — a tree-backed equation owns no block chars.
     expect(visibleTextOf(block)).toBe("");
     // The chip's supplemental attachment is gone; only the display root remains.
     expect(Object.keys(block.structuredContent ?? {})).toEqual([

@@ -29,6 +29,7 @@ import {
   MOVE_CURSOR_UP,
 } from "../../actions/keyboard-actions";
 import { TEXT_CLICK } from "../../actions/pointer-actions";
+import { getInlineMathSpans } from "../../inline-math-spans";
 import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "../../math/actions";
 import {
   getInlineMathStructuredDocument,
@@ -61,18 +62,11 @@ import {
   mathTreeCaretToContentSelection,
 } from "../../math/tree-selection";
 import {
-  getInlineMathBreakpoints,
   getInlineMathCaretRect,
   getInlineMathDims,
   getInlineMathOffsetAtX,
   getInlineMathSelectionRects,
-  getInlineMathWordRange,
-  mathCaretMove,
   mathCommandRanges,
-  mathDeleteUnit,
-  mathSelectionRange,
-  mathTransformTypedInput,
-  mathUnitAt,
 } from "../../nodes/math";
 // Host-wired layout so `\text{…}` CJK/unsupported glyphs typeset (see tex-host).
 import {
@@ -340,34 +334,6 @@ const inlineMathReplacement: MarkReplacement = {
       commandRangesFor(text, edit).literalRange,
     );
   },
-  wordRangeAt(text, offset) {
-    // Double-tap / double-click inside a chip selects the CONSTRUCT under the
-    // caret (the `\sqrt{…}`, the `\frac`, the script `x^{2}`), not the whole chip
-    // — the same "take the thing you're pointing at, whole" rule the block
-    // equation uses. A chip's visible chars ARE its LaTeX, so `offset` is already a
-    // source offset. Returns null for an empty chip → caller keeps the whole run.
-    const unit = mathUnitAt(text, offset);
-    return unit ? { start: unit.start, end: unit.end } : null;
-  },
-  wordRangeFromPoint(text, fontSize, localX, localY, edit) {
-    // Resolve the double-tap construct from the POINT, so an atomic command chip
-    // (`\det`, `\sin`, `\lim`) — whose only caret stops are its two edges — is
-    // still selectable: the offset path would land on a chip boundary and miss it,
-    // but the point lands on the command's glyphs. Lay out with the same
-    // `literalRange` `paint` uses so the box tree matches what is drawn.
-    return getInlineMathWordRange(
-      text,
-      fontSize * INLINE_MATH_SCALE,
-      localX,
-      localY,
-      commandRangesFor(text, edit).literalRange,
-    );
-  },
-  breakpoints(text) {
-    // Source offsets into the chip's LaTeX == visible-char offsets within the run
-    // (a chip's visible chars ARE its LaTeX), independent of font size.
-    return getInlineMathBreakpoints(text);
-  },
   paint({ ctx, text, x, y, fontSize, isRTL, hovered, dims, styles, edit }) {
     const mathStyle = styles.textFormats.inlineMath;
     const mathWidth = dims.width;
@@ -571,20 +537,15 @@ export class MathMark extends Mark {
   }
 
   // ── Caret model (inline chip) ───────────────────────────────────────────────
-  // A chip's visible chars ARE its LaTeX, so a chip-local offset is
-  // `blockIndex − span.startIndex`. The chip isn't an opaque atom — the caret
-  // descends into it — so it overrides `move`/`deleteUnit` (the shared math model
-  // in `nodes/math` finds the chip the index sits in and answers per-chip) rather
-  // than declaring `atomicSpans`. A block equation is the MathNode's concern;
-  // this mark model is invoked only for a resolved inline run. The post-edit
-  // *effect* (materialize a construct / arm scratch) is owned by MathNode's
-  // TEXT_INPUTTED observer, which covers inline chips too — so there is none here.
+  // A chip is one atomic anchor char: the caret steps over it as one stop and
+  // whole-unit behavior derives from the declared spans. Editing inside the
+  // formula is tree-mode (nested selection) — none of it flows through flat
+  // offsets, so the escape-hatch methods are deliberately absent.
   readonly caret: CaretModel = {
-    move: (block, index, motion) => mathCaretMove(block, index, motion),
-    deleteUnit: (block, index, dir) => mathDeleteUnit(block, index, dir),
-    transformInput: (block, index, input) =>
-      mathTransformTypedInput(block, index, input),
-    selectionRange: (block, anchor, focus, focusEdge) =>
-      mathSelectionRange(block, anchor, focus, focusEdge),
+    atomicSpans: (block) =>
+      getInlineMathSpans(block).map((span) => ({
+        start: span.startIndex,
+        end: span.endIndex,
+      })),
   };
 }

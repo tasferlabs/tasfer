@@ -21,7 +21,7 @@ describe("math block delete + undo", () => {
     const binding = createCRDTbinding("math-undo-page", "p001");
     const engine = createMathTestSyncEngine(binding);
 
-    const insertOp = engine.createBlockInsert(null, "math", {
+    const insertOp = engine.createBlockInsert("a0", "math", {
       displayMode: true,
     });
     engine.emit([insertOp]);

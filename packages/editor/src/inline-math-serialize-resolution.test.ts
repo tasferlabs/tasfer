@@ -28,7 +28,7 @@ import { describe, expect, it } from "vitest";
 function chipDoc(latex: string) {
   const binding = createCRDTbinding("ser-res", "peer-1");
   const engine = createMathTestSyncEngine(binding);
-  const blockOp = engine.createBlockInsert(null, "paragraph", {});
+  const blockOp = engine.createBlockInsert("a0", "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
   let page = engine.getState();

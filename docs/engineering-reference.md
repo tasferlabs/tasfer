@@ -48,12 +48,20 @@ the action payload so action transforms remain pure.
 
 ## Math editing
 
-Block and inline LaTeX editing has a recurring source-corruption problem rooted
-in its flat-string edit model. Before changing `packages/tex/src/edit`,
-`packages/tex/src/parse`, or the math nodes in `packages/editor/src`, read
-[`math-editing-corruption.md`](math-editing-corruption.md): it records the
-reproduced root causes and the phased plan to fix the bug class rather than
-patch further instances.
+Math content has exactly one representation: a structured `MathDocument` in
+the block's `structuredContent`, created eagerly by every authoring/import
+path. A display equation is a `math` block with EMPTY flat text and a
+block-authority document; an inline equation is a `math` mark anchored on a
+single U+FFFC placeholder character whose `attrs.contentId` references a
+supplemental document. No LaTeX is ever stored in block characters, there is
+no lazy migration, and flat offsets never address formula content — all
+formula editing flows through the tree controller and nested content
+selections. LaTeX is derived by printing the tree (canonicalized — e.g. `x^2`
+prints as `{x}^{2}`) for rendering, markdown/HTML export, and clipboard.
+
+The historical flat-string edit model and its corruption class are documented
+in [`math-editing-corruption.md`](math-editing-corruption.md); the structured
+model above is the resolution of that plan.
 
 ## CRDT and persistence
 

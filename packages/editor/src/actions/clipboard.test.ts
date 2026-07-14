@@ -7,7 +7,10 @@
  */
 
 import { mathTestSchema } from "../__testutils__/math";
-import { getInlineMathSpans } from "../inline-math-spans";
+import {
+  type InlineMathHostBlock,
+  resolveStructuredInlineMathRuns,
+} from "../math/inline-structured";
 import { moveCursorToPosition } from "../selection";
 import type { Block, CharRun } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
@@ -83,9 +86,9 @@ describe("atomicBlockInsertOps", () => {
     });
   });
 
-  // (Math is no longer atomic — it's a textual block whose char-run text IS the
-  // LaTeX, so it copies through the textual char-run path, not
-  // atomicBlockInsertOps.)
+  // (Math does not paste through atomicBlockInsertOps: its content is a
+  // structured attachment, so it travels as markdown in the clipboard marker
+  // and re-imports as a fresh block-authority document.)
 
   it("emits only a block_insert for a line (no fields)", () => {
     const line = {
@@ -257,12 +260,17 @@ describe("repairMathBackslashes", () => {
   // The defuddle/turndown HTML → Markdown path doubles every backslash and only
   // un-doubles a few non-backslash escapes, so pasted inline math arrives with
   // `\\degree` where the source had `\degree`. The math chip then renders the
-  // stray backslash literally. Pin the repair so the chip's LaTeX is verbatim.
+  // stray backslash literally. Pin the repair so the chip's tree parses the
+  // intended commands (import canonicalizes the source, e.g. `T_1` → `{T}_{1}`).
   const latexOf = (markdown: string) =>
     loadPage(
       repairMathBackslashes(markdown),
       mathTestSchema.data,
-    ).blocks.flatMap((b) => getInlineMathSpans(b).map((s) => s.latex));
+    ).blocks.flatMap((b) =>
+      resolveStructuredInlineMathRuns(b as never as InlineMathHostBlock).map(
+        (run) => run.latex,
+      ),
+    );
 
   it("collapses doubled backslashes inside inline math (turndown artifact)", () => {
     // `$T_1=100\degree C$` round-trips through turndown as `\\degree`.
@@ -270,7 +278,7 @@ describe("repairMathBackslashes", () => {
       "- $T_1=100\\degree C = 373.15 K$",
     );
     expect(latexOf("- $T_1=100\\\\degree C = 373.15 K$")).toEqual([
-      "T_1=100\\degree C = 373.15 K",
+      "{T}_{1}=100\\degree C=373.15K",
     ]);
     expect(latexOf("$Q=\\\\boxed{}$")).toEqual(["Q=\\boxed{}"]);
   });

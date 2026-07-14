@@ -316,13 +316,14 @@ export class QuoteNode extends TextNode {
       },
       input: (ctx) => {
         ctx.match(QUOTE);
-        const { charRuns, formats } = ctx.inlineText();
+        const { charRuns, formats, structuredContent } = ctx.inlineText();
         ctx.match(NEWLINE);
         return {
           id: ctx.nextBlockId(),
           type: "quote",
           charRuns,
           formats,
+          ...(structuredContent ? { structuredContent } : {}),
         } as QuoteBlock;
       },
     },

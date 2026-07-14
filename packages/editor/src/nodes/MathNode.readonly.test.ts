@@ -9,7 +9,8 @@
 
 import { createMathTestState } from "../__testutils__/math";
 import { POINTER_MOVE } from "../actions/pointer-actions";
-import type { EditorState, Page, ViewportState } from "../state-types";
+import type { Page } from "../serlization/loadPage";
+import type { EditorState, ViewportState } from "../state-types";
 import type { MathBlock } from "./MathNode";
 import { describe, expect, it } from "vitest";
 

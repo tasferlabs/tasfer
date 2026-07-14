@@ -1,6 +1,7 @@
 import { convertBlockAtCursor, deleteForward } from "../actions/actions";
 import type { HostClipboard } from "../actions/clipboard";
 import { createFeatureMarkInRange } from "../actions/structured-marks";
+import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import { mathExtension } from "../math-extension";
 import { createMarkRegistry } from "../rendering/marks";
 import { createNodeRegistry } from "../rendering/nodes";
@@ -256,16 +257,15 @@ describe("Editor structured-content public API", () => {
     ).toBe("changed");
 
     expect(editor.undo()).toBe(true);
-    const undone = editor.query.content(blockId, contentId);
-    expect(undone).not.toBeNull();
-    expect(undone?.nodes[contentId]).toBeDefined();
-    expect(undone?.nodes[contentId].attrs.label).toBeUndefined();
-    // Initialization is monotonic; only the user attribute edit is inverted.
-    expect(broadcasts[1]).toHaveLength(1);
-    expect(broadcasts[1][0]).toMatchObject({
-      op: "content_edit",
-      edit: { kind: "node_attr_delete", nodeId: contentId, key: "label" },
-    });
+    // Content is created eagerly by an explicit user action, so undoing that
+    // transaction removes the whole attachment again — init included.
+    expect(editor.query.content(blockId, contentId)).toBeNull();
+    expect(broadcasts[1]).toContainEqual(
+      expect.objectContaining({
+        op: "content_edit",
+        edit: expect.objectContaining({ kind: "document_delete" }),
+      }),
+    );
 
     editor.destroy();
   });
@@ -299,22 +299,17 @@ describe("Editor structured-content public API", () => {
     editor.destroy();
   });
 
-  it("routes explicit ChangeApi replacement and deletion through tree migration", () => {
-    const edits: Array<{
-      expected: string;
-      apply(change: ChangeApi, range: DocRange): void;
-    }> = [
-      {
-        expected: "$$\naXd\n$$",
-        apply: (change, range) => {
-          change.insertText("X", range);
-        },
+  it("refuses explicit ChangeApi flat ranges into a display equation", () => {
+    // A math block has no flat text: a public offset into the equation
+    // addresses nothing. Refusing beats silently landing the edit at the
+    // equation's start — structured content is edited through nested
+    // selections (editContent/selectContent).
+    const edits: Array<(change: ChangeApi, range: DocRange) => void> = [
+      (change, range) => {
+        change.insertText("X", range);
       },
-      {
-        expected: "$$\nad\n$$",
-        apply: (change, range) => {
-          change.deleteRange(range);
-        },
+      (change, range) => {
+        change.deleteRange(range);
       },
     ];
     for (const edit of edits) {
@@ -326,25 +321,27 @@ describe("Editor structured-content public API", () => {
         to: { block: blockId, offset: 3 },
       } as const;
 
-      expect(editor.change((change) => edit.apply(change, range))).toBe(true);
-      expect(editor.getMarkdown()).toBe(edit.expected);
-      expect(broadcasts).toHaveLength(1);
-      expect(
-        broadcasts[0].some(
-          (op) => op.op === "content_edit" && op.edit.kind === "document_init",
-        ),
-      ).toBe(true);
+      expect(editor.change((change) => edit(change, range))).toBe(false);
+      expect(editor.getMarkdown()).toBe("$$\nabcd\n$$");
+      expect(broadcasts).toHaveLength(0);
       editor.destroy();
     }
   });
 
-  it("treats peer-attached inline marks as atomic public-range and cut units", async () => {
+  it("treats attached inline chips as atomic public-range and cut units", async () => {
+    // A chip is exactly one anchor char in the flat text (`a␣b` is a￼b), so a
+    // public range either misses it or takes it whole — attachment included.
+    const chipText = `a${STRUCTURED_MARK_ANCHOR_CHAR}b`;
+
     const deleted = createAttachedInlineMathEditor();
+    expect(deleted.editor.query.block({ block: deleted.blockId })?.text).toBe(
+      chipText,
+    );
     expect(
       deleted.editor.change((change) =>
         change.deleteRange({
-          from: { block: deleted.blockId, offset: 2 },
-          to: { block: deleted.blockId, offset: 4 },
+          from: { block: deleted.blockId, offset: 1 },
+          to: { block: deleted.blockId, offset: 3 },
         }),
       ),
     ).toBe(true);
@@ -371,7 +368,7 @@ describe("Editor structured-content public API", () => {
 
     const { editor, blockId } = createAttachedInlineMathEditor();
     const unchanged = () => {
-      expect(editor.query.block({ block: blockId })?.text).toBe("axyb");
+      expect(editor.query.block({ block: blockId })?.text).toBe(chipText);
       expect(editor.getMarkdown()).toBe("a$xy$b");
     };
 
@@ -383,7 +380,7 @@ describe("Editor structured-content public API", () => {
           active: false,
           range: {
             from: { block: blockId, offset: 1 },
-            to: { block: blockId, offset: 3 },
+            to: { block: blockId, offset: 2 },
           },
         }),
       ),
@@ -402,7 +399,7 @@ describe("Editor structured-content public API", () => {
     editor.setClipboard(clipboard);
     editor.setSelection({
       from: { block: blockId, offset: 0 },
-      to: { block: blockId, offset: 3 },
+      to: { block: blockId, offset: 2 },
     });
     expect(await editor.cut()).toBe(true);
     expect(editor.query.block({ block: blockId })?.text).toBe("b");
@@ -432,7 +429,7 @@ describe("Editor structured-content public API", () => {
       throw new Error("paste did not initialize the cloned attachment");
     }
     expect(editor.query.block({ block: clonedInit.blockId })?.text).toBe(
-      "secondxyb",
+      `second${STRUCTURED_MARK_ANCHOR_CHAR}b`,
     );
 
     const clonedMark = broadcasts[0].find(
@@ -460,36 +457,34 @@ describe("Editor structured-content public API", () => {
     editor.destroy();
   });
 
-  it("routes ChangeApi deleteRange(selection) through feature ownership", () => {
+  it("refuses ChangeApi deleteRange over a selection inside a display equation", () => {
+    // The equation owns no flat text, so a selection-shaped public delete has
+    // nothing addressable to remove — the transaction reports no-op.
     const { editor, blockId } = createMathEditor();
     editor.setSelection({
       from: { block: blockId, offset: 1 },
       to: { block: blockId, offset: 3 },
     });
 
-    expect(editor.change((change) => change.deleteRange())).toBe(true);
-    expect(editor.getMarkdown()).toBe("$$\nad\n$$");
+    expect(editor.change((change) => change.deleteRange())).toBe(false);
+    expect(editor.getMarkdown()).toBe("$$\nabcd\n$$");
     editor.destroy();
   });
 
   it("deletes an authoritative endpoint atomically in a cross-block range", () => {
     const { editor, blockIds } = createMathEditor("$$\nabc\n$$\n\noutside");
+    const outsideId = blockIds[blockIds.length - 1];
     editor.setSelection({
-      from: { block: blockIds[0], offset: 1 },
-      to: { block: blockIds[0], offset: 2 },
-    });
-    expect(editor.change((change) => change.deleteRange())).toBe(true);
-    expect(editor.getMarkdown()).toBe("$$\nac\n$$\n\noutside");
-
-    editor.setSelection({
-      from: { block: blockIds[0], offset: 1 },
-      to: { block: blockIds[2], offset: 2 },
+      from: { block: blockIds[0], offset: 0 },
+      to: { block: outsideId, offset: 2 },
     });
 
+    // The equation cannot be split at a flat offset, so the range consumes the
+    // whole block — attachment and all — and undo restores both.
     expect(editor.change((change) => change.deleteRange())).toBe(true);
     expect(editor.getMarkdown()).toBe("tside");
     expect(editor.undo()).toBe(true);
-    expect(editor.getMarkdown()).toBe("$$\nac\n$$\n\noutside");
+    expect(editor.getMarkdown()).toBe("$$\nabc\n$$\n\noutside");
     editor.destroy();
   });
 
@@ -498,14 +493,15 @@ describe("Editor structured-content public API", () => {
     const broadcasts: Operation[][] = [];
     editor.setBroadcast((ops) => broadcasts.push(ops));
 
-    // The first edit lazily migrates the legacy equation and leaves a nested
-    // ContentSelection, i.e. no flat caret for setBlock's generic path.
+    // A caret at the block edge enters the tree: the keystroke lands at the
+    // formula's start and leaves a nested ContentSelection, i.e. no flat caret
+    // for setBlock's generic path.
     expect(
       editor.change((change) =>
-        change.select({ block: blockId, offset: 2 }).insertText("X"),
+        change.select({ block: blockId, offset: 0 }).insertText("X"),
       ),
     ).toBe(true);
-    expect(editor.getMarkdown()).toBe("$$\nabXcd\n$$");
+    expect(editor.getMarkdown()).toBe("$$\nXabcd\n$$");
     const content = editor.state.contentSelection;
     expect(content).not.toBeNull();
     const contentId = content!.focus.contentId;
@@ -524,7 +520,7 @@ describe("Editor structured-content public API", () => {
     expect(editor.getMarkdown()).toBe("$$\nabcd\n$$");
     expect(editor.query.content(blockId, contentId)).not.toBeNull();
     expect(editor.redo()).toBe(true);
-    expect(editor.getMarkdown()).toBe("$$\nabXcd\n$$");
+    expect(editor.getMarkdown()).toBe("$$\nXabcd\n$$");
     expect(editor.query.content(blockId, contentId)).not.toBeNull();
     editor.destroy();
   });

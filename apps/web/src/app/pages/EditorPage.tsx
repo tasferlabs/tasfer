@@ -1,6 +1,5 @@
 import type { SyncState } from "@/app/hooks/useP2PRoom";
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -38,6 +37,7 @@ import {
   ChevronDown,
   ChevronRight,
   History,
+  Image as ImageIcon,
   Trash,
 } from "lucide-react";
 import { DateTime } from "luxon";
@@ -66,6 +66,7 @@ import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
 import { SnapshotRestore } from "../components/SnapshotRestore";
+import { openImageUploadMenu } from "@/editorSchema";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import {
   NARROW_CONTENT_WIDTH,
@@ -81,6 +82,11 @@ import style from "./EditorPage.module.css";
 
 const SCHEDULE_TAG_HEIGHT = 40;
 const SCHEDULE_TAG_PADDING = { paddingTop: SCHEDULE_TAG_HEIGHT } as const;
+
+// Quiet text-button styling shared by the page-top tag row (schedule, add
+// cover): muted icon + label that brighten on hover, like inline page
+// controls rather than pill badges.
+const PAGE_TAG_CLASS = "text-muted-foreground hover:text-foreground gap-1.5";
 
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
@@ -468,9 +474,21 @@ export default function EditorPage() {
           ref={scheduleTagRef}
           className="pointer-events-none absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-4 py-2 md:px-[40px]"
         >
-          <div className="pointer-events-auto">
+          {/* Ghost buttons carry internal padding; pull the first one back so
+              its label stays flush with the text column. */}
+          <div className="pointer-events-auto -ms-2.5">
             <ScheduleTag pageId={id} readonly={readonly} />
           </div>
+          {!readonly && (
+            <div className="pointer-events-auto">
+              <AddCoverTag
+                getContainerRect={() =>
+                  scheduleTagRef.current?.parentElement?.getBoundingClientRect() ??
+                  null
+                }
+              />
+            </div>
+          )}
         </div>
         <MountedEditor
           snapshot={pageSnapshot}
@@ -665,6 +683,67 @@ function ScheduleContent({
   );
 }
 
+/**
+ * Quick "Add cover" chip next to the schedule tag. Inserts a placeholder image
+ * block at the very top of the page and immediately opens the existing image
+ * upload popover for it — the same overlay a placeholder image opens on click
+ * (see `CypherImageNode.activate`). Hidden while the page already starts with
+ * an image, so the cover slot can't be stacked from here.
+ */
+function AddCoverTag({
+  getContainerRect,
+}: {
+  getContainerRect: () => DOMRect | null;
+}) {
+  const { t } = useTranslation();
+  const { editor } = useActiveEditor();
+  const [hasCover, setHasCover] = useState(true);
+
+  useEffect(() => {
+    if (!editor) return;
+    const recompute = () =>
+      setHasCover(editor.query.block("start")?.type === "image");
+    recompute();
+    return editor.subscribe(recompute);
+  }, [editor]);
+
+  if (!editor || hasCover) return null;
+
+  const addCover = (e: React.MouseEvent<HTMLElement>) => {
+    const first = editor.query.block("start");
+    editor.change((c) =>
+      c.insertBlock(
+        { type: "image" },
+        first ? { block: first.id, side: "before" } : undefined,
+      ),
+    );
+    const inserted = editor.query.block("start");
+    if (inserted?.type !== "image") return;
+    // Anchor the upload popover under the chip, in canvas/container space (the
+    // overlay shifts it back into viewport space — see ImageUploadOverlay).
+    const chip = e.currentTarget.getBoundingClientRect();
+    const container = getContainerRect();
+    openImageUploadMenu(
+      editor,
+      inserted.id,
+      container ? chip.left - container.left : 0,
+      container ? chip.bottom - container.top : 0,
+    );
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={PAGE_TAG_CLASS}
+      onClick={addCover}
+    >
+      <ImageIcon />
+      {t("image.addCover", "Add cover")}
+    </Button>
+  );
+}
+
 function ScheduleTag({
   pageId,
   readonly,
@@ -694,14 +773,15 @@ function ScheduleTag({
   if (isMobile) {
     return (
       <>
-        <Badge
-          variant={"secondary"}
-          className="cursor-pointer gap-1.5 select-none"
+        <Button
+          variant="ghost"
+          size="sm"
+          className={PAGE_TAG_CLASS}
           onClick={() => setOpen(true)}
         >
-          <Calendar className="h-3 w-3" />
+          <Calendar />
           {label}
-        </Badge>
+        </Button>
         <Drawer open={open} onOpenChange={setOpen}>
           <DrawerContent>
             <div className="mx-auto w-full max-w-sm pb-6">
@@ -719,13 +799,10 @@ function ScheduleTag({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <Badge
-          variant={"secondary"}
-          className="cursor-pointer gap-1.5 select-none"
-        >
-          <Calendar className="h-3 w-3" />
+        <Button variant="ghost" size="sm" className={PAGE_TAG_CLASS}>
+          <Calendar />
           {label}
-        </Badge>
+        </Button>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content

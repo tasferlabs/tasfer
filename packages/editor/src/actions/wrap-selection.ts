@@ -48,7 +48,10 @@ import {
   markCharsInRange,
   selectionRangeToCRDT,
 } from "../sync/crdt-utils";
-import { rangeIntersectsStructuredMark } from "./structured-marks";
+import {
+  createFeatureMarkInRange,
+  rangeIntersectsStructuredMark,
+} from "./structured-marks";
 
 /**
  * Literal auto-surround pairs: typing the open char over a selection encloses
@@ -168,6 +171,47 @@ function wrapWithMarks(
     )
   ) {
     return { state, ops: [] };
+  }
+
+  // A structured mark (inline math) is created rather than cycled: each
+  // selected segment's text becomes a new attachment's source and collapses
+  // to the mark's single anchor char. (The guard above already claimed the
+  // keystroke when the selection touches an existing structured run.)
+  const structuredClaim = claimed.find(
+    ({ type }) => state.schema.structuredMark(type) !== undefined,
+  );
+  if (structuredClaim) {
+    let pageAcc = state.document.page;
+    const ops: Operation[] = [];
+    // Reverse order so an earlier segment's flat indices survive later
+    // replacements within the same block set.
+    for (const seg of [...segments].reverse()) {
+      const created = createFeatureMarkInRange(
+        pageAcc,
+        seg.blockId,
+        seg.from,
+        seg.to,
+        { type: structuredClaim.type },
+        state.CRDTbinding,
+        state.schema,
+      );
+      if (created.ops.length === 0) continue;
+      pageAcc = created.newPage;
+      ops.push(...created.ops);
+      invalidateBlockCache(pageAcc.blocks[seg.blockIndex]);
+    }
+    if (ops.length === 0) return null;
+    const first = segments[0];
+    let next: EditorState = {
+      ...state,
+      document: { ...state.document, page: pageAcc },
+    };
+    next = moveCursorToPosition(next, first.blockIndex, first.from + 1);
+    next = updateSelection(next, {
+      anchor: { blockIndex: first.blockIndex, textIndex: first.from },
+      focus: { blockIndex: first.blockIndex, textIndex: first.from + 1 },
+    });
+    return { state: next, ops };
   }
 
   // A mark counts as applied only when EVERY selected format-capable char has

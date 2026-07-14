@@ -118,13 +118,26 @@ describe("inline-math ↔ text selection crossing", () => {
   });
 
   it("a Shift+Click on the chip with an active caret stays in the flat model", () => {
-    const { state, chipStart } = chipState("crossing-shift-click");
-    const withCaret = moveCursorToPosition(state, 0, 0);
-    const clicked = withCaret.actionBus.dispatchState(TEXT_CLICK, withCaret, {
+    const { state, chipStart, chipEnd } = chipState("crossing-shift-click");
+    // A click position on a one-char chip is always a boundary; entry from a
+    // boundary is gated on the pointer actually hovering the chip, so model
+    // the pointer sitting on it.
+    const hovering: EditorState = {
+      ...moveCursorToPosition(state, 0, 0),
+      ui: {
+        ...state.ui,
+        inlineMathHover: {
+          blockIndex: 0,
+          startIndex: chipStart,
+          endIndex: chipEnd,
+        },
+      },
+    };
+    const clicked = hovering.actionBus.dispatchState(TEXT_CLICK, hovering, {
       canvasX: 20,
       canvasY: 20,
-      position: { blockIndex: 0, textIndex: chipStart + 1 },
-      previousMenu: withCaret.ui.activeMenu,
+      position: { blockIndex: 0, textIndex: chipStart },
+      previousMenu: hovering.ui.activeMenu,
       viewport: { width: 500, height: 300, scrollY: 0, documentHeight: 300 },
       modifiers: { ctrlOrMeta: false, shift: true },
     });
@@ -132,18 +145,14 @@ describe("inline-math ↔ text selection crossing", () => {
     // placement (dispatched separately by the mouse handler) extends flat.
     expect(clicked.state.document.contentSelection).toBeNull();
 
-    const plainClick = withCaret.actionBus.dispatchState(
-      TEXT_CLICK,
-      withCaret,
-      {
-        canvasX: 20,
-        canvasY: 20,
-        position: { blockIndex: 0, textIndex: chipStart + 1 },
-        previousMenu: withCaret.ui.activeMenu,
-        viewport: { width: 500, height: 300, scrollY: 0, documentHeight: 300 },
-        modifiers: { ctrlOrMeta: false, shift: false },
-      },
-    );
+    const plainClick = hovering.actionBus.dispatchState(TEXT_CLICK, hovering, {
+      canvasX: 20,
+      canvasY: 20,
+      position: { blockIndex: 0, textIndex: chipStart },
+      previousMenu: hovering.ui.activeMenu,
+      viewport: { width: 500, height: 300, scrollY: 0, documentHeight: 300 },
+      modifiers: { ctrlOrMeta: false, shift: false },
+    });
     // Without Shift the same click still enters the tree.
     expect(plainClick.state.document.contentSelection).not.toBeNull();
   });

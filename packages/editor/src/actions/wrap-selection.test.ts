@@ -6,7 +6,9 @@
  */
 
 import { mathTestSchema, mathTestStateOptions } from "../__testutils__/math";
+import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import { loadPage } from "../serlization/loadPage";
+import { serializeToMarkdown } from "../serlization/serializer";
 import type { EditorState, Position } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
@@ -208,13 +210,27 @@ describe("markdown delimiter wrapping (marks)", () => {
     expect(rangeHasFormat(state, 0, 0, 4, "strike")).toBe(false);
   });
 
-  it("wraps the selection as inline math with `$`, and `$` again unwraps", () => {
+  it("collapses the selection to an atomic math chip on `$`", () => {
+    // Math is a structured mark: the selected source becomes a new
+    // attachment and the flat range is REPLACED by one anchor char.
     let state = stateWithSelection("E = mc^2\n", at(0, 4), at(0, 8));
     state = type(state, "$").state;
-    expect(rangeHasFormat(state, 0, 4, 8, "math")).toBe(true);
-    expect(blockText(state, 0)).toBe("E = mc^2"); // chars ARE the LaTeX source
-    state = type(state, "$").state;
-    expect(rangeHasFormat(state, 0, 4, 8, "math")).toBe(false);
+    expect(blockText(state, 0)).toBe(`E = ${STRUCTURED_MARK_ANCHOR_CHAR}`);
+    expect(rangeHasFormat(state, 0, 4, 5, "math")).toBe(true);
+    // The captured source lives on canonically in the attachment.
+    expect(
+      serializeToMarkdown(state.document.page.blocks, undefined, {
+        schema: mathTestSchema.data,
+      }),
+    ).toBe("E = $m{c}^{2}$");
+    // The selection covers the chip so a second `$` is claimed — but it must
+    // not double-wrap or corrupt the existing structured run.
+    const again = type(state, "$");
+    expect(again.ops).toEqual([]);
+    expect(blockText(again.state, 0)).toBe(
+      `E = ${STRUCTURED_MARK_ANCHOR_CHAR}`,
+    );
+    expect(rangeHasFormat(again.state, 0, 4, 5, "math")).toBe(true);
   });
 
   it("completes a partially-marked selection instead of toggling it off", () => {
@@ -244,42 +260,25 @@ describe("markdown delimiter wrapping (marks)", () => {
   });
 });
 
-describe("pair wrapping inside math content", () => {
-  it("wraps a block-equation selection in escaped literal braces", () => {
-    // The typed-input seam rewrites each brace to `\{`/`\}` so the wrap shows
-    // brace glyphs instead of silently grouping the formula.
-    const state = stateWithSelection("$$\nx+1\n$$\n", at(0, 0), at(0, 3));
-    const { state: next } = type(state, "{");
-
-    expect(blockText(next, 0)).toBe("\\{x+1\\}");
-    expect(next.document.selection).toMatchObject({
-      anchor: { blockIndex: 0, textIndex: 2 },
-      focus: { blockIndex: 0, textIndex: 5 },
-    });
-  });
-
-  it("wraps parens raw in a block equation (already literal delimiters)", () => {
-    const state = stateWithSelection("$$\nx+1\n$$\n", at(0, 0), at(0, 3));
-    expect(blockText(type(state, "(").state, 0)).toBe("(x+1)");
-  });
-
-  it("wraps a selection strictly inside an inline chip in escaped braces", () => {
-    // "a $x+1$ b": the chip "x+1" spans [2, 5); select the "+" at [3, 4).
-    const state = stateWithSelection("a $x+1$ b\n", at(0, 3), at(0, 4));
-    const { state: next } = type(state, "{");
-
-    expect(blockText(next, 0)).toBe("a x\\{+\\}1 b");
-    expect(rangeHasFormat(next, 0, 2, 9, "math")).toBe(true);
-  });
+describe("pair wrapping around math chips", () => {
+  // A chip is atomic to the flat model — the formula's interior is only
+  // reachable through nested content selections, so the only flat selection
+  // touching math is one that covers the whole anchor char.
 
   it("keeps raw braces for a whole-chip selection (endpoints outside the formula)", () => {
-    const state = stateWithSelection("a $x+1$ b\n", at(0, 2), at(0, 5));
+    // "a $x+1$ b" projects to "a ￼ b"; the chip is the single char at [2, 3).
+    const state = stateWithSelection("a $x+1$ b\n", at(0, 2), at(0, 3));
     const { state: next } = type(state, "{");
 
-    expect(blockText(next, 0)).toBe("a {x+1} b");
+    expect(blockText(next, 0)).toBe(`a {${STRUCTURED_MARK_ANCHOR_CHAR}} b`);
     // The chip itself is untouched; the braces are plain text around it.
-    expect(rangeHasFormat(next, 0, 3, 6, "math")).toBe(true);
+    expect(rangeHasFormat(next, 0, 3, 4, "math")).toBe(true);
     expect(rangeHasFormat(next, 0, 2, 3, "math")).toBe(false);
-    expect(rangeHasFormat(next, 0, 6, 7, "math")).toBe(false);
+    expect(rangeHasFormat(next, 0, 4, 5, "math")).toBe(false);
+    expect(
+      serializeToMarkdown(next.document.page.blocks, undefined, {
+        schema: mathTestSchema.data,
+      }),
+    ).toBe("a {$x+1$} b");
   });
 });

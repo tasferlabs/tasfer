@@ -117,17 +117,16 @@ import type { QuoteBlock } from "./QuoteNode";
 
 /**
  * A replacement-mark run resolved against a resolved `Char[]` view: `[start,
- * end)` are visible-character indices (the caret-edge range), `text` is the run's
- * source (the run's visible chars), and `replacement` is the mark's renderer. The
- * geometry passes use this to let the caret descend INTO a replacement (e.g. an
- * inline-math chip) — interior indices map to rendered positions via the
- * replacement's `caretRect`/`hitTest`, with no math-specific knowledge here.
+ * end)` are visible-character indices (the caret-edge range — a structured run
+ * is one anchor char, so `end === start + 1`), `text` is the canonical source
+ * resolved from the run's attachment, and `replacement` is the mark's
+ * renderer. Flat indices treat the run as one atomic unit; interior geometry
+ * belongs to the replacement's nested-content hooks.
  */
 interface ReplacementRun {
   readonly start: number;
   readonly end: number;
   readonly text: string;
-  readonly compatibilityText: string;
   readonly mark: Mark;
   readonly replacement: MarkReplacement;
 }
@@ -164,38 +163,11 @@ function replacementRuns(
       start: run.startIndex,
       end: run.endIndex,
       text,
-      compatibilityText: run.text,
       mark,
       replacement,
     });
   }
   return runs;
-}
-
-/** The replacement run strictly containing `index` (start < index < end), or null. */
-function enclosingReplacementRun(
-  runs: ReplacementRun[],
-  index: number,
-): ReplacementRun | null {
-  for (const run of runs) {
-    if (index > run.start && index < run.end) return run;
-  }
-  return null;
-}
-
-/** Canonical replacement source for an on-line compatibility-run fragment. */
-function replacementFragmentText(
-  run: ReplacementRun,
-  fragmentStart: number,
-  fragmentEnd: number,
-): string {
-  if (
-    run.text !== run.compatibilityText ||
-    (fragmentStart === run.start && fragmentEnd === run.end)
-  ) {
-    return run.text;
-  }
-  return run.text.slice(fragmentStart - run.start, fragmentEnd - run.start);
 }
 
 interface ReplacementFragment {
@@ -207,7 +179,11 @@ interface ReplacementFragment {
   readonly sourceRange: { readonly start: number; readonly end: number };
 }
 
-/** Resolve one marked run's intersection with a wrapped textual line. */
+/**
+ * Resolve one marked run's intersection with a textual line. A structured run
+ * is a single anchor char, so a fragment is always the whole run rendering its
+ * whole canonical source.
+ */
 function replacementFragment(
   run: ReplacementRun,
   lineStart: number,
@@ -216,15 +192,12 @@ function replacementFragment(
   const start = Math.max(run.start, lineStart);
   const end = Math.min(run.end, lineEnd);
   if (end <= start) return null;
-  const compatibleProjection = run.text === run.compatibilityText;
   return {
     run,
     start,
     end,
-    text: replacementFragmentText(run, start, end),
-    sourceRange: compatibleProjection
-      ? { start: start - run.start, end: end - run.start }
-      : { start: 0, end: run.text.length },
+    text: run.text,
+    sourceRange: { start: 0, end: run.text.length },
   };
 }
 
@@ -679,9 +652,8 @@ function renderCompositionUnderline(
       const fragStart = Math.max(run.start, lineStartIndex);
       const fragEnd = Math.min(run.end, lineEndIndex);
       if (underlineStart >= fragStart && underlineEnd <= fragEnd) {
-        const fragText = replacementFragmentText(run, fragStart, fragEnd);
         const rects = run.replacement.selectionRects(
-          fragText,
+          run.text,
           textStyle.fontSize,
           underlineStart - fragStart,
           underlineEnd - fragStart,
@@ -855,10 +827,9 @@ function renderLine(
 ) {
   ctx.direction = isRTL ? "rtl" : "ltr";
 
-  // Resolve canonical replacement sources from the COMPLETE marked runs once.
-  // A wrapped paint batch is only a compatibility-text fragment; asking its
-  // `source` hook directly would return the complete attached projection for
-  // every line and paint the whole replacement repeatedly.
+  // Resolve canonical replacement sources from the COMPLETE marked runs once,
+  // so a paint batch maps back to its run and paints the run's whole source
+  // exactly once.
   const resolvedReplacements = replacementRuns(
     chars,
     formats,
@@ -898,7 +869,7 @@ function renderLine(
           batchVisibleEnd <= run.end,
       );
       const replacementText = owner
-        ? replacementFragmentText(owner, batchVisibleStart, batchVisibleEnd)
+        ? owner.text
         : style.replacementMark
           ? (style.replacement.source?.(batch.text, {
               mark: style.replacementMark,
@@ -1141,65 +1112,35 @@ function computeSelectionRects(
         start.textIndex >= r.start &&
         end.textIndex <= r.end,
     );
-    // Hit-testing a fully-selected chip (endpoints on the chip's atomic
-    // boundaries): skip the tight per-glyph rows so the point-in-selection test
-    // falls through to the line-box fill below, which spans the chip's full
-    // advance at full line height — a tap anywhere on the selected chip
+    // A structured run is one atomic anchor char, so a confined selection is
+    // always the whole run and the rows span the whole canonical source. When
+    // hit-testing, skip the tight per-glyph rows so the point-in-selection
+    // test falls through to the line-box fill below, which spans the chip's
+    // full advance at full line height — a tap anywhere on the selected chip
     // (including its inflated padding, which the glyph rows don't cover) then
-    // registers as touching the selection. Painting, and partial sub-range
-    // selections, keep the tight rows so a selected fraction lights up just it.
-    const coversWholeRun =
-      confiningRun != null &&
-      start.textIndex <= confiningRun.start &&
-      end.textIndex >= confiningRun.end;
-    const skipTightChipRows = coversWholeRun && hitTest;
-    // An attached chip whose canonical source has outrun its flat compatibility
-    // chars (see structuredMarkRunSourceDiverged) has no meaningful interior
-    // flat offsets: a whole-run selection maps to the whole canonical formula,
-    // and a partial one cannot be mapped at all — it falls through to the
-    // line-box fill instead of lighting up the first N canonical characters
-    // (a highlight frozen at the stale flat length).
-    const runDiverged =
-      confiningRun != null &&
-      confiningRun.text !== confiningRun.compatibilityText;
-    if (
-      confiningRun &&
-      !skipTightChipRows &&
-      (!runDiverged || coversWholeRun)
-    ) {
+    // registers as touching the selection.
+    if (confiningRun && !hitTest) {
       const chipRects: Rect[] = [];
       for (const line of layout.lines) {
-        // Selection ∩ line, then clip to the chip's fragment on this line (the
-        // chip may have wrapped across lines — work per fragment, like caretRect).
-        const selStart = Math.max(start.textIndex, line.startIndex);
-        const selEnd = Math.min(end.textIndex, line.endIndex);
-        if (selEnd <= selStart) continue;
-        const fragStart = Math.max(confiningRun.start, line.startIndex);
-        const fragEnd = Math.min(confiningRun.end, line.endIndex);
-        const fragText = replacementFragmentText(
-          confiningRun,
-          fragStart,
-          fragEnd,
-        );
-        // For a diverged run `fragText` is the WHOLE canonical source (see
-        // replacementFragmentText), so the whole-run selection spans all of it.
-        const localStart = runDiverged ? 0 : selStart - fragStart;
-        const localEnd = runDiverged
-          ? confiningRun.text.length
-          : selEnd - fragStart;
+        if (
+          confiningRun.start < line.startIndex ||
+          confiningRun.start >= line.endIndex
+        ) {
+          continue;
+        }
         const rowRects = confiningRun.replacement.selectionRects?.(
-          fragText,
+          confiningRun.text,
           textStyle.fontSize,
-          localStart,
-          localEnd,
-          { caretOffset: localStart, editing: false },
+          0,
+          confiningRun.text.length,
+          { caretOffset: 0, editing: false },
         );
         if (!rowRects || rowRects.length === 0) continue;
         const chipLeft = measureLineWidth(
           chars,
           formats,
           line.startIndex,
-          fragStart,
+          confiningRun.start,
           textStyle,
           fontFamily,
           fonts,
@@ -1224,62 +1165,14 @@ function computeSelectionRects(
     }
   }
 
-  // LTR distance from a line's start to a selection boundary `index`, descending
-  // INTO an inline replacement chip when the boundary falls strictly inside it —
-  // mirroring `caretRect`, so a selection edge inside a chip lands at the same
-  // glyph-accurate x the caret would instead of snapping to the chip's atomic
-  // edge (the cause of inline-math selections rendering with the wrong width).
-  // RTL chips fall through to the atomic measure, same as the caret.
+  // LTR distance from a line's start to a selection boundary `index`. A
+  // replacement run is one atomic anchor char, so a boundary can only sit on
+  // its edges — the plain measure is always glyph-accurate.
   const boundaryWidth = (
     line: (typeof layout.lines)[number],
     index: number,
-  ): number => {
-    if (!isRTL && marks) {
-      const enclosing = enclosingReplacementRun(
-        replacementRuns(chars, formats, marks, layout.structuredContent),
-        index,
-      );
-      // A diverged run's interior flat offsets index nothing real (its canonical
-      // source has outrun the flat chars), so `caretRect` cannot resolve them —
-      // keep the atomic edge measure below instead of descending.
-      const run =
-        enclosing && enclosing.text === enclosing.compatibilityText
-          ? enclosing
-          : null;
-      // Descend into the chip's FRAGMENT on this line (run clipped to the line),
-      // matching the reflowed slice — see `caretRect`.
-      const fragStart = run ? Math.max(run.start, line.startIndex) : 0;
-      const fragEnd = run ? Math.min(run.end, line.endIndex) : 0;
-      const fragText = run
-        ? replacementFragmentText(run, fragStart, fragEnd)
-        : "";
-      const localOffset = run ? index - fragStart : 0;
-      const replCaret = run?.replacement.caretRect?.(
-        fragText,
-        textStyle.fontSize,
-        localOffset,
-        {
-          caretOffset: localOffset,
-          editing: false,
-        },
-      );
-      if (run && replCaret) {
-        const chipLeft = measureLineWidth(
-          chars,
-          formats,
-          line.startIndex,
-          fragStart,
-          textStyle,
-          fontFamily,
-          fonts,
-          codePadding,
-          marks,
-          layout.replCharWidths,
-        );
-        return chipLeft + replCaret.x;
-      }
-    }
-    return measureLineWidth(
+  ): number =>
+    measureLineWidth(
       chars,
       formats,
       line.startIndex,
@@ -1291,7 +1184,6 @@ function computeSelectionRects(
       marks,
       layout.replCharWidths,
     );
-  };
 
   // Plain line-start-to-index width (no inline-chip descent), block indices.
   const plainWidth = (fromIndex: number, toIndex: number): number =>
@@ -1600,9 +1492,6 @@ export class TextNode<
       codePadding,
       compositionRange,
       marks,
-      // RTL lines keep an inline-math chip atomic (no operator split), matching
-      // the RTL caret/selection/paint paths, which treat a chip atomically.
-      !isRTL,
       block.structuredContent,
     );
 
@@ -1650,8 +1539,7 @@ export class TextNode<
         const fragStart = Math.max(run.start, lineStartIndex);
         const fragEnd = Math.min(run.end, lineEndIndex);
         if (fragEnd <= fragStart) continue;
-        const fragText = replacementFragmentText(run, fragStart, fragEnd);
-        const dims = run.replacement.measure(fragText, textStyle.fontSize);
+        const dims = run.replacement.measure(run.text, textStyle.fontSize);
         if (!dims) continue;
         replCharWidths.set(fragStart, dims.width);
         for (let v = fragStart + 1; v < fragEnd; v++) replCharWidths.set(v, 0);
@@ -1749,10 +1637,6 @@ export class TextNode<
     // exists for the shared signature and math's override consumes it.
     _edge?: "start" | "end",
   ): { x: number; y: number; height: number; exact?: boolean } {
-    const editing =
-      state != null && blockId != null
-        ? isCaretScratchActive(state, blockId, textIndex)
-        : false;
     const {
       isRTL,
       textStyle,
@@ -1816,75 +1700,9 @@ export class TextNode<
     for (const line of layout.lines) {
       if (textIndex >= line.startIndex && textIndex <= line.endIndex) {
         const currentY = blockTopY + insetY + line.y;
-        // Caret *inside* a replacement run (e.g. an inline-math chip): the run
-        // measures as one atomic advance (interior indices all collapse to its
-        // right edge), so place AND size the caret by asking the replacement
-        // instead. Width up to the run's left edge + the glyph-accurate offset/
-        // extent from the replacement. LTR only for now; RTL runs fall through to
-        // the boundary measure below. Needs the registry (on the layout) to find runs.
-        const run =
-          isRTL || !layout.marks
-            ? null
-            : enclosingReplacementRun(
-                replacementRuns(
-                  chars,
-                  formats,
-                  layout.marks,
-                  layout.structuredContent,
-                ),
-                textIndex,
-              );
-        // A chip may have wrapped across lines: work against its FRAGMENT on the
-        // line the caret sits on (run clipped to the line), so the caret maps to
-        // the reflowed slice that line paints, not the whole formula. For an
-        // unwrapped chip the fragment IS the whole run.
-        const fragStart = run ? Math.max(run.start, line.startIndex) : 0;
-        const fragEnd = run ? Math.min(run.end, line.endIndex) : 0;
-        const fragText = run
-          ? replacementFragmentText(run, fragStart, fragEnd)
-          : "";
-        // While an edit is in progress inside this run, read the caret off the
-        // same `edit` the run paints with (a command kept literal, `\in` not ∈)
-        // so it tracks the source the user is entering.
-        const localOffset = run ? textIndex - fragStart : 0;
-        const edit: MarkReplacementEdit = { caretOffset: localOffset, editing };
-        const replCaret =
-          run &&
-          run.replacement.caretRect?.(
-            fragText,
-            textStyle.fontSize,
-            localOffset,
-            edit,
-          );
-        if (run && replCaret) {
-          const chipLeft = measureTextUpToIndex(
-            chars,
-            formats,
-            line.startIndex,
-            fragStart,
-            textStyle.fontSize,
-            textStyle.fontWeight,
-            fontFamily,
-            fonts,
-            codePadding,
-            layout.marks,
-            layout.replCharWidths,
-          );
-          // Anchor the replacement's caret extent at the run baseline so the
-          // caret hugs the row it sits on (short in a subscript, tall across a
-          // numerator) rather than spanning the whole text line. A small pad
-          // keeps it from going razor-thin on short glyphs.
-          const baselineY =
-            currentY + (line.baselineOffset ?? layout.fontMetrics.ascent);
-          const pad = textStyle.fontSize * 0.08;
-          return {
-            x: baseX + chipLeft + replCaret.x,
-            y: baselineY + replCaret.top - pad,
-            height: replCaret.bottom - replCaret.top + pad * 2,
-            exact: true,
-          };
-        }
-
+        // A replacement run is one atomic anchor char, so a flat caret only
+        // ever rests on its edges — the boundary measure below covers it.
+        // Interior carets are nested-content carets (contentCaretRect above).
         const caretY =
           currentY + (line.baselineOffset ?? textAscent) - textAscent;
 
@@ -2043,18 +1861,14 @@ export class TextNode<
    * Ported from getPositionWithinBlock + Line.
    */
   /**
-   * The word/token RANGE a double-tap at a point selects, resolved from the POINT
-   * rather than a caret offset. Plain prose has no point-specific word model — its
-   * offset-based word selection is fine — but an inline-math chip does: a point
-   * lands the selection on the exact atom/construct under the finger, and for an
-   * ATOMIC command chip (`\det`, `\sin`) it is the ONLY way to select it at all
-   * (the command has caret stops only at its edges, so a resolved offset lands on a
-   * chip boundary that the offset word-select can't see). We dispatch to the
-   * replacement's own {@link MarkReplacement.wordRangeFromPoint} and re-base its
-   * run-local range onto block indices; a block with no such chip under the point
-   * returns null and the caller falls back to the offset path. Only an UNWRAPPED
-   * chip on a non-bidi line is resolved by point — a wrapped fragment or a chip on
-   * a mixed-direction line falls back too. See {@link getWordRangeFromViewport}.
+   * The word/token RANGE a double-tap at a point selects, resolved from the
+   * POINT rather than a caret offset. Plain prose has no point-specific word
+   * model — its offset-based word selection is fine — but a replacement run
+   * does: a point landing on its glyph box selects the run whole (the run's
+   * only flat positions are its two edges, so a resolved offset can miss it —
+   * e.g. a double-click past the end of a line ending in a chip). Returns null
+   * off any run; the caller falls back to the offset path. See
+   * {@link getWordRangeFromViewport}.
    */
   wordRangeFromPoint(
     layout: TextNodeLayout,
@@ -2069,7 +1883,7 @@ export class TextNode<
       layout.formats,
       layout.marks,
       layout.structuredContent,
-    ).filter((r) => r.replacement.wordRangeFromPoint);
+    );
     if (runs.length === 0) return null;
 
     const {
@@ -2116,8 +1930,6 @@ export class TextNode<
       );
       const lineWidth = positionWidths[positionWidths.length - 1];
       const origin = isRTL ? adjustedMaxWidth - lineWidth : 0;
-      const baselineY =
-        lineTopY + (line.baselineOffset ?? layout.fontMetrics.ascent);
 
       for (const run of runs) {
         // Only a whole, unwrapped chip on this line: the replacement resolves the
@@ -2137,23 +1949,10 @@ export class TextNode<
         const chipLeftX = Math.min(eA, eB);
         const chipRightX = Math.max(eA, eB);
         if (relativeX < chipLeftX || relativeX > chipRightX) continue;
-        // The resolved local range indexes the run's canonical source, but the
-        // returned range must index FLAT chars. When the two have diverged (an
-        // attached chip's tree edits leave the compatibility chars behind),
-        // no interior mapping exists — the double-click takes the chip whole.
-        if (run.text !== run.compatibilityText) {
-          return { start: run.start, end: run.end };
-        }
-        // The formula is always laid out LTR, so run-local x is the distance from
-        // its visual left edge; run-local y is the click below the baseline.
-        const local = run.replacement.wordRangeFromPoint!(
-          run.text,
-          textStyle.fontSize,
-          relativeX - chipLeftX,
-          y - baselineY,
-        );
-        if (!local) return null;
-        return { start: run.start + local.start, end: run.start + local.end };
+        // The run is one atomic anchor char: the flat word range is the whole
+        // chip. Construct-level double-click selection lives in the nested
+        // selection model, not in flat indices.
+        return { start: run.start, end: run.end };
       }
       return null;
     }
@@ -2213,20 +2012,18 @@ export class TextNode<
     return 0;
   }
 
-  // Ported from getPositionWithinLine. A click within a replacement run (e.g. an
-  // inline-math chip) descends into the rendered content via the replacement's
-  // hitTest (boundary snap kept for clicks outside a run). `clickY`/`lineTopY`
-  // give the run-local vertical coordinate the hit-test needs to pick the right
-  // row (a fraction's numerator vs denominator).
+  // Ported from getPositionWithinLine. A replacement run (e.g. an inline-math
+  // chip) is one atomic anchor char: clicks snap to its near edge, and interior
+  // resolution belongs to the nested-selection hit-test.
   private positionWithinLine(
     layout: TextNodeLayout,
     x: number,
-    clickY: number,
-    lineTopY: number,
+    _clickY: number,
+    _lineTopY: number,
     line: RenderedLine,
     baseX: number,
-    drag = false,
-    prevIndex: number | null = null,
+    _drag = false,
+    _prevIndex: number | null = null,
   ): number {
     const {
       isRTL,
@@ -2350,29 +2147,12 @@ export class TextNode<
         const chipLeftX = Math.min(eA, eB);
         const chipRightX = Math.max(eA, eB);
         // Logical index at the chip's visually-left / -right edge (reversed in an
-        // RTL run), so a click just outside the chip snaps to the near boundary.
+        // RTL run), so a click snaps to the near boundary. The chip is atomic to
+        // the flat model — interior positions are nested-selection concerns
+        // (contentSelectionFromPoint), never flat indices.
         const leftEdge = owner.level % 2 === 0 ? fragStart : fragEnd;
         const rightEdge = owner.level % 2 === 0 ? fragEnd : fragStart;
-        // The caret's current chip-local offset — the drag hysteresis anchor.
-        // Null when the caret is not already inside this fragment.
-        const chipPrev =
-          drag &&
-          prevIndex != null &&
-          prevIndex >= fragStart &&
-          prevIndex <= fragEnd
-            ? prevIndex - fragStart
-            : null;
-        // A finger drag holding a caret STRICTLY inside the chip keeps the tex
-        // hit-test in charge even just past the chip's x-extent, mirroring a
-        // math BLOCK: tex's drag resolution owns the interior↔edge transition
-        // (2-D nearest stop + row hysteresis), instead of this x-range gate
-        // hard-flipping between resolutions at the chip's exact pixel edge.
-        const dragHeldInside =
-          chipPrev != null && chipPrev > 0 && chipPrev < fragEnd - fragStart;
-        if (
-          (relativeX <= chipLeftX || relativeX >= chipRightX) &&
-          !dragHeldInside
-        ) {
+        if (relativeX <= chipLeftX || relativeX >= chipRightX) {
           const bestIdx = lineStartIndex + best;
           if (bestIdx > fragStart && bestIdx < fragEnd) {
             best =
@@ -2380,38 +2160,9 @@ export class TextNode<
           }
           continue;
         }
-        // The chip's formula is always laid out LTR, so the run-local x is the
-        // distance from its visual left edge regardless of surrounding direction.
-        const fragText = replacementFragmentText(run, fragStart, fragEnd);
-        const baselineY =
-          lineTopY + (line.baselineOffset ?? layout.fontMetrics.ascent);
-        const offset = run.replacement.hitTest(
-          fragText,
-          textStyle.fontSize,
-          relativeX - chipLeftX,
-          clickY - baselineY,
-          drag,
-          chipPrev,
-        );
-        // Finger drag: tex may resolve to the chip's outer boundary (offset 0 /
-        // length) — the caret rests BESIDE the chip, exactly like a math
-        // block's construct edge — so no interior clamp; the tex hysteresis owns
-        // that transition. A tap keeps the interior clamp: clicking the chip's
-        // body always lands inside the formula. The formula is laid out LTR, so
-        // its boundary offsets are VISUAL edges — map them through leftEdge/
-        // rightEdge, which fold in the owning run's direction.
-        if (drag) {
-          if (offset <= 0) return leftEdge;
-          if (offset >= fragEnd - fragStart) return rightEdge;
-          return fragStart + offset;
-        }
-        // `offset` indexes the canonical fragment source; clamp ALSO to the
-        // run's flat extent — a diverged chip's canonical source is longer than
-        // its flat chars, and an unclamped offset would land the flat index
-        // past the chip's end, in the text after it.
-        const lastInterior = Math.min(fragText.length, fragEnd - fragStart) - 1;
-        if (lastInterior < 1) return fragStart;
-        return fragStart + Math.max(1, Math.min(offset, lastInterior));
+        return relativeX - chipLeftX < (chipRightX - chipLeftX) / 2
+          ? leftEdge
+          : rightEdge;
       }
 
       return lineStartIndex + best;
@@ -2462,13 +2213,11 @@ export class TextNode<
         }
       }
 
-      // Replacement runs (e.g. an inline-math chip): a click within the run's
-      // x-range descends into the rendered content via the replacement's
-      // hitTest — the run's visible chars map straight to a block index
-      // (`run.start + offset`). A click outside the run keeps the atomic boundary
-      // snap: the run is one advance, so the nearest-stop loop above can land on
-      // an interior index (they all collapse to the right edge); pull it back to
-      // the near edge. Needs the registry to find runs / their replacements.
+      // Replacement runs (e.g. an inline-math chip) are atomic to the flat
+      // model: one anchor char, one advance. The nearest-stop loop above can
+      // land on an interior index (they all collapse to the right edge); snap
+      // to the near edge by the click's x. Interior positions are nested-
+      // selection concerns (contentSelectionFromPoint), never flat indices.
       for (const run of layout.marks
         ? replacementRuns(
             chars,
@@ -2477,80 +2226,22 @@ export class TextNode<
             layout.structuredContent,
           )
         : []) {
-        if (!run.replacement.hitTest) continue;
-        // Hit-test against the chip's FRAGMENT on this line (the run clipped to
-        // the line) so a click on a continuation row of a wrapped chip still
-        // descends into the formula. For an unwrapped chip the fragment is the
-        // whole run.
-        const fragStart = Math.max(run.start, lineStartIndex);
-        const fragEnd = Math.min(run.end, lineEndIndex);
-        if (fragEnd <= fragStart) continue;
-        const startLocal = fragStart - lineStartIndex;
+        if (run.start < lineStartIndex || run.start >= lineEndIndex) continue;
+        const startLocal = run.start - lineStartIndex;
         if (startLocal + 1 >= positionWidths.length) continue;
-        const fragText = replacementFragmentText(run, fragStart, fragEnd);
-        // The fragment's first char carries its whole on-line width (the override
+        // The run's anchor char carries its whole on-line width (the override
         // map), so its left/right edges are the adjacent position widths.
         const chipLeftX = positionWidths[startLocal];
         const chipRightX = positionWidths[startLocal + 1];
-        // The caret's current chip-local offset, so a finger DRAG descends into
-        // the fraction with row hysteresis (no flip on wobble). Null when the
-        // caret is not already inside this fragment.
-        const chipPrev =
-          drag &&
-          prevIndex != null &&
-          prevIndex >= fragStart &&
-          prevIndex <= fragEnd
-            ? prevIndex - fragStart
-            : null;
-        // A finger drag holding a caret STRICTLY inside the chip keeps the tex
-        // hit-test in charge even just past the chip's x-extent, mirroring a
-        // math BLOCK: tex's drag resolution owns the interior↔edge transition
-        // (2-D nearest stop + row hysteresis), instead of this x-range gate
-        // hard-flipping between resolutions at the chip's exact pixel edge.
-        const dragHeldInside =
-          chipPrev != null && chipPrev > 0 && chipPrev < fragEnd - fragStart;
-        if (
-          (relativeX <= chipLeftX || relativeX >= chipRightX) &&
-          !dragHeldInside
-        ) {
-          if (bestPosition > fragStart && bestPosition < fragEnd) {
-            bestPosition = relativeX <= chipLeftX ? fragStart : fragEnd;
+        if (relativeX <= chipLeftX || relativeX >= chipRightX) {
+          if (bestPosition > run.start && bestPosition < run.end) {
+            bestPosition = relativeX <= chipLeftX ? run.start : run.end;
           }
           continue;
         }
-        // Run-local y: distance of the click below the run's baseline (the line
-        // baseline = line top + ascent). Lets the hit-test pick a stacked row —
-        // e.g. a click low in a fraction lands in the denominator.
-        const baselineY =
-          lineTopY + (line.baselineOffset ?? layout.fontMetrics.ascent);
-        const offset = run.replacement.hitTest(
-          fragText,
-          textStyle.fontSize,
-          relativeX - chipLeftX,
-          clickY - baselineY,
-          drag,
-          chipPrev,
-        );
-        // Finger drag: tex may resolve to the chip's outer boundary (offset 0 /
-        // length) — the caret rests BESIDE the chip, exactly like a math
-        // block's construct edge — so no interior clamp; the tex hysteresis owns
-        // that transition.
-        if (drag) {
-          return fragStart + Math.max(0, Math.min(offset, fragEnd - fragStart));
-        }
-        // A click on the chip places the caret INSIDE the formula. The extreme
-        // stops (offset 0 / the full length) collapse onto the fragment's boundary
-        // index — shared with the surrounding text/adjacent fragment, so they
-        // render as an outside caret. Clamp to a strictly-interior stop so clicking
-        // anywhere on the slice lands inside it. A single-char fragment has no
-        // interior, so fall back to its near edge. `offset` indexes the
-        // canonical fragment source; clamp ALSO to the run's flat extent — a
-        // diverged chip's canonical source is longer than its flat chars, and
-        // an unclamped offset would land the flat index past the chip's end,
-        // in the text after it.
-        const lastInterior = Math.min(fragText.length, fragEnd - fragStart) - 1;
-        if (lastInterior < 1) return fragStart;
-        return fragStart + Math.max(1, Math.min(offset, lastInterior));
+        return relativeX - chipLeftX < (chipRightX - chipLeftX) / 2
+          ? run.start
+          : run.end;
       }
 
       return bestPosition;
@@ -2954,7 +2645,7 @@ export class TextNode<
       },
       input: (ctx) => {
         const level = headingLevel(ctx);
-        const { charRuns, formats } = ctx.inlineText();
+        const { charRuns, formats, structuredContent } = ctx.inlineText();
 
         if (level > 0) {
           const heading: Heading = {
@@ -2962,6 +2653,7 @@ export class TextNode<
             type: `heading${level}` as Heading["type"],
             charRuns,
             formats,
+            ...(structuredContent ? { structuredContent } : {}),
           };
           ctx.match(NEWLINE);
           return heading;
@@ -2972,6 +2664,7 @@ export class TextNode<
           type: "paragraph",
           charRuns,
           formats,
+          ...(structuredContent ? { structuredContent } : {}),
         };
         return paragraph;
       },
@@ -3102,9 +2795,6 @@ export class TextNode<
     codePadding: number,
     compositionRange: { start: number; end: number } | null,
     marks?: MarkRegistry,
-    // LTR-only: split a wide inline-math chip at its operators (false in RTL,
-    // where a formula stays an atomic LTR box — see `wrapText`).
-    allowReplacementBreaks: boolean = true,
     attachments?: StructuredContentMap,
   ): WrappedLine[] {
     return wrapText(
@@ -3118,7 +2808,6 @@ export class TextNode<
       codePadding,
       compositionRange,
       marks,
-      allowReplacementBreaks,
       attachments,
     );
   }

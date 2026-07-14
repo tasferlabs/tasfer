@@ -10,8 +10,6 @@
  * the editor needs: inline dimensions (for line layout), an SVG string (for the
  * React edit overlay and HTML export), and a validity check.
  */
-import { getInlineMathSpans, type InlineMathSpan } from "../inline-math-spans";
-import { resolveStructuredInlineMathRuns } from "../math/inline-structured";
 import { normalizeMathSource } from "../math/source";
 import type { CaretMotion } from "../rendering/nodes/caret-model";
 import type { Block } from "../serlization/loadPage";
@@ -22,7 +20,6 @@ import type {
   TypedInputTransform,
 } from "../state-types";
 import { isTouchDevice } from "../state-utils";
-import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { isMathEnvironmentCommandPrefix } from "./math-commands";
 import type { MathBlock } from "./MathNode";
@@ -85,49 +82,10 @@ type MathCapableBlock = Block | MathBlock;
 // live here so ALL math editing stays funneled through this one adapter rather
 // than scattered across `selection`/`actions`. Each is pure over its block.
 
-/** Inline font size for the vertical-nav layout. Geometry is size-invariant, so
- * the returned source offset doesn't depend on the exact value. */
-const INLINE_NAV_FONT_SIZE = 18;
-
 /** The block's full LaTeX source (its visible char-run text). Only the math
  * block branch calls this; a non-textual block (no char runs) has none. */
 function blockLatex(block: MathCapableBlock): string {
   return "charRuns" in block ? getVisibleTextFromRuns(block.charRuns) : "";
-}
-
-/** The inline-math chip covering `index` per `mode`, or null. */
-function chipAt(
-  block: Block,
-  index: number,
-  mode: "leftEdge" | "rightEdge" | "inside",
-): InlineMathSpan | null {
-  for (const span of getInlineMathSpans(block)) {
-    if (mode === "leftEdge" && index === span.startIndex) return span;
-    if (mode === "rightEdge" && index === span.endIndex) return span;
-    if (mode === "inside" && index > span.startIndex && index < span.endIndex)
-      return span;
-  }
-  return null;
-}
-
-/**
- * Whether `span` is an ATTACHED chip whose canonical tree source has outrun its
- * flat compatibility characters (tree edits deliberately don't rewrite them).
- * Chip-local flat offsets then no longer measure real caret stops — the layouts
- * paint the canonical source while the flat ruler counts stale chars — so such
- * a chip is ATOMIC to the flat model: interior stops, partial selection, and
- * construct sub-selection are tree-mode concerns. Cheap in the common case: a
- * block with no attachments can never diverge.
- */
-function chipSourceDiverged(block: Block, span: InlineMathSpan): boolean {
-  if (!isTextualBlock(block) || !block.structuredContent) return false;
-  return resolveStructuredInlineMathRuns(block).some(
-    (run) =>
-      run.startIndex === span.startIndex &&
-      run.endIndex === span.endIndex &&
-      !!run.document &&
-      run.latex !== run.compatibilityLatex,
-  );
 }
 
 function pickStop(
@@ -226,23 +184,8 @@ export function mathCaretStep(
   if (block.type === "math") {
     return pickStop(mathCaretOffsets(blockLatex(block)), index, dir);
   }
-  for (const span of getInlineMathSpans(block)) {
-    const inside =
-      dir === "right"
-        ? index >= span.startIndex && index < span.endIndex
-        : index > span.startIndex && index <= span.endIndex;
-    if (!inside) continue;
-    if (chipSourceDiverged(block, span)) {
-      // No trustworthy interior stops: the flat caret crosses the chip whole.
-      return dir === "right" ? span.endIndex : span.startIndex;
-    }
-    const local = pickStop(
-      mathCaretOffsets(span.latex),
-      index - span.startIndex,
-      dir,
-    );
-    return local == null ? null : span.startIndex + local;
-  }
+  // An inline chip is one atomic anchor char to the flat caret; plain ±1
+  // stepping crosses it, so there is nothing to resolve here.
   return null;
 }
 
@@ -272,36 +215,23 @@ export function mathCaretVerticalStep(
     }
     return getBlockMathOffsetVertical(blockLatex(block), index, dir);
   }
-  const span = chipAt(block, index, "inside");
-  // A diverged chip's stale source can't answer row navigation — leave the
-  // formula through ordinary line nav instead of landing on a phantom offset.
-  if (!span || chipSourceDiverged(block, span)) return null;
-  const local = getInlineMathOffsetVertical(
-    span.latex,
-    INLINE_NAV_FONT_SIZE,
-    index - span.startIndex,
-    dir,
-  );
-  return local === null ? null : span.startIndex + local;
+  return null;
 }
 
 /**
- * Pull a word-navigation `target` out of the middle of a math token: a block
- * equation is one "word" (jump to its near/far edge — 0 or its length); a target
- * strictly inside an inline chip clamps to the chip edge in travel direction.
- * Returns `null` when `target` isn't inside math content (caller uses it as-is).
+ * Pull a word-navigation target out of the middle of a math token: a block
+ * equation is one "word" (jump to its near/far edge — 0 or its length).
+ * Returns `null` outside a block equation (caller uses the target as-is).
  */
 export function mathCaretTokenClamp(
   block: MathCapableBlock,
-  target: number,
+  _target: number,
   dir: "left" | "right",
 ): number | null {
   if (block.type === "math") {
     return dir === "right" ? blockLatex(block).length : 0;
   }
-  const span = chipAt(block, target, "inside");
-  if (!span) return null;
-  return dir === "right" ? span.endIndex : span.startIndex;
+  return null;
 }
 
 /**
@@ -384,17 +314,12 @@ function separatorAwareUnitAfter(
 }
 
 /**
- * The math editing unit adjacent to the caret to delete/select. In a block
- * equation it's the unit before/after the caret. In a chip it's the chip's own
- * unit — including the unit at the chip's first/last char, which deletes just
- * that unit and leaves the rest of the chip a valid span (`getInlineMathSpans`
- * resolves endpoints tolerantly, so dropping a leading/trailing anchor char no
- * longer strands the rest). A caret resting on a chip's outer edge (just past it
- * on Backspace, just before it on Delete) enters the chip and removes its
- * adjacent unit too — a chip is edited one unit at a time, never deleted whole
- * from outside. A command-separator space adjacent to the caret is deleted with
- * its command so it can never fuse into an unknown control word (see
- * {@link separatorAwareUnitBefore}). `null` when the caret isn't in math content.
+ * The math editing unit adjacent to the caret to delete/select in a block
+ * equation: the unit before/after the caret. A command-separator space
+ * adjacent to the caret is deleted with its command so it can never fuse into
+ * an unknown control word (see {@link separatorAwareUnitBefore}). `null`
+ * outside a block equation — an inline chip is atomic to the flat model and
+ * its deletes are tree-mode concerns.
  */
 export function mathDeleteUnit(
   block: MathCapableBlock,
@@ -407,92 +332,14 @@ export function mathDeleteUnit(
     isConstruct: u.isConstruct,
   });
 
-  // A chip-local unit, re-based onto the surrounding block's coordinates.
-  const chipUnit = (
-    chip: InlineMathSpan,
-    u: MathUnit | null,
-  ): CaretDeleteUnit | null =>
-    u
-      ? {
-          from: chip.startIndex + u.start,
-          to: chip.startIndex + u.end,
-          isConstruct: u.isConstruct,
-        }
-      : null;
-
+  if (block.type !== "math") return null;
   if (dir === "backward") {
     if (index <= 0) return null;
-    if (block.type === "math") {
-      const u = separatorAwareUnitBefore(blockLatex(block), index);
-      return u ? asUnit(u) : null;
-    }
-    // Inside the chip: erase the unit before the caret.
-    const inside = chipAt(block, index, "inside");
-    if (inside) {
-      return chipUnit(
-        inside,
-        separatorAwareUnitBefore(inside.latex, index - inside.startIndex),
-      );
-    }
-    // Just past the chip's right edge: Backspace enters the chip and erases its
-    // trailing unit — it is never deleted whole from outside.
-    const edge = chipAt(block, index, "rightEdge");
-    if (edge) return chipUnit(edge, chipTrailingUnit(edge.latex));
-    return null;
-  }
-
-  // forward
-  if (block.type === "math") {
-    const u = separatorAwareUnitAfter(blockLatex(block), index);
+    const u = separatorAwareUnitBefore(blockLatex(block), index);
     return u ? asUnit(u) : null;
   }
-  // Inside the chip: erase the unit after the caret.
-  const inside = chipAt(block, index, "inside");
-  if (inside) {
-    return chipUnit(
-      inside,
-      separatorAwareUnitAfter(inside.latex, index - inside.startIndex),
-    );
-  }
-  // Just before the chip's left edge: Delete enters the chip and erases its
-  // leading unit — it is never deleted whole from outside.
-  const edge = chipAt(block, index, "leftEdge");
-  if (edge) return chipUnit(edge, chipLeadingUnit(edge.latex));
-  return null;
-}
-
-/**
- * The unit a Backspace at a chip's RIGHT edge removes — normally the chip's
- * trailing unit (`xy` → erase `y`). But a chip that is ITSELF one construct
- * (`\sqrt{a}`, `\frac{a}{b}`) must not be selected-then-deleted whole from
- * outside: that contradicts the chip model ("edited one unit at a time, never
- * deleted whole from outside"). So when the trailing unit is a construct
- * spanning the entire chip, drill in and chip off its innermost trailing leaf
- * (`a`) instead — the same leaf a Backspace just inside the chip would take.
- */
-function chipTrailingUnit(latex: string): MathUnit | null {
-  const u = mathUnitBefore(latex, latex.length);
-  if (u && u.isConstruct && u.start === 0 && u.end === latex.length) {
-    const stops = mathCaretOffsets(latex);
-    const interior = stops[stops.length - 2]; // largest stop below the end
-    if (interior !== undefined && interior > 0) {
-      return mathUnitBefore(latex, interior) ?? u;
-    }
-  }
-  return u;
-}
-
-/** The forward counterpart of {@link chipTrailingUnit} for the chip's LEFT edge. */
-function chipLeadingUnit(latex: string): MathUnit | null {
-  const u = mathUnitAfter(latex, 0);
-  if (u && u.isConstruct && u.start === 0 && u.end === latex.length) {
-    const stops = mathCaretOffsets(latex);
-    const interior = stops[1]; // smallest stop above the start
-    if (interior !== undefined && interior < latex.length) {
-      return mathUnitAfter(latex, interior) ?? u;
-    }
-  }
-  return u;
+  const u = separatorAwareUnitAfter(blockLatex(block), index);
+  return u ? asUnit(u) : null;
 }
 
 /**
@@ -623,20 +470,9 @@ export function mathTransformTypedInput(
   index: number,
   input: string,
 ): TypedInputTransform | null {
-  let latex: string | null = null;
-  let offset = index;
-  let insideChip = false;
-  if (block.type === "math") {
-    latex = blockLatex(block);
-  } else {
-    const chip = chipAt(block, index, "inside");
-    if (chip) {
-      latex = chip.latex;
-      offset = index - chip.startIndex;
-      insideChip = true;
-    }
-  }
-  if (latex === null) return null;
+  if (block.type !== "math") return null;
+  const latex = blockLatex(block);
+  const offset = index;
   const base = index - offset; // chip.startIndex (0 for a block equation)
   // Inside a `\text{…}` (or any raw-text arg) body the content is literal prose,
   // not math: the command-word machinery below (command separator, `\`→command-
@@ -655,7 +491,6 @@ export function mathTransformTypedInput(
     return {
       input: glyph,
       caret: index + glyph.length,
-      ...(insideChip ? { suppressMarkdown: true } : {}),
     };
   }
   const textInsert = textGroupInsertPoint(latex, offset);
@@ -664,7 +499,6 @@ export function mathTransformTypedInput(
       input: "\\ ",
       insertAt: textInsert + base,
       caret: textInsert + base + 1,
-      ...(insideChip ? { suppressMarkdown: true } : {}),
     };
   }
   // The caret sits just past an EMPTY slot (`x^{}|`, `\sqrt{}|`) — content typed
@@ -681,7 +515,6 @@ export function mathTransformTypedInput(
         input: wrap.input,
         insertAt: wrap.insertAt + base,
         caret: wrap.caret + base,
-        ...(insideChip ? { suppressMarkdown: true } : {}),
       };
     }
     const renderable = [...input].filter(canRenderMathChar).join("");
@@ -690,7 +523,6 @@ export function mathTransformTypedInput(
         input: renderable,
         insertAt: slot + base,
         caret: slot + base + renderable.length,
-        ...(insideChip ? { suppressMarkdown: true } : {}),
       };
     }
   }
@@ -705,7 +537,6 @@ export function mathTransformTypedInput(
       input: textWrap.input,
       insertAt: textWrap.insertAt + base,
       caret: textWrap.caret + base,
-      ...(insideChip ? { suppressMarkdown: true } : {}),
     };
   }
   // Discard unrenderable characters before they enter the document. Iterate by
@@ -772,16 +603,11 @@ export function mathTransformTypedInput(
     if (grabs) {
       const boxed = out + "{}";
       const caret = insertAt + out.length + 1; // between the box's braces
-      return insideChip
-        ? { input: boxed, suppressMarkdown: true, insertAt, caret }
-        : { input: boxed, insertAt, caret };
+      return { input: boxed, insertAt, caret };
     }
     if (attach !== null) {
-      return insideChip
-        ? { input: out, suppressMarkdown: true, insertAt }
-        : { input: out, insertAt };
+      return { input: out, insertAt };
     }
-    if (insideChip) return { input: out, suppressMarkdown: true };
     return out === input ? null : { input: out };
   }
   // A bare `\` typed immediately before a structural token fuses with it into a
@@ -802,11 +628,8 @@ export function mathTransformTypedInput(
   // stop (dropped by mathRedundantSeparatorAfterInput once the command grows).
   if (out === "\\" && texBackslashFusesWith(latex, offset)) {
     const caret = index + 1; // between the `\` and the separating space
-    return insideChip
-      ? { input: "\\ ", suppressMarkdown: true, caret }
-      : { input: "\\ ", caret };
+    return { input: "\\ ", caret };
   }
-  if (insideChip) return { input: out, suppressMarkdown: true };
   // Block equation: only contribute when filtering or the separator changed input.
   return out === input ? null : { input: out };
 }
@@ -820,26 +643,9 @@ export function mathArmScratch(
   block: MathCapableBlock,
   index: number,
 ): CaretScratch | null {
-  let latex: string | null = null;
-  let offset = index;
-  if (block.type === "math") {
-    latex = blockLatex(block);
-  } else {
-    // A command is typed at the caret's *trailing* edge (`\`, `\al`), so the
-    // caret usually rests at the chip's right boundary — which `"inside"` (a
-    // strict interior test) misses, and where the pending run always sits. Fall
-    // back to `"rightEdge"` so the trailing-edge case arms too, matching the
-    // render path (which treats the chip's right boundary as in-chip when
-    // placing the caret). Without this a `\` typed at a chip's end never flags
-    // command entry, so it renders neutralized to nothing instead of literally.
-    const chip =
-      chipAt(block, index, "inside") ?? chipAt(block, index, "rightEdge");
-    if (chip) {
-      latex = chip.latex;
-      offset = index - chip.startIndex;
-    }
-  }
-  if (latex === null || !mathPendingCommandRange(latex, offset)) return null;
+  if (block.type !== "math") return null;
+  const latex = blockLatex(block);
+  if (!mathPendingCommandRange(latex, index)) return null;
   return { type: "math", blockId: block.id, offset: index };
 }
 
@@ -911,28 +717,7 @@ export function mathHealAfterInput(
     const caret = index + strays.filter((s) => s.at < index).length;
     return { inserts: [...strays, ...b.inserts], caret };
   }
-  // Inline chip: the caret is inside the chip (or just past its last char after
-  // typing). The chip's visible chars ARE its LaTeX; the closers land at the
-  // chip's right edge — outside the math mark — so re-mark the grown chip so the
-  // new braces join the formula instead of becoming plain text after it. (A chip
-  // is never a dead cell — its surrounding text block stays editable — and its
-  // typed input already escapes braces, so only the balance direction applies.)
-  for (const span of getInlineMathSpans(block)) {
-    if (index <= span.startIndex || index > span.endIndex) continue;
-    if (mathPendingCommandRange(span.latex, index - span.startIndex))
-      return null;
-    const b = texBalanceBraces(span.latex);
-    if (!b.changed) return null;
-    const inserted = b.inserts.reduce((sum, i) => sum + i.text.length, 0);
-    return {
-      inserts: b.inserts.map((i) => ({
-        at: span.startIndex + i.at,
-        text: i.text,
-      })),
-      caret: index,
-      markRange: { from: span.startIndex, to: span.endIndex + inserted },
-    };
-  }
+  // Inline chips hold no flat source — tree edits keep themselves balanced.
   return null;
 }
 
@@ -957,195 +742,8 @@ export function mathMaterializeAfterInput(
     if (!n.changed) return null;
     return { inserts: n.inserts, caret: n.mapCaret(index) };
   }
-  // Inline chip: the caret is inside the chip (or just past its last char after
-  // typing). The chip's visible chars ARE its LaTeX, so map chip-local offsets
-  // back to block indices via the chip's start.
-  for (const span of getInlineMathSpans(block)) {
-    if (index <= span.startIndex || index > span.endIndex) continue;
-    const local = index - span.startIndex;
-    if (mathCommandRunCanGrowEnv(span.latex, local)) return null;
-    const n = texNormalizeLatex(span.latex);
-    if (!n.changed) return null;
-    const inserted = n.inserts.reduce((sum, i) => sum + i.text.length, 0);
-    return {
-      inserts: n.inserts.map((i) => ({
-        at: span.startIndex + i.at,
-        text: i.text,
-      })),
-      caret: span.startIndex + n.mapCaret(local),
-      // The braces can be inserted at the chip's right edge (e.g. `\frac` →
-      // `\frac{}{}`), landing past the math mark's last char. Re-mark the whole
-      // grown chip so the new slots join the formula instead of becoming plain
-      // text after it.
-      markRange: { from: span.startIndex, to: span.endIndex + inserted },
-    };
-  }
-  return null;
-}
-
-/**
- * Sentence punctuation that reads as prose when typed flush against a chip's
- * edge, so — like a space — it is left as plain text instead of being absorbed
- * into the formula (`$x^2$` + `.` → `$x^2$.`). These marks are essentially never
- * a meaningful leading/trailing math token. Brackets and parentheses are
- * deliberately EXCLUDED: they are common math delimiters, so their edge behavior
- * stays "extend the formula" and a user wanting them as prose leaves via a space.
- *
- * `.` and `,` are also number characters (`3.14`, `1,000`), which this rule
- * cannot see at the moment they are typed — the disambiguating signal is the
- * NEXT char. {@link mathAbsorbNumericPunctuationAfterInput} repairs that case
- * one keystroke later: a digit typed right after the ejected `.`/`,` pulls both
- * back into the formula.
- */
-const EDGE_PROSE_PUNCTUATION = new Set([",", ".", ";", ":", "!", "?"]);
-
-/**
- * A non-space char just typed at an inline chip's OUTER edge joins the formula.
- *
- * Typing at a chip's `startIndex`/`endIndex` inserts the char *outside* the math
- * mark — the mark covers `[startIndex, endIndex)`, so a char typed at either
- * boundary lands just before/after the marked run — which would otherwise leave
- * it as plain text abutting the chip. But a chip edge counts as INSIDE: re-mark
- * the chip to swallow the char so continued typing extends the same formula
- * (`x^2|` + `z` → `x^2z`, `|x^2` + `a` → `ax^2`). A SPACE never joins — it is the
- * "leave the formula" gesture at a boundary (one at the right edge ends the chip,
- * one at the left edge stays plain text before it), so those keep landing outside.
- * Sentence punctuation flush against an edge behaves the same way as a space (see
- * {@link EDGE_PROSE_PUNCTUATION}): `$x^2$` + `,` stays `$x^2$,`, not `$x^2,$`.
- *
- * `caret` is the post-insert caret, so the freshly-typed char is at `caret − 1`.
- * Returns the block range `[from, to)` to (re-)mark as math (the whole grown
- * chip), plus an optional `insert` — text the caller must splice in at a block
- * position first (extending `to` and the caret by its length) so the joined
- * char is well-formed math: a separator space when a letter lands right after a
- * trailing command (`\oint` + `x` → `\oint x`, never the unknown `\ointx`), or
- * the escaping `\` when a typed brace joins (it enters the formula as the
- * literal `\{`/`\}`, exactly as it would have typed inside — see
- * {@link mathTransformTypedInput}). `null` when the just-typed char isn't a
- * non-space sitting at a chip edge (block equations never apply — their chars
- * are all math already).
- */
-export function mathJoinAtEdgeAfterInput(
-  block: MathCapableBlock,
-  caret: number,
-): { from: number; to: number; insert?: { at: number; text: string } } | null {
-  if (block.type === "math" || caret <= 0 || !("charRuns" in block))
-    return null;
-  const typed = caret - 1;
-  const ch = getVisibleTextFromRuns(block.charRuns)[typed];
-  if (ch === undefined || ch === " ") return null;
-  // Sentence punctuation flush against a chip reads as prose ending/preceding the
-  // formula, not a token of it — so, like a space, it must NOT be swallowed. This
-  // is what lets a formula be followed immediately by a comma/period without the
-  // punctuation vanishing into the math mark.
-  if (EDGE_PROSE_PUNCTUATION.has(ch)) return null;
-
-  for (const span of getInlineMathSpans(block)) {
-    // Right edge: the char landed just past the chip's last marked char.
-    if (span.endIndex === typed) {
-      if (
-        mathNeedsCommandSeparator(span.latex, span.latex.length, ch) &&
-        // …unless the run could still grow into a longer catalog environment
-        // command (`\pm` en route to `\pmatrix`) — keep the `\`-menu query intact.
-        !mathTypedCommandCanGrow(span.latex, span.latex.length, ch)
-      ) {
-        return {
-          from: span.startIndex,
-          to: caret,
-          insert: { at: span.endIndex, text: " " },
-        };
-      }
-      return texEscapeTypedBrace(span.latex, span.latex.length, ch)
-        ? {
-            from: span.startIndex,
-            to: caret,
-            insert: { at: typed, text: "\\" },
-          }
-        : { from: span.startIndex, to: caret };
-    }
-    // Trailing edge, but ABSORBED: a char typed flush against the chip's end was
-    // pulled INTO the mark span as its new last char (the tolerant span
-    // resolution extends over it) instead of landing just past it as unmarked
-    // prose — so `span.endIndex` is the caret, not `typed`, and the right-edge
-    // branch above never sees it. It is now raw source at the formula's tail, so
-    // the SAME command-separator / brace-escape guards must run, or a letter after
-    // a trailing command fuses (`\degree` + `C` → the unknown `\degreeC`) and a
-    // typed brace opens a group. Whether the char absorbs depends on the char-id /
-    // tombstone layout (freshly-parsed chip vs. one rebuilt by a `\`-menu commit),
-    // so both outcomes must converge on the same separated/escaped source. The
-    // fix works on `head` (the chip's latex minus this last char) since `ch` is
-    // already inside `span.latex`; the separator/escape splices in right before it.
-    if (span.endIndex === caret) {
-      const head = span.latex.slice(0, -1);
-      if (
-        mathNeedsCommandSeparator(head, head.length, ch) &&
-        !mathTypedCommandCanGrow(head, head.length, ch)
-      ) {
-        return {
-          from: span.startIndex,
-          to: caret,
-          insert: { at: typed, text: " " },
-        };
-      }
-      if (texEscapeTypedBrace(head, head.length, ch)) {
-        return {
-          from: span.startIndex,
-          to: caret,
-          insert: { at: typed, text: "\\" },
-        };
-      }
-      // Absorbed but harmless (an ordinary atom extending the formula) — leave it.
-    }
-    // Left edge: the char landed just before the chip's first marked char (the
-    // insert pushed the marked run right, so the chip now starts at the caret).
-    if (span.startIndex === caret) {
-      return texEscapeTypedBrace(span.latex, 0, ch)
-        ? { from: typed, to: span.endIndex, insert: { at: typed, text: "\\" } }
-        : { from: typed, to: span.endIndex };
-    }
-  }
-  return null;
-}
-
-/**
- * A digit typed right after a `.`/`,` that sits flush against a chip's right
- * edge pulls BOTH back into the formula: the punctuation was part of a number
- * all along.
- *
- * {@link mathJoinAtEdgeAfterInput} ejects edge `.`/`,` as prose because at that
- * keystroke the two readings — sentence punctuation (`$x^2$.`) vs. number
- * character (`$3.14$`) — are indistinguishable; only the NEXT char tells them
- * apart. Prose essentially never puts a digit hard against a period or comma
- * with no space, so a digit landing at `chipEnd + 1` retroactively resolves the
- * ejected punctuation as numeric: re-mark `[chipStart, caret)` so the chip
- * swallows the `.`/`,` and the digit together (`$3$` + `.` + `1` → `$3.1$`,
- * `$1$` + `,` + `0` → `$1,0$`). After the absorb the caret is back at the chip's
- * edge, so further digits extend the formula through the ordinary edge join.
- *
- * Only `.` and `,` qualify — the other {@link EDGE_PROSE_PUNCTUATION} marks are
- * not number characters, so a digit after `$x$;` stays prose. Returns the block
- * range to re-mark as math, or `null` when the just-typed char (at `caret − 1`)
- * isn't a digit sitting exactly one past a chip edge with `.`/`,` between
- * (block equations never apply — their chars are all math already). The result
- * shares {@link mathJoinAtEdgeAfterInput}'s shape so the caller applies either
- * identically; an absorb never needs an `insert` (a `.`/`,` after any trailing
- * token — even a control word — is already well-formed math).
- */
-export function mathAbsorbNumericPunctuationAfterInput(
-  block: MathCapableBlock,
-  caret: number,
-): { from: number; to: number; insert?: { at: number; text: string } } | null {
-  if (block.type === "math" || caret < 2 || !("charRuns" in block)) return null;
-  const text = getVisibleTextFromRuns(block.charRuns);
-  const digit = text[caret - 1];
-  if (digit === undefined || !/[0-9]/.test(digit)) return null;
-  const punct = text[caret - 2];
-  if (punct !== "." && punct !== ",") return null;
-  for (const span of getInlineMathSpans(block)) {
-    if (span.endIndex === caret - 2) {
-      return { from: span.startIndex, to: caret };
-    }
-  }
+  // Inline chips hold no flat source — tree edits materialize their own
+  // constructs.
   return null;
 }
 
@@ -1187,19 +785,9 @@ export function mathRedundantSeparatorAfterInput(
     text[caret] === " " ? caret : text[caret + 1] === " " ? caret + 1 : -1;
   if (sepAt === -1) return null;
 
-  let latex: string;
-  let local: number;
-  if (block.type === "math") {
-    latex = text;
-    local = sepAt;
-  } else {
-    const span = getInlineMathSpans(block).find(
-      (s) => sepAt >= s.startIndex && sepAt < s.endIndex,
-    );
-    if (!span) return null;
-    latex = span.latex;
-    local = sepAt - span.startIndex;
-  }
+  if (block.type !== "math") return null;
+  const latex = text;
+  const local = sepAt;
 
   // The separator always sits flush before the structural token it protects (a
   // brace, `&`, script, or row break — see mathTransformTypedInput); requiring
@@ -1359,27 +947,11 @@ export function mathUnitAt(latex: string, offset: number): MathUnit | null {
 /**
  * Snap a range SELECTION `[anchor, focus]` (block-text indices) so it never
  * partially covers a connected math construct, LEVEL-AWARELY — see
- * {@link CaretModel.selectionRange}. Returns adjusted indices, or `null` to leave
- * the range untouched.
- *
- * Handles both hosts behind the caret seam:
- * - a block equation (`block.type === "math"`, whose whole text IS the LaTeX) —
- *   resolves directly on the block offsets;
- * - an inline chip inside ordinary text — the chip's own top-level tokens are
- *   selectable, so a range is resolved at the chip's LaTeX levels whether both
- *   endpoints sit inside the SAME chip or only one does. When one endpoint is in
- *   plain text (or in a different chip), the in-chip endpoint is resolved against
- *   this chip's near boundary as its opposite offset — so a selection crossing
- *   INTO a chip may rest at any interior stop (partial selection to the leftmost
- *   or rightmost token) and only covers the whole chip once it reaches the far
- *   edge, i.e. once it has selected fully out the other side. A nested construct
- *   is still never partially covered (that snap lives in `resolveSelectionRange`).
- *   Endpoints in plain text stay put.
- *
- * Partial coverage is per-selection exclusive to ONE chip: as soon as the range
- * engages a second chip (endpoints in two different chips, or a whole chip swept
- * over on the way into another), every in-chip endpoint snaps to its chip's
- * edges — a selection spanning constructs treats each construct as a whole.
+ * {@link CaretModel.selectionRange}. Returns adjusted indices, or `null` to
+ * leave the range untouched. Only a block equation (whose derived source view
+ * IS the LaTeX) has interior constructs to snap; an inline chip is one atomic
+ * anchor char, so flat endpoints can only rest on its edges and need no
+ * snapping.
  */
 export function mathSelectionRange(
   block: MathCapableBlock,
@@ -1387,95 +959,9 @@ export function mathSelectionRange(
   focus: number,
   focusEdge: "start" | "end",
 ): { anchor: number; focus: number } | null {
-  if (block.type === "math") {
-    const latex = getVisibleTextFromRuns(block.charRuns);
-    return texResolveSelectionRange(latex, anchor, focus, focusEdge);
-  }
-  const chipA = chipAt(block, anchor, "inside");
-  const chipF = chipAt(block, focus, "inside");
-  // A diverged chip (attached, tree-edited past its compatibility chars) has no
-  // meaningful flat interior — every in-chip endpoint snaps to its edges.
-  const divergedA = !!chipA && chipSourceDiverged(block, chipA);
-  const divergedF = !!chipF && chipSourceDiverged(block, chipF);
-  if (chipA && chipF && chipA.startIndex === chipF.startIndex) {
-    if (divergedA) {
-      // Whole chip, preserving the range's orientation.
-      const forward = anchor <= focus;
-      return {
-        anchor: forward ? chipA.startIndex : chipA.endIndex,
-        focus: forward ? chipA.endIndex : chipA.startIndex,
-      };
-    }
-    // Both endpoints inside one chip: resolve at that chip's own LaTeX levels.
-    const r = texResolveSelectionRange(
-      chipA.latex,
-      anchor - chipA.startIndex,
-      focus - chipA.startIndex,
-      focusEdge,
-    );
-    return {
-      anchor: chipA.startIndex + r.anchor,
-      focus: chipA.startIndex + r.focus,
-    };
-  }
-  if (!chipA && !chipF) return null; // neither endpoint inside a chip
-  // Exactly one endpoint sits strictly inside a chip (or each endpoint inside a
-  // DIFFERENT chip). A chip is NOT atomic for selection — its own top-level
-  // tokens are selectable — so a range crossing into a chip may rest at an
-  // interior stop (partial selection) and covers the whole chip only once it
-  // reaches the far edge. That partial coverage is legal only while the chip is
-  // the ONLY math construct the selection engages: once the range spans a SECOND
-  // chip (each endpoint in a different chip, or one endpoint's chip plus another
-  // chip swept over in between), the selection operates at the text level, where
-  // every chip is atomic — each in-chip endpoint snaps to its chip's edge, the
-  // anchor widening outward and the focus in its direction of travel (so "select
-  // less" still drops a whole chip).
-  const forward = anchor < focus;
-  const lo = Math.min(anchor, focus);
-  const hi = Math.max(anchor, focus);
-  const engagedChips = getInlineMathSpans(block).filter(
-    (s) => s.startIndex < hi && s.endIndex > lo,
-  );
-  if (engagedChips.length > 1 || divergedA || divergedF) {
-    return {
-      anchor: chipA ? (forward ? chipA.startIndex : chipA.endIndex) : anchor,
-      focus: chipF
-        ? focusEdge === "end"
-          ? chipF.endIndex
-          : chipF.startIndex
-        : focus,
-    };
-  }
-  // Single engaged chip: resolve each in-chip endpoint at that chip's own LaTeX
-  // levels, treating the opposite endpoint as sitting at this chip's NEAR
-  // boundary (0 or its length): for the anchor that boundary lies on the focus's
-  // side, for the focus on the anchor's. This reuses the both-inside level-aware
-  // snap, so a nested construct is still never partially covered. A plain-text
-  // endpoint stays put.
-  const resolveIn = (
-    chip: InlineMathSpan,
-    localOffset: number,
-    role: "anchor" | "focus",
-  ): number => {
-    const L = chip.latex.length;
-    const boundary = role === "anchor" ? (forward ? L : 0) : forward ? 0 : L;
-    const r =
-      role === "anchor"
-        ? texResolveSelectionRange(chip.latex, localOffset, boundary, focusEdge)
-        : texResolveSelectionRange(
-            chip.latex,
-            boundary,
-            localOffset,
-            focusEdge,
-          );
-    return chip.startIndex + (role === "anchor" ? r.anchor : r.focus);
-  };
-  return {
-    anchor: chipA
-      ? resolveIn(chipA, anchor - chipA.startIndex, "anchor")
-      : anchor,
-    focus: chipF ? resolveIn(chipF, focus - chipF.startIndex, "focus") : focus,
-  };
+  if (block.type !== "math") return null;
+  const latex = getVisibleTextFromRuns(block.charRuns);
+  return texResolveSelectionRange(latex, anchor, focus, focusEdge);
 }
 
 /**
@@ -1599,11 +1085,9 @@ export function getInlineMathBreakpoints(latex: string): number[] {
 /**
  * Live-edit bridge — map between a caret offset into a chip's LaTeX source and a
  * horizontal pixel position within the rendered formula. The chip's visible
- * characters ARE its LaTeX source (see {@link getInlineMathSpans}), so a caret
- * offset here is just `blockTextIndex − spanStart`. This is what lets the editor
- * place a real caret *inside* an inline-math chip instead of treating it as one
- * atomic unit. Both wrap `@cypherkit/tex`'s caret primitives; layout is cached
- * by `getInlineMathDims`'s metric cache, so re-laying out per call is cheap.
+ * offsets index the chip's canonical source. Both wrap `@cypherkit/tex`'s
+ * caret primitives; layout is cached by `getInlineMathDims`'s metric cache, so
+ * re-laying out per call is cheap.
  */
 
 /**

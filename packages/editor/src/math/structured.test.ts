@@ -2,7 +2,7 @@ import { createDeterministicIdentityAllocator } from "../sync/id";
 import { applyStructuredEdit } from "../sync/structured-content";
 import {
   mathDocumentToStructured,
-  parseLegacyMathDocumentInit,
+  parseMathDocumentInit,
   structuredToMathDocument,
   validateStructuredMathDocument,
 } from "./structured";
@@ -76,7 +76,7 @@ describe("structured math adapter", () => {
   });
 
   it("projects character-CRDT edits back into semantic LaTeX", () => {
-    const mutation = parseLegacyMathDocumentInit("ab", {
+    const mutation = parseMathDocumentInit("ab", {
       contentId: "content:9",
       identityAllocator: createDeterministicIdentityAllocator("projection"),
     });
@@ -108,12 +108,13 @@ describe("structured math adapter", () => {
     expect(printMathDocument(structuredToMathDocument(deleted)!)).toBe("bc");
   });
 
-  it("creates an atomic legacy initializer from one identity allocator", () => {
+  it("creates a deterministic atomic initializer from one identity allocator", () => {
     const latex = String.raw`x+\frac{a}{b}`;
-    const mutation = parseLegacyMathDocumentInit(latex, {
+    const options = {
       contentId: "content:7",
       identityAllocator: createDeterministicIdentityAllocator("import"),
-    });
+    };
+    const mutation = parseMathDocumentInit(latex, options);
 
     expect(mutation.kind).toBe("document_init");
     expect(mutation.document.rootId).toBe("content:7");
@@ -125,6 +126,14 @@ describe("structured math adapter", () => {
         .flatMap((runs) => runs)
         .every((run) => run.peerId === "import"),
     ).toBe(true);
+    // Parse-time creation (markdown import) leans on determinism: re-parsing
+    // the same source with an equally-seeded allocator is byte-identical.
+    expect(
+      parseMathDocumentInit(latex, {
+        ...options,
+        identityAllocator: createDeterministicIdentityAllocator("import"),
+      }).document,
+    ).toEqual(mutation.document);
 
     const projected = structuredToMathDocument(mutation.document);
     expect(projected).toBeDefined();
@@ -138,22 +147,9 @@ describe("structured math adapter", () => {
     ).toBe(true);
   });
 
-  it("allocates disjoint identity namespaces for divergent legacy sources", () => {
-    const contentId = "content:7";
-    const winner = parseLegacyMathDocumentInit("a+b", { contentId });
-    const loser = parseLegacyMathDocumentInit("a+c", { contentId });
-    const rerun = parseLegacyMathDocumentInit("a+b", { contentId });
-
-    expect(rerun.document).toEqual(winner.document);
-    const shared = Object.keys(winner.document.nodes).filter(
-      (id) => id in loser.document.nodes,
-    );
-    expect(shared).toEqual([contentId]);
-  });
-
   it("keeps projecting when a race-losing edit orphans a node", () => {
     const contentId = "content:7";
-    const { document } = parseLegacyMathDocumentInit("a+b", { contentId });
+    const { document } = parseMathDocumentInit("a+b", { contentId });
     const orphaned = applyStructuredEdit(document, {
       kind: "node_insert",
       node: {

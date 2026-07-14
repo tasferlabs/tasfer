@@ -4078,6 +4078,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   ): ActionResult | null => {
     const blockIndex = findBlockIndex(s.document.page, blockId);
     const block = s.document.page.blocks[blockIndex];
+    // A block-authority document (a display equation) has no flat text, so a
+    // public flat offset addresses nothing inside it. Refuse rather than
+    // silently landing the edit at the equation's start; structured content is
+    // edited through nested selections.
+    if (block && !block.deleted && hasStructuredBlockAuthority(block)) {
+      return null;
+    }
     const targeted = selectTarget(s, {
       from: { block: blockId, offset: start },
       to: { block: blockId, offset: end },
@@ -4087,7 +4094,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       !block.deleted &&
       rangeIntersectsStructuredMark(block, start, end, s.schema)
     ) {
-      // A public offset may clip a compatibility projection. Promote it to the
+      // A public offset may clip a structured mark's anchor. Promote it to the
       // same whole-unit mixed selection used by interactive editing, then let
       // normal insertion replace prose plus the complete attachment atomically.
       return insertText(expandSelectionAroundStructuredMarks(targeted), text);

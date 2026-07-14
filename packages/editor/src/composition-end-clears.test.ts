@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 function proseState(text: string) {
   const binding = createCRDTbinding("comp-end", "peer-1");
   const engine = createSyncEngine(binding);
-  const blockOp = engine.createBlockInsert(null, "paragraph", {});
+  const blockOp = engine.createBlockInsert("a0", "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
 

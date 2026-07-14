@@ -167,6 +167,16 @@ export type ContentSelectionResolver = (
   ctx: ContentSelectionCtx,
 ) => ContentSelection | undefined;
 
+/**
+ * The single flat character anchoring a structured mark's run.
+ *
+ * A structured mark never stores its source in block characters: its content
+ * lives wholly in the referenced attachment, and one U+FFFC object-replacement
+ * character holds the mark's place in the flat text. Hosts without the owning
+ * feature render that placeholder glyph.
+ */
+export const STRUCTURED_MARK_ANCHOR_CHAR = "￼";
+
 /** One supplemental attachment initialized alongside a newly-created mark. */
 export interface StructuredMarkAttachment {
   readonly contentId: string;
@@ -177,7 +187,7 @@ export interface StructuredMarkAttachment {
 export interface StructuredMarkCreateCtx {
   /** Mark requested by the generic authoring action. */
   readonly mark: Mark;
-  /** Visible text that the new mark will cover. */
+  /** Source text captured for the new attachment (e.g. wrapped selection). */
   readonly text: string;
   /** The document's single live persisted identity allocator. */
   readonly identities: IdentityAllocator;
@@ -193,7 +203,6 @@ export interface StructuredMarkCreateResult {
 /** Data-only context for resolving a structured mark's canonical source. */
 export interface StructuredMarkResolveCtx {
   readonly mark: Mark;
-  readonly compatibilityText: string;
   readonly attachments: StructuredContentMap | undefined;
 }
 
@@ -214,11 +223,17 @@ export interface StructuredMarkCloneCtx {
  * Core authoring and serializers dispatch this facet through the schema; they
  * never import the feature. `create` runs only for an explicitly new mark,
  * avoiding accidental replacement of an existing attachment when a range is
- * extended.
+ * extended. Every creation path mints the attachment eagerly and anchors the
+ * mark on one {@link STRUCTURED_MARK_ANCHOR_CHAR}; the attachment is the only
+ * source of the mark's content.
  */
 export interface StructuredMarkFacet {
   create?(ctx: StructuredMarkCreateCtx): StructuredMarkCreateResult | undefined;
-  /** Return undefined when the compatibility characters remain authoritative. */
+  /**
+   * Canonical source resolved from the mark's attachment, or undefined when
+   * the referenced attachment is missing or invalid (the run then renders its
+   * anchor placeholder and stays atomic).
+   */
   resolve?(ctx: StructuredMarkResolveCtx): string | undefined;
   /**
    * Rewrite attachment references after snapshot/import cloned each source

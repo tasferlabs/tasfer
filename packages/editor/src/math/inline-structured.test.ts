@@ -1,17 +1,12 @@
+import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import type { MarkSpan } from "../serlization/loadPage";
 import { createDeterministicIdentityAllocator } from "../sync/id";
 import {
-  applyStructuredEdit,
-  applyStructuredMutation,
-  structuredContentId,
-} from "../sync/structured-content";
-import {
   createStructuredMathMarkAttachment,
   type InlineMathHostBlock,
-  planInlineMathMigration,
   resolveStructuredInlineMathRuns,
 } from "./inline-structured";
-import { parseLegacyMathDocumentInit } from "./structured";
+import { parseMathDocumentInit } from "./structured";
 import { describe, expect, it } from "vitest";
 
 function span(
@@ -23,15 +18,26 @@ function span(
     startCharId: start,
     endCharId: end,
     format: { type: "math", ...(attrs ? { attrs } : {}) },
-    clock: { peerId: "parser", counter: 0 },
+    clock: { peerId: "author", counter: 0 },
   };
 }
 
-function importedBlock(): InlineMathHostBlock {
+/** "a￼b" with the math mark on the anchor char (`author:1`). */
+function chipBlock(
+  attrs: Record<string, unknown> | undefined,
+  structuredContent: InlineMathHostBlock["structuredContent"],
+): InlineMathHostBlock {
   return {
-    id: "block:9",
-    charRuns: [{ peerId: "parser", startCounter: 0, text: "x+y" }],
-    formats: [span("parser:0", "parser:0"), span("parser:2", "parser:2")],
+    id: "block:1",
+    charRuns: [
+      {
+        peerId: "author",
+        startCounter: 0,
+        text: `a${STRUCTURED_MARK_ANCHOR_CHAR}b`,
+      },
+    ],
+    formats: [span("author:1", "author:1", attrs)],
+    ...(structuredContent ? { structuredContent } : {}),
   };
 }
 
@@ -48,6 +54,7 @@ describe("structured inline math attachments", () => {
       attrs: { contentId: "author:0" },
     });
     expect(created.init.document.rootId).toBe("author:0");
+    // Inline attachments are supplemental: they never claim block authority.
     expect(created.init.document.authority).toBeUndefined();
     expect(
       Object.keys(created.init.document.nodes).some((id) =>
@@ -56,156 +63,62 @@ describe("structured inline math attachments", () => {
     ).toBe(true);
   });
 
-  it("does not alias imported marks that share parser:0 clocks", () => {
-    const block = importedBlock();
-    const runs = resolveStructuredInlineMathRuns(block);
-    const first = planInlineMathMigration(block, runs[0]);
-    const second = planInlineMathMigration(block, runs[1]);
-
-    expect(first.ok).toBe(true);
-    expect(second.ok).toBe(true);
-    if (!first.ok || !second.ok) return;
-    expect(first.contentId).not.toBe(second.contentId);
-    expect(first.contentId).toBe(
-      structuredContentId(block.id, "mark/math/parser:0/parser:0"),
-    );
-    expect(second.contentId).toBe(
-      structuredContentId(block.id, "mark/math/parser:0/parser:2"),
-    );
-  });
-
-  it("builds byte-identical lazy migration trees on different peers", () => {
-    const leftBlock = importedBlock();
-    const rightBlock = structuredClone(leftBlock);
-    const left = planInlineMathMigration(
-      leftBlock,
-      resolveStructuredInlineMathRuns(leftBlock)[0],
-    );
-    const right = planInlineMathMigration(
-      rightBlock,
-      resolveStructuredInlineMathRuns(rightBlock)[0],
-    );
-
-    expect(left.ok).toBe(true);
-    expect(right.ok).toBe(true);
-    if (!left.ok || !right.ok) return;
-    expect(left.contentId).toBe(right.contentId);
-    expect(left.init?.document).toEqual(right.init?.document);
-    expect(left.init?.document.authority).toBeUndefined();
-    expect(left.format.attrs?.contentId).toBe(left.contentId);
-  });
-
-  it("degrades a divergent-source migration race to one dropped edit", () => {
-    // Peer A migrates the pristine import; peer B migrates after an editor
-    // without the tree rule inserted "c" into the same run. Their initializers
-    // race on one derived address.
-    const span9 = span("parser:0", "parser:2");
-    const blockA: InlineMathHostBlock = {
-      id: "block:9",
-      charRuns: [{ peerId: "parser", startCounter: 0, text: "a+b" }],
-      formats: [span9],
-    };
-    const blockB: InlineMathHostBlock = {
-      ...blockA,
-      charRuns: [
-        { peerId: "parser", startCounter: 0, text: "a+" },
-        { peerId: "old", startCounter: 0, text: "c" },
-        { peerId: "parser", startCounter: 2, text: "b" },
-      ],
-    };
-    const planA = planInlineMathMigration(
-      blockA,
-      resolveStructuredInlineMathRuns(blockA)[0],
-    );
-    const planB = planInlineMathMigration(
-      blockB,
-      resolveStructuredInlineMathRuns(blockB)[0],
-    );
-    expect(planA.ok && planB.ok).toBe(true);
-    if (!planA.ok || !planB.ok) return;
-    expect(planA.contentId).toBe(planB.contentId);
-
-    // Canonical replay: A's init wins, B's init is a no-op.
-    const contentId = planA.contentId;
-    const winner = applyStructuredMutation(undefined, contentId, planA.init!);
-    expect(winner).toBeDefined();
-    const merged = applyStructuredMutation(winner, contentId, planB.init!);
-    expect(merged).toBe(winner);
-
-    // B's piggybacked edit targets its own parse of "a+cb"; on the winning
-    // tree that parent is absent, so the node lands as an invisible orphan.
-    const loserRowId = Object.values(planB.document.nodes).find(
-      (node) => node.placement.parentId === contentId,
-    )!.id;
-    expect(planA.document.nodes[loserRowId]).toBeUndefined();
-    const edited = applyStructuredEdit(merged!, {
-      kind: "node_insert",
-      node: {
-        id: "live:9",
-        type: "symbol",
-        placement: { parentId: loserRowId, slot: "children", orderKey: "zz" },
-        attrs: { symbolClass: "mathord", commandPresent: false },
-        textFields: {
-          value: [{ peerId: "live", startCounter: 10, text: "q" }],
-        },
-      },
-    });
-    expect(edited.nodes["live:9"]).toBeDefined();
-
-    const converged: InlineMathHostBlock = {
-      ...blockA,
-      formats: [
-        span("parser:0", "parser:2", { contentId }),
-      ],
-      structuredContent: { [contentId]: edited },
-    };
-    const run = resolveStructuredInlineMathRuns(converged)[0];
-    expect(run.attachmentConflict).toBe(false);
-    expect(run.latex).toBe("a+b");
-  });
-
-  it("uses the tree as source while retaining stale compatibility characters", () => {
+  it("resolves an anchor char to its attachment's canonical source", () => {
     const created = createStructuredMathMarkAttachment(
       "\\frac{a}{b}",
       createDeterministicIdentityAllocator("tree"),
     );
-    const block: InlineMathHostBlock = {
-      id: "block:1",
-      charRuns: [{ peerId: "legacy", startCounter: 0, text: "stale" }],
-      formats: [
-        span("legacy:0", "legacy:4", {
-          contentId: created.contentId,
-        }),
-      ],
-      structuredContent: {
-        [created.contentId]: created.init.document,
-      },
-    };
+    const block = chipBlock(
+      { contentId: created.contentId },
+      { [created.contentId]: created.init.document },
+    );
 
-    const run = resolveStructuredInlineMathRuns(block)[0];
-    expect(run.compatibilityLatex).toBe("stale");
+    const runs = resolveStructuredInlineMathRuns(block);
+    expect(runs).toHaveLength(1);
+    const run = runs[0];
+    // The chip's flat projection is exactly one char.
+    expect(run.startIndex).toBe(1);
+    expect(run.endIndex).toBe(2);
+    expect(run.charIds).toEqual(["author:1"]);
+    expect(run.contentId).toBe(created.contentId);
+    expect(run.document).toBeDefined();
     expect(run.latex).toBe("\\frac{a}{b}");
-    const plan = planInlineMathMigration(block, run);
-    expect(plan.ok).toBe(true);
-    if (!plan.ok) return;
-    expect(plan.init).toBeUndefined();
-    expect(plan.needsMarkUpdate).toBe(false);
+  });
+
+  it("reports a broken attachment reference as latex: undefined", () => {
+    // A mark whose contentId resolves to nothing: the run survives (so the
+    // host can render an error chip and delete it whole) but carries no
+    // document and no source — there is no flat-text fallback.
+    const dangling = resolveStructuredInlineMathRuns(
+      chipBlock({ contentId: "ghost:0" }, undefined),
+    );
+    expect(dangling).toHaveLength(1);
+    expect(dangling[0].contentId).toBe("ghost:0");
+    expect(dangling[0].document).toBeUndefined();
+    expect(dangling[0].latex).toBeUndefined();
+
+    // A mark that never persisted a contentId is equally broken.
+    const missing = resolveStructuredInlineMathRuns(
+      chipBlock(undefined, undefined),
+    );
+    expect(missing).toHaveLength(1);
+    expect(missing[0].contentId).toBeUndefined();
+    expect(missing[0].latex).toBeUndefined();
   });
 
   it("rejects a referenced attachment that claims block authority", () => {
+    // Display equations own their block; an inline mark must never adopt one
+    // (e.g. a corrupted reference to a math block's document).
     const contentId = "author:4";
-    const authoritative = parseLegacyMathDocumentInit("x", { contentId });
-    const block: InlineMathHostBlock = {
-      id: "block:1",
-      charRuns: [{ peerId: "legacy", startCounter: 0, text: "x" }],
-      formats: [span("legacy:0", "legacy:0", { contentId })],
-      structuredContent: { [contentId]: authoritative.document },
-    };
+    const authoritative = parseMathDocumentInit("x", { contentId });
+    expect(authoritative.document.authority).toBe("block");
 
-    const plan = planInlineMathMigration(
-      block,
-      resolveStructuredInlineMathRuns(block)[0],
+    const runs = resolveStructuredInlineMathRuns(
+      chipBlock({ contentId }, { [contentId]: authoritative.document }),
     );
-    expect(plan).toEqual({ ok: false, reason: "conflicting-attachment" });
+    expect(runs).toHaveLength(1);
+    expect(runs[0].contentId).toBe(contentId);
+    expect(runs[0].document).toBeUndefined();
+    expect(runs[0].latex).toBeUndefined();
   });
 });

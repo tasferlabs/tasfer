@@ -79,7 +79,7 @@ export function getInlineMathAtPosition(
   blockId: string;
   startIndex: number;
   endIndex: number;
-  latex: string;
+  text: string;
 } | null {
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return null;

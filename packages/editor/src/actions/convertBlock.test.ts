@@ -8,8 +8,9 @@
  */
 
 import { mathTestStateOptions } from "../__testutils__/math";
-import type { Block, Paragraph } from "../serlization/loadPage";
-import type { BlockSet, CursorState, EditorState, Page } from "../state-types";
+import type { Paragraph } from "../nodes/TextNode";
+import type { Block, Page } from "../serlization/loadPage";
+import type { BlockSet, CursorState, EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { convertBlockAtCursor } from "./actions";

@@ -543,20 +543,69 @@
   gap: 0.25rem;
 }
 
-.appSidebarCollapseIcon {
-  transition: transform 0.15s ease;
-  flex-shrink: 0;
-}
-
-.appSidebarCollapseIconOpen {
-  transform: rotate(90deg);
-}
+/*
+ * The space icon slot doubles as the collapse indicator (Notion-style
+ * swap): the box glyph at rest, replaced by the chevron on a translucent
+ * pad when the header is hovered or focused. Coarse pointers have no
+ * hover, so they always get the chevron.
+ */
 .appSidebarSectionIcon {
+  position: relative;
   width: 30px;
   height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.appSidebarSectionIcon .appSidebarCollapseIcon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  border-radius: 4px;
+  stroke-width: 2;
+  color: var(--muted-foreground);
+  opacity: 0;
+  transition: transform 0.15s ease;
+}
+
+.appSidebarCollapseIconOpen {
+  transform: rotate(90deg);
+}
+
+.appSidebarSectionHandle:hover .appSidebarCollapseIcon,
+.appSidebarSectionHandle:focus-visible .appSidebarCollapseIcon {
+  background-color: color-mix(in srgb, var(--foreground), transparent 89%);
+}
+
+.appSidebarSectionHandle .appSidebarCollapseIcon:hover {
+  background-color: color-mix(in srgb, var(--foreground), transparent 82%);
+  color: var(--foreground);
+}
+
+.appSidebarSectionHandle:hover .appSidebarSpaceGlyph,
+.appSidebarSectionHandle:focus-visible .appSidebarSpaceGlyph {
+  opacity: 0;
+}
+
+.appSidebarSectionHandle:hover .appSidebarCollapseIcon,
+.appSidebarSectionHandle:focus-visible .appSidebarCollapseIcon {
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .appSidebarSpaceGlyph {
+    opacity: 0;
+  }
+
+  .appSidebarCollapseIcon {
+    opacity: 1;
+  }
 }
 
 .appSidebarSection .appSidebarSectionButton:first-of-type {

@@ -2,16 +2,13 @@
  * Regression: Shift+ArrowUp / Shift+ArrowDown must not get *stuck* at a block
  * equation while extending a selection.
  *
- * A `$$…$$` block is textual, and a bare caret navigates its stacked construct
- * rows (a fraction's halves) before leaving the block — see
- * `math-block-vertical.test.ts`. But when a Shift+Arrow *extends a range* across
- * the block, descending into those rows is a trap: a selection may not partially
- * cover a construct, so {@link snapSelectionToConstructs} snaps the interior
- * offset the row-step lands on straight back to the construct/block edge, and the
- * focus then oscillates on that edge, press after press, never advancing past the
- * equation. `moveCursorUp`/`moveCursorDown` now skip intra-block row navigation
- * while a non-collapsed selection is being extended, so the focus escapes the
- * block by ordinary line/block navigation instead.
+ * A `$$…$$` block owns no flat text — a flat selection covers it whole, as an
+ * atomic block. A Shift+Arrow extending a range across it must therefore step
+ * past the equation by ordinary line/block navigation, never descending into
+ * the equation's construct rows (nested content selections are a separate,
+ * per-equation caret model — see `math-block-vertical.test.ts`). The bug this
+ * guards against: a vertical step that lands inside the block and then snaps
+ * back to its edge oscillates there press after press, never advancing.
  *
  * These drive the real EXTEND_SELECTION path: `moveCursorUp`/`moveCursorDown`
  * over a state that carries a selection, then commit the focus exactly as the
@@ -90,27 +87,5 @@ describe("block math — Shift+Arrow selection never sticks", () => {
     const s = place(createMathTestState(loadMathPage(PAGE)), 4, 5);
     expect(s.document.page.blocks[2].type).toBe("math");
     extendUntilBlock(s, "up", 0);
-  });
-
-  it("a selection begun *inside* the fraction still escapes downward", () => {
-    // Anchor inside the numerator: the first Shift+Down selects the whole
-    // fraction (via the construct snap); the next must leave the block, not bounce.
-    const numOff = "\\frac{a}{b}".indexOf("{a}") + 1;
-    const s = place(createMathTestState(loadMathPage(PAGE)), 2, numOff);
-    extendUntilBlock(s, "down", 4);
-  });
-
-  it("a bare-caret ArrowDown still descends the fraction's rows (no selection)", () => {
-    // The fix must NOT affect a lone caret: it clears any selection first, so
-    // intra-block row navigation is preserved (numerator → denominator).
-    const f = "\\frac{a}{b}";
-    const aOff = f.indexOf("{a}") + 1;
-    const bOff = f.indexOf("{b}") + 1;
-    const s = place(createMathTestState(loadMathPage(`$$${f}$$`)), 0, aOff);
-    const down = moveCursorDown(s);
-    expect(down.document.cursor?.position.blockIndex).toBe(0);
-    expect(down.document.cursor?.position.textIndex).toBeGreaterThanOrEqual(
-      bOff,
-    );
   });
 });

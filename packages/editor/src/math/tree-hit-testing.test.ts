@@ -30,8 +30,6 @@ import {
 import { getEditorStyles } from "../styles";
 import {
   getMathStructuredDocument,
-  mathContentIdForBlock,
-  parseLegacyMathDocumentInit,
   structuredToMathDocument,
 } from "./structured";
 import type {
@@ -63,27 +61,9 @@ interface MathGeometry {
   readonly originX: number;
 }
 
+// `$$…$$` markdown imports with the block-authority document already attached,
+// so a plain load IS the structured display equation.
 function treeMathState(latex: string): EditorState {
-  const page = loadPage(`$$\n${latex}\n$$`, schema.data);
-  const block = page.blocks[0];
-  const contentId = mathContentIdForBlock(block.id);
-  const init = parseLegacyMathDocumentInit(latex, { contentId });
-  const treeBlock = {
-    ...block,
-    charRuns: [],
-    structuredContent: { [contentId]: init.document },
-  };
-  return createInitialState(
-    { ...page, blocks: [treeBlock] },
-    {
-      schema: schema.data,
-      nodes: createNodeRegistry(schema.nodes),
-      marks: createMarkRegistry(schema.marks),
-    },
-  );
-}
-
-function legacyMathState(latex: string): EditorState {
   const page = loadPage(`$$\n${latex}\n$$`, schema.data);
   return createInitialState(page, {
     schema: schema.data,
@@ -412,15 +392,6 @@ describe("structured display-math hit testing", () => {
     expect(inserted.ops).toContainEqual(
       expect.objectContaining({ op: "content_edit" }),
     );
-  });
-
-  it("keeps legacy display math on its flat source-cursor path", () => {
-    const value = geometry(legacyMathState("ab"));
-    const point = {
-      x: value.originX + value.layout.mathOffsetX,
-      y: value.blockTop + value.layout.mathTop,
-    };
-    expect(hit(value, point)).toBeNull();
   });
 
   it("a desktop click installs the nested caret without a flat bridge", () => {

@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
 function chipPage(prefix: string, latex: string, suffix: string) {
   const binding = createCRDTbinding("word-select-boundary", "peer-1");
   const engine = createMathTestSyncEngine(binding);
-  const blockOp = engine.createBlockInsert(null, "paragraph", {});
+  const blockOp = engine.createBlockInsert("a0", "paragraph", {});
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
 

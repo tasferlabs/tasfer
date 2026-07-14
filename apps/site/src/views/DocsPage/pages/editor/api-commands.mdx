@@ -137,7 +137,9 @@ editor.change((c) => {
 });
 ```
 
-<Callout kind="note" title="Togglable vs data-carrying marks.">`setMark(name)` with no options toggles the core togglable marks (`strong`, `emphasis`, `strike`, `code`) and any custom toggle mark across the selection. `link` — and `math` when [`mathExtension`](/docs/editor/api-schema#math) is installed — carry data (a url / LaTeX) on `attrs`, so apply them with an explicit range and attrs — `setMark("link", { attrs: { url }, range })` — and remove with `{ active: false, range }`.</Callout>
+<Callout kind="note" title="Togglable vs data-carrying marks.">`setMark(name)` with no options toggles the core togglable marks (`strong`, `emphasis`, `strike`, `code`) and any custom toggle mark across the selection. `link` carries data (a url) on `attrs`, so apply it with an explicit range and attrs — `setMark("link", { attrs: { url }, range })` — and remove with `{ active: false, range }`. Applying `math` (when [`mathExtension`](/docs/editor/api-schema#math) is installed) over a range CREATES a formula: the selected text becomes the new structured document's LaTeX source and the range collapses to the mark's single anchor character.</Callout>
+
+<Callout kind="note" title="Structured math content and flat offsets.">A display equation's flat text is empty and an inline chip is one anchor character, so `{ block, offset }` ranges never address formula *content*. `insertText`/`deleteRange` aimed inside a display math block are refused, and a range clipping an inline chip expands to replace the chip whole. Edit formula content through `editContent` mutations or the interactive nested selection.</Callout>
 
 <Callout kind="note" title="Restricted schemas.">
   On a schema narrowed with [`restrict`](/docs/editor/api-schema#restrict), a

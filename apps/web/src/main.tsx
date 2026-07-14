@@ -13,6 +13,7 @@ import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
 import { router } from "./app/routes/Router";
 import { initNativeDevToolsSync } from "./lib/devTools";
+import { requestPersistentStorage } from "./lib/persistentStorage";
 import LoadingScreen from "./components/ui/loading-screen";
 import { MobileAppGate } from "./app/components/MobileAppGate/MobileAppGate";
 import { loadFonts, loadArabicFonts } from "./fonts";
@@ -83,6 +84,11 @@ if ((window as any).cypher) {
 // (no-op off Electron). The injected launch value is read separately, on first
 // access of the flag.
 initNativeDevToolsSync();
+
+// Ask the browser to shield this origin's storage from eviction — on web the
+// local IndexedDB/OPFS replica is the only copy of the user's data. Idempotent,
+// no-op on Electron/Capacitor; result surfaced in Settings → Data.
+requestPersistentStorage().catch(() => {});
 
 // Start font loading in background — don't block initial render.
 // Font metrics are computed lazily on first use per size/weight combo.

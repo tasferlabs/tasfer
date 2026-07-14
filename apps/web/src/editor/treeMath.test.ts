@@ -2,7 +2,7 @@ import {
   mathContentSelectionFromSourceOffset,
   mathMatrixContext,
 } from "@cypherkit/editor/math";
-import { parseLegacyMathDocumentInit } from "@cypherkit/editor/math/data";
+import { parseMathDocumentInit } from "@cypherkit/editor/math/data";
 import { describe, expect, it } from "vitest";
 import type { AppEditor } from "../editorSchema";
 import { treeMathAtAnchor, treeMathAtFocus } from "./treeMath";
@@ -14,7 +14,7 @@ describe("treeMathAtFocus", () => {
       const blockId = `${type}-block`;
       const contentId = `${blockId}/math`;
       const latex = String.raw`\frac{a}{b}\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
-      const document = parseLegacyMathDocumentInit(latex, {
+      const document = parseMathDocumentInit(latex, {
         contentId,
         authority: type === "math" ? "block" : "supplemental",
       }).document;

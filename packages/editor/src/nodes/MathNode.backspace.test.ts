@@ -1,95 +1,116 @@
-import { createMathTestState } from "../__testutils__/math";
+/**
+ * Backspace around a structured display equation.
+ *
+ * A math block's flat char runs are EMPTY — its content is the block-authority
+ * MathDocument — so every editing gesture flows through the tree: Backspace at
+ * the equation's leading edge demotes the block to a paragraph holding one
+ * inline chip (the tree is reused losslessly as the chip's supplemental
+ * attachment), deletes inside the equation resolve against tree units (a
+ * command and its separator die together), and Backspace from the following
+ * prose selects the whole block as a node selection before deleting it.
+ */
 import { DELETE_BACKWARD, DELETE_FORWARD } from "../actions/edit-actions";
-import { getInlineMathSpans } from "../inline-math-spans";
-import { getSelectionHandlePositions, isNodeSelection } from "../selection";
-import type {
-  CursorState,
-  EditorState,
-  Page,
-  ViewportState,
-} from "../state-types";
+import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
+import { resolveStructuredInlineMathRuns } from "../math/inline-structured";
+import {
+  getMathStructuredDocument,
+  getStructuredMathSource,
+  mathContentIdForBlock,
+} from "../math/structured";
+import { mathContentSelectionFromSourceOffset } from "../math/tree-selection";
+import { mathExtension } from "../math-extension";
+import { createMarkRegistry } from "../rendering/marks";
+import { createNodeRegistry } from "../rendering/nodes";
+import { baseSchema } from "../schema";
+import {
+  getSelectionHandlePositions,
+  isNodeSelection,
+  moveCursorToPosition,
+} from "../selection";
+import { loadPage } from "../serlization/loadPage";
+import type { EditorState, ViewportState } from "../state-types";
+import { createInitialState } from "../state-utils";
+import { updateContentSelection } from "../structured-selection";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
-import type { MathBlock } from "./MathNode";
-import type { Paragraph } from "./TextNode";
+import { createCRDTbinding } from "../sync/sync";
+import type { TextualBlock } from "./TextNode";
 import { describe, expect, it } from "vitest";
 
-function paragraph(text: string): Paragraph {
-  return {
-    id: "paragraph-1",
-    orderKey: "a0",
-    type: "paragraph",
-    charRuns: text ? [{ peerId: "seed", startCounter: 1, text }] : [],
-    formats: [],
-  };
+const schema = baseSchema.use(mathExtension());
+
+function stateFor(markdown: string, peer: string): EditorState {
+  return createInitialState(loadPage(markdown, schema.data), {
+    schema: schema.data,
+    nodes: createNodeRegistry(schema.nodes),
+    marks: createMarkRegistry(schema.marks),
+    crdtBinding: createCRDTbinding("page", peer),
+  });
 }
 
-function mathBlock(latex: string): MathBlock {
-  return {
-    id: "math-1",
-    orderKey: "a1",
-    type: "math",
-    charRuns: latex ? [{ peerId: "seed", startCounter: 100, text: latex }] : [],
-    formats: [],
-    displayMode: true,
-  };
+/** Nested caret at `sourceOffset` inside the display equation at `blockIndex`. */
+function treeCaretAt(
+  state: EditorState,
+  blockIndex: number,
+  sourceOffset: number,
+): EditorState {
+  const block = state.document.page.blocks[blockIndex];
+  const document = getMathStructuredDocument(block);
+  if (!document) throw new Error("expected a structured math block");
+  const selection = mathContentSelectionFromSourceOffset(
+    block.id,
+    mathContentIdForBlock(block.id),
+    document,
+    sourceOffset,
+  );
+  if (!selection) throw new Error("expected a tree caret");
+  return updateContentSelection(state, selection);
 }
 
-function stateWithCursor(page: Page, cursor: CursorState): EditorState {
-  const state = createMathTestState(page);
-  return {
-    ...state,
-    document: { ...state.document, cursor },
-  };
+function blockSource(state: EditorState, blockIndex: number) {
+  return getStructuredMathSource(state.document.page.blocks[blockIndex]);
 }
 
 describe("backspace at the start of a math block", () => {
-  it("demotes the same block to a paragraph with a math mark", () => {
-    const state = stateWithCursor(
-      {
-        id: "page-1",
-        title: "",
-        blocks: [paragraph("Euler: "), mathBlock("e^{i\\pi}+1=0")],
-      },
-      { position: { blockIndex: 1, textIndex: 0 }, lastUpdate: 0 },
+  it("demotes the same block to a paragraph holding one inline chip", () => {
+    let state = stateFor("Euler:\n\n$$\nE=mc^2\n$$", "demote");
+    const mathIndex = state.document.page.blocks.findIndex(
+      (block) => (block.type as string) === "math",
     );
+    expect(mathIndex).toBeGreaterThan(0);
+    state = treeCaretAt(state, mathIndex, 0);
 
     const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
-    const visibleBlocks = result.state.document.page.blocks.filter(
-      (block) => !block.deleted,
-    );
+    expect(result.claimed).toBe(true);
+    const converted = result.state.document.page.blocks[mathIndex];
 
-    expect(visibleBlocks).toHaveLength(2);
+    // The preceding prose is untouched — the block CONVERTS in place rather
+    // than joining into its neighbour.
     expect(
-      getVisibleTextFromRuns((visibleBlocks[0] as Paragraph).charRuns),
-    ).toBe("Euler: ");
-    expect(visibleBlocks[1].type).toBe("paragraph");
+      getVisibleTextFromRuns(
+        (result.state.document.page.blocks[0] as TextualBlock).charRuns,
+      ),
+    ).toBe("Euler:");
+    expect(converted.type).toBe("paragraph");
+    // The paragraph's flat text is exactly one anchor char…
+    expect(getVisibleTextFromRuns((converted as TextualBlock).charRuns)).toBe(
+      STRUCTURED_MARK_ANCHOR_CHAR,
+    );
+    // …whose mark carries the equation's tree, losslessly (canonical print).
     expect(
-      getVisibleTextFromRuns((visibleBlocks[1] as Paragraph).charRuns),
-    ).toBe("e^{i\\pi}+1=0");
-    expect(getInlineMathSpans(visibleBlocks[1])).toMatchObject([
-      {
-        startIndex: 0,
-        endIndex: 12,
-        latex: "e^{i\\pi}+1=0",
-      },
-    ]);
+      resolveStructuredInlineMathRuns(converted as TextualBlock),
+    ).toMatchObject([{ startIndex: 0, endIndex: 1, latex: "E=m{c}^{2}" }]);
+    // Backspace demotes at the leading edge, so the caret stays before the chip.
     expect(result.state.document.cursor?.position).toEqual({
-      blockIndex: 1,
+      blockIndex: mathIndex,
       textIndex: 0,
     });
-    expect(result.state.ui.activeMarksMode).toEqual({ type: "inherit" });
+    expect(result.state.document.contentSelection).toBeNull();
   });
 
   it("also demotes a math block when it is the first block", () => {
-    const state = stateWithCursor(
-      {
-        id: "page-1",
-        title: "",
-        blocks: [{ ...mathBlock("x^2"), orderKey: "a0" }],
-      },
-      { position: { blockIndex: 0, textIndex: 0 }, lastUpdate: 0 },
-    );
+    let state = stateFor("$$\nx^2\n$$", "demote-first");
+    state = treeCaretAt(state, 0, 0);
 
     const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
     const visibleBlocks = result.state.document.page.blocks.filter(
@@ -98,24 +119,32 @@ describe("backspace at the start of a math block", () => {
 
     expect(visibleBlocks).toHaveLength(1);
     expect(visibleBlocks[0].type).toBe("paragraph");
-    expect(getInlineMathSpans(visibleBlocks[0])[0]?.latex).toBe("x^2");
+    expect(
+      resolveStructuredInlineMathRuns(visibleBlocks[0] as TextualBlock)[0]
+        ?.latex,
+    ).toBe("{x}^{2}");
     expect(result.state.document.cursor?.position).toEqual({
       blockIndex: 0,
       textIndex: 0,
     });
   });
 
-  it("undo restores the original math block and removes the inline mark", () => {
-    const state = stateWithCursor(
-      {
-        id: "page-1",
-        title: "",
-        blocks: [{ ...mathBlock("x^2"), orderKey: "a0" }],
-      },
-      { position: { blockIndex: 0, textIndex: 0 }, lastUpdate: 0 },
-    );
+  it("does not demote from a caret in the equation's interior", () => {
+    let state = stateFor("$$\nx+y\n$$", "demote-interior");
+    state = treeCaretAt(state, 0, 2); // after the `+`
+
+    const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+    // Interior Backspace is a tree edit, not a structural conversion.
+    expect(result.state.document.page.blocks[0].type).toBe("math");
+    expect(blockSource(result.state, 0)).toBe("xy");
+  });
+
+  it("undo restores the math block and its authority document", () => {
+    let state = stateFor("$$\nx^2\n$$", "demote-undo");
+    state = treeCaretAt(state, 0, 0);
 
     const converted = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+    expect(converted.state.document.page.blocks[0].type).toBe("paragraph");
     const recorded = recordUndoOps(
       state,
       converted.state,
@@ -126,103 +155,61 @@ describe("backspace at the start of a math block", () => {
     const block = undone.document.page.blocks[0];
 
     expect(block.type).toBe("math");
-    expect(getVisibleTextFromRuns((block as MathBlock).charRuns)).toBe("x^2");
-    expect(block.formats).toEqual([]);
-    expect(undone.document.cursor?.position).toEqual({
-      blockIndex: 0,
-      textIndex: 0,
-    });
-    expect(undone.ui.activeMarksMode).toEqual({ type: "inherit" });
+    // The block-authority tree is back, and no stray chip chars survive.
+    expect(getStructuredMathSource(block)).toBe("{x}^{2}");
+    expect(
+      "charRuns" in block ? getVisibleTextFromRuns(block.charRuns) : null,
+    ).toBe("");
 
     const redone = redoState(undone).state;
     expect(redone.document.page.blocks[0].type).toBe("paragraph");
-    expect(getInlineMathSpans(redone.document.page.blocks[0])[0]?.latex).toBe(
-      "x^2",
-    );
+    expect(
+      resolveStructuredInlineMathRuns(
+        redone.document.page.blocks[0] as TextualBlock,
+      )[0]?.latex,
+    ).toBe("{x}^{2}");
   });
 });
 
 describe("deleting across a command separator in a math block", () => {
-  // The separator space in `\degree C` is absorbed into the command token, so the
-  // position before `C` carries no editing unit. Deleting only the raw space
-  // would fuse the control word onto `C` into the unknown `\degreeC`; the command
-  // must be deleted together with its separator instead. (Same root cause as the
-  // inline-chip regression — the seam is shared, so a block proves the fix too.)
+  // The separator space in `\degree C` is absorbed into the command token, so
+  // the position before `C` carries no standalone editing unit. Deleting only
+  // the raw space would fuse the control word onto `C` into the unknown
+  // `\degreeC`; the command must be deleted together with its separator.
   it("Backspace before the letter removes the whole command (\\degree C → C)", () => {
-    const state = stateWithCursor(
-      {
-        id: "page-1",
-        title: "",
-        blocks: [{ ...mathBlock("\\degree C"), orderKey: "a0" }],
-      },
-      { position: { blockIndex: 0, textIndex: 8 }, lastUpdate: 0 },
-    );
+    let state = stateFor("$$\n\\degree C\n$$", "sep-backspace");
+    expect(blockSource(state, 0)).toBe("\\degree C");
+    state = treeCaretAt(state, 0, "\\degree C".indexOf("C"));
 
     const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
-    expect(
-      getVisibleTextFromRuns(
-        (result.state.document.page.blocks[0] as MathBlock).charRuns,
-      ),
-    ).toBe("C");
+    expect(blockSource(result.state, 0)).toBe("C");
   });
 
-  it("forward-Delete before the separator removes the separator and the atom (\\degree C → \\degree)", () => {
-    const state = stateWithCursor(
-      {
-        id: "page-1",
-        title: "",
-        blocks: [{ ...mathBlock("\\degree C"), orderKey: "a0" }],
-      },
-      { position: { blockIndex: 0, textIndex: 7 }, lastUpdate: 0 },
-    );
+  it("forward-Delete after the command removes the separator and the atom (\\degree C → \\degree)", () => {
+    let state = stateFor("$$\n\\degree C\n$$", "sep-forward");
+    state = treeCaretAt(state, 0, "\\degree".length);
 
     const result = state.actionBus.dispatchState(DELETE_FORWARD, state);
-    expect(
-      getVisibleTextFromRuns(
-        (result.state.document.page.blocks[0] as MathBlock).charRuns,
-      ),
-    ).toBe("\\degree");
-  });
-
-  it("an ordinary inter-atom space still merges (a b → ab)", () => {
-    const state = stateWithCursor(
-      {
-        id: "page-1",
-        title: "",
-        blocks: [{ ...mathBlock("a b"), orderKey: "a0" }],
-      },
-      { position: { blockIndex: 0, textIndex: 2 }, lastUpdate: 0 },
-    );
-
-    const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
-    expect(
-      getVisibleTextFromRuns(
-        (result.state.document.page.blocks[0] as MathBlock).charRuns,
-      ),
-    ).toBe("ab");
+    expect(blockSource(result.state, 0)).toBe("\\degree");
   });
 });
 
 describe("backspace from following text into a math block", () => {
-  it("selects the math block first, then deletes it on the next Backspace", () => {
-    const after: Paragraph = {
-      id: "paragraph-2",
-      orderKey: "a2",
-      type: "paragraph",
-      charRuns: [{ peerId: "seed", startCounter: 200, text: "after" }],
-      formats: [],
-    };
-    const state = stateWithCursor(
-      {
-        id: "page-1",
-        title: "",
-        blocks: [mathBlock("x^2"), after],
-      },
-      { position: { blockIndex: 1, textIndex: 0 }, lastUpdate: 0 },
-    );
+  const following = (peer: string) => {
+    // No blank line, so the paragraph directly follows the equation.
+    const state = stateFor("$$\nx^2\n$$\nafter", peer);
+    expect(state.document.page.blocks.map((block) => block.type)).toEqual([
+      "math",
+      "paragraph",
+    ]);
+    return moveCursorToPosition(state, 1, 0);
+  };
 
+  it("selects the math block first, then deletes it on the next Backspace", () => {
+    const state = following("select-then-delete");
     const selected = state.actionBus.dispatchState(DELETE_BACKWARD, state);
 
+    // First press: pure selection, no mutation.
     expect(selected.ops).toHaveLength(0);
     expect(selected.state.document.page.blocks[0].type).toBe("math");
     expect(selected.state.document.selection).toMatchObject({
@@ -236,7 +223,7 @@ describe("backspace from following text into a math block", () => {
       selected.state,
     );
 
-    expect(deleted.ops[0].op).toBe("block_delete");
+    expect(deleted.ops.map((op) => op.op)).toContain("block_delete");
     expect(deleted.state.document.page.blocks[0].deleted).toBe(true);
     expect(
       deleted.state.document.page.blocks
@@ -251,22 +238,7 @@ describe("backspace from following text into a math block", () => {
     // handles would otherwise both resolve to the math's start edge — two
     // teardrops stacked into a stray caret-like bar. They must be suppressed so
     // the block paints its own selected state instead.
-    const after: Paragraph = {
-      id: "paragraph-2",
-      orderKey: "a2",
-      type: "paragraph",
-      charRuns: [{ peerId: "seed", startCounter: 200, text: "after" }],
-      formats: [],
-    };
-    const state = stateWithCursor(
-      {
-        id: "page-1",
-        title: "",
-        blocks: [mathBlock("x^2"), after],
-      },
-      { position: { blockIndex: 1, textIndex: 0 }, lastUpdate: 0 },
-    );
-
+    const state = following("node-selection-handles");
     const selected = state.actionBus.dispatchState(
       DELETE_BACKWARD,
       state,

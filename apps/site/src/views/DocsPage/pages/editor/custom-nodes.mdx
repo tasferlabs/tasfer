@@ -176,8 +176,11 @@ if (block?.type === "callout") {
 A spec carries every facet its type owns — there is no separate facet registry.
 Both `defineNode` and `defineMark` accept `markdownSyntax`, the Markdown
 recognizers for the type's own syntax, and `defineMark` also accepts
-`structured` for structured-content behavior (attachment initialization,
-canonical-source resolution, clone rewrites). A custom syntax rule only takes
+`structured` for structured-content behavior (eager attachment
+initialization, canonical-source resolution from the attachment, attachment
+references, clone rewrites). A structured mark stores no source text in block
+characters: it anchors on a single placeholder character and its attachment is
+the only content authority. A custom syntax rule only takes
 effect when a codec claims the tokens it emits; the generic `<x-type/>`
 round-trip claims none, so pair the rule with a hand-written codec — the way
 the optional math specs carry the `$$…$$` and `$…$` recognizers next to the

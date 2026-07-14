@@ -11,6 +11,7 @@
 import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
 import { renderToSVG } from "../nodes/math";
 import { iterateVisibleChars } from "../sync/char-runs";
+import { hasStructuredBlockAuthority } from "../sync/structured-content";
 import type { DataSchema } from "../sync/schema";
 import type { OutputCtx, ReplacementRenderer } from "./codecs";
 import { escapeHtml, inlineToHtml } from "./codecs/inline";
@@ -99,6 +100,9 @@ function flushLists(stack: ListGroup[], target: number): string {
 
 function isEmptyTextualBlock(b: Block, schema: DataSchema): boolean {
   if (!schema.isTextual(b.type) || !("charRuns" in b)) return false;
+  // A block-authority structured document (a display equation) has empty flat
+  // text but real content — never trim it.
+  if (hasStructuredBlockAuthority(b)) return false;
   for (const _ of iterateVisibleChars(b.charRuns)) return false;
   return true;
 }

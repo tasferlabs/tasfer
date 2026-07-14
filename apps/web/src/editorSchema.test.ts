@@ -9,7 +9,7 @@ describe("app editor math composition", () => {
       .inputRules("before-insert")
       .map((rule) => rule.id);
 
-    expect(ids).toContain("math.tree.migrate");
+    expect(ids).toContain("math.tree.input");
     expect(ids).toContain("math.inline-tree.input");
   });
 

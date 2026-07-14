@@ -21,8 +21,7 @@ import {
 } from "../structured-selection";
 import { findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
-import { getVisibleTextFromRuns } from "../sync/char-runs";
-import { deleteCharsInRange, orderKeyAfter } from "../sync/crdt-utils";
+import { orderKeyAfter } from "../sync/crdt-utils";
 import {
   applyOp,
   findNextVisibleBlockIndex,
@@ -33,7 +32,6 @@ import type {
   StructuredEdit,
   StructuredMutation,
 } from "../sync/structured-content";
-import { maxStructuredDocumentIdCounter } from "../sync/sync";
 import {
   applyMathTreeCommandToDocument,
   applyMathTreeInputToDocument,
@@ -43,7 +41,6 @@ import {
   getMathStructuredDocument,
   getStructuredMathSource,
   mathContentIdForBlock,
-  parseLegacyMathDocumentInit,
   structuredToMathDocument,
 } from "./structured";
 import {
@@ -74,11 +71,6 @@ interface MathTreeContext {
   readonly document: StructuredDocument;
   readonly caret: MathTreeCaret;
   readonly range?: MathTreeRange;
-  /** Visible compatibility source to tombstone on the next actual tree edit. */
-  readonly legacyLength: number;
-  readonly migration?: {
-    readonly init: StructuredMutation;
-  };
 }
 
 export interface MathTreeStateEditResult {
@@ -101,27 +93,10 @@ export const mathTreeInputRule: FeatureInputRule = {
     const context = activeMathTreeContext(state);
     if (context) return applyMathTreeInput(state, context, input);
 
-    // A legacy flat range cannot be mapped back to stable tree endpoints
-    // losslessly. Claim it so stale compatibility char runs never receive it;
-    // native content selections are handled by the context above.
+    // A flat range in a display block cannot be mapped to stable tree
+    // endpoints. Claim it so the block's (empty) flat storage never receives
+    // it; native content selections are handled by the context above.
     return flatSelectionOwnsMathTree(state)
-      ? { state, ops: [], handled: true }
-      : undefined;
-  },
-};
-
-/** Lazily create the tree for a legacy display block in opt-in rollout mode. */
-export const mathTreeMigrationInputRule: FeatureInputRule = {
-  id: "math.tree.migrate",
-  phase: "before-insert",
-  priority: 1_100,
-  owns: ({ state }) => legacyMathTreeMutationTarget(state),
-  apply: ({ state, input }) => {
-    const context = prepareMathTreeMigration(state);
-    if (context) return applyMathTreeInput(state, context, input);
-    // A cross-block or otherwise unmappable legacy selection is still owned by
-    // tree mode. Claim it instead of letting core replace a source substring.
-    return legacyMathTreeMutationTarget(state)
       ? { state, ops: [], handled: true }
       : undefined;
   },
@@ -204,9 +179,14 @@ export function exitActiveMathTreeHorizontally(
  * The offset-zero (left) case matches where the old projection already landed, so
  * only the right-edge entry changes behavior; both now yield a real structured
  * caret rather than an ambiguous compatibility offset. Returns undefined for
- * anything else — a non-edge caret, an active range, an RTL block (whose visual
- * left is logical forward), or a non-math / not-yet-materialized neighbour — so
- * ordinary cursor movement is untouched.
+ * anything else — a non-edge caret, an active range, or a non-math /
+ * not-yet-materialized neighbour — so ordinary cursor movement is untouched.
+ *
+ * In an RTL block the visual arrows map to the opposite LOGICAL step (visual
+ * left is logical forward), so the whole bridge keys off the logical direction:
+ * a backward step (ArrowLeft in LTR, ArrowRight in RTL) leaves at offset zero
+ * for the PREVIOUS equation's end; a forward step leaves at the block's length
+ * for the NEXT equation's start. The equation interior is LTR either way.
  */
 export function enterAdjacentMathTreeHorizontally(
   state: EditorState,
@@ -223,25 +203,19 @@ export function enterAdjacentMathTreeHorizontally(
   const { blockIndex, textIndex } = cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
   if (!currentBlock || currentBlock.deleted) return undefined;
-  // Visual left/right only equals logical back/forward in LTR; leave RTL blocks
-  // to the ordinary mover so we never bridge on the wrong side.
-  if (
+  const rtl =
     isTextualBlock(currentBlock) &&
-    getBlockDirection(currentBlock, state.marks) === "rtl"
-  ) {
-    return undefined;
-  }
+    getBlockDirection(currentBlock, state.marks) === "rtl";
+  const enteringPrevious = (direction === "left") !== rtl;
   // The caret must sit on the block edge the move steps off of.
-  const atEdge =
-    direction === "left"
-      ? textIndex === 0
-      : textIndex === getBlockTextLength(currentBlock);
+  const atEdge = enteringPrevious
+    ? textIndex === 0
+    : textIndex === getBlockTextLength(currentBlock);
   if (!atEdge) return undefined;
 
-  const adjacentIndex =
-    direction === "left"
-      ? findPreviousVisibleBlockIndex(state.document.page.blocks, blockIndex)
-      : findNextVisibleBlockIndex(state.document.page.blocks, blockIndex);
+  const adjacentIndex = enteringPrevious
+    ? findPreviousVisibleBlockIndex(state.document.page.blocks, blockIndex)
+    : findNextVisibleBlockIndex(state.document.page.blocks, blockIndex);
   if (adjacentIndex === null) return undefined;
   const adjacent = state.document.page.blocks[adjacentIndex] as
     | Block
@@ -254,7 +228,7 @@ export function enterAdjacentMathTreeHorizontally(
   if (!document) return undefined;
 
   const source = getStructuredMathSource(adjacent) ?? "";
-  const sourceOffset = direction === "left" ? source.length : 0;
+  const sourceOffset = enteringPrevious ? source.length : 0;
   const selection = mathContentSelectionFromSourceOffset(
     adjacent.id,
     mathContentIdForBlock(adjacent.id),
@@ -659,140 +633,16 @@ export function hasActiveMathTreeCaret(state: EditorState): boolean {
 
 /**
  * Whether a mutating action belongs to structured display-math editing.
- *
- * Existing structured attachments are authoritative in every math mode. A
- * legacy display block is included only when this schema installed the tree
- * migration rule, so compatibility schemas retain their char-run behavior.
- * This ownership query intentionally does not parse or allocate identities;
- * callers use it only to prevent unsafe fallback when migration cannot map a
- * selection losslessly.
+ * Existing structured attachments are authoritative in every math mode.
  */
 export function ownsMathTreeMutation(state: EditorState): boolean {
-  if (hasActiveMathTreeCaret(state) || flatSelectionOwnsMathTree(state)) {
-    return true;
-  }
-  return (
-    isMathTreeMigrationEnabled(state) && legacyMathTreeMutationTarget(state)
-  );
+  return hasActiveMathTreeCaret(state) || flatSelectionOwnsMathTree(state);
 }
 
-function legacyMathTreeMutationTarget(state: EditorState): boolean {
-  const cursor = state.document.cursor;
-  if (!cursor) return false;
-  const selection = state.document.selection;
-  if (
-    selection &&
-    !selection.isCollapsed &&
-    selection.anchor.blockIndex !== selection.focus.blockIndex
-  ) {
-    return false;
-  }
-  const indexes =
-    selection && !selection.isCollapsed
-      ? [selection.anchor.blockIndex, selection.focus.blockIndex]
-      : [cursor.position.blockIndex];
-  return indexes.some((index) => {
-    const block = state.document.page.blocks[index] as
-      | Block
-      | MathBlock
-      | undefined;
-    return !!(
-      block &&
-      !block.deleted &&
-      block.type === "math" &&
-      !getMathStructuredDocument(block)
-    );
-  });
-}
-
-/** Resolve an authoritative tree, lazily preparing one when this schema opts in. */
 function editableMathTreeContext(
   state: EditorState,
 ): MathTreeContext | undefined {
-  return (
-    activeMathTreeContext(state) ??
-    (isMathTreeMigrationEnabled(state)
-      ? prepareMathTreeMigration(state)
-      : undefined)
-  );
-}
-
-function isMathTreeMigrationEnabled(state: EditorState): boolean {
-  return state.schema
-    .inputRules("before-insert")
-    .some((rule) => rule.id === mathTreeMigrationInputRule.id);
-}
-
-function prepareMathTreeMigration(
-  state: EditorState,
-): MathTreeContext | undefined {
-  const cursor = state.document.cursor;
-  if (!cursor) return undefined;
-  const blockIndex = cursor.position.blockIndex;
-  const block = state.document.page.blocks[blockIndex] as
-    | Block
-    | MathBlock
-    | undefined;
-  if (!block || block.deleted || block.type !== "math") return undefined;
-  const contentId = mathContentIdForBlock(block.id);
-  const existing = getMathStructuredDocument(block);
-  if (existing) return undefined;
-
-  if (!("charRuns" in block)) return undefined;
-  const latex = getVisibleTextFromRuns(block.charRuns);
-  const init = parseLegacyMathDocumentInit(latex, { contentId });
-  const math = structuredToMathDocument(init.document);
-  if (!math) return undefined;
-  const flatSelection = state.document.selection;
-  if (
-    flatSelection &&
-    !flatSelection.isCollapsed &&
-    (flatSelection.anchor.blockIndex !== blockIndex ||
-      flatSelection.focus.blockIndex !== blockIndex)
-  ) {
-    return undefined;
-  }
-  const focusOffset =
-    flatSelection && !flatSelection.isCollapsed
-      ? flatSelection.focus.textIndex
-      : cursor.position.textIndex;
-  const caret = mathTreeCaretFromSourceOffset(
-    block.id,
-    contentId,
-    math,
-    init.document,
-    focusOffset,
-  );
-  const anchor =
-    flatSelection && !flatSelection.isCollapsed
-      ? mathTreeCaretFromSourceOffset(
-          block.id,
-          contentId,
-          math,
-          init.document,
-          flatSelection.anchor.textIndex,
-        )
-      : undefined;
-  if (!caret || (flatSelection && !flatSelection.isCollapsed && !anchor)) {
-    return undefined;
-  }
-
-  // The deterministic initializer may contain counters beyond the legacy
-  // flat source. Advance the live allocator before the first tree mutation;
-  // RGA insertion requires new counters to out-order every observed sibling.
-  state.CRDTbinding.advanceIdCounter(
-    maxStructuredDocumentIdCounter(init.document),
-  );
-  return {
-    block,
-    blockIndex,
-    contentId,
-    document: init.document,
-    caret,
-    ...(anchor ? { range: { anchor, focus: caret } } : {}),
-    legacyLength: latex.length,
-    migration: { init },
-  };
+  return activeMathTreeContext(state);
 }
 
 function activeMathTreeContext(
@@ -827,7 +677,6 @@ function activeMathTreeContext(
           ...(isContentSelectionCollapsed(selection)
             ? {}
             : { range: { anchor, focus: caret } }),
-          legacyLength: visibleLegacyLength(block),
         }
       : undefined;
   }
@@ -864,7 +713,6 @@ function activeMathTreeContext(
         contentId,
         document,
         caret,
-        legacyLength: visibleLegacyLength(block),
       }
     : undefined;
 }
@@ -914,10 +762,6 @@ function flatSelectionOwnsMathTree(state: EditorState): boolean {
   );
 }
 
-function visibleLegacyLength(block: MathBlock): number {
-  return getVisibleTextFromRuns(block.charRuns).length;
-}
-
 function applyMathTreeInput(
   state: EditorState,
   context: MathTreeContext,
@@ -936,21 +780,14 @@ function applyMathTreeInput(
 
 /**
  * Finish every tree-owned mutation through one authority boundary.
- *
- * A successful edit commits normally. A failed edit on an existing tree is a
- * claimed no-op. A failed first edit still commits the lossless migration and
- * clears the compatibility source, so no caller can retry the same mutation as
- * ordinary text and corrupt the LaTeX.
+ * A successful edit commits normally; a failed edit is a claimed no-op.
  */
 function settleMathTreeMutation(
   state: EditorState,
   context: MathTreeContext,
   result: MathTreeEditResult,
 ): MathTreeStateEditResult {
-  if (result.handled || context.migration) {
-    const committed = commitMathTreeResult(state, context, result);
-    return result.handled ? committed : { ...committed, reason: result.reason };
-  }
+  if (result.handled) return commitMathTreeResult(state, context, result);
   return { state, ops: [], handled: true, reason: result.reason };
 }
 
@@ -961,32 +798,6 @@ function commitMathTreeResult(
 ): { state: EditorState; ops: Operation[]; handled: true } {
   let page = state.document.page;
   const ops: Operation[] = [];
-
-  if (context.migration) {
-    const initialized = createContentEdit(
-      state,
-      context.block.id,
-      context.contentId,
-      context.migration.init,
-    );
-    page = applyOp(page, initialized, state.schema);
-    ops.push(initialized);
-  }
-
-  if (
-    context.legacyLength > 0 &&
-    (context.migration !== undefined || result.edits.length > 0)
-  ) {
-    const deleted = deleteCharsInRange(
-      page,
-      context.block.id,
-      0,
-      context.legacyLength,
-      state.CRDTbinding,
-    );
-    page = deleted.newPage;
-    ops.push(deleted.op);
-  }
 
   for (const edit of result.edits) {
     const operation = createContentEdit(

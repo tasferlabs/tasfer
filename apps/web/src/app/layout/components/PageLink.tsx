@@ -1,7 +1,13 @@
 import { useDraggable } from "@dnd-kit/core";
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   type IListPage,
@@ -367,12 +373,25 @@ export function PageLink({
         >
           <button
             onClick={() => setIsExpanded((old) => !old)}
+            aria-expanded={isExpanded}
             className={clsx(
               style.action,
               style.collapseAction,
               style.hasChildren,
             )}
+            style={
+              {
+                "--page-blob-color":
+                  resolvedColor || "var(--page-color-default)",
+              } as CSSProperties
+            }
           >
+            <span
+              className={clsx(
+                style.collapseBlob,
+                !resolvedColor && style.collapseBlobDefault,
+              )}
+            />
             <Icons.ChevronRight
               width={20}
               height={20}
@@ -385,13 +404,6 @@ export function PageLink({
               {t("page.openSubPages", "Open sub pages")}
             </VisuallyHidden>
           </button>
-          <span
-            className="color-picker-blob"
-            style={{
-              backgroundColor: resolvedColor || "var(--page-color-default)",
-              opacity: resolvedColor ? 1 : 0.3,
-            }}
-          />
           <div className={style.linkTitle}>
             <span
               role="link"

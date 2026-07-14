@@ -9,10 +9,10 @@
  */
 
 import { POINTER_MOVE } from "../../actions/pointer-actions";
+import type { Page } from "../../serlization/loadPage";
 import type {
   EditorState,
   LinkHoverState,
-  Page,
   ViewportState,
 } from "../../state-types";
 import { createInitialState } from "../../state-utils";

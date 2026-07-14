@@ -25,6 +25,7 @@ import {
 } from "../actions/keyboard-actions";
 import { TEXT_CLICK } from "../actions/pointer-actions";
 import { createFeatureMarkInRange } from "../actions/structured-marks";
+import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import { resolveMarkRuns } from "../inline-math-spans";
 import { mathExtension } from "../math-extension";
 import type { TextNode, TextNodeLayout } from "../nodes/TextNode";
@@ -35,22 +36,19 @@ import { baseSchema } from "../schema";
 import { moveCursorToPosition, updateSelection } from "../selection";
 import { loadPage } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
-import type { ContentEdit, EditorState } from "../state-types";
+import type { EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { updateContentSelection } from "../structured-selection";
 import { getEditorStyles } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { recordUndoOps, undoState } from "../sync/crdt-undo";
-import {
-  applyStructuredEdits,
-  type StructuredEdit,
-} from "../sync/structured-content";
 import { createCRDTbinding } from "../sync/sync";
 import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "./actions";
 import {
   getInlineMathStructuredDocument,
   getStructuredMathMarkSource,
+  resolveStructuredInlineMathRuns,
 } from "./inline-structured";
 import {
   deleteActiveInlineMathTree,
@@ -58,13 +56,14 @@ import {
 } from "./inline-tree-state";
 import { structuredToMathDocument } from "./structured";
 import { mathContentSelectionFromSourceOffset } from "./tree-selection";
-import { printMathDocument } from "@cypherkit/tex/data";
 import { describe, expect, it } from "vitest";
 
 const inlineTreeSchema = baseSchema.use(mathExtension());
-const legacyInlineSchema = baseSchema.use(mathExtension());
 
-function legacyChip(peer = "inline-test", markdown = "$x$"): EditorState {
+/** One flat anchor char per chip — shorthand for readable flat-text asserts. */
+const A = STRUCTURED_MARK_ANCHOR_CHAR;
+
+function chipState(peer = "inline-test", markdown = "$x$"): EditorState {
   const binding = createCRDTbinding("page", peer);
   let state = createInitialState(loadPage(markdown, inlineTreeSchema.data), {
     schema: inlineTreeSchema.data,
@@ -76,9 +75,15 @@ function legacyChip(peer = "inline-test", markdown = "$x$"): EditorState {
   return state;
 }
 
-function peerAttachedLegacyState(): EditorState {
-  const binding = createCRDTbinding("page", "legacy-attached");
-  let page = loadPage("axyb", legacyInlineSchema.data);
+/**
+ * "a[xy]b" built through the selection-wrap API: `createFeatureMarkInRange`
+ * replaces the covered chars with one anchor + eager attachment, so the flat
+ * text is `a␣b` with the chip between the prose letters and the caret resting
+ * on the chip's trailing edge.
+ */
+function proseWrappedChip(): EditorState {
+  const binding = createCRDTbinding("page", "prose-wrapped");
+  let page = loadPage("axyb", inlineTreeSchema.data);
   page = createFeatureMarkInRange(
     page,
     page.blocks[0].id,
@@ -86,13 +91,13 @@ function peerAttachedLegacyState(): EditorState {
     3,
     { type: "math" },
     binding,
-    legacyInlineSchema.data,
+    inlineTreeSchema.data,
   ).newPage;
   return moveCursorToPosition(
     createInitialState(page, {
-      schema: legacyInlineSchema.data,
-      nodes: createNodeRegistry(legacyInlineSchema.nodes),
-      marks: createMarkRegistry(legacyInlineSchema.marks),
+      schema: inlineTreeSchema.data,
+      nodes: createNodeRegistry(inlineTreeSchema.nodes),
+      marks: createMarkRegistry(inlineTreeSchema.marks),
       crdtBinding: binding,
     }),
     0,
@@ -100,7 +105,7 @@ function peerAttachedLegacyState(): EditorState {
   );
 }
 
-function compatibilitySource(state: EditorState): string {
+function flatText(state: EditorState): string {
   const block = state.document.page.blocks[0];
   return "charRuns" in block ? getVisibleTextFromRuns(block.charRuns) : "";
 }
@@ -132,20 +137,33 @@ function enter(state: EditorState, at = 1): EditorState {
   return entered.state;
 }
 
+/**
+ * A chip's interior has no flat positions, so a mid-formula caret is a nested
+ * content selection at an offset into the chip's CANONICAL printed source.
+ */
 function enterMathOffset(
   state: EditorState,
   sourceOffset: number,
 ): EditorState {
-  const run = resolveMarkRuns(state.document.page.blocks[0]).find(
-    (candidate) => candidate.name === "math",
+  const block = state.document.page.blocks[0];
+  if (!isTextualBlock(block)) throw new Error("expected a textual host block");
+  const run = resolveStructuredInlineMathRuns(block)[0];
+  if (!run?.contentId || !run.document) {
+    throw new Error("expected an attached inline math run");
+  }
+  const selection = mathContentSelectionFromSourceOffset(
+    block.id,
+    run.contentId,
+    run.document,
+    sourceOffset,
   );
-  if (!run) throw new Error("expected an inline math run");
-  return enter(state, run.startIndex + sourceOffset);
+  if (!selection) throw new Error("expected a nested math caret");
+  return updateContentSelection(state, selection);
 }
 
 describe("interactive structured MathMark", () => {
   it("extends an inline tree selection with Shift+Left and Shift+Right", () => {
-    const before = enterMathOffset(legacyChip("inline-horizontal", "$ab$"), 2);
+    const before = enterMathOffset(chipState("inline-horizontal", "$ab$"), 2);
     const anchor = before.document.contentSelection?.focus;
 
     const left = before.actionBus.dispatchState(EXTEND_SELECTION_LEFT, before);
@@ -169,7 +187,7 @@ describe("interactive structured MathMark", () => {
     "collapses a boundary-facing inline selection with Arrow%s",
     (_name, offset, extend, move) => {
       const before = enterMathOffset(
-        legacyChip(`inline-collapse-${_name}`, "$ab$"),
+        chipState(`inline-collapse-${_name}`, "$ab$"),
         offset,
       );
       const first = before.actionBus.dispatchState(extend, before).state;
@@ -188,7 +206,7 @@ describe("interactive structured MathMark", () => {
   );
 
   it("splits after the whole attached mark on Enter", () => {
-    const before = enter(legacyChip("inline-enter", "$x$tail"));
+    const before = enter(chipState("inline-enter", "$x$tail"));
     expect(before.document.cursor).toBeNull();
 
     const result = before.actionBus.dispatchState(SPLIT_BLOCK, before);
@@ -216,7 +234,7 @@ describe("interactive structured MathMark", () => {
     (_label, action, offset) => {
       const source = String.raw`\frac{a}{b}`;
       const before = enterMathOffset(
-        legacyChip(`inline-select-${offset}`, `$${source}$`),
+        chipState(`inline-select-${offset}`, `$${source}$`),
         offset,
       );
 
@@ -234,74 +252,6 @@ describe("interactive structured MathMark", () => {
     },
   );
 
-  it("routes a flat caret inside an attached run through the tree", () => {
-    const before = peerAttachedLegacyState();
-    const block = before.document.page.blocks[0];
-    const contentId =
-      "formats" in block
-        ? (block.formats[0]?.format.attrs?.contentId as string | undefined)
-        : undefined;
-    const source = (state: EditorState) => {
-      const current = state.document.page.blocks[0];
-      return "formats" in current
-        ? getStructuredMathMarkSource(
-            current.formats[0]?.format,
-            current.structuredContent,
-          )
-        : undefined;
-    };
-    expect(contentId).toBeTruthy();
-
-    // Flat caret at "ax|yb" is strictly inside the attached run. Typing and
-    // deleting promote into the tree — like a display block — mutating only
-    // the attachment, never its compatibility projection.
-    const inserted = insertText(before, "Q");
-    expect(inserted.ops.length).toBeGreaterThan(0);
-    expect(compatibilitySource(inserted.state)).toBe("axyb");
-    expect(source(inserted.state)).toBe("xQy");
-    expect(inserted.state.document.contentSelection).not.toBeNull();
-
-    const backward = before.actionBus.dispatchState(DELETE_BACKWARD, before);
-    expect(backward.claimed).toBe(true);
-    expect(backward.ops.length).toBeGreaterThan(0);
-    expect(compatibilitySource(backward.state)).toBe("axyb");
-    expect(source(backward.state)).toBe("y");
-
-    const forward = before.actionBus.dispatchState(DELETE_FORWARD, before);
-    expect(forward.claimed).toBe(true);
-    expect(forward.ops.length).toBeGreaterThan(0);
-    expect(compatibilitySource(forward.state)).toBe("axyb");
-    expect(source(forward.state)).toBe("x");
-
-    const selected = updateSelection(before, {
-      anchor: { blockIndex: 0, textIndex: 0 },
-      focus: { blockIndex: 0, textIndex: 3 },
-    });
-    const cut = selected.actionBus.dispatchState(CUT, selected);
-    expect(cut.ops.length).toBeGreaterThan(0);
-    expect(compatibilitySource(cut.state)).toBe("b");
-    // Cutting the whole projection deletes the mark's attachment with it —
-    // nothing references the document once the covering chars are tombstones.
-    expect(source(cut.state)).toBeUndefined();
-    expect(
-      Object.keys(cut.state.document.page.blocks[0].structuredContent ?? {}),
-    ).toHaveLength(0);
-  });
-
-  it("migrates a legacy run when a flat caret types inside it", () => {
-    const before = legacyChip("inline-flat-migrate", "$xy$");
-    expect(inlineMathDocument(before)).toBeUndefined();
-
-    const inserted = insertText(before, "Q");
-
-    expect(inserted.ops.length).toBeGreaterThan(0);
-    expect(inlineMathDocument(inserted.state)).toBeDefined();
-    expect(canonicalSource(inserted.state)).toBe("xQy");
-    expect(inserted.state.document.contentSelection).not.toBeNull();
-    // The compatibility projection is left for legacy renderers, untouched.
-    expect(compatibilitySource(inserted.state)).toBe("xy");
-  });
-
   it.each([
     ["Backspace", DELETE_BACKWARD, "right"],
     ["Delete", DELETE_FORWARD, "left"],
@@ -309,7 +259,7 @@ describe("interactive structured MathMark", () => {
     "%s at a chip's flat edge selects the facing construct before deleting",
     (_label, action, edge) => {
       const source = String.raw`\frac{a}{b}`;
-      const before = legacyChip(`inline-flat-edge-${edge}`, `$${source}$`);
+      const before = chipState(`inline-flat-edge-${edge}`, `$${source}$`);
       const run = resolveMarkRuns(before.document.page.blocks[0]).find(
         (candidate) => candidate.name === "math",
       );
@@ -341,7 +291,7 @@ describe("interactive structured MathMark", () => {
     // highlight must come from the replacement's contentSelectionRects seam.
     // Regression: the seam didn't exist and the selection was invisible.
     const source = String.raw`\begin{pmatrix}a&b\\c&d\end{pmatrix}`;
-    const before = legacyChip("inline-select-rects", `$${source}$`);
+    const before = chipState("inline-select-rects", `$${source}$`);
     const run = resolveMarkRuns(before.document.page.blocks[0]).find(
       (candidate) => candidate.name === "math",
     );
@@ -375,20 +325,19 @@ describe("interactive structured MathMark", () => {
     // "a[xy]b" with the caret after the chip. Two Backspaces empty the formula
     // through the tree; the chip survives as an empty, still-editable nested
     // caret rather than vanishing mid-thought.
-    let state = moveCursorToPosition(peerAttachedLegacyState(), 0, 3);
+    let state = proseWrappedChip();
     for (let presses = 0; presses < 2; presses++) {
       state = state.actionBus.dispatchState(DELETE_BACKWARD, state).state;
     }
     expect(canonicalSource(state)).toBe("");
     expect(state.document.contentSelection).not.toBeNull();
-    expect(compatibilitySource(state)).toBe("axyb");
+    expect(flatText(state)).toBe(`a${A}b`);
 
-    // The next Backspace deletes the chip itself: stale compatibility chars,
-    // covering mark, and attachment all go, leaving a plain flat caret. This
-    // is what used to strand an invisible, undeletable ghost run.
+    // The next Backspace deletes the chip itself: anchor char, covering mark,
+    // and attachment all go, leaving a plain flat caret between the prose.
     const removed = state.actionBus.dispatchState(DELETE_BACKWARD, state);
     expect(removed.claimed).toBe(true);
-    expect(compatibilitySource(removed.state)).toBe("ab");
+    expect(flatText(removed.state)).toBe("ab");
     expect(inlineMathDocument(removed.state)).toBeUndefined();
     expect(resolveMarkRuns(removed.state.document.page.blocks[0])).toHaveLength(
       0,
@@ -411,8 +360,40 @@ describe("interactive structured MathMark", () => {
       state.CRDTbinding.getPeerId(),
     );
     const undone = undoState(recorded).state;
-    expect(compatibilitySource(undone)).toBe("axyb");
+    expect(flatText(undone)).toBe(`a${A}b`);
     expect(canonicalSource(undone)).toBe("");
+  });
+
+  it("deletes a chip whose attachment is broken instead of stranding it", () => {
+    // A chip references its attachment by contentId; if the document is
+    // missing (lost/invalid attachment) there is no tree to promote into, so
+    // a facing Backspace removes the whole run rather than leaving an
+    // undeletable anchor char behind.
+    const initial = proseWrappedChip();
+    const block = initial.document.page.blocks[0];
+    if (!("formats" in block)) throw new Error("expected a textual block");
+    const broken = {
+      ...initial,
+      document: {
+        ...initial.document,
+        page: {
+          ...initial.document.page,
+          blocks: [{ ...block, structuredContent: {} }],
+        },
+      },
+    } as EditorState;
+
+    const removed = broken.actionBus.dispatchState(DELETE_BACKWARD, broken);
+
+    expect(removed.claimed).toBe(true);
+    expect(flatText(removed.state)).toBe("ab");
+    expect(resolveMarkRuns(removed.state.document.page.blocks[0])).toHaveLength(
+      0,
+    );
+    expect(removed.state.document.cursor?.position).toEqual({
+      blockIndex: 0,
+      textIndex: 1,
+    });
   });
 
   it("hands a boundary-facing delete back to the host text", () => {
@@ -420,7 +401,7 @@ describe("interactive structured MathMark", () => {
     // chip. Nothing inside can be consumed, so the caret exits to the host
     // text at the chip edge instead of dying as a claimed no-op; the next
     // press continues into the surrounding prose.
-    const atStart = enterMathOffset(legacyChip("inline-exit-left", "$xy$"), 0);
+    const atStart = enterMathOffset(chipState("inline-exit-left", "$xy$"), 0);
     const left = atStart.actionBus.dispatchState(DELETE_BACKWARD, atStart);
     expect(left.claimed).toBe(true);
     expect(left.ops).toEqual([]);
@@ -431,7 +412,7 @@ describe("interactive structured MathMark", () => {
       textIndex: 0,
     });
 
-    const atEnd = enterMathOffset(legacyChip("inline-exit-right", "$xy$"), 2);
+    const atEnd = enterMathOffset(chipState("inline-exit-right", "$xy$"), 2);
     const right = atEnd.actionBus.dispatchState(DELETE_FORWARD, atEnd);
     expect(right.claimed).toBe(true);
     expect(right.ops).toEqual([]);
@@ -439,14 +420,13 @@ describe("interactive structured MathMark", () => {
     expect(right.state.document.contentSelection).toBeNull();
     expect(right.state.document.cursor?.position).toEqual({
       blockIndex: 0,
-      textIndex: 2,
+      textIndex: 1,
     });
   });
 
   it("reserves placeholder geometry for an empty chip", () => {
-    // An empty formula must still measure: a null measure makes the renderer
-    // fall back to the run's stale compatibility characters — the "ghost
-    // text" regression — instead of the placeholder slot.
+    // An empty formula must still measure: a null measure would leave the
+    // renderer nothing to draw for the still-editable placeholder slot.
     const replacement = new MathMark().replacement;
     const dims = replacement.measure("", 16);
     expect(dims).not.toBeNull();
@@ -461,9 +441,9 @@ describe("interactive structured MathMark", () => {
   });
 
   it("enters an attached chip's tree from its flat edges with arrows", () => {
-    const before = peerAttachedLegacyState();
+    const before = proseWrappedChip();
 
-    const fromEnd = moveCursorToPosition(before, 0, 3);
+    const fromEnd = moveCursorToPosition(before, 0, 2);
     const left = fromEnd.actionBus.dispatchState(MOVE_CURSOR_LEFT, fromEnd);
     expect(left.claimed).toBe(true);
     expect(left.ops).toEqual([]);
@@ -481,34 +461,30 @@ describe("interactive structured MathMark", () => {
     expect(right.state.document.cursor).toBeNull();
   });
 
-  it("does not enter or migrate an unattached legacy run on arrows", () => {
-    const before = legacyChip("inline-arrow-legacy", "$xy$");
-    const atStart = moveCursorToPosition(before, 0, 0);
-
-    const moved = atStart.actionBus.dispatchState(MOVE_CURSOR_RIGHT, atStart);
-
-    expect(moved.ops).toEqual([]);
-    expect(moved.state.document.contentSelection).toBeNull();
-    expect(inlineMathDocument(moved.state)).toBeUndefined();
-  });
-
   it("expands mixed prose/math selections to whole attached formulas", () => {
-    const before = peerAttachedLegacyState();
+    // Flat text is "a␣b" — a chip is atomic to the flat model, so a range
+    // touching the anchor char always addresses the whole formula.
+    const before = proseWrappedChip();
     const clippedTail = updateSelection(before, {
-      anchor: { blockIndex: 0, textIndex: 2 },
-      focus: { blockIndex: 0, textIndex: 4 },
+      anchor: { blockIndex: 0, textIndex: 1 },
+      focus: { blockIndex: 0, textIndex: 3 },
     });
     expect(buildClipboardPayload(clippedTail)?.markdown).toBe("$xy$b");
     const cut = clippedTail.actionBus.dispatchState(CUT, clippedTail);
-    expect(compatibilitySource(cut.state)).toBe("a");
+    expect(flatText(cut.state)).toBe("a");
     expect(cut.ops.length).toBeGreaterThan(0);
+    // Cutting the chip deletes the mark's attachment with it — nothing
+    // references the document once the anchor char is a tombstone.
+    expect(
+      Object.keys(cut.state.document.page.blocks[0].structuredContent ?? {}),
+    ).toHaveLength(0);
 
     const clippedHead = updateSelection(before, {
       anchor: { blockIndex: 0, textIndex: 0 },
       focus: { blockIndex: 0, textIndex: 2 },
     });
     const replaced = insertText(clippedHead, "Q");
-    expect(compatibilitySource(replaced.state)).toBe("Qb");
+    expect(flatText(replaced.state)).toBe("Qb");
     expect(replaced.ops.length).toBeGreaterThan(0);
     expect(
       serializeToMarkdown(replaced.state.document.page.blocks, undefined, {
@@ -518,9 +494,9 @@ describe("interactive structured MathMark", () => {
   });
 
   it("defers atomic mixed-selection replacement until IME commit", () => {
-    const selected = updateSelection(peerAttachedLegacyState(), {
+    const selected = updateSelection(proseWrappedChip(), {
       anchor: { blockIndex: 0, textIndex: 0 },
-      focus: { blockIndex: 0, textIndex: 3 },
+      focus: { blockIndex: 0, textIndex: 2 },
     });
     const started = selected.actionBus.dispatchState(
       COMPOSITION_START,
@@ -528,7 +504,7 @@ describe("interactive structured MathMark", () => {
       { data: "Q" },
     );
     expect(started.ops).toEqual([]);
-    expect(compatibilitySource(started.state)).toBe("axyb");
+    expect(flatText(started.state)).toBe(`a${A}b`);
 
     const committed = started.state.actionBus.dispatchState(
       COMPOSITION_END,
@@ -536,95 +512,11 @@ describe("interactive structured MathMark", () => {
       { data: "Q" },
     );
     expect(committed.ops.length).toBeGreaterThan(0);
-    expect(compatibilitySource(committed.state)).toBe("Qb");
-  });
-
-  it("keeps flat boundary typing outside an attached projection", () => {
-    for (const [boundary, expectedText, expectedMarkdown] of [
-      [1, "aQxyb", "aQ$xy$b"],
-      [3, "axyQb", "a$xy$Qb"],
-    ] as const) {
-      const before = moveCursorToPosition(
-        peerAttachedLegacyState(),
-        0,
-        boundary,
-      );
-      const beforeBlock = before.document.page.blocks[0];
-      const contentId = resolveMarkRuns(beforeBlock).find(
-        (run) => run.name === "math",
-      )?.attrs.contentId;
-      expect(typeof contentId).toBe("string");
-
-      const inserted = insertText(before, "Q");
-      const block = inserted.state.document.page.blocks[0];
-      const attachedRun = resolveMarkRuns(block).find(
-        (run) => run.attrs.contentId === contentId,
-      );
-      expect(compatibilitySource(inserted.state)).toBe(expectedText);
-      expect(attachedRun?.text).toBe("xy");
-      expect(
-        typeof contentId === "string"
-          ? getStructuredMathMarkSource(
-              { type: "math", attrs: { contentId } },
-              block.structuredContent,
-            )
-          : undefined,
-      ).toBe("xy");
-      expect(
-        serializeToMarkdown(inserted.state.document.page.blocks, undefined, {
-          schema: inserted.state.schema,
-        }),
-      ).toBe(expectedMarkdown);
-    }
-  });
-
-  it("fuses a peer-attached projection with an adjacent legacy chip from canonical sources", () => {
-    // The delete-side rejoin rebuilds the merged chip from each run's
-    // CANONICAL source — the attached tree's printed LaTeX, never its possibly
-    // stale compatibility characters — into one fresh attachment, so fusing a
-    // peer-attached run is as safe as fusing two legacy ones.
-    const binding = createCRDTbinding("page", "legacy-merge");
-    let page = loadPage("$x$ $y$", legacyInlineSchema.data);
-    page = createFeatureMarkInRange(
-      page,
-      page.blocks[0].id,
-      0,
-      1,
-      { type: "math" },
-      binding,
-      legacyInlineSchema.data,
-    ).newPage;
-    const before = moveCursorToPosition(
-      createInitialState(page, {
-        schema: legacyInlineSchema.data,
-        nodes: createNodeRegistry(legacyInlineSchema.nodes),
-        marks: createMarkRegistry(legacyInlineSchema.marks),
-        crdtBinding: binding,
-      }),
-      0,
-      2,
-    );
-    const contentId = resolveMarkRuns(before.document.page.blocks[0]).find(
-      (run) => run.attrs.contentId,
-    )?.attrs.contentId;
-    expect(contentId).toBeTruthy();
-
-    const deleted = before.actionBus.dispatchState(DELETE_BACKWARD, before);
-    const block = deleted.state.document.page.blocks[0];
-    const fused = resolveMarkRuns(block).filter((run) => run.attrs.contentId);
-    expect(fused).toHaveLength(1);
-    expect(fused[0].text).toBe("xy");
-    // A fresh attachment replaces the peer's, never mutating it in place.
-    expect(fused[0].attrs.contentId).not.toBe(contentId);
-    expect(
-      serializeToMarkdown(deleted.state.document.page.blocks, undefined, {
-        schema: deleted.state.schema,
-      }),
-    ).toBe("$xy$");
+    expect(flatText(committed.state)).toBe("Qb");
   });
 
   it("clones the attachment when native multi-block paste moves its mark", () => {
-    const before = moveCursorToPosition(peerAttachedLegacyState(), 0, 1);
+    const before = moveCursorToPosition(proseWrappedChip(), 0, 1);
     const pasted = pasteFromClipboardEvent(before, {} as ClipboardEvent, {
       html: "",
       text: "first\nsecond",
@@ -643,7 +535,7 @@ describe("interactive structured MathMark", () => {
       (candidate) =>
         !candidate.deleted &&
         "charRuns" in candidate &&
-        getVisibleTextFromRuns(candidate.charRuns) === "secondxyb",
+        getVisibleTextFromRuns(candidate.charRuns) === `second${A}b`,
     );
     const contentId = tail
       ? resolveMarkRuns(tail).find((run) => run.attrs.contentId)?.attrs
@@ -663,7 +555,7 @@ describe("interactive structured MathMark", () => {
   });
 
   it("allows multi-block paste when the mixed selection removes the attachment", () => {
-    const before = updateSelection(peerAttachedLegacyState(), {
+    const before = updateSelection(proseWrappedChip(), {
       anchor: { blockIndex: 0, textIndex: 0 },
       focus: { blockIndex: 0, textIndex: 2 },
     });
@@ -683,24 +575,21 @@ describe("interactive structured MathMark", () => {
   });
 
   it("does not claim an ambiguous flat boundary without a chip hit", () => {
-    expect(enterInlineMathTreeAtPosition(legacyChip(), 0, 1)).toBeUndefined();
+    expect(enterInlineMathTreeAtPosition(chipState(), 0, 1)).toBeUndefined();
   });
 
   it("returns horizontal navigation to the host text at both tree edges", () => {
-    const atEnd = enterMathOffset(legacyChip("inline-exit-right", "a$xy$b"), 2);
+    const atEnd = enterMathOffset(chipState("inline-exit-right", "a$xy$b"), 2);
     const right = atEnd.actionBus.dispatchState(MOVE_CURSOR_RIGHT, atEnd);
 
     expect(right.claimed).toBe(true);
     expect(right.state.document.contentSelection).toBeNull();
     expect(right.state.document.cursor?.position).toEqual({
       blockIndex: 0,
-      textIndex: 3,
+      textIndex: 2,
     });
 
-    const atStart = enterMathOffset(
-      legacyChip("inline-exit-left", "a$xy$b"),
-      0,
-    );
+    const atStart = enterMathOffset(chipState("inline-exit-left", "a$xy$b"), 0);
     const left = atStart.actionBus.dispatchState(MOVE_CURSOR_LEFT, atStart);
 
     expect(left.claimed).toBe(true);
@@ -712,7 +601,7 @@ describe("interactive structured MathMark", () => {
   });
 
   it("routes horizontal and slot navigation through the inline tree", () => {
-    const entered = enter(legacyChip("inline-nav"));
+    const entered = enter(chipState("inline-nav"));
     const end = entered.document.contentSelection?.focus;
     const left = entered.actionBus.dispatchState(MOVE_CURSOR_LEFT, entered);
     expect(left.claimed).toBe(true);
@@ -726,18 +615,14 @@ describe("interactive structured MathMark", () => {
     expect(right.claimed).toBe(true);
     expect(right.state.document.contentSelection?.focus).toEqual(end);
 
-    const fraction = enterInlineMathTreeAtPosition(
-      legacyChip("inline-tab", String.raw`$\frac{}{}$`),
-      0,
+    const fraction = enterMathOffset(
+      chipState("inline-tab", String.raw`$\frac{}{}$`),
       6,
-      { allowBoundary: true },
     );
-    expect(fraction).toBeDefined();
-    if (!fraction) return;
-    const beforeTab = fraction.state.document.contentSelection?.focus;
-    const tabbed = fraction.state.actionBus.dispatchState(
+    const beforeTab = fraction.document.contentSelection?.focus;
+    const tabbed = fraction.actionBus.dispatchState(
       MOVE_CONTENT_TAB,
-      fraction.state,
+      fraction,
       { backward: false },
     );
     expect(tabbed.claimed).toBe(true);
@@ -811,7 +696,7 @@ describe("interactive structured MathMark", () => {
   });
 
   it("replaces a trailing inline command semantically and undoes it", () => {
-    const entered = enter(legacyChip("inline-command"), 0);
+    const entered = enterMathOffset(chipState("inline-command"), 0);
     const cleared = deleteActiveInlineMathTree(entered, "forward");
     if (!cleared) throw new Error("expected inline tree deletion");
     let before = cleared.state;
@@ -826,7 +711,7 @@ describe("interactive structured MathMark", () => {
     expect(inserted.claimed).toBe(true);
     expect(inserted.ops.length).toBeGreaterThan(0);
     expect(inserted.ops.every((op) => op.op === "content_edit")).toBe(true);
-    expect(compatibilitySource(inserted.state)).toBe("x");
+    expect(flatText(inserted.state)).toBe(A);
     expect(canonicalSource(inserted.state)).toBe(String.raw`\sqrt{}`);
     const document = inlineMathDocument(inserted.state)!;
     const math = structuredToMathDocument(document);
@@ -852,23 +737,18 @@ describe("interactive structured MathMark", () => {
 
   it("resizes an inline matrix through tree edits and undoes it", () => {
     const latex = String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
-    const before = enterInlineMathTreeAtPosition(
-      legacyChip("inline-matrix", `$${latex}$`),
-      0,
+    const before = enterMathOffset(
+      chipState("inline-matrix", `$${latex}$`),
       latex.indexOf("a") + 1,
-      { allowBoundary: true },
     );
-    expect(before).toBeDefined();
-    if (!before) return;
 
-    const resized = before.state.actionBus.dispatchState(
-      RESIZE_MATH_MATRIX,
-      before.state,
-      { rows: 3, cols: 3 },
-    );
+    const resized = before.actionBus.dispatchState(RESIZE_MATH_MATRIX, before, {
+      rows: 3,
+      cols: 3,
+    });
     expect(resized.claimed).toBe(true);
     expect(resized.ops.length).toBeGreaterThan(0);
-    expect(compatibilitySource(resized.state)).toBe(latex);
+    expect(flatText(resized.state)).toBe(A);
     const resizedMath = structuredToMathDocument(
       inlineMathDocument(resized.state)!,
     );
@@ -881,10 +761,10 @@ describe("interactive structured MathMark", () => {
     expect(matrix.rows.every((row) => row.cells.length === 3)).toBe(true);
 
     const recorded = recordUndoOps(
-      before.state,
+      before,
       resized.state,
       resized.ops,
-      before.state.CRDTbinding.getPeerId(),
+      before.CRDTbinding.getPeerId(),
     );
     const undoneMath = structuredToMathDocument(
       inlineMathDocument(undoState(recorded).state)!,
@@ -900,17 +780,13 @@ describe("interactive structured MathMark", () => {
 
   it("resizes a whole selected inline matrix from its opening endpoint", () => {
     const latex = String.raw`\frac{a}{b}\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
-    const before = enterInlineMathTreeAtPosition(
-      legacyChip("inline-selected-matrix", `$${latex}$`),
-      0,
+    const before = enterMathOffset(
+      chipState("inline-selected-matrix", `$${latex}$`),
       latex.indexOf("a&b"),
-      { allowBoundary: true },
     );
-    expect(before).toBeDefined();
-    if (!before) return;
-    const document = inlineMathDocument(before.state);
+    const document = inlineMathDocument(before);
     if (!document) throw new Error("expected structured inline matrix");
-    const point = before.state.document.contentSelection?.focus;
+    const point = before.document.contentSelection?.focus;
     if (!point) throw new Error("expected inline matrix caret");
     const anchor = mathContentSelectionFromSourceOffset(
       point.blockId,
@@ -925,7 +801,7 @@ describe("interactive structured MathMark", () => {
       latex.length,
     );
     if (!anchor || !focus) throw new Error("expected matrix boundary range");
-    const selected = updateContentSelection(before.state, {
+    const selected = updateContentSelection(before, {
       anchor: anchor.focus,
       focus: focus.focus,
     });
@@ -950,7 +826,7 @@ describe("interactive structured MathMark", () => {
   it("types inside an inline matrix cell without flattening its structure", () => {
     const latex = String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
     const entered = enterMathOffset(
-      legacyChip("inline-matrix-input", `$${latex}$`),
+      chipState("inline-matrix-input", `$${latex}$`),
       latex.indexOf("}a") + 2,
     );
 
@@ -972,7 +848,7 @@ describe("interactive structured MathMark", () => {
   it("keeps an inline matrix structured while a backslash is pending in a cell", () => {
     const latex = String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
     const entered = enterMathOffset(
-      legacyChip("inline-matrix-backslash", `$${latex}$`),
+      chipState("inline-matrix-backslash", `$${latex}$`),
       latex.indexOf("}a") + 2,
     );
 
@@ -994,7 +870,7 @@ describe("interactive structured MathMark", () => {
   it("stores two typed backslashes as a symbol child of the current inline matrix-cell", () => {
     const latex = String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
     let state = enterMathOffset(
-      legacyChip("inline-matrix-double-backslash", `$${latex}$`),
+      chipState("inline-matrix-double-backslash", `$${latex}$`),
       latex.indexOf("}a") + 2,
     );
     const beforeMath = structuredToMathDocument(inlineMathDocument(state)!);
@@ -1026,8 +902,8 @@ describe("interactive structured MathMark", () => {
     );
   });
 
-  it("enters a legacy chip through the MathMark click action", () => {
-    const initial = legacyChip();
+  it("enters an attached chip through the MathMark click action", () => {
+    const initial = chipState();
     const before = {
       ...initial,
       ui: {
@@ -1049,22 +925,21 @@ describe("interactive structured MathMark", () => {
       modifiers: { ctrlOrMeta: false, shift: false },
     });
 
+    // Entering an already-attached chip is pure selection state — no
+    // migration, no ops.
     expect(entered.claimed).toBe(true);
-    expect(entered.ops.map((op) => op.op)).toEqual([
-      "content_edit",
-      "mark_set",
-    ]);
+    expect(entered.ops).toEqual([]);
     expect(entered.state.document.contentSelection).not.toBeNull();
-    expect(compatibilitySource(entered.state)).toBe("x");
     expect(canonicalSource(entered.state)).toBe("x");
   });
 
-  it("migrates on first direct insertion without mutating compatibility chars", () => {
-    const before = enter(legacyChip());
+  it("routes direct insertion through the attachment only", () => {
+    const before = enter(chipState());
     const edited = insertText(before, "2");
 
+    // The anchor char never changes: the keystroke is one content_edit.
     expect(edited.ops.map((op) => op.op)).toEqual(["content_edit"]);
-    expect(compatibilitySource(edited.state)).toBe("x");
+    expect(flatText(edited.state)).toBe(A);
     expect(canonicalSource(edited.state)).toBe("x2");
     expect(edited.state.document.contentSelection).not.toBeNull();
     expect(edited.state.document.cursor).toBeNull();
@@ -1076,25 +951,21 @@ describe("interactive structured MathMark", () => {
   });
 
   it("routes backward and forward deletion only through the attachment", () => {
-    const inserted = insertText(enter(legacyChip()), "2").state;
+    const inserted = insertText(enter(chipState()), "2").state;
     const backward = inserted.actionBus.dispatchState(
       DELETE_BACKWARD,
       inserted,
     );
     expect(backward.claimed).toBe(true);
-    expect(compatibilitySource(backward.state)).toBe("x");
+    expect(flatText(backward.state)).toBe(A);
     expect(canonicalSource(backward.state)).toBe("x");
     expect(backward.ops.every((op) => op.op === "content_edit")).toBe(true);
 
-    const entered = enterInlineMathTreeAtPosition(legacyChip(), 0, 0, {
-      allowBoundary: true,
-    });
-    expect(entered).toBeDefined();
-    if (!entered) return;
-    const forward = deleteActiveInlineMathTree(entered.state, "forward");
+    const entered = enterMathOffset(chipState(), 0);
+    const forward = deleteActiveInlineMathTree(entered, "forward");
     expect(forward).toBeDefined();
     if (!forward) return;
-    expect(compatibilitySource(forward.state)).toBe("x");
+    expect(flatText(forward.state)).toBe(A);
     expect(canonicalSource(forward.state)).toBe("");
     expect(
       serializeToMarkdown(forward.state.document.page.blocks, undefined, {
@@ -1104,7 +975,7 @@ describe("interactive structured MathMark", () => {
   });
 
   it("maps an attached replacement point and caret to stable ContentSelection", () => {
-    const state = insertText(enter(legacyChip()), "2").state;
+    const state = insertText(enter(chipState()), "2").state;
     const block = state.document.page.blocks[0];
     if (!isTextualBlock(block)) throw new Error("expected inline text host");
     const node = state.nodes.get(block.type) as TextNode;
@@ -1157,92 +1028,15 @@ describe("interactive structured MathMark", () => {
     expect(caret.height).toBeGreaterThan(0);
   });
 
-  it("keeps nested caret, hit-test, and drag on an LTR wrapped fragment", () => {
+  it("keeps a chip wider than the line as one atomic overflowing box", () => {
+    // A chip wraps only as a whole unit: there are no operator breakpoints
+    // anymore, so a formula wider than the line overflows instead of being
+    // divided across lines at flat offsets that no longer exist.
     const latex = "a+b+c+d+e+f+g+h+i+j+k+l+m+n+o+p";
-    const markdown = `$${latex}$`;
-    const sourceOffset = latex.indexOf("n") + 1;
     const state = enterMathOffset(
-      legacyChip("inline-wrap-tree", markdown),
-      sourceOffset,
-    );
-    const block = state.document.page.blocks[0];
-    if (!isTextualBlock(block)) throw new Error("expected inline text host");
-    const node = state.nodes.get(block.type) as TextNode;
-    const maxWidth = 105;
-    const styles = getEditorStyles(state);
-    const layout = node.layout({
-      block,
-      blockIndex: 0,
-      maxWidth,
-      isFirst: true,
-      styles,
-      marks: state.marks,
-    }) as TextNodeLayout;
-    const expectedLine = layout.lines.find(
-      (line) => sourceOffset >= line.startIndex && sourceOffset < line.endIndex,
-    );
-    expect(layout.lines.length).toBeGreaterThan(1);
-    expect(expectedLine).toBeDefined();
-    if (!expectedLine) return;
-
-    const caret = node.caretRect(layout, 0, 0, 0, state, block.id);
-    const caretMidY = caret.y + caret.height / 2;
-    expect(caret.exact).toBe(true);
-    expect(caretMidY).toBeGreaterThanOrEqual(expectedLine.y);
-    expect(caretMidY).toBeLessThanOrEqual(expectedLine.y + expectedLine.height);
-    const hit = node.contentSelectionFromPoint(
-      layout,
-      { x: caret.x, y: caretMidY },
-      {
-        state,
-        block,
-        blockIndex: 0,
-        maxWidth,
-        isFirst: true,
-        styles,
-        marks: state.marks,
-      },
-      { pointerType: "mouse" },
-    );
-    expect(hit?.focus.contentId).toBe(
-      state.document.contentSelection?.focus.contentId,
-    );
-
-    const target = enterMathOffset(
-      legacyChip("inline-wrap-tree", markdown),
-      latex.indexOf("o") + 1,
-    );
-    const targetCaret = node.caretRect(layout, 0, 0, 0, target, block.id);
-    const dragged = node.contentSelectionFromPoint(
-      layout,
-      { x: targetCaret.x, y: targetCaret.y + targetCaret.height / 2 },
-      {
-        state,
-        block,
-        blockIndex: 0,
-        maxWidth,
-        isFirst: true,
-        styles,
-        marks: state.marks,
-      },
-      {
-        pointerType: "touch",
-        drag: true,
-        previousPoint: state.document.contentSelection?.focus,
-      },
-    );
-    expect(dragged?.focus).toEqual(target.document.contentSelection?.focus);
-  });
-
-  it("keeps a diverged attached projection atomic without flattening identities", () => {
-    const latex = "a+b+c+d+e+f+g+h+i+j+k+l+m+n+o+p";
-    const entered = enterMathOffset(
-      legacyChip("inline-atomic-projection", `$${latex}$`),
+      chipState("inline-atomic-chip", `$${latex}$`),
       latex.length,
     );
-    const state = insertText(entered, "q").state;
-    expect(compatibilitySource(state)).toBe(latex);
-    expect(canonicalSource(state)).toBe(`${latex}q`);
     const block = state.document.page.blocks[0];
     if (!isTextualBlock(block)) throw new Error("expected inline text host");
     const node = state.nodes.get(block.type) as TextNode;
@@ -1255,16 +1049,13 @@ describe("interactive structured MathMark", () => {
       marks: state.marks,
     }) as TextNodeLayout;
 
-    // Compatibility offsets no longer map one-to-one onto canonical source.
-    // The generic host therefore keeps this projection as one overflowable box
-    // instead of inventing flattened split points that could target wrong ids.
     expect(layout.lines).toHaveLength(1);
     expect(layout.lines[0].width).toBeGreaterThan(105);
   });
 
   it("round-trips nested RTL caret and vertical drag through visual bidi geometry", () => {
     const latex = String.raw`a+\frac{b}{c}+d`;
-    const initial = legacyChip("inline-rtl-tree", `مرحبا $${latex}$ عالم`);
+    const initial = chipState("inline-rtl-tree", `مرحبا $${latex}$ عالم`);
     const state = enterMathOffset(initial, latex.indexOf("c") + 1);
     const block = state.document.page.blocks[0];
     if (!isTextualBlock(block)) throw new Error("expected inline text host");
@@ -1302,10 +1093,7 @@ describe("interactive structured MathMark", () => {
     );
     expect(hit?.focus).toEqual(state.document.contentSelection?.focus);
 
-    const target = enterMathOffset(
-      legacyChip("inline-rtl-tree", `مرحبا $${latex}$ عالم`),
-      latex.indexOf("b") + 1,
-    );
+    const target = enterMathOffset(state, latex.indexOf("b") + 1);
     const targetCaret = node.caretRect(layout, 0, 0, 0, target, block.id);
     const dragged = node.contentSelectionFromPoint(
       layout,
@@ -1326,71 +1114,5 @@ describe("interactive structured MathMark", () => {
       },
     );
     expect(dragged?.focus).toEqual(target.document.contentSelection?.focus);
-  });
-
-  it("uses one deterministic migration tree for concurrent first edits", () => {
-    const leftEntered = enterInlineMathTreeAtPosition(
-      legacyChip("left"),
-      0,
-      1,
-      { allowBoundary: true },
-    );
-    const rightEntered = enterInlineMathTreeAtPosition(
-      legacyChip("right"),
-      0,
-      1,
-      { allowBoundary: true },
-    );
-    expect(leftEntered).toBeDefined();
-    expect(rightEntered).toBeDefined();
-    if (!leftEntered || !rightEntered) return;
-    const leftEdited = insertText(leftEntered.state, "a");
-    const rightEdited = insertText(rightEntered.state, "b");
-    const left = {
-      ...leftEdited,
-      ops: [...leftEntered.ops, ...leftEdited.ops],
-    };
-    const right = {
-      ...rightEdited,
-      ops: [...rightEntered.ops, ...rightEdited.ops],
-    };
-    const leftInit = left.ops.find(
-      (op): op is ContentEdit =>
-        op.op === "content_edit" && op.edit.kind === "document_init",
-    );
-    const rightInit = right.ops.find(
-      (op): op is ContentEdit =>
-        op.op === "content_edit" && op.edit.kind === "document_init",
-    );
-    expect(leftInit?.contentId).toBe(rightInit?.contentId);
-    expect(leftInit?.edit).toEqual(rightInit?.edit);
-    if (!leftInit || !rightInit || leftInit.edit.kind !== "document_init") {
-      return;
-    }
-    const edits = (ops: readonly ContentEdit[]) =>
-      ops
-        .filter((op) => op.edit.kind !== "document_init")
-        .map((op) => op.edit as StructuredEdit);
-    const leftEdits = edits(
-      left.ops.filter((op): op is ContentEdit => op.op === "content_edit"),
-    );
-    const rightEdits = edits(
-      right.ops.filter((op): op is ContentEdit => op.op === "content_edit"),
-    );
-    const leftThenRight = applyStructuredEdits(
-      applyStructuredEdits(leftInit.edit.document, leftEdits),
-      rightEdits,
-    );
-    const rightThenLeft = applyStructuredEdits(
-      applyStructuredEdits(leftInit.edit.document, rightEdits),
-      leftEdits,
-    );
-    const source = (document: typeof leftThenRight) => {
-      const math = structuredToMathDocument(document);
-      return math ? printMathDocument(math) : undefined;
-    };
-    expect(source(leftThenRight)).toBe(source(rightThenLeft));
-    expect(source(leftThenRight)).toContain("a");
-    expect(source(leftThenRight)).toContain("b");
   });
 });

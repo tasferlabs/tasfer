@@ -85,18 +85,18 @@ export function getStructuredMathSource(
 export interface MathStructuredProjectionOptions {
   readonly identityAllocator?: IdentityAllocator;
   /**
-   * Display equations own their block's editable surface. Inline equations are
-   * supplemental attachments whose marked characters remain the compatibility
-   * projection, so they deliberately omit block authority.
+   * Display equations own their block's editable surface. Inline equations
+   * are supplemental attachments anchored by one placeholder character, so
+   * they deliberately omit block authority.
    *
-   * Defaults to `"block"` for backwards compatibility with the display-math
-   * adapter. `"supplemental"` is an adapter hint and is not persisted.
+   * Defaults to `"block"` for the display-math adapter. `"supplemental"` is
+   * an adapter hint and is not persisted.
    */
   readonly authority?: "block" | "supplemental";
 }
 
-/** Options for atomically migrating one legacy LaTeX source value. */
-export interface ParseLegacyMathInitOptions extends MathStructuredProjectionOptions {
+/** Options for initializing one structured document from LaTeX source. */
+export interface ParseMathInitOptions extends MathStructuredProjectionOptions {
   /** Stable attachment id. It also becomes the structured root node id. */
   readonly contentId?: string;
 }
@@ -153,25 +153,22 @@ export function validateStructuredMathDocument(
 }
 
 /**
- * Parse legacy LaTeX and return the one atomic initializer accepted by the
+ * Parse LaTeX and return the one atomic initializer accepted by the
  * page-level `content_edit` operation.
  *
- * The default allocator scope folds a fingerprint of the source into the
- * attachment address. Peers migrating identical legacy text build
- * byte-identical initializers, so the first-writer-wins `document_init` race
- * stays convergent; peers that observed divergent legacy text allocate in
- * disjoint identity namespaces, so the race loser's piggybacked first edits
- * reference nodes absent from the winning tree and degrade to deterministic
- * no-ops instead of aliasing its nodes with different content.
+ * Attachments are created eagerly by exactly one peer (the one typing or
+ * importing), so no cross-peer identity convergence is required: live callers
+ * pass their CRDT binding, parse-time callers a deterministic import
+ * allocator.
  */
-export function parseLegacyMathDocumentInit(
+export function parseMathDocumentInit(
   latex: string,
-  options: ParseLegacyMathInitOptions = {},
+  options: ParseMathInitOptions = {},
 ): MathDocumentInitMutation {
   const identities =
     options.identityAllocator ??
     createDeterministicIdentityAllocator(
-      `math-import/${encodeURIComponent(options.contentId ?? "standalone")}/${legacyMathSourceFingerprint(latex)}`,
+      `math-import/${encodeURIComponent(options.contentId ?? "standalone")}`,
     );
   const math = parseMathDocument(latex, {
     identityAllocator: identities,
@@ -711,21 +708,6 @@ function projectValidatedMathDocument(
   } catch {
     return undefined;
   }
-}
-
-/**
- * FNV-1a fingerprint of one legacy source, base36 so the allocator scope
- * stays colon-free. Equal sources must fingerprint equally on every peer;
- * distinct sources only need to collide rarely, since a collision merely
- * restores the pre-fingerprint aliasing risk for that one migration race.
- */
-function legacyMathSourceFingerprint(latex: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < latex.length; index++) {
-    hash ^= latex.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(36);
 }
 
 function assertCompoundCharId(id: string): void {

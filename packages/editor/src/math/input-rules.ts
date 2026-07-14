@@ -6,18 +6,29 @@
  * input pipeline about a `math` block or mark type.
  */
 
-import type { FeatureInputRule } from "../feature-facets";
+import {
+  type FeatureInputRule,
+  STRUCTURED_MARK_ANCHOR_CHAR,
+} from "../feature-facets";
 import { resolveMarkRuns } from "../inline-math-spans";
-import type { BlockSet, EditorState, Operation } from "../state-types";
+import type {
+  BlockSet,
+  ContentEdit,
+  EditorState,
+  Operation,
+} from "../state-types";
 import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
-import { deleteCharsInRange, markCharsInRange } from "../sync/crdt-utils";
-import { applyOp } from "../sync/reducer";
 import {
-  inlineMathAttachedProjectionGuard,
-  inlineMathTreeInputRule,
-} from "./inline-tree-state";
-import { mathTreeInputRule, mathTreeMigrationInputRule } from "./tree-state";
+  deleteCharsInRange,
+  insertCharsAtPosition,
+  markCharsInRange,
+} from "../sync/crdt-utils";
+import { applyOp } from "../sync/reducer";
+import { createStructuredMathMarkAttachment } from "./inline-structured";
+import { inlineMathTreeInputRule } from "./inline-tree-state";
+import { mathContentIdForBlock, parseMathDocumentInit } from "./structured";
+import { mathTreeInputRule } from "./tree-state";
 
 const INLINE_MATH = /\$([^$\n]+)\$$/;
 
@@ -74,9 +85,8 @@ const displayDollarRule: FeatureInputRule = {
       return undefined;
     }
 
-    // Match the former paragraph-prefix transaction exactly: one delete for
-    // both marker chars, followed by one type morph. The reducer supplies the
-    // math descriptor's defaults and drops formats deterministically.
+    // One delete for both marker chars, one type morph, then the eager empty
+    // authority document — a display block's content lives only in its tree.
     const deleted = deleteCharsInRange(
       state.document.page,
       block.id,
@@ -93,7 +103,21 @@ const displayDollarRule: FeatureInputRule = {
       field: "type",
       value: "math",
     };
-    const page = applyOp(deleted.newPage, morph, state.schema);
+    let page = applyOp(deleted.newPage, morph, state.schema);
+    const contentId = mathContentIdForBlock(block.id);
+    const init: ContentEdit = {
+      op: "content_edit",
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
+      blockId: block.id,
+      contentId,
+      edit: parseMathDocumentInit("", {
+        contentId,
+        identityAllocator: state.CRDTbinding,
+      }),
+    };
+    page = applyOp(page, init, state.schema);
     const blockIndex = page.blocks.findIndex(
       (candidate) => candidate.id === block.id,
     );
@@ -107,7 +131,7 @@ const displayDollarRule: FeatureInputRule = {
     );
     return {
       state: next,
-      ops: [deleted.op, morph] satisfies Operation[],
+      ops: [deleted.op, morph, init] satisfies Operation[],
       handled: true,
     };
   },
@@ -157,38 +181,56 @@ const inlineDollarRule: FeatureInputRule = {
     if (!match) return undefined;
 
     const matchStart = textIndex - match[0].length;
-    const innerLength = match[1].length;
+    const latex = match[1];
     let page = state.document.page;
     const ops: Operation[] = [];
 
-    // Delete the closing marker before the opener so the opener's index stays
-    // stable, then mark precisely the surviving source range.
-    const close = deleteCharsInRange(
-      page,
-      block.id,
-      textIndex - 1,
-      textIndex,
+    // The typed `$…$` source becomes the chip's eager attachment; the flat
+    // text is replaced by the mark's single anchor char. The anchor is
+    // inserted after the match before the match is deleted (the block-split
+    // CRDT footing), then marked with the attachment-carrying format.
+    const created = createStructuredMathMarkAttachment(
+      latex,
       state.CRDTbinding,
     );
-    page = close.newPage;
-    ops.push(close.op);
+    const init: ContentEdit = {
+      op: "content_edit",
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
+      blockId: block.id,
+      contentId: created.contentId,
+      edit: created.init,
+    };
+    page = applyOp(page, init, state.schema);
+    ops.push(init);
 
-    const open = deleteCharsInRange(
+    const inserted = insertCharsAtPosition(
+      page,
+      block.id,
+      textIndex,
+      STRUCTURED_MARK_ANCHOR_CHAR,
+      state.CRDTbinding,
+    );
+    page = inserted.newPage;
+    ops.push(inserted.op);
+
+    const removed = deleteCharsInRange(
       page,
       block.id,
       matchStart,
-      matchStart + 1,
+      textIndex,
       state.CRDTbinding,
     );
-    page = open.newPage;
-    ops.push(open.op);
+    page = removed.newPage;
+    ops.push(removed.op);
 
     const marked = markCharsInRange(
       page,
       block.id,
       matchStart,
-      matchStart + innerLength,
-      { type: "math" },
+      matchStart + 1,
+      created.format,
       true,
       state.CRDTbinding,
     );
@@ -203,23 +245,19 @@ const inlineDollarRule: FeatureInputRule = {
     const next = placeCaret(
       { ...state, document: { ...state.document, page } },
       blockIndex,
-      matchStart + innerLength,
+      matchStart + 1,
     );
     return { state: next, ops, handled: true };
   },
 };
 
-/** Structured display-math migration/editing plus the math authoring shortcuts. */
+/** Structured math tree editing plus the math authoring shortcuts. */
 export const mathInputRules = [
   inlineMathTreeInputRule,
-  mathTreeMigrationInputRule,
   mathTreeInputRule,
-  inlineMathAttachedProjectionGuard,
   displayDollarRule,
   inlineDollarRule,
 ] as const satisfies readonly [
-  FeatureInputRule,
-  FeatureInputRule,
   FeatureInputRule,
   FeatureInputRule,
   FeatureInputRule,

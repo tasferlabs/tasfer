@@ -85,17 +85,15 @@ export function SpaceSection({
           {...listeners}
           {...attributes}
         >
-          <Icons.ChevronRight
-            width={16}
-            height={16}
-            className={clsx(
-              style.appSidebarCollapseIcon,
-              !collapsed && style.appSidebarCollapseIconOpen,
-            )}
-          />
           <span className={style.appSidebarSectionTitle}>
             <span className={style.appSidebarSectionIcon}>
-              <Icons.Box />
+              <Icons.Box className={style.appSidebarSpaceGlyph} />
+              <Icons.ChevronRight
+                className={clsx(
+                  style.appSidebarCollapseIcon,
+                  !collapsed && style.appSidebarCollapseIconOpen,
+                )}
+              />
             </span>
             <span className="truncate">{name}</span>
           </span>

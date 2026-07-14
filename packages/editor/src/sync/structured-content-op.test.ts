@@ -274,7 +274,11 @@ describe("content_edit operation", () => {
     expect(applyOps(changed, inverses)).toEqual(base);
   });
 
-  it("keeps initialization monotonic when its user edit is undone", () => {
+  it("undoes a creating init by deleting the document it minted", () => {
+    // Attachments are created eagerly by exactly one peer, so undoing the
+    // transaction that minted a document must remove it again — the same
+    // shape the mark-dissolution GC emits. The block has no attachment before
+    // the op, proving this init CREATED the document rather than replaying it.
     const binding = createCRDTbinding("page", "undo-init");
     const blockId = "undo-init:10";
     const contentId = "undo-init:11";
@@ -303,8 +307,51 @@ describe("content_edit operation", () => {
     const inverses = invertOperation(init, base, binding);
     const initialized = applyOp(base, init);
     expect(initialized.blocks[0].structuredContent?.[contentId]).toBeDefined();
+    expect(inverses).toHaveLength(1);
+    expect(inverses[0]).toMatchObject({
+      op: "content_edit",
+      blockId,
+      contentId,
+      edit: { kind: "document_delete" },
+    });
+    const undone = applyOps(initialized, inverses);
+    expect(undone.blocks[0].structuredContent?.[contentId]).toBeUndefined();
+  });
+
+  it("inverts an init that lost the first-writer race to nothing", () => {
+    // When the document already existed before the op, this init created
+    // nothing (first writer wins), so its undo must NOT delete the surviving
+    // peer's document — the race loser inverts to an empty batch.
+    const binding = createCRDTbinding("page", "undo-init-race");
+    const blockId = "undo-init-race:10";
+    const contentId = "undo-init-race:11";
+    const base: Page = {
+      id: "page",
+      title: "",
+      blocks: [
+        {
+          id: blockId,
+          type: "paragraph",
+          charRuns: [],
+          formats: [],
+          structuredContent: { [contentId]: document(contentId) },
+        },
+      ],
+    };
+    const init: ContentEdit = {
+      op: "content_edit",
+      id: "undo-init-race:1",
+      clock: { counter: 2, peerId: "undo-init-race" },
+      pageId: "page",
+      blockId,
+      contentId,
+      edit: { kind: "document_init", document: document(contentId) },
+    };
+
+    const inverses = invertOperation(init, base, binding);
+    const applied = applyOp(base, init);
     expect(inverses).toEqual([]);
-    expect(applyOps(initialized, inverses)).toBe(initialized);
+    expect(applyOps(applied, inverses)).toBe(applied);
   });
 
   it("restores a deleted attachment through operation undo", () => {

@@ -4,7 +4,7 @@ import {
   getStructuredMathSource,
   mathContentIdForBlock,
   mathDataExtension,
-  parseLegacyMathDocumentInit,
+  parseMathDocumentInit,
 } from "./data";
 import { describe, expect, it } from "vitest";
 
@@ -19,7 +19,7 @@ describe("math data extension", () => {
     author.emit([block]);
 
     const contentId = mathContentIdForBlock(block.blockId);
-    const init = parseLegacyMathDocumentInit(String.raw`\frac{a}{b}`, {
+    const init = parseMathDocumentInit(String.raw`\frac{a}{b}`, {
       contentId,
       identityAllocator: binding,
     });

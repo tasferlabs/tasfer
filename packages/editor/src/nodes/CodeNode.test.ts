@@ -5,9 +5,9 @@ import {
   SPLIT_BLOCK,
 } from "../actions/edit-actions";
 import type { OutputCtx } from "../serlization/codecs/types";
-import { loadPage } from "../serlization/loadPage";
+import { loadPage, type Page } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
-import type { CursorState, EditorState, Page } from "../state-types";
+import type { CursorState, EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { resolveTheme } from "../styles";
 import { getVisibleTextFromRuns } from "../sync/char-runs";

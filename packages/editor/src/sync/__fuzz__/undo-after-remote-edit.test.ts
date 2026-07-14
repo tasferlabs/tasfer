@@ -42,7 +42,7 @@ describe("undo after remote edit", () => {
     const peerB = createSyncEngine(createCRDTbinding(pageId, "p002"));
 
     // 1. Peer A inserts a paragraph and types "hello" into it.
-    const blockInsertOp = peerA.createBlockInsert(null, "paragraph");
+    const blockInsertOp = peerA.createBlockInsert("a0", "paragraph");
     peerA.emit([blockInsertOp]);
     peerB.apply([blockInsertOp]);
 

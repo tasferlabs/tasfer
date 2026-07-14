@@ -10,7 +10,17 @@
  */
 
 import { mathTestSchema, mathTestStateOptions } from "../__testutils__/math";
-import type { Block, Page } from "../serlization/loadPage";
+import {
+  getStructuredMathSource,
+  mathContentIdForBlock,
+  parseMathDocumentInit,
+} from "../math/structured";
+import {
+  type Block,
+  type CharRun,
+  loadPage,
+  type Page,
+} from "../serlization/loadPage";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { createCRDTbinding } from "../sync/sync";
@@ -19,6 +29,25 @@ import { describe, expect, it } from "vitest";
 
 function run(text: string) {
   return [{ peerId: "peer", startCounter: 0, text }];
+}
+
+/**
+ * A display equation in the current model: empty flat text, all content in
+ * the block-authority attachment keyed by the block id.
+ */
+function mathBlock(id: string, orderKey: string, latex: string): Block {
+  const contentId = mathContentIdForBlock(id);
+  return {
+    id,
+    orderKey,
+    type: "math",
+    charRuns: [],
+    formats: [],
+    displayMode: true,
+    structuredContent: {
+      [contentId]: parseMathDocumentInit(latex, { contentId }).document,
+    },
+  } as unknown as Block;
 }
 
 function pageWith(...blocks: Page["blocks"]): Page {
@@ -65,14 +94,8 @@ describe("clipboard text/html round-trip", () => {
       height: 100,
       objectFit: "contain",
     } as unknown as Block,
-    {
-      id: "m1",
-      orderKey: "a2",
-      type: "math",
-      charRuns: run("x^2 + y^2"),
-      formats: [],
-      displayMode: true,
-    } as unknown as Block,
+    // Fixture source is already canonical so assertions read as identities.
+    mathBlock("m1", "a2", "{x}^{2}+{y}^{2}"),
     {
       id: "li1",
       orderKey: "a3",
@@ -119,42 +142,23 @@ describe("clipboard text/html round-trip", () => {
   });
 
   it("emits block math as `$$…$$` LaTeX in the plain-text payload", () => {
-    const page = pageWith({
-      id: "m1",
-      orderKey: "a0",
-      type: "math",
-      charRuns: run("x^2 + y^2"),
-      formats: [],
-      displayMode: true,
-    } as unknown as Block);
+    const page = pageWith(mathBlock("m1", "a0", "{x}^{2}+{y}^{2}"));
     const payload = buildClipboardPayload(selectAll(page));
 
     expect(payload).not.toBeNull();
     // External plain-text targets (terminals, code editors) must receive the
-    // LaTeX source, not an empty string.
-    expect(payload!.plainText).toBe("$$x^2 + y^2$$");
+    // tree's LaTeX source, not the block's (empty) flat text.
+    expect(payload!.plainText).toBe("$${x}^{2}+{y}^{2}$$");
   });
 
   it("keeps inline math `$…$` delimiters in the plain-text payload", () => {
-    // "see a^2" — chars peer:0..6; the math chip covers "a^2" (peer:4..6).
-    const page = pageWith({
-      id: "p1",
-      orderKey: "a0",
-      type: "paragraph",
-      charRuns: run("see a^2"),
-      formats: [
-        {
-          startCharId: "peer:4",
-          endCharId: "peer:6",
-          format: { type: "math" },
-          clock: { counter: 0, peerId: "peer" },
-        },
-      ],
-    } as unknown as Block);
+    // A chip's flat projection is one anchor char; the plain-text mirror must
+    // resolve the attachment's source, never leak the placeholder char.
+    const page = loadPage("see ${a}^{2}$ end", mathTestSchema.data);
     const payload = buildClipboardPayload(selectAll(page));
 
     expect(payload).not.toBeNull();
-    expect(payload!.plainText).toBe("see $a^2$");
+    expect(payload!.plainText).toBe("see ${a}^{2}$ end");
   });
 
   it("round-trips image sizing, block math, and list indent losslessly", () => {
@@ -174,12 +178,14 @@ describe("clipboard text/html round-trip", () => {
     expect(image!.width).toBe(200);
     expect(image!.objectFit).toBe("contain");
 
-    // Math is textual now — its char-run text is the LaTeX.
+    // Math content travels in the marker's markdown and re-imports as a
+    // fresh block-authority attachment; the flat text stays empty.
     const math = blocks.find((b) => b.type === "math") as
       | (Block & { charRuns: CharRun[]; displayMode: boolean })
       | undefined;
     expect(math).toBeDefined();
-    expect(getVisibleTextFromRuns(math!.charRuns)).toContain("x^2 + y^2");
+    expect(getVisibleTextFromRuns(math!.charRuns)).toBe("");
+    expect(getStructuredMathSource(math!)).toBe("{x}^{2}+{y}^{2}");
     expect(math!.displayMode).toBe(true);
 
     const lists = blocks.filter((b) => b.type === "bullet_list") as Array<

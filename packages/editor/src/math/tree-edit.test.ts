@@ -986,6 +986,78 @@ describe("structured math tree editing", () => {
     expectSemanticallyEqual(undone, fixture.document);
   });
 
+  it("peels an empty superscript and keeps the base and subscript", () => {
+    const document = mathDocument("");
+    const rowId = bodyRowId(document);
+    const inserted = insertMathSemanticLatex(
+      document,
+      rowCaret(rowId, null),
+      String.raw`\sum_{1}^{}`,
+      identitySource("scripts"),
+    );
+    const populated = applyResult(document, inserted);
+    const scripts = child(populated, rowId, "children", "scripts");
+    const superscript = child(populated, scripts.id, "superscript", "row");
+
+    const result = backspaceMathTree(populated, rowCaret(superscript.id, null));
+    const { edited, undone } = applyWithUndo(populated, result.edits);
+
+    expect(result.edits).toEqual([
+      { kind: "node_delete", nodeId: superscript.id },
+    ]);
+    expect(result.caret).toEqual(rowCaret(rowId, scripts.id));
+    expect(print(edited)).toBe(String.raw`{\sum}_{1}`);
+    expectSemanticallyEqual(undone, populated);
+  });
+
+  it("unwraps the base when the only script slot is emptied", () => {
+    const document = mathDocument("");
+    const rowId = bodyRowId(document);
+    const inserted = insertMathSemanticLatex(
+      document,
+      rowCaret(rowId, null),
+      String.raw`x^{}`,
+      identitySource("scripts"),
+    );
+    const populated = applyResult(document, inserted);
+    const scripts = child(populated, rowId, "children", "scripts");
+    const base = child(populated, scripts.id, "base", "row");
+    const baseText = child(populated, base.id, "children", "raw-text");
+    const superscript = child(populated, scripts.id, "superscript", "row");
+
+    const result = backspaceMathTree(populated, rowCaret(superscript.id, null));
+    const { edited, undone } = applyWithUndo(populated, result.edits);
+
+    expect(result.edits.map((edit) => edit.kind)).toEqual([
+      "node_move",
+      "node_delete",
+    ]);
+    expect(result.caret).toEqual(rowCaret(rowId, baseText.id));
+    expect(print(edited)).toBe("x");
+    expectSemanticallyEqual(undone, populated);
+  });
+
+  it("removes a wholly empty scripts construct without leaving scaffolds", () => {
+    const document = mathDocument("");
+    const rowId = bodyRowId(document);
+    const inserted = insertMathSemanticLatex(
+      document,
+      rowCaret(rowId, null),
+      String.raw`^{}`,
+      identitySource("scripts"),
+    );
+    const populated = applyResult(document, inserted);
+    const scripts = child(populated, rowId, "children", "scripts");
+
+    const result = backspaceMathTree(populated, inserted.caret);
+    const { edited, undone } = applyWithUndo(populated, result.edits);
+
+    expect(result.edits).toEqual([{ kind: "node_delete", nodeId: scripts.id }]);
+    expect(result.caret).toEqual(rowCaret(rowId, null));
+    expect(print(edited)).toBe("");
+    expectSemanticallyEqual(undone, populated);
+  });
+
   it("rejects colliding or malformed injected identities without partial edits", () => {
     const document = mathDocument("");
     const rowId = bodyRowId(document);

@@ -1,18 +1,16 @@
 import { createMathTestState, loadMathPage } from "../__testutils__/math";
+import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import { resolveMarkRuns } from "../inline-math-spans";
-import { parseLegacyMathDocumentInit } from "../math/structured";
-import { moveCursorToPosition, updateSelection } from "../selection";
+import { parseMathDocumentInit } from "../math/structured";
+import { moveCursorToPosition } from "../selection";
 import { serializeToHTMLFragment } from "../serlization/htmlSerializer";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type { EditorState } from "../state-types";
+import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
 import { applyOps } from "../sync/reducer";
 import { mergeBlocksOps, splitBlock } from "./actions";
-import {
-  createFeatureMarkInRange,
-  expandSelectionAroundStructuredMarks,
-  selectionPartiallyIntersectsStructuredMark,
-} from "./structured-marks";
+import { createFeatureMarkInRange } from "./structured-marks";
 import { describe, expect, it } from "vitest";
 
 function attach(state: EditorState) {
@@ -61,12 +59,25 @@ function attachRange(
 }
 
 describe("structured mark creation seam", () => {
-  it("emits one supplemental initializer and its referencing mark atomically", () => {
+  it("replaces the range with one marked anchor char and its attachment atomically", () => {
     const before = createMathTestState(loadMathPage("x"));
     const { result, state } = attach(before);
 
-    expect(result.ops.map((op) => op.op)).toEqual(["content_edit", "mark_set"]);
+    // One transaction: mint the attachment, insert the anchor char, delete
+    // the captured source chars, and mark the anchor.
+    expect(result.ops.map((op) => op.op)).toEqual([
+      "content_edit",
+      "text_insert",
+      "text_delete",
+      "mark_set",
+    ]);
+    const block = state.document.page.blocks[0];
+    if (!("charRuns" in block)) throw new Error("expected a textual block");
+    expect(getVisibleTextFromRuns(block.charRuns)).toBe(
+      STRUCTURED_MARK_ANCHOR_CHAR,
+    );
     const run = resolveMarkRuns(state.document.page.blocks[0])[0];
+    expect(run.endIndex).toBe(run.startIndex + 1);
     const contentId = run.attrs.contentId;
     expect(typeof contentId).toBe("string");
     if (typeof contentId !== "string") return;
@@ -82,7 +93,7 @@ describe("structured mark creation seam", () => {
     ).toBe("$x$");
   });
 
-  it("replays to the same page and retains add-only attachment infrastructure on undo", () => {
+  it("replays to the same page and undoes the whole creation transaction", () => {
     const before = createMathTestState(loadMathPage("x"));
     const { result, state: after } = attach(before);
     const replayed = applyOps(before.document.page, result.ops, before.schema);
@@ -94,9 +105,11 @@ describe("structured mark creation seam", () => {
       result.ops,
       before.CRDTbinding.getPeerId(),
     );
+    // Undo restores the captured source and garbage-collects the attachment
+    // with its mark — a chip's document must never outlive the chip.
     const undone = undoState(recorded).state;
     expect(resolveMarkRuns(undone.document.page.blocks[0])).toEqual([]);
-    expect(undone.document.page.blocks[0].structuredContent).toBeDefined();
+    expect(undone.document.page.blocks[0].structuredContent).toBeUndefined();
     expect(
       serializeToMarkdown(undone.document.page.blocks, undefined, {
         schema: undone.schema,
@@ -122,7 +135,7 @@ describe("structured mark creation seam", () => {
     expect(typeof contentId).toBe("string");
     if (typeof contentId !== "string") return;
 
-    const canonical = parseLegacyMathDocumentInit("\\frac{a}{b}", {
+    const canonical = parseMathDocumentInit("\\frac{a}{b}", {
       contentId,
       authority: "supplemental",
     }).document;
@@ -153,57 +166,27 @@ describe("structured mark creation seam", () => {
       }),
     ).toContain("<math>\\frac{a}{b}</math>");
     expect(seen).toEqual(["\\frac{a}{b}"]);
-    // Compatibility characters remain intact for older clients.
-    expect(resolveMarkRuns(page.blocks[0])[0]?.text).toBe("x");
-  });
-
-  it("expands clipped flat range edges to whole structured marks", () => {
-    const initial = createMathTestState(loadMathPage("axyb"));
-    const attached = attachRange(initial, 0, 1, 3).state;
-    const forward = updateSelection(attached, {
-      anchor: { blockIndex: 0, textIndex: 0 },
-      focus: { blockIndex: 0, textIndex: 2 },
-    });
-    expect(selectionPartiallyIntersectsStructuredMark(forward)).toBe(true);
-    const expandedForward = expandSelectionAroundStructuredMarks(forward);
-    expect(expandedForward.document.selection).toMatchObject({
-      anchor: { blockIndex: 0, textIndex: 0 },
-      focus: { blockIndex: 0, textIndex: 3 },
-      isForward: true,
-    });
-    expect(selectionPartiallyIntersectsStructuredMark(expandedForward)).toBe(
-      false,
+    // The flat projection stays the single anchor char — the attachment is
+    // the only source; no compatibility text shadows it.
+    expect(resolveMarkRuns(page.blocks[0])[0]?.text).toBe(
+      STRUCTURED_MARK_ANCHOR_CHAR,
     );
-
-    const backward = updateSelection(attached, {
-      anchor: { blockIndex: 0, textIndex: 4 },
-      focus: { blockIndex: 0, textIndex: 2 },
-    });
-    const expandedBackward = expandSelectionAroundStructuredMarks(backward);
-    expect(expandedBackward.document.selection).toMatchObject({
-      anchor: { blockIndex: 0, textIndex: 4 },
-      focus: { blockIndex: 0, textIndex: 1 },
-      isForward: false,
-    });
   });
 
-  it("refuses only a split cutting through a supplemental attachment", () => {
+  it("splits cleanly at a chip boundary without touching the attachment", () => {
     const initial = createMathTestState(loadMathPage("axyb"));
+    // "axyb" with [1, 3) captured → flat "a￼b"; the chip is one atomic char,
+    // so every flat caret near it rests on a boundary — a raw char split can
+    // never cut through the attachment's projection.
     const attached = attachRange(initial, 0, 1, 3).state;
 
-    // Strictly inside the projection there is no generic unit to divide —
-    // the owning mark's own SPLIT_BLOCK preparation divides the chip first;
-    // the raw char split must never cut the attachment's projection.
-    const inside = splitBlock(moveCursorToPosition(attached, 0, 2));
-    expect(inside.ops).toEqual([]);
-    expect(inside.state.document.page).toBe(attached.document.page);
-
-    // Splitting after all attached runs keeps the document reachable.
-    const safe = splitBlock(moveCursorToPosition(attached, 0, 3));
-    expect(safe.ops.length).toBeGreaterThan(0);
+    const after = splitBlock(moveCursorToPosition(attached, 0, 2));
+    expect(after.ops.length).toBeGreaterThan(0);
+    // The chip stays whole in block one; no attachment ops are needed.
+    expect(after.ops.every((op) => op.op !== "content_edit")).toBe(true);
     expect(
-      serializeToMarkdown(safe.state.document.page.blocks, undefined, {
-        schema: safe.state.schema,
+      serializeToMarkdown(after.state.document.page.blocks, undefined, {
+        schema: after.state.schema,
       }),
     ).toBe("a$xy$\nb");
   });

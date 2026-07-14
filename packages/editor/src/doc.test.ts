@@ -9,6 +9,7 @@ import { createDoc, type DocUpdate, PERSISTED_DOC_VERSION } from "./doc";
 import { loadPage } from "./serlization/loadPage";
 import { serializeToMarkdown } from "./serlization/serializer";
 import type { Operation } from "./state-types";
+import { generateKeyBetween } from "./sync/fractional-index";
 import { rebuildState } from "./sync/reducer";
 import { createCRDTbinding, createSyncEngine, serializeVV } from "./sync/sync";
 import { InvariantError } from "@shared/invariant";
@@ -24,13 +25,13 @@ function makePeerBatches(peerId: string, texts: string[]): Operation[][] {
   const binding = createCRDTbinding("page-1", peerId);
   const engine = createSyncEngine(binding);
   const batches: Operation[][] = [];
-  let after: string | null = null;
+  let orderKey: string | null = null;
   for (const text of texts) {
-    const blockInsert = engine.createBlockInsert(after, "paragraph");
+    orderKey = generateKeyBetween(orderKey, null);
+    const blockInsert = engine.createBlockInsert(orderKey, "paragraph");
     engine.emit([blockInsert]);
     const textInsert = engine.insertText(blockInsert.blockId, 0, text);
     engine.emit([textInsert]);
-    after = blockInsert.blockId;
     batches.push([blockInsert, textInsert]);
   }
   return batches;
@@ -168,7 +169,7 @@ describe("createDoc", () => {
     // the doc must match the canonical rebuild from its full op log.
     const bindingA = createCRDTbinding("page-1", "p-aaaa");
     const engineA = createSyncEngine(bindingA);
-    const blockInsert = engineA.createBlockInsert(null, "paragraph");
+    const blockInsert = engineA.createBlockInsert("a0", "paragraph");
     engineA.emit([blockInsert]);
     const insertA = engineA.insertText(blockInsert.blockId, 0, "AAA");
     engineA.emit([insertA]);
@@ -231,7 +232,7 @@ describe("createDoc", () => {
   it("initializes from snapshot blocks plus tail ops", () => {
     const binding = createCRDTbinding("page-1", "p-fff");
     const engine = createSyncEngine(binding);
-    const blockInsert = engine.createBlockInsert(null, "paragraph");
+    const blockInsert = engine.createBlockInsert("a0", "paragraph");
     engine.emit([blockInsert]);
     const textInsert = engine.insertText(blockInsert.blockId, 0, "snapshotted");
     engine.emit([textInsert]);
@@ -265,7 +266,7 @@ describe("createDoc", () => {
     // is loaded afterwards to catch the version vector / clock up to the blocks.
     const binding = createCRDTbinding("page-1", "p-load");
     const engine = createSyncEngine(binding);
-    const blockInsert = engine.createBlockInsert(null, "paragraph");
+    const blockInsert = engine.createBlockInsert("a0", "paragraph");
     engine.emit([blockInsert]);
     const textInsert = engine.insertText(
       blockInsert.blockId,
@@ -305,7 +306,7 @@ describe("createDoc", () => {
   it("load() preserves the seeded snapshot instead of rebuilding it", () => {
     const binding = createCRDTbinding("page-1", "p-snapshot");
     const engine = createSyncEngine(binding);
-    const blockInsert = engine.createBlockInsert(null, "paragraph");
+    const blockInsert = engine.createBlockInsert("a0", "paragraph");
     engine.emit([blockInsert]);
     const textInsert = engine.insertText(blockInsert.blockId, 0, "body");
     engine.emit([textInsert]);
@@ -331,7 +332,7 @@ describe("createDoc", () => {
     // ordering and the version vector break for subsequent edits.
     const binding = createCRDTbinding("page-1", "p-ahead");
     const engine = createSyncEngine(binding);
-    const blockInsert = engine.createBlockInsert(null, "paragraph");
+    const blockInsert = engine.createBlockInsert("a0", "paragraph");
     engine.emit([blockInsert]);
     const textInsert = engine.insertText(blockInsert.blockId, 0, "base");
     engine.emit([textInsert]);

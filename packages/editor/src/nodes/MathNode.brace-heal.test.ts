@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 function mathState(latex: string, caret: number) {
   const binding = createCRDTbinding("math-brace-heal", "peer-1");
   const engine = createMathTestSyncEngine(binding);
-  const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
+  const blockOp = engine.createBlockInsert("a0", "math", { displayMode: true });
   engine.emit([blockOp]);
   const blockId = blockOp.blockId;
 

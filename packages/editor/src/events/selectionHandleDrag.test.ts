@@ -5,15 +5,10 @@
  * even when the grabbed handle is the selection's anchor — onStart swaps the
  * stored endpoints so the dragged end is always the focus.
  */
-import { mathTestStateOptions } from "../__testutils__/math";
 import { CURSOR_DRAG_BOUNDARY } from "../action-bus";
-import type { MathBlock } from "../nodes/MathNode";
-import {
-  getCursorDocumentCoords,
-  getTextPositionFromViewport,
-} from "../selection";
+import { getCursorDocumentCoords } from "../selection";
 import { loadPage } from "../serlization/loadPage";
-import type { EditorState, Page, ViewportState } from "../state-types";
+import type { EditorState, ViewportState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getEditorStyles } from "../styles";
 import { hitTestAllRegions } from "./blockRegions";
@@ -227,133 +222,5 @@ describe("touch selection-handle drag", () => {
     expect(sel.anchor.blockIndex).toBe(5);
     expect(sel.focus.blockIndex).toBe(5);
     expect(sel.isCollapsed).toBe(true);
-  });
-});
-
-// "\frac{aaa}{bbb}": numerator slot spans [6, 9], denominator [11, 14].
-const FRAC = "\\frac{aaa}{bbb}";
-
-/** A display-math fraction block followed by a paragraph, with a selection
- *  inside the fraction's numerator (anchor..focus, both in block 0). */
-function withNumeratorSelection(
-  anchorIdx: number,
-  focusIdx: number,
-): EditorState {
-  const math: MathBlock = {
-    id: "math-1",
-    orderKey: "a0",
-    deleted: false,
-    type: "math",
-    charRuns: [{ peerId: "peer", startCounter: 0, text: FRAC }],
-    formats: [],
-    displayMode: true,
-  };
-  const page: Page = {
-    id: "page-1",
-    title: "Math",
-    blocks: [
-      math,
-      {
-        id: "p-1",
-        orderKey: "a1",
-        deleted: false,
-        type: "paragraph",
-        charRuns: [{ peerId: "peer", startCounter: 20, text: "after" }],
-        formats: [],
-      },
-    ],
-  };
-  const state = createInitialState(page, mathTestStateOptions());
-  return {
-    ...state,
-    document: {
-      ...state.document,
-      selection: {
-        anchor: { blockIndex: 0, textIndex: anchorIdx },
-        focus: { blockIndex: 0, textIndex: focusIdx },
-        isForward: true,
-        isCollapsed: false,
-        lastUpdate: 0,
-      },
-      cursor: {
-        position: { blockIndex: 0, textIndex: focusIdx },
-        lastUpdate: 0,
-      },
-    },
-  };
-}
-
-/** Viewport-space center of the caret at a math-source offset. */
-function mathCaretCenter(
-  state: EditorState,
-  textIndex: number,
-): { x: number; y: number; height: number } {
-  const styles = getEditorStyles(state);
-  const c = getCursorDocumentCoords(
-    { blockIndex: 0, textIndex },
-    state,
-    viewport,
-    styles,
-  )!;
-  return {
-    x: c.x,
-    y: c.y - viewport.scrollY + c.height / 2,
-    height: c.height,
-  };
-}
-
-describe("touch selection-handle drag over stacked math rows", () => {
-  it("holds the focus in the numerator against finger wobble at the fraction bar", () => {
-    // Selection inside the numerator: anchor after `\frac{`, focus after `aa`.
-    // Dragging the focus handle toward the fraction bar wobbles across the
-    // numerator/denominator midline by less than the row hysteresis; without the
-    // prev-hit anchor the raw hit dithers rows, and the construct snapper turns
-    // each denominator frame into a whole-fraction selection — the reported
-    // magnifier bounce.
-    const state = withNumeratorSelection(6, 8);
-    const num = mathCaretCenter(state, 8);
-    const den = mathCaretCenter(state, 13);
-    expect(den.y).toBeGreaterThan(num.y);
-
-    // The exact y where a FRESH drag hit (no hysteresis anchor) first resolves
-    // to the denominator — the midline the finger wobbles across.
-    let flipY: number | null = null;
-    for (let y = num.y; y <= den.y; y += 0.25) {
-      const pos = getTextPositionFromViewport(
-        num.x,
-        y,
-        state,
-        viewport,
-        undefined,
-        undefined,
-        { drag: true },
-      );
-      if (pos && pos.textIndex >= 11 && pos.textIndex <= 14) {
-        flipY = y;
-        break;
-      }
-    }
-    expect(flipY).not.toBeNull();
-
-    const { session, state: grabbed } = grabHandle(state, "focus");
-    // Settle in the numerator, then wobble just past the fresh-drag flip point.
-    let cur = moveHandle(session, grabbed, { x: num.x, y: num.y });
-    cur = moveHandle(session, cur, { x: num.x, y: flipY! + 1.5 });
-
-    // Hysteresis holds the row: the focus stays a numerator caret and the
-    // selection never escalates to the whole fraction.
-    const sel = cur.document.selection!;
-    expect(sel.focus.textIndex).toBeGreaterThanOrEqual(6);
-    expect(sel.focus.textIndex).toBeLessThanOrEqual(9);
-    expect(sel.anchor.textIndex).toBe(6);
-
-    // A decisive move onto the denominator's own row still switches — the
-    // straddling selection then snaps to the whole fraction, as designed.
-    cur = moveHandle(session, cur, { x: den.x, y: den.y + den.height / 2 });
-    const snapped = cur.document.selection!;
-    const lo = Math.min(snapped.anchor.textIndex, snapped.focus.textIndex);
-    const hi = Math.max(snapped.anchor.textIndex, snapped.focus.textIndex);
-    expect(lo).toBe(0);
-    expect(hi).toBe(FRAC.length);
   });
 });

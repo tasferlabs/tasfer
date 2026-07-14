@@ -13,7 +13,6 @@ import {
   getMathStructuredDocument,
   getStructuredMathSource,
   mathContentIdForBlock,
-  parseLegacyMathDocumentInit,
   structuredToMathDocument,
   validateStructuredMathDocument,
 } from "./structured";
@@ -21,25 +20,16 @@ import { printMathDocument } from "@cypherkit/tex/data";
 import { describe, expect, it } from "vitest";
 
 const schema = baseSchema.use(mathExtension());
+// Already canonical, so source comparisons read as identities.
 const LATEX = String.raw`\frac{a}{b}+\sqrt{x}`;
 
-function treeBlock() {
-  const page = loadPage(`$$\n${LATEX}\n$$`, schema.data);
-  const block = page.blocks[0];
-  const contentId = mathContentIdForBlock(block.id);
-  const identities = createCRDTbinding(page.id, "tree-snapshot-source");
-  const init = parseLegacyMathDocumentInit(LATEX, {
-    contentId,
-    identityAllocator: identities,
-  });
-  return {
-    ...block,
-    // A migrated display equation intentionally has no visible compatibility
-    // source. Losing/re-addressing the attachment incorrectly therefore cannot
-    // be hidden by a flat-text fallback in these tests.
-    charRuns: [],
-    structuredContent: { [contentId]: init.document },
-  };
+/**
+ * A display equation as import creates it eagerly: empty flat text, all
+ * content in the block-authority document. Losing/re-addressing the
+ * attachment incorrectly therefore cannot be hidden by a flat-text fallback.
+ */
+function treeBlock(): Block {
+  return loadPage(`$$\n${LATEX}\n$$`, schema.data).blocks[0];
 }
 
 function opsContext(pageId: string, peerId: string) {
@@ -53,6 +43,12 @@ function opsContext(pageId: string, peerId: string) {
   };
 }
 
+/**
+ * A textual block whose supplemental attachment is referenced by TWO covering
+ * marks: the real anchor-char chip plus a second span over the remaining
+ * prose chars. Contrived, but it pins that a snapshot clone rekeys each
+ * attachment once and rewrites every mark referencing it.
+ */
 function inlineTreeBlock(): Block {
   const page = loadPage("xyxy", schema.data);
   const binding = createCRDTbinding(page.id, "inline-snapshot-source");
@@ -69,17 +65,18 @@ function inlineTreeBlock(): Block {
   if (!("charRuns" in block) || !("formats" in block)) {
     throw new Error("expected a textual inline host");
   }
+  // The captured "xy" collapsed to one anchor char: [￼, x, y] remain.
   const chars = [...iterateVisibleChars(block.charRuns)];
   const span = block.formats[0];
-  if (!span || chars.length !== 4) throw new Error("expected one math span");
+  if (!span || chars.length !== 3) throw new Error("expected one math span");
   return {
     ...block,
     formats: [
       span,
       {
         ...span,
-        startCharId: chars[2].id,
-        endCharId: chars[3].id,
+        startCharId: chars[1].id,
+        endCharId: chars[2].id,
         clock: { ...span.clock, counter: span.clock.counter + 1 },
       },
     ],

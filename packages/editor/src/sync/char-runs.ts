@@ -652,16 +652,27 @@ export function findTitleBlock(
     }
   }
 
-  // Second pass: look for first non-empty text block (paragraph or list)
+  // Second pass: look for first non-empty text block (paragraph or list).
+  // A block whose content lives in a block-authority structured document (a
+  // display equation) has empty flat text but is still real title content.
   for (const block of blocks) {
     if (block.deleted) continue;
     if (isTextualBlock(block)) {
       const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
-      if (text.trim().length > 0) return block as TextualBlock;
+      if (text.trim().length > 0 || hasBlockAuthorityContent(block)) {
+        return block as TextualBlock;
+      }
     }
   }
 
   return null;
+}
+
+/** Whether a block owns a block-authority structured document. */
+function hasBlockAuthorityContent(block: Block): boolean {
+  return Object.values(block.structuredContent ?? {}).some(
+    (document) => document.authority === "block",
+  );
 }
 
 /**

@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Build-time dev flag — the single home for it. True in development builds
  * (Vite/tsdown set `import.meta.env.DEV`) and tree-shaken to `false` in

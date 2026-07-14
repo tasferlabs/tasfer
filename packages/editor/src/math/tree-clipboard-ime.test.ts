@@ -185,7 +185,9 @@ describe("structured math clipboard and IME correctness", () => {
       viewport,
     );
     expect(committed.state.ui.composition).toBeNull();
-    expect(source(committed.state)).toBe("aあd");
+    // The committed prose is math-quoted: inside a formula, non-math text
+    // lands in a `\text{…}` run rather than being read as math symbols.
+    expect(source(committed.state)).toBe(String.raw`a\text{あ}d`);
     expect(committed.ops.every((op) => op.op === "content_edit")).toBe(true);
   });
 });

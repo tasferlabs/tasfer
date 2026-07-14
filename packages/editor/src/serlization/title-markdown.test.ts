@@ -24,8 +24,10 @@ function titleMd(md: string, maxLength?: number): string {
 
 describe("extractTitleMarkdownFromBlocks", () => {
   it("returns the title line's inline markdown with marks intact", () => {
+    // Math emits the attachment's CANONICAL source, so `mc^2` comes back
+    // canonicalized — semantics preserved, delimiters intact.
     expect(titleMd("# Energy is **famously** $E=mc^2$\n\nBody text.")).toBe(
-      "Energy is **famously** $E=mc^2$",
+      "Energy is **famously** $E=m{c}^{2}$",
     );
   });
 
@@ -90,6 +92,8 @@ describe("extractTitleMarkdownFromBlocks", () => {
 describe("title markdown → preview HTML (the TitlePreview pipeline)", () => {
   it("renders marks as HTML and math as typeset SVG, never raw LaTeX", () => {
     // The persisted titleMd record string, re-parsed the way a preview does.
+    // The chip's flat text is only the anchor char; its LaTeX lives in the
+    // attachment, so the preview must hand the block's structured content in.
     const md = titleMd("# The **famous** $E=mc^2$ law");
     const block = findTitleBlock(loadPage(md, schema).blocks)!;
     const html = inlineToHtml(
@@ -97,26 +101,30 @@ describe("title markdown → preview HTML (the TitlePreview pipeline)", () => {
       block.formats ?? [],
       schema,
       (latex, displayMode) => renderToSVG(latex, displayMode, 14),
+      undefined,
+      block.structuredContent,
     );
     expect(html).toContain("<strong>famous</strong>");
     expect(html).toContain("<svg");
-    // The formula must be typeset, not shown as its contiguous source.
-    expect(html).not.toContain("E=mc^2");
+    // The formula must be typeset, not shown as its canonical source.
+    expect(html).not.toContain("m{c}^{2}");
   });
 
   it("typesets a math-block title end to end", () => {
-    // Doc whose title block IS a display equation → titleMd `$…$` → the
-    // preview re-parse yields an inline math run and typesets it.
+    // Doc whose title block IS a display equation → titleMd `$…$` (canonical
+    // source) → the preview re-parse yields an inline math run and typesets it.
     const md = titleMd("$$\nE=mc^2\n$$");
-    expect(md).toBe("$E=mc^2$");
+    expect(md).toBe("$E=m{c}^{2}$");
     const block = findTitleBlock(loadPage(md, schema).blocks)!;
     const html = inlineToHtml(
       block.charRuns ?? [],
       block.formats ?? [],
       schema,
       (latex, displayMode) => renderToSVG(latex, displayMode, 14),
+      undefined,
+      block.structuredContent,
     );
     expect(html).toContain("<svg");
-    expect(html).not.toContain("E=mc^2");
+    expect(html).not.toContain("m{c}^{2}");
   });
 });

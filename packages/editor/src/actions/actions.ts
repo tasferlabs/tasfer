@@ -84,6 +84,7 @@ import {
 import { isWordChar } from "../word-chars";
 import {
   cloneStructuredBlockContent,
+  createFeatureMarkInRange,
   cursorInsideStructuredMark,
   expandSelectionAroundStructuredMarks,
   rangeIntersectsStructuredMark,
@@ -92,7 +93,6 @@ import {
   selectionPartiallyIntersectsStructuredMark,
   structuredMarkAttachmentCleanupOps,
   structuredMarkContentIdsFrom,
-  structuredMarkRunSourceDiverged,
 } from "./structured-marks";
 import { wrapSelectionOnInput } from "./wrap-selection";
 
@@ -787,9 +787,9 @@ export function deleteSelectedText(state: EditorState): ActionResult {
   const range = getSelectionRange(state);
   if (!range) return { state, ops: [] };
 
-  // An attached mark's flat characters are a compatibility projection, not a
-  // second editable authority. Mixed flat ranges expand clipped edge marks to
-  // whole atomic units; only a still-partial projection is refused here.
+  // A structured mark's anchor char is not editable text. Mixed flat ranges
+  // expand clipped edge marks to whole atomic units; only a still-partial
+  // coverage is refused here.
   if (selectionPartiallyIntersectsStructuredMark(state)) {
     return { state, ops: [] };
   }
@@ -1406,12 +1406,33 @@ export function insertText(
   );
   ops.push(op);
 
-  const newTextIndex = insertIndex + input.length;
+  let newTextIndex = insertIndex + input.length;
   let pageAcc = pageAfterInsert;
 
   // Handle active formats (when user has toggled formatting without selection)
   if (state.ui.activeMarksMode.type === "explicit") {
     for (const format of state.ui.activeMarksMode.formats) {
+      // A structured mark (inline math) can't just cover the typed chars: the
+      // text becomes the new attachment's source and the flat range collapses
+      // to the mark's single anchor char. Later keystrokes land at the chip
+      // edge and continue the formula through the tree input rule.
+      if (state.schema.structuredMark(format.type)) {
+        const created = createFeatureMarkInRange(
+          pageAcc,
+          oldBlock.id,
+          insertIndex,
+          newTextIndex,
+          format,
+          state.CRDTbinding,
+          state.schema,
+        );
+        if (created.ops.length > 0) {
+          pageAcc = created.newPage;
+          ops.push(...created.ops);
+          newTextIndex = insertIndex + 1;
+        }
+        continue;
+      }
       const { newPage: pageAfterFormat, op: formatOp } = markCharsInRange(
         pageAcc,
         oldBlock.id,
@@ -2780,23 +2801,9 @@ export function selectWordAtPosition(
     wordStart = pointRange.start;
     wordEnd = pointRange.end;
   } else if (chipRun) {
-    const replacement = state.marks.get(chipRun.name)?.replacement;
-    // An attached run whose canonical source has outrun its flat chars has no
-    // meaningful interior offsets — `wordRangeAt` would resolve constructs
-    // against stale source. Such a chip is atomic: take the whole run.
-    const unit = structuredMarkRunSourceDiverged(block, chipRun, state.schema)
-      ? null
-      : replacement?.wordRangeAt?.(
-          chipRun.text,
-          textIndex - chipRun.startIndex,
-        );
-    if (unit) {
-      wordStart = chipRun.startIndex + unit.start;
-      wordEnd = chipRun.startIndex + unit.end;
-    } else {
-      wordStart = chipRun.startIndex;
-      wordEnd = chipRun.endIndex;
-    }
+    // A replacement run is one atomic anchor char: the word IS the chip.
+    wordStart = chipRun.startIndex;
+    wordEnd = chipRun.endIndex;
   } else {
     // Boundary offsets treat an adjacent replacement run (an inline-math chip)
     // as the word it visually is. A run's chars are its raw source (LaTeX), so
@@ -3708,6 +3715,37 @@ export function toggleFormat(
       return { state, ops: [] };
     }
 
+    // A structured mark (inline math) is created, not toggled on chars: the
+    // selected text becomes the new attachment's source and the range
+    // collapses to the mark's single anchor char. (The guard above already
+    // no-ops when the selection touches an existing structured run.)
+    if (state.schema.structuredMark(formatType)) {
+      const created = createFeatureMarkInRange(
+        state.document.page,
+        block.id,
+        start.textIndex,
+        end.textIndex,
+        { type: formatType },
+        state.CRDTbinding,
+        state.schema,
+      );
+      if (created.ops.length === 0) return { state, ops: [] };
+      invalidateBlockCache(created.newPage.blocks[start.blockIndex]);
+      let next: EditorState = {
+        ...state,
+        document: { ...state.document, page: created.newPage },
+      };
+      next = moveCursorToPosition(next, start.blockIndex, start.textIndex + 1);
+      next = updateSelection(next, {
+        anchor: { blockIndex: start.blockIndex, textIndex: start.textIndex },
+        focus: {
+          blockIndex: start.blockIndex,
+          textIndex: start.textIndex + 1,
+        },
+      });
+      return { state: next, ops: [...created.ops] };
+    }
+
     // Check if all characters in the range already have the format
     const hasFormat = allCharsHaveFormat(
       block.charRuns,
@@ -3892,21 +3930,19 @@ export function convertBlockAtCursor(
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return { state, ops: [] };
 
-  // Structured documents are scoped to this block. Core has no lossless,
-  // feature-agnostic morph for either block authority or supplemental mark
-  // attachments, so offer the conversion to the owning feature (which can
-  // convert losslessly through CONVERT_STRUCTURED_BLOCK), and otherwise refuse
-  // instead of orphaning persisted contentId references while emitting only
-  // block_set(type).
+  // Offer every conversion to the owning feature first: a block that owns
+  // structured documents has no lossless generic morph (core would orphan
+  // persisted contentId references), and a structured-authority TARGET type
+  // (display math) must be created together with its eager document. An
+  // unclaimed dispatch falls through to the generic morph — except for a
+  // structured source block, which is refused rather than corrupted.
+  const owned = state.actionBus.dispatchState(CONVERT_STRUCTURED_BLOCK, state, {
+    blockIndex,
+    type: params.type,
+  });
+  if (owned.claimed) return { state: owned.state, ops: owned.ops };
   if (hasStructuredContent(block)) {
-    const owned = state.actionBus.dispatchState(
-      CONVERT_STRUCTURED_BLOCK,
-      state,
-      { blockIndex, type: params.type },
-    );
-    return owned.claimed
-      ? { state: owned.state, ops: owned.ops }
-      : { state, ops: [] };
+    return { state, ops: [] };
   }
 
   // Converting TO a non-textual (atomic) block — image/math/line or any custom

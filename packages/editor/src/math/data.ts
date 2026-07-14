@@ -43,8 +43,11 @@ import {
   getStructuredMathSource,
   MATH_STRUCTURED_KIND,
   mathContentIdForBlock,
+  parseMathDocumentInit,
+  structuredToMathDocument,
   validateStructuredMathDocument,
 } from "./structured";
+import { printMathDocument as printMathDocumentValue } from "@cypherkit/tex/data";
 
 export { normalizeMathSource } from "./source";
 
@@ -74,11 +77,21 @@ export const mathBlockNodeCodec: NodeCodec = {
       ctx.match(MATH_BLOCK);
       const latex = (ctx.previous() as VisibleToken).content;
       ctx.match(NEWLINE);
+      // A display block's content lives only in its authority document; the
+      // block's flat text stays empty. The deterministic default allocator is
+      // parse-scoped — the import path re-addresses identities when the block
+      // becomes CRDT ops.
+      const id = ctx.nextBlockId();
+      const contentId = mathContentIdForBlock(id);
+      const init = parseMathDocumentInit(normalizeMathSource(latex), {
+        contentId,
+      });
       return {
-        id: ctx.nextBlockId(),
+        id,
         type: "math",
-        charRuns: ctx.rawText(normalizeMathSource(latex)),
+        charRuns: [],
         formats: [],
+        structuredContent: { [contentId]: init.document },
         displayMode: true,
       } as unknown as Block;
     },
@@ -214,6 +227,14 @@ export const mathInlineSyntaxRule = {
   },
 } as const satisfies SyntaxRule;
 
+/** Canonical LaTeX of one structured math document (kind `source` adapter). */
+function mathStructuredContentSource(
+  document: Parameters<typeof validateStructuredMathDocument>[0],
+): string | undefined {
+  const math = structuredToMathDocument(document);
+  return math ? printMathDocumentValue(math) : undefined;
+}
+
 /** Re-address a display equation when snapshot restore mints a new block id. */
 export function cloneMathStructuredContent({
   document,
@@ -261,22 +282,17 @@ export function mathDataExtension(): MathDataExtension {
       },
     ],
     structuredKinds: [
-      { kind: MATH_STRUCTURED_KIND, clone: cloneMathStructuredContent },
+      {
+        kind: MATH_STRUCTURED_KIND,
+        clone: cloneMathStructuredContent,
+        source: mathStructuredContentSource,
+      },
     ],
   };
 }
 
 function visibleSource(block: MathTextBlock): string {
-  const structured = getStructuredMathSource(block);
-  if (structured !== undefined) return structured;
-  let source = "";
-  for (const run of block.charRuns) {
-    for (let i = 0; i < run.text.length; i++) {
-      const byte = run.deletedMask?.[Math.floor(i / 8)] ?? 0;
-      if ((byte & (1 << (i % 8))) === 0) source += run.text[i];
-    }
-  }
-  return source;
+  return getStructuredMathSource(block) ?? "";
 }
 
 // The stable structured model belongs to the feature's data surface too. Its

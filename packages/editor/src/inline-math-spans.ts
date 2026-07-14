@@ -21,7 +21,8 @@ import { iterateAllChars } from "./sync/char-runs";
 export interface InlineMathSpan {
   startIndex: number;
   endIndex: number;
-  latex: string;
+  /** The run's flat text — a structured chip's single anchor char. */
+  text: string;
 }
 
 /**
@@ -124,7 +125,7 @@ export function getInlineMathSpans(block: Block): InlineMathSpan[] {
     .map((r) => ({
       startIndex: r.startIndex,
       endIndex: r.endIndex,
-      latex: r.text,
+      text: r.text,
     }));
 }
 

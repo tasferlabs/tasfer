@@ -116,7 +116,9 @@ describe("blockHtml", () => {
   it("emits math as readable source, not an invisible SVG", () => {
     const { blocks } = loadPage("$$x^2$$\n");
     const html = blockHtml(blocks[0], schema);
-    expect(html).toContain("x^2");
+    // The block's flat text is empty; the readable text is the attachment's
+    // canonical source (`x^2` prints as `{x}^{2}`).
+    expect(html).toContain("{x}^{2}");
     expect(html).not.toContain("<svg");
   });
 });

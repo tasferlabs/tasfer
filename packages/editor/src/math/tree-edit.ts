@@ -35,7 +35,7 @@ import {
   mathDocumentToStructured,
   validateStructuredMathDocument,
 } from "./structured";
-import { parseMathDocument } from "@cypherkit/tex/data";
+import { canRenderMathChar, parseMathDocument } from "@cypherkit/tex/data";
 
 /** A stable gap inside a math row. `null` means before its first child. */
 export interface MathRowCaret {
@@ -347,6 +347,85 @@ export function insertMathText(
         : characters.chars[clampedCaretOffset - 1].id,
     ),
     edits,
+  );
+}
+
+/**
+ * Whether every code point of `text` is prose the math fonts cannot render as
+ * a math glyph but that IS real text — a letter, number, punctuation, symbol
+ * or combining mark (CJK, kana, hangul, Arabic, emoji, …). Mirrors the legacy
+ * flat-source rule in `mathTransformTypedInput`: such input belongs inside a
+ * `\text{…}` run — committed bare it projects as a zero-width, caret-less
+ * "latent" glyph, so the keystroke looks silently dropped.
+ * Control/format/whitespace code points are excluded.
+ */
+export function isMathProseText(text: string): boolean {
+  const codePoints = [...text];
+  return (
+    codePoints.length > 0 &&
+    codePoints.every(
+      (ch) =>
+        !canRenderMathChar(ch) && /^[\p{L}\p{N}\p{P}\p{S}\p{M}]$/u.test(ch),
+    )
+  );
+}
+
+/** Semantic projection of prose input: a host-font-typeset `\text{…}` run. */
+export function mathProseLatex(text: string): string {
+  return `\\text{${text}}`;
+}
+
+/**
+ * Insert prose (see {@link isMathProseText}) as a `\text{…}` run.
+ *
+ * Consecutive prose keystrokes MUST extend one `text` node instead of minting
+ * `\text{中}\text{文}` siblings: cursive scripts (Arabic) only take their
+ * joined forms within a single run, and one run keeps the projected source
+ * readable. The caret a prose commit leaves behind is the gap right after the
+ * `text` node, so a caret in that gap appends to the node; anywhere else the
+ * input commits a fresh semantic `\text{…}`.
+ */
+export function insertMathProseText(
+  document: StructuredDocument,
+  caret: MathTreeCaret,
+  text: string,
+  identities: IdentityAllocator,
+): MathTreeEditResult {
+  const math = validMathDocument(document);
+  if (!math) return failure(caret, "not-math-document");
+  const resolved = resolveCaret(math, caret);
+  if (!resolved) return failure(caret, "invalid-caret");
+  if (text.length === 0) return success(caret, []);
+
+  if (resolved.kind === "row" && resolved.position > 0) {
+    const children = getStructuredChildren(math, resolved.row.id, "children");
+    const previous = children[resolved.position - 1];
+    if (previous?.type === "text") {
+      const existingIds = collectDocumentIdentities(math);
+      const characters = mintCharacters(text, identities, existingIds);
+      if (!characters.ok) return failure(caret, characters.reason);
+      const edits: StructuredEdit[] = [];
+      let afterCharId = visibleCharacters(previous).at(-1)?.id ?? null;
+      for (const char of characters.chars) {
+        edits.push({
+          kind: "text_insert",
+          nodeId: previous.id,
+          field: "text",
+          afterCharId,
+          charRuns: charsToRuns([char]),
+        });
+        afterCharId = char.id;
+      }
+      return success(rowCaret(resolved.row.id, previous.id), edits);
+    }
+  }
+
+  return insertMathSemanticLatex(
+    math,
+    caret,
+    mathProseLatex(text),
+    identities,
+    { caret: "end" },
   );
 }
 
@@ -1703,6 +1782,8 @@ function backspaceAtRowGap(
     if (unwrapped) return unwrapped;
     const removed = removeEmptyRadical(document, resolved.row.id);
     if (removed) return removed;
+    const peeled = removeEmptyScriptSlot(document, resolved.row.id);
+    if (peeled) return peeled;
   }
 
   // A visually empty matrix cell has nothing to delete: its topology belongs
@@ -1751,6 +1832,27 @@ function backspaceAtRowGap(
     return destination
       ? success(destination, [])
       : failure(originalCaret, "no-navigation-target");
+  }
+
+  // A `text` node is an editable prose run, not an opaque atom: peel its last
+  // character (mirroring flat-source `\text{…}` editing) and remove the node
+  // only once its final character goes.
+  if (previous.type === "text") {
+    const characters = visibleCharacters(previous);
+    if (characters.length > 1) {
+      return success(gap, [
+        {
+          kind: "text_delete",
+          nodeId: previous.id,
+          field: "text",
+          charIds: [characters.at(-1)!.id],
+        },
+      ]);
+    }
+    const before = gapBeforeNode(document, resolved.row.id, previous.id);
+    return before
+      ? success(before, [{ kind: "node_delete", nodeId: previous.id }])
+      : failure(originalCaret, "invalid-caret");
   }
 
   if (isAtomicMathLeaf(previous)) {
@@ -1808,6 +1910,23 @@ function deleteForwardAtRowGap(
     return destination
       ? success(destination, [])
       : failure(originalCaret, "no-navigation-target");
+  }
+
+  // Mirror of the Backspace rule for prose runs: forward delete peels the
+  // run's first character and removes the node only with its last one.
+  if (next?.type === "text") {
+    const characters = visibleCharacters(next);
+    if (characters.length > 1) {
+      return success(originalCaret, [
+        {
+          kind: "text_delete",
+          nodeId: next.id,
+          field: "text",
+          charIds: [characters[0].id],
+        },
+      ]);
+    }
+    return success(originalCaret, [{ kind: "node_delete", nodeId: next.id }]);
   }
 
   if (next && isAtomicMathLeaf(next)) {
@@ -1895,6 +2014,91 @@ function unwrapFromEmptyFractionSlot(
     current.slot === "denominator" && preserved.length > 0
       ? preserved.at(-1)!.id
       : beforeFraction;
+  return success(rowCaret(outerRow.id, afterNodeId), edits);
+}
+
+/**
+ * Backspace in an empty script slot peels that `_{}`/`^{}` off and keeps the
+ * base — a limit stays optional (type `_`, change your mind, backspace back to
+ * the bare base). When the peeled slot was the construct's only script, the
+ * base children are unwrapped into the outer row so no bare-base scaffold
+ * survives.
+ */
+function removeEmptyScriptSlot(
+  document: StructuredDocument,
+  rowId: string,
+): MathTreeEditResult | undefined {
+  const row = document.nodes[rowId];
+  const slot = row?.placement.slot;
+  const scriptsId = row?.placement.parentId;
+  const scripts = scriptsId ? document.nodes[scriptsId] : undefined;
+  if (
+    !row ||
+    row.deleted ||
+    row.type !== "row" ||
+    (slot !== "subscript" && slot !== "superscript") ||
+    !scripts ||
+    scripts.deleted ||
+    scripts.type !== "scripts"
+  ) {
+    return undefined;
+  }
+
+  const otherSlot = slot === "subscript" ? "superscript" : "subscript";
+  if (getStructuredChildren(document, scripts.id, otherSlot).length > 0) {
+    const after = caretAfterNode(document, scripts);
+    return after
+      ? success(after, [{ kind: "node_delete", nodeId: row.id }])
+      : undefined;
+  }
+
+  const outerRowId = scripts.placement.parentId;
+  const outerRow = outerRowId ? document.nodes[outerRowId] : undefined;
+  if (
+    !outerRow ||
+    outerRow.deleted ||
+    outerRow.type !== "row" ||
+    scripts.placement.slot !== "children"
+  ) {
+    return undefined;
+  }
+  const baseRow = onlyChild(document, scripts.id, "base", "row");
+  if (!baseRow) return undefined;
+  const preserved = getStructuredChildren(
+    document,
+    baseRow.id,
+    "children",
+  ).filter((node) => nodeHasSemanticContent(document, node));
+
+  const allOuterChildren = getStructuredChildren(
+    document,
+    outerRow.id,
+    "children",
+    { includeDeleted: true },
+  );
+  const scriptsIndex = allOuterChildren.findIndex(
+    (node) => node.id === scripts.id,
+  );
+  if (scriptsIndex < 0) return undefined;
+  const keys = generateNKeysBetween(
+    allOuterChildren[scriptsIndex - 1]?.placement.orderKey ?? null,
+    allOuterChildren[scriptsIndex + 1]?.placement.orderKey ?? null,
+    preserved.length,
+  );
+  const edits: StructuredEdit[] = preserved.map((node, index) => ({
+    kind: "node_move",
+    nodeId: node.id,
+    placement: {
+      parentId: outerRow.id,
+      slot: "children",
+      orderKey: keys[index],
+    },
+  }));
+  edits.push({ kind: "node_delete", nodeId: scripts.id });
+
+  const beforeScripts = previousSiblingId(document, outerRow.id, scripts.id);
+  const afterNodeId =
+    preserved.length > 0 ? preserved.at(-1)!.id : beforeScripts;
   return success(rowCaret(outerRow.id, afterNodeId), edits);
 }
 
@@ -2329,7 +2533,7 @@ function resolveCaret(
   if (
     !node ||
     node.deleted ||
-    node.type !== "raw-text" ||
+    !isCharacterEditableLeaf(node) ||
     caret.field !== "text" ||
     node.placement.parentId !== row.id ||
     node.placement.slot !== "children" ||
@@ -2693,6 +2897,17 @@ function rowHasMultipleVisibleEmptyGroups(
         getStructuredText(document, child.id, "latex") === "{}",
     )
   );
+}
+
+/**
+ * Leaves whose `text` field is caret-addressable per character: `raw-text`
+ * (command-entry scratch) and `text` (`\text{…}` prose runs). Both project
+ * per-character field anchors, so every interior boundary is a painted caret
+ * stop; the difference is only that raw-text characters lex as source while
+ * prose characters are escaped.
+ */
+function isCharacterEditableLeaf(node: StructuredNode): boolean {
+  return node.type === "raw-text" || node.type === "text";
 }
 
 /** Fields not owned by this controller are deleted only as whole leaves. */

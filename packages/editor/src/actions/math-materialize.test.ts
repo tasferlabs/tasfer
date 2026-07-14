@@ -9,7 +9,8 @@
  */
 import { mathTestStateOptions } from "../__testutils__/math";
 import type { MathBlock } from "../nodes/MathNode";
-import type { CursorState, EditorState, Page } from "../state-types";
+import type { Page } from "../serlization/loadPage";
+import type { CursorState, EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { insertText } from "./actions";

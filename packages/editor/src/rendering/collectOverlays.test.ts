@@ -8,12 +8,8 @@
  * atomic test node so the height walk stays pure (no text measurement).
  */
 
-import type {
-  Block,
-  EditorState,
-  NodeOverlay,
-  ViewportState,
-} from "../state-types";
+import type { Block } from "../serlization/loadPage";
+import type { EditorState, NodeOverlay, ViewportState } from "../state-types";
 import { defaultStyles } from "../styles";
 import { BlockHeightIndex } from "./block-height-index";
 import type { MarkStyle } from "./marks";

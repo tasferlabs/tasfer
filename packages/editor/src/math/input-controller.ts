@@ -13,9 +13,12 @@ import {
   deleteMathTreeRange,
   expandMathTreeRangeToAtomicCommands,
   getMathTreeMatrixContext,
+  insertMathProseText,
   insertMathSemanticLatex,
   insertMathTextWithCompletion,
+  isMathProseText,
   type MathCommandCompletionResolver,
+  mathProseLatex,
   type MathTreeCaret,
   type MathTreeEditResult,
   type MathTreeRange,
@@ -80,6 +83,22 @@ export function applyMathTreeInputToDocument(
     return safeRange
       ? deleteMathTreeRange(document, safeRange)
       : { handled: true, edits: [], caret };
+  }
+  // Prose the math fonts can't typeset as glyphs (Arabic, CJK, emoji, …)
+  // commits as a `\text{…}` run: stored bare it projects as a zero-width
+  // latent glyph and the keystroke looks silently dropped. The legacy flat
+  // path wrapped this in `mathTransformTypedInput`; the tree boundary owns
+  // the rule now that it claims input first.
+  if (!semantic && isMathProseText(text)) {
+    return safeRange
+      ? replaceMathTreeRangeWithSemanticLatex(
+          document,
+          safeRange,
+          mathProseLatex(text),
+          identities,
+          { caret: "end" },
+        )
+      : insertMathProseText(document, caret, text, identities);
   }
   return safeRange
     ? semantic

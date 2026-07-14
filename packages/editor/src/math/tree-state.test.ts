@@ -56,16 +56,10 @@ import {
 } from "../structured-selection";
 import { getVisibleTextFromRuns, iterateAllChars } from "../sync/char-runs";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
-import { insertCharsAtPosition } from "../sync/crdt-utils";
-import { extractCounter } from "../sync/id";
 import { applyOps } from "../sync/reducer";
 import { blocksToOps } from "../sync/snapshot-diff";
 import { applyStructuredEdits } from "../sync/structured-content";
-import {
-  createCRDTbinding,
-  createSyncEngine,
-  maxStructuredDocumentIdCounter,
-} from "../sync/sync";
+import { createCRDTbinding, createSyncEngine } from "../sync/sync";
 import {
   getMathStructuredDocument,
   getStructuredMathSource,
@@ -127,11 +121,28 @@ function stateFromPage(
   });
 }
 
-function placeAtLegacyEnd(state: EditorState): EditorState {
-  const block = state.document.page.blocks[0];
-  const length =
-    "charRuns" in block ? getVisibleTextFromRuns(block.charRuns).length : 0;
-  return moveCursorToPosition(state, 0, length);
+// A math block owns no flat text, so the only flat caret it offers is the
+// block edge at index 0; the first keystroke from there enters the tree.
+function placeFlatCaretAtBlockEdge(state: EditorState): EditorState {
+  return moveCursorToPosition(state, 0, 0);
+}
+
+// Nested caret at a LaTeX source offset of the block-authority document —
+// the only way to address the interior of an equation (flat offsets into a
+// math block resolve to nothing).
+function placeTreeCaret(state: EditorState, sourceOffset: number): EditorState {
+  const document = getMathStructuredDocument(block(state));
+  if (!document) throw new Error("expected a block-authority math document");
+  const selection = mathContentSelectionFromSourceOffset(
+    block(state).id,
+    document.rootId,
+    document,
+    sourceOffset,
+  );
+  if (!selection) {
+    throw new Error(`no tree caret at source offset ${sourceOffset}`);
+  }
+  return updateContentSelection(state, selection);
 }
 
 function typeText(
@@ -139,7 +150,7 @@ function typeText(
   text: string,
 ): { state: EditorState; lastOps: Operation[] } {
   if (!state.document.cursor && !state.document.contentSelection) {
-    state = placeAtLegacyEnd(state);
+    state = placeFlatCaretAtBlockEdge(state);
   }
   let lastOps: Operation[] = [];
   for (const char of text) {
@@ -161,23 +172,6 @@ function legacySource(state: EditorState): string {
 
 function treeSource(state: EditorState): string | undefined {
   return getStructuredMathSource(block(state));
-}
-
-function withCompatibilitySource(
-  state: EditorState,
-  source: string,
-): EditorState {
-  const inserted = insertCharsAtPosition(
-    state.document.page,
-    block(state).id,
-    0,
-    source,
-    state.CRDTbinding,
-  );
-  return {
-    ...state,
-    document: { ...state.document, page: inserted.newPage },
-  };
 }
 
 function placeFlatTreeCursor(
@@ -368,58 +362,8 @@ describe("tree-backed display math state integration", () => {
     ).toBe("$ab$");
   });
 
-  it("drops stale compatibility source when demoting structured display math", () => {
-    const seeded = typeText(treeState("$$\n\n$$"), "ab").state;
-    const staleBlock = block(seeded);
-    const selected = selectActiveTreeText(seeded, 0, 0);
-    const before: EditorState = {
-      ...selected,
-      document: {
-        ...selected.document,
-        page: {
-          ...selected.document.page,
-          blocks: selected.document.page.blocks.map((candidate) =>
-            candidate.id === staleBlock.id
-              ? {
-                  ...candidate,
-                  charRuns: [
-                    {
-                      peerId: "stale-projection",
-                      startCounter: 1,
-                      text: String.raw`ab\frac{}{}\begin{pmatrix}{}&{}\\{}&{}\end{pmatrix}`,
-                    },
-                  ],
-                }
-              : candidate,
-          ),
-        },
-      },
-    };
-
-    const result = before.actionBus.dispatchState(DELETE_BACKWARD, before);
-    const converted = result.state.document.page.blocks[0];
-
-    expect(operationKinds(result.ops)).toEqual([
-      "content:document_delete",
-      "text_delete",
-      "block_set",
-      "content:document_init",
-      "text_insert",
-      "mark_set",
-    ]);
-    expect(getVisibleTextFromRuns(converted.charRuns)).toBe("ab");
-    expect(
-      serializeToMarkdown(result.state.document.page.blocks, undefined, {
-        schema: result.state.schema,
-      }),
-    ).toBe("$ab$");
-    expect(applyOps(before.document.page, result.ops, before.schema)).toEqual(
-      result.state.document.page,
-    );
-  });
-
   it("emits a nested TEXT_INPUT signal when a tree consumes backslash", () => {
-    let state = placeAtLegacyEnd(treeState("$$\n\n$$"));
+    let state = placeFlatCaretAtBlockEdge(treeState("$$\n\n$$"));
     state = { ...state, view: { ...state.view, isFocused: true } };
     let observedPoint: ContentPoint | undefined;
     let trigger: { blockId: string; backslashIndex: number } | undefined;
@@ -458,7 +402,7 @@ describe("tree-backed display math state integration", () => {
     });
   });
 
-  it("keeps an existing tree authoritative during migration", () => {
+  it("keeps the tree authoritative when a fresh state re-mounts the page", () => {
     const seeded = typeText(treeState("$$\n\n$$"), "ab").state;
     let state = stateFromPage(seeded.document.page, seeded.CRDTbinding);
     state = placeFlatTreeCursor(state, 2);
@@ -515,46 +459,6 @@ describe("tree-backed display math state integration", () => {
     });
   });
 
-  it("does not fall through to compatibility text for a flat tree selection", () => {
-    let state = typeText(treeState("$$\n\n$$"), "x").state;
-    state = withCompatibilitySource(state, "stale");
-    state = moveCursorToPosition(state, 0, 1);
-    state = updateSelection(state, {
-      anchor: { blockIndex: 0, textIndex: 0 },
-      focus: { blockIndex: 0, textIndex: 1 },
-    });
-
-    const result = insertText(state, "z");
-
-    expect(result.ops).toEqual([]);
-    expect(treeSource(result.state)).toBe("x");
-    expect(legacySource(result.state)).toBe("stale");
-    expect(result.state.document.selection?.isCollapsed).toBe(false);
-  });
-
-  it("cleans stale visible compatibility chars on the next tree mutation", () => {
-    let state = typeText(treeState("$$\n\n$$"), "x").state;
-    state = withCompatibilitySource(state, "stale");
-
-    const left = state.actionBus.dispatchState(MOVE_CURSOR_LEFT, state);
-    expect(left.ops).toEqual([]);
-    const navigated = left.state.actionBus.dispatchState(
-      MOVE_CURSOR_RIGHT,
-      left.state,
-    );
-    expect(navigated.ops).toEqual([]);
-    expect(legacySource(navigated.state)).toBe("stale");
-
-    const result = insertText(navigated.state, "y");
-
-    expect(operationKinds(result.ops)).toEqual([
-      "text_delete",
-      "content:text_insert",
-    ]);
-    expect(legacySource(result.state)).toBe("");
-    expect(treeSource(result.state)).toBe("xy");
-  });
-
   it("replaces a trailing command query and lands inside its first slot", () => {
     const state = typeText(treeState("$$\n\n$$"), String.raw`\sq`).state;
     const result = state.actionBus.dispatchState(INSERT_MATH_COMMAND, state, {
@@ -601,19 +505,18 @@ describe("tree-backed display math state integration", () => {
     });
   });
 
-  it("migrates and splices a semantic command at an interior legacy caret", () => {
-    const before = moveCursorToPosition(treeState("$$\nab\n$$"), 0, 1);
+  it("splices a semantic command at an interior caret of an imported equation", () => {
+    // Same splice as above, but over the document `$$…$$` import attached —
+    // proving a source-offset caret addresses imported identities directly.
+    const before = placeTreeCaret(treeState("$$\nab\n$$"), 1);
     const result = before.actionBus.dispatchState(INSERT_MATH_COMMAND, before, {
       text: String.raw`\sqrt{}`,
       caretOffset: 6,
     });
 
     expect(result.claimed).toBe(true);
-    expect(legacySource(result.state)).toBe("");
     expect(treeSource(result.state)).toBe(String.raw`a\sqrt{}b`);
     expect(operationKinds(result.ops)).toEqual([
-      "content:document_init",
-      "text_delete",
       "content:text_delete",
       "content:node_insert",
       "content:node_insert",
@@ -643,7 +546,7 @@ describe("tree-backed display math state integration", () => {
   });
 
   it("semanticizes committed multi-character LaTeX before any deletion", () => {
-    const before = placeAtLegacyEnd(treeState("$$\n\n$$"));
+    const before = placeFlatCaretAtBlockEdge(treeState("$$\n\n$$"));
     const inserted = insertText(before, String.raw`\sqrt{x}`).state;
     const document = getMathStructuredDocument(block(inserted));
 
@@ -677,7 +580,7 @@ describe("tree-backed display math state integration", () => {
 
   it("stores committed unsupported source as one exact atomic fallback", () => {
     for (const source of [String.raw`\wat{x}`, String.raw`\sq`, "ab&cd"]) {
-      const before = placeAtLegacyEnd(treeState("$$\n\n$$"));
+      const before = placeFlatCaretAtBlockEdge(treeState("$$\n\n$$"));
       const inserted = insertText(before, source).state;
       const document = getMathStructuredDocument(block(inserted));
       const visible = Object.values(document?.nodes ?? {}).filter(
@@ -763,7 +666,7 @@ describe("tree-backed display math state integration", () => {
   });
 
   it("semanticizes committed LaTeX from IME and plain-text paste", () => {
-    const before = placeAtLegacyEnd(treeState("$$\n\n$$"));
+    const before = placeFlatCaretAtBlockEdge(treeState("$$\n\n$$"));
     const started = before.actionBus.dispatchState(COMPOSITION_START, before, {
       data: String.raw`\sqrt{x}`,
     });
@@ -780,7 +683,7 @@ describe("tree-backed display math state integration", () => {
     ).toBe(true);
 
     const pasted = pasteFromClipboardEvent(
-      placeAtLegacyEnd(treeState("$$\n\n$$")),
+      placeFlatCaretAtBlockEdge(treeState("$$\n\n$$")),
       {} as ClipboardEvent,
       { html: "", text: String.raw`\sqrt{x}`, imageFile: null },
     );
@@ -795,10 +698,13 @@ describe("tree-backed display math state integration", () => {
 
   it("keeps non-BMP committed text intact", () => {
     const inserted = insertText(
-      placeAtLegacyEnd(treeState("$$\n\n$$")),
+      placeFlatCaretAtBlockEdge(treeState("$$\n\n$$")),
       "😀",
     ).state;
-    expect(treeSource(inserted)).toBe("😀");
+    // Math fonts cannot typeset an emoji glyph, so the commit wraps it in a
+    // host-font `\text{…}` run — but the code point itself must survive whole
+    // (no surrogate splitting).
+    expect(treeSource(inserted)).toBe(String.raw`\text{😀}`);
   });
 
   it.each([
@@ -809,7 +715,7 @@ describe("tree-backed display math state integration", () => {
     ["&", "symbol"],
   ])("keeps structural key %s out of raw-text", (input, nodeType) => {
     const inserted = insertText(
-      placeAtLegacyEnd(treeState("$$\n\n$$")),
+      placeFlatCaretAtBlockEdge(treeState("$$\n\n$$")),
       input,
     ).state;
     const document = getMathStructuredDocument(block(inserted));
@@ -1062,45 +968,19 @@ describe("tree-backed display math state integration", () => {
     });
   });
 
-  it("lazily migrates legacy source and makes the tree authoritative", () => {
-    let before = treeState("$$\nab\n$$");
-    before = placeAtLegacyEnd(before);
+  it("appends to an imported equation through its attached document", () => {
+    // `$$…$$` markdown imports with the block-authority document already
+    // attached, so the first edit is a plain tree insertion — no init, no
+    // flat-source cleanup — and it replays deterministically from ops.
+    const before = placeTreeCaret(treeState("$$\nab\n$$"), 2);
 
     const result = insertText(before, "c");
 
-    expect(operationKinds(result.ops)).toEqual([
-      "content:document_init",
-      "text_delete",
-      "content:text_insert",
-    ]);
-    expect(legacySource(result.state)).toBe("");
+    expect(operationKinds(result.ops)).toEqual(["content:text_insert"]);
     expect(treeSource(result.state)).toBe("abc");
     expect(result.state.document.cursor).toBeNull();
     expect(result.state.document.contentSelection?.focus.kind).toBe("text");
     expect(contentTextOffset(result.state)).toBe(3);
-
-    const init = result.ops.find(
-      (op) => op.op === "content_edit" && op.edit.kind === "document_init",
-    );
-    const inserted = result.ops.find(
-      (op) => op.op === "content_edit" && op.edit.kind === "text_insert",
-    );
-    if (
-      !init ||
-      init.op !== "content_edit" ||
-      init.edit.kind !== "document_init" ||
-      !inserted ||
-      inserted.op !== "content_edit" ||
-      inserted.edit.kind !== "text_insert"
-    ) {
-      throw new Error("expected migration and tree insertion operations");
-    }
-    expect(inserted.edit.charRuns[0].startCounter).toBeGreaterThan(
-      maxStructuredDocumentIdCounter(init.edit.document),
-    );
-    expect(extractCounter(inserted.id)).toBeGreaterThan(
-      inserted.edit.charRuns[0].startCounter,
-    );
 
     const replayed = applyOps(
       before.document.page,
@@ -1115,21 +995,16 @@ describe("tree-backed display math state integration", () => {
     ).toBe("$$\nabc\n$$");
   });
 
-  it("migrates legacy source before backward and forward deletion", () => {
+  it("deletes backward and forward from a source-offset caret", () => {
     for (const [action, offset] of [
       [DELETE_BACKWARD, 2],
       [DELETE_FORWARD, 1],
     ] as const) {
-      const before = moveCursorToPosition(treeState("$$\nabc\n$$"), 0, offset);
+      const before = placeTreeCaret(treeState("$$\nabc\n$$"), offset);
       const result = before.actionBus.dispatchState(action, before);
 
       expect(result.claimed).toBe(true);
-      expect(operationKinds(result.ops)).toEqual([
-        "content:document_init",
-        "text_delete",
-        "content:text_delete",
-      ]);
-      expect(legacySource(result.state)).toBe("");
+      expect(operationKinds(result.ops)).toEqual(["content:text_delete"]);
       expect(treeSource(result.state)).toBe("ac");
       expect(result.state.document.cursor).toBeNull();
     }
@@ -1142,11 +1017,7 @@ describe("tree-backed display math state integration", () => {
     "%s selects a large construct before deleting it",
     (_label, action, offset) => {
       const source = String.raw`\frac{a}{b}`;
-      const before = moveCursorToPosition(
-        treeState(`$$\n${source}\n$$`),
-        0,
-        offset,
-      );
+      const before = placeTreeCaret(treeState(`$$\n${source}\n$$`), offset);
 
       const selected = before.actionBus.dispatchState(action, before);
       expect(selected.claimed).toBe(true);
@@ -1196,11 +1067,7 @@ describe("tree-backed display math state integration", () => {
     "%s deletes only the selected construct when the equation has more content",
     (_label, action, offset) => {
       const source = String.raw`x+\frac{a}{b}`;
-      const before = moveCursorToPosition(
-        treeState(`$$\n${source}\n$$`),
-        0,
-        offset,
-      );
+      const before = placeTreeCaret(treeState(`$$\n${source}\n$$`), offset);
 
       const selected = before.actionBus.dispatchState(action, before);
       expect(selected.claimed).toBe(true);
@@ -1215,51 +1082,22 @@ describe("tree-backed display math state integration", () => {
     },
   );
 
-  it("migrates a legacy same-block range before deleting it", () => {
-    let before = moveCursorToPosition(treeState("$$\nabcd\n$$"), 0, 3);
-    before = updateSelection(before, {
-      anchor: { blockIndex: 0, textIndex: 1 },
-      focus: { blockIndex: 0, textIndex: 3 },
-    });
-
-    const result = before.actionBus.dispatchState(DELETE_BACKWARD, before);
-
-    expect(result.claimed).toBe(true);
-    expect(operationKinds(result.ops)).toEqual([
-      "content:document_init",
-      "text_delete",
-      "content:text_delete",
-    ]);
-    expect(legacySource(result.state)).toBe("");
-    expect(treeSource(result.state)).toBe("ad");
-    expect(contentTextOffset(result.state)).toBe(1);
-  });
-
-  it("routes the native cut action through legacy tree migration", () => {
-    let before = moveCursorToPosition(treeState("$$\nabcd\n$$"), 0, 3);
-    before = updateSelection(before, {
-      anchor: { blockIndex: 0, textIndex: 1 },
-      focus: { blockIndex: 0, textIndex: 3 },
-    });
+  it("routes the native cut action through the held nested range", () => {
+    let before = placeTreeCaret(treeState("$$\nabcd\n$$"), 3);
+    before = selectActiveTreeText(before, 1, 3);
 
     const result = before.actionBus.dispatchState(CUT, before);
 
+    // CUT stays unclaimed so the host clipboard handler still captures the
+    // event, but the nested range is already removed from the tree.
     expect(result.claimed).toBe(false);
-    expect(operationKinds(result.ops)).toEqual([
-      "content:document_init",
-      "text_delete",
-      "content:text_delete",
-    ]);
-    expect(legacySource(result.state)).toBe("");
+    expect(operationKinds(result.ops)).toEqual(["content:text_delete"]);
     expect(treeSource(result.state)).toBe("ad");
   });
 
-  it("routes async public cut through legacy tree migration", async () => {
-    let before = moveCursorToPosition(treeState("$$\nabcd\n$$"), 0, 3);
-    before = updateSelection(before, {
-      anchor: { blockIndex: 0, textIndex: 1 },
-      focus: { blockIndex: 0, textIndex: 3 },
-    });
+  it("routes async public cut through the held nested range", async () => {
+    let before = placeTreeCaret(treeState("$$\nabcd\n$$"), 3);
+    before = selectActiveTreeText(before, 1, 3);
     const clipboard: HostClipboard = {
       write: async () => {},
       read: async () => ({}),
@@ -1269,45 +1107,34 @@ describe("tree-backed display math state integration", () => {
 
     expect(cut.success).toBe(true);
     expect(cut.result).not.toBeNull();
-    expect(operationKinds(cut.result!.ops)).toEqual([
-      "content:document_init",
-      "text_delete",
-      "content:text_delete",
-    ]);
-    expect(legacySource(cut.result!.state)).toBe("");
+    expect(operationKinds(cut.result!.ops)).toEqual(["content:text_delete"]);
     expect(treeSource(cut.result!.state)).toBe("ad");
   });
 
-  it("keeps a legacy range intact until IME commit migrates it", () => {
-    let before = moveCursorToPosition(treeState("$$\nabcd\n$$"), 0, 3);
-    before = updateSelection(before, {
-      anchor: { blockIndex: 0, textIndex: 1 },
-      focus: { blockIndex: 0, textIndex: 3 },
-    });
+  it("keeps a nested range intact until the IME commit replaces it", () => {
+    let before = placeTreeCaret(treeState("$$\nabcd\n$$"), 3);
+    before = selectActiveTreeText(before, 1, 3);
 
     const started = before.actionBus.dispatchState(COMPOSITION_START, before, {
       data: "あ",
     });
+    // Composition previews paint host-side; the document only changes on commit.
     expect(started.ops).toEqual([]);
-    expect(legacySource(started.state)).toBe("abcd");
-    expect(getMathStructuredDocument(block(started.state))).toBeUndefined();
+    expect(treeSource(started.state)).toBe("abcd");
 
     const committed = started.state.actionBus.dispatchState(
       COMPOSITION_END,
       started.state,
       { data: "あ" },
     );
-    expect(legacySource(committed.state)).toBe("");
-    expect(treeSource(committed.state)).toBe("aあd");
-    expect(
-      committed.ops.some(
-        (op) => op.op === "content_edit" && op.edit.kind === "document_init",
-      ),
-    ).toBe(true);
+    // Kana is prose to the math fonts, so the commit lands as a `\text{…}` run.
+    expect(treeSource(committed.state)).toBe(String.raw`a\text{あ}d`);
+    expect(operationKinds(committed.ops)).toContain("content:text_delete");
+    expect(committed.ops.every((op) => op.op === "content_edit")).toBe(true);
   });
 
-  it("prefers plain clipboard text through migration over rich flat paste", () => {
-    const before = moveCursorToPosition(treeState("$$\nabcd\n$$"), 0, 2);
+  it("prefers plain clipboard text at a nested caret over rich flat paste", () => {
+    const before = placeTreeCaret(treeState("$$\nabcd\n$$"), 2);
     const pasted = pasteFromClipboardEvent(before, {} as ClipboardEvent, {
       html: "<p><strong>wrong-rich-surface</strong></p>",
       text: "X",
@@ -1315,12 +1142,7 @@ describe("tree-backed display math state integration", () => {
     });
 
     expect(pasted).not.toBeNull();
-    expect(operationKinds(pasted!.ops)).toEqual([
-      "content:document_init",
-      "text_delete",
-      "content:text_insert",
-    ]);
-    expect(legacySource(pasted!.state)).toBe("");
+    expect(operationKinds(pasted!.ops)).toEqual(["content:text_insert"]);
     expect(treeSource(pasted!.state)).toBe("abXcd");
 
     // Rich/image-only clipboard data has no lossless structured insertion in
@@ -1334,8 +1156,8 @@ describe("tree-backed display math state integration", () => {
     ).toBeNull();
   });
 
-  it("routes host-system plain paste through migration", async () => {
-    const before = moveCursorToPosition(treeState("$$\nabcd\n$$"), 0, 2);
+  it("routes host-system plain paste through the nested caret", async () => {
+    const before = placeTreeCaret(treeState("$$\nabcd\n$$"), 2);
     const clipboard: HostClipboard = {
       write: async () => {},
       read: async () => ({
@@ -1347,53 +1169,8 @@ describe("tree-backed display math state integration", () => {
     const pasted = await pasteFromSystemClipboard(before, clipboard);
 
     expect(pasted).not.toBeNull();
-    expect(legacySource(pasted!.state)).toBe("");
     expect(treeSource(pasted!.state)).toBe("abYcd");
     expect(pasted!.ops.some((op) => op.op === "content_edit")).toBe(true);
-  });
-
-  it("keeps legacy cross-block replacement on the flat document path", () => {
-    const makeRange = () => {
-      let state = moveCursorToPosition(
-        treeState("$$\nabc\n$$\n\noutside"),
-        1,
-        2,
-      );
-      const outsideIndex = state.document.page.blocks.findIndex(
-        (candidate) =>
-          "charRuns" in candidate &&
-          getVisibleTextFromRuns(candidate.charRuns) === "outside",
-      );
-      state = updateSelection(state, {
-        anchor: { blockIndex: 0, textIndex: 2 },
-        focus: { blockIndex: outsideIndex, textIndex: 2 },
-      });
-      return state;
-    };
-
-    for (const [mutate, expected] of [
-      [
-        (state: EditorState) =>
-          state.actionBus.dispatchState(DELETE_BACKWARD, state),
-        "$$\nabtside\n$$",
-      ],
-      [
-        (state: EditorState) =>
-          state.actionBus.dispatchState(DELETE_FORWARD, state),
-        "$$\nabtside\n$$",
-      ],
-      [(state: EditorState) => insertText(state, "X"), "$$\nabXtside\n$$"],
-    ] as const) {
-      const before = makeRange();
-      const result = mutate(before);
-      expect(result.ops.length).toBeGreaterThan(0);
-      expect(
-        serializeToMarkdown(result.state.document.page.blocks, undefined, {
-          schema: result.state.schema,
-        }),
-      ).toBe(expected);
-      expect(getMathStructuredDocument(block(result.state))).toBeUndefined();
-    }
   });
 
   it("deletes an authoritative tree atomically in a cross-block range", () => {
@@ -1431,48 +1208,28 @@ describe("tree-backed display math state integration", () => {
     }
   });
 
-  it("keeps word deletion on the tree authority boundary", () => {
+  it("keeps word deletion unit-wise inside the tree", () => {
+    // A "word" never crosses a construct or the equation edge; the caret's
+    // neighbouring unit is the largest safe target.
     for (const [action, offset, expected] of [
       [DELETE_WORD_BACKWARD, 3, "ab"],
       [DELETE_WORD_FORWARD, 0, "bc"],
     ] as const) {
-      const before = moveCursorToPosition(treeState("$$\nabc\n$$"), 0, offset);
+      const before = placeTreeCaret(treeState("$$\nabc\n$$"), offset);
       const result = before.actionBus.dispatchState(action, before);
 
       expect(result.claimed).toBe(true);
-      expect(operationKinds(result.ops)).toEqual([
-        "content:document_init",
-        "text_delete",
-        "content:text_delete",
-      ]);
-      expect(legacySource(result.state)).toBe("");
+      expect(operationKinds(result.ops)).toEqual(["content:text_delete"]);
       expect(treeSource(result.state)).toBe(expected);
     }
   });
 
-  it("commits migration when deletion has no structural target", () => {
-    const before = moveCursorToPosition(treeState("$$\nabc\n$$"), 0, 0);
-    const result = before.actionBus.dispatchState(DELETE_BACKWARD, before);
-
-    expect(result.claimed).toBe(true);
-    expect(operationKinds(result.ops)).toEqual([
-      "content:document_init",
-      "text_delete",
-    ]);
-    expect(legacySource(result.state)).toBe("");
-    expect(treeSource(result.state)).toBe("abc");
-    expect(contentTextOffset(result.state)).toBe(0);
-  });
-
   it("resizes a structured matrix through the public action and undoes it", () => {
     const latex = String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
-    let before = moveCursorToPosition(
+    const before = placeTreeCaret(
       treeState(`$$\n${latex}\n$$`),
-      latex.indexOf("a&b"),
-      latex.indexOf("a&b"),
+      latex.indexOf("a&b") + 1,
     );
-    before = insertText(before, "").state;
-    expect(getMathStructuredDocument(block(before))).toBeDefined();
 
     const grown = before.actionBus.dispatchState(RESIZE_MATH_MATRIX, before, {
       rows: 3,
@@ -1886,9 +1643,8 @@ describe("tree-backed display math state integration", () => {
 
   it("types and arrow-navigates between matrix cells without editing LaTeX syntax", () => {
     const latex = String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
-    let state = moveCursorToPosition(
+    let state = placeTreeCaret(
       treeState(`$$\n${latex}\n$$`),
-      0,
       latex.indexOf("a&b") + 1,
     );
 
@@ -1974,22 +1730,6 @@ describe("tree-backed display math state integration", () => {
     expect(secondStop?.x).toBeGreaterThan(firstStop?.x ?? 0);
   });
 
-  it("ArrowRight advances through a newly loaded legacy matrix", () => {
-    const latex = String.raw`\frac{a}{b}\begin{pmatrix}&{}\\{}&{}\end{pmatrix}`;
-    let state = moveCursorToPosition(
-      treeState(`$$\n${latex}\n$$`),
-      0,
-      String.raw`\frac{a}{b}`.length,
-    );
-    state = { ...state, view: { ...state.view, isFocused: true } };
-
-    const first = handleKeyDown(state, viewport, keydown("ArrowRight")).state;
-    const second = handleKeyDown(first, viewport, keydown("ArrowRight")).state;
-
-    expect(first.document.cursor?.position.textIndex).toBe(26);
-    expect(second.document.cursor?.position.textIndex).toBe(28);
-  });
-
   it("ArrowUp exits the top of a structured display equation", () => {
     let state = typeText(treeState("$$\n\n$$"), "x").state;
     state = { ...state, view: { ...state.view, isFocused: true } };
@@ -2041,9 +1781,8 @@ describe("tree-backed display math state integration", () => {
 
   it("keeps a display matrix structured while a backslash is pending in a cell", () => {
     const latex = String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
-    const entered = moveCursorToPosition(
+    const entered = placeTreeCaret(
       treeState(`$$\n${latex}\n$$`),
-      0,
       latex.indexOf("a&b") + 1,
     );
 
@@ -2064,14 +1803,12 @@ describe("tree-backed display math state integration", () => {
 
   it("stores two typed backslashes as a symbol node inside the current matrix-cell node", () => {
     const latex = String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
-    let state = moveCursorToPosition(
+    let state = placeTreeCaret(
       treeState(`$$\n${latex}\n$$`),
-      0,
       latex.indexOf("a&b") + 1,
     );
-    // The first edit performs the lazy legacy-source -> structured-tree
-    // migration. Capture the identity-bearing cells after that boundary, then
-    // verify the second backslash only inserts a child within the active cell.
+    // Capture the identity-bearing cells after the first backslash commits,
+    // then verify the second only inserts a child within the active cell.
     state = insertText(state, "\\").state;
     const beforeDocument = getMathStructuredDocument(block(state));
     const beforeMath = beforeDocument
@@ -2109,18 +1846,16 @@ describe("tree-backed display math state integration", () => {
 
   it("converges when peer matrix resize batches arrive in opposite orders", () => {
     const latex = String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`;
-    let legacy = moveCursorToPosition(
+    const seeded = placeTreeCaret(
       treeState(
         `$$\n${latex}\n$$`,
         createCRDTbinding("matrix-resize-convergence", "seed"),
       ),
-      0,
-      latex.indexOf("a&b"),
+      latex.indexOf("a&b") + 1,
     );
-    legacy = insertText(legacy, "").state;
-    const selection = legacy.document.contentSelection;
-    if (!selection) throw new Error("expected a migrated matrix selection");
-    const basePage = legacy.document.page;
+    const selection = seeded.document.contentSelection;
+    if (!selection) throw new Error("expected a matrix cell selection");
+    const basePage = seeded.document.page;
 
     const peerState = (peerId: string): EditorState =>
       updateContentSelection(
@@ -2293,7 +2028,7 @@ describe("tree-backed display math state integration", () => {
   });
 
   it("continues horizontal navigation into adjacent document blocks", () => {
-    let state = typeText(treeState("$$\nx\n$$"), "y").state;
+    let state = placeTreeCaret(treeState("$$\nxy\n$$"), 2);
     const surrounding = loadPage("before\n\nafter", treeMathSchema.data);
     const before = { ...surrounding.blocks[0], id: "nav-before" };
     const after = { ...surrounding.blocks[1], id: "nav-after" };
@@ -2319,7 +2054,7 @@ describe("tree-backed display math state integration", () => {
     let leftState = state;
     for (
       let step = 0;
-      step < 3 && leftState.document.contentSelection;
+      step < 4 && leftState.document.contentSelection;
       step++
     ) {
       leftState = leftState.actionBus.dispatchState(
@@ -2335,7 +2070,7 @@ describe("tree-backed display math state integration", () => {
   });
 
   it("creates an outside caret stop at a terminal display-math edge", () => {
-    const state = typeText(treeState("$$\nx\n$$"), "y").state;
+    const state = placeTreeCaret(treeState("$$\nxy\n$$"), 2);
     const right = state.actionBus.dispatchState(MOVE_CURSOR_RIGHT, state);
 
     expect(right.claimed).toBe(true);
@@ -2361,36 +2096,7 @@ describe("tree-backed display math state integration", () => {
     expect(next.state.document.cursor?.position.blockIndex).toBe(1);
   });
 
-  it("undoes the first user edit while keeping tree initialization monotonic", () => {
-    let before = treeState("$$\nab\n$$");
-    before = placeAtLegacyEnd(before);
-    const typed = insertText(before, "c");
-    const recorded = recordUndoOps(
-      before,
-      typed.state,
-      typed.ops,
-      before.CRDTbinding.getPeerId(),
-    );
-
-    const undone = undoState(recorded).state;
-    expect(getMathStructuredDocument(block(undone))).toBeDefined();
-    expect(treeSource(undone)).toBe("ab");
-    expect(legacySource(undone)).toBe("ab");
-    expect(undone.document.contentSelection).toBeNull();
-    expect(undone.document.cursor?.position).toEqual({
-      blockIndex: 0,
-      textIndex: 2,
-    });
-
-    const redone = redoState(undone).state;
-    expect(legacySource(redone)).toBe("");
-    expect(treeSource(redone)).toBe("abc");
-    expect(redone.document.cursor).toBeNull();
-    expect(redone.document.contentSelection?.focus.kind).toBe("text");
-    expect(contentTextOffset(redone)).toBe(3);
-  });
-
-  it("converges when two peers lazily migrate and edit the same equation", () => {
+  it("converges when two peers edit the same imported equation concurrently", () => {
     const pageId = "math-tree-convergence";
     const seed = createCRDTbinding(pageId, "seed");
     const initial = loadPage("$$\nab\n$$", treeMathSchema.data);
@@ -2409,12 +2115,21 @@ describe("tree-backed display math state integration", () => {
     engineA.loadOperations(baseOps);
     engineB.loadOperations(baseOps);
 
+    // Editor states over clones: mounting a state annotates blocks in place
+    // (layout caches), and the engines' snapshots must stay pristine so the
+    // final comparison sees only CRDT-derived data.
     const editA = insertText(
-      placeAtLegacyEnd(stateFromPage(engineA.getState(), bindingA)),
+      placeTreeCaret(
+        stateFromPage(structuredClone(engineA.getState()), bindingA),
+        2,
+      ),
       "c",
     );
     const editB = insertText(
-      placeAtLegacyEnd(stateFromPage(engineB.getState(), bindingB)),
+      placeTreeCaret(
+        stateFromPage(structuredClone(engineB.getState()), bindingB),
+        2,
+      ),
       "d",
     );
     engineA.emit(editA.ops);

@@ -126,8 +126,9 @@ const mathSchema = baseSchema.use(mathExtension());
 ```
 
 Display and inline editing both use structured `MathDocument` operations.
-Existing flat LaTeX is migrated lazily on first edit; compatibility characters
-are retained only where needed for import and interchange.
+Every creation path — markdown import, the `$…$`/`$$` input rules, wrapping a
+selection, block conversion — creates the structured document immediately; the
+tree is the only source of a formula's content.
 
 ```ts
 import {
@@ -152,13 +153,16 @@ const output = serializeToMarkdown(page.blocks, undefined, {
 Without `mathExtension`, dollar-delimited input remains literal text: the
 parser preserves both `$...$` and `$$...$$` source instead of silently
 interpreting or discarding it. That lets a math-free client retain content from
-a newer or differently configured peer until the feature is installed.
-Imported legacy documents may store LaTeX in the ordinary text CRDT. Once
-edited, a `MathDocument` is authoritative and LaTeX is derived for rendering
-and interchange.
+a newer or differently configured peer until the feature is installed. In a
+math-enabled document an inline equation stores no LaTeX in block characters
+at all: the mark anchors on a single object-replacement placeholder character
+(U+FFFC) and its content lives wholly in the referenced `MathDocument`
+attachment. A display block's flat text is empty; its content is the
+block-authority document. A host without the math feature renders the
+placeholder glyph.
 The feature also exposes `MathDocument`,
 `mathDocumentToStructured`, `structuredToMathDocument`, and
-`parseLegacyMathDocumentInit`; editor core supplies the generic `content_edit`
+`parseMathDocumentInit`; editor core supplies the generic `content_edit`
 tree/text CRDT those adapters target. Tree-backed display math owns its block;
 tree-backed inline math is a supplemental attachment referenced by the covering
 mark. Neither path dual-writes a second editable LaTeX representation.
@@ -395,7 +399,7 @@ Declares a custom inline mark. With no config it registers a replicated, togglab
     {
       name: "structured",
       type: "StructuredMarkFacet",
-      desc: "Structured-content behavior of this mark type — attachment initialization (create), canonical-source resolution (resolve), and clone rewrites (clone) — dispatched by the declared mark type.",
+      desc: "Structured-content behavior of this mark type — eager attachment initialization (create), canonical-source resolution from the attachment (resolve), attachment references for lifecycle cleanup (references), and clone rewrites (clone). A structured mark anchors on one placeholder character; its attachment is the only content authority.",
     },
     {
       name: "attrs",

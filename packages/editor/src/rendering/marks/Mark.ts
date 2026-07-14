@@ -323,49 +323,7 @@ export interface MarkReplacement {
     end: number,
     edit?: MarkReplacementEdit,
   ): MarkReplacementSelectionRect[];
-  /**
-   * The word/token sub-range `[start, end)` a double-click / double-tap at
-   * run-local source `offset` selects — the replacement's own notion of "the thing
-   * under the caret". Inline math returns the whole construct the offset sits in (a
-   * script `x^{2}`, a `\frac`, a `\sqrt{…}`), so a double-tap grabs that construct
-   * rather than the entire chip. Return `null` (or omit) to fall back to selecting
-   * the whole run. Offsets are run-local (a chip's visible chars ARE its LaTeX).
-   */
-  wordRangeAt?(
-    text: string,
-    offset: number,
-  ): { start: number; end: number } | null;
-  /**
-   * The double-click / double-tap sub-range `[start, end)`, resolved from a POINT
-   * (`localX` from the run's left edge, `localY` from the text baseline, +y down)
-   * rather than a source offset — the point-based counterpart to
-   * {@link wordRangeAt}. This is what makes an ATOMIC replacement selectable: an
-   * inline-math command like `\det` has caret stops only at its edges, so a tap
-   * resolves to a run boundary and the offset path can't see it, but the glyphs
-   * carry the command's span, so the point lands inside. Return `null` to let the
-   * caller fall back to the offset path. Offsets in the returned range are
-   * run-local.
-   */
-  wordRangeFromPoint?(
-    text: string,
-    fontSize: number,
-    localX: number,
-    localY: number,
-    edit?: MarkReplacementEdit,
-  ): { start: number; end: number } | null;
-  /**
-   * Offsets *within* `text` where the run may be line-broken when it is too wide
-   * to fit — letting the line-wrapper flow a long run across several lines instead
-   * of treating it as one unbreakable advance. Each offset splits the run into
-   * pieces that each render standalone via {@link paint} (the wrapper slices the
-   * run's chars at these points and renders each line's slice on its own). Return
-   * `[]` (or omit the method) to keep the run atomic — it then wraps only as a
-   * whole unit and overflows if it cannot fit. For inline math these are the
-   * formula's top-level operator/relation breaks.
-   */
-  breakpoints?(text: string, fontSize: number): number[];
 }
-
 /**
  * Everything a mark needs to declare its host-overlay slots — the inline
  * analogue of `NodeRegionCtx`, minus the per-block geometry. A mark isn't tied

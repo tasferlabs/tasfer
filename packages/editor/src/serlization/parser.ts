@@ -10,9 +10,14 @@
  */
 
 import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
+import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import { generateNKeysBetween } from "../sync/fractional-index";
 import { extractCounter, extractPeerId } from "../sync/id";
 import type { DataSchema } from "../sync/schema";
+import type {
+  StructuredContentMap,
+  StructuredDocument,
+} from "../sync/structured-content";
 import type { InputCtx, ParsedTag } from "./codecs";
 import type { Block, Char, CharRun, Mark, MarkSpan, Page } from "./loadPage";
 import { markKey } from "./loadPage";
@@ -123,6 +128,66 @@ function charsToRuns(chars: Char[]): CharRun[] {
   return runs;
 }
 
+/**
+ * Replace every parsed structured-mark span (e.g. an inline `$…$` equation)
+ * with its eager attachment: the covered source text becomes the mark's
+ * structured document and the flat chars collapse to one anchor placeholder.
+ * Dispatch is schema-driven (`MarkSpec.structured`), so the parser stays
+ * mark-agnostic. Identities share the parser's `init:` counter domain; the
+ * import path re-addresses them when the blocks become CRDT ops.
+ */
+function attachStructuredMarks(
+  context: ParserContext,
+  chars: Char[],
+  formats: MarkSpan[],
+): StructuredContentMap | undefined {
+  let structuredContent: Record<string, StructuredDocument> | undefined;
+  const identities = { nextId: () => generateCharId(context) };
+  for (let index = 0; index < formats.length; index++) {
+    const span = formats[index];
+    if (context.schema.structuredMark(span.format.type) === undefined) {
+      continue;
+    }
+    const startIdx = chars.findIndex((c) => c.id === span.startCharId);
+    const endIdx = chars.findIndex((c) => c.id === span.endCharId);
+    if (startIdx < 0 || endIdx < startIdx) continue;
+    const text = chars
+      .slice(startIdx, endIdx + 1)
+      .map((c) => c.char)
+      .join("");
+    const created = context.schema.createStructuredMark(span.format.type, {
+      mark: span.format,
+      text,
+      identities,
+    });
+    if (!created) continue;
+    const documents: Array<readonly [string, StructuredDocument]> = [];
+    for (const attachment of created.attachments) {
+      if (attachment.edit.kind === "document_init") {
+        documents.push([attachment.contentId, attachment.edit.document]);
+      }
+    }
+    if (documents.length !== created.attachments.length) continue;
+    const anchorId = generateCharId(context);
+    chars.splice(startIdx, endIdx - startIdx + 1, {
+      id: anchorId,
+      char: STRUCTURED_MARK_ANCHOR_CHAR,
+      deleted: false,
+    });
+    formats[index] = {
+      startCharId: anchorId,
+      endCharId: anchorId,
+      format: created.mark,
+      clock: span.clock,
+    };
+    structuredContent ??= {};
+    for (const [contentId, document] of documents) {
+      structuredContent[contentId] = document;
+    }
+  }
+  return structuredContent;
+}
+
 function generateEmptyTree(): Page {
   return {
     id: "default-page",
@@ -177,7 +242,12 @@ function makeInputCtx(context: ParserContext, indent: number): InputCtx {
     nextBlockId: () => `block-${context.blockIdCounter++}`,
     inlineText: () => {
       const { chars, formats } = parseCharsAndFormats(context);
-      return { charRuns: charsToRuns(chars), formats };
+      const structuredContent = attachStructuredMarks(context, chars, formats);
+      return {
+        charRuns: charsToRuns(chars),
+        formats,
+        ...(structuredContent ? { structuredContent } : {}),
+      };
     },
     rawText: (text: string) => {
       const chars: Char[] = [];

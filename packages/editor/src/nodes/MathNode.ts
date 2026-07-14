@@ -51,9 +51,9 @@ import {
   SELECT_WORD_AT_POINT,
 } from "../actions/mouse-actions";
 import { POINTER_MOVE } from "../actions/pointer-actions";
-import { rangeIntersectsStructuredMark } from "../actions/structured-marks";
 import { TAP_SELECT_LINE, TAP_SELECT_WORD } from "../actions/touch-actions";
 import { BLOCK_DRAG_HANDLE_ANCHOR_HEIGHT } from "../constants";
+import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import { measureCtxText } from "../fonts";
 import { getInlineMathAtPosition } from "../inline-math";
 import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "../math/actions";
@@ -65,7 +65,7 @@ import {
   getMathStructuredDocument,
   getStructuredMathSource,
   mathContentIdForBlock,
-  parseLegacyMathDocumentInit,
+  parseMathDocumentInit,
 } from "../math/structured";
 import {
   contentPointToMathDocumentPosition,
@@ -97,7 +97,6 @@ import {
   rangeDecorationToSelection,
 } from "../rendering/decorations";
 import type { MarkRegistry } from "../rendering/marks";
-import type { CaretModel } from "../rendering/nodes/caret-model";
 import type {
   BlockRuntimeState,
   NodeContentHitCtx,
@@ -164,15 +163,11 @@ import {
   type StructuredDocument,
 } from "../sync/structured-content";
 import {
-  mathAbsorbNumericPunctuationAfterInput,
   mathArmScratch,
-  mathCaretMove,
   mathCommandRanges,
   mathHealAfterInput,
-  mathJoinAtEdgeAfterInput,
   mathMaterializeAfterInput,
   mathRedundantSeparatorAfterInput,
-  mathSelectionRange,
   mathUnitAt,
 } from "./math";
 // Host-wired layout so `\text{…}` CJK/unsupported glyphs typeset (see tex-host).
@@ -290,23 +285,6 @@ function sourceChars(source: string): Char[] {
   return chars;
 }
 
-/**
- * Legacy source-offset helpers may still answer a click before it is promoted
- * to a stable nested selection. Feed them a derived, in-memory source view;
- * tree edits never write this projection back to the block.
- */
-function mathSourceView(block: MathBlock): MathBlock {
-  const structured = getStructuredMathSource(block);
-  return structured === undefined
-    ? block
-    : {
-        ...block,
-        charRuns: structured
-          ? [{ peerId: "math-tree-layout", startCounter: 0, text: structured }]
-          : [],
-        formats: [],
-      };
-}
 
 function mathBlockSource(block: MathBlock): string {
   return (
@@ -486,9 +464,8 @@ function demoteActiveStructuredMathBlock(
   ops.push(removeAuthority);
   page = applyOps(page, [removeAuthority], state.schema);
 
-  // A lazily-migrated tree may still carry compatibility characters. They are
-  // only a projection and can be stale. Reusing them and then inserting the
-  // canonical source produced a short marked copy followed by raw LaTeX.
+  // A display block's flat text is empty by construction; clear any stray
+  // chars defensively before morphing.
   const compatibilityLength = getVisibleTextFromRuns(block.charRuns).length;
   if (compatibilityLength > 0) {
     const deleted = deleteCharsInRange(
@@ -527,7 +504,7 @@ function demoteActiveStructuredMathBlock(
       page,
       block.id,
       0,
-      source,
+      STRUCTURED_MARK_ANCHOR_CHAR,
       state.CRDTbinding,
     );
     page = inserted.newPage;
@@ -536,7 +513,7 @@ function demoteActiveStructuredMathBlock(
       page,
       block.id,
       0,
-      source.length,
+      1,
       { type: "math", attrs: { contentId: supplemental.contentId } },
       true,
       state.CRDTbinding,
@@ -580,45 +557,35 @@ function promoteInlineMathChipBlock(
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted || !isTextualBlock(block)) return undefined;
   const runs = resolveStructuredInlineMathRuns(block);
-  if (runs.length !== 1 || runs[0].attachmentConflict) return undefined;
+  if (runs.length !== 1) return undefined;
   const run = runs[0];
+  if (!run.document || !run.contentId || run.latex === undefined) {
+    return undefined;
+  }
   const visibleText = getVisibleTextFromRuns(block.charRuns);
   const outsideChip =
     visibleText.slice(0, run.startIndex) + visibleText.slice(run.endIndex);
   if (outsideChip.trim().length > 0) return undefined;
 
-  // `latex` is canonical: the attached tree's printed source when the chip has
-  // migrated, otherwise the chip's own characters. The flat chars of an
-  // attached chip are only a (possibly stale) compatibility projection.
+  // The attached tree's printed source — the chip's only content.
   const source = run.latex;
 
   // Build the display document before emitting any op, so a tree that cannot
-  // be re-addressed refuses cleanly. An attached chip is cloned — stamping
+  // be re-addressed refuses cleanly. The chip's tree is cloned — stamping
   // block authority routes the math clone adapter to this block's stable
-  // display root — while a legacy chip's source parses fresh, exactly like a
-  // display equation's lazy migration.
-  let display:
-    | { readonly contentId: string; readonly document: StructuredDocument }
-    | undefined;
-  if (run.document && run.contentId) {
-    const cloned = state.schema.cloneStructuredContent({
-      document: { ...run.document, authority: "block" },
-      sourceBlockId: block.id,
-      targetBlockId: block.id,
-      sourceContentId: run.contentId,
-      identities: state.CRDTbinding,
-    });
-    if (!cloned) return undefined;
-    display = cloned;
-  } else if (source.length > 0) {
-    display = {
-      contentId: mathContentIdForBlock(block.id),
-      document: parseLegacyMathDocumentInit(source, {
-        contentId: mathContentIdForBlock(block.id),
-        identityAllocator: state.CRDTbinding,
-      }).document,
-    };
-  }
+  // display root.
+  const cloned = state.schema.cloneStructuredContent({
+    document: { ...run.document, authority: "block" },
+    sourceBlockId: block.id,
+    targetBlockId: block.id,
+    sourceContentId: run.contentId,
+    identities: state.CRDTbinding,
+  });
+  if (!cloned) return undefined;
+  const display: {
+    readonly contentId: string;
+    readonly document: StructuredDocument;
+  } = cloned;
 
   const operationBase = () => ({
     id: state.CRDTbinding.nextId(),
@@ -643,9 +610,8 @@ function promoteInlineMathChipBlock(
     page = applyOps(page, [removeAttachment], state.schema);
   }
 
-  // The marked chars are only the chip's compatibility projection (plus any
-  // whitespace); a tree-backed display block keeps its flat text empty, so
-  // clear everything rather than promoting a stale copy to equation source.
+  // The flat text is only the chip's anchor char (plus any whitespace); a
+  // display block keeps its flat text empty, so clear everything.
   if (visibleText.length > 0) {
     const deleted = deleteCharsInRange(
       page,
@@ -697,6 +663,91 @@ function promoteInlineMathChipBlock(
         display.document,
         source.length,
       )
+    : null;
+  next = caret
+    ? updateContentSelection(next, caret)
+    : moveCursorToPosition(next, blockIndex, 0);
+  return { state: next, ops, handled: true };
+}
+
+/**
+ * Convert any textual, non-structured block into an EMPTY display equation.
+ *
+ * The generic to-atomic conversion clears the block's prose; this adds the
+ * eager empty authority document in the same transaction and drops the nested
+ * caret into the equation, so the new block is immediately editable.
+ */
+function convertBlockToEmptyMath(
+  state: EditorState,
+  blockIndex: number,
+  targetType: string,
+): { state: EditorState; ops: Operation[]; handled: true } | undefined {
+  if (targetType !== "math" || state.ui.composition) return undefined;
+  if (mathBlockAt(state, blockIndex)) return undefined;
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return undefined;
+  if (
+    block.structuredContent &&
+    Object.keys(block.structuredContent).length > 0
+  ) {
+    return undefined;
+  }
+
+  const operationBase = () => ({
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+  });
+  const ops: Operation[] = [];
+  let page = state.document.page;
+
+  const visibleLength = getVisibleTextFromRuns(block.charRuns).length;
+  if (visibleLength > 0) {
+    const deleted = deleteCharsInRange(
+      page,
+      block.id,
+      0,
+      visibleLength,
+      state.CRDTbinding,
+    );
+    ops.push(deleted.op);
+    page = deleted.newPage;
+  }
+
+  const setMath: Operation = {
+    op: "block_set",
+    ...operationBase(),
+    blockId: block.id,
+    field: "type",
+    value: "math",
+  };
+  ops.push(setMath);
+  page = applyOps(page, [setMath], state.schema);
+
+  const contentId = mathContentIdForBlock(block.id);
+  const attachRoot: Operation = {
+    op: "content_edit",
+    ...operationBase(),
+    blockId: block.id,
+    contentId,
+    edit: parseMathDocumentInit("", {
+      contentId,
+      identityAllocator: state.CRDTbinding,
+    }),
+  };
+  ops.push(attachRoot);
+  page = applyOps(page, [attachRoot], state.schema);
+
+  const converted = page.blocks[findBlockIndex(page, block.id)];
+  if (converted) invalidateBlockCache(converted);
+  let next: EditorState = {
+    ...state,
+    document: { ...state.document, page },
+  };
+  next = clearSelection(next);
+  const document = converted ? getMathStructuredDocument(converted) : undefined;
+  const caret = document
+    ? mathContentSelectionFromSourceOffset(block.id, contentId, document, 0)
     : null;
   next = caret
     ? updateContentSelection(next, caret)
@@ -1655,12 +1706,10 @@ export class MathNode extends TextNode<MathBlock> {
   // Backspace, Delete — is claimed by the tree input rules and action handlers
   // (lazily migrating a legacy block), so the model deliberately has no
   // `deleteUnit`/`transformInput`: flat editing of equation source is retired.
-  readonly caret: CaretModel<MathBlock> = {
-    move: (block, index, motion) =>
-      mathCaretMove(mathSourceView(block), index, motion),
-    selectionRange: (block, anchor, focus, focusEdge) =>
-      mathSelectionRange(mathSourceView(block), anchor, focus, focusEdge),
-  };
+  // No flat caret model: the block's flat text is empty, so there are no
+  // interior flat stops to resolve — a source-view answer here would be a
+  // LaTeX-source offset that generic callers misread as a flat text index.
+  // Equation navigation lives in the tree action handlers (nested selection).
 
   /**
    * Register the math node's pointer handler:
@@ -1685,12 +1734,16 @@ export class MathNode extends TextNode<MathBlock> {
       120,
     );
     // The demote's mirror: a "turn into math" conversion of a block whose only
-    // content is one inline chip. Core's conversion refuses blocks that own
-    // structured content and offers them through this seam instead.
+    // content is one inline chip. Core's conversion offers every to-math morph
+    // through this seam; a plain textual block converts to an EMPTY equation
+    // with its eager authority document (its prose is cleared, matching the
+    // generic to-atomic conversion), so a display block never exists without
+    // its tree.
     bus.registerState(
       CONVERT_STRUCTURED_BLOCK,
       (state, { blockIndex, type }) =>
-        promoteInlineMathChipBlock(state, blockIndex, type),
+        promoteInlineMathChipBlock(state, blockIndex, type) ??
+        convertBlockToEmptyMath(state, blockIndex, type),
       100,
     );
     // A selection covering the whole equation leaves nothing worth keeping —
@@ -1723,9 +1776,9 @@ export class MathNode extends TextNode<MathBlock> {
     bus.registerState(DELETE_FORWARD, deleteWholeEquationSelection, 110);
     bus.registerState(DELETE_WORD_BACKWARD, deleteWholeEquationSelection, 110);
     bus.registerState(DELETE_WORD_FORWARD, deleteWholeEquationSelection, 110);
-    // Structured display equations claim editing/navigation before the legacy
-    // LaTeX char-run handlers. All mutations are generic `content_edit` ops;
-    // inline MathMark remains on the compatibility path in this slice.
+    // Structured display equations claim editing/navigation here. All
+    // mutations are generic `content_edit` ops; inline MathMark registers its
+    // own handlers.
     bus.registerState(
       DELETE_BACKWARD,
       (state) => {
@@ -1738,9 +1791,8 @@ export class MathNode extends TextNode<MathBlock> {
       100,
     );
     // Word deletion has no structural definition yet. Route it through the
-    // same one-unit tree controller for now: this is conservative and, most
-    // importantly, can never fall through to slice a LaTeX command or brace in
-    // the compatibility source.
+    // same one-unit tree controller for now — conservative, and it can never
+    // fall through to a flat path that would slice a command or brace.
     bus.registerState(
       DELETE_WORD_BACKWARD,
       (state) => {
@@ -2318,65 +2370,8 @@ function normalizeMathInput(
   const ops: Operation[] = [];
   let caret = textIndex;
 
-  // A non-space char typed at a chip's outer edge counts as inside it: re-mark
-  // the chip to swallow the char so typing keeps extending the same formula
-  // (`\oint`+`x` first gets a separator so it stays `\oint x`, never `\ointx`,
-  // and a brace gets its escaping `\` so it joins as the literal `\{`). A
-  // space at an edge leaves the chip — it never reaches here as a join. This runs
-  // before materialize so a command completed at the edge (`\fra`+`c`) is joined
-  // first, then its `\frac{}{}` placeholder fills in as usual. The fallback
-  // covers the one-keystroke-later repair: a digit typed right after an edge
-  // `.`/`,` re-marks the chip to absorb both — the punctuation the edge join
-  // ejected as prose turned out to be part of a number (`$3$.` + `1` → `$3.1$`).
-  const proposedJoin =
-    mathJoinAtEdgeAfterInput(block, caret) ??
-    mathAbsorbNumericPunctuationAfterInput(block, caret);
-  // An attached mark's chars are only a compatibility projection. The legacy
-  // edge-join normalizer re-marks with `{ type: "math" }`, which would replace
-  // its persisted contentId and detach the canonical tree. Keep boundary input
-  // as adjacent prose; entering the mark routes edits through its tree instead.
-  const join =
-    proposedJoin &&
-    !rangeIntersectsStructuredMark(
-      block,
-      proposedJoin.from,
-      proposedJoin.to,
-      state.schema,
-      "math",
-    )
-      ? proposedJoin
-      : null;
-  if (join) {
-    let page = next.document.page;
-    let to = join.to;
-    if (join.insert) {
-      const ins = insertCharsAtPosition(
-        page,
-        block.id,
-        join.insert.at,
-        join.insert.text,
-        next.CRDTbinding,
-      );
-      page = ins.newPage;
-      ops.push(ins.op);
-      to += join.insert.text.length;
-      caret += join.insert.text.length;
-    }
-    const marked = markCharsInRange(
-      page,
-      block.id,
-      join.from,
-      to,
-      INLINE_MATH_MARK,
-      true,
-      next.CRDTbinding,
-    );
-    page = marked.newPage;
-    ops.push(marked.op);
-    invalidateBlockCache(page.blocks[blockIndex]);
-    next = { ...next, document: { ...next.document, page } };
-    next = moveCursorToPosition(next, blockIndex, caret, true);
-  }
+  // Typing at a chip's edge is claimed by the inline tree input rule (the
+  // keystroke enters the formula's tree), so no flat edge-join runs here.
 
   // Auto-heal brace corruption BEFORE materializing, so the materializer works on
   // healed source. Both directions of imbalance only ever come from pasted /

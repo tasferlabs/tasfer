@@ -15,7 +15,8 @@
  * in an oplog is an inert no-op, so it converges identically on every peer.
  */
 
-import type { Block, Operation } from "../../state-types";
+import type { Block } from "../../serlization/loadPage";
+import type { Operation } from "../../state-types";
 import { sortBlocksByOrder } from "../crdt-utils";
 import { applyOp, createEmptyPageState, getVisibleBlocks } from "../reducer";
 import { describe, expect, it } from "vitest";

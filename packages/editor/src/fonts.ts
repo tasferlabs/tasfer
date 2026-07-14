@@ -581,6 +581,7 @@ export function measureCRDTPositions(
   fonts: FontStyles,
   marks?: MarkRegistry,
   replCharWidths?: Map<number, number>,
+  attachments?: StructuredContentMap,
 ): number[] {
   const lineLength = endIndex - startIndex;
   const positions: number[] = new Array(lineLength + 1);
@@ -614,10 +615,10 @@ export function measureCRDTPositions(
       const s = visIdxOfId.get(f.startCharId);
       const e = visIdxOfId.get(f.endCharId);
       if (s === undefined || e === undefined) continue;
-      const dims = repl.measure(
-        visibleChars.slice(s, e + 1).join(""),
-        fontSize,
-      );
+      // Measure the run's canonical source (its anchor char carries none).
+      const raw = visibleChars.slice(s, e + 1).join("");
+      const text = repl.source?.(raw, { mark: f.format, attachments }) ?? raw;
+      const dims = repl.measure(text, fontSize);
       // A render error (dims undefined) makes the chip fall back to its plain
       // source width; NaN flags that so the batch takes the text path below.
       replSpans.push({ start: s, end: e, width: dims ? dims.width : NaN });
@@ -722,6 +723,7 @@ export function measureTextUpToIndex(
   // whole formula's), keeping the caret aligned with the reflowed paint. When
   // omitted, the legacy whole-chip atomic fixup below applies.
   replCharWidths?: Map<number, number>,
+  attachments?: StructuredContentMap,
 ): number {
   // Use batched measurement to preserve Arabic ligatures
   const batches = batchChars(chars, formats, startIndex, endIndex, marks);
@@ -777,14 +779,17 @@ export function measureTextUpToIndex(
     };
     const replSpans: ReplSpan[] = [];
     for (const f of formats) {
-      if (!marks?.get(f.format.type)?.replacement) continue;
+      const repl = marks?.get(f.format.type)?.replacement;
+      if (!repl) continue;
       const s = visIdxOfId.get(f.startCharId);
       const e = visIdxOfId.get(f.endCharId);
       if (s === undefined || e === undefined) continue;
+      // Resolve the run's canonical source (its anchor char carries none).
+      const raw = visibleChars.slice(s, e + 1).join("");
       replSpans.push({
         startVisIdx: s,
         endVisIdx: e,
-        text: visibleChars.slice(s, e + 1).join(""),
+        text: repl.source?.(raw, { mark: f.format, attachments }) ?? raw,
       });
     }
 
@@ -868,15 +873,6 @@ export function wrapText(
   _codePadding: number = 0,
   _compositionRange: { start: number; end: number } | null = null,
   marks?: MarkRegistry,
-  // Whether a replacement run (inline-math chip) may be SPLIT across lines at its
-  // internal break offsets. True in LTR text (the chip reflows at its operators).
-  // False in RTL: a formula is an atomic LTR box within the bidi line — the same
-  // model every mainstream system uses (browsers/KaTeX/MathJax keep inline math
-  // an atomic inline-block; bidi TeX places it as one LTR box) — because the
-  // RTL caret/selection/paint paths treat a chip atomically, so splitting it
-  // here would only diverge from them. An atomic chip still wraps as a WHOLE unit
-  // (moves to its own line; overflows/cuts if wider than the line).
-  allowReplacementBreaks: boolean = true,
   attachments?: StructuredContentMap,
 ): WrappedLine[] {
   // Get visible text
@@ -914,19 +910,12 @@ export function wrapText(
   };
 
   // Pre-compute replacement-span layout for wrapping. A replacement run (an
-  // inline-math chip) renders as glyphs, not its source characters, so wrapping
-  // must use its rendered width. A run MAY expose internal break offsets (math's
-  // top-level operators) so a too-wide run flows across lines instead of
-  // overflowing as one block: we split it into SEGMENTS at those offsets,
-  // attribute each segment's rendered width to the segment's first char (0 to the
-  // rest, so a wrap can only trigger at a segment start), and mark each interior
-  // segment start as a break opportunity. A run with no break offsets is one
-  // segment — the classic atomic chip. `chipChars` flags every char inside a run
-  // so the Latin space-backtrack never splits a run at a space in its SOURCE
-  // (e.g. `\sin x`), which would render an invalid slice.
+  // inline-math chip) renders as glyphs, not its anchor character, so wrapping
+  // must use its rendered width. A run is one atomic unit: it wraps only as a
+  // whole (moves to its own line; overflows if wider than the line). `chipChars`
+  // flags every char inside a run so the Latin space-backtrack never splits one.
   const segFirstWidth = new Map<number, number>();
   const chipTail = new Set<number>();
-  const segBreakBefore = new Set<number>();
   const chipChars = new Set<number>();
   // Resolve replacement runs through the SAME tolerant, ordinal-based resolver
   // the paint/caret path uses (`TextNode.replacementRuns`). A strict
@@ -951,55 +940,8 @@ export function wrapText(
     const dims = replacement.measure(text, fontSize);
     if (!dims) continue; // fall through to plain-text widths on render error
     for (let i = startVis; i <= endVis; i++) chipChars.add(i);
-
-    // Attached replacements may project a canonical source whose character
-    // count no longer matches the compatibility run. There is no generic,
-    // identity-safe mapping from compatibility offsets to that source, so keep
-    // this projection atomic. It can still wrap as a whole unit. Replacements
-    // whose canonical source matches their compatibility characters retain the
-    // existing internal-break behavior below.
-    if (text !== run.text) {
-      segFirstWidth.set(startVis, dims.width);
-      for (let v = startVis + 1; v <= endVis; v++) chipTail.add(v);
-      continue;
-    }
-
-    // Segment boundaries within the run: [0, ...interior breaks, length]. In RTL
-    // the chip stays atomic (no interior breaks), so it's one whole segment.
-    const rawBreaks = allowReplacementBreaks
-      ? (replacement.breakpoints?.(text, fontSize) ?? [])
-      : [];
-    const bounds = [
-      0,
-      ...rawBreaks
-        .filter((b) => b > 0 && b < text.length)
-        .sort((a, b) => a - b),
-      text.length,
-    ];
-    // Cumulative rendered width up to each boundary (measured WITH leading
-    // context, so a segment's leading inter-atom glue rides with it — a small,
-    // safe overestimate of a continuation line's true standalone width, so wrap
-    // never packs a line past the budget).
-    const cum = [0];
-    for (let k = 1; k < bounds.length; k++) {
-      const d =
-        bounds[k] === text.length
-          ? dims
-          : replacement.measure(text.slice(0, bounds[k]), fontSize);
-      cum.push(d ? d.width : cum[k - 1]);
-    }
-    for (let k = 0; k + 1 < bounds.length; k++) {
-      const segStartVis = startVis + bounds[k];
-      segFirstWidth.set(segStartVis, Math.max(0, cum[k + 1] - cum[k]));
-      if (k > 0) segBreakBefore.add(segStartVis); // interior break: may lead a line
-      for (
-        let v = startVis + bounds[k] + 1;
-        v < startVis + bounds[k + 1];
-        v++
-      ) {
-        chipTail.add(v);
-      }
-    }
+    segFirstWidth.set(startVis, dims.width);
+    for (let v = startVis + 1; v <= endVis; v++) chipTail.add(v);
   }
 
   const lines: WrappedLine[] = [];
@@ -1045,8 +987,6 @@ export function wrapText(
     }
     // A break may be taken before this char when it starts an interior segment of
     // a replacement run (math operator) — the run's source splits here.
-    const isSegBreak = segBreakBefore.has(visibleIndex);
-
     // Check if adding this character would exceed max width. A chip-interior char
     // (0 width) never triggers a wrap on its own: once a chip overflows, its tail
     // chars would otherwise re-trip this and carve the formula char by char — an
@@ -1058,15 +998,7 @@ export function wrapText(
       !isChipTail
     ) {
       // Line is full, need to wrap
-      if (isSegBreak) {
-        // Break before this math segment so it leads the continuation line; each
-        // line's chip slice renders standalone.
-        lines.push({ text: currentLine, consumedSpace: false });
-        currentLine = char;
-        currentLineWidth = charWidth;
-        lineCharWidths = [charWidth];
-        lineCharVis = [visibleIndex];
-      } else if (isCJK || isSpace || hasCJK) {
+      if (isCJK || isSpace || hasCJK) {
         // For CJK or spaces, break here
         lines.push({ text: currentLine, consumedSpace: isSpace });
         currentLine = isSpace ? "" : char;

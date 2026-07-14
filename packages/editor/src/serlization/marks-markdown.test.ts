@@ -21,7 +21,9 @@ describe("inline mark markdown round-trip", () => {
     ["emphasis", "Hello *italic* world."],
     ["strike", "Hello ~~struck~~ world."],
     ["code", "Run `npm test` now."],
-    ["inline math", "Euler: $e^{i\\pi}+1=0$ done."],
+    // Math prints the attachment's canonical source, so the fixture must
+    // already be canonical (`{e}^{…}`) to read as a fixed point.
+    ["inline math", "Euler: ${e}^{i\\pi}+1=0$ done."],
     ["link", "See [the docs](https://example.com) here."],
   ])("round-trips %s", (_name, md) => {
     expect(roundTrip(md)).toBe(md);

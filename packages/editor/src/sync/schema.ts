@@ -138,6 +138,8 @@ export interface StructuredKindSpec {
   readonly resolveSelection?: ContentSelectionResolver;
   /** Re-addressing adapter for snapshot/import clones of this kind. */
   readonly clone?: StructuredContentClone;
+  /** Canonical source text of one of this kind's documents (math's LaTeX). */
+  readonly source?: (document: StructuredDocument) => string | undefined;
 }
 
 /** The merged per-kind adapters derived by the schema constructor. */
@@ -145,6 +147,7 @@ export interface StructuredKindAdapters {
   contentSelection?: ContentSelectionSerializer;
   resolveSelection?: ContentSelectionResolver;
   clone?: StructuredContentClone;
+  source?: (document: StructuredDocument) => string | undefined;
 }
 
 /**
@@ -374,6 +377,14 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
           entry.kind,
         );
         merged.clone = entry.clone;
+      }
+      if (entry.source) {
+        invariant(
+          !merged.source,
+          'Structured kind "%s" registers two source adapters. Each kind has exactly one; entries for a kind may only contribute disjoint adapters.',
+          entry.kind,
+        );
+        merged.source = entry.source;
       }
       // Frozen: `structuredKind()` hands this record out, and a later entry
       // for the same kind merges via copy — nothing may mutate a shared one.
@@ -611,6 +622,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     ctx: StructuredContentCloneCtx,
   ): StructuredContentCloneResult | undefined {
     return this.kinds.get(ctx.document.kind)?.clone?.(ctx);
+  }
+
+  /** Canonical source text of one structured document, via its kind adapter. */
+  structuredContentSource(document: StructuredDocument): string | undefined {
+    return this.kinds.get(document.kind)?.source?.(document);
   }
 
   // ── Capability queries (sourced from the per-type descriptor) ──────────────

@@ -122,7 +122,7 @@ function paintFirstBlock(state: EditorState) {
 function blockEquation(latex: string) {
   const binding = createCRDTbinding("remote-sel", "peer-1");
   const engine = createMathTestSyncEngine(binding);
-  const blockOp = engine.createBlockInsert(null, "math", { displayMode: true });
+  const blockOp = engine.createBlockInsert("a0", "math", { displayMode: true });
   engine.emit([blockOp]);
   const page = insertCharsAtPosition(
     engine.getState(),

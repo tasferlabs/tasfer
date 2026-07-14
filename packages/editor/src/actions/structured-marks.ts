@@ -1,5 +1,6 @@
 /** Generic authoring seam for marks that own structured attachments. */
 
+import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import { resolveMarkRuns } from "../inline-math-spans";
 import {
   moveCursorToPosition,
@@ -23,7 +24,11 @@ import {
 import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
-import { markCharsInRange } from "../sync/crdt-utils";
+import {
+  deleteCharsInRange,
+  insertCharsAtPosition,
+  markCharsInRange,
+} from "../sync/crdt-utils";
 import { applyOp } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
 import {
@@ -111,28 +116,20 @@ export function cloneStructuredBlockContent(
 }
 
 /**
- * Resolve attached inline marks without importing any concrete feature.
+ * Resolve structured inline marks without importing any concrete feature.
  *
- * A non-undefined source from the schema facet is the authority signal: the
- * covered block characters are only a compatibility projection and generic
- * flat mutations must not edit them independently.
+ * A mark whose spec registers a structured facet is the authority signal: the
+ * covered block character is only an anchor placeholder and generic flat
+ * mutations must not edit the run's content — even when the referenced
+ * attachment is broken (the run then renders a placeholder but stays atomic).
  */
 export function resolveStructuredMarkRanges(
   block: Block,
   schema: DataSchema,
 ): ResolvedStructuredMarkRange[] {
   if (!isTextualBlock(block)) return [];
-  const attachments = block.structuredContent;
-  return resolveMarkRuns(block).flatMap((run) => {
-    const source = schema.resolveStructuredMark(run.name, {
-      mark: {
-        type: run.name,
-        ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
-      },
-      compatibilityText: run.text,
-      attachments,
-    });
-    return source === undefined
+  return resolveMarkRuns(block).flatMap((run) =>
+    schema.structuredMark(run.name) === undefined
       ? []
       : [
           {
@@ -140,8 +137,8 @@ export function resolveStructuredMarkRanges(
             startIndex: run.startIndex,
             endIndex: run.endIndex,
           },
-        ];
-  });
+        ],
+  );
 }
 
 /**
@@ -165,7 +162,6 @@ export function structuredMarkContentIdsFrom(
         type: run.name,
         ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
       },
-      compatibilityText: run.text,
       attachments,
     })) {
       if (attachments[contentId]) ids.add(contentId);
@@ -334,35 +330,6 @@ export function expandSelectionAroundStructuredMarks(
 }
 
 /**
- * Whether an attached run's canonical source has outrun its flat compatibility
- * characters (tree edits deliberately leave them behind). Run-local flat
- * offsets then no longer index anything real, so callers must treat the run as
- * one atomic unit instead of resolving its interior. `false` for a run whose
- * mark resolves no structured source (a plain legacy run edits its chars
- * directly and can never diverge).
- */
-export function structuredMarkRunSourceDiverged(
-  block: Block,
-  run: {
-    readonly name: string;
-    readonly attrs: Record<string, unknown>;
-    readonly text: string;
-  },
-  schema: DataSchema,
-): boolean {
-  if (!isTextualBlock(block)) return false;
-  const source = schema.resolveStructuredMark(run.name, {
-    mark: {
-      type: run.name,
-      ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
-    },
-    compatibilityText: run.text,
-    attachments: block.structuredContent,
-  });
-  return source !== undefined && source !== run.text;
-}
-
-/**
  * The replacement-mark run whose structured attachment owns `point`, resolved
  * through the generic references facet (the core names no mark type). Returns
  * the run's flat projection bounds, or `null` when the point's block/content
@@ -383,7 +350,6 @@ export function structuredMarkRunForContentPoint(
         type: run.name,
         ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
       },
-      compatibilityText: run.text,
       attachments,
     });
     if (references.includes(point.contentId)) {
@@ -396,9 +362,8 @@ export function structuredMarkRunForContentPoint(
 /**
  * Degrade the active nested selection to a FLAT selection so a gesture can
  * continue into the host text — the text↔structured-mark crossing for drags
- * and Shift+Click. Interior nested stops don't map losslessly onto flat
- * offsets (an attached run's tree edits leave the compatibility projection
- * behind), so the mark is covered whole: the anchor lands on the run edge
+ * and Shift+Click. Interior nested stops have no flat counterpart (the run is
+ * a single anchor character), so the mark is covered whole: the anchor lands on the run edge
  * facing away from `target`, and the focus extends to `target` through the
  * ordinary construct-snapping path. Returns `null` when the nested selection
  * doesn't belong to an inline mark run (e.g. a block-level attachment).
@@ -491,14 +456,12 @@ export function structuredMarkAttachmentCleanupOps(
   const references = (run: {
     readonly name: string;
     readonly attrs: Record<string, unknown>;
-    readonly text: string;
   }): readonly string[] =>
     schema.structuredMarkReferences(run.name, {
       mark: {
         type: run.name,
         ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
       },
-      compatibilityText: run.text,
       attachments,
     });
 
@@ -541,14 +504,14 @@ function orderedPositions(
 /**
  * Create a genuinely new mark and any feature-owned attachments atomically.
  *
- * The core dispatches by schema facet and never imports the feature. Callers
- * must use this only at a new-mark boundary; extending/reapplying an existing
- * mark must preserve that mark's persisted attrs instead of allocating another
- * attachment. A caller that activates this seam must also route every later
- * edit/delete for the mark to its structured document (or keep the mark atomic
- * and read-only). Generic flat-character editing intentionally does not invoke
- * this helper: attaching a tree and then editing only its compatibility source
- * would make rendering/export silently stale.
+ * The core dispatches by schema facet and never imports the feature. For a
+ * structured mark the covered text becomes the new attachment's source and
+ * the flat range is REPLACED by one {@link STRUCTURED_MARK_ANCHOR_CHAR}
+ * carrying the mark — the attachment is the only content authority, so no
+ * source text remains in block characters. A mark type without a structured
+ * facet keeps plain char marking. Callers must use this only at a new-mark
+ * boundary; extending/reapplying an existing mark must preserve that mark's
+ * persisted attrs instead of allocating another attachment.
  */
 export function createFeatureMarkInRange(
   page: Page,
@@ -620,20 +583,53 @@ export function createFeatureMarkInRange(
     ops.push(op);
   }
 
-  const marked = markCharsInRange(
+  if (!created) {
+    const marked = markCharsInRange(
+      nextPage,
+      blockId,
+      startIndex,
+      endIndex,
+      requested,
+      true,
+      binding,
+    );
+    nextPage = marked.newPage;
+    ops.push(marked.op);
+    return { newPage: nextPage, ops, format: requested };
+  }
+
+  // Replace the captured range with the mark's single anchor char. The anchor
+  // is inserted AFTER the range before the range is deleted, so it can never
+  // be adopted between a neighbouring span's boundary identities once the old
+  // chars become tombstones (the same CRDT footing block splits use).
+  const inserted = insertCharsAtPosition(
+    nextPage,
+    blockId,
+    endIndex,
+    STRUCTURED_MARK_ANCHOR_CHAR,
+    binding,
+  );
+  nextPage = inserted.newPage;
+  ops.push(inserted.op);
+  const removed = deleteCharsInRange(
     nextPage,
     blockId,
     startIndex,
     endIndex,
-    created?.mark ?? requested,
+    binding,
+  );
+  nextPage = removed.newPage;
+  ops.push(removed.op);
+  const marked = markCharsInRange(
+    nextPage,
+    blockId,
+    startIndex,
+    startIndex + 1,
+    created.mark,
     true,
     binding,
   );
   nextPage = marked.newPage;
   ops.push(marked.op);
-  return {
-    newPage: nextPage,
-    ops,
-    format: created?.mark ?? requested,
-  };
+  return { newPage: nextPage, ops, format: created.mark };
 }

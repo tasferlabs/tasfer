@@ -113,9 +113,24 @@ function invertContentEdit(
     op.contentId
   ];
   if (op.edit.kind === "document_init") {
-    // Initialization is add-only CRDT infrastructure. Deleting it during undo
-    // could erase a concurrent edit that has not arrived (or sorts later).
-    return [];
+    // Attachments are created eagerly by exactly one peer, so undoing the
+    // creating transaction removes the document it minted — matching the
+    // mark-dissolution GC, which deletes attachments the same way. An init
+    // that lost the first-writer race (the document already existed before
+    // this op) created nothing and inverts to nothing.
+    return document
+      ? []
+      : [
+          {
+            op: "content_edit",
+            id: binding.nextId(),
+            clock: binding.getClock(),
+            pageId: op.pageId,
+            blockId: op.blockId,
+            contentId: op.contentId,
+            edit: { kind: "document_delete" },
+          },
+        ];
   }
   if (op.edit.kind === "document_delete") {
     return document

@@ -11,7 +11,8 @@
 import { AtomicNode } from "./rendering/nodes/AtomicNode";
 import type { NodeRegionCtx } from "./rendering/nodes/Node";
 import { baseSchema } from "./schema";
-import type { Block, BlockBounds, NodeOverlay } from "./state-types";
+import type { Block } from "./serlization/loadPage";
+import type { BlockBounds, NodeOverlay } from "./state-types";
 import { describe, expect, it } from "vitest";
 
 /** A custom leaf node authored as a class — the ergonomic the user asked for. */
@@ -46,7 +47,7 @@ describe("class-first node registration", () => {
   const schema = baseSchema.extend({ nodes: [new CalloutNode()] });
 
   it("recognizes the custom type in the data schema, with attr defaults", () => {
-    const block = schema.data.createDefaultBlock("callout", "b1", null);
+    const block = schema.data.createDefaultBlock("callout", "b1", "a0");
     expect(block).toBeDefined();
     expect(block!.type).toBe("callout");
     // The default from `static nodeConfig.attrs.tone` was applied.
@@ -68,7 +69,7 @@ describe("class-first node registration", () => {
 
   it("leaves baseSchema unmutated — extend() returns a new schema", () => {
     expect(
-      baseSchema.data.createDefaultBlock("callout", "x", null),
+      baseSchema.data.createDefaultBlock("callout", "x", "a0"),
     ).toBeUndefined();
     expect(baseSchema.nodes.some((n) => n.type === "callout")).toBe(false);
   });

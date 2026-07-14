@@ -543,6 +543,14 @@ describe("spec-carried facets", () => {
         ],
       }),
     ).toThrow(/two selection resolvers/);
+    const withSource = withResolver.extend({
+      structuredKinds: [{ kind: "diagram", source: () => undefined }],
+    });
+    expect(() =>
+      withSource.extend({
+        structuredKinds: [{ kind: "diagram", source: () => undefined }],
+      }),
+    ).toThrow(/two source adapters/);
     expect(() =>
       getBaseDataSchema().extend({
         structuredKinds: [{ kind: "", clone: () => undefined }],
@@ -642,12 +650,14 @@ describe("spec-carried facets", () => {
     expect(full.structuredMark("math")).toBeDefined();
 
     // The clipboard selection serializer is interactive-only: the worker-safe
-    // data extension registers the kind's clone adapter, the full extension
-    // additionally installs the selection serializer.
+    // data extension registers the kind's clone and source adapters, the full
+    // extension additionally installs the selection serializer/resolver.
     expect(data.structuredKind("math")?.clone).toBeDefined();
+    expect(data.structuredKind("math")?.source).toBeDefined();
     expect(data.structuredKind("math")?.contentSelection).toBeUndefined();
     expect(data.structuredKind("math")?.resolveSelection).toBeUndefined();
     expect(full.structuredKind("math")?.clone).toBeDefined();
+    expect(full.structuredKind("math")?.source).toBeDefined();
     expect(full.structuredKind("math")?.contentSelection).toBeDefined();
     expect(full.structuredKind("math")?.resolveSelection).toBeDefined();
     const document = {
@@ -663,8 +673,14 @@ describe("spec-carried facets", () => {
 
     // The full schema installs math's live input rules; the data schema none.
     expect(data.inputRules("before-insert")).toEqual([]);
-    expect(full.inputRules("before-insert").map((rule) => rule.id)).toContain(
-      "math.tree.migrate",
-    );
+    expect(data.inputRules("after-insert")).toEqual([]);
+    expect(full.inputRules("before-insert").map((rule) => rule.id)).toEqual([
+      "math.inline-tree.input",
+      "math.tree.input",
+    ]);
+    expect(full.inputRules("after-insert").map((rule) => rule.id)).toEqual([
+      "math.input.display-dollar-pair",
+      "math.input.inline-dollar-pair",
+    ]);
   });
 });

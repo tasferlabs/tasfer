@@ -382,24 +382,26 @@ export class ListNode extends TextNode {
       },
       input: (ctx) => {
         if (ctx.match(BULLET_LIST)) {
-          const { charRuns, formats } = ctx.inlineText();
+          const { charRuns, formats, structuredContent } = ctx.inlineText();
           const item: BulletListItem = {
             id: ctx.nextBlockId(),
             type: "bullet_list",
             charRuns,
             formats,
+            ...(structuredContent ? { structuredContent } : {}),
             indent: ctx.indent,
           };
           return item;
         }
 
         if (ctx.match(NUMBERED_LIST)) {
-          const { charRuns, formats } = ctx.inlineText();
+          const { charRuns, formats, structuredContent } = ctx.inlineText();
           const item: NumberedListItem = {
             id: ctx.nextBlockId(),
             type: "numbered_list",
             charRuns,
             formats,
+            ...(structuredContent ? { structuredContent } : {}),
             indent: ctx.indent,
           };
           return item;
@@ -407,12 +409,13 @@ export class ListNode extends TextNode {
 
         const checked = ctx.check(TODO_LIST_CHECKED);
         ctx.match(TODO_LIST_CHECKED, TODO_LIST_UNCHECKED);
-        const { charRuns, formats } = ctx.inlineText();
+        const { charRuns, formats, structuredContent } = ctx.inlineText();
         const item: TodoListItem = {
           id: ctx.nextBlockId(),
           type: "todo_list",
           charRuns,
           formats,
+          ...(structuredContent ? { structuredContent } : {}),
           checked,
           indent: ctx.indent,
         };

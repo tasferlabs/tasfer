@@ -17,13 +17,9 @@ import {
   selectTarget,
   toBlockData,
 } from "./positions";
-import type { Block, Paragraph } from "./serlization/loadPage";
-import type {
-  CursorState,
-  EditorState,
-  Page,
-  SelectionState,
-} from "./state-types";
+import type { Paragraph } from "./nodes/TextNode";
+import type { Block, Page } from "./serlization/loadPage";
+import type { CursorState, EditorState, SelectionState } from "./state-types";
 import { createInitialState } from "./state-utils";
 import { markCharsInRange } from "./sync/crdt-utils";
 import { describe, expect, it } from "vitest";

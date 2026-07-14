@@ -13,8 +13,9 @@
 
 import { mathTestSchema, mathTestStateOptions } from "../__testutils__/math";
 import { convertBlockAtCursor } from "../actions/actions";
-import type { MarkSpan, Paragraph } from "../serlization/loadPage";
-import type { BlockSet, EditorState, Page } from "../state-types";
+import type { Paragraph } from "../nodes/TextNode";
+import type { MarkSpan, Page } from "../serlization/loadPage";
+import type { BlockSet, EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { applyOp } from "./reducer";
 import { describe, expect, it } from "vitest";

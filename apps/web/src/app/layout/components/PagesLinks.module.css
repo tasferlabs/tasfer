@@ -339,6 +339,77 @@
   }
 }
 
+/*
+ * The collapse toggle doubles as the page's color blob (Notion-style swap):
+ * the colored dot at rest; hovering the row (or keyboard-focusing the
+ * toggle) swaps it for the chevron on a translucent pad tinted with the
+ * page color, keeping contrast against the hovered row. The swap is
+ * instant — no size or position animation. Coarse pointers have no hover,
+ * so they always get the chevron.
+ */
+.collapseAction {
+  position: relative;
+}
+
+.collapseBlob {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--page-blob-color);
+}
+
+/* Pages with no chosen color keep the faded default dot. */
+.collapseBlobDefault {
+  opacity: 0.3;
+}
+
+/* The pad is drawn on the chevron itself — a small rounded square, clearly
+   lighter than the hovered row, like Notion's toggle. The 30px button stays
+   as the hit target but never paints its own background. */
+.collapseAction .collapseIcon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  border-radius: 4px;
+  stroke-width: 2;
+  color: var(--muted-foreground);
+  opacity: 0;
+}
+
+.link:hover .collapseBlob,
+.collapseAction:focus-visible .collapseBlob {
+  opacity: 0;
+}
+
+.link:hover .collapseAction .collapseIcon,
+.collapseAction:focus-visible .collapseIcon {
+  opacity: 1;
+  background-color: color-mix(in srgb, var(--foreground), transparent 89%);
+}
+
+.collapseAction:hover,
+.collapseAction.active:hover {
+  background: none;
+}
+
+.collapseAction:hover .collapseIcon {
+  background-color: color-mix(in srgb, var(--foreground), transparent 82%);
+  color: var(--foreground);
+}
+
+@media (pointer: coarse) {
+  .collapseBlob {
+    opacity: 0;
+  }
+
+  .collapseAction .collapseIcon {
+    opacity: 1;
+  }
+}
+
 .accordionAddButton {
   display: flex;
   align-items: center;

@@ -11,6 +11,7 @@
  */
 import { insertText } from "../actions/actions";
 import { DELETE_BACKWARD, SPLIT_BLOCK } from "../actions/edit-actions";
+import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import { mathExtension } from "../math-extension";
 import type { TextualBlock } from "../nodes/TextNode";
 import { createMarkRegistry } from "../rendering/marks";
@@ -20,14 +21,19 @@ import { moveCursorToPosition } from "../selection";
 import { loadPage } from "../serlization/loadPage";
 import type { EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
+import { updateContentSelection } from "../structured-selection";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { createCRDTbinding } from "../sync/sync";
 import { resolveStructuredInlineMathRuns } from "./inline-structured";
 import { enterInlineMathTreeAtPosition } from "./inline-tree-state";
 import { getStructuredMathSource } from "./structured";
+import { mathContentSelectionFromSourceOffset } from "./tree-selection";
 import { describe, expect, it } from "vitest";
 
 const treeMathSchema = baseSchema.use(mathExtension());
+
+/** One flat anchor char per chip — shorthand for readable flat-text asserts. */
+const A = STRUCTURED_MARK_ANCHOR_CHAR;
 
 function treeState(markdown: string): EditorState {
   return createInitialState(loadPage(markdown, treeMathSchema.data), {
@@ -65,6 +71,30 @@ function inlineRuns(state: EditorState, blockIndex = 0) {
   return resolveStructuredInlineMathRuns(
     state.document.page.blocks[blockIndex] as TextualBlock,
   );
+}
+
+/**
+ * A chip's interior has no flat positions — the anchor char is atomic — so a
+ * mid-formula caret is a nested content selection at a canonical source offset.
+ */
+function caretAtSourceOffset(
+  state: EditorState,
+  sourceOffset: number,
+  blockIndex = 0,
+): EditorState {
+  const block = state.document.page.blocks[blockIndex] as TextualBlock;
+  const run = inlineRuns(state, blockIndex)[0];
+  if (!run?.contentId || !run.document) {
+    throw new Error("expected an attached inline math run");
+  }
+  const selection = mathContentSelectionFromSourceOffset(
+    block.id,
+    run.contentId,
+    run.document,
+    sourceOffset,
+  );
+  if (!selection) throw new Error("expected a nested math caret");
+  return updateContentSelection(state, selection);
 }
 
 describe("space in a structured display equation", () => {
@@ -115,22 +145,18 @@ describe("space in a structured display equation", () => {
     expect(getStructuredMathSource(blank.document.page.blocks[0])).toBe("a");
   });
 
-  it("collapses pre-existing dead spaces when a legacy block migrates", () => {
-    // Imported flat LaTeX may carry spaces typed before spaces became
-    // untypeable. The first tree edit re-parses that source, which drops
-    // whitespace that has no meaning in math mode while keeping required
-    // command separators.
-    let state = treeState("$$\na b\n$$");
-    state = moveCursorToPosition(state, 0, 3);
-    state = insertText(state, "c").state;
-    expect(getStructuredMathSource(state.document.page.blocks[0])).toBe("abc");
-
-    let separated = treeState("$$\n\\sin x\n$$");
-    separated = moveCursorToPosition(separated, 0, 6);
-    separated = insertText(separated, "y").state;
-    expect(getStructuredMathSource(separated.document.page.blocks[0])).toBe(
-      "\\sin xy",
-    );
+  it("parses away dead spaces at load, keeping command separators", () => {
+    // Imported LaTeX may carry spaces that mean nothing in math mode. The
+    // eager parse at load drops them, while a control word keeps the
+    // separator it needs before a following letter.
+    expect(
+      getStructuredMathSource(treeState("$$\na b\n$$").document.page.blocks[0]),
+    ).toBe("ab");
+    expect(
+      getStructuredMathSource(
+        treeState("$$\n\\sin x\n$$").document.page.blocks[0],
+      ),
+    ).toBe("\\sin x");
   });
 });
 
@@ -138,34 +164,22 @@ describe("space in an inline math chip", () => {
   it("splits the chip in two around a plain host space", () => {
     let state = treeState("hello $xy$ world");
     const run = inlineRuns(state)[0];
-    state = moveCursorToPosition(state, 0, run.startIndex + 1);
+    state = caretAtSourceOffset(state, 1); // x|y
     state = insertText(state, " ").state;
 
-    expect(blockText(state)).toBe("hello x y world");
+    expect(blockText(state)).toBe(`hello ${A} ${A} world`);
     const runs = inlineRuns(state);
     expect(runs.map((entry) => entry.latex)).toEqual(["x", "y"]);
     expect(runs.every((entry) => entry.document)).toBe(true);
-    expect(runs.some((entry) => entry.attachmentConflict)).toBe(false);
     // The caret lands after the separating space, ready for prose.
     expect(state.document.contentSelection).toBeNull();
     expect(state.document.cursor?.position.textIndex).toBe(run.startIndex + 2);
   });
 
-  it("splits a freshly-typed legacy chip that has no attachment yet", () => {
-    let state = typeText(treeState(""), "$xy$");
-    const run = inlineRuns(state)[0];
-    state = moveCursorToPosition(state, 0, run.startIndex + 1);
-    state = insertText(state, " ").state;
-
-    expect(blockText(state)).toBe("x y");
-    expect(inlineRuns(state).map((entry) => entry.latex)).toEqual(["x", "y"]);
-  });
-
   it("keeps whole constructs on one side of the split", () => {
     let state = treeState("$\\frac{a}{b}y$");
-    const run = inlineRuns(state)[0];
     // The construct occupies one caret stop; the split point is right after it.
-    state = moveCursorToPosition(state, 0, run.endIndex - 1);
+    state = caretAtSourceOffset(state, "\\frac{a}{b}".length);
     state = insertText(state, " ").state;
 
     const runs = inlineRuns(state);
@@ -174,10 +188,9 @@ describe("space in an inline math chip", () => {
 
   it("swallows a space typed inside a construct slot", () => {
     let state = treeState("$\\frac{ab}{c}$");
-    const before = inlineRuns(state)[0];
     const textBefore = blockText(state);
     // `\frac{a|b}{c}` — strictly inside the numerator.
-    state = moveCursorToPosition(state, 0, before.startIndex + 7);
+    state = caretAtSourceOffset(state, "\\frac{a".length);
     state = insertText(state, " ").state;
 
     const runs = inlineRuns(state);
@@ -195,7 +208,7 @@ describe("space in an inline math chip", () => {
     expect(entered).toBeDefined();
     state = insertText(entered!.state, " ").state;
 
-    expect(blockText(state)).toBe("xy ");
+    expect(blockText(state)).toBe(`${A} `);
     const runs = inlineRuns(state);
     expect(runs.map((entry) => entry.latex)).toEqual(["xy"]);
     expect(state.document.contentSelection).toBeNull();
@@ -211,15 +224,14 @@ describe("space in an inline math chip", () => {
     expect(entered).toBeDefined();
     state = insertText(entered!.state, " ").state;
 
-    expect(blockText(state)).toBe(" xy");
+    expect(blockText(state)).toBe(` ${A}`);
     expect(inlineRuns(state).map((entry) => entry.latex)).toEqual(["xy"]);
     expect(state.document.cursor?.position.textIndex).toBe(run.startIndex + 1);
   });
 
   it("keeps the atomic control space inside a chip", () => {
     let state = treeState("$xy$");
-    const run = inlineRuns(state)[0];
-    state = moveCursorToPosition(state, 0, run.startIndex + 1);
+    state = caretAtSourceOffset(state, 1);
     state = typeText(state, "\\ ");
 
     const runs = inlineRuns(state);
@@ -231,8 +243,7 @@ describe("space in an inline math chip", () => {
     // A multi-character commit is source, not the space gesture: the chip
     // stays whole and the command-free paste loses its dead space.
     let state = treeState("$xy$");
-    const run = inlineRuns(state)[0];
-    state = moveCursorToPosition(state, 0, run.startIndex + 1);
+    state = caretAtSourceOffset(state, 1);
     state = insertText(state, "a b").state;
 
     const runs = inlineRuns(state);
@@ -244,19 +255,17 @@ describe("space in an inline math chip", () => {
 describe("Enter divides a chip across a block boundary", () => {
   it("splits an attached chip into two attached chips in two blocks", () => {
     let state = treeState("hello $xy$ world");
-    const run = inlineRuns(state)[0];
-    state = moveCursorToPosition(state, 0, run.startIndex + 1);
+    state = caretAtSourceOffset(state, 1);
     state = enter(state);
 
-    expect(blockText(state, 0)).toBe("hello x");
-    expect(blockText(state, 1)).toBe("y world");
+    expect(blockText(state, 0)).toBe(`hello ${A}`);
+    expect(blockText(state, 1)).toBe(`${A} world`);
     const first = inlineRuns(state, 0);
     expect(first.map((entry) => entry.latex)).toEqual(["x"]);
     expect(first[0].document).toBeTruthy();
     const second = inlineRuns(state, 1);
     expect(second.map((entry) => entry.latex)).toEqual(["y"]);
     expect(second[0].document).toBeTruthy();
-    expect(second[0].attachmentConflict).toBeFalsy();
     // The caret starts block two, right before the second half.
     expect(state.document.cursor?.position).toEqual({
       blockIndex: 1,
@@ -266,39 +275,35 @@ describe("Enter divides a chip across a block boundary", () => {
 
   it("Backspace at the boundary rejoins the halves into one formula", () => {
     let state = treeState("hello $xy$ world");
-    const run = inlineRuns(state)[0];
-    state = moveCursorToPosition(state, 0, run.startIndex + 1);
+    state = caretAtSourceOffset(state, 1);
     state = enter(state);
     state = backspace(state);
 
-    expect(blockText(state)).toBe("hello xy world");
+    expect(blockText(state)).toBe(`hello ${A} world`);
     const runs = inlineRuns(state);
     expect(runs).toHaveLength(1);
     expect(runs[0].latex).toBe("xy");
     expect(runs[0].document).toBeTruthy();
-    expect(runs[0].attachmentConflict).toBeFalsy();
   });
 
   it("moves a whole attached chip to block two when Enter lands before it", () => {
-    // Attach both chips via the space split, then Enter right before the
+    // Split one chip in two via the space gesture, then Enter right before the
     // second one: the generic split carries the attached run across the
     // boundary — the moved chip must keep resolving a live document, not
-    // degrade to raw LaTeX over a dangling contentId.
+    // degrade over a dangling contentId.
     let state = treeState("ab $xy$ tail");
-    const run = inlineRuns(state)[0];
-    state = moveCursorToPosition(state, 0, run.startIndex + 1);
-    state = insertText(state, " ").state; // "ab x y tail", chips x / y
+    state = caretAtSourceOffset(state, 1);
+    state = insertText(state, " ").state; // "ab ￼ ￼ tail", chips x / y
     const second = inlineRuns(state)[1];
     expect(second.document).toBeTruthy();
     state = moveCursorToPosition(state, 0, second.startIndex);
     state = enter(state);
 
-    expect(blockText(state, 0)).toBe("ab x ");
-    expect(blockText(state, 1)).toBe("y tail");
+    expect(blockText(state, 0)).toBe(`ab ${A} `);
+    expect(blockText(state, 1)).toBe(`${A} tail`);
     const moved = inlineRuns(state, 1);
     expect(moved.map((entry) => entry.latex)).toEqual(["y"]);
     expect(moved[0].document).toBeTruthy();
-    expect(moved[0].attachmentConflict).toBeFalsy();
     // Block one keeps its own chip attached, and the moved attachment died
     // with its chars — only the clone on block two survives.
     const kept = inlineRuns(state, 0);
@@ -311,30 +316,15 @@ describe("Enter divides a chip across a block boundary", () => {
     ).toHaveLength(1);
   });
 
-  it("splits a freshly-typed legacy chip into two attached chips", () => {
-    let state = typeText(treeState(""), "$xy$");
-    const run = inlineRuns(state)[0];
-    state = moveCursorToPosition(state, 0, run.startIndex + 1);
-    state = enter(state);
-
-    expect(blockText(state, 0)).toBe("x");
-    expect(blockText(state, 1)).toBe("y");
-    expect(inlineRuns(state, 0).map((entry) => entry.latex)).toEqual(["x"]);
-    expect(inlineRuns(state, 1).map((entry) => entry.latex)).toEqual(["y"]);
-    expect(inlineRuns(state, 1)[0].document).toBeTruthy();
-  });
-
   it("keeps a construct whole: Enter inside a slot splits after the chip", () => {
     let state = treeState("$\\frac{ab}{c}$ tail");
-    const run = inlineRuns(state)[0];
     // `\frac{a|b}{c}` — strictly inside the numerator; the construct cannot
     // be divided, so the split exits past the whole formula and the chip is
-    // left untouched (still the pre-migration flat form; never cut mid-command
-    // into `\frac{a` / `b}{c}` like the raw char split would).
-    state = moveCursorToPosition(state, 0, run.startIndex + 7);
+    // left untouched (never cut mid-command into `\frac{a` / `b}{c}`).
+    state = caretAtSourceOffset(state, "\\frac{a".length);
     state = enter(state);
 
-    expect(blockText(state, 0)).toBe("\\frac{ab}{c}");
+    expect(blockText(state, 0)).toBe(A);
     const kept = inlineRuns(state, 0);
     expect(kept.map((entry) => entry.latex)).toEqual(["\\frac{ab}{c}"]);
     expect(blockText(state, 1)).toBe(" tail");
@@ -345,8 +335,7 @@ describe("Enter divides a chip across a block boundary", () => {
 describe("rejoining chips a delete left touching", () => {
   it("fuses the two halves of a split back into one attached chip", () => {
     let state = treeState("hello $xy$ world");
-    const run = inlineRuns(state)[0];
-    state = moveCursorToPosition(state, 0, run.startIndex + 1);
+    state = caretAtSourceOffset(state, 1);
     state = insertText(state, " ").state;
     expect(inlineRuns(state).map((entry) => entry.latex)).toEqual(["x", "y"]);
 
@@ -354,12 +343,11 @@ describe("rejoining chips a delete left touching", () => {
     // and the chips fuse back into one formula.
     state = backspace(state);
 
-    expect(blockText(state)).toBe("hello xy world");
+    expect(blockText(state)).toBe(`hello ${A} world`);
     const runs = inlineRuns(state);
     expect(runs).toHaveLength(1);
     expect(runs[0].latex).toBe("xy");
     expect(runs[0].document).toBeTruthy();
-    expect(runs[0].attachmentConflict).toBeFalsy();
     // The caret promotes to the nested seam so the next keystroke keeps
     // working the merged formula.
     expect(state.document.contentSelection).not.toBeNull();
@@ -375,20 +363,6 @@ describe("rejoining chips a delete left touching", () => {
     const merged = inlineRuns(state);
     expect(merged).toHaveLength(1);
     expect(merged[0].latex).toBe("\\sin x");
-    expect(merged[0].document).toBeTruthy();
-  });
-
-  it("fuses freshly-typed legacy chips that have no attachments yet", () => {
-    let state = typeText(treeState(""), "$x$ $y$");
-    expect(inlineRuns(state).map((entry) => entry.latex)).toEqual(["x", "y"]);
-    const second = inlineRuns(state)[1];
-    state = moveCursorToPosition(state, 0, second.startIndex);
-    state = backspace(state);
-
-    expect(blockText(state)).toBe("xy");
-    const merged = inlineRuns(state);
-    expect(merged).toHaveLength(1);
-    expect(merged[0].latex).toBe("xy");
     expect(merged[0].document).toBeTruthy();
   });
 });

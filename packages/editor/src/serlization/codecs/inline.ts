@@ -243,7 +243,6 @@ function resolveStructuredSegmentText(
   for (const mark of segment.formats ?? []) {
     const source = schema.resolveStructuredMark(mark.type, {
       mark,
-      compatibilityText: segment.text,
       attachments,
     });
     if (source !== undefined) return source;
@@ -274,12 +273,20 @@ export function extractTitleMarkdownFromBlocks(
   const block = findTitleBlock(blocks);
   if (!block) return "";
 
-  // A block whose text needs projecting into an inline context (a math block's
-  // LaTeX becomes an inline `$…$` run) is emitted whole or not at all, like a
-  // formatted run: slicing inside projected source corrupts it.
+  // A block whose source needs projecting into an inline context (a math
+  // block's LaTeX becomes an inline `$…$` run) is emitted whole or not at all,
+  // like a formatted run: slicing inside projected source corrupts it. The
+  // source lives in the block's authority document (its flat text is empty),
+  // resolved through the kind's `source` adapter.
   const project = titleInlineMarkdownProjection(block.type);
   if (project) {
-    const text = getVisibleTextFromRuns(block.charRuns).trim();
+    const authority = Object.values(block.structuredContent ?? {}).find(
+      (document) => document.authority === "block",
+    );
+    const structured = authority
+      ? schema.structuredContentSource(authority)
+      : undefined;
+    const text = (structured ?? getVisibleTextFromRuns(block.charRuns)).trim();
     if (!text || text.length > maxLength * 2) return "";
     return project(text);
   }
@@ -297,14 +304,22 @@ export function extractTitleMarkdownFromBlocks(
       continue;
     }
 
-    if (visible + segment.text.length > maxLength * 2) break;
-    let text = segment.text;
+    // Resolve a structured segment (an inline chip's anchor char) to its
+    // canonical source so the projection carries real content and the cap
+    // counts what the reader sees.
+    const resolved = resolveStructuredSegmentText(
+      segment,
+      schema,
+      block.structuredContent,
+    );
+    if (visible + resolved.length > maxLength * 2) break;
+    let text = resolved;
     for (const format of segment.formats) {
       const codec = schema.getMarkCodec(format.type);
       if (codec) text = codec.toMarkdown(text, format);
     }
     out += text;
-    visible += segment.text.length;
+    visible += resolved.length;
   }
 
   return out.trim();
