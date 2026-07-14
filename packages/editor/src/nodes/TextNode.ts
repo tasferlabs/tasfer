@@ -1148,12 +1148,25 @@ function computeSelectionRects(
     // (including its inflated padding, which the glyph rows don't cover) then
     // registers as touching the selection. Painting, and partial sub-range
     // selections, keep the tight rows so a selected fraction lights up just it.
-    const skipTightChipRows =
+    const coversWholeRun =
       confiningRun != null &&
-      hitTest &&
       start.textIndex <= confiningRun.start &&
       end.textIndex >= confiningRun.end;
-    if (confiningRun && !skipTightChipRows) {
+    const skipTightChipRows = coversWholeRun && hitTest;
+    // An attached chip whose canonical source has outrun its flat compatibility
+    // chars (see structuredMarkRunSourceDiverged) has no meaningful interior
+    // flat offsets: a whole-run selection maps to the whole canonical formula,
+    // and a partial one cannot be mapped at all — it falls through to the
+    // line-box fill instead of lighting up the first N canonical characters
+    // (a highlight frozen at the stale flat length).
+    const runDiverged =
+      confiningRun != null &&
+      confiningRun.text !== confiningRun.compatibilityText;
+    if (
+      confiningRun &&
+      !skipTightChipRows &&
+      (!runDiverged || coversWholeRun)
+    ) {
       const chipRects: Rect[] = [];
       for (const line of layout.lines) {
         // Selection ∩ line, then clip to the chip's fragment on this line (the
@@ -1168,12 +1181,18 @@ function computeSelectionRects(
           fragStart,
           fragEnd,
         );
+        // For a diverged run `fragText` is the WHOLE canonical source (see
+        // replacementFragmentText), so the whole-run selection spans all of it.
+        const localStart = runDiverged ? 0 : selStart - fragStart;
+        const localEnd = runDiverged
+          ? confiningRun.text.length
+          : selEnd - fragStart;
         const rowRects = confiningRun.replacement.selectionRects?.(
           fragText,
           textStyle.fontSize,
-          selStart - fragStart,
-          selEnd - fragStart,
-          { caretOffset: selStart - fragStart, editing: false },
+          localStart,
+          localEnd,
+          { caretOffset: localStart, editing: false },
         );
         if (!rowRects || rowRects.length === 0) continue;
         const chipLeft = measureLineWidth(
@@ -1216,10 +1235,17 @@ function computeSelectionRects(
     index: number,
   ): number => {
     if (!isRTL && marks) {
-      const run = enclosingReplacementRun(
+      const enclosing = enclosingReplacementRun(
         replacementRuns(chars, formats, marks, layout.structuredContent),
         index,
       );
+      // A diverged run's interior flat offsets index nothing real (its canonical
+      // source has outrun the flat chars), so `caretRect` cannot resolve them —
+      // keep the atomic edge measure below instead of descending.
+      const run =
+        enclosing && enclosing.text === enclosing.compatibilityText
+          ? enclosing
+          : null;
       // Descend into the chip's FRAGMENT on this line (run clipped to the line),
       // matching the reflowed slice — see `caretRect`.
       const fragStart = run ? Math.max(run.start, line.startIndex) : 0;
@@ -2379,7 +2405,11 @@ export class TextNode<
           if (offset >= fragEnd - fragStart) return rightEdge;
           return fragStart + offset;
         }
-        const lastInterior = fragText.length - 1;
+        // `offset` indexes the canonical fragment source; clamp ALSO to the
+        // run's flat extent — a diverged chip's canonical source is longer than
+        // its flat chars, and an unclamped offset would land the flat index
+        // past the chip's end, in the text after it.
+        const lastInterior = Math.min(fragText.length, fragEnd - fragStart) - 1;
         if (lastInterior < 1) return fragStart;
         return fragStart + Math.max(1, Math.min(offset, lastInterior));
       }
@@ -2513,8 +2543,12 @@ export class TextNode<
         // index — shared with the surrounding text/adjacent fragment, so they
         // render as an outside caret. Clamp to a strictly-interior stop so clicking
         // anywhere on the slice lands inside it. A single-char fragment has no
-        // interior, so fall back to its near edge.
-        const lastInterior = fragText.length - 1;
+        // interior, so fall back to its near edge. `offset` indexes the
+        // canonical fragment source; clamp ALSO to the run's flat extent — a
+        // diverged chip's canonical source is longer than its flat chars, and
+        // an unclamped offset would land the flat index past the chip's end,
+        // in the text after it.
+        const lastInterior = Math.min(fragText.length, fragEnd - fragStart) - 1;
         if (lastInterior < 1) return fragStart;
         return fragStart + Math.max(1, Math.min(offset, lastInterior));
       }

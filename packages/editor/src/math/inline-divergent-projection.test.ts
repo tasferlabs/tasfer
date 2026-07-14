@@ -12,6 +12,7 @@ import { DELETE_BACKWARD } from "../actions/edit-actions";
 import { resolveMarkRuns } from "../inline-math-spans";
 import { mathExtension } from "../math-extension";
 import { mathCaretStep, mathSelectionRange } from "../nodes/math";
+import { TextNode, type TextualBlock } from "../nodes/TextNode";
 import { createMarkRegistry } from "../rendering/marks";
 import { createNodeRegistry } from "../rendering/nodes";
 import { baseSchema } from "../schema";
@@ -20,6 +21,7 @@ import { loadPage } from "../serlization/loadPage";
 import type { EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { updateContentSelection } from "../structured-selection";
+import { resolveTheme } from "../styles";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { createCRDTbinding } from "../sync/sync";
 import { resolveStructuredInlineMathRuns } from "./inline-structured";
@@ -174,5 +176,70 @@ describe("diverged inline chip is atomic to the flat model", () => {
     // at an interior stop, per the established partial-selection semantics.
     const snapped = mathSelectionRange(block, 0, run.startIndex + 1, "end");
     expect(snapped).toEqual({ anchor: 0, focus: run.startIndex + 1 });
+  });
+});
+
+// The flat geometry passes lay the chip out from its CANONICAL source, so flat
+// selection/hit-test offsets — which index the stale compatibility chars — must
+// never be handed to the canonical layout raw.
+describe("diverged inline chip geometry stays canonical", () => {
+  const styles = resolveTheme({});
+  const node = new TextNode();
+
+  const geometry = (peer: string) => {
+    const { state, chipStart, chipEnd } = divergedChip(peer);
+    const block = state.document.page.blocks[0] as TextualBlock;
+    const layout = node.computeLayout(
+      block,
+      1000,
+      styles,
+      undefined,
+      state.marks,
+    );
+    return {
+      block,
+      layout,
+      chipStart,
+      chipEnd,
+      chipLeft: node.caretRect(layout, chipStart, 0, 0).x,
+      chipRight: node.caretRect(layout, chipEnd, 0, 0).x,
+    };
+  };
+
+  it("a whole-chip flat selection highlights the full canonical formula", () => {
+    const { layout, chipStart, chipEnd, chipLeft, chipRight } =
+      geometry("diverge-paint");
+    const rects = node.selectionRects(
+      layout,
+      {
+        anchor: { blockIndex: 0, textIndex: chipStart },
+        focus: { blockIndex: 0, textIndex: chipEnd },
+        isForward: true,
+      },
+      0,
+      0,
+      0,
+    );
+    expect(rects.length).toBeGreaterThan(0);
+    const right = Math.max(...rects.map((r) => r.x + r.width));
+    // Flat offsets truncated the highlight at the stale length ("xz+" of
+    // "xz+y") — mapped canonically it reaches (nearly) the chip's right edge.
+    expect(right).toBeGreaterThan(chipLeft + (chipRight - chipLeft) * 0.85);
+  });
+
+  it("a tap anywhere on the chip resolves strictly inside the run", () => {
+    const { block, layout, chipStart, chipEnd, chipLeft, chipRight } =
+      geometry("diverge-tap");
+    const line = layout.lines[0];
+    const midY = line.y + line.height / 2;
+    // The canonical source is one char longer than the flat run, so an
+    // unclamped hit-test offset lands the flat index on (or past) the chip's
+    // trailing boundary — outside the chip to the flat model.
+    for (let frac = 0.1; frac < 1; frac += 0.2) {
+      const x = chipLeft + (chipRight - chipLeft) * frac;
+      const index = node.positionFromPoint(block, layout, x, midY, 0, 0);
+      expect(index).toBeGreaterThan(chipStart);
+      expect(index).toBeLessThan(chipEnd);
+    }
   });
 });
