@@ -828,6 +828,48 @@ describe("tree-backed display math state integration", () => {
     expect(isValidLatex(treeSource(inserted) ?? "")).toBe(true);
   });
 
+  it.each([
+    ["F_2", "{F}_{2}"],
+    ["x^2", "{x}^{2}"],
+    ["ab_", "a{b}_{}"],
+    [String.raw`\alpha_`, String.raw`{\alpha}_{}`],
+  ])("binds the typed script in %s to the preceding atom", (input, source) => {
+    const typed = typeText(treeState("$$\n\n$$"), input).state;
+    expect(treeSource(typed)).toBe(source);
+    expect(isValidLatex(treeSource(typed) ?? "")).toBe(true);
+  });
+
+  it("keeps the empty base slot for a script typed at a row start", () => {
+    const typed = typeText(treeState("$$\n\n$$"), "_").state;
+    expect(treeSource(typed)).toBe("{}_{}");
+  });
+
+  it("absorbs a preceding construct as the script base", () => {
+    const radical = typeText(treeState("$$\n\n$$"), String.raw`\sqrt x`).state;
+    const after = radical.actionBus.dispatchState(
+      MOVE_CURSOR_RIGHT,
+      radical,
+    ).state;
+    expect(treeSource(typeText(after, "_").state)).toBe(
+      String.raw`{\sqrt{x}}_{}`,
+    );
+  });
+
+  it("extends a preceding scripts node instead of nesting a second one", () => {
+    const scripted = typeText(treeState("$$\n\n$$"), "x^2").state;
+    const after = scripted.actionBus.dispatchState(
+      MOVE_CURSOR_RIGHT,
+      scripted,
+    ).state;
+    expect(treeSource(typeText(after, "_3").state)).toBe("{x}_{3}^{2}");
+  });
+
+  it("splits a leaf and absorbs the character before a mid-text script", () => {
+    const typed = typeText(treeState("$$\n\n$$"), "ab").state;
+    const mid = updateCursor(typed, { blockIndex: 0, textIndex: 1 });
+    expect(treeSource(typeText(mid, "^").state)).toBe("{a}^{}b");
+  });
+
   it("commits an exact prefix command before a delimiter or bulk suffix", () => {
     const delimited = typeText(treeState("$$\n\n$$"), String.raw`\sin(`).state;
     expect(treeSource(delimited)).toBe(String.raw`\sin(`);

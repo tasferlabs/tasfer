@@ -386,6 +386,13 @@ export function insertMathFraction(
  * suffix, and the semantic subtree is ordered between them. The returned caret
  * enters the construct's first useful empty slot (numerator, radicand, script,
  * delimited body, or matrix cell), or lands after an atomic construct.
+ *
+ * A script construct with an empty base (`_{}`/`^{}`, the typed `_`/`^`
+ * commit) binds to the atom before the caret the way TeX reads `F_{}`: the
+ * preceding character or construct becomes the base, and a preceding scripts
+ * node gains the missing slot instead of nesting a second construct. Only at
+ * a row start (or inside a pending `\command` run) does the empty base slot
+ * remain.
  */
 export function insertMathSemanticLatex(
   document: StructuredDocument,
@@ -425,6 +432,25 @@ export function insertMathSemanticLatex(
   if (!body) return failure(caret, "invalid-semantic-source");
   const children = getStructuredChildren(fragment, body.id, "children");
   if (children.length === 0) return success(caret, []);
+
+  let absorption: ScriptBaseAbsorption | undefined;
+  if (!options.forceAtomic) {
+    try {
+      absorption = absorbScriptBase(
+        math,
+        resolved,
+        site,
+        fragment,
+        children,
+        guarded.identities,
+      );
+    } catch {
+      return failure(caret, guarded.reason() ?? "invalid-semantic-source");
+    }
+  }
+  if (absorption?.kind === "extend") {
+    return success(absorption.caret, absorption.edits);
+  }
 
   let rightLeaf:
     | {
@@ -479,6 +505,7 @@ export function insertMathSemanticLatex(
       },
     });
   }
+  if (absorption) edits.push(...absorption.edits);
   const insertedCaret =
     options.caret === "end"
       ? rowCaret(site.gap.rowId, children.at(-1)!.id)
@@ -1417,7 +1444,7 @@ function semanticSubtreeInsertions(
   roots: readonly StructuredNode[],
   rootPlacements: readonly {
     readonly parentId: string;
-    readonly slot: "children";
+    readonly slot: string;
     readonly orderKey: string;
   }[],
 ): StructuredEdit[] {
@@ -1497,6 +1524,168 @@ function preferredNodeSlot(
     default:
       return undefined;
   }
+}
+
+/** Splice plan binding a bare-base script construct to the atom before it. */
+type ScriptBaseAbsorption =
+  | {
+      /** The preceding scripts node gains the slot; nothing else is inserted. */
+      readonly kind: "extend";
+      readonly caret: MathTreeCaret;
+      readonly edits: StructuredEdit[];
+    }
+  | {
+      /** Extra edits moving the preceding atom into the fragment's base row. */
+      readonly kind: "base";
+      readonly edits: StructuredEdit[];
+    };
+
+/**
+ * Bind a committed scripts construct whose base row is empty to the atom
+ * before the caret. Returns undefined — keeping the visible empty base slot —
+ * when the construct is not such a script, nothing usable precedes the caret,
+ * or the caret sits in a pending `\command` run.
+ */
+function absorbScriptBase(
+  document: StructuredDocument,
+  resolved: ResolvedCaret,
+  site: SemanticInsertionSite,
+  fragment: StructuredDocument,
+  roots: readonly StructuredNode[],
+  identities: IdentityAllocator,
+): ScriptBaseAbsorption | undefined {
+  const root = roots.length === 1 ? roots[0] : undefined;
+  if (!root || root.type !== "scripts") return undefined;
+  const base = onlyChild(fragment, root.id, "base", "row");
+  if (
+    !base ||
+    getStructuredChildren(fragment, base.id, "children").length > 0
+  ) {
+    return undefined;
+  }
+
+  if (resolved.kind === "text" && resolved.position > 0) {
+    return absorbCharacterIntoBase(
+      resolved.node,
+      resolved.visibleCharacters.slice(0, resolved.position),
+      base.id,
+      identities,
+    );
+  }
+
+  const previousId = site.gap.afterNodeId;
+  const previous = previousId ? document.nodes[previousId] : undefined;
+  if (!previous || previous.deleted) return undefined;
+  if (previous.type === "raw-text") {
+    return absorbCharacterIntoBase(
+      previous,
+      visibleCharacters(previous),
+      base.id,
+      identities,
+    );
+  }
+  if (previous.type === "scripts") {
+    const extension = extendPreviousScripts(document, previous, fragment, root);
+    if (extension) return extension;
+  }
+  if (!isCompositeMathConstruct(previous) && !isAtomicMathLeaf(previous)) {
+    return undefined;
+  }
+  return {
+    kind: "base",
+    edits: [
+      {
+        kind: "node_move",
+        nodeId: previous.id,
+        placement: {
+          parentId: base.id,
+          slot: "children",
+          orderKey: generateKeyBetween(null, null),
+        },
+      },
+    ],
+  };
+}
+
+/** Move the last character before the caret into the construct's base row. */
+function absorbCharacterIntoBase(
+  leaf: StructuredNode,
+  prefix: readonly VisibleCharacter[],
+  baseRowId: string,
+  identities: IdentityAllocator,
+): ScriptBaseAbsorption | undefined {
+  const character = prefix.at(-1);
+  if (!character) return undefined;
+  // A trailing `\command` run is one uncommitted token; carving its last
+  // letter out (`\alph` + `a` base) would corrupt the command.
+  if (/\\[A-Za-z]*$/.test(prefix.map(({ char }) => char).join(""))) {
+    return undefined;
+  }
+  return {
+    kind: "base",
+    edits: [
+      {
+        kind: "text_delete",
+        nodeId: leaf.id,
+        field: "text",
+        charIds: [character.id],
+      },
+      {
+        kind: "node_insert",
+        node: {
+          id: identities.nextId(),
+          type: "raw-text",
+          placement: {
+            parentId: baseRowId,
+            slot: "children",
+            orderKey: generateKeyBetween(null, null),
+          },
+          attrs: {},
+          textFields: {
+            text: charsToRuns([
+              { id: identities.nextId(), char: character.char },
+            ]),
+          },
+        },
+      },
+    ],
+  };
+}
+
+/** Give the scripts node before the caret the construct's one script slot. */
+function extendPreviousScripts(
+  document: StructuredDocument,
+  target: StructuredNode,
+  fragment: StructuredDocument,
+  root: StructuredNode,
+): ScriptBaseAbsorption | undefined {
+  const carried = (["subscript", "superscript"] as const).flatMap((slot) => {
+    const row = onlyChild(fragment, root.id, slot, "row");
+    return row ? [{ slot, row }] : [];
+  });
+  if (carried.length !== 1) return undefined;
+  const { slot, row } = carried[0];
+  const existing = onlyChild(document, target.id, slot, "row");
+  if (existing) {
+    // A bare re-typed trigger re-enters the slot it already has; a construct
+    // carrying slot content cannot merge rows and wraps the node as a base.
+    return getStructuredChildren(fragment, row.id, "children").length === 0
+      ? {
+          kind: "extend",
+          caret: enterRow(document, existing, "end"),
+          edits: [],
+        }
+      : undefined;
+  }
+  return {
+    kind: "extend",
+    caret: rowCaret(row.id, null),
+    edits: semanticSubtreeInsertions(
+      fragment,
+      [row],
+      [{ parentId: target.id, slot, orderKey: generateKeyBetween(null, null) }],
+    ),
+  };
 }
 
 function backspaceAtRowGap(
