@@ -67,9 +67,9 @@ export function getBlockHeight(
     marks,
   }).height;
 
-  // Some blocks (e.g. a first full-width image) bleed into the top padding and
-  // therefore advance the flow by less than their drawn height. The per-type
-  // rule lives on the block view rather than in a type switch here.
+  // A block may consume more or less flow than its drawn height (see
+  // Node.adjustFlowHeight). The per-type rule lives on the block view rather
+  // than in a type switch here.
   if (view.adjustFlowHeight) {
     return view.adjustFlowHeight(height, {
       block,

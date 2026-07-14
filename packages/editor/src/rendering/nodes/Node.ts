@@ -407,9 +407,10 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
 
   /**
    * Optional: adjust how much vertical flow this block consumes, given its
-   * measured height. Used by blocks that bleed outside their box (e.g. a first
-   * full-width image bleeding into the top padding advances by less than it
-   * draws). When unset, flow height === drawn height.
+   * measured height — for a block whose drawn extent should differ from the
+   * space it takes in the document flow. No built-in node uses it (a first
+   * full-width image bleeds by drawing above its flow origin instead, keeping
+   * its flow height intact). When unset, flow height === drawn height.
    */
   adjustFlowHeight?(height: number, c: NodeLayoutCtx): number;
 

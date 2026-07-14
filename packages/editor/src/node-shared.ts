@@ -97,9 +97,9 @@ export function cardFlowMargins(
  * compute through here, so the height pass, paint, hit-testing and the caret/
  * selection passes all share ONE computation per content/width change instead
  * of each re-running the (expensive) layout. The cache is keyed on `maxWidth`
- * only — `isFirst` never affects `layout()` output (the full-bleed-first-image
- * adjustment lives in `adjustFlowHeight`, applied separately) — and is cleared
- * by `invalidateBlockCache` whenever the block's content, styles, or theme
+ * only — `isFirst` never affects `layout()` output (a full-bleed first image
+ * shifts only its drawn rect, not its flow height) — and is cleared by
+ * `invalidateBlockCache` whenever the block's content, styles, or theme
  * change.
  */
 export function memoizeNodeLayout<T extends NodeLayout>(

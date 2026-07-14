@@ -67,6 +67,7 @@ import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
 import { SnapshotRestore } from "../components/SnapshotRestore";
 import { openImageUploadMenu } from "@/editorSchema";
+import { imageBleedHeight } from "@cypherkit/editor/internal";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import {
   NARROW_CONTENT_WIDTH,
@@ -80,7 +81,12 @@ import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useResponsive from "../hooks/useResponsive";
 import style from "./EditorPage.module.css";
 
-const SCHEDULE_TAG_HEIGHT = 40;
+// Height of the page tag row (Schedule / Add cover): h-8 ghost buttons plus
+// py-2. Reserved as canvas top padding so document content starts below the
+// row. When the page opens with a cover image (a first full-width image bleeds
+// to the very top of the canvas), the same-size strip re-emerges below the
+// cover and the row is translated down onto it — see the tag-row effect below.
+const SCHEDULE_TAG_HEIGHT = 48;
 const SCHEDULE_TAG_PADDING = { paddingTop: SCHEDULE_TAG_HEIGHT } as const;
 
 // Quiet text-button styling shared by the page-top tag row (schedule, add
@@ -127,10 +133,24 @@ export default function EditorPage() {
   });
   // Track editor canvas scroll position for scrolling overlay elements (ref to avoid re-renders)
   const scheduleTagRef = useRef<HTMLDivElement>(null);
+  // Tag-row geometry, mutated imperatively (no re-render per scroll frame): the
+  // row sits at the top of the page, or directly below the cover image when the
+  // document starts with one. Cover bottom is in document space; the transform
+  // combines it with the live scroll offset.
+  const tagRowCoverBottomRef = useRef(0);
+  const tagRowScrollYRef = useRef(0);
+  const applyTagRowTransform = useCallback(() => {
+    if (scheduleTagRef.current) {
+      scheduleTagRef.current.style.transform = `translateY(${
+        tagRowCoverBottomRef.current - tagRowScrollYRef.current
+      }px)`;
+    }
+  }, []);
   // Restore function ref from MountedEditor
   const restoreFnRef = useRef<((blocks: Block[]) => void) | null>(null);
 
-  const { setEditor: setActiveEditor } = useActiveEditor();
+  const { editor: activeEditor, setEditor: setActiveEditor } =
+    useActiveEditor();
   const navigate = useNavigate();
   const { activeSpaceId } = useSpaces();
   const treeExpand = useTreeExpand();
@@ -170,16 +190,37 @@ export default function EditorPage() {
     }
     // Reset persisted state and scroll position when ID changes (user navigated)
     setPersistedState(null);
-    if (scheduleTagRef.current) {
-      scheduleTagRef.current.style.transform = "translateY(0px)";
-    }
+    tagRowCoverBottomRef.current = 0;
+    tagRowScrollYRef.current = 0;
+    applyTagRowTransform();
     // Reset permission to owner (will be updated after page load)
     setLocalPermission("owner");
     setPermission("owner");
     return () => {
       setPageId(null);
     };
-  }, [id, setLastPageId, setPageId, setPermission]);
+  }, [id, setLastPageId, setPageId, setPermission, applyTagRowTransform]);
+
+  // Keep the tag row out of the cover image: when the document starts with a
+  // full-width image it bleeds to the very top of the canvas, and the strip
+  // reserved by SCHEDULE_TAG_PADDING re-emerges below it (see ImageNode) — so
+  // drop the row onto that strip, Notion-style. Re-read on every editor tick so
+  // the row follows cover add/remove, image resize, and upload placeholder →
+  // real image transitions; scroll-follow shares the transform via onScroll.
+  useEffect(() => {
+    if (!activeEditor) return;
+    const recompute = () => {
+      const first = activeEditor.query.block("start");
+      tagRowCoverBottomRef.current =
+        (first?.type === "image"
+          ? imageBleedHeight(first.attrs, activeEditor.view.getStyles())
+          : null) ?? 0;
+      tagRowScrollYRef.current = activeEditor.view.getScrollY();
+      applyTagRowTransform();
+    };
+    recompute();
+    return activeEditor.subscribe(recompute);
+  }, [activeEditor, applyTagRowTransform]);
 
   // Listen for page deletion events (both local and remote)
   useP2PPageEvents({
@@ -511,9 +552,8 @@ export default function EditorPage() {
           readonly={readonly}
           padding={SCHEDULE_TAG_PADDING}
           onScroll={(scrollY) => {
-            if (scheduleTagRef.current) {
-              scheduleTagRef.current.style.transform = `translateY(${-scrollY}px)`;
-            }
+            tagRowScrollYRef.current = scrollY;
+            applyTagRowTransform();
           }}
           onHorizontalPaddingChange={(padding) => {
             // Keep the schedule tag aligned with the (possibly narrowed,

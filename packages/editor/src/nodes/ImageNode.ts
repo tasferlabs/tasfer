@@ -7,8 +7,10 @@
  *    the layout/paint split removes the duplication that previously existed
  *    between renderImageBlock and the height pass.
  *  - `paintBox()` override: the painted/selected rect differs from the flow box.
- *  - `adjustFlowHeight()`: a first full-width image bleeds into the top padding,
- *    so it advances the document by less than it draws.
+ *    A first full-width image bleeds into the top padding (drawn higher than its
+ *    flow origin), which relocates that padding to a strip *below* the image —
+ *    hosts reserve it for page chrome such as a tag row under a cover image
+ *    (see {@link imageBleedHeight}).
  *  - Block-owned chrome (resize drag handles) drawn from UI state.
  *
  * The resize-handle drag — the `*_IMAGE_HANDLE_DRAG` actions plus their thin
@@ -383,6 +385,33 @@ function imageWidthMode(block: Image): number | "full" | "natural" {
   return (block.objectFit ?? "cover") === "contain" ? "natural" : "full";
 }
 
+/**
+ * The drawn height of a full-width image assuming it is the document's first
+ * visible block — the "cover image" case, where the image bleeds into the top
+ * canvas padding and is drawn from document y = 0 (so this is also its bottom
+ * edge in document coordinates). `null` when the block wouldn't bleed (an
+ * explicitly sized or natural-fit image). The height mirrors `geometry()`'s
+ * full-width branch: the stored height (or themed default) once a url exists,
+ * the placeholder height before one does.
+ *
+ * Exported for the first-party host, which lays page chrome (the tag row)
+ * directly below a cover image; routing through this keeps the host and the
+ * node's own layout in agreement. Takes the image's visual props — either the
+ * block itself or the plain-data `attrs` of a `BlockData` whose `type` is
+ * `"image"` (the read API's attrs are untyped, hence the record overload).
+ */
+export function imageBleedHeight(
+  block:
+    | Pick<Image, "url" | "width" | "height" | "objectFit">
+    | Readonly<Record<string, unknown>>,
+  styles: EditorStyles,
+): number | null {
+  const image = block as Image;
+  if (imageWidthMode(image) !== "full") return null;
+  const { height, placeholderHeight } = styles.blocks.image.dimensions;
+  return image.url ? (image.height ?? height) : placeholderHeight;
+}
+
 /** The resolved start descriptor of an in-progress resize drag. Lives on the
  *  captured hit (per-drag, node-owned) — there is no global UI slot for it. */
 interface ImageDragStart {
@@ -526,12 +555,13 @@ export class ImageNode extends AtomicNode<Image> {
     const imageHeight = block.height ?? defaultImageHeight;
 
     if (mode === "full") {
-      // Full width: edge-to-edge, ignoring page padding.
+      // Full width: edge-to-edge, ignoring page padding. Height via the shared
+      // helper so the host-facing `imageBleedHeight` can't disagree with paint.
       return {
         displayX: 0,
         displayWidth:
           c.maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight,
-        displayHeight: block.url ? imageHeight : placeholderHeight,
+        displayHeight: imageBleedHeight(block, styles) ?? placeholderHeight,
       };
     }
 
@@ -587,6 +617,17 @@ export class ImageNode extends AtomicNode<Image> {
   }
 
   /**
+   * Whether this block draws as a cover: the document's first visible block in
+   * full-width mode, bled up into the top canvas padding for an edge-to-edge
+   * look. The flow origin is untouched — only the drawn rect starts higher —
+   * so the top padding re-emerges as a strip *below* the image, which hosts
+   * use for page chrome (see {@link imageBleedHeight}).
+   */
+  protected bleedsIntoTopPadding(c: NodeLayoutCtx): boolean {
+    return c.isFirst && imageWidthMode(c.block as Image) === "full";
+  }
+
+  /**
    * The drawn image rect in `c`'s origin space — a first full-width image bleeds
    * up into the top padding for an edge-to-edge look (it keeps its drawn
    * dimensions but starts higher). Shared by paint ({@link paintBox}) and
@@ -596,19 +637,10 @@ export class ImageNode extends AtomicNode<Image> {
    */
   protected displayBox(c: NodeLayoutCtx & { origin: Point }): BlockBounds {
     const { displayX, displayWidth, displayHeight } = this.geometry(c);
-    const shouldBleed =
-      c.isFirst && imageWidthMode(c.block as Image) === "full";
-    const y = shouldBleed
+    const y = this.bleedsIntoTopPadding(c)
       ? c.origin.y - c.styles.canvas.paddingTop
       : c.origin.y;
     return { x: displayX, y, width: displayWidth, height: displayHeight };
-  }
-
-  adjustFlowHeight(height: number, c: NodeLayoutCtx): number {
-    if (c.isFirst && imageWidthMode(c.block as Image) === "full") {
-      return height - c.styles.canvas.paddingTop;
-    }
-    return height;
   }
 
   /**
@@ -893,8 +925,9 @@ export class ImageNode extends AtomicNode<Image> {
     const block = c.block as Image;
     const { displayX, displayWidth, displayHeight } = this.geometry(c);
 
-    const shouldBleed = c.isFirst && imageWidthMode(block) === "full";
-    const boxY = shouldBleed ? origin.y - c.styles.canvas.paddingTop : origin.y;
+    const boxY = this.bleedsIntoTopPadding(c)
+      ? origin.y - c.styles.canvas.paddingTop
+      : origin.y;
     const inside =
       point.x >= displayX &&
       point.x < displayX + displayWidth &&

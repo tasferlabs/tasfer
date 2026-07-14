@@ -99,6 +99,11 @@ export { cleanSnapshotForSave } from "./sync/reducer";
 // Shared image cache (content-addressed bitmaps) + failed-load reset.
 export { clearFailedImageCache, imageCache } from "./rendering/renderer";
 
+// Cover-image geometry: the drawn height (= document-space bottom edge) of a
+// first full-width image, which bleeds to the very top of the canvas. The host
+// positions page chrome (its tag row) directly below the cover with it.
+export { imageBleedHeight } from "./nodes/ImageNode";
+
 // Font internals not part of the curated font surface (`notifyFonts*` are root).
 // `getFontMetrics` lets a host lay out chrome around the same line boxes the
 // engine renders (e.g. vertically centering a compact single-line editor).
