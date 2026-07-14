@@ -1,104 +1,70 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ShieldAlert, X } from "lucide-react";
-import { useToast } from "@/app/components/Toast";
+import { Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  getPersistentStorageStatus,
-  requestPersistentStorage,
-} from "@/lib/persistentStorage";
+import { detectAdapter } from "@/platform";
+import { InstallAppDialog } from "./InstallAppDialog";
 
-/** Session-scoped so a dismissal can't hide the warning forever — on web the
- * browser may still evict the only copy of the user's data. */
-const DISMISSED_KEY = "storageBannerDismissed";
+const STANDALONE_QUERY = "(display-mode: standalone)";
+
+/** True when Cypher runs as an installed app (PWA or Add-to-Home-Screen). */
+function isInstalledDisplayMode(): boolean {
+  if (typeof window === "undefined") return false;
+  // iOS Safari home-screen apps predate the display-mode media query.
+  if ((navigator as { standalone?: boolean }).standalone === true) return true;
+  return window.matchMedia?.(STANDALONE_QUERY).matches ?? false;
+}
 
 /**
- * Sidebar warning shown while the origin's storage is still best-effort
- * (evictable). Renders nothing on native platforms, on browsers without the
- * Storage API, or once protection is granted. Settings → Data keeps the
- * always-available status row.
+ * Sidebar-bottom nudge shown while Cypher runs in a plain browser tab, where
+ * the only copy of the user's data sits in evictable browser storage. Opens
+ * the install dialog; hidden on native builds and installed PWAs, where
+ * storage is already out of the browser's cleanup reach.
  */
 export function StorageProtectionBanner() {
   const { t } = useTranslation();
-  const { toast } = useToast();
-  const [unprotected, setUnprotected] = useState(false);
-  const [dismissed, setDismissed] = useState(
-    () => sessionStorage.getItem(DISMISSED_KEY) === "1",
-  );
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [installed, setInstalled] = useState(isInstalledDisplayMode);
 
+  // An install can complete while the tab is open — Chrome flips the
+  // display-mode media query in place, so track it live.
   useEffect(() => {
-    let cancelled = false;
-    getPersistentStorageStatus().then((status) => {
-      if (!cancelled) setUnprotected(status === "unprotected");
-    });
-    return () => {
-      cancelled = true;
-    };
+    const mql = window.matchMedia?.(STANDALONE_QUERY);
+    if (!mql) return;
+    const update = () => setInstalled(isInstalledDisplayMode());
+    mql.addEventListener("change", update);
+    return () => mql.removeEventListener("change", update);
   }, []);
 
-  if (!unprotected || dismissed) return null;
-
-  const handleProtect = async () => {
-    const status = await requestPersistentStorage();
-    setUnprotected(status === "unprotected");
-    if (status === "protected") {
-      toast.success(
-        t(
-          "storage.protectionEnabled",
-          "Your local data is now protected from automatic cleanup.",
-        ),
-      );
-    } else {
-      toast({
-        message: t(
-          "storage.protectionDeclined",
-          "Your browser declined the request. Installing Cypher as an app usually helps — then try again.",
-        ),
-      });
-    }
-  };
-
-  const handleDismiss = () => {
-    sessionStorage.setItem(DISMISSED_KEY, "1");
-    setDismissed(true);
-  };
+  if (detectAdapter() !== "web" || installed) return null;
 
   return (
-    <div
-      role="status"
-      className="mx-2 mb-1 shrink-0 rounded-lg border border-amber-600/25 bg-amber-500/10 p-2.5 dark:border-amber-400/20 dark:bg-amber-400/10"
-    >
-      <div className="flex items-start gap-2">
-        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium text-foreground">
-            {t("storage.bannerTitle", "Storage protection is off")}
-          </p>
-          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+    <>
+      <div
+        role="status"
+        className="flex shrink-0 items-start gap-2.5 border-t border-border bg-[color-mix(in_oklab,var(--primary)_7%,var(--sidebar))] px-3.5 py-2.5"
+      >
+        <Shield className="mt-px size-4 shrink-0 text-primary" />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-[12.5px] font-semibold leading-[1.35] text-foreground">
+            {t("storage.bannerTitle", "Your notes live only in this browser")}
+          </span>
+          <span className="text-[11.5px] leading-[1.45] text-muted-foreground">
             {t(
               "storage.bannerDesc",
-              "Your browser can delete Cypher's local data when disk space runs low.",
+              "The browser can clear this storage. Install Cypher to keep them safe.",
             )}
-          </p>
+          </span>
+          <Button
+            size="xs"
+            className="mt-[5px] self-start rounded-[7px]"
+            onClick={() => setDialogOpen(true)}
+          >
+            {t("storage.protectCta", "Protect my notes")}
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="-me-1 -mt-1 text-muted-foreground hover:text-foreground"
-          onClick={handleDismiss}
-        >
-          <X />
-          <span className="sr-only">{t("common.dismiss", "Dismiss")}</span>
-        </Button>
       </div>
-      <Button
-        size="xs"
-        variant="outline"
-        className="mt-2 w-full border-amber-600/30 bg-transparent text-amber-700 hover:bg-amber-500/15 hover:text-amber-800 dark:border-amber-400/30 dark:bg-transparent dark:text-amber-300 dark:hover:bg-amber-400/15 dark:hover:text-amber-200"
-        onClick={handleProtect}
-      >
-        {t("storage.protect", "Protect data")}
-      </Button>
-    </div>
+      <InstallAppDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+    </>
   );
 }
