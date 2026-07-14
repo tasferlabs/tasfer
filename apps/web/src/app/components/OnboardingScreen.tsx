@@ -332,6 +332,23 @@ function SpacePick({
   onBack: () => void;
 }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [skipError, setSkipError] = useState("");
+
+  const { mutate: createSpace, isPending: isSkipping } = useCreateSpace({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["spaces"] });
+    },
+    onError: (err) => setSkipError(err.message),
+  });
+
+  // "Just continue" — the app needs at least one space to leave onboarding,
+  // so skipping the choice creates a default personal space silently.
+  function handleSkip() {
+    setSkipError("");
+    createSpace({ name: t("common.personal", "Personal") });
+  }
+
   return (
     <div className="ob-card">
       <div className="ob-icon-wrap">
@@ -379,9 +396,29 @@ function SpacePick({
         <ChevronRight size={16} strokeWidth={1.5} />
       </button>
 
+      {skipError && (
+        <p className="ob-error" role="alert">
+          {skipError}
+        </p>
+      )}
+
       <div className="ob-actions">
-        <button className="ob-btn ob-btn-ghost" onClick={onBack}>
+        <button
+          className="ob-btn ob-btn-ghost"
+          onClick={onBack}
+          disabled={isSkipping}
+        >
           {t("common.back", "Back")}
+        </button>
+        <button
+          className="ob-btn ob-btn-primary"
+          onClick={handleSkip}
+          disabled={isSkipping}
+        >
+          {isSkipping && (
+            <Loader2 size={15} strokeWidth={2} className="ob-spin-icon" />
+          )}
+          {t("onboarding.justContinue", "Just continue")}
         </button>
       </div>
     </div>
