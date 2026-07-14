@@ -34,6 +34,7 @@ import { useAssetUrl } from "../api/images.api";
 import { getDisplayName } from "@cypherkit/provider-core/cursors";
 import { useArchiveSpace } from "../api/spaces.api";
 import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
+import { StorageProtectionBanner } from "../components/StorageProtectionBanner";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { useToast, type ToastHandle } from "../components/Toast";
 import { movePageAcrossSpaces } from "@/lib/spaceMove";
@@ -824,6 +825,8 @@ export function SidebarContent({
               </DragOverlay>
             </div>
           </DndContext>
+
+          <StorageProtectionBanner />
 
           {!shouldShowTheProfileAtTop && (
             <div className={style.appSidebarFooter}>
