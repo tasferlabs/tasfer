@@ -1,5 +1,11 @@
 import { Trans, useTranslation } from "react-i18next";
-import { ChevronRight, Lock, Terminal } from "lucide-react";
+import { Star, Terminal } from "lucide-react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -8,8 +14,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { detectDeviceType } from "@/platform";
+import useResponsive from "../hooks/useResponsive";
 
 /**
  * Where each "install" button points. Desktop builds ship from GitHub
@@ -22,6 +35,30 @@ const DOWNLOAD_LINKS = {
   appStore: "https://apps.apple.com/app/cypher",
   googlePlay: "https://play.google.com/store/apps/details?id=md.cypher.app",
 };
+
+/**
+ * The one web-install path relevant to this client, so the dialog shows a
+ * single set of instructions instead of every platform's:
+ *  - "ios" / "android" — phones and tablets (Add to Home Screen steps)
+ *  - "safari" / "chromium" — desktop browsers that can install the PWA
+ *  - "none" — desktop browsers without PWA install (e.g. Firefox); the
+ *    web-install section is hidden and the desktop app leads.
+ */
+type InstallTarget = "ios" | "android" | "safari" | "chromium" | "none";
+
+function detectInstallTarget(): InstallTarget {
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  const deviceType = detectDeviceType();
+  if (deviceType === "phone" || deviceType === "tablet") {
+    // iPadOS reports a "Macintosh" UA; detectDeviceType already classified it
+    // as a tablet by touch support, so any Apple UA here means iOS/iPadOS.
+    return /iPad|iPhone|iPod|Macintosh/i.test(ua) ? "ios" : "android";
+  }
+  // Every Chromium-based desktop browser carries "Chrome/"; Safari does not.
+  if (/Chrome\//.test(ua)) return "chromium";
+  if (/Safari\//.test(ua)) return "safari";
+  return "none";
+}
 
 /* The instruction glyphs below reproduce the icons users actually see in
  * their browser chrome, so the mock UI is recognizable at a glance. The
@@ -76,6 +113,21 @@ function PlusAppIcon(props: React.SVGProps<SVGSVGElement>) {
       <rect x="3" y="3" width="18" height="18" rx="5" />
       <path d="M12 8v8" />
       <path d="M8 12h8" />
+    </svg>
+  );
+}
+
+/** Material `tune` — Chrome's site-info button (replaced the padlock). */
+function TuneIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      {...props}
+    >
+      <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
     </svg>
   );
 }
@@ -141,21 +193,7 @@ function WindowsLogo(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-function GooglePlayLogo(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      {...props}
-    >
-      <path d="M4 3.5v17c0 .6.7 1 1.2.7l14.6-8.5c.5-.3.5-1 0-1.3L5.2 2.8C4.7 2.5 4 2.9 4 3.5z" />
-    </svg>
-  );
-}
-
-/** Uppercase section label inside an instructions tab ("Safari", …). */
+/** Uppercase browser label inside an instructions block ("Safari", …). */
 function StepLabel({ children }: { children: React.ReactNode }) {
   return (
     <span className="text-[11.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
@@ -164,136 +202,113 @@ function StepLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** A mock browser-UI button in a step-by-step instruction row. */
-function StepPill({
-  className,
-  children,
-}: {
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <span
-      className={
-        "inline-flex items-center gap-2 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-[13px] text-foreground " +
-        (className ?? "")
-      }
-    >
-      {children}
-    </span>
-  );
-}
-
-function StepArrow() {
-  return (
-    <ChevronRight className="size-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-  );
-}
-
-/** Muted explainer line under a set of visual instructions. */
+/**
+ * Instruction line with browser-UI glyphs inlined into the sentence, so the
+ * icons read as references to the user's own browser chrome — not as buttons
+ * in our UI that could be tapped instead.
+ */
 function StepHelp({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-[13px] leading-[1.55] text-muted-foreground">
+    <span className="text-[13px] leading-[1.7] text-muted-foreground [&_svg]:mx-px [&_svg]:inline [&_svg]:size-[15px] [&_svg]:align-[-3px] [&_svg]:text-foreground">
       {children}
     </span>
   );
 }
 
-function DesktopInstallInstructions() {
+function DesktopInstallInstructions({
+  target,
+}: {
+  target: "safari" | "chromium";
+}) {
   const { t } = useTranslation();
-  return (
-    <div className="flex flex-col gap-5 pt-3.5">
-      <div className="flex flex-col gap-2.5">
-        <StepLabel>
-          {t("install.chromiumLabel", "Chrome · Edge · Brave")}
-        </StepLabel>
-        {/* Mock address bar with the install icon highlighted */}
-        <div className="flex items-center gap-2 rounded-full border border-border bg-muted py-[7px] pe-2 ps-3.5">
-          <Lock className="size-3 shrink-0 text-muted-foreground" />
-          <span
-            className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground"
-            dir="ltr"
-          >
-            {window.location.hostname}
-          </span>
-          <span className="flex size-[26px] shrink-0 items-center justify-center rounded-[7px] bg-background text-primary ring-2 ring-primary">
-            <InstallDesktopIcon />
-          </span>
-        </div>
-        <StepHelp>
-          <Trans
-            i18nKey="install.chromiumHelp"
-            defaults="Click the highlighted <bold>install icon</bold> at the right end of the address bar, then choose <bold>Install</bold>."
-            components={{ bold: <strong className="text-foreground" /> }}
-          />
-        </StepHelp>
-      </div>
+
+  if (target === "safari") {
+    return (
       <div className="flex flex-col gap-2.5">
         <StepLabel>{t("install.safariLabel", "Safari")}</StepLabel>
-        <div className="flex items-center gap-2.5">
-          <StepPill>
-            <AppleShareIcon className="size-3.5 text-primary" />
-            {t("install.share", "Share")}
-          </StepPill>
-          <StepArrow />
-          <StepPill>{t("install.addToDock", "Add to Dock")}</StepPill>
-        </div>
         <StepHelp>
           <Trans
             i18nKey="install.safariHelp"
-            defaults="Click <bold>Share</bold> in the toolbar, then <bold>Add to Dock</bold>."
-            components={{ bold: <strong className="text-foreground" /> }}
+            defaults="Click <shareIcon /> <bold>Share</bold> in the toolbar, then choose <bold>Add to Dock</bold>."
+            components={{
+              bold: <strong className="text-foreground" />,
+              shareIcon: <AppleShareIcon />,
+            }}
           />
         </StepHelp>
       </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <StepLabel>
+        {t("install.chromiumLabel", "Chrome · Edge · Brave")}
+      </StepLabel>
+      {/* Mock Chrome omnibox: a borderless filled pill with the tune
+          (site-info) icon on the left and the install icon at the right end
+          beside the bookmark star — mirroring the real toolbar so the
+          highlighted icon is recognizable in the user's own browser. */}
+      <div className="flex items-center gap-2.5 rounded-full bg-muted py-[7px] pe-2.5 ps-3.5">
+        <TuneIcon className="size-[15px] shrink-0 text-muted-foreground" />
+        <span
+          className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground"
+          dir="ltr"
+        >
+          {window.location.hostname}
+        </span>
+        <span className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-background text-primary ring-2 ring-primary">
+          <InstallDesktopIcon />
+        </span>
+        <Star className="size-[15px] shrink-0 text-muted-foreground" />
+      </div>
+      <StepHelp>
+        <Trans
+          i18nKey="install.chromiumHelp"
+          defaults="Click the highlighted <bold>install icon</bold> at the right end of the address bar, then choose <bold>Install</bold>."
+          components={{ bold: <strong className="text-foreground" /> }}
+        />
+      </StepHelp>
     </div>
   );
 }
 
-function MobileInstallInstructions() {
+function MobileInstallInstructions({ target }: { target: "ios" | "android" }) {
   const { t } = useTranslation();
-  return (
-    <div className="flex flex-col gap-5 pt-3.5">
+
+  if (target === "ios") {
+    return (
       <div className="flex flex-col gap-2.5">
         <StepLabel>{t("install.iosLabel", "iPhone · iPad (Safari)")}</StepLabel>
-        <div className="flex items-center gap-2.5">
-          <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px] border border-border bg-muted text-primary">
-            <AppleShareIcon className="size-4" />
-          </span>
-          <StepArrow />
-          <StepPill className="rounded-[9px] px-3">
-            {t("install.addToHomeScreenIos", "Add to Home Screen")}
-            <PlusAppIcon className="size-[15px] text-muted-foreground" />
-          </StepPill>
-        </div>
         <StepHelp>
           <Trans
             i18nKey="install.iosHelp"
-            defaults="Tap <bold>Share</bold> in the Safari toolbar, then <bold>Add to Home Screen</bold>."
-            components={{ bold: <strong className="text-foreground" /> }}
+            defaults="Tap <shareIcon /> <bold>Share</bold> in the Safari toolbar, then <bold>Add to Home Screen</bold> <plusIcon />."
+            components={{
+              bold: <strong className="text-foreground" />,
+              shareIcon: <AppleShareIcon />,
+              plusIcon: <PlusAppIcon />,
+            }}
           />
         </StepHelp>
       </div>
-      <div className="flex flex-col gap-2.5">
-        <StepLabel>{t("install.androidLabel", "Android (Chrome)")}</StepLabel>
-        <div className="flex items-center gap-2.5">
-          <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px] border border-border bg-muted text-foreground">
-            <MoreVertIcon className="size-4" />
-          </span>
-          <StepArrow />
-          <StepPill className="rounded-[9px] px-3">
-            {t("install.addToHomeScreenAndroid", "Add to Home screen")}
-            <AddToHomeScreenIcon className="size-[15px] text-muted-foreground" />
-          </StepPill>
-        </div>
-        <StepHelp>
-          <Trans
-            i18nKey="install.androidHelp"
-            defaults="Tap the <bold>⋮ menu</bold> in Chrome, then <bold>Add to Home screen</bold>."
-            components={{ bold: <strong className="text-foreground" /> }}
-          />
-        </StepHelp>
-      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <StepLabel>{t("install.androidLabel", "Android (Chrome)")}</StepLabel>
+      <StepHelp>
+        <Trans
+          i18nKey="install.androidHelp"
+          defaults="Tap the <moreIcon /> <bold>menu</bold> in Chrome, then <bold>Add to Home screen</bold> <addIcon />."
+          components={{
+            bold: <strong className="text-foreground" />,
+            moreIcon: <MoreVertIcon />,
+            addIcon: <AddToHomeScreenIcon />,
+          }}
+        />
+      </StepHelp>
     </div>
   );
 }
@@ -317,12 +332,155 @@ function DownloadButton({
   );
 }
 
+/** Titled block for one install path ("Add to Home Screen", "Desktop App"…). */
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-2.5">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function DesktopAppDownloads() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col gap-3.5">
+      <p className="text-[13px] leading-[1.55] text-muted-foreground">
+        {t(
+          "install.desktopIntro",
+          "The desktop app keeps your notes in its own storage, fully out of the browser's reach.",
+        )}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <DownloadButton href={DOWNLOAD_LINKS.desktop} icon={<AppleLogo />}>
+          {t("install.downloadMac", "Download for macOS")}
+        </DownloadButton>
+        <DownloadButton href={DOWNLOAD_LINKS.desktop} icon={<WindowsLogo />}>
+          {t("install.downloadWindows", "Download for Windows")}
+        </DownloadButton>
+        <DownloadButton
+          href={DOWNLOAD_LINKS.desktop}
+          icon={<Terminal className="size-[15px]" />}
+        >
+          {t("install.downloadLinux", "Download for Linux")}
+        </DownloadButton>
+      </div>
+    </div>
+  );
+}
+
+/** Official App Store / Google Play badges (same artwork as MobileAppGate). */
+function MobileAppBadges() {
+  const { t } = useTranslation();
+  const base = import.meta.env.BASE_URL;
+  return (
+    <div className="flex flex-col gap-3.5">
+      <p className="text-[13px] leading-[1.55] text-muted-foreground">
+        {t(
+          "install.mobileIntro",
+          "Native apps for your phone, with the same notes synced across your devices.",
+        )}
+      </p>
+      <div className="flex flex-wrap items-center gap-2.5">
+        <a
+          href={DOWNLOAD_LINKS.appStore}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-[8px] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <img
+            src={`${base}badges/app-store.svg`}
+            alt={t("install.appStore", "Download on the App Store")}
+            className="h-10 w-auto"
+          />
+        </a>
+        <a
+          href={DOWNLOAD_LINKS.googlePlay}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-[8px] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <img
+            src={`${base}badges/play-store.svg`}
+            alt={t("install.googlePlay", "Get it on Google Play")}
+            className="h-10 w-auto"
+          />
+        </a>
+      </div>
+    </div>
+  );
+}
+
 /**
- * "Protect your notes" install dialog, opened from the sidebar storage
- * banner. Web-only data lives in evictable browser storage; every tab of this
- * dialog is a way to move Cypher out of that: installing the PWA, the desktop
- * app, or the native mobile apps. The first tab adapts to the device — PWA
- * install steps on desktop, Add-to-Home-Screen steps on phones and tablets.
+ * Install paths ordered by relevance to this device: the ones that apply are
+ * shown expanded, the rest sit behind a "More ways to install" collapsible so
+ * a phone user isn't scanning desktop instructions (and vice versa).
+ */
+function InstallOptions() {
+  const { t } = useTranslation();
+  const target = detectInstallTarget();
+  const isMobileDevice = target === "ios" || target === "android";
+
+  const webInstall = target !== "none" && (
+    <Section
+      title={
+        isMobileDevice
+          ? t("install.addToHomeScreen", "Add to Home Screen")
+          : t("install.installWebApp", "Install Web App")
+      }
+    >
+      {isMobileDevice ? (
+        <MobileInstallInstructions target={target} />
+      ) : (
+        <DesktopInstallInstructions target={target} />
+      )}
+    </Section>
+  );
+
+  const desktopApp = (
+    <Section title={t("install.desktopApp", "Desktop App")}>
+      <DesktopAppDownloads />
+    </Section>
+  );
+
+  const mobileApps = (
+    <Section title={t("install.mobileApps", "Mobile Apps")}>
+      <MobileAppBadges />
+    </Section>
+  );
+
+  return (
+    <div className="flex flex-col gap-6">
+      {webInstall}
+      {isMobileDevice ? mobileApps : desktopApp}
+      <Accordion type="single" collapsible className="-my-2">
+        <AccordionItem value="more" className="border-b-0">
+          <AccordionTrigger className="py-2 text-[13px] text-muted-foreground">
+            {t("install.moreOptions", "More ways to install")}
+          </AccordionTrigger>
+          <AccordionContent className="pt-1.5 pb-2">
+            {isMobileDevice ? desktopApp : mobileApps}
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
+  );
+}
+
+/**
+ * "Protect your notes" install prompt, opened from the sidebar storage
+ * banner. Web-only data lives in evictable browser storage; every section is
+ * a way to move Cypher out of that: installing the PWA, the desktop app, or
+ * the native mobile apps. The sections that apply to the current device are
+ * expanded; the rest are collapsed. Renders as a bottom drawer on mobile
+ * viewports and a centered dialog elsewhere.
  */
 export function InstallAppDialog({
   open,
@@ -332,8 +490,32 @@ export function InstallAppDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const deviceType = detectDeviceType();
-  const isMobile = deviceType === "phone" || deviceType === "tablet";
+  const isMobileViewport = useResponsive("(max-width: 768px)");
+
+  if (isMobileViewport) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          <div className="mx-auto flex w-full max-w-sm flex-col pb-6">
+            <DrawerHeader>
+              <DrawerTitle>
+                {t("install.title", "Protect your notes")}
+              </DrawerTitle>
+              <DrawerDescription>
+                {t(
+                  "install.description",
+                  "Right now your notes sit in browser storage, which the browser may clear to free up space. Installing Cypher moves them to protected storage.",
+                )}
+              </DrawerDescription>
+            </DrawerHeader>
+            <div className="flex flex-col gap-5 px-4">
+              <InstallOptions />
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -343,98 +525,11 @@ export function InstallAppDialog({
           <DialogDescription>
             {t(
               "install.description",
-              "Right now your encrypted notes sit in browser storage, which the browser may clear to free up space. Installing Cypher moves them to protected storage.",
+              "Right now your notes sit in browser storage, which the browser may clear to free up space. Installing Cypher moves them to protected storage.",
             )}
           </DialogDescription>
         </DialogHeader>
-
-        <Tabs defaultValue="install">
-          <TabsList className="w-full">
-            <TabsTrigger value="install">
-              {isMobile
-                ? t("install.tabInstallMobile", "Add to Home Screen")
-                : t("install.tabInstallDesktop", "Install Web App")}
-            </TabsTrigger>
-            <TabsTrigger value="desktop">
-              {t("install.tabDesktop", "Desktop App")}
-            </TabsTrigger>
-            <TabsTrigger value="mobile">
-              {t("install.tabMobile", "Mobile Apps")}
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="install">
-            {isMobile ? (
-              <MobileInstallInstructions />
-            ) : (
-              <DesktopInstallInstructions />
-            )}
-          </TabsContent>
-
-          <TabsContent value="desktop">
-            <div className="flex flex-col gap-4 pt-3.5">
-              <p className="text-[13px] leading-[1.55] text-muted-foreground">
-                {t(
-                  "install.desktopIntro",
-                  "The strongest protection — the desktop app keeps your encrypted notes in its own storage, fully out of the browser's reach.",
-                )}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <DownloadButton
-                  href={DOWNLOAD_LINKS.desktop}
-                  icon={<AppleLogo />}
-                >
-                  {t("install.downloadMac", "Download for macOS")}
-                </DownloadButton>
-                <DownloadButton
-                  href={DOWNLOAD_LINKS.desktop}
-                  icon={<WindowsLogo />}
-                >
-                  {t("install.downloadWindows", "Download for Windows")}
-                </DownloadButton>
-                <DownloadButton
-                  href={DOWNLOAD_LINKS.desktop}
-                  icon={<Terminal className="size-[15px]" />}
-                >
-                  {t("install.downloadLinux", "Download for Linux")}
-                </DownloadButton>
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="mobile">
-            <div className="flex flex-col gap-4 pt-3.5">
-              <p className="text-[13px] leading-[1.55] text-muted-foreground">
-                {t(
-                  "install.mobileIntro",
-                  "Native apps for your phone, with the same end-to-end encrypted sync between your devices.",
-                )}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <DownloadButton
-                  href={DOWNLOAD_LINKS.appStore}
-                  icon={<AppleLogo />}
-                >
-                  {t("install.appStore", "Download on the App Store")}
-                </DownloadButton>
-                <DownloadButton
-                  href={DOWNLOAD_LINKS.googlePlay}
-                  icon={<GooglePlayLogo />}
-                >
-                  {t("install.googlePlay", "Get it on Google Play")}
-                </DownloadButton>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
-
-        <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
-          <Lock className="size-[13px] shrink-0 text-primary" />
-          {t(
-            "install.footerNote",
-            "Your notes stay end-to-end encrypted on your device — installing only protects them from browser cleanup.",
-          )}
-        </div>
+        <InstallOptions />
       </DialogContent>
     </Dialog>
   );

@@ -400,6 +400,17 @@
   color: var(--foreground);
 }
 
+/* Coarse pointers have no hover, so the chevron occupies the toggle
+   full-time and the page color moves to its own dot beside it. Fine
+   pointers never show this dot — the blob lives inside the toggle. */
+.touchBlob {
+  display: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 @media (pointer: coarse) {
   .collapseBlob {
     opacity: 0;
@@ -407,6 +418,10 @@
 
   .collapseAction .collapseIcon {
     opacity: 1;
+  }
+
+  .touchBlob {
+    display: block;
   }
 }
 

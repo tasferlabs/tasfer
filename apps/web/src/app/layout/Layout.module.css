@@ -545,9 +545,9 @@
 
 /*
  * The space icon slot doubles as the collapse indicator (Notion-style
- * swap): the box glyph at rest, replaced by the chevron on a translucent
- * pad when the header is hovered or focused. Coarse pointers have no
- * hover, so they always get the chevron.
+ * swap): the box glyph at rest, replaced by the chevron on its own pad
+ * when the header is hovered or focused. Touch has no hover, so it keeps
+ * the glyph; the whole header is the toggle there.
  */
 .appSidebarSectionIcon {
   position: relative;
@@ -556,7 +556,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
   flex-shrink: 0;
 }
 
@@ -598,15 +597,6 @@
   opacity: 1;
 }
 
-@media (pointer: coarse) {
-  .appSidebarSpaceGlyph {
-    opacity: 0;
-  }
-
-  .appSidebarCollapseIcon {
-    opacity: 1;
-  }
-}
 
 .appSidebarSection .appSidebarSectionButton:first-of-type {
   margin-inline-start: auto;

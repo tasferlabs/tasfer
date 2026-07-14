@@ -404,6 +404,15 @@ export function PageLink({
               {t("page.openSubPages", "Open sub pages")}
             </VisuallyHidden>
           </button>
+          <span
+            className={clsx(
+              style.touchBlob,
+              !resolvedColor && style.collapseBlobDefault,
+            )}
+            style={{
+              backgroundColor: resolvedColor || "var(--page-color-default)",
+            }}
+          />
           <div className={style.linkTitle}>
             <span
               role="link"

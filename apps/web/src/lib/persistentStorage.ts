@@ -22,6 +22,23 @@ export type PersistentStorageStatus =
   | "unsupported"
   | "native";
 
+/**
+ * Window event fired after each {@link requestPersistentStorage} call with the
+ * resulting status as `detail`. There is no browser event for persistence
+ * changes, so surfaces that reflect the status (e.g. the sidebar storage
+ * banner) listen for this instead of re-polling.
+ */
+export const PERSISTENT_STORAGE_STATUS_EVENT =
+  "cypher:persistent-storage-status";
+
+function dispatchStatus(status: PersistentStorageStatus): void {
+  window.dispatchEvent(
+    new CustomEvent<PersistentStorageStatus>(PERSISTENT_STORAGE_STATUS_EVENT, {
+      detail: status,
+    }),
+  );
+}
+
 /** Current protection status, without prompting the user. */
 export async function getPersistentStorageStatus(): Promise<PersistentStorageStatus> {
   if (detectAdapter() !== "web") return "native";
@@ -39,12 +56,16 @@ export async function getPersistentStorageStatus(): Promise<PersistentStorageSta
  * status.
  */
 export async function requestPersistentStorage(): Promise<PersistentStorageStatus> {
-  if (detectAdapter() !== "web") return "native";
-  if (!navigator.storage?.persist) return "unsupported";
-  try {
-    if (await navigator.storage.persisted()) return "protected";
-    return (await navigator.storage.persist()) ? "protected" : "unprotected";
-  } catch {
-    return "unsupported";
-  }
+  const status = await (async (): Promise<PersistentStorageStatus> => {
+    if (detectAdapter() !== "web") return "native";
+    if (!navigator.storage?.persist) return "unsupported";
+    try {
+      if (await navigator.storage.persisted()) return "protected";
+      return (await navigator.storage.persist()) ? "protected" : "unprotected";
+    } catch {
+      return "unsupported";
+    }
+  })();
+  dispatchStatus(status);
+  return status;
 }

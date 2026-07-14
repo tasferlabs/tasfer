@@ -844,13 +844,24 @@ export function OnboardingScreen() {
     const reveal = () =>
       focused?.scrollIntoView({ block: "center", behavior: "smooth" });
 
+    // iOS Safari reveals a focused field by scrolling the layout viewport —
+    // bypassing the app shell's html/body overflow:hidden — which drags the
+    // pinned shell (and this card) off the top of the screen and never brings
+    // it back. The document is never legitimately scrolled (every route
+    // scrolls internally), so any window scroll is that pan: undo it and let
+    // the shrunken wrap scroll the field into view instead.
+    const pinViewport = () => {
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      reveal();
+    };
+
     const syncHeight = () => {
       if (nativeReported) {
         wrap.style.height = `calc(100dvh - ${nativeKeyboard}px)`;
       } else if (vv) {
         wrap.style.height = `${vv.height}px`;
       }
-      reveal();
+      pinViewport();
     };
 
     const onFocusIn = (e: FocusEvent) => {
@@ -858,7 +869,7 @@ export function OnboardingScreen() {
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
         focused = el;
         // Wait for the keyboard/viewport to settle before scrolling.
-        window.setTimeout(reveal, 350);
+        window.setTimeout(pinViewport, 350);
       }
     };
     const onFocusOut = () => {
@@ -888,13 +899,17 @@ export function OnboardingScreen() {
 
     syncHeight();
     vv?.addEventListener("resize", syncHeight);
-    vv?.addEventListener("scroll", reveal);
+    vv?.addEventListener("scroll", pinViewport);
+    // Safari's focus pan lands on the layout viewport, which fires `scroll`
+    // on window (not on visualViewport) — catch and undo it there.
+    window.addEventListener("scroll", pinViewport);
     wrap.addEventListener("focusin", onFocusIn);
     wrap.addEventListener("focusout", onFocusOut);
     window.addEventListener("message", onNativeKeyboard);
     return () => {
       vv?.removeEventListener("resize", syncHeight);
-      vv?.removeEventListener("scroll", reveal);
+      vv?.removeEventListener("scroll", pinViewport);
+      window.removeEventListener("scroll", pinViewport);
       wrap.removeEventListener("focusin", onFocusIn);
       wrap.removeEventListener("focusout", onFocusOut);
       window.removeEventListener("message", onNativeKeyboard);
