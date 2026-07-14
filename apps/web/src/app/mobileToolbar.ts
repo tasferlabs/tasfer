@@ -344,11 +344,13 @@ export function buildMathRow(
 }
 
 /**
- * The active `\command` being typed in math text (a block equation, or the LaTeX
- * of an inline chip — both live in the block's text), or null. Mirrors the
- * floating menu's detection: the nearest `\` before the caret followed only by
- * letters (a space/brace/digit ends a command name). An empty query (the `\`
- * just typed) still counts as active — it surfaces the full ranked list.
+ * The active `\command` being typed in FLAT math text (an inline chip whose
+ * LaTeX lives literally in the block's text), or null. Tree-backed math reads
+ * the run from the raw-text field instead (`treeMathCommandRun`) — its
+ * projected source is not a faithful echo of what was typed. Detection: the
+ * nearest `\` before the caret followed only by letters (a space/brace/digit
+ * ends a command name). An empty query (the `\` just typed) still counts as
+ * active — it surfaces the full ranked list.
  */
 export function activeBlockMathCommand(
   text: string,

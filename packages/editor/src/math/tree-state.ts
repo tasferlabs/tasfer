@@ -23,7 +23,6 @@ import { findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { deleteCharsInRange, orderKeyAfter } from "../sync/crdt-utils";
-import { createDeterministicIdentityAllocator } from "../sync/id";
 import {
   applyOp,
   findNextVisibleBlockIndex,
@@ -741,12 +740,7 @@ function prepareMathTreeMigration(
 
   if (!("charRuns" in block)) return undefined;
   const latex = getVisibleTextFromRuns(block.charRuns);
-  const init = parseLegacyMathDocumentInit(latex, {
-    contentId,
-    identityAllocator: createDeterministicIdentityAllocator(
-      `math/${encodeURIComponent(contentId)}/legacy`,
-    ),
-  });
+  const init = parseLegacyMathDocumentInit(latex, { contentId });
   const math = structuredToMathDocument(init.document);
   if (!math) return undefined;
   const flatSelection = state.document.selection;

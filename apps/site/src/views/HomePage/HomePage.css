@@ -373,7 +373,6 @@
   line-height: 1.75;
   color: var(--fg);
   margin: 0 0 26px;
-  max-width: 60ch;
 }
 .lp-prose p:last-child {
   margin-bottom: 0;
@@ -403,6 +402,58 @@
   border-left: 2px solid var(--primary);
   max-width: 28ch;
   letter-spacing: -0.01em;
+}
+
+/* ------------------------------------------------------------
+   Definition — what Cypher is, plainly
+   ------------------------------------------------------------ */
+
+.lp-define-lede {
+  font-size: 19px;
+  line-height: 1.65;
+  color: var(--cy-muted-fg);
+  max-width: 52ch;
+  margin: 0;
+}
+
+.lp-define-facts {
+  display: flex;
+  gap: clamp(28px, 6vw, 72px);
+  flex-wrap: wrap;
+  margin: 0 0 44px;
+}
+.lp-define-fact dt {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cy-muted-fg);
+  margin-bottom: 6px;
+}
+.lp-define-fact dd {
+  margin: 0;
+  font-size: 18px;
+  color: var(--fg);
+}
+.lp-define-fact dd a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--cy-muted-fg);
+  text-underline-offset: 3px;
+  transition: color var(--cy-duration-fast);
+}
+.lp-define-fact dd a:hover {
+  color: var(--primary);
+  text-decoration-color: var(--primary);
+}
+
+.lp-btn-accent {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+.lp-btn-accent:hover {
+  background: oklch(from var(--primary) calc(l + 0.06) c h);
+  border-color: oklch(from var(--primary) calc(l + 0.06) c h);
 }
 
 /* ------------------------------------------------------------
@@ -558,15 +609,6 @@
 }
 .lp-refusal .column {
   max-width: 1080px;
-}
-#repo .column {
-  max-width: 1080px;
-}
-#repo .lp-section-title,
-#repo .lp-prose {
-  max-width: 720px;
-  margin-left: auto;
-  margin-right: auto;
 }
 .lp-refusal-list {
   list-style: none;
@@ -771,17 +813,11 @@
 .lp-repo {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 32px;
-  align-items: center;
+  gap: 40px;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   padding: 56px 0;
   margin-top: 48px;
-}
-@media (min-width: 720px) {
-  .lp-repo {
-    grid-template-columns: 1fr auto;
-  }
 }
 .lp-repo-title {
   font-family: var(--font-editorial);

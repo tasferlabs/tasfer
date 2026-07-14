@@ -702,12 +702,8 @@ export default function HomePage() {
               )}
             </p>
             <div className="lp-hero-actions">
-              <a
-                className="lp-btn lp-btn-primary"
-                href="#premise"
-                onClick={scrollTo("premise")}
-              >
-                {t("home.lp.hero.readCase", "read the case")}
+              <a className="lp-btn lp-btn-accent" href={APP_OPEN_URL}>
+                {t("home.lp.hero.open", "open cypher")}
                 <Icons.Arrow />
               </a>
               {showInstall && (
@@ -733,9 +729,64 @@ export default function HomePage() {
               <span>
                 {t(
                   "home.lp.hero.metaTail",
-                  "0 accounts · 0 trackers · you choose when to share",
+                  "0 accounts · 0 trackers · you choose what to share",
                 )}
               </span>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Definition — what Cypher is, plainly ── */}
+        <section id="definition" className="lp-section lp-define">
+          <div className="column">
+            <h2 className="lp-section-title">
+              {t("home.lp.define.titleA", "Cypher is a ")}
+              <em>{t("home.lp.define.titleEm", "markdown editor")}</em>
+              {t("home.lp.define.titleB", ".")}
+            </h2>
+            <p className="lp-define-lede">
+              {t(
+                "home.lp.define.lede",
+                "An app you write in. Notes, drafts, journals — stored on your own disk, encrypted end-to-end when they travel, synced device-to-device with no server and no account.",
+              )}
+            </p>
+            <blockquote className="lp-pullquote">
+              {t(
+                "home.lp.define.pull",
+                "A place to write, an encrypted way to carry it, and the source code to prove both. That is the whole product.",
+              )}
+            </blockquote>
+            <dl className="lp-define-facts">
+              <div className="lp-define-fact">
+                <dt>{t("home.lp.define.fact.storageK", "storage")}</dt>
+                <dd>{t("home.lp.define.fact.storageV", "your disk")}</dd>
+              </div>
+              <div className="lp-define-fact">
+                <dt>{t("home.lp.define.fact.syncK", "sync")}</dt>
+                <dd>{t("home.lp.define.fact.syncV", "device ⇔ device")}</dd>
+              </div>
+              <div className="lp-define-fact">
+                <dt>{t("home.lp.define.fact.priceK", "price")}</dt>
+                <dd>
+                  <a
+                    href={`${REPO_URL}/blob/main/LICENSE`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t("home.lp.define.fact.priceV", "AGPL-3.0")}
+                  </a>
+                </dd>
+              </div>
+            </dl>
+            <div className="lp-define-actions">
+              <a
+                className="lp-btn lp-btn-primary"
+                href="#premise"
+                onClick={scrollTo("premise")}
+              >
+                {t("home.lp.define.readCase", "read the case")}
+                <Icons.Arrow />
+              </a>
             </div>
           </div>
         </section>
@@ -911,7 +962,7 @@ export default function HomePage() {
                   </a>
                 </div>
               </div>
-              <div className="lp-repo-stats">
+              {/* <div className="lp-repo-stats">
                 <div className="lp-repo-stat">
                   <span className="v">AGPL-3.0</span>
                   <span className="k">
@@ -938,7 +989,7 @@ export default function HomePage() {
                     {t("home.lp.repo.stat.swapK", "the relay")}
                   </span>
                 </div>
-              </div>
+              </div> */}
             </div>
           </div>
         </section>

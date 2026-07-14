@@ -41,7 +41,6 @@ import {
   deleteActiveInlineMathTree,
   enterAdjacentInlineMathTreeHorizontally,
   enterInlineMathTreeAtPosition,
-  exitActiveInlineMathTreeForBlockSplit,
   exitActiveInlineMathTreeHorizontally,
   exitActiveInlineMathTreeSelectionHorizontally,
   extendActiveInlineMathTreeSelectionHorizontally,
@@ -51,6 +50,7 @@ import {
   moveActiveInlineMathTreeCaret,
   moveActiveInlineMathTreeCaretVertically,
   ownsInlineMathTreeDelete,
+  prepareInlineMathTreeForBlockSplit,
   resizeActiveInlineMathTreeMatrix,
 } from "../../math/inline-tree-state";
 import {
@@ -471,12 +471,14 @@ export class MathMark extends Mark {
     bus.registerState(DELETE_FORWARD, remove("forward"), 110);
     bus.registerState(DELETE_WORD_FORWARD, remove("forward"), 110);
     // Enter cannot reach the generic block split while a structured mark owns
-    // the caret (nested selection deliberately clears the flat cursor). Move
-    // to the chip's safe trailing boundary, then let the normal SPLIT_BLOCK
-    // handlers/default continue with the threaded state.
+    // the caret (nested selection deliberately clears the flat cursor).
+    // Mid-formula the chip is first divided into two attached chips with the
+    // flat caret on their seam; at an edge the caret just exits. Either way
+    // the normal SPLIT_BLOCK handlers/default continue with the threaded
+    // state and split the block at that caret.
     bus.registerState(
       SPLIT_BLOCK,
-      (state) => exitActiveInlineMathTreeForBlockSplit(state),
+      (state) => prepareInlineMathTreeForBlockSplit(state),
       110,
     );
 

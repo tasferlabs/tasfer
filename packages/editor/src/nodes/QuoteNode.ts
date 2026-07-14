@@ -10,6 +10,7 @@ import {
   registerEmptyBlockBackspaceExit,
   SPLIT_BLOCK,
 } from "../actions/edit-actions";
+import { cardFlowMargins } from "../node-shared";
 import type {
   BlockRuntimeState,
   NodeLayout,
@@ -103,7 +104,10 @@ export class QuoteNode extends TextNode {
     // edge reads as one card with reduced internal spacing rather than two full
     // pads stacked. `prevType` is the neighbour hint stamped by getVisibleBlocks;
     // a flip clears this block's layout cache, so the reduced inset recomputes.
-    return block.prevType === "quote" ? quote.joinedPaddingY : quote.paddingY;
+    // A free edge additionally carries the outer card margin (zero against any
+    // adjacent card) so prose keeps clear of the card surface.
+    if (block.prevType === "quote") return quote.joinedPaddingY;
+    return cardFlowMargins(block, quote).top + quote.paddingY;
   }
 
   protected override contentPaddingBottom(
@@ -113,9 +117,8 @@ export class QuoteNode extends TextNode {
     const quote = styles.blocks.quote;
     // Mirror of contentInsetY for the bottom edge: a quote followed by a quote
     // shrinks its trailing space so the two halves of the seam are symmetric.
-    return block.nextType === "quote"
-      ? quote.joinedPaddingY
-      : quote.paddingBottom;
+    if (block.nextType === "quote") return quote.joinedPaddingY;
+    return quote.paddingBottom + cardFlowMargins(block, quote).bottom;
   }
 
   override paint(passedLayout: NodeLayout, c: NodePaintCtx): RenderedBlock {
@@ -136,12 +139,15 @@ export class QuoteNode extends TextNode {
     const next = findNextVisibleBlockIndex(blocks, c.blockIndex);
     const accentJoinTop = prev !== null && blocks[prev].type === "quote";
     const accentJoinBottom = next !== null && blocks[next].type === "quote";
+    // The card is the padded content box; the outer flow margins around it
+    // (baked into layout.height) stay unpainted breathing room.
+    const margins = cardFlowMargins(c.block, quote);
     this.paintCard(
       c.ctx,
       c.origin.x,
-      c.origin.y,
+      c.origin.y + margins.top,
       c.maxWidth,
-      layout.height,
+      layout.height - margins.top - margins.bottom,
       quote,
       layout.isRTL,
       joinTop,

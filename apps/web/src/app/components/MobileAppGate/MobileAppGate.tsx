@@ -9,6 +9,10 @@
  * iOS isn't published yet, so the App Store badge is a placeholder that carries
  * the official artwork but doesn't link. Android ships via an open beta, so that
  * slot is a live "Join the Android beta" button that opens a prefilled email.
+ *
+ * The gate is a recommendation, not a wall: "Continue in the browser" dismisses
+ * it (persisted in localStorage, so it shows once per browser) and drops the
+ * user into the full web app.
  */
 
 import React from "react";
@@ -19,6 +23,17 @@ import "./MobileAppGate.css";
 /** Phone-sized viewport with a touch primary pointer (excludes narrow desktop
  *  windows, which keep a fine pointer). */
 const MOBILE_QUERY = "(max-width: 820px) and (pointer: coarse)";
+
+/** localStorage flag set when the user taps "Continue in the browser". */
+const DISMISSED_KEY = "mobileGateDismissed";
+
+function readDismissed(): boolean {
+  try {
+    return window.localStorage.getItem(DISMISSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function useMediaQuery(query: string): boolean {
   const [match, setMatch] = React.useState<boolean>(() =>
@@ -40,7 +55,17 @@ function useMediaQuery(query: string): boolean {
 export function MobileAppGate() {
   const { t } = useTranslation();
   const isMobile = useMediaQuery(MOBILE_QUERY);
-  const shouldShow = getClientPlatform() === "web" && isMobile;
+  const [dismissed, setDismissed] = React.useState(readDismissed);
+  const shouldShow = getClientPlatform() === "web" && isMobile && !dismissed;
+
+  const dismiss = () => {
+    try {
+      window.localStorage.setItem(DISMISSED_KEY, "1");
+    } catch {
+      // Storage unavailable — dismiss for this page load only.
+    }
+    setDismissed(true);
+  };
 
   // Lock body scroll while the gate covers the app.
   React.useEffect(() => {
@@ -99,6 +124,10 @@ export function MobileAppGate() {
             {t("mobileGate.androidBeta", "Join the beta")}
           </a>
         </p>
+
+        <button type="button" className="mag-continue" onClick={dismiss}>
+          {t("mobileGate.continueBrowser", "Continue in the browser")}
+        </button>
       </div>
     </div>
   );

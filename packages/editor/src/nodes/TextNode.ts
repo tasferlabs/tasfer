@@ -272,9 +272,10 @@ export interface TextNodeLayout extends NodeLayout {
   readonly markerWidth: number;
   /**
    * Vertical inset before the first line (and mirrored after the last via the
-   * style's paddingBottom). Zero for every built-in text block; CodeNode uses it
-   * to pad text down from the top of its background box. Every Y-positioned pass
-   * (paint, caret, hit-test, selection) starts from `blockTop + insetY`.
+   * style's paddingBottom). Resolved from the style's `paddingTop` — headings
+   * carry space-above, CodeNode pads text down from the top of its background
+   * box, body blocks use 0. Every Y-positioned pass (paint, caret, hit-test,
+   * selection) starts from `blockTop + insetY`.
    */
   readonly insetY: number;
   /** Content width available to text (maxWidth minus list indent + marker). */
@@ -1472,10 +1473,21 @@ export class TextNode<
       estimatedLines += Math.max(1, Math.ceil(line.length / charsPerLine));
     }
     return (
-      this.contentInsetY(block, c.styles) +
+      this.contentInsetY(block, c.styles, textStyle) +
       estimatedLines * textStyle.fontSize * textStyle.lineHeight +
       this.contentPaddingBottom(block, c.styles, textStyle)
     );
+  }
+
+  /**
+   * Center the gutter drag grip on the first text line, past any leading inset
+   * (a heading's space-above, a card's outer margin + top padding) — not on the
+   * block's box top, which would float the grip in the empty inset.
+   */
+  override gutterAnchorY(c: NodeLayoutCtx): number {
+    const layout = this.layout(c);
+    const first = layout.lines[0];
+    return layout.insetY + (first ? first.y + first.height / 2 : 0);
   }
 
   /**
@@ -1546,7 +1558,7 @@ export class TextNode<
     // gets correct geometry without re-checking the block type.
     const { indentOffset, markerWidth } = this.leadingInset(block, styles);
     const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-    const insetY = this.contentInsetY(block, styles);
+    const insetY = this.contentInsetY(block, styles, textStyle);
 
     const chars = content?.chars ?? charRunsToChars(block.charRuns);
     const formats = content?.formats ?? block.formats;
@@ -2851,7 +2863,12 @@ export class TextNode<
       x: adjustedX,
       y,
       width: adjustedMaxWidth,
-      height: layout.height - insetY - textStyle.paddingBottom,
+      // Trailing space via the hook, not the raw style: quote/code vary it by
+      // neighbour context (joined edges, outer card margins).
+      height:
+        layout.height -
+        insetY -
+        this.contentPaddingBottom(block, styles, textStyle),
     };
 
     return { block: runtimeBlock, bounds, lines: renderedLines };
@@ -3001,13 +3018,19 @@ export class TextNode<
   }
 
   /**
-   * Vertical inset before the first line. Zero for every built-in text block;
-   * CodeNode returns its top padding so text sits inside the background box.
-   * Baked into the layout (and its height), so caret/hit-test/selection/paint
-   * all start from `blockTop + insetY` without re-checking the block type.
+   * Vertical inset before the first line. Defaults to the resolved style's
+   * `paddingTop` (headings carry space-above for prose rhythm; code's style
+   * reuses it as the top inset of its background box; body blocks use 0).
+   * QuoteNode overrides it to vary the inset by neighbour context. Baked into
+   * the layout (and its height), so caret/hit-test/selection/paint all start
+   * from `blockTop + insetY` without re-checking the block type.
    */
-  protected contentInsetY(_block: B, _styles: EditorStyles): number {
-    return 0;
+  protected contentInsetY(
+    _block: B,
+    _styles: EditorStyles,
+    textStyle: TextStyle,
+  ): number {
+    return textStyle.paddingTop ?? 0;
   }
 
   /**

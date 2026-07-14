@@ -134,9 +134,10 @@ describe("viewport pointer lookup", () => {
     ).toBeNull();
 
     // The old block-zero walk mixes exact document geometry with the estimated
-    // scrollbar position and requests a large jump.
+    // scrollbar position and requests a large jump (block 900 sits ~28k deep at
+    // the default 32px empty-paragraph height — far past the 10k scroll).
     expect(
       scrollToMakeCursorVisible(position, state, viewport),
-    ).toBeGreaterThan(30_000);
+    ).toBeGreaterThan(25_000);
   });
 });

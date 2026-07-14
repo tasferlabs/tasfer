@@ -8,16 +8,19 @@
  * paths snap to whole-chip units.
  */
 import { selectWordAtPosition } from "../actions/actions";
+import { DELETE_BACKWARD } from "../actions/edit-actions";
 import { resolveMarkRuns } from "../inline-math-spans";
 import { mathExtension } from "../math-extension";
 import { mathCaretStep, mathSelectionRange } from "../nodes/math";
 import { createMarkRegistry } from "../rendering/marks";
 import { createNodeRegistry } from "../rendering/nodes";
 import { baseSchema } from "../schema";
+import { moveCursorToPosition } from "../selection";
 import { loadPage } from "../serlization/loadPage";
 import type { EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { updateContentSelection } from "../structured-selection";
+import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { createCRDTbinding } from "../sync/sync";
 import { resolveStructuredInlineMathRuns } from "./inline-structured";
 import {
@@ -112,6 +115,38 @@ describe("diverged inline chip is atomic to the flat model", () => {
     const block = state.document.page.blocks[0];
     expect(mathCaretStep(block, chipStart, "right")).toBe(chipEnd);
     expect(mathCaretStep(block, chipEnd, "left")).toBe(chipStart);
+  });
+
+  it("Backspace from trailing prose deletes through the chip without sticking", () => {
+    const { state, chipEnd } = divergedChip("diverge-backspace");
+    const blockText = (current: EditorState) => {
+      const block = current.document.page.blocks[0];
+      return "charRuns" in block ? getVisibleTextFromRuns(block.charRuns) : "";
+    };
+    const canonical = (current: EditorState) =>
+      resolveStructuredInlineMathRuns(
+        current.document.page.blocks[0] as Parameters<
+          typeof resolveStructuredInlineMathRuns
+        >[0],
+      )[0]?.latex;
+    expect(canonical(state)).toBe("xz+y");
+
+    // Entering through the trailing flat edge must land at the canonical END:
+    // the stale projection is shorter than the source, and a mid-formula
+    // landing leaves the tail past it unreachable to further Backspaces.
+    let current = moveCursorToPosition(state, 0, chipEnd);
+    const first = current.actionBus.dispatchState(DELETE_BACKWARD, current);
+    expect(first.claimed).toBe(true);
+    expect(canonical(first.state)).toBe("xz+");
+
+    // Three more presses drain the formula, one removes the empty chip, and
+    // three consume the leading prose — nothing sticks along the way.
+    current = first.state;
+    for (let press = 0; press < 7; press++) {
+      current = current.actionBus.dispatchState(DELETE_BACKWARD, current).state;
+    }
+    expect(canonical(current)).toBeUndefined();
+    expect(blockText(current)).toBe(" bb");
   });
 
   it("an attached but UNEDITED chip keeps its interior stops (control)", () => {

@@ -46,6 +46,13 @@ export interface LayoutOptions {
    */
   literalRange?: { start: number; end: number };
   /**
+   * Source offsets of `\`s that are editable field content rather than syntax,
+   * independent of the caret. Supplied by the structured-document projection
+   * (`layoutMathDocument` passes them automatically); see
+   * {@link ParseOptions.literalBackslashes}.
+   */
+  literalBackslashes?: readonly number[];
+  /**
    * Maximum width in pixels the formula may occupy. When set (and finite), the
    * top-level expression line-breaks to fit: it is split across rows at binary
    * operators and relations and stacked into one taller layout (its baseline
@@ -80,7 +87,10 @@ export interface LayoutOptions {
 }
 
 /** Source-offset-free options for the identity-bearing document layout API. */
-export type MathDocumentLayoutOptions = Omit<LayoutOptions, "literalRange"> & {
+export type MathDocumentLayoutOptions = Omit<
+  LayoutOptions,
+  "literalRange" | "literalBackslashes"
+> & {
   /**
    * Stable field position of the caret while the user is typing INSIDE an
    * editable text field — the identity-keyed equivalent of
@@ -170,7 +180,10 @@ export function layoutMath(
 ): MathLayout {
   const fontSize = opts.fontSize ?? 16;
   const displayMode = opts.displayMode ?? false;
-  const ast = parse(latex, { literalRange: opts.literalRange });
+  const ast = parse(latex, {
+    literalRange: opts.literalRange,
+    literalBackslashes: opts.literalBackslashes,
+  });
   const nodes = ast.type === "ord" ? ast.body : [ast];
   // Measure any `\text{…}` characters the math fonts can't render (CJK, …) from
   // the host font, so they lay out at their true width instead of collapsing to
@@ -228,7 +241,11 @@ export function layoutMathDocument(
     : undefined;
   return createMathDocumentLayout(
     projection,
-    layoutMath(projection.latex, { ...layoutOpts, literalRange }),
+    layoutMath(projection.latex, {
+      ...layoutOpts,
+      literalRange,
+      literalBackslashes: projection.literalBackslashes,
+    }),
   );
 }
 

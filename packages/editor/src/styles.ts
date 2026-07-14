@@ -240,61 +240,82 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       // the desktop default used when nothing is overridden.
       paddingLeft: DESKTOP_HORIZONTAL_PADDING,
       paddingRight: DESKTOP_HORIZONTAL_PADDING,
-      lineHeight: 1.6,
+      lineHeight: 1.5,
     },
     fonts,
     fontFamily: theme.fontFamily ?? null,
+    // Block typography follows standard prose guidelines, anchored to Notion's
+    // measured values (which agree with e.g. the Tailwind Typography scale):
+    //   - body text at 16px with a 1.5 line-height;
+    //   - headings on a 1.875em / 1.5em / 1.25em ratio scale (30/24/20px) with
+    //     a tight 1.3 line-height — large text needs less leading;
+    //   - more space ABOVE a heading than below it (`paddingTop` ≈ 1em of the
+    //     heading's own size), binding the heading to the section it opens;
+    //   - list items spaced tighter than paragraphs so a list reads as one unit.
     blocks: {
       heading1: {
-        fontSize: 32,
+        fontSize: 30,
         fontWeight: "500",
         color: t.heading,
-        lineHeight: 1.4,
-        paddingBottom: 10,
+        lineHeight: 1.3,
+        paddingTop: 32,
+        paddingBottom: 8,
       },
       heading2: {
         fontSize: 24,
         fontWeight: "500",
         color: t.heading,
-        lineHeight: 1.4,
-        paddingBottom: 10,
+        lineHeight: 1.3,
+        paddingTop: 26,
+        paddingBottom: 8,
       },
       heading3: {
         fontSize: 20,
         fontWeight: "500",
         color: t.heading,
-        lineHeight: 1.4,
-        paddingBottom: 10,
+        lineHeight: 1.3,
+        paddingTop: 20,
+        paddingBottom: 8,
       },
       paragraph: {
         fontSize: 16,
         fontWeight: "normal",
         color: t.text,
-        lineHeight: 1.6,
-        paddingBottom: 12,
+        lineHeight: 1.5,
+        paddingTop: 0,
+        paddingBottom: 8,
       },
       bulletList: {
         fontSize: 16,
         fontWeight: "normal",
         color: t.text,
-        lineHeight: 1.6,
+        lineHeight: 1.5,
+        paddingTop: 0,
         paddingBottom: 6,
       },
       numberedList: {
         fontSize: 16,
         fontWeight: "normal",
         color: t.text,
-        lineHeight: 1.6,
+        lineHeight: 1.5,
+        paddingTop: 0,
         paddingBottom: 6,
       },
       todoList: {
         fontSize: 16,
         fontWeight: "normal",
         color: t.text,
-        lineHeight: 1.6,
+        lineHeight: 1.5,
+        paddingTop: 0,
         paddingBottom: 6,
       },
       code: {
+        // Outer flow margins (see the prose note above): a preceding text block
+        // contributes its own 8px paddingBottom, and the following block
+        // contributes nothing, so 8 above + 16 below reads as an even ~16px of
+        // air around the card. Zeroed against an adjacent card (they tile).
+        marginTop: 8,
+        marginBottom: 16,
         fontSize: 14,
         fontWeight: "normal",
         // Neutral base color for un-highlighted/plain code (punctuation,
@@ -317,10 +338,13 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         },
       },
       quote: {
+        // Same outer-margin rationale as `code`.
+        marginTop: 8,
+        marginBottom: 16,
         fontSize: 18,
         fontWeight: "normal",
         color: t.text,
-        lineHeight: 1.65,
+        lineHeight: 1.5,
         paddingBottom: 18,
         backgroundColor: t.muted,
         backgroundOpacity: 0.58,
@@ -378,6 +402,9 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       math: {
         paddingTop: 12,
         paddingBottom: 12,
+        // Same outer-margin rationale as `code`.
+        marginTop: 8,
+        marginBottom: 16,
         minHeight: 48,
         hoverBackgroundColor: t.muted,
         hoverBorderRadius: 6,

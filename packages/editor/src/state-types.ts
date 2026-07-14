@@ -912,8 +912,16 @@ export interface CanvasStyles {
 }
 
 export interface MathStyles {
+  /** Internal padding above/below the equation, inside the card surface. */
   readonly paddingTop: number;
   readonly paddingBottom: number;
+  /**
+   * Outer flow margin above/below the card — breathing room separating the
+   * filled surface from adjacent prose. Zeroed on an edge shared with another
+   * card block (code/math/quote) so stacked cards keep tiling flush.
+   */
+  readonly marginTop: number;
+  readonly marginBottom: number;
   readonly minHeight: number;
   readonly hoverBackgroundColor: string;
   readonly hoverBorderRadius: number;
@@ -954,6 +962,13 @@ export interface BlockStyles {
 }
 
 export interface QuoteBlockStyle extends TextStyle {
+  /**
+   * Outer flow margin above/below the card — breathing room separating the
+   * filled surface from adjacent prose. Zeroed on an edge shared with another
+   * card block (code/math/quote) so stacked cards keep tiling flush.
+   */
+  readonly marginTop: number;
+  readonly marginBottom: number;
   readonly backgroundColor: string;
   readonly backgroundOpacity: number;
   readonly accentColor: string;
@@ -976,6 +991,13 @@ export interface QuoteBlockStyle extends TextStyle {
  * a rounded background box with its own internal padding.
  */
 export interface CodeBlockStyle extends TextStyle {
+  /**
+   * Outer flow margin above/below the card — breathing room separating the
+   * filled surface from adjacent prose. Zeroed on an edge shared with another
+   * card block (code/math/quote) so stacked cards keep tiling flush.
+   */
+  readonly marginTop: number;
+  readonly marginBottom: number;
   readonly backgroundColor: string;
   readonly borderRadius: number;
   /** Internal padding above the first line / below the last line. */
@@ -1007,6 +1029,14 @@ export interface TextStyle {
   readonly fontWeight: string;
   readonly color: string;
   readonly lineHeight: number;
+  /**
+   * Space (px) above the first line, baked into the block's layout height.
+   * Prose rhythm puts more space above a heading than below it (the gap binds
+   * the heading to the content it introduces), so headings carry a real value
+   * here while body blocks use 0 and space themselves with `paddingBottom`
+   * alone. Code blocks reuse it as the top inset of their background box.
+   */
+  readonly paddingTop?: number;
   readonly paddingBottom: number;
   /**
    * Optional per-block-type placeholder appearance, set via

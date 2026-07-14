@@ -60,12 +60,17 @@ export interface ClonedStructuredBlockContent {
  * the resulting initializers and exposes the source→target id map so covering
  * marks can rewrite their references through the corresponding mark facet.
  * Returning `undefined` is deliberate when a kind has no lossless clone seam.
+ *
+ * `only` restricts the clone to the listed content ids — a block split moves
+ * just the attachments whose runs leave the block, while a whole-block merge
+ * omits it and clones everything.
  */
 export function cloneStructuredBlockContent(
   source: Block,
   targetBlockId: string,
   binding: CRDTbinding,
   schema: DataSchema,
+  only?: ReadonlySet<string>,
 ): ClonedStructuredBlockContent | undefined {
   const sourceContent = source.structuredContent;
   if (!sourceContent || Object.keys(sourceContent).length === 0) {
@@ -76,6 +81,7 @@ export function cloneStructuredBlockContent(
   const clonedContentIds: Record<string, string> = {};
   const ops: ContentEdit[] = [];
   for (const sourceContentId of Object.keys(sourceContent).sort()) {
+    if (only && !only.has(sourceContentId)) continue;
     const document = canonicalizeStructuredDocument(
       sourceContent[sourceContentId],
     );
@@ -136,6 +142,36 @@ export function resolveStructuredMarkRanges(
           },
         ];
   });
+}
+
+/**
+ * Content ids referenced by mark runs lying wholly at/after `textIndex` — the
+ * attachments a block split at `textIndex` must move along with the trailing
+ * text (as clones; see {@link cloneStructuredBlockContent}).
+ */
+export function structuredMarkContentIdsFrom(
+  block: Block,
+  textIndex: number,
+  schema: DataSchema,
+): ReadonlySet<string> {
+  const ids = new Set<string>();
+  if (!isTextualBlock(block)) return ids;
+  const attachments = block.structuredContent;
+  if (!attachments || Object.keys(attachments).length === 0) return ids;
+  for (const run of resolveMarkRuns(block)) {
+    if (run.startIndex < textIndex) continue;
+    for (const contentId of schema.structuredMarkReferences(run.name, {
+      mark: {
+        type: run.name,
+        ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
+      },
+      compatibilityText: run.text,
+      attachments,
+    })) {
+      if (attachments[contentId]) ids.add(contentId);
+    }
+  }
+  return ids;
 }
 
 /** Whether `[startIndex, endIndex)` overlaps an authoritative mark projection. */

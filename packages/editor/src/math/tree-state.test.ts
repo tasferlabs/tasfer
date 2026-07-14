@@ -442,7 +442,10 @@ describe("tree-backed display math state integration", () => {
     const typed = handleKeyDown(state, viewport, keydown("\\")).state;
     const focus = typed.document.contentSelection?.focus;
 
-    expect(treeSource(typed)).toBe("\\");
+    // The tree holds the literal pending `\`; its canonical projection spells
+    // it `\backslash` so the scratch stays visible whether or not the caret is
+    // still parked on it.
+    expect(treeSource(typed)).toBe(String.raw`\backslash`);
     expect(typed.document.cursor).toBeNull();
     expect(focus).toMatchObject({
       kind: "text",
@@ -2005,7 +2008,7 @@ describe("tree-backed display math state integration", () => {
     const typed = insertText(entered, "\\").state;
 
     expect(treeSource(typed)).toBe(
-      String.raw`\begin{bmatrix}a\ &b\\c&d\end{bmatrix}`,
+      String.raw`\begin{bmatrix}a\backslash&b\\c&d\end{bmatrix}`,
     );
     const document = getMathStructuredDocument(block(typed));
     const math = document ? structuredToMathDocument(document) : undefined;

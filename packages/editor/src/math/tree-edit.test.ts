@@ -508,23 +508,27 @@ describe("structured math tree editing", () => {
     expect(print(edited)).toBe(String.raw`x\frac{}{}`);
   });
 
-  it.each(["\\", String.raw`\sqrt`, String.raw`\unknown`])(
-    "keeps unsupported command %s literal",
-    (source) => {
-      const document = mathDocument("");
-      const rowId = bodyRowId(document);
-      const result = insertMathTextWithCompletion(
-        document,
-        rowCaret(rowId, null),
-        source,
-        identitySource("literal"),
-      );
-      const edited = applyResult(document, result);
+  it.each([
+    // A lone `\` stays literal scratch in the tree; the canonical projection
+    // spells it `\backslash` so it stays a visible glyph that cannot fuse
+    // with adjacent syntax.
+    ["\\", String.raw`\backslash`],
+    [String.raw`\sqrt`, String.raw`\sqrt`],
+    [String.raw`\unknown`, String.raw`\unknown`],
+  ])("keeps unsupported command %s literal", (source, printed) => {
+    const document = mathDocument("");
+    const rowId = bodyRowId(document);
+    const result = insertMathTextWithCompletion(
+      document,
+      rowCaret(rowId, null),
+      source,
+      identitySource("literal"),
+    );
+    const edited = applyResult(document, result);
 
-      expect(result.completedCommand).toBeUndefined();
-      expect(print(edited)).toBe(source);
-    },
-  );
+    expect(result.completedCommand).toBeUndefined();
+    expect(print(edited)).toBe(printed);
+  });
 
   it("moves numerator to denominator to after-fraction with Tab or ArrowRight", () => {
     const fixture = fractionFixture();

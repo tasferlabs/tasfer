@@ -902,6 +902,7 @@
   "mobileGate.androidBeta": "Join the beta",
   "mobileGate.betaSubject": "Cypher Android beta",
   "mobileGate.betaBody": "Hi Hamza,\n\nI'd like to join the Cypher Android beta.\n",
+  "mobileGate.continueBrowser": "Continue in the browser",
   "wordCount.showDetails": "Show document statistics",
   "wordCount.title": "Document statistics",
   "wordCount.description": "A breakdown of your document's content.",

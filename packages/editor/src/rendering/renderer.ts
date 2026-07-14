@@ -1098,7 +1098,9 @@ export function renderCursorLayer(
 
   // Only render if one caret currency exists, the editor is focused, and the
   // caret is visible (not blinking).
-  // Don't render cursor in readonly mode.
+  // Don't render cursor in a readonly document. Gate on `isReadonlyBase` (not
+  // `mode === "readonly"`) so the caret stays hidden while a readonly editor is
+  // in `select` mode during a drag-selection.
   // While a cursor drag (the loupe/magnifier gesture) is active, force the caret
   // solid: the magnifier composites this layer, and a paused finger that stops
   // refreshing the caret would otherwise let it enter its blink-off phase and
@@ -1108,6 +1110,7 @@ export function renderCursorLayer(
     !activeCaret ||
     !state.view.isFocused ||
     state.ui.mode === "readonly" ||
+    state.ui.isReadonlyBase ||
     (!isCursorDragging && isCursorBlinking(activeCaret, styles))
   ) {
     ctx.restore();
@@ -1441,7 +1444,7 @@ function renderBlockDrag(
   let currentY =
     visibility?.startY ?? styles.canvas.paddingTop - viewport.scrollY;
   let hoveredTop: number | null = null;
-  let hoveredHeight = 0;
+  let hoveredAnchorY = 0;
   let lineY: number | null = null;
 
   for (let i = startIndex; i <= visibleBlocks.length; i++) {
@@ -1458,7 +1461,18 @@ function renderBlockDrag(
     );
     if (block.id === hoveredId) {
       hoveredTop = currentY;
-      hoveredHeight = blockHeight;
+      // Align the grip with the block's first content, not its box top — the
+      // node knows where that is (past a heading's space-above, a card's outer
+      // margin). Layout is memoized, so this re-reads the cached geometry.
+      const view = state.nodes.get(block.type) ?? new UnknownNode();
+      hoveredAnchorY = view.gutterAnchorY({
+        block,
+        blockIndex: i,
+        maxWidth,
+        isFirst: i === 0,
+        styles,
+        marks: state.marks,
+      });
     }
     currentY += blockHeight;
     if (
@@ -1477,8 +1491,7 @@ function renderBlockDrag(
     renderDragGrip(
       ctx,
       styles.canvas.paddingLeft,
-      hoveredTop,
-      hoveredHeight,
+      hoveredTop + hoveredAnchorY,
       color,
     );
   }
@@ -1505,19 +1518,16 @@ function renderBlockDrag(
 
 /**
  * The "grip" dots (2 columns × 3 rows) painted in the gutter band of the
- * hovered block, centered horizontally in the hit band and aligned to the top
- * of tall blocks (where the first line sits).
+ * hovered block, centered horizontally in the hit band and vertically on `cy`
+ * (the block's `gutterAnchorY` — its first content line).
  */
 function renderDragGrip(
   ctx: CanvasRenderingContext2D,
   gutterRight: number,
-  blockTop: number,
-  blockHeight: number,
+  cy: number,
   color: string,
 ) {
   const cx = gutterRight - BLOCK_DRAG_HANDLE_HIT_WIDTH / 2;
-  const cy =
-    blockTop + Math.min(blockHeight, BLOCK_DRAG_HANDLE_GRIP_HEIGHT + 10) / 2;
   const colGap = BLOCK_DRAG_HANDLE_GRIP_WIDTH / 3;
   const rowGap = BLOCK_DRAG_HANDLE_GRIP_HEIGHT / 3;
   const dotRadius = 1.6;

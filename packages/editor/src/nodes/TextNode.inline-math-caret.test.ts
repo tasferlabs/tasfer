@@ -120,7 +120,10 @@ describe("TextNode inline-math chip click → inside", () => {
       // including the inflated padding between the numerator and denominator rows,
       // registers as touching the selection and opens the context menu.
       const paint = bounds(3, 14);
-      expect(paint.height).toBeLessThan(lineHeight * 0.95);
+      // Strictly inside the line box: the glyph rows exclude the chip's own
+      // vertical padding. At the default 1.5 line-height the box hugs a tall
+      // fraction closely, so the margin is small but must stay positive.
+      expect(paint.height).toBeLessThan(lineHeight);
 
       const hitRects = node.selectionRects(
         fracLayout,

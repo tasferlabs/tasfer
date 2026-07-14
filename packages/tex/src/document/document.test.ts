@@ -7,6 +7,8 @@ import {
   parseMathDocument,
   printMathDocument,
 } from "../index";
+import { parse } from "../parse/parser";
+import { projectMathDocumentSource } from "./print";
 import { describe, expect, it } from "vitest";
 
 describe("MathDocument projection", () => {
@@ -206,14 +208,127 @@ describe("MathDocument LaTeX printer", () => {
     };
 
     const printed = printMathDocument(pending);
-    expect(printed).toBe(String.raw`\begin{bmatrix}a\ &b\\c&d\end{bmatrix}`);
+    // The trailing scratch `\` projects as `\backslash`: a visible glyph that
+    // cannot fuse with the `&` the matrix prints next, and one that survives a
+    // canonical-source re-parse (the old barrier space lexed as the INVISIBLE
+    // control space `\ `, silently swallowing the backslash).
+    expect(printed).toBe(
+      String.raw`\begin{bmatrix}a\backslash&b\\c&d\end{bmatrix}`,
+    );
     const reparsed = parseMathDocument(printed);
     const reparsedMatrix = reparsed.root.body.children[0];
     expect(reparsedMatrix?.type).toBe("matrix");
     if (reparsedMatrix?.type !== "matrix") return;
     expect(reparsedMatrix.rows.map((row) => row.cells.length)).toEqual([2, 2]);
   });
+
+  it("projects a pending backslash before a construct as a visible literal", () => {
+    const pending = withLeadingRawText(
+      parseMathDocument(String.raw`q\frac{1}{2}`),
+      "\\",
+    );
+    const projection = projectMathDocumentSource(pending);
+    expect(projection.latex).toBe(String.raw`\backslash\frac{1}{2}`);
+    // Parsed WITHOUT any caret-derived option — the resting caret-moved-away
+    // and remote-peer views — the scratch stays a visible backslash atom. The
+    // old barrier-space projection (`\ \frac{1}{2}`) lexed into the INVISIBLE
+    // control space, so the typed `\` vanished the moment the caret left it.
+    const ast = parse(projection.latex);
+    const body = ast.type === "ord" ? ast.body : [ast];
+    expect(body.map((node) => node.type)).toEqual(["atom", "frac"]);
+  });
+
+  it("round-trips a pending backslash as a backslash glyph", () => {
+    const pending = withLeadingRawText(
+      parseMathDocument(String.raw`q\frac{1}{2}`),
+      "\\",
+    );
+    const reparsed = parseMathDocument(printMathDocument(pending));
+    const first = reparsed.root.body.children[0];
+    expect(first?.type).toBe("symbol");
+    if (first?.type !== "symbol") return;
+    expect(first.command).toBe("backslash");
+    expect(printMathDocument(reparsed)).toBe(String.raw`\backslash\frac{1}{2}`);
+  });
+
+  it("keeps resting environment scratch from de-structuring a matrix", () => {
+    const initial = parseMathDocument(
+      String.raw`\begin{bmatrix}a&b\\c&d\end{bmatrix}`,
+    );
+    const matrix = initial.root.body.children[0];
+    if (matrix?.type !== "matrix") throw new Error("expected matrix");
+    const firstCell = matrix.rows[0].cells[0];
+    const scratch: MathDocument = {
+      ...initial,
+      root: {
+        ...initial.root,
+        body: {
+          ...initial.root.body,
+          children: [
+            {
+              ...matrix,
+              rows: [
+                {
+                  ...matrix.rows[0],
+                  cells: [
+                    {
+                      ...firstCell,
+                      body: {
+                        ...firstCell.body,
+                        children: [
+                          { type: "raw-text", id: "scratch", text: "a\\end" },
+                        ],
+                      },
+                    },
+                    matrix.rows[0].cells[1],
+                  ],
+                },
+                matrix.rows[1],
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    const projection = projectMathDocumentSource(scratch);
+    expect(projection.latex).toBe(
+      String.raw`\begin{bmatrix}a\end&b\\c&d\end{bmatrix}`,
+    );
+    expect(projection.literalBackslashes).toHaveLength(1);
+    // With the projection's marks, the half-typed `\end` is inert scratch: it
+    // neither closes the real environment early nor shifts the lexer's
+    // environment depth (which would re-lex the REAL `\\` row separator as
+    // literal backslashes). Unmarked, this same source de-structures.
+    const ast = parse(projection.latex, {
+      literalBackslashes: projection.literalBackslashes,
+    });
+    const body = ast.type === "ord" ? ast.body : [ast];
+    expect(body.map((node) => node.type)).toEqual(["array"]);
+    const array = body[0];
+    if (array.type !== "array") return;
+    expect(array.rows.map((row) => row.length)).toEqual([2, 2]);
+  });
 });
+
+/** The same document with the FIRST root child (a raw-text leaf) re-texted. */
+function withLeadingRawText(
+  document: MathDocument,
+  text: string,
+): MathDocument {
+  const [first, ...rest] = document.root.body.children;
+  if (first?.type !== "raw-text") throw new Error("expected raw-text leaf");
+  return {
+    ...document,
+    root: {
+      ...document.root,
+      body: {
+        ...document.root.body,
+        children: [{ ...first, text }, ...rest],
+      },
+    },
+  };
+}
 
 describe("MathDocument semantic round trips", () => {
   const corpus = [

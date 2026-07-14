@@ -1,6 +1,10 @@
 import type { MarkSpan } from "../serlization/loadPage";
 import { createDeterministicIdentityAllocator } from "../sync/id";
-import { structuredContentId } from "../sync/structured-content";
+import {
+  applyStructuredEdit,
+  applyStructuredMutation,
+  structuredContentId,
+} from "../sync/structured-content";
 import {
   createStructuredMathMarkAttachment,
   type InlineMathHostBlock,
@@ -89,6 +93,75 @@ describe("structured inline math attachments", () => {
     expect(left.init?.document).toEqual(right.init?.document);
     expect(left.init?.document.authority).toBeUndefined();
     expect(left.format.attrs?.contentId).toBe(left.contentId);
+  });
+
+  it("degrades a divergent-source migration race to one dropped edit", () => {
+    // Peer A migrates the pristine import; peer B migrates after an editor
+    // without the tree rule inserted "c" into the same run. Their initializers
+    // race on one derived address.
+    const span9 = span("parser:0", "parser:2");
+    const blockA: InlineMathHostBlock = {
+      id: "block:9",
+      charRuns: [{ peerId: "parser", startCounter: 0, text: "a+b" }],
+      formats: [span9],
+    };
+    const blockB: InlineMathHostBlock = {
+      ...blockA,
+      charRuns: [
+        { peerId: "parser", startCounter: 0, text: "a+" },
+        { peerId: "old", startCounter: 0, text: "c" },
+        { peerId: "parser", startCounter: 2, text: "b" },
+      ],
+    };
+    const planA = planInlineMathMigration(
+      blockA,
+      resolveStructuredInlineMathRuns(blockA)[0],
+    );
+    const planB = planInlineMathMigration(
+      blockB,
+      resolveStructuredInlineMathRuns(blockB)[0],
+    );
+    expect(planA.ok && planB.ok).toBe(true);
+    if (!planA.ok || !planB.ok) return;
+    expect(planA.contentId).toBe(planB.contentId);
+
+    // Canonical replay: A's init wins, B's init is a no-op.
+    const contentId = planA.contentId;
+    const winner = applyStructuredMutation(undefined, contentId, planA.init!);
+    expect(winner).toBeDefined();
+    const merged = applyStructuredMutation(winner, contentId, planB.init!);
+    expect(merged).toBe(winner);
+
+    // B's piggybacked edit targets its own parse of "a+cb"; on the winning
+    // tree that parent is absent, so the node lands as an invisible orphan.
+    const loserRowId = Object.values(planB.document.nodes).find(
+      (node) => node.placement.parentId === contentId,
+    )!.id;
+    expect(planA.document.nodes[loserRowId]).toBeUndefined();
+    const edited = applyStructuredEdit(merged!, {
+      kind: "node_insert",
+      node: {
+        id: "live:9",
+        type: "symbol",
+        placement: { parentId: loserRowId, slot: "children", orderKey: "zz" },
+        attrs: { symbolClass: "mathord", commandPresent: false },
+        textFields: {
+          value: [{ peerId: "live", startCounter: 10, text: "q" }],
+        },
+      },
+    });
+    expect(edited.nodes["live:9"]).toBeDefined();
+
+    const converged: InlineMathHostBlock = {
+      ...blockA,
+      formats: [
+        span("parser:0", "parser:2", { contentId }),
+      ],
+      structuredContent: { [contentId]: edited },
+    };
+    const run = resolveStructuredInlineMathRuns(converged)[0];
+    expect(run.attachmentConflict).toBe(false);
+    expect(run.latex).toBe("a+b");
   });
 
   it("uses the tree as source while retaining stale compatibility characters", () => {

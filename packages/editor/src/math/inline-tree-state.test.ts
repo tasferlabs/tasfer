@@ -578,7 +578,11 @@ describe("interactive structured MathMark", () => {
     }
   });
 
-  it("does not fuse a peer-attached projection with an adjacent legacy chip", () => {
+  it("fuses a peer-attached projection with an adjacent legacy chip from canonical sources", () => {
+    // The delete-side rejoin rebuilds the merged chip from each run's
+    // CANONICAL source — the attached tree's printed LaTeX, never its possibly
+    // stale compatibility characters — into one fresh attachment, so fusing a
+    // peer-attached run is as safe as fusing two legacy ones.
     const binding = createCRDTbinding("page", "legacy-merge");
     let page = loadPage("$x$ $y$", legacyInlineSchema.data);
     page = createFeatureMarkInRange(
@@ -603,18 +607,20 @@ describe("interactive structured MathMark", () => {
     const contentId = resolveMarkRuns(before.document.page.blocks[0]).find(
       (run) => run.attrs.contentId,
     )?.attrs.contentId;
+    expect(contentId).toBeTruthy();
 
     const deleted = before.actionBus.dispatchState(DELETE_BACKWARD, before);
     const block = deleted.state.document.page.blocks[0];
-    expect(
-      resolveMarkRuns(block).find((run) => run.attrs.contentId === contentId)
-        ?.text,
-    ).toBe("x");
+    const fused = resolveMarkRuns(block).filter((run) => run.attrs.contentId);
+    expect(fused).toHaveLength(1);
+    expect(fused[0].text).toBe("xy");
+    // A fresh attachment replaces the peer's, never mutating it in place.
+    expect(fused[0].attrs.contentId).not.toBe(contentId);
     expect(
       serializeToMarkdown(deleted.state.document.page.blocks, undefined, {
         schema: deleted.state.schema,
       }),
-    ).toBe("$x$$y$");
+    ).toBe("$xy$");
   });
 
   it("clones the attachment when native multi-block paste moves its mark", () => {
@@ -973,7 +979,7 @@ describe("interactive structured MathMark", () => {
     const typed = insertText(entered, "\\").state;
 
     expect(canonicalSource(typed)).toBe(
-      String.raw`\begin{bmatrix}a\ &b\\c&d\end{bmatrix}`,
+      String.raw`\begin{bmatrix}a\backslash&b\\c&d\end{bmatrix}`,
     );
     const document = inlineMathDocument(typed);
     const math = document ? structuredToMathDocument(document) : undefined;

@@ -8,6 +8,7 @@ import {
 } from "../sync/structured-content";
 import {
   backspaceMathTree,
+  completeMathCommand,
   deleteForwardMathTree,
   deleteMathTreeRange,
   expandMathTreeRangeToAtomicCommands,
@@ -38,10 +39,48 @@ export function applyMathTreeInputToDocument(
     : commitCommandBoundary(document, caret, input, identities, resolveCommand);
   if (boundary) return boundary;
 
+  // A lone typed space never becomes tree content: math mode collapses
+  // whitespace, so persisting it would only create dead source and a phantom
+  // caret stop. It still acts as a gesture — completing a pending `\command`,
+  // or deleting the selection it was typed over — and `\`+space stays the
+  // atomic control space via the boundary above. Multi-character commits keep
+  // spaces only when commands make them meaningful (see `text` below).
+  if (input === " ") {
+    if (range) {
+      return deleteMathTreeRange(
+        document,
+        expandMathTreeRangeToAtomicCommands(document, range, resolveCommand),
+      );
+    }
+    const completed = completeMathCommand(
+      document,
+      caret,
+      identities,
+      (command) => resolveCommand(command, " "),
+    );
+    return completed.handled ? completed : { handled: true, edits: [], caret };
+  }
+
   const semantic = committedSemanticInput(input);
+  // A multi-character commit (paste, IME) that carries no math syntax cannot
+  // carry meaningful spaces either: with no command in the text, math mode
+  // collapses every one, so persisting them would recreate the dead source the
+  // single-space rule above prevents. Command-bearing commits take the
+  // semantic path, which preserves required separators (`\sin x`).
+  const text =
+    semantic || Array.from(input).length <= 1
+      ? input
+      : input.replace(/\s+/gu, "");
   const safeRange = range
     ? expandMathTreeRangeToAtomicCommands(document, range, resolveCommand)
     : undefined;
+  if (!semantic && text.length === 0) {
+    // A whitespace-only commit degenerates to the space gesture: delete the
+    // selection it was committed over, otherwise change nothing.
+    return safeRange
+      ? deleteMathTreeRange(document, safeRange)
+      : { handled: true, edits: [], caret };
+  }
   return safeRange
     ? semantic
       ? replaceMathTreeRangeWithSemanticLatex(
@@ -53,7 +92,7 @@ export function applyMathTreeInputToDocument(
             ? { caret: semantic.caret, forceAtomic: true }
             : { caret: semantic.caret },
         )
-      : replaceMathTreeRange(document, safeRange, input, identities)
+      : replaceMathTreeRange(document, safeRange, text, identities)
     : semantic
       ? insertMathSemanticLatex(
           document,
@@ -67,7 +106,7 @@ export function applyMathTreeInputToDocument(
       : insertMathTextWithCompletion(
           document,
           caret,
-          input,
+          text,
           identities,
           resolveCommand,
         );
@@ -221,11 +260,27 @@ export function applyMathTreeCommandToDocument(
     : insertMathSemanticLatex(document, caret, text, identities);
 }
 
-/** Exact `\\query` text range immediately preceding one raw-text caret. */
-export function trailingMathCommandRange(
+/** The uncommitted `\`+letters command-entry run ending at a raw-text caret. */
+export interface TrailingMathCommandRun {
+  /** Letters typed after the `\` so far — empty right after the trigger. */
+  readonly query: string;
+  /** Stable identity of the run's opening `\` character. */
+  readonly backslashCharId: string;
+  /** Exact `\query` text range, for replacing the run on completion. */
+  readonly range: MathTreeRange;
+}
+
+/**
+ * Read the exact `\query` command-entry run ending at one raw-text caret.
+ * Host chrome (the `\` autocomplete menu) must read the query from the field
+ * content this way: the canonical source projection is not a faithful echo of
+ * what was typed (a pending lone `\` projects as `\backslash`), so slicing
+ * projected source around a bridged offset misreads the run.
+ */
+export function trailingMathCommandRun(
   document: StructuredDocument,
   caret: MathTreeCaret,
-): MathTreeRange | undefined {
+): TrailingMathCommandRun | undefined {
   if (caret.kind !== "text") return undefined;
   const node = document.nodes[caret.nodeId];
   if (!node || node.deleted || node.type !== "raw-text") return undefined;
@@ -241,15 +296,27 @@ export function trailingMathCommandRange(
     .slice(0, position)
     .map((entry) => entry.char)
     .join("")
-    .match(/\\[A-Za-z]*$/);
+    .match(/\\([A-Za-z]*)$/);
   if (!match || match.index === undefined) return undefined;
   return {
-    anchor: {
-      ...caret,
-      afterCharId: characters[match.index - 1]?.id ?? null,
+    query: match[1],
+    backslashCharId: characters[match.index].id,
+    range: {
+      anchor: {
+        ...caret,
+        afterCharId: characters[match.index - 1]?.id ?? null,
+      },
+      focus: caret,
     },
-    focus: caret,
   };
+}
+
+/** Exact `\\query` text range immediately preceding one raw-text caret. */
+export function trailingMathCommandRange(
+  document: StructuredDocument,
+  caret: MathTreeCaret,
+): MathTreeRange | undefined {
+  return trailingMathCommandRun(document, caret)?.range;
 }
 
 function committedSemanticInput(input: string): {

@@ -53,11 +53,13 @@ import {
 import { POINTER_MOVE } from "../actions/pointer-actions";
 import { rangeIntersectsStructuredMark } from "../actions/structured-marks";
 import { TAP_SELECT_LINE, TAP_SELECT_WORD } from "../actions/touch-actions";
+import { BLOCK_DRAG_HANDLE_ANCHOR_HEIGHT } from "../constants";
 import { measureCtxText } from "../fonts";
 import { getInlineMathAtPosition } from "../inline-math";
 import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "../math/actions";
 import { mathBlockNodeCodec } from "../math/data";
 import { resolveStructuredInlineMathRuns } from "../math/inline-structured";
+import { rejoinAdjacentInlineMathChips } from "../math/inline-tree-state";
 import {
   getMathDocumentForBlock,
   getMathStructuredDocument,
@@ -89,6 +91,7 @@ import {
   resizeActiveMathTreeMatrix,
   selectActiveMathTree,
 } from "../math/tree-state";
+import { cardFlowMargins } from "../node-shared";
 import {
   allDecorations,
   rangeDecorationToSelection,
@@ -165,17 +168,11 @@ import {
   mathArmScratch,
   mathCaretMove,
   mathCommandRanges,
-  mathDeleteUnit,
   mathHealAfterInput,
   mathJoinAtEdgeAfterInput,
   mathMaterializeAfterInput,
-  mathMergeAfterDelete,
   mathRedundantSeparatorAfterInput,
-  mathRedundantSpaceAfterInput,
   mathSelectionRange,
-  mathSeparatorAfterDelete,
-  mathSplitAfterInput,
-  mathTransformTypedInput,
   mathUnitAt,
 } from "./math";
 // Host-wired layout so `\text{…}` CJK/unsupported glyphs typeset (see tex-host).
@@ -240,6 +237,13 @@ interface MathNodeLayout extends TextNodeLayout {
   readonly mathOffsetX: number;
   /** Vertical inset (px from the block top) to the math's top edge. */
   readonly mathTop: number;
+  /**
+   * Top edge (px from the block top) and height of the painted card surface.
+   * The block's flow height additionally carries the outer card margins
+   * (`MathStyles.marginTop`/`marginBottom`), which sit outside this box.
+   */
+  readonly cardTop: number;
+  readonly cardHeight: number;
   /** Width of the centered empty-block placeholder, used to align the caret. */
   readonly placeholderWidth: number;
 }
@@ -810,7 +814,27 @@ export class MathNode extends TextNode<MathBlock> {
 
   estimateHeight(c: NodeLayoutCtx): number {
     const m = c.styles.blocks.math;
-    return m.minHeight + m.paddingTop + m.paddingBottom;
+    const margins = cardFlowMargins(c.block, m);
+    return (
+      margins.top +
+      m.minHeight +
+      m.paddingTop +
+      m.paddingBottom +
+      margins.bottom
+    );
+  }
+
+  /**
+   * Anchor the gutter drag grip to the top of the card surface (past the outer
+   * margin), not to the equation glyphs — a tall equation would otherwise pull
+   * the grip toward the middle of the block.
+   */
+  override gutterAnchorY(c: NodeLayoutCtx): number {
+    const layout = this.layout(c) as MathNodeLayout;
+    return (
+      layout.cardTop +
+      Math.min(layout.cardHeight, BLOCK_DRAG_HANDLE_ANCHOR_HEIGHT) / 2
+    );
   }
 
   /**
@@ -949,11 +973,16 @@ export class MathNode extends TextNode<MathBlock> {
       : null;
     const mh = mathLayout ? mathLayout.height + mathLayout.depth : 0;
     const contentH = Math.max(m.minHeight, mh);
-    const height = contentH + m.paddingTop + m.paddingBottom;
+    // The card surface is the padded content box; the outer flow margins sit
+    // around it inside the block's height (zeroed against an adjacent card).
+    const margins = cardFlowMargins(block, m);
+    const cardTop = margins.top;
+    const cardHeight = contentH + m.paddingTop + m.paddingBottom;
+    const height = cardTop + cardHeight + margins.bottom;
     const mathOffsetX = mathLayout
       ? Math.max(0, (maxWidth - mathLayout.width) / 2)
       : 0;
-    const mathTop = m.paddingTop + Math.max(0, (contentH - mh) / 2);
+    const mathTop = cardTop + m.paddingTop + Math.max(0, (contentH - mh) / 2);
     const placeholderWidth = measureCtxText(
       styles.placeholder.math.text,
       m.placeholder.fontSize,
@@ -994,6 +1023,8 @@ export class MathNode extends TextNode<MathBlock> {
       mathDocumentLayout,
       mathOffsetX,
       mathTop,
+      cardTop,
+      cardHeight,
       placeholderWidth,
     };
   }
@@ -1066,7 +1097,9 @@ export class MathNode extends TextNode<MathBlock> {
     const topRadius = joinTop ? 0 : m.hoverBorderRadius;
     const bottomRadius = joinBottom ? 0 : m.hoverBorderRadius;
     // roundRect radii order: [topLeft, topRight, bottomRight, bottomLeft].
-    ctx.roundRect(x, y, width, layout.height, [
+    // The card is the padded content box; the outer flow margins around it
+    // (baked into layout.height) stay unpainted breathing room.
+    ctx.roundRect(x, y + layout.cardTop, width, layout.cardHeight, [
       topRadius,
       topRadius,
       bottomRadius,
@@ -1086,7 +1119,7 @@ export class MathNode extends TextNode<MathBlock> {
       ctx.globalAlpha = styles.blocks.math.selectionOpacity;
       ctx.fillStyle = styles.selection.backgroundColor;
       ctx.beginPath();
-      ctx.roundRect(x, y, width, layout.height, [
+      ctx.roundRect(x, y + layout.cardTop, width, layout.cardHeight, [
         topRadius,
         topRadius,
         bottomRadius,
@@ -1121,7 +1154,10 @@ export class MathNode extends TextNode<MathBlock> {
         this.paintPlaceholder(
           ctx,
           x + width / 2,
-          y + layout.height / 2 + textStyle.fontSize * 0.35,
+          y +
+            layout.cardTop +
+            layout.cardHeight / 2 +
+            textStyle.fontSize * 0.35,
           styles,
           textStyle,
           styles.placeholder.math.text,
@@ -1611,18 +1647,17 @@ export class MathNode extends TextNode<MathBlock> {
   readonly codec = mathBlockNodeCodec;
 
   // ── Caret model (block equation) ────────────────────────────────────────────
-  // Flat block indices remain the legacy source-offset path. A structured
-  // attachment instead hit-tests and stores stable row/node/character
-  // identities, then resolves their geometry through MathDocumentLayout. The
-  // legacy model still overrides `move`/`deleteUnit` (delegating to `./math`)
-  // rather than declaring the equation atomic.
+  // Flat block indices remain the legacy source-offset path for NAVIGATION
+  // only: a not-yet-migrated equation is clicked and arrowed through by source
+  // offset until its first edit promotes it. A structured attachment instead
+  // hit-tests and stores stable row/node/character identities, then resolves
+  // their geometry through MathDocumentLayout. Every MUTATION — typing,
+  // Backspace, Delete — is claimed by the tree input rules and action handlers
+  // (lazily migrating a legacy block), so the model deliberately has no
+  // `deleteUnit`/`transformInput`: flat editing of equation source is retired.
   readonly caret: CaretModel<MathBlock> = {
     move: (block, index, motion) =>
       mathCaretMove(mathSourceView(block), index, motion),
-    deleteUnit: (block, index, dir) =>
-      mathDeleteUnit(mathSourceView(block), index, dir),
-    transformInput: (block, index, input) =>
-      mathTransformTypedInput(mathSourceView(block), index, input),
     selectionRange: (block, anchor, focus, focusEdge) =>
       mathSelectionRange(mathSourceView(block), anchor, focus, focusEdge),
   };
@@ -2102,17 +2137,18 @@ export class MathNode extends TextNode<MathBlock> {
     );
 
     // The delete-side counterpart: after the plain text separating two inline
-    // chips is removed, fuse the now-adjacent chips back into one formula. The
-    // split half lives in `normalizeMathInput` above (TEXT_INPUTTED); both keep
+    // chips is removed, fuse the now-adjacent chips back into one formula —
+    // the inverse of the tree input rule's space-split, rebuilding one fresh
+    // structured attachment for attached and legacy chips alike. Both keep
     // inline math's "a space is a chip boundary" model consistent across edits.
-    // A block equation has no chip spans, so it also gets the direct fusion guard
-    // below: a delete that welds a command onto a following letter (`\int_{}a` →
-    // `\inta`) gets its separator space back so it never renders as raw source.
     bus.registerState(CONTENT_DELETED, (state, { blockIndex, textIndex }) => {
-      const merged = mergeInlineMath(state, blockIndex);
-      const separated = separateBlockMath(merged.state, blockIndex, textIndex);
-      let next = separated.state;
-      const ops: Operation[] = [...merged.ops, ...separated.ops];
+      const rejoined = rejoinAdjacentInlineMathChips(
+        state,
+        blockIndex,
+        textIndex,
+      );
+      let next = rejoined?.state ?? state;
+      const ops: Operation[] = rejoined ? [...rejoined.ops] : [];
       // Auto-heal brace corruption the same way the input path does: a delete that
       // left an unclosed `{` (or one that landed in an already-imbalanced block)
       // regains the caret stop past the construct instead of trapping every
@@ -2152,7 +2188,7 @@ export class MathNode extends TextNode<MathBlock> {
   }
 }
 
-/** The inline-math mark — applied to fuse chips, removed over a space to split. */
+/** The inline-math mark — re-applied when an edge-typed char joins a legacy chip. */
 const INLINE_MATH_MARK: Mark = { type: "math" };
 
 /** Select `[from, to)` within one math block and remember its gesture boundary. */
@@ -2372,55 +2408,6 @@ function normalizeMathInput(
     caret = applied.caret;
   }
 
-  // A space just typed inside an inline chip breaks it in two: strip the "math"
-  // mark from that one space (which splits the run's span — see the reducer's
-  // format-removal path), leaving two chips with a plain space between. No-op
-  // for a block equation, a non-space keystroke, or a space inside a construct.
-  const editedBlock = next.document.page.blocks[blockIndex];
-  const split =
-    editedBlock && !editedBlock.deleted
-      ? mathSplitAfterInput(editedBlock, caret)
-      : null;
-  if (split) {
-    const { newPage, op } = markCharsInRange(
-      next.document.page,
-      block.id,
-      split.from,
-      split.to,
-      INLINE_MATH_MARK,
-      false,
-      next.CRDTbinding,
-    );
-    invalidateBlockCache(newPage.blocks[blockIndex]);
-    next = { ...next, document: { ...next.document, page: newPage } };
-    ops.push(op);
-  } else {
-    // A space that didn't split a chip but landed *inside* a formula (a block
-    // equation, or an inline chip's construct like `\frac{a }{b}`) is dead LaTeX
-    // — math mode collapses it, so drop it instead of saving a meaningless space.
-    // Kept only when it's a real command separator (`\sin x`) or a text-mode
-    // space (`\text{a b}`); see mathRedundantSpaceAfterInput. The caret steps
-    // back onto where the space was so the next keystroke continues in place.
-    const redundant =
-      editedBlock && !editedBlock.deleted
-        ? mathRedundantSpaceAfterInput(editedBlock, caret)
-        : null;
-    if (redundant) {
-      const { newPage, op } = deleteCharsInRange(
-        next.document.page,
-        block.id,
-        redundant.from,
-        redundant.to,
-        next.CRDTbinding,
-      );
-      invalidateBlockCache(newPage.blocks[blockIndex]);
-      next = { ...next, document: { ...next.document, page: newPage } };
-      ops.push(op);
-      caret = redundant.from;
-      next = moveCursorToPosition(next, blockIndex, caret, true);
-    }
-  }
-
   // Drop the command-entry separator space once a command char has landed in
   // front of it (`\frac{\a| }{}` → `\frac{\a|}{}`), so a completed command never
   // persists the `\ ` that kept the just-typed `\` off the slot's brace. Runs on
@@ -2457,103 +2444,6 @@ function normalizeMathInput(
     next = { ...next, ui: { ...next.ui, caretScratch: scratch } };
   }
   return { state: next, ops };
-}
-
-/**
- * Body of MathNode's CONTENT_DELETED observer: when a deletion left inline chips
- * touching (the text between them is gone), re-apply the "math" mark across each
- * adjacent run so they merge into one formula — the inverse of the space-split in
- * {@link normalizeMathInput}. A no-op (state unchanged, no ops) unless something
- * is adjacent, so it's safe to run after every delete regardless of block type.
- */
-function mergeInlineMath(state: EditorState, blockIndex: number): StateResult {
-  const block = state.document.page.blocks[blockIndex];
-  if (!block || block.deleted) return { state, ops: [] };
-
-  const plans = mathMergeAfterDelete(block)?.filter(
-    (plan) =>
-      !rangeIntersectsStructuredMark(
-        block,
-        plan.from,
-        plan.to,
-        state.schema,
-        "math",
-      ),
-  );
-  if (!plans || plans.length === 0) return { state, ops: [] };
-
-  const ops: Operation[] = [];
-  let page = state.document.page;
-  // Apply plans right-to-left so an earlier plan's positions stay valid across
-  // the separator inserts a later (higher-index) plan makes.
-  for (const plan of [...plans].reverse()) {
-    let to = plan.to;
-    // Insert each separator space right-to-left, then extend the marked range to
-    // cover them: a control word fused to a following letter (`\sin`⎵`x`) gets a
-    // space back so the merged chip stays valid LaTeX (`\sin x`, never `\sinx`).
-    for (const at of [...plan.separatorsAt].sort((a, b) => b - a)) {
-      const ins = insertCharsAtPosition(
-        page,
-        block.id,
-        at,
-        " ",
-        state.CRDTbinding,
-      );
-      page = ins.newPage;
-      ops.push(ins.op);
-      to += 1;
-    }
-    const { newPage, op } = markCharsInRange(
-      page,
-      block.id,
-      plan.from,
-      to,
-      INLINE_MATH_MARK,
-      true,
-      state.CRDTbinding,
-    );
-    page = newPage;
-    ops.push(op);
-  }
-  invalidateBlockCache(page.blocks[blockIndex]);
-  return {
-    state: { ...state, document: { ...state.document, page } },
-    ops,
-  };
-}
-
-/**
- * Block-equation counterpart of {@link mergeInlineMath}: after a delete welds a
- * control word onto a following letter (backspacing the empty subscript in
- * `\int_{}a` leaves `\inta`, one unknown command rendered as raw red source),
- * reinsert the command-separator space so the two stay distinct atoms (`\int a`).
- * `caret` is the post-delete caret offset (the weld point). A no-op unless a weld
- * actually happened, so it's safe to run after every delete. The caret is left
- * where the delete put it — just after the command, before the reinserted space.
- */
-function separateBlockMath(
-  state: EditorState,
-  blockIndex: number,
-  caret: number,
-): StateResult {
-  const block = state.document.page.blocks[blockIndex];
-  if (!block || block.deleted) return { state, ops: [] };
-
-  const at = mathSeparatorAfterDelete(block, caret);
-  if (at === null) return { state, ops: [] };
-
-  const { newPage, op } = insertCharsAtPosition(
-    state.document.page,
-    block.id,
-    at,
-    " ",
-    state.CRDTbinding,
-  );
-  invalidateBlockCache(newPage.blocks[blockIndex]);
-  return {
-    state: { ...state, document: { ...state.document, page: newPage } },
-    ops: [op],
-  };
 }
 
 // ─── Math actions ────────────────────────────────────────────────────────────

@@ -295,6 +295,18 @@ export function MobileKeyboardToolbar({
           {layout.right.map(renderItem)}
         </div>
       </div>
+
+      {/* With the keyboard closed (image-selected case) the bar sits on the
+          screen edge, so extend its background under the home-indicator /
+          gesture area. An open keyboard covers that region itself. Rendered
+          inside the container so `--keyboard-toolbar-height` includes it and
+          the canvas / BottomToolDock clear the padded bar automatically. */}
+      {model.bottomInset === 0 && (
+        <div
+          className="bg-background"
+          style={{ height: "env(safe-area-inset-bottom, 0px)" }}
+        />
+      )}
     </div>
   );
 }

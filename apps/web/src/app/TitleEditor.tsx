@@ -31,15 +31,19 @@ const titleSchema = appSchema.restrict({
 
 /**
  * The `Input` component's box metrics (see `components/ui/input.tsx`), which
- * this surface reproduces on canvas: `h-9` (36px) box with a 1px border and
- * `px-2.5` (10px) horizontal padding, typography `text-base` (16px/24px) that
- * drops to `md:text-sm` (14px/20px) on desktop. Text weight/color are the
- * input's inherited defaults, not the page-heading style — the title should be
+ * this surface reproduces on canvas. They are authored in rem, exactly like the
+ * component's Tailwind classes — `h-9` (2.25rem) box, `px-2.5` (0.625rem)
+ * horizontal padding, typography `text-base` (1rem/1.5rem) dropping to
+ * `md:text-sm` (0.875rem/1.25rem) on desktop — and resolved against the live
+ * root font size in {@link titleInputTheme}, so the canvas follows a browser
+ * font-size / rem-scale change the same way its DOM siblings do. Only the 1px
+ * border is px-authored and never scales. Text weight/color are the input's
+ * inherited defaults, not the page-heading style — the title should be
  * indistinguishable from a native text field.
  */
-const INPUT_BOX = { height: 36, border: 1, paddingX: 10 } as const;
-const INPUT_TEXT = { fontSize: 16, lineHeight: 24 } as const; // text-base
-const INPUT_TEXT_MD = { fontSize: 14, lineHeight: 20 } as const; // md:text-sm
+const INPUT_BOX = { height: 2.25, borderPx: 1, paddingX: 0.625 } as const;
+const INPUT_TEXT = { fontSize: 1, lineHeight: 1.5 } as const; // text-base
+const INPUT_TEXT_MD = { fontSize: 0.875, lineHeight: 1.25 } as const; // md:text-sm
 const INPUT_FONT_WEIGHT = "normal";
 
 /**
@@ -65,7 +69,14 @@ function titleInputTheme(isDesktop: boolean): EditorTheme {
   const placeholder = { showUnfocused: true };
   if (typeof document === "undefined") return { styles: { placeholder } };
 
-  const { fontSize, lineHeight } = isDesktop ? INPUT_TEXT_MD : INPUT_TEXT;
+  // Resolve the rem scale the moment the theme is built — every re-push
+  // trigger (breakpoint, fonts, dark-mode class) recomputes from the current
+  // root font size, keeping the canvas in step with its rem-sized DOM chrome.
+  const rem =
+    parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const text = isDesktop ? INPUT_TEXT_MD : INPUT_TEXT;
+  const fontSize = text.fontSize * rem;
+  const lineHeight = text.lineHeight * rem;
   const fonts = getAppFontRegistry();
   const metrics = getFontMetrics(
     fontSize,
@@ -82,7 +93,7 @@ function titleInputTheme(isDesktop: boolean): EditorTheme {
     ? metrics.descent
     : fontSize * 0.2;
   const lineBox = Math.max(lineHeight, ascent + descent);
-  const innerHeight = INPUT_BOX.height - 2 * INPUT_BOX.border;
+  const innerHeight = INPUT_BOX.height * rem - 2 * INPUT_BOX.borderPx;
   const padY = Math.max(0, (innerHeight - lineBox) / 2);
 
   // The input's text and placeholder colors are the app-wide `--foreground` /
@@ -99,6 +110,10 @@ function titleInputTheme(isDesktop: boolean): EditorTheme {
           fontSize,
           fontWeight: INPUT_FONT_WEIGHT,
           lineHeight: lineHeight / fontSize,
+          // Zero both block paddings: this surface mimics an <Input>, so all
+          // vertical centering comes from the canvas padding computed above —
+          // the page theme's prose space-above-headings must not leak in.
+          paddingTop: 0,
           paddingBottom: 0,
           ...(foreground ? { color: foreground } : {}),
         },
@@ -106,8 +121,8 @@ function titleInputTheme(isDesktop: boolean): EditorTheme {
       canvas: {
         paddingTop: padY,
         paddingBottom: padY,
-        paddingLeft: INPUT_BOX.paddingX,
-        paddingRight: INPUT_BOX.paddingX,
+        paddingLeft: INPUT_BOX.paddingX * rem,
+        paddingRight: INPUT_BOX.paddingX * rem,
       },
       // A native input's caret is a bare bar. The engine's touch drag handle
       // (stem + circle under the caret) extends ~13px below the caret, which
@@ -201,8 +216,12 @@ export function TitleEditor({
   // Keep the Input-mirroring overrides current after mount. The core's live
   // theming re-pushes tokens/fonts, but this surface's overrides also depend on
   // the breakpoint, the measured font metrics (which change when faces finish
-  // loading or the registry swaps stacks), and CSS variables that flip with the
-  // `.dark` class — each re-push deep-merges over the core's theme.
+  // loading or the registry swaps stacks), CSS variables that flip with the
+  // `.dark` class, and the root font size (the rem scale all the box metrics
+  // resolve against) — each re-push deep-merges over the core's theme. `style`
+  // is observed alongside `class` so an app-set inline root font-size (a UI
+  // scale setting) re-derives the rem metrics; a browser-level font-size change
+  // has no event and is picked up on the next push.
   useEffect(() => {
     if (!editor) return;
     const push = () => editor.setTheme(titleInputTheme(isDesktop));
@@ -210,7 +229,7 @@ export function TitleEditor({
     const darkObserver = new MutationObserver(push);
     darkObserver.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["class"],
+      attributeFilter: ["class", "style"],
     });
     const offFontsReady = onFontsReady(push);
     const offRegistry = onAppFontRegistryChange(push);

@@ -24,8 +24,10 @@ export interface Token {
   readonly end: number;
 }
 
-const isLetter = (c: string) => (c >= "a" && c <= "z") || (c >= "A" && c <= "Z");
-const isSpace = (c: string) => c === " " || c === "\t" || c === "\n" || c === "\r";
+const isLetter = (c: string) =>
+  (c >= "a" && c <= "z") || (c >= "A" && c <= "Z");
+const isSpace = (c: string) =>
+  c === " " || c === "\t" || c === "\n" || c === "\r";
 
 /**
  * `\\` is a row separator ONLY inside a tabular environment (`matrix`, `cases`,
@@ -59,7 +61,27 @@ const isSpace = (c: string) => c === " " || c === "\t" || c === "\n" || c === "\
  * Letters after the command-entry `\` still merge — they ARE the command name
  * being typed (`\al` en route to `\alpha`).
  */
-export function tokenize(src: string, literalStart?: number): Token[] {
+export interface TokenizeOptions {
+  /** Offset of the `\` being actively typed (see module docs above). */
+  literalStart?: number;
+  /**
+   * Offsets of `\`s that are editable field CONTENT, not syntax — the printed
+   * projection of a structured document's raw-text scratch (see
+   * `projectMathDocumentSource`). Unlike `literalStart`, these do not depend on
+   * where the caret is: the marks hold for every consumer of the projection.
+   * Each marked `\` gets `literalStart`'s no-merge behavior, and a marked
+   * `\begin`/`\end` additionally does NOT shift environment depth — a
+   * half-typed `\end` resting in a matrix cell must not make the REAL matrix's
+   * `\\` separators lex as literal backslashes (or a stray `\begin` make
+   * outside `\\`s lex as row breaks).
+   */
+  literalBackslashes?: readonly number[];
+}
+
+export function tokenize(src: string, opts: TokenizeOptions = {}): Token[] {
+  const fieldBackslashes = new Set(opts.literalBackslashes);
+  const literalStarts = new Set(opts.literalBackslashes);
+  if (opts.literalStart !== undefined) literalStarts.add(opts.literalStart);
   const tokens: Token[] = [];
   let i = 0;
   const n = src.length;
@@ -81,7 +103,7 @@ export function tokenize(src: string, literalStart?: number): Token[] {
       // command-entry `\` being typed. Otherwise keep the two `\`s separate (see
       // `tokenize` docs): a stray `\` stays a visible literal backslash and a
       // following \command stays intact instead of de-structuring.
-      if (src[i + 1] === "\\" && envDepth > 0 && start !== literalStart) {
+      if (src[i + 1] === "\\" && envDepth > 0 && !literalStarts.has(start)) {
         i += 2;
         tokens.push({ kind: "dbackslash", value: "\\\\", start, end: i });
         continue;
@@ -90,17 +112,21 @@ export function tokenize(src: string, literalStart?: number): Token[] {
       i++; // consume backslash
       if (i < n && isLetter(src[i])) {
         while (i < n && isLetter(src[i])) i++;
-      } else if (i < n && src[i] !== "\\" && start !== literalStart) {
+      } else if (i < n && src[i] !== "\\" && !literalStarts.has(start)) {
         i++; // single non-letter command char — but never a following \, which
         // begins its own command (an empty-named \ shows as a literal backslash),
-        // and never for the command-entry \ being typed: merging would steal an
-        // EXISTING structural char (`\frac{a\|}{b}` → `\}` swallows the frac's
-        // closing brace, de-structuring it and flashing a red brace glyph).
+        // and never for a literal-marked \ (command entry, field content):
+        // merging would steal an EXISTING structural char (`\frac{a\|}{b}` →
+        // `\}` swallows the frac's closing brace, de-structuring it and
+        // flashing a red brace glyph).
       }
       const value = src.slice(start + 1, i);
       // Track environment nesting so the `\\` rule above knows where it is.
-      if (value === "begin") envDepth++;
-      else if (value === "end" && envDepth > 0) envDepth--;
+      // Field-content `\begin`/`\end` scratch is inert (see TokenizeOptions).
+      if (!fieldBackslashes.has(start)) {
+        if (value === "begin") envDepth++;
+        else if (value === "end" && envDepth > 0) envDepth--;
+      }
       tokens.push({ kind: "command", value, start, end: i });
       continue;
     }

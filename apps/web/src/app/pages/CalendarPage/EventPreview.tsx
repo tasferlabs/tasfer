@@ -880,9 +880,12 @@ export function EventPreview({
 
   const editorBlockStyleOverrides = useMemo(
     () => ({
-      heading1: { fontSize: 20, paddingBottom: 6 },
-      heading2: { fontSize: 20, paddingBottom: 6 },
-      heading3: { fontSize: 20, paddingBottom: 6 },
+      // Compact preview: opt out of the page theme's prose space-above-headings
+      // (paddingTop) — this surface is deliberately tight, and heading1 is the
+      // event title sitting at the very top.
+      heading1: { fontSize: 20, paddingTop: 0, paddingBottom: 6 },
+      heading2: { fontSize: 20, paddingTop: 0, paddingBottom: 6 },
+      heading3: { fontSize: 20, paddingTop: 0, paddingBottom: 6 },
     }),
     [],
   );

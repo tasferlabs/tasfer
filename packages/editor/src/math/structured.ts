@@ -155,6 +155,14 @@ export function validateStructuredMathDocument(
 /**
  * Parse legacy LaTeX and return the one atomic initializer accepted by the
  * page-level `content_edit` operation.
+ *
+ * The default allocator scope folds a fingerprint of the source into the
+ * attachment address. Peers migrating identical legacy text build
+ * byte-identical initializers, so the first-writer-wins `document_init` race
+ * stays convergent; peers that observed divergent legacy text allocate in
+ * disjoint identity namespaces, so the race loser's piggybacked first edits
+ * reference nodes absent from the winning tree and degrade to deterministic
+ * no-ops instead of aliasing its nodes with different content.
  */
 export function parseLegacyMathDocumentInit(
   latex: string,
@@ -163,7 +171,7 @@ export function parseLegacyMathDocumentInit(
   const identities =
     options.identityAllocator ??
     createDeterministicIdentityAllocator(
-      `math-import/${encodeURIComponent(options.contentId ?? "standalone")}`,
+      `math-import/${encodeURIComponent(options.contentId ?? "standalone")}/${legacyMathSourceFingerprint(latex)}`,
     );
   const math = parseMathDocument(latex, {
     identityAllocator: identities,
@@ -669,20 +677,26 @@ class MathStructuredProjector {
   private assertNoVisibleExtras(): void {
     for (const node of Object.values(this.document.nodes)) {
       if (node.deleted || this.visited.has(node.id)) continue;
-      if (this.hasDeletedAncestor(node)) continue;
+      if (this.isUnreachable(node)) continue;
       throw new Error(`Unprojected visible math node: ${node.id}`);
     }
   }
 
-  private hasDeletedAncestor(node: StructuredNode): boolean {
+  /**
+   * A subtree under a deleted ancestor is hidden; a subtree whose ancestor
+   * chain hits a missing identity is an orphan the reducer retains without
+   * surfacing (e.g. an edit built against a `document_init` that lost the
+   * first-writer-wins race). Neither reaches the printed equation, so neither
+   * may fail projection.
+   */
+  private isUnreachable(node: StructuredNode): boolean {
     const seen = new Set<string>();
     let parentId = node.placement.parentId;
     while (parentId !== null) {
       if (seen.has(parentId)) return false;
       seen.add(parentId);
       const parent = this.document.nodes[parentId];
-      if (!parent) return false;
-      if (parent.deleted) return true;
+      if (!parent || parent.deleted) return true;
       parentId = parent.placement.parentId;
     }
     return false;
@@ -697,6 +711,21 @@ function projectValidatedMathDocument(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * FNV-1a fingerprint of one legacy source, base36 so the allocator scope
+ * stays colon-free. Equal sources must fingerprint equally on every peer;
+ * distinct sources only need to collide rarely, since a collision merely
+ * restores the pre-fingerprint aliasing risk for that one migration race.
+ */
+function legacyMathSourceFingerprint(latex: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < latex.length; index++) {
+    hash ^= latex.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function assertCompoundCharId(id: string): void {

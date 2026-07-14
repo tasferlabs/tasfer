@@ -731,7 +731,7 @@ function ScheduleTag({
         <Popover.Content
           align="start"
           sideOffset={8}
-          className="z-50 w-[320px] rounded-lg border border-border bg-popover p-4 shadow-lg animate-in fade-in-0 zoom-in-95"
+          className="z-50 w-80 rounded-lg border border-border bg-popover p-4 shadow-lg animate-in fade-in-0 zoom-in-95"
           onEscapeKeyDown={(e) => {
             if (
               document.querySelector(

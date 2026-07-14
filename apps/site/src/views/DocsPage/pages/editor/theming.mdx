@@ -73,8 +73,10 @@ new MutationObserver(() => editor.setTheme({ tokens: tokensFromCss(element) }))
 Sizes and spacing aren't tokens — they're leaves of the `styles` tree, each overridable per instance:
 
 <PropsTable cols={["Path", "Default", "Description"]} rows={[
-  { name: "styles.blocks.paragraph.fontSize", type: "16", desc: "Base paragraph size in px. Each heading level carries its own fontSize (32 / 24 / 20)." },
-  { name: "styles.blocks.paragraph.lineHeight", type: "1.6", desc: "Unitless line-height multiple for the block." },
+  { name: "styles.blocks.paragraph.fontSize", type: "16", desc: "Base paragraph size in px. Each heading level carries its own fontSize (30 / 24 / 20 — a 1.875/1.5/1.25em prose ratio scale)." },
+  { name: "styles.blocks.paragraph.lineHeight", type: "1.5", desc: "Unitless line-height multiple for the block. Body blocks default to 1.5; headings to a tighter 1.3." },
+  { name: "styles.blocks.heading1.paddingTop", type: "32", desc: "Space above a block's first line in px (≈1em of the heading's own size; 26/20 for heading2/3, 0 for body blocks). Prose rhythm: more space above a heading than below it." },
+  { name: "styles.blocks.code.marginTop / marginBottom", type: "8 / 16", desc: "Outer margins separating a card block's filled surface from adjacent prose (same fields on quote and math). Zeroed on an edge shared with another card, so stacked cards keep tiling flush." },
   { name: "styles.canvas.paddingTop / paddingBottom", type: "4 / 80", desc: "Vertical canvas padding in px." },
   { name: "styles.canvas.paddingLeft / paddingRight", type: "40 / 40", desc: "Horizontal canvas padding. The text column is the container width minus these — there is no fixed max-width token." },
 ]} />

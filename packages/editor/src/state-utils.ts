@@ -34,6 +34,7 @@ import type { DataSchema } from "./sync/schema";
 export {
   getBlockTextContent,
   getBlockTextLength,
+  isAndroid,
   isTouchDevice,
 } from "./node-shared";
 import { initialUndoManagerState } from "./sync/crdt-undo";

@@ -1,3 +1,4 @@
+import { isAndroid } from "@cypherkit/editor/internal";
 import { useEffect, useState } from "react";
 
 /**
@@ -26,18 +27,38 @@ export default function useKeyboardInset(): number {
     // fallback — matching the editor host's precedence.
     let nativeReported = false;
 
+    // Edge-to-edge Android Chrome's viewport shrink is short by the gesture-nav
+    // bar, whose height is only visible to CSS while the keyboard is closed —
+    // capture it then and fold it into the open inset. Mirrors the editor
+    // host's web keyboard sync (see MountedEditor), which documents the
+    // measurements behind this.
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;" +
+      "padding-bottom:var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px));";
+    document.body.appendChild(probe);
+    let closedSafeAreaBottom = 0;
+
     const syncFromViewport = () => {
       if (nativeReported || !vv) return;
       const next = window.innerHeight - vv.height - vv.offsetTop;
-      setInset(next > 0 ? next : 0);
+      if (next <= 0) {
+        closedSafeAreaBottom =
+          parseFloat(getComputedStyle(probe).paddingBottom) || 0;
+        setInset(0);
+        return;
+      }
+      setInset(Math.round(next + (isAndroid() ? closedSafeAreaBottom : 0)));
     };
 
     // Android IME inset posted by MainActivity: { type, height (dp ≈ CSS px),
     // isOpen }. Validated inline to keep the hook self-contained.
     const onNativeKeyboard = (event: MessageEvent) => {
-      const data = event.data as
-        | { type?: unknown; height?: unknown; isOpen?: unknown }
-        | null;
+      const data = event.data as {
+        type?: unknown;
+        height?: unknown;
+        isOpen?: unknown;
+      } | null;
       if (
         event.source !== window ||
         !data ||
@@ -60,6 +81,7 @@ export default function useKeyboardInset(): number {
       vv?.removeEventListener("resize", syncFromViewport);
       vv?.removeEventListener("scroll", syncFromViewport);
       window.removeEventListener("message", onNativeKeyboard);
+      probe.remove();
     };
   }, []);
 

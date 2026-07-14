@@ -138,6 +138,37 @@ describe("structured math adapter", () => {
     ).toBe(true);
   });
 
+  it("allocates disjoint identity namespaces for divergent legacy sources", () => {
+    const contentId = "content:7";
+    const winner = parseLegacyMathDocumentInit("a+b", { contentId });
+    const loser = parseLegacyMathDocumentInit("a+c", { contentId });
+    const rerun = parseLegacyMathDocumentInit("a+b", { contentId });
+
+    expect(rerun.document).toEqual(winner.document);
+    const shared = Object.keys(winner.document.nodes).filter(
+      (id) => id in loser.document.nodes,
+    );
+    expect(shared).toEqual([contentId]);
+  });
+
+  it("keeps projecting when a race-losing edit orphans a node", () => {
+    const contentId = "content:7";
+    const { document } = parseLegacyMathDocumentInit("a+b", { contentId });
+    const orphaned = applyStructuredEdit(document, {
+      kind: "node_insert",
+      node: {
+        id: "loser:0",
+        type: "row",
+        placement: { parentId: "ghost:0", slot: "children", orderKey: "a0" },
+      },
+    });
+
+    expect(orphaned.nodes["loser:0"]).toBeDefined();
+    const validated = validateStructuredMathDocument(orphaned);
+    expect(validated).toBeDefined();
+    expect(printMathDocument(structuredToMathDocument(orphaned)!)).toBe("a+b");
+  });
+
   it("rejects invalid feature shapes without discarding the generic snapshot", () => {
     const structured = mathDocumentToStructured(everyNodeKindDocument());
     const invalidAttribute = {

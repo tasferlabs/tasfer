@@ -35,3 +35,8 @@ export const BLOCK_DRAG_HANDLE_HIT_WIDTH = 28;
 // Visual size of the painted reorder grip within the hit band.
 export const BLOCK_DRAG_HANDLE_GRIP_WIDTH = 16;
 export const BLOCK_DRAG_HANDLE_GRIP_HEIGHT = 18;
+// Reference height (px) the grip centers within at the top of a block — the
+// grip plus breathing room. A block shorter than this centers the grip in its
+// full height instead (see Node.gutterAnchorY).
+export const BLOCK_DRAG_HANDLE_ANCHOR_HEIGHT =
+  BLOCK_DRAG_HANDLE_GRIP_HEIGHT + 10;

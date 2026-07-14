@@ -11,8 +11,10 @@ import {
   structuredToMathDocument,
 } from "@cypherkit/editor/math/data";
 import {
-  mathContentSelectionFromSourceOffset,
+  contentPointToMathTreeCaret,
   mathSourceOffsetFromContentPoint,
+  mathTreeCaretToContentSelection,
+  trailingMathCommandRun,
 } from "@cypherkit/editor/math";
 import type { AppEditor } from "../editorSchema";
 
@@ -68,15 +70,37 @@ export function activeTreeMath(editor: AppEditor): ActiveTreeMath | null {
     : null;
 }
 
-/** Stable selection at one canonical-source bridge offset in this equation. */
-export function treeMathSelectionAt(
+export interface TreeMathCommandRun {
+  /** Letters typed after the `\` so far — empty right after the trigger. */
+  readonly query: string;
+  /** Stable identity of the run's opening `\` character. */
+  readonly backslashCharId: string;
+  /** Collapsed selection at the run's `\`, for anchoring menu chrome. */
+  readonly anchor: ContentSelection | null;
+}
+
+/**
+ * The uncommitted `\query` command run ending at this context's caret. Read
+ * from the raw-text field content, never from the projected source: the
+ * projection is not a faithful echo of what was typed (a pending lone `\`
+ * projects as `\backslash`), so source slicing would misread the run.
+ */
+export function treeMathCommandRun(
   context: ActiveTreeMath,
-  sourceOffset: number,
-): ContentSelection | null {
-  return mathContentSelectionFromSourceOffset(
-    context.blockId,
-    context.contentId,
-    context.document,
-    sourceOffset,
-  );
+): TreeMathCommandRun | null {
+  const caret = contentPointToMathTreeCaret(context.document, context.point);
+  const run = caret
+    ? trailingMathCommandRun(context.document, caret)
+    : undefined;
+  if (!run) return null;
+  return {
+    query: run.query,
+    backslashCharId: run.backslashCharId,
+    anchor: mathTreeCaretToContentSelection(
+      context.blockId,
+      context.contentId,
+      context.document,
+      run.range.anchor,
+    ),
+  };
 }

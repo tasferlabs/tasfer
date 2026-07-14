@@ -10,7 +10,7 @@ import {
   mathCommandInsertion,
   renderToSVG,
 } from "@cypherkit/editor/math";
-import { activeTreeMath, treeMathSelectionAt } from "./treeMath";
+import { activeTreeMath, treeMathCommandRun } from "./treeMath";
 import useResponsive from "../app/hooks/useResponsive";
 import {
   Drawer,
@@ -36,10 +36,13 @@ interface MathCommandMenuProps {
   disabled?: boolean;
 }
 
-/** The `\`-trigger run we're tracking: the block + the index of the `\`. */
+/** The `\`-trigger run we're tracking: the block + the identity of the `\`. */
 interface Trigger {
   blockId: string;
+  /** Flat path: index of the `\` in the block's text. -1 on the tree path. */
   backslashIndex: number;
+  /** Tree path: stable char id of the typed `\`, latched on first recompute. */
+  backslashCharId?: string;
 }
 
 /**
@@ -174,25 +177,56 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       const t = triggerRef.current;
       if (!t) return;
       const tree = activeTreeMath(editor);
+
+      // Tree path — block equations AND structured inline chips. The query is
+      // read from the raw-text field at the caret, never sliced out of the
+      // projected source: the projection is allowed to diverge from what was
+      // typed (a pending lone `\` projects as `\backslash`). The run is
+      // tracked by the `\`'s stable char identity, latched on the first tick
+      // after the trigger keystroke, so the menu closes exactly when THAT `\`
+      // stops being the run the caret is completing.
+      if (tree) {
+        const run =
+          tree.blockId === t.blockId ? treeMathCommandRun(tree) : null;
+        if (
+          !run ||
+          (t.backslashCharId && run.backslashCharId !== t.backslashCharId)
+        ) {
+          return close();
+        }
+        if (!t.backslashCharId) {
+          triggerRef.current = { ...t, backslashCharId: run.backslashCharId };
+        }
+        const coords = editor.view.coordsAtContent(
+          run.anchor?.focus ?? tree.point,
+        );
+        const rect = getContainerRect();
+        if (!coords || !rect) return;
+        const x = rect.left + coords.x;
+        const y = rect.top + coords.y + coords.height;
+        setMenu((prev) =>
+          prev && prev.x === x && prev.y === y && prev.query === run.query
+            ? prev
+            : { x, y, query: run.query },
+        );
+        return;
+      }
+
+      // Flat path — inline chips still edited as flat marked text.
       const range = editor.state.selection.range;
       const flatPoint =
         range && typeof range === "object" && "offset" in range ? range : null;
-      if (!tree && !flatPoint) return close();
-      const block = tree
-        ? editor.query.block({ block: tree.blockId })
-        : editor.query.block(flatPoint!);
+      if (!flatPoint) return close();
+      const block = editor.query.block(flatPoint);
       if (!block) return close();
 
-      const text = tree?.source ?? block.text;
-      const caretIndex = tree?.sourceOffset ?? flatPoint?.offset ?? 0;
-      if (tree && t.backslashIndex < 0) {
-        t.backslashIndex = Math.max(0, caretIndex - 1);
-        triggerRef.current = { ...t };
-      }
+      const text = block.text;
+      const caretIndex = flatPoint.offset ?? 0;
       // Close when the caret left the `\` run: different block, moved at/before
       // the `\`, or the `\` itself was deleted.
       if (
         block.id !== t.blockId ||
+        t.backslashIndex < 0 ||
         caretIndex <= t.backslashIndex ||
         text[t.backslashIndex] !== "\\"
       ) {
@@ -205,7 +239,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       // `select` re-marks the inserted construct so replacing the span's start
       // anchor doesn't orphan it. Query at the backslash (always inside the run)
       // rather than the caret, whose right edge is exclusive.
-      if (!tree && block.type !== "math") {
+      if (block.type !== "math") {
         const chip = editor.query
           .marks({ block: block.id, offset: t.backslashIndex })
           .find((m) => m.name === "math");
@@ -218,15 +252,10 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       const query = text.slice(t.backslashIndex + 1, caretIndex);
       if (!/^[a-zA-Z]*$/.test(query)) return close();
 
-      const triggerSelection = tree
-        ? treeMathSelectionAt(tree, t.backslashIndex)
-        : null;
-      const coords = tree
-        ? editor.view.coordsAtContent(triggerSelection?.focus ?? tree.point)
-        : editor.view.coordsAtPos({
-            block: block.id,
-            offset: t.backslashIndex,
-          });
+      const coords = editor.view.coordsAtPos({
+        block: block.id,
+        offset: t.backslashIndex,
+      });
       const rect = getContainerRect();
       if (!coords || !rect) return;
       const x = rect.left + coords.x;

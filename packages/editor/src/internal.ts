@@ -71,6 +71,7 @@ export { getLinkAtPosition } from "./rendering/marks/LinkMark";
 export {
   getBlockTextContent,
   getBlockTextLength,
+  isAndroid,
   isTouchDevice,
 } from "./state-utils";
 export { canHaveFormats, isTextualBlock } from "./sync/block-registry";

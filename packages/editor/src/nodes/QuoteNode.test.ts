@@ -119,8 +119,10 @@ describe("consecutive-quote spacing", () => {
 
   const q = getEditorStyles(createInitialState(pageWith(quoteBlock("A"))))
     .blocks.quote;
-  const topInsetSaving = q.paddingY - q.joinedPaddingY;
-  const bottomSaving = q.paddingBottom - q.joinedPaddingY;
+  // A joined edge drops both the outer card margin and the full pad, keeping
+  // only the reduced joined inset.
+  const topInsetSaving = q.marginTop + q.paddingY - q.joinedPaddingY;
+  const bottomSaving = q.marginBottom + q.paddingBottom - q.joinedPaddingY;
 
   it("keeps a standalone quote at full height", () => {
     const solo = heightOf(0, quoteBlock("A"));

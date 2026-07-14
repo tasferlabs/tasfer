@@ -21,6 +21,18 @@ export interface ParseOptions {
    * {@link pendingCommandRange}; everything else parses normally.
    */
   literalRange?: { start: number; end: number };
+  /**
+   * Source offsets of `\`s that are editable field content rather than syntax
+   * (a structured document's raw-text scratch — see
+   * `projectMathDocumentSource` and {@link TokenizeOptions}). Independent of
+   * the caret. Beyond the lexer's no-merge/env-inert handling, a marked
+   * command that would act STRUCTURALLY — `\begin`/`\end`, `\left`/`\right`,
+   * or an infix fraction like `\over` — parses as a literal `unknown`
+   * placeholder instead: uncommitted scratch must never open/close a wall
+   * around, or restructure, content outside its own leaf. Non-structural
+   * marked commands (`\alpha`) still resolve normally.
+   */
+  literalBackslashes?: readonly number[];
 }
 
 export function parse(src: string, opts: ParseOptions = {}): Node {
@@ -32,14 +44,19 @@ class Parser {
   private pos = 0;
   private readonly len: number;
   private readonly literalRange?: { start: number; end: number };
+  private readonly literalBackslashes: ReadonlySet<number>;
 
   constructor(src: string, opts: ParseOptions = {}) {
     // Pass the in-progress command's `\` offset so the lexer keeps it from
     // merging with a following `\command` into a `\\` line break (which would
     // de-structure the construct — see `tokenize`).
-    this.toks = tokenize(src, opts.literalRange?.start);
+    this.toks = tokenize(src, {
+      literalStart: opts.literalRange?.start,
+      literalBackslashes: opts.literalBackslashes,
+    });
     this.len = src.length;
     this.literalRange = opts.literalRange;
+    this.literalBackslashes = new Set(opts.literalBackslashes);
   }
 
   // `tokenize` always terminates the stream with an `eof` token, so a well-behaved
@@ -77,7 +94,17 @@ class Parser {
       this.skipSpace();
       const t = this.peek();
       if (t.kind === "eof" || stop.includes(t.kind)) break;
-      if (stopCommand && t.kind === "command" && t.value === stopCommand) break;
+      // A literal-marked stop command is field scratch, not the real wall: a
+      // half-typed `\end`/`\right` resting in a cell must not terminate the
+      // enclosing environment or `\left` group early.
+      if (
+        stopCommand &&
+        t.kind === "command" &&
+        t.value === stopCommand &&
+        !this.literalBackslashes.has(t.start)
+      ) {
+        break;
+      }
       // A style switch (\displaystyle, …) re-styles the rest of this group.
       if (t.kind === "command" && t.value in STYLE_SWITCHES) {
         this.next();
@@ -223,6 +250,15 @@ class Parser {
     // caret navigation parse WITHOUT this flag, so a committed command stays a
     // single atomic token — this only changes how the in-progress one renders.
     if (this.literalRange && cmd.start === this.literalRange.start) {
+      return { type: "unknown", name, span: span(cmd) };
+    }
+
+    // Literal-marked field scratch never acts structurally (see
+    // ParseOptions.literalBackslashes): render it as its source text.
+    if (
+      this.literalBackslashes.has(cmd.start) &&
+      STRUCTURAL_COMMAND_NAMES.has(name)
+    ) {
       return { type: "unknown", name, span: span(cmd) };
     }
 
@@ -593,7 +629,13 @@ class Parser {
       this.skipSpace();
       const t = this.peek();
       if (t.kind === "eof") break;
-      if (t.kind === "command" && t.value === "end") break;
+      if (
+        t.kind === "command" &&
+        t.value === "end" &&
+        !this.literalBackslashes.has(t.start)
+      ) {
+        break;
+      }
 
       const cellStart = t.start;
       const body = this.parseExpression(["amp", "dbackslash"], "end");
@@ -984,6 +1026,24 @@ const INFIX_FORMS: Record<
   brace: { hasRule: false, leftDelim: "\\{", rightDelim: "\\}" },
   brack: { hasRule: false, leftDelim: "[", rightDelim: "]" },
 };
+
+/**
+ * Commands that restructure content OUTSIDE their own source position:
+ * environment and delimiter walls, plus the infix fractions that re-split the
+ * surrounding row. A literal-marked one (uncommitted raw-text scratch — see
+ * {@link ParseOptions.literalBackslashes}) parses as a visible `unknown`
+ * placeholder instead. Argument-taking commands (`\frac`, `\sqrt`) are
+ * deliberately absent: resting scratch resolving them only mis-nests the atoms
+ * that FOLLOW it visually, which is contained and matches the legacy
+ * flat-source behavior.
+ */
+const STRUCTURAL_COMMAND_NAMES: ReadonlySet<string> = new Set([
+  "begin",
+  "end",
+  "left",
+  "right",
+  ...Object.keys(INFIX_FORMS),
+]);
 
 /** Text-mode font commands → their face variant. */
 const TEXT_FONTS: Record<string, string> = {

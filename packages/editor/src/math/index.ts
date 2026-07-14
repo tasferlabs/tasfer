@@ -47,5 +47,9 @@ export {
   serializeMathContentSelection,
 } from "./content-selection";
 export * from "./data";
+export {
+  type TrailingMathCommandRun,
+  trailingMathCommandRun,
+} from "./input-controller";
 export { mathInputRules } from "./input-rules";
 export * from "./tree-selection";

@@ -7,6 +7,7 @@ import type {
   MathMatrix,
   MathNode,
   MathOperator,
+  MathRawText,
   MathRow,
   MathText,
 } from "./model";
@@ -52,6 +53,15 @@ export interface MathDocumentSourceProjection {
   readonly latex: string;
   readonly items: readonly ProjectedMathItem[];
   readonly anchors: readonly ProjectedMathAnchor[];
+  /**
+   * Offsets in `latex` of `\`s that are raw-text FIELD CONTENT — the opening
+   * `\` of every uncommitted `\`+letters command run. The legacy parser must
+   * treat them as inert scratch (no `\\` fusion, no environment/wall effects —
+   * see `ParseOptions.literalBackslashes`), because a resting `\end` or
+   * `\begin` typed in a matrix cell would otherwise re-structure the REAL
+   * environment around it. Independent of the caret, unlike `literalRange`.
+   */
+  readonly literalBackslashes: readonly number[];
 }
 
 /** Serialize a structured math document to deterministic, canonical LaTeX. */
@@ -81,6 +91,7 @@ class MathDocumentPrinter {
   private latex = "";
   private readonly items: ProjectedMathItem[] = [];
   private readonly anchors: ProjectedMathAnchor[] = [];
+  private readonly literalBackslashes: number[] = [];
 
   get offset(): number {
     return this.latex.length;
@@ -91,6 +102,7 @@ class MathDocumentPrinter {
       latex: this.latex,
       items: this.items,
       anchors: this.anchors,
+      literalBackslashes: this.literalBackslashes,
     };
   }
 
@@ -112,12 +124,6 @@ class MathDocumentPrinter {
 
     for (let index = 0; index < row.children.length; index++) {
       const node = row.children[index];
-      // A trailing editable `\` is command-entry scratch, not syntax owned by
-      // either sibling. Keep it from fusing with a following semantic node
-      // (notably `\frac`, which would otherwise become a matrix row break).
-      if (index > 0 && rowEndsWithPendingBackslash(row, index)) {
-        this.write(" ");
-      }
       if (endsWithControlWord(this.latex) && nodeStartsWithLetter(node)) {
         this.write(" ");
       }
@@ -132,7 +138,7 @@ class MathDocumentPrinter {
     const start = this.offset;
     switch (node.type) {
       case "raw-text":
-        this.writeField(node.text, parentRowId, node.id, "text", identity);
+        this.writeRawText(node, parentRowId);
         break;
       case "symbol":
         this.write(
@@ -146,7 +152,7 @@ class MathDocumentPrinter {
         this.write("\\sqrt");
         if (node.index) {
           this.write("[");
-          this.writeStructuralRow(node.index);
+          this.writeRow(node.index);
           this.write("]");
         }
         this.writeArgument(node.radicand);
@@ -239,15 +245,15 @@ class MathDocumentPrinter {
 
   private writeAtop(node: MathFraction): void {
     this.write("{");
-    this.writeStructuralRow(node.numerator);
+    this.writeRow(node.numerator);
     this.write("\\atop ");
-    this.writeStructuralRow(node.denominator);
+    this.writeRow(node.denominator);
     this.write("}");
   }
 
   private writeDelimited(node: MathDelimited): void {
     this.writeCommandWithArgument("left", node.left || ".");
-    this.writeStructuralRow(node.body);
+    this.writeRow(node.body);
     this.writeCommandWithArgument("right", node.right || ".");
   }
 
@@ -265,10 +271,11 @@ class MathDocumentPrinter {
         if (cellIndex > 0) this.write("&");
         const cell = matrixRow.cells[cellIndex];
         const cellStart = this.offset;
-        // The separator belongs to the matrix tree, never to editable cell
-        // text. A pending trailing backslash therefore needs a lexical barrier
-        // before `&`, `\\`, or `\end` is projected for the legacy parser.
-        this.writeStructuralRow(cell.body);
+        // The separators belong to the matrix tree, never to editable cell
+        // text. `writeRawText` keeps cell scratch from fusing with the `&`,
+        // `\\`, or `\end` printed next (a trailing `\` projects as
+        // `\backslash`; a half-typed `\end` is literal-marked).
+        this.writeRow(cell.body);
         this.recordItem(cell.id, "matrix-cell", cellStart, this.offset);
       }
       this.recordItem(matrixRow.id, "matrix-row", rowStart, this.offset);
@@ -311,16 +318,49 @@ class MathDocumentPrinter {
     this.fieldAnchor(parentRowId, node.id, "name", node.name.length);
   }
 
-  private writeArgument(row: MathRow): void {
-    this.write("{");
-    this.writeStructuralRow(row);
-    this.write("}");
+  /**
+   * Write an editable raw-text field. Characters project verbatim — raw text
+   * is command-entry scratch, so a `\`+letters run must lex exactly as typed —
+   * except for the two ways a `\` could leak syntax outside its own field:
+   *
+   * - A `\` NOT starting a letter run projects as the `\backslash` command.
+   *   Left verbatim, the projection's next character would fuse with it into
+   *   different syntax: the barrier space once written after a trailing `\`
+   *   lexed as the invisible control space `\ ` (making a pending `\` vanish
+   *   the moment the caret left it), and in a matrix cell a bare `\` would
+   *   combine with the `&`/`\\`/`\end` the matrix prints next. `\backslash`
+   *   renders the same visible glyph regardless of caret state and survives a
+   *   canonical-source re-parse as a backslash.
+   * - A `\` that DOES start a letter run stays verbatim but is recorded in
+   *   `literalBackslashes`, so a resting half-typed `\end`/`\begin`/`\left`
+   *   never acts structurally on the projection around it (see
+   *   `ParseOptions.literalBackslashes`).
+   */
+  private writeRawText(node: MathRawText, parentRowId: MathItemId): void {
+    const characters = [...node.text];
+    let fieldOffset = 0;
+    this.fieldAnchor(parentRowId, node.id, "text", fieldOffset);
+    for (let index = 0; index < characters.length; index++) {
+      const character = characters[index];
+      if (character === "\\") {
+        if (startsWithLetter(characters[index + 1] ?? "")) {
+          this.literalBackslashes.push(this.offset);
+          this.write(character);
+        } else {
+          this.write("\\backslash");
+        }
+      } else {
+        this.write(character);
+      }
+      fieldOffset += character.length;
+      this.fieldAnchor(parentRowId, node.id, "text", fieldOffset);
+    }
   }
 
-  /** Write a row whose next source character is owned by its parent node. */
-  private writeStructuralRow(row: MathRow): void {
+  private writeArgument(row: MathRow): void {
+    this.write("{");
     this.writeRow(row);
-    if (rowEndsWithPendingBackslash(row)) this.write(" ");
+    this.write("}");
   }
 
   private writeCommandWithArgument(command: string, argument: string): void {
@@ -394,20 +434,8 @@ function endsWithControlWord(value: string): boolean {
   return /\\[A-Za-z]+$/.test(value);
 }
 
-function rowEndsWithPendingBackslash(
-  row: MathRow,
-  end = row.children.length,
-): boolean {
-  const node = row.children[end - 1];
-  return node?.type === "raw-text" && node.text.endsWith("\\");
-}
-
 function startsWithLetter(value: string): boolean {
   return /^[A-Za-z]/.test(value);
-}
-
-function identity(value: string): string {
-  return value;
 }
 
 function escapeTextChar(character: string): string {

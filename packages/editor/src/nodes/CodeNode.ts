@@ -8,7 +8,9 @@
  *   - `wrapLines`        — break on "\n" (a consumed, non-rendered break, exactly
  *                          like a wrap space) so one block spans many lines.
  *   - `resolveFontFamily`— render/measure in monospace.
- *   - `leadingInset` + `contentInsetY` — pad the text inside a background box.
+ *   - `leadingInset` + `contentInsetY`/`contentPaddingBottom` — pad the text
+ *                          inside the background box, plus the outer card
+ *                          margins that keep prose clear of the box.
  *
  * Editing affordances that the plain text pipeline gets wrong for code are
  * redirected through the action bus in {@link registerActions}: Enter inserts a
@@ -35,6 +37,7 @@ import {
   type WrappedLine,
   wrapText,
 } from "../fonts";
+import { cardFlowMargins } from "../node-shared";
 import type {
   BlockRuntimeState,
   NodeLayout,
@@ -301,8 +304,26 @@ export class CodeNode extends TextNode {
     return { indentOffset: styles.blocks.code.paddingX, markerWidth: 0 };
   }
 
-  protected contentInsetY(_block: TextualBlock, styles: EditorStyles): number {
-    return styles.blocks.code.paddingTop;
+  /**
+   * Top inset = outer card margin (zeroed against an adjacent card) + the
+   * box's internal top padding. Mirrored below by `contentPaddingBottom`.
+   */
+  protected override contentInsetY(
+    block: TextualBlock,
+    styles: EditorStyles,
+    textStyle: TextStyle,
+  ): number {
+    const margin = cardFlowMargins(block, styles.blocks.code).top;
+    return margin + (textStyle.paddingTop ?? 0);
+  }
+
+  protected override contentPaddingBottom(
+    block: TextualBlock,
+    styles: EditorStyles,
+    textStyle: TextStyle,
+  ): number {
+    const margin = cardFlowMargins(block, styles.blocks.code).bottom;
+    return textStyle.paddingBottom + margin;
   }
 
   /**
@@ -382,16 +403,20 @@ export class CodeNode extends TextNode {
     );
     const topRadius = joinTop ? 0 : cs.borderRadius;
     const bottomRadius = joinBottom ? 0 : cs.borderRadius;
+    // The box is the padded content surface; the outer flow margins around it
+    // (baked into layout.height) stay unpainted breathing room.
+    const margins = cardFlowMargins(c.block, cs);
     ctx.save();
     ctx.fillStyle = cs.backgroundColor;
     ctx.beginPath();
     // roundRect radii order: [topLeft, topRight, bottomRight, bottomLeft].
-    ctx.roundRect(x, y, c.maxWidth, layout.height, [
-      topRadius,
-      topRadius,
-      bottomRadius,
-      bottomRadius,
-    ]);
+    ctx.roundRect(
+      x,
+      y + margins.top,
+      c.maxWidth,
+      layout.height - margins.top - margins.bottom,
+      [topRadius, topRadius, bottomRadius, bottomRadius],
+    );
     ctx.fill();
     ctx.restore();
 

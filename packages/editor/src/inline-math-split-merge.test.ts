@@ -1,14 +1,16 @@
 /**
- * End-to-end split/merge for inline-math chips, driven through the real action
- * pipeline (insertText → TEXT_INPUTTED, and the DELETE_* actions → CONTENT_DELETED)
- * rather than the raw CRDT helpers — so it exercises the observers MathNode wires
- * in `registerActions`, exactly as a keystroke would at runtime.
+ * End-to-end edge-join and separator-aware deletion for inline-math chips,
+ * driven through the real action pipeline (insertText → TEXT_INPUTTED, and the
+ * DELETE_* actions → CONTENT_DELETED) rather than the raw CRDT helpers — so it
+ * exercises the observers MathNode wires in `registerActions`, exactly as a
+ * keystroke would at runtime. The space-split and its rejoin are tree-owned
+ * now; their pipeline coverage lives in `math/space-input.test.ts`.
  */
 import {
   createMathTestState,
   createMathTestSyncEngine,
 } from "./__testutils__/math";
-import { deleteText, insertText } from "./actions/actions";
+import { insertText } from "./actions/actions";
 import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
@@ -54,54 +56,12 @@ function spans(s: EditorState) {
 }
 
 describe("inline-math split/merge through the action pipeline", () => {
-  it("typing a space inside a chip splits it into two rendered chips", () => {
-    // caret between the two atoms of "ab"
-    const { state } = insertText(editorWithChip("ab", 1), " ");
-    expect(spans(state)).toEqual(["a", "b"]);
-  });
-
-  it("Backspacing the separator merges the two chips back into one", () => {
-    const split = insertText(editorWithChip("ab", 1), " ").state;
-    expect(spans(split)).toEqual(["a", "b"]);
-    // After the split the caret sits just past the space (chip B's left edge).
-    const merged = split.actionBus.dispatchState(DELETE_BACKWARD, split);
+  it("forward-Deleting a plain inter-atom space merges its atoms (a b → ab)", () => {
+    // The forward counterpart of the Backspace case below: an ordinary space
+    // between atoms carries no meaning, so Delete takes just the space.
+    const s = editorWithChip("a b", 1);
+    const merged = s.actionBus.dispatchState(DELETE_FORWARD, s);
     expect(spans(merged.state)).toEqual(["ab"]);
-  });
-
-  it("forward-Deleting the separator merges too", () => {
-    let split = insertText(editorWithChip("ab", 1), " ").state;
-    // Put the caret just before the space (chip A's right edge) and Delete.
-    split = {
-      ...split,
-      document: {
-        ...split.document,
-        cursor: { position: { blockIndex: 0, textIndex: 1 }, lastUpdate: 0 },
-      },
-    };
-    const merged = split.actionBus.dispatchState(DELETE_FORWARD, split);
-    expect(spans(merged.state)).toEqual(["ab"]);
-  });
-
-  it("a multi-letter command keeps its rendering across split and merge", () => {
-    // "\alpha\beta": split right after \alpha, then merge back.
-    const split = insertText(editorWithChip("\\alpha\\beta", 6), " ").state;
-    expect(spans(split)).toEqual(["\\alpha", "\\beta"]);
-    const merged = split.actionBus.dispatchState(DELETE_BACKWARD, split);
-    expect(spans(merged.state)).toEqual(["\\alpha\\beta"]);
-  });
-
-  it("splitting a chip whose leading char was deleted keeps the mark (no raw source)", () => {
-    // Regression: editing a chip can tombstone its anchor char (here, deleting
-    // the chip's leading 'a' leaves the span's startCharId a tombstone, which
-    // `resolveMarkRuns` still resolves to "bc"). A later split removes the mark
-    // over the space — the reducer must resolve the span's surviving chars
-    // tolerantly, or it drops the whole mark and the text renders as raw LaTeX.
-    let s = editorWithChip("abc", 1);
-    s = deleteText(s).state; // delete leading 'a' -> "bc", startCharId tombstoned
-    expect(spans(s)).toEqual(["bc"]);
-    s = moveCursorToPosition(s, 0, 1); // between b and c
-    const split = insertText(s, " ").state;
-    expect(spans(split)).toEqual(["b", "c"]); // mark survives the split, not []
   });
 
   it("Enter splits a chip across blocks, Backspace rejoins it whole (no raw half)", () => {
@@ -224,15 +184,5 @@ describe("inline-math split/merge through the action pipeline", () => {
     const s = editorWithChip("a b", 2);
     const after = s.actionBus.dispatchState(DELETE_BACKWARD, s);
     expect(spans(after.state)).toEqual(["ab"]);
-  });
-
-  it("merging a command into a following letter keeps a separator (\\sin x, not \\sinx)", () => {
-    // "\sin x": split right after \sin, then merge back — the merge must reinsert
-    // a separator so the result is the valid "\sin x", never the broken "\sinx"
-    // (which would render as a red unknown command, i.e. raw source).
-    const split = insertText(editorWithChip("\\sinx", 4), " ").state;
-    expect(spans(split)).toEqual(["\\sin", "x"]);
-    const merged = split.actionBus.dispatchState(DELETE_BACKWARD, split);
-    expect(spans(merged.state)).toEqual(["\\sin x"]);
   });
 });

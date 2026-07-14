@@ -55,6 +55,43 @@ export function mergeBlockStyle(
 }
 
 /**
+ * The built-in block types whose nodes declare `joinGroup: "card"` — blocks
+ * that paint a filled card surface and tile flush when stacked. Layout-time
+ * mirror of `cardJoinFlags` (which needs the node registry, unavailable in
+ * layout hooks): card nodes check their `prevType`/`nextType` neighbour hints
+ * against this set to zero an outer flow margin on a joined edge. A custom
+ * node that joins the "card" group is not known here, so it tiles with square
+ * corners but keeps the margin — acceptable for the built-in defaults.
+ */
+const CARD_BLOCK_TYPES: ReadonlySet<string> = new Set([
+  "code",
+  "math",
+  "quote",
+]);
+
+/**
+ * Resolve a card block's outer flow margins (the breathing room separating its
+ * filled surface from adjacent prose — see the style's `marginTop`/
+ * `marginBottom`). An edge shared with another card block gets 0 so stacked
+ * cards keep tiling into one continuous surface.
+ */
+export function cardFlowMargins(
+  block: { prevType?: string; nextType?: string },
+  style: { marginTop: number; marginBottom: number },
+): { top: number; bottom: number } {
+  return {
+    top:
+      block.prevType !== undefined && CARD_BLOCK_TYPES.has(block.prevType)
+        ? 0
+        : style.marginTop,
+    bottom:
+      block.nextType !== undefined && CARD_BLOCK_TYPES.has(block.nextType)
+        ? 0
+        : style.marginBottom,
+  };
+}
+
+/**
  * Memoize a node's canonical layout on the block, keyed by content width. This
  * is the single source of the layout cache: every `Node.layout()` routes its
  * compute through here, so the height pass, paint, hit-testing and the caret/

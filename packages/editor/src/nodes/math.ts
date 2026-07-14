@@ -42,7 +42,6 @@ import {
   escapeTypedReserved as texEscapeTypedReserved,
   hitTest as texHitTest,
   inRawTextArg as texInRawTextArg,
-  isInsideConstruct as texIsInsideConstruct,
   isRedundantSpace as texIsRedundantSpace,
   isValidLatex,
   type MathLayout,
@@ -985,48 +984,6 @@ export function mathMaterializeAfterInput(
 }
 
 /**
- * A space typed *inside* an inline-math chip breaks it in two: the chip up to
- * the space stays one formula, the space becomes ordinary text, and the rest
- * becomes a second chip — so `x|y` + Space reads as `x` ⎵ `y`, two separate
- * formulas. This resolves the block range of that just-typed space to strip the
- * "math" mark from (removing the mark over an interior char is exactly what
- * splits the run's span into two — see the reducer's format-removal path).
- *
- * Returns `null` — leaving the space as plain math source, so nothing visibly
- * happens — when the caret isn't in a chip, the prior char isn't a space, or the
- * space sits inside a multi-part construct (`\frac{a b}`): a construct can't be
- * divided, so its inner spaces are never split points. Block equations
- * (`block.type === "math"`) never split; their spaces are ordinary math source.
- *
- * `caret` is the post-insert caret, so the freshly-typed space is the char at
- * `caret − 1`; only that one space is ever a split candidate (a pre-existing
- * `\oint x` space stays put).
- */
-export function mathSplitAfterInput(
-  block: MathCapableBlock,
-  caret: number,
-): { from: number; to: number } | null {
-  if (block.type === "math" || caret <= 0 || !("charRuns" in block))
-    return null;
-  const space = caret - 1;
-  if (getVisibleTextFromRuns(block.charRuns)[space] !== " ") return null;
-  for (const span of getInlineMathSpans(block)) {
-    if (space < span.startIndex || space >= span.endIndex) continue;
-    const local = space - span.startIndex;
-    // Split only when both edges of the space are at the formula's top level —
-    // a space bordering or inside a construct slot must not break the construct.
-    if (
-      texIsInsideConstruct(span.latex, local) ||
-      texIsInsideConstruct(span.latex, local + 1)
-    ) {
-      return null;
-    }
-    return { from: space, to: space + 1 };
-  }
-  return null;
-}
-
-/**
  * Sentence punctuation that reads as prose when typed flush against a chip's
  * edge, so — like a space — it is left as plain text instead of being absorbed
  * into the formula (`$x^2$` + `.` → `$x^2$.`). These marks are essentially never
@@ -1193,56 +1150,6 @@ export function mathAbsorbNumericPunctuationAfterInput(
 }
 
 /**
- * A space just typed *into* a formula that carries no LaTeX meaning, planned for
- * deletion rather than being saved as dead source. The cases the {@link
- * mathSplitAfterInput} top-level split doesn't claim — a space inside a block
- * equation, or inside an inline chip's construct (`\frac{a }{b}`) — almost always
- * render identically with or without the space (math mode collapses inter-atom
- * whitespace), so persisting them just accumulates meaningless `\frac{a }{b}`
- * source. This resolves the block range `[from, to)` of such a redundant space to
- * delete, or `null` when there's nothing to drop.
- *
- * Returns `null` (keep the space) when the prior char isn't a just-typed space,
- * the caret isn't in math content, or the space is semantically load-bearing — a
- * control-word separator (`\sin x` → the unknown `\sinx` without it) or a literal
- * text-mode space (`\text{a b}`); {@link texIsRedundantSpace} draws that line by
- * comparing the parse with and without the space. The split and redundant-space
- * paths are mutually exclusive: a top-level inline space splits its chip and
- * never reaches here.
- *
- * `caret` is the post-insert caret, so the freshly-typed space is at `caret − 1`.
- */
-export function mathRedundantSpaceAfterInput(
-  block: MathCapableBlock,
-  caret: number,
-): { from: number; to: number } | null {
-  if (caret <= 0 || !("charRuns" in block)) return null;
-  const space = caret - 1;
-  const text = getVisibleTextFromRuns(block.charRuns);
-  if (text[space] !== " ") return null;
-
-  // Resolve the formula the space landed in and the space's offset within that
-  // source: the whole block for an equation, else the inline chip holding it.
-  let latex: string;
-  let local: number;
-  if (block.type === "math") {
-    latex = text;
-    local = space;
-  } else {
-    const span = getInlineMathSpans(block).find(
-      (s) => space >= s.startIndex && space < s.endIndex,
-    );
-    if (!span) return null;
-    latex = span.latex;
-    local = space - span.startIndex;
-  }
-
-  return texIsRedundantSpace(latex, local)
-    ? { from: space, to: space + 1 }
-    : null;
-}
-
-/**
  * Drop the command-entry separator once the command it guarded has grown enough
  * to no longer need it. When a bare `\` is typed immediately before a structural
  * grouping brace, {@link mathTransformTypedInput} inserts a `\ ` separator so the
@@ -1303,93 +1210,6 @@ export function mathRedundantSeparatorAfterInput(
   return texIsRedundantSpace(latex, local)
     ? { from: sepAt, to: sepAt + 1 }
     : null;
-}
-
-/**
- * A run of inline chips that a delete left touching, planned for re-fusing into
- * one formula. `from`/`to` is the block range the run now spans; `separatorsAt`
- * are the block positions (ascending) where a single space must be inserted so
- * concatenation stays valid LaTeX — a chip ending in a control word fused with a
- * following letter would otherwise corrupt into one unknown command (`\sin` ⎵ `x`
- * → `\sinx`, not the intended `\sin x`). The host inserts those spaces, then
- * marks `[from, to + separatorsAt.length)` as math.
- */
-export interface MathMergePlan {
-  from: number;
-  to: number;
-  separatorsAt: number[];
-}
-
-/**
- * The inverse of {@link mathSplitAfterInput}: after a delete leaves inline chips
- * touching (the plain text that separated them is gone), plan how to fuse each
- * maximal run of now-adjacent chips (`endIndex === startIndex`) back into one
- * formula — so deleting the space between `x` ⎵ `y` re-merges them to `xy`, and
- * between `\sin` ⎵ `x` re-merges to a valid `\sin x` (a separator is reinserted).
- * `null` when nothing is adjacent (the common case).
- */
-export function mathMergeAfterDelete(
-  block: MathCapableBlock,
-): MathMergePlan[] | null {
-  if (block.type === "math") return null;
-  const spans = getInlineMathSpans(block).sort(
-    (a, b) => a.startIndex - b.startIndex,
-  );
-  const plans: MathMergePlan[] = [];
-  let i = 0;
-  while (i < spans.length) {
-    let j = i;
-    const separatorsAt: number[] = [];
-    while (
-      j + 1 < spans.length &&
-      spans[j].endIndex === spans[j + 1].startIndex
-    ) {
-      // A control word now butting against a following letter needs a space
-      // between them, or the two tokens fuse into one unknown command.
-      if (
-        mathNeedsCommandSeparator(
-          spans[j].latex,
-          spans[j].latex.length,
-          spans[j + 1].latex[0] ?? "",
-        )
-      ) {
-        separatorsAt.push(spans[j + 1].startIndex);
-      }
-      j++;
-    }
-    if (j > i) {
-      plans.push({
-        from: spans[i].startIndex,
-        to: spans[j].endIndex,
-        separatorsAt,
-      });
-    }
-    i = j + 1;
-  }
-  return plans.length > 0 ? plans : null;
-}
-
-/**
- * After a delete in a block equation, the offset where a command-separator space
- * must be reinserted so the edit stays valid LaTeX, or null. Removing the content
- * between a control word and a following letter — e.g. backspacing the empty
- * subscript in `\int_{}a` down to `\inta` — welds them into one unknown command
- * that renders as raw red source. Reinserting the space keeps them two atoms
- * (`\int a` → ∫a). This is the delete-side counterpart of the insert path's
- * {@link mathNeedsCommandSeparator} guard (a letter typed after a complete command
- * gets a space) and of {@link mathMergeAfterDelete}'s guard for inline chips;
- * block equations, whose whole text is one LaTeX string with no chip spans, need
- * this direct check. `caret` is the post-delete caret offset (the weld point).
- */
-export function mathSeparatorAfterDelete(
-  block: MathCapableBlock,
-  caret: number,
-): number | null {
-  if (block.type !== "math") return null;
-  const latex = blockLatex(block);
-  const next = latex[caret];
-  if (next === undefined) return null;
-  return mathNeedsCommandSeparator(latex, caret, next) ? caret : null;
 }
 
 /**

@@ -187,24 +187,18 @@ describe("structured mark creation seam", () => {
     });
   });
 
-  it("does not split a supplemental attachment away from its owning block", () => {
+  it("refuses only a split cutting through a supplemental attachment", () => {
     const initial = createMathTestState(loadMathPage("axyb"));
     const attached = attachRange(initial, 0, 1, 3).state;
 
-    for (const splitAt of [0, 1, 2]) {
-      const before = moveCursorToPosition(attached, 0, splitAt);
-      const result = splitBlock(before);
-      expect(result.ops).toEqual([]);
-      expect(result.state.document.page).toBe(before.document.page);
-      expect(
-        serializeToMarkdown(result.state.document.page.blocks, undefined, {
-          schema: result.state.schema,
-        }),
-      ).toBe("a$xy$b");
-    }
+    // Strictly inside the projection there is no generic unit to divide —
+    // the owning mark's own SPLIT_BLOCK preparation divides the chip first;
+    // the raw char split must never cut the attachment's projection.
+    const inside = splitBlock(moveCursorToPosition(attached, 0, 2));
+    expect(inside.ops).toEqual([]);
+    expect(inside.state.document.page).toBe(attached.document.page);
 
-    // Once every attached run remains on the original block, splitting the
-    // trailing prose is safe and keeps the canonical document reachable.
+    // Splitting after all attached runs keeps the document reachable.
     const safe = splitBlock(moveCursorToPosition(attached, 0, 3));
     expect(safe.ops.length).toBeGreaterThan(0);
     expect(
@@ -212,6 +206,44 @@ describe("structured mark creation seam", () => {
         schema: safe.state.schema,
       }),
     ).toBe("a$xy$\nb");
+  });
+
+  it("moves a whole supplemental attachment to block two as a clone", () => {
+    const initial = createMathTestState(loadMathPage("axyb"));
+    const attached = attachRange(initial, 0, 1, 3).state;
+    const sourceContentIds = Object.keys(
+      attached.document.page.blocks[0].structuredContent ?? {},
+    );
+    expect(sourceContentIds).toHaveLength(1);
+
+    // A split at the run's leading boundary moves the run wholly to block
+    // two: its attachment travels as a block-scoped clone, the covering mark
+    // is re-addressed to it, and the original dies with its chars.
+    const result = splitBlock(moveCursorToPosition(attached, 0, 1));
+    const blocks = result.state.document.page.blocks.filter(
+      (block) => !block.deleted,
+    );
+    expect(
+      serializeToMarkdown(blocks, undefined, { schema: result.state.schema }),
+    ).toBe("a\n$xy$b");
+
+    const movedRun = resolveMarkRuns(blocks[1])[0];
+    const movedContentId = movedRun?.attrs.contentId;
+    expect(typeof movedContentId).toBe("string");
+    if (typeof movedContentId !== "string") return;
+    expect(movedContentId).not.toBe(sourceContentIds[0]);
+    const movedDocument = blocks[1].structuredContent?.[movedContentId];
+    expect(movedDocument?.rootId).toBe(movedContentId);
+    expect(movedDocument?.kind).toBe("math");
+    expect(blocks[0].structuredContent?.[sourceContentIds[0]]).toBeUndefined();
+
+    // The whole transaction replays to the same page on a remote peer.
+    const replayed = applyOps(
+      attached.document.page,
+      result.ops,
+      attached.schema,
+    );
+    expect(replayed).toEqual(result.state.document.page);
   });
 
   it("clones and re-addresses supplemental attachments when joining blocks", () => {

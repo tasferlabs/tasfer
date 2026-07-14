@@ -250,6 +250,12 @@ export function resolveStructuredInlineMathRuns(
  * `parser:0`; using the clock alone would alias multiple inline equations.
  * Once `contentId` is persisted in mark attrs, it is always preferred and this
  * compatibility derivation is never repeated.
+ *
+ * The initializer allocates identities in a namespace keyed by the address
+ * AND the compatibility source (see {@link parseLegacyMathDocumentInit}), so
+ * peers that migrated divergent legacy text race convergently: one init wins,
+ * and the loser's piggybacked edits no-op instead of aliasing the winner's
+ * nodes.
  */
 export function planInlineMathMigration(
   block: InlineMathHostBlock,

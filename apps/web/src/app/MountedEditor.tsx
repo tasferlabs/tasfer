@@ -58,6 +58,7 @@ import {
   clearFailedImageCache,
   canHaveFormats,
   codeLanguageLabel,
+  isAndroid,
   isTextualBlock,
   isTouchDevice,
   type EditorWiring,
@@ -123,6 +124,7 @@ import {
   activeTreeMath,
   treeMathAtAnchor,
   treeMathAtFocus,
+  treeMathCommandRun,
 } from "../editor/treeMath";
 import { MatrixEditor } from "../editor/MatrixEditor";
 import { SlashActionMenu } from "../editor/SlashActionMenu";
@@ -1552,13 +1554,47 @@ function PageEditor({
     if (IS_IOS_NATIVE) return;
     const vv = window.visualViewport;
     if (!vv) return;
+    // Edge-to-edge Android Chrome under-reports the keyboard: with the IME open,
+    // the visualViewport shrink (and the VirtualKeyboard API rect alike) is
+    // short by exactly the gesture-nav bar, and `env(safe-area-inset-bottom)`
+    // reads 0 at that same moment (measured on a Pixel 10 Pro: 946px IME inset,
+    // 883px viewport shrink, 63px nav bar). The nav-bar height is observable
+    // only while the keyboard is closed, so probe it then and fold the captured
+    // value into the open inset. iOS Safari's shrink already spans the full
+    // keyboard, hence the Android gate.
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;" +
+      "padding-bottom:var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px));";
+    document.body.appendChild(probe);
+    let closedSafeAreaBottom = 0;
     const sync = () => {
       if (hasNativeKeyboardRef.current) return;
       const inset = window.innerHeight - vv.height - vv.offsetTop;
-      setKeyboardOpen(
-        editorFocusedRef.current && inset > MOBILE_WEB_KEYBOARD_MIN_INSET,
+      // inset <= 0 means no keyboard overlays the viewport at all — the only
+      // state where the nav-bar inset is visible to CSS. Not `!open`: an IME
+      // raised by a non-editor input keeps `open` false while already zeroing
+      // the env value.
+      if (inset <= 0) {
+        closedSafeAreaBottom =
+          parseFloat(getComputedStyle(probe).paddingBottom) || 0;
+      }
+      const open =
+        editorFocusedRef.current && inset > MOBILE_WEB_KEYBOARD_MIN_INSET;
+      setKeyboardOpen(open);
+      // Browsers that overlay the keyboard on the layout viewport (iOS Safari,
+      // edge-to-edge Android Chrome) leave `position: fixed` elements behind
+      // it, so the toolbar and canvas must yield this inset, same as the
+      // native-message path. Browsers that resize the layout viewport instead
+      // report ~0 here and `bottom: 0` is already right. Rounded because
+      // vv.height is fractional; the `open` gate keeps over-scroll
+      // rubber-banding (negative insets) and desktop viewports at 0. Mirrors
+      // useKeyboardInset's web fallback.
+      setKeyboardHeight(
+        open ? Math.round(inset + (isAndroid() ? closedSafeAreaBottom : 0)) : 0,
       );
     };
+    sync();
     syncWebKeyboardRef.current = sync;
     vv.addEventListener("resize", sync);
     vv.addEventListener("scroll", sync);
@@ -1566,6 +1602,7 @@ function PageEditor({
       syncWebKeyboardRef.current = null;
       vv.removeEventListener("resize", sync);
       vv.removeEventListener("scroll", sync);
+      probe.remove();
     };
   }, []);
 
@@ -2851,9 +2888,11 @@ function PageEditor({
       // Contextual math row. Present whenever the caret rests in math — a block
       // equation or an inline chip (including its start edge, the only caret
       // stop a single-char chip has) — so it supersedes the touch `\` drawer in
-      // both. The chip's LaTeX lives literally in the block text, so the same
-      // `\command` detection works for either. `query` is the in-progress
-      // `\command`, or null while browsing.
+      // both. On the tree path the in-progress `\command` is read from the
+      // raw-text field at the caret (the projected source is not a faithful
+      // echo of what was typed — a pending lone `\` projects as `\backslash`);
+      // a flat chip's LaTeX lives literally in the block text. `query` is the
+      // in-progress `\command`, or null while browsing.
       let math: MobileToolbarMathContext | null = null;
       if (
         (snapshot.selection.empty || treeMath !== null) &&
@@ -2862,7 +2901,9 @@ function PageEditor({
       ) {
         const mathText =
           treeMath?.source ?? mounted.editor.query.block()?.text ?? "";
-        const active = activeBlockMathCommand(mathText, caretOffset);
+        const active = treeMath
+          ? treeMathCommandRun(treeMath)
+          : activeBlockMathCommand(mathText, caretOffset);
         // Edge detection runs on the math *source* the caret sits in: a block
         // equation is the whole block text; an inline chip is its own LaTeX at a
         // chip-local offset. A step with no further caret stop in that direction

@@ -91,6 +91,7 @@ import {
   selectionIntersectsStructuredMark,
   selectionPartiallyIntersectsStructuredMark,
   structuredMarkAttachmentCleanupOps,
+  structuredMarkContentIdsFrom,
   structuredMarkRunSourceDiverged,
 } from "./structured-marks";
 import { wrapSelectionOnInput } from "./wrap-selection";
@@ -3037,17 +3038,48 @@ export function splitBlock(state: EditorState): ActionResult {
   }
 
   // A supplemental structured mark is stored on this block while its flat
-  // characters are only a compatibility projection. Generic split can copy
-  // chars + mark attrs to block 2, but cannot move the referenced attachment.
-  // Refuse every split that would move any part of such a run; splitting after
-  // all authoritative runs remains safe because they stay with this block.
+  // characters are only a compatibility projection. A run the caret would cut
+  // through cannot be divided by a generic char split — refuse it (Enter inside
+  // an inline formula is prepared upstream: the mark's SPLIT_BLOCK handler
+  // divides the chip into two whole runs first). Runs wholly after the caret
+  // move to block 2 with cloned attachments below, mirroring mergeBlocksOps.
+  const structuredRuns = resolveStructuredMarkRanges(oldBlock, state.schema);
   if (
-    resolveStructuredMarkRanges(oldBlock, state.schema).some(
-      (run) => run.endIndex > textIndex,
+    structuredRuns.some(
+      (run) => run.startIndex < textIndex && run.endIndex > textIndex,
     )
   ) {
     return { state, ops: [] };
   }
+  // The list split path below transfers neither marks nor attachments; keep
+  // refusing there rather than degrade a moved projection to raw text.
+  if (
+    isListBlock(oldBlock) &&
+    structuredRuns.some((run) => run.endIndex > textIndex)
+  ) {
+    return { state, ops: [] };
+  }
+  // Block 2's id is minted before its block_insert so the attachment clone
+  // (feature facets minting target-scoped identities) can address it.
+  const newBlockId = state.CRDTbinding.nextId();
+  const movingContentIds = structuredMarkContentIdsFrom(
+    oldBlock,
+    textIndex,
+    state.schema,
+  );
+  const movedAttachments =
+    movingContentIds.size > 0
+      ? cloneStructuredBlockContent(
+          oldBlock,
+          newBlockId,
+          state.CRDTbinding,
+          state.schema,
+          movingContentIds,
+        )
+      : { structuredContent: {}, clonedContentIds: {}, ops: [] as const };
+  // A feature without a lossless clone seam keeps the conservative refusal:
+  // do not strand the only block that owns its attachment.
+  if (!movedAttachments) return { state, ops: [] };
 
   // Auto-detect URLs before splitting (Enter acts as a word boundary)
   let currentBlock = oldBlock;
@@ -3280,8 +3312,17 @@ export function splitBlock(state: EditorState): ActionResult {
   const afterCharsText = oldText.slice(textIndex);
   let pageAcc = state.document.page;
 
-  // 1. Delete text after cursor from block 1.
+  // 1. Delete text after cursor from block 1. An attachment whose every
+  //    referencing run moved out dies with its chars here — its clone on
+  //    block 2 is the authoritative copy from now on.
   if (textIndex < oldText.length) {
+    const attachmentCleanupOps = structuredMarkAttachmentCleanupOps(
+      currentBlock,
+      textIndex,
+      oldText.length,
+      state.CRDTbinding,
+      state.schema,
+    );
     const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
       pageAcc,
       oldBlock.id,
@@ -3291,6 +3332,10 @@ export function splitBlock(state: EditorState): ActionResult {
     );
     pageAcc = pageAfterDelete;
     ops.push(deleteOp);
+    if (attachmentCleanupOps.length > 0) {
+      ops.push(...attachmentCleanupOps);
+      pageAcc = applyOps(pageAcc, attachmentCleanupOps, state.schema);
+    }
   }
 
   // 2. Apply markdown-prefix detection on block 1.
@@ -3338,8 +3383,8 @@ export function splitBlock(state: EditorState): ActionResult {
   }
 
   // 4. Insert block 2 (before its text so remote peers have the block when
-  //    text ops for it arrive).
-  const newBlockId = state.CRDTbinding.nextId();
+  //    text ops for it arrive), then any attachments moving with the trailing
+  //    runs — cloned before their covering marks reference them in step 6.
   const blockInsertOp: BlockInsert = {
     op: "block_insert",
     id: state.CRDTbinding.nextId(),
@@ -3351,6 +3396,10 @@ export function splitBlock(state: EditorState): ActionResult {
   };
   ops.push(blockInsertOp);
   pageAcc = applyOps(pageAcc, [blockInsertOp]);
+  if (movedAttachments.ops.length > 0) {
+    ops.push(...movedAttachments.ops);
+    pageAcc = applyOps(pageAcc, [...movedAttachments.ops], state.schema);
+  }
 
   // 5. Insert text into block 2.
   if (afterCharsText.length > 0) {
@@ -3417,7 +3466,16 @@ export function splitBlock(state: EditorState): ActionResult {
             pageId: state.CRDTbinding.pageId,
             blockId: newBlockId,
             charIds: coveredNewIds,
-            format: span.format,
+            // Re-address a structured mark's attachment reference to its
+            // block-2 clone; plain marks transfer verbatim.
+            format:
+              state.schema.cloneStructuredMark(span.format.type, {
+                mark: span.format,
+                sourceBlockId: oldBlock.id,
+                targetBlockId: newBlockId,
+                attachments: currentBlock.structuredContent,
+                clonedContentIds: movedAttachments.clonedContentIds,
+              }) ?? span.format,
             value: true,
           });
         }

@@ -19,6 +19,7 @@
  */
 
 import type { ActionBus } from "../../action-bus";
+import { BLOCK_DRAG_HANDLE_ANCHOR_HEIGHT } from "../../constants";
 // Type-only: the region-behavior contract a node carries on its hit regions.
 // Erased at compile time, so importing it here introduces no runtime cycle
 // even though the events layer imports `rendering/nodes`.
@@ -338,6 +339,17 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
    */
   estimateHeight(c: NodeLayoutCtx): number {
     return this.layout(c).height;
+  }
+
+  /**
+   * Vertical center (px from the block's top) that block-level gutter chrome —
+   * the drag grip — aligns to. The default hugs the top of the block, which is
+   * right for atomic blocks (image, divider). Nodes whose content starts below
+   * a leading inset (a heading's space-above, a card's outer margin) override
+   * this so the grip lines up with the first visible content, not the inset.
+   */
+  gutterAnchorY(c: NodeLayoutCtx): number {
+    return Math.min(this.layout(c).height, BLOCK_DRAG_HANDLE_ANCHOR_HEIGHT) / 2;
   }
 
   /** Draw using a precomputed layout — must NOT re-wrap or re-measure. */
