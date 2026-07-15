@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only override: trusts user-installed CAs so the WebView accepts
+     the mkcert certificate of the CAP_SERVER_URL dev server (which must be
+     HTTPS, see apps/web/capacitor.config.ts). Never ships in release. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
