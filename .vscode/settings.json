@@ -3,7 +3,5 @@
     "source.fixAll.eslint": "explicit"
   },
   "git.detectWorktrees": true,
-  "cSpell.words": [
-    "tasfer"
-  ],
+  "cSpell.words": ["tasfer"]
 }
