@@ -20,7 +20,9 @@
 // the copy in apps/web/src/app/mobileToolbar.ts — the runtime model names the
 // chip image with that function and the native bar looks it up by name.
 //
-// Run via `npm run gen:math-icons` (wired into apps/web's cap:sync / cap:build:ios).
+// Run via `npm run gen:math-icons`, which builds this package first — the
+// script imports `@cypherkit/tex` through package exports, so it reads dist/,
+// not src/. Wired into apps/web's cap:sync scripts.
 //
 // The PNGs this writes are committed to git: they are an iOS asset catalog that
 // actool reads at Xcode build time, and not every build path runs this generator
@@ -32,7 +34,7 @@
 // hinting can differ across @napi-rs/canvas versions, which would turn every
 // regenerate into a noisy binary diff. For that reason @napi-rs/canvas is pinned
 // to an exact version in package.json (not a caret range). Regenerate from the
-// canonical build (apps/web `cap:build:ios`) rather than ad-hoc per machine, so
+// canonical build (apps/web `cap:sync:ios`) rather than ad-hoc per machine, so
 // the committed PNGs only change when the math catalog actually changes.
 
 import { createCanvas, GlobalFonts } from "@napi-rs/canvas";

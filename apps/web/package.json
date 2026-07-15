@@ -17,12 +17,11 @@
     "test": "vitest run",
     "preview": "vite preview",
     "serve": "node server.js",
-    "cap:sync": "npm run gen:mobile-icons && npx cap sync",
-    "cap:build": "npm run build && npm run cap:sync",
+    "cap:sync": "npm run build && npm run gen:mobile-icons && npx cap sync",
+    "cap:sync:android": "npm run build && npm run gen:mobile-icons && npx cap sync android",
+    "cap:sync:ios": "npm run build && npm run gen:mobile-icons && npx cap sync ios",
     "cap:open:ios": "npx cap open ios",
-    "cap:build:ios": "npm run build && npm run gen:mobile-icons && npx cap sync ios",
-    "cap:open:android": "npx cap open android",
-    "cap:build:android": "npm run build && npx cap sync android"
+    "cap:open:android": "npx cap open android"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

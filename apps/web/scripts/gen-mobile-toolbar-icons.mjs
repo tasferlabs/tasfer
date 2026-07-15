@@ -15,8 +15,8 @@
 // Assets.xcassets/<name>.imageset/ with the SVG plus a templated Contents.json
 // (template-rendering-intent, so the tint colors in Swift apply).
 //
-// Run via `npm run gen:toolbar-icons` (also wired into the cap:sync /
-// cap:build:ios scripts so the catalog is regenerated before every native sync).
+// Run via `npm run gen:toolbar-icons` (also wired into the cap:sync scripts so
+// the catalog is regenerated before every native sync).
 
 import {
   existsSync,

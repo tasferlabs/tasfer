@@ -87,8 +87,7 @@ npm run dev
 ### Mobile (Capacitor)
 
 ```bash
-# After building the web app
-npm run cap:sync
+npm run cap:sync           # Builds the web app and syncs the native projects
 npm run cap:open:ios       # Opens Xcode
 npm run cap:open:android   # Opens Android Studio
 ```
