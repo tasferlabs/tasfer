@@ -2751,12 +2751,22 @@ export class TextNode<
    * QuoteNode overrides it to vary the inset by neighbour context. Baked into
    * the layout (and its height), so caret/hit-test/selection/paint all start
    * from `blockTop + insetY` without re-checking the block type.
+   *
+   * Space-above binds a heading to the section it opens, so it collapses where
+   * there is no section above: when the block opens the document, or sits
+   * directly under a document-opening image (the cover). The page title then
+   * hugs the top chrome / cover, Notion-style, instead of floating a heading's
+   * worth of air below it. Both checks are the cache-safe neighbour hints
+   * stamped by `getVisibleBlocks` — an image that merely ends the previous
+   * section (`prevIsFirst` unset) keeps the heading's full space-above.
    */
   protected contentInsetY(
-    _block: B,
+    block: B,
     _styles: EditorStyles,
     textStyle: TextStyle,
   ): number {
+    if (block.prevType === undefined) return 0;
+    if (block.prevIsFirst && block.prevType === "image") return 0;
     return textStyle.paddingTop ?? 0;
   }
 

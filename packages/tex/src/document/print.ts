@@ -1,3 +1,4 @@
+import { tokenize } from "../parse/lexer";
 import { MATH_OPERATORS } from "../parse/parser";
 import type {
   MathDelimited,
@@ -185,7 +186,7 @@ class MathDocumentPrinter {
         // Deliberately omit per-character field anchors: ordinary tree editing
         // may select/delete the whole node, but can never remove half a command
         // or one of its balancing braces.
-        this.write(node.latex);
+        this.writeRawLatex(node.latex);
         break;
     }
     this.recordItem(node.id, node.type, start, this.offset, parentRowId);
@@ -355,6 +356,31 @@ class MathDocumentPrinter {
       fieldOffset += character.length;
       this.fieldAnchor(parentRowId, node.id, "text", fieldOffset);
     }
+  }
+
+  /**
+   * Write a raw-latex fragment so it cannot fuse with what the printer emits
+   * next. A dangling bare `\` — an empty-named command, i.e. a `\` sitting
+   * before another command's intro or at the fragment's end — re-lexes in the
+   * FULL projection against the next printed character: `\` + `}` steals a
+   * construct argument's closing brace as the literal `\}` glyph (de-structuring
+   * the construct and conjuring a `}` the user never typed), and `\` + letters
+   * seeds a phantom command name. Spell each dangler `\backslash` — the same
+   * rewrite {@link writeRawText} applies to field content — which renders the
+   * identical glyph and survives any following character. Tokens the fragment
+   * closes itself (`\{`, `\frac{...}`, an internal `\\` row break) are copied
+   * verbatim.
+   */
+  private writeRawLatex(latex: string): void {
+    let from = 0;
+    for (const token of tokenize(latex)) {
+      if (token.kind === "command" && token.value === "") {
+        this.write(latex.slice(from, token.start));
+        this.write("\\backslash");
+        from = token.end;
+      }
+    }
+    this.write(latex.slice(from));
   }
 
   private writeArgument(row: MathRow): void {

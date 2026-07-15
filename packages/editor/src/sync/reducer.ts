@@ -774,9 +774,18 @@ export function getVisibleBlocks(
     const block = visible[i];
     const prevType = i > 0 ? visible[i - 1].type : undefined;
     const nextType = i < visible.length - 1 ? visible[i + 1].type : undefined;
-    if (block.prevType !== prevType || block.nextType !== nextType) {
+    // Positional companion to `prevType`: marks the block directly under the
+    // view's first visible block (see BlockRuntimeState). `undefined` (not
+    // `false`) elsewhere, so steady-state re-stamps stay no-ops.
+    const prevIsFirst = i === 1 ? true : undefined;
+    if (
+      block.prevType !== prevType ||
+      block.nextType !== nextType ||
+      block.prevIsFirst !== prevIsFirst
+    ) {
       block.prevType = prevType;
       block.nextType = nextType;
+      block.prevIsFirst = prevIsFirst;
       block.cachedLayout = undefined;
     }
   }
@@ -796,7 +805,13 @@ export function cleanSnapshotForSave(blocks: Block[]): Block[] {
   // Drop the transient render hints (`cachedLayout` and the neighbour-type
   // stamps) — all are derived from the live view and recomputed on load.
   return blocks.map(
-    ({ cachedLayout: _l, prevType: _p, nextType: _n, ...rest }) => {
+    ({
+      cachedLayout: _l,
+      prevType: _p,
+      nextType: _n,
+      prevIsFirst: _f,
+      ...rest
+    }) => {
       if (!rest.structuredContent) return rest as Block;
       const structuredContent: Record<
         string,

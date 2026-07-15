@@ -146,6 +146,26 @@ describe("MathDocument LaTeX printer", () => {
     expect(printMathDocument(document)).toBe(expected);
   });
 
+  it("spells a dangling raw-latex backslash as \\backslash so it cannot fuse", () => {
+    // A raw-latex fragment ending in a bare `\` printed verbatim would re-lex
+    // against the next projected character (`}` of an enclosing argument, a
+    // sibling's letters) into a single fused token — a phantom `\}` glyph or
+    // command name. Tokens the fragment closes itself stay verbatim.
+    const document: MathDocument = {
+      version: 1,
+      root: {
+        type: "root",
+        id: "root",
+        body: {
+          type: "row",
+          id: "body",
+          children: [{ type: "raw-latex", id: "raw", latex: "\\\\" }],
+        },
+      },
+    };
+    expect(printMathDocument(document)).toBe(String.raw`\backslash\backslash`);
+  });
+
   it("inserts a command separator only when a following letter needs it", () => {
     expect(printMathDocument(parseMathDocument(String.raw`\alpha x`))).toBe(
       String.raw`\alpha x`,

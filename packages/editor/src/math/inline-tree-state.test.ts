@@ -161,6 +161,24 @@ function enterMathOffset(
   return updateContentSelection(state, selection);
 }
 
+/** The nested ContentPoint a caret at `sourceOffset` of the first run maps to. */
+function nestedPointAtSourceOffset(state: EditorState, sourceOffset: number) {
+  const block = state.document.page.blocks[0];
+  if (!isTextualBlock(block)) throw new Error("expected a textual host block");
+  const run = resolveStructuredInlineMathRuns(block)[0];
+  if (!run?.contentId || !run.document) {
+    throw new Error("expected an attached inline math run");
+  }
+  const selection = mathContentSelectionFromSourceOffset(
+    block.id,
+    run.contentId,
+    run.document,
+    sourceOffset,
+  );
+  if (!selection) throw new Error("expected a nested math caret");
+  return selection.focus;
+}
+
 describe("interactive structured MathMark", () => {
   it("extends an inline tree selection with Shift+Left and Shift+Right", () => {
     const before = enterMathOffset(chipState("inline-horizontal", "$ab$"), 2);
@@ -580,7 +598,10 @@ describe("interactive structured MathMark", () => {
     expect(enterInlineMathTreeAtPosition(chipState(), 0, 1)).toBeUndefined();
   });
 
-  it("returns horizontal navigation to the host text at both tree edges", () => {
+  it("returns horizontal navigation to the host text past both tree edges", () => {
+    // "a•b": the run boundary (index 2 / 1) is the same visual stop as the
+    // tree edge caret that just failed to move, so the exit press continues
+    // one flat step past it instead of parking on the boundary.
     const atEnd = enterMathOffset(chipState("inline-exit-right", "a$xy$b"), 2);
     const right = atEnd.actionBus.dispatchState(MOVE_CURSOR_RIGHT, atEnd);
 
@@ -588,7 +609,7 @@ describe("interactive structured MathMark", () => {
     expect(right.state.document.contentSelection).toBeNull();
     expect(right.state.document.cursor?.position).toEqual({
       blockIndex: 0,
-      textIndex: 2,
+      textIndex: 3,
     });
 
     const atStart = enterMathOffset(chipState("inline-exit-left", "a$xy$b"), 0);
@@ -598,8 +619,69 @@ describe("interactive structured MathMark", () => {
     expect(left.state.document.contentSelection).toBeNull();
     expect(left.state.document.cursor?.position).toEqual({
       blockIndex: 0,
-      textIndex: 1,
+      textIndex: 0,
     });
+  });
+
+  it("promotes a flat arrow step that lands on a chip edge into the tree", () => {
+    // "a•b" — the chip's edge has ONE caret stop and it belongs to the
+    // formula: the press whose flat step would land on the run boundary
+    // produces the tree's edge caret directly, not the flat position in
+    // front of the visually identical tree stop.
+    const before = chipState("inline-approach", "a$xy$b");
+
+    const fromLeft = moveCursorToPosition(before, 0, 0);
+    const right = fromLeft.actionBus.dispatchState(
+      MOVE_CURSOR_RIGHT,
+      fromLeft,
+    );
+    expect(right.claimed).toBe(true);
+    expect(right.state.document.cursor).toBeNull();
+    expect(right.state.document.contentSelection?.focus).toEqual(
+      nestedPointAtSourceOffset(right.state, 0),
+    );
+
+    const fromRight = moveCursorToPosition(before, 0, 3);
+    const left = fromRight.actionBus.dispatchState(
+      MOVE_CURSOR_LEFT,
+      fromRight,
+    );
+    expect(left.claimed).toBe(true);
+    expect(left.state.document.cursor).toBeNull();
+    expect(left.state.document.contentSelection?.focus).toEqual(
+      nestedPointAtSourceOffset(left.state, 2),
+    );
+  });
+
+  it("exits one chip into a neighbouring chip's tree across one plain char", () => {
+    // "a• •b" — two chips one space apart. Arrowing right off the first
+    // formula's end crosses the space AND lands on the second chip's leading
+    // edge, which promotes: one press moves from `x|` to `|y`.
+    const before = chipState("inline-chip-hop", "a$x$ $y$b");
+    const block = before.document.page.blocks[0];
+    if (!isTextualBlock(block)) throw new Error("expected a textual block");
+    const runs = resolveStructuredInlineMathRuns(block);
+    expect(runs.map((run) => run.latex)).toEqual(["x", "y"]);
+    const first = mathContentSelectionFromSourceOffset(
+      block.id,
+      runs[0].contentId!,
+      runs[0].document!,
+      1,
+    );
+    if (!first) throw new Error("expected a nested caret in the first chip");
+    const inFirst = updateContentSelection(before, first);
+
+    const hopped = inFirst.actionBus.dispatchState(MOVE_CURSOR_RIGHT, inFirst);
+
+    expect(hopped.claimed).toBe(true);
+    expect(hopped.state.document.contentSelection?.focus).toEqual(
+      mathContentSelectionFromSourceOffset(
+        block.id,
+        runs[1].contentId!,
+        runs[1].document!,
+        0,
+      )?.focus,
+    );
   });
 
   it("routes horizontal and slot navigation through the inline tree", () => {
