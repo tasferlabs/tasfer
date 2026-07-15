@@ -16,8 +16,9 @@ out
 
 # AI tooling
 !.claude/launch.json
+!.claude/output-styles/**
 !.claude/output-styles
-.claude
+.claude/**
 
 # My notes
 internal

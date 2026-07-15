@@ -9,7 +9,6 @@ body:
       value: |
         Please describe the outcome you want.
 
-
   - type: textarea
     id: additional
     attributes:
@@ -22,7 +21,7 @@ body:
     attributes:
       label: Pre-flight checklist
       options:
-        - label: This request aligns with Tasfer's local-first and privacy-respecting goals.
+        - label: This request aligns with Tasfer's local-first and privacy-respecting goals, and this is not a security issue.
           required: false
         - label: I agree with contributing guidelines.
           required: true

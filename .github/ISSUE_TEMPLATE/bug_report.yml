@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a bug.
+description: Report a bug (🐞)
 title: "[Bug]: "
 labels:
   - bug
@@ -7,14 +7,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a bug. Please provide good detail, any detail would help.
+        Thanks for reporting a bug. Do not worry if it is duplicated, any feedback is appreciated.
 
   - type: textarea
     id: description
     attributes:
       label: What happened?
-      description: A clear description of the bug.
-      placeholder: Describe the issue and impact.
+      placeholder: Describe the issue.
     validations:
       required: true
 
@@ -22,7 +21,7 @@ body:
     id: reproduction
     attributes:
       label: Steps to reproduce
-      description: Provide exact steps.
+      description: Provide how can I reproduce it.
       placeholder: |
         1. Go to ...
         2. Click ...
@@ -36,10 +35,9 @@ body:
       label: Platform
       options:
         - Web
-        - Desktop (Electron)
+        - Desktop
         - iOS
         - Android
-        - Signaling server
     validations:
       required: true
 
@@ -64,7 +62,7 @@ body:
     attributes:
       label: Pre-flight checklist
       options:
-        - label: This is not a security report (those must use SECURITY.md).
+        - label: This is not a security report (Please be aware those must follow SECURITY.md).
           required: true
         - label: I agree with contributing guidelines.
           required: true
