@@ -4,6 +4,18 @@
   "description": "IndexedDB persistence for @cypherkit/editor — stores the CRDT op log locally so reloads are instant and edits survive offline.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hamza512b/tasfer.git",
+    "directory": "packages/provider-indexeddb"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",

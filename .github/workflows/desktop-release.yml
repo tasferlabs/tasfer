@@ -1,12 +1,34 @@
 name: Desktop Release
 
+# Tags come from release-please (v<version>), which calls this workflow.
+# workflow_dispatch with publish=false is a safe dry run: full signed build,
+# artifacts uploaded to the workflow run instead of a release.
 on:
-  push:
-    tags:
-      - "desktop-v*"
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      publish:
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v1.0.0)"
+        type: string
+        required: true
+      publish:
+        description: "Upload to the GitHub release draft"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build:
@@ -24,25 +46,23 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/desktop/package-lock.json
+            packages/*/package-lock.json
 
-      - name: Extract version from tag
-        id: version
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF_NAME#desktop-v}" >> "$GITHUB_OUTPUT"
-
-      - name: Set desktop app version
-        shell: bash
+      # web's postinstall also installs the source-aliased packages/*
+      - name: Install
         run: |
-          cd apps/desktop
-          npm version "${{ steps.version.outputs.VERSION }}" --no-git-tag-version
-
-      - name: Install dependencies
-        run: npm ci
+          (cd apps/web && npm ci)
+          (cd apps/desktop && npm ci)
 
       - name: Build web app
         working-directory: apps/web
@@ -52,9 +72,9 @@ jobs:
         working-directory: apps/desktop
         run: npm run build
 
-      - name: Package and publish
+      - name: Package
         working-directory: apps/desktop
-        run: npx electron-builder --${{ matrix.platform }} --publish always
+        run: npx electron-builder --${{ matrix.platform }} --publish ${{ inputs.publish && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS code signing and notarization
@@ -66,3 +86,25 @@ jobs:
           # Windows code signing
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Upload artifacts (dry run)
+        if: ${{ !inputs.publish }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: |
+            apps/desktop/release/*.*
+            !apps/desktop/release/builder-*.yml
+
+  # electron-builder uploads into the release-please draft; publish it only
+  # once all three platforms have their artifacts, so updater clients never
+  # see a partial release.
+  publish-release:
+    needs: build
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ inputs.tag }}" --repo "${{ github.repository }}" --draft=false

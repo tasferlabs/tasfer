@@ -5,6 +5,7 @@ updates:
       - "/apps/web"
       - "/apps/desktop"
       - "/apps/live"
+      - "/apps/site"
       - "/packages/editor"
       - "/packages/provider-core"
       - "/packages/provider-indexeddb"

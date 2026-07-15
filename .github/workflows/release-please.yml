@@ -1,0 +1,42 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      paths_released: ${{ steps.release.outputs.paths_released }}
+      desktop_release_created: ${{ steps.release.outputs['apps/desktop--release_created'] }}
+      desktop_tag: ${{ steps.release.outputs['apps/desktop--tag_name'] }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+
+  # Tags created with GITHUB_TOKEN never trigger other workflows, so the
+  # publish pipelines are chained here instead of listening for tag pushes.
+  npm-publish:
+    needs: release-please
+    if: contains(fromJSON(needs.release-please.outputs.paths_released || '[]'), 'packages/tex')
+    uses: ./.github/workflows/npm-publish.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
+
+  desktop-release:
+    needs: release-please
+    if: needs.release-please.outputs.desktop_release_created == 'true'
+    uses: ./.github/workflows/desktop-release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.desktop_tag }}
+      publish: true
+    secrets: inherit
+    permissions:
+      contents: write

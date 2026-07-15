@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: packages/*/package-lock.json
+
+      - name: Install
+        run: |
+          for p in tex editor provider-core provider-indexeddb provider-relay provider-webrtc react; do
+            (cd "packages/$p" && npm ci)
+          done
+
+      - name: Build in dependency order
+        run: bash packages/build-all.sh
+
+      - name: Test
+        run: |
+          for p in tex editor provider-core; do
+            (cd "packages/$p" && npm test)
+          done
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            packages/*/package-lock.json
+
+      # web's postinstall also installs the source-aliased packages/*
+      - name: Install
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Test
+        working-directory: apps/web
+        run: npm test
+
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: apps/site/package-lock.json
+
+      - name: Install
+        working-directory: apps/site
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/site
+        run: npm run build
+
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build (compile only, no packaging)
+        working-directory: apps/desktop
+        run: npm run build
+
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: apps/live/package-lock.json
+
+      - name: Install
+        working-directory: apps/live
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: apps/live
+        run: npx tsc --noEmit
+
+      - name: Validate worker bundle
+        working-directory: apps/live
+        run: npx wrangler deploy --dry-run

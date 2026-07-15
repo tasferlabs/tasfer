@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Tasfer! This guide will help you 
 
 ### Reporting Bugs
 
-All bug reports are welcome — no issue is too small. Before filing one, please search [existing issues](https://github.com/hamza512b/cypher/issues) to avoid duplicates.
+All bug reports are welcome — no issue is too small. Before filing one, please search [existing issues](https://github.com/hamza512b/tasfer/issues) to avoid duplicates.
 
 When reporting a bug, include:
 
@@ -51,19 +51,19 @@ manages its own dependencies and is built and run from its own directory. Instal
 and run the part you're working on:
 
 ```bash
-git clone https://github.com/<your-fork>/cypher.git
-cd cypher/apps/web
+git clone https://github.com/<your-fork>/tasfer.git
+cd tasfer/apps/web
 npm install
 npm run dev
 ```
 
 The web app runs at `http://localhost:4000`.
 
-To work on the editor engine (or another package), install its dependencies from
-that package's own directory, e.g. `cd packages/editor && npm install`. The web
-app consumes `@cypherkit/editor`, `@cypherkit/tex`, and `@cypherkit/react` as raw
-TypeScript source via path aliases, so engine changes show up in `apps/web`
-without a separate build step.
+The web app consumes `@cypherkit/editor`, `@cypherkit/tex`, and `@cypherkit/react`
+as raw TypeScript source via path aliases, so engine changes show up in `apps/web`
+without a separate build step. `npm install` in `apps/web` also installs those
+packages' own dependencies via a postinstall hook; other packages are installed
+from their own directories.
 
 ### Mobile & HTTPS Development
 
@@ -109,6 +109,38 @@ All user-facing strings must use i18next — never hardcode text in components.
   so keep all state per-instance (enforced by the `no-global-mutable-state` rule)
 - Prefer small, focused functions
 - Avoid unnecessary abstractions
+
+## Releases
+
+Versioning is automated with [release-please](https://github.com/googleapis/release-please).
+Use [Conventional Commits](https://www.conventionalcommits.org/) for anything
+release-worthy — `fix:` bumps patch, `feat:` bumps minor, `feat!:`/`fix!:` bumps
+major. A commit only affects the packages whose directories it touches.
+
+How the cycle works:
+
+- release-please maintains a release PR on `main` that accumulates version bumps
+  and changelogs. The `packages/*` libraries are versioned in lockstep; the
+  desktop app (`apps/desktop`) is versioned independently and tagged `v<version>`.
+- Merging the release PR creates the tags and GitHub releases, then:
+  - the packages are built in dependency order and published to npm
+    (peer ranges between them are pinned at publish time), and
+  - the desktop app is built and signed for macOS/Windows/Linux into a draft
+    release, which is published once all platforms have uploaded.
+- `apps/live` deploys to Cloudflare on every push to `main` that touches it.
+- `apps/web` and `apps/site` deploy continuously via Vercel (two projects with
+  root directories `apps/web` and `apps/site`; the web project needs "Include
+  source files outside of the Root Directory" enabled).
+
+Dry runs: the **npm Publish** workflow can be dispatched with `dry_run`, and
+**Desktop Release** can be dispatched with `publish: false` to build without
+touching a release.
+
+### AUR (manual, after a desktop release)
+
+From `aur/`: bump `pkgver`, reset `pkgrel` to 1, replace the checksum
+(`makepkg -g`), regenerate `.SRCINFO` (`makepkg --printsrcinfo > .SRCINFO`), and
+push to the AUR repository.
 
 ## Community
 

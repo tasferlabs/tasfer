@@ -1,10 +1,10 @@
-appId: com.cypher.desktop
+appId: app.tasfer
 productName: Tasfer
 
 publish:
   provider: github
   owner: hamza512b
-  repo: cypher
+  repo: tasfer
 
 directories:
   output: release

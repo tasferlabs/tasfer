@@ -4,6 +4,18 @@
   "description": "Canvas-native, live-editable LaTeX math layout & rendering engine.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hamza512b/tasfer.git",
+    "directory": "packages/tex"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",

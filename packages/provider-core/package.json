@@ -4,6 +4,18 @@
   "description": "Transport-agnostic sync protocol that connects a @cypherkit/editor Doc to any pipe (the shared core every provider builds on).",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hamza512b/tasfer.git",
+    "directory": "packages/provider-core"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",

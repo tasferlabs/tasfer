@@ -4,12 +4,12 @@ pkgver=1.0.0
 pkgrel=1
 pkgdesc="A canvas-based markdown editor. Local-first, peer-to-peer, no cloud."
 arch=('x86_64')
-url="https://github.com/hamza512b/cypher"
+url="https://github.com/hamza512b/tasfer"
 license=('custom')
 depends=('gtk3' 'nss' 'libxss' 'alsa-lib')
 provides=('cypher')
 conflicts=('cypher')
-source=("${url}/releases/download/desktop-v${pkgver}/cypher-${pkgver}.pacman")
+source=("${url}/releases/download/v${pkgver}/cypher-${pkgver}.pacman")
 # Update after first release: makepkg -g >> PKGBUILD
 sha256sums=('SKIP')
 
