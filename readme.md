@@ -51,10 +51,9 @@ Tasfer is a markdown text editor that renders directly on HTML5 Canvas — combi
 ### Run the web app
 
 ```bash
-git clone https://github.com/hamza512b/cypher.git
-cd cypher
+git clone https://github.com/hamza512b/tasfer.git
+cd tasfer/apps/web
 npm install
-cd apps/web
 npm run dev
 ```
 
@@ -66,6 +65,7 @@ The signaling server is a stateless relay that helps peers discover each other. 
 
 ```bash
 cd apps/live
+npm install
 npm run dev
 ```
 
@@ -80,6 +80,7 @@ npm run build
 
 ```bash
 cd apps/desktop
+npm install
 npm run dev
 ```
 
