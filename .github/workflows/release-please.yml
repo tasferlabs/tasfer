@@ -16,7 +16,7 @@ jobs:
       desktop_release_created: ${{ steps.release.outputs['apps/desktop--release_created'] }}
       desktop_tag: ${{ steps.release.outputs['apps/desktop--tag_name'] }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
 
   # Tags created with GITHUB_TOKEN never trigger other workflows, so the
@@ -30,10 +30,10 @@ jobs:
       contents: read
       id-token: write
 
-  desktop-release:
+  native-release:
     needs: release-please
     if: needs.release-please.outputs.desktop_release_created == 'true'
-    uses: ./.github/workflows/desktop-release.yml
+    uses: ./.github/workflows/native-release.yml
     with:
       tag: ${{ needs.release-please.outputs.desktop_tag }}
       publish: true

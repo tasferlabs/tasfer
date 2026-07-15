@@ -6,5 +6,5 @@
   "packages/provider-relay": "0.0.0",
   "packages/provider-webrtc": "0.0.0",
   "packages/react": "0.0.0",
-  "apps/desktop": "1.0.0"
+  "apps/desktop": "0.0.0"
 }

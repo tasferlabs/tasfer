@@ -20,6 +20,19 @@ out
 !.claude/output-styles
 .claude/**
 
+# Release signing (never commit keys)
+*.keystore
+*.jks
+apps/android/keystore.properties
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output
+# Store-native release-note copies are generated from fastlane/release_notes/.
+fastlane/metadata/
+build/ios/
+
 # My notes
 internal
 

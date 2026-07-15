@@ -133,8 +133,32 @@ How the cycle works:
   source files outside of the Root Directory" enabled).
 
 Dry runs: the **npm Publish** workflow can be dispatched with `dry_run`, and
-**Desktop Release** can be dispatched with `publish: false` to build without
+**Native Release** can be dispatched with `publish: false` to build without
 touching a release.
+
+### App Store & Play (after a desktop release)
+
+Store submissions run through the checked-in [`fastlane/Fastfile`](fastlane/Fastfile),
+normally via the **Store Release** workflow so the exact build and submission
+happens in a public CI log. Flow:
+
+1. `node scripts/release/set-native-version.mjs` — stamps the released desktop
+   `v<version>` onto both native projects and bumps the shared build number.
+2. Edit `fastlane/release_notes/<lang>.txt` (all languages are required).
+3. Commit both, then dispatch **Store Release** on that ref, choosing the
+   platform(s) and track: `beta` (TestFlight / Play open testing) or `release`
+   (submits for store review — dispatching it is the confirmation).
+
+The same lanes run locally with `bundle exec fastlane <ios|android> <beta|release>`
+(production lanes prompt for confirmation). One-time local setup: copy
+`fastlane/.env.example` to `fastlane/.env`, and
+`apps/android/keystore.properties.example` to `apps/android/keystore.properties`.
+
+CI secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_CONTENT` (base64 `.p8`;
+iOS signs via Xcode cloud-managed signing, so no certificate export — the key
+needs the Admin role the first time), `PLAY_JSON_KEY` (service-account JSON),
+`ANDROID_KEYSTORE` (base64 `.jks`), `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Keys are never committed.
 
 ### AUR (manual, after a desktop release)
 

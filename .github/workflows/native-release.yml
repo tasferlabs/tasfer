@@ -1,4 +1,9 @@
-name: Desktop Release
+name: Native Release
+
+# Desktop (Electron) builds for macOS/Windows/Linux. iOS/Android store
+# submissions run via the Store Release workflow (fastlane), dispatched
+# manually after release notes are curated; they ship the same v<version>
+# this workflow builds.
 
 # Tags come from release-please (v<version>), which calls this workflow.
 # workflow_dispatch with publish=false is a safe dry run: full signed build,
@@ -45,11 +50,11 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -89,7 +94,7 @@ jobs:
 
       - name: Upload artifacts (dry run)
         if: ${{ !inputs.publish }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.platform }}
           path: |

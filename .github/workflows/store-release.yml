@@ -1,0 +1,130 @@
+name: Store Release
+
+# App Store / Google Play submissions, run in public CI for transparency.
+# Runs the same checked-in fastlane lanes a maintainer would run locally.
+#
+# Before dispatching:
+#   1. node scripts/release/set-native-version.mjs   (stamp the released version)
+#   2. edit fastlane/release_notes/<lang>.txt        (all languages required)
+#   3. commit both — the workflow builds the ref you dispatch it on.
+#
+# Dispatching with track "release" IS the review-submission confirmation
+# (RELEASE_CONFIRM=yes below); "beta" goes to TestFlight / Play open testing.
+#
+# iOS signing uses Xcode cloud-managed signing via the ASC API key — no
+# certificate export. The key needs the Admin role the first time (to create
+# the cloud distribution certificate); App Manager works after that.
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Platform(s) to submit"
+        type: choice
+        options: [both, ios, android]
+        default: both
+      track:
+        description: "beta = TestFlight / Play open testing; release = store review"
+        type: choice
+        options: [beta, release]
+        default: beta
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ios:
+    if: inputs.platform != 'android'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            packages/*/package-lock.json
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      # web's postinstall also installs the source-aliased packages/*;
+      # the Xcode build phase then builds + syncs the web bundle itself.
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+        run: printf '%s' "$ASC_KEY_CONTENT" | base64 -d > "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Build and upload
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          RELEASE_CONFIRM: yes
+        run: bundle exec fastlane ios ${{ inputs.track }}
+
+  android:
+    if: inputs.platform != 'ios'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            packages/*/package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      # web's postinstall also installs the source-aliased packages/*;
+      # the Gradle preBuild task then builds + syncs the web bundle itself.
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Write signing keys
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLAY_JSON_KEY: ${{ secrets.PLAY_JSON_KEY }}
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE" | base64 -d > apps/android/app/upload-keystore.jks
+          cat > apps/android/keystore.properties <<EOF
+          storeFile=app/upload-keystore.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+          printf '%s' "$PLAY_JSON_KEY" > "$RUNNER_TEMP/play-key.json"
+
+      - name: Build and upload
+        env:
+          PLAY_JSON_KEY_PATH: ${{ runner.temp }}/play-key.json
+          RELEASE_CONFIRM: yes
+        run: bundle exec fastlane android ${{ inputs.track }}
