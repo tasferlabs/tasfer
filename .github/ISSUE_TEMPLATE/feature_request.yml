@@ -14,7 +14,6 @@ body:
     attributes:
       label: Any additional context
       placeholder: Mockups, references, constraints, tradeoffs.
-      description: Mockups, references, constraints, tradeoffs.
 
   - type: checkboxes
     id: checks
