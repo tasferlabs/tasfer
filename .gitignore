@@ -1,20 +1,36 @@
+# For new contributors, add what is missing please here 👀
+
+
+# Dependencies
 node_modules
+
+# Build output
 dist
 cdn
 out
-.DS_Store
+
+# Environment
 .env
 .env.*
 !.env.example
-internal
+
+# AI tooling
+!.claude/launch.json
+!.claude/output-styles
 .claude
+
+# My notes
+internal
+
+# OS
+.DS_Store
+
 # design-sync (claude.ai/design)
 .ds-sync/
 ds-bundle/
 .design-sync/.cache/
 .design-sync/learnings/
 .design-sync/node_modules
-# generated converter inputs (recreate via .design-sync/regen-inputs.mjs)
 apps/web/.ds-entry.tsx
 apps/web/.ds-compiled.css
 apps/web/.ds-tsconfig.json

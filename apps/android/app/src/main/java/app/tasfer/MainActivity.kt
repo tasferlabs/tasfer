@@ -1,4 +1,4 @@
-package md.cypher.app
+package md.tasfer
 
 import android.Manifest
 import android.app.Activity

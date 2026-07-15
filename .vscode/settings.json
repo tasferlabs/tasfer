@@ -1,11 +1,6 @@
 {
-  // Run ESLint --fix on save so import sorting (simple-import-sort) is the
-  // single source of truth. Avoids fighting VSCode's "Organize Imports".
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "explicit"
   },
-  "eslint.workingDirectories": [{ "mode": "auto" }],
-  "swift.swiftSDK": "arm64-apple-ios",
-  "swift.SDK": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.1.sdk",
-  "commentAnchors.workspace.excludeFiles": "**/{node_modules,.git,.idea,target,out,build,vendor,apps/desktop/release,apps/web/dist,apps/ios/App/App/public,apps/android/app/src/main/assets}/**/*"
+  "git.detectWorktrees": true,
 }
