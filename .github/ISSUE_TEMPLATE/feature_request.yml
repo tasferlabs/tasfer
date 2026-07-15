@@ -20,7 +20,7 @@ body:
     attributes:
       label: Pre-flight checklist
       options:
-        - label: This request aligns with Tasfer's local-first and privacy-respecting goals, and this is not a security issue.
+        - label: This request aligns with Tasfer's local-first and privacy-respecting goals, and this is not a security issue. For security issues look at ([SECURITY.md](SECURITY.md)).
           required: false
         - label: I agree with contributing guidelines.
           required: true
