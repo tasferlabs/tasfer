@@ -1,4 +1,4 @@
-package md.tasfer
+package app.tasfer
 
 import android.Manifest
 import android.app.Activity

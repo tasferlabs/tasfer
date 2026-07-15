@@ -6,8 +6,10 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Vibration permission for haptic feedback -->
     <uses-permission android:name="android.permission.VIBRATE" />
-    <!-- Camera permission for taking photos -->
+    <!-- Camera permission for taking photos or joining space -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- App does not require network -->
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
 
     <application
@@ -40,7 +42,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
-                    android:host="cypher.md"
+                    android:host="tasfer.app"
                     android:pathPrefix="/reset-password" />
             </intent-filter>
 
@@ -50,7 +52,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
-                    android:host="cypher.md"
+                    android:host="tasfer.app"
                     android:pathPrefix="/verify-email-change" />
             </intent-filter>
 

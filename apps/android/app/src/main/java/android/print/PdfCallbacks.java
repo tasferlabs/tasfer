@@ -1,9 +1,6 @@
 package android.print;
 
-// Shim: PrintDocumentAdapter.LayoutResultCallback / WriteResultCallback have
-// package-private constructors, so Kotlin cannot subclass them directly. By
-// living in android.print, this Java file can subclass them and re-expose
-// public no-arg constructors that Kotlin code can extend.
+// This a shim (replacement  code) so we can expose teh pdf callbacks to kotlin
 public final class PdfCallbacks {
     private PdfCallbacks() {}
 

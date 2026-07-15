@@ -2,10 +2,10 @@ apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
 android {
-    namespace = "md.cypher.app"
+    namespace = "app.tasfer"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "md.cypher.app"
+        applicationId "app.tasfer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

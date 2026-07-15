@@ -17,14 +17,14 @@ const env = loadEnv(mode, process.cwd(), "");
 const devServerUrl = process.env.CAP_SERVER_URL ?? env.CAP_SERVER_URL;
 
 const config: CapacitorConfig = {
-  appId: "md.cypher.app",
+  appId: "app.tasfer",
   appName: "Tasfer",
   webDir: "dist",
   server: {
     ...(devServerUrl ? { url: devServerUrl } : {}),
-    hostname: "cypher.md",
+    hostname: "tasfer.app",
     androidScheme: "https",
-    allowNavigation: ["cypher.md"],
+    allowNavigation: ["tasfer.app"],
   },
   ios: {
     backgroundColor: "#101012",
