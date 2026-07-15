@@ -1,0 +1,10 @@
+{
+  "name": "run-web-driver",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Playwright driver for the Tasfer web app (cypher). Agent tooling, not product code.",
+  "dependencies": {
+    "playwright": "^1.61.1"
+  }
+}
