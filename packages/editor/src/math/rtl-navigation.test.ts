@@ -131,25 +131,54 @@ describe("entering an inline chip with arrows in an RTL block", () => {
       pointAtSourceOffset(moved.state, run.latex!.length),
     );
   });
+
+  it("ArrowRight one visual step before the chip promotes onto its edge", () => {
+    // The prose logically AFTER the chip sits visually to its left; the flat
+    // step from there lands on `run.endIndex` — the chip's edge stop — and
+    // enters the tree in the same press.
+    const state = rtlChipState();
+    const run = chipRun(state);
+    const at = moveCursorToPosition(state, 0, run.endIndex + 1);
+    const moved = at.actionBus.dispatchState(MOVE_CURSOR_RIGHT, at);
+    expect(moved.claimed).toBe(true);
+    expect(nestedFocusPoint(moved.state)).toEqual(
+      pointAtSourceOffset(moved.state, 0),
+    );
+  });
+
+  it("ArrowLeft one visual step before the chip promotes onto its edge", () => {
+    const state = rtlChipState();
+    const run = chipRun(state);
+    const at = moveCursorToPosition(state, 0, run.startIndex - 1);
+    const moved = at.actionBus.dispatchState(MOVE_CURSOR_LEFT, at);
+    expect(moved.claimed).toBe(true);
+    expect(nestedFocusPoint(moved.state)).toEqual(
+      pointAtSourceOffset(moved.state, run.latex!.length),
+    );
+  });
 });
 
 describe("exiting an inline chip with arrows in an RTL block", () => {
-  it("ArrowLeft at the formula's source start exits to the run's END offset", () => {
+  it("ArrowLeft at the formula's source start exits past the run's END offset", () => {
+    // The run boundary is the same visual stop as the tree edge caret, so the
+    // exit press continues one flat step past it (logical forward in RTL).
     const state = enterAtSourceOffset(rtlChipState(), 0);
     const run = chipRun(state);
     const moved = state.actionBus.dispatchState(MOVE_CURSOR_LEFT, state);
     expect(moved.state.document.contentSelection).toBeNull();
-    expect(moved.state.document.cursor?.position.textIndex).toBe(run.endIndex);
+    expect(moved.state.document.cursor?.position.textIndex).toBe(
+      run.endIndex + 1,
+    );
   });
 
-  it("ArrowRight at the formula's source end exits to the run's START offset", () => {
+  it("ArrowRight at the formula's source end exits past the run's START offset", () => {
     const before = rtlChipState();
     const run = chipRun(before);
     const state = enterAtSourceOffset(before, run.latex!.length);
     const moved = state.actionBus.dispatchState(MOVE_CURSOR_RIGHT, state);
     expect(moved.state.document.contentSelection).toBeNull();
     expect(moved.state.document.cursor?.position.textIndex).toBe(
-      run.startIndex,
+      run.startIndex - 1,
     );
   });
 });

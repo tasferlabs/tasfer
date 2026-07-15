@@ -12,7 +12,6 @@ import {
   deleteForwardMathTree,
   deleteMathTreeRange,
   expandMathTreeRangeToAtomicCommands,
-  getMathTreeMatrixContext,
   insertMathProseText,
   insertMathSemanticLatex,
   insertMathTextWithCompletion,
@@ -197,25 +196,20 @@ function commitCommandBoundary(
     );
   }
   if (command.length === 0 && input === "\\") {
-    // Matrix topology belongs to identity-bearing matrix-row/matrix-cell nodes,
-    // never to text typed in a cell body. Complete the pending backslash as a
-    // semantic glyph node inside that same cell; an atomic raw `\\` fragment
-    // would project as LaTeX's row separator and make content look structural.
-    if (getMathTreeMatrixContext(document, caret)) {
-      return replaceMathTreeRangeWithSemanticLatex(
-        document,
-        range,
-        String.raw`\backslash`,
-        identities,
-        { caret: "end" },
-      );
-    }
+    // `\` + `\` reads as an escape pair, exactly like `\`+`{` → `\{` above:
+    // complete the pending backslash as the literal `\backslash` glyph. Never
+    // commit a raw `\\` fragment. Matrix topology belongs to identity-bearing
+    // matrix-row/matrix-cell nodes, never to text typed in a cell body (a raw
+    // `\\` in a cell would project as LaTeX's row separator); and anywhere
+    // else the fragment's trailing bare `\` re-lexes against whatever the
+    // projection prints next — `\frac{\\}{}` fuses it with the argument's
+    // closing brace into a phantom `\}` glyph and de-structures the construct.
     return replaceMathTreeRangeWithSemanticLatex(
       document,
       range,
-      String.raw`\\`,
+      String.raw`\backslash`,
       identities,
-      { caret: "end", forceAtomic: true },
+      { caret: "end" },
     );
   }
   if (

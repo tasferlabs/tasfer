@@ -14,6 +14,10 @@ directly to HTML canvas and stores document state in a CRDT.
 - Never do things with git with your intuitive, if unsure please consult me.
 - Stop wasting time on meaningless tests, there is no test for ux
 
+## Recommendations
+
+- I prefer concise comments and answers over verbose explanations. When adding comments, do not make it excessive. Some code explain for itself. Think if the comment adds value to future readers. This applies to conversation as well.
+
 ## Compatibility status
 
 The product has not been released. Prefer a clean design over compatibility

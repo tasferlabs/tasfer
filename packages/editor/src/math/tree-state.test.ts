@@ -625,14 +625,18 @@ describe("tree-backed display math state integration", () => {
       ).toBe(false);
     }
 
-    const rowBreak = typeText(treeState("$$\n\n$$"), "\\\\").state;
-    const rowBreakNodes = Object.values(
-      getMathStructuredDocument(block(rowBreak))?.nodes ?? {},
+    // `\`+`\` completes as the literal `\backslash` glyph — never a raw `\\`
+    // fragment, whose trailing bare `\` would re-lex against the next
+    // projected character (`\frac{\\}{}` fuses it with the argument's closing
+    // brace into a phantom `\}` glyph, de-structuring the construct).
+    const doubled = typeText(treeState("$$\n\n$$"), "\\\\").state;
+    const doubledNodes = Object.values(
+      getMathStructuredDocument(block(doubled))?.nodes ?? {},
     ).filter((node) => !node.deleted);
-    expect(treeSource(rowBreak)).toBe("\\\\");
-    expect(rowBreakNodes.some((node) => node.type === "raw-latex")).toBe(true);
+    expect(treeSource(doubled)).toBe(String.raw`\backslash`);
+    expect(doubledNodes.some((node) => node.type === "symbol")).toBe(true);
     expect(
-      rowBreakNodes.some(
+      doubledNodes.some(
         (node) =>
           node.type === "raw-text" &&
           getVisibleTextFromRuns([...node.textFields.text]).includes("\\"),
@@ -1882,6 +1886,35 @@ describe("tree-backed display math state integration", () => {
     expect(afterMatrix.rows[0].cells[0].body.children).toContainEqual(
       expect.objectContaining({ type: "symbol", command: "backslash" }),
     );
+  });
+
+  it("stores two typed backslashes as a symbol node inside a fraction slot", () => {
+    // The commit must never leave a raw `\\` fragment behind: its trailing
+    // bare `\` re-lexes against the numerator's closing brace as the literal
+    // `\}` — a phantom brace glyph the user never typed — de-structuring the
+    // fraction (the reported bug).
+    // Fully keystroke-driven: `\frac` + space materializes the construct and
+    // lands the caret in the numerator slot.
+    let state = typeText(treeState("$$\n\n$$"), String.raw`\frac`).state;
+    state = typeText(state, " ").state;
+    state = typeText(state, "a").state;
+    state = insertText(state, "\\").state;
+    state = insertText(state, "\\").state;
+
+    expect(treeSource(state)).toBe(String.raw`\frac{a\backslash}{}`);
+    const document = getMathStructuredDocument(block(state));
+    const math = document ? structuredToMathDocument(document) : undefined;
+    const fraction = math?.root.body.children.find(
+      (node) => node.type === "fraction",
+    );
+    expect(fraction?.type).toBe("fraction");
+    if (fraction?.type !== "fraction") return;
+    expect(fraction.numerator.children).toContainEqual(
+      expect.objectContaining({ type: "symbol", command: "backslash" }),
+    );
+    // The denominator slot survives untouched — before the fix the fused `\}`
+    // stole its opening structure and stranded a phantom `{}` beside the frac.
+    expect(fraction.denominator.children).toHaveLength(0);
   });
 
   it("converges when peer matrix resize batches arrive in opposite orders", () => {

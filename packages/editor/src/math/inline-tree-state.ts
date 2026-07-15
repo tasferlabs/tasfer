@@ -12,7 +12,12 @@ import { unambiguousMathCommandCompletion } from "../nodes/math-commands";
 import type { TextualBlock } from "../nodes/TextNode";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { getBlockDirection } from "../rtl";
-import { moveCursorToPosition } from "../selection";
+import {
+  clearSelection,
+  moveCursorLeft,
+  moveCursorRight,
+  moveCursorToPosition,
+} from "../selection";
 import type { ContentEdit, EditorState, Operation } from "../state-types";
 import {
   isContentSelectionCollapsed,
@@ -921,6 +926,15 @@ export function hasActiveInlineMathTreeCaret(state: EditorState): boolean {
  * Once it reports that edge, horizontal document navigation must hand the
  * caret back to the flat host block rather than claiming the arrow as a no-op.
  *
+ * A chip edge has exactly ONE caret stop and it belongs to the formula: the
+ * flat position at the run boundary is the same visual spot as the tree edge
+ * caret that just failed to move, so parking the caret there would swallow
+ * the press. The exit therefore continues past the boundary in the same
+ * press — into an adjacent chip's tree when one faces the landing edge, or
+ * one ordinary flat step otherwise (the shared entry bridge covers both).
+ * Only when that step has nowhere to go (the chip closes the document) does
+ * the caret rest on the boundary itself.
+ *
  * The formula interior always renders LTR, but the HOST side of the boundary
  * follows the block: in an RTL block the prose visually left of the chip is
  * logically AFTER it, so a visual-left exit lands at `run.endIndex` (and
@@ -933,15 +947,20 @@ export function exitActiveInlineMathTreeHorizontally(
   const context = activeInlineMathContext(state);
   if (!context) return undefined;
   const rtl = getBlockDirection(context.block, state.marks) === "rtl";
-  const withoutContentSelection = updateContentSelection(state, null);
+  const atEdge = moveCursorToPosition(
+    updateContentSelection(state, null),
+    context.blockIndex,
+    (direction === "left") !== rtl
+      ? context.run.startIndex
+      : context.run.endIndex,
+  );
+  const continued = enterAdjacentInlineMathTreeHorizontally(atEdge, direction);
+  if (continued) return continued;
   return {
-    state: moveCursorToPosition(
-      withoutContentSelection,
-      context.blockIndex,
-      (direction === "left") !== rtl
-        ? context.run.startIndex
-        : context.run.endIndex,
-    ),
+    state:
+      direction === "left"
+        ? moveCursorLeft(clearSelection(atEdge))
+        : moveCursorRight(clearSelection(atEdge)),
     ops: [],
     handled: true,
   };
@@ -950,10 +969,15 @@ export function exitActiveInlineMathTreeHorizontally(
 /**
  * Enter an attached inline tree when horizontal movement reaches a chip edge.
  *
- * The inline counterpart of the display block's adjacent-equation bridge: a
- * collapsed flat caret resting on the run edge that faces the move promotes to
- * a structured caret at that same edge, so the next arrows walk the formula's
- * tree stops. A broken run (no valid attachment) is left to flat semantics.
+ * The inline counterpart of the display block's adjacent-equation bridge, and
+ * the entry half of the one-stop edge contract (see
+ * {@link exitActiveInlineMathTreeHorizontally}): the chip's edge caret belongs
+ * to the formula, so a collapsed flat caret resting on the run edge that faces
+ * the move promotes to a structured caret at that same edge — and so does the
+ * flat step this press would otherwise take when it lands exactly on such an
+ * edge. Without the second branch, walking into a chip costs two presses: one
+ * onto the flat boundary position and one more into the visually identical
+ * tree stop. A broken run (no valid attachment) is left to flat semantics.
  *
  * In an RTL host block the run edge facing a visual move swaps: the caret at
  * `run.endIndex` sits at the chip's visual LEFT edge, so ArrowRight enters
@@ -971,7 +995,39 @@ export function enterAdjacentInlineMathTreeHorizontally(
   if (state.document.selection && !state.document.selection.isCollapsed) {
     return undefined;
   }
-  const { blockIndex, textIndex } = cursor.position;
+  const resting = enterInlineMathRunEdgeFacingMove(
+    state,
+    cursor.position,
+    direction,
+  );
+  if (resting) return resting;
+  // Approach: take the flat step this press performs and promote when it
+  // lands on a facing edge, so the edge is reached as the tree's caret stop
+  // rather than as a flat position in front of it.
+  const stepped =
+    direction === "left"
+      ? moveCursorLeft(clearSelection(state))
+      : moveCursorRight(clearSelection(state));
+  const landed = stepped.document.cursor?.position;
+  if (
+    !landed ||
+    (landed.blockIndex === cursor.position.blockIndex &&
+      landed.textIndex === cursor.position.textIndex)
+  ) {
+    return undefined;
+  }
+  return enterInlineMathRunEdgeFacingMove(stepped, landed, direction);
+}
+
+/** The facing-edge promotion both entry branches share: a caret at `position`
+ * sitting on the run edge that faces the move becomes a structured caret at
+ * that edge's source offset. */
+function enterInlineMathRunEdgeFacingMove(
+  state: EditorState,
+  position: { readonly blockIndex: number; readonly textIndex: number },
+  direction: "left" | "right",
+): InlineMathTreeStateResult | undefined {
+  const { blockIndex, textIndex } = position;
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted || !isTextualBlock(block)) return undefined;
   const rtl = getBlockDirection(block, state.marks) === "rtl";

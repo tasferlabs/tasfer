@@ -108,6 +108,16 @@ export interface BlockRuntimeState {
   prevType?: string;
   nextType?: string;
   /**
+   * Companion hint: `true` when the previous visible block is the view's FIRST
+   * visible block (i.e. this block sits at visible index 1). Lets a node tell
+   * "directly under the document-opening block" apart from the same neighbour
+   * type mid-document — e.g. a heading collapses its space-above under a cover
+   * image (the document-opening full-width image) but keeps it after an image
+   * that merely ends the previous section. Stamped/cleared with the type hints
+   * above (same cache-invalidation rules); `undefined` everywhere else.
+   */
+  prevIsFirst?: boolean;
+  /**
    * Per-block visual style overrides — an open bag of `property → value`, layer
    * 3 of the style cascade (node default ◁ theme `styles.blocks[type]` ◁ this).
    * Each property syncs as its own `style.<key>` `block_set` (independent LWW),
