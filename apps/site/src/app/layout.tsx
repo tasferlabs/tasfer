@@ -28,7 +28,7 @@ const SITE_ORIGIN = "https://www.cypher.md";
 // benefit and lets the facts (encrypted, no cloud, no account) prove it. It
 // deliberately avoids "canvas-based" and other build-detail jargon nobody
 // searches for or cares about.
-const TITLE = "Cypher — private markdown notes that stay on your device";
+const TITLE = "Tasfer — private markdown notes that stay on your device";
 const DESCRIPTION =
   "A markdown editor that keeps your writing yours — every note stays on your device, end-to-end encrypted, syncing directly between your devices. No cloud. No account. No company reading your words.";
 
@@ -36,15 +36,15 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),
   title: {
     default: TITLE,
-    template: "%s — Cypher",
+    template: "%s — Tasfer",
   },
   description: DESCRIPTION,
-  applicationName: "Cypher",
+  applicationName: "Tasfer",
   icons: { icon: "/logo.png" },
   robots: { index: true, follow: true },
   openGraph: {
     type: "website",
-    siteName: "Cypher",
+    siteName: "Tasfer",
     title: TITLE,
     description: DESCRIPTION,
     url: "/home",
@@ -53,7 +53,7 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "Cypher — your thoughts stay yours. Private, end-to-end encrypted markdown.",
+        alt: "Tasfer — your thoughts stay yours. Private, end-to-end encrypted markdown.",
       },
     ],
   },

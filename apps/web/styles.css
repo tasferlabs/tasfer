@@ -73,8 +73,8 @@
   --card-foreground: #09090b;
   --popover: oklch(1 0 0);
   --popover-foreground: #09090b;
-  --primary: oklch(0.6 0.13 163);
-  --primary-foreground: oklch(0.98 0.02 166);
+  --primary: oklch(0.629 0.154 145); /* brand green #43a047 */
+  --primary-foreground: oklch(0.98 0.02 145);
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.967 0.001 286.375);
@@ -90,15 +90,15 @@
   --input: oklch(0.92 0.004 286.32);
   --ring: oklch(0.6332 0.1426 163 / 60%);
   --chart-1: oklch(0.85 0.13 165);
-  --chart-2: oklch(0.77 0.15 163);
-  --chart-3: oklch(0.7 0.15 162);
-  --chart-4: oklch(0.6 0.13 163);
-  --chart-5: oklch(0.51 0.1 166);
+  --chart-2: oklch(0.77 0.15 145);
+  --chart-3: oklch(0.7 0.15 145);
+  --chart-4: oklch(0.6 0.13 145);
+  --chart-5: oklch(0.51 0.1 145);
   --radius: 0.45rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: #09090b;
-  --sidebar-primary: oklch(0.6 0.13 163);
-  --sidebar-primary-foreground: oklch(0.98 0.02 166);
+  --sidebar-primary: oklch(0.6 0.13 145);
+  --sidebar-primary-foreground: oklch(0.98 0.02 145);
   --sidebar-accent: oklch(0.967 0.001 286.375);
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
@@ -108,9 +108,9 @@
   --editor-background: oklch(1 0 0);
   --editor-text: oklch(0.2 0.006 285.885);
   --editor-heading: oklch(0.1 0.005 285.823);
-  --editor-cursor: oklch(0.6 0.13 163);
-  --editor-selection: oklch(0.6 0.3 163);
-  --editor-selection-unfocused: oklch(0.6 0.13 163);
+  --editor-cursor: oklch(0.6 0.13 145);
+  --editor-selection: oklch(0.6 0.3 145);
+  --editor-selection-unfocused: oklch(0.6 0.13 145);
   --editor-placeholder: oklch(0.68 0.01 285.938);
   --editor-code-bg: oklch(0.967 0.001 286.375);
   --editor-code-text: oklch(0.577 0.245 27.325);
@@ -125,25 +125,25 @@
   /* Find-in-document highlights (translucent fills; see MountedEditor). */
   --editor-search-highlight: #facc15;
   --editor-search-highlight-active: #f97316;
-  --editor-link: oklch(0.6 0.13 163);
-  --editor-link-hover: oklch(0.51 0.1 166);
+  --editor-link: oklch(0.6 0.13 145);
+  --editor-link-hover: oklch(0.51 0.1 145);
   --editor-scrollbar-track: oklch(0.92 0.004 286.32 / 5%);
   --editor-scrollbar-thumb: oklch(0.552 0.016 285.938 / 50%);
   --editor-scrollbar-thumb-hover: oklch(0.552 0.016 285.938 / 70%);
   --editor-scrollbar-thumb-active: oklch(0.552 0.016 285.938 / 90%);
   --editor-cover-image-overlay: oklch(0.92 0.004 286.32 / 5%);
 
-  /* Display face for the "Cypher" wordmark only. Geometric, crystalline
-     letterforms that echo the polygonal cut of the emerald mark. Space Grotesk
-     is Latin-only; Noto Sans Arabic backs it for the non-wordmark callers that
-     can receive user text (e.g. an avatar monogram). */
+  /* Display face for large headlines and monograms. The "tasfer" wordmark
+     itself uses the base sans (weight 600, -0.03em tracking). Space Grotesk
+     is Latin-only; Noto Sans Arabic backs it for the callers that can
+     receive user text (e.g. an avatar monogram). */
   --font-display:
     "Space Grotesk", "Noto Sans Arabic", "Poppins", -apple-system,
     BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
-  /* Wordmark color: a lighter, more vivid emerald than --primary so the
-     wordmark reads as a brighter sibling of the logo mark. */
-  --wordmark-color: oklch(0.68 0.15 163);
+  /* Wordmark: ink text — the sifr mark next to it carries the brand green. */
+  --wordmark-color: var(--foreground);
+  --brand-mark-color: #43a047;
 
   /* macOS desktop window chrome. The Electron shell renders traffic lights at
      `x: 16, y: 18` (apps/desktop/src/main/index.ts); these are the single
@@ -170,7 +170,7 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.21 0.006 285.885);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.7 0.15 162);
+  --primary: oklch(0.718 0.142 145); /* brand green #66bb6a */
   --primary-foreground: oklch(0.26 0.05 173);
   --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
@@ -183,13 +183,13 @@
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.6332 0.1426 163 / 60%);
   --chart-1: oklch(0.85 0.13 165);
-  --chart-2: oklch(0.77 0.15 163);
-  --chart-3: oklch(0.7 0.15 162);
-  --chart-4: oklch(0.6 0.13 163);
-  --chart-5: oklch(0.51 0.1 166);
+  --chart-2: oklch(0.77 0.15 145);
+  --chart-3: oklch(0.7 0.15 145);
+  --chart-4: oklch(0.6 0.13 145);
+  --chart-5: oklch(0.51 0.1 145);
   --sidebar: oklch(0.21 0.006 285.885);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.77 0.15 163);
+  --sidebar-primary: oklch(0.77 0.15 145);
   --sidebar-primary-foreground: oklch(0.26 0.05 173);
   --sidebar-accent: oklch(0.274 0.006 286.033);
   --sidebar-accent-foreground: oklch(0.985 0 0);
@@ -200,9 +200,9 @@
   --editor-background: #09090b;
   --editor-text: oklch(0.85 0.015 286.067);
   --editor-heading: oklch(0.985 0 0);
-  --editor-cursor: oklch(0.7 0.15 162);
-  --editor-selection: oklch(0.9 0.3 162);
-  --editor-selection-unfocused: oklch(0.57 0.15 163);
+  --editor-cursor: oklch(0.7 0.15 145);
+  --editor-selection: oklch(0.9 0.3 145);
+  --editor-selection-unfocused: oklch(0.57 0.15 145);
   --editor-placeholder: oklch(0.42 0.01 285.938);
   --editor-code-bg: oklch(0.2 0 286.033);
   --editor-code-text: oklch(0.704 0.191 22.216);
@@ -217,16 +217,17 @@
   /* Find-in-document highlights, brightened for the dark surface. */
   --editor-search-highlight: #fde047;
   --editor-search-highlight-active: #fb923c;
-  --editor-link: oklch(0.7 0.15 162);
-  --editor-link-hover: oklch(0.77 0.15 163);
+  --editor-link: oklch(0.7 0.15 145);
+  --editor-link-hover: oklch(0.77 0.15 145);
   --editor-scrollbar-track: oklch(1 0 0 / 5%);
   --editor-scrollbar-thumb: oklch(1 0 0 / 30%);
   --editor-scrollbar-thumb-hover: oklch(1 0 0 / 50%);
   --editor-scrollbar-thumb-active: oklch(1 0 0 / 70%);
   --editor-cover-image-overlay: oklch(1 0 0 / 20%);
 
-  /* Wordmark stays the same lighter emerald in dark mode. */
-  --wordmark-color: oklch(0.74 0.16 163);
+  /* Wordmark stays ink; the mark brightens a step for dark surfaces. */
+  --wordmark-color: var(--foreground);
+  --brand-mark-color: #66bb6a;
 
   /* Time-of-day scale, dimmed for the dark popover: night stays just above
      the surface, daylight is softened so it doesn't glare. */

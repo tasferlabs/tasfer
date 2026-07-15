@@ -26,7 +26,7 @@ export function ElectronMenuBar() {
           <Item label={t("menu.reload", "Reload")} shortcut="Ctrl+R" onSelect={() => invoke("app:reload")} />
           <Item label={t("menu.forceReload", "Force Reload")} shortcut="Ctrl+Shift+R" onSelect={() => invoke("app:force-reload")} />
           <Item label={t("menu.toggleDevTools", "Toggle Developer Tools")} shortcut="Ctrl+Shift+I" onSelect={() => invoke("app:toggle-devtools")} />
-          <Item label={t("settings.devTools.title", "Cypher Inspector")} checked={devToolsEnabled} onSelect={() => invoke("devtools:toggle")} />
+          <Item label={t("settings.devTools.title", "Tasfer Inspector")} checked={devToolsEnabled} onSelect={() => invoke("devtools:toggle")} />
           <Separator />
           <Item label={t("menu.resetZoom", "Reset Zoom")} shortcut="Ctrl+0" onSelect={() => invoke("app:reset-zoom")} />
           <Item label={t("menu.zoomIn", "Zoom In")} shortcut="Ctrl+=" onSelect={() => invoke("app:zoom-in")} />

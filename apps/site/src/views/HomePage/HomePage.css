@@ -1,5 +1,5 @@
 /* ============================================================
-   Cypher landing — editorial manifesto
+   Tasfer landing — editorial manifesto
    Sovereignty-first. No monospace. No SaaS chrome.
 
    Design tokens are mapped onto the app's existing theme tokens
@@ -110,10 +110,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: var(--font-display);
-  font-weight: 500;
+  font-weight: 600;
   font-size: 22px;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.03em;
   color: var(--cy-wordmark-color);
   text-decoration: none;
 }
@@ -121,7 +120,6 @@
   width: 26px;
   height: 26px;
   display: inline-block;
-  object-fit: contain;
 }
 
 .lp-nav {
@@ -405,7 +403,7 @@
 }
 
 /* ------------------------------------------------------------
-   Definition — what Cypher is, plainly
+   Definition — what Tasfer is, plainly
    ------------------------------------------------------------ */
 
 .lp-define-lede {
@@ -923,10 +921,10 @@
   gap: 10px;
 }
 .lp-footer-brand .lp-footer-word {
-  font-family: var(--font-display);
+  font-weight: 600;
   color: var(--cy-wordmark-color);
   font-size: 16px;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.03em;
 }
 .lp-footer a {
   color: var(--cy-muted-fg);

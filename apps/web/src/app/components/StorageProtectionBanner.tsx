@@ -33,7 +33,7 @@ function readCollapsedChoice(): boolean | null {
   }
 }
 
-/** True when Cypher runs as an installed app (PWA or Add-to-Home-Screen). */
+/** True when Tasfer runs as an installed app (PWA or Add-to-Home-Screen). */
 function isInstalledDisplayMode(): boolean {
   if (typeof window === "undefined") return false;
   // iOS Safari home-screen apps predate the display-mode media query.
@@ -42,13 +42,13 @@ function isInstalledDisplayMode(): boolean {
 }
 
 /**
- * Sidebar-bottom nudge shown while Cypher runs in a plain browser tab, where
+ * Sidebar-bottom nudge shown while Tasfer runs in a plain browser tab, where
  * the only copy of the user's data sits in evictable browser storage. Opens
  * the install dialog; hidden on native builds and installed PWAs, where
  * storage is already out of the browser's cleanup reach.
  *
  * Collapsing shrinks it to a one-line "Notes in browser storage" affordance
- * rather than removing it — the eviction risk persists as long as Cypher runs
+ * rather than removing it — the eviction risk persists as long as Tasfer runs
  * in a tab, so the signal must too, just quietly. The collapsed row expands
  * back to the full banner. The choice is per browser (localStorage); there is
  * deliberately no way to fully hide it.
@@ -223,7 +223,7 @@ export function StorageProtectionBanner() {
                   <span className="text-[11.5px] leading-[1.45] text-muted-foreground">
                     {t(
                       "storage.bannerDesc",
-                      "The browser may clear it to free up space. Install Cypher to keep them safe.",
+                      "The browser may clear it to free up space. Install Tasfer to keep them safe.",
                     )}
                   </span>
                   <Button

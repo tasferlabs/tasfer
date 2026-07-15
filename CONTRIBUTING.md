@@ -1,6 +1,6 @@
-# Contributing to Cypher
+# Contributing to Tasfer
 
-Thank you for your interest in contributing to Cypher! This guide will help you get started.
+Thank you for your interest in contributing to Tasfer! This guide will help you get started.
 
 ## How to Contribute
 
@@ -18,7 +18,7 @@ When reporting a bug, include:
 
 ### Suggesting Features
 
-Open an issue with the **feature request** template. Describe the problem you're trying to solve and your proposed solution. We value ideas that align with Cypher's core principles: local-first, peer-to-peer, and privacy-respecting.
+Open an issue with the **feature request** template. Describe the problem you're trying to solve and your proposed solution. We value ideas that align with Tasfer's core principles: local-first, peer-to-peer, and privacy-respecting.
 
 ### Submitting Changes
 
@@ -117,7 +117,7 @@ All user-facing strings must use i18next — never hardcode text in components.
 
 ## License
 
-Cypher is dual-licensed by directory — see [LICENSING.md](LICENSING.md) for the
+Tasfer is dual-licensed by directory — see [LICENSING.md](LICENSING.md) for the
 full breakdown:
 
 - **`packages/*` and `examples/*` are MIT.** Contributions there are accepted

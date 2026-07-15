@@ -474,9 +474,12 @@ export function insertMathFraction(
  * A script construct with an empty base (`_{}`/`^{}`, the typed `_`/`^`
  * commit) binds to the atom before the caret the way TeX reads `F_{}`: the
  * preceding character or construct becomes the base, and a preceding scripts
- * node gains the missing slot instead of nesting a second construct. Only at
- * a row start (or inside a pending `\command` run) does the empty base slot
- * remain.
+ * node gains the missing slot instead of nesting a second construct. A caret
+ * still INSIDE a script slot at its end (`x^{2|}`, where typing leaves it)
+ * likewise gives the missing slot to the enclosing scripts node, so the
+ * natural `x` `^` `2` `_` `3` gesture yields one construct with both scripts
+ * rather than a subscript nested inside the superscript. Only at a row start
+ * (or inside a pending `\command` run) does the empty base slot remain.
  */
 export function insertMathSemanticLatex(
   document: StructuredDocument,
@@ -1683,6 +1686,14 @@ function absorbScriptBase(
     return undefined;
   }
 
+  const slotEnd = extendEnclosingScriptsAtSlotEnd(
+    document,
+    resolved,
+    fragment,
+    root,
+  );
+  if (slotEnd) return slotEnd;
+
   if (resolved.kind === "text" && resolved.position > 0) {
     return absorbCharacterIntoBase(
       resolved.node,
@@ -1769,6 +1780,84 @@ function absorbCharacterIntoBase(
       },
     ],
   };
+}
+
+/**
+ * Give an ENCLOSING scripts node the committed construct's one script slot
+ * when the caret sits at the very end of that node's other script slot —
+ * where typing a script leaves it. After `x` `^` `2` the caret rests at
+ * `x^{2|}`; the natural next gesture, `_` for the matching subscript, must
+ * attach to the SAME base (`x_{3}^{2}`), not nest inside the superscript
+ * (`x^{2_{3}}`). Mirrors the flat-source rule in `scriptAttachOffset`
+ * (@cypherkit/tex), including its escalation: nested scripts whose slots all
+ * end at the caret resolve to the outermost one still missing the typed slot
+ * (`x^{y^{2|}}` + `_` scripts `x`). Returns undefined — leaving the sibling
+ * absorption rules to apply — when the caret is not at such a slot end, the
+ * slot is semantically empty, a pending `\command` run ends at the caret, or
+ * the enclosing construct already owns the typed slot (which therefore nests,
+ * exactly like the flat path).
+ */
+function extendEnclosingScriptsAtSlotEnd(
+  document: StructuredDocument,
+  resolved: ResolvedCaret,
+  fragment: StructuredDocument,
+  root: StructuredNode,
+): ScriptBaseAbsorption | undefined {
+  const carried = (["subscript", "superscript"] as const).filter((slot) =>
+    onlyChild(fragment, root.id, slot, "row"),
+  );
+  if (carried.length !== 1) return undefined;
+  const slot = carried[0];
+
+  const rowChildren = getStructuredChildren(
+    document,
+    resolved.row.id,
+    "children",
+  );
+  if (resolved.kind === "text") {
+    if (resolved.position !== resolved.visibleCharacters.length) {
+      return undefined;
+    }
+    if (rowChildren.at(-1)?.id !== resolved.node.id) return undefined;
+    // A trailing `\command` run is one uncommitted token; scripting past it
+    // would commit it out from under the user mid-word.
+    const prefix = resolved.visibleCharacters.map(({ char }) => char).join("");
+    if (/\\[A-Za-z]*$/.test(prefix)) return undefined;
+  } else if (resolved.position !== rowChildren.length) {
+    return undefined;
+  }
+  if (isSemanticallyEmptyRow(document, resolved.row.id)) return undefined;
+
+  let target: StructuredNode | undefined;
+  let row: StructuredNode = resolved.row;
+  for (;;) {
+    if (
+      row.placement.slot !== "subscript" &&
+      row.placement.slot !== "superscript"
+    ) {
+      break;
+    }
+    const scriptsId = row.placement.parentId;
+    const scripts = scriptsId ? document.nodes[scriptsId] : undefined;
+    if (!scripts || scripts.deleted || scripts.type !== "scripts") break;
+    if (onlyChild(document, scripts.id, slot, "row")) break;
+    target = scripts;
+    const outerRowId = scripts.placement.parentId;
+    const outerRow = outerRowId ? document.nodes[outerRowId] : undefined;
+    if (
+      !outerRow ||
+      outerRow.deleted ||
+      outerRow.type !== "row" ||
+      getStructuredChildren(document, outerRow.id, "children").at(-1)?.id !==
+        scripts.id
+    ) {
+      break;
+    }
+    row = outerRow;
+  }
+  return target
+    ? extendPreviousScripts(document, target, fragment, root)
+    : undefined;
 }
 
 /** Give the scripts node before the caret the construct's one script slot. */

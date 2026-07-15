@@ -5,8 +5,7 @@
  *
  *   node scripts/generate-og.mjs
  *
- * The card is built as an SVG and rasterized with sharp. Poppins (the brand
- * face) is embedded as a base64 @font-face so the type renders identically
+ * The card is built as an SVG and rasterized with sharp. Poppins (the brand * face) is embedded as a base64 @font-face so the type renders identically
  * regardless of which fonts the build machine has installed — librsvg resolves
  * the embedded face rather than falling back to a system font.
  */
@@ -27,7 +26,7 @@ const poppins400 = font(400);
 const BG = "#09090b";
 const FG = "#fafafa";
 const MUTED = "#a1a1aa";
-const TEAL = "#2ecfa6"; // ≈ oklch(0.74 0.16 163), the dark-theme wordmark accent
+const GREEN = "#66bb6a"; // brand green on ink, oklch(0.718 0.142 145)
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
@@ -37,18 +36,19 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" v
       @font-face{font-family:"P";font-weight:400;src:url(data:font/woff2;base64,${poppins400}) format("woff2");}
     </style>
     <radialGradient id="glow" cx="88%" cy="8%" r="70%">
-      <stop offset="0%" stop-color="${TEAL}" stop-opacity="0.16"/>
-      <stop offset="55%" stop-color="${TEAL}" stop-opacity="0"/>
+      <stop offset="0%" stop-color="${GREEN}" stop-opacity="0.16"/>
+      <stop offset="55%" stop-color="${GREEN}" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
   <rect width="1200" height="630" fill="${BG}"/>
   <rect width="1200" height="630" fill="url(#glow)"/>
 
-  <text x="80" y="112" font-family="P" font-weight="600" font-size="40" fill="${TEAL}">Cypher</text>
+  <g transform="translate(80 98) scale(0.333) translate(-17 -70)"><path d="M 57 4 Q 79 34 83 66 Q 58 98 41 136 Q 30 98 17 64 Q 39 32 57 4 Z" fill="${GREEN}"/></g>
+  <text x="116" y="112" font-family="P" font-weight="600" font-size="40" letter-spacing="-1.2" fill="${FG}">tasfer</text>
 
   <text x="80" y="320" font-family="P" font-weight="700" font-size="88" fill="${FG}">Your thoughts</text>
-  <text x="80" y="420" font-family="P" font-weight="700" font-size="88" fill="${TEAL}">stay yours.</text>
+  <text x="80" y="420" font-family="P" font-weight="700" font-size="88" fill="${GREEN}">stay yours.</text>
 
   <text x="82" y="498" font-family="P" font-weight="400" font-size="30" fill="${MUTED}">Private, end-to-end encrypted markdown. No cloud. No account.</text>
 

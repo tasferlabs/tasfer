@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "license": "AGPL-3.0-or-later",
   "private": true,
-  "description": "Cypher marketing site + documentation (Next.js, static export)",
+  "description": "Tasfer marketing site + documentation (Next.js, static export)",
   "scripts": {
     "dev": "next dev -p 4100",
     "build": "next build",

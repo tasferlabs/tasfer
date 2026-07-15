@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, type SVGProps } from "react";
 import { Link } from "@/components/Link";
+import BrandMark from "@/components/BrandMark";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/providers/ThemeProvider";
 import { loadArabicFonts } from "@/lib/fonts";
@@ -10,7 +11,7 @@ import "./HomePage.css";
 const REPO_URL = "https://github.com/hamza512b/cypher";
 // The editor SPA (apps/web) is a separate app served at its own origin
 // (https://cypher.md, the apex), while this marketing site is served from a
-// different origin (www.cypher.md). "open cypher" must therefore be an absolute
+// different origin (www.cypher.md). "open tasfer" must therefore be an absolute
 // full-page navigation (plain <a>) to the app origin — a same-origin "/page" or
 // a next/link client route would resolve against the marketing site, which does
 // not serve the editor, and 404. NEXT_PUBLIC_APP_URL overrides the base;
@@ -566,7 +567,7 @@ export default function HomePage() {
       name: t("home.lp.pillar.local.name", "local-first"),
       body: t(
         "home.lp.pillar.local.body",
-        "Every keystroke lands in your storage. Not 'syncs to your storage.' Lands. The network is a choice, not a dependency. Pull the plug and Cypher keeps working.",
+        "Every keystroke lands in your storage. Not 'syncs to your storage.' Lands. The network is a choice, not a dependency. Pull the plug and Tasfer keeps working.",
       ),
     },
     {
@@ -617,7 +618,7 @@ export default function HomePage() {
       t("home.lp.refusal.backups.name", "your backups"),
       t(
         "home.lp.refusal.backups.detail",
-        "Copy the folder. Email it to yourself. Print it. Bury it in a tin. Cypher does not own a single byte you write.",
+        "Copy the folder. Email it to yourself. Print it. Bury it in a tin. Tasfer does not own a single byte you write.",
       ),
     ],
     [
@@ -659,9 +660,9 @@ export default function HomePage() {
     <div className="lp-page">
       <header className={"lp-header" + (scrolled ? " is-scrolled" : "")}>
         <div className="lp-header-inner">
-          <Link to="/home" className="lp-wordmark" aria-label="Cypher home">
-            <img src="/logo.png" alt="" className="lp-wordmark-mark" />
-            Cypher
+          <Link to="/home" className="lp-wordmark" aria-label="Tasfer home">
+            <BrandMark className="lp-wordmark-mark" />
+            tasfer
           </Link>
           <nav className="lp-nav">
             <Link to="/docs">{t("home.lp.nav.docs", "docs")}</Link>
@@ -670,7 +671,7 @@ export default function HomePage() {
             </a>
             <ThemeToggle />
             <a className="lp-nav-cta" href={APP_OPEN_URL}>
-              {t("home.lp.nav.open", "open cypher")}
+              {t("home.lp.nav.open", "open tasfer")}
             </a>
           </nav>
         </div>
@@ -694,7 +695,7 @@ export default function HomePage() {
                 "Open a tab. Open a notes app. Type a half-formed idea, a draft email, a thing you would not say out loud. It lands on a server you do not own, in a city you have never been to, governed by a fourteen-page agreement you did not read. ",
               )}
               <strong>
-                {t("home.lp.hero.ledeStrong", "Cypher refuses the trade.")}
+                {t("home.lp.hero.ledeStrong", "Tasfer refuses the trade.")}
               </strong>
               {t(
                 "home.lp.hero.lede2",
@@ -703,7 +704,7 @@ export default function HomePage() {
             </p>
             <div className="lp-hero-actions">
               <a className="lp-btn lp-btn-accent" href={APP_OPEN_URL}>
-                {t("home.lp.hero.open", "open cypher")}
+                {t("home.lp.hero.open", "open tasfer")}
                 <Icons.Arrow />
               </a>
               {showInstall && (
@@ -736,11 +737,11 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* ── Definition — what Cypher is, plainly ── */}
+        {/* ── Definition — what Tasfer is, plainly ── */}
         <section id="definition" className="lp-section lp-define">
           <div className="column">
             <h2 className="lp-section-title">
-              {t("home.lp.define.titleA", "Cypher is a ")}
+              {t("home.lp.define.titleA", "Tasfer is a ")}
               <em>{t("home.lp.define.titleEm", "markdown editor")}</em>
               {t("home.lp.define.titleB", ".")}
             </h2>
@@ -826,7 +827,7 @@ export default function HomePage() {
                   )}
                 </blockquote>
                 <p>
-                  {t("home.lp.premise.p3a", "Cypher does not take the trade. ")}
+                  {t("home.lp.premise.p3a", "Tasfer does not take the trade. ")}
                   <strong>
                     {t(
                       "home.lp.premise.p3strong",
@@ -853,7 +854,7 @@ export default function HomePage() {
                 </strong>
                 {t(
                   "home.lp.mechanism.p1",
-                  ' Every keystroke lands in your own storage, instantly — no round-trip, no "saving" spinner reporting back to a server somewhere. Cypher works on a plane, in a basement, in a Faraday cage.',
+                  ' Every keystroke lands in your own storage, instantly — no round-trip, no "saving" spinner reporting back to a server somewhere. Tasfer works on a plane, in a basement, in a Faraday cage.',
                 )}
               </p>
               <p>
@@ -874,7 +875,7 @@ export default function HomePage() {
                 </strong>
                 {t(
                   "home.lp.mechanism.p3",
-                  " It forwards bytes it cannot decrypt. No accounts. No logs. No memory of who connected to whom. It introduces, then forgets. And if you don't trust ours, point Cypher at your own — it's a config field.",
+                  " It forwards bytes it cannot decrypt. No accounts. No logs. No memory of who connected to whom. It introduces, then forgets. And if you don't trust ours, point Tasfer at your own — it's a config field.",
                 )}
               </p>
             </div>
@@ -1012,12 +1013,12 @@ export default function HomePage() {
             <p className="lp-finale-sub">
               {t(
                 "home.lp.finale.sub",
-                "Install it. Fork it. Swap the relay. Take it offline for a year. Hand it to a friend. Bury it. Walk away. The choice was always supposed to be yours — Cypher is the editor that finally agrees.",
+                "Install it. Fork it. Swap the relay. Take it offline for a year. Hand it to a friend. Bury it. Walk away. The choice was always supposed to be yours — Tasfer is the editor that finally agrees.",
               )}
             </p>
             <div className="lp-finale-actions">
               <a className="lp-btn lp-btn-primary" href={APP_OPEN_URL}>
-                {t("home.lp.finale.open", "open cypher")}
+                {t("home.lp.finale.open", "open tasfer")}
                 <Icons.Arrow />
               </a>
               {showInstall && (
@@ -1043,8 +1044,8 @@ export default function HomePage() {
       <footer className="lp-footer">
         <div className="lp-footer-inner">
           <div className="lp-footer-brand">
-            <img src="/logo.png" alt="" style={{ width: 18, height: 18 }} />
-            <span className="lp-footer-word">Cypher</span>
+            <BrandMark style={{ width: 18, height: 18 }} />
+            <span className="lp-footer-word">tasfer</span>
           </div>
           <div className="lp-footer-links">
             <a href="#premise" onClick={scrollTo("premise")}>

@@ -1,5 +1,5 @@
 /**
- * Cypher device-node SharedWorker (Phase 2 of the multi-tab rewrite).
+ * Tasfer device-node SharedWorker (Phase 2 of the multi-tab rewrite).
  *
  * Promotes the worker from a bare SQLite proxy to the whole backend: one
  * `Engine` + one `Replicator` run here, shared by every tab on the origin. Each

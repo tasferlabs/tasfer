@@ -137,7 +137,7 @@ async function getOfflineIndexHtml(): Promise<Response> {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cypher - Offline</title>
+  <title>Tasfer - Offline</title>
   <style>
     body {
       display: flex;

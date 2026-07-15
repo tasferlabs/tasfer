@@ -10,7 +10,7 @@ export default function PrivacyPage() {
   return (
     <div className="privacy">
       <nav className="privacy-nav">
-        <Link to="/home" className="privacy-logo">cypher</Link>
+        <Link to="/home" className="privacy-logo">tasfer</Link>
         <Link to="/home" className="privacy-nav-back">
           &larr; {t("privacy.backToHome", "back to home")}
         </Link>
@@ -22,7 +22,7 @@ export default function PrivacyPage() {
         <p className="privacy-date">{t("privacy.lastUpdated", "Last updated")}: March 25, 2026</p>
 
         <p className="privacy-intro">
-          {t("privacy.intro", "Cypher is built on a simple principle: your data is yours. We don't collect it, we don't store it, we don't want it.")}
+          {t("privacy.intro", "Tasfer is built on a simple principle: your data is yours. We don't collect it, we don't store it, we don't want it.")}
         </p>
 
         <div className="privacy-items">
@@ -30,7 +30,7 @@ export default function PrivacyPage() {
             <span className="privacy-item-num">01</span>
             <div>
               <h3>{t("privacy.noCollection", "No data collection")}</h3>
-              <p>{t("privacy.noCollectionDesc", "Cypher runs entirely on your device. We have no servers that receive, process, or store your content. Your documents never leave your machine unless you choose to sync with a peer.")}</p>
+              <p>{t("privacy.noCollectionDesc", "Tasfer runs entirely on your device. We have no servers that receive, process, or store your content. Your documents never leave your machine unless you choose to sync with a peer.")}</p>
             </div>
           </div>
 
@@ -77,7 +77,7 @@ export default function PrivacyPage() {
       </section>
 
       <footer className="privacy-footer">
-        <Link to="/home" className="privacy-logo">cypher</Link>
+        <Link to="/home" className="privacy-logo">tasfer</Link>
         <span className="privacy-footer-text">{t("home.footerText", "decentralized by design. built in the open.")}</span>
       </footer>
     </div>

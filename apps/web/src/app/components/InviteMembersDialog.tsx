@@ -231,7 +231,7 @@ export function InviteMembersDialog({
                 />
               </div>
               <p className="text-xs text-muted-foreground text-center max-w-[260px]">
-                {t("share.scanQrHint", "Scan this QR code with the Cypher mobile app to join")}
+                {t("share.scanQrHint", "Scan this QR code with the Tasfer mobile app to join")}
               </p>
             </div>
           )}

@@ -18,7 +18,7 @@ const devServerUrl = process.env.CAP_SERVER_URL ?? env.CAP_SERVER_URL;
 
 const config: CapacitorConfig = {
   appId: "md.cypher.app",
-  appName: "Cypher",
+  appName: "Tasfer",
   webDir: "dist",
   server: {
     ...(devServerUrl ? { url: devServerUrl } : {}),
@@ -27,14 +27,14 @@ const config: CapacitorConfig = {
     allowNavigation: ["cypher.md"],
   },
   ios: {
-    backgroundColor: "#0a0a0a",
+    backgroundColor: "#101012",
     contentInset: "never",
     preferredContentMode: "mobile",
     scheme: "https",
     path: "../ios",
   },
   android: {
-    backgroundColor: "#0a0a0a",
+    backgroundColor: "#101012",
     path: "../android",
   },
   plugins: {

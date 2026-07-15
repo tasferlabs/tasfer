@@ -214,7 +214,7 @@ function TabAlreadyOpenScreen() {
           margin: "0 0 12px",
         }}
       >
-        {i18next.t("error.tabAlreadyOpen", "Cypher is already open")}
+        {i18next.t("error.tabAlreadyOpen", "Tasfer is already open")}
       </h1>
       <p
         style={{
@@ -227,7 +227,7 @@ function TabAlreadyOpenScreen() {
       >
         {i18next.t(
           "error.tabAlreadyOpenDesc",
-          "Cypher can only run in one tab at a time. Please close this tab and use the one that's already open.",
+          "Tasfer can only run in one tab at a time. Please close this tab and use the one that's already open.",
         )}
       </p>
       <button

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="logo.png" alt="Cypher" width="128" height="128">
+  <img src="logo.png" alt="Tasfer" width="128" height="128">
 </p>
 
-<h1 align="center">Cypher</h1>
+<h1 align="center">Tasfer</h1>
 
 <p align="center">
   A local-first, peer-to-peer canvas text editor.<br>
@@ -26,7 +26,7 @@
 
 ---
 
-Cypher is a markdown text editor that renders directly on HTML5 Canvas — combining the editing experience of Google Docs with the block architecture of Notion. Everything runs locally on your device. Collaboration happens directly between peers over WebRTC. No central server, no accounts, no cloud dependency.
+Tasfer is a markdown text editor that renders directly on HTML5 Canvas — combining the editing experience of Google Docs with the block architecture of Notion. Everything runs locally on your device. Collaboration happens directly between peers over WebRTC. No central server, no accounts, no cloud dependency.
 
 ## Features
 
@@ -134,8 +134,8 @@ If you discover a security vulnerability, please report it responsibly. See our 
 
 ## Support
 
-Need help using or contributing to Cypher? See [SUPPORT.md](SUPPORT.md) for support channels and issue guidance.
+Need help using or contributing to Tasfer? See [SUPPORT.md](SUPPORT.md) for support channels and issue guidance.
 
 ## License
 
-Cypher is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+Tasfer is licensed under the [GNU Affero General Public License v3.0](LICENSE).

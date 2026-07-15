@@ -1,6 +1,7 @@
 "use client";
 
 import { Link } from "@/components/Link";
+import BrandMark from "@/components/BrandMark";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Icons } from "./docsIcons";
@@ -40,9 +41,9 @@ export function DocsHeader({
             <Icons.Menu />
           </button>
         ) : null}
-        <Link className="dx-wordmark" to="/home" aria-label="Cypher docs home">
-          <img src="/logo.png" alt="" className="dx-wordmark-mark" />
-          Cypher
+        <Link className="dx-wordmark" to="/home" aria-label="Tasfer docs home">
+          <BrandMark className="dx-wordmark-mark" />
+          tasfer
         </Link>
         <span className="dx-wordmark-tag">{t("docs.tag", "docs")}</span>
         <span className="dx-header-spacer" />

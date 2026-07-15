@@ -1,9 +1,9 @@
 /**
  * Pins the clipboard `text/html` round-trip after `blocksToHTML` was switched
  * from a hand-written per-type switch to the node-owned export fragment plus a
- * Cypher-origin marker carrying the canonical Markdown.
+ * Tasfer-origin marker carrying the canonical Markdown.
  *
- * The guarantee: a Cypher→Cypher copy/paste is lossless. The copy payload's
+ * The guarantee: a Tasfer→Tasfer copy/paste is lossless. The copy payload's
  * HTML is prefixed with `<!--cypher-clipboard:...-->`; `parseHTMLToBlocks`
  * decodes that Markdown (bypassing defuddle) so image sizing, block math, and
  * list indent — all dropped by the old rendered-HTML→defuddle path — survive.
@@ -114,7 +114,7 @@ describe("clipboard text/html round-trip", () => {
     } as unknown as Block,
   );
 
-  it("prefixes the html payload with the Cypher-origin marker", () => {
+  it("prefixes the html payload with the Tasfer-origin marker", () => {
     const payload = buildClipboardPayload(selectAll(source));
     expect(payload).not.toBeNull();
     expect(payload!.html).toMatch(/^<!--cypher-clipboard:[A-Za-z0-9+/=]+-->/);
@@ -198,7 +198,7 @@ describe("clipboard text/html round-trip", () => {
   it("decodes the marker even when the browser wraps the fragment", () => {
     // Browsers wrap clipboard HTML in a document shell on round-trip
     // (`<html><body><!--StartFragment-->…<!--EndFragment-->`), so by paste time
-    // the Cypher marker is no longer at the start of the payload. The lossless
+    // the Tasfer marker is no longer at the start of the payload. The lossless
     // path must still kick in — otherwise a copied checklist falls back to
     // defuddle and degrades to a plain bullet list.
     const page = pageWith({

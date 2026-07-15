@@ -2712,7 +2712,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (!payload || !e.clipboardData) return; // nothing selected → browser default
     e.preventDefault();
     // The clipboard write MUST stay synchronous in the ClipboardEvent.
-    // text/plain is for external/plain paste targets. Rich Cypher round-trips
+    // text/plain is for external/plain paste targets. Rich Tasfer round-trips
     // use text/html, whose hidden marker carries the canonical markdown.
     e.clipboardData.setData("text/plain", payload.plainText);
     e.clipboardData.setData("text/html", payload.html);

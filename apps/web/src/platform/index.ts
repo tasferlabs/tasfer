@@ -162,7 +162,7 @@ async function _initPlatformInner(): Promise<Platform> {
   if (env === "web") {
     if (typeof SharedWorker === "undefined") {
       throw new Error(
-        "This browser does not support SharedWorker, which Cypher requires. " +
+        "This browser does not support SharedWorker, which Tasfer requires. " +
           "Please use a current version of Chrome, Edge, Firefox, or Safari 16.4+.",
       );
     }

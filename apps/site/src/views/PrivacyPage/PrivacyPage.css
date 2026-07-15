@@ -38,8 +38,8 @@
 .privacy-logo {
   font-size: 16px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  color: var(--primary);
+  letter-spacing: -0.03em;
+  color: var(--wordmark-color);
   text-transform: lowercase;
   text-decoration: none;
 }

@@ -1,0 +1,13 @@
+{
+  "name": "tasfer-brand",
+  "private": true,
+  "type": "module",
+  "description": "Brand asset sources and generator. Run `npm run generate` to rebuild every logo/icon asset in the repo from brand/logo.svg geometry.",
+  "scripts": {
+    "generate": "node generate.mjs"
+  },
+  "dependencies": {
+    "png-to-ico": "^2.1.8",
+    "sharp": "^0.34.1"
+  }
+}

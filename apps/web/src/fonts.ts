@@ -15,7 +15,7 @@ import "@fontsource/poppins/700.css";
 // Libre Baskerville (multiple weights) — serif body face
 import "@fontsource/libre-baskerville/400.css";
 import "@fontsource/libre-baskerville/700.css";
-// Space Grotesk — display face reserved for the "Cypher" wordmark
+// Space Grotesk — display face for large headlines and monograms
 import "@fontsource/space-grotesk/400.css";
 import "@fontsource/space-grotesk/500.css";
 import "@fontsource/space-grotesk/600.css";

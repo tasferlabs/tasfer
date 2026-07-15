@@ -10,13 +10,13 @@
 			<key>Title</key>
 			<string>Developer</string>
 			<key>FooterText</key>
-			<string>Show the Cypher inspector panel for examining database, network, CRDT, and editor state.</string>
+			<string>Show the Tasfer inspector panel for examining database, network, CRDT, and editor state.</string>
 		</dict>
 		<dict>
 			<key>Type</key>
 			<string>PSToggleSwitchSpecifier</string>
 			<key>Title</key>
-			<string>Show Cypher Inspector</string>
+			<string>Show Tasfer Inspector</string>
 			<key>Key</key>
 			<string>dev_tools_enabled</string>
 			<key>DefaultValue</key>

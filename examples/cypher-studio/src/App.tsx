@@ -11,9 +11,9 @@ import { countWords, parseOutline } from "./util";
 // The open document. It is a *real* editable canvas — type, use markdown
 // shortcuts (`#`, `-`, `>`, `**bold**`), and the outline + word count on the
 // right update live from what you write.
-const README = `# How Cypher works
+const README = `# How Tasfer works
 
-Cypher is a markdown editor that renders directly on **HTML5 Canvas** — every glyph is painted into a single \`<canvas>\`, not laid out by the DOM. Fast, precise, identical across platforms.
+Tasfer is a markdown editor that renders directly on **HTML5 Canvas** — every glyph is painted into a single \`<canvas>\`, not laid out by the DOM. Fast, precise, identical across platforms.
 
 ## Core pieces
 

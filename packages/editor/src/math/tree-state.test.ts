@@ -770,6 +770,43 @@ describe("tree-backed display math state integration", () => {
     expect(treeSource(typeText(after, "_3").state)).toBe("{x}_{3}^{2}");
   });
 
+  it.each([
+    ["x^2_3", "{x}_{3}^{2}"],
+    ["x_n^2", "{x}_{n}^{2}"],
+  ])(
+    "gives the enclosing scripts node the matching slot typed at %s's slot end",
+    (input, source) => {
+      // No caret move between the scripts: typing leaves the caret at the end
+      // of the first slot (`x^{2|}`), and the complementary trigger must
+      // attach to the same base, not nest inside that slot.
+      const typed = typeText(treeState("$$\n\n$$"), input).state;
+      expect(treeSource(typed)).toBe(source);
+      expect(isValidLatex(treeSource(typed) ?? "")).toBe(true);
+    },
+  );
+
+  it("escalates a slot-end script through nested scripts to the outermost free base", () => {
+    const typed = typeText(treeState("$$\n\n$$"), "x^y^2_3").state;
+    // `x^y^2` nests (the enclosing superscript is occupied, so the second `^`
+    // scripts the `y`); the `_` then escalates past both superscripts ending
+    // at the caret and subscripts the outer base.
+    expect(treeSource(typed)).toBe("{x}_{3}^{{y}^{2}}");
+  });
+
+  it("keeps nesting a slot-end script the enclosing construct already owns", () => {
+    const typed = typeText(treeState("$$\n\n$$"), "x_n_2").state;
+    expect(treeSource(typed)).toBe("{x}_{{n}_{2}}");
+  });
+
+  it("gives the enclosing scripts node the slot typed after a construct in the slot", () => {
+    const scripted = typeText(treeState("$$\n\n$$"), "x^").state;
+    const withFraction = insertText(scripted, String.raw`\frac{1}{2}`).state;
+    expect(treeSource(withFraction)).toBe(String.raw`{x}^{\frac{1}{2}}`);
+    expect(treeSource(typeText(withFraction, "_3").state)).toBe(
+      String.raw`{x}_{3}^{\frac{1}{2}}`,
+    );
+  });
+
   it("splits a leaf and absorbs the character before a mid-text script", () => {
     const typed = typeText(treeState("$$\n\n$$"), "ab").state;
     const mid = updateCursor(typed, { blockIndex: 0, textIndex: 1 });

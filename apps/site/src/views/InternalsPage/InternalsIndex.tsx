@@ -26,7 +26,7 @@ function formatDate(iso: string): string {
 /**
  * Internal notes — the hidden build-log index at /docs/internals.
  *
- * Lists the design notes and architecture docs written while Cypher was being
+ * Lists the design notes and architecture docs written while Tasfer was being
  * built, newest-first, each linking to its own blog-style page. Like the
  * individual notes, this page is intentionally absent from the docs nav and
  * reachable only by direct URL.
@@ -50,7 +50,7 @@ export default function InternalsIndex() {
               <p className="ix-lede">
                 {t(
                   "internals.archive.lede",
-                  "How Cypher got built — the design notes, architecture decisions, and plans behind the editor, written as the work happened.",
+                  "How Tasfer got built — the design notes, architecture decisions, and plans behind the editor, written as the work happened.",
                 )}
               </p>
             </header>

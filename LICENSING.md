@@ -1,6 +1,6 @@
 # Licensing
 
-Cypher is **dual-licensed by directory**. The deployable apps are copyleft; the
+Tasfer is **dual-licensed by directory**. The deployable apps are copyleft; the
 reusable `@cypherkit/*` libraries are permissive so anyone can build on them —
 including in closed-source and commercial products — with no friction.
 
@@ -39,7 +39,7 @@ is governed by the AGPL.
 
 - **The libraries (`packages/*`) are MIT** — use them in commercial and
   closed-source software freely.
-- **The apps are AGPL** for the public. As the sole copyright holder, Cypher's
+- **The apps are AGPL** for the public. As the sole copyright holder, Tasfer's
   owner additionally offers the apps under separate commercial terms (including
   the App Store / Play Store builds), which is permitted because a copyright
   holder is not bound by their own copyleft license.

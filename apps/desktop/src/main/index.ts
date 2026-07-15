@@ -282,8 +282,8 @@ function buildMacMenu(): Menu {
         {
           id: "show-dev-tools",
           // Distinct from Electron's built-in "Toggle Developer Tools" above —
-          // this drives Cypher's own in-app inspector panel.
-          label: "Show Cypher Inspector",
+          // this drives Tasfer's own in-app inspector panel.
+          label: "Show Tasfer Inspector",
           type: "checkbox",
           checked: devToolsEnabled,
           click: () => setDevToolsEnabled(!devToolsEnabled),
@@ -315,11 +315,11 @@ function createTray() {
   }
 
   tray = new Tray(icon);
-  tray.setToolTip("Cypher");
+  tray.setToolTip("Tasfer");
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "Show Cypher",
+      label: "Show Tasfer",
       click: () => {
         if (mainWindow) {
           if (process.platform === "darwin") {

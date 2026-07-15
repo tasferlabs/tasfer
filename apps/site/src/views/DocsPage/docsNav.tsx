@@ -45,7 +45,7 @@ export interface NavSection {
 export const NAV: NavSection[] = [
   {
     id: "app",
-    label: "Cypher App",
+    label: "Tasfer App",
     icon: <Icons.Shield />,
     groups: [
       {

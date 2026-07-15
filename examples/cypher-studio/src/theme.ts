@@ -1,7 +1,7 @@
 import type { EditorTheme } from "@cypherkit/editor";
 
 /**
- * Cypher Studio's "Midnight" look as a single `EditorTheme` value — a dark
+ * Tasfer Studio's "Midnight" look as a single `EditorTheme` value — a dark
  * surface, a cyan accent, a sans body with JetBrains Mono code. The canvas is
  * transparent (the engine clears each frame), so the dark backdrop is set in
  * CSS on the host element; these tokens color the content the engine paints.

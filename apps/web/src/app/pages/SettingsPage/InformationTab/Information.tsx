@@ -11,11 +11,11 @@ import {
 } from "@/lib/devTools";
 import { getClientPlatform } from "@/platform";
 
-// Taps on the version line needed to reveal the hidden Cypher Inspector toggle
+// Taps on the version line needed to reveal the hidden Tasfer Inspector toggle
 // (the classic Android "tap build number" gesture).
 const UNLOCK_TAPS = 7;
 
-// Where to surface the in-app Cypher Inspector switch. iOS (Settings bundle) and
+// Where to surface the in-app Tasfer Inspector switch. iOS (Settings bundle) and
 // desktop (app menu) expose OS-level controls instead, so the in-app toggle is
 // shown only where there's no native equivalent.
 const SHOW_IN_APP_DEV_TOGGLE =
@@ -28,7 +28,7 @@ export function Information() {
   const tapsRef = useRef(0);
   const [justUnlocked, setJustUnlocked] = useState(false);
 
-  // Reveal the Cypher Inspector toggle after enough taps on the version. No-op
+  // Reveal the Tasfer Inspector toggle after enough taps on the version. No-op
   // once already unlocked, so the gesture is inert for users who'll never see it.
   const handleVersionTap = () => {
     if (isDevToolsUnlocked()) return;
@@ -45,19 +45,19 @@ export function Information() {
         <div className="flex items-center justify-between gap-4 py-3 border-b border-border">
           <div>
             <p className="text-sm font-medium">
-              {t("settings.devTools.title", "Cypher Inspector")}
+              {t("settings.devTools.title", "Tasfer Inspector")}
             </p>
             <p className="text-sm opacity-75">
               {t(
                 "settings.devTools.description",
-                "Show the Cypher inspector panel for examining database, network, CRDT, and editor state",
+                "Show the Tasfer inspector panel for examining database, network, CRDT, and editor state",
               )}
             </p>
           </div>
           <Switch
             checked={devToolsEnabled}
             onCheckedChange={setDevToolsEnabled}
-            aria-label={t("settings.devTools.title", "Cypher Inspector")}
+            aria-label={t("settings.devTools.title", "Tasfer Inspector")}
           />
         </div>
       )}
@@ -68,13 +68,13 @@ export function Information() {
         </p>
         {justUnlocked && (
           <p className="text-primary">
-            {t("settings.devTools.unlocked", "Cypher Inspector unlocked")}
+            {t("settings.devTools.unlocked", "Tasfer Inspector unlocked")}
           </p>
         )}
         <p>
           {t(
             "settings.information.license",
-            "Cypher is free software, licensed under the GNU AGPL-3.0.",
+            "Tasfer is free software, licensed under the GNU AGPL-3.0.",
           )}{" "}
           <a
             href="https://github.com/hamza512b/cypher"

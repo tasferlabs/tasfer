@@ -92,7 +92,7 @@ function useCopy(text: string) {
 }
 
 /**
- * Developer view: the stack trace is the whole page. Styled to match the Cypher
+ * Developer view: the stack trace is the whole page. Styled to match the Tasfer
  * Inspector (DevToolbar) — dense monospace over a bordered chrome bar, so a
  * thrown error reads like the rest of the dev surface rather than a modal.
  */
@@ -235,7 +235,7 @@ export function RouteErrorBoundary() {
   // reader view where the trace is hidden.
   console.error("[RouteError]", error);
 
-  // Show the developer stack view on the Vite dev server or whenever Cypher
+  // Show the developer stack view on the Vite dev server or whenever Tasfer
   // Inspector is switched on; otherwise show the calm reader screen.
   const showDev = import.meta.env.DEV || isDevToolsEnabled();
 

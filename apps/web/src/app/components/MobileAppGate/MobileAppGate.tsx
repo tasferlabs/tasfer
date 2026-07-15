@@ -1,6 +1,6 @@
 /* MobileAppGate.tsx — mobile-web "get the app" interstitial.
  *
- * On a plain mobile browser Cypher's touch experience is a compromise: the
+ * On a plain mobile browser Tasfer's touch experience is a compromise: the
  * native iOS/Android build is faster and fully offline. This screen recommends
  * the app and shows the App Store / Google Play badges. The native apps set
  * their own platform markers (getClientPlatform returns "ios" | "android" |
@@ -81,10 +81,10 @@ export function MobileAppGate() {
 
   const base = import.meta.env.BASE_URL;
 
-  const betaSubject = t("mobileGate.betaSubject", "Cypher Android beta");
+  const betaSubject = t("mobileGate.betaSubject", "Tasfer Android beta");
   const betaBody = t(
     "mobileGate.betaBody",
-    "Hi Hamza,\n\nI'd like to join the Cypher Android beta.\n",
+    "Hi Hamza,\n\nI'd like to join the Tasfer Android beta.\n",
   );
   const betaHref = `mailto:hi@hamza.se?subject=${encodeURIComponent(
     betaSubject,
@@ -94,13 +94,18 @@ export function MobileAppGate() {
     <div className="mag-root" role="dialog" aria-modal="true">
       <div className="mag-inner">
         <div className="mag-logo">
-          <img src={`${base}logo.png`} alt="" width={84} height={84} />
+          <svg width={60} height={84} viewBox="0 0 100 140" fill="none" aria-hidden="true">
+            <path
+              d="M 57 4 Q 79 34 83 66 Q 58 98 41 136 Q 30 98 17 64 Q 39 32 57 4 Z"
+              fill="var(--brand-mark-color)"
+            />
+          </svg>
         </div>
 
-        <div className="mag-wordmark">Cypher</div>
+        <div className="mag-wordmark">tasfer</div>
 
         <h1 className="mag-headline">
-          {t("mobileGate.headline", "Cypher is better in the app")}
+          {t("mobileGate.headline", "Tasfer is better in the app")}
         </h1>
 
         <p className="mag-body">

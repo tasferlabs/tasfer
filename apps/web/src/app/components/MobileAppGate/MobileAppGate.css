@@ -58,18 +58,16 @@
   justify-content: center;
   /* margin-bottom: 26px; */
 }
-.mag-logo img {
-  width: 84px;
+.mag-logo svg {
   height: 84px;
-  object-fit: contain;
+  width: auto;
 }
 
 /* ── wordmark + headline ───────────────────────────────────────────────── */
 .mag-wordmark {
-  font-family: var(--font-display);
   font-weight: 600;
   font-size: 24px;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.03em;
   color: var(--wordmark-color);
   margin-bottom: 18px;
 }

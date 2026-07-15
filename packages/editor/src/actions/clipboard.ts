@@ -472,10 +472,10 @@ function blocksToMarkdown(blocks: Block[], schema: DataSchema): string {
 }
 
 /**
- * Marker on a Cypher-originated clipboard `text/html` payload. It is an HTML
+ * Marker on a Tasfer-originated clipboard `text/html` payload. It is an HTML
  * comment (invisible to external apps, which just render the fragment that
  * follows) carrying the base64'd canonical Markdown of the selection. On paste
- * back into Cypher, `parseHTMLToBlocks` decodes this instead of round-tripping
+ * back into Tasfer, `parseHTMLToBlocks` decodes this instead of round-tripping
  * the rendered HTML through defuddle — which is lossy for image sizing, block
  * math, list nesting, and todo `checked` state. base64 keeps the payload free of
  * any `-->`.
@@ -506,7 +506,7 @@ function decodeClipboardMarkdown(base64: string): string {
 /**
  * Build the clipboard `text/html` payload. The visible markup is the node-owned
  * export fragment (each block's `html.output` — no per-block-type logic here);
- * it is prefixed with the Cypher-origin marker carrying `markdown` for lossless
+ * it is prefixed with the Tasfer-origin marker carrying `markdown` for lossless
  * internal paste.
  *
  * `preferSource` makes math serialize as its `$$…$$` / `$…$` LaTeX rather than a
@@ -662,7 +662,7 @@ export async function copySelectionToClipboard(
     if (navigator.clipboard && navigator.clipboard.write) {
       const clipboardItems = [
         new ClipboardItem({
-          // text/plain is for external/plain paste targets. Rich Cypher
+          // text/plain is for external/plain paste targets. Rich Tasfer
           // round-trips use text/html, whose hidden marker carries markdown.
           "text/plain": new Blob([plainText], { type: "text/plain" }),
           "text/html": new Blob([html], { type: "text/html" }),
@@ -761,7 +761,7 @@ function segmentsToCharsAndFormats(
  *   [\n\n# Title\n\n](https://example.com)
  *
  * That isn't a valid inline link (an inline link can't span a blank line), so
- * Cypher's block model can't represent it and it renders as a literal `[`, a
+ * Tasfer's block model can't represent it and it renders as a literal `[`, a
  * heading, then `](url)`. We collapse such constructs into a single inline link
  * — `# [Title](https://example.com)` — preserving a leading heading level when
  * the wrapped content was a heading, and joining any other inner lines into the
@@ -882,7 +882,7 @@ export function parseHTMLToBlocks(
         schema,
       );
     } catch (error) {
-      console.error("Failed to decode Cypher clipboard payload:", error);
+      console.error("Failed to decode Tasfer clipboard payload:", error);
       // Fall through to generic HTML handling.
     }
   }
@@ -2127,7 +2127,7 @@ export async function pasteFromSystemClipboard(
       ) {
         return text ? insertText(state, text) : null;
       }
-      // HTML first (matches the navigator path) so a Cypher round-trip stays
+      // HTML first (matches the navigator path) so a Tasfer round-trip stays
       // lossless via the html marker; otherwise fall back to plain text.
       if (html) {
         const blocks = parseHTMLToBlocks(html, state.CRDTbinding, state.schema);

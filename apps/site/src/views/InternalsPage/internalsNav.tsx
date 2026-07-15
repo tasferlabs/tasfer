@@ -3,7 +3,7 @@ import { type ComponentType } from "react";
 /* ============================================================
    Internal notes — the hidden /docs/internals build log.
 
-   Design notes and architecture docs written while Cypher was
+   Design notes and architecture docs written while Tasfer was
    being built. Each note is an MDX file under ./pages/<slug>.mdx;
    its title, date, and summary live in that file's YAML
    frontmatter (parsed by remark-mdx-frontmatter and re-exported

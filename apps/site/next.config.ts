@@ -5,7 +5,7 @@ import remarkFrontmatter from "remark-frontmatter";
 import remarkMdxFrontmatter from "remark-mdx-frontmatter";
 
 /**
- * Cypher site (marketing home + docs + privacy).
+ * Tasfer site (marketing home + docs + privacy).
  *
  * Static export to match the existing static-hosting model (served behind the
  * same Traefik/CDN as the editor SPA). All pages are pre-rendered to plain

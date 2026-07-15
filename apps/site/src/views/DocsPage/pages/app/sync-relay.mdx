@@ -1,4 +1,4 @@
-{/* Cypher app docs — Sync & relay setup. */}
+{/* Tasfer app docs — Sync & relay setup. */}
 
 import { Callout, PropsTable, Step, Steps } from "../../docsComponents";
 
@@ -18,7 +18,7 @@ Sync is per-space: a space syncs only with the devices you invite into it.
 
 <Steps>
   <Step title="Create an invite">
-    In the sidebar, open the space menu and choose **Invite members**. Cypher generates an invite containing a discovery topic and a secret, shown as an **Invite Code** and a **QR Code**. The secret is created locally and is never sent to the relay.
+    In the sidebar, open the space menu and choose **Invite members**. Tasfer generates an invite containing a discovery topic and a secret, shown as an **Invite Code** and a **QR Code**. The secret is created locally and is never sent to the relay.
   </Step>
   <Step title="Join from the other device">
     On the second device choose **Join someone's space** — paste the code, scan the QR, or import an invite file. The devices exchange public keys directly, prove they hold the invite secret, and derive a shared encryption key. Your identity keypair is generated locally and its private key never leaves the device.
@@ -32,7 +32,7 @@ Sync is per-space: a space syncs only with the devices you invite into it.
 
 <h2 id="default-relay">The default relay</h2>
 
-Out of the box, Cypher uses `wss://signaling.cypher.md` for the introduce/fallback step. It holds no accounts, stores no messages, and is structurally unable to decrypt your documents. If that's not enough trust — and it shouldn't have to be — run your own.
+Out of the box, Tasfer uses `wss://signaling.cypher.md` for the introduce/fallback step. It holds no accounts, stores no messages, and is structurally unable to decrypt your documents. If that's not enough trust — and it shouldn't have to be — run your own.
 
 <h2 id="own-relay">Use your own relay</h2>
 
@@ -45,7 +45,7 @@ VITE_SIGNAL_URL=wss://signaling.example.org npm run build
 
 There is currently no in-app setting to change it at runtime — pointing at your own relay means building the app yourself.
 
-<Callout kind="tip" title="Your relay, your rules.">Running your own relay means no third party — not even the Cypher project — is ever in the path of an introduction. See [Self-hosting the relay](/docs/app/self-hosting).</Callout>
+<Callout kind="tip" title="Your relay, your rules.">Running your own relay means no third party — not even the Tasfer project — is ever in the path of an introduction. See [Self-hosting the relay](/docs/app/self-hosting).</Callout>
 
 <h2 id="troubleshoot">When devices won't connect</h2>
 

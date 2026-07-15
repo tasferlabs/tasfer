@@ -1,6 +1,6 @@
 # Contributor License Agreement
 
-Thank you for contributing to Cypher. This Contributor License Agreement
+Thank you for contributing to Tasfer. This Contributor License Agreement
 (the "Agreement") clarifies the intellectual-property terms for contributions
 **to the `apps/*` directories**, which are dual-licensed under the
 [GNU AGPL-3.0-or-later](LICENSE) **and** under separate commercial terms offered
@@ -11,7 +11,7 @@ MIT-licensed; for those, your contribution is simply provided under the
 [MIT License](LICENSE-MIT) (inbound = outbound) and no CLA is required.
 
 In this Agreement, the **"Project Owner"** is Hamza Khuswan, the maintainer and
-copyright holder of Cypher, **together with the Project Owner's successors and
+copyright holder of Tasfer, **together with the Project Owner's successors and
 assigns** (see Section 5) — for example, a company that the Project Owner may
 later form, control, or transfer the project to. **"You"** is the individual or
 legal entity making a Contribution. A **"Contribution"** is any original work of authorship —
@@ -32,7 +32,7 @@ and such derivative works.
 You agree that the Project Owner **may license and relicense Your Contribution
 under any terms**, including the AGPL-3.0-or-later, other open-source licenses,
 and **proprietary or commercial licenses** (for example, the App Store, Play
-Store, and other paid or closed-source builds of Cypher).
+Store, and other paid or closed-source builds of Tasfer).
 
 ## 2. Patent license
 
@@ -73,7 +73,7 @@ You represent that:
 
 The Project Owner may **assign or transfer this Agreement** and all rights and
 licenses granted under it, in whole or in part, to any **successor, affiliate, or
-acquirer** of the Cypher project — including, for the avoidance of doubt, a
+acquirer** of the Tasfer project — including, for the avoidance of doubt, a
 company or other legal entity that the Project Owner later forms, controls, or
 transfers the project to. The licenses You grant in Sections 1 and 2 run to the
 Project Owner **and its successors and assigns** and survive any such transfer.

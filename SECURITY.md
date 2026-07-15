@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Cypher, please report it responsibly.
+If you discover a security vulnerability in Tasfer, please report it responsibly.
 
 **Do not open a public issue.**
 
@@ -18,7 +18,7 @@ We will acknowledge your report within 48 hours and work with you to understand 
 
 The following are in scope:
 
-- The Cypher web, desktop, and mobile applications
+- The Tasfer web, desktop, and mobile applications
 - The signaling server (`apps/live`)
 - The CRDT sync protocol
 - The WebRTC peer-to-peer layer
@@ -39,4 +39,4 @@ We follow coordinated disclosure. Once a fix is available, we will:
 2. Credit the reporter (unless anonymity is requested)
 3. Publish a security advisory if appropriate
 
-Thank you for helping keep Cypher and its users safe.
+Thank you for helping keep Tasfer and its users safe.

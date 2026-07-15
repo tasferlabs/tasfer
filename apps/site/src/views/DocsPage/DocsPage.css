@@ -1,5 +1,5 @@
 /* ============================================================
-   Cypher documentation — hub / home
+   Tasfer documentation — hub / home
 
    Ported from the Claude Design "Documentation" prototype
    (docs.css + tokens.css). Design tokens are mapped onto the
@@ -92,15 +92,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: var(--font-display);
-  font-weight: 500;
+  font-weight: 600;
   font-size: 21px;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.03em;
   color: var(--cy-wordmark-color);
   text-decoration: none;
   flex-shrink: 0;
 }
-.dx-page .dx-wordmark-mark { width: 24px; height: 24px; object-fit: contain; }
+.dx-page .dx-wordmark-mark { width: 24px; height: 24px; }
 .dx-page .dx-wordmark-tag {
   font-family: var(--font-terminal);
   font-size: 11px;
@@ -289,10 +288,10 @@
   font-size: 13px; color: var(--cy-muted-fg);
 }
 .dx-page .dx-hub-foot-brand { display: flex; align-items: center; gap: 10px; }
-.dx-page .dx-hub-foot-brand img { width: 18px; height: 18px; }
+.dx-page .dx-hub-foot-brand svg { width: 18px; height: 18px; }
 .dx-page .dx-hub-foot-name {
-  font-family: var(--font-display); color: var(--cy-wordmark-color);
-  font-size: 16px; letter-spacing: -0.01em;
+  font-weight: 600; color: var(--cy-wordmark-color);
+  font-size: 16px; letter-spacing: -0.03em;
 }
 .dx-page .dx-hub-foot-tail { margin-left: 4px; }
 .dx-page .dx-hub-foot a { color: var(--cy-muted-fg); text-decoration: none; }

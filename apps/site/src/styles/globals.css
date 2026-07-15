@@ -1,5 +1,5 @@
 /*
- * Base design tokens + reset for the Cypher site.
+ * Base design tokens + reset for the Tasfer site.
  *
  * The marketing/docs page CSS (HomePage.css, DocsPage.css, PrivacyPage.css) is
  * self-contained except for these base tokens, which it consumes via var():
@@ -17,8 +17,8 @@
   --card-foreground: #09090b;
   --popover: oklch(1 0 0);
   --popover-foreground: #09090b;
-  --primary: oklch(0.6 0.13 163);
-  --primary-foreground: oklch(0.98 0.02 166);
+  --primary: oklch(0.629 0.154 145); /* brand green #43a047 */
+  --primary-foreground: oklch(0.98 0.02 145);
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.967 0.001 286.375);
@@ -28,7 +28,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.6332 0.1426 163 / 60%);
+  --ring: oklch(0.6332 0.1426 145 / 60%);
   --radius: 0.45rem;
 
   /* Editor colors - light theme (consumed by docs code blocks via the
@@ -43,7 +43,8 @@
   --cy-editor-code-bg: var(--editor-code-bg);
   --cy-editor-text: var(--editor-text);
 
-  /* Display face for the "Cypher" wordmark only. */
+  /* Display face for large headlines. The "tasfer" wordmark itself uses the
+     base sans (weight 600, -0.03em tracking). */
   --font-display:
     "Space Grotesk", "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -52,8 +53,9 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
 
-  /* Wordmark color: a lighter, more vivid emerald than --primary. */
-  --wordmark-color: oklch(0.68 0.15 163);
+  /* Wordmark: ink text — the sifr mark next to it carries the brand green. */
+  --wordmark-color: var(--foreground);
+  --brand-mark-color: #43a047;
 }
 
 .dark {
@@ -63,8 +65,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.21 0.006 285.885);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.7 0.15 162);
-  --primary-foreground: oklch(0.26 0.05 173);
+  --primary: oklch(0.718 0.142 145); /* brand green #66bb6a */
+  --primary-foreground: oklch(0.26 0.05 145);
   --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.274 0.006 286.033);
@@ -74,15 +76,16 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.6332 0.1426 163 / 60%);
+  --ring: oklch(0.6332 0.1426 145 / 60%);
 
   /* Editor colors - dark theme */
   --editor-text: oklch(0.85 0.015 286.067);
   --editor-code-bg: oklch(0.2 0 286.033);
   --editor-code-text: oklch(0.704 0.191 22.216);
 
-  /* Wordmark stays the same lighter emerald in dark mode. */
-  --wordmark-color: oklch(0.74 0.16 163);
+  /* Wordmark stays ink; the mark brightens a step for dark surfaces. */
+  --wordmark-color: var(--foreground);
+  --brand-mark-color: #66bb6a;
 }
 
 /* ── Minimal reset (the editor app relied on Tailwind preflight) ── */

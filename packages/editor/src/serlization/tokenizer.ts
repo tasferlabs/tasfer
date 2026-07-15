@@ -483,7 +483,7 @@ function tokenizeHeading(state: TokenizerState, tokens: Token[]) {
   }
 }
 /**
- * Cypher has no inline image, so an inline/linked image (`![alt](src)`, e.g.
+ * Tasfer has no inline image, so an inline/linked image (`![alt](src)`, e.g.
  * the `[![alt](src)](href)` form emitted when defuddle converts a linked
  * image) is reduced to its alt text — that becomes the link's visible label.
  */
@@ -556,7 +556,7 @@ function parseLinkTarget(
     }
   }
 
-  // Optional title, separated from the destination by whitespace. Cypher's link
+  // Optional title, separated from the destination by whitespace. Tasfer's link
   // mark has no title attribute, so the title is parsed only to be discarded.
   let sawWs = false;
   while (i < len && isWs(content[i])) {

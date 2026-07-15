@@ -477,7 +477,7 @@ function InstallOptions() {
 /**
  * "Protect your notes" install prompt, opened from the sidebar storage
  * banner. Web-only data lives in evictable browser storage; every section is
- * a way to move Cypher out of that: installing the PWA, the desktop app, or
+ * a way to move Tasfer out of that: installing the PWA, the desktop app, or
  * the native mobile apps. The sections that apply to the current device are
  * expanded; the rest are collapsed. Renders as a bottom drawer on mobile
  * viewports and a centered dialog elsewhere.
@@ -504,7 +504,7 @@ export function InstallAppDialog({
               <DrawerDescription>
                 {t(
                   "install.description",
-                  "Right now your notes sit in browser storage, which the browser may clear to free up space. Installing Cypher moves them to protected storage.",
+                  "Right now your notes sit in browser storage, which the browser may clear to free up space. Installing Tasfer moves them to protected storage.",
                 )}
               </DrawerDescription>
             </DrawerHeader>
@@ -525,7 +525,7 @@ export function InstallAppDialog({
           <DialogDescription>
             {t(
               "install.description",
-              "Right now your notes sit in browser storage, which the browser may clear to free up space. Installing Cypher moves them to protected storage.",
+              "Right now your notes sit in browser storage, which the browser may clear to free up space. Installing Tasfer moves them to protected storage.",
             )}
           </DialogDescription>
         </DialogHeader>

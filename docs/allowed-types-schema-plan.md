@@ -32,13 +32,13 @@ Decisions locked (see "Decisions").
 
 ## Context
 
-Cypher's `Schema` today is a **registry** — it defines which block/mark types
+Tasfer's `Schema` today is a **registry** — it defines which block/mark types
 *exist* and how they render, validate, and serialize. It has no notion of which
 types are *permitted* to be authored. There is no way to say "this editor only
 allows paragraphs and bullet lists" (a title field, a comment box, a constrained
-note). ProseMirror expresses this in its schema; Cypher can't.
+note). ProseMirror expresses this in its schema; Tasfer can't.
 
-Goal: add a ProseMirror-style **allow-list** to the schema. Because Cypher is a
+Goal: add a ProseMirror-style **allow-list** to the schema. Because Tasfer is a
 flat block list (not a nested tree), PM "content expressions" don't apply — the
 relevant concept is simply *whitelisting which registered types may be created*.
 

@@ -1,14 +1,14 @@
-{/* Cypher app docs — Troubleshooting & FAQ. */}
+{/* Tasfer app docs — Troubleshooting & FAQ. */}
 
 import { Callout, PropsTable } from "../../docsComponents";
 
 export const faqs = [
-  ["Is there an account or login?", "No. Cypher has no account system at all. Your identity is a keypair generated on your device. There is nothing to sign up for, nothing to log into, and nothing to delete when you leave — you walk away by closing the app."],
+  ["Is there an account or login?", "No. Tasfer has no account system at all. Your identity is a keypair generated on your device. There is nothing to sign up for, nothing to log into, and nothing to delete when you leave — you walk away by closing the app."],
   ["Where is my work stored?", "Locally on your device, in a SQLite database. You can export every page as plain .md files in a ZIP at any time from Settings → Data — files you can open in any editor, back up, or put in git."],
-  ["Do I need the internet?", "No. Cypher is local-first: reading and writing work fully offline. The network is used to sync spaces you have shared and, on desktop, to check GitHub for app updates. Your documents are never uploaded to a server."],
+  ["Do I need the internet?", "No. Tasfer is local-first: reading and writing work fully offline. The network is used to sync spaces you have shared and, on desktop, to check GitHub for app updates. Your documents are never uploaded to a server."],
   ["Can the relay read my notes?", "No. Traffic that passes through the relay is encrypted on your device before anything leaves it. The relay forwards opaque bytes and stores nothing — it is structurally unable to decrypt your work, not merely promising not to."],
-  ["What happens if the Cypher project disappears?", "Your work is in a local database on your device, untouched, and exports to plain markdown at any time. The app is AGPL-3.0, so the source can be built and maintained by anyone. Nothing about your data depends on us existing."],
-  ["How do I move to a new computer?", "Install Cypher on the new machine and join your space with an invite from an existing device — your work syncs over directly, peer to peer. Or export everything to a ZIP on the old machine and import it on the new one."],
+  ["What happens if the Tasfer project disappears?", "Your work is in a local database on your device, untouched, and exports to plain markdown at any time. The app is AGPL-3.0, so the source can be built and maintained by anyone. Nothing about your data depends on us existing."],
+  ["How do I move to a new computer?", "Install Tasfer on the new machine and join your space with an invite from an existing device — your work syncs over directly, peer to peer. Or export everything to a ZIP on the old machine and import it on the new one."],
 ];
 
 <p className="dx-lede">Common questions, and fixes for the handful of things that can go sideways. If something here doesn't cover it, the [issue tracker](https://github.com/hamza512b/cypher/issues) is the place.</p>

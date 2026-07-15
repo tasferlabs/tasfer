@@ -1,5 +1,5 @@
 /**
- * invariant — a Lexical-style internal assertion, shared across the whole Cypher
+ * invariant — a Lexical-style internal assertion, shared across the whole Tasfer
  * codebase (the `@cypherkit/*` packages and the apps). Imported via the
  * `@shared/*` path alias: `import { invariant } from "@shared/invariant"`.
  *

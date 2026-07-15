@@ -44,7 +44,7 @@ export function Data() {
       toast({
         message: t(
           "storage.protectionDeclined",
-          "Your browser declined the request. Installing Cypher as an app usually helps — then try again.",
+          "Your browser declined the request. Installing Tasfer as an app usually helps — then try again.",
         ),
       });
     }
@@ -84,12 +84,12 @@ export function Data() {
               {storageStatus === "protected"
                 ? t(
                     "storage.protectionOnDesc",
-                    "Your browser will keep Cypher's local data safe from automatic cleanup.",
+                    "Your browser will keep Tasfer's local data safe from automatic cleanup.",
                   )
                 : storageStatus === "unprotected"
                   ? t(
                       "storage.protectionOffDesc",
-                      "Your browser may delete Cypher's local data when disk space runs low. Protect it, or export backups regularly.",
+                      "Your browser may delete Tasfer's local data when disk space runs low. Protect it, or export backups regularly.",
                     )
                   : t(
                       "storage.protectionUnsupportedDesc",

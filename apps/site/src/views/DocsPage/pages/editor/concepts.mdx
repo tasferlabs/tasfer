@@ -14,7 +14,7 @@ In `@cypherkit/editor` that structure is not a feature you opt into. It is the c
 
 <h2 id="canvas">Why a canvas, not contenteditable</h2>
 
-Browser `contenteditable` is a thirty-year-old API that every editor team eventually wrestles to the ground. Cypher renders the document to a canvas instead and owns every pixel: layout, carets, selection, bidirectional text, and composition. That buys three things:
+Browser `contenteditable` is a thirty-year-old API that every editor team eventually wrestles to the ground. Tasfer renders the document to a canvas instead and owns every pixel: layout, carets, selection, bidirectional text, and composition. That buys three things:
 
 - **Deterministic layout.** The same document renders identically across browsers — no contenteditable quirks, no `<div>`-vs-`<p>` surprises on Enter.
 - **Real selection control.** Multiple cursors, remote-peer carets, and rectangular selections are first-class, not hacks layered over DOM ranges.

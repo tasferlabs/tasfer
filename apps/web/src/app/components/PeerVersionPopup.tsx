@@ -42,11 +42,11 @@ export default function PeerVersionPopup() {
   const body = localOutdated
     ? t(
         "sync.versionIncompatibleUpdate",
-        "A device you're connected to is running a newer version of Cypher. Update the app to sync with it. Your local edits are unaffected.",
+        "A device you're connected to is running a newer version of Tasfer. Update the app to sync with it. Your local edits are unaffected.",
       )
     : t(
         "sync.versionIncompatiblePeerOld",
-        "A device you're connected to is running an older version of Cypher and can't sync until it's updated. Your local edits are unaffected.",
+        "A device you're connected to is running an older version of Tasfer and can't sync until it's updated. Your local edits are unaffected.",
       );
 
   const popupVariants = {

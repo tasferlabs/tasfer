@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Cypher</string>
-    <string name="title_activity_main">Cypher</string>
+    <string name="app_name">Tasfer</string>
+    <string name="title_activity_main">Tasfer</string>
     <string name="package_name">md.cypher.app</string>
     <string name="custom_url_scheme">md.cypher.app</string>
     <string name="loading">Loading...</string>

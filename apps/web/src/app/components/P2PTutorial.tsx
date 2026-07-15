@@ -233,7 +233,7 @@ export function P2PTutorial({
                 title={t("p2pTutorial.step2Title", "It syncs device to device.")}
                 body={t(
                   "p2pTutorial.step2Desc",
-                  "Cypher connects you directly, over an encrypted link. A thin relay finds your peer, then steps aside — no server ever stores your notes.",
+                  "Tasfer connects you directly, over an encrypted link. A thin relay finds your peer, then steps aside — no server ever stores your notes.",
                 )}
               />
             </>

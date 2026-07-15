@@ -1,6 +1,6 @@
 # Agent Guide
 
-Cypher is a local-first, peer-to-peer, canvas based editor. Its editor engine renders
+Tasfer is a local-first, peer-to-peer, canvas based editor. Its editor engine renders
 directly to HTML canvas and stores document state in a CRDT.
 
 ## Non-negotiable rules

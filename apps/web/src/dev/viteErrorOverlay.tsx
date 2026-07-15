@@ -3,7 +3,7 @@
  *
  * Vite's built-in overlay is a shadow-DOM web component that can't be themed, so
  * we disable it (`server.hmr.overlay: false`) and render our own from the
- * `vite:error` HMR event instead. The result matches the Cypher Inspector
+ * `vite:error` HMR event instead. The result matches the Tasfer Inspector
  * (DevToolbar / RouteErrorBoundary dev view): dense monospace chrome, the code
  * frame and stack front and center, plus Copy / Report actions.
  *

@@ -77,7 +77,7 @@ export default function InternalsArticle({ slug }: { slug: string }) {
               <h1 className="ix-title">{note.title}</h1>
               {note.summary ? <p className="ix-lede">{note.summary}</p> : null}
               <div className="ix-byline">
-                <span className="author">{t("internals.author", "Cypher")}</span>
+                <span className="author">{t("internals.author", "Tasfer")}</span>
                 <span className="dot" aria-hidden="true" />
                 <span>{formatDate(note.date)}</span>
               </div>

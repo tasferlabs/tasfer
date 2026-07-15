@@ -1,11 +1,11 @@
 {
-  "name": "Cypher",
-  "short_name": "Cypher",
-  "description": "Cypher",
+  "name": "Tasfer",
+  "short_name": "Tasfer",
+  "description": "Tasfer",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#1db984",
+  "theme_color": "#43a047",
   "icons": [
     {
       "src": "/icon-192.png",

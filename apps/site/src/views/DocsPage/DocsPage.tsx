@@ -1,6 +1,7 @@
 "use client";
 
 import { Link } from "@/components/Link";
+import BrandMark from "@/components/BrandMark";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { Icons } from "./docsIcons";
@@ -57,7 +58,7 @@ export default function DocsPage() {
           <p className="dx-hub-lede">
             {t(
               "docs.hub.lede.a",
-              "Everything you need to use the Cypher app, and everything you need to build on",
+              "Everything you need to use the Tasfer app, and everything you need to build on",
             )}{" "}
             <code>@cypherkit/editor</code>{" "}
             {t("docs.hub.lede.b", "— the CRDT-first canvas editor that powers it.")}{" "}
@@ -76,7 +77,7 @@ export default function DocsPage() {
                 <span className="dx-branch-ic"><Icons.Shield /></span>
                 <span className="dx-branch-badge">{t("docs.hub.app.badge", "the app · AGPL-3.0")}</span>
               </div>
-              <h2 className="dx-branch-name">{t("docs.hub.app.name", "Cypher, the app")}</h2>
+              <h2 className="dx-branch-name">{t("docs.hub.app.name", "Tasfer, the app")}</h2>
               <p className="dx-branch-desc">
                 {t(
                   "docs.hub.app.desc",
@@ -124,8 +125,8 @@ export default function DocsPage() {
 
         <div className="dx-hub-foot">
           <div className="dx-hub-foot-brand">
-            <img src="/logo.png" alt="" />
-            <span className="dx-hub-foot-name">Cypher</span>
+            <BrandMark />
+            <span className="dx-hub-foot-name">tasfer</span>
             <span className="dx-hub-foot-tail">{t("docs.hub.foot.tagline", "— documentation, built in the open.")}</span>
           </div>
           <div className="dx-hub-foot-links">

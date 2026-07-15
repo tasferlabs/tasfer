@@ -1,5 +1,5 @@
-/* OnboardingScreen.tsx — Cypher first-run flow.
- *   1. identity  — the keypair Cypher already generated; on-device by default
+/* OnboardingScreen.tsx — Tasfer first-run flow.
+ *   1. identity  — the keypair Tasfer already generated; on-device by default
  *   2. profile   — optional name + avatar (collapsed), only matters for sharing
  *   3. space     — create your own (optional name) OR join a peer's
  *                  (paste code / import invite file / scan QR)
@@ -109,7 +109,7 @@ function IdentityStep({
       <p className="ob-sub">
         {t(
           "onboarding.identityIntro",
-          "The moment you opened Cypher, it generated a keypair on this device — that's your identity. The private key never leaves this machine, and there's no account or server behind it.",
+          "The moment you opened Tasfer, it generated a keypair on this device — that's your identity. The private key never leaves this machine, and there's no account or server behind it.",
         )}
       </p>
 
@@ -219,7 +219,7 @@ function ProfileStep({
       <p className="ob-sub">
         {t(
           "onboarding.profileIntro",
-          "Cypher works fully anonymous. The only time a name or avatar matters is when you invite someone to a space — it's how they'll tell your edits apart. You can add this now or never.",
+          "Tasfer works fully anonymous. The only time a name or avatar matters is when you invite someone to a space — it's how they'll tell your edits apart. You can add this now or never.",
         )}
       </p>
 
