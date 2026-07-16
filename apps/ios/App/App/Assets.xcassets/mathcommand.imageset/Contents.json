@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "format_text.svg",
+      "filename" : "mathcommand.svg",
       "idiom" : "universal"
     }
   ],
@@ -14,5 +14,3 @@
     "template-rendering-intent" : "template"
   }
 }
-
-

@@ -20,7 +20,7 @@ export type MobileToolbarIcon =
   | "bold"
   | "italic"
   | "code"
-  | "math_command"
+  | "mathcommand"
   | "math"
   | "strikethrough"
   | "text"
@@ -452,14 +452,14 @@ export function createMobileToolbarModel(
   // renders as a real button on every shell while sitting beside the chips.
   const mathCommand = button(
     "math-command",
-    "math_command",
+    "mathcommand",
     t("editor.math.chooseConstruct", "Math commands"),
     { type: "open-math-commands" },
     { enabled: state.canOpenMathCommands },
   );
   const mathTrigger = button(
     "math-trigger",
-    "math_command",
+    "mathcommand",
     t("editor.math.chooseConstruct", "Math commands"),
     { type: "open-math-commands" },
     { enabled: state.canOpenMathCommands },

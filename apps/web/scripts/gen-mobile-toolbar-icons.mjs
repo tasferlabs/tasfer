@@ -46,7 +46,7 @@ const CATALOG_DIR = join(
 
 // Imagesets in the catalog that this generator does NOT own (non-toolbar art).
 // Anything else ending in .imageset is fair game to be reported as an orphan.
-const NON_TOOLBAR_IMAGESETS = new Set(["Splash", "spinner"]);
+const NON_TOOLBAR_IMAGESETS = new Set(["Splash"]);
 
 /** Parse the `MobileToolbarIcon` string-union to get the required icon names. */
 function readRequiredIconNames() {
