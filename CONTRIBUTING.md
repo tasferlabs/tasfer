@@ -73,6 +73,10 @@ HTTPS with a locally trusted mkcert certificate. Generating the cert and trustin
 it on each device (including the per-device iOS Simulator step) is documented in
 [docs/ssl-dev-setup.md](docs/ssl-dev-setup.md).
 
+Building the native iOS app (macOS + Xcode only) also needs a one-time signing
+setup so your Apple Developer Team ID stays out of git — see
+[apps/ios/README.md](apps/ios/README.md).
+
 ### Project Structure
 
 ```

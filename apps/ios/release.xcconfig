@@ -1,4 +1,2 @@
-CAPACITOR_DEBUG = true
-
 // Local, untracked signing settings (DEVELOPMENT_TEAM). Optional: skipped if absent.
 #include? "DeveloperSettings.xcconfig"

@@ -5,6 +5,9 @@ App/App/public
 DerivedData
 xcuserdata
 
+# Local signing config (holds each developer's own DEVELOPMENT_TEAM)
+DeveloperSettings.xcconfig
+
 # Cordova plugins for Capacitor
 capacitor-cordova-ios-plugins
 
