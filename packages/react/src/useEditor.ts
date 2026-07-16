@@ -3,10 +3,10 @@ import {
   type CreateEditorBaseOptions,
   type CreateEditorContent,
   type CreateEditorOptions,
-  type CypherEditor,
+  type TasferEditor,
   type BaseSchemaDefinition,
   type SchemaDefinition,
-} from "@cypherkit/editor";
+} from "@tasfer/editor";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 
@@ -43,7 +43,7 @@ export interface UseEditorResult<
    * initial render, and on the server). Drive imperative changes through this —
    * `editor.setTheme(...)`, `editor.setMarkdown(...)`, `editor.change(...)`, etc.
    */
-  editor: CypherEditor<D> | null;
+  editor: TasferEditor<D> | null;
 }
 
 // `useLayoutEffect` warns when run on the server (no DOM). The editor only ever
@@ -52,7 +52,7 @@ const useIsomorphicLayoutEffect =
   typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 /**
- * Create and own a {@link CypherEditor}, mounting it into a `<div>` you render
+ * Create and own a {@link TasferEditor}, mounting it into a `<div>` you render
  * via the returned `containerRef`.
  *
  * The editor is created exactly **once per mount**, in a layout effect, and torn
@@ -78,7 +78,7 @@ export function useEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   options: UseEditorOptions<D>,
 ): UseEditorResult<D> {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [editor, setEditor] = useState<CypherEditor<D> | null>(null);
+  const [editor, setEditor] = useState<TasferEditor<D> | null>(null);
 
   // Hold the latest options in a ref so the mount-only effect reads current
   // values at create time without listing `options` in its deps (which would

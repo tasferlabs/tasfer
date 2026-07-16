@@ -15,8 +15,8 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type Block } from "@cypherkit/editor";
-import type { CursorUser } from "@cypherkit/provider-core/cursors";
+import { type Block } from "@tasfer/editor";
+import type { CursorUser } from "@tasfer/provider-core/cursors";
 import { countWordsFromBlocks } from "@/lib/documentStats";
 import { deriveTitles } from "@/lib/pageTitle";
 import { TitlePreview } from "../TitlePreview";
@@ -67,7 +67,7 @@ import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
 import { SnapshotRestore } from "../components/SnapshotRestore";
 import { openImageUploadMenu } from "@/editorSchema";
-import { imageBleedHeight } from "@cypherkit/editor/internal";
+import { imageBleedHeight } from "@tasfer/editor/internal";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import {
   NARROW_CONTENT_WIDTH,
@@ -727,7 +727,7 @@ function ScheduleContent({
  * Quick "Add cover" chip next to the schedule tag. Inserts a placeholder image
  * block at the very top of the page and immediately opens the existing image
  * upload popover for it — the same overlay a placeholder image opens on click
- * (see `CypherImageNode.activate`). Hidden while the page already starts with
+ * (see `TasferImageNode.activate`). Hidden while the page already starts with
  * an image, so the cover slot can't be stacked from here.
  */
 function AddCoverTag({

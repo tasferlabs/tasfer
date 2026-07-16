@@ -2,8 +2,8 @@
 
 ## Getting help
 
-- Ask questions in [GitHub Discussions](https://github.com/hamza512b/cypher/discussions)
-- Open a [GitHub issue](https://github.com/hamza512b/cypher/issues) for confirmed bugs or actionable feature requests
+- Ask questions in [GitHub Discussions](https://github.com/hamza512b/tasfer/discussions)
+- Open a [GitHub issue](https://github.com/hamza512b/tasfer/issues) for confirmed bugs or actionable feature requests
 
 ## Before opening an issue
 

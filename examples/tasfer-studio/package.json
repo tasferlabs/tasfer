@@ -1,10 +1,10 @@
 {
-  "name": "@cypher-examples/cypher-studio",
+  "name": "@tasfer-examples/tasfer-studio",
   "license": "MIT",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Cypher Studio — a dark markdown IDE built on @cypherkit/editor.",
+  "description": "Tasfer Studio — a dark markdown IDE built on @tasfer/editor.",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

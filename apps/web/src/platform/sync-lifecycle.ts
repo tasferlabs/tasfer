@@ -13,7 +13,7 @@
  *
  * Two event sources drive it, and both are safe to fire together (pause/resume
  * are idempotent and serialized):
- *   1. Native shell — iOS calls `window.__cypherLifecycle.onPause/onResume`
+ *   1. Native shell — iOS calls `window.__tasferLifecycle.onPause/onResume`
  *      via evaluateJavaScript, wrapped in a `beginBackgroundTask` window. When
  *      teardown finishes we call `bridge.lifecycle.endFlush()` to release that
  *      task early.
@@ -28,7 +28,7 @@ import type { Replicator } from "./sync";
 
 declare global {
   interface Window {
-    __cypherLifecycle?: {
+    __tasferLifecycle?: {
       onPause(): void;
       onResume(): void;
     };
@@ -52,7 +52,7 @@ export class SyncLifecycleController {
   install(): () => void {
     // Native shell entry points (called from Swift/Kotlin via evaluateJavaScript).
     if (typeof window !== "undefined") {
-      window.__cypherLifecycle = {
+      window.__tasferLifecycle = {
         onPause: () => this.handlePause(),
         onResume: () => this.handleResume(),
       };
@@ -81,8 +81,8 @@ export class SyncLifecycleController {
         document.removeEventListener("visibilitychange", onVisibility);
         window.removeEventListener("pagehide", onPageHide);
       }
-      if (typeof window !== "undefined" && window.__cypherLifecycle) {
-        delete window.__cypherLifecycle;
+      if (typeof window !== "undefined" && window.__tasferLifecycle) {
+        delete window.__tasferLifecycle;
       }
     };
   }

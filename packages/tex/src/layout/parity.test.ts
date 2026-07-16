@@ -1,5 +1,5 @@
 /**
- * Comprehensive cypher-tex ⇆ KaTeX rendering-parity matrix.
+ * Comprehensive tasfer-tex ⇆ KaTeX rendering-parity matrix.
  *
  * `oracle.test.ts` grew construct-by-construct and checks each expression in a
  * single mode; `katex-compare.test.ts` drills into the big-operator family. This

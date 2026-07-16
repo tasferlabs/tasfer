@@ -6,8 +6,8 @@
  * with its own storage and networking strategy.
  */
 
-import type { Block, HLC, Operation } from "@cypherkit/editor";
-import type { CursorPresence } from "@cypherkit/provider-core/cursors";
+import type { Block, HLC, Operation } from "@tasfer/editor";
+import type { CursorPresence } from "@tasfer/provider-core/cursors";
 import type { DbRow, DbRunResult } from "./driver";
 
 // =============================================================================

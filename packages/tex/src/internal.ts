@@ -1,15 +1,15 @@
 /**
- * @cypherkit/tex/internal — UNSTABLE internal surface.
+ * @tasfer/tex/internal — UNSTABLE internal surface.
  *
  * Everything re-exported here is engine machinery — the laid-out box tree and
  * the parse AST — that a host wiring its own math chrome may occasionally need,
  * but which is **NOT a public contract**. It carries no semver guarantee:
  * symbols may be renamed, reshaped, or removed in any release. External
- * consumers should depend only on the package root (`@cypherkit/tex`), whose
+ * consumers should depend only on the package root (`@tasfer/tex`), whose
  * surface deals in `latex` strings, stable `MathDocument` values, and the
  * opaque `MathLayout` handle.
  *
- * Mirrors `@cypherkit/editor/internal`: the root is the curated contract, this
+ * Mirrors `@tasfer/editor/internal`: the root is the curated contract, this
  * entry is the explicitly-unstable escape hatch (reachable through the package's
  * `./*` subpath exports). New entries here are a smell — prefer promoting a
  * stable, curated API to the root over widening this surface.

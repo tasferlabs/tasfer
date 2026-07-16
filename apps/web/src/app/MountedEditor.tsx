@@ -42,7 +42,7 @@ import {
   type CursorDragInfo,
   type Decoration,
   type DocPoint,
-} from "@cypherkit/editor";
+} from "@tasfer/editor";
 import {
   INSERT_MATH_COMMAND,
   RESIZE_MATH_MATRIX,
@@ -51,7 +51,7 @@ import {
   mathMatrixContextInRange,
   mathMatrixResize,
   mathSourceAtEdge,
-} from "@cypherkit/editor/math";
+} from "@tasfer/editor/math";
 import {
   CODE_LANGUAGES,
   cleanSnapshotForSave,
@@ -65,7 +65,7 @@ import {
   type NodeOverlay,
   type PlaceholderStyles,
   type TextStyle,
-} from "@cypherkit/editor/internal";
+} from "@tasfer/editor/internal";
 import {
   cursorPresenceToDecorations,
   getDisplayName,
@@ -73,7 +73,7 @@ import {
   isSamePerson,
   type CursorPresence,
   type CursorUser,
-} from "@cypherkit/provider-core/cursors";
+} from "@tasfer/provider-core/cursors";
 import {
   collidingDisplayNames,
   deviceIcon,
@@ -427,7 +427,7 @@ function applyMatrixResize(
  * overlays are framework-free in the engine — this registry is where they
  * become real UI, positioned at the descriptor's `rect`.
  *
- * The built-in image-upload popover renders here: `CypherImageNode.overlays()`
+ * The built-in image-upload popover renders here: `TasferImageNode.overlays()`
  * declares an `"image-upload"` slot whenever the active menu targets its block
  * (see `editorSchema.ts`). The math popover still renders through its own
  * `activeMenu` path; custom nodes register their editing chrome here too.
@@ -441,7 +441,7 @@ type NodeOverlayProps = {
 };
 
 /**
- * Renders the image upload/edit popover for a `CypherImageNode`-declared
+ * Renders the image upload/edit popover for a `TasferImageNode`-declared
  * `"image-upload"` overlay slot. The descriptor's `rect` carries the anchor in
  * canvas/container space; the popover anchors in fixed viewport space, so we
  * shift by the container's on-screen origin. All editing goes through the
@@ -467,7 +467,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
   const close = () => {
     editor.host.closeActiveMenu();
     // Restore the native/mobile toolbar after the drawer dismisses.
-    if (window.CypherBridge) refocus();
+    if (window.TasferBridge) refocus();
   };
 
   return (
@@ -529,7 +529,7 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
 
 /**
  * Renders the image hover chrome (download + edit buttons) for a
- * `CypherImageNode`-declared `"image-hover"` slot. The descriptor's `rect` is
+ * `TasferImageNode`-declared `"image-hover"` slot. The descriptor's `rect` is
  * the image's drawn box; the buttons sit at its top-right. "Edit Image" opens
  * the image upload/edit menu just below itself.
  */
@@ -595,7 +595,7 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
 };
 
 /**
- * Renders the link hover tooltip for a `CypherLinkMark`-declared
+ * Renders the link hover tooltip for a `TasferLinkMark`-declared
  * `"link-tooltip"` slot. "Edit" promotes the hover menu to the `linkEdit` menu
  * in place (clearing the selection first, as the old flow did). In a readonly
  * document the Edit affordance is omitted, leaving only "Open".
@@ -630,8 +630,8 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
         y={containerRect.top + overlay.rect.y}
         onDismiss={() => editor.host.clearLinkHover()}
         onOpen={() => {
-          if (window.CypherBridge) {
-            window.CypherBridge.navigation.openUrl(url);
+          if (window.TasferBridge) {
+            window.TasferBridge.navigation.openUrl(url);
           } else {
             window.open(url, "_blank", "noopener,noreferrer");
           }
@@ -663,7 +663,7 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
 
 /**
  * Renders the link edit/create popover (desktop) or drawer (mobile) for a
- * `CypherLinkMark`-declared `"link-edit"` slot. Both update/clear the link via
+ * `TasferLinkMark`-declared `"link-edit"` slot. Both update/clear the link via
  * the editor; the engine's `linkEdit` menu is the single source of truth for
  * whether it's open.
  */
@@ -684,7 +684,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
   const close = () => {
     editor.host.closeActiveMenu();
     // Restore the native/mobile toolbar after the drawer dismisses.
-    if (window.CypherBridge) refocus();
+    if (window.TasferBridge) refocus();
   };
   const update = (newUrl: string, newText: string) =>
     editor.change((c) => {
@@ -790,7 +790,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { blockId } = overlay;
   // On mobile the drawer's open state is the engine's `activeMenu` (mirrored onto
-  // the descriptor's `data.open` by CypherCodeNode), so the picker can be opened
+  // the descriptor's `data.open` by TasferCodeNode), so the picker can be opened
   // from the floating chip or the keyboard toolbar's "code language" button
   // through one source of truth. Closing clears the menu.
   const drawerOpen = Boolean((overlay.data as { open?: boolean })?.open);
@@ -798,7 +798,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
     editor.host.closeActiveMenu();
     setSearch("");
     // Restore the mobile keyboard/toolbar after the modal drawer dismisses.
-    if (window.CypherBridge) refocus();
+    if (window.TasferBridge) refocus();
   };
   const block = editor.query.block({ block: blockId });
   if (block?.type !== "code") return null;
@@ -993,7 +993,7 @@ async function downloadImage(url: string, alt?: string): Promise<void> {
     ? safeName
     : `${safeName}.${ext}`;
 
-  const bridge = window.CypherBridge;
+  const bridge = window.TasferBridge;
   if (bridge) {
     const base64 = await blobToBase64(blob);
     const mimeType = blob.type || `image/${ext}`;
@@ -1072,7 +1072,7 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 // --- Cursor position persistence ---
-const CURSOR_STORAGE_KEY = "cypher:cursor-positions";
+const CURSOR_STORAGE_KEY = "tasfer:cursor-positions";
 const MAX_STORED_PAGES = 50;
 
 interface StoredCursorPosition {
@@ -1522,7 +1522,7 @@ function PageEditor({
   // Native shells post the IME inset with both the height for positioning and an
   // isOpen flag so position and visibility stay in lockstep. Android: MainActivity
   // posts it (resize:"native" is a no-op on the edge-to-edge WebView). iOS:
-  // CypherViewController posts it from UIKit's keyboard frame, because under
+  // TasferViewController posts it from UIKit's keyboard frame, because under
   // Capacitor Keyboard resize:"none" the WKWebView keeps its full height and
   // visualViewport never shrinks — so there is no viewport-derived signal there.
   useEffect(() => {
@@ -1606,7 +1606,7 @@ function PageEditor({
     };
   }, []);
 
-  // iOS native keyboard height comes from the CypherViewController message
+  // iOS native keyboard height comes from the TasferViewController message
   // handled above, NOT visualViewport: under Capacitor Keyboard `resize: "none"`
   // (see capacitor.config) the WKWebView keeps its full height when the keyboard
   // opens and visualViewport never shrinks, so a viewport-derived inset would
@@ -1874,7 +1874,7 @@ function PageEditor({
         case "edit-code": {
           // Open the code block's language picker as a drawer/sheet — the
           // in-webview counterpart to the floating language chip. Rendered on
-          // mobile by the CypherCodeNode "code-language" overlay.
+          // mobile by the TasferCodeNode "code-language" overlay.
           const block = editor.query.block();
           if (block?.type !== "code") break;
           openCodeLanguageMenu(editor, block.id);
@@ -1885,7 +1885,7 @@ function PageEditor({
           // when one exists; otherwise turn the current text selection into a new
           // link. Mirrors the native accessory's link button
           // (handleFormatButtonClick). Rendered as a drawer on mobile by the
-          // CypherLinkMark "link-edit" overlay.
+          // TasferLinkMark "link-edit" overlay.
           const link = editor.query.marks().find((m) => m.name === "link");
           if (link) {
             openLinkEditMenu(editor, {
@@ -1933,7 +1933,7 @@ function PageEditor({
         }
         case "edit-image": {
           // Open the settings drawer for the selected image (replace/remove),
-          // rendered on mobile by the CypherImageNode "image-upload" overlay.
+          // rendered on mobile by the TasferImageNode "image-upload" overlay.
           const block = editor.query.block();
           if (block?.type !== "image") break;
           openImageUploadMenu(editor, block.id, 0, 0);
@@ -1953,11 +1953,11 @@ function PageEditor({
   useEffect(() => {
     if (!IS_IOS_NATIVE) return;
     const win = window as unknown as {
-      __cypherKeyboardAction?: (action: MobileToolbarAction) => void;
+      __tasferKeyboardAction?: (action: MobileToolbarAction) => void;
     };
-    win.__cypherKeyboardAction = handleMobileToolbarAction;
+    win.__tasferKeyboardAction = handleMobileToolbarAction;
     return () => {
-      delete win.__cypherKeyboardAction;
+      delete win.__tasferKeyboardAction;
     };
   }, [handleMobileToolbarAction]);
 
@@ -2167,7 +2167,7 @@ function PageEditor({
       if (IS_IOS_NATIVE) postKeyboardAccessoryFocus(false);
     };
   }, [editor]);
-  // Bridge the hook's CypherEditor into the MountedEditorInstance shape the
+  // Bridge the hook's TasferEditor into the MountedEditorInstance shape the
   // wiring effect + portals below were written against. Rebuilt only when the
   // editor identity changes (once per mount), so the reference stays stable.
   if (editor && mountedRef.current?.editor !== editor) {
@@ -2693,7 +2693,7 @@ function PageEditor({
 
       if (iconType === "image") {
         // Open the image upload/edit menu for the selected image — rendered as a
-        // drawer on mobile by the CypherImageNode "image-upload" overlay.
+        // drawer on mobile by the TasferImageNode "image-upload" overlay.
         if (selection) {
           const block = editorApi.query.block(selection.from);
           if (block && block.type === "image") {
@@ -2704,7 +2704,7 @@ function PageEditor({
         return false;
       } else if (iconType === "link") {
         // Open the link edit/create menu — rendered as a drawer on mobile by the
-        // CypherLinkMark "link-edit" overlay.
+        // TasferLinkMark "link-edit" overlay.
 
         // Editing an existing link under the caret.
         const link = editorApi.query.marks().find((m) => m.name === "link");
@@ -2770,7 +2770,7 @@ function PageEditor({
       toggleStrike: () => mounted.editor.change((c) => c.setMark("strike")),
     };
 
-    window.CypherEditorCallbacks = editorMethods;
+    window.TasferEditorCallbacks = editorMethods;
 
     // Content lifecycle rides the public `on("change")` op channel — `tx.isRemote`
     // tells local edits from sync, so no raw state is needed. `getRawBlocks()` is
@@ -3006,7 +3006,7 @@ function PageEditor({
       // sync/persistence are owned and torn down by useCollaborativeDoc a level
       // up; the cursor is saved by the layout-effect above (while the editor is
       // still alive). Here we only undo this effect's own wiring.
-      delete window.CypherEditorCallbacks;
+      delete window.TasferEditorCallbacks;
       if (mountedRef.current === mounted) {
         mountedRef.current = null;
       }
@@ -3420,7 +3420,7 @@ function PageEditor({
               const containerRect = wrapperRef.current?.getBoundingClientRect();
               if (!containerRect) return;
               // Open the link create menu — rendered as a drawer on mobile by
-              // the CypherLinkMark "link-edit" overlay.
+              // the TasferLinkMark "link-edit" overlay.
               openLinkEditMenu(mountedEditor, {
                 blockId: from.block,
                 startIndex,
@@ -3551,7 +3551,7 @@ function PageEditor({
       )}
 
       {/* Link tooltip + link edit/create popover render via the mark-overlay
-          registry below (CypherLinkMark.overlays → "link-tooltip" /
+          registry below (TasferLinkMark.overlays → "link-tooltip" /
           "link-edit"). */}
 
       {/* Node-declared overlay slots — located by the engine
@@ -3595,7 +3595,7 @@ function PageEditor({
       })()}
 
       {/* Image upload/edit popover + hover buttons render via the node-overlay
-          registry above (CypherImageNode.overlays → "image-upload" /
+          registry above (TasferImageNode.overlays → "image-upload" /
           "image-hover"). The suspended-mode signal is the `modalPopoverOpen`
           mirror, derived from the engine's active menu. */}
 
@@ -3604,9 +3604,9 @@ function PageEditor({
           is no separate mirror popover. */}
 
       {/* Image hover buttons + native image drawer render via the
-          node-overlay registry above (CypherImageNode.overlays → "image-hover"
+          node-overlay registry above (TasferImageNode.overlays → "image-hover"
           / "image-upload"). The native link drawer renders via the mark-overlay
-          registry (CypherLinkMark → "link-edit"). */}
+          registry (TasferLinkMark → "link-edit"). */}
 
       {/* Find bar — rendered last so it sits above the canvas container in DOM order */}
       {findBarOpen && (

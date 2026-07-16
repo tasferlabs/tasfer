@@ -1,5 +1,5 @@
 /**
- * @cypherkit/provider-core/cursors — remote cursors & selections as editor
+ * @tasfer/provider-core/cursors — remote cursors & selections as editor
  * decorations.
  *
  * The editor engine has no concept of "presence" or "peers": it paints generic
@@ -24,7 +24,7 @@ import type {
   DocRange,
   Editor,
   LabelIconShape,
-} from "@cypherkit/editor";
+} from "@tasfer/editor";
 import type { Presence, Provider, RemotePresence } from "./types";
 
 // =============================================================================

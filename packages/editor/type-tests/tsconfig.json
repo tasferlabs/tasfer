@@ -8,8 +8,8 @@
     "noEmit": true,
     "skipLibCheck": false,
     "paths": {
-      "@cypherkit/tex": ["../../tex/dist/index.d.mts"],
-      "@cypherkit/tex/data": ["../../tex/dist/data.d.mts"]
+      "@tasfer/tex": ["../../tex/dist/index.d.mts"],
+      "@tasfer/tex/data": ["../../tex/dist/data.d.mts"]
     }
   },
   "include": ["*.ts"]

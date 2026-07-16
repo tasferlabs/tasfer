@@ -8,7 +8,7 @@
  * canvas cursor labels stay consistent.
  */
 
-import type { LabelIconShape } from "@cypherkit/editor";
+import type { LabelIconShape } from "@tasfer/editor";
 
 /**
  * Given the resolved display names of all visible peers, return the set of names

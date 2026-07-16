@@ -1,7 +1,7 @@
 /**
  * NetworkProxy (Phase 3) — a {@link NetworkDriver} that runs in the worker but
  * performs no WebRTC itself. It forwards every call to whichever tab currently
- * holds the `cypher-net` Web Lock (the transport host) and surfaces that tab's
+ * holds the `tasfer-net` Web Lock (the transport host) and surfaces that tab's
  * peer events back to the worker's `Replicator`.
  *
  * The host can change at any time (the holding tab closes, another takes over).

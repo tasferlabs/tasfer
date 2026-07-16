@@ -21,7 +21,7 @@
  * WebSocket auto-reconnect.
  */
 
-import type { Transport, TransportPeer } from "@cypherkit/provider-core";
+import type { Transport, TransportPeer } from "@tasfer/provider-core";
 
 import { ChunkAssembler, chunkMessage } from "./chunk";
 
@@ -248,7 +248,7 @@ export class WebrtcTransport implements Transport {
     const peer = this.setupPeer(remoteId);
     // Deterministic initiator avoids both sides offering at once.
     if (this.peerId > remoteId) {
-      const dc = peer.pc.createDataChannel("cypher", { ordered: true });
+      const dc = peer.pc.createDataChannel("tasfer", { ordered: true });
       peer._setChannel(dc, () => this.fireJoin(peer));
       // A `peer-left` arriving while these await closes the connection and both
       // reject. Drop the peer rather than leak it with no offer ever sent.

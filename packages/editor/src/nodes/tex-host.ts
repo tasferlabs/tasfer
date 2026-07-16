@@ -1,5 +1,5 @@
 /**
- * Host-wired entry to `@cypherkit/tex`'s layout.
+ * Host-wired entry to `@tasfer/tex`'s layout.
  *
  * The math engine is font-agnostic: on its own it can only lay out characters
  * its bundled KaTeX faces have metrics for, so anything else inside a `\text{…}`
@@ -19,7 +19,7 @@ import {
   type MathDocumentLayoutOptions,
   type MathLayout,
   type TextFallback,
-} from "@cypherkit/tex";
+} from "@tasfer/tex";
 
 /**
  * The single CSS font `\text{…}` characters the math fonts can't render fall

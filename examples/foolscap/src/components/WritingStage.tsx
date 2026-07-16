@@ -1,5 +1,5 @@
-import { Editor } from "@cypherkit/react";
-import type { CypherEditor } from "@cypherkit/editor";
+import { Editor } from "@tasfer/react";
+import type { TasferEditor } from "@tasfer/editor";
 import { foolscapTheme } from "../theme";
 import { ClockIcon, EyeIcon, WaveIcon } from "./icons";
 
@@ -12,7 +12,7 @@ interface WritingStageProps {
   status: "saved" | "saving";
   /** mm:ss session clock. */
   clockLabel: string;
-  onReady: (editor: CypherEditor) => void;
+  onReady: (editor: TasferEditor) => void;
 }
 
 export function WritingStage({ value, words, goal, status, clockLabel, onReady }: WritingStageProps) {

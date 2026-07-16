@@ -1,4 +1,4 @@
-import { balanceBraces, escapeStrayCloseBraces } from "@cypherkit/tex/data";
+import { balanceBraces, escapeStrayCloseBraces } from "@tasfer/tex/data";
 
 /** Make imported source brace-safe without changing already-valid LaTeX. */
 export function normalizeMathSource(latex: string): string {

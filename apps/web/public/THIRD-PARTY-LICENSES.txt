@@ -1,22 +1,22 @@
 THIRD-PARTY LICENSES
 
-Cypher itself is licensed under the GNU AGPL-3.0-or-later (see LICENSE).
+Tasfer itself is licensed under the GNU AGPL-3.0-or-later (see LICENSE).
 The app bundles the third-party components listed below, each under its own
 license. Their copyright and permission notices are reproduced here as those
 licenses require. This file is generated — do not edit by hand; run
 `npm run gen:licenses` from apps/web to regenerate it.
 
 ==============================================================================
-@cypherkit/tex — bundled KaTeX material
+@tasfer/tex — bundled KaTeX material
 ==============================================================================
 
-@cypherkit/tex — THIRD-PARTY NOTICES
+@tasfer/tex — THIRD-PARTY NOTICES
 ====================================
 
-@cypherkit/tex is licensed under the MIT License (see LICENSE). It incorporates
+@tasfer/tex is licensed under the MIT License (see LICENSE). It incorporates
 material derived from the third-party project listed below, redistributed under
 that project's own license, which is reproduced in full. These notices must be
-retained in source and binary distributions of @cypherkit/tex.
+retained in source and binary distributions of @tasfer/tex.
 
 --------------------------------------------------------------------------------
 KaTeX

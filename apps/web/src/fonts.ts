@@ -1,7 +1,7 @@
 /**
  * Font loading for the web app.
  *
- * The `@cypherkit/editor` package assumes its font faces are already loaded —
+ * The `@tasfer/editor` package assumes its font faces are already loaded —
  * loading them, and notifying the editor when they're ready, is the host's
  * responsibility. This module imports the font CSS, drives the FontFace API,
  * and tells the editor to flush its metrics cache once fonts are available.
@@ -21,11 +21,11 @@ import "@fontsource/space-grotesk/500.css";
 import "@fontsource/space-grotesk/600.css";
 import "@fontsource/space-grotesk/700.css";
 
-import type { FontStyles } from "@cypherkit/editor";
-import { notifyFontsChanged, notifyFontsLoaded } from "@cypherkit/editor";
-import { loadFonts as loadTexFonts } from "@cypherkit/tex";
+import type { FontStyles } from "@tasfer/editor";
+import { notifyFontsChanged, notifyFontsLoaded } from "@tasfer/editor";
+import { loadFonts as loadTexFonts } from "@tasfer/tex";
 
-// KaTeX math faces, imported straight from the @cypherkit/tex package source so
+// KaTeX math faces, imported straight from the @tasfer/tex package source so
 // Vite bundles+hashes them — no hand-copied duplicate under `public/fonts/tex`.
 // Keyed by the emitted asset URL under their `KaTeX_<Variant>.woff2` basename.
 const texFontModules = import.meta.glob<string>(
@@ -41,7 +41,7 @@ for (const [path, url] of Object.entries(texFontModules)) {
 /**
  * Vite-hashed URL for a math font variant (e.g. `"Math-Italic"`), or undefined
  * if unknown. Exposed so the export path can inline these WOFF2 faces as
- * data-URL `@font-face`s — rendered math references the `CypherTeX_<Variant>`
+ * data-URL `@font-face`s — rendered math references the `TasferTeX_<Variant>`
  * families, which aren't loaded in the isolated print/PDF context.
  */
 export function getTexFontUrl(variant: string): string | undefined {
@@ -205,7 +205,7 @@ export async function loadFonts(): Promise<void> {
 
   fontLoadingPromise = Promise.all([
     ...FONT_CONFIGS.map(({ family, weight }) => loadSingleFont(family, weight)),
-    // Math fonts for @cypherkit/tex (bundled from the package via Vite). On
+    // Math fonts for @tasfer/tex (bundled from the package via Vite). On
     // completion the editor repaints, filling in math glyphs (their layout
     // dimensions are already exact from metric data before the faces load).
     loadTexFonts({

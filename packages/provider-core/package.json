@@ -1,7 +1,7 @@
 {
-  "name": "@cypherkit/provider-core",
+  "name": "@tasfer/provider-core",
   "version": "0.0.0",
-  "description": "Transport-agnostic sync protocol that connects a @cypherkit/editor Doc to any pipe (the shared core every provider builds on).",
+  "description": "Transport-agnostic sync protocol that connects a @tasfer/editor Doc to any pipe (the shared core every provider builds on).",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.cjs",
@@ -25,7 +25,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@cypherkit/editor": "*",
+    "@tasfer/editor": "*",
     "typescript": "^5.9.3"
   },
   "devDependencies": {

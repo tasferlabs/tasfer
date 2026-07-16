@@ -39,7 +39,7 @@
  * so a relay that does echo to the sender is merely wasteful, not broken.)
  */
 
-import type { Transport, TransportPeer } from "@cypherkit/provider-core";
+import type { Transport, TransportPeer } from "@tasfer/provider-core";
 
 /** Discovery + data envelopes exchanged over the relay, as JSON text frames. */
 type Envelope =
@@ -132,7 +132,7 @@ class RelayPeer implements TransportPeer {
 export interface RelayTransportOptions {
   /** Logical room — replicas sharing a room (and relay server) converge. */
   room: string;
-  /** Relay base URL, e.g. "wss://relay.cypher.md". Trailing slash optional. */
+  /** Relay base URL, e.g. "wss://relay.tasfer.app". Trailing slash optional. */
   relay: string;
   /** This replica's stable id. Pass `doc.peerId`. */
   peerId: string;

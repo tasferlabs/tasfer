@@ -1,5 +1,5 @@
 /**
- * Math rendering adapter — backed by `@cypherkit/tex`, the canvas-native LaTeX
+ * Math rendering adapter — backed by `@tasfer/tex`, the canvas-native LaTeX
  * engine. Replaces the former MathJax pipeline (SVG → bitmap → drawImage): the
  * engine lays out a formula synchronously from a metric data table and paints it
  * straight onto the canvas with `fillText`/`fillRect`, so there is no async
@@ -61,7 +61,7 @@ import {
   unitAfter as texUnitAfter,
   unitAt as texUnitAt,
   unitBefore as texUnitBefore,
-} from "@cypherkit/tex";
+} from "@tasfer/tex";
 
 export { isValidLatex };
 export type { MathUnit, MatrixContext, MatrixEditResult, MatrixTextEdit };
@@ -921,7 +921,7 @@ function mathCommandRunCanGrowEnv(latex: string, offset: number): boolean {
  * into a selection. A multi-part construct (`isConstruct`) is selected first; a
  * plain leaf (a character, `\sin`) is deleted outright. Wraps the tex resolver so
  * the editor's edit actions stay funneled through this adapter rather than
- * importing `@cypherkit/tex` directly. `null` at the source boundary.
+ * importing `@tasfer/tex` directly. `null` at the source boundary.
  */
 export function mathUnitBefore(latex: string, offset: number): MathUnit | null {
   return texUnitBefore(latex, offset);
@@ -1075,7 +1075,7 @@ export function getInlineMathDims(
 /**
  * Source offsets within an inline chip's LaTeX where the line-wrapper may break
  * it across lines — the formula's top-level operator/relation breaks (see
- * `@cypherkit/tex`'s `breakpoints`). Empty when the chip has no top-level break
+ * `@tasfer/tex`'s `breakpoints`). Empty when the chip has no top-level break
  * (a lone construct), so it stays atomic and overflows rather than splitting.
  */
 export function getInlineMathBreakpoints(latex: string): number[] {
@@ -1085,7 +1085,7 @@ export function getInlineMathBreakpoints(latex: string): number[] {
 /**
  * Live-edit bridge — map between a caret offset into a chip's LaTeX source and a
  * horizontal pixel position within the rendered formula. The chip's visible
- * offsets index the chip's canonical source. Both wrap `@cypherkit/tex`'s
+ * offsets index the chip's canonical source. Both wrap `@tasfer/tex`'s
  * caret primitives; layout is cached by `getInlineMathDims`'s metric cache, so
  * re-laying out per call is cheap.
  */
@@ -1209,7 +1209,7 @@ export function getInlineMathOffsetAtX(
   // Finger-drag (magnifier) resolution: resolve to the nearest caret stop in 2-D
   // with row hysteresis, so vertical dragging descends smoothly between a
   // fraction's numerator/denominator without flipping on finger wobble. See
-  // {@link import("@cypherkit/tex").HitTestOptions.drag}.
+  // {@link import("@tasfer/tex").HitTestOptions.drag}.
   drag = false,
   // The caret's CURRENT chip-local offset (for the hysteresis in drag mode), or
   // null when the caret is not already inside this chip.
@@ -1266,7 +1266,7 @@ export function getBlockMathOffsetVertical(
  * Render LaTeX to an SVG string (used by the React edit overlay's live preview
  * and by HTML export). `color` defaults to `currentColor` so the SVG inherits
  * the surrounding text color. The `<text>` elements reference the engine's font
- * families, which the host loads via `@cypherkit/tex`'s `loadFonts`.
+ * families, which the host loads via `@tasfer/tex`'s `loadFonts`.
  */
 export function renderToSVG(
   latex: string,

@@ -1,4 +1,4 @@
-import type { EditorTheme } from "@cypherkit/editor";
+import type { EditorTheme } from "@tasfer/editor";
 
 /**
  * Tasfer Studio's "Midnight" look as a single `EditorTheme` value — a dark

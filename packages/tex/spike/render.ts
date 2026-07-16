@@ -1,5 +1,5 @@
 /**
- * Generate a PNG of the @cypherkit/tex capability gallery.
+ * Generate a PNG of the @tasfer/tex capability gallery.
  *
  *   node --experimental-strip-types spike/render.ts [out.png]
  *

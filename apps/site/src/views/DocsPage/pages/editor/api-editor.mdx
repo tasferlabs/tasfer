@@ -1,14 +1,14 @@
-{/* @cypherkit/editor API reference — Editor. */}
+{/* @tasfer/editor API reference — Editor. */}
 
 import { Callout, PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">`createEditor(options)` returns a `CypherEditor` — the view, the document mutator, and the selection owner over a CRDT document. It's the object you hold onto for the lifetime of the editing surface, and the only handle you need for single-player editing.</p>
+<p className="dx-lede">`createEditor(options)` returns a `TasferEditor` — the view, the document mutator, and the selection owner over a CRDT document. It's the object you hold onto for the lifetime of the editing surface, and the only handle you need for single-player editing.</p>
 
 <h2 id="create">createEditor(options)</h2>
 
 ```ts
-import { createEditor } from "@cypherkit/editor";
-const editor = createEditor(options: CreateEditorOptions): CypherEditor;
+import { createEditor } from "@tasfer/editor";
+const editor = createEditor(options: CreateEditorOptions): TasferEditor;
 ```
 
 <PropsTable rows={[
@@ -42,7 +42,7 @@ The editor never hands you a mutable store. `state` is a fresh, immutable snapsh
   { name: "portalContainer", type: "HTMLDivElement", desc: "Mount point for host overlays (slash menu, link editor) that float over the canvas." },
 ]} />
 
-<Callout kind="note" title="state is a value, not a store.">`editor.state` is replaced — never mutated — on each transaction. Capture it in a variable only for the duration of one read; for live UI, recompute inside a `change` / `selectionchange` handler (or use `useEditorState` from `@cypherkit/react`).</Callout>
+<Callout kind="note" title="state is a value, not a store.">`editor.state` is replaced — never mutated — on each transaction. Capture it in a variable only for the duration of one read; for live UI, recompute inside a `change` / `selectionchange` handler (or use `useEditorState` from `@tasfer/react`).</Callout>
 
 <h2 id="writing">Changing the document</h2>
 
@@ -74,7 +74,7 @@ Actions are named, dispatchable behaviours a host can observe or override — th
 ]} />
 
 ```ts
-import { OPEN_LINK } from "@cypherkit/editor";
+import { OPEN_LINK } from "@tasfer/editor";
 
 // Override a built-in action: open links through the host's own router
 // instead of the engine's default. Returning true claims it (stops the

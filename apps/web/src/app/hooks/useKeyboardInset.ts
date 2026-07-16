@@ -1,4 +1,4 @@
-import { isAndroid } from "@cypherkit/editor/internal";
+import { isAndroid } from "@tasfer/editor/internal";
 import { useEffect, useState } from "react";
 
 /**

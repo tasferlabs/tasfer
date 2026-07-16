@@ -21,7 +21,7 @@ const buildTimestamp = DateTime.utc().toFormat("yyyyMMddHHmm");
 // CA you install once on the device:
 //   brew install mkcert && mkcert -install
 //   mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem \
-//     <your-LAN-IP> localhost cypher.md
+//     <your-LAN-IP> localhost tasfer.app
 // `certs/` is gitignored. If host mode is requested without the cert present we
 // fall back to HTTP and warn, rather than failing to start.
 const isHostMode = process.argv.some(
@@ -43,7 +43,7 @@ if (isHostMode && !lanHttps) {
       "       context and crypto.subtle / OPFS / Web Locks will be undefined.\n" +
       "       Generate a trusted cert:\n" +
       "         brew install mkcert && mkcert -install\n" +
-      "         mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem <LAN-IP> localhost cypher.md\n",
+      "         mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem <LAN-IP> localhost tasfer.app\n",
   );
 }
 
@@ -86,10 +86,10 @@ export default defineConfig({
   worker: { format: "es" },
   resolve: {
     alias: {
-      "@cypherkit/editor": resolve(__dirname, "../../packages/editor/src"),
-      "@cypherkit/tex": resolve(__dirname, "../../packages/tex/src"),
-      "@cypherkit/react": resolve(__dirname, "../../packages/react/src"),
-      "@cypherkit/provider-core": resolve(
+      "@tasfer/editor": resolve(__dirname, "../../packages/editor/src"),
+      "@tasfer/tex": resolve(__dirname, "../../packages/tex/src"),
+      "@tasfer/react": resolve(__dirname, "../../packages/react/src"),
+      "@tasfer/provider-core": resolve(
         __dirname,
         "../../packages/provider-core/src",
       ),

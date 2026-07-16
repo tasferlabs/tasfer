@@ -62,7 +62,7 @@ export const NAV: NavSection[] = [
   },
   {
     id: "editor",
-    label: "@cypherkit/editor",
+    label: "@tasfer/editor",
     icon: <Icons.Terminal />,
     mono: true,
     groups: [

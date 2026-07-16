@@ -11,7 +11,7 @@
  * and the LaTeX vocabulary is the engine's domain. The host owns only the
  * popover chrome that renders these previews and drives the insert.
  */
-import { isValidLatex, operatorCommands, symbolCommands } from "@cypherkit/tex";
+import { isValidLatex, operatorCommands, symbolCommands } from "@tasfer/tex";
 
 export interface MathCommand {
   /** Stable id (also the canonical command keyword, e.g. `int`). */

@@ -4,7 +4,7 @@
  *
  * WebRTC (`RTCPeerConnection`) can't run in a SharedWorker, so the worker's
  * `Replicator` drives a `NetworkDriver` proxy that forwards over this channel to
- * the one tab holding the `cypher-net` Web Lock, which runs the real WebRTC
+ * the one tab holding the `tasfer-net` Web Lock, which runs the real WebRTC
  * driver and acts as a dumb modem. Peers and topics are referenced by id;
  * payloads are raw `Uint8Array`s. A peer is identified by `(topicId, peerId)`
  * where `peerId` is the remote public key.

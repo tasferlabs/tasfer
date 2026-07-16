@@ -47,8 +47,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         metaColorScheme.setAttribute("content", scheme);
       }
 
-      // Sync to native platform. Covers both the iOS/Android CypherBridge and
-      // the Electron desktop bridge (window.cypher), so OS-drawn chrome like the
+      // Sync to native platform. Covers both the iOS/Android TasferBridge and
+      // the Electron desktop bridge (window.tasfer), so OS-drawn chrome like the
       // native context menu follows the in-app theme rather than the desktop
       // environment's theme. `theme` (the setting, incl. "system") is passed as
       // the source so desktop keeps deferring to the OS in system mode.

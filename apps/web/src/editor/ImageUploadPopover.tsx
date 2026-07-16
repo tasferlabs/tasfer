@@ -135,11 +135,11 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
   };
 
   const handleOpenLibrary = () => {
-    window.CypherBridge?.navigation.openPhotoLibrary();
+    window.TasferBridge?.navigation.openPhotoLibrary();
   };
 
   const handleOpenCamera = () => {
-    window.CypherBridge?.navigation.openCamera();
+    window.TasferBridge?.navigation.openCamera();
   };
 
   const native = isNative();

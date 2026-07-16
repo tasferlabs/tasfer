@@ -1,7 +1,7 @@
 /**
  * Opt-in math feature entry point.
  *
- * Nothing in the root `@cypherkit/editor` entry imports this module. Consumers
+ * Nothing in the root `@tasfer/editor` entry imports this module. Consumers
  * that install math compose {@link mathExtension} into their schema and may use
  * the remaining exports to build host chrome around the feature.
  */

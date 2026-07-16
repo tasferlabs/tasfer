@@ -132,7 +132,7 @@ class MainActivity : BridgeActivity() {
 
         bridge.addWebViewListener(object : WebViewListener() {
             override fun onPageLoaded(webView: WebView) {
-                injectCypherBridgeShim()
+                injectTasferBridgeShim()
                 hideLoadingScreen()
                 injectSafeAreaInsets()
                 notifyPhysicalKeyboardState()
@@ -290,15 +290,15 @@ class MainActivity : BridgeActivity() {
         }
     }
 
-    // ---- CypherBridge JS shim ----
+    // ---- TasferBridge JS shim ----
 
-    private fun injectCypherBridgeShim() {
+    private fun injectTasferBridgeShim() {
         val shimScript = """
             (function() {
-                if (window.CypherBridge) return;
+                if (window.TasferBridge) return;
                 var nb = window.__NativeBridge;
                 if (!nb) return;
-                window.CypherBridge = {
+                window.TasferBridge = {
                     clipboard: {
                         copy: function(t) { nb.copy(t); return Promise.resolve(); },
                         cut: function(t) { nb.cut(t); return Promise.resolve(); },

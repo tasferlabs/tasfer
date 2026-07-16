@@ -36,8 +36,8 @@ import type {
   MathDocumentCaretPosition,
   MathDocumentLayout,
   MathLayout,
-} from "@cypherkit/tex";
-import { mathDocumentCaretStop } from "@cypherkit/tex";
+} from "@tasfer/tex";
+import { mathDocumentCaretStop } from "@tasfer/tex";
 import { describe, expect, it } from "vitest";
 
 const schema = baseSchema.use(mathExtension());

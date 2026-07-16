@@ -77,7 +77,7 @@ export function Information() {
             "Tasfer is free software, licensed under the GNU AGPL-3.0.",
           )}{" "}
           <a
-            href="https://github.com/hamza512b/cypher"
+            href="https://github.com/hamza512b/tasfer"
             target="_blank"
             rel="noreferrer noopener"
             className="underline"

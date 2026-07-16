@@ -89,7 +89,7 @@ mathEditor.change((change) => {
 
 // Optional feature blocks specialize the generic node base without joining the
 // root package's closed core Block union (which would pull feature declarations
-// into a consumer that never imports `@cypherkit/editor/math`).
+// into a consumer that never imports `@tasfer/editor/math`).
 type RootMathBlock = Extract<Block, { readonly type: "math" }>;
 const rootBlockIsMathFree: [RootMathBlock] extends [never] ? true : false =
   true;

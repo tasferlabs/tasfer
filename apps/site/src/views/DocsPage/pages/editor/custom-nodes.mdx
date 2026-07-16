@@ -1,4 +1,4 @@
-{/* @cypherkit/editor docs — Custom nodes & marks. */}
+{/* @tasfer/editor docs — Custom nodes & marks. */}
 
 import { Callout } from "../../docsComponents";
 
@@ -13,7 +13,7 @@ import { Callout } from "../../docsComponents";
 A node is a block type. It declares its attributes (replicated CRDT fields), how it serializes, and how it draws. A callout box:
 
 ```ts
-import { defineNode } from "@cypherkit/editor";
+import { defineNode } from "@tasfer/editor";
 
 const callout = defineNode("callout", {
   // Replicated attributes — each becomes a CRDT-settable field with a default.
@@ -32,7 +32,7 @@ const callout = defineNode("callout", {
 Prefer a class? Subclass a node and register the instance directly. The class owns its drawing, strings, and UI; a `static nodeConfig` supplies the same attrs/serialization `defineNode` takes. Both styles produce identical data, so they're interchangeable:
 
 ```ts
-import { AtomicNode, baseSchema } from "@cypherkit/editor";
+import { AtomicNode, baseSchema } from "@tasfer/editor";
 
 class CalloutNode extends AtomicNode {
   readonly type = "callout";
@@ -117,7 +117,7 @@ editor.host.collectOverlays().forEach((o) => {
 A mark is inline formatting. The bare call registers a valid, replicated format name; pass `render` to paint it on the canvas (a `Mark` subclass) and `codec` to give it markdown delimiters and an HTML tag. Omit `render` and it survives via the CRDT but paints as plain text; omit `codec` and it's dropped on markdown export.
 
 ```ts
-import { defineMark } from "@cypherkit/editor";
+import { defineMark } from "@tasfer/editor";
 
 // minimal — replicates, but paints as plain text and doesn't serialize
 const highlight = defineMark("highlight");
@@ -147,7 +147,7 @@ class HighlightMark extends Mark {
 `extend` returns a _new_ immutable schema — the base is never mutated, so two editors on one page can run different schemas.
 
 ```ts
-import { createEditor, baseSchema } from "@cypherkit/editor";
+import { createEditor, baseSchema } from "@tasfer/editor";
 
 const schema = baseSchema.extend({
   nodes: [callout],

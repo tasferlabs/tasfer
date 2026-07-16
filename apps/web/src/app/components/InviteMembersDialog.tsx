@@ -29,7 +29,7 @@ import {
 import { useCreateInvite, useWaitForPeer, cancelPairing } from "../api/spaces.api";
 import type { SpaceInvite, Peer } from "@/platform/types";
 import useResponsive from "../hooks/useResponsive";
-import { getDisplayName } from "@cypherkit/provider-core/cursors";
+import { getDisplayName } from "@tasfer/provider-core/cursors";
 
 interface InviteMembersDialogProps {
   spaceId: string;

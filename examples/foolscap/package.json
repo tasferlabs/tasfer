@@ -1,10 +1,10 @@
 {
-  "name": "@cypher-examples/foolscap",
+  "name": "@tasfer-examples/foolscap",
   "license": "MIT",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Foolscap — a distraction-free writing studio built on @cypherkit/editor.",
+  "description": "Foolscap — a distraction-free writing studio built on @tasfer/editor.",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

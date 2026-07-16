@@ -1,10 +1,10 @@
 /**
- * @cypherkit/editor — the curated public API.
+ * @tasfer/editor — the curated public API.
  *
  * This module IS the contract owed to external consumers. The package exposes
  * the stable root plus explicit optional-feature entries such as
- * `@cypherkit/editor/math`. Engine machinery and first-party host plumbing live
- * under `@cypherkit/editor/internal` (no semver guarantee); legacy deep entries
+ * `@tasfer/editor/math`. Engine machinery and first-party host plumbing live
+ * under `@tasfer/editor/internal` (no semver guarantee); legacy deep entries
  * remain available while first-party consumers migrate. Keep this root surface
  * tight: prefer adding capability through nodes, marks, and feature facets over
  * new top-level exports. Math's historical root exports remain as compatibility
@@ -48,7 +48,7 @@ export {
   type TextSpan,
 } from "./rendering/nodes";
 // Compatibility alias. New feature-oriented consumers should import this from
-// `@cypherkit/editor/math` and install `mathExtension()` explicitly.
+// `@tasfer/editor/math` and install `mathExtension()` explicitly.
 export { type MathBlock, MathNode } from "./nodes/MathNode";
 
 // Inline marks. `Mark` is the base class to subclass for a custom mark's
@@ -85,10 +85,10 @@ export { MathMark } from "./rendering/marks/MathMark";
 // the event layer binds behavior to them by id. Nodes are the extension point.
 
 // Editor instance API. The public `Editor` type is the structural action/
-// lifecycle surface (`EditorApi`) — host code holds the spread `CypherEditor`
+// lifecycle surface (`EditorApi`) — host code holds the spread `TasferEditor`
 // handle, not a class instance, so the public type must stay interface-shaped.
 // The concrete `Editor` class is reachable as `EditorClass` from
-// `@cypherkit/editor/internal` for advanced use (`new EditorClass(...)`).
+// `@tasfer/editor/internal` for advanced use (`new EditorClass(...)`).
 export type {
   BlockData,
   ChangeApi,
@@ -110,12 +110,12 @@ export type {
 // one handle that merges the editor action API with the mount lifecycle. The
 // lower-level `mountEditor` (above) stays available for hosts that want the
 // split. (The raw `entries/editor` constructor is reachable as `EditorClass`
-// from `@cypherkit/editor/internal` for advanced use.)
+// from `@tasfer/editor/internal` for advanced use.)
 export type {
   CreateEditorBaseOptions,
   CreateEditorContent,
   CreateEditorOptions,
-  CypherEditor,
+  TasferEditor,
 } from "./entries/create";
 export { createEditor } from "./entries/create";
 
@@ -479,7 +479,7 @@ export {
 // attach it via `createEditor({ doc })` or `mountEditor(el, blocks, { doc })`,
 // then drive it with `applyUpdate` / `on("update")` / `load`. The lower-level
 // op-log engine (`createSyncEngine`/`createCRDTbinding`) lives in
-// `@cypherkit/editor/internal` for advanced headless CRDT tooling.
+// `@tasfer/editor/internal` for advanced headless CRDT tooling.
 export { deserializeVV, serializeVV } from "./sync/sync";
 
 // Fonts — the host registers font families/stacks via the per-instance theme
@@ -529,7 +529,7 @@ export type {
   RangeDecoration,
 } from "./rendering/decorations";
 
-// Legacy root math surface. The explicit `@cypherkit/editor/math` entry is the
+// Legacy root math surface. The explicit `@tasfer/editor/math` entry is the
 // preferred home for new consumers, but moving these symbols must not break
 // existing applications.
 export { getInlineMathSpans, type InlineMathSpan } from "./inline-math-spans";
@@ -555,5 +555,5 @@ export {
 // Host-convenience helpers (block/format/selection readers), the low-level
 // op-log engine, the image cache, magnifier geometry, and other engine
 // machinery a first-party host needs live in the explicitly-unstable
-// `@cypherkit/editor/internal` entry — they are not part of this public
+// `@tasfer/editor/internal` entry — they are not part of this public
 // contract. See ./internal.ts.

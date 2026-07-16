@@ -30,7 +30,7 @@ import {
   type MathTreeEditResult,
   moveMathTreeCaret,
 } from "./tree-edit";
-import { printMathDocument } from "@cypherkit/tex/data";
+import { printMathDocument } from "@tasfer/tex/data";
 import { describe, expect, it } from "vitest";
 
 describe("isMathProseText", () => {

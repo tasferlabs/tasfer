@@ -17,7 +17,7 @@
  * overwrite or delete another peer's presence.
  */
 
-import type { Operation } from "@cypherkit/editor";
+import type { Operation } from "@tasfer/editor";
 
 import type { PresenceState } from "./types";
 

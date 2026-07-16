@@ -1,4 +1,4 @@
-import { notifyFontsLoaded } from "@cypherkit/editor";
+import { notifyFontsLoaded } from "@tasfer/editor";
 
 /**
  * Font loading is the host's job — the engine ships no faces and assumes they

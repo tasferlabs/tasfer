@@ -35,7 +35,7 @@ import {
   mathDocumentToStructured,
   validateStructuredMathDocument,
 } from "./structured";
-import { canRenderMathChar, parseMathDocument } from "@cypherkit/tex/data";
+import { canRenderMathChar, parseMathDocument } from "@tasfer/tex/data";
 
 /** A stable gap inside a math row. `null` means before its first child. */
 export interface MathRowCaret {
@@ -1789,7 +1789,7 @@ function absorbCharacterIntoBase(
  * `x^{2|}`; the natural next gesture, `_` for the matching subscript, must
  * attach to the SAME base (`x_{3}^{2}`), not nest inside the superscript
  * (`x^{2_{3}}`). Mirrors the flat-source rule in `scriptAttachOffset`
- * (@cypherkit/tex), including its escalation: nested scripts whose slots all
+ * (@tasfer/tex), including its escalation: nested scripts whose slots all
  * end at the caret resolve to the outermost one still missing the typed slot
  * (`x^{y^{2|}}` + `_` scripts `x`). Returns undefined — leaving the sibling
  * absorption rules to apply — when the caret is not at such a slot end, the

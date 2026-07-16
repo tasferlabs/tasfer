@@ -1,11 +1,11 @@
 /**
- * Shared build configuration for every `@cypherkit/*` package.
+ * Shared build configuration for every `@tasfer/*` package.
  *
  * The packages all ship the same way: dual ESM + CJS with `.d.ts` types, built
  * with tsdown (Rolldown). We build in *unbundle* mode — one output file per
  * source file, preserving the directory structure — so each package's
  * deep-import surface (its `"./*"` subpath exports, e.g.
- * `@cypherkit/editor/state-types`) keeps resolving after the build instead of
+ * `@tasfer/editor/state-types`) keeps resolving after the build instead of
  * collapsing into a single bundle.
  *
  * Runtime dependencies and peer dependencies are externalized automatically by

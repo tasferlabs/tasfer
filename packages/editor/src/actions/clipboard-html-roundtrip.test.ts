@@ -4,7 +4,7 @@
  * Tasfer-origin marker carrying the canonical Markdown.
  *
  * The guarantee: a Tasfer→Tasfer copy/paste is lossless. The copy payload's
- * HTML is prefixed with `<!--cypher-clipboard:...-->`; `parseHTMLToBlocks`
+ * HTML is prefixed with `<!--tasfer-clipboard:...-->`; `parseHTMLToBlocks`
  * decodes that Markdown (bypassing defuddle) so image sizing, block math, and
  * list indent — all dropped by the old rendered-HTML→defuddle path — survive.
  */
@@ -117,7 +117,7 @@ describe("clipboard text/html round-trip", () => {
   it("prefixes the html payload with the Tasfer-origin marker", () => {
     const payload = buildClipboardPayload(selectAll(source));
     expect(payload).not.toBeNull();
-    expect(payload!.html).toMatch(/^<!--cypher-clipboard:[A-Za-z0-9+/=]+-->/);
+    expect(payload!.html).toMatch(/^<!--tasfer-clipboard:[A-Za-z0-9+/=]+-->/);
     // The rendered fragment (for external apps) follows the marker.
     expect(payload!.html).toContain("<h1>");
   });

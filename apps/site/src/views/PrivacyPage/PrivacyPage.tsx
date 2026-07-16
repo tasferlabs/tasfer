@@ -71,7 +71,7 @@ export default function PrivacyPage() {
       <section className="privacy-contact">
         <div className="privacy-contact-box">
           <p>
-            {t("privacy.contact", "Questions? Reach out at")} <a href="mailto:hi@cypher.md">hi@cypher.md</a>
+            {t("privacy.contact", "Questions? Reach out at")} <a href="mailto:hi@tasfer.app">hi@tasfer.app</a>
           </p>
         </div>
       </section>

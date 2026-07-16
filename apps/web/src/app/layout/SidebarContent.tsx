@@ -31,7 +31,7 @@ import {
 } from "../api/pages.api";
 // import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
 import { useAssetUrl } from "../api/images.api";
-import { getDisplayName } from "@cypherkit/provider-core/cursors";
+import { getDisplayName } from "@tasfer/provider-core/cursors";
 import { useArchiveSpace } from "../api/spaces.api";
 import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
 import { StorageProtectionBanner } from "../components/StorageProtectionBanner";

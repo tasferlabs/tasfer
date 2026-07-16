@@ -728,15 +728,15 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
               {fileName
                 ? t("onboarding.tapToRemove", "Tap to remove")
                 : t(
-                    "onboarding.cypherInviteHint",
-                    "A .cypherinvite file from your peer",
+                    "onboarding.tasferInviteHint",
+                    "A .tasferinvite file from your peer",
                   )}
             </span>
           </button>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".cypherinvite,text/plain,application/json"
+            accept=".tasferinvite,text/plain,application/json"
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleFile(file);

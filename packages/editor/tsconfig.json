@@ -23,13 +23,13 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
 
-    /* Resolve the repo-root shared helpers and the sibling @cypherkit/tex
+    /* Resolve the repo-root shared helpers and the sibling @tasfer/tex
        source the same way vitest/apps-web do — needed for a standalone
        typecheck and for tsdown's .d.ts emit. */
     "paths": {
       "@shared/*": ["../../shared/*"],
-      "@cypherkit/tex": ["../tex/src/index.ts"],
-      "@cypherkit/tex/*": ["../tex/src/*"]
+      "@tasfer/tex": ["../tex/src/index.ts"],
+      "@tasfer/tex/*": ["../tex/src/*"]
     }
   },
   "include": ["src"]

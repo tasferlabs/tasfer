@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { renderToSVG } from "@cypherkit/editor/math";
+import { renderToSVG } from "@tasfer/editor/math";
 import {
   ArrowLeft,
   ArrowRight,

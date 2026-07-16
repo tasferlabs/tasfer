@@ -16,7 +16,7 @@ import {
   structuredToMathDocument,
   validateStructuredMathDocument,
 } from "./structured";
-import { printMathDocument } from "@cypherkit/tex/data";
+import { printMathDocument } from "@tasfer/tex/data";
 import { describe, expect, it } from "vitest";
 
 const schema = baseSchema.use(mathExtension());

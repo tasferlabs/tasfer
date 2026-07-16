@@ -1,5 +1,5 @@
-import type { CypherEditor } from "@cypherkit/editor";
-import { useEditorMarkdown } from "@cypherkit/react";
+import type { TasferEditor } from "@tasfer/editor";
+import { useEditorMarkdown } from "@tasfer/react";
 import { useMemo, useState } from "react";
 import { EditorPane } from "./components/EditorPane";
 import { FileTree } from "./components/FileTree";
@@ -23,10 +23,10 @@ Tasfer is a markdown editor that renders directly on **HTML5 Canvas** — every 
 
 > The whole engine is headless: it knows nothing about React, your fonts, or where your assets live. The host wires those in — which is exactly why it drops into any shell.
 
-Peers discover each other through a stateless relay, then talk over [encrypted WebRTC channels](https://cypher.example).`;
+Peers discover each other through a stateless relay, then talk over [encrypted WebRTC channels](https://tasfer.example).`;
 
 export function App() {
-  const [editor, setEditor] = useState<CypherEditor | null>(null);
+  const [editor, setEditor] = useState<TasferEditor | null>(null);
   const markdown = useEditorMarkdown(editor);
   const source = editor ? markdown : README;
 

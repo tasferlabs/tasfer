@@ -1,4 +1,4 @@
-import { notifyFontsLoaded } from "@cypherkit/editor";
+import { notifyFontsLoaded } from "@tasfer/editor";
 
 /**
  * The host owns font loading. `index.html` pulls the faces from Google Fonts;

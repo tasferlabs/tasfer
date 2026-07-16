@@ -3,12 +3,12 @@ import { useTranslation } from "react-i18next";
 import { Check, Minus, Square, X } from "lucide-react";
 import { useDevToolsEnabled } from "@/lib/devTools";
 
-const invoke = (channel: string) => (window as any).cypher?.invoke(channel);
+const invoke = (channel: string) => (window as any).tasfer?.invoke(channel);
 
 // Under a tiling window manager (i3, sway, …) minimize hides the window with no
 // taskbar to restore it and maximize is meaningless, so the main process drops
 // those native capabilities and signals us to omit the matching buttons.
-const isTilingWm = (window as any).cypher?.tilingWm === true;
+const isTilingWm = (window as any).tasfer?.tilingWm === true;
 
 export function ElectronMenuBar() {
   const { t } = useTranslation();

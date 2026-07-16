@@ -149,8 +149,8 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             onTouchEnd={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              if (window.CypherBridge) {
-                window.CypherBridge.navigation.openUrl(editedUrl);
+              if (window.TasferBridge) {
+                window.TasferBridge.navigation.openUrl(editedUrl);
               } else {
                 window.open(editedUrl, "_blank", "noopener,noreferrer");
               }

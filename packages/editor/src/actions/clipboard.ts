@@ -487,13 +487,13 @@ function blocksToMarkdown(blocks: Block[], schema: DataSchema): string {
  * for it anywhere keeps the lossless internal path working; the base64-only body
  * makes a stray external match effectively impossible.
  */
-const CYPHER_CLIPBOARD_MARKER_RE = /<!--cypher-clipboard:([A-Za-z0-9+/=]+)-->/;
+const TASFER_CLIPBOARD_MARKER_RE = /<!--tasfer-clipboard:([A-Za-z0-9+/=]+)-->/;
 
 function encodeClipboardMarkdown(markdown: string): string {
   const utf8 = new TextEncoder().encode(markdown);
   let binary = "";
   for (const byte of utf8) binary += String.fromCharCode(byte);
-  return `<!--cypher-clipboard:${btoa(binary)}-->`;
+  return `<!--tasfer-clipboard:${btoa(binary)}-->`;
 }
 
 function decodeClipboardMarkdown(base64: string): string {
@@ -873,7 +873,7 @@ export function parseHTMLToBlocks(
   // Our own copies carry the canonical Markdown in a leading marker comment.
   // Reconstruct from it directly — lossless, and skips defuddle entirely —
   // rather than parsing the rendered (lossy) HTML.
-  const marker = html.match(CYPHER_CLIPBOARD_MARKER_RE);
+  const marker = html.match(TASFER_CLIPBOARD_MARKER_RE);
   if (marker) {
     try {
       return parsePlainTextToBlocks(

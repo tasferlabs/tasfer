@@ -52,7 +52,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" v
 
   <text x="82" y="498" font-family="P" font-weight="400" font-size="30" fill="${MUTED}">Private, end-to-end encrypted markdown. No cloud. No account.</text>
 
-  <text x="80" y="566" font-family="P" font-weight="600" font-size="24" fill="#71717a">cypher.md</text>
+  <text x="80" y="566" font-family="P" font-weight="600" font-size="24" fill="#71717a">tasfer.app</text>
 </svg>`;
 
 const out = path.join(ROOT, "public/og.png");

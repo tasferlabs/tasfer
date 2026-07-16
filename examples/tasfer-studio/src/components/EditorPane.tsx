@@ -1,12 +1,12 @@
-import type { CypherEditor } from "@cypherkit/editor";
-import { Editor } from "@cypherkit/react";
+import type { TasferEditor } from "@tasfer/editor";
+import { Editor } from "@tasfer/react";
 import { studioTheme } from "../theme";
 
 interface EditorPaneProps {
   value: string;
   words: number;
   synced: boolean;
-  onReady: (editor: CypherEditor) => void;
+  onReady: (editor: TasferEditor) => void;
 }
 
 export function EditorPane({ value, words, synced, onReady }: EditorPaneProps) {

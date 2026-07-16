@@ -65,8 +65,8 @@ import {
   mathTreeCaretToContentSelection,
   moveMathTreeCaretVertically,
 } from "./tree-selection";
-import { needsCommandSeparator } from "@cypherkit/tex";
-import { printMathDocument } from "@cypherkit/tex/data";
+import { needsCommandSeparator } from "@tasfer/tex";
+import { printMathDocument } from "@tasfer/tex/data";
 
 interface InlineMathTreeContext {
   readonly block: TextualBlock;

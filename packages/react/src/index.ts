@@ -1,10 +1,10 @@
 /**
- * @cypherkit/react — React 19 bindings for the headless `@cypherkit/editor`
+ * @tasfer/react — React 19 bindings for the headless `@tasfer/editor`
  * canvas editor.
  *
  * Three pieces, all per-instance (no module-level state — multiple editors can
  * live on one page):
- *   - {@link useEditor} — create and own a `CypherEditor`, mounting it into a
+ *   - {@link useEditor} — create and own a `TasferEditor`, mounting it into a
  *     `<div>` you render through the returned `containerRef`.
  *   - {@link Editor} — a drop-in component wrapping `useEditor` that renders the
  *     host element for you and reports the editor via `onReady`.
@@ -12,10 +12,10 @@
  *     subscriptions that re-render on edits (great for toolbars / live preview).
  *
  * Editor options are read once at mount; reconfigure at runtime through the
- * imperative `CypherEditor` handle (`setTheme`, `setMarkdown`, `change`, …).
+ * imperative `TasferEditor` handle (`setTheme`, `setMarkdown`, `change`, …).
  *
  * @example
- * import { Editor, useEditorState } from "@cypherkit/react";
+ * import { Editor, useEditorState } from "@tasfer/react";
  *
  * function App() {
  *   return <Editor markdown="# Hello" autofocus style={{ height: "100vh" }} />;
@@ -36,7 +36,7 @@ export type { EditorStateValue } from "./useEditorState";
 export type {
   ChangeTransaction,
   CreateEditorOptions,
-  CypherEditor,
+  TasferEditor,
   Doc,
   EditorStateSnapshot,
-} from "@cypherkit/editor";
+} from "@tasfer/editor";

@@ -46,7 +46,7 @@ class CapacitorDbDriver implements DbDriver {
     // Connection may already exist after a page reload
     try {
       await CapacitorSQLite.createConnection({
-        database: "cypher",
+        database: "tasfer",
         version: 1,
         encrypted: false,
         mode: "no-encryption",
@@ -54,7 +54,7 @@ class CapacitorDbDriver implements DbDriver {
     } catch {
       // Already exists — that's fine
     }
-    await CapacitorSQLite.open({ database: "cypher" });
+    await CapacitorSQLite.open({ database: "tasfer" });
     // Store without returning — CapacitorSQLite is a thenable proxy
     // and must never be the resolved value of a promise.
     this.db = CapacitorSQLite;
@@ -97,7 +97,7 @@ class CapacitorDbDriver implements DbDriver {
   ): Promise<T[]> {
     await this.ensureDb();
     const result = await this.db.query({
-      database: "cypher",
+      database: "tasfer",
       statement: sql,
       values: params ? params.map((v) => this.encodeParam(v)) : [],
     });
@@ -110,7 +110,7 @@ class CapacitorDbDriver implements DbDriver {
   async run(sql: string, params?: unknown[]): Promise<DbRunResult> {
     await this.ensureDb();
     const result = await this.db.run({
-      database: "cypher",
+      database: "tasfer",
       statement: sql,
       values: params ? params.map((v) => this.encodeParam(v)) : [],
       // The plugin auto-wraps each run() in a transaction by default.
@@ -126,7 +126,7 @@ class CapacitorDbDriver implements DbDriver {
   async exec(sql: string): Promise<void> {
     await this.ensureDb();
     await this.db.execute({
-      database: "cypher",
+      database: "tasfer",
       statements: sql,
       transaction: !this.inTransaction,
     });
@@ -143,14 +143,14 @@ class CapacitorDbDriver implements DbDriver {
     await prev;
     try {
       await this.ensureDb();
-      await this.db.beginTransaction({ database: "cypher" });
+      await this.db.beginTransaction({ database: "tasfer" });
       this.inTransaction = true;
       const result = await fn(this);
-      await this.db.commitTransaction({ database: "cypher" });
+      await this.db.commitTransaction({ database: "tasfer" });
       return result;
     } catch (e) {
       try {
-        await this.db.rollbackTransaction({ database: "cypher" });
+        await this.db.rollbackTransaction({ database: "tasfer" });
       } catch {
         // Rollback may fail if transaction was never started
       }
@@ -274,6 +274,6 @@ export function createCapacitorDriver(signalUrl: string): Driver {
     fs: new CapacitorFsDriver(),
     crypto: new WebCryptoDriver(),
     network: createWebRtcNetworkDriver(signalUrl),
-    basePath: "cypher",
+    basePath: "tasfer",
   };
 }

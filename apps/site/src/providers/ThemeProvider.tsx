@@ -7,7 +7,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
  *
  * Self-contained client state: persists to localStorage, follows the OS theme
  * when set to "system", and toggles the `.dark` class on <html>. (The native
- * CypherBridge color-scheme sync from the original is dropped — irrelevant here.)
+ * TasferBridge color-scheme sync from the original is dropped — irrelevant here.)
  */
 
 export type Theme = "light" | "dark" | "system";

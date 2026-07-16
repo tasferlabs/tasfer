@@ -1,7 +1,7 @@
 /**
  * createWebrtcProvider — the one call a host makes.
  *
- *   import { createWebrtcProvider } from "@cypherkit/provider-webrtc";
+ *   import { createWebrtcProvider } from "@tasfer/provider-webrtc";
  *
  *   const provider = createWebrtcProvider({
  *     doc: editor.doc,
@@ -18,8 +18,8 @@
  * different factory over the same protocol — nothing else changes.
  */
 
-import type { Doc } from "@cypherkit/editor";
-import { createProvider, type Provider } from "@cypherkit/provider-core";
+import type { Doc } from "@tasfer/editor";
+import { createProvider, type Provider } from "@tasfer/provider-core";
 
 import { WebrtcTransport } from "./transport";
 

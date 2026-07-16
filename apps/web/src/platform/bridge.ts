@@ -1,11 +1,11 @@
 /**
- * Native Bridge — CypherBridge
+ * Native Bridge — TasferBridge
  *
- * Both iOS and Android inject `window.CypherBridge` with the same shape.
+ * Both iOS and Android inject `window.TasferBridge` with the same shape.
  * All methods return Promises so consumers never need platform branching.
  *
  * Editor callbacks (undo, redo, toggleStrong, etc.) live on a separate
- * `window.CypherEditorCallbacks` object that the web app assigns and
+ * `window.TasferEditorCallbacks` object that the web app assigns and
  * native code calls via evaluateJavaScript.
  */
 
@@ -36,7 +36,7 @@ export interface NativeMenuItem {
   children?: NativeMenuItem[];
 }
 
-export interface CypherBridge {
+export interface TasferBridge {
   /**
    * Whether developer tools (the in-app DevToolbar) should be shown, read from
    * the native shell's OS-level setting at launch. iOS sources this from a
@@ -107,7 +107,7 @@ export interface CypherBridge {
 
   /**
    * App-lifecycle coordination for background sync. The native shell calls
-   * `window.__cypherLifecycle.onPause/onResume` (see SyncLifecycleController)
+   * `window.__tasferLifecycle.onPause/onResume` (see SyncLifecycleController)
    * around app background/foreground; the web side calls `endFlush()` back to
    * release the native background task once teardown finishes. Optional —
    * shells without a background-task window omit it. Fire-and-forget.
@@ -117,7 +117,7 @@ export interface CypherBridge {
   };
 }
 
-export interface CypherEditorCallbacks {
+export interface TasferEditorCallbacks {
   undo?: () => void;
   redo?: () => void;
   setBlockType?: (type: string) => void;
@@ -135,8 +135,8 @@ export interface CypherEditorCallbacks {
 
 declare global {
   interface Window {
-    CypherBridge?: CypherBridge;
-    CypherEditorCallbacks?: CypherEditorCallbacks;
+    TasferBridge?: TasferBridge;
+    TasferEditorCallbacks?: TasferEditorCallbacks;
   }
 }
 
@@ -144,9 +144,9 @@ declare global {
 // Helpers
 // =============================================================================
 
-/** Returns the CypherBridge if running inside a native shell, or null on web. */
-export function getBridge(): CypherBridge | null {
-  return typeof window !== "undefined" ? (window.CypherBridge ?? null) : null;
+/** Returns the TasferBridge if running inside a native shell, or null on web. */
+export function getBridge(): TasferBridge | null {
+  return typeof window !== "undefined" ? (window.TasferBridge ?? null) : null;
 }
 
 /** True when running inside a native iOS/Android shell. */
@@ -163,8 +163,8 @@ export function isNative(): boolean {
  * keep following it (and OS theme changes still propagate); it defaults to the
  * resolved scheme when the caller has no distinct setting.
  *
- * iOS/Android receive the resolved scheme through the unified CypherBridge.
- * Electron desktop has no CypherBridge — it uses the generic `window.cypher`
+ * iOS/Android receive the resolved scheme through the unified TasferBridge.
+ * Electron desktop has no TasferBridge — it uses the generic `window.tasfer`
  * IPC bridge (see `nativeContextMenu`) — and would otherwise leave `nativeTheme`
  * following the desktop environment's theme (e.g. dark GTK under i3), so we
  * route the `source` over that bridge and let the main process drive
@@ -183,11 +183,11 @@ export function setNativeColorScheme(
   try {
     const desktop = (
       window as unknown as {
-        cypher?: {
+        tasfer?: {
           invoke(channel: string, ...args: unknown[]): Promise<unknown>;
         };
       }
-    ).cypher;
+    ).tasfer;
     void desktop?.invoke("editor:setColorScheme", source);
   } catch (e) {
     console.debug("setColorScheme (desktop bridge) failed:", e);

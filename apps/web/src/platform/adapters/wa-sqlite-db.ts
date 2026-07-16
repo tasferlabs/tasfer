@@ -24,7 +24,7 @@ import { IDBBatchAtomicVFS } from "wa-sqlite/src/examples/IDBBatchAtomicVFS.js";
 import type { DbDriver, DbRow, DbRunResult } from "../driver";
 
 /** Thrown when another build's connection still holds the database lock. */
-export const DB_LOCKED_ERROR = "CYPHER_DB_LOCKED";
+export const DB_LOCKED_ERROR = "TASFER_DB_LOCKED";
 
 const SQLITE_ROW = 100;
 
@@ -63,13 +63,13 @@ export class WaSqliteDb implements DbDriver {
 
     // IndexedDB-backed VFS: works in any worker context (including this
     // SharedWorker), unlike the OPFS sync-access-handle VFS.
-    const vfs = new IDBBatchAtomicVFS("cypher-vfs");
+    const vfs = new IDBBatchAtomicVFS("tasfer-vfs");
     this.sqlite3.vfs_register(vfs, true);
-    this.db = await this.sqlite3.open_v2("cypher.db");
+    this.db = await this.sqlite3.open_v2("tasfer.db");
   }
 
   /**
-   * Hold the `cypher-app` lock for the lifetime of this worker. During a deploy
+   * Hold the `tasfer-app` lock for the lifetime of this worker. During a deploy
    * the previous build's SharedWorker may still be alive holding this lock; the
    * new worker then fails to acquire it and surfaces {@link DB_LOCKED_ERROR}
    * rather than letting two builds open the same database at once.
@@ -78,7 +78,7 @@ export class WaSqliteDb implements DbDriver {
     const locks = (self as any).navigator?.locks;
     if (!locks) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => {
-      locks.request("cypher-app", { ifAvailable: true }, (lock: unknown) => {
+      locks.request("tasfer-app", { ifAvailable: true }, (lock: unknown) => {
         if (!lock) {
           resolve(false);
           return;

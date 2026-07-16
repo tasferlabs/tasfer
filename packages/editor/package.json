@@ -1,5 +1,5 @@
 {
-  "name": "@cypherkit/editor",
+  "name": "@tasfer/editor",
   "version": "0.0.0",
   "description": "Canvas-based, CRDT-powered block editor engine (headless core).",
   "type": "module",
@@ -64,13 +64,13 @@
     }
   },
   "peerDependencies": {
-    "@cypherkit/tex": "*",
+    "@tasfer/tex": "*",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "typescript": "^5.9.3"
   },
   "peerDependenciesMeta": {
-    "@cypherkit/tex": {
+    "@tasfer/tex": {
       "optional": true
     }
   },

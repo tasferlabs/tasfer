@@ -23,12 +23,12 @@ import {
   type Block,
   type Doc,
   type Operation,
-} from "@cypherkit/editor";
-import { cleanSnapshotForSave } from "@cypherkit/editor/internal";
+} from "@tasfer/editor";
+import { cleanSnapshotForSave } from "@tasfer/editor/internal";
 import type {
   CursorPresence,
   CursorUser,
-} from "@cypherkit/provider-core/cursors";
+} from "@tasfer/provider-core/cursors";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { getPlatform } from "@/platform";
 import { appSchema } from "../editorSchema";

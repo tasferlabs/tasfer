@@ -799,7 +799,7 @@
   "onboarding.pasteCodePlaceholder": "ألصق دعوة base64 التي أرسلها إليك قرينك…",
   "onboarding.chooseInviteFile": "اختر ملف دعوة",
   "onboarding.tapToRemove": "انقر للإزالة",
-  "onboarding.cypherInviteHint": "ملف ‎.cypherinvite‎ من قرينك",
+  "onboarding.tasferInviteHint": "ملف ‎.tasferinvite‎ من قرينك",
   "onboarding.scanHint": "وجّه كاميرتك نحو رمز QR المعروض على جهاز قرينك.",
   "onboarding.openCamera": "فتح الكاميرا",
   "onboarding.scanInviteQR": "مسح رمز الدعوة",

@@ -9,12 +9,12 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { detectDeviceType, getPlatform } from "@/platform";
 import type { ConnectionState, SyncEvents } from "@/platform/types";
-import type { Operation } from "@cypherkit/editor";
+import type { Operation } from "@tasfer/editor";
 import {
   getColorForPeer,
   type CursorPresence,
   type CursorUser,
-} from "@cypherkit/provider-core/cursors";
+} from "@tasfer/provider-core/cursors";
 
 // =============================================================================
 // Types
@@ -77,7 +77,7 @@ export interface UseP2PRoomReturn {
 // synchronously on first render so the doc is never created with an empty
 // origin. Device identity (name/avatar/key) is still resolved from
 // `platform.identity` separately — only the CRDT/presence origin is per-tab.
-const REPLICA_ID_KEY = "cypher.replicaId";
+const REPLICA_ID_KEY = "tasfer.replicaId";
 
 function generateReplicaId(): string {
   // 32 hex chars, colon-free (op ids split on ":"), matching the previous width.

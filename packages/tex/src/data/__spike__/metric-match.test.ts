@@ -1,7 +1,7 @@
 /**
  * PHASE 0 SPIKE — metric/glyph correspondence.
  *
- * The whole `@cypherkit/tex` plan rests on one assumption: KaTeX's
+ * The whole `@tasfer/tex` plan rests on one assumption: KaTeX's
  * `fontMetricsData` table (which we vendor and use to lay out boxes) describes
  * the glyphs inside the KaTeX font files (which we draw on canvas with
  * `ctx.fillText`). If they disagree, painted glyphs land off their layout box

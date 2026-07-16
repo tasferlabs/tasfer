@@ -1,8 +1,8 @@
 import type {
   BaseSchemaDefinition,
-  CypherEditor,
+  TasferEditor,
   SchemaDefinition,
-} from "@cypherkit/editor";
+} from "@tasfer/editor";
 import { useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
 import { useEditor, type UseEditorOptions } from "./useEditor";
@@ -25,7 +25,7 @@ export type EditorProps<D extends SchemaDefinition = BaseSchemaDefinition> =
      * it can't fight the caret. The document is owned by the CRDT, not by a prop:
      * to *replace* content at runtime, call `editor.setMarkdown(...)` (or any
      * `editor.change(...)`) on the handle from `onReady`. For finer control — the
-     * {@link import("@cypherkit/editor").ChangeTransaction}, or ignoring remote
+     * {@link import("@tasfer/editor").ChangeTransaction}, or ignoring remote
      * edits via `tx.isRemote` — subscribe through `onReady` instead.
      */
     onChange?: (markdown: string) => void;
@@ -38,10 +38,10 @@ export type EditorProps<D extends SchemaDefinition = BaseSchemaDefinition> =
      */
     style?: CSSProperties;
     /**
-     * Called once with the {@link CypherEditor} as soon as it has mounted. Use it
+     * Called once with the {@link TasferEditor} as soon as it has mounted. Use it
      * to grab the imperative handle (focus, change, event subscriptions, …).
      */
-    onReady?: (editor: CypherEditor<D>) => void;
+    onReady?: (editor: TasferEditor<D>) => void;
   };
 
 /**

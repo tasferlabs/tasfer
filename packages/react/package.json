@@ -1,7 +1,7 @@
 {
-  "name": "@cypherkit/react",
+  "name": "@tasfer/react",
   "version": "0.0.0",
-  "description": "React 19 bindings for @cypherkit/editor — a useEditor hook, an <Editor> component, and live state subscriptions.",
+  "description": "React 19 bindings for @tasfer/editor — a useEditor hook, an <Editor> component, and live state subscriptions.",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.cjs",
@@ -38,7 +38,7 @@
     "dev": "tsdown --watch"
   },
   "peerDependencies": {
-    "@cypherkit/editor": "*",
+    "@tasfer/editor": "*",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "typescript": "^5.9.3"

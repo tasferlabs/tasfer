@@ -8,7 +8,7 @@ import { Icons } from "./docsIcons";
 import { DocsHeader } from "./DocsHeader";
 import "./DocsPage.css";
 
-const REPO_URL = "https://github.com/hamza512b/cypher";
+const REPO_URL = "https://github.com/hamza512b/tasfer";
 const EDITOR_SRC_URL = `${REPO_URL}/tree/main/packages/editor`;
 
 /** A sub-link inside a branch card. The whole card is also a link, so these
@@ -60,7 +60,7 @@ export default function DocsPage() {
               "docs.hub.lede.a",
               "Everything you need to use the Tasfer app, and everything you need to build on",
             )}{" "}
-            <code>@cypherkit/editor</code>{" "}
+            <code>@tasfer/editor</code>{" "}
             {t("docs.hub.lede.b", "— the CRDT-first canvas editor that powers it.")}{" "}
             <strong>
               {t(
@@ -97,7 +97,7 @@ export default function DocsPage() {
                 <span className="dx-branch-ic"><Icons.Terminal /></span>
                 <span className="dx-branch-badge">{t("docs.hub.editor.badge", "the package · MIT")}</span>
               </div>
-              <h2 className="dx-branch-name mono">@cypherkit/editor</h2>
+              <h2 className="dx-branch-name mono">@tasfer/editor</h2>
               <p className="dx-branch-desc">
                 {t(
                   "docs.hub.editor.desc",

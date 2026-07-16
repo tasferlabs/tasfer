@@ -15,7 +15,7 @@ let db: Database.Database | null = null;
 export function getDb(): Database.Database {
   if (db) return db;
 
-  const dbPath = path.join(app.getPath("userData"), "cypher.db");
+  const dbPath = path.join(app.getPath("userData"), "tasfer.db");
   db = new BetterSqlite3(dbPath);
 
   // WAL persists in the file; foreign_keys is per-connection and must be set each open.

@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Check, Lock, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const STORAGE_KEY = "cypher:p2p-tutorial-seen";
+const STORAGE_KEY = "tasfer:p2p-tutorial-seen";
 
 /** Check whether the user has already completed the P2P tutorial. */
 export function hasSeenP2PTutorial(): boolean {

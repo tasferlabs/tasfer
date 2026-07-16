@@ -6,10 +6,10 @@ import React, {
   useEffect,
 } from "react";
 import { invariant } from "@shared/invariant";
-import { resolveTheme, type EditorTheme, type FontFamily } from "@cypherkit/editor";
+import { resolveTheme, type EditorTheme, type FontFamily } from "@tasfer/editor";
 import useLocalStorage from "../hooks/useLocalStorage";
-import type { CursorUser } from "@cypherkit/provider-core/cursors";
-import type { Block } from "@cypherkit/editor";
+import type { CursorUser } from "@tasfer/provider-core/cursors";
+import type { Block } from "@tasfer/editor";
 
 export type FontStyle = "default" | "serif";
 

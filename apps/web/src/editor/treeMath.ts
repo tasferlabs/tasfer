@@ -4,18 +4,18 @@ import type {
   ContentPoint,
   ContentSelection,
   StructuredDocument,
-} from "@cypherkit/editor";
-import { isContentSelectionCollapsed } from "@cypherkit/editor";
+} from "@tasfer/editor";
+import { isContentSelectionCollapsed } from "@tasfer/editor";
 import {
   printMathDocument,
   structuredToMathDocument,
-} from "@cypherkit/editor/math/data";
+} from "@tasfer/editor/math/data";
 import {
   contentPointToMathTreeCaret,
   mathSourceOffsetFromContentPoint,
   mathTreeCaretToContentSelection,
   trailingMathCommandRun,
-} from "@cypherkit/editor/math";
+} from "@tasfer/editor/math";
 import type { AppEditor } from "../editorSchema";
 
 export interface ActiveTreeMath {

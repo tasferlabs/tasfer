@@ -11,7 +11,7 @@ import {
   NO_DRAG,
 } from "@/lib/fullscreenChrome";
 
-const GITHUB_NEW_ISSUE_URL = "https://github.com/hamza512b/cypher/issues/new";
+const GITHUB_NEW_ISSUE_URL = "https://github.com/hamza512b/tasfer/issues/new";
 
 /** Normalized view of whatever `useRouteError` handed us. */
 interface ErrorInfo {

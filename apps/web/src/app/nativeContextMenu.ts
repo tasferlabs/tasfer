@@ -154,14 +154,14 @@ export type NativeContextMenuPresenter = (
   req: NativeContextMenuRequest,
 ) => Promise<string | null>;
 
-/** The Electron preload's generic IPC bridge, exposed as `window.cypher`. */
+/** The Electron preload's generic IPC bridge, exposed as `window.tasfer`. */
 interface DesktopIpcBridge {
   invoke(channel: string, ...args: unknown[]): Promise<unknown>;
 }
 
 function getDesktopBridge(): DesktopIpcBridge | null {
   if (typeof window === "undefined") return null;
-  const bridge = (window as unknown as { cypher?: DesktopIpcBridge }).cypher;
+  const bridge = (window as unknown as { tasfer?: DesktopIpcBridge }).tasfer;
   return bridge && typeof bridge.invoke === "function" ? bridge : null;
 }
 
@@ -169,9 +169,9 @@ function getDesktopBridge(): DesktopIpcBridge | null {
  * Resolve a native context-menu presenter for the current host, or null when
  * none exists (plain web → the caller renders its own popover).
  *
- * - iOS/Android expose `editor.showContextMenu` on the unified CypherBridge.
- * - Desktop (Electron) has no CypherBridge; it routes over the generic IPC
- *   bridge (`window.cypher`) so we don't have to fake a full native bridge —
+ * - iOS/Android expose `editor.showContextMenu` on the unified TasferBridge.
+ * - Desktop (Electron) has no TasferBridge; it routes over the generic IPC
+ *   bridge (`window.tasfer`) so we don't have to fake a full native bridge —
  *   which would otherwise flip `isNative()` and reroute clipboard/haptics/etc.
  */
 export function getNativeContextMenuPresenter(): NativeContextMenuPresenter | null {

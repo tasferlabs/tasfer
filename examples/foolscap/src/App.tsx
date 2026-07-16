@@ -1,5 +1,5 @@
-import type { CypherEditor } from "@cypherkit/editor";
-import { useEditorMarkdown } from "@cypherkit/react";
+import type { TasferEditor } from "@tasfer/editor";
+import { useEditorMarkdown } from "@tasfer/react";
 import { useEffect, useState } from "react";
 import { ChaptersRail } from "./components/ChaptersRail";
 import { WritingStage } from "./components/WritingStage";
@@ -18,7 +18,7 @@ By noon the salt had dried white on the railings, and you could taste the harbou
 const DAILY_GOAL = 1500;
 
 export function App() {
-  const [editor, setEditor] = useState<CypherEditor | null>(null);
+  const [editor, setEditor] = useState<TasferEditor | null>(null);
   const markdown = useEditorMarkdown(editor);
   const words = editor ? countWords(markdown) : countWords(SALTWATER);
 

@@ -1,14 +1,14 @@
-{/* @cypherkit/editor docs — Core concepts. */}
+{/* @tasfer/editor docs — Core concepts. */}
 
 import { Callout } from "../../docsComponents";
 
-<p className="dx-lede">Most editors bolt collaboration on at the end and spend years fighting it. `@cypherkit/editor` is built the other way around: **the document is a CRDT from the first keystroke**, and single-player editing is just the case where there is one replica.</p>
+<p className="dx-lede">Most editors bolt collaboration on at the end and spend years fighting it. `@tasfer/editor` is built the other way around: **the document is a CRDT from the first keystroke**, and single-player editing is just the case where there is one replica.</p>
 
 <h2 id="crdt">The document is a CRDT</h2>
 
 A CRDT — conflict-free replicated data type — is a data structure that any number of replicas can edit independently and merge without a coordinating server and without conflicts. Two people can type in the same paragraph, offline, on opposite sides of the planet, and the merge is deterministic: every replica converges on the same result.
 
-In `@cypherkit/editor` that structure is not a feature you opt into. It is the canonical representation of your text. Reading markdown out is a *projection* of the CRDT; it is not where your data lives.
+In `@tasfer/editor` that structure is not a feature you opt into. It is the canonical representation of your text. Reading markdown out is a *projection* of the CRDT; it is not where your data lives.
 
 <Callout kind="note" title="No server in the model.">The CRDT does not know what a server is. Persistence, transport, and presence are all layered on top as optional providers. This is what lets the same editor run fully offline, peer-to-peer, or against your own backend without code changes.</Callout>
 

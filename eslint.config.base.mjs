@@ -1,5 +1,5 @@
 /**
- * Shared ESLint base for the cypher monorepo.
+ * Shared ESLint base for the tasfer monorepo.
  *
  * There is no root `package.json` and no workspace tool — each app/package
  * manages its own dependencies and runs ESLint from its own directory (see

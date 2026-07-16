@@ -1124,7 +1124,7 @@ class WebRtcNetworkDriver implements NetworkDriver {
     // key would send all of it to the relay in cleartext, so refuse instead.
     const rawKey = this.topicKeys.get(hex);
     invariant(rawKey, `NetworkDriver: registerTopicKey() must be called before join(${hex.slice(0, 8)}…)`);
-    const encKey = await deriveAesKey(rawKey, `cypher-signal:${hex}`);
+    const encKey = await deriveAesKey(rawKey, `tasfer-signal:${hex}`);
 
     await this.ensureTurnCredentials(hex);
     this.startCredentialRefresh();

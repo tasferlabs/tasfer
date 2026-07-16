@@ -1,6 +1,6 @@
 import { appDataSchema } from "./appDataSchema";
 import { appSchema } from "./editorSchema";
-import { MATH_STRUCTURED_KIND } from "@cypherkit/editor/math/data";
+import { MATH_STRUCTURED_KIND } from "@tasfer/editor/math/data";
 import { describe, expect, it } from "vitest";
 
 describe("app editor math composition", () => {

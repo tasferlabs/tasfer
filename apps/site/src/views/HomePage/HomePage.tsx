@@ -8,19 +8,19 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { loadArabicFonts } from "@/lib/fonts";
 import "./HomePage.css";
 
-const REPO_URL = "https://github.com/hamza512b/cypher";
+const REPO_URL = "https://github.com/hamza512b/tasfer";
 // The editor SPA (apps/web) is a separate app served at its own origin
-// (https://cypher.md, the apex), while this marketing site is served from a
-// different origin (www.cypher.md). "open tasfer" must therefore be an absolute
+// (https://tasfer.app, the apex), while this marketing site is served from a
+// different origin (www.tasfer.app). "open tasfer" must therefore be an absolute
 // full-page navigation (plain <a>) to the app origin — a same-origin "/page" or
 // a next/link client route would resolve against the marketing site, which does
 // not serve the editor, and 404. NEXT_PUBLIC_APP_URL overrides the base;
-// https://cypher.md is the prod default, localhost:4000 is the dev fallback.
+// https://tasfer.app is the prod default, localhost:4000 is the dev fallback.
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ??
   (process.env.NODE_ENV === "development"
     ? "http://localhost:4000"
-    : "https://cypher.md");
+    : "https://tasfer.app");
 const APP_OPEN_URL = `${APP_URL}/page`;
 
 interface BeforeInstallPromptEvent extends Event {
@@ -935,7 +935,7 @@ export default function HomePage() {
 
             <div className="lp-repo">
               <div>
-                <h3 className="lp-repo-title">github.com/hamza512b/cypher</h3>
+                <h3 className="lp-repo-title">github.com/hamza512b/tasfer</h3>
                 <p className="lp-repo-sub">
                   {t(
                     "home.lp.repo.repoSub",

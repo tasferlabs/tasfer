@@ -1,5 +1,5 @@
 {
-  "name": "@cypherkit/tex",
+  "name": "@tasfer/tex",
   "version": "0.0.0",
   "description": "Canvas-native, live-editable LaTeX math layout & rendering engine.",
   "type": "module",

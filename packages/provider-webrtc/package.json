@@ -1,7 +1,7 @@
 {
-  "name": "@cypherkit/provider-webrtc",
+  "name": "@tasfer/provider-webrtc",
   "version": "0.0.0",
-  "description": "WebRTC transport for @cypherkit/editor — direct peer-to-peer document sync after a small signaling step.",
+  "description": "WebRTC transport for @tasfer/editor — direct peer-to-peer document sync after a small signaling step.",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.cjs",
@@ -24,8 +24,8 @@
     "dev": "tsdown --watch"
   },
   "peerDependencies": {
-    "@cypherkit/editor": "*",
-    "@cypherkit/provider-core": "*",
+    "@tasfer/editor": "*",
+    "@tasfer/provider-core": "*",
     "typescript": "^5.9.3"
   },
   "devDependencies": {

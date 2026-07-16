@@ -1,4 +1,4 @@
-{/* @cypherkit/editor docs — Your first editor (guided tutorial). */}
+{/* @tasfer/editor docs — Your first editor (guided tutorial). */}
 
 import { Icons } from "../../docsIcons";
 import { Callout, Card, CardGrid, FrameworkTabs } from "../../docsComponents";
@@ -14,7 +14,7 @@ The editor needs a host with a height — the canvas fills its container. In pla
 <FrameworkTabs>
 
 ```ts file="main.ts"
-import { createEditor } from "@cypherkit/editor";
+import { createEditor } from "@tasfer/editor";
 
 // mount into any element with a height: <div id="editor" style="height: 70vh"></div>
 const editor = createEditor({
@@ -26,7 +26,7 @@ const editor = createEditor({
 ```
 
 ```tsx file="App.tsx"
-import { useEditor } from "@cypherkit/react";
+import { useEditor } from "@tasfer/react";
 
 export default function App() {
   const { containerRef, editor } = useEditor({
@@ -78,7 +78,7 @@ paint();
 ```
 
 ```tsx file="Toolbar.tsx"
-import { useEditorState, type CypherEditor } from "@cypherkit/react";
+import { useEditorState, type TasferEditor } from "@tasfer/react";
 
 const MARKS = [
   { label: "B", mark: "strong" },
@@ -86,7 +86,7 @@ const MARKS = [
   { label: "</>", mark: "code" },
 ];
 
-export function Toolbar({ editor }: { editor: CypherEditor | null }) {
+export function Toolbar({ editor }: { editor: TasferEditor | null }) {
   const active = useEditorState(editor)?.activeMarks ?? new Set();
   return (
     <div>
@@ -156,12 +156,12 @@ Here's the payoff for being CRDT-first. To sync two replicas, you attach a provi
 <FrameworkTabs>
 
 ```ts file="main.ts"
-import { createRelayProvider } from "@cypherkit/provider-relay";
+import { createRelayProvider } from "@tasfer/provider-relay";
 
 const provider = createRelayProvider({
   doc: editor.doc,                 // sync THIS editor's document
   room: "my-notes-demo",           // peers in the same room converge
-  relay: "wss://relay.cypher.md",  // swap for your own; it forwards, can't read
+  relay: "wss://relay.tasfer.app",  // swap for your own; it forwards, can't read
 });
 
 // Connection status comes from the provider, not the editor — the provider
@@ -173,7 +173,7 @@ provider.on("sync", (s) => {
 
 ```tsx file="App.tsx"
 import { useState, useEffect } from "react";
-import { createRelayProvider } from "@cypherkit/provider-relay";
+import { createRelayProvider } from "@tasfer/provider-relay";
 
 // inside App
 const [status, setStatus] = useState("offline");
@@ -183,7 +183,7 @@ useEffect(() => {
   const provider = createRelayProvider({
     doc: editor.doc,                 // sync THIS editor's document
     room: "my-notes-demo",           // peers in the same room converge
-    relay: "wss://relay.cypher.md",  // swap for your own; it forwards, can't read
+    relay: "wss://relay.tasfer.app",  // swap for your own; it forwards, can't read
   });
   // status comes from the provider, not the editor
   provider.on("sync", (s) =>

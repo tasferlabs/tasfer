@@ -2,7 +2,7 @@ import UIKit
 import WebKit
 
 /// Bridges iOS app-lifecycle transitions to the web app's background-sync
-/// controller (`window.__cypherLifecycle`, see `sync-lifecycle.ts`).
+/// controller (`window.__tasferLifecycle`, see `sync-lifecycle.ts`).
 ///
 /// On background it opens a `beginBackgroundTask` window so the WebView's JS
 /// run loop stays alive long enough to flush the in-flight sync round and tear
@@ -71,7 +71,7 @@ class LifecycleBridge: NSObject, WKScriptMessageHandler {
 
     private func beginFlushWindow() {
         endTask()  // never leak a prior task
-        bgTask = UIApplication.shared.beginBackgroundTask(withName: "cypher.sync.flush") {
+        bgTask = UIApplication.shared.beginBackgroundTask(withName: "tasfer.sync.flush") {
             [weak self] in
             // Expiration handler — the OS is reclaiming us; end cleanly.
             self?.endTask()
@@ -92,7 +92,7 @@ class LifecycleBridge: NSObject, WKScriptMessageHandler {
     // MARK: - Helpers
 
     private func evaluateLifecycle(_ fn: String) {
-        let js = "window.__cypherLifecycle?.\(fn)?.();"
+        let js = "window.__tasferLifecycle?.\(fn)?.();"
         DispatchQueue.main.async { [weak self] in
             self?.webView?.evaluateJavaScript(js, completionHandler: nil)
         }

@@ -799,7 +799,7 @@
   "onboarding.pasteCodePlaceholder": "paste the base64 invite your peer sent you…",
   "onboarding.chooseInviteFile": "Choose an invite file",
   "onboarding.tapToRemove": "Tap to remove",
-  "onboarding.cypherInviteHint": "A .cypherinvite file from your peer",
+  "onboarding.tasferInviteHint": "A .tasferinvite file from your peer",
   "onboarding.scanHint": "Point your camera at the QR code shown on your peer's device.",
   "onboarding.openCamera": "Open camera",
   "onboarding.scanInviteQR": "Scan invite QR",

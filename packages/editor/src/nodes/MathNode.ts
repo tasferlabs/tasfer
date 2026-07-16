@@ -192,8 +192,8 @@ import {
   paintMath,
   selectionRects as texSelectionRects,
   spanAtPoint as texSpanAtPoint,
-} from "@cypherkit/tex";
-import type { MathNode as MathTreeNode, MathRow } from "@cypherkit/tex/data";
+} from "@tasfer/tex";
+import type { MathNode as MathTreeNode, MathRow } from "@tasfer/tex/data";
 
 // Math block — a display LaTeX equation. `charRuns` is the legacy/interchange
 // source until a structured attachment exists, after which it is only a

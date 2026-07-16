@@ -1,9 +1,9 @@
 import {
   parsePage,
   tokenizePage,
-} from "@cypherkit/editor";
-import { findTitleBlock, inlineToHtml } from "@cypherkit/editor/internal";
-import { renderToSVG } from "@cypherkit/editor/math";
+} from "@tasfer/editor";
+import { findTitleBlock, inlineToHtml } from "@tasfer/editor/internal";
+import { renderToSVG } from "@tasfer/editor/math";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";

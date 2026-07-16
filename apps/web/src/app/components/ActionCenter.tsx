@@ -48,7 +48,7 @@ const iconBoxClass =
 const RECENT_LIMIT = 7;
 
 /** localStorage key for per-item usage stats that drive frecency ranking. */
-const FRECENCY_KEY = "cypher:action-center:frecency";
+const FRECENCY_KEY = "tasfer:action-center:frecency";
 type FrecencyStore = Record<string, FrecencyEntry>;
 
 function loadFrecency(): FrecencyStore {

@@ -40,7 +40,7 @@ import {
   mathDocumentsSemanticallyEqual,
   parseMathDocument,
   printMathDocument,
-} from "@cypherkit/tex";
+} from "@tasfer/tex";
 import { describe, expect, it } from "vitest";
 
 describe("structured math tree editing", () => {

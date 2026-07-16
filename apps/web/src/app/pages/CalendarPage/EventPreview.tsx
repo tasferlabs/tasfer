@@ -17,11 +17,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { createDoc, type Block, type Doc } from "@cypherkit/editor";
+import { createDoc, type Block, type Doc } from "@tasfer/editor";
 import {
   cleanSnapshotForSave,
   extractTitleFromBlocks,
-} from "@cypherkit/editor/internal";
+} from "@tasfer/editor/internal";
 import { deriveTitles } from "@/lib/pageTitle";
 import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";

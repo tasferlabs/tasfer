@@ -7,7 +7,7 @@ import { useToast } from "../components/Toast";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import type { ActiveEditorHandle } from "../contexts/ActiveEditorContext";
-import type { DocPoint } from "@cypherkit/editor";
+import type { DocPoint } from "@tasfer/editor";
 import {
   importFilesToSpace,
   isImportableSpaceFile,

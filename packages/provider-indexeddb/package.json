@@ -1,7 +1,7 @@
 {
-  "name": "@cypherkit/provider-indexeddb",
+  "name": "@tasfer/provider-indexeddb",
   "version": "0.0.0",
-  "description": "IndexedDB persistence for @cypherkit/editor — stores the CRDT op log locally so reloads are instant and edits survive offline.",
+  "description": "IndexedDB persistence for @tasfer/editor — stores the CRDT op log locally so reloads are instant and edits survive offline.",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.cjs",
@@ -24,7 +24,7 @@
     "dev": "tsdown --watch"
   },
   "peerDependencies": {
-    "@cypherkit/editor": "*",
+    "@tasfer/editor": "*",
     "typescript": "^5.9.3"
   },
   "devDependencies": {

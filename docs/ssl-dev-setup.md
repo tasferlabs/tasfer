@@ -19,7 +19,7 @@ mkcert -install                 # installs the mkcert root CA into your Mac keyc
 
 cd apps/web
 mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem \
-  <your-LAN-IP> localhost cypher.md
+  <your-LAN-IP> localhost tasfer.app
 ```
 
 Find `<your-LAN-IP>` with `ipconfig getifaddr en0`. `apps/web/certs/` is

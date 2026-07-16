@@ -147,7 +147,7 @@ export function timeOfDayColor(hourOfDay: number): string {
   return "var(--timeofday-night)";
 }
 
-const RECENT_ZONES_KEY = "cypher.timezonePicker.recents";
+const RECENT_ZONES_KEY = "tasfer.timezonePicker.recents";
 const MAX_RECENT_ZONES = 3;
 
 export function readRecentZones(): string[] {

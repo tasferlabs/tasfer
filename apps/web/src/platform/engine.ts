@@ -33,13 +33,13 @@ import type {
 } from "./types";
 import { invariant } from "@shared/invariant";
 import type { Driver, CryptoDriver, DbRow } from "./driver";
-import type { HLC } from "@cypherkit/editor";
+import type { HLC } from "@tasfer/editor";
 import type { ReplicatorHost } from "./sync";
 import { nanoid } from "nanoid";
 // Deep import the DOM-free block-order module rather than the `/internal`
 // barrel — the barrel re-exports rendering/font code that touches `document`,
 // which crashes the engine when it runs inside the SharedWorker (Phase 2).
-import { sortBlocksByOrder } from "@cypherkit/editor/sync/block-order";
+import { sortBlocksByOrder } from "@tasfer/editor/sync/block-order";
 // Worker-safe itself (deep imports only) — derives the title columns from
 // blocks; the doc's op log is the source of truth for titles.
 import { deriveTitles, extractBodyText } from "../lib/pageTitle";
@@ -51,7 +51,7 @@ interface EngineReplicator {
   pushPageOps(
     spaceId: string,
     pageId: string,
-    ops: import("@cypherkit/editor/state-types").Operation[],
+    ops: import("@tasfer/editor/state-types").Operation[],
   ): void;
   requestAsset(hash: string): Promise<boolean>;
   addPeer(publicKey: string): Promise<void>;
@@ -973,7 +973,7 @@ export class Engine implements Platform {
       const currentVV = await this.pageClockVV(id);
       const cached = await this.loadSnapshot(id);
       let blocks:
-        | import("@cypherkit/editor/serlization/loadPage").Block[]
+        | import("@tasfer/editor/serlization/loadPage").Block[]
         | null = null;
       if (cached && vvEqual(cached.vv, currentVV) && cached.blocks.length > 0) {
         blocks = cached.blocks;
@@ -1659,7 +1659,7 @@ export class Engine implements Platform {
       if (rows.length === 0) return [];
 
       type ParsedRow = {
-        op: import("@cypherkit/editor/state-types").Operation;
+        op: import("@tasfer/editor/state-types").Operation;
         timestamp: number;
       };
       const parsed: ParsedRow[] = [];
@@ -1687,11 +1687,11 @@ export class Engine implements Platform {
       // Defers text_delete ops whose referenced chars haven't been inserted
       // yet (HLC order ≠ causal order).
       const { applyOp, createEmptyPageState } =
-        await import("@cypherkit/editor/sync/reducer");
+        await import("@tasfer/editor/sync/reducer");
 
       let state = createEmptyPageState(pageId);
       const insertedCharIds = new Set<string>();
-      const deferredOps: import("@cypherkit/editor/state-types").Operation[] =
+      const deferredOps: import("@tasfer/editor/state-types").Operation[] =
         [];
       const results: PageSnapshot[] = [];
 
@@ -1923,7 +1923,7 @@ export class Engine implements Platform {
   /** Batch-insert ops using multi-row INSERT to minimise IPC round-trips on iOS. */
   private async insertOpsBatch(
     pageId: string,
-    operations: import("@cypherkit/editor/state-types").Operation[],
+    operations: import("@tasfer/editor/state-types").Operation[],
     now: number,
   ): Promise<void> {
     if (operations.length === 0) return;
@@ -1954,7 +1954,7 @@ export class Engine implements Platform {
   ops = {
     persist: async (
       pageId: string,
-      operations: import("@cypherkit/editor/state-types").Operation[],
+      operations: import("@tasfer/editor/state-types").Operation[],
     ): Promise<void> => {
       await this.insertOpsBatch(pageId, operations, Date.now());
       // The doc ops just changed and they — not any denormalized metadata — are
@@ -1972,13 +1972,13 @@ export class Engine implements Platform {
     /** Convert blocks to CRDT ops and persist them (used by import) */
     writeBlocks: async (
       pageId: string,
-      blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
+      blocks: import("@tasfer/editor/serlization/loadPage").Block[],
     ): Promise<void> => {
       const { blocksToOps } =
-        await import("@cypherkit/editor/sync/snapshot-diff");
+        await import("@tasfer/editor/sync/snapshot-diff");
       const { createIdGenerator, generatePeerId } =
-        await import("@cypherkit/editor/sync/id");
-      const { createHLC, tickHLC } = await import("@cypherkit/editor/sync/hlc");
+        await import("@tasfer/editor/sync/id");
+      const { createHLC, tickHLC } = await import("@tasfer/editor/sync/hlc");
 
       const peerId = generatePeerId();
       const nextId = createIdGenerator(peerId);
@@ -2009,12 +2009,12 @@ export class Engine implements Platform {
 
     load: async (
       pageId: string,
-    ): Promise<import("@cypherkit/editor/state-types").Operation[]> => {
+    ): Promise<import("@tasfer/editor/state-types").Operation[]> => {
       const rows = await this.driver.db.execute<{ data: Uint8Array }>(
         "SELECT data FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
         [pageId],
       );
-      const ops: import("@cypherkit/editor/state-types").Operation[] = [];
+      const ops: import("@tasfer/editor/state-types").Operation[] = [];
       for (const r of rows) {
         try {
           ops.push(JSON.parse(new TextDecoder().decode(r.data as Uint8Array)));
@@ -2037,7 +2037,7 @@ export class Engine implements Platform {
   snapshots = {
     save: async (
       pageId: string,
-      blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
+      blocks: import("@tasfer/editor/serlization/loadPage").Block[],
       vv: Record<string, number>,
     ): Promise<void> => {
       try {
@@ -2061,7 +2061,7 @@ export class Engine implements Platform {
 
   private async loadSnapshot(pageId: string): Promise<{
     vv: Record<string, number>;
-    blocks: import("@cypherkit/editor/serlization/loadPage").Block[];
+    blocks: import("@tasfer/editor/serlization/loadPage").Block[];
   } | null> {
     try {
       const data = await this.driver.fs.read(this.snapshotPath(pageId));
@@ -2131,7 +2131,7 @@ export class Engine implements Platform {
   /** Apply remote page content operations received from a peer */
   async handleRemotePageOps(
     pageId: string,
-    ops: import("@cypherkit/editor/state-types").Operation[],
+    ops: import("@tasfer/editor/state-types").Operation[],
   ): Promise<void> {
     await this.insertOpsBatch(pageId, ops, Date.now());
     // The doc ops just changed and they — not any replicated metadata — are
@@ -2181,7 +2181,7 @@ export class Engine implements Platform {
    */
   private async refreshDerivedTitlesFromBlocks(
     pageId: string,
-    blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
+    blocks: import("@tasfer/editor/serlization/loadPage").Block[],
   ): Promise<void> {
     const { title, titleMd } = deriveTitles(blocks);
     const bodyText = extractBodyText(blocks);
@@ -2252,7 +2252,7 @@ export class Engine implements Platform {
     spaceOps: SpaceOperation[];
     pageOps: Record<
       string,
-      import("@cypherkit/editor/state-types").Operation[]
+      import("@tasfer/editor/state-types").Operation[]
     >;
   }> {
     // Get missing space ops
@@ -2285,7 +2285,7 @@ export class Engine implements Platform {
 
     const pageOps: Record<
       string,
-      import("@cypherkit/editor/state-types").Operation[]
+      import("@tasfer/editor/state-types").Operation[]
     > = {};
     for (const [pageId, localVV] of Object.entries(localPageVVs)) {
       const remoteVV = remotePageVVs[pageId] ?? {};
@@ -2305,7 +2305,7 @@ export class Engine implements Platform {
         [pageId],
       );
 
-      const missing: import("@cypherkit/editor/state-types").Operation[] = [];
+      const missing: import("@tasfer/editor/state-types").Operation[] = [];
       for (const row of rows) {
         const known = remoteVV[row.peer_id] ?? -1;
         if (row.clock > known) {
@@ -2331,7 +2331,7 @@ export class Engine implements Platform {
     pageId: string,
     remoteVV: Record<string, number>,
   ): Promise<{
-    ops: import("@cypherkit/editor/state-types").Operation[];
+    ops: import("@tasfer/editor/state-types").Operation[];
     versionVector: Record<string, number>;
   }> {
     const rows = await this.driver.db.execute<{
@@ -2343,7 +2343,7 @@ export class Engine implements Platform {
       [pageId],
     );
 
-    const missing: import("@cypherkit/editor/state-types").Operation[] = [];
+    const missing: import("@tasfer/editor/state-types").Operation[] = [];
     const localVV: Record<string, number> = {};
     for (const row of rows) {
       // Build local VV
@@ -2734,12 +2734,12 @@ export class Engine implements Platform {
   /** Load all ops for a page as parsed Operation objects */
   private async loadPageOps(
     pageId: string,
-  ): Promise<import("@cypherkit/editor/state-types").Operation[]> {
+  ): Promise<import("@tasfer/editor/state-types").Operation[]> {
     const rows = await this.driver.db.execute<{ data: Uint8Array }>(
       "SELECT data FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
       [pageId],
     );
-    const ops: import("@cypherkit/editor/state-types").Operation[] = [];
+    const ops: import("@tasfer/editor/state-types").Operation[] = [];
     for (const r of rows) {
       try {
         ops.push(JSON.parse(new TextDecoder().decode(r.data as Uint8Array)));
@@ -2756,13 +2756,13 @@ export class Engine implements Platform {
    * snapshot whose validity token matches its blocks.
    */
   private async rebuildBlocksFromOps(pageId: string): Promise<{
-    blocks: import("@cypherkit/editor/serlization/loadPage").Block[];
+    blocks: import("@tasfer/editor/serlization/loadPage").Block[];
     vv: Record<string, number>;
   } | null> {
     const ops = await this.loadPageOps(pageId);
     if (ops.length === 0) return null;
 
-    const { rebuildState } = await import("@cypherkit/editor/sync/reducer");
+    const { rebuildState } = await import("@tasfer/editor/sync/reducer");
     const page = rebuildState(pageId, ops, appDataSchema);
     if (page.blocks.length === 0) return null;
 
@@ -2872,7 +2872,7 @@ async function deriveSharedSignalingKey(
 ): Promise<string> {
   const secret = hexToBytes(secretHex);
   const sorted = pubA < pubB ? `${pubA}:${pubB}` : `${pubB}:${pubA}`;
-  const info = new TextEncoder().encode("cypher-shared-key:" + sorted);
+  const info = new TextEncoder().encode("tasfer-shared-key:" + sorted);
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     secret.buffer as ArrayBuffer,

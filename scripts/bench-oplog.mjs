@@ -1,6 +1,6 @@
 /**
  * Op log size benchmark
- * Estimates SQLite ops table size for realistic Cypher usage patterns.
+ * Estimates SQLite ops table size for realistic Tasfer usage patterns.
  *
  * Run: node scripts/bench-oplog.mjs
  */
@@ -143,7 +143,7 @@ function formatNum(n) {
 // Run benchmarks
 // ---------------------------------------------------------------------------
 
-console.log("\n=== Cypher Op Log Size Benchmark ===\n");
+console.log("\n=== Tasfer Op Log Size Benchmark ===\n");
 
 // Per-op type sizes
 console.log("--- Single op sizes (data BLOB only) ---");

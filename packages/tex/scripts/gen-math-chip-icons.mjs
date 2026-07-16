@@ -13,7 +13,7 @@
 // The construct set is read straight from the engine catalog SOURCE
 // (packages/editor/src/nodes/math-commands.ts) by text-parsing it — the same
 // approach gen-mobile-toolbar-icons.mjs uses — so this script needs no
-// cross-package import (the catalog lives in @cypherkit/editor, which does not
+// cross-package import (the catalog lives in @tasfer/editor, which does not
 // resolve from packages/tex).
 //
 // Asset name per construct: `mathChipAssetName(id)`. Keep it byte-identical to
@@ -21,7 +21,7 @@
 // chip image with that function and the native bar looks it up by name.
 //
 // Run via `npm run gen:math-icons`, which builds this package first — the
-// script imports `@cypherkit/tex` through package exports, so it reads dist/,
+// script imports `@tasfer/tex` through package exports, so it reads dist/,
 // not src/. Wired into apps/web's cap:sync scripts.
 //
 // The PNGs this writes are committed to git: they are an iOS asset catalog that
@@ -54,7 +54,7 @@ import {
   fontFamily,
   layoutMath,
   paintMath,
-} from "@cypherkit/tex";
+} from "@tasfer/tex";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const texRoot = resolve(here, "..");

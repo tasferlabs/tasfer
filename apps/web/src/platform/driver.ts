@@ -195,8 +195,8 @@ export interface Driver {
   network: NetworkDriver;
 
   /**
-   * Base path for the cypher workspace.
-   * e.g. "~/cypher-workspace/.cypher" on desktop,
+   * Base path for the tasfer workspace.
+   * e.g. "~/tasfer-workspace/.tasfer" on desktop,
    * or an app-scoped path on mobile.
    */
   basePath: string;

@@ -2,7 +2,7 @@ import UIKit
 import WebKit
 import Capacitor
 
-class CypherViewController: CAPBridgeViewController {
+class TasferViewController: CAPBridgeViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -98,12 +98,12 @@ class CypherViewController: CAPBridgeViewController {
     private func captureHomeIndicatorInset() {
         let bottom = view.safeAreaInsets.bottom
         guard bottom > 0 else { return }
-        webView?.cypherHomeIndicatorInset = bottom
+        webView?.tasferHomeIndicatorInset = bottom
     }
 
     override func capacitorDidLoad() {
         // Register custom plugins
-        bridge?.registerPluginInstance(CypherBridgePlugin())
+        bridge?.registerPluginInstance(TasferBridgePlugin())
     }
 
     override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
@@ -199,7 +199,7 @@ class CypherViewController: CAPBridgeViewController {
                     });
                 }
 
-                window.CypherBridge = {
+                window.TasferBridge = {
                     devToolsEnabled: \(devToolsEnabled),
                     clipboard: {
                         copy: function(text) { return callNative({action: 'copy', text: text}); },

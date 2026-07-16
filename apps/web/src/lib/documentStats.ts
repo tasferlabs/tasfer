@@ -1,6 +1,6 @@
-import { type Block } from "@cypherkit/editor";
-import type { TextualBlock } from "@cypherkit/editor/internal";
-import { getVisibleTextFromRuns, isTextualBlock } from "@cypherkit/editor/internal";
+import { type Block } from "@tasfer/editor";
+import type { TextualBlock } from "@tasfer/editor/internal";
+import { getVisibleTextFromRuns, isTextualBlock } from "@tasfer/editor/internal";
 
 // CJK (Chinese, Japanese, Korean) character ranges. Each such character is
 // counted as its own word/concept rather than being space-delimited.

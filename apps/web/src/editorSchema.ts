@@ -17,14 +17,14 @@ import {
   StrikeMark,
   StrongMark,
   TextNode,
-} from "@cypherkit/editor";
-import { CodeNode, type NodeOverlay } from "@cypherkit/editor/internal";
+} from "@tasfer/editor";
+import { CodeNode, type NodeOverlay } from "@tasfer/editor/internal";
 import {
   mathContentSelectionKind,
   mathInputRules,
   MathMark,
   MathNode,
-} from "@cypherkit/editor/math";
+} from "@tasfer/editor/math";
 import { appDataSchema } from "./appDataSchema";
 import { getPlatform } from "@/platform";
 
@@ -35,7 +35,7 @@ import { getPlatform } from "@/platform";
  * reference to a loadable blob URL via the platform asset store. Resolution is
  * lazy (called at image-load time) and per-instance (no module global).
  */
-class CypherImageNode extends ImageNode {
+class TasferImageNode extends ImageNode {
   protected override resolveUrl(url: string): Promise<string> {
     return getPlatform().assets.getUrl(url);
   }
@@ -107,12 +107,12 @@ class CypherImageNode extends ImageNode {
 }
 
 /**
- * Open the image upload/edit popover declared by {@link CypherImageNode}. The
+ * Open the image upload/edit popover declared by {@link TasferImageNode}. The
  * typed opener lives next to the overlay's owner; it builds the opaque
  * opaque payload and hands it to the editor's generic `openOverlay`. The anchor
  * `(x, y)` is in canvas/container space (the overlay shifts it into viewport
  * space — see `ImageUploadOverlay`). Used by the host toolbar / edit-button path;
- * a placeholder image opens the same overlay via {@link CypherImageNode.activate}.
+ * a placeholder image opens the same overlay via {@link TasferImageNode.activate}.
  */
 export function openImageUploadMenu(
   editor: AppEditor,
@@ -130,7 +130,7 @@ export function openImageUploadMenu(
  * editor rides the generic `"link-edit"` overlay. The web app maps the
  * `"link-tooltip"` / `"link-edit"` keys to the React components (`NODE_OVERLAYS`).
  */
-class CypherLinkMark extends LinkMark {
+class TasferLinkMark extends LinkMark {
   override overlays(c: MarkOverlayCtx): readonly NodeOverlay[] {
     const menu = c.state.ui.activeMenu;
     // The edit popover must take precedence over the hover tooltip. Opening the
@@ -181,7 +181,7 @@ export interface LinkEditOverlayData {
 }
 
 /**
- * Open the link edit/create popover declared by {@link CypherLinkMark}. Pass
+ * Open the link edit/create popover declared by {@link TasferLinkMark}. Pass
  * empty `url`/`text` with `selectedText` to create a new link from a selection.
  * Co-located with the overlay's owner; builds the opaque payload and hands it to
  * the editor's generic `openOverlay`. The anchor `(x, y)` is in canvas/container
@@ -211,7 +211,7 @@ export function openLinkEditMenu(
  * `data`, so toggling it re-renders the React overlay (see `CodeLanguageOverlay`
  * in MountedEditor).
  */
-class CypherCodeNode extends CodeNode {
+class TasferCodeNode extends CodeNode {
   override overlays(c: NodeRegionCtx): readonly NodeOverlay[] {
     const base = super.overlays(c);
     if (base.length === 0) return base;
@@ -233,7 +233,7 @@ class CypherCodeNode extends CodeNode {
 }
 
 /**
- * Open the language-picker drawer declared by {@link CypherCodeNode}. Co-located
+ * Open the language-picker drawer declared by {@link TasferCodeNode}. Co-located
  * with the overlay's owner; hands the block off to the editor's generic
  * `openOverlay`. The picker is a bottom sheet on mobile, so the `(x, y)` anchor
  * is unused — pass `(0, 0)`. Used by the host keyboard toolbar's "code language"
@@ -250,7 +250,7 @@ export function openCodeLanguageMenu(editor: AppEditor, blockId: string): void {
  * `baseSchema` default, so the host owns its schema: adding a custom block type
  * (`defineNode`) or mark (`defineMark`) — or dropping one the app doesn't want —
  * is a one-line edit in this file. It mirrors the built-in set, except the image
- * node is our hash-resolving {@link CypherImageNode}.
+ * node is our hash-resolving {@link TasferImageNode}.
  *
  * The CRDT + serialization half is the app-owned `appDataSchema`: core data
  * plus the math data facets, each carried by the spec that owns it. The
@@ -266,19 +266,19 @@ export const appSchema = new Schema(
     .withFeatures({ inputRules: mathInputRules }),
   [
     new LineNode(),
-    new CypherImageNode(),
+    new TasferImageNode(),
     new MathNode(),
     new QuoteNode(),
     new TextNode(),
     new ListNode(),
-    new CypherCodeNode(),
+    new TasferCodeNode(),
   ],
   [
     new StrongMark(),
     new EmphasisMark(),
     new StrikeMark(),
     new CodeMark(),
-    new CypherLinkMark(),
+    new TasferLinkMark(),
     new MathMark(),
   ],
 );

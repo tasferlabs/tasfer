@@ -7,10 +7,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
-      "@cypherkit/editor": resolve(__dirname, "../../packages/editor/src"),
-      "@cypherkit/tex": resolve(__dirname, "../../packages/tex/src"),
-      "@cypherkit/react": resolve(__dirname, "../../packages/react/src"),
-      "@cypherkit/provider-core": resolve(
+      "@tasfer/editor": resolve(__dirname, "../../packages/editor/src"),
+      "@tasfer/tex": resolve(__dirname, "../../packages/tex/src"),
+      "@tasfer/react": resolve(__dirname, "../../packages/react/src"),
+      "@tasfer/provider-core": resolve(
         __dirname,
         "../../packages/provider-core/src",
       ),

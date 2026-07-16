@@ -8,10 +8,10 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
 
     private lazy var baseURL: URL = {
         let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let cypher = docs.appendingPathComponent("cypher", isDirectory: true)
+        let tasfer = docs.appendingPathComponent("tasfer", isDirectory: true)
         try? fileManager.createDirectory(
-            at: cypher, withIntermediateDirectories: true, attributes: nil)
-        return cypher
+            at: tasfer, withIntermediateDirectories: true, attributes: nil)
+        return tasfer
     }()
 
     func userContentController(

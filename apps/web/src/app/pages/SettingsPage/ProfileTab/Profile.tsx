@@ -6,7 +6,7 @@ import { useAuth } from "@/app/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { getDisplayName } from "@cypherkit/provider-core/cursors";
+import { getDisplayName } from "@tasfer/provider-core/cursors";
 import { Camera, Trash } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";

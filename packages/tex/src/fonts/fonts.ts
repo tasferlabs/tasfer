@@ -6,7 +6,7 @@
  */
 import type { FontVariant } from "../data/fontMetrics";
 
-const FAMILY_PREFIX = "CypherTeX_";
+const FAMILY_PREFIX = "TasferTeX_";
 
 /** CSS font-family name for a face variant. */
 export function fontFamily(variant: FontVariant): string {

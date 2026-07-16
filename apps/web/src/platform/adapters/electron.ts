@@ -22,7 +22,7 @@ interface ElectronBridge {
 }
 
 function getBridge(): ElectronBridge {
-  const bridge = (window as any).cypher as ElectronBridge | undefined;
+  const bridge = (window as any).tasfer as ElectronBridge | undefined;
   invariant(bridge, "Electron bridge not available");
   return bridge;
 }

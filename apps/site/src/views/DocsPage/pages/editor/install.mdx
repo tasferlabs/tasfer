@@ -1,9 +1,9 @@
-{/* @cypherkit/editor docs — Installation. */}
+{/* @tasfer/editor docs — Installation. */}
 
 import { Icons } from "../../docsIcons";
 import { Callout, Card, CardGrid, FrameworkTabs, InstallTabs, LicenseCard } from "../../docsComponents";
 
-<p className="dx-lede">`@cypherkit/editor` is a CRDT-first canvas editor for the web — the same engine that powers the Tasfer app, published as a standalone, framework-agnostic package. **It renders to a canvas, models your document as a conflict-free replicated data type, and never assumes a server exists.**</p>
+<p className="dx-lede">`@tasfer/editor` is a CRDT-first canvas editor for the web — the same engine that powers the Tasfer app, published as a standalone, framework-agnostic package. **It renders to a canvas, models your document as a conflict-free replicated data type, and never assumes a server exists.**</p>
 
 <LicenseCard>Released under the **MIT license**. Use it in commercial and closed-source products, fork it, rebrand it — no copyleft, no attribution clause beyond keeping the license file. (The Tasfer *app* is AGPL-3.0; the editor package is deliberately permissive.)</LicenseCard>
 
@@ -11,11 +11,11 @@ import { Callout, Card, CardGrid, FrameworkTabs, InstallTabs, LicenseCard } from
 
 Add the package with your package manager of choice:
 
-<InstallTabs pkg="@cypherkit/editor" />
+<InstallTabs pkg="@tasfer/editor" />
 
 The core package has **zero runtime dependencies**. The CRDT, the canvas renderer, and the markdown serializer all ship inside it. You only add more packages when you want a framework binding or a network provider:
 
-<InstallTabs pkg="@cypherkit/react @cypherkit/provider-relay" />
+<InstallTabs pkg="@tasfer/react @tasfer/provider-relay" />
 
 <h2 id="requirements">Requirements</h2>
 
@@ -30,7 +30,7 @@ The smallest thing that works — an editable document with markdown shortcuts, 
 <FrameworkTabs>
 
 ```ts file="main.ts"
-import { createEditor } from "@cypherkit/editor";
+import { createEditor } from "@tasfer/editor";
 
 const editor = createEditor({
   element: document.querySelector("#editor")!,
@@ -45,7 +45,7 @@ editor.on("change", () => {
 ```
 
 ```tsx file="App.tsx"
-import { Editor } from "@cypherkit/react";
+import { Editor } from "@tasfer/react";
 
 export default function App() {
   return (

@@ -21,9 +21,9 @@ import React, {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { CONVERT_BLOCK, TEXT_INPUT } from "@cypherkit/editor";
+import { CONVERT_BLOCK, TEXT_INPUT } from "@tasfer/editor";
 import type { AppEditor } from "../editorSchema";
-import { isTouchDevice } from "@cypherkit/editor/internal";
+import { isTouchDevice } from "@tasfer/editor/internal";
 import { ScrollArea } from "../components/ui/scroll-area";
 
 /** Block types the slash menu can insert. Assignable to the engine's `Block["type"]`. */

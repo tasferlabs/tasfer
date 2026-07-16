@@ -4,7 +4,7 @@
  * back to a source offset. `getInlineMathCaretX` (source offset → x within the
  * chip) and `getInlineMathOffsetAtX` (local x → source offset) must be mutual
  * inverses at the formula's caret stops, and the x must advance left→right
- * across the formula. These run on `@cypherkit/tex`'s real data-table layout,
+ * across the formula. These run on `@tasfer/tex`'s real data-table layout,
  * so they are deterministic without a canvas.
  */
 import {

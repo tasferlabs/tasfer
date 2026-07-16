@@ -2,8 +2,8 @@ import {
   titleBlockWindow,
   type Doc,
   type EditorTheme,
-} from "@cypherkit/editor";
-import { getFontMetrics, onFontsReady } from "@cypherkit/editor/internal";
+} from "@tasfer/editor";
+import { getFontMetrics, onFontsReady } from "@tasfer/editor/internal";
 import i18next from "i18next";
 import {
   useCallback,
@@ -289,7 +289,7 @@ export function TitleEditor({
       // the canvas from the same metrics. Focus lands on the editor's hidden
       // input inside the container, so the ring uses focus-within.
       className={cn(
-        "cypher-title-editor",
+        "tasfer-title-editor",
         "border-input dark:bg-input/30 w-full min-w-0 rounded-md border bg-transparent shadow-xs transition-[color,box-shadow] outline-none",
         editable &&
           "focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-3",
