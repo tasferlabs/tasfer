@@ -1,7 +1,7 @@
 # Engineering Reference
 
 Read this document only when working in the relevant subsystem. The operational
-rules that apply to every task live in the repository root `agent.md`.
+rules that apply to every task live in the repository root `AGENTS.md`.
 
 ## Editor package
 

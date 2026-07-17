@@ -144,7 +144,7 @@ backslash guards, which do hold for `\` typed directly before `&`/`\\`.
 - The parser silently discards `&`/`\\` inside an unclosed group via the
   non-progress guard (`parser.ts:104`).
 - The renderer paints unknown commands as raw red LaTeX to the *reader*
-  (`layout/build.ts:1788`), violating the agent.md rule that a reader never sees
+  (`layout/build.ts:1788`), violating the AGENTS.md rule that a reader never sees
   raw source. A typed unknown command (`\frak`) is NOT blocked (blocking a
   keystroke is worse than showing red), so this renderer fix is the real remedy
   and is tracked independently.
@@ -186,7 +186,7 @@ The evaluated strategies (incremental hardening, transactional gate, structured
 editing) converge on one sequence. Structured editing is the correctness
 destination but must not ship cold; the earlier phases stop the bleeding and
 double as its safety net. The product is unreleased, so no compatibility shims
-are needed (agent.md).
+are needed (AGENTS.md).
 
 ### Phase 0 — kill the live bugs (small, localized) — DONE
 
