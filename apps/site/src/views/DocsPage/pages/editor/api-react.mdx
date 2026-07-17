@@ -1,8 +1,13 @@
 {/* @tasfer/editor API reference — React bindings. */}
 
-import { Callout, PropsTable } from "../../docsComponents";
+import { Callout, Lede, PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">`@tasfer/react` is the thin React 19 binding over the headless engine — a hook to own an editor, a component to render one, and `useSyncExternalStore` subscriptions for toolbars and live preview. Every piece is per-instance, so any number of editors can live on one page.</p>
+<Lede>
+  `@tasfer/react` is the thin React 19 binding over the headless engine — a hook
+  to own an editor, a component to render one, and `useSyncExternalStore`
+  subscriptions for toolbars and live preview. Every piece is per-instance, so
+  any number of editors can live on one page.
+</Lede>
 
 ```ts
 import { Editor, useEditor, useEditorState } from "@tasfer/react";

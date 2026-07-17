@@ -1,17 +1,18 @@
 {/* Tasfer app docs — Getting started. The pager and article header are supplied by the shell. */}
 
 import { Icons } from "../../docsIcons";
-import { Callout, Card, CardGrid, Step, Steps } from "../../docsComponents";
+import { Callout, Card, CardGrid, Lede, Step, Steps } from "../../docsComponents";
+import { APP_OPEN_URL } from "@/lib/appUrl";
 
-<p className="dx-lede">
+<Lede>
   Tasfer is a local-first, peer-to-peer markdown-based editor. Your work is
   stored on your device, and sync happens directly between your devices. **There
   is no account to create — you just start by opening the app.**
-</p>
+</Lede>
 
 <h2 id="install">Install</h2>
 
-Tasfer runs as a desktop app and as a local web build. Pick whichever fits your machine:
+Tasfer runs as a native desktop app, and also right in your browser as a local web build. Pick whichever fits your machine:
 
 <CardGrid>
   <Card
@@ -21,10 +22,10 @@ Tasfer runs as a desktop app and as a local web build. Pick whichever fits your 
     desc="Signed builds on the GitHub releases page. The app checks GitHub Releases for updates."
   />
   <Card
-    to="app/getting-started"
-    icon={<Icons.Terminal />}
-    title="Run it yourself"
-    desc="Clone the repo (the app is AGPL-3.0) and run a local build. The signaling relay is a separate, optional service."
+    to={APP_OPEN_URL}
+    icon={<Icons.Compass />}
+    title="Open in web"
+    desc="Launch Tasfer straight in your browser — nothing to install, your work still stays local on your device."
   />
 </CardGrid>
 

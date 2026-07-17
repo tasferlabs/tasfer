@@ -6,22 +6,10 @@ import BrandMark from "@/components/BrandMark";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/providers/ThemeProvider";
 import { loadArabicFonts } from "@/lib/fonts";
+import { APP_OPEN_URL } from "@/lib/appUrl";
 import "./HomePage.css";
 
 const REPO_URL = "https://github.com/hamza512b/tasfer";
-// The editor SPA (apps/web) is a separate app served at its own origin
-// (https://tasfer.app, the apex), while this marketing site is served from a
-// different origin (www.tasfer.app). "open tasfer" must therefore be an absolute
-// full-page navigation (plain <a>) to the app origin — a same-origin "/page" or
-// a next/link client route would resolve against the marketing site, which does
-// not serve the editor, and 404. NEXT_PUBLIC_APP_URL overrides the base;
-// https://tasfer.app is the prod default, localhost:4000 is the dev fallback.
-const APP_URL =
-  process.env.NEXT_PUBLIC_APP_URL ??
-  (process.env.NODE_ENV === "development"
-    ? "http://localhost:4000"
-    : "https://tasfer.app");
-const APP_OPEN_URL = `${APP_URL}/page`;
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
