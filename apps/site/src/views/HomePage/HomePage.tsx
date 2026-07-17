@@ -119,22 +119,6 @@ const Icons = {
       <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07L12.5 19.5" />
     </svg>
   ),
-  ArrowLeftRight: (p: SVGProps<SVGSVGElement>) => (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...p}
-    >
-      <path d="M8 3 4 7l4 4" />
-      <path d="M4 7h16" />
-      <path d="m16 21 4-4-4-4" />
-      <path d="M20 17H4" />
-    </svg>
-  ),
 };
 
 /* ── Theme toggle wired to the app's ThemeProvider ── */
@@ -762,10 +746,9 @@ export default function HomePage() {
                 <dt>{t("home.lp.define.fact.syncK", "sync")}</dt>
                 <dd className="lp-define-sync">
                   {t("home.lp.define.fact.syncDevice", "device")}
-                  <Icons.ArrowLeftRight
-                    className="lp-define-sync-icon"
-                    aria-hidden="true"
-                  />
+                  <span className="lp-define-sync-to">
+                    {t("home.lp.define.fact.syncTo", "to")}
+                  </span>
                   {t("home.lp.define.fact.syncDevice", "device")}
                 </dd>
               </div>
@@ -988,11 +971,7 @@ export default function HomePage() {
 
         {/* ── V — Begin ── */}
         <section className="lp-finale">
-          <div
-            className="lp-hero-grid"
-            aria-hidden="true"
-            style={{ opacity: 0.35 }}
-          />
+          <div className="lp-hero-grid lp-finale-grid" aria-hidden="true" />
           <div className="column" style={{ position: "relative" }}>
             <h2 className="lp-finale-title">
               {t("home.lp.finale.titleA", "Your words.")}
