@@ -28,7 +28,7 @@ The core package has **zero runtime dependencies**. The CRDT, the canvas rendere
 - **ES2020 or a bundler that targets it.** The package ships ESM with a CommonJS interop entry. Types are bundled — no `@types` install.
 - **No build step required for the CRDT.** It's pure JavaScript — there's nothing to copy into your `public/` folder.
 
-<h2 id="first">A thirty-second editor</h2>
+<h2 id="first">A 30-second editor</h2>
 
 The smallest thing that works — an editable document with markdown shortcuts, history, and a blinking cursor. In plain JS you mount the engine into an element you own; in React you render the `<Editor>` component, which owns and sizes its host for you and reports edits through `onChange`. Flip the tab:
 
