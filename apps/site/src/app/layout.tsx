@@ -30,7 +30,7 @@ const SITE_ORIGIN = "https://www.tasfer.app";
 // searches for or cares about.
 const TITLE = "Tasfer — private markdown notes that stay on your device";
 const DESCRIPTION =
-  "A markdown editor that keeps your writing yours — every note stays on your device, end-to-end encrypted, syncing directly between your devices. No cloud. No account. No company reading your words.";
+  "A markdown-based editor that keeps your writing yours — every note stays on your device, end-to-end encrypted, syncing directly between your devices. No cloud. No account. No company reading your words.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),

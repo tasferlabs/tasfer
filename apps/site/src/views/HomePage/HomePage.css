@@ -443,6 +443,16 @@
   color: var(--primary);
   text-decoration-color: var(--primary);
 }
+.lp-define-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.lp-define-sync-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--cy-muted-fg);
+}
 
 .lp-btn-accent {
   background: var(--primary);

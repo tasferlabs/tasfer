@@ -3,7 +3,11 @@
 import { Icons } from "../../docsIcons";
 import { Callout, Card, CardGrid, Step, Steps } from "../../docsComponents";
 
-<p className="dx-lede">Tasfer is a local-first, peer-to-peer markdown editor. Your work is stored on your device, your keys never leave it, and sync happens directly between your devices. **There is no account to create — you start by opening the app.**</p>
+<p className="dx-lede">
+  Tasfer is a local-first, peer-to-peer markdown-based editor. Your work is
+  stored on your device, and sync happens directly between your devices. **There
+  is no account to create — you just start by opening the app.**
+</p>
 
 <h2 id="install">Install</h2>
 
@@ -24,16 +28,6 @@ Tasfer runs as a desktop app and as a local web build. Pick whichever fits your 
   />
 </CardGrid>
 
-To build from source:
-
-```bash
-git clone https://github.com/hamza512b/tasfer
-cd tasfer
-npm install
-cd apps/web
-npm run dev       # opens the app at http://localhost:4000
-```
-
 <h2 id="first-doc">Your first document</h2>
 
 <Steps>
@@ -41,14 +35,20 @@ npm run dev       # opens the app at http://localhost:4000
     On first launch, Tasfer asks you to create a space — or join someone else's with an invite. A space is a collection of pages that lives entirely on your device, in a local database.
   </Step>
   <Step title="Write">
-    Markdown shortcuts work as you type: `#` for headings, `**bold**`, `>` for quotes, `- [ ]` for tasks. Everything is saved locally the instant you type — there is no "save" button and no spinner reporting to a server.
+    Markdown shortcuts work as you type: `#` for headings, `**bold**`, `>` for quotes, `- [ ]` for tasks. Everything is saved locally the instant you type — there is no "save" button, but all your changes are backed with with you.
   </Step>
   <Step title="Export any time">
     **Settings → Data → Export all** writes every page out as plain markdown in a ZIP — files you can open in any editor, today or in twenty years. Individual pages export as Markdown, HTML, PDF, or plain text, and the same Data tab imports markdown files or a ZIP back in.
   </Step>
 </Steps>
 
-<Callout kind="note" title="No telemetry, ever.">Tasfer ships with no analytics SDK, no crash reporting, and no account system. The network is used for two things only: syncing spaces you have shared, and (on desktop) checking GitHub for app updates. Your documents are never uploaded anywhere. See [Privacy & data](/docs/app/privacy) for the complete accounting.</Callout>
+<Callout kind="note" title="No telemetry, ever.">
+  Tasfer ships with no analytics SDK, no crash reporting, and no account system.
+  The network is used for two things only: syncing spaces you have shared, and
+  (on desktop) checking GitHub for app updates. Your documents are never
+  uploaded anywhere. See [Privacy & data](/docs/app/privacy) for the complete
+  accounting.
+</Callout>
 
 <h2 id="next">Next steps</h2>
 

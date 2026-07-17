@@ -49,7 +49,6 @@ export default function DocsPage() {
       <div className="dx-hub">
         <div className="dx-hub-grid" aria-hidden="true" />
         <div className="dx-hub-inner">
-          <div className="dx-hub-eyebrow">{t("docs.hub.eyebrow", "documentation")}</div>
           <h1 className="dx-hub-title">
             {t("docs.hub.title.a", "Two things to read.")}
             <br />
@@ -127,7 +126,6 @@ export default function DocsPage() {
           <div className="dx-hub-foot-brand">
             <BrandMark />
             <span className="dx-hub-foot-name">tasfer</span>
-            <span className="dx-hub-foot-tail">{t("docs.hub.foot.tagline", "— documentation, built in the open.")}</span>
           </div>
           <div className="dx-hub-foot-links">
             <Link to="/home">{t("docs.hub.foot.landing", "landing")}</Link>

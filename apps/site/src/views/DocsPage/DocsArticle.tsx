@@ -31,7 +31,6 @@ function Breadcrumb({ meta }: { meta: PageMeta }) {
         <span className="sep">/</span>
         <span className="cur">{meta.title}</span>
       </div>
-      <div className="dx-eyebrow">{meta.eyebrow}</div>
       <h1 className="dx-h1">{meta.title}</h1>
     </>
   );

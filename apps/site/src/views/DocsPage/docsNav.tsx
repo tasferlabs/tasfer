@@ -100,7 +100,6 @@ export interface PageMeta extends NavItem {
   section: string;
   sectionId: string;
   group: string | null;
-  eyebrow: string;
 }
 
 /** Flat ordered list of pages (for the pager) + a route→meta lookup. */
@@ -115,7 +114,6 @@ NAV.forEach((section) => {
         section: section.label,
         sectionId: section.id,
         group: group.label,
-        eyebrow: group.label || section.label,
       };
       FLAT.push(meta);
       PAGE[item.route] = meta;

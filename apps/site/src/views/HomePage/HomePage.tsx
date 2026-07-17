@@ -131,6 +131,22 @@ const Icons = {
       <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07L12.5 19.5" />
     </svg>
   ),
+  ArrowLeftRight: (p: SVGProps<SVGSVGElement>) => (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...p}
+    >
+      <path d="M8 3 4 7l4 4" />
+      <path d="M4 7h16" />
+      <path d="m16 21 4-4-4-4" />
+      <path d="M20 17H4" />
+    </svg>
+  ),
 };
 
 /* ── Theme toggle wired to the app's ThemeProvider ── */
@@ -591,14 +607,6 @@ export default function HomePage() {
   const refusals: [string, string, string][] = [
     [
       "i.",
-      t("home.lp.refusal.files.name", "your files"),
-      t(
-        "home.lp.refusal.files.detail",
-        "Plain markdown. On your disk. In folders you arranged. Openable in any editor, today and in twenty years — long after we, and our company, are gone.",
-      ),
-    ],
-    [
-      "ii.",
       t("home.lp.refusal.keys.name", "your keys"),
       t(
         "home.lp.refusal.keys.detail",
@@ -606,7 +614,7 @@ export default function HomePage() {
       ),
     ],
     [
-      "iii.",
+      "ii.",
       t("home.lp.refusal.sync.name", "your sync"),
       t(
         "home.lp.refusal.sync.detail",
@@ -614,7 +622,7 @@ export default function HomePage() {
       ),
     ],
     [
-      "iv.",
+      "iii.",
       t("home.lp.refusal.backups.name", "your backups"),
       t(
         "home.lp.refusal.backups.detail",
@@ -622,23 +630,23 @@ export default function HomePage() {
       ),
     ],
     [
-      "v.",
+      "iv.",
       t("home.lp.refusal.fork.name", "your fork"),
       t(
         "home.lp.refusal.fork.detail",
-        "AGPL-3.0. Take the code. Swap the relay for your own. Ship your own build. The copyleft is the point: every fork inherits the same refusal.",
+        "AGPL-3.0 or MIT. Take the code. Swap the relay for your own. Ship your own build. The license is the point: the refusal is in the code, and the code is yours to keep.",
+      ),
+    ],
+    [
+      "v.",
+      t("home.lp.refusal.leave.name", "your right to leave"),
+      t(
+        "home.lp.refusal.leave.detail",
+        "There is no account to delete because there was never one to begin with. You walk away by making an export and closing the tab.",
       ),
     ],
     [
       "vi.",
-      t("home.lp.refusal.leave.name", "your right to leave"),
-      t(
-        "home.lp.refusal.leave.detail",
-        "There is no account to delete because there was never one to begin with. You walk away by closing the tab.",
-      ),
-    ],
-    [
-      "vii.",
       t("home.lp.refusal.attention.name", "your attention"),
       t(
         "home.lp.refusal.attention.detail",
@@ -695,7 +703,7 @@ export default function HomePage() {
                 "Open a tab. Open a notes app. Type a half-formed idea, a draft email, a thing you would not say out loud. It lands on a server you do not own, in a city you have never been to, governed by a fourteen-page agreement you did not read. ",
               )}
               <strong>
-                {t("home.lp.hero.ledeStrong", "Tasfer refuses the trade.")}
+                {t("home.lp.hero.ledeStrong", "Tasfer refuses that trade.")}
               </strong>
               {t(
                 "home.lp.hero.lede2",
@@ -742,13 +750,13 @@ export default function HomePage() {
           <div className="column">
             <h2 className="lp-section-title">
               {t("home.lp.define.titleA", "Tasfer is a ")}
-              <em>{t("home.lp.define.titleEm", "markdown editor")}</em>
+              <em>{t("home.lp.define.titleEm", "markdown-based editor")}</em>
               {t("home.lp.define.titleB", ".")}
             </h2>
             <p className="lp-define-lede">
               {t(
                 "home.lp.define.lede",
-                "An app you write in. Notes, drafts, journals — stored on your own disk, encrypted end-to-end when they travel, synced device-to-device with no server and no account.",
+                "An app you write in. Notes, drafts, journals — stored on your own disk, encrypted end-to-end when they travel, synced device-to-device with no central server and no account.",
               )}
             </p>
             <blockquote className="lp-pullquote">
@@ -764,18 +772,13 @@ export default function HomePage() {
               </div>
               <div className="lp-define-fact">
                 <dt>{t("home.lp.define.fact.syncK", "sync")}</dt>
-                <dd>{t("home.lp.define.fact.syncV", "device ⇔ device")}</dd>
-              </div>
-              <div className="lp-define-fact">
-                <dt>{t("home.lp.define.fact.priceK", "price")}</dt>
-                <dd>
-                  <a
-                    href={`${REPO_URL}/blob/main/LICENSE`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {t("home.lp.define.fact.priceV", "AGPL-3.0")}
-                  </a>
+                <dd className="lp-define-sync">
+                  {t("home.lp.define.fact.syncDevice", "device")}
+                  <Icons.ArrowLeftRight
+                    className="lp-define-sync-icon"
+                    aria-hidden="true"
+                  />
+                  {t("home.lp.define.fact.syncDevice", "device")}
                 </dd>
               </div>
             </dl>
@@ -1048,9 +1051,9 @@ export default function HomePage() {
             <span className="lp-footer-word">tasfer</span>
           </div>
           <div className="lp-footer-links">
-            <a href="#premise" onClick={scrollTo("premise")}>
+            <Link to="/docs/internals/manifest">
               {t("home.lp.footer.manifesto", "manifesto")}
-            </a>
+            </Link>
             <Link to="/docs">{t("home.lp.footer.docs", "docs")}</Link>
             <a href={REPO_URL} target="_blank" rel="noreferrer">
               {t("home.lp.footer.source", "source")}
