@@ -13,11 +13,15 @@ loaded.
 
 ## 1. Generate a trusted LAN cert (once)
 
+Install the mkcert root CA into your Mac keychain, then generate the cert.
+`mkdir` is required — mkcert does not create the `certs/` directory.
+
 ```sh
 brew install mkcert
-mkcert -install                 # installs the mkcert root CA into your Mac keychain
+mkcert -install
 
 cd apps/web
+mkdir -p certs
 mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem \
   <your-LAN-IP> localhost tasfer.app
 ```

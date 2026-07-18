@@ -20,6 +20,7 @@ const buildTimestamp = DateTime.utc().toFormat("yyyyMMddHHmm");
 // rejects an untrusted cert outright), so generate it with mkcert, whose local
 // CA you install once on the device:
 //   brew install mkcert && mkcert -install
+//   mkdir -p certs
 //   mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem \
 //     <your-LAN-IP> localhost tasfer.app
 // `certs/` is gitignored. If host mode is requested without the cert present we
@@ -43,6 +44,7 @@ if (isHostMode && !lanHttps) {
       "       context and crypto.subtle / OPFS / Web Locks will be undefined.\n" +
       "       Generate a trusted cert:\n" +
       "         brew install mkcert && mkcert -install\n" +
+      "         mkdir -p certs\n" +
       "         mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem <LAN-IP> localhost tasfer.app\n",
   );
 }
