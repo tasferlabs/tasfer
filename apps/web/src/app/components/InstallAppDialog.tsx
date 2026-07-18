@@ -376,7 +376,7 @@ function DesktopAppDownloads() {
   );
 }
 
-/** Official App Store / Google Play badges (same artwork as MobileAppGate). */
+/** Official App Store / Google Play badges (same artwork as MobileAppNudge). */
 function MobileAppBadges() {
   const { t } = useTranslation();
   const base = import.meta.env.BASE_URL;
@@ -503,8 +503,8 @@ export function InstallAppDialog({
               </DrawerTitle>
               <DrawerDescription>
                 {t(
-                  "install.description",
-                  "Right now your notes sit in browser storage, which the browser may clear to free up space. Installing Tasfer moves them to protected storage.",
+                  "install.descriptionMobile",
+                  "In the browser, offline support is limited and your notes sit in storage the browser may clear. The app works fully offline and keeps notes in protected storage.",
                 )}
               </DrawerDescription>
             </DrawerHeader>
@@ -525,7 +525,7 @@ export function InstallAppDialog({
           <DialogDescription>
             {t(
               "install.description",
-              "Right now your notes sit in browser storage, which the browser may clear to free up space. Installing Tasfer moves them to protected storage.",
+              "Right now your notes sit in browser storage, which the browser may clear to free up space. Here are a few ways to protect them.",
             )}
           </DialogDescription>
         </DialogHeader>

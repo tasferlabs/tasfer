@@ -8,6 +8,8 @@ import { Direction } from "radix-ui";
 import { registerSW } from "virtual:pwa-register";
 import { initPlatform } from "./platform";
 import { AuthProvider } from "./app/contexts/AuthContext";
+import { PopupQueueProvider } from "./app/contexts/PopupQueueContext";
+import { markVisit } from "./lib/appVisits";
 import { ToastProvider } from "./app/components/Toast";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
@@ -15,7 +17,7 @@ import { router } from "./app/routes/Router";
 import { initNativeDevToolsSync } from "./lib/devTools";
 import { requestPersistentStorage } from "./lib/persistentStorage";
 import LoadingScreen from "./components/ui/loading-screen";
-import { MobileAppGate } from "./app/components/MobileAppGate/MobileAppGate";
+import { MobileAppNudge } from "./app/components/MobileAppNudge/MobileAppNudge";
 import { loadFonts, loadArabicFonts } from "./fonts";
 import "./i18n";
 import i18next from "i18next";
@@ -90,6 +92,10 @@ initNativeDevToolsSync();
 // no-op on Electron/Capacitor; result surfaced in Settings → Data.
 requestPersistentStorage().catch(() => {});
 
+// Count this load once, so visit-gated popovers (the mobile app gate) can hold
+// back from a visitor's first impression.
+markVisit();
+
 // Start font loading in background — don't block initial render.
 // Font metrics are computed lazily on first use per size/weight combo.
 loadFonts();
@@ -137,8 +143,10 @@ const App = () => (
           <ToastProvider>
             <VersionProvider>
               <Suspense fallback={<LoadingScreen />}>
-                <RouterProvider router={router} />
-                <MobileAppGate />
+                <PopupQueueProvider>
+                  <RouterProvider router={router} />
+                  <MobileAppNudge />
+                </PopupQueueProvider>
               </Suspense>
             </VersionProvider>
           </ToastProvider>

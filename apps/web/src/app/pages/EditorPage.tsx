@@ -15,15 +15,13 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type Block } from "@tasfer/editor";
-import type { CursorUser } from "@tasfer/provider-core/cursors";
-import { countWordsFromBlocks } from "@/lib/documentStats";
-import { deriveTitles } from "@/lib/pageTitle";
-import { TitlePreview } from "../TitlePreview";
 import {
   formatDatePreferred,
   formatTimePreferred,
 } from "@/lib/dateTimePreferences";
+import { countWordsFromBlocks } from "@/lib/documentStats";
+import { deriveTitles } from "@/lib/pageTitle";
+import { buildEnvTable, buildIssueUrl, useReportPath } from "@/lib/reportIssue";
 import {
   DURATION_OPTIONS,
   formatDurationLabel,
@@ -31,14 +29,18 @@ import {
 } from "@/lib/utils";
 import * as Popover from "@radix-ui/react-popover";
 import { useQueryClient } from "@tanstack/react-query";
+import { type Block } from "@tasfer/editor";
+import type { CursorUser } from "@tasfer/provider-core/cursors";
 import { debounce } from "lodash-es";
 import {
   Calendar,
   ChevronDown,
   ChevronRight,
+  Github,
   History,
   Image as ImageIcon,
   Trash,
+  TriangleAlert,
 } from "lucide-react";
 import { DateTime } from "luxon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -50,6 +52,7 @@ import { PageSettings } from "../components/PageSettings";
 import { SavingIndicator } from "../components/SavingIndicator";
 import { TopActionBarPortal } from "../layout/TopActionBarSlot";
 import { MountedEditor } from "../MountedEditor";
+import { TitlePreview } from "../TitlePreview";
 
 import { useP2PPageEvents } from "@/app/hooks/useP2PPageEvents";
 import { PagePicker } from "@/components/PagePicker";
@@ -62,12 +65,13 @@ import {
   useMovePage,
   useUpdatePage,
 } from "../api/pages.api";
+import CorruptionErrorState from "../components/illustrations/corruption-state";
 import EmptyStateIllustration from "../components/illustrations/empty-state";
-import ErrorStateIllustration from "../components/illustrations/error-state";
-import NotFoundStateIllustration from "../components/illustrations/not-found-state";
-import { SnapshotRestore } from "../components/SnapshotRestore";
+
 import { openImageUploadMenu } from "@/editorSchema";
 import { imageBleedHeight } from "@tasfer/editor/internal";
+import NotFoundStateIllustration from "../components/illustrations/not-found-state";
+import { SnapshotRestore } from "../components/SnapshotRestore";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import {
   NARROW_CONTENT_WIDTH,
@@ -238,12 +242,6 @@ export default function EditorPage() {
     },
   });
 
-  useEffect(() => {
-    if (isError) {
-      setLastPageId(null);
-    }
-  }, [isError, setLastPageId]);
-
   // Set persisted state when entering error/empty conditions
   // Once set, this state persists until user navigates (id changes)
   useEffect(() => {
@@ -261,6 +259,8 @@ export default function EditorPage() {
         (isError || pageSnapshot === null || isDeletedByOther)
       ) {
         setPersistedState("not-found");
+        // Forget the dead page so "/" doesn't redirect back to it
+        setLastPageId(null);
       }
     }
   }, [
@@ -273,6 +273,7 @@ export default function EditorPage() {
     pageSnapshot,
     isDeletedByOther,
     persistedState,
+    setLastPageId,
   ]);
 
   // Cleanup debounced word count on unmount
@@ -462,6 +463,12 @@ export default function EditorPage() {
     },
     [setActiveUsers],
   );
+
+  // For testing corrupted state.
+  // return <EditorCorruptedState />;
+
+  // For testing error state.
+  // return <EditorErrorState />;
 
   // Check persisted state first - once entered, stay until user navigates
   if (persistedState === "empty") {
@@ -1119,29 +1126,95 @@ function EditorEmptyState() {
 
 function EditorNotFoundState() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { activeSpaceId } = useSpaces();
+  const { data: pages } = useGetPages(activeSpaceId, null);
+  const hasPages = !!pages && pages.length > 0;
+  const { mutate: createPage, isPending: isCreating } = useCreatePage({
+    onSuccess: (newPage, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["pages", { parentId: variables.parentId }],
+      });
+      navigate(`/page/${newPage.id}`);
+    },
+  });
+
+  function handleAdd() {
+    if (!activeSpaceId) return;
+    createPage({ title: "", parentId: null, spaceId: activeSpaceId });
+  }
+
   return (
     <div className={style.appErrorState}>
-      <NotFoundStateIllustration />
+      <NotFoundStateIllustration className="w-39" />
       <div className={style.appError}>
-        {t("error.pageNotFound", "The page has not been found")}
+        {t("error.pageNotFound", "Page not found")}
       </div>
       <p className={style.appErrorDescription}>
-        {t(
-          "error.pageDeletedOrNotExist",
-          "The page has been deleted or does not exist",
-        )}
+        {hasPages
+          ? t(
+              "error.pageNotFoundBody",
+              "It may have been deleted, or the link may be wrong. Your other pages are in the sidebar.",
+            )
+          : t(
+              "error.pageNotFoundBodyEmpty",
+              "It may have been deleted, or the link may be wrong. Create a new page to get started.",
+            )}
       </p>
+      {hasPages ? (
+        <Button onClick={() => navigate("/")}>
+          {t("error.goToMyPages", "Go to my pages")}
+        </Button>
+      ) : (
+        <Button onClick={() => handleAdd()} disabled={isCreating}>
+          {t("page.createNewPage", "Create new page")}
+        </Button>
+      )}
     </div>
   );
 }
 
 export function EditorErrorState() {
   const { t } = useTranslation();
+  const reportPath = useReportPath();
+
+  const reportUrl = buildIssueUrl(
+    "[Bug] Page failed to load",
+    [
+      t(
+        "error.pageLoadFailedReportIntro",
+        "A page failed to load. Add anything that might help us reproduce it:",
+      ),
+      "",
+      "---",
+      "",
+      buildEnvTable(reportPath),
+    ].join("\n"),
+  );
+
   return (
     <div className={style.appErrorState}>
-      <ErrorStateIllustration />
+      <TriangleAlert className="mx-auto mb-2 size-24 text-red-300 dark:text-red-600" />
       <div className={style.appError}>
-        {t("error.pageLoadFailed", "Error occurred loading the page")}
+        {t("error.pageLoadFailed", "This page couldn't load")}
+      </div>
+      <p className={style.appErrorDescription}>
+        {t(
+          "error.pageLoadFailedBody",
+          "Something unexpected went wrong while opening it. Try reloading — if that doesn't help, report the issue so we can track it down.",
+        )}
+      </p>
+      <div className="flex gap-3">
+        <Button onClick={() => window.location.reload()}>
+          {t("error.boundary.reload", "Reload")}
+        </Button>
+        <Button variant="outline" asChild>
+          <a href={reportUrl} target="_blank" rel="noreferrer noopener">
+            <Github className="h-4 w-4 mr-2" />
+            {t("error.boundary.reportIssue", "Report issue")}
+          </a>
+        </Button>
       </div>
     </div>
   );
@@ -1150,23 +1223,44 @@ export function EditorErrorState() {
 function EditorCorruptedState() {
   const { t } = useTranslation();
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const reportPath = useReportPath();
+
+  const reportUrl = buildIssueUrl(
+    "[Bug] Corrupted page",
+    [
+      t(
+        "error.pageCorruptedReportIntro",
+        "A page couldn't load because its saved content is corrupted. Add anything that might help us reproduce it:",
+      ),
+      "",
+      "---",
+      "",
+      buildEnvTable(reportPath),
+    ].join("\n"),
+  );
 
   return (
     <div className={style.appErrorState}>
-      <ErrorStateIllustration />
+      <CorruptionErrorState className="w-50" />
       <div className={style.appError}>
-        {t("error.pageCorrupted", "This page appears to corrupted")}
+        {t("error.pageCorrupted", "This page is corrupted")}
       </div>
       <p className={style.appErrorDescription}>
         {t(
           "error.pageCorruptedDescription",
-          "The page content could not be loaded. Restoring in place cannot recover it, but you can fork an earlier version into a fresh page.",
+          "Its saved content can't be read, but your earlier versions are safe — open version history to bring one back as a new page.",
         )}
       </p>
       <div className="flex gap-3">
         <Button onClick={() => setShowVersionHistory(true)}>
           <History className="h-4 w-4 mr-2" />
           {t("snapshot.versionHistory", "Version history")}
+        </Button>
+        <Button variant="outline" asChild>
+          <a href={reportUrl} target="_blank" rel="noreferrer noopener">
+            <Github className="h-4 w-4 mr-2" />
+            {t("error.boundary.reportIssue", "Report issue")}
+          </a>
         </Button>
       </div>
       <SnapshotRestore

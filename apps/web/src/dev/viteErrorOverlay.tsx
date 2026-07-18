@@ -20,10 +20,9 @@ import {
   fullscreenChromeBarStyle,
   NO_DRAG,
 } from "@/lib/fullscreenChrome";
+import { buildIssueUrl } from "@/lib/reportIssue";
 
 type ViteErr = ErrorPayload["err"];
-
-const GITHUB_NEW_ISSUE_URL = "https://github.com/hamza512b/tasfer/issues/new";
 
 /** Location label, e.g. `src/app/foo.tsx:12:4`. */
 function locLabel(err: ViteErr): string | null {
@@ -43,16 +42,11 @@ function buildDiagnostics(err: ViteErr): string {
 }
 
 function issueUrl(err: ViteErr): string {
-  const title = `[Build] ${err.plugin ? `${err.plugin}: ` : ""}${err.message}`.slice(
-    0,
-    120,
-  );
+  const title = `[Build] ${err.plugin ? `${err.plugin}: ` : ""}${err.message}`;
   const body = `Describe what you were doing when this happened:\n\n\n---\n\n${buildDiagnostics(
     err,
   )}`;
-  return `${GITHUB_NEW_ISSUE_URL}?title=${encodeURIComponent(
-    title,
-  )}&body=${encodeURIComponent(body)}`;
+  return buildIssueUrl(title, body);
 }
 
 /** Subscribe to Vite's HMR error / update events. */

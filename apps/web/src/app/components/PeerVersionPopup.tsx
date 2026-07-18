@@ -1,9 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { getPlatform } from "@/platform";
 import type { PeerVersionInfo } from "@/platform/types";
-import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { BottomPopover } from "./BottomPopover";
 
 /**
  * Notifies the user about a version mismatch with a connected device.
@@ -49,65 +49,39 @@ export default function PeerVersionPopup() {
         "A device you're connected to is running an older version of Tasfer and can't sync until it's updated. Your local edits are unaffected.",
       );
 
-  const popupVariants = {
-    hidden: { y: 80, opacity: 0 },
-    visible: { y: 0, opacity: 1, transition: { duration: 0.5 } },
-    exit: { y: 80, opacity: 0, transition: { duration: 0.5 } },
-  };
-
   return (
-    <AnimatePresence>
-      {showPopup && (
-        <motion.div
-          className="z-[2000] fixed pointer-events-auto"
-          style={{
-            bottom:
-              "calc(0.5rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
-            left: "calc(0.5rem + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)))",
-            right:
-              "calc(0.5rem + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))",
-          }}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          variants={popupVariants}
-          role="alert"
-          aria-labelledby="peer-version-popup-title"
-          aria-describedby="peer-version-popup-description"
+    <BottomPopover
+      show={showPopup}
+      role="alert"
+      aria-labelledby="peer-version-popup-title"
+      aria-describedby="peer-version-popup-description"
+    >
+      <div className="flex justify-between items-center px-4 pt-4">
+        <h2 id="peer-version-popup-title" className="text-lg font-semibold">
+          {title}
+        </h2>
+      </div>
+
+      <div className="px-4 pt-4">
+        <p
+          id="peer-version-popup-description"
+          className="text-sm text-muted-foreground"
         >
-          <div className="max-w-md w-full bg-card text-card-foreground rounded-lg shadow-lg overflow-hidden border border-border">
-            <div className="flex justify-between items-center px-4 pt-4">
-              <h2
-                id="peer-version-popup-title"
-                className="text-lg font-semibold"
-              >
-                {title}
-              </h2>
-            </div>
+          {body}
+        </p>
+      </div>
 
-            <div className="px-4 pt-4">
-              <p
-                id="peer-version-popup-description"
-                className="text-sm text-muted-foreground"
-              >
-                {body}
-              </p>
-            </div>
-
-            <div className="mt-4 px-4 pb-4">
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={dismiss}
-                  aria-label={t("common.dismiss", "Dismiss")}
-                >
-                  {t("common.dismiss", "Dismiss")}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+      <div className="mt-4 px-4 pb-4">
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={dismiss}
+            aria-label={t("common.dismiss", "Dismiss")}
+          >
+            {t("common.dismiss", "Dismiss")}
+          </Button>
+        </div>
+      </div>
+    </BottomPopover>
   );
 }

@@ -14,6 +14,7 @@ import { getPages } from "../api/pages.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import useResponsive from "../hooks/useResponsive";
 import { InstallAppDialog } from "./InstallAppDialog";
+import { NudgeCard } from "./NudgeCard";
 
 const STANDALONE_QUERY = "(display-mode: standalone)";
 
@@ -203,29 +204,24 @@ export function StorageProtectionBanner() {
               // flush there.
               className="md:bg-[color-mix(in_oklab,var(--primary)_7%,var(--sidebar))]"
             >
-              <div
+              <NudgeCard
                 role="status"
                 // The whole banner is an accordion header: clicking anywhere
                 // collapses it. The chevron button stays for keyboard and
                 // screen-reader users; its click bubbling here is harmless
                 // (same collapse).
                 onClick={collapse}
-                className="flex cursor-pointer select-none items-start gap-2.5 px-3.5 py-2.5"
-              >
-                <Shield className="mt-px size-4 shrink-0 text-primary" />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="text-[12.5px] font-semibold leading-[1.35] text-foreground">
-                    {t(
-                      "storage.bannerTitle",
-                      "Your notes are in browser storage",
-                    )}
-                  </span>
-                  <span className="text-[11.5px] leading-[1.45] text-muted-foreground">
-                    {t(
-                      "storage.bannerDesc",
-                      "The browser may clear it to free up space. Install Tasfer to keep them safe.",
-                    )}
-                  </span>
+                className="cursor-pointer select-none"
+                icon={<Shield className="size-4 text-primary" />}
+                title={t(
+                  "storage.bannerTitle",
+                  "Your notes are in browser storage",
+                )}
+                description={t(
+                  "storage.bannerDesc",
+                  "The browser may clear it to free up space. Install Tasfer to keep them safe.",
+                )}
+                action={
                   <Button
                     // Full touch-target size on mobile, compact inside the desktop sidebar.
                     size={isMobile ? "default" : "xs"}
@@ -237,17 +233,19 @@ export function StorageProtectionBanner() {
                   >
                     {t("storage.protectCta", "Protect my notes")}
                   </Button>
-                </div>
-                <button
-                  type="button"
-                  aria-expanded
-                  aria-label={t("common.collapse", "Collapse")}
-                  onClick={collapse}
-                  className="-me-1.5 -mt-1 cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <ChevronDown className="size-3.5" />
-                </button>
-              </div>
+                }
+                trailing={
+                  <button
+                    type="button"
+                    aria-expanded
+                    aria-label={t("common.collapse", "Collapse")}
+                    onClick={collapse}
+                    className="-me-1.5 -mt-1 cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ChevronDown className="size-3.5" />
+                  </button>
+                }
+              />
             </motion.div>
           )}
         </AnimatePresence>
