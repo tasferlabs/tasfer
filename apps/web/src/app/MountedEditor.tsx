@@ -1503,7 +1503,7 @@ function PageEditor({
   );
 
   // Whether the soft keyboard is currently open. This — not editor focus — drives
-  // the mobile toolbar so it rides the keyboard (Notion-style): it appears when
+  // the mobile toolbar so it rides the keyboard: it appears when
   // the keyboard opens and disappears the instant it closes, including external
   // dismissals (Android back button, iOS swipe-down) that leave the editor still
   // logically focused. The signal source differs per platform; see the effects

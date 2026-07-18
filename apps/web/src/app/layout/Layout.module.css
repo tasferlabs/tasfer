@@ -544,8 +544,8 @@
 }
 
 /*
- * The space icon slot doubles as the collapse indicator (Notion-style
- * swap): the box glyph at rest, replaced by the chevron on its own pad
+ * The space icon slot doubles as the collapse indicator:
+ * the box glyph at rest, replaced by the chevron on its own pad
  * when the header is hovered or focused. Touch has no hover, so it keeps
  * the glyph; the whole header is the toggle there.
  */
@@ -596,7 +596,6 @@
 .appSidebarSectionHandle:focus-visible .appSidebarCollapseIcon {
   opacity: 1;
 }
-
 
 .appSidebarSection .appSidebarSectionButton:first-of-type {
   margin-inline-start: auto;

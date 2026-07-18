@@ -208,7 +208,7 @@ export default function EditorPage() {
   // Keep the tag row out of the cover image: when the document starts with a
   // full-width image it bleeds to the very top of the canvas, and the strip
   // reserved by SCHEDULE_TAG_PADDING re-emerges below it (see ImageNode) — so
-  // drop the row onto that strip, Notion-style. Re-read on every editor tick so
+  // drop the row onto that strip. Re-read on every editor tick so
   // the row follows cover add/remove, image resize, and upload placeholder →
   // real image transitions; scroll-follow shares the transform via onScroll.
   useEffect(() => {

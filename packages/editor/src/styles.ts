@@ -244,8 +244,8 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
     },
     fonts,
     fontFamily: theme.fontFamily ?? null,
-    // Block typography follows standard prose guidelines, anchored to Notion's
-    // measured values (which agree with e.g. the Tailwind Typography scale):
+    // Block typography follows standard prose guidelines, 
+    // (which agree with e.g. the Tailwind Typography scale):
     //   - body text at 16px with a 1.5 line-height;
     //   - headings on a 1.875em / 1.5em / 1.25em ratio scale (30/24/20px) with
     //     a tight 1.3 line-height — large text needs less leading;

@@ -340,7 +340,7 @@
 }
 
 /*
- * The collapse toggle doubles as the page's color blob (Notion-style swap):
+ * The collapse toggle doubles as the page's color blob s:
  * the colored dot at rest; hovering the row (or keyboard-focusing the
  * toggle) swaps it for the chevron on a translucent pad tinted with the
  * page color, keeping contrast against the hovered row. The swap is
@@ -364,7 +364,7 @@
 }
 
 /* The pad is drawn on the chevron itself — a small rounded square, clearly
-   lighter than the hovered row, like Notion's toggle. The 30px button stays
+   lighter than the hovered row. The 30px button stays
    as the hit target but never paints its own background. */
 .collapseAction .collapseIcon {
   position: absolute;
