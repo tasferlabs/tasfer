@@ -180,7 +180,7 @@ const isDev = !app.isPackaged;
 //   1. TASFER_DEV_URL          — one-off CLI override (`TASFER_DEV_URL=… npm run dev`)
 //   2. MAIN_VITE_DEV_URL       — persistent per-machine value from apps/desktop/.env
 //   3. https://localhost:4000  — default for a same-machine dev server
-// Point these at the LAN host (e.g. https://192.168.68.55:4000) when the dev
+// Point these at the LAN host (e.g. https://192.168.xx.yy:4000) when the dev
 // server runs on another device. electron-vite only exposes `MAIN_VITE_`-prefixed
 // .env vars, and only via import.meta.env (never process.env); see .env.example.
 const DEV_SERVER_URL =

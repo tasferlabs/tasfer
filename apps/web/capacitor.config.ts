@@ -2,7 +2,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 import { loadEnv } from "vite";
 
 // Point the WebView at a live dev server by setting CAP_SERVER_URL, e.g.
-//   CAP_SERVER_URL=https://192.168.68.55:4000 npm run cap:sync
+//   CAP_SERVER_URL=https://192.168.xx.yy:4000 npm run cap:sync
 // or add it to a (gitignored) .env / .env.local file in this directory.
 // It must be HTTPS (served by `npm run dev:host` with an mkcert cert): the
 // WebView only exposes crypto.subtle / OPFS in a secure context. See

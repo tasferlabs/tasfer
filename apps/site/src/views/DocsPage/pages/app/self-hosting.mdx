@@ -27,10 +27,11 @@ cd apps/live
 npm install
 
 # TURN credentials for the NAT-traversal fallback (Cloudflare Calls):
-npx wrangler secret put TURN_API_TOKEN   # and set TURN_KEY_ID in wrangler.toml
+npx wrangler secret put TURN_KEY_ID
+npx wrangler secret put TURN_API_TOKEN
 
-npx wrangler dev      # local development
-npx wrangler deploy   # deploy to your Cloudflare account
+npx wrangler dev
+npx wrangler deploy
 ```
 
 Set your domain in `apps/live/wrangler.toml`, then build the app against it with `VITE_SIGNAL_URL=wss://signaling.example.org` — see [Use your own relay](/docs/app/sync-relay#own-relay).
@@ -39,7 +40,7 @@ Set your domain in `apps/live/wrangler.toml`, then build the app against it with
 
 <PropsTable cols={["Setting", "Where", "Description"]} rows={[
   { name: "routes", type: "wrangler.toml", desc: "The domain the Worker is served from. The default deployment uses signaling.tasfer.app." },
-  { name: "TURN_KEY_ID", type: "wrangler.toml [vars]", desc: "Cloudflare Calls TURN key id, used to mint short-lived TURN credentials." },
+  { name: "TURN_KEY_ID", type: "wrangler secret", desc: "Cloudflare Calls TURN key id, used to mint short-lived TURN credentials. Stored as a Worker secret, never in the repo." },
   { name: "TURN_API_TOKEN", type: "wrangler secret", desc: "API token for the TURN key. Stored as a Worker secret, never in the repo." },
   { name: "VITE_SIGNAL_URL", type: "apps/web build env", desc: "Points the app at your relay. Baked in at build time." },
 ]} />

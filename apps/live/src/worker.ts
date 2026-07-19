@@ -27,7 +27,7 @@ interface RateLimiter {
 
 interface Env {
   SIGNAL_ROOM: DurableObjectNamespace;
-  /** Cloudflare Calls TURN key ID — set in wrangler.toml [vars] */
+  /** Cloudflare Calls TURN key ID — set via: wrangler secret put TURN_KEY_ID */
   TURN_KEY_ID: string;
   /** Cloudflare Calls TURN API token — set via: wrangler secret put TURN_API_TOKEN */
   TURN_API_TOKEN: string;
