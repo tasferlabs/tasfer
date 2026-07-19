@@ -28,4 +28,4 @@ simple = { limit = 10, period = 60 }
 
 [[migrations]]
 tag = "v1"
-new_classes = ["SignalRoom"]
+new_sqlite_classes = ["SignalRoom"]
