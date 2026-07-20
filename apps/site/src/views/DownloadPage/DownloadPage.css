@@ -1,0 +1,212 @@
+/* ── Base ── */
+
+.download {
+  --home-mono:
+    ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --home-text:
+    "Noto Sans Arabic", ui-monospace, "SFMono-Regular", "SF Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--home-text);
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Nav ── */
+
+.download-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 40px;
+  background: oklch(from var(--background) l c h / 85%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.download-logo {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--wordmark-color);
+  text-transform: lowercase;
+  text-decoration: none;
+}
+
+.download-nav-back {
+  color: var(--muted-foreground);
+  text-decoration: none;
+  font-size: 13px;
+  transition: color 0.15s;
+}
+
+.download-nav-back:hover {
+  color: var(--foreground);
+}
+
+/* ── Content ── */
+
+.download-content {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 120px 40px 100px;
+}
+
+.download-label {
+  font-family: var(--home-mono);
+  font-size: 12px;
+  color: oklch(from var(--primary) l c h / 60%);
+  margin-bottom: 24px;
+  letter-spacing: 0.05em;
+}
+
+.download-title {
+  font-family: var(--home-text);
+  font-size: clamp(28px, 5vw, 44px);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--foreground);
+  margin: 0 0 16px;
+  letter-spacing: -0.02em;
+}
+
+.download-intro {
+  font-size: 15px;
+  color: var(--foreground);
+  line-height: 1.9;
+  margin: 0 0 48px;
+  max-width: 60ch;
+}
+
+/* ── Options ── */
+
+.download-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.download-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--foreground);
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+a.download-card:hover {
+  border-color: oklch(from var(--primary) l c h / 60%);
+  background: oklch(from var(--primary) l c h / 4%);
+}
+
+.download-card.is-primary {
+  border-color: oklch(from var(--primary) l c h / 45%);
+}
+
+.download-card.is-soon {
+  background: oklch(from var(--muted-foreground) l c h / 4%);
+}
+
+.download-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.download-badge {
+  font-family: var(--home-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+
+.download-card-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  line-height: 1.8;
+}
+
+.download-card-cta {
+  margin-top: auto;
+  padding-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+a.download-card-cta:hover {
+  text-decoration: underline;
+}
+
+/* ── Footer ── */
+
+.download-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 40px;
+  border-top: 1px solid var(--border);
+}
+
+.download-footer-text {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  letter-spacing: 0.03em;
+}
+
+/* ── Mobile ── */
+
+@media (max-width: 640px) {
+  .download-nav {
+    padding: 16px 20px;
+  }
+
+  .download-content {
+    padding: 80px 20px 60px;
+  }
+
+  .download-options {
+    grid-template-columns: 1fr;
+  }
+
+  .download-footer {
+    flex-direction: column;
+    gap: 12px;
+    padding: 24px 20px;
+    text-align: center;
+  }
+}

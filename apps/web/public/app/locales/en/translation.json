@@ -421,7 +421,6 @@
   "home.encryptedDesc": "Data is encrypted on your device before it goes anywhere. Only you hold the keys. Not even we can read what you write.",
   "home.alwaysInSync": "always in sync",
   "home.alwaysInSyncDesc": "Edit on multiple devices. Go offline for days. Come back and everything merges — no conflicts, no data loss.",
-  "home.footerText": "decentralized by design. built in the open.",
   "home.getStarted": "get started",
   "home.installApp": "install app",
   "home.openInBrowser": "open in browser",
