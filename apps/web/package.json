@@ -37,7 +37,6 @@
     "workbox-window": "^7.4.0"
   },
   "dependencies": {
-    "@capacitor-community/sqlite": "^8.0.1-dev.e8ac337.1773820348",
     "@capacitor/android": "^8.2.0",
     "@capacitor/cli": "^8.2.0",
     "@capacitor/core": "^8.2.0",

@@ -2,7 +2,7 @@
  * Capacitor Driver (iOS / Android)
  *
  * Uses Capacitor plugins for native capabilities:
- * - @capacitor-community/sqlite for the database
+ * - TasferSqlite (own plugin, system SQLite, no SQLCipher) for the database
  * - @capacitor/filesystem for file storage
  *
  * This is just the thin driver — all business logic is in Engine.
@@ -15,21 +15,24 @@ import { createWebRtcNetworkDriver } from "./webrtc";
 // These modules are only available when running as a Capacitor app.
 // Dynamic imports ensure they don't break the web build.
 // @ts-ignore — optional native dependency
-type CapacitorSQLitePlugin = any;
-// @ts-ignore — optional native dependency
 type FilesystemPlugin = any;
 
 // =============================================================================
 // Capacitor SQLite Driver
+//
+// Backed by the app's own `TasferSqlite` Capacitor plugin (iOS
+// SqliteBridgePlugin / Android SqlitePlugin), which links the OS's system
+// SQLite — plain SQLite, no bundled SQLCipher, so the app ships no encryption
+// code. The plugin's wire shape matches what this driver expects: `{ values }`
+// from query, `{ changes: { changes, lastId } }` from run.
 // =============================================================================
 
 class CapacitorDbDriver implements DbDriver {
-  private db: any = null;
+  private plugin: any = null;
   private initPromise: Promise<void> | null = null;
-  private inTransaction = false;
 
   private ensureDb(): Promise<void> {
-    if (this.db) return Promise.resolve();
+    if (this.plugin) return Promise.resolve();
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = this._openDb().catch((e) => {
@@ -40,28 +43,18 @@ class CapacitorDbDriver implements DbDriver {
   }
 
   private async _openDb(): Promise<void> {
-    // Dynamic import — only loaded on native
+    // registerPlugin only builds a JS proxy, so it's safe to load lazily and
+    // keep native code out of the web build. The native TasferSqlite plugin
+    // opens a plain (unencrypted) system-SQLite database.
     // @ts-ignore — optional native dependency, only available in Capacitor builds
-    const { CapacitorSQLite } = await import("@capacitor-community/sqlite");
-    // Connection may already exist after a page reload
-    try {
-      await CapacitorSQLite.createConnection({
-        database: "tasfer",
-        version: 1,
-        encrypted: false,
-        mode: "no-encryption",
-      });
-    } catch {
-      // Already exists — that's fine
-    }
-    await CapacitorSQLite.open({ database: "tasfer" });
-    // Store without returning — CapacitorSQLite is a thenable proxy
-    // and must never be the resolved value of a promise.
-    this.db = CapacitorSQLite;
+    const { registerPlugin } = await import("@capacitor/core");
+    const plugin = registerPlugin("TasferSqlite");
+    await plugin.open({ database: "tasfer" });
+    this.plugin = plugin;
   }
 
-  // CapacitorSQLite doesn't support Uint8Array bind params — encode as base64
-  // with a sentinel prefix so we can decode transparently on reads.
+  // Uint8Array bind params can't cross the JSON bridge as bytes — encode as
+  // base64 with a sentinel prefix so we can decode transparently on reads.
   private static readonly BLOB_PREFIX = "__blob__:";
 
   private encodeParam(v: unknown): unknown {
@@ -96,26 +89,19 @@ class CapacitorDbDriver implements DbDriver {
     params?: unknown[],
   ): Promise<T[]> {
     await this.ensureDb();
-    const result = await this.db.query({
-      database: "tasfer",
+    const result = await this.plugin.query({
       statement: sql,
       values: params ? params.map((v) => this.encodeParam(v)) : [],
     });
     const rows = result.values ?? [];
-    // iOS returns an ios_columns metadata row as the first element — skip it
-    const data = rows.length > 0 && rows[0].ios_columns ? rows.slice(1) : rows;
-    return data.map((r: DbRow) => this.decodeRow(r as T));
+    return rows.map((r: DbRow) => this.decodeRow(r as T));
   }
 
   async run(sql: string, params?: unknown[]): Promise<DbRunResult> {
     await this.ensureDb();
-    const result = await this.db.run({
-      database: "tasfer",
+    const result = await this.plugin.run({
       statement: sql,
       values: params ? params.map((v) => this.encodeParam(v)) : [],
-      // The plugin auto-wraps each run() in a transaction by default.
-      // Disable that when we're already inside an explicit transaction.
-      transaction: !this.inTransaction,
     });
     return {
       changes: result.changes?.changes ?? 0,
@@ -125,17 +111,14 @@ class CapacitorDbDriver implements DbDriver {
 
   async exec(sql: string): Promise<void> {
     await this.ensureDb();
-    await this.db.execute({
-      database: "tasfer",
-      statements: sql,
-      transaction: !this.inTransaction,
-    });
+    await this.plugin.exec({ statements: sql });
   }
 
   private txQueue: Promise<any> = Promise.resolve();
 
   async transaction<T>(fn: (db: DbDriver) => Promise<T>): Promise<T> {
-    // Serialize transactions to prevent interleaving
+    // Serialize transactions to prevent interleaving. run()/exec() never
+    // auto-wrap on our native side, so a transaction is just begin/…/commit.
     const prev = this.txQueue;
     let resolve!: () => void;
     this.txQueue = new Promise<void>((r) => { resolve = r; });
@@ -143,20 +126,18 @@ class CapacitorDbDriver implements DbDriver {
     await prev;
     try {
       await this.ensureDb();
-      await this.db.beginTransaction({ database: "tasfer" });
-      this.inTransaction = true;
+      await this.plugin.beginTransaction();
       const result = await fn(this);
-      await this.db.commitTransaction({ database: "tasfer" });
+      await this.plugin.commitTransaction();
       return result;
     } catch (e) {
       try {
-        await this.db.rollbackTransaction({ database: "tasfer" });
+        await this.plugin.rollbackTransaction();
       } catch {
         // Rollback may fail if transaction was never started
       }
       throw e;
     } finally {
-      this.inTransaction = false;
       resolve();
     }
   }

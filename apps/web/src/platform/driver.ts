@@ -6,7 +6,7 @@
  * lives in the shared Engine and is written ONCE.
  *
  * - Electron:  better-sqlite3 (via IPC) + node:fs
- * - Capacitor: @capacitor-community/sqlite + @capacitor/filesystem
+ * - Capacitor: TasferSqlite (system SQLite, no SQLCipher) + @capacitor/filesystem
  * - Web:       sql.js (WASM) + OPFS / Cache API
  */
 

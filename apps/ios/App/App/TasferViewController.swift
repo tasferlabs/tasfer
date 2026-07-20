@@ -104,6 +104,7 @@ class TasferViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         // Register custom plugins
         bridge?.registerPluginInstance(TasferBridgePlugin())
+        bridge?.registerPluginInstance(SqliteBridgePlugin())
     }
 
     override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
