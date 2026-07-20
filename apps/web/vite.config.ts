@@ -57,7 +57,14 @@ const versionConfig = JSON.parse(
 export default defineConfig({
   plugins: [
     tailwindcss(),
-    react(),
+    react({
+      // @tasfer/tex is aliased to source, which includes the generated ESM data
+      // blob fontMetricsData.js. Vite 8's Oxc transform (which plugin-react
+      // widens to `.js`) tries to load a tsconfig for it and fails — the tex
+      // tsconfig doesn't cover `.js`. It needs no transform; exclude it while
+      // keeping the default node_modules skip.
+      exclude: [/\/node_modules\//, /fontMetricsData\.js$/],
+    }),
     VitePWA({
       strategies: "injectManifest",
       srcDir: "src",
@@ -87,6 +94,11 @@ export default defineConfig({
   // breaks it).
   worker: { format: "es" },
   resolve: {
+    // The @tasfer/* packages are aliased to their `src/` (see below) and declare
+    // react as a peer, so their bare `react`/`react-dom` imports must resolve to
+    // this app's single copy. Vite 7/Rollup did this implicitly; Vite 8/Rolldown
+    // needs it explicit. Also prevents a duplicate React ("invalid hook call").
+    dedupe: ["react", "react-dom"],
     alias: {
       "@tasfer/editor": resolve(__dirname, "../../packages/editor/src"),
       "@tasfer/tex": resolve(__dirname, "../../packages/tex/src"),

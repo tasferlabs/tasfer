@@ -1,9 +1,10 @@
-import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { defineConfig } from "electron-vite";
 import path from "path";
 
+// electron-vite v5 externalizes node/electron deps by default (build.externalizeDeps),
+// so the explicit externalizeDepsPlugin() on main/preload is no longer needed.
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
     build: {
       lib: {
         entry: path.join(__dirname, "src/main/index.ts"),
@@ -11,7 +12,6 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     build: {
       lib: {
         entry: path.join(__dirname, "src/preload/index.ts"),

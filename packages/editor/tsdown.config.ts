@@ -13,4 +13,5 @@ export default libConfig({
     "@shared": resolve(here, "../../shared"),
   },
   exclude: ["!src/**/__testutils__/**"],
+  dtsTsconfig: resolve(here, "../../tsconfig.dts.json"),
 });

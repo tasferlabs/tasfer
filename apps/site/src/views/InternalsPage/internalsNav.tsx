@@ -1,5 +1,16 @@
 import { type ComponentType } from "react";
 
+import * as accessibility from "./pages/accessibility.mdx";
+import * as compatibility from "./pages/compatibility.mdx";
+import * as crdtCompaction from "./pages/crdt-compaction.mdx";
+import * as ethicalDilemma from "./pages/ethical-dilemma-of-tasfer-and-p2p-networks.mdx";
+import * as latexAsModel from "./pages/latex-as-model.mdx";
+import * as manifest from "./pages/manifest.mdx";
+import * as mathBlock from "./pages/math-block.mdx";
+import * as obsidian from "./pages/obsidian.mdx";
+import * as oneInterface from "./pages/one-interface-mutliple-backends.mdx";
+import * as transitionPlan from "./pages/transition-plan.mdx";
+
 /* ============================================================
    Internal notes — the hidden /docs/internals build log.
 
@@ -9,12 +20,13 @@ import { type ComponentType } from "react";
    frontmatter (parsed by remark-mdx-frontmatter and re-exported
    as `frontmatter`).
 
-   The registry is built dynamically: every .mdx under ./pages is
-   discovered at build time via webpack's require.context, keyed by
+   The registry lists every .mdx under ./pages explicitly, keyed by
    filename (which becomes the route slug) and ordered newest-first
-   by the frontmatter `date`. Drop a new note into ./pages and it
-   shows up automatically — no edit here required. `date` is the
-   date the note was written.
+   by the frontmatter `date`. Adding a note means dropping the file
+   into ./pages AND adding it to MODULES below — webpack's
+   require.context is gone because Turbopack miscompiles it across
+   the server/client boundary. `date` is the date the note was
+   written.
 
    This archive is intentionally NOT registered in docsNav.tsx, so
    it is not linked from the docs sidebar, pager, or search. Reach
@@ -42,28 +54,24 @@ export interface InternalNote {
   Comp: ComponentType;
 }
 
-// Eagerly glob every MDX note in ./pages. `require.context` is a webpack
-// (Next.js) build-time primitive: keys() are paths like "./manifest.mdx".
-const ctx = (
-  require as unknown as {
-    context: (
-      dir: string,
-      recursive: boolean,
-      pattern: RegExp,
-    ) => {
-      keys: () => string[];
-      (id: string): NoteModule;
-    };
-  }
-).context("./pages", false, /\.mdx$/);
+// slug → module. Slugs are the ./pages filenames without extension.
+const MODULES: Record<string, NoteModule> = {
+  accessibility,
+  compatibility,
+  "crdt-compaction": crdtCompaction,
+  "ethical-dilemma-of-tasfer-and-p2p-networks": ethicalDilemma,
+  "latex-as-model": latexAsModel,
+  manifest,
+  "math-block": mathBlock,
+  obsidian,
+  "one-interface-mutliple-backends": oneInterface,
+  "transition-plan": transitionPlan,
+};
 
 // Newest-first.
-export const NOTES: InternalNote[] = ctx
-  .keys()
-  .map((key): InternalNote => {
-    const mod = ctx(key);
+export const NOTES: InternalNote[] = Object.entries(MODULES)
+  .map(([slug, mod]): InternalNote => {
     const fm = mod.frontmatter;
-    const slug = key.replace(/^\.\//, "").replace(/\.mdx$/, "");
     return {
       slug,
       Comp: mod.default,

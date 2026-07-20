@@ -8,8 +8,18 @@ import { defineConfig } from "vite";
 const repoRoot = resolve(__dirname, "../..");
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    // @tasfer/tex is aliased to source, which includes the generated ESM data
+    // blob fontMetricsData.js. Vite 8's Oxc transform (which plugin-react
+    // widens to `.js`) tries to load a tsconfig for it and fails; it needs no
+    // transform, so exclude it while keeping the default node_modules skip.
+    react({ exclude: [/\/node_modules\//, /fontMetricsData\.js$/] }),
+  ],
   resolve: {
+    // The aliased @tasfer/* source declares react as a peer, so its bare
+    // react/react-dom imports must resolve to this app's copy. Vite 8/Rolldown
+    // needs this explicit; it also prevents a duplicate React.
+    dedupe: ["react", "react-dom"],
     alias: {
       "@tasfer/editor": resolve(repoRoot, "packages/editor/src"),
       "@tasfer/tex": resolve(repoRoot, "packages/tex/src"),

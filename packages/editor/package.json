@@ -6,6 +6,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsdown",
+    "typecheck": "tsc --noEmit",
     "dev": "tsdown --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -67,7 +68,7 @@
     "@tasfer/tex": "*",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "typescript": "^5.9.3"
+    "typescript": ">=5.9.3"
   },
   "peerDependenciesMeta": {
     "@tasfer/tex": {
@@ -75,20 +76,21 @@
     }
   },
   "devDependencies": {
+    "@babel/core": "^8.0.1",
+    "@babel/eslint-parser": "^8.0.1",
+    "@babel/plugin-syntax-typescript": "^8.0.3",
     "@types/react": "^19.2.16",
-    "eslint": "^9.0.0",
+    "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
     "eslint-plugin-simple-import-sort": "^13.0.0",
-    "eslint-plugin-unused-imports": "^4.4.1",
     "prettier": "^3.8.3",
-    "tsdown": "^0.22.3",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.0.0",
+    "tsdown": "^0.22.12",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.8"
   },
   "dependencies": {
-    "defuddle": "^0.18.1",
+    "defuddle": "^0.19.1",
     "lowlight": "^3.3.0"
   }
 }

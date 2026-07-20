@@ -12,7 +12,8 @@ directly to HTML canvas and stores document state in a CRDT.
 - All user-facing strings must be i18n'd. Add translation keys with the UI text.
 - Keep public editor documentation accurate when changing a public API.
 - Never do things with git with your intuitive, if unsure please consult me.
-- Stop wasting time on meaningless tests, there is no test for ux
+- Stop wasting time on meaningless tests, there is no test for ux.
+- If you creating a worktree, put it in .worktrees
 
 ## Recommendations
 

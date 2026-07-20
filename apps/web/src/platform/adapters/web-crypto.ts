@@ -82,7 +82,7 @@ export class WebCryptoDriver implements CryptoDriver {
     } catch {
       // Ed25519 is still missing in some Android System WebView versions.
       const ed25519 = await loadEd25519();
-      const seed = ed25519.utils.randomPrivateKey();
+      const seed = ed25519.utils.randomSecretKey();
       return {
         publicKey: bytesToHex(ed25519.getPublicKey(seed)),
         privateKey: ED25519_PKCS8_PREFIX + bytesToHex(seed),
