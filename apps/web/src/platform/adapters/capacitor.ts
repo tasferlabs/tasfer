@@ -24,7 +24,7 @@ type FilesystemPlugin = any;
 // SqliteBridgePlugin / Android SqlitePlugin), which links the OS's system
 // SQLite — plain SQLite, no bundled SQLCipher, so the app ships no encryption
 // code. The plugin's wire shape matches what this driver expects: `{ values }`
-// from query, `{ changes: { changes, lastId } }` from run.
+// from query, `{ changes: { changes, lastId } }` from mutate.
 // =============================================================================
 
 class CapacitorDbDriver implements DbDriver {
@@ -84,7 +84,7 @@ class CapacitorDbDriver implements DbDriver {
     return out as T;
   }
 
-  async execute<T extends DbRow = DbRow>(
+  async query<T extends DbRow = DbRow>(
     sql: string,
     params?: unknown[],
   ): Promise<T[]> {
@@ -97,9 +97,9 @@ class CapacitorDbDriver implements DbDriver {
     return rows.map((r: DbRow) => this.decodeRow(r as T));
   }
 
-  async run(sql: string, params?: unknown[]): Promise<DbRunResult> {
+  async mutate(sql: string, params?: unknown[]): Promise<DbRunResult> {
     await this.ensureDb();
-    const result = await this.plugin.run({
+    const result = await this.plugin.mutate({
       statement: sql,
       values: params ? params.map((v) => this.encodeParam(v)) : [],
     });
@@ -117,7 +117,7 @@ class CapacitorDbDriver implements DbDriver {
   private txQueue: Promise<any> = Promise.resolve();
 
   async transaction<T>(fn: (db: DbDriver) => Promise<T>): Promise<T> {
-    // Serialize transactions to prevent interleaving. run()/exec() never
+    // Serialize transactions to prevent interleaving. mutate()/exec() never
     // auto-wrap on our native side, so a transaction is just begin/…/commit.
     const prev = this.txQueue;
     let resolve!: () => void;

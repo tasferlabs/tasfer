@@ -22,7 +22,7 @@ import org.json.JSONObject
  *
  * Mirrors the iOS SqliteBridgePlugin wire shape so adapters/capacitor.ts is a
  * single code path: `{ values }` for query, `{ changes: { changes, lastId } }`
- * for run. Bytes cross the JSON bridge as base64 tagged with [blobPrefix].
+ * for mutate. Bytes cross the JSON bridge as base64 tagged with [blobPrefix].
  */
 @CapacitorPlugin(name = "TasferSqlite")
 class SqlitePlugin : Plugin() {
@@ -91,7 +91,7 @@ class SqlitePlugin : Plugin() {
     }
 
     @PluginMethod
-    fun run(call: PluginCall) {
+    fun mutate(call: PluginCall) {
         val sql = call.getString("statement") ?: ""
         val values = call.getArray("values") ?: JSArray()
         try {

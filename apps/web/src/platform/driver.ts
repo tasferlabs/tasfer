@@ -26,14 +26,14 @@ export interface DbRunResult {
 }
 
 export interface DbDriver {
-  /** Execute a SELECT query and return rows */
-  execute<T extends DbRow = DbRow>(
+  /** Run a SELECT query and return rows */
+  query<T extends DbRow = DbRow>(
     sql: string,
     params?: unknown[],
   ): Promise<T[]>;
 
-  /** Execute an INSERT / UPDATE / DELETE statement */
-  run(sql: string, params?: unknown[]): Promise<DbRunResult>;
+  /** Run an INSERT / UPDATE / DELETE statement; returns rows affected */
+  mutate(sql: string, params?: unknown[]): Promise<DbRunResult>;
 
   /** Execute a raw SQL statement (DDL, pragma, etc.) */
   exec(sql: string): Promise<void>;

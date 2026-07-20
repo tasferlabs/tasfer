@@ -11,7 +11,7 @@ import SQLite3
 ///
 /// The JS side (adapters/capacitor.ts) speaks the same wire shape the community
 /// plugin did — `{ values }` for query, `{ changes: { changes, lastId } }` for
-/// run — so the driver rewrite is a thin swap. Bytes cross the JSON bridge as
+/// mutate — so the driver rewrite is a thin swap. Bytes cross the JSON bridge as
 /// base64 tagged with `blobPrefix`.
 @objc(SqliteBridgePlugin)
 class SqliteBridgePlugin: CAPPlugin, CAPBridgedPlugin {
@@ -20,7 +20,7 @@ class SqliteBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "open", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "query", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "run", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "mutate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "exec", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "beginTransaction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "commitTransaction", returnType: CAPPluginReturnPromise),
@@ -81,7 +81,7 @@ class SqliteBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    @objc func run(_ call: CAPPluginCall) {
+    @objc func mutate(_ call: CAPPluginCall) {
         let sql = call.getString("statement") ?? ""
         let values = call.getArray("values") ?? []
         queue.async {
