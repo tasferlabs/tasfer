@@ -96,5 +96,9 @@
     "workbox-routing": "^7.4.0",
     "workbox-strategies": "^7.4.0",
     "zod": "^4.3.6"
+  },
+  "overrides": {
+    "i18next": { "typescript": "$typescript" },
+    "react-i18next": { "typescript": "$typescript" }
   }
 }
