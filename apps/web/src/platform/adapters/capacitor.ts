@@ -11,6 +11,7 @@
 import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver } from "../driver";
 import { WebCryptoDriver } from "./web-crypto";
 import { createWebRtcNetworkDriver } from "./webrtc";
+import type { Plugin } from "@capacitor/core";
 
 // These modules are only available when running as a Capacitor app.
 // Dynamic imports ensure they don't break the web build.
@@ -47,7 +48,7 @@ class CapacitorDbDriver implements DbDriver {
     // keep native code out of the web build. The native TasferSqlite plugin
     // opens a plain (unencrypted) system-SQLite database.
     // @ts-ignore — optional native dependency, only available in Capacitor builds
-    const { registerPlugin } = await import("@capacitor/core");
+    const { registerPlugin } = (await import("@capacitor/core")) as Plugin;
     const plugin = registerPlugin("TasferSqlite");
     await plugin.open({ database: "tasfer" });
     this.plugin = plugin;
@@ -68,13 +69,22 @@ class CapacitorDbDriver implements DbDriver {
   private decodeRow<T extends DbRow>(row: T): T {
     const keys = Object.keys(row);
     const rowRec = row as Record<string, unknown>;
-    if (!keys.some((k) => typeof rowRec[k] === "string" && (rowRec[k] as string).startsWith(CapacitorDbDriver.BLOB_PREFIX))) {
+    if (
+      !keys.some(
+        (k) =>
+          typeof rowRec[k] === "string" &&
+          (rowRec[k] as string).startsWith(CapacitorDbDriver.BLOB_PREFIX),
+      )
+    ) {
       return row;
     }
     const out: Record<string, unknown> = {};
     for (const key of keys) {
       const val = rowRec[key];
-      if (typeof val === "string" && val.startsWith(CapacitorDbDriver.BLOB_PREFIX)) {
+      if (
+        typeof val === "string" &&
+        val.startsWith(CapacitorDbDriver.BLOB_PREFIX)
+      ) {
         const binary = atob(val.slice(CapacitorDbDriver.BLOB_PREFIX.length));
         out[key] = Uint8Array.from(binary, (c) => c.charCodeAt(0));
       } else {
@@ -121,7 +131,9 @@ class CapacitorDbDriver implements DbDriver {
     // auto-wrap on our native side, so a transaction is just begin/…/commit.
     const prev = this.txQueue;
     let resolve!: () => void;
-    this.txQueue = new Promise<void>((r) => { resolve = r; });
+    this.txQueue = new Promise<void>((r) => {
+      resolve = r;
+    });
 
     await prev;
     try {

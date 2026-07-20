@@ -40,8 +40,12 @@ class SqlitePlugin : Plugin() {
                     val file = context.getDatabasePath("$name.db")
                     file.parentFile?.mkdirs()
                     val handle = SQLiteDatabase.openOrCreateDatabase(file, null)
-                    handle.execSQL("PRAGMA journal_mode=WAL;")
-                    handle.execSQL("PRAGMA foreign_keys=ON;")
+                    // execSQL rejects row-returning statements, and
+                    // `PRAGMA journal_mode=WAL` returns the new mode as a row.
+                    // These helpers also apply across every pooled connection,
+                    // which a per-connection PRAGMA would not.
+                    handle.enableWriteAheadLogging()
+                    handle.setForeignKeyConstraintsEnabled(true)
                     db = handle
                 }
             }

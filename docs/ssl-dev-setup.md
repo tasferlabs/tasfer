@@ -31,7 +31,7 @@ gitignored. If the cert is missing, `--host` falls back to plain HTTP and warns.
 
 The cert's Subject Alternative Names must include the exact IP the device
 connects to. If your LAN IP changes, regenerate the cert with the new IP and
-update `server.url` in [`apps/web/capacitor.config.ts`](../apps/web/capacitor.config.ts).
+update `server.url` in [`apps/web/capacitor.config.js`](../apps/web/capacitor.config.js).
 
 ## 2. Trust the mkcert root CA on the connecting device
 
@@ -95,6 +95,6 @@ user CAs if their network security config opts in.
 - **"certificate is invalid"** on device → CA not trusted on that device
   (step 2), not a cert problem.
 - **"pretending to be \<IP\>"** with the CA trusted → the cert's SANs don't
-  include that IP; regenerate (step 1) and update `capacitor.config.ts`.
+  include that IP; regenerate (step 1) and update `capacitor.config.js`.
 - **"disk I/O error" / crypto undefined** in the browser → you're on a
   plain-HTTP LAN origin (insecure context); use HTTPS.
