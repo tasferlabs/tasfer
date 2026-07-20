@@ -9,6 +9,7 @@
     "Bash(git clean:*)",
     "Bash(git checkout:*)",
     "Bash(git stash:*)",
-    "Bash(npm run deploy:*)"
+    "Bash(npm run deploy:*)",
+    "Read(*.env.*)"
   ]
 }
