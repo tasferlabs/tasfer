@@ -54,10 +54,6 @@ const config: CapacitorConfig = {
       // height formula in MountedEditor). window.innerHeight stays constant.
       resize: "none",
     },
-    CapacitorSQLite: {
-      androidIsEncryption: false,
-      iosIsEncryption: false,
-    },
   },
 };
 

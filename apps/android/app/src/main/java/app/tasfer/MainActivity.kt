@@ -72,6 +72,10 @@ class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         setupImagePickerLaunchers()
 
+        // System-SQLite database plugin (no SQLCipher). Must be registered
+        // before super.onCreate() so the Capacitor bridge picks it up.
+        registerPlugin(SqlitePlugin::class.java)
+
         super.onCreate(savedInstanceState)
 
         // Enable edge-to-edge display

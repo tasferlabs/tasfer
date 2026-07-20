@@ -255,8 +255,8 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     save: { kind: "request" },
   },
   db: {
-    execute: { kind: "request" },
-    run: { kind: "request" },
+    query: { kind: "request" },
+    mutate: { kind: "request" },
     exec: { kind: "request" },
     getPendingMigrations: { kind: "request" },
     applyMigrations: { kind: "request" },

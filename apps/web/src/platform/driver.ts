@@ -6,7 +6,7 @@
  * lives in the shared Engine and is written ONCE.
  *
  * - Electron:  better-sqlite3 (via IPC) + node:fs
- * - Capacitor: @capacitor-community/sqlite + @capacitor/filesystem
+ * - Capacitor: TasferSqlite (system SQLite, no SQLCipher) + @capacitor/filesystem
  * - Web:       sql.js (WASM) + OPFS / Cache API
  */
 
@@ -26,14 +26,14 @@ export interface DbRunResult {
 }
 
 export interface DbDriver {
-  /** Execute a SELECT query and return rows */
-  execute<T extends DbRow = DbRow>(
+  /** Run a SELECT query and return rows */
+  query<T extends DbRow = DbRow>(
     sql: string,
     params?: unknown[],
   ): Promise<T[]>;
 
-  /** Execute an INSERT / UPDATE / DELETE statement */
-  run(sql: string, params?: unknown[]): Promise<DbRunResult>;
+  /** Run an INSERT / UPDATE / DELETE statement; returns rows affected */
+  mutate(sql: string, params?: unknown[]): Promise<DbRunResult>;
 
   /** Execute a raw SQL statement (DDL, pragma, etc.) */
   exec(sql: string): Promise<void>;
