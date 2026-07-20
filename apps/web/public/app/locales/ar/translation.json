@@ -584,6 +584,7 @@
   "settings.fontStyle": "نمط الخط",
   "settings.fullWidth": "عرض كامل",
   "settings.information.title": "معلومات",
+  "settings.information.commit": "معرّف الالتزام",
   "settings.information.license": "تصفير برنامج حر، مرخّص بموجب رخصة جنو AGPL-3.0.",
   "settings.information.thirdPartyLicenses": "تراخيص الطرف الثالث",
   "settings.information.viewSource": "عرض الشيفرة المصدرية",

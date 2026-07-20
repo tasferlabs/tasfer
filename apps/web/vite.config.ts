@@ -1,5 +1,6 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { execSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { DateTime } from "luxon";
 import { join, resolve } from "path";
@@ -7,6 +8,29 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 const buildTimestamp = DateTime.utc().toFormat("yyyyMMddHHmm");
+
+// Short commit the build was cut from, with a `-dirty` suffix when the working
+// tree had uncommitted changes. Falls back to a CI-provided SHA when `.git` is
+// absent (e.g. a shallow tarball build), and to "unknown" when neither exists.
+function resolveBuildCommit(): string {
+  try {
+    const git = (cmd: string) =>
+      execSync(cmd, { cwd: __dirname, stdio: ["ignore", "pipe", "ignore"] })
+        .toString()
+        .trim();
+    const short = git("git rev-parse --short HEAD");
+    const dirty = git("git status --porcelain").length > 0;
+    return dirty ? `${short}-dirty` : short;
+  } catch {
+    const ciSha =
+      process.env.GITHUB_SHA ??
+      process.env.VERCEL_GIT_COMMIT_SHA ??
+      process.env.CF_PAGES_COMMIT_SHA;
+    return ciSha ? ciSha.slice(0, 7) : "unknown";
+  }
+}
+
+const buildCommit = resolveBuildCommit();
 
 // `npm run dev:host` (`vite --host`) serves on the LAN, i.e. a non-localhost
 // origin. Browsers (and the iOS/Android WebView) treat plain-HTTP non-localhost
@@ -83,6 +107,7 @@ export default defineConfig({
   ],
   define: {
     __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
+    __BUILD_COMMIT__: JSON.stringify(buildCommit),
     __CLIENT_VERSION__: versionConfig.version,
   },
   base: "./",

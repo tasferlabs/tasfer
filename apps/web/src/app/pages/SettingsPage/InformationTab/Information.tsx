@@ -15,6 +15,8 @@ import { getClientPlatform } from "@/platform";
 // (the classic Android "tap build number" gesture).
 const UNLOCK_TAPS = 7;
 
+const REPO_URL = "https://github.com/hamza512b/tasfer";
+
 // Where to surface the in-app Tasfer Inspector switch. iOS (Settings bundle) and
 // desktop (app menu) expose OS-level controls instead, so the in-app toggle is
 // shown only where there's no native equivalent.
@@ -27,6 +29,13 @@ export function Information() {
   const devToolsUnlocked = useDevToolsUnlocked();
   const tapsRef = useRef(0);
   const [justUnlocked, setJustUnlocked] = useState(false);
+
+  // Link the commit to GitHub only when it's a real, clean hash — a dirty build
+  // doesn't match its base commit, and "dev"/"unknown" aren't commits at all.
+  const isLinkableCommit =
+    __BUILD_COMMIT__ !== "dev" &&
+    __BUILD_COMMIT__ !== "unknown" &&
+    !__BUILD_COMMIT__.endsWith("-dirty");
 
   // Reveal the Tasfer Inspector toggle after enough taps on the version. No-op
   // once already unlocked, so the gesture is inert for users who'll never see it.
@@ -66,6 +75,21 @@ export function Information() {
         <p onClick={handleVersionTap} className="select-none w-fit">
           {t("common.version", "Version")}: {__BUILD_TIMESTAMP__}
         </p>
+        <p className="w-fit">
+          {t("settings.information.commit", "Commit")}:{" "}
+          {isLinkableCommit ? (
+            <a
+              href={`${REPO_URL}/commit/${__BUILD_COMMIT__}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="font-mono underline"
+            >
+              {__BUILD_COMMIT__}
+            </a>
+          ) : (
+            <span className="font-mono">{__BUILD_COMMIT__}</span>
+          )}
+        </p>
         {justUnlocked && (
           <p className="text-primary">
             {t("settings.devTools.unlocked", "Tasfer Inspector unlocked")}
@@ -77,7 +101,7 @@ export function Information() {
             "Tasfer is free software, licensed under the GNU AGPL-3.0.",
           )}{" "}
           <a
-            href="https://github.com/hamza512b/tasfer"
+            href={REPO_URL}
             target="_blank"
             rel="noreferrer noopener"
             className="underline"

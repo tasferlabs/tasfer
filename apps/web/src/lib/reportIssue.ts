@@ -50,6 +50,7 @@ export function buildEnvTable(path: string): string {
     "| --- | --- |",
     `| Version | ${__CLIENT_VERSION__} |`,
     `| Build | ${__BUILD_TIMESTAMP__} |`,
+    `| Commit | ${__BUILD_COMMIT__} |`,
     `| Path | ${path} |`,
     `| User agent | ${navigator.userAgent} |`,
   ].join("\n");

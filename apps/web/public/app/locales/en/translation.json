@@ -603,6 +603,7 @@
   "settings.fontStyle": "Font style",
   "settings.fullWidth": "Full width",
   "settings.information.title": "Information",
+  "settings.information.commit": "Commit",
   "settings.information.license": "Tasfer is free software, licensed under the GNU AGPL-3.0.",
   "settings.information.thirdPartyLicenses": "Third-party licenses",
   "settings.information.viewSource": "View source code",

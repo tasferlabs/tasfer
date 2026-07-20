@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { BUILD_TIMESTAMP } from "@/version";
+import { BUILD_COMMIT, BUILD_TIMESTAMP } from "@/version";
 import { WifiOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -101,7 +101,7 @@ export default function ForceUpdatePage() {
 
         {/* Build info for debugging */}
         <p className="text-xs text-muted-foreground/60" aria-hidden="true">
-          Build: {BUILD_TIMESTAMP}
+          Build: {BUILD_TIMESTAMP} · {BUILD_COMMIT}
         </p>
       </div>
     </div>
