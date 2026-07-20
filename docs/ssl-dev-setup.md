@@ -13,13 +13,17 @@ loaded.
 
 ## 1. Generate a trusted LAN cert (once)
 
+Install the mkcert root CA into your Mac keychain, then generate the cert.
+`mkdir` is required — mkcert does not create the `certs/` directory.
+
 ```sh
 brew install mkcert
-mkcert -install                 # installs the mkcert root CA into your Mac keychain
+mkcert -install
 
 cd apps/web
+mkdir -p certs
 mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem \
-  <your-LAN-IP> localhost cypher.md
+  <your-LAN-IP> localhost tasfer.app
 ```
 
 Find `<your-LAN-IP>` with `ipconfig getifaddr en0`. `apps/web/certs/` is
@@ -27,9 +31,19 @@ gitignored. If the cert is missing, `--host` falls back to plain HTTP and warns.
 
 The cert's Subject Alternative Names must include the exact IP the device
 connects to. If your LAN IP changes, regenerate the cert with the new IP and
-update `server.url` in [`apps/web/capacitor.config.ts`](../apps/web/capacitor.config.ts).
+update `server.url` in [`apps/web/capacitor.config.js`](../apps/web/capacitor.config.js).
 
 ## 2. Trust the mkcert root CA on the connecting device
+
+The root CA is the file `rootCA.pem` inside the directory printed by:
+
+```sh
+mkcert -CAROOT
+```
+
+(on macOS typically `~/Library/Application Support/mkcert`). That directory also
+contains `rootCA-key.pem` — never copy that one anywhere; anyone holding it can
+mint certificates your devices trust.
 
 `mkcert -install` only trusts the CA on the **Mac's** keychain. Each device
 (iOS Simulator, Android emulator, physical phone) keeps its **own** trust store
@@ -62,19 +76,25 @@ or switching to a different device, re-run the command with that sim booted.
 
 ### Android emulator / device
 
+With the emulator running (or the device connected with USB debugging on):
+
 ```sh
-mkcert -CAROOT   # prints the CA dir; the root is rootCA.pem
+adb push "$(mkcert -CAROOT)/rootCA.pem" /sdcard/Download/
 ```
 
-Push `rootCA.pem` to the device and install it under Settings → Security →
-Encryption & credentials → Install a certificate → CA certificate. On Android 7+
-apps only trust user CAs if their network security config opts in.
+Then on the device: Settings → Security & privacy → More security & privacy →
+Encryption & credentials → Install a certificate → CA certificate → pick
+`rootCA.pem` from Downloads. (The exact wording moved around Android versions and
+OEMs — on older builds it's Settings → Security → Encryption & credentials; if you
+can't find it, search Settings for "CA certificate".) On an emulator you can also
+drag the file onto its window instead of `adb push`. On Android 7+ apps only trust
+user CAs if their network security config opts in.
 
 ## Troubleshooting
 
 - **"certificate is invalid"** on device → CA not trusted on that device
   (step 2), not a cert problem.
 - **"pretending to be \<IP\>"** with the CA trusted → the cert's SANs don't
-  include that IP; regenerate (step 1) and update `capacitor.config.ts`.
+  include that IP; regenerate (step 1) and update `capacitor.config.js`.
 - **"disk I/O error" / crypto undefined** in the browser → you're on a
   plain-HTTP LAN origin (insecure context); use HTTPS.

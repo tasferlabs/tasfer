@@ -4,7 +4,7 @@
  * only by `appSchema`; the public editor's base schema remains math-free.
  */
 
-import { baseDataSchema } from "@cypherkit/editor";
-import { mathDataExtension } from "@cypherkit/editor/math/data";
+import { baseDataSchema } from "@tasfer/editor";
+import { mathDataExtension } from "@tasfer/editor/math/data";
 
 export const appDataSchema = baseDataSchema.extend(mathDataExtension());

@@ -549,6 +549,13 @@ export function PropsTable({
 }
 
 /* ── card grid ── */
+// The article lede. A wrapper element (not a bare <p>) so MDX can wrap the
+// markdown children in their own <p> without producing invalid nested <p>s —
+// which lets the copy stay natural multi-line markdown in the .mdx source.
+export function Lede({ children }: { children: ReactNode }) {
+  return <div className="dx-lede">{children}</div>;
+}
+
 export function CardGrid({ children }: { children: ReactNode }) {
   return <div className="dx-card-grid">{children}</div>;
 }
@@ -563,13 +570,25 @@ export function Card({
   title: ReactNode;
   desc: ReactNode;
 }) {
-  return (
-    <Link className="dx-card" to={"/docs/" + to}>
+  const inner = (
+    <>
       {icon ? <span className="dx-card-ic">{icon}</span> : null}
       <span className="dx-card-title">
         {title} <Icons.ChevronRight className="arr" />
       </span>
       <p className="dx-card-desc">{desc}</p>
+    </>
+  );
+  if (/^https?:\/\//.test(to)) {
+    return (
+      <a className="dx-card" href={to} target="_blank" rel="noreferrer">
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <Link className="dx-card" to={"/docs/" + to}>
+      {inner}
     </Link>
   );
 }

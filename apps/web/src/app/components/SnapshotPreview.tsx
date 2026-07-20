@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import type { Block } from "@cypherkit/editor";
+import type { Block } from "@tasfer/editor";
 import { ChevronLeft, FileText, GitFork, Layers, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { MountedEditor } from "../MountedEditor";

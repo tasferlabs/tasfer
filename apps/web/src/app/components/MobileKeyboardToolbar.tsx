@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { renderToSVG } from "@cypherkit/editor/math";
+import { renderToSVG } from "@tasfer/editor/math";
 import {
   ArrowLeft,
   ArrowRight,
@@ -47,8 +47,8 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
   code: <Code className="size-5" />,
   // A backslash `\` — the character this button types to open math commands.
   // Inlined (Lucide has no backslash) with the exact same path/stroke as the iOS
-  // asset (apps/ios/icons/math_command.svg) so both shells render an identical glyph.
-  math_command: (
+  // asset (apps/ios/icons/mathcommand.svg) so both shells render an identical glyph.
+  mathcommand: (
     <svg
       className="size-5"
       viewBox="0 0 24 24"

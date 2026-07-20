@@ -23,8 +23,8 @@ import {
   replaceMathTreeRange,
   replaceMathTreeRangeWithSemanticLatex,
 } from "./tree-edit";
-import { isValidLatex } from "@cypherkit/tex";
-import { parseMathDocument, printMathDocument } from "@cypherkit/tex/data";
+import { isValidLatex } from "@tasfer/tex";
+import { parseMathDocument, printMathDocument } from "@tasfer/tex/data";
 
 /** Insert/replace input without exposing syntax-bearing punctuation as text. */
 export function applyMathTreeInputToDocument(

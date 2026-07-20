@@ -1,8 +1,8 @@
 # Tasfer editor examples
 
 Two complete, runnable product shells built around the **same** headless canvas
-editor — [`@cypherkit/editor`](../packages/editor) wired up through its React
-bindings, [`@cypherkit/react`](../packages/react). The engine only paints
+editor — [`@tasfer/editor`](../packages/editor) wired up through its React
+bindings, [`@tasfer/react`](../packages/react). The engine only paints
 glyphs; everything around it (sidebars, toolbars, status bars, theming) is the
 host's to invent. These two examples show how different that "everything around
 it" can look while the core stays identical.
@@ -10,7 +10,7 @@ it" can look while the core stays identical.
 | Example | What it is | Vibe | Dev port |
 | --- | --- | --- | --- |
 | [`foolscap`](./foolscap) | A distraction-free **writing studio** | Warm paper, serif, typewriter focus | `4010` |
-| [`cypher-studio`](./cypher-studio) | A dark **markdown IDE** | File tree, live outline, peers | `4020` |
+| [`tasfer-studio`](./tasfer-studio) | A dark **markdown IDE** | File tree, live outline, peers | `4020` |
 
 Both mount a real editor (type into it — markdown shortcuts, `**bold**`, `⌘B`,
 `# `, `- `, `> ` all work) and drive their chrome from live editor state
@@ -24,12 +24,12 @@ Each example is a self-contained Vite + React 19 app with its own
 example directory:
 
 ```bash
-cd examples/foolscap      # or examples/cypher-studio
+cd examples/foolscap      # or examples/tasfer-studio
 npm install
 npm run dev
 ```
 
-> The apps consume `@cypherkit/editor`, `@cypherkit/react`, and `@cypherkit/tex`
+> The apps consume `@tasfer/editor`, `@tasfer/react`, and `@tasfer/tex`
 > as **raw TypeScript source** via Vite/TS path aliases (exactly like
 > `apps/web`), so there is no build step for the packages. The engine's own
 > transitive dependencies (`defuddle`, `lowlight`, `katex`) resolve from each
@@ -47,7 +47,7 @@ The integration is deliberately tiny — three pieces in every example:
    `tokens`, a deep-partial `styles` override (font sizes, padding), and the
    `fonts` registry. No CSS selectors reach into the canvas; the look is data.
 3. **Mount** — `<Editor markdown={…} theme={foolscapTheme} autofocus />` from
-   `@cypherkit/react`, with the surrounding shell reading live state through
+   `@tasfer/react`, with the surrounding shell reading live state through
    `useEditorMarkdown(editor)`.
 
 That's the whole contract. Swap the theme and the chrome, keep the engine.

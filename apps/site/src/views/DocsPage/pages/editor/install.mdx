@@ -1,9 +1,14 @@
-{/* @cypherkit/editor docs — Installation. */}
+{/* @tasfer/editor docs — Installation. */}
 
 import { Icons } from "../../docsIcons";
-import { Callout, Card, CardGrid, FrameworkTabs, InstallTabs, LicenseCard } from "../../docsComponents";
+import { Callout, Card, CardGrid, FrameworkTabs, InstallTabs, Lede, LicenseCard } from "../../docsComponents";
 
-<p className="dx-lede">`@cypherkit/editor` is a CRDT-first canvas editor for the web — the same engine that powers the Tasfer app, published as a standalone, framework-agnostic package. **It renders to a canvas, models your document as a conflict-free replicated data type, and never assumes a server exists.**</p>
+<Lede>
+  `@tasfer/editor` is a CRDT-first canvas editor for the web — the same engine
+  that powers the Tasfer app, published as a standalone, framework-agnostic
+  package. **It renders to a canvas, models your document as a conflict-free
+  replicated data type, and never assumes a server exists.**
+</Lede>
 
 <LicenseCard>Released under the **MIT license**. Use it in commercial and closed-source products, fork it, rebrand it — no copyleft, no attribution clause beyond keeping the license file. (The Tasfer *app* is AGPL-3.0; the editor package is deliberately permissive.)</LicenseCard>
 
@@ -11,11 +16,11 @@ import { Callout, Card, CardGrid, FrameworkTabs, InstallTabs, LicenseCard } from
 
 Add the package with your package manager of choice:
 
-<InstallTabs pkg="@cypherkit/editor" />
+<InstallTabs pkg="@tasfer/editor" />
 
 The core package has **zero runtime dependencies**. The CRDT, the canvas renderer, and the markdown serializer all ship inside it. You only add more packages when you want a framework binding or a network provider:
 
-<InstallTabs pkg="@cypherkit/react @cypherkit/provider-relay" />
+<InstallTabs pkg="@tasfer/react @tasfer/provider-relay" />
 
 <h2 id="requirements">Requirements</h2>
 
@@ -23,14 +28,14 @@ The core package has **zero runtime dependencies**. The CRDT, the canvas rendere
 - **ES2020 or a bundler that targets it.** The package ships ESM with a CommonJS interop entry. Types are bundled — no `@types` install.
 - **No build step required for the CRDT.** It's pure JavaScript — there's nothing to copy into your `public/` folder.
 
-<h2 id="first">A thirty-second editor</h2>
+<h2 id="first">A 30-second editor</h2>
 
 The smallest thing that works — an editable document with markdown shortcuts, history, and a blinking cursor. In plain JS you mount the engine into an element you own; in React you render the `<Editor>` component, which owns and sizes its host for you and reports edits through `onChange`. Flip the tab:
 
 <FrameworkTabs>
 
 ```ts file="main.ts"
-import { createEditor } from "@cypherkit/editor";
+import { createEditor } from "@tasfer/editor";
 
 const editor = createEditor({
   element: document.querySelector("#editor")!,
@@ -45,7 +50,7 @@ editor.on("change", () => {
 ```
 
 ```tsx file="App.tsx"
-import { Editor } from "@cypherkit/react";
+import { Editor } from "@tasfer/react";
 
 export default function App() {
   return (

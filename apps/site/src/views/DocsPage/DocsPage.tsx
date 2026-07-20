@@ -8,7 +8,7 @@ import { Icons } from "./docsIcons";
 import { DocsHeader } from "./DocsHeader";
 import "./DocsPage.css";
 
-const REPO_URL = "https://github.com/hamza512b/cypher";
+const REPO_URL = "https://github.com/hamza512b/tasfer";
 const EDITOR_SRC_URL = `${REPO_URL}/tree/main/packages/editor`;
 
 /** A sub-link inside a branch card. The whole card is also a link, so these
@@ -49,7 +49,6 @@ export default function DocsPage() {
       <div className="dx-hub">
         <div className="dx-hub-grid" aria-hidden="true" />
         <div className="dx-hub-inner">
-          <div className="dx-hub-eyebrow">{t("docs.hub.eyebrow", "documentation")}</div>
           <h1 className="dx-hub-title">
             {t("docs.hub.title.a", "Two things to read.")}
             <br />
@@ -60,7 +59,7 @@ export default function DocsPage() {
               "docs.hub.lede.a",
               "Everything you need to use the Tasfer app, and everything you need to build on",
             )}{" "}
-            <code>@cypherkit/editor</code>{" "}
+            <code>@tasfer/editor</code>{" "}
             {t("docs.hub.lede.b", "— the CRDT-first canvas editor that powers it.")}{" "}
             <strong>
               {t(
@@ -97,7 +96,7 @@ export default function DocsPage() {
                 <span className="dx-branch-ic"><Icons.Terminal /></span>
                 <span className="dx-branch-badge">{t("docs.hub.editor.badge", "the package · MIT")}</span>
               </div>
-              <h2 className="dx-branch-name mono">@cypherkit/editor</h2>
+              <h2 className="dx-branch-name mono">@tasfer/editor</h2>
               <p className="dx-branch-desc">
                 {t(
                   "docs.hub.editor.desc",
@@ -127,7 +126,6 @@ export default function DocsPage() {
           <div className="dx-hub-foot-brand">
             <BrandMark />
             <span className="dx-hub-foot-name">tasfer</span>
-            <span className="dx-hub-foot-tail">{t("docs.hub.foot.tagline", "— documentation, built in the open.")}</span>
           </div>
           <div className="dx-hub-foot-links">
             <Link to="/home">{t("docs.hub.foot.landing", "landing")}</Link>

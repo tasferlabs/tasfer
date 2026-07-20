@@ -11,33 +11,33 @@
 import type { SpaceInvite } from "@/platform/types";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-    Box,
-    Camera,
-    Check,
-    ChevronDown,
-    ChevronRight,
-    Copy,
-    Fingerprint,
-    ImagePlus,
-    Loader2,
-    Lock,
-    Plus,
-    QrCode,
-    Share2,
-    ShieldCheck,
-    Upload,
-    User,
-    Users,
-    X,
+  Box,
+  Camera,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Fingerprint,
+  ImagePlus,
+  Loader2,
+  Lock,
+  Plus,
+  QrCode,
+  Share2,
+  ShieldCheck,
+  Upload,
+  User,
+  Users,
+  X,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { updateProfile } from "../api/auth.api";
 import { uploadImage, useAssetUrl } from "../api/images.api";
 import {
-    cancelPairing,
-    useAcceptInvite,
-    useCreateSpace,
+  cancelPairing,
+  useAcceptInvite,
+  useCreateSpace,
 } from "../api/spaces.api";
 import { useAuth } from "../contexts/AuthContext";
 import { AvatarCropDialog } from "./AvatarCropDialog";
@@ -346,7 +346,7 @@ function SpacePick({
   // so skipping the choice creates a default personal space silently.
   function handleSkip() {
     setSkipError("");
-    createSpace({ name: t("common.personal", "Personal") });
+    createSpace({ name: "" });
   }
 
   return (
@@ -442,7 +442,7 @@ function SpaceCreate({ setView }: { setView: (v: SpaceView) => void }) {
   function handleCreate() {
     // Space name is optional in the flow; fall back to a sensible default.
     setCreateError("");
-    createSpace({ name: org.trim() || t("common.personal", "Personal") });
+    createSpace({ name: org.trim() || "" });
   }
 
   return (
@@ -728,15 +728,15 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
               {fileName
                 ? t("onboarding.tapToRemove", "Tap to remove")
                 : t(
-                    "onboarding.cypherInviteHint",
-                    "A .cypherinvite file from your peer",
+                    "onboarding.tasferInviteHint",
+                    "A .tasferinvite file from your peer",
                   )}
             </span>
           </button>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".cypherinvite,text/plain,application/json"
+            accept=".tasferinvite,text/plain,application/json"
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleFile(file);
@@ -916,9 +916,11 @@ export function OnboardingScreen() {
     // Android IME inset posted by MainActivity: { type, height (dp ≈ CSS px),
     // isOpen }. Validated inline to keep onboarding self-contained.
     const onNativeKeyboard = (e: MessageEvent) => {
-      const data = e.data as
-        | { type?: unknown; height?: unknown; isOpen?: unknown }
-        | null;
+      const data = e.data as {
+        type?: unknown;
+        height?: unknown;
+        isOpen?: unknown;
+      } | null;
       if (
         e.source !== window ||
         !data ||

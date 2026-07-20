@@ -4,7 +4,7 @@
  * {@link serveNetwork} drives a real {@link NetworkDriver} (WebRTC) from the
  * commands the worker's {@link NetworkProxy} sends, and streams peer events
  * back. {@link startNetworkHostElection} makes a tab contend for the
- * `cypher-net` Web Lock; the single winner becomes the device's transport host,
+ * `tasfer-net` Web Lock; the single winner becomes the device's transport host,
  * runs the WebRTC driver, and hands a `MessagePort` to the worker. When that tab
  * closes the lock frees and another tab takes over — invisible to editing.
  */
@@ -97,7 +97,7 @@ export function serveNetwork(driver: NetworkDriver, port: MessagePort): void {
 }
 
 /**
- * Contend for the `cypher-net` lock; the winner hosts the device's single
+ * Contend for the `tasfer-net` lock; the winner hosts the device's single
  * WebRTC connection on the worker's behalf for as long as this tab lives.
  */
 export function startNetworkHostElection(
@@ -106,7 +106,7 @@ export function startNetworkHostElection(
 ): void {
   if (typeof navigator === "undefined" || !navigator.locks) return;
 
-  void navigator.locks.request("cypher-net", async () => {
+  void navigator.locks.request("tasfer-net", async () => {
     const { createWebRtcNetworkDriver } = await import("../adapters/webrtc");
     const driver = createWebRtcNetworkDriver(signalUrl);
 

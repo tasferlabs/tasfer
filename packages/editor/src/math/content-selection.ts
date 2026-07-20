@@ -4,9 +4,9 @@
  * the resolver that snaps committed ranges construct-atomic.
  *
  * This deliberately lives OUTSIDE `./data`: both adapters run the
- * tree-selection bridge, which needs the `@cypherkit/tex` layout engine, and
+ * tree-selection bridge, which needs the `@tasfer/tex` layout engine, and
  * their only consumers are main-thread selection and clipboard flows. Keeping
- * them here lets the worker-safe `@cypherkit/editor/math/data` entry register
+ * them here lets the worker-safe `@tasfer/editor/math/data` entry register
  * the rest of math without ever reaching the layout/paint stack.
  * `mathExtension()` installs them; hosts that assemble their schema by hand
  * add {@link mathContentSelectionKind} to their `structuredKinds`.
@@ -25,7 +25,7 @@ import {
   mathSourceRangeFromContentSelection,
   snapMathContentSelection,
 } from "./tree-selection";
-import { printMathDocument } from "@cypherkit/tex/data";
+import { printMathDocument } from "@tasfer/tex/data";
 
 /** Losslessly encode the editable subset of a math range for the clipboard. */
 export function serializeMathContentSelection({

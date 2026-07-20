@@ -15,10 +15,10 @@ let db: Database.Database | null = null;
 export function getDb(): Database.Database {
   if (db) return db;
 
-  const dbPath = path.join(app.getPath("userData"), "cypher.db");
+  const dbPath = path.join(app.getPath("userData"), "tasfer.db");
   db = new BetterSqlite3(dbPath);
 
-  // Performance settings for local use
+  // WAL persists in the file; foreign_keys is per-connection and must be set each open.
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
 

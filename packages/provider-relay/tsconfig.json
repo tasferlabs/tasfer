@@ -12,14 +12,14 @@
     "skipLibCheck": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    // Resolve sibling @cypherkit packages from their built dist declarations.
+    // Resolve sibling @tasfer packages from their built dist declarations.
     // Build them in dependency order: editor and provider-core before this.
     "paths": {
       "*": ["./*"],
-      "@cypherkit/editor": ["../editor/dist/index.d.mts"],
-      "@cypherkit/editor/*": ["../editor/dist/*"],
-      "@cypherkit/provider-core": ["../provider-core/dist/index.d.mts"],
-      "@cypherkit/provider-core/*": ["../provider-core/dist/*"]
+      "@tasfer/editor": ["../editor/dist/index.d.mts"],
+      "@tasfer/editor/*": ["../editor/dist/*"],
+      "@tasfer/provider-core": ["../provider-core/dist/index.d.mts"],
+      "@tasfer/provider-core/*": ["../provider-core/dist/*"]
     }
   },
   "include": ["src"]

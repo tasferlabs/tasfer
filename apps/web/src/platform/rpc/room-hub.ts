@@ -20,8 +20,8 @@
  * its sibling tabs via `onPeerJoined`.
  */
 
-import type { Operation } from "@cypherkit/editor";
-import type { CursorPresence } from "@cypherkit/provider-core/cursors";
+import type { Operation } from "@tasfer/editor";
+import type { CursorPresence } from "@tasfer/provider-core/cursors";
 import type { Platform, SyncEvents, RoomUser } from "../types";
 
 type Sync = Platform["sync"];

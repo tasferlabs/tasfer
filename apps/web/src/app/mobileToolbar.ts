@@ -1,4 +1,4 @@
-import { filterMathCommands } from "@cypherkit/editor/math";
+import { filterMathCommands } from "@tasfer/editor/math";
 
 export type MobileToolbarBlockType =
   | "paragraph"
@@ -20,7 +20,7 @@ export type MobileToolbarIcon =
   | "bold"
   | "italic"
   | "code"
-  | "math_command"
+  | "mathcommand"
   | "math"
   | "strikethrough"
   | "text"
@@ -38,9 +38,10 @@ export type MobileToolbarIcon =
   | "keyboard_dismiss"
   // Contextual controls (list/code/overflow). The native iOS accessory renders
   // these too — its bar is now built from the same contextual model — so they
-  // need curated artwork. The icon generator (`scripts/gen-mobile-toolbar-icons.mjs`)
-  // treats this union as the set of icons it must have an SVG for, so adding one
-  // here requires a matching `apps/ios/icons/<name>.svg`.
+  // need native artwork. The icon generator (`scripts/gen-mobile-toolbar-icons.mjs`)
+  // treats this union as the set of icons it must emit, deriving each from Lucide
+  // (the same source the web bar uses), so adding one here requires a matching
+  // entry in that script's LUCIDE/CUSTOM_BODY map.
   | "indent"
   | "outdent"
   | "todo_check"
@@ -452,14 +453,14 @@ export function createMobileToolbarModel(
   // renders as a real button on every shell while sitting beside the chips.
   const mathCommand = button(
     "math-command",
-    "math_command",
+    "mathcommand",
     t("editor.math.chooseConstruct", "Math commands"),
     { type: "open-math-commands" },
     { enabled: state.canOpenMathCommands },
   );
   const mathTrigger = button(
     "math-trigger",
-    "math_command",
+    "mathcommand",
     t("editor.math.chooseConstruct", "Math commands"),
     { type: "open-math-commands" },
     { enabled: state.canOpenMathCommands },

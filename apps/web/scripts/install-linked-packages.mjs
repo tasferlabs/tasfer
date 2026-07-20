@@ -1,4 +1,4 @@
-// vite.config.ts aliases @cypherkit/* to sibling package *source*, so their
+// vite.config.ts aliases @tasfer/* to sibling package *source*, so their
 // runtime deps (e.g. lowlight, defuddle) resolve from each package's own
 // node_modules. Install those alongside web's install so a fresh clone works.
 import { spawnSync } from "node:child_process";

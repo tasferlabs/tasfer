@@ -1,11 +1,11 @@
 /**
- * @cypherkit/editor/internal — UNSTABLE internal surface.
+ * @tasfer/editor/internal — UNSTABLE internal surface.
  *
  * Everything re-exported here is engine machinery or host-only plumbing that a
  * first-party host (e.g. `apps/web`'s `platform/` layer and document tooling)
  * needs, but which is **NOT a public contract**. It carries no semver guarantee
  * — symbols may be renamed, reshaped, or removed in any release. External
- * consumers should depend only on the package root (`@cypherkit/editor`).
+ * consumers should depend only on the package root (`@tasfer/editor`).
  *
  * This entry exists so the package can drop the `./*` wildcard from its
  * `exports` map (which made every source file a frozen public entry point)
@@ -14,7 +14,7 @@
  */
 
 // ── Concrete editor class ────────────────────────────────────────────────────
-// Hosts hold the spread `CypherEditor` handle (root); the concrete class is
+// Hosts hold the spread `TasferEditor` handle (root); the concrete class is
 // here for advanced `new Editor(...)` construction. The public action/lifecycle
 // type is the interface-shaped `Editor` (= `EditorApi`) at the root.
 //

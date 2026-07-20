@@ -1,18 +1,22 @@
 {/* Tasfer app docs — Privacy & data. */}
 
-import { Callout } from "../../docsComponents";
+import { Callout, Lede } from "../../docsComponents";
 
 export const ledger = [
   ["Your email address", "never asked"],
-  ["Your name", "an optional display name, stored locally — visible only to people you share a space with"],
+  ["Your name", "never required — set a display name if you want; it stays on your device, visible only in spaces you share"],
   ["Your documents", "never uploaded — they stay on your device"],
   ["Who you sync with", "never logged — the relay stores nothing"],
   ["Your editing habits", "never tracked — there is no analytics SDK"],
   ["Device fingerprint", "never collected"],
-  ["Crash reports", "never collected — there is no crash reporter"],
+  ["Crash reports", "never collected — there is no crash reporter; the only way we hear about a bug is if you report one"],
 ];
 
-<p className="dx-lede">The short version: **Tasfer does not have a file on you, because it never opens one.** No accounts, no telemetry, no document upload. Here is the complete accounting.</p>
+<Lede>
+  The short version: **Tasfer does not have a file on you, because it never opens
+  one.** No accounts, no telemetry, no document upload. Here is the complete
+  accounting.
+</Lede>
 
 <h2 id="ledger">What we know about you</h2>
 
@@ -23,7 +27,7 @@ export const ledger = [
       {ledger.map(([k, v]) => (
         <tr key={k}>
           <td className="desc" style={{ color: "var(--fg)" }}>{k}</td>
-          <td><span className="ty" style={{ fontStyle: "normal" }}>{v}</span></td>
+          <td><span className="ty" style={{ fontStyle: "normal", fontFamily: "var(--font-ui)", fontSize: "14px" }}>{v}</span></td>
         </tr>
       ))}
     </tbody>
@@ -36,7 +40,7 @@ export const ledger = [
 - **Between your devices.** When you share a space, documents travel directly between member devices over an encrypted peer-to-peer channel. The keys are derived on your devices from the invite you created; no server ever holds them.
 - **Through a relay — only when needed.** When a direct connection can't be made, traffic is encrypted on-device with AES-256-GCM and passes through a relay that cannot decrypt it and keeps no record of it.
 
-<Callout kind="tip" title="Don't trust the page — read the code.">Every claim here is enforced by source you can audit. The encryption, the relay, and the protocol are all in the [repository](https://github.com/hamza512b/cypher) — the apps are AGPL-3.0, the editor libraries MIT. Fork it, swap the relay, or ship your own build — every fork inherits the same refusal.</Callout>
+<Callout kind="tip" title="Don't trust the page — read the code.">Every claim here is enforced by source you can audit. The encryption, the relay, and the protocol are all in the [repository](https://github.com/hamza512b/tasfer) — the apps are AGPL-3.0, the editor libraries MIT. Fork it, swap the relay, or ship your own build — the refusal is in the code, and the code is yours to keep.</Callout>
 
 <h2 id="keys">Your keys</h2>
 

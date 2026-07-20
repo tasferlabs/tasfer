@@ -1,10 +1,10 @@
 import type {
   BaseSchemaDefinition,
-  CypherEditor,
+  TasferEditor,
   Doc,
   EditorStateSnapshot,
   SchemaDefinition,
-} from "@cypherkit/editor";
+} from "@tasfer/editor";
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
 /**
@@ -22,7 +22,7 @@ export type EditorStateValue<
 };
 
 /**
- * Subscribe to a {@link CypherEditor}'s state and re-render on changes.
+ * Subscribe to a {@link TasferEditor}'s state and re-render on changes.
  *
  * Tracks both document content (`"change"`) and caret/selection movement
  * (`"selectionchange"`), returning the editor's `{ selection, activeMarks, doc }`
@@ -41,14 +41,14 @@ export type EditorStateValue<
  */
 export function useEditorState<
   D extends SchemaDefinition = BaseSchemaDefinition,
->(editor: CypherEditor<D> | null): EditorStateValue<D> | null {
+>(editor: TasferEditor<D> | null): EditorStateValue<D> | null {
   // The last snapshot handed to React. Refreshed inside the subscribe callbacks
   // (and lazily in getSnapshot when the editor identity changes) so that
   // getSnapshot returns a stable reference between events.
   const snapshotRef = useRef<EditorStateValue<D> | null>(null);
   // The editor the cached snapshot belongs to, so a swapped editor invalidates
   // a stale cache instead of leaking the previous instance's state.
-  const editorRef = useRef<CypherEditor<D> | null>(null);
+  const editorRef = useRef<TasferEditor<D> | null>(null);
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
@@ -88,7 +88,7 @@ export function useEditorState<
 }
 
 /**
- * Subscribe to a {@link CypherEditor}'s Markdown projection, re-rendering
+ * Subscribe to a {@link TasferEditor}'s Markdown projection, re-rendering
  * whenever the document content changes (`"change"`). Returns `""` while
  * `editor` is `null`.
  *
@@ -101,9 +101,9 @@ export function useEditorState<
  */
 export function useEditorMarkdown<
   D extends SchemaDefinition = BaseSchemaDefinition,
->(editor: CypherEditor<D> | null): string {
+>(editor: TasferEditor<D> | null): string {
   const markdownRef = useRef<string>("");
-  const editorRef = useRef<CypherEditor<D> | null>(null);
+  const editorRef = useRef<TasferEditor<D> | null>(null);
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {

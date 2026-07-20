@@ -19,22 +19,22 @@ import { ArrowLeft, Download, FileCode, FileType, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
-import { serializeToMarkdown } from "@cypherkit/editor";
-import { serializeToHTML } from "@cypherkit/editor";
-import { collectAssetRefs } from "@cypherkit/editor";
-import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
-import { imageCache } from "@cypherkit/editor/internal";
-import { renderToSVG } from "@cypherkit/editor/math";
+import { serializeToMarkdown } from "@tasfer/editor";
+import { serializeToHTML } from "@tasfer/editor";
+import { collectAssetRefs } from "@tasfer/editor";
+import { extractTitleFromBlocks } from "@tasfer/editor/internal";
+import { imageCache } from "@tasfer/editor/internal";
+import { renderToSVG } from "@tasfer/editor/math";
 import { getPlatform } from "@/platform";
 import { getTexFontUrl } from "@/fonts";
 import { getPage } from "../api/pages.api";
-import type { PageMetadata } from "@cypherkit/editor";
+import type { PageMetadata } from "@tasfer/editor";
 import { downloadFile } from "@/downloadFile";
 import { getBridge } from "@/platform/bridge";
 import { appDataSchema } from "@/appDataSchema";
 
 interface ElectronWindow {
-  cypher?: { invoke(channel: string, ...args: unknown[]): Promise<unknown> };
+  tasfer?: { invoke(channel: string, ...args: unknown[]): Promise<unknown> };
 }
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
@@ -175,7 +175,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       reader.readAsDataURL(blob);
     });
 
-  // Rendered math is `<text>` bound to `CypherTeX_<Variant>` families that the
+  // Rendered math is `<text>` bound to `TasferTeX_<Variant>` families that the
   // app loads at runtime but the isolated print/PDF context never does. Inline
   // the WOFF2 faces the document actually uses as data-URL `@font-face`s so the
   // exported HTML is self-contained (same reason images become data URLs).
@@ -184,7 +184,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   ): Promise<string> => {
     const variants = new Set<string>();
     for (const m of renderedHtml.matchAll(
-      /font-family="CypherTeX_([\w-]+)"/g,
+      /font-family="TasferTeX_([\w-]+)"/g,
     )) {
       variants.add(m[1]);
     }
@@ -198,7 +198,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
           const response = await fetch(url);
           if (!response.ok) return null;
           const dataUrl = await blobToDataUrl(await response.blob());
-          return `@font-face{font-family:'CypherTeX_${variant}';src:url(${dataUrl}) format('woff2');font-display:block;}`;
+          return `@font-face{font-family:'TasferTeX_${variant}';src:url(${dataUrl}) format('woff2');font-display:block;}`;
         } catch {
           return null;
         }
@@ -300,7 +300,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     }
 
     // Electron: silent printToPDF in main process, then download via existing flow
-    const electron = (window as unknown as ElectronWindow).cypher;
+    const electron = (window as unknown as ElectronWindow).tasfer;
     if (electron?.invoke) {
       const buf = (await electron.invoke("pdf:generate", html)) as ArrayBuffer;
       const blob = new Blob([buf], { type: "application/pdf" });

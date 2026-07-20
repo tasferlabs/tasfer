@@ -4,11 +4,11 @@
 #
 # Invoked automatically before a native build:
 #   - iOS:     an Xcode "Build & sync web" run-script build phase
-#   - Android: the `cypherWebBuildAndSync` Gradle task (preBuild dependency)
+#   - Android: the `tasferWebBuildAndSync` Gradle task (preBuild dependency)
 #
 # Usage: build-and-sync.sh <ios|android>
 #
-# Set CYPHER_SKIP_WEB_BUILD=1 to skip (e.g. CI that builds the web bundle in a
+# Set TASFER_SKIP_WEB_BUILD=1 to skip (e.g. CI that builds the web bundle in a
 # separate step, or to avoid a double build).
 set -euo pipefail
 
@@ -18,8 +18,8 @@ if [[ "$PLATFORM" != "ios" && "$PLATFORM" != "android" ]]; then
   exit 1
 fi
 
-if [[ "${CYPHER_SKIP_WEB_BUILD:-}" == "1" ]]; then
-  echo "build-and-sync.sh: CYPHER_SKIP_WEB_BUILD=1, skipping web build + sync"
+if [[ "${TASFER_SKIP_WEB_BUILD:-}" == "1" ]]; then
+  echo "build-and-sync.sh: TASFER_SKIP_WEB_BUILD=1, skipping web build + sync"
   exit 0
 fi
 
@@ -63,7 +63,7 @@ ensure_node_on_path() {
 
   if ! command -v node >/dev/null 2>&1; then
     echo "build-and-sync.sh: could not find 'node' on PATH." >&2
-    echo "  Install Node, or set CYPHER_SKIP_WEB_BUILD=1 to skip this step." >&2
+    echo "  Install Node, or set TASFER_SKIP_WEB_BUILD=1 to skip this step." >&2
     exit 1
   fi
 }
@@ -84,8 +84,8 @@ npm run build
 # files. `cap copy` doesn't touch that module, so the build stays consistent.
 #
 # Run a full sync explicitly after adding/removing/upgrading a native plugin:
-#   CYPHER_CAP_SYNC=1 <build>   (or just `npx cap sync <platform>` once)
-if [[ "${CYPHER_CAP_SYNC:-}" == "1" ]]; then
+#   TASFER_CAP_SYNC=1 <build>   (or just `npx cap sync <platform>` once)
+if [[ "${TASFER_CAP_SYNC:-}" == "1" ]]; then
   npx cap sync "$PLATFORM"
 else
   npx cap copy "$PLATFORM"

@@ -33,14 +33,14 @@ import { NetworkProxy } from "../rpc/net-proxy";
 // here directly on an IndexedDB-backed VFS, which every worker context can reach.
 const db = new WaSqliteDb({ acquireLock: true });
 // WebRTC can't run here; the proxy forwards to whichever tab holds the
-// `cypher-net` lock (registered via the `netHost` message below).
+// `tasfer-net` lock (registered via the `netHost` message below).
 const netProxy = new NetworkProxy();
 const driver: Driver = {
   db,
   fs: new OpfsFsDriver(),
   crypto: new WebCryptoDriver(),
   network: netProxy,
-  basePath: "cypher",
+  basePath: "tasfer",
 };
 
 const engine = new Engine(driver);

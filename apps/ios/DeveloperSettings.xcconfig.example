@@ -1,0 +1,4 @@
+// Copy this file to `DeveloperSettings.xcconfig` and set your own Apple Developer
+// Team ID. That copy is gitignored, so your team ID never gets committed.
+// Find your Team ID at https://developer.apple.com/account (Membership details).
+DEVELOPMENT_TEAM = YOUR_TEAM_ID

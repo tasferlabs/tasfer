@@ -1,12 +1,12 @@
 /**
- * Worker-safety boundary of the `@cypherkit/editor/math/data` entry.
+ * Worker-safety boundary of the `@tasfer/editor/math/data` entry.
  *
  * The data entry is imported by SharedWorker persistence, reducers, and
  * markdown tooling. Its documented promise: installing math's data facets
  * never constructs MathNode/MathMark and never imports math's interactive
- * stack — in particular the tree-selection bridge, whose `@cypherkit/tex`
+ * stack — in particular the tree-selection bridge, whose `@tasfer/tex`
  * ROOT import drags the layout/paint engine into every worker bundle (only
- * `@cypherkit/tex/data` is worker-safe).
+ * `@tasfer/tex/data` is worker-safe).
  *
  * Nothing else enforces this — vitest stubs the DOM, so a creeping import
  * would fail no behavioral test. This walks the static RUNTIME import graph
@@ -120,8 +120,8 @@ describe("math/data import boundary", () => {
     // engine into worker bundles; the data-only sub-entry is the ONLY tex
     // import allowed here.
     const texImports = [...bareSpecifiers].filter(
-      (spec) => spec === "@cypherkit/tex" || spec.startsWith("@cypherkit/tex/"),
+      (spec) => spec === "@tasfer/tex" || spec.startsWith("@tasfer/tex/"),
     );
-    expect(texImports).toEqual(["@cypherkit/tex/data"]);
+    expect(texImports).toEqual(["@tasfer/tex/data"]);
   });
 });

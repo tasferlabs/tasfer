@@ -135,7 +135,7 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     // Native storage methods
     private val storageBaseDir: File
         get() {
-            val dir = File(context.filesDir, "cypher")
+            val dir = File(context.filesDir, "tasfer")
             if (!dir.exists()) dir.mkdirs()
             return dir
         }

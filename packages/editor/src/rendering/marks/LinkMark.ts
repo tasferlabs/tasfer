@@ -55,7 +55,7 @@ export class LinkMark extends Mark {
    *    the caret isn't placed. Highest priority so it pre-empts node click claims.
    *  - `POINTER_MOVE` (observe, priority 0) — drives the link hover tooltip. Owns
    *    `ui.linkHover` / `ui.isHoveringLinkWithModifier`; the host renders the
-   *    tooltip from `ui.linkHover` via {@link overlays} (see CypherLinkMark),
+   *    tooltip from `ui.linkHover` via {@link overlays} (see TasferLinkMark),
    *    so only the write logic lives here. Dispatched on desktop only.
    */
   registerActions(bus: ActionBus): void {

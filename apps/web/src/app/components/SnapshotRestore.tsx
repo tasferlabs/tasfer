@@ -34,8 +34,8 @@ import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useCreatePage, useGetPageSnapshots } from "../api/pages.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { getPlatform } from "@/platform";
-import type { Block } from "@cypherkit/editor";
-import { extractTitleFromBlocks } from "@cypherkit/editor/internal";
+import type { Block } from "@tasfer/editor";
+import { extractTitleFromBlocks } from "@tasfer/editor/internal";
 import { SnapshotPreview } from "./SnapshotPreview";
 
 // Version data type (derived from ops, not stored snapshots)

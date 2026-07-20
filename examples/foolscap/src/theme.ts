@@ -1,4 +1,4 @@
-import type { EditorTheme } from "@cypherkit/editor";
+import type { EditorTheme } from "@tasfer/editor";
 
 /**
  * Foolscap's look as a single `EditorTheme` value — warm paper, an old-style

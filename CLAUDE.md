@@ -1,3 +1,3 @@
 # CLAUDE.md
 
-@agent.md
+Please reference instead @AGENTS.md

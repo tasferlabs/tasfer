@@ -28,7 +28,7 @@
  *
  * Storage layout & compaction
  * ----------------------------
- * The log lives in a per-doc IndexedDB database (`cypher:${name}`) as a sequence
+ * The log lives in a per-doc IndexedDB database (`tasfer:${name}`) as a sequence
  * of appended op batches — see {@link ./idb}. Appends are O(1), but an unbounded
  * batch count would slow the initial `readAll`. So once {@link COMPACTION_THRESHOLD}
  * batches have accumulated, the store is rewritten in a single atomic transaction
@@ -37,7 +37,7 @@
  * regardless of how it was chunked.
  */
 
-import type { Doc, Operation } from "@cypherkit/editor";
+import type { Doc, Operation } from "@tasfer/editor";
 
 import { append, clearStore, openDB, readAll, replaceAll } from "./idb";
 
@@ -53,7 +53,7 @@ export interface CreateIndexedDBProviderOptions {
   /** The document to persist. Its op log is mirrored to IndexedDB. */
   doc: Doc;
   /**
-   * Logical document name — the IndexedDB database key (`cypher:${name}`). Use
+   * Logical document name — the IndexedDB database key (`tasfer:${name}`). Use
    * a stable, per-document string (e.g. a path like `"notes/today"`); two docs
    * sharing a name share a store.
    */
@@ -83,7 +83,7 @@ export function createIndexedDBProvider(
   const { doc, name } = options;
 
   /** Origin stamped on batches we replay from disk — our echo guard. */
-  const IDB = Symbol("cypher-idb");
+  const IDB = Symbol("tasfer-idb");
 
   /** Resolved once the open handle is ready (for clearData/destroy ordering). */
   let db: IDBDatabase | null = null;

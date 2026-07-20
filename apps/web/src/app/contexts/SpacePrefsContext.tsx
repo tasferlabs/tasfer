@@ -13,7 +13,7 @@ import type { ISpace } from "../api/spaces.api";
  * touches the CRDT or syncs to peers. Persisted to localStorage.
  */
 
-const STORAGE_KEY = "cypher.spacePrefs";
+const STORAGE_KEY = "tasfer.spacePrefs";
 
 type Listener = () => void;
 

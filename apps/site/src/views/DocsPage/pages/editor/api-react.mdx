@@ -1,14 +1,19 @@
-{/* @cypherkit/editor API reference — React bindings. */}
+{/* @tasfer/editor API reference — React bindings. */}
 
-import { Callout, PropsTable } from "../../docsComponents";
+import { Callout, Lede, PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">`@cypherkit/react` is the thin React 19 binding over the headless engine — a hook to own an editor, a component to render one, and `useSyncExternalStore` subscriptions for toolbars and live preview. Every piece is per-instance, so any number of editors can live on one page.</p>
+<Lede>
+  `@tasfer/react` is the thin React 19 binding over the headless engine — a hook
+  to own an editor, a component to render one, and `useSyncExternalStore`
+  subscriptions for toolbars and live preview. Every piece is per-instance, so
+  any number of editors can live on one page.
+</Lede>
 
 ```ts
-import { Editor, useEditor, useEditorState } from "@cypherkit/react";
+import { Editor, useEditor, useEditorState } from "@tasfer/react";
 ```
 
-<Callout kind="note" title="Options are read once.">Editor options are read at mount only. Reconfigure at runtime through the imperative `CypherEditor` handle (`setTheme`, `setMarkdown`, `change`, …) — not by re-passing props. `<Editor>`'s `onChange` is the one prop that stays live, but it's notify-only: it reports edits, it never pushes content back in. (The document is a CRDT — it owns its content, so there is no controlled `value`.)</Callout>
+<Callout kind="note" title="Options are read once.">Editor options are read at mount only. Reconfigure at runtime through the imperative `TasferEditor` handle (`setTheme`, `setMarkdown`, `change`, …) — not by re-passing props. `<Editor>`'s `onChange` is the one prop that stays live, but it's notify-only: it reports edits, it never pushes content back in. (The document is a CRDT — it owns its content, so there is no controlled `value`.)</Callout>
 
 <h2 id="component">&lt;Editor /&gt;</h2>
 
@@ -19,11 +24,11 @@ A drop-in component that renders the host element for you and reports the live e
   { name: "onChange", type: "(markdown: string) => void", desc: "Notify-only: called with the document's markdown after every change — local, paste, undo, or remote. It reports edits but never pushes content back in. For the raw ChangeTransaction (or to ignore remote via tx.isRemote), subscribe through onReady instead." },
   { name: "className", type: "string", desc: "Forwarded to the host <div>." },
   { name: "style", type: "CSSProperties", desc: "Forwarded to the host <div>. The div must be sized — give it a height here or via className." },
-  { name: "onReady", type: "(editor: CypherEditor) => void", desc: "Called once per editor instance with the live handle. Wire events / persistence here." },
+  { name: "onReady", type: "(editor: TasferEditor) => void", desc: "Called once per editor instance with the live handle. Wire events / persistence here." },
 ]} />
 
 ```tsx
-import { Editor } from "@cypherkit/react";
+import { Editor } from "@tasfer/react";
 
 // Seed once, react to edits, reach for the handle when you need it.
 function App() {
@@ -47,11 +52,11 @@ For full control over the host element. Creates the editor exactly once (in a la
 
 <PropsTable cols={["Returns", "Type", "Description"]} rows={[
   { name: "containerRef", type: "RefObject<HTMLDivElement | null>", desc: "Attach to the host element: <div ref={containerRef} />. The editor fills it, so the div needs a height." },
-  { name: "editor", type: "CypherEditor | null", desc: "The live handle, or null on the first render before the mount effect runs." },
+  { name: "editor", type: "TasferEditor | null", desc: "The live handle, or null on the first render before the mount effect runs." },
 ]} />
 
 ```tsx
-import { useEditor } from "@cypherkit/react";
+import { useEditor } from "@tasfer/react";
 import { useEffect } from "react";
 
 function Notes() {
@@ -75,7 +80,7 @@ function Notes() {
 ]} />
 
 ```tsx
-function Toolbar({ editor }: { editor: CypherEditor | null }) {
+function Toolbar({ editor }: { editor: TasferEditor | null }) {
   const state = useEditorState(editor);
   const active = state?.activeMarks ?? new Set();
 
@@ -90,4 +95,4 @@ function Toolbar({ editor }: { editor: CypherEditor | null }) {
 }
 ```
 
-<Callout kind="tip" title="One import surface.">`@cypherkit/react` re-exports the engine types you reach for most — `CypherEditor`, `Doc`, `ChangeTransaction`, `EditorStateSnapshot`, `CreateEditorOptions` — so a consumer can import everything from one place.</Callout>
+<Callout kind="tip" title="One import surface.">`@tasfer/react` re-exports the engine types you reach for most — `TasferEditor`, `Doc`, `ChangeTransaction`, `EditorStateSnapshot`, `CreateEditorOptions` — so a consumer can import everything from one place.</Callout>

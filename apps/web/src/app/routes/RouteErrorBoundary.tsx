@@ -10,18 +10,12 @@ import {
   fullscreenChromeBarStyle,
   NO_DRAG,
 } from "@/lib/fullscreenChrome";
-
-const GITHUB_NEW_ISSUE_URL = "https://github.com/hamza512b/cypher/issues/new";
-
-/** Normalized view of whatever `useRouteError` handed us. */
-interface ErrorInfo {
-  /** Short headline, e.g. "TypeError" or "404 Not Found". */
-  name: string;
-  /** Human-readable message. */
-  message: string;
-  /** Full stack trace when the thrown value carried one. */
-  stack?: string;
-}
+import {
+  buildDiagnostics,
+  buildIssueUrl,
+  useReportPath,
+  type ErrorInfo,
+} from "@/lib/reportIssue";
 
 function normalizeError(error: unknown): ErrorInfo {
   if (isRouteErrorResponse(error)) {
@@ -46,34 +40,12 @@ function normalizeError(error: unknown): ErrorInfo {
   };
 }
 
-/**
- * Build the plaintext diagnostics block used for the "Copy" action and the
- * prefilled GitHub issue body. Keeps environment context (version, build,
- * platform) next to the stack trace so a filed report is actionable.
- */
-function buildDiagnostics(info: ErrorInfo): string {
-  return [
-    `**${info.name}**`,
-    "",
-    "```",
-    info.stack || info.message,
-    "```",
-    "",
-    "| | |",
-    "| --- | --- |",
-    `| Version | ${__CLIENT_VERSION__} |`,
-    `| Build | ${__BUILD_TIMESTAMP__} |`,
-    `| URL | ${window.location.href} |`,
-    `| User agent | ${navigator.userAgent} |`,
-  ].join("\n");
-}
-
 function useIssueUrl(info: ErrorInfo, intro: string): string {
-  return `${GITHUB_NEW_ISSUE_URL}?title=${encodeURIComponent(
-    `[Bug] ${info.name}: ${info.message}`.slice(0, 120),
-  )}&body=${encodeURIComponent(
-    `${intro}\n\n\n---\n\n${buildDiagnostics(info)}`,
-  )}`;
+  const path = useReportPath();
+  return buildIssueUrl(
+    `[Bug] ${info.name}: ${info.message}`,
+    `${intro}\n\n\n---\n\n${buildDiagnostics(info, path)}`,
+  );
 }
 
 /** Copy-to-clipboard state + handler shared by both views. */
@@ -98,6 +70,7 @@ function useCopy(text: string) {
  */
 function DevErrorView({ info }: { info: ErrorInfo }) {
   const { t } = useTranslation();
+  const path = useReportPath();
   const issueUrl = useIssueUrl(
     info,
     t(
@@ -105,7 +78,7 @@ function DevErrorView({ info }: { info: ErrorInfo }) {
       "Describe what you were doing when this happened:",
     ),
   );
-  const { copied, copy } = useCopy(buildDiagnostics(info));
+  const { copied, copy } = useCopy(buildDiagnostics(info, path));
 
   const actionClass =
     "h-6 px-1.5 flex items-center gap-1 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0";
@@ -170,6 +143,7 @@ function DevErrorView({ info }: { info: ErrorInfo }) {
       <div className="flex h-7 shrink-0 items-center gap-3 border-t border-border px-3 font-mono text-[10px] text-muted-foreground/70">
         <span>v{__CLIENT_VERSION__}</span>
         <span className="tabular-nums">{__BUILD_TIMESTAMP__}</span>
+        <span>{__BUILD_COMMIT__}</span>
         <span className="min-w-0 truncate">{window.location.pathname}</span>
       </div>
     </div>

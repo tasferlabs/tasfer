@@ -6,22 +6,10 @@ import BrandMark from "@/components/BrandMark";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/providers/ThemeProvider";
 import { loadArabicFonts } from "@/lib/fonts";
+import { APP_OPEN_URL } from "@/lib/appUrl";
 import "./HomePage.css";
 
-const REPO_URL = "https://github.com/hamza512b/cypher";
-// The editor SPA (apps/web) is a separate app served at its own origin
-// (https://cypher.md, the apex), while this marketing site is served from a
-// different origin (www.cypher.md). "open tasfer" must therefore be an absolute
-// full-page navigation (plain <a>) to the app origin — a same-origin "/page" or
-// a next/link client route would resolve against the marketing site, which does
-// not serve the editor, and 404. NEXT_PUBLIC_APP_URL overrides the base;
-// https://cypher.md is the prod default, localhost:4000 is the dev fallback.
-const APP_URL =
-  process.env.NEXT_PUBLIC_APP_URL ??
-  (process.env.NODE_ENV === "development"
-    ? "http://localhost:4000"
-    : "https://cypher.md");
-const APP_OPEN_URL = `${APP_URL}/page`;
+const REPO_URL = "https://github.com/hamza512b/tasfer";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -591,14 +579,6 @@ export default function HomePage() {
   const refusals: [string, string, string][] = [
     [
       "i.",
-      t("home.lp.refusal.files.name", "your files"),
-      t(
-        "home.lp.refusal.files.detail",
-        "Plain markdown. On your disk. In folders you arranged. Openable in any editor, today and in twenty years — long after we, and our company, are gone.",
-      ),
-    ],
-    [
-      "ii.",
       t("home.lp.refusal.keys.name", "your keys"),
       t(
         "home.lp.refusal.keys.detail",
@@ -606,7 +586,7 @@ export default function HomePage() {
       ),
     ],
     [
-      "iii.",
+      "ii.",
       t("home.lp.refusal.sync.name", "your sync"),
       t(
         "home.lp.refusal.sync.detail",
@@ -614,7 +594,7 @@ export default function HomePage() {
       ),
     ],
     [
-      "iv.",
+      "iii.",
       t("home.lp.refusal.backups.name", "your backups"),
       t(
         "home.lp.refusal.backups.detail",
@@ -622,23 +602,23 @@ export default function HomePage() {
       ),
     ],
     [
-      "v.",
+      "iv.",
       t("home.lp.refusal.fork.name", "your fork"),
       t(
         "home.lp.refusal.fork.detail",
-        "AGPL-3.0. Take the code. Swap the relay for your own. Ship your own build. The copyleft is the point: every fork inherits the same refusal.",
+        "AGPL-3.0 or MIT. Take the code. Swap the relay for your own. Ship your own build. The license is the point: the refusal is in the code, and the code is yours to keep.",
+      ),
+    ],
+    [
+      "v.",
+      t("home.lp.refusal.leave.name", "your right to leave"),
+      t(
+        "home.lp.refusal.leave.detail",
+        "There is no account to delete because there was never one to begin with. You walk away by making an export and closing the tab.",
       ),
     ],
     [
       "vi.",
-      t("home.lp.refusal.leave.name", "your right to leave"),
-      t(
-        "home.lp.refusal.leave.detail",
-        "There is no account to delete because there was never one to begin with. You walk away by closing the tab.",
-      ),
-    ],
-    [
-      "vii.",
       t("home.lp.refusal.attention.name", "your attention"),
       t(
         "home.lp.refusal.attention.detail",
@@ -695,7 +675,7 @@ export default function HomePage() {
                 "Open a tab. Open a notes app. Type a half-formed idea, a draft email, a thing you would not say out loud. It lands on a server you do not own, in a city you have never been to, governed by a fourteen-page agreement you did not read. ",
               )}
               <strong>
-                {t("home.lp.hero.ledeStrong", "Tasfer refuses the trade.")}
+                {t("home.lp.hero.ledeStrong", "Tasfer refuses that trade.")}
               </strong>
               {t(
                 "home.lp.hero.lede2",
@@ -742,13 +722,13 @@ export default function HomePage() {
           <div className="column">
             <h2 className="lp-section-title">
               {t("home.lp.define.titleA", "Tasfer is a ")}
-              <em>{t("home.lp.define.titleEm", "markdown editor")}</em>
+              <em>{t("home.lp.define.titleEm", "markdown-based editor")}</em>
               {t("home.lp.define.titleB", ".")}
             </h2>
             <p className="lp-define-lede">
               {t(
                 "home.lp.define.lede",
-                "An app you write in. Notes, drafts, journals — stored on your own disk, encrypted end-to-end when they travel, synced device-to-device with no server and no account.",
+                "An app you write in. Notes, drafts, journals — stored on your own disk, encrypted end-to-end when they travel, synced device-to-device with no central server and no account.",
               )}
             </p>
             <blockquote className="lp-pullquote">
@@ -764,18 +744,12 @@ export default function HomePage() {
               </div>
               <div className="lp-define-fact">
                 <dt>{t("home.lp.define.fact.syncK", "sync")}</dt>
-                <dd>{t("home.lp.define.fact.syncV", "device ⇔ device")}</dd>
-              </div>
-              <div className="lp-define-fact">
-                <dt>{t("home.lp.define.fact.priceK", "price")}</dt>
-                <dd>
-                  <a
-                    href={`${REPO_URL}/blob/main/LICENSE`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {t("home.lp.define.fact.priceV", "AGPL-3.0")}
-                  </a>
+                <dd className="lp-define-sync">
+                  {t("home.lp.define.fact.syncDevice", "device")}
+                  <span className="lp-define-sync-to">
+                    {t("home.lp.define.fact.syncTo", "to")}
+                  </span>
+                  {t("home.lp.define.fact.syncDevice", "device")}
                 </dd>
               </div>
             </dl>
@@ -935,7 +909,7 @@ export default function HomePage() {
 
             <div className="lp-repo">
               <div>
-                <h3 className="lp-repo-title">github.com/hamza512b/cypher</h3>
+                <h3 className="lp-repo-title">github.com/hamza512b/tasfer</h3>
                 <p className="lp-repo-sub">
                   {t(
                     "home.lp.repo.repoSub",
@@ -997,11 +971,7 @@ export default function HomePage() {
 
         {/* ── V — Begin ── */}
         <section className="lp-finale">
-          <div
-            className="lp-hero-grid"
-            aria-hidden="true"
-            style={{ opacity: 0.35 }}
-          />
+          <div className="lp-hero-grid lp-finale-grid" aria-hidden="true" />
           <div className="column" style={{ position: "relative" }}>
             <h2 className="lp-finale-title">
               {t("home.lp.finale.titleA", "Your words.")}
@@ -1048,9 +1018,9 @@ export default function HomePage() {
             <span className="lp-footer-word">tasfer</span>
           </div>
           <div className="lp-footer-links">
-            <a href="#premise" onClick={scrollTo("premise")}>
+            <Link to="/docs/internals/manifest">
               {t("home.lp.footer.manifesto", "manifesto")}
-            </a>
+            </Link>
             <Link to="/docs">{t("home.lp.footer.docs", "docs")}</Link>
             <a href={REPO_URL} target="_blank" rel="noreferrer">
               {t("home.lp.footer.source", "source")}

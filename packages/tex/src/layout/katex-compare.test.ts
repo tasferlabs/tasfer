@@ -1,5 +1,5 @@
 /**
- * cypher-tex ⇆ KaTeX comparison suite for big operators and their scripts.
+ * tasfer-tex ⇆ KaTeX comparison suite for big operators and their scripts.
  *
  * `oracle.test.ts` pins general layout dimensions but historically skipped the
  * integral family entirely — which let a cluster of operator bugs ship: cyclic

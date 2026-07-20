@@ -6,8 +6,8 @@
  * with its own storage and networking strategy.
  */
 
-import type { Block, HLC, Operation } from "@cypherkit/editor";
-import type { CursorPresence } from "@cypherkit/provider-core/cursors";
+import type { Block, HLC, Operation } from "@tasfer/editor";
+import type { CursorPresence } from "@tasfer/provider-core/cursors";
 import type { DbRow, DbRunResult } from "./driver";
 
 // =============================================================================
@@ -676,12 +676,12 @@ export interface Platform {
    */
   db: {
     /** Run a SELECT/PRAGMA/etc. and return rows. */
-    execute<T extends DbRow = DbRow>(
+    query<T extends DbRow = DbRow>(
       sql: string,
       params?: unknown[],
     ): Promise<T[]>;
     /** Run an INSERT/UPDATE/DELETE statement. */
-    run(sql: string, params?: unknown[]): Promise<DbRunResult>;
+    mutate(sql: string, params?: unknown[]): Promise<DbRunResult>;
     /** Run a raw statement (DDL, pragma, etc.). */
     exec(sql: string): Promise<void>;
     /** Number of pending forward-only migrations (0 = schema up to date). */

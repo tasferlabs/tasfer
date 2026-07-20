@@ -11,9 +11,9 @@
  */
 
 import JSZip from "jszip";
-import type { Block } from "@cypherkit/editor/serlization/loadPage";
+import type { Block } from "@tasfer/editor/serlization/loadPage";
 import { getPlatform } from "@/platform";
-import { tokenizePage, parsePage, parseFrontmatter } from "@cypherkit/editor";
+import { tokenizePage, parsePage, parseFrontmatter } from "@tasfer/editor";
 import { deriveTitles, hasHeadingTitle } from "@/lib/pageTitle";
 import { createPage, updatePage } from "@/app/api/pages.api";
 import { uploadImage } from "@/app/api/images.api";

@@ -12,9 +12,9 @@ import { Button } from "../../components/ui/button";
 import { getPages, getPage, type IListPage } from "../api/pages.api";
 import { getPlatform } from "@/platform";
 import { useSpaces } from "../contexts/SpaceContext";
-import { serializeToMarkdown, type PageMetadata } from "@cypherkit/editor";
+import { serializeToMarkdown, type PageMetadata } from "@tasfer/editor";
 import { downloadFile } from "@/downloadFile";
-import { collectAssetRefs } from "@cypherkit/editor";
+import { collectAssetRefs } from "@tasfer/editor";
 import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
 import { appDataSchema } from "@/appDataSchema";
@@ -265,7 +265,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
       // Generate and download
       const blob = await zip.generateAsync({ type: "blob" });
-      await downloadFile(blob, "cypher-export.zip", "application/zip");
+      await downloadFile(blob, "tasfer-export.zip", "application/zip");
 
       onOpenChange(false);
     } catch (err) {

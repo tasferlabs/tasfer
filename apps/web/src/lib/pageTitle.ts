@@ -2,14 +2,14 @@
 // helper also runs inside the platform engine's SharedWorker (deriving titles
 // from received content ops), and the root/`internal` barrels pull rendering
 // and font code that touches `document` at module init.
-import { extractTitleMarkdownFromBlocks } from "@cypherkit/editor/serlization/codecs/inline";
-import type { Block } from "@cypherkit/editor/serlization/loadPage";
-import { isHeadingType } from "@cypherkit/editor/sync/block-registry";
+import { extractTitleMarkdownFromBlocks } from "@tasfer/editor/serlization/codecs/inline";
+import type { Block } from "@tasfer/editor/serlization/loadPage";
+import { isHeadingType } from "@tasfer/editor/sync/block-registry";
 import {
   extractBodyText,
   extractTitleFromBlocks,
   findTitleBlock,
-} from "@cypherkit/editor/sync/char-runs";
+} from "@tasfer/editor/sync/char-runs";
 import { appDataSchema } from "../appDataSchema";
 
 /**

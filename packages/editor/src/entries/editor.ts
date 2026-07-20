@@ -510,7 +510,7 @@ export interface EditorStateSnapshot {
  * `editor.view`. Read-mostly host plumbing: where the caret/blocks sit on screen,
  * scroll position, and the generic decoration layers (find highlights, remote
  * cursors). Public and semver-stable — providers depend on the decoration
- * members (see `@cypherkit/provider-core/cursors`) — but kept off the flat root
+ * members (see `@tasfer/provider-core/cursors`) — but kept off the flat root
  * so the everyday content/command surface stays small.
  */
 export interface EditorViewApi {
@@ -742,7 +742,7 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * `EditorState` is not exposed through this public contract — both
    * {@link subscribe} and {@link on} now deliver this snapshot. A first-party
    * host that genuinely needs raw state for advanced diffing reaches it via the
-   * internal `subscribeRaw` (see `@cypherkit/editor/internal`).
+   * internal `subscribeRaw` (see `@tasfer/editor/internal`).
    */
   readonly state: EditorStateSnapshot;
   /** Content read facet (the mirror of {@link change}) — see {@link QueryApi}. */
@@ -754,7 +754,7 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
   /**
    * Tear down the editor: cancel the render loop and remove every canvas/input/
    * window event listener. For an editor created via
-   * `createEditor`, call `CypherEditor.destroy` instead — it supersedes this and
+   * `createEditor`, call `TasferEditor.destroy` instead — it supersedes this and
    * also tears down the mount.
    */
   destroy: () => void;
@@ -911,7 +911,7 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
  *
  * Deliberately NOT part of {@link EditorApi}: these are engine internals with no
  * semver guarantee. `Editor` implements both interfaces, so the concrete class
- * (reachable as `EditorClass` from `@cypherkit/editor/internal`) carries them
+ * (reachable as `EditorClass` from `@tasfer/editor/internal`) carries them
  * while the public action/lifecycle type a consumer holds stays free of wiring.
  * A `@internal` JSDoc tag does not remove a member from a type — separating the
  * interfaces does. Hosts sync through the `Doc` API (`doc.applyUpdate` /
@@ -938,7 +938,7 @@ export interface EditorWiring {
    * clipboard op — e.g. one fired from a native context-menu callback — can't
    * satisfy, so it silently fails. Pass `null` to revert to the browser
    * clipboard (the web default). Engine-internal plumbing, off the public
-   * {@link EditorApi}; reached via `EditorClass` from `@cypherkit/editor/internal`.
+   * {@link EditorApi}; reached via `EditorClass` from `@tasfer/editor/internal`.
    */
   setClipboard: (clipboard: HostClipboard | null) => void;
   /**
@@ -948,7 +948,7 @@ export interface EditorWiring {
    * over this; `subscribeRaw` is the unstable escape hatch for a first-party host
    * that needs internal state the snapshot doesn't model (e.g. `ui.activeMenu`,
    * per-char formats). No semver guarantee — reachable via
-   * `EditorClass` from `@cypherkit/editor/internal`, never `EditorApi`.
+   * `EditorClass` from `@tasfer/editor/internal`, never `EditorApi`.
    */
   subscribeRaw: (listener: (state: EditorState) => void) => () => void;
   /**
@@ -4563,7 +4563,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.warnedUnknownActions.add(name);
       const available = Object.keys(this.schemaActions);
       console.warn(
-        `[@cypherkit/editor] shortcut referenced unknown action name ${JSON.stringify(
+        `[@tasfer/editor] shortcut referenced unknown action name ${JSON.stringify(
           name,
         )} — no action by that name is registered on the schema, so it was skipped. ` +
           (available.length

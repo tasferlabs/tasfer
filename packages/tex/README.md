@@ -1,4 +1,4 @@
-# @cypherkit/tex
+# @tasfer/tex
 
 A **canvas-native, live-editable LaTeX math engine**. Parses LaTeX, lays it out
 with TeX box-and-glue rules, and paints it **directly onto an HTML5 `<canvas>`**
@@ -6,7 +6,7 @@ with `ctx.fillText` / `ctx.fillRect` — no DOM, no SVG, no `<foreignObject>`, n
 rasterization step.
 
 Every existing math renderer (KaTeX, MathJax) delivers its result as DOM or SVG,
-which makes it awkward and heavy to put on a canvas. `@cypherkit/tex` keeps the
+which makes it awkward and heavy to put on a canvas. `@tasfer/tex` keeps the
 _layout_ (the genuinely hard, correctness-critical part) and replaces only the
 _backend_ with one that draws vector glyphs straight onto the canvas. The result
 is small, theme-color-free (color is just `fillStyle`), DPI-correct for free, and
@@ -88,7 +88,7 @@ import {
   mathDocumentCaretStop,
   parseMathDocument,
   printMathDocument,
-} from "@cypherkit/tex";
+} from "@tasfer/tex";
 
 const formula = parseMathDocument(String.raw`\frac{x_1}{\sqrt{y}}`, {
   identityAllocator: createDeterministicIdentityAllocator("formula-42"),
@@ -106,7 +106,7 @@ const canonicalLatex = printMathDocument(formula);
 
 Persistence code that needs only the document model, parser, canonical printer,
 semantic equality, and brace-safe source normalization can import those APIs
-from `@cypherkit/tex/data`. That entry does not evaluate layout, fonts, or either
+from `@tasfer/tex/data`. That entry does not evaluate layout, fonts, or either
 paint backend.
 
 `layout.items.get(id)` returns an item's bounds, baseline, and contained caret
@@ -137,9 +137,9 @@ structured-store adapters plus an atomic legacy-LaTeX initializer.
 Interactive math editing uses the structured `MathDocument` model:
 
 ```ts
-import { baseDataSchema, baseSchema } from "@cypherkit/editor";
-import { mathExtension } from "@cypherkit/editor/math";
-import { mathDataExtension } from "@cypherkit/editor/math/data";
+import { baseDataSchema, baseSchema } from "@tasfer/editor";
+import { mathExtension } from "@tasfer/editor/math";
+import { mathDataExtension } from "@tasfer/editor/math/data";
 
 baseSchema.use(mathExtension());
 baseDataSchema.extend(mathDataExtension());
@@ -225,7 +225,7 @@ script-nestling differ from KaTeX by a few hundredths of an em.
     approximated). A headless `paint/render.test.ts` validates the paint output.
 - **Phase 4 — canvas editor integration** ✅ the `edit/` geometry
   (`hitTest` / `caretRect` / `selectionRects`) is built and tested; the opt-in
-  `MathNode` and `MathMark` from `@cypherkit/editor/math` paint **directly** via
+  `MathNode` and `MathMark` from `@tasfer/editor/math` paint **directly** via
   `layoutMath` + `paintMath` (no SVG or bitmaps). The 3.5 MB MathJax bundle, its
   rasterization path, and the service-worker size workaround are deleted.
 - **Phase 5 — structured editing** 🟡 `MathDocument`, canonical printing,

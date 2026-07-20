@@ -27,13 +27,13 @@ import useResponsive from "../hooks/useResponsive";
 /**
  * Where each "install" button points. Desktop builds ship from GitHub
  * releases; neither store listing is live yet — the Play URL already uses the
- * real application id (md.cypher.app) and the App Store URL is a placeholder
+ * real application id (app.tasfer) and the App Store URL is a placeholder
  * to swap once the listing exists.
  */
 const DOWNLOAD_LINKS = {
-  desktop: "https://github.com/hamza512b/cypher/releases/latest",
-  appStore: "https://apps.apple.com/app/cypher",
-  googlePlay: "https://play.google.com/store/apps/details?id=md.cypher.app",
+  desktop: "https://github.com/hamza512b/tasfer/releases/latest",
+  appStore: "https://apps.apple.com/app/tasfer",
+  googlePlay: "https://play.google.com/store/apps/details?id=app.tasfer",
 };
 
 /**
@@ -376,7 +376,7 @@ function DesktopAppDownloads() {
   );
 }
 
-/** Official App Store / Google Play badges (same artwork as MobileAppGate). */
+/** Official App Store / Google Play badges (same artwork as MobileAppNudge). */
 function MobileAppBadges() {
   const { t } = useTranslation();
   const base = import.meta.env.BASE_URL;
@@ -503,8 +503,8 @@ export function InstallAppDialog({
               </DrawerTitle>
               <DrawerDescription>
                 {t(
-                  "install.description",
-                  "Right now your notes sit in browser storage, which the browser may clear to free up space. Installing Tasfer moves them to protected storage.",
+                  "install.descriptionMobile",
+                  "In the browser, offline support is limited and your notes sit in storage the browser may clear. The app works fully offline and keeps notes in protected storage.",
                 )}
               </DrawerDescription>
             </DrawerHeader>
@@ -525,7 +525,7 @@ export function InstallAppDialog({
           <DialogDescription>
             {t(
               "install.description",
-              "Right now your notes sit in browser storage, which the browser may clear to free up space. Installing Tasfer moves them to protected storage.",
+              "Right now your notes sit in browser storage, which the browser may clear to free up space. Here are a few ways to protect them.",
             )}
           </DialogDescription>
         </DialogHeader>

@@ -75,7 +75,7 @@ import {
   isValidLatex,
   layoutMathDocument,
   mathDocumentCaretStop,
-} from "@cypherkit/tex";
+} from "@tasfer/tex";
 import { describe, expect, it } from "vitest";
 
 const treeMathSchema = baseSchema.use(mathExtension());

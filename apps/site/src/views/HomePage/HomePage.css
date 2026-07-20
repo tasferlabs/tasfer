@@ -83,17 +83,23 @@
    ------------------------------------------------------------ */
 
 .lp-header {
-  position: sticky;
+  /* Overlay (not sticky-in-flow) so the hero's dot field sits behind the nav
+     and shows through it. Transparent at the top; gains a blurred backdrop
+     only once scrolled, so content stays legible under it further down. */
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 50;
-  background: oklch(from var(--bg) l c h / 0.85);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid transparent;
-  transition: border-color var(--cy-duration-fast);
+  background: transparent;
+  transition:
+    background var(--cy-duration-fast),
+    backdrop-filter var(--cy-duration-fast);
 }
 .lp-header.is-scrolled {
-  border-bottom-color: var(--border);
+  background: oklch(from var(--bg) l c h / 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .lp-header-inner {
@@ -175,23 +181,60 @@
 .lp-hero-grid {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(to right, var(--border) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
-  background-size: 64px 64px;
-  background-position: -1px -1px;
-  -webkit-mask-image: radial-gradient(
-    ellipse 70% 60% at 50% 30%,
-    black 0%,
-    transparent 80%
-  );
-  mask-image: radial-gradient(
-    ellipse 70% 60% at 50% 30%,
-    black 0%,
-    transparent 80%
-  );
-  opacity: 0.55;
+  /* Dot field masks a flat fill so the texture follows the light/dark theme;
+     the SVG carries the dots and their top-center fade. Painted in the muted
+     foreground (not the near-invisible border) for a readable contrast, and
+     scaled past 100% so the dots read larger behind the hero banner. */
+  background: var(--muted-foreground);
+  -webkit-mask: url("/dot-grid.svg") center top / 80% auto no-repeat;
+  mask: url("/dot-grid.svg") center top / 80% auto no-repeat;
+  mask-mode: alpha;
+  -webkit-mask-mode: alpha;
+  opacity: 0.5;
   pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .lp-hero-grid {
+    -webkit-mask-size: 200% auto;
+    mask-size: 200% auto;
+  }
+}
+
+/* Finale variant: paint the dots as a CSS radial-gradient (so dot size and
+   spacing tune independently, unlike the shared dot-grid.svg mask), then fade
+   the whole field from the center outward with a second radial-gradient as the
+   mask — strongest in the middle, gradually to nothing. */
+.lp-finale-grid {
+  /* dots — independent knobs */
+  --dot-size: 1px; /* dot radius  */
+  --dot-gap: 30px; /* dot spacing */
+  /* fade — how far the field reaches before vanishing (center → edge) */
+  --fade-rx: 460px; /* horizontal reach */
+  --fade-ry: 340px; /* vertical reach   */
+  /* fade — falloff stops along that reach */
+  --fade-start: 8%; /* solid until here; small = starts fading near the middle */
+  --fade-end: 100%; /* fully gone at the reach above */
+  background: radial-gradient(
+    var(--muted-foreground) var(--dot-size),
+    transparent calc(var(--dot-size) + 0.5px)
+  );
+  background-size: var(--dot-gap) var(--dot-gap);
+  /* Two-length radial gradient (implicit ellipse), opaque core fading to
+     transparent. Keep the size as plain lengths — calc(min()/2) here makes
+     Chrome drop the whole gradient, which removes the mask entirely. #fff
+     keeps it correct whether the mask reads alpha or luminance. */
+  -webkit-mask: radial-gradient(
+    var(--fade-rx) var(--fade-ry) at center,
+    #fff var(--fade-start),
+    transparent var(--fade-end)
+  );
+  mask: radial-gradient(
+    var(--fade-rx) var(--fade-ry) at center,
+    #fff var(--fade-start),
+    transparent var(--fade-end)
+  );
+  opacity: 0.5;
 }
 
 .lp-eyebrow {
@@ -443,6 +486,14 @@
   color: var(--primary);
   text-decoration-color: var(--primary);
 }
+.lp-define-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.lp-define-sync-to {
+  color: var(--cy-muted-fg);
+}
 
 .lp-btn-accent {
   background: var(--primary);
@@ -598,6 +649,22 @@
   color: var(--bg);
 }
 
+@media (max-width: 720px) {
+  .lp-relay-wrap {
+    padding: 32px 20px 28px;
+  }
+  /* Segmented control gets its own full-width row and shares space
+     evenly so the labels never spill past the card edge. */
+  .lp-relay-steps {
+    width: 100%;
+  }
+  .lp-relay-step {
+    flex: 1;
+    padding: 6px 8px;
+    text-align: center;
+  }
+}
+
 /* ------------------------------------------------------------
    Refusal stack — "What is yours"
    ------------------------------------------------------------ */
@@ -626,8 +693,10 @@
 .lp-refusal-item:not(:last-child) {
   border-bottom: 1px solid var(--border);
 }
-.lp-refusal-item:hover {
-  padding-left: 12px;
+@media (hover: hover) {
+  .lp-refusal-item:hover {
+    padding-left: 12px;
+  }
 }
 .lp-refusal-num {
   font-family: var(--font-editorial);
@@ -656,11 +725,13 @@
   line-height: 1.55;
 }
 @media (max-width: 720px) {
+  /* Stack name over detail; a single column lets the name keep its full
+     width so short headers like "your sync" stay on one line. */
   .lp-refusal-item {
-    grid-template-columns: 50px 1fr;
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
   .lp-refusal-detail {
-    grid-column: 1 / -1;
     text-align: left;
     max-width: none;
     padding-left: 50px;
@@ -935,7 +1006,13 @@
 }
 .lp-footer-links {
   display: flex;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+@media (max-width: 720px) {
+  .lp-footer-inner {
+    padding: 0 20px;
+  }
 }
 
 /* ------------------------------------------------------------

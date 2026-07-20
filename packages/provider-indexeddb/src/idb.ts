@@ -9,7 +9,7 @@
  *
  * Storage scheme
  * --------------
- * One IndexedDB database per document, named `cypher:${name}`, holding a single
+ * One IndexedDB database per document, named `tasfer:${name}`, holding a single
  * object store {@link OPLOG_STORE} with an auto-increment key. Each record is a
  * *batch* of ops (the op array delivered by one `Doc` update, or one compacted
  * snapshot of the whole log). Appending is therefore O(1); reading the log back
@@ -23,7 +23,7 @@ export const OPLOG_STORE = "oplog";
 
 /** Database name for a given logical document `name`. */
 export function dbNameFor(name: string): string {
-  return `cypher:${name}`;
+  return `tasfer:${name}`;
 }
 
 /** Adapt a single `IDBRequest` into a Promise of its result. */

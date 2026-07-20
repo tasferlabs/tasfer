@@ -18,7 +18,7 @@ import i18next from "i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
 import useResponsive from "../../hooks/useResponsive";
-import type { Block } from "@cypherkit/editor";
+import type { Block } from "@tasfer/editor";
 import { deriveTitles } from "@/lib/pageTitle";
 import { getPlatform } from "@/platform";
 import {

@@ -1,7 +1,7 @@
 {
-  "name": "@cypherkit/provider-core",
-  "version": "0.0.0",
-  "description": "Transport-agnostic sync protocol that connects a @cypherkit/editor Doc to any pipe (the shared core every provider builds on).",
+  "name": "@tasfer/provider-core",
+  "version": "0.1.0",
+  "description": "Transport-agnostic sync protocol that connects a @tasfer/editor Doc to any pipe (the shared core every provider builds on).",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -20,15 +20,29 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",
   "sideEffects": false,
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
-      "import": { "types": "./dist/index.d.mts", "default": "./dist/index.mjs" },
-      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./*": {
-      "import": { "types": "./dist/*.d.mts", "default": "./dist/*.mjs" },
-      "require": { "types": "./dist/*.d.cts", "default": "./dist/*.cjs" }
+      "import": {
+        "types": "./dist/*.d.mts",
+        "default": "./dist/*.mjs"
+      },
+      "require": {
+        "types": "./dist/*.d.cts",
+        "default": "./dist/*.cjs"
+      }
     }
   },
   "scripts": {
@@ -37,12 +51,12 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@cypherkit/editor": "*",
-    "typescript": "^5.9.3"
+    "@tasfer/editor": "*",
+    "typescript": ">=5.9.3"
   },
   "devDependencies": {
-    "tsdown": "^0.22.3",
-    "typescript": "^6.0.3",
+    "tsdown": "^0.22.12",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }
 }

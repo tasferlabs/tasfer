@@ -2,7 +2,7 @@
  * Host-side bridge: map this app's CSS custom properties to the editor's
  * semantic theme tokens.
  *
- * The `@cypherkit/editor` engine is headless — it never reads the DOM for
+ * The `@tasfer/editor` engine is headless — it never reads the DOM for
  * styling. Appearance is supplied per instance as an `EditorTheme` at mount and
  * updated via `editor.setTheme(...)`. This app drives colors from `--editor-*`
  * (and base `--primary` / `--muted` / …) CSS variables that flip with the
@@ -13,8 +13,8 @@
  * defined are omitted, so the editor's neutral defaults apply for those.
  */
 
-import { isTouchDevice } from "@cypherkit/editor/internal";
-import type { EditorTheme, ThemeTokens } from "@cypherkit/editor";
+import { isTouchDevice } from "@tasfer/editor/internal";
+import type { EditorTheme, ThemeTokens } from "@tasfer/editor";
 
 /**
  * Image resize drag-handle inset for touch devices, in CSS px (default is 16).

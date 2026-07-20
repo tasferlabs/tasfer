@@ -1,5 +1,15 @@
 {
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true
-  }
+  },
+  "deny": [
+    "Bash(rm -rf *)",
+    "Bash(git push:*)",
+    "Bash(git reset:*)",
+    "Bash(git clean:*)",
+    "Bash(git checkout:*)",
+    "Bash(git stash:*)",
+    "Bash(npm run deploy:*)",
+    "Read(*.env.*)"
+  ]
 }

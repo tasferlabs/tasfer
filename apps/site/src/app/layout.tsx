@@ -17,10 +17,10 @@ import "@fontsource/space-grotesk/700.css";
 import { Providers } from "@/providers/Providers";
 
 // Canonical origin of the marketing/docs site. The editor app owns the apex
-// (https://cypher.md); this site is served from www. metadataBase lets every
+// (https://tasfer.app); this site is served from www. metadataBase lets every
 // route express canonical/OpenGraph URLs as site-relative paths that Next
 // resolves to absolute URLs at build time.
-const SITE_ORIGIN = "https://www.cypher.md";
+const SITE_ORIGIN = "https://www.tasfer.app";
 
 // Positioning: for people who don't want their private writing sitting on a
 // company's servers. Promise (one benefit, not a feature list): your notes stay
@@ -30,7 +30,7 @@ const SITE_ORIGIN = "https://www.cypher.md";
 // searches for or cares about.
 const TITLE = "Tasfer — private markdown notes that stay on your device";
 const DESCRIPTION =
-  "A markdown editor that keeps your writing yours — every note stays on your device, end-to-end encrypted, syncing directly between your devices. No cloud. No account. No company reading your words.";
+  "A markdown-based editor that keeps your writing yours — every note stays on your device, end-to-end encrypted, syncing directly between your devices. No cloud. No account. No company reading your words.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),

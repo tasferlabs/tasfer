@@ -163,5 +163,5 @@ export function createBroadcastChannelTransport(
   room: string,
   localId: string,
 ): Transport {
-  return new BroadcastChannelTransport(`cypher-provider:${room}`, localId);
+  return new BroadcastChannelTransport(`tasfer-provider:${room}`, localId);
 }

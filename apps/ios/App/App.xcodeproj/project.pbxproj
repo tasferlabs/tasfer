@@ -16,15 +16,16 @@
 		A100000300000000000000B1 /* Settings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = A100000400000000000000B1 /* Settings.bundle */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
-		A1000001CYPHER000000000001 /* CypherViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000001 /* CypherViewController.swift */; };
-		A1000001CYPHER000000000002 /* ClipboardBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000002 /* ClipboardBridge.swift */; };
-		A1000001CYPHER000000000003 /* StorageBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000003 /* StorageBridge.swift */; };
-		A1000001CYPHER000000000012 /* LifecycleBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000012 /* LifecycleBridge.swift */; };
-		A1000001CYPHER000000000004 /* ImagePickerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000004 /* ImagePickerCoordinator.swift */; };
-		A1000001CYPHER000000000005 /* PdfRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000005 /* PdfRenderer.swift */; };
-		A1000001CYPHER000000000008 /* CypherBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000008 /* CypherBridgePlugin.swift */; };
-		A1000001CYPHER000000000009 /* NoAccessoryWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000009 /* NoAccessoryWebView.swift */; };
-		A1000001CYPHER000000000011 /* ContextMenuBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000011 /* ContextMenuBridge.swift */; };
+		A1000001TASFER000000000001 /* TasferViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000001 /* TasferViewController.swift */; };
+		A1000001TASFER000000000002 /* ClipboardBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000002 /* ClipboardBridge.swift */; };
+		A1000001TASFER000000000003 /* StorageBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000003 /* StorageBridge.swift */; };
+		A1000001TASFER000000000012 /* LifecycleBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000012 /* LifecycleBridge.swift */; };
+		A1000001TASFER000000000004 /* ImagePickerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000004 /* ImagePickerCoordinator.swift */; };
+		A1000001TASFER000000000005 /* PdfRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000005 /* PdfRenderer.swift */; };
+		A1000001TASFER000000000008 /* TasferBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000008 /* TasferBridgePlugin.swift */; };
+		A1000001TASFER000000000009 /* NoAccessoryWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000009 /* NoAccessoryWebView.swift */; };
+		A1000001TASFER000000000011 /* ContextMenuBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000011 /* ContextMenuBridge.swift */; };
+		A1000001TASFER000000000013 /* SqliteBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000013 /* SqliteBridgePlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,18 +38,19 @@
 		A100000400000000000000B1 /* Settings.bundle */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.plug-in"; path = Settings.bundle; sourceTree = "<group>"; };
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A1B2C3D41FED79650016851F /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
-		A1000002CYPHER000000000001 /* CypherViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CypherViewController.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000002 /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000003 /* StorageBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageBridge.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000012 /* LifecycleBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleBridge.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000004 /* ImagePickerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePickerCoordinator.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000005 /* PdfRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfRenderer.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000008 /* CypherBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CypherBridgePlugin.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000009 /* NoAccessoryWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoAccessoryWebView.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000011 /* ContextMenuBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextMenuBridge.swift; sourceTree = "<group>"; };
+		A1000007RELEASECFG000001 /* release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = release.xcconfig; path = ../release.xcconfig; sourceTree = SOURCE_ROOT; };
+		A1000002TASFER000000000001 /* TasferViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasferViewController.swift; sourceTree = "<group>"; };
+		A1000002TASFER000000000002 /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
+		A1000002TASFER000000000003 /* StorageBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageBridge.swift; sourceTree = "<group>"; };
+		A1000002TASFER000000000012 /* LifecycleBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleBridge.swift; sourceTree = "<group>"; };
+		A1000002TASFER000000000004 /* ImagePickerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePickerCoordinator.swift; sourceTree = "<group>"; };
+		A1000002TASFER000000000005 /* PdfRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfRenderer.swift; sourceTree = "<group>"; };
+		A1000002TASFER000000000008 /* TasferBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasferBridgePlugin.swift; sourceTree = "<group>"; };
+		A1000002TASFER000000000009 /* NoAccessoryWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoAccessoryWebView.swift; sourceTree = "<group>"; };
+		A1000002TASFER000000000011 /* ContextMenuBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextMenuBridge.swift; sourceTree = "<group>"; };
+		A1000002TASFER000000000013 /* SqliteBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqliteBridgePlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -67,6 +69,7 @@
 			isa = PBXGroup;
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
+				A1000007RELEASECFG000001 /* release.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
 			);
@@ -85,20 +88,20 @@
 			children = (
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
-				A1000002CYPHER000000000001 /* CypherViewController.swift */,
-				A1000002CYPHER000000000002 /* ClipboardBridge.swift */,
-				A1000002CYPHER000000000003 /* StorageBridge.swift */,
-				A1000002CYPHER000000000012 /* LifecycleBridge.swift */,
-				A1000002CYPHER000000000004 /* ImagePickerCoordinator.swift */,
-				A1000002CYPHER000000000005 /* PdfRenderer.swift */,
-					A1000002CYPHER000000000008 /* CypherBridgePlugin.swift */,
-				A1000002CYPHER000000000009 /* NoAccessoryWebView.swift */,
-				A1000002CYPHER000000000011 /* ContextMenuBridge.swift */,
+				A1000002TASFER000000000001 /* TasferViewController.swift */,
+				A1000002TASFER000000000002 /* ClipboardBridge.swift */,
+				A1000002TASFER000000000003 /* StorageBridge.swift */,
+				A1000002TASFER000000000012 /* LifecycleBridge.swift */,
+				A1000002TASFER000000000004 /* ImagePickerCoordinator.swift */,
+				A1000002TASFER000000000005 /* PdfRenderer.swift */,
+					A1000002TASFER000000000008 /* TasferBridgePlugin.swift */,
+				A1000002TASFER000000000009 /* NoAccessoryWebView.swift */,
+				A1000002TASFER000000000011 /* ContextMenuBridge.swift */,
+				A1000002TASFER000000000013 /* SqliteBridgePlugin.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				A100000400000000000000B1 /* Settings.bundle */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
-				A1B2C3D41FED79650016851F /* App.entitlements */,
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
@@ -113,7 +116,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 504EC3161FED79650016851F /* Build configuration list for PBXNativeTarget "App" */;
 			buildPhases = (
-				A1000001CYPHER000000000010 /* Build & sync web */,
+				A1000001TASFER000000000010 /* Build & sync web */,
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
@@ -185,7 +188,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		A1000001CYPHER000000000010 /* Build & sync web */ = {
+		A1000001TASFER000000000010 /* Build & sync web */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -208,15 +211,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
-				A1000001CYPHER000000000001 /* CypherViewController.swift in Sources */,
-				A1000001CYPHER000000000002 /* ClipboardBridge.swift in Sources */,
-				A1000001CYPHER000000000003 /* StorageBridge.swift in Sources */,
-				A1000001CYPHER000000000012 /* LifecycleBridge.swift in Sources */,
-				A1000001CYPHER000000000004 /* ImagePickerCoordinator.swift in Sources */,
-				A1000001CYPHER000000000005 /* PdfRenderer.swift in Sources */,
-					A1000001CYPHER000000000008 /* CypherBridgePlugin.swift in Sources */,
-				A1000001CYPHER000000000009 /* NoAccessoryWebView.swift in Sources */,
-				A1000001CYPHER000000000011 /* ContextMenuBridge.swift in Sources */,
+				A1000001TASFER000000000001 /* TasferViewController.swift in Sources */,
+				A1000001TASFER000000000002 /* ClipboardBridge.swift in Sources */,
+				A1000001TASFER000000000003 /* StorageBridge.swift in Sources */,
+				A1000001TASFER000000000012 /* LifecycleBridge.swift in Sources */,
+				A1000001TASFER000000000004 /* ImagePickerCoordinator.swift in Sources */,
+				A1000001TASFER000000000005 /* PdfRenderer.swift in Sources */,
+					A1000001TASFER000000000008 /* TasferBridgePlugin.swift in Sources */,
+				A1000001TASFER000000000009 /* NoAccessoryWebView.swift in Sources */,
+				A1000001TASFER000000000011 /* ContextMenuBridge.swift in Sources */,
+				A1000001TASFER000000000013 /* SqliteBridgePlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -358,17 +362,15 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 98V5CH5383;
-				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.0.0;
-				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
-				PRODUCT_BUNDLE_IDENTIFIER = md.cypher.app;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.tasfer;
+				OTHER_LDFLAGS = "$(inherited) -lsqlite3";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.0;
@@ -378,20 +380,20 @@
 		};
 		504EC3181FED79650016851F /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1000007RELEASECFG000001 /* release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
-				DEVELOPMENT_TEAM = 98V5CH5383;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = md.cypher.app;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.tasfer;
+				OTHER_LDFLAGS = "$(inherited) -lsqlite3";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;

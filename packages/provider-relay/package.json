@@ -1,7 +1,7 @@
 {
-  "name": "@cypherkit/provider-relay",
+  "name": "@tasfer/provider-relay",
   "version": "0.1.0",
-  "description": "WebSocket-relay transport for @cypherkit/editor — peers behind NATs sync through a relay that forwards their updates. The relay is a trusted party: frames are not encrypted.",
+  "description": "WebSocket-relay transport for @tasfer/editor — peers behind NATs sync through a relay that forwards their updates. The relay is a trusted party: frames are not encrypted.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -20,15 +20,29 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",
   "sideEffects": false,
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
-      "import": { "types": "./dist/index.d.mts", "default": "./dist/index.mjs" },
-      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./*": {
-      "import": { "types": "./dist/*.d.mts", "default": "./dist/*.mjs" },
-      "require": { "types": "./dist/*.d.cts", "default": "./dist/*.cjs" }
+      "import": {
+        "types": "./dist/*.d.mts",
+        "default": "./dist/*.mjs"
+      },
+      "require": {
+        "types": "./dist/*.d.cts",
+        "default": "./dist/*.cjs"
+      }
     }
   },
   "scripts": {
@@ -36,12 +50,12 @@
     "dev": "tsdown --watch"
   },
   "peerDependencies": {
-    "@cypherkit/editor": "*",
-    "@cypherkit/provider-core": "*",
-    "typescript": "^5.9.3"
+    "@tasfer/editor": "*",
+    "@tasfer/provider-core": "*",
+    "typescript": ">=5.9.3"
   },
   "devDependencies": {
-    "tsdown": "^0.22.3",
-    "typescript": "^6.0.3"
+    "tsdown": "^0.22.12",
+    "typescript": "^7.0.2"
   }
 }

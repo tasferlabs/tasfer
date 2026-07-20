@@ -73,8 +73,8 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
     if (onOpen) {
       onOpen();
     } else {
-      if (window.CypherBridge) {
-        window.CypherBridge.navigation.openUrl(url);
+      if (window.TasferBridge) {
+        window.TasferBridge.navigation.openUrl(url);
       } else {
         window.open(url, "_blank", "noopener,noreferrer");
       }

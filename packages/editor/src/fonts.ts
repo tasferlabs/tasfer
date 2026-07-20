@@ -334,7 +334,7 @@ export function measureCtxText(
   return ctx.measureText(text).width;
 }
 
-// Em metrics for @cypherkit/tex's `\text{…}` fallback, keyed by
+// Em metrics for @tasfer/tex's `\text{…}` fallback, keyed by
 // `fontFamily|char`. Pure (a browser fact about a CSS family + glyph), so like
 // charWidthCache it is instance-independent; flushed with the other caches when
 // faces load/change.

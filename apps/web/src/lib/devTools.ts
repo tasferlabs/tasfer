@@ -5,9 +5,9 @@
  *
  * How it's controlled differs per platform, but they all converge on this flag:
  * - **iOS** — a system **Settings bundle** toggle; the native shell reads its
- *   `UserDefaults` value and injects `window.CypherBridge.devToolsEnabled`.
+ *   `UserDefaults` value and injects `window.TasferBridge.devToolsEnabled`.
  * - **Desktop** — a native **app menu** item; the Electron main process persists
- *   the choice, injects `window.cypher.devToolsEnabled` at launch, and pushes
+ *   the choice, injects `window.tasfer.devToolsEnabled` at launch, and pushes
  *   runtime toggles over IPC (see {@link initNativeDevToolsSync}).
  * - **Android / web** — no OS-level control, so an in-app Settings toggle drives
  *   it, persisted in `localStorage`.
@@ -21,23 +21,23 @@
 
 import { useSyncExternalStore } from "react";
 
-const STORAGE_KEY = "cypher:devtools-enabled";
-const UNLOCK_KEY = "cypher:devtools-unlocked";
+const STORAGE_KEY = "tasfer:devtools-enabled";
+const UNLOCK_KEY = "tasfer:devtools-unlocked";
 
 /** Default when nothing else specifies a value: on in staging, off otherwise. */
 const DEFAULT_ENABLED = import.meta.env.VITE_STAGING === "true";
 
 /**
  * The value a native shell injected at launch, or `undefined` on Android/web.
- * iOS puts it on `window.CypherBridge`; desktop on `window.cypher`.
+ * iOS puts it on `window.TasferBridge`; desktop on `window.tasfer`.
  */
 function readNativeFlag(): boolean | undefined {
   if (typeof window === "undefined") return undefined;
   const w = window as unknown as {
-    CypherBridge?: { devToolsEnabled?: unknown };
-    cypher?: { devToolsEnabled?: unknown };
+    TasferBridge?: { devToolsEnabled?: unknown };
+    tasfer?: { devToolsEnabled?: unknown };
   };
-  const value = w.CypherBridge?.devToolsEnabled ?? w.cypher?.devToolsEnabled;
+  const value = w.TasferBridge?.devToolsEnabled ?? w.tasfer?.devToolsEnabled;
   return typeof value === "boolean" ? value : undefined;
 }
 
@@ -150,7 +150,7 @@ export function useDevToolsEnabled(): boolean {
 
 /**
  * Wire the desktop (Electron) app-menu toggle to this flag. The main process
- * pushes a `devtools:set` event over the generic `window.cypher` IPC whenever
+ * pushes a `devtools:set` event over the generic `window.tasfer` IPC whenever
  * the menu item flips; here we mirror it into the flag. No-op off desktop.
  * Idempotent and safe to call once at startup.
  */
@@ -158,9 +158,9 @@ export function initNativeDevToolsSync(): void {
   if (typeof window === "undefined") return;
   const desktop = (
     window as unknown as {
-      cypher?: { on?: (channel: string, cb: (value: unknown) => void) => void };
+      tasfer?: { on?: (channel: string, cb: (value: unknown) => void) => void };
     }
-  ).cypher;
+  ).tasfer;
   desktop?.on?.("devtools:set", (value) => {
     if (typeof value === "boolean") setDevToolsEnabled(value);
   });

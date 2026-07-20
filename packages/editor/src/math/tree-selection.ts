@@ -1,6 +1,6 @@
 /**
  * Bridges editor-core structured selections, the math tree editor's CRDT
- * carets, and @cypherkit/tex's identity-keyed layout positions.
+ * carets, and @tasfer/tex's identity-keyed layout positions.
  *
  * None of these conversions persist a LaTeX offset. Pointer hit-testing enters
  * through identity-keyed MathDocument geometry directly; source offsets remain
@@ -24,7 +24,7 @@ import {
   type MathDocumentLayout,
   printMathDocument,
   resolveSelectionRange,
-} from "@cypherkit/tex";
+} from "@tasfer/tex";
 
 /** Convert a generic collapsed selection endpoint to the math editor currency. */
 export function contentPointToMathTreeCaret(
@@ -154,7 +154,7 @@ export function moveMathTreeCaretVertically(
   return null;
 }
 
-/** Convert a generic point to @cypherkit/tex's stable layout address. */
+/** Convert a generic point to @tasfer/tex's stable layout address. */
 export function contentPointToMathDocumentPosition(
   document: StructuredDocument,
   point: ContentPoint,

@@ -64,7 +64,7 @@ button.breadcrumbs:hover {
 }
 
 .breadcrumbSeparator {
-  color: var(--foreground / 0.5);
+  color: color-mix(in srgb, var(--foreground), transparent 50%);
   flex-shrink: 0;
 }
 

@@ -43,7 +43,6 @@ android {
                 signingConfig signingConfigs.release
             }
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
     compileOptions {
@@ -79,7 +78,7 @@ apply from: 'capacitor.build.gradle'
 
 // Build the web app and run `cap sync` before every native build, so an
 // Android Studio "Run"/"Build" always packages the latest web bundle.
-// Set CYPHER_SKIP_WEB_BUILD=1 to skip (e.g. CI building the web bundle separately).
+// Set TASFER_SKIP_WEB_BUILD=1 to skip (e.g. CI building the web bundle separately).
 // Locate Git Bash's bash.exe on Windows. A bare `bash` on PATH resolves to the
 // WSL launcher (System32\bash.exe) first, which cannot run a Windows-path shell
 // script and fails to even start when no WSL distro is configured.
@@ -107,7 +106,7 @@ def findGitBash = {
     return candidates.find { it && new File(it as String).isFile() }
 }
 
-tasks.register('cypherWebBuildAndSync', Exec) {
+tasks.register('tasferWebBuildAndSync', Exec) {
     description = 'Build the web app and sync it into the Android project'
     // app -> android -> apps -> repo; web lives at apps/web.
     def script = file("${rootProject.projectDir}/../web/scripts/build-and-sync.sh")
@@ -126,7 +125,7 @@ tasks.register('cypherWebBuildAndSync', Exec) {
         commandLine 'bash', script.absolutePath, 'android'
     }
 }
-preBuild.dependsOn 'cypherWebBuildAndSync'
+preBuild.dependsOn 'tasferWebBuildAndSync'
 
 try {
     def servicesJSON = file('google-services.json')

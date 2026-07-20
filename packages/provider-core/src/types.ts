@@ -13,7 +13,7 @@
  *      presence, and `sync` events. This is identical for every transport, so
  *      it lives here once and each transport package only implements the pipe.
  *
- * This split is why `@cypherkit/provider-webrtc` is ~150 lines: it implements
+ * This split is why `@tasfer/provider-webrtc` is ~150 lines: it implements
  * `Transport` and hands it to `createProvider`. A relay or IndexedDB provider
  * is the same shape with a different pipe.
  */

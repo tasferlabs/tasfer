@@ -2,6 +2,7 @@
 /// <reference types="vite-plugin-pwa/client" />
 
 declare const __BUILD_TIMESTAMP__: string;
+declare const __BUILD_COMMIT__: string;
 declare const __CLIENT_VERSION__: string;
 
 interface SyncManager {

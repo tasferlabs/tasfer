@@ -22,7 +22,7 @@ interface ElectronBridge {
 }
 
 function getBridge(): ElectronBridge {
-  const bridge = (window as any).cypher as ElectronBridge | undefined;
+  const bridge = (window as any).tasfer as ElectronBridge | undefined;
   invariant(bridge, "Electron bridge not available");
   return bridge;
 }
@@ -37,15 +37,15 @@ class IpcDbDriver implements DbDriver {
     this.bridge = bridge;
   }
 
-  async execute<T extends DbRow = DbRow>(
+  async query<T extends DbRow = DbRow>(
     sql: string,
     params?: unknown[],
   ): Promise<T[]> {
-    return (await this.bridge.invoke("db:execute", sql, params)) as T[];
+    return (await this.bridge.invoke("db:query", sql, params)) as T[];
   }
 
-  async run(sql: string, params?: unknown[]): Promise<DbRunResult> {
-    return (await this.bridge.invoke("db:run", sql, params)) as DbRunResult;
+  async mutate(sql: string, params?: unknown[]): Promise<DbRunResult> {
+    return (await this.bridge.invoke("db:mutate", sql, params)) as DbRunResult;
   }
 
   async exec(sql: string): Promise<void> {

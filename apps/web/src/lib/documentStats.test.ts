@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Block } from "@cypherkit/editor";
+import type { Block } from "@tasfer/editor";
 import { computeDocumentStats, countWordsFromBlocks } from "./documentStats";
 
 function paragraph(text: string, id = "b", deleted = false): Block {

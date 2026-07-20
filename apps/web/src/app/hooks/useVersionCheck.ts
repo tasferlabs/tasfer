@@ -34,14 +34,14 @@ export interface VersionCheckResult {
   performPlatformUpdate: (() => Promise<void>) | null;
 }
 
-type CypherBridge = {
+type TasferBridge = {
   invoke(channel: string, ...args: unknown[]): Promise<unknown>;
   on(channel: string, callback: (...args: unknown[]) => void): () => void;
 };
 
-function getElectronBridge(): CypherBridge | null {
-  if (typeof window !== "undefined" && (window as any).cypher) {
-    return (window as any).cypher as CypherBridge;
+function getElectronBridge(): TasferBridge | null {
+  if (typeof window !== "undefined" && (window as any).tasfer) {
+    return (window as any).tasfer as TasferBridge;
   }
   return null;
 }

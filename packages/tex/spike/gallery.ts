@@ -1,5 +1,5 @@
 /**
- * Shared content + layout + paint for the @cypherkit/tex capability gallery.
+ * Shared content + layout + paint for the @tasfer/tex capability gallery.
  *
  * Platform-agnostic: it only ever touches a `CanvasRenderingContext2D`-shaped
  * object, so the same code drives both the browser demo (`main.ts`) and the
@@ -190,7 +190,7 @@ export function paintGallery(
   ctx.fillRect(0, 0, PAGE_W, totalH);
   ctx.fillStyle = INK;
   ctx.font = BANNER_TITLE_FONT;
-  ctx.fillText("@cypherkit/tex — canvas-native LaTeX", PAD_X, 44);
+  ctx.fillText("@tasfer/tex — canvas-native LaTeX", PAD_X, 44);
   ctx.font = BANNER_SUB_FONT;
   ctx.fillStyle = BANNER_SUB_COLOR;
   ctx.fillText(

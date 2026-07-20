@@ -11,7 +11,7 @@ import { getDb } from "../db";
 export function registerDbHandlers() {
   /** SELECT queries — returns array of row objects */
   ipcMain.handle(
-    "db:execute",
+    "db:query",
     (_, sql: string, params?: unknown[]) => {
       const db = getDb();
       const stmt = db.prepare(sql);
@@ -21,7 +21,7 @@ export function registerDbHandlers() {
 
   /** INSERT / UPDATE / DELETE — returns { changes, lastInsertRowId } */
   ipcMain.handle(
-    "db:run",
+    "db:mutate",
     (_, sql: string, params?: unknown[]) => {
       const db = getDb();
       const stmt = db.prepare(sql);

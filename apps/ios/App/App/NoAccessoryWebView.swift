@@ -15,38 +15,38 @@ import ObjectiveC
 // Xcode project references sources explicitly in project.pbxproj; keeping the
 // new types here avoids touching that file. Swift has no per-file privacy, so
 // `KeyboardAccessoryView` / `KeyboardToolbarBridge` are usable from
-// CypherViewController.swift.
+// TasferViewController.swift.
 //
 // Data flow:
 //   • web → native: `window.webkit.messageHandlers.KeyboardToolbar.postMessage`
 //     sends the standard MobileToolbarModel used by Android.
-//   • native → web: button taps call `window.__cypherKeyboardAction(action)`
+//   • native → web: button taps call `window.__tasferKeyboardAction(action)`
 //     with the same action object emitted by the React toolbar.
 
 // MARK: - WKWebView ↔ accessory association
 
-private var cypherAccessoryKey: UInt8 = 0
-private var cypherAccessoryEnabledKey: UInt8 = 0
-private var cypherHomeIndicatorInsetKey: UInt8 = 0
+private var tasferAccessoryKey: UInt8 = 0
+private var tasferAccessoryEnabledKey: UInt8 = 0
+private var tasferHomeIndicatorInsetKey: UInt8 = 0
 
 extension WKWebView {
     /// The device's home-indicator bottom inset, captured by the hosting view
     /// controller while no keyboard is docked (see
-    /// `CypherViewController.captureHomeIndicatorInset`).
+    /// `TasferViewController.captureHomeIndicatorInset`).
     ///
     /// The accessory can't read this from any live safe area: once a hardware
     /// keyboard docks the bar over the home indicator, both the app window and
     /// the accessory's own `safeAreaInsets.bottom` collapse to 0 (the bar now
     /// occupies that region). This cached value is the only reliable source of
     /// the gap the docked bar must reserve.
-    var cypherHomeIndicatorInset: CGFloat {
+    var tasferHomeIndicatorInset: CGFloat {
         get {
-            (objc_getAssociatedObject(self, &cypherHomeIndicatorInsetKey) as? NSNumber)
+            (objc_getAssociatedObject(self, &tasferHomeIndicatorInsetKey) as? NSNumber)
                 .map { CGFloat($0.doubleValue) } ?? 0
         }
         set {
             objc_setAssociatedObject(
-                self, &cypherHomeIndicatorInsetKey, NSNumber(value: Double(newValue)),
+                self, &tasferHomeIndicatorInsetKey, NSNumber(value: Double(newValue)),
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         }
     }
@@ -54,15 +54,15 @@ extension WKWebView {
     /// Lazily-created native keyboard toolbar bound to this web view. Both the
     /// swizzled `inputAccessoryView` getter and the bridge resolve the same
     /// instance through this associated object.
-    var cypherKeyboardAccessory: KeyboardAccessoryView {
-        if let existing = objc_getAssociatedObject(self, &cypherAccessoryKey)
+    var tasferKeyboardAccessory: KeyboardAccessoryView {
+        if let existing = objc_getAssociatedObject(self, &tasferAccessoryKey)
             as? KeyboardAccessoryView
         {
             return existing
         }
         let view = KeyboardAccessoryView(webView: self)
         objc_setAssociatedObject(
-            self, &cypherAccessoryKey, view, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            self, &tasferAccessoryKey, view, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return view
     }
 
@@ -70,8 +70,8 @@ extension WKWebView {
     /// first responder. The web app sets this true only while the canvas
     /// editor's input surface is focused; every other field (find bar, dialogs,
     /// settings) leaves it false and gets the plain keyboard. Defaults to false.
-    var cypherAccessoryEnabled: Bool {
-        (objc_getAssociatedObject(self, &cypherAccessoryEnabledKey) as? NSNumber)?
+    var tasferAccessoryEnabled: Bool {
+        (objc_getAssociatedObject(self, &tasferAccessoryEnabledKey) as? NSNumber)?
             .boolValue ?? false
     }
 
@@ -79,18 +79,18 @@ extension WKWebView {
     /// re-query `inputAccessoryView` so the bar attaches/detaches immediately.
     /// The first `inputAccessoryView` request can race ahead of the web app's
     /// focus message, so reloading here is what makes the toggle reliable.
-    func setCypherAccessoryEnabled(_ enabled: Bool) {
-        guard cypherAccessoryEnabled != enabled else { return }
+    func setTasferAccessoryEnabled(_ enabled: Bool) {
+        guard tasferAccessoryEnabled != enabled else { return }
         objc_setAssociatedObject(
-            self, &cypherAccessoryEnabledKey, NSNumber(value: enabled),
+            self, &tasferAccessoryEnabledKey, NSNumber(value: enabled),
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        cypherContentView?.reloadInputViews()
+        tasferContentView?.reloadInputViews()
     }
 
     /// The private `WKContentView` that is the real first responder for web text
     /// input. `reloadInputViews()` only takes effect on the first responder, so
     /// the accessory toggle targets this view rather than the `WKWebView`.
-    fileprivate var cypherContentView: UIView? {
+    fileprivate var tasferContentView: UIView? {
         func find(_ view: UIView) -> UIView? {
             if String(describing: type(of: view)) == "WKContentView" { return view }
             for sub in view.subviews {
@@ -105,7 +105,7 @@ extension WKWebView {
 extension UIView {
     /// Walk up the view hierarchy to the enclosing `WKWebView`. The actual first
     /// responder is a private `WKContentView` nested inside `WKWebView.scrollView`.
-    func cypherEnclosingWebView() -> WKWebView? {
+    func tasferEnclosingWebView() -> WKWebView? {
         var current: UIView? = self
         while let view = current {
             if let webView = view as? WKWebView { return webView }
@@ -132,7 +132,7 @@ class NoAccessoryWebView: WKWebView {
         let original = class_getInstanceMethod(
             wkContentViewClass, #selector(getter: UIResponder.inputAccessoryView))
         let replacement = class_getInstanceMethod(
-            NoAccessoryWebView.self, #selector(cypherAccessoryView))
+            NoAccessoryWebView.self, #selector(tasferAccessoryView))
         if let original = original, let replacement = replacement {
             method_exchangeImplementations(original, replacement)
         }
@@ -147,13 +147,13 @@ class NoAccessoryWebView: WKWebView {
     /// the `WKContentView`, not this subclass. Return the accessory only while
     /// the canvas editor surface is focused; every other input (find bar,
     /// dialogs, settings fields) returns nil and keeps the plain keyboard. The
-    /// web app sets `cypherAccessoryEnabled` on focus and calls
+    /// web app sets `tasferAccessoryEnabled` on focus and calls
     /// `reloadInputViews()`, so a stale first request self-corrects rather than
     /// leaving the toolbar permanently installed or missing.
-    @objc private func cypherAccessoryView() -> UIView? {
-        guard let webView = cypherEnclosingWebView(), webView.cypherAccessoryEnabled
+    @objc private func tasferAccessoryView() -> UIView? {
+        guard let webView = tasferEnclosingWebView(), webView.tasferAccessoryEnabled
         else { return nil }
-        return webView.cypherKeyboardAccessory
+        return webView.tasferKeyboardAccessory
     }
 }
 
@@ -226,7 +226,7 @@ final class KeyboardAccessoryView: UIView {
         refreshBottomInset()
         let fmaxY = window.map { convert(bounds, to: $0.screen.coordinateSpace).maxY } ?? -1
         let smaxY = window?.screen.bounds.maxY ?? -1
-        NSLog("CYPHERKBD layout ownSafeBottom=\(safeAreaInsets.bottom) cached=\(webView?.cypherHomeIndicatorInset ?? -1) resolved=\(resolvedBottomInset) intrinsic=\(intrinsicContentSize.height) frame=\(frame) fmaxY=\(fmaxY) smaxY=\(smaxY) window=\(window != nil)")
+        NSLog("TASFERKBD layout ownSafeBottom=\(safeAreaInsets.bottom) cached=\(webView?.tasferHomeIndicatorInset ?? -1) resolved=\(resolvedBottomInset) intrinsic=\(intrinsicContentSize.height) frame=\(frame) fmaxY=\(fmaxY) smaxY=\(smaxY) window=\(window != nil)")
     }
 
     /// Re-measure the docked home-indicator inset and, when it changes, update
@@ -255,7 +255,7 @@ final class KeyboardAccessoryView: UIView {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.inputViewReloadScheduled = false
-            self.webView?.cypherContentView?.reloadInputViews()
+            self.webView?.tasferContentView?.reloadInputViews()
         }
     }
 
@@ -277,7 +277,7 @@ final class KeyboardAccessoryView: UIView {
         // Use the home-indicator inset captured before the bar docked. Reading
         // any live safe area here returns 0, because the docked bar already
         // covers the home-indicator region.
-        return webView?.cypherHomeIndicatorInset ?? 0
+        return webView?.tasferHomeIndicatorInset ?? 0
     }
 
     // MARK: Build
@@ -574,7 +574,7 @@ final class KeyboardAccessoryView: UIView {
             let json = String(data: data, encoding: .utf8)
         else { return }
         webView?.evaluateJavaScript(
-            "window.__cypherKeyboardAction && window.__cypherKeyboardAction(\(json))",
+            "window.__tasferKeyboardAction && window.__tasferKeyboardAction(\(json))",
             completionHandler: nil)
     }
 }
@@ -597,10 +597,10 @@ final class KeyboardToolbarBridge: NSObject, WKScriptMessageHandler {
             // The canvas editor surface gained or lost focus. Only while it is
             // focused does iOS attach the formatting accessory; other inputs
             // keep the plain keyboard.
-            webView.setCypherAccessoryEnabled((message.body as? NSNumber)?.boolValue ?? false)
+            webView.setTasferAccessoryEnabled((message.body as? NSNumber)?.boolValue ?? false)
         default:
             guard let model = message.body as? [String: Any] else { return }
-            webView.cypherKeyboardAccessory.applyModel(model)
+            webView.tasferKeyboardAccessory.applyModel(model)
         }
     }
 }

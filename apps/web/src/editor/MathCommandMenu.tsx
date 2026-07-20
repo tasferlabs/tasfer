@@ -2,14 +2,14 @@ import * as Popover from "@radix-ui/react-popover";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { TEXT_INPUT } from "@cypherkit/editor";
+import { TEXT_INPUT } from "@tasfer/editor";
 import {
   filterMathCommands,
   INSERT_MATH_COMMAND,
   type MathCommand,
   mathCommandInsertion,
   renderToSVG,
-} from "@cypherkit/editor/math";
+} from "@tasfer/editor/math";
 import { activeTreeMath, treeMathCommandRun } from "./treeMath";
 import useResponsive from "../app/hooks/useResponsive";
 import {

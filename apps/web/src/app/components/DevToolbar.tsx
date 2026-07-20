@@ -66,7 +66,7 @@ async function executeQuery(sql: string): Promise<QueryResult> {
   if (!trimmed) return { ok: false, error: "Empty query" };
 
   // Devtools are read-only so they can never destroy document state. Refuse
-  // anything that isn't a plain read; the query path uses `db.execute` only.
+  // anything that isn't a plain read; the query path uses `db.query` only.
   if (!READ_PREFIX.test(trimmed) || WRITE_KEYWORD.test(trimmed)) {
     return {
       ok: false,
@@ -77,7 +77,7 @@ async function executeQuery(sql: string): Promise<QueryResult> {
 
   const t0 = performance.now();
   try {
-    const rows = await db.execute(trimmed);
+    const rows = await db.query(trimmed);
     const time = performance.now() - t0;
     const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
     return { ok: true, columns, rows, time };
@@ -332,7 +332,7 @@ async function fetchTable(
   search: string,
 ): Promise<TableInfo> {
   const db = getDb();
-  const pragma = await db.execute<{
+  const pragma = await db.query<{
     name: string;
     type: string;
     notnull: number;
@@ -362,12 +362,12 @@ async function fetchTable(
     }
   }
 
-  const [{ cnt }] = await db.execute<{ cnt: number }>(
+  const [{ cnt }] = await db.query<{ cnt: number }>(
     `SELECT COUNT(*) as cnt FROM "${table}" ${where}`,
     params,
   );
   const selectCols = pk.length === 0 ? `rowid, *` : `*`;
-  const rows = await db.execute(
+  const rows = await db.query(
     `SELECT ${selectCols} FROM "${table}" ${where} LIMIT ? OFFSET ?`,
     [...params, PAGE_SIZE, offset],
   );
@@ -510,7 +510,7 @@ async function fetchCrdtOpCount(
 ): Promise<number> {
   const db = getDb();
   const { where, params } = buildCrdtWhere(pageId, opType);
-  const [{ cnt }] = await db.execute<{ cnt: number }>(
+  const [{ cnt }] = await db.query<{ cnt: number }>(
     `SELECT COUNT(*) as cnt FROM ops${where}`,
     params,
   );
@@ -529,7 +529,7 @@ async function fetchCrdtOps(
     where +
     " ORDER BY timestamp DESC, clock DESC LIMIT ?";
 
-  const rows = await db.execute(query, [...params, limit]);
+  const rows = await db.query(query, [...params, limit]);
   return rows.map((r: DbRow) => {
     let parsed: Record<string, unknown> = {};
     try {
@@ -556,7 +556,7 @@ async function fetchCrdtOps(
 
 async function fetchCrdtPages(): Promise<{ id: string; title: string }[]> {
   const db = getDb();
-  const rows = await db.execute(
+  const rows = await db.query(
     "SELECT DISTINCT ops.scope_id as id, COALESCE(pages.title, ops.scope_id) as title FROM ops LEFT JOIN pages ON ops.scope_id = pages.id ORDER BY title",
   );
   return rows.map((r: DbRow) => ({

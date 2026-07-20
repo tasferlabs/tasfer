@@ -1,7 +1,7 @@
 /**
  * Structured-content adapter for the optional math feature.
  *
- * `MathDocument` is the ergonomic nested model exposed by `@cypherkit/tex`;
+ * `MathDocument` is the ergonomic nested model exposed by `@tasfer/tex`;
  * `StructuredDocument` is the normalized, schema-agnostic CRDT store owned by
  * editor core. This module is the only place that knows how those shapes map.
  */
@@ -33,7 +33,7 @@ import {
   type MathRow,
   parseMathDocument,
   printMathDocument,
-} from "@cypherkit/tex/data";
+} from "@tasfer/tex/data";
 
 /** Adapter discriminator stored in `StructuredDocument.kind`. */
 export const MATH_STRUCTURED_KIND = "math";

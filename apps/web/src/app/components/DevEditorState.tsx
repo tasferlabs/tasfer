@@ -24,7 +24,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Pause, Play } from "lucide-react";
-import type { Block } from "@cypherkit/editor";
+import type { Block } from "@tasfer/editor";
 import {
   getVisibleTextFromRuns,
   isTextualBlock,
@@ -32,7 +32,7 @@ import {
   type EditorWiring,
   type MarkSpan,
   type TextualBlock,
-} from "@cypherkit/editor/internal";
+} from "@tasfer/editor/internal";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
 
 // ─── View model ──────────────────────────────────────────────────────────────

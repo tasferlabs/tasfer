@@ -1,16 +1,17 @@
-name = "cypher-signal"
+name = "tasfer-signal"
 main = "src/worker.ts"
 compatibility_date = "2025-03-01"
 
-# Custom domain — requires cypher.md zone in Cloudflare DNS
+# Custom domain — requires tasfer.app zone in Cloudflare DNS
 routes = [
-  { pattern = "signaling.cypher.md", custom_domain = true }
+  { pattern = "signaling.tasfer.app", custom_domain = true }
 ]
 
-[vars]
-# Cloudflare Calls TURN key ID — get from: CF Dashboard → Calls → TURN → Create Key
-# Set the secret token via: wrangler secret put TURN_API_TOKEN
-TURN_KEY_ID = "1f35a92cf25e752529a313b7404a5a47"
+# Cloudflare Calls TURN credentials — get from: CF Dashboard → Calls → TURN → Create Key.
+# Both are secrets, kept out of the repo. Set each on the deployed Worker:
+#   wrangler secret put TURN_KEY_ID
+#   wrangler secret put TURN_API_TOKEN
+# For local dev, put both in apps/live/.dev.vars (gitignored).
 
 [durable_objects]
 bindings = [
@@ -27,4 +28,4 @@ simple = { limit = 10, period = 60 }
 
 [[migrations]]
 tag = "v1"
-new_classes = ["SignalRoom"]
+new_sqlite_classes = ["SignalRoom"]

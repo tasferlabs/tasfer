@@ -368,6 +368,9 @@
 .dx-page .dx-h1 {font-family: var(--font-editorial); font-weight: 400; font-size: clamp(32px, 4.4vw, 46px); line-height: 1.1; letter-spacing: -0.022em; color: var(--fg); margin: 0 0 16px; text-wrap: balance; }
 .dx-page .dx-h1 em {font-style: italic; color: var(--primary); }
 .dx-page .dx-lede {font-size: 19px; line-height: 1.6; color: var(--cy-muted-fg); margin: 0 0 14px; max-width: 60ch; }
+/* MDX wraps <Lede> copy in its own <p>; make it inherit the lede look and drop
+   the article-paragraph margin so the wrapper owns spacing. */
+.dx-page .dx-lede > p {font: inherit; color: inherit; margin: 0; max-width: none; }
 .dx-page .dx-lede strong {color: var(--fg); font-weight: 500; }
 .dx-page .dx-article h2 {font-family: var(--font-editorial); font-weight: 400; font-size: 28px; letter-spacing: -0.015em; line-height: 1.2; color: var(--fg); margin: 64px 0 18px; padding-top: 8px; scroll-margin-top: 80px; }
 .dx-page .dx-article h3 {font-family: var(--font-ui); font-weight: 600; font-size: 18px; letter-spacing: -0.01em; color: var(--fg); margin: 40px 0 12px; scroll-margin-top: 80px; }

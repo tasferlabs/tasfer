@@ -1,8 +1,12 @@
-{/* @cypherkit/editor docs — Realtime collaboration. */}
+{/* @tasfer/editor docs — Realtime collaboration. */}
 
-import { Callout, PropsTable } from "../../docsComponents";
+import { Callout, Lede, PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">A provider connects your editor's CRDT to other replicas. Swap providers to change *how* peers reach each other — the document model and your UI stay identical.</p>
+<Lede>
+  A provider connects your editor's CRDT to other replicas. Swap providers to
+  change *how* peers reach each other — the document model and your UI stay
+  identical.
+</Lede>
 
 <h2 id="providers">Choosing a provider</h2>
 
@@ -10,7 +14,7 @@ import { Callout, PropsTable } from "../../docsComponents";
   { name: "provider-relay", type: "WebSocket relay", desc: "Peers behind NATs/firewalls. The relay introduces peers and forwards their updates — it can read them, so run one you trust." },
   { name: "provider-webrtc", type: "Peer-to-peer", desc: "Direct browser-to-browser once introduced. Lowest latency; needs a small signaling step. Data channels are encrypted end to end." },
   { name: "provider-indexeddb", type: "Local disk", desc: "Not a network provider — persists the CRDT to IndexedDB so reloads are instant and offline-complete." },
-  { name: "custom", type: "Anything", desc: "Implement the Transport interface (from @cypherkit/provider-core) and hand it to createProvider — sync over your own backend, BroadcastChannel, or a file watcher." },
+  { name: "custom", type: "Anything", desc: "Implement the Transport interface (from @tasfer/provider-core) and hand it to createProvider — sync over your own backend, BroadcastChannel, or a file watcher." },
 ]} />
 
 <Callout kind="note" title="A relay sees your documents.">`provider-relay` does not encrypt: it base64-encodes frames so the relay never has to parse them, which is not the same thing. A relay operator can read and modify every document that passes through, and the peer id on each frame is self-asserted, so a peer in the room can forge frames attributed to another peer. Point it at a relay you control. `provider-webrtc` is the one that keeps the server out of the data path — once ICE completes, document bytes flow directly between peers over DTLS-encrypted DataChannels, and the signaling server only ever sees connection metadata.</Callout>
@@ -20,14 +24,14 @@ import { Callout, PropsTable } from "../../docsComponents";
 Providers compose. A typical setup persists locally *and* syncs over the network — the editor merges all of them into one converging document:
 
 ```ts
-import { createIndexedDBProvider } from "@cypherkit/provider-indexeddb";
-import { createRelayProvider } from "@cypherkit/provider-relay";
+import { createIndexedDBProvider } from "@tasfer/provider-indexeddb";
+import { createRelayProvider } from "@tasfer/provider-relay";
 
 createIndexedDBProvider({ doc: editor.doc, name: "notes/today" });
 const net = createRelayProvider({
   doc: editor.doc,
   room: "team-notes",
-  relay: "wss://relay.cypher.md",
+  relay: "wss://relay.tasfer.app",
 });
 ```
 
@@ -44,10 +48,10 @@ net.presence.on("change", (peers) => {
 });
 ```
 
-The editor engine itself has no concept of "peers" — it paints generic [decorations](/docs/editor/concepts#decorations) you feed it. To turn presence into remote carets and selections, bind the two together with the helper from `@cypherkit/provider-core/cursors`:
+The editor engine itself has no concept of "peers" — it paints generic [decorations](/docs/editor/concepts#decorations) you feed it. To turn presence into remote carets and selections, bind the two together with the helper from `@tasfer/provider-core/cursors`:
 
 ```ts
-import { bindPresenceCursors } from "@cypherkit/provider-core/cursors";
+import { bindPresenceCursors } from "@tasfer/provider-core/cursors";
 
 // publishes your selection on every change, and renders every peer's cursor
 // as a `presence:<peerId>` decoration layer. Returns an unsubscribe.

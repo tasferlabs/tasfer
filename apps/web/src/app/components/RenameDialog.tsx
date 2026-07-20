@@ -17,7 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
-import { type CypherEditor, type Doc } from "@cypherkit/editor";
+import { type TasferEditor, type Doc } from "@tasfer/editor";
 import { deriveTitles } from "@/lib/pageTitle";
 import { useGetPage, useUpdatePage } from "../api/pages.api";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
@@ -52,10 +52,10 @@ export function RenameDialog({
 }: RenameDialogProps) {
   const { id: routePageId } = useParams<{ id: string }>();
   const { editor } = useActiveEditor();
-  // The active editor's runtime object is the `CypherEditor` (it carries the live
+  // The active editor's runtime object is the `TasferEditor` (it carries the live
   // `doc`), though the context types it as the narrower `EditorApi` — hence the
   // localized cast.
-  const activeDoc = (editor as CypherEditor | null)?.doc ?? null;
+  const activeDoc = (editor as TasferEditor | null)?.doc ?? null;
 
   // The page open in the editor: reuse its live doc directly. (`activeDoc` may be
   // briefly null while that editor mounts — the view then shows an empty title.)

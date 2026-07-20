@@ -9,4 +9,5 @@ export default libConfig({
   alias: {
     "@shared": resolve(here, "../../shared"),
   },
+  dtsTsconfig: resolve(here, "../../tsconfig.dts.json"),
 });

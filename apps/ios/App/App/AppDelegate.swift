@@ -13,7 +13,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         UserDefaults.standard.register(defaults: ["dev_tools_enabled": false])
         // Set background color to prevent white flash on launch
         window?.backgroundColor = UIColor(named: "Background")
+        excludeAppDataFromBackup()
         return true
+    }
+
+    // Local-first: documents never leave the device via iCloud/device backup
+    // (parity with allowBackup="false" on Android). Covers Documents (document
+    // store, SQLite) and Library (WebView storage). Reapplied every launch
+    // because the flag does not survive a directory being recreated.
+    private func excludeAppDataFromBackup() {
+        let dirs: [FileManager.SearchPathDirectory] = [.documentDirectory, .libraryDirectory]
+        for dir in dirs {
+            guard var url = FileManager.default.urls(for: dir, in: .userDomainMask).first else { continue }
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? url.setResourceValues(values)
+        }
     }
     
     func applicationWillResignActive(_ application: UIApplication) {

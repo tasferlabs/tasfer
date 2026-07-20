@@ -12,7 +12,7 @@ import {
   mathCommandInsertion,
   unambiguousMathCommandCompletion,
 } from "./math-commands";
-import { isValidLatex } from "@cypherkit/tex";
+import { isValidLatex } from "@tasfer/tex";
 import { describe, expect, it } from "vitest";
 
 describe("math command catalog", () => {

@@ -1,4 +1,4 @@
-import { isAndroid } from "@cypherkit/editor/internal";
+import { isAndroid } from "@tasfer/editor/internal";
 import { useEffect, useState } from "react";
 
 /**
@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
  *     `keyboard-height-changed` message (the same signal the editor consumes).
  *     Once a native source reports, it wins.
  *   • iOS / mobile web: the WebView keeps its full height (iOS runs Capacitor
- *     Keyboard `resize: "none"` — see capacitor.config.ts), so `visualViewport`
+ *     Keyboard `resize: "none"` — see capacitor.config.js), so `visualViewport`
  *     shrinks for the keyboard and we derive the inset from it.
  *
  * Intended for `position: fixed` mobile overlays (the base Drawer, the calendar

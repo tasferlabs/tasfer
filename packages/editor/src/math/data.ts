@@ -4,9 +4,9 @@
  * Import this entry in workers, persistence code, and Markdown tooling. It
  * registers the CRDT shape, codecs, Markdown syntax, and structured-content
  * adapters without constructing MathNode/MathMark or importing their canvas
- * interaction/selection stack (including the `@cypherkit/tex` layout engine —
- * this entry reaches only `@cypherkit/tex/data`). Interactive hosts normally
- * install the full bundle from `@cypherkit/editor/math` instead, which adds
+ * interaction/selection stack (including the `@tasfer/tex` layout engine —
+ * this entry reaches only `@tasfer/tex/data`). Interactive hosts normally
+ * install the full bundle from `@tasfer/editor/math` instead, which adds
  * the rendering classes, live input rules, and the clipboard selection
  * serializer.
  */
@@ -47,7 +47,7 @@ import {
   structuredToMathDocument,
   validateStructuredMathDocument,
 } from "./structured";
-import { printMathDocument as printMathDocumentValue } from "@cypherkit/tex/data";
+import { printMathDocument as printMathDocumentValue } from "@tasfer/tex/data";
 
 export { normalizeMathSource } from "./source";
 
@@ -307,9 +307,9 @@ export * from "./structured";
 export * from "./tree-edit";
 /**
  * Editable TeX AST node. The alias keeps it distinct from the interactive
- * `MathNode` renderer exported by the full `@cypherkit/editor/math` entry.
+ * `MathNode` renderer exported by the full `@tasfer/editor/math` entry.
  */
-export type { MathNode as MathDocumentNode } from "@cypherkit/tex/data";
+export type { MathNode as MathDocumentNode } from "@tasfer/tex/data";
 export {
   type AllocatedIdentity,
   createDeterministicIdentityAllocator,
@@ -339,4 +339,4 @@ export {
   type ParseMathDocumentOptions,
   printMathDocument,
   printMathRow,
-} from "@cypherkit/tex/data";
+} from "@tasfer/tex/data";

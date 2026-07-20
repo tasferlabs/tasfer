@@ -211,7 +211,7 @@ export interface MountEditorOptions<
    * Omit to use the built-in set (`createDefaultNodeRegistry`).
    *
    * Example — an editor without the image block:
-   *   import { LineNode, TextNode } from "@cypherkit/editor";
+   *   import { LineNode, TextNode } from "@tasfer/editor";
    *   mountEditor(el, blocks, { nodes: [new LineNode(), new TextNode()] });
    */
   nodes?: readonly Node[];

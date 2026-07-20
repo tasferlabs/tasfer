@@ -8,6 +8,8 @@ import { Direction } from "radix-ui";
 import { registerSW } from "virtual:pwa-register";
 import { initPlatform } from "./platform";
 import { AuthProvider } from "./app/contexts/AuthContext";
+import { PopupQueueProvider } from "./app/contexts/PopupQueueContext";
+import { markVisit } from "./lib/appVisits";
 import { ToastProvider } from "./app/components/Toast";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
@@ -15,7 +17,7 @@ import { router } from "./app/routes/Router";
 import { initNativeDevToolsSync } from "./lib/devTools";
 import { requestPersistentStorage } from "./lib/persistentStorage";
 import LoadingScreen from "./components/ui/loading-screen";
-import { MobileAppGate } from "./app/components/MobileAppGate/MobileAppGate";
+import { MobileAppNudge } from "./app/components/MobileAppNudge/MobileAppNudge";
 import { loadFonts, loadArabicFonts } from "./fonts";
 import "./i18n";
 import i18next from "i18next";
@@ -56,10 +58,10 @@ if ((window as any).Capacitor?.isNativePlatform?.()) {
 }
 
 // Mark Electron so CSS can apply window-chrome styles (drag regions, traffic-light insets)
-if ((window as any).cypher) {
+if ((window as any).tasfer) {
   document.body.classList.add("electron");
   // Add platform-specific class for Windows vs macOS title bar differences
-  const platform = (window as any).cypher.platform;
+  const platform = (window as any).tasfer.platform;
   if (platform === "win32") {
     document.body.classList.add("electron-win");
   } else if (platform === "darwin") {
@@ -89,6 +91,10 @@ initNativeDevToolsSync();
 // local IndexedDB/OPFS replica is the only copy of the user's data. Idempotent,
 // no-op on Electron/Capacitor; result surfaced in Settings → Data.
 requestPersistentStorage().catch(() => {});
+
+// Count this load once, so visit-gated popovers (the mobile app gate) can hold
+// back from a visitor's first impression.
+markVisit();
 
 // Start font loading in background — don't block initial render.
 // Font metrics are computed lazily on first use per size/weight combo.
@@ -137,8 +143,10 @@ const App = () => (
           <ToastProvider>
             <VersionProvider>
               <Suspense fallback={<LoadingScreen />}>
-                <RouterProvider router={router} />
-                <MobileAppGate />
+                <PopupQueueProvider>
+                  <RouterProvider router={router} />
+                  <MobileAppNudge />
+                </PopupQueueProvider>
               </Suspense>
             </VersionProvider>
           </ToastProvider>
@@ -149,13 +157,13 @@ const App = () => (
 );
 
 // Persist root across HMR updates
-let root: Root | null = (window as any).__CYPHER_ROOT__ ?? null;
-let platformReady: boolean = (window as any).__CYPHER_PLATFORM_READY__ ?? false;
+let root: Root | null = (window as any).__TASFER_ROOT__ ?? null;
+let platformReady: boolean = (window as any).__TASFER_PLATFORM_READY__ ?? false;
 
 function renderApp() {
   if (!root) {
     root = createRoot(document.getElementById("root")!);
-    (window as any).__CYPHER_ROOT__ = root;
+    (window as any).__TASFER_ROOT__ = root;
   }
   root.render(<App />);
 }
@@ -182,7 +190,7 @@ function renderTabError() {
   applyStoredTheme();
   if (!root) {
     root = createRoot(document.getElementById("root")!);
-    (window as any).__CYPHER_ROOT__ = root;
+    (window as any).__TASFER_ROOT__ = root;
   }
   root.render(<TabAlreadyOpenScreen />);
 }
@@ -260,9 +268,9 @@ if (platformReady) {
   initPlatform()
     .then(() => {
       // Asset resolution is owned by the host's image node (see
-      // `editorSchema.ts` → CypherImageNode), per-instance and not a global.
+      // `editorSchema.ts` → TasferImageNode), per-instance and not a global.
       platformReady = true;
-      (window as any).__CYPHER_PLATFORM_READY__ = true;
+      (window as any).__TASFER_PLATFORM_READY__ = true;
       renderApp();
     })
     .catch((err) => {
@@ -270,7 +278,7 @@ if (platformReady) {
       // database — typically the previous build's SharedWorker still alive
       // during a deploy. Show the "already open" screen instead of a blank
       // load; it resolves once that worker (and its tabs) are gone.
-      if (String(err?.message ?? err).includes("CYPHER_DB_LOCKED")) {
+      if (String(err?.message ?? err).includes("TASFER_DB_LOCKED")) {
         renderTabError();
         return;
       }
@@ -279,7 +287,7 @@ if (platformReady) {
 }
 
 // Register service worker for offline support (skip in Electron — loaded via file://)
-const isElectron = !!(window as any).cypher;
+const isElectron = !!(window as any).tasfer;
 const updateSW = isElectron
   ? () => {}
   : registerSW({

@@ -22,7 +22,7 @@
  * BroadcastChannel bus satisfies this by construction, and so does a relay that
  * forwards to every room member.
  *
- * WebRTC does not, always. `@cypherkit/provider-webrtc` drops a peer whose ICE
+ * WebRTC does not, always. `@tasfer/provider-webrtc` drops a peer whose ICE
  * negotiation fails, which is routine between two symmetric NATs with no TURN.
  * If A–B and B–C connect but A–C does not, B never forwards A's ops to C, and
  * the only catch-up — the `hello` handshake — runs once, at join. A and C then
@@ -33,8 +33,8 @@
  * accept that partitions do not heal.
  */
 
-import type { Doc, Operation } from "@cypherkit/editor";
-import { deserializeVV, serializeVV } from "@cypherkit/editor";
+import type { Doc, Operation } from "@tasfer/editor";
+import { deserializeVV, serializeVV } from "@tasfer/editor";
 
 import type {
   Presence,
@@ -58,7 +58,7 @@ export function createProvider(options: CreateProviderOptions): Provider {
   const { doc, transport } = options;
 
   /** Origin stamped on every wire-applied batch — our echo guard. */
-  const PROVIDER = Symbol("cypher-provider");
+  const PROVIDER = Symbol("tasfer-provider");
 
   /** Live peers, plus the unsubscribe fns to detach when they leave. */
   const peers = new Map<TransportPeer, () => void>();

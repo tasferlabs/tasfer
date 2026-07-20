@@ -24,7 +24,7 @@ app wiring and the (deferred) full component decomposition.
   - `src/app/editorCore.ts` (was `editorSurface.ts`) — the shared editing
     primitive: `useEditorCore` (the mount hook) plus `editorStrings`,
     `editorNodeStrings`, `appEditorTheme`, `useLiveEditorTheme`. `useEditorCore`
-    wraps `@cypherkit/react`'s `useEditor`, defaulting the app theme + strings and
+    wraps `@tasfer/react`'s `useEditor`, defaulting the app theme + strings and
     wiring live dark-mode/font re-theming, so every surface mounts identically.
   - `src/app/MountedEditor.tsx` — the inner `EditorSurface` is renamed
     **`PageEditor`** (the full-page WYSIWYG editor) and now mounts through
@@ -72,7 +72,7 @@ app wiring and the (deferred) full component decomposition.
    it for the open page.
    - **Doc source (any page):** `RenameDialog` takes a `pageId` (+ `spaceId`). When
      `pageId` is the page currently open in the editor, it reuses that editor's
-     live doc (`(useActiveEditor().editor as CypherEditor).doc`) — no second
+     live doc (`(useActiveEditor().editor as TasferEditor).doc`) — no second
      room/persistence. For any other page it loads the page's snapshot
      (`useGetPage`) and spins up a short-lived `useCollaborativeDoc` **while the
      dialog is open**, so the windowed title editor works on a live, synced,
@@ -116,9 +116,9 @@ gets a `Doc` to hand `TitleEditor` depends on where it lives:
   unlocked.
 - **The edit-title dialog (a separate surface, body may be unmounted)** — it needs
   its own doc for the target page. Either read the open page's doc from the active
-  editor (`(useActiveEditor().editor as CypherEditor | null)?.doc`, a localized
+  editor (`(useActiveEditor().editor as TasferEditor | null)?.doc`, a localized
   cast — the context is typed `EditorApi` but the runtime object is the
-  `CypherEditor`), or spin up a short-lived `useCollaborativeDoc(pageId, …)` for
+  `TasferEditor`), or spin up a short-lived `useCollaborativeDoc(pageId, …)` for
   the dialog. Still gated on the product decision below.
 
 ## Remaining — polish / follow-ups
@@ -133,7 +133,7 @@ gets a `Doc` to hand `TitleEditor` depends on where it lives:
   `--muted-foreground` placeholder, placeholder always shown when empty
   (`styles.placeholder.showUnfocused`). Canvas vertical padding is computed
   from the measured font bounding box (`getFontMetrics`, newly exported from
-  `@cypherkit/editor/internal`) so the line box — and the caret, which the
+  `@tasfer/editor/internal`) so the line box — and the caret, which the
   engine draws at full bounding-box height — is centered and contained instead
   of clipping (Poppins's bounding box is up to ~1.76em). Wrap behavior for long
   titles is still undecided (fixed mode clips; `autoHeight` grows).

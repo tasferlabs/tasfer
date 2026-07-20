@@ -17,14 +17,14 @@ import {
   type BaseSchemaDefinition,
   type EditorTheme,
   type SchemaDefinition,
-} from "@cypherkit/editor";
-import { type EditorStrings } from "@cypherkit/editor/internal";
+} from "@tasfer/editor";
+import { type EditorStrings } from "@tasfer/editor/internal";
 import {
   useEditor,
-  type CypherEditor,
+  type TasferEditor,
   type UseEditorOptions,
   type UseEditorResult,
-} from "@cypherkit/react";
+} from "@tasfer/react";
 import i18next from "i18next";
 import { useEffect } from "react";
 import { cssVarsToTheme } from "../editorTheme";
@@ -32,7 +32,7 @@ import { getAppFontRegistry, onAppFontRegistryChange } from "../fonts";
 
 /**
  * Localized cross-node canvas strings (block placeholders). The
- * `@cypherkit/editor` package ships English defaults and no i18n library, so the
+ * `@tasfer/editor` package ships English defaults and no i18n library, so the
  * host passes translations at mount. Evaluated at mount time — fine, since the
  * language only changes on the Settings page where no editor is mounted; the
  * next mount picks up the new language.
@@ -100,7 +100,7 @@ export function appEditorTheme(overrides?: Partial<EditorTheme>): EditorTheme {
  */
 export function useLiveEditorTheme<
   D extends SchemaDefinition = BaseSchemaDefinition,
->(editor: CypherEditor<D> | null): void {
+>(editor: TasferEditor<D> | null): void {
   useEffect(() => {
     if (!editor) return;
     // Re-push the CSS-driven theme whenever the document root's class flips
@@ -123,7 +123,7 @@ export function useLiveEditorTheme<
 }
 
 /**
- * Mount an editor on the app's shared core: it wraps `@cypherkit/react`'s
+ * Mount an editor on the app's shared core: it wraps `@tasfer/react`'s
  * `useEditor` with this app's {@link appEditorTheme} and {@link editorStrings}
  * defaults, then wires {@link useLiveEditorTheme} so dark-mode and font-registry
  * changes restyle it. This is the ONE place the body {@link PageEditor} and the

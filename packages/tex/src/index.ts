@@ -1,5 +1,5 @@
 /**
- * @cypherkit/tex — canvas-native, live-editable LaTeX math engine.
+ * @tasfer/tex — canvas-native, live-editable LaTeX math engine.
  *
  * Pipeline: `latex → parse → layout → MathLayout`, then `paintMath` draws the
  * layout onto a canvas. `layoutMath` is synchronous and returns exact pixel
@@ -9,8 +9,8 @@
  * stable identity-bearing `MathDocument`, the opaque `MathLayout` handle, and
  * identity-keyed `MathDocumentLayout` geometry. The brittle internals they're
  * built on — the laid-out box tree and rendering parse AST — live in the
- * explicitly-unstable `@cypherkit/tex/internal` entry (see ./internal.ts),
- * mirroring `@cypherkit/editor`. Keep this surface tight.
+ * explicitly-unstable `@tasfer/tex/internal` entry (see ./internal.ts),
+ * mirroring `@tasfer/editor`. Keep this surface tight.
  */
 import {
   createMathDocumentLayout,
@@ -397,5 +397,5 @@ export {
 
 // The laid-out box tree (`Box`/`GlyphBox`/`RuleBox`/`ListBox`/`PlaceholderBox`),
 // the parse AST (`Node`/`Span`), and `parse`/`ParseOptions` are brittle engine
-// internals, not a stable contract — they live in `@cypherkit/tex/internal`.
+// internals, not a stable contract — they live in `@tasfer/tex/internal`.
 // At the root, the box tree is reachable only as the opaque `MathLayout.box`.

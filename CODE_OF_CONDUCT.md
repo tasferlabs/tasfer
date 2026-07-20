@@ -62,7 +62,7 @@ Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders through a private report in the repository's
 GitHub Security Advisory flow:
 
-- [Report a vulnerability](https://github.com/hamza512b/cypher/security/advisories/new)
+- [Report a vulnerability](https://github.com/hamza512b/tasfer/security/advisories/new)
 
 All complaints will be reviewed and investigated promptly and fairly.
 

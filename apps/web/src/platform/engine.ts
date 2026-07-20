@@ -33,13 +33,13 @@ import type {
 } from "./types";
 import { invariant } from "@shared/invariant";
 import type { Driver, CryptoDriver, DbRow } from "./driver";
-import type { HLC } from "@cypherkit/editor";
+import type { HLC } from "@tasfer/editor";
 import type { ReplicatorHost } from "./sync";
 import { nanoid } from "nanoid";
 // Deep import the DOM-free block-order module rather than the `/internal`
 // barrel — the barrel re-exports rendering/font code that touches `document`,
 // which crashes the engine when it runs inside the SharedWorker (Phase 2).
-import { sortBlocksByOrder } from "@cypherkit/editor/sync/block-order";
+import { sortBlocksByOrder } from "@tasfer/editor/sync/block-order";
 // Worker-safe itself (deep imports only) — derives the title columns from
 // blocks; the doc's op log is the source of truth for titles.
 import { deriveTitles, extractBodyText } from "../lib/pageTitle";
@@ -51,7 +51,7 @@ interface EngineReplicator {
   pushPageOps(
     spaceId: string,
     pageId: string,
-    ops: import("@cypherkit/editor/state-types").Operation[],
+    ops: import("@tasfer/editor/state-types").Operation[],
   ): void;
   requestAsset(hash: string): Promise<boolean>;
   addPeer(publicKey: string): Promise<void>;
@@ -186,9 +186,10 @@ export class Engine implements Platform {
    * namespaces below.
    */
   db = {
-    execute: <T extends DbRow = DbRow>(sql: string, params?: unknown[]) =>
-      this.driver.db.execute<T>(sql, params),
-    run: (sql: string, params?: unknown[]) => this.driver.db.run(sql, params),
+    query: <T extends DbRow = DbRow>(sql: string, params?: unknown[]) =>
+      this.driver.db.query<T>(sql, params),
+    mutate: (sql: string, params?: unknown[]) =>
+      this.driver.db.mutate(sql, params),
     exec: (sql: string) => this.driver.db.exec(sql),
     getPendingMigrations: () => this.getPendingMigrations(),
     applyMigrations: () => this.applyMigrations(),
@@ -227,7 +228,7 @@ export class Engine implements Platform {
 
   /** Returns how many migrations are pending (0 means schema is up to date). */
   async getPendingMigrations(): Promise<number> {
-    const [{ user_version }] = await this.driver.db.execute<{
+    const [{ user_version }] = await this.driver.db.query<{
       user_version: number;
     }>("PRAGMA user_version");
     return Math.max(0, SCHEMA_VERSION - (user_version as number));
@@ -242,7 +243,7 @@ export class Engine implements Platform {
   private async ensureAdditiveColumns(): Promise<void> {
     // pages.title_md — the title's rich (markdown) projection, a local cache
     // derived from doc content (see refreshDerivedTitles).
-    const cols = await this.driver.db.execute<{ name: string }>(
+    const cols = await this.driver.db.query<{ name: string }>(
       "PRAGMA table_info(pages)",
     );
     if (!cols.some((c) => c.name === "title_md")) {
@@ -261,7 +262,7 @@ export class Engine implements Platform {
 
   /** Apply all pending migrations. Safe to call multiple times. */
   async applyMigrations(): Promise<void> {
-    const [{ user_version }] = await this.driver.db.execute<{
+    const [{ user_version }] = await this.driver.db.query<{
       user_version: number;
     }>("PRAGMA user_version");
 
@@ -272,7 +273,7 @@ export class Engine implements Platform {
 
   /** Load max HLC counters and LWW winners from persisted ops so we never regress after restart */
   private async loadSpaceHlcCounters(): Promise<void> {
-    const rows = await this.driver.db.execute<{
+    const rows = await this.driver.db.query<{
       scope_id: string;
       max_clock: number;
     }>(
@@ -284,7 +285,7 @@ export class Engine implements Platform {
     }
 
     // Replay all space ops in HLC order to build the LWW winners map
-    const scopes = await this.driver.db.execute<{ scope_id: string }>(
+    const scopes = await this.driver.db.query<{ scope_id: string }>(
       "SELECT DISTINCT scope_id FROM ops WHERE scope_id LIKE 'space:%'",
     );
     for (const s of scopes) {
@@ -371,13 +372,13 @@ export class Engine implements Platform {
         remoteVV: Record<string, number>,
       ) => this.buildPageSyncResponse(pageId, remoteVV),
       getPeerSharedKey: async (publicKey: string): Promise<string | null> => {
-        const rows = await this.driver.db.execute<{
+        const rows = await this.driver.db.query<{
           shared_key: string | null;
         }>("SELECT shared_key FROM peers WHERE public_key = ?", [publicKey]);
         return rows[0]?.shared_key ?? null;
       },
       updatePeerLastSeen: async (publicKey: string): Promise<void> => {
-        await this.driver.db.run(
+        await this.driver.db.mutate(
           "UPDATE peers SET last_seen = ? WHERE public_key = ?",
           [Date.now(), publicKey],
         );
@@ -397,13 +398,13 @@ export class Engine implements Platform {
    */
   private ensureIdentity(): Promise<void> {
     return (this.identityReady ??= (async () => {
-      const rows = await this.driver.db.execute<{ id: number }>(
+      const rows = await this.driver.db.query<{ id: number }>(
         "SELECT id FROM identity WHERE id = 1",
       );
       if (rows.length > 0) return;
       const { publicKey, privateKey } =
         await this.driver.crypto.generateKeypair();
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         "INSERT OR IGNORE INTO identity (id, public_key, private_key, name) VALUES (1, ?, ?, '')",
         [publicKey, privateKey],
       );
@@ -413,7 +414,7 @@ export class Engine implements Platform {
   identity = {
     get: async (): Promise<Identity> => {
       await this.ensureIdentity();
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         public_key: string;
         name: string;
         avatar: string | null;
@@ -444,7 +445,7 @@ export class Engine implements Platform {
       }
 
       if (sets.length > 0) {
-        await this.driver.db.run(
+        await this.driver.db.mutate(
           `UPDATE identity SET ${sets.join(", ")} WHERE id = 1`,
           params,
         );
@@ -452,7 +453,7 @@ export class Engine implements Platform {
 
       // Propagate changes to all spaces the user belongs to
       const identity = await this.identity.get();
-      const memberships = await this.driver.db.execute<{ space_id: string }>(
+      const memberships = await this.driver.db.query<{ space_id: string }>(
         "SELECT space_id FROM space_members WHERE public_key = ? AND archived_at IS NULL",
         [identity.publicKey],
       );
@@ -485,7 +486,7 @@ export class Engine implements Platform {
 
   peers = {
     list: async (): Promise<Peer[]> => {
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         public_key: string;
         name: string | null;
         trusted: number;
@@ -508,7 +509,7 @@ export class Engine implements Platform {
       sharedKey?: string,
     ): Promise<Peer> => {
       const now = Date.now();
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         `INSERT INTO peers (public_key, name, trusted, shared_key, last_seen) VALUES (?, ?, 1, ?, ?)
          ON CONFLICT(public_key) DO UPDATE SET trusted = 1, name = COALESCE(?, name), shared_key = COALESCE(?, shared_key), last_seen = ?`,
         [
@@ -521,7 +522,7 @@ export class Engine implements Platform {
           now,
         ],
       );
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         public_key: string;
         name: string | null;
         trusted: number;
@@ -537,14 +538,14 @@ export class Engine implements Platform {
     },
 
     untrust: async (publicKey: string): Promise<void> => {
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         "UPDATE peers SET trusted = 0 WHERE public_key = ?",
         [publicKey],
       );
     },
 
     remove: async (publicKey: string): Promise<void> => {
-      await this.driver.db.run("DELETE FROM peers WHERE public_key = ?", [
+      await this.driver.db.mutate("DELETE FROM peers WHERE public_key = ?", [
         publicKey,
       ]);
     },
@@ -557,7 +558,7 @@ export class Engine implements Platform {
   spaces = {
     list: async (): Promise<Space[]> => {
       const identity = await this.identity.get();
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         id: string;
         name: string;
         created_at: string;
@@ -577,7 +578,7 @@ export class Engine implements Platform {
 
     listArchived: async (): Promise<ArchivedSpaceItem[]> => {
       const identity = await this.identity.get();
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         id: string;
         name: string;
         archived_at: string;
@@ -596,7 +597,7 @@ export class Engine implements Platform {
     },
 
     get: async (id: string): Promise<Space & { members: SpaceMember[] }> => {
-      const spaceRows = await this.driver.db.execute<{
+      const spaceRows = await this.driver.db.query<{
         id: string;
         name: string;
         created_at: string;
@@ -605,7 +606,7 @@ export class Engine implements Platform {
       if (spaceRows.length === 0) throw new Error(`Space not found: ${id}`);
       const s = spaceRows[0];
 
-      const memberRows = await this.driver.db.execute<{
+      const memberRows = await this.driver.db.query<{
         space_id: string;
         public_key: string;
         name: string;
@@ -634,12 +635,12 @@ export class Engine implements Platform {
       const now = new Date().toISOString();
       const identity = await this.identity.get();
 
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         "INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)",
         [id, name, now],
       );
 
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         "INSERT INTO space_members (space_id, public_key, name, added_at) VALUES (?, ?, ?, ?)",
         [id, identity.publicKey, identity.name, now],
       );
@@ -661,7 +662,7 @@ export class Engine implements Platform {
     },
 
     rename: async (id: string, name: string): Promise<void> => {
-      await this.driver.db.run("UPDATE spaces SET name = ? WHERE id = ?", [
+      await this.driver.db.mutate("UPDATE spaces SET name = ? WHERE id = ?", [
         name,
         id,
       ]);
@@ -675,7 +676,7 @@ export class Engine implements Platform {
 
     archive: async (id: string): Promise<void> => {
       const now = new Date().toISOString();
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         "UPDATE spaces SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
         [now, id],
       );
@@ -683,7 +684,7 @@ export class Engine implements Platform {
     },
 
     unarchive: async (id: string): Promise<void> => {
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         "UPDATE spaces SET archived_at = NULL WHERE id = ?",
         [id],
       );
@@ -708,13 +709,13 @@ export class Engine implements Platform {
       };
       const col = memberFieldMap[field];
       if (col) {
-        await this.driver.db.run(
+        await this.driver.db.mutate(
           `UPDATE space_members SET ${col} = ? WHERE space_id = ? AND public_key = ?`,
           [value, spaceId, publicKey],
         );
       }
       if (field === "name") {
-        await this.driver.db.run(
+        await this.driver.db.mutate(
           "UPDATE peers SET name = ? WHERE public_key = ?",
           [value, publicKey],
         );
@@ -777,7 +778,7 @@ export class Engine implements Platform {
             await this.peers.trust(peer.publicKey, peer.name, sharedKey);
             // Insert member into DB first so recomputeSharedSpaces (triggered
             // by emitSpaceOp -> addPeer) can find this peer in the space.
-            await this.driver.db.run(
+            await this.driver.db.mutate(
               `INSERT INTO space_members (space_id, public_key, name, added_at)
                VALUES (?, ?, ?, ?)
                ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
@@ -830,13 +831,13 @@ export class Engine implements Platform {
 
             // Create the space locally from invite metadata
             const now = new Date().toISOString();
-            await this.driver.db.run(
+            await this.driver.db.mutate(
               `INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET archived_at = NULL`,
               [invite.spaceId, spaceName ?? "", now],
             );
             // Add self as member
-            await this.driver.db.run(
+            await this.driver.db.mutate(
               `INSERT INTO space_members (space_id, public_key, name, added_at)
                VALUES (?, ?, ?, ?)
                ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
@@ -849,7 +850,7 @@ export class Engine implements Platform {
               ],
             );
             // Add the initiator as member (so hello exchange can identify shared spaces)
-            await this.driver.db.run(
+            await this.driver.db.mutate(
               `INSERT INTO space_members (space_id, public_key, name, added_at)
                VALUES (?, ?, ?, ?)
                ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
@@ -901,7 +902,7 @@ export class Engine implements Platform {
       // across peers (ordering must be a pure function of stored state).
       sql += ' ORDER BY p."order" ASC, p.id ASC';
 
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         id: string;
         title: string;
         title_md: string;
@@ -935,7 +936,7 @@ export class Engine implements Platform {
     },
 
     get: async (id: string): Promise<PageFull> => {
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         id: string;
         title: string;
         title_md: string;
@@ -973,7 +974,7 @@ export class Engine implements Platform {
       const currentVV = await this.pageClockVV(id);
       const cached = await this.loadSnapshot(id);
       let blocks:
-        | import("@cypherkit/editor/serlization/loadPage").Block[]
+        | import("@tasfer/editor/serlization/loadPage").Block[]
         | null = null;
       if (cached && vvEqual(cached.vv, currentVV) && cached.blocks.length > 0) {
         blocks = cached.blocks;
@@ -1025,7 +1026,7 @@ export class Engine implements Platform {
           blockType: "heading1" as const,
         };
         const opData = new TextEncoder().encode(JSON.stringify(blockInsertOp));
-        await this.driver.db.run(
+        await this.driver.db.mutate(
           "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
           [id, "__init__", 0, "block_insert", opData, Date.now()],
         );
@@ -1058,7 +1059,7 @@ export class Engine implements Platform {
       const id = nanoid(10);
       const now = new Date().toISOString();
 
-      const orderRows = await this.driver.db.execute<{
+      const orderRows = await this.driver.db.query<{
         max_order: number | null;
       }>(
         data.parentId
@@ -1068,7 +1069,7 @@ export class Engine implements Platform {
       );
       const order = (orderRows[0]?.max_order ?? 0) + 1;
 
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         `INSERT INTO pages (id, title, title_md, parent_id, "order", space_id, task, scheduled_at, duration, all_day, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -1103,7 +1104,7 @@ export class Engine implements Platform {
         blockType: "heading1" as const,
       };
       const opData = new TextEncoder().encode(JSON.stringify(blockInsertOp));
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
         [id, "__init__", 0, "block_insert", opData, Date.now()],
       );
@@ -1186,7 +1187,7 @@ export class Engine implements Platform {
         sets.push("updated_at = ?");
         params.push(new Date().toISOString());
         params.push(data.id);
-        await this.driver.db.run(
+        await this.driver.db.mutate(
           `UPDATE pages SET ${sets.join(", ")} WHERE id = ?`,
           params,
         );
@@ -1217,7 +1218,7 @@ export class Engine implements Platform {
       // Check if page belongs to a space before deleting
       const spaceId = await this.getPageSpaceId(id);
 
-      const tree = await this.driver.db.execute<{ id: string }>(
+      const tree = await this.driver.db.query<{ id: string }>(
         `WITH RECURSIVE subtree(id) AS (
            SELECT id FROM pages WHERE id = ? AND archived_at IS NULL
            UNION ALL
@@ -1231,7 +1232,7 @@ export class Engine implements Platform {
       const placeholders = ids.map(() => "?").join(", ");
       const now = new Date().toISOString();
 
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         `UPDATE pages SET archived_at = ? WHERE id IN (${placeholders}) AND archived_at IS NULL`,
         [now, ...ids],
       );
@@ -1260,7 +1261,7 @@ export class Engine implements Platform {
       // as a whole (see spaces.listArchived in the Bin), and restoring the space
       // brings its still-live pages back. Listing those pages' individually
       // deleted members here would let them be restored into a hidden space.
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         id: string;
         title: string;
         title_md: string;
@@ -1293,7 +1294,7 @@ export class Engine implements Platform {
 
       // Collect the archived subtree rooted at `id` (mirror of delete's CTE,
       // walking archived rows instead of live ones).
-      const subtree = await this.driver.db.execute<{
+      const subtree = await this.driver.db.query<{
         id: string;
         parent_id: string | null;
         order: number;
@@ -1321,7 +1322,7 @@ export class Engine implements Platform {
       const now = new Date().toISOString();
 
       // Un-archive the whole subtree locally.
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         `UPDATE pages SET archived_at = NULL, updated_at = ? WHERE id IN (${placeholders})`,
         [now, ...ids],
       );
@@ -1331,13 +1332,13 @@ export class Engine implements Platform {
       const root = subtree.find((r) => r.id === id)!;
       let reparented = false;
       if (root.parent_id !== null) {
-        const parentRows = await this.driver.db.execute<{ archived_at: string | null }>(
+        const parentRows = await this.driver.db.query<{ archived_at: string | null }>(
           "SELECT archived_at FROM pages WHERE id = ?",
           [root.parent_id],
         );
         const parentAlive = parentRows.length > 0 && parentRows[0].archived_at === null;
         if (!parentAlive) {
-          await this.driver.db.run(
+          await this.driver.db.mutate(
             `UPDATE pages SET parent_id = NULL, updated_at = ? WHERE id = ?`,
             [now, id],
           );
@@ -1390,7 +1391,7 @@ export class Engine implements Platform {
       // the new sibling set and collides arbitrarily.
       let order = data.order;
       if (order === undefined) {
-        const orderRows = await this.driver.db.execute<{
+        const orderRows = await this.driver.db.query<{
           max_order: number | null;
         }>(
           data.parentId === null
@@ -1401,7 +1402,7 @@ export class Engine implements Platform {
         order = (orderRows[0]?.max_order ?? 0) + 1;
       }
 
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         `UPDATE pages SET parent_id = ?, "order" = ?, updated_at = ? WHERE id = ?`,
         [data.parentId, order, new Date().toISOString(), data.id],
       );
@@ -1437,7 +1438,7 @@ export class Engine implements Platform {
     subtree: async (pageId: string): Promise<PageSubtreeItem[]> => {
       // Depth orders the rows parent-before-child, so the orchestrator can
       // recreate a parent (and learn its new id) before any of its children.
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         id: string;
         parent_id: string | null;
         order: number;
@@ -1461,7 +1462,7 @@ export class Engine implements Platform {
     },
 
     recreateInSpace: async (input: RecreatePageInput): Promise<string> => {
-      const src = await this.driver.db.execute<{
+      const src = await this.driver.db.query<{
         title: string;
         title_md: string;
         body_text: string | null;
@@ -1487,7 +1488,7 @@ export class Engine implements Platform {
       // (a "nest under this parent" drop), mirroring pages.move.
       let order = input.order;
       if (order === undefined) {
-        const orderRows = await this.driver.db.execute<{
+        const orderRows = await this.driver.db.query<{
           max_order: number | null;
         }>(
           input.parentId === null
@@ -1502,7 +1503,7 @@ export class Engine implements Platform {
       // placement, and timestamps. Title/body columns are carried over so the
       // page shows correctly in the list immediately, without waiting for the
       // async title re-derive.
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         `INSERT INTO pages (id, title, title_md, body_text, parent_id, "order",
                             space_id, task, color, scheduled_at, duration,
                             all_day, recurrence_id, created_at, updated_at)
@@ -1555,7 +1556,7 @@ export class Engine implements Platform {
     },
 
     reorder: async (id: string, order: number): Promise<void> => {
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         'UPDATE pages SET "order" = ?, updated_at = ? WHERE id = ?',
         [order, new Date().toISOString(), id],
       );
@@ -1573,7 +1574,7 @@ export class Engine implements Platform {
     },
 
     search: async (query: string): Promise<PageSearchResult[]> => {
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         id: string;
         title: string | null;
         title_md: string | null;
@@ -1605,7 +1606,7 @@ export class Engine implements Platform {
       start: number,
       end: number,
     ): Promise<PageCalendarItem[]> => {
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         id: string;
         title: string;
         title_md: string;
@@ -1649,7 +1650,7 @@ export class Engine implements Platform {
     },
 
     snapshots: async (pageId: string): Promise<PageSnapshot[]> => {
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         data: Uint8Array;
         timestamp: number;
       }>(
@@ -1659,7 +1660,7 @@ export class Engine implements Platform {
       if (rows.length === 0) return [];
 
       type ParsedRow = {
-        op: import("@cypherkit/editor/state-types").Operation;
+        op: import("@tasfer/editor/state-types").Operation;
         timestamp: number;
       };
       const parsed: ParsedRow[] = [];
@@ -1687,11 +1688,11 @@ export class Engine implements Platform {
       // Defers text_delete ops whose referenced chars haven't been inserted
       // yet (HLC order ≠ causal order).
       const { applyOp, createEmptyPageState } =
-        await import("@cypherkit/editor/sync/reducer");
+        await import("@tasfer/editor/sync/reducer");
 
       let state = createEmptyPageState(pageId);
       const insertedCharIds = new Set<string>();
-      const deferredOps: import("@cypherkit/editor/state-types").Operation[] =
+      const deferredOps: import("@tasfer/editor/state-types").Operation[] =
         [];
       const results: PageSnapshot[] = [];
 
@@ -1923,7 +1924,7 @@ export class Engine implements Platform {
   /** Batch-insert ops using multi-row INSERT to minimise IPC round-trips on iOS. */
   private async insertOpsBatch(
     pageId: string,
-    operations: import("@cypherkit/editor/state-types").Operation[],
+    operations: import("@tasfer/editor/state-types").Operation[],
     now: number,
   ): Promise<void> {
     if (operations.length === 0) return;
@@ -1944,7 +1945,7 @@ export class Engine implements Platform {
           now,
         );
       }
-      await this.driver.db.run(
+      await this.driver.db.mutate(
         `INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES ${placeholders}`,
         params,
       );
@@ -1954,7 +1955,7 @@ export class Engine implements Platform {
   ops = {
     persist: async (
       pageId: string,
-      operations: import("@cypherkit/editor/state-types").Operation[],
+      operations: import("@tasfer/editor/state-types").Operation[],
     ): Promise<void> => {
       await this.insertOpsBatch(pageId, operations, Date.now());
       // The doc ops just changed and they — not any denormalized metadata — are
@@ -1972,13 +1973,13 @@ export class Engine implements Platform {
     /** Convert blocks to CRDT ops and persist them (used by import) */
     writeBlocks: async (
       pageId: string,
-      blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
+      blocks: import("@tasfer/editor/serlization/loadPage").Block[],
     ): Promise<void> => {
       const { blocksToOps } =
-        await import("@cypherkit/editor/sync/snapshot-diff");
+        await import("@tasfer/editor/sync/snapshot-diff");
       const { createIdGenerator, generatePeerId } =
-        await import("@cypherkit/editor/sync/id");
-      const { createHLC, tickHLC } = await import("@cypherkit/editor/sync/hlc");
+        await import("@tasfer/editor/sync/id");
+      const { createHLC, tickHLC } = await import("@tasfer/editor/sync/hlc");
 
       const peerId = generatePeerId();
       const nextId = createIdGenerator(peerId);
@@ -2009,12 +2010,12 @@ export class Engine implements Platform {
 
     load: async (
       pageId: string,
-    ): Promise<import("@cypherkit/editor/state-types").Operation[]> => {
-      const rows = await this.driver.db.execute<{ data: Uint8Array }>(
+    ): Promise<import("@tasfer/editor/state-types").Operation[]> => {
+      const rows = await this.driver.db.query<{ data: Uint8Array }>(
         "SELECT data FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
         [pageId],
       );
-      const ops: import("@cypherkit/editor/state-types").Operation[] = [];
+      const ops: import("@tasfer/editor/state-types").Operation[] = [];
       for (const r of rows) {
         try {
           ops.push(JSON.parse(new TextDecoder().decode(r.data as Uint8Array)));
@@ -2037,7 +2038,7 @@ export class Engine implements Platform {
   snapshots = {
     save: async (
       pageId: string,
-      blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
+      blocks: import("@tasfer/editor/serlization/loadPage").Block[],
       vv: Record<string, number>,
     ): Promise<void> => {
       try {
@@ -2061,7 +2062,7 @@ export class Engine implements Platform {
 
   private async loadSnapshot(pageId: string): Promise<{
     vv: Record<string, number>;
-    blocks: import("@cypherkit/editor/serlization/loadPage").Block[];
+    blocks: import("@tasfer/editor/serlization/loadPage").Block[];
   } | null> {
     try {
       const data = await this.driver.fs.read(this.snapshotPath(pageId));
@@ -2091,7 +2092,7 @@ export class Engine implements Platform {
    * against, and the token a filesystem snapshot is validated by.
    */
   private async pageClockVV(pageId: string): Promise<Record<string, number>> {
-    const rows = await this.driver.db.execute<{
+    const rows = await this.driver.db.query<{
       peer_id: string;
       max_clock: number;
     }>(
@@ -2131,7 +2132,7 @@ export class Engine implements Platform {
   /** Apply remote page content operations received from a peer */
   async handleRemotePageOps(
     pageId: string,
-    ops: import("@cypherkit/editor/state-types").Operation[],
+    ops: import("@tasfer/editor/state-types").Operation[],
   ): Promise<void> {
     await this.insertOpsBatch(pageId, ops, Date.now());
     // The doc ops just changed and they — not any replicated metadata — are
@@ -2181,11 +2182,11 @@ export class Engine implements Platform {
    */
   private async refreshDerivedTitlesFromBlocks(
     pageId: string,
-    blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
+    blocks: import("@tasfer/editor/serlization/loadPage").Block[],
   ): Promise<void> {
     const { title, titleMd } = deriveTitles(blocks);
     const bodyText = extractBodyText(blocks);
-    const rows = await this.driver.db.execute<{
+    const rows = await this.driver.db.query<{
       title: string;
       title_md: string;
       body_text: string | null;
@@ -2200,7 +2201,7 @@ export class Engine implements Platform {
     const bodyChanged = rows[0].body_text !== bodyText;
     if (!titleChanged && !bodyChanged) return;
 
-    await this.driver.db.run(
+    await this.driver.db.mutate(
       "UPDATE pages SET title = ?, title_md = ?, body_text = ?, updated_at = ? WHERE id = ?",
       [title, titleMd, bodyText, new Date().toISOString(), pageId],
     );
@@ -2220,7 +2221,7 @@ export class Engine implements Platform {
    * only fires when a derived value actually differs.
    */
   private async backfillBodyText(): Promise<void> {
-    const rows = await this.driver.db.execute<{ id: string }>(
+    const rows = await this.driver.db.query<{ id: string }>(
       "SELECT id FROM pages WHERE body_text IS NULL",
     );
     for (const { id } of rows) {
@@ -2233,7 +2234,7 @@ export class Engine implements Platform {
         // refreshDerivedTitlesFromBlocks leaves body_text NULL when it writes
         // an empty page, so pin the NULL rows that remain to '' — this is the
         // one place that distinction is resolved, keeping backfill idempotent.
-        await this.driver.db.run(
+        await this.driver.db.mutate(
           "UPDATE pages SET body_text = '' WHERE id = ? AND body_text IS NULL",
           [id],
         );
@@ -2252,7 +2253,7 @@ export class Engine implements Platform {
     spaceOps: SpaceOperation[];
     pageOps: Record<
       string,
-      import("@cypherkit/editor/state-types").Operation[]
+      import("@tasfer/editor/state-types").Operation[]
     >;
   }> {
     // Get missing space ops
@@ -2264,7 +2265,7 @@ export class Engine implements Platform {
 
     // Get all local page VVs in one query, then only fetch ops for pages
     // where we have something the remote hasn't seen.
-    const localVVRows = await this.driver.db.execute<{
+    const localVVRows = await this.driver.db.query<{
       page_id: string;
       peer_id: string;
       max_clock: number;
@@ -2285,7 +2286,7 @@ export class Engine implements Platform {
 
     const pageOps: Record<
       string,
-      import("@cypherkit/editor/state-types").Operation[]
+      import("@tasfer/editor/state-types").Operation[]
     > = {};
     for (const [pageId, localVV] of Object.entries(localPageVVs)) {
       const remoteVV = remotePageVVs[pageId] ?? {};
@@ -2296,7 +2297,7 @@ export class Engine implements Platform {
       );
       if (!hasMissing) continue;
 
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         data: Uint8Array;
         peer_id: string;
         clock: number;
@@ -2305,7 +2306,7 @@ export class Engine implements Platform {
         [pageId],
       );
 
-      const missing: import("@cypherkit/editor/state-types").Operation[] = [];
+      const missing: import("@tasfer/editor/state-types").Operation[] = [];
       for (const row of rows) {
         const known = remoteVV[row.peer_id] ?? -1;
         if (row.clock > known) {
@@ -2331,10 +2332,10 @@ export class Engine implements Platform {
     pageId: string,
     remoteVV: Record<string, number>,
   ): Promise<{
-    ops: import("@cypherkit/editor/state-types").Operation[];
+    ops: import("@tasfer/editor/state-types").Operation[];
     versionVector: Record<string, number>;
   }> {
-    const rows = await this.driver.db.execute<{
+    const rows = await this.driver.db.query<{
       data: Uint8Array;
       peer_id: string;
       clock: number;
@@ -2343,7 +2344,7 @@ export class Engine implements Platform {
       [pageId],
     );
 
-    const missing: import("@cypherkit/editor/state-types").Operation[] = [];
+    const missing: import("@tasfer/editor/state-types").Operation[] = [];
     const localVV: Record<string, number> = {};
     for (const row of rows) {
       // Build local VV
@@ -2371,7 +2372,7 @@ export class Engine implements Platform {
   /** Get the space version vector (for sync requests) */
   async getSpaceVV(spaceId: string): Promise<Record<string, number>> {
     const scopeId = `space:${spaceId}`;
-    const rows = await this.driver.db.execute<{
+    const rows = await this.driver.db.query<{
       peer_id: string;
       max_clock: number;
     }>(
@@ -2387,7 +2388,7 @@ export class Engine implements Platform {
   async getPageVVs(
     spaceId: string,
   ): Promise<Record<string, Record<string, number>>> {
-    const rows = await this.driver.db.execute<{
+    const rows = await this.driver.db.query<{
       page_id: string;
       peer_id: string;
       max_clock: number;
@@ -2413,14 +2414,14 @@ export class Engine implements Platform {
   // ---------------------------------------------------------------------------
 
   private async getPrivateKey(): Promise<string> {
-    const rows = await this.driver.db.execute<{ private_key: string }>(
+    const rows = await this.driver.db.query<{ private_key: string }>(
       "SELECT private_key FROM identity WHERE id = 1",
     );
     return rows[0].private_key;
   }
 
   private async getPageSpaceId(pageId: string): Promise<string | null> {
-    const rows = await this.driver.db.execute<{ space_id: string | null }>(
+    const rows = await this.driver.db.query<{ space_id: string | null }>(
       "SELECT space_id FROM pages WHERE id = ?",
       [pageId],
     );
@@ -2464,7 +2465,7 @@ export class Engine implements Platform {
     const scopeId = `space:${op.spaceId}`;
     const data = new TextEncoder().encode(JSON.stringify(op));
     const targetKey = (op as { publicKey?: string }).publicKey ?? null;
-    await this.driver.db.run(
+    await this.driver.db.mutate(
       "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp, target_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [
         scopeId,
@@ -2486,7 +2487,7 @@ export class Engine implements Platform {
 
   private async getSpaceOps(spaceId: string): Promise<SpaceOperation[]> {
     const scopeId = `space:${spaceId}`;
-    const rows = await this.driver.db.execute<{ data: Uint8Array }>(
+    const rows = await this.driver.db.query<{ data: Uint8Array }>(
       "SELECT data FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
       [scopeId],
     );
@@ -2537,7 +2538,7 @@ export class Engine implements Platform {
         if (op.field === "name") {
           // Upsert so the space row is created when receiving ops for a space
           // we don't yet have locally (bootstrapping from a remote peer).
-          await this.driver.db.run(
+          await this.driver.db.mutate(
             `INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET name = ?`,
             [op.spaceId, op.value, now, op.value],
@@ -2546,14 +2547,14 @@ export class Engine implements Platform {
         break;
 
       case "member_add": {
-        await this.driver.db.run(
+        await this.driver.db.mutate(
           `INSERT INTO space_members (space_id, public_key, name, added_at)
            VALUES (?, ?, ?, ?)
            ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?`,
           [op.spaceId, op.publicKey, op.name, now, op.name],
         );
         // Also trust this peer
-        await this.driver.db.run(
+        await this.driver.db.mutate(
           `INSERT INTO peers (public_key, name, trusted) VALUES (?, ?, 1)
            ON CONFLICT(public_key) DO UPDATE SET name = COALESCE(?, name), trusted = 1`,
           [op.publicKey, op.name, op.name],
@@ -2577,14 +2578,14 @@ export class Engine implements Platform {
         };
         const memberCol = memberFieldMap[op.field];
         if (memberCol) {
-          await this.driver.db.run(
+          await this.driver.db.mutate(
             `UPDATE space_members SET ${memberCol} = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL`,
             [op.value, op.spaceId, op.publicKey],
           );
         }
         // Also update peer name if that's what changed
         if (op.field === "name") {
-          await this.driver.db.run(
+          await this.driver.db.mutate(
             "UPDATE peers SET name = ? WHERE public_key = ?",
             [op.value, op.publicKey],
           );
@@ -2595,14 +2596,14 @@ export class Engine implements Platform {
       case "page_add": {
         if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, "_alive", op.clock))
           break;
-        const exists = await this.driver.db.execute(
+        const exists = await this.driver.db.query(
           "SELECT archived_at FROM pages WHERE id = ?",
           [op.pageId],
         );
         if (exists.length === 0) {
           // Title columns start empty ('' defaults) — they are derived locally
           // from the page's content ops as they arrive (refreshDerivedTitles).
-          await this.driver.db.run(
+          await this.driver.db.mutate(
             `INSERT INTO pages (id, parent_id, "order", space_id, task, color, scheduled_at, duration, all_day, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -2625,7 +2626,7 @@ export class Engine implements Platform {
           );
         } else if (exists[0].archived_at !== null) {
           // Un-archive: a page_add with higher HLC wins over a prior page_remove
-          await this.driver.db.run(
+          await this.driver.db.mutate(
             "UPDATE pages SET archived_at = NULL, updated_at = ? WHERE id = ?",
             [now, op.pageId],
           );
@@ -2636,7 +2637,7 @@ export class Engine implements Platform {
       case "page_remove":
         if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, "_alive", op.clock))
           break;
-        await this.driver.db.run(
+        await this.driver.db.mutate(
           "UPDATE pages SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
           [now, op.pageId],
         );
@@ -2665,7 +2666,7 @@ export class Engine implements Platform {
           } else if (op.field === "allDay") {
             val = val === null ? null : val ? 1 : 0;
           }
-          await this.driver.db.run(
+          await this.driver.db.mutate(
             `UPDATE pages SET ${col} = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL`,
             [val, now, op.pageId],
           );
@@ -2705,7 +2706,7 @@ export class Engine implements Platform {
 
     while (currentId && !visited.has(currentId)) {
       visited.add(currentId);
-      const rows = await this.driver.db.execute<{
+      const rows = await this.driver.db.query<{
         id: string;
         title: string;
         title_md: string;
@@ -2734,12 +2735,12 @@ export class Engine implements Platform {
   /** Load all ops for a page as parsed Operation objects */
   private async loadPageOps(
     pageId: string,
-  ): Promise<import("@cypherkit/editor/state-types").Operation[]> {
-    const rows = await this.driver.db.execute<{ data: Uint8Array }>(
+  ): Promise<import("@tasfer/editor/state-types").Operation[]> {
+    const rows = await this.driver.db.query<{ data: Uint8Array }>(
       "SELECT data FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
       [pageId],
     );
-    const ops: import("@cypherkit/editor/state-types").Operation[] = [];
+    const ops: import("@tasfer/editor/state-types").Operation[] = [];
     for (const r of rows) {
       try {
         ops.push(JSON.parse(new TextDecoder().decode(r.data as Uint8Array)));
@@ -2756,13 +2757,13 @@ export class Engine implements Platform {
    * snapshot whose validity token matches its blocks.
    */
   private async rebuildBlocksFromOps(pageId: string): Promise<{
-    blocks: import("@cypherkit/editor/serlization/loadPage").Block[];
+    blocks: import("@tasfer/editor/serlization/loadPage").Block[];
     vv: Record<string, number>;
   } | null> {
     const ops = await this.loadPageOps(pageId);
     if (ops.length === 0) return null;
 
-    const { rebuildState } = await import("@cypherkit/editor/sync/reducer");
+    const { rebuildState } = await import("@tasfer/editor/sync/reducer");
     const page = rebuildState(pageId, ops, appDataSchema);
     if (page.blocks.length === 0) return null;
 
@@ -2872,7 +2873,7 @@ async function deriveSharedSignalingKey(
 ): Promise<string> {
   const secret = hexToBytes(secretHex);
   const sorted = pubA < pubB ? `${pubA}:${pubB}` : `${pubB}:${pubA}`;
-  const info = new TextEncoder().encode("cypher-shared-key:" + sorted);
+  const info = new TextEncoder().encode("tasfer-shared-key:" + sorted);
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     secret.buffer as ArrayBuffer,

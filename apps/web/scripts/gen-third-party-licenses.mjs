@@ -1,14 +1,14 @@
 // Generates apps/web/public/THIRD-PARTY-LICENSES.txt — the aggregated
 // attribution notices for every third-party component bundled into the deployed
-// Cypher app. The app is AGPL, but the permissive (MIT/BSD/ISC/…) dependencies
+// Tasfer app. The app is AGPL, but the permissive (MIT/BSD/ISC/…) dependencies
 // it bundles still require their copyright + license notices to be reproduced in
 // distributions; this file satisfies that obligation in one place.
 //
 // What it covers: the production dependency trees of apps/web AND of the
-// @cypherkit/* packages it bundles from source via Vite aliases (editor, tex,
+// @tasfer/* packages it bundles from source via Vite aliases (editor, tex,
 // react) — because those are compiled into the same bundle, their runtime deps
 // (e.g. lowlight, defuddle) ship too but do NOT appear in apps/web's own tree.
-// It also embeds @cypherkit/tex's NOTICE, since the KaTeX material it vendors is
+// It also embeds @tasfer/tex's NOTICE, since the KaTeX material it vendors is
 // shipped as source (a devDependency of tex, so it never shows up in a
 // --omit=dev dependency walk).
 //
@@ -41,7 +41,7 @@ const ROOTS = [
 const OUT = join(webRoot, "public", "THIRD-PARTY-LICENSES.txt");
 
 // First-party scopes/packages — our own code, not third-party attribution.
-const FIRST_PARTY = /^(@cypherkit\/|@cypher\/|@cypher-examples\/|cypher(-|$))/;
+const FIRST_PARTY = /^(@tasfer\/|@tasfer\/|@tasfer-examples\/|tasfer(-|$))/;
 
 /** Run `npm ls` for a root, returning the parsed tree (or null on failure). */
 function npmTree(cwd) {
@@ -141,14 +141,14 @@ function licenseText(pkg) {
 }
 
 function vendoredNotices() {
-  // KaTeX ships as vendored source inside @cypherkit/tex (a devDependency there,
+  // KaTeX ships as vendored source inside @tasfer/tex (a devDependency there,
   // so it is invisible to a production dependency walk) but is bundled into the
   // app — pull its NOTICE in verbatim.
   const texNotice = join(repoRoot, "packages", "tex", "NOTICE");
   if (!existsSync(texNotice)) return [];
   return [
     {
-      heading: "@cypherkit/tex — bundled KaTeX material",
+      heading: "@tasfer/tex — bundled KaTeX material",
       body: readFileSync(texNotice, "utf8").trim(),
     },
   ];
@@ -162,7 +162,7 @@ function build() {
   lines.push("THIRD-PARTY LICENSES");
   lines.push("");
   lines.push(
-    "Cypher itself is licensed under the GNU AGPL-3.0-or-later (see LICENSE).",
+    "Tasfer itself is licensed under the GNU AGPL-3.0-or-later (see LICENSE).",
   );
   lines.push(
     "The app bundles the third-party components listed below, each under its own",

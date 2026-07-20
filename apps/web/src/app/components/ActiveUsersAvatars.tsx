@@ -3,7 +3,7 @@ import {
   getColorForPeer,
   getDisplayName,
   isSamePerson,
-} from "@cypherkit/provider-core/cursors";
+} from "@tasfer/provider-core/cursors";
 import style from '../layout/Layout.module.css';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { useAssetUrl } from '../api/images.api';

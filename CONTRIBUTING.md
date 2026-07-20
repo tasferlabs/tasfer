@@ -34,7 +34,7 @@ Open an issue with the **feature request** template. Describe the problem you're
 - Write a clear description of what changed and why
 - Reference any related issues
 - Make sure the app builds — `npm run build` in `apps/web` (this is the canonical
-  typecheck; it also compiles the aliased `@cypherkit/*` source)
+  typecheck; it also compiles the aliased `@tasfer/*` source)
 - If you touched the editor engine, run the tests — `npm test` in `packages/editor`
 
 ## Development Setup
@@ -59,7 +59,7 @@ npm run dev
 
 The web app runs at `http://localhost:4000`.
 
-The web app consumes `@cypherkit/editor`, `@cypherkit/tex`, and `@cypherkit/react`
+The web app consumes `@tasfer/editor`, `@tasfer/tex`, and `@tasfer/react`
 as raw TypeScript source via path aliases, so engine changes show up in `apps/web`
 without a separate build step. `npm install` in `apps/web` also installs those
 packages' own dependencies via a postinstall hook; other packages are installed
@@ -73,6 +73,10 @@ HTTPS with a locally trusted mkcert certificate. Generating the cert and trustin
 it on each device (including the per-device iOS Simulator step) is documented in
 [docs/ssl-dev-setup.md](docs/ssl-dev-setup.md).
 
+Building the native iOS app (macOS + Xcode only) also needs a one-time signing
+setup so your Apple Developer Team ID stays out of git — see
+[apps/ios/README.md](apps/ios/README.md).
+
 ### Project Structure
 
 ```
@@ -83,12 +87,12 @@ apps/
 ├── site/       # Marketing site + docs (Next.js)
 ├── ios/        # iOS (Capacitor)
 └── android/    # Android (Capacitor)
-packages/       # the @cypherkit/* ecosystem — the product core, published for external consumers
-├── editor/             # @cypherkit/editor — headless canvas + CRDT editor engine
-├── tex/                # @cypherkit/tex — canvas-native LaTeX math layout & rendering
-├── react/              # @cypherkit/react — React 19 bindings (useEditor, <Editor>)
+packages/       # the @tasfer/* ecosystem — the product core, published for external consumers
+├── editor/             # @tasfer/editor — headless canvas + CRDT editor engine
+├── tex/                # @tasfer/tex — canvas-native LaTeX math layout & rendering
+├── react/              # @tasfer/react — React 19 bindings (useEditor, <Editor>)
 └── provider-*/         # sync transports: -core, -indexeddb, -relay, -webrtc
-examples/       # example apps built on @cypherkit/* (cypher-studio, foolscap)
+examples/       # example apps built on @tasfer/* (tasfer-studio, foolscap)
 shared/         # small shared utilities (e.g. invariant)
 ```
 
@@ -102,7 +106,7 @@ All user-facing strings must use i18next — never hardcode text in components.
 ## Code Style
 
 - TypeScript throughout
-- The `@cypherkit/*` packages have ESLint + Prettier configured — run `npm run lint`
+- The `@tasfer/*` packages have ESLint + Prettier configured — run `npm run lint`
   and `npm run format` from the package you touched (custom rules live in
   `eslint-rules/`)
 - No global mutable state — the editor must support multiple instances on one page,

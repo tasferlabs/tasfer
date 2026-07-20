@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">Tasfer</string>
     <string name="title_activity_main">Tasfer</string>
-    <string name="package_name">md.cypher.app</string>
-    <string name="custom_url_scheme">md.cypher.app</string>
+    <string name="package_name">app.tasfer</string>
+    <string name="custom_url_scheme">app.tasfer</string>
     <string name="loading">Loading...</string>
     <string name="undo">Undo</string>
     <string name="redo">Redo</string>

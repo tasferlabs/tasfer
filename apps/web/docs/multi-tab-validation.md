@@ -5,7 +5,7 @@ SharedWorker, tabs as thin RPC clients, one elected WebRTC connection), which is
 now the **default** web path.
 
 On web, the Engine + Replicator run in the SharedWorker; tabs are RPC clients;
-the `RoomHub` fans ops/awareness across tabs; one tab is elected (`cypher-net`
+the `RoomHub` fans ops/awareness across tabs; one tab is elected (`tasfer-net`
 lock) to host the single WebRTC connection. This is the only web path and
 requires `SharedWorker` (Chrome/Edge/Firefox; Safari 16.4+). A browser without
 `SharedWorker` is unsupported and surfaces an init error rather than falling
@@ -36,8 +36,8 @@ tabs of one profile are the *same* device.
   - `[node] …` — worker-side logs (open the SharedWorker's own DevTools via
     `chrome://inspect`).
 - **Web Locks:** DevTools → Application → Background Services isn't it; use the
-  console: `await navigator.locks.query()` and look for `cypher-app` (held once,
-  by the worker) and `cypher-net` (held by exactly one tab).
+  console: `await navigator.locks.query()` and look for `tasfer-app` (held once,
+  by the worker) and `tasfer-net` (held by exactly one tab).
 
 > Canvas content is not visible to DOM inspection. Verify editor text by reading
 > the rendered canvas visually; verify chrome (sidebar, menus) via the DOM.
@@ -54,8 +54,8 @@ Network is exercised below; here, focus on single-device, multi-tab.
 - [ ] CRUD, editing, assets, and persistence all work (create/rename/delete a
       page; create/rename/archive a space; type and reload; insert an image and
       reload; open the pairing dialog and produce an invite).
-- [ ] `await navigator.locks.query()` shows `cypher-app` held (by the worker),
-      and the tab itself does **not** hold `cypher-app`.
+- [ ] `await navigator.locks.query()` shows `tasfer-app` held (by the worker),
+      and the tab itself does **not** hold `tasfer-app`.
 
 ### Two tabs — page list (problem #1)
 Open tab A and tab B on the app.
@@ -89,7 +89,7 @@ Open the **same page** in A and B.
 Needs **two devices** (two profiles/machines), paired.
 
 ### Setup
-- [ ] On device 1, both tabs running: exactly one tab holds `cypher-net`
+- [ ] On device 1, both tabs running: exactly one tab holds `tasfer-net`
       (`navigator.locks.query()` in each tab — only one lists it).
 - [ ] Pair device 1 and device 2 (Pairing dialog → invite/accept).
 - [ ] Console shows the peer connecting; edits sync device-to-device.
@@ -102,10 +102,10 @@ Needs **two devices** (two profiles/machines), paired.
 - [ ] Edit from device 2 → appears in **both** device-1 tabs live.
 
 ### Transport-host failover (the critical, least-tested path)
-- [ ] Note which device-1 tab holds `cypher-net`. Edit across devices to confirm
+- [ ] Note which device-1 tab holds `tasfer-net`. Edit across devices to confirm
       sync is live.
 - [ ] **Close the host tab.** Within a second or two, another device-1 tab
-      acquires `cypher-net` (`navigator.locks.query()` confirms) and sync
+      acquires `tasfer-net` (`navigator.locks.query()` confirms) and sync
       resumes — edits flow device-to-device again.
 - [ ] The surviving tabs never lost local editing during the handover.
 - [ ] Re-open a tab; close a non-host tab → no effect on sync.

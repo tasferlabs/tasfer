@@ -3,7 +3,7 @@ import type { NetworkDriver, NetworkPeer, NetworkTopic } from "./driver";
 import { PROTOCOL_VERSION, Replicator, type ReplicatorHost } from "./sync";
 import type { Peer } from "./types";
 import { compressOp, expandOp, WIRE_VERSION } from "./wire-codec";
-import type { Operation } from "@cypherkit/editor";
+import type { Operation } from "@tasfer/editor";
 
 const LOCAL_PUBLIC_KEY = "a".repeat(64);
 const REMOTE_PUBLIC_KEY = "b".repeat(64);

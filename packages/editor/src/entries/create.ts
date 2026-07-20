@@ -89,7 +89,7 @@ export type CreateEditorOptions<
  * listeners, the portal, and the render loop — so always call it when removing
  * the editor (it supersedes the core `Editor.destroy`).
  */
-export interface CypherEditor<
+export interface TasferEditor<
   D extends SchemaDefinition = BaseSchemaDefinition,
 > extends EditorApi<D> {
   /**
@@ -105,7 +105,7 @@ export interface CypherEditor<
    * undo/redo readiness, focus) plus the attached `doc`. The raw internal
    * `EditorState` is not exposed on this public handle; a first-party host that
    * needs it diffs via the internal `subscribeRaw` (see
-   * `@cypherkit/editor/internal`).
+   * `@tasfer/editor/internal`).
    */
   readonly state: EditorStateSnapshot & { readonly doc: Doc<D> };
   /** Container to mount React popovers/overlays into (slash menu, link editor). */
@@ -146,7 +146,7 @@ export interface CypherEditor<
  */
 export function createEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   options: CreateEditorOptions<D>,
-): CypherEditor<D> {
+): TasferEditor<D> {
   const {
     element,
     markdown,
@@ -223,10 +223,10 @@ export function createEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     if (ownsDoc) doc.destroy();
   };
 
-  const handle: CypherEditor<D> = {
+  const handle: TasferEditor<D> = {
     // Spread the core editor action surface (change, dispatch, undo, on,
     // getMarkdown, …) onto the returned handle. (The doc↔editor wiring methods
-    // are engine-internal — kept off the public `CypherEditor`/`EditorApi`
+    // are engine-internal — kept off the public `TasferEditor`/`EditorApi`
     // type; hosts sync through `doc` exclusively.)
     ...editor,
     // Re-expose `state` as a live getter: object spread above evaluates the

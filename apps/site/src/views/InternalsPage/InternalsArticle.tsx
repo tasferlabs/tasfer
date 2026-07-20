@@ -9,7 +9,7 @@ import { NOTE_BY_SLUG } from "./internalsNav";
 import "@/views/DocsPage/DocsPage.css";
 import "./InternalsPage.css";
 
-const REPO_URL = "https://github.com/hamza512b/cypher";
+const REPO_URL = "https://github.com/hamza512b/tasfer";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",

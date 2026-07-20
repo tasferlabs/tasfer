@@ -64,8 +64,8 @@ import type {
   Peer,
   PeerVersionInfo,
 } from "./types";
-import type { Operation } from "@cypherkit/editor";
-import type { CursorPresence } from "@cypherkit/provider-core/cursors";
+import type { Operation } from "@tasfer/editor";
+import type { CursorPresence } from "@tasfer/provider-core/cursors";
 import {
   BINARY_ASSET_TAG,
   hexToBytes,
@@ -1811,7 +1811,7 @@ async function derivePairingKey(
   topicHex: string,
 ): Promise<Uint8Array> {
   const secret = hexToBytes(secretHex);
-  const info = enc.encode("cypher-pair:" + topicHex);
+  const info = enc.encode("tasfer-pair:" + topicHex);
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     secret.buffer as ArrayBuffer,

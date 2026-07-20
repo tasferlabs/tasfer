@@ -24,7 +24,7 @@ import { IDBBatchAtomicVFS } from "wa-sqlite/src/examples/IDBBatchAtomicVFS.js";
 import type { DbDriver, DbRow, DbRunResult } from "../driver";
 
 /** Thrown when another build's connection still holds the database lock. */
-export const DB_LOCKED_ERROR = "CYPHER_DB_LOCKED";
+export const DB_LOCKED_ERROR = "TASFER_DB_LOCKED";
 
 const SQLITE_ROW = 100;
 
@@ -63,13 +63,13 @@ export class WaSqliteDb implements DbDriver {
 
     // IndexedDB-backed VFS: works in any worker context (including this
     // SharedWorker), unlike the OPFS sync-access-handle VFS.
-    const vfs = new IDBBatchAtomicVFS("cypher-vfs");
+    const vfs = new IDBBatchAtomicVFS("tasfer-vfs");
     this.sqlite3.vfs_register(vfs, true);
-    this.db = await this.sqlite3.open_v2("cypher.db");
+    this.db = await this.sqlite3.open_v2("tasfer.db");
   }
 
   /**
-   * Hold the `cypher-app` lock for the lifetime of this worker. During a deploy
+   * Hold the `tasfer-app` lock for the lifetime of this worker. During a deploy
    * the previous build's SharedWorker may still be alive holding this lock; the
    * new worker then fails to acquire it and surfaces {@link DB_LOCKED_ERROR}
    * rather than letting two builds open the same database at once.
@@ -78,7 +78,7 @@ export class WaSqliteDb implements DbDriver {
     const locks = (self as any).navigator?.locks;
     if (!locks) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => {
-      locks.request("cypher-app", { ifAvailable: true }, (lock: unknown) => {
+      locks.request("tasfer-app", { ifAvailable: true }, (lock: unknown) => {
         if (!lock) {
           resolve(false);
           return;
@@ -109,17 +109,17 @@ export class WaSqliteDb implements DbDriver {
     }
   }
 
-  async execute<T extends DbRow = DbRow>(
+  async query<T extends DbRow = DbRow>(
     sql: string,
     params?: unknown[],
   ): Promise<T[]> {
     await this.ready;
-    return this.enqueue(() => this.rawExecute<T>(sql, params));
+    return this.enqueue(() => this.rawQuery<T>(sql, params));
   }
 
-  async run(sql: string, params?: unknown[]): Promise<DbRunResult> {
+  async mutate(sql: string, params?: unknown[]): Promise<DbRunResult> {
     await this.ready;
-    return this.enqueue(() => this.rawRun(sql, params));
+    return this.enqueue(() => this.rawMutate(sql, params));
   }
 
   async exec(sql: string): Promise<void> {
@@ -146,7 +146,7 @@ export class WaSqliteDb implements DbDriver {
   }
 
   /** Lock-free primitives. Only call while holding the queue (see {@link enqueue}). */
-  private async rawExecute<T extends DbRow = DbRow>(
+  private async rawQuery<T extends DbRow = DbRow>(
     sql: string,
     params?: unknown[],
   ): Promise<T[]> {
@@ -164,7 +164,7 @@ export class WaSqliteDb implements DbDriver {
     return rows as T[];
   }
 
-  private async rawRun(sql: string, params?: unknown[]): Promise<DbRunResult> {
+  private async rawMutate(sql: string, params?: unknown[]): Promise<DbRunResult> {
     for await (const stmt of this.sqlite3.statements(this.db, sql)) {
       if (params) this.sqlite3.bind_collection(stmt, params);
       await this.sqlite3.step(stmt);
@@ -174,8 +174,8 @@ export class WaSqliteDb implements DbDriver {
 
   /** Unlocked DbDriver view handed to {@link transaction} callbacks. */
   private rawView: DbDriver = {
-    execute: (sql, params) => this.rawExecute(sql, params),
-    run: (sql, params) => this.rawRun(sql, params),
+    query: (sql, params) => this.rawQuery(sql, params),
+    mutate: (sql, params) => this.rawMutate(sql, params),
     exec: (sql) => this.sqlite3.exec(this.db, sql),
     transaction: () => {
       throw new Error("nested transactions are not supported");

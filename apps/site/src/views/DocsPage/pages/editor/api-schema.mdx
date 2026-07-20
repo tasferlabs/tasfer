@@ -1,13 +1,13 @@
-{/* @cypherkit/editor API reference — Schema & nodes. */}
+{/* @tasfer/editor API reference — Schema & nodes. */}
 
-import { PropsTable } from "../../docsComponents";
+import { Lede, PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">
+<Lede>
   A `Schema` declares what a document is made of: the block types and inline
   marks the editor understands. The default `baseSchema` contains the small core
   set; compose optional features with `baseSchema.use(...)`, or register ad-hoc
   node and mark specs with `baseSchema.extend(...)`.
-</p>
+</Lede>
 
 <h2 id="base">Core block types</h2>
 
@@ -63,25 +63,25 @@ Marks are inline formatting carried on runs of text. The CRDT names are `strong`
 
 <h2 id="math">Optional math</h2>
 
-Math is a feature, not a core node type. The root `@cypherkit/editor` entry and
-`baseSchema` do not load `@cypherkit/tex`, so hosts that do not need formulae
+Math is a feature, not a core node type. The root `@tasfer/editor` entry and
+`baseSchema` do not load `@tasfer/tex`, so hosts that do not need formulae
 pay no math dependency or authoring cost. Install display math (`$$…$$`) and
 inline math (`$…$`) together from the dedicated entry point:
 
 ```bash
-npm install @cypherkit/editor @cypherkit/tex
+npm install @tasfer/editor @tasfer/tex
 ```
 
 ```ts
 // appDataSchema.ts — safe to import from workers and persistence code
-import { baseDataSchema } from "@cypherkit/editor";
-import { mathDataExtension } from "@cypherkit/editor/math/data";
+import { baseDataSchema } from "@tasfer/editor";
+import { mathDataExtension } from "@tasfer/editor/math/data";
 
 export const appDataSchema = baseDataSchema.extend(mathDataExtension());
 
 // editorSchema.ts — imported only by the interactive editor surface
-import { baseSchema, createEditor } from "@cypherkit/editor";
-import { mathExtension } from "@cypherkit/editor/math";
+import { baseSchema, createEditor } from "@tasfer/editor";
+import { mathExtension } from "@tasfer/editor/math";
 
 export const appSchema = baseSchema.use(mathExtension());
 
@@ -108,12 +108,12 @@ If a worker should not import the interactive math view, compose the data-only
 entry there. It registers the specs above — codecs, Markdown syntax,
 structured-mark behavior, and the kind's clone adapter — without constructing
 `MathNode`, `MathMark`, or the live input/selection stack (the kind's selection
-adapters resolve selections through the `@cypherkit/tex` layout engine, so they
+adapters resolve selections through the `@tasfer/tex` layout engine, so they
 deliberately belong to the full extension):
 
 ```ts
-import { baseDataSchema } from "@cypherkit/editor";
-import { mathDataExtension } from "@cypherkit/editor/math/data";
+import { baseDataSchema } from "@tasfer/editor";
+import { mathDataExtension } from "@tasfer/editor/math/data";
 
 export const workerDataSchema = baseDataSchema.extend(mathDataExtension());
 ```
@@ -137,7 +137,7 @@ import {
   parsePage,
   serializeToMarkdown,
   tokenizePage,
-} from "@cypherkit/editor";
+} from "@tasfer/editor";
 
 const doc = createDoc({ markdown: savedMarkdown, schema: appDataSchema });
 const attachedEditor = createEditor({ element, doc, schema: appSchema });
@@ -188,7 +188,7 @@ import {
   defineMark,
   defineNode,
   type FeatureExtension,
-} from "@cypherkit/editor";
+} from "@tasfer/editor";
 
 export const calloutFeature = {
   name: "callouts",
@@ -302,7 +302,7 @@ import {
   createEditor,
   baseSchema,
   titleBlockWindow,
-} from "@cypherkit/editor";
+} from "@tasfer/editor";
 
 const doc = createDoc({
   markdown: "# My page\n\nBody…",

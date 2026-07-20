@@ -1,16 +1,16 @@
-pkgbase = cypher-bin
+pkgbase = tasfer-bin
 	pkgdesc = A canvas-based markdown editor. Local-first, peer-to-peer, no cloud.
 	pkgver = 1.0.0
 	pkgrel = 1
-	url = https://github.com/hamza512b/cypher
+	url = https://github.com/hamza512b/tasfer
 	arch = x86_64
 	license = custom
 	depends = gtk3
 	depends = nss
 	depends = libxss
 	depends = alsa-lib
-	provides = cypher
-	conflicts = cypher
-	source = https://github.com/hamza512b/cypher/releases/download/desktop-v1.0.0/cypher-1.0.0.pacman
+	provides = tasfer
+	conflicts = tasfer
+	source = https://github.com/hamza512b/tasfer/releases/download/desktop-v1.0.0/tasfer-1.0.0.pacman
 
-pkgname = cypher-bin
+pkgname = tasfer-bin

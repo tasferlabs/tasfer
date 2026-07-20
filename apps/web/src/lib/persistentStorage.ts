@@ -29,7 +29,7 @@ export type PersistentStorageStatus =
  * banner) listen for this instead of re-polling.
  */
 export const PERSISTENT_STORAGE_STATUS_EVENT =
-  "cypher:persistent-storage-status";
+  "tasfer:persistent-storage-status";
 
 function dispatchStatus(status: PersistentStorageStatus): void {
   window.dispatchEvent(

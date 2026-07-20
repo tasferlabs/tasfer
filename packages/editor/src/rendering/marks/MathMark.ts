@@ -4,7 +4,7 @@
  *
  * Inline math is a replacement mark: it measures as an atomic unit (the full
  * formula width) and paints the rendered formula. Layout and painting both go
- * through `@cypherkit/tex` — the formula is drawn directly onto the canvas with
+ * through `@tasfer/tex` — the formula is drawn directly onto the canvas with
  * `paintMath` (no SVG, no bitmap, no async render), so color is just the current
  * text color and it stays crisp at any DPI.
  */
@@ -87,7 +87,7 @@ import {
   mathDocumentCaretFromSourceOffset,
   mathDocumentCaretStop,
   paintMath,
-} from "@cypherkit/tex";
+} from "@tasfer/tex";
 
 /**
  * The `\command`-run ranges (literal + pending) for this chip, derived from the

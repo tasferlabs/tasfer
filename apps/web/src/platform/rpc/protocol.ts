@@ -123,7 +123,7 @@ export interface CloseMsg {
 }
 
 /**
- * client → server: this tab won the `cypher-net` lock and is now the transport
+ * client → server: this tab won the `tasfer-net` lock and is now the transport
  * host. The transferred `MessagePort` (in the message's transfer list) speaks
  * the network RPC protocol; the worker's NetworkProxy drives WebRTC through it.
  */
@@ -255,8 +255,8 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     save: { kind: "request" },
   },
   db: {
-    execute: { kind: "request" },
-    run: { kind: "request" },
+    query: { kind: "request" },
+    mutate: { kind: "request" },
     exec: { kind: "request" },
     getPendingMigrations: { kind: "request" },
     applyMigrations: { kind: "request" },

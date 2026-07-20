@@ -1,8 +1,12 @@
-{/* @cypherkit/editor docs — Quick start. */}
+{/* @tasfer/editor docs — Quick start. */}
 
-import { FrameworkTabs, PropsTable } from "../../docsComponents";
+import { FrameworkTabs, Lede, PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">Four things make up the whole surface area: the **value** you put in, the **state** you read out, the **commands** you dispatch, and the **events** you listen to. Learn these and you know the editor.</p>
+<Lede>
+  Four things make up the whole surface area: the **value** you put in, the
+  **state** you read out, the **commands** you dispatch, and the **events** you
+  listen to. Learn these and you know the editor.
+</Lede>
 
 <h2 id="value">1 — Value in</h2>
 
@@ -11,7 +15,7 @@ An editor is created from markdown, a CRDT document, or nothing at all. These th
 <FrameworkTabs>
 
 ```ts
-import { createEditor, createDoc } from "@cypherkit/editor";
+import { createEditor, createDoc } from "@tasfer/editor";
 
 // from a markdown string
 createEditor({ element, markdown: "# Title" });
@@ -25,8 +29,8 @@ createEditor({ element });
 ```
 
 ```tsx
-import { Editor, useEditor } from "@cypherkit/react";
-import { createDoc } from "@cypherkit/editor";
+import { Editor, useEditor } from "@tasfer/react";
+import { createDoc } from "@tasfer/editor";
 
 // from a markdown string
 <Editor markdown="# Title" />;
@@ -58,7 +62,7 @@ activeMarks.has("strong");    // is bold active at the cursor?
 ```
 
 ```tsx
-import { useEditorState } from "@cypherkit/react";
+import { useEditorState } from "@tasfer/react";
 
 const state = useEditorState(editor);   // null until the editor exists
 const active = state?.activeMarks ?? new Set();

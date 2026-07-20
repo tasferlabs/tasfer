@@ -1,6 +1,6 @@
 /**
  * Preload script — runs in renderer context with Node.js access.
- * Exposes `window.cypher` bridge for the ElectronPlatform adapter.
+ * Exposes `window.tasfer` bridge for the ElectronPlatform adapter.
  */
 
 import { contextBridge, ipcRenderer } from "electron";
@@ -32,4 +32,4 @@ const bridge = {
   tilingWm: ipcRenderer.sendSync("wm:tiling-sync") as boolean,
 };
 
-contextBridge.exposeInMainWorld("cypher", bridge);
+contextBridge.exposeInMainWorld("tasfer", bridge);

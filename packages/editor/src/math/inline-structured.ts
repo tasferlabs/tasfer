@@ -28,7 +28,7 @@ import {
   structuredToMathDocument,
   validateStructuredMathDocument,
 } from "./structured";
-import { printMathDocument } from "@cypherkit/tex/data";
+import { printMathDocument } from "@tasfer/tex/data";
 
 /** Persisted attributes accepted by the structured and legacy MathMark paths. */
 export type MathMarkAttrs = {

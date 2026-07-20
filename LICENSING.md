@@ -1,12 +1,12 @@
 # Licensing
 
 Tasfer is **dual-licensed by directory**. The deployable apps are copyleft; the
-reusable `@cypherkit/*` libraries are permissive so anyone can build on them —
+reusable `@tasfer/*` libraries are permissive so anyone can build on them —
 including in closed-source and commercial products — with no friction.
 
 | Path                                                          | License               | Why                                                                                                              |
 | ------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `packages/*` (`@cypherkit/*`)                                 | **MIT**               | The product's reusable core. Embed it in anything, commercial or proprietary, no obligations beyond attribution. |
+| `packages/*` (`@tasfer/*`)                                 | **MIT**               | The product's reusable core. Embed it in anything, commercial or proprietary, no obligations beyond attribution. |
 | `examples/*`, and any `example`/`examples` dir in a package   | **MIT**               | Meant to be copy-pasted into your own apps.                                                                      |
 | `apps/*` (`web`, `desktop`, `live`, `site`, `ios`, `android`) | **AGPL-3.0-or-later** | The deployable products. Forks and hosted/network deployments must share their source.                           |
 
@@ -22,7 +22,7 @@ license scanners read.
 Some code bundles third-party components under their own (permissive) licenses,
 whose attribution notices must travel with every distribution:
 
-- **`@cypherkit/tex`** vendors KaTeX (MIT) font faces, font metrics, and symbol
+- **`@tasfer/tex`** vendors KaTeX (MIT) font faces, font metrics, and symbol
   tables. Its [`NOTICE`](packages/tex/NOTICE) reproduces the required KaTeX
   copyright and license, and the npm package ships that `NOTICE`.
 - **The deployed apps** bundle their npm dependencies (and the vendored KaTeX

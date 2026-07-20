@@ -17,7 +17,7 @@ import { startNetworkHostElection } from "./rpc/net-host";
 // IndexedDB-backed VFS (OPFS sync access handles are dedicated-worker-only, and
 // a SharedWorker can't spawn a worker to reach them). Importing the constructor
 // does not start the worker; `new` does.
-import CypherNodeWorker from "./adapters/node.sharedworker?sharedworker";
+import TasferNodeWorker from "./adapters/node.sharedworker?sharedworker";
 
 // Re-export all types for convenience
 export type * from "./types";
@@ -31,15 +31,15 @@ export type ClientPlatform = "ios" | "android" | "electron" | "web";
 
 function detectClientPlatform(): ClientPlatform {
   if (typeof window !== "undefined") {
-    if ((window as any).cypher) return "electron";
-    // Check for unified CypherBridge first, then legacy markers
+    if ((window as any).tasfer) return "electron";
+    // Check for unified TasferBridge first, then legacy markers
     if (
-      (window as any).__CYPHER_IOS__ ||
+      (window as any).__TASFER_IOS__ ||
       (window as any).webkit?.messageHandlers?.nativeApp
     ) {
       return "ios";
     }
-    if ((window as any).__CYPHER_ANDROID__ || (window as any).__NativeBridge) {
+    if ((window as any).__TASFER_ANDROID__ || (window as any).__NativeBridge) {
       return "android";
     }
     const ua = navigator.userAgent.toLowerCase();
@@ -108,19 +108,19 @@ type DetailedAdapterType =
 
 export function detectAdapter(): AdapterType {
   if (typeof window === "undefined") return "web";
-  if ((window as any).cypher) return "electron";
+  if ((window as any).tasfer) return "electron";
   if ((window as any).Capacitor?.isNativePlatform?.()) return "capacitor";
   return "web";
 }
 
 export function detectAdapterDetailed(): DetailedAdapterType {
   if (typeof window === "undefined") return "web";
-  if ((window as any).cypher) {
-    if ((window as any).cypher.platform === "darwin") {
+  if ((window as any).tasfer) {
+    if ((window as any).tasfer.platform === "darwin") {
       return "electron-macos";
-    } else if ((window as any).cypher.platform === "win32") {
+    } else if ((window as any).tasfer.platform === "win32") {
       return "electron-windows";
-    } else if ((window as any).cypher.platform === "linux") {
+    } else if ((window as any).tasfer.platform === "linux") {
       return "electron-linux";
     }
     return "electron";
@@ -131,8 +131,8 @@ export function detectAdapterDetailed(): DetailedAdapterType {
 
 // Store on globalThis so Vite HMR module re-evaluation doesn't lose the instance
 const _g = globalThis as any;
-let _platform: Platform | null = _g.__cypher_platform ?? null;
-let _initPromise: Promise<Platform> | null = _g.__cypher_initPromise ?? null;
+let _platform: Platform | null = _g.__tasfer_platform ?? null;
+let _initPromise: Promise<Platform> | null = _g.__tasfer_initPromise ?? null;
 
 export async function initPlatform(): Promise<Platform> {
   if (_platform) return _platform;
@@ -140,10 +140,10 @@ export async function initPlatform(): Promise<Platform> {
 
   _initPromise = _initPlatformInner().catch((e) => {
     _initPromise = null;
-    _g.__cypher_initPromise = null;
+    _g.__tasfer_initPromise = null;
     throw e;
   });
-  _g.__cypher_initPromise = _initPromise;
+  _g.__tasfer_initPromise = _initPromise;
   return _initPromise;
 }
 
@@ -151,7 +151,7 @@ async function _initPlatformInner(): Promise<Platform> {
   const env = detectAdapter();
 
   const signalUrl =
-    import.meta.env.VITE_SIGNAL_URL ?? "wss://signaling.cypher.md";
+    import.meta.env.VITE_SIGNAL_URL ?? "wss://signaling.tasfer.app";
 
   // Web: the device-node SharedWorker is the one and only path. The Engine +
   // Replicator run in the worker, SQLite runs there on an IndexedDB-backed VFS,
@@ -166,12 +166,12 @@ async function _initPlatformInner(): Promise<Platform> {
           "Please use a current version of Chrome, Edge, Firefox, or Safari 16.4+.",
       );
     }
-    const worker = new CypherNodeWorker();
+    const worker = new TasferNodeWorker();
     const client = createPlatformClient(worker.port);
     startNetworkHostElection(worker.port, signalUrl);
     console.log("[platform] device-node SharedWorker active");
     _platform = client;
-    _g.__cypher_platform = client;
+    _g.__tasfer_platform = client;
     return client;
   }
 
@@ -212,18 +212,18 @@ async function _initPlatformInner(): Promise<Platform> {
   });
 
   // Make sync lifecycle-aware: pause/flush on app background, reconnect on
-  // foreground. Native (iOS/Android) drives this via window.__cypherLifecycle;
+  // foreground. Native (iOS/Android) drives this via window.__tasferLifecycle;
   // the controller also self-wires a visibilitychange/pagehide fallback that is
   // harmless on electron. HMR-safe: dispose any prior instance before wiring.
   {
     const { SyncLifecycleController } = await import("./sync-lifecycle");
-    _g.__cypher_syncLifecycle?.dispose?.();
+    _g.__tasfer_syncLifecycle?.dispose?.();
     const dispose = new SyncLifecycleController(replicator).install();
-    _g.__cypher_syncLifecycle = { dispose };
+    _g.__tasfer_syncLifecycle = { dispose };
   }
 
   _platform = engine;
-  _g.__cypher_platform = engine;
+  _g.__tasfer_platform = engine;
   return _platform;
 }
 

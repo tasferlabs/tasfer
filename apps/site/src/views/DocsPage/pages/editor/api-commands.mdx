@@ -1,13 +1,13 @@
-{/* @cypherkit/editor API reference — Changes & actions. */}
+{/* @tasfer/editor API reference — Changes & actions. */}
 
-import { Callout, PropsTable } from "../../docsComponents";
+import { Callout, Lede, PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">
+<Lede>
   There is one way to change a document: describe the edit against the
-  **`ChangeApi`** and let the editor apply it as CRDT operations. Everything in
-  a single `change()` call commits as one undoable, broadcastable step — whether
-  it queues one edit or twenty.
-</p>
+  **`ChangeApi`** and let the editor apply it as CRDT operations. Everything in a
+  single `change()` call commits as one undoable, broadcastable step — whether it
+  queues one edit or twenty.
+</Lede>
 
 <h2 id="change">change(fn)</h2>
 
@@ -202,7 +202,7 @@ There are three action kinds, layered:
 />
 
 ```ts
-import { OPEN_LINK } from "@cypherkit/editor";
+import { OPEN_LINK } from "@tasfer/editor";
 
 // observe a built-in action — open links in the host's own router
 const off = editor.registerAction(OPEN_LINK, ({ url }) => {
