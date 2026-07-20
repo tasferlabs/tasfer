@@ -346,7 +346,7 @@ function SpacePick({
   // so skipping the choice creates a default personal space silently.
   function handleSkip() {
     setSkipError("");
-    createSpace({ name: "G" });
+    createSpace({ name: "" });
   }
 
   return (
@@ -442,7 +442,7 @@ function SpaceCreate({ setView }: { setView: (v: SpaceView) => void }) {
   function handleCreate() {
     // Space name is optional in the flow; fall back to a sensible default.
     setCreateError("");
-    createSpace({ name: org.trim() || "G" });
+    createSpace({ name: org.trim() || "" });
   }
 
   return (
