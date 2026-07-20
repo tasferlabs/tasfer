@@ -49,6 +49,7 @@ apps/web/.ds-entry.tsx
 apps/web/.ds-compiled.css
 apps/web/.ds-tsconfig.json
 apps/web/.ds-groups/
+.design-sync
 
 # Git
 .worktrees
