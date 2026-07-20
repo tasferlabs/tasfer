@@ -9,7 +9,7 @@ license=('custom')
 depends=('gtk3' 'nss' 'libxss' 'alsa-lib')
 provides=('tasfer')
 conflicts=('tasfer')
-source=("${url}/releases/download/desktop-v${pkgver}/tasfer-${pkgver}.pacman")
+source=("${url}/releases/download/v${pkgver}/tasfer-${pkgver}.pacman")
 # Update after first release: makepkg -g >> PKGBUILD
 sha256sums=('SKIP')
 

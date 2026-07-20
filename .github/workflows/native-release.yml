@@ -1,0 +1,115 @@
+name: Native Release
+
+# Desktop (Electron) builds for macOS/Windows/Linux. iOS/Android store
+# submissions run via the Store Release workflow (fastlane), dispatched
+# manually after release notes are curated; they ship the same v<version>
+# this workflow builds.
+
+# Tags come from release-please (v<version>), which calls this workflow.
+# workflow_dispatch with publish=false is a safe dry run: full signed build,
+# artifacts uploaded to the workflow run instead of a release.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      publish:
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v0.1.0)"
+        type: string
+        required: true
+      publish:
+        description: "Upload to the GitHub release draft"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/desktop/package-lock.json
+            packages/*/package-lock.json
+
+      # web's postinstall also installs the source-aliased packages/*
+      - name: Install
+        run: |
+          (cd apps/web && npm ci)
+          (cd apps/desktop && npm ci)
+
+      - name: Build web app
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Build Electron
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Package
+        working-directory: apps/desktop
+        run: npx electron-builder --${{ matrix.platform }} --publish ${{ inputs.publish && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing and notarization
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows code signing
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Upload artifacts (dry run)
+        if: ${{ !inputs.publish }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: |
+            apps/desktop/release/*.*
+            !apps/desktop/release/builder-*.yml
+
+  # electron-builder uploads into the release-please draft; publish it only
+  # once all three platforms have their artifacts, so updater clients never
+  # see a partial release.
+  publish-release:
+    needs: build
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ inputs.tag }}" --repo "${{ github.repository }}" --draft=false

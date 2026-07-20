@@ -1,9 +1,21 @@
 {
   "name": "@tasfer/provider-webrtc",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "WebRTC transport for @tasfer/editor — direct peer-to-peer document sync after a small signaling step.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hamza512b/tasfer.git",
+    "directory": "packages/provider-webrtc"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",

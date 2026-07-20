@@ -1,9 +1,21 @@
 {
   "name": "@tasfer/provider-indexeddb",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "IndexedDB persistence for @tasfer/editor — stores the CRDT op log locally so reloads are instant and edits survive offline.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hamza512b/tasfer.git",
+    "directory": "packages/provider-indexeddb"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",

@@ -1,9 +1,21 @@
 {
   "name": "@tasfer/react",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "React 19 bindings for @tasfer/editor — a useEditor hook, an <Editor> component, and live state subscriptions.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hamza512b/tasfer.git",
+    "directory": "packages/react"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",

@@ -1,9 +1,21 @@
 {
   "name": "@tasfer/editor",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Canvas-based, CRDT-powered block editor engine (headless core).",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hamza512b/tasfer.git",
+    "directory": "packages/editor"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",

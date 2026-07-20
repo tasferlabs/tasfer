@@ -2,7 +2,7 @@
   "name": "@tasfer-examples/tasfer-studio",
   "license": "MIT",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Tasfer Studio — a dark markdown IDE built on @tasfer/editor.",
   "scripts": {
