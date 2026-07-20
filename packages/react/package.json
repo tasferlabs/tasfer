@@ -1,6 +1,6 @@
 {
   "name": "@cypherkit/react",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "React 19 bindings for @cypherkit/editor — a useEditor hook, an <Editor> component, and live state subscriptions.",
   "type": "module",
   "license": "MIT",

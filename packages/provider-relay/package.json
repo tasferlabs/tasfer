@@ -1,6 +1,6 @@
 {
   "name": "@cypherkit/provider-relay",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "WebSocket-relay transport for @cypherkit/editor — peers behind NATs sync through a relay that forwards their updates. The relay is a trusted party: frames are not encrypted.",
   "type": "module",
   "license": "MIT",

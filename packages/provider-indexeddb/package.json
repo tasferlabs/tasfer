@@ -1,6 +1,6 @@
 {
   "name": "@cypherkit/provider-indexeddb",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "IndexedDB persistence for @cypherkit/editor — stores the CRDT op log locally so reloads are instant and edits survive offline.",
   "type": "module",
   "license": "MIT",

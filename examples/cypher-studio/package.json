@@ -2,7 +2,7 @@
   "name": "@cypher-examples/cypher-studio",
   "license": "MIT",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Cypher Studio — a dark markdown IDE built on @cypherkit/editor.",
   "scripts": {

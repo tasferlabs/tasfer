@@ -1,6 +1,6 @@
 {
   "name": "@cypherkit/tex",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Canvas-native, live-editable LaTeX math layout & rendering engine.",
   "type": "module",
   "license": "MIT",
@@ -20,19 +20,40 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",
   "sideEffects": false,
-  "files": ["dist", "NOTICE"],
+  "files": [
+    "dist",
+    "NOTICE"
+  ],
   "exports": {
     ".": {
-      "import": { "types": "./dist/index.d.mts", "default": "./dist/index.mjs" },
-      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./data": {
-      "import": { "types": "./dist/data.d.mts", "default": "./dist/data.mjs" },
-      "require": { "types": "./dist/data.d.cts", "default": "./dist/data.cjs" }
+      "import": {
+        "types": "./dist/data.d.mts",
+        "default": "./dist/data.mjs"
+      },
+      "require": {
+        "types": "./dist/data.d.cts",
+        "default": "./dist/data.cjs"
+      }
     },
     "./*": {
-      "import": { "types": "./dist/*.d.mts", "default": "./dist/*.mjs" },
-      "require": { "types": "./dist/*.d.cts", "default": "./dist/*.cjs" }
+      "import": {
+        "types": "./dist/*.d.mts",
+        "default": "./dist/*.mjs"
+      },
+      "require": {
+        "types": "./dist/*.d.cts",
+        "default": "./dist/*.cjs"
+      }
     }
   },
   "scripts": {
