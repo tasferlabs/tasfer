@@ -122,7 +122,7 @@ export function Profile() {
                 {avatarUrl ? (
                   <img
                     src={avatarUrl}
-                    alt="Avatar"
+                    alt={t("common.avatar", "Avatar")}
                     className={styles.avatar}
                   />
                 ) : (

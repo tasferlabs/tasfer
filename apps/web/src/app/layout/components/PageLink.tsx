@@ -539,6 +539,7 @@ function ColorGrid({
   color: string | null | undefined;
   onColorChange: (color: string | null) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className="grid grid-cols-8 gap-2 p-1"
@@ -551,7 +552,7 @@ function ColorGrid({
         )}
         style={{ backgroundColor: "var(--page-color-default)" }}
         onClick={() => onColorChange(null)}
-        aria-label="Default color"
+        aria-label={t("editor.defaultColor", "Default color")}
       />
       {PRESET_COLORS.map((hex) => (
         <button
@@ -564,7 +565,9 @@ function ColorGrid({
           )}
           style={{ backgroundColor: hex }}
           onClick={() => onColorChange(hex)}
-          aria-label={`Select color ${hex}`}
+          aria-label={t("editor.selectColor", "Select color {{color}}", {
+            color: hex,
+          })}
         />
       ))}
     </div>

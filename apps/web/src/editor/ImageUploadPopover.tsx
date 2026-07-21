@@ -198,7 +198,9 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                 className="w-full h-16"
               >
                 <FolderOpen className="w-5 h-5 me-3" />
-                <span className="text-base">Open Library</span>
+                <span className="text-base">
+                  {t("image.openLibrary", "Open Library")}
+                </span>
               </Button>
               <Button
                 variant="outline"
@@ -208,7 +210,9 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                 className="w-full h-16"
               >
                 <Camera className="w-5 h-5 me-3" />
-                <span className="text-base">Take Photo</span>
+                <span className="text-base">
+                  {t("image.takePhoto", "Take Photo")}
+                </span>
               </Button>
             </>
           )}
