@@ -459,8 +459,8 @@
 .dx-page .dx-pager {display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 64px; padding-top: 28px; border-top: 1px solid var(--border); }
 .dx-page .dx-pager-link {display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--cy-radius-lg); text-decoration: none; transition: border-color var(--cy-duration-fast), background var(--cy-duration-fast); }
 .dx-page .dx-pager-link:hover {border-color: oklch(from var(--primary) l c h / 0.5); }
-.dx-page .dx-pager-link.next {text-align: right; align-items: flex-end; }
-.dx-page .dx-pager-dir {font-family: var(--font-terminal); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cy-muted-fg); }
+.dx-page .dx-pager-link.next {text-align: end; align-items: flex-end; }
+.dx-page .dx-pager-dir {display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-terminal); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cy-muted-fg); }
 .dx-page .dx-pager-title {font-size: 15px; font-weight: 500; color: var(--fg); }
 .dx-page .dx-pager-link:hover .dx-pager-title {color: var(--primary); }
 

@@ -2,6 +2,7 @@
 
 import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
+import { DirArrow } from "@/components/DirArrow";
 import { FLAT } from "./docsNav";
 
 /** Previous / next links derived from the flat page order. */
@@ -15,7 +16,10 @@ export function Pager({ route }: { route: string }) {
     <nav className="dx-pager">
       {prev ? (
         <Link className="dx-pager-link prev" to={"/docs/" + prev.route}>
-          <span className="dx-pager-dir">{t("docs.pager.prev", "← previous")}</span>
+          <span className="dx-pager-dir">
+            <DirArrow towards="back" />
+            {t("docs.pager.prev", "previous")}
+          </span>
           <span className="dx-pager-title">{prev.title}</span>
         </Link>
       ) : (
@@ -23,7 +27,10 @@ export function Pager({ route }: { route: string }) {
       )}
       {next ? (
         <Link className="dx-pager-link next" to={"/docs/" + next.route}>
-          <span className="dx-pager-dir">{t("docs.pager.next", "next →")}</span>
+          <span className="dx-pager-dir">
+            {t("docs.pager.next", "next")}
+            <DirArrow towards="forward" />
+          </span>
           <span className="dx-pager-title">{next.title}</span>
         </Link>
       ) : (

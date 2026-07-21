@@ -252,6 +252,9 @@
   color: var(--cy-muted-fg);
 }
 .dx-page.ix-blog .ix-foot a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--cy-muted-fg);
   text-decoration: none;
   transition: color var(--cy-duration-fast);

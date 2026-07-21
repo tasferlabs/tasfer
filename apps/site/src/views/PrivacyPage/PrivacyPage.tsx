@@ -2,10 +2,23 @@
 
 import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
+import { DirArrow } from "@/components/DirArrow";
 import "./PrivacyPage.css";
 
+/** Last substantive revision of this policy. Formatted in the active locale. */
+const LAST_UPDATED = "2026-03-25";
+
 export default function PrivacyPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+
+  // numberingSystem: "latn" because every other number in ar.json is written
+  // with Western digits; Intl would otherwise default Arabic to Arabic-Indic.
+  const lastUpdated = new Intl.DateTimeFormat(i18n.language, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    numberingSystem: "latn",
+  }).format(new Date(`${LAST_UPDATED}T00:00:00`));
 
   return (
     <div className="privacy">
@@ -14,17 +27,22 @@ export default function PrivacyPage() {
           tasfer
         </Link>
         <Link to="/home" className="privacy-nav-back">
-          &larr; {t("privacy.backToHome", "back to home")}
+          <DirArrow towards="back" />
+          {t("privacy.backToHome", "back to home")}
         </Link>
       </nav>
 
       <section className="privacy-content">
-        <div className="privacy-label">&gt; privacy</div>
+        {/* Isolated: the ">" prompt is a bidi neutral, so under dir=rtl it
+            would mirror to "<" and jump to the far end of the label. */}
+        <div className="privacy-label">
+          <span dir="ltr">&gt; privacy</span>
+        </div>
         <h1 className="privacy-title">
           {t("privacy.title", "privacy policy")}
         </h1>
         <p className="privacy-date">
-          {t("privacy.lastUpdated", "Last updated")}: March 25, 2026
+          {t("privacy.lastUpdated", "Last updated")}: {lastUpdated}
         </p>
 
         <p className="privacy-intro">

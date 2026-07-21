@@ -45,6 +45,9 @@
 }
 
 .privacy-nav-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--muted-foreground);
   text-decoration: none;
   font-size: 13px;
