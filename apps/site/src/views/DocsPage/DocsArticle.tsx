@@ -21,17 +21,19 @@ function Breadcrumb({ meta }: { meta: PageMeta }) {
       <div className="dx-breadcrumb">
         <Link to="/docs">{t("docs.tag", "docs")}</Link>
         <span className="sep">/</span>
-        <Link to={sectionHome}>{meta.section}</Link>
+        <Link to={sectionHome}>
+          {meta.sectionKey ? t(meta.sectionKey, meta.section) : meta.section}
+        </Link>
         {meta.group ? (
           <>
             <span className="sep">/</span>
-            <span>{meta.group}</span>
+            <span>{meta.groupKey ? t(meta.groupKey, meta.group) : meta.group}</span>
           </>
         ) : null}
         <span className="sep">/</span>
-        <span className="cur">{meta.title}</span>
+        <span className="cur">{t(meta.titleKey, meta.title)}</span>
       </div>
-      <h1 className="dx-h1">{meta.title}</h1>
+      <h1 className="dx-h1">{t(meta.titleKey, meta.title)}</h1>
     </>
   );
 }

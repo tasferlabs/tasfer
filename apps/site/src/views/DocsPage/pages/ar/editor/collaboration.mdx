@@ -1,0 +1,61 @@
+import { Callout, Lede, PropsTable } from "../../../docsComponents";
+
+<Lede>
+  يصل المزود CRDT في محررك بالنسخ المكررة الأخرى. استبدل المزود لتغيير *كيفية*
+  وصول النظراء بعضهم إلى بعض، فيما يبقى نموذج المستند وواجهة المستخدم كما هما.
+</Lede>
+
+<h2 id="providers">اختيار مزود</h2>
+
+<PropsTable cols={["المزود", "النقل", "متى تستخدمه"]} rows={[
+  { name: "provider-relay", type: "مُرحِّل WebSocket", desc: "للنظراء خلف NAT أو جدران الحماية. يعرّف المُرحِّل النظراء ويمرر تحديثاتهم، ويمكنه قراءتها، فشغّل مُرحِّلًا تثق به." },
+  { name: "provider-webrtc", type: "نظير إلى نظير", desc: "اتصال متصفح بمتصفح بعد التعريف. أقل زمنًا للوصول، ويتطلب خطوة إشارة صغيرة، وقنوات البيانات مشفرة من الطرف إلى الطرف." },
+  { name: "provider-indexeddb", type: "قرص محلي", desc: "ليس مزود شبكة؛ يحفظ CRDT في IndexedDB ليكون إعادة التحميل فوريًا والعمل بلا اتصال كاملًا." },
+  { name: "custom", type: "أي وسيلة", desc: "نفذ واجهة Transport من @tasfer/provider-core ومررها إلى createProvider للمزامنة عبر واجهتك الخلفية أو BroadcastChannel أو مراقب ملفات." },
+]} />
+
+<Callout kind="note" title="يستطيع المُرحِّل رؤية مستنداتك.">لا يشفّر `provider-relay` البيانات، بل يرمّز الإطارات بـbase64 كي لا يحللها المُرحِّل، وهذا ليس تشفيرًا. يستطيع المشغّل قراءة كل مستند يمر وتعديله. استخدم مُرحِّلًا تسيطر عليه. أما `provider-webrtc` فيُخرج الخادم من مسار البيانات بعد اكتمال ICE، فتنتقل البايتات مباشرة عبر DataChannels مشفرة بـDTLS ولا يرى خادم الإشارة إلا بيانات الاتصال الوصفية.</Callout>
+
+<h2 id="stack">ركّب المزودين</h2>
+
+تتراكب المزودات. الإعداد المعتاد يحفظ محليًا ويزامن عبر الشبكة، ويدمج المحرر كليهما في مستند واحد متقارب:
+
+```ts
+import { createIndexedDBProvider } from "@tasfer/provider-indexeddb";
+import { createRelayProvider } from "@tasfer/provider-relay";
+
+createIndexedDBProvider({ doc: editor.doc, name: "notes/today" });
+const net = createRelayProvider({
+  doc: editor.doc,
+  room: "team-notes",
+  relay: "wss://relay.tasfer.app",
+});
+```
+
+<h2 id="presence">الحضور والمؤشرات البعيدة</h2>
+
+الحضور حالة عابرة تسافر بجوار المستند ولا تُحفظ: من هنا، وأين مؤشره، وبأي لون يُرسم. يوجه البروتوكول الكائن الذي تنشره كما هو:
+
+```ts
+net.presence.set({ name: "Ada", color: "#1db984" });
+
+net.presence.on("change", (peers) => {
+  avatars.render(peers.map((p) => p.state.name));
+});
+```
+
+لا يعرف محرك المحرر مفهوم النظراء؛ فهو يرسم [زخارف](/docs/editor/concepts#decorations) عامة تمررها إليه. اربط الحضور بالمؤشرات باستخدام `@tasfer/provider-core/cursors`:
+
+```ts
+import { bindPresenceCursors } from "@tasfer/provider-core/cursors";
+
+const stop = bindPresenceCursors(editor, net, {
+  user: { peerId, name: "Ada", color: "#1db984" },
+});
+```
+
+<Callout kind="note" title="العمل بلا اتصال ليس حالة خاصة.">افصل الشبكة وحرر ساعة في الطائرة ثم أعد الاتصال؛ يدمج CRDT تغييرات الجميع بصورة حتمية. لا مربع حوار لحل التعارضات لأنه لا توجد تعارضات.</Callout>
+
+<h2 id="schemas">نظراء بمخططات مختلفة</h2>
+
+لا يحتاج نظيران يحرران المستند نفسه إلى مخططين متطابقين. سجل CRDT والمخفّض لا يعتمدان على [قائمة التأليف المسموح](/docs/editor/api-schema#restrict): يسجل النظير كل عملية سليمة ويجسدها، سواء سمح مخططه بإنشائها محليًا أم لا. وهكذا يعرض نظير مقيد بالعناوين قائمة نقطية أنشأها متعاون، لكنه لا يستطيع إنشاء واحدة. ولا يتأثر التقارب لأن القائمة لا تغير إسقاط السجل المشترك.

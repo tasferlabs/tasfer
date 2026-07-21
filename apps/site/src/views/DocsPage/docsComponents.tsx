@@ -13,6 +13,7 @@ import {
   type AnchorHTMLAttributes,
 } from "react";
 import { Link } from "@/components/Link";
+import { useTranslation } from "react-i18next";
 import { Icons } from "./docsIcons";
 
 /* ============================================================
@@ -98,8 +99,8 @@ function tint(code: string, lang: string, keyPrefix: string): ReactNode[] {
 }
 
 /* ── internal/external link helper ──
-   Absolute in-app paths ("/docs/...", "/home") route through react-router;
-   anything else is treated as external and opens in a new tab. */
+   Absolute in-app paths ("/docs/...", "/home") use the locale-aware Next.js
+   Link wrapper; anything else is treated as external and opens in a new tab. */
 export function A({
   href = "",
   children,
@@ -121,6 +122,7 @@ export function A({
 
 /* ── copy button ── */
 export function CopyBtn({ text }: { text: string }) {
+  const { t } = useTranslation();
   const [done, setDone] = useState(false);
   function copy() {
     const write =
@@ -146,10 +148,10 @@ export function CopyBtn({ text }: { text: string }) {
     <button
       className={"dx-copy" + (done ? " is-copied" : "")}
       onClick={copy}
-      aria-label="copy code"
+      aria-label={t("docs.copy.a11y", "Copy code")}
     >
       {done ? <Icons.Check /> : <Icons.Copy />}
-      {done ? "copied" : "copy"}
+      {done ? t("docs.copy.copied", "Copied") : t("docs.copy.copy", "Copy")}
     </button>
   );
 }
@@ -514,17 +516,23 @@ export interface PropRow {
 }
 export function PropsTable({
   rows,
-  cols = ["Prop", "Type", "Description"],
+  cols,
 }: {
   rows: PropRow[];
   cols?: string[];
 }) {
+  const { t } = useTranslation();
+  const headings = cols ?? [
+    t("docs.table.prop", "Prop"),
+    t("docs.table.type", "Type"),
+    t("docs.table.description", "Description"),
+  ];
   return (
     <div className="dx-table-wrap">
       <table className="dx-table">
         <thead>
           <tr>
-            {cols.map((c) => (
+            {headings.map((c) => (
               <th key={c}>{c}</th>
             ))}
           </tr>
@@ -534,7 +542,9 @@ export function PropsTable({
             <tr key={i}>
               <td className="name">
                 <code>{r.name}</code>
-                {r.required ? <span className="req">required</span> : null}
+                {r.required ? (
+                  <span className="req">{t("docs.table.required", "Required")}</span>
+                ) : null}
               </td>
               <td>
                 <span className="ty">{r.type}</span>

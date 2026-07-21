@@ -1,0 +1,94 @@
+import { Callout, Lede, PropsTable } from "../../../docsComponents";
+
+<Lede>
+  `@tasfer/react` ربط رفيع لـReact 19 فوق المحرك المستقل: خطاف يملك المحرر،
+  ومكوّن يعرضه، واشتراكات `useSyncExternalStore` لأشرطة الأدوات والمعاينة الحية.
+  كل جزء خاص بالنسخة، فيمكن أن تعيش عدة محررات في الصفحة نفسها.
+</Lede>
+
+```ts
+import { Editor, useEditor, useEditorState } from "@tasfer/react";
+```
+
+<Callout kind="note" title="تُقرأ الخيارات مرة واحدة.">تُقرأ خيارات المحرر عند التثبيت. أعد ضبطه وقت التشغيل عبر مقبض `TasferEditor` مثل `setTheme` و`setMarkdown` و`change`، لا بإعادة تمرير الخصائص. وحده `onChange` في `<Editor>` يبقى حيًا، لكنه للإشعار فقط ولا يدفع المحتوى إلى الداخل؛ فالمستند CRDT يملك محتواه ولا توجد `value` متحكم بها.</Callout>
+
+<h2 id="component">&lt;Editor /&gt;</h2>
+
+مكوّن جاهز يعرض العنصر المضيف ويبلغ عن المحرر الحي عبر `onReady`. يقبل كل خيارات `createEditor` عدا `element`، إضافة إلى الخصائص الآتية:
+
+<PropsTable rows={[
+  { name: "...options", type: "UseEditorOptions", desc: "كل خيارات createEditor عدا element، ومنها markdown وdoc وschema وtheme وplaceholder وautofocus وeditable." },
+  { name: "onChange", type: "(markdown: string) => void", desc: "إشعار فقط بقيمة Markdown بعد كل تغيير محلي أو بعيد أو لصق أو تراجع. للحصول على ChangeTransaction الخام اشترك عبر onReady." },
+  { name: "className", type: "string", desc: "تمرر إلى عنصر <div> المضيف." },
+  { name: "style", type: "CSSProperties", desc: "تمرر إلى <div> المضيف. يجب ضبط حجم العنصر، مثل إعطائه ارتفاعًا." },
+  { name: "onReady", type: "(editor: TasferEditor) => void", desc: "تُستدعى مرة لكل نسخة محرر بالمقبض الحي، لربط الأحداث أو الحفظ." },
+]} />
+
+```tsx
+import { Editor } from "@tasfer/react";
+
+function App() {
+  return (
+    <Editor
+      markdown="# Hello"
+      onChange={save}
+      autofocus
+      style={{ height: "100vh" }}
+      onReady={(editor) => editor.focus("end")}
+    />
+  );
+}
+```
+
+<Callout kind="tip" title="تغيير المحتوى وقت التشغيل.">لا توجد `value` متحكم بها. لاستبدال المحتوى بعد التثبيت، استدعِ `editor.setMarkdown(...)` أو `editor.change(...)` على المقبض من `onReady`. يعيد `onChange` دائمًا قيمة Markdown المرجعية التي سلسلها المحرر، بما فيها التعديلات البعيدة.</Callout>
+
+<h2 id="useeditor">useEditor(options)</h2>
+
+يمنحك تحكمًا كاملًا في العنصر المضيف. ينشئ المحرر مرة واحدة داخل layout effect ويتلفه عند إزالة المكوّن، ويعيد `containerRef` و`editor` الذي يظل `null` حتى يعمل الأثر الأول.
+
+<PropsTable cols={["القيمة المعادة", "النوع", "الوصف"]} rows={[
+  { name: "containerRef", type: "RefObject<HTMLDivElement | null>", desc: "اربطه بالعنصر المضيف عبر <div ref={containerRef} />، واضبط للعنصر ارتفاعًا." },
+  { name: "editor", type: "TasferEditor | null", desc: "المقبض الحي، أو null في العرض الأول قبل أثر التثبيت." },
+]} />
+
+```tsx
+import { useEditor } from "@tasfer/react";
+import { useEffect } from "react";
+
+function Notes() {
+  const { containerRef, editor } = useEditor({ markdown: "# Hello" });
+
+  useEffect(() => {
+    if (editor) editor.focus("end");
+  }, [editor]);
+
+  return <div ref={containerRef} style={{ height: "100%" }} />;
+}
+```
+
+<h2 id="state">useEditorState(editor) وuseEditorMarkdown(editor)</h2>
+
+اشتراكان باستخدام `useSyncExternalStore` يعيدان عرض المكوّن عند تغير المحرر، وهما الطريقة المعتادة في React لقيادة شريط أدوات أو معاينة Markdown.
+
+<PropsTable cols={["الخطاف", "القيمة المعادة", "متى يعيد العرض"]} rows={[
+  { name: "useEditorState", type: "EditorStateValue | null", desc: "يعيد { selection, activeMarks } عند التعديلات وتحرك المؤشر أو التحديد، وnull قبل وجود المحرر." },
+  { name: "useEditorMarkdown", type: "string", desc: "المستند المتسلسل، ويتغير مع كل تعديل محلي أو بعيد." },
+]} />
+
+```tsx
+function Toolbar({ editor }: { editor: TasferEditor | null }) {
+  const state = useEditorState(editor);
+  const active = state?.activeMarks ?? new Set();
+
+  return (
+    <button
+      data-active={active.has("strong")}
+      onClick={() => editor?.change((c) => c.setMark("strong"))}
+    >
+      Bold
+    </button>
+  );
+}
+```
+
+<Callout kind="tip" title="سطح استيراد واحد.">تعيد `@tasfer/react` تصدير أكثر أنواع المحرك استخدامًا، مثل `TasferEditor` و`Doc` و`ChangeTransaction` و`EditorStateSnapshot` و`CreateEditorOptions`، فتستورد كل شيء من موضع واحد.</Callout>

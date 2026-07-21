@@ -2,8 +2,9 @@
 
 import { Link } from "@/components/Link";
 import BrandMark from "@/components/BrandMark";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { isLng } from "@/lib/i18n/locales";
 import { Icons } from "./docsIcons";
 import { DocsHeader } from "./DocsHeader";
 import "./DocsPage.css";
@@ -15,7 +16,9 @@ const EDITOR_SRC_URL = `${REPO_URL}/tree/main/packages/editor`;
  *  are spans (no nested anchors) that navigate to a docs route on click. */
 function BranchLink({ label, to }: { label: string; to: string }) {
   const router = useRouter();
-  const go = () => router.push(to);
+  const params = useParams<{ lang?: string }>();
+  const lang = params.lang;
+  const go = () => router.push(lang && isLng(lang) ? `/${lang}${to}` : to);
   return (
     <span
       role="link"
@@ -125,7 +128,9 @@ export default function DocsPage() {
         <div className="dx-hub-foot">
           <div className="dx-hub-foot-brand">
             <BrandMark />
-            <span className="dx-hub-foot-name">tasfer</span>
+            <span className="dx-hub-foot-name">
+              {t("brand.wordmark", "tasfer")}
+            </span>
           </div>
           <div className="dx-hub-foot-links">
             <Link to="/home">{t("docs.hub.foot.landing", "landing")}</Link>

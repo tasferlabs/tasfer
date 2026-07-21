@@ -160,7 +160,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             }`}
           >
             <Upload className="w-3 h-3 inline me-1.5" />
-            Upload
+            {t("image.upload", "Upload")}
           </button>
           <button
             onClick={() => setUploadMode("url")}
@@ -172,7 +172,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             }`}
           >
             <Link2 className="w-3 h-3 inline me-1.5" />
-            URL
+            {t("image.url", "URL")}
           </button>
         </div>
       )}
@@ -185,7 +185,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             <div className="flex flex-col items-center justify-center py-8">
               <Loader2 className="w-12 h-12 text-primary animate-spin mb-2" />
               <span className="text-sm text-muted-foreground">
-                Uploading...
+                {t("image.uploading", "Uploading image...")}
               </span>
             </div>
           ) : (
@@ -238,24 +238,27 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
               <>
                 <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
                 <span className="text-sm text-muted-foreground">
-                  Uploading...
+                  {t("image.uploading", "Uploading image...")}
                 </span>
               </>
             ) : uploadStatus === "error" ? (
               <>
                 <div className="w-8 h-8 text-destructive">⚠</div>
                 <span className="text-sm text-destructive">
-                  Upload failed. Click to retry
+                  {t("image.uploadFailedRetry", "Upload failed. Click to retry")}
                 </span>
               </>
             ) : (
               <>
                 <Upload className="w-8 h-8 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">
-                  Click to upload image
+                  {t("image.clickToUpload", "Click to upload image")}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  JPG, PNG, GIF, WebP, or SVG
+                  {t(
+                    "image.supportedFormats",
+                    "JPG, PNG, GIF, WebP, or SVG",
+                  )}
                 </span>
               </>
             )}
@@ -269,7 +272,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
               htmlFor="image-url"
               className="text-xs font-medium text-muted-foreground"
             >
-              Image URL
+              {t("image.urlLabel", "Image URL")}
             </label>
             <Input
               id="image-url"
@@ -306,7 +309,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             className="text-destructive hover:text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="w-4 h-4 me-2" />
-            Remove Image
+            {t("image.removeImage", "Remove Image")}
           </Button>
         </div>
       )}
@@ -346,7 +349,9 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             <DrawerHeader>
               <DrawerTitle className="flex items-center gap-2">
                 <ImageIcon className="w-4 h-4 text-muted-foreground" />
-                {existingUrl ? "Edit Image" : "Add Image"}
+                {existingUrl
+                  ? t("image.editImage", "Edit Image")
+                  : t("image.addImage", "Add Image")}
               </DrawerTitle>
             </DrawerHeader>
             <div className="space-y-4 p-4">{content}</div>
@@ -386,7 +391,9 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             <div className="flex items-center gap-2 pb-2 border-b border-border">
               <ImageIcon className="w-4 h-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold text-foreground">
-                {existingUrl ? "Edit Image" : "Add Image"}
+                {existingUrl
+                  ? t("image.editImage", "Edit Image")
+                  : t("image.addImage", "Add Image")}
               </h3>
             </div>
             {content}

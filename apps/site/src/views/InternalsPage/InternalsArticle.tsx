@@ -12,16 +12,15 @@ import "./InternalsPage.css";
 
 const REPO_URL = "https://github.com/hamza512b/tasfer";
 
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
-/** "2026-03-25" → "March 25, 2026" (parsed as a plain date, no timezone drift). */
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return iso;
-  return `${MONTHS[m - 1]} ${d}, ${y}`;
+  return new Intl.DateTimeFormat("en", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
 /**
@@ -35,7 +34,8 @@ function formatDate(iso: string): string {
  * in `pages/<slug>.mdx`; title, date, and summary come from `internalsNav`.
  */
 export default function InternalsArticle({ slug }: { slug: string }) {
-  const { t } = useTranslation();
+  const { i18n } = useTranslation();
+  const t = i18n.getFixedT("en");
   const note = NOTE_BY_SLUG[slug];
 
   // Long-form pages start at the top, like the docs articles.
@@ -46,7 +46,7 @@ export default function InternalsArticle({ slug }: { slug: string }) {
   if (!note) {
     return (
       <PkgMgrProvider>
-        <div className="dx-page ix-blog">
+        <div className="dx-page ix-blog" lang="en" dir="ltr">
           <DocsHeader />
           <main className="ix-main">
             <article className="dx-article ix-article">
@@ -75,7 +75,7 @@ export default function InternalsArticle({ slug }: { slug: string }) {
 
   return (
     <PkgMgrProvider>
-      <div className="dx-page ix-blog">
+      <div className="dx-page ix-blog" lang="en" dir="ltr">
         <DocsHeader />
         <main className="ix-main">
           <article className="dx-article ix-article">

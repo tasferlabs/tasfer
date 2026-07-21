@@ -1,0 +1,173 @@
+{/* @tasfer/editor API reference — Editor. */}
+
+import { Callout, Lede, PropsTable } from "../../../docsComponents";
+
+<Lede>
+  تعيد `createEditor(options)` كائن `TasferEditor`، وهو العرض ومعدّل المستند
+  ومالك التحديد فوق مستند CRDT. تحتفظ به طوال عمر سطح التحرير، وهو المقبض الوحيد
+  الذي تحتاج إليه للتحرير الفردي.
+</Lede>
+
+<h2 id="create">createEditor(options)</h2>
+
+```ts
+import { createEditor } from "@tasfer/editor";
+const editor = createEditor(options: CreateEditorOptions): TasferEditor;
+```
+
+<PropsTable rows={[
+  { name: "element", type: "HTMLElement", required: true, desc: "العنصر المضيف الذي تُثبّت فيه لوحة الرسم. تملؤه، لذا امنحه ارتفاعًا." },
+  { name: "markdown", type: "string", desc: "المستند الأولي بصيغة Markdown. أحد ثلاثة مصادر محتوى متنافية (markdown أو blocks أو doc)؛ لا يقبل نوع الخيارات أكثر من واحد، وتمرير اثنين خطأ في النوع (ويرمي خطأ وقت التشغيل)." },
+  { name: "blocks", type: "Block[]", desc: "كتل محللة مسبقًا لتثبيتها (مثلًا بعد استعادتها من لقطة). تتنافى مع markdown وdoc؛ وتمرير مصدرين خطأ في النوع (ويرمي خطأ وقت التشغيل)." },
+  { name: "doc", type: "Doc", desc: "مستند CRDT قائم لتحريره (راجع createDoc). يتنافى مع blocks وmarkdown؛ وتمر المزامنة والحفظ من خلاله." },
+  { name: "schema", type: "Schema", desc: "العقد والعلامات المسجلة والمسموح بها. افتراضه baseSchema الأساسية الخالية من الرياضيات. يحمل doc الممرر مخطط بياناته، لكن مرّر المخطط الكامل المطابق كي تُرسم العقد والعلامات الاختيارية." },
+  { name: "window", type: "ViewWindow", desc: "تقصر هذا المحرر على مجموعة فرعية من كتل doc (مثل titleBlockWindow() لسطح عنوان فقط فوق مستند مشترك). احذفها لمحرر المستند الكامل. هي شأن عرض وتأليف فقط؛ فلا تتأثر المزامنة، ويتقارب المحرر ذو النافذة مع المحرر الكامل فوق doc واحد. راجع المخطط › نوافذ العرض." },
+  { name: "theme", type: "EditorTheme", desc: "رموز ألوان لوحة الرسم وأنماطها وخطوطها. افتراضها لوحة ألوان محايدة." },
+  { name: "editable", type: "boolean", desc: "اضبطه على false لعارض للقراءة فقط. افتراضه true." },
+  { name: "autoHeight", type: "boolean", desc: "يزيد ارتفاع لوحة الرسم لتلائم محتواها بدل ملء الحاوية، ولا يرسم شريط تمرير مطلقًا (إذ لا توجد منطقة تمرير). يناسب الأسطح المدمجة ذاتية التحجيم، مثل حقل عنوان أو محرر سطر واحد في درج؛ ويجب أن تكون الحاوية المضيفة حرة في النمو عموديًا. افتراضه false." },
+  { name: "accessibilityTree", type: "boolean", desc: "يحافظ على مرآة DOM دلالية مخفية للمستند (العناوين والقوائم والشيفرة البرمجية والعلامات) لقارئات الشاشة؛ فلوحة الرسم نفسها مبهمة للتقنيات المساعدة. تُزامن بدقة، ولا يعاد تسلسل إلا الكتل المتغيرة. افتراضه true؛ واضبطه على false لتعطيله." },
+  { name: "nativeAutocomplete", type: "boolean", desc: "يفعّل النص التنبؤي والتصحيح التلقائي وكتابة أول الجمل بحرف كبير من لوحة مفاتيح النظام. افتراضه true؛ يبقي المحرر الكلمة الجارية في سطح الإدخال المخفي لتظهر الاقتراحات ويمكن اعتمادها. اضبطه على false للحقول التي ينبغي أن تمنع ذلك كله، مثل إدخال الشيفرة أو الرموز." },
+  { name: "inputStrategy", type: '"managed" | "faithful"', desc: "كيفية ارتباط سطح الإدخال المخفي بالمستند. تجعله faithful حقلًا حقيقيًا لكل كتلة، فتقرأ لوحة مفاتيح النظام السياق الكامل منه (ومن ذلك كتابة أول السطور الجديدة بحرف كبير والتصحيح والتنبؤات)؛ أما managed فهي واجهة الحارس والكلمة القديمة. افتراضها faithful على iOS وmanaged في غيره. تستخدم الكتل ذات المصدر الحرفي (الشيفرة البرمجية وكتل أو شرائح الرياضيات عند تثبيت امتدادها) تمثيل managed دائمًا." },
+  { name: "placeholder", type: "string | Record<BlockType, string>", desc: "نص شبحي للكتل الفارغة: سلسلة واحدة لكل نوع يدعم النص النائب، أو خريطة حسب النوع. يظهر في الكتلة الفارغة التي تحمل المؤشر؛ ويوسّعه styles.placeholder.showUnfocused إلى كل كتلة فارغة، بينما تضبط styles.blocks.<type>.placeholder لونه وحجمه ووزنه." },
+  { name: "autofocus", type: "boolean", desc: "يركّز المحرر ويضع مؤشرًا عند التثبيت. افتراضه false." },
+]} />
+
+<h2 id="reading">قراءة الحالة</h2>
+
+لا يسلّمك المحرر مخزنًا قابلًا للتغيير. `state` لقطة جديدة غير قابلة للتغيير تُعاد بناؤها عند كل قراءة، وتسقط `getMarkdown()` المستند الحالي إلى نص. يمثل **وجه `query`** مرآة القراءة لـ[`change`](/docs/editor/api-commands#targets): تتحدث كل دالة **لغة `DocPoint` و`DocRange` نفسها التي تقبلها [ChangeApi](/docs/editor/api-commands#targets)**، ويكون افتراضها المؤشر أو التحديد الحي. تعكس `block` و`blocks` فصل النقطة عن النطاق في `change`؛ فتقترن `query.block(at)` بـ`setBlock(attrs, at)`، وتقرأ `query.blocks(range)` النطاق الذي يغطيه التحديد. وهكذا تقرأ موضعًا ثم تمرره مباشرة إلى تعديل من دون الوصول إلى الحالة الخام. ويقيم التحديد نفسه (أي `DocRange` للمؤشر أو المرساة مع الإزاحات) في اللقطة التفاعلية عند `state.selection.range`.
+
+<PropsTable cols={["العضو", "النوع", "الوصف"]} rows={[
+  { name: "state", type: "{ selection, activeMarks, canUndo, canRedo, isFocused, mode, isReadonlyBase, caretScratchActive, doc }", desc: "لقطة غير قابلة للتغيير. تمثل selection.range التحديد الحالي كـDocRange (أو نقطة منفردة للمؤشر)، أو null؛ وتكون selection.empty بقيمة true للمؤشر المنفرد؛ وactiveMarks مجموعة أسماء العلامات النشطة عند المؤشر أو التحديد (استخدمها لتمييز شريط الأدوات)؛ وتكون isReadonlyBase بقيمة true حين يبدأ المحرر للقراءة فقط وتبقى كذلك ولو تغير mode إلى select للنسخ. يعاد بناؤها مع كل قراءة." },
+  { name: "doc", type: "Doc", desc: "مستند CRDT الأساسي. مرّره إلى مزود للمزامنة، أو استدعِ doc.encodeState() لحفظه." },
+  { name: "query.block(at?)", type: "(at?: DocPoint) => BlockData | null", desc: "عرض بيانات عادية { id, type, text, attrs } للكتلة المفردة عند at (افتراضيًا: كتلة المؤشر). هي نظير النقطة لـquery.blocks ونظير القراءة لـsetBlock. عنون كتلة بمعرّفها عبر query.block({ block: id })، وهي القراءة الشائعة للعثور على الكتلة التي يستهدفها التراكب." },
+  { name: "query.blocks(range?)", type: "(range?: DocRange) => BlockData[]", desc: "الكتل الظاهرة التي يلمسها النطاق بترتيب المستند (افتراضيًا: التحديد، وهو مكافئ لـblocks(state.selection.range)). ضيّق القراءة إلى نطاق من دون الجلب ثم الترشيح؛ ومرّر { from: 'start', to: 'end' } للمستند كله." },
+  { name: "query.marks(at?)", type: "(at?: DocPoint) => MarkInfo[]", desc: "مسارات العلامات الموجودة عند at (افتراضيًا: المؤشر)، وهي قراءة البيانات لرابط أو علامة مخصصة أو علامة رياضيات اختيارية تحت المؤشر. تحمل كل MarkInfo ‏{ name, attrs, block, from, to, text }: أي attrs.url للرابط، ومصدر LaTeX لشريحة الرياضيات عند تثبيتها، ونطاق المسار في كتلة واحدة. ولتمييز «هل الغامق نشط؟» في شريط الأدوات، استخدم state.activeMarks بدلًا منها، فهي مجموعة أسماء مدركة للتحديد." },
+  { name: "getMarkdown()", type: "() => string", desc: "يسلسل المستند الحالي إلى Markdown." },
+  { name: "portalContainer", type: "HTMLDivElement", desc: "موضع تثبيت تراكبات المضيف (مثل قائمة الشرطة المائلة ومحرر الروابط) العائمة فوق لوحة الرسم." },
+]} />
+
+<Callout kind="note" title="state قيمة وليست مخزنًا.">يُستبدل `editor.state` ولا يُغيّر في موضعه مع كل معاملة. لا تلتقطه في متغير إلا خلال قراءة واحدة؛ ولواجهة حية، أعد حسابه داخل معالج `change` أو `selectionchange` (أو استخدم `useEditorState` من `@tasfer/react`).</Callout>
+
+<h2 id="writing">تغيير المستند</h2>
+
+لا تغيّر المستند مباشرة؛ بل تصف التعديلات عبر `ChangeApi` ويطبقها المحرر كعمليات CRDT. تعتمد كل دالة هنا كخطوة تراجع واحدة. يلخصها الجدول أدناه، وتوثّقها صفحة [التغييرات والأفعال](/docs/editor/api-commands) كاملة.
+
+<PropsTable cols={["الدالة", "التوقيع", "الوصف"]} rows={[
+  { name: "change", type: "(fn: (c: ChangeApi) => void) => boolean", desc: "يطبّق التعديلات كخطوة تراجع **واحدة**. يمكن تسلسل دوال رد النداء، ويعيد ما إذا تغيّر شيء." },
+  { name: "canChange", type: "(fn) => boolean", desc: "يجرب التغيير من دون تطبيقه: هل ستغيّر هذه التعديلات شيئًا الآن؟ (لتفعيل زر شريط أدوات مثلًا.)" },
+  { name: "setMarkdown", type: "(md: string) => void", desc: "يستبدل المستند كله بـMarkdown ضمن معاملة واحدة قابلة للتراجع والبث." },
+  { name: "undo / redo", type: "() => boolean", desc: "يتنقل خطوة في السجل المحلي. لا تدخل التعديلات البعيدة سجل تراجعك." },
+]} />
+
+```ts
+editor.change((c) => c.setMark("strong"));
+
+// several edits, one undo step
+editor.change((c) =>
+  c.setBlock({ type: "heading", level: 1 }).insertText("Untitled"),
+);
+```
+
+<h2 id="dispatch">الأفعال والخطافات</h2>
+
+الأفعال سلوكيات مسماة قابلة للإرسال يستطيع المضيف مراقبتها أو تجاوزها، وهي نقطة الوصل لأوامر الشرطة المائلة ونقر الروابط والإيماءات الأصلية والتعديلات المخصصة. راجع [التغييرات والأفعال](/docs/editor/api-commands#actions) لمعرفة أنواع الأفعال الثلاثة.
+
+<PropsTable cols={["الدالة", "التوقيع", "الوصف"]} rows={[
+  { name: "dispatch", type: "(action, ...args) => boolean", desc: "يرسل فعلًا عبر حافلة هذا المحرر. يعيد ما إذا تبنّاه معالج (أو ما إذا تغيّر المستند في فعل التعديل)." },
+  { name: "registerAction", type: "(action, handler, priority?) => () => void", desc: "يراقب فعلًا أو يتجاوزه. تعمل الأولوية الأعلى أولًا (افتراضيًا 0)؛ أعد true لتبنّيه. يعيد دالة إلغاء الاشتراك." },
+]} />
+
+```ts
+import { OPEN_LINK } from "@tasfer/editor";
+
+// Override a built-in action: open links through the host's own router
+// instead of the engine's default. Returning true claims it (stops the
+// default); return void to observe and let the default still run.
+const off = editor.registerAction(OPEN_LINK, ({ url }) => {
+  router.push(url);
+  return true;
+});
+
+// later — detach the handler
+off();
+```
+
+يرسل المحرك عددًا من الأفعال المضمنة كي يراقبها المضيفون (والعقد المخصصة) أو يتجاوزوها:
+
+<PropsTable cols={["الفعل", "الحمولة", "وقت الإرسال"]} rows={[
+  { name: "OPEN_LINK", type: "{ url }", desc: "عند تفعيل علامة رابط (بالنقر مع Cmd أو Ctrl). تبنّه لتوجيه URL بنفسك؛ ويفتح الافتراض علامة تبويب جديدة." },
+  { name: "IMAGE_PASTE", type: "ImagePasteEvent", desc: "عند لصق ملف صورة وإدراج كتلة ({ file, blockId }). راقبه بالأولوية 0 لرفع الملف وإعادة كتابة URL الكتلة؛ ويمكن لعقدة صورة مخصصة تبنّيه لمعالجة رفعها بنفسها." },
+  { name: "SCROLL", type: "{ scrollY, deltaY }", desc: "حين يكون إدخال المستخدم (العجلة أو اللمس أو الزخم) على وشك تمرير منفذ العرض. راقبه لتتبع الإزاحة (مثلًا لتحديد موضع واجهة عائمة)؛ ويمكن للعقدة تحت المؤشر إعادة true لتبنّيه وتجاوز تمرير الصفحة. تتجاوزه التمريرات البرمجية (scrollToPosition وclear)." },
+  { name: "OPEN_CONTEXT_MENU", type: "{ x, y, hasSelection }", desc: "عند طلب قائمة سياق (بالنقر الأيمن أو الضغط المطوّل). تبنّه لرسم قائمتك." },
+]} />
+
+<h2 id="selection">التحديد والتركيز والحافظة</h2>
+
+<PropsTable cols={["الدالة", "التوقيع", "الوصف"]} rows={[
+  { name: "focus", type: "(at?: 'start'|'end') => void", desc: "يركّز المحرر. من دون وسيطة، لا يضع مؤشرًا إلا إن لم يوجد؛ ومرّر حدًا لإجباره هناك." },
+  { name: "blur", type: "() => void", desc: "يلغي تركيز المحرر ويخفي لوحة المفاتيح البرمجية." },
+  { name: "setCaret", type: "(point?: DocPoint, opts?: { onlyIfUnset }) => void", desc: "يضع مؤشرًا مطويًا عند DocPoint (افتراضيًا 'start')، ويمسح أي تحديد ويعود إلى وضع التحرير. تجعل onlyIfUnset الدالة بلا أثر إن وجد مؤشر. ولا تفعل شيئًا إذا تعذّر حل النقطة." },
+  { name: "setSelection", type: "(range: DocRange | null) => void", desc: "يضع تحديدًا يمتد على DocRange (وتضع DocPoint منفردة مؤشرًا). مرّر null لمسح التحديد والمؤشر معًا وإزالة كل مرئيات التحديد. يعود إلى وضع التحرير، ولا يفعل شيئًا إذا تعذّر حل النطاق." },
+  { name: "copy / cut", type: "(docRange?, selectRange?) => Promise<boolean>", desc: "ينسخ أو يقص DocRange (افتراضيًا: التحديد الحالي). ينقل selectRange التحديد إلى ذلك النطاق عند النسخ، أو يترك المؤشر عند نقطة القص؛ وإلا يُترك التحديد أو يُستعاد. القص خطوة تراجع واحدة." },
+  { name: "paste", type: "() => Promise<boolean>", desc: "يلصق حافظة النظام عند المؤشر أو التحديد في خطوة تراجع واحدة، ويُحل إلى ما إذا فعل شيئًا." },
+]} />
+
+<h2 id="facets">وجها العرض والمضيف</h2>
+
+توجد واجهة المحتوى والأوامر والاستعلام اليومية مباشرة على المقبض. وتُتاح مجموعتان أخريان، أبعدتا عن الجذر لإبقاء الواجهة الشائعة صغيرة، عبر وجهين ضمن نطاقين: `editor.view.*` للهندسة والرسم العابر، و`editor.host.*` للبنية التي لا تحتاج إليها إلا عند بناء واجهة المضيف. كلاهما عام ومستقر وفق الإصدارات الدلالية، ولا تمسّهما روابط React.
+
+<PropsTable cols={["العضو", "التوقيع", "الوصف"]} rows={[
+  { name: "view.coordsAtPos", type: "(point: DocPoint) => { x, y, height } | null", desc: "يحوّل نقطة مستند إلى إحداثيات منفذ العرض (بعد تطبيق التمرير). مرّر 'caret' لإرساء تراكب عند المؤشر. وهو أساس إرساء القوائم والإكمالات." },
+  { name: "view.updateViewport", type: "(patch: Partial<ViewportState>) => void", desc: "يدمج رقعة منفذ عرض (مثل العرض والارتفاع عند تغيير حجم الحاوية) ويعيد الرسم." },
+  { name: "view.getScrollY", type: "() => number", desc: "موضع التمرير الحالي." },
+  { name: "view.scrollToPosition", type: "(point: DocPoint) => void", desc: "يمرر لإظهار نقطة مستند، ويتحدث لغة DocPoint نفسها التي تستخدمها coordsAtPos." },
+  { name: "view.setDecorations", type: "(layer: string, decos: readonly Decoration[]) => void", desc: "يستبدل طبقة زخارف واحدة، وهي التراكب العابر العام (مثل نتائج البحث المميزة ومؤشرات النظراء). الطبقات مفاتيح مبهمة، وتمسحها مصفوفة فارغة. وليست محتوى مستند." },
+  { name: "view.clearDecorations", type: "(layer: string) => void", desc: "يمسح طبقة زخارف واحدة." },
+  { name: "host.setMode", type: "(mode: 'edit'|'select'|'suspended') => void", desc: "يبدّل وضع التفاعل بين العادي، والتحديد فقط (على الهاتف)، والقراءة فقط." },
+  { name: "host.collectOverlays", type: "() => NodeOverlay[]", desc: "واصفات التراكب التي تعلنها العقد للكتل الظاهرة. اربط كل key بمكوّن وثبّته في rect الواصف، وأعد الحساب عند تغير الحالة أو التمرير." },
+  { name: "host.openOverlay", type: "(o: { key, blockId, x, y, data? }) => void", desc: "يفتح تراكبًا يعرّفه المضيف. يخزن المحرك { key, data } كبيانات مبهمة، وتقرأهما العقدة أو العلامة المعلنة عبر key. أخفِه باستخدام closeActiveMenu." },
+  { name: "host.setNodeViewState", type: "(blockId: string, data: unknown | null) => void", desc: "يضبط أو يمسح حالة عرض عابرة للوحة الرسم خاصة بكتلة (مثل مؤشر رفع). تقرؤها العقدة الراسمة؛ وليست محتوى مستند ولا تصدر عملية CRDT." },
+  { name: "host.closeActiveMenu", type: "() => void", desc: "يغلق أي قائمة أو تراكب مفتوح ويخطر المشتركين." },
+  { name: "host.clearLinkHover", type: "() => void", desc: "يخفي تلميح الرابط. يبقيه المحرك مضبوطًا بعد عبور المؤشر إلى النافذة المنبثقة التفاعلية؛ ويمسحه المضيف عند مغادرة المؤشر لها." },
+  { name: "host.restoreFromSnapshot", type: "(blocks: Block[]) => void", desc: "يستبدل المستند من لقطة كتل، مع توليد العمليات وبثها." },
+]} />
+
+<h2 id="theming">السمات</h2>
+
+<PropsTable cols={["الدالة", "التوقيع", "الوصف"]} rows={[
+  { name: "setTheme", type: "(patch: EditorTheme) => void", desc: "يدمج رقعة سمة بعمق فوق السمة الحالية ويعيد الرسم. وهو المسار الوحيد لتغييرات السمة الحية، مثل تبديل الوضع الداكن. راجع السمات." },
+]} />
+
+<h2 id="events">الأحداث</h2>
+
+تشترك `on(event, cb)` وتعيد دالة إلغاء اشتراك. يتلقى مستمع `change` كائن `ChangeTransaction` ‏(`{ isRemote, ops }`)؛ ويتلقى الآخرون `EditorStateSnapshot`، وهي القيمة غير القابلة للتغيير نفسها في `editor.state`.
+
+<PropsTable cols={["الحدث", "وقت الإطلاق", "الحمولة"]} rows={[
+  { name: "change", type: "ChangeTransaction", desc: "عند تغير المستند بالكتابة أو اللصق أو التراجع أو المزامنة البعيدة. الحمولة { isRemote, ops }." },
+  { name: "selectionchange", type: "EditorStateSnapshot", desc: "عند تحرك المؤشر أو التحديد من دون تعديل المستند." },
+  { name: "focus / blur", type: "EditorStateSnapshot", desc: "عند اكتساب لوحة الرسم التركيز أو فقده." },
+]} />
+
+```ts
+const off = editor.on("change", (tx) => {
+  if (tx.isRemote) return;            // ignore edits that came from a peer
+  localStorage.setItem("draft", editor.getMarkdown());
+});
+// later
+off();
+```
+
+<Callout kind="note" title="لا يوجد حدث `sync` على المحرر.">تأتي حالة الاتصال وعدد الأقران من *المزود* لا المحرر؛ فالمزود يملك النقل. اشترك باستخدام `provider.on("sync", …)`. راجع [التعاون](/docs/editor/collaboration).</Callout>
+
+<h2 id="lifecycle">دورة الحياة</h2>
+
+```ts
+const editor = createEditor({ element });
+
+// ... use it ...
+
+// always destroy when the surface unmounts, or you'll leak the canvas
+// layers, the ResizeObserver, the portal, and any providers attached to
+// editor.doc. createEditor's destroy() does the *full* teardown.
+editor.destroy();
+```

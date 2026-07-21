@@ -13,6 +13,8 @@
 
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { ErrorPayload } from "vite";
 import { AlertCircle, Check, Copy, Github, RefreshCw, X } from "lucide-react";
 import {
@@ -32,8 +34,13 @@ function locLabel(err: ViteErr): string | null {
   return err.loc ? `${rel}:${err.loc.line}:${err.loc.column}` : rel;
 }
 
-function buildDiagnostics(err: ViteErr): string {
-  const parts = [`**Build error${err.plugin ? ` (${err.plugin})` : ""}**`, ""];
+function buildDiagnostics(err: ViteErr, t: TFunction): string {
+  const heading = err.plugin
+    ? t("devOverlay.buildErrorPluginParenthetical", "Build error ({{plugin}})", {
+        plugin: err.plugin,
+      })
+    : t("devOverlay.buildError", "Build error");
+  const parts = [`**${heading}**`, ""];
   const loc = locLabel(err);
   if (loc) parts.push(`\`${loc}\``, "");
   parts.push("```", err.frame ? `${err.message}\n\n${err.frame}` : err.message, "```");
@@ -41,11 +48,15 @@ function buildDiagnostics(err: ViteErr): string {
   return parts.join("\n");
 }
 
-function issueUrl(err: ViteErr): string {
-  const title = `[Build] ${err.plugin ? `${err.plugin}: ` : ""}${err.message}`;
-  const body = `Describe what you were doing when this happened:\n\n\n---\n\n${buildDiagnostics(
-    err,
-  )}`;
+function issueUrl(err: ViteErr, t: TFunction): string {
+  const title = t("devOverlay.issueTitle", "[Build] {{plugin}}{{message}}", {
+    plugin: err.plugin ? `${err.plugin}: ` : "",
+    message: err.message,
+  });
+  const body = `${t(
+    "devOverlay.issuePrompt",
+    "Describe what you were doing when this happened:",
+  )}\n\n\n---\n\n${buildDiagnostics(err, t)}`;
   return buildIssueUrl(title, body);
 }
 
@@ -74,6 +85,7 @@ const actionClass =
   "h-6 px-1.5 flex items-center gap-1 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0";
 
 function ViteErrorOverlay() {
+  const { t } = useTranslation();
   const [err, dismiss] = useViteError();
   const [copied, setCopied] = useState(false);
 
@@ -83,7 +95,7 @@ function ViteErrorOverlay() {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(buildDiagnostics(err));
+      await navigator.clipboard.writeText(buildDiagnostics(err, t));
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -103,22 +115,28 @@ function ViteErrorOverlay() {
       >
         <AlertCircle className="size-3.5 shrink-0 text-destructive" />
         <span className="min-w-0 truncate font-mono text-[12px] font-medium text-destructive">
-          {err.plugin ? `Build error · ${err.plugin}` : "Build error"}
+          {err.plugin
+            ? t("devOverlay.buildErrorPlugin", "Build error · {{plugin}}", {
+                plugin: err.plugin,
+              })
+            : t("devOverlay.buildError", "Build error")}
         </span>
         <div className="flex-1" />
         <button type="button" onClick={copy} style={NO_DRAG} className={actionClass}>
           {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-          {copied ? "Copied" : "Copy details"}
+          {copied
+            ? t("devOverlay.copied", "Copied")
+            : t("devOverlay.copyDetails", "Copy details")}
         </button>
         <a
-          href={issueUrl(err)}
+          href={issueUrl(err, t)}
           target="_blank"
           rel="noreferrer noopener"
           style={NO_DRAG}
           className={actionClass}
         >
           <Github className="size-3" />
-          Report issue
+          {t("devOverlay.reportIssue", "Report issue")}
         </a>
         <button
           type="button"
@@ -127,14 +145,14 @@ function ViteErrorOverlay() {
           className={actionClass}
         >
           <RefreshCw className="size-3" />
-          Reload
+          {t("devOverlay.reload", "Reload")}
         </button>
         <button
           type="button"
           onClick={dismiss}
           style={NO_DRAG}
           className={actionClass}
-          aria-label="Dismiss"
+          aria-label={t("devOverlay.dismiss", "Dismiss")}
         >
           <X className="size-3" />
         </button>

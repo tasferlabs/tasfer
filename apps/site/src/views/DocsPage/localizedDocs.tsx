@@ -1,0 +1,54 @@
+"use client";
+
+import { localizedMdx } from "../shared/LocalizedMdx";
+
+import AppGettingStartedEn from "./pages/app/getting-started.mdx";
+import AppPrivacyEn from "./pages/app/privacy.mdx";
+import AppSelfHostingEn from "./pages/app/self-hosting.mdx";
+import AppSyncRelayEn from "./pages/app/sync-relay.mdx";
+import AppTroubleshootingEn from "./pages/app/troubleshooting.mdx";
+import EditorApiCommandsEn from "./pages/editor/api-commands.mdx";
+import EditorApiEditorEn from "./pages/editor/api-editor.mdx";
+import EditorApiReactEn from "./pages/editor/api-react.mdx";
+import EditorApiSchemaEn from "./pages/editor/api-schema.mdx";
+import EditorCollaborationEn from "./pages/editor/collaboration.mdx";
+import EditorConceptsEn from "./pages/editor/concepts.mdx";
+import EditorCustomNodesEn from "./pages/editor/custom-nodes.mdx";
+import EditorFirstEditorEn from "./pages/editor/first-editor.mdx";
+import EditorInstallEn from "./pages/editor/install.mdx";
+import EditorQuickstartEn from "./pages/editor/quickstart.mdx";
+import EditorThemingEn from "./pages/editor/theming.mdx";
+
+import AppGettingStartedAr from "./pages/ar/app/getting-started.mdx";
+import AppPrivacyAr from "./pages/ar/app/privacy.mdx";
+import AppSelfHostingAr from "./pages/ar/app/self-hosting.mdx";
+import AppSyncRelayAr from "./pages/ar/app/sync-relay.mdx";
+import AppTroubleshootingAr from "./pages/ar/app/troubleshooting.mdx";
+import EditorApiCommandsAr from "./pages/ar/editor/api-commands.mdx";
+import EditorApiEditorAr from "./pages/ar/editor/api-editor.mdx";
+import EditorApiReactAr from "./pages/ar/editor/api-react.mdx";
+import EditorApiSchemaAr from "./pages/ar/editor/api-schema.mdx";
+import EditorCollaborationAr from "./pages/ar/editor/collaboration.mdx";
+import EditorConceptsAr from "./pages/ar/editor/concepts.mdx";
+import EditorCustomNodesAr from "./pages/ar/editor/custom-nodes.mdx";
+import EditorFirstEditorAr from "./pages/ar/editor/first-editor.mdx";
+import EditorInstallAr from "./pages/ar/editor/install.mdx";
+import EditorQuickstartAr from "./pages/ar/editor/quickstart.mdx";
+import EditorThemingAr from "./pages/ar/editor/theming.mdx";
+
+export const AppGettingStarted = localizedMdx(AppGettingStartedEn, AppGettingStartedAr);
+export const AppPrivacy = localizedMdx(AppPrivacyEn, AppPrivacyAr);
+export const AppSelfHosting = localizedMdx(AppSelfHostingEn, AppSelfHostingAr);
+export const AppSyncRelay = localizedMdx(AppSyncRelayEn, AppSyncRelayAr);
+export const AppTroubleshooting = localizedMdx(AppTroubleshootingEn, AppTroubleshootingAr);
+export const EditorApiCommands = localizedMdx(EditorApiCommandsEn, EditorApiCommandsAr);
+export const EditorApiEditor = localizedMdx(EditorApiEditorEn, EditorApiEditorAr);
+export const EditorApiReact = localizedMdx(EditorApiReactEn, EditorApiReactAr);
+export const EditorApiSchema = localizedMdx(EditorApiSchemaEn, EditorApiSchemaAr);
+export const EditorCollaboration = localizedMdx(EditorCollaborationEn, EditorCollaborationAr);
+export const EditorConcepts = localizedMdx(EditorConceptsEn, EditorConceptsAr);
+export const EditorCustomNodes = localizedMdx(EditorCustomNodesEn, EditorCustomNodesAr);
+export const EditorFirstEditor = localizedMdx(EditorFirstEditorEn, EditorFirstEditorAr);
+export const EditorInstall = localizedMdx(EditorInstallEn, EditorInstallAr);
+export const EditorQuickstart = localizedMdx(EditorQuickstartEn, EditorQuickstartAr);
+export const EditorTheming = localizedMdx(EditorThemingEn, EditorThemingAr);

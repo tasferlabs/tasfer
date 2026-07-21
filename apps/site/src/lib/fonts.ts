@@ -5,9 +5,13 @@
  *
  * Simplified from apps/web/src/fonts.ts: the editor font-registry plumbing is
  * gone (no canvas editor here), leaving only the dynamic @fontsource imports so
- * the Arabic faces (Noto Sans Arabic + Amiri) are fetched lazily — only when the
- * language is Arabic. The base UI faces (Poppins / Libre Baskerville / Space
- * Grotesk) are imported eagerly in the root layout.
+ * the Arabic faces are fetched lazily — only when the language is Arabic. The
+ * base UI faces (Poppins / Libre Baskerville / Space Grotesk) are imported
+ * eagerly in the root layout.
+ *
+ * Three Arabic faces, by role:
+ *   Noto Sans Arabic     — UI text, backs the Poppins stack
+ *   IBM Plex Sans Arabic — home page display, backs --font-editorial there
  */
 
 let arabicFontsLoaded = false;
@@ -23,8 +27,8 @@ export async function loadArabicFonts(): Promise<void> {
       import("@fontsource/noto-sans-arabic/500.css"),
       import("@fontsource/noto-sans-arabic/600.css"),
       import("@fontsource/noto-sans-arabic/700.css"),
-      import("@fontsource/amiri/400.css"),
-      import("@fontsource/amiri/700.css"),
+      import("@fontsource/ibm-plex-sans-arabic/400.css"),
+      import("@fontsource/ibm-plex-sans-arabic/600.css"),
     ]);
     arabicFontsLoaded = true;
   })();

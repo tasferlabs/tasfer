@@ -1,41 +1,30 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { I18nextProvider } from "react-i18next";
-import { getI18n, detectLng } from "@/lib/i18n/config";
+import { createI18n, type Lng } from "@/lib/i18n/config";
 import { loadArabicFonts } from "@/lib/fonts";
-
-const i18n = getI18n();
 
 /**
  * Wraps the app in react-i18next's provider.
  *
- * Language detection runs client-side (after hydration) to keep the server and
- * first-client render identical ("en"). When the detected language differs, it
- * switches via changeLanguage; the document `dir` is kept in sync (ar → rtl),
- * mirroring apps/web/src/main.tsx. The pre-hydration script in app/layout.tsx
- * has already applied the same lang/dir, so this is a re-affirm, not a flip.
+ * The route locale initializes an instance synchronously, so static HTML and
+ * hydration render the same language. Instances are scoped to the provider;
+ * concurrent locale renders never mutate shared module state.
  */
-export function I18nProvider({ children }: { children: React.ReactNode }) {
+export function I18nProvider({
+  children,
+  lng,
+}: {
+  children: React.ReactNode;
+  lng: Lng;
+}) {
+  const [i18n] = useState(() => createI18n(lng));
+
   useEffect(() => {
-    const applyLng = () => {
-      document.documentElement.dir = i18n.dir();
-      document.documentElement.lang = i18n.language;
-      if (i18n.language.split("-")[0] === "ar") void loadArabicFonts();
-    };
-
-    const detected = detectLng();
-    if (detected !== i18n.language) {
-      void i18n.changeLanguage(detected);
-    } else {
-      applyLng();
-    }
-
-    i18n.on("languageChanged", applyLng);
-    return () => {
-      i18n.off("languageChanged", applyLng);
-    };
-  }, []);
+    document.cookie = `locale=${lng}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    if (lng === "ar") void loadArabicFonts();
+  }, [lng]);
 
   return <I18nextProvider i18n={i18n}>{children}</I18nextProvider>;
 }

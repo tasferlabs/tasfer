@@ -17,8 +17,13 @@
 // per key, matching i18next's `fallbackLng: "en"`.
 //
 // The generated files carry a DO NOT EDIT header. Hand-authored, non-translatable
-// config (app_name, package_name, custom_url_scheme, …) stays in strings.xml;
-// Android merges every values/*.xml, so the two coexist.
+// config (package_name, custom_url_scheme, …) stays in strings.xml; Android
+// merges every values/*.xml, so the two coexist.
+//
+// app_name / title_activity_main are generated rather than config: the brand is
+// written "تصفير" in Arabic, so the launcher label is translatable copy. Android
+// picks it by DEVICE locale, so an Arabic phone shows تصفير on the home screen
+// regardless of the language chosen inside the app.
 //
 // The same LOCALES list also emits res/xml/locales_config.xml, which is what
 // makes the app appear under Android 13+ Settings → Apps → Language. Deriving it
@@ -51,10 +56,14 @@ const ANDROID_RES = join(
 // an entry here and the key to translation.json. `loading` reuses the shared
 // `common.loading` key; camera strings are native-only, kept under `native.*`.
 const ANDROID_STRINGS = {
+  app_name: "brand.name",
+  title_activity_main: "brand.name",
   loading: "common.loading",
   camera_permission_required: "native.cameraPermissionRequired",
   camera_open_failed: "native.cameraOpenFailed",
   image_process_failed: "native.imageProcessFailed",
+  clipboard_copied_text: "native.clipboardCopiedText",
+  clipboard_cut_text: "native.clipboardCutText",
 };
 
 // Locale -> res/values* directory. The first entry is the default/fallback that

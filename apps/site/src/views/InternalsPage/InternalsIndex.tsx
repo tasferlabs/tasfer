@@ -12,16 +12,15 @@ import "./InternalsPage.css";
 
 const REPO_URL = "https://github.com/hamza512b/tasfer";
 
-const MONTHS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
-
-/** "2026-03-25" → "25 Mar 2026" (parsed as a plain date, no timezone drift). */
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return iso;
-  return `${d} ${MONTHS[m - 1]} ${y}`;
+  return new Intl.DateTimeFormat("en", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
 /**
@@ -33,7 +32,8 @@ function formatDate(iso: string): string {
  * reachable only by direct URL.
  */
 export default function InternalsIndex() {
-  const { t } = useTranslation();
+  const { i18n } = useTranslation();
+  const t = i18n.getFixedT("en");
 
   useEffect(() => {
     window.scrollTo({ top: 0 });
@@ -41,7 +41,7 @@ export default function InternalsIndex() {
 
   return (
     <PkgMgrProvider>
-      <div className="dx-page ix-blog">
+      <div className="dx-page ix-blog" lang="en" dir="ltr">
         <DocsHeader />
         <main className="ix-main">
           <article className="dx-article ix-article">

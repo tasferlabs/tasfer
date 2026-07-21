@@ -124,11 +124,12 @@ const Icons = {
 
 function ThemeToggle() {
   const { effectiveTheme, setTheme } = useTheme();
+  const { t } = useTranslation();
   const isDark = effectiveTheme === "dark";
   return (
     <button
       className="lp-theme-btn"
-      aria-label="toggle theme"
+      aria-label={t("common.toggleTheme", "Toggle theme")}
       onClick={() => setTheme(isDark ? "light" : "dark")}
     >
       {isDark ? <Icons.Sun /> : <Icons.Moon />}
@@ -633,9 +634,13 @@ export default function HomePage() {
     <div className="lp-page">
       <header className={"lp-header" + (scrolled ? " is-scrolled" : "")}>
         <div className="lp-header-inner">
-          <Link to="/home" className="lp-wordmark" aria-label="Tasfer home">
+          <Link
+            to="/home"
+            className="lp-wordmark"
+            aria-label={t("home.lp.a11y.home", "Tasfer home")}
+          >
             <BrandMark className="lp-wordmark-mark" />
-            tasfer
+            {t("brand.wordmark", "tasfer")}
           </Link>
           <nav className="lp-nav">
             <Link to="/docs">{t("home.lp.nav.docs", "docs")}</Link>
@@ -1011,7 +1016,9 @@ export default function HomePage() {
         <div className="lp-footer-inner">
           <div className="lp-footer-brand">
             <BrandMark style={{ width: 18, height: 18 }} />
-            <span className="lp-footer-word">tasfer</span>
+            <span className="lp-footer-word">
+              {t("brand.wordmark", "tasfer")}
+            </span>
           </div>
           <div className="lp-footer-links">
             <Link to="/docs/internals/manifest">

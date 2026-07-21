@@ -1,0 +1,124 @@
+{/* @tasfer/editor docs — Theming the canvas. */}
+
+import { Callout, Lede, PropsTable } from "../../../docsComponents";
+
+<Lede>
+  لأن المحرر يرسم بكسلاته بنفسه، تُضبط السمة عبر كائن `EditorTheme` عادي:
+  **رموز** ألوان دلالية، وتجاوز **styles** جزئي عميق، وسجل **fonts**؛ لا عبر
+  محددات CSS داخل DOM لا تتحكم فيه.
+</Lede>
+
+<h2 id="tokens">كائن السمة</h2>
+
+مرّر `theme` إلى `createEditor`. توجد الألوان تحت `tokens`؛ وكل حقل اختياري ويُدمج فوق لوحة `DEFAULT_TOKENS` المدمجة، فلا تضبط إلا ما تريد تغييره.
+
+```ts
+import { createEditor } from "@tasfer/editor";
+
+const editor = createEditor({
+  element,
+  theme: {
+    // Semantic color tokens — merged over DEFAULT_TOKENS.
+    tokens: {
+      text: "#1c1c1f",
+      heading: "#09090b",
+      cursor: "#1db984",
+      selection: "rgba(29,185,132,0.30)",
+      link: "#1db984",
+      codeBackground: "#f4f4f5",
+    },
+    // The selected font family key + the CSS stacks it can resolve to.
+    // (The host is responsible for actually loading the faces.)
+    fontFamily: "serif",
+    fonts: { families: { serif: '"Libre Baskerville", Georgia, serif' } },
+  },
+});
+```
+
+<Callout kind="note" title="tokens في مقابل styles.">تمثل `tokens` الألوان الدلالية (النص والعنوان والمؤشر والتحديد والرابط و`codeBackground` وغيرها). ولمزيد من التحكم، مثل أحجام الخطوط لكل كتلة وحشوة لوحة الرسم وهندسة شريط التمرير، مرّر كائن `styles` جزئيًا عميقًا يتجاوز أي قيمة منفردة في شجرة الأنماط المحسوبة. تُصدّر `resolveTheme` و`mergeTheme` و`DEFAULT_TOKENS` للمضيفين الذين يريدون حساب النتيجة مسبقًا أو فحصها.</Callout>
+
+<Callout kind="note" title="السمة لكل نوع، ويمكن لكل كتلة تجاوزها.">تمثل `styles.blocks` هنا الطبقة الثابتة على مستوى المستند؛ فهي تنسّق كل كتل النوع بالطريقة نفسها. لتنسيق كتلة واحدة، عيّن حاوية `style` الخاصة بها عبر `setBlock({ style: { … } })` (راجع [الأوامر](/docs/editor/api-commands)). ترتيب التغليب هو: افتراضي العقدة ◁ هذه السمة ◁ `style` الخاص بالكتلة.</Callout>
+
+<h2 id="live">تحديث السمة أثناء التشغيل</h2>
+
+يدمج `editor.setTheme(patch)` رقعةً بعمق في السمة الحالية ويعيد الرسم؛ وهو المسار الوحيد لتغيير السمة أثناء التشغيل، مثل تبديل الوضع الداكن:
+
+```ts
+editor.setTheme({
+  tokens: { text: "#e6e6e6", heading: "#ffffff", background: "#0b0b0c" },
+});
+```
+
+<h2 id="css-vars">التحكم بها عبر متغيرات CSS</h2>
+
+لا يقرأ المحرك **DOM مطلقًا**؛ فلا توجد قيمة `"inherit"`. لمتابعة خصائص CSS المخصصة، يقرأ المضيف قيمها ويمررها في `tokens`: مرة عند التثبيت، ومرة أخرى كلما تبدلت فئة السمة.
+
+```ts
+function tokensFromCss(el: HTMLElement) {
+  const v = getComputedStyle(el);
+  return {
+    text: v.getPropertyValue("--cy-editor-text").trim(),
+    cursor: v.getPropertyValue("--cy-editor-cursor").trim(),
+    selection: v.getPropertyValue("--cy-editor-selection").trim(),
+  };
+}
+
+const editor = createEditor({ element, theme: { tokens: tokensFromCss(element) } });
+
+// Re-read on a dark-mode class flip on <html> and push the new tokens in.
+new MutationObserver(() => editor.setTheme({ tokens: tokensFromCss(element) }))
+  .observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+```
+
+<Callout kind="note" title="مطابقة مظهر تصفير.">يمرر مضيف تصفير رموز التصميم `--cy-editor-*` مباشرةً إلى `tokens` بهذه الطريقة بالضبط، لذا لا يحتاج تضمين المحرر ضمن أي سطح من أسطح تصفير إلى لوحة ألوان خاصة به؛ بل يحصل على المتغيرات نفسها التي تستخدمها بقية الواجهة.</Callout>
+
+<h2 id="metrics">المقاييس مكانها `styles`</h2>
+
+الأحجام والمسافات ليست رموزًا؛ بل قيم منفردة في شجرة `styles`، ويمكن تجاوز كل منها لكل مثيل:
+
+<PropsTable cols={["المسار", "الافتراضي", "الوصف"]} rows={[
+  { name: "styles.blocks.paragraph.fontSize", type: "16", desc: "حجم الفقرة الأساسي بالبكسل. لكل مستوى عنوان قيمة fontSize خاصة به (30 / 24 / 20، أي مقياس نسب للنص 1.875/1.5/1.25em)." },
+  { name: "styles.blocks.paragraph.lineHeight", type: "1.5", desc: "مضاعف ارتفاع السطر للكتلة بلا وحدة. القيمة الافتراضية لكتل المتن 1.5، وللعناوين 1.3 الأضيق." },
+  { name: "styles.blocks.heading1.paddingTop", type: "32", desc: "المسافة فوق أول سطر في الكتلة بالبكسل (نحو 1em من حجم العنوان نفسه؛ و26/20 للعنوانين heading2/3، و0 لكتل المتن). إيقاع النص: مساحة فوق العنوان أكبر منها تحته." },
+  { name: "styles.blocks.code.marginTop / marginBottom", type: "8 / 16", desc: "هوامش خارجية تفصل السطح المملوء لكتلة البطاقة عن النص المجاور (توجد الحقول نفسها في الاقتباس والرياضيات). تُصفّر عند حافة مشتركة مع بطاقة أخرى، فتظل البطاقات المتراصة متلاصقة." },
+  { name: "styles.canvas.paddingTop / paddingBottom", type: "4 / 80", desc: "حشوة لوحة الرسم العمودية بالبكسل." },
+  { name: "styles.canvas.paddingLeft / paddingRight", type: "40 / 40", desc: "حشوة لوحة الرسم الأفقية. عرض عمود النص هو عرض الحاوية مطروحًا منه هاتان القيمتان؛ ولا يوجد رمز لعرض أقصى ثابت." },
+]} />
+
+```ts
+createEditor({
+  element,
+  theme: {
+    styles: {
+      blocks: { paragraph: { fontSize: 17 } },
+      canvas: { paddingLeft: 64, paddingRight: 64 },
+    },
+  },
+});
+```
+
+<h2 id="caret-selection">المؤشر والتحديد والعنصر النائب</h2>
+
+يمثل كل من المؤشر وإبراز التحديد ومؤشرات المتعاونين البعيدين والعناصر النائبة للكتل الفارغة قيمةً منفردة في `styles`؛ فاضبطها لكل مثيل من دون لمس DOM.
+
+<PropsTable cols={["المسار", "الافتراضي", "الوصف"]} rows={[
+  { name: "styles.cursor.width / blinkInterval", type: "2 / 530", desc: "عرض شريط المؤشر المحلي (بالبكسل) وفترة وميضه (بالمللي ثانية). تحرّك قيمة landingDuration (190ms) تحوّل «هبوط» المؤشر؛ اضبطها على 0 لتعطيله." },
+  { name: "styles.selection.cornerRadius", type: "0", desc: "نصف قطر زوايا مستطيلات إبراز التحديد (بالبكسل). تحافظ القيمة 0 على مستطيلات حادة؛ ويُدوّر مستطيل كل سطر على حدة. تمثل opacity (0.2) شفافية التعبئة." },
+  { name: "styles.selection.remoteOpacity", type: "0.2", desc: "شفافية تعبئة تحديد نظير بعيد حين لا تحدد زخرفته قيمةً. تُطبق باتساق على تحديدات النص وكتل الصور والفواصل (الذرية)." },
+  { name: "styles.remoteCursor.caretWidth", type: "2", desc: "عرض شريط مؤشر النظير (بالبكسل)، مستقلًا عن المؤشر المحلي. تمثل labelGap (2px) الفجوة فوق المؤشر حتى شارة الاسم." },
+  { name: "styles.placeholder.showUnfocused", type: "false", desc: "عندما تكون true، تعرض كل كتلة فارغة عنصرها النائب، لا الكتلة التي تحمل المؤشر وحدها." },
+]} />
+
+يُضبط مظهر العنصر النائب لكل نوع كتلة؛ إذ يحمل نمط النص المحسوب لكل كتلة تجاوزًا اختياريًا باسم `placeholder`: اللون `color` (وقيمته الافتراضية `styles.placeholder.color`)، ومقياس الخط `fontScale` (مضاعفًا لحجم خط الكتلة نفسها)، ووزن الخط `fontWeight`.
+
+```ts
+editor.setTheme({
+  styles: {
+    selection: { cornerRadius: 4 },
+    blocks: {
+      heading1: { placeholder: { color: "#b9b9c2" } },
+      quote: { placeholder: { fontScale: 0.8 } }, // a smaller ghost hint
+    },
+  },
+});
+```
