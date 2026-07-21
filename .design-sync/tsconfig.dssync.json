@@ -1,0 +1,10 @@
+{
+  "//": "Minimal path map for the design-sync esbuild bundle. Deliberately omits the app tsconfig's '*' and 'react' mappings (they'd redirect bare deps and react into @types). base is the repo root.",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["apps/web/src/*"],
+      "@shared/*": ["shared/*"]
+    }
+  }
+}
