@@ -8,7 +8,7 @@ Tasfer is one codebase. The editor, the document model, the sync engine. All of 
 
 ## One interface
 
-So there is a single interface, `TasferBridge`. Each native shell injects `window.TasferBridge` with the exact same shape, `app`, `clipboard`, `haptic`, `editor`, `navigation`, `files`, `storage`. Every method returns a Promise, so a caller never branches on platform; it awaits and moves on.
+So there is a single interface, `TasferBridge`. Each native shell injects `window.TasferBridge` with the exact same shape, `clipboard`, `haptic`, `editor`, `navigation`, `files`, `storage`. Every method returns a Promise, so a caller never branches on platform; it awaits and moves on.
 
 On plain web there is no bridge at all. `getBridge()` returns `null`, and each call site degrades on its own terms, haptics fall back to the Vibration API, sharing falls back to a download. Web is not a special case bolted on; it is just the platform that answers the fewest calls.
 
@@ -23,22 +23,6 @@ The implementations behind that interface are the platform handlers. They honor 
   menus and pushing the color scheme to `nativeTheme`.
 
 What does not exist simply fallbacks.
-
-## Text the WebView never draws
-
-A permission dialog, a toast, the macOS menu bar, the iOS Settings page: the OS
-draws these, so they cannot read i18next at runtime. They are still translated
-from the same store. Build-time generators read
-`public/app/locales/<lng>/translation.json` and emit each platform's native
-format — Android string resources, an iOS String Catalog and `Root.strings`, a TS
-table for the Electron main process — so there is one place to translate and no
-parallel copy to drift.
-
-Which language they use is the in-app picker's, not the device's. `app.setLocale`
-pushes it down on startup and on every change, and each shell applies it its own
-way (`AppCompatDelegate.setApplicationLocales`, `AppleLanguages`, a menu rebuild).
-Without that, picking العربية on an English phone left Arabic text wrapped in
-English system prompts.
 
 ## Why this holds
 
