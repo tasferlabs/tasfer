@@ -26,6 +26,7 @@
 		A1000001TASFER000000000009 /* NoAccessoryWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000009 /* NoAccessoryWebView.swift */; };
 		A1000001TASFER000000000011 /* ContextMenuBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000011 /* ContextMenuBridge.swift */; };
 		A1000001TASFER000000000013 /* SqliteBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000013 /* SqliteBridgePlugin.swift */; };
+		A1000001TASFER000000000014 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000014 /* InfoPlist.xcstrings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -51,6 +52,7 @@
 		A1000002TASFER000000000009 /* NoAccessoryWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoAccessoryWebView.swift; sourceTree = "<group>"; };
 		A1000002TASFER000000000011 /* ContextMenuBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextMenuBridge.swift; sourceTree = "<group>"; };
 		A1000002TASFER000000000013 /* SqliteBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqliteBridgePlugin.swift; sourceTree = "<group>"; };
+		A1000002TASFER000000000014 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -103,6 +105,7 @@
 				A100000400000000000000B1 /* Settings.bundle */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
+				A1000002TASFER000000000014 /* InfoPlist.xcstrings */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
@@ -156,6 +159,7 @@
 			knownRegions = (
 				en,
 				Base,
+				ar,
 			);
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
@@ -182,6 +186,7 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+				A1000001TASFER000000000014 /* InfoPlist.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
