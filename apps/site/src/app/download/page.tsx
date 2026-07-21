@@ -4,7 +4,7 @@ import DownloadPage from "@/views/DownloadPage/DownloadPage";
 export const metadata: Metadata = {
   title: "Download",
   description:
-    "Get Tasfer — the local-first, end-to-end encrypted markdown editor. Run it in your browser today; native desktop and mobile builds are on the way.",
+    "Download Tasfer for macOS, Windows, or Linux — or open it in your browser. No account, no telemetry; your notes stay on your own disk.",
   alternates: { canonical: "/download" },
 };
 
