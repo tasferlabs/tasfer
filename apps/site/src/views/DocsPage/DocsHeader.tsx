@@ -10,11 +10,12 @@ const REPO_URL = "https://github.com/hamza512b/tasfer";
 
 export function ThemeToggle() {
   const { effectiveTheme, setTheme } = useTheme();
+  const { t } = useTranslation();
   const isDark = effectiveTheme === "dark";
   return (
     <button
       className="dx-theme-btn"
-      aria-label="toggle theme"
+      aria-label={t("common.toggleTheme", "Toggle theme")}
       onClick={() => setTheme(isDark ? "light" : "dark")}
     >
       {isDark ? <Icons.Sun /> : <Icons.Moon />}
@@ -37,13 +38,21 @@ export function DocsHeader({
     <header className="dx-header">
       <div className="dx-header-inner">
         {onMenu ? (
-          <button className="dx-menu-btn" aria-label="open navigation" onClick={onMenu}>
+          <button
+            className="dx-menu-btn"
+            aria-label={t("docs.a11y.openNavigation", "Open navigation")}
+            onClick={onMenu}
+          >
             <Icons.Menu />
           </button>
         ) : null}
-        <Link className="dx-wordmark" to="/home" aria-label="Tasfer docs home">
+        <Link
+          className="dx-wordmark"
+          to="/home"
+          aria-label={t("docs.a11y.home", "Tasfer documentation home")}
+        >
           <BrandMark className="dx-wordmark-mark" />
-          tasfer
+          {t("brand.wordmark", "tasfer")}
         </Link>
         <span className="dx-wordmark-tag">{t("docs.tag", "docs")}</span>
         <span className="dx-header-spacer" />

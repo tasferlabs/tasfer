@@ -49,6 +49,10 @@ const SETTINGS_BUNDLE_DIR = join(IOS_APP_DIR, "Settings.bundle");
 // Info.plist key -> translation key. Adding a localized Info.plist string means
 // adding an entry here and the key to translation.json.
 const IOS_INFOPLIST = {
+  // The brand is written "تصفير" in Arabic, so the home-screen label is
+  // translatable copy. iOS picks it by DEVICE locale, so an Arabic phone shows
+  // تصفير regardless of the language chosen inside the app.
+  CFBundleDisplayName: "brand.name",
   NSCameraUsageDescription: "native.cameraUsageDescription",
   NSPhotoLibraryUsageDescription: "native.photoLibraryUsageDescription",
 };

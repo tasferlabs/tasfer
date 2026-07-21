@@ -44,6 +44,12 @@
   text-decoration: none;
 }
 
+/* In Arabic the wordmark reads "تصفير" — a cursive script, where the Latin
+   negative tracking crowds the joins. */
+[dir="rtl"] .privacy-logo {
+  letter-spacing: normal;
+}
+
 .privacy-nav-back {
   display: inline-flex;
   align-items: center;

@@ -510,6 +510,7 @@ export function SidebarContent({
       const confirmed = await getConfirmation({
         title: t("page.movePage", "Move page"),
         description: t(
+          "page.confirmMoveToSpace",
           'Move this page to "{{targetName}}"? All sub-pages will also be moved.',
           { targetName },
         ),

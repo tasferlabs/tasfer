@@ -1,22 +1,29 @@
 "use client";
 
 import NextLink from "next/link";
+import { useParams } from "next/navigation";
 import type { ComponentProps } from "react";
+import { isLng } from "@/lib/i18n/locales";
 
 type NextLinkProps = ComponentProps<typeof NextLink>;
 
 /**
- * Drop-in replacement for react-router-dom's `<Link>`.
+ * Locale-aware wrapper around Next.js `<Link>`.
  *
- * The marketing/docs components were written against react-router and use
- * `<Link to="/docs/...">`. This shim maps `to` → next/link's `href` so every
- * call site stays unchanged — only the import path swaps to `@/components/Link`.
+ * View components use locale-neutral paths such as `/docs/...`; the active
+ * App Router `[lang]` parameter is added here so links stay in the same locale.
  */
 export function Link({
   to,
   ...rest
 }: Omit<NextLinkProps, "href"> & { to: NextLinkProps["href"] }) {
-  return <NextLink href={to} {...rest} />;
+  const params = useParams<{ lang?: string }>();
+  const lang = params.lang;
+  const href =
+    typeof to === "string" && to.startsWith("/") && lang && isLng(lang)
+      ? `/${lang}${to}`
+      : to;
+  return <NextLink href={href} {...rest} />;
 }
 
 export default Link;

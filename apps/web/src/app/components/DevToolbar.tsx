@@ -9,6 +9,8 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   isDevToolsEnabled,
   subscribeDevTools,
@@ -60,18 +62,20 @@ const SQL_HISTORY_MAX = 50;
 const READ_PREFIX = /^\s*(SELECT|WITH|EXPLAIN|PRAGMA)\b/i;
 const WRITE_KEYWORD = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)\b/i;
 
-async function executeQuery(sql: string): Promise<QueryResult> {
+async function executeQuery(
+  sql: string,
+  messages: { empty: string; readOnly: string },
+): Promise<QueryResult> {
   const db = getDb();
   const trimmed = sql.trim();
-  if (!trimmed) return { ok: false, error: "Empty query" };
+  if (!trimmed) return { ok: false, error: messages.empty };
 
   // Devtools are read-only so they can never destroy document state. Refuse
   // anything that isn't a plain read; the query path uses `db.query` only.
   if (!READ_PREFIX.test(trimmed) || WRITE_KEYWORD.test(trimmed)) {
     return {
       ok: false,
-      error:
-        "Read-only mode — only SELECT / WITH / EXPLAIN / PRAGMA queries are allowed.",
+      error: messages.readOnly,
     };
   }
 
@@ -312,15 +316,23 @@ function classifyType(declared: string): ColType {
 }
 
 /** Short label for column type badge */
-const TYPE_BADGE: Record<ColType, { label: string; color: string }> = {
-  text: { label: "Abc", color: "text-emerald-400" },
-  integer: { label: "123", color: "text-blue-400" },
-  real: { label: "1.0", color: "text-sky-400" },
-  boolean: { label: "T/F", color: "text-amber-400" },
-  blob: { label: "Bin", color: "text-muted-foreground" },
-  json: { label: "{ }", color: "text-violet-400" },
-  datetime: { label: "Cal", color: "text-orange-400" },
+const TYPE_BADGE: Record<ColType, { color: string }> = {
+  text: { color: "text-emerald-400" },
+  integer: { color: "text-blue-400" },
+  real: { color: "text-sky-400" },
+  boolean: { color: "text-amber-400" },
+  blob: { color: "text-muted-foreground" },
+  json: { color: "text-violet-400" },
+  datetime: { color: "text-orange-400" },
 };
+
+function typeBadgeLabel(type: ColType, t: TFunction): string {
+  if (type === "blob") return t("devInspector.database.binary", "Binary");
+  if (type === "datetime") return t("devInspector.database.date", "Date");
+  return { text: "Abc", integer: "123", real: "1.0", boolean: "T/F", json: "{ }" }[
+    type
+  ];
+}
 
 function getDb() {
   return getPlatform().db;
@@ -398,17 +410,20 @@ function fmtBytes(b: number): string {
   return `${(b / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-function fmtRelTime(ts: number): string {
+function fmtRelTime(ts: number, t: TFunction): string {
   const diff = Date.now() - ts;
   const s = Math.floor(diff / 1000);
-  if (s < 10) return "just now";
-  if (s < 60) return `${s}s ago`;
+  if (s < 10) return t("devInspector.time.justNow", "just now");
+  if (s < 60)
+    return t("devInspector.time.secondsAgo", "{{count}}s ago", { count: s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60)
+    return t("devInspector.time.minutesAgo", "{{count}}m ago", { count: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24)
+    return t("devInspector.time.hoursAgo", "{{count}}h ago", { count: h });
   const d = Math.floor(h / 24);
-  return `${d}d ago`;
+  return t("devInspector.time.daysAgo", "{{count}}d ago", { count: d });
 }
 
 function fmtTime(ts: number): string {
@@ -433,9 +448,9 @@ const LEVEL_COLORS: Record<LogLevel, string> = {
   debug: "text-muted-foreground",
 };
 
-const DIR_STYLE: Record<NetDirection, { label: string; color: string }> = {
-  send: { label: "OUT", color: "text-blue-400" },
-  recv: { label: "IN", color: "text-emerald-400" },
+const DIR_STYLE: Record<NetDirection, { color: string }> = {
+  send: { color: "text-blue-400" },
+  recv: { color: "text-emerald-400" },
 };
 
 /** Shared refresh/reload glyph used by the database, query, crdt, and peers tabs. */
@@ -609,6 +624,7 @@ const PANEL_MAX_H_VH = 80; // percent of viewport
 const PANEL_DEFAULT_H = 520;
 
 export function DevToolbar() {
+  const { t } = useTranslation();
   const devToolsEnabled = useDevToolsEnabled();
   // Full-screen on touch devices (phones/tablets), not on narrow desktop windows.
   const isTouch = useResponsive("(pointer: coarse)");
@@ -933,7 +949,13 @@ export function DevToolbar() {
     setQueryRunning(true);
     setQueryResult(null);
     try {
-      const result = await executeQuery(trimmed);
+      const result = await executeQuery(trimmed, {
+        empty: t("devInspector.query.empty", "Empty query"),
+        readOnly: t(
+          "devInspector.query.readOnly",
+          "Read-only mode — only SELECT / WITH / EXPLAIN / PRAGMA queries are allowed.",
+        ),
+      });
       setQueryResult(result);
       // Add to history (dedup)
       setSqlHistory((prev) => {
@@ -945,7 +967,7 @@ export function DevToolbar() {
     } finally {
       setQueryRunning(false);
     }
-  }, [sql, queryRunning]);
+  }, [sql, queryRunning, t]);
 
   const filteredLogs = logs.filter((l) => {
     if (levelFilter !== "all" && l.level !== levelFilter) return false;
@@ -1055,7 +1077,7 @@ export function DevToolbar() {
   const peersSummary =
     connectedPeerNames.length > 0
       ? connectedPeerNames.join(", ")
-      : "No peers connected";
+      : t("devInspector.peers.noneConnected", "No peers connected");
 
   return (
     <AnimatePresence mode="wait">
@@ -1115,25 +1137,34 @@ export function DevToolbar() {
             <div className="w-px h-3 bg-border shrink-0 mx-0.5" />
 
             <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar min-w-0 flex-1">
-              {(["database", "logs", "network", "crdt", "peers", "editor"] as Tab[]).map((t) => (
+              {(["database", "logs", "network", "crdt", "peers", "editor"] as Tab[]).map((tabId) => (
                 <button
-                  key={t}
-                  onClick={() => setTab(t)}
+                  key={tabId}
+                  onClick={() => setTab(tabId)}
                   className={cn(
                     "relative px-2 py-px rounded text-[10px] capitalize transition-colors whitespace-nowrap shrink-0",
-                    tab === t
+                    tab === tabId
                       ? "text-background font-medium"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted",
                   )}
                 >
-                  {tab === t && (
+                  {tab === tabId && (
                     <motion.span
                       layoutId={isResizing ? undefined : "devtool-tab"}
                       className="absolute inset-0 bg-foreground rounded"
                       transition={{ type: "spring", damping: 30, stiffness: 500 }}
                     />
                   )}
-                  <span className="relative z-10">{t}</span>
+                  <span className="relative z-10">
+                    {{
+                      database: t("devInspector.tabs.database", "Database"),
+                      logs: t("devInspector.tabs.logs", "Logs"),
+                      network: t("devInspector.tabs.network", "Network"),
+                      crdt: t("devInspector.tabs.crdt", "CRDT"),
+                      peers: t("devInspector.tabs.peers", "Peers"),
+                      editor: t("devInspector.tabs.editor", "Editor"),
+                    }[tabId]}
+                  </span>
                 </button>
               ))}
             </div>
@@ -1185,7 +1216,9 @@ export function DevToolbar() {
                         : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    {v}
+                    {v === "tables"
+                      ? t("devInspector.database.tables", "Tables")
+                      : t("devInspector.database.query", "Query")}
                   </button>
                 ))}
 
@@ -1223,7 +1256,7 @@ export function DevToolbar() {
                             setSearch(input);
                           }
                         }}
-                        placeholder="Filter..."
+                        placeholder={t("devInspector.filter", "Filter…")}
                         className="h-5 w-full ps-7 pe-5 text-[11px] rounded bg-transparent text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
                       />
                       {input && (
@@ -1271,7 +1304,7 @@ export function DevToolbar() {
                       ) : (
                         <Play className="w-3 h-3" />
                       )}
-                      Run
+                      {t("devInspector.query.run", "Run")}
                     </button>
                     <span className="text-[10px] text-muted-foreground/50">
                       {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}
@@ -1281,21 +1314,28 @@ export function DevToolbar() {
                     {queryResult && queryResult.ok && (
                       <>
                         <span className="text-[10px] text-muted-foreground tabular-nums">
-                          {queryResult.rows.length} row
-                          {queryResult.rows.length !== 1 ? "s" : ""} in{" "}
-                          {queryResult.time.toFixed(1)}ms
+                          {t(
+                            "devInspector.query.resultSummary",
+                            "{{count}} rows in {{time}}ms",
+                            {
+                              count: queryResult.rows.length,
+                              time: queryResult.time.toFixed(1),
+                            },
+                          )}
                         </span>
                         <button
                           onClick={copyQueryResult}
                           className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                         >
-                          {queryCopied ? "Copied!" : "Copy"}
+                          {queryCopied
+                            ? t("devInspector.copied", "Copied!")
+                            : t("devInspector.copy", "Copy")}
                         </button>
                         <button
                           onClick={exportQueryResult}
                           className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                         >
-                          Export
+                          {t("devInspector.export", "Export")}
                         </button>
                       </>
                     )}
@@ -1307,7 +1347,7 @@ export function DevToolbar() {
                         }}
                         className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                       >
-                        Clear history
+                        {t("devInspector.query.clearHistory", "Clear history")}
                       </button>
                     )}
                   </>
@@ -1319,7 +1359,11 @@ export function DevToolbar() {
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-600 dark:text-yellow-400 shrink-0">
                   <AlertTriangle className="w-3 h-3 shrink-0" />
                   <span className="text-[11px] flex-1">
-                    {pendingMigrations} pending migration{pendingMigrations !== 1 ? "s" : ""}
+                    {t(
+                      "devInspector.database.pendingMigrations",
+                      "{{count}} pending migrations",
+                      { count: pendingMigrations },
+                    )}
                   </span>
                   <button
                     onClick={runMigrations}
@@ -1330,7 +1374,9 @@ export function DevToolbar() {
                       "disabled:opacity-40 disabled:pointer-events-none",
                     )}
                   >
-                    {migrating ? "Applying..." : "Apply"}
+                    {migrating
+                      ? t("devInspector.database.applying", "Applying…")
+                      : t("devInspector.database.apply", "Apply")}
                   </button>
                 </div>
               )}
@@ -1368,7 +1414,7 @@ export function DevToolbar() {
                                             badge.color,
                                           )}
                                         >
-                                          {badge.label}
+                                          {typeBadgeLabel(meta.type, t)}
                                         </span>
                                       )}
                                       {info.pk.includes(col) && (
@@ -1425,7 +1471,9 @@ export function DevToolbar() {
                                   colSpan={info.columns.length + 1}
                                   className="px-3 py-8 text-center text-muted-foreground/50 text-xs"
                                 >
-                                  {search ? "No matching rows" : "Empty table"}
+                                  {search
+                                    ? t("devInspector.database.noMatchingRows", "No matching rows")
+                                    : t("devInspector.database.emptyTable", "Empty table")}
                                 </td>
                               </tr>
                             )}
@@ -1674,7 +1722,7 @@ export function DevToolbar() {
                                     colSpan={qCols.length + 1}
                                     className="px-3 py-8 text-center text-muted-foreground/50 text-xs"
                                   >
-                                    Query returned no rows
+                                    {t("devInspector.query.noRows", "Query returned no rows")}
                                   </td>
                                 </tr>
                               )}
@@ -1693,10 +1741,10 @@ export function DevToolbar() {
                           {navigator.platform.includes("Mac")
                             ? "\u2318"
                             : "Ctrl"}
-                          +Enter to execute
+                          {t("devInspector.query.enterToExecute", "+Enter to execute")}
                         </p>
                         <p className="text-[10px] text-muted-foreground/25 mt-1">
-                          Alt+\u2191\u2193 to browse history
+                          {t("devInspector.query.browseHistory", "Alt+↑↓ to browse history")}
                         </p>
                       </div>
                     </div>
@@ -1726,7 +1774,7 @@ export function DevToolbar() {
                           : "text-muted-foreground hover:text-foreground",
                       )}
                     >
-                      {l}
+                      {l === "all" ? t("devInspector.all", "all") : l}
                     </button>
                   ))}
                 </div>
@@ -1737,7 +1785,7 @@ export function DevToolbar() {
                     type="text"
                     value={logFilter}
                     onChange={(e) => setLogFilter(e.target.value)}
-                    placeholder="Filter..."
+                    placeholder={t("devInspector.filter", "Filter…")}
                     className="h-5 w-full ps-7 pe-5 text-[11px] rounded bg-transparent text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
                   />
                   {logFilter && (
@@ -1757,19 +1805,21 @@ export function DevToolbar() {
                   onClick={copyLogs}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
-                  {logsCopied ? "Copied!" : "Copy"}
+                  {logsCopied
+                    ? t("devInspector.copied", "Copied!")
+                    : t("devInspector.copy", "Copy")}
                 </button>
                 <button
                   onClick={exportLogs}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
-                  Export
+                  {t("devInspector.export", "Export")}
                 </button>
                 <button
                   onClick={clearConsoleLogs}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
-                  Clear
+                  {t("devInspector.clear", "Clear")}
                 </button>
               </div>
 
@@ -1805,8 +1855,8 @@ export function DevToolbar() {
                   {filteredLogs.length === 0 && (
                     <div className="px-3 py-8 text-center text-muted-foreground/50 text-xs">
                       {logFilter || levelFilter !== "all"
-                        ? "No matching logs"
-                        : "No logs yet"}
+                        ? t("devInspector.logs.noMatching", "No matching logs")
+                        : t("devInspector.logs.empty", "No logs yet")}
                     </div>
                   )}
                   <div ref={logEndRef} />
@@ -1835,7 +1885,11 @@ export function DevToolbar() {
                         : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    {d === "send" ? "out" : d === "recv" ? "in" : d}
+                    {d === "send"
+                      ? t("devInspector.network.out", "out")
+                      : d === "recv"
+                        ? t("devInspector.network.in", "in")
+                        : t("devInspector.all", "all")}
                   </button>
                 ))}
 
@@ -1847,7 +1901,9 @@ export function DevToolbar() {
                   onChange={(e) => setTypeFilter(e.target.value)}
                   className="h-5 px-1.5 text-[10px] rounded bg-transparent border border-border text-foreground focus:outline-none"
                 >
-                  <option value="all">all types</option>
+                  <option value="all">
+                    {t("devInspector.network.allTypes", "all types")}
+                  </option>
                   {msgTypes.map((t) => (
                     <option key={t} value={t}>
                       {t}
@@ -1864,7 +1920,7 @@ export function DevToolbar() {
                     type="text"
                     value={netFilter}
                     onChange={(e) => setNetFilter(e.target.value)}
-                    placeholder="Filter..."
+                    placeholder={t("devInspector.filter", "Filter…")}
                     className="h-5 w-full ps-7 pe-5 text-[11px] rounded bg-transparent text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
                   />
                   {netFilter && (
@@ -1886,19 +1942,21 @@ export function DevToolbar() {
                   onClick={copyNetLogs}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
-                  {netCopied ? "Copied!" : "Copy"}
+                  {netCopied
+                    ? t("devInspector.copied", "Copied!")
+                    : t("devInspector.copy", "Copy")}
                 </button>
                 <button
                   onClick={exportNetLogs}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
-                  Export
+                  {t("devInspector.export", "Export")}
                 </button>
                 <button
                   onClick={clearNetLogs}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
-                  Clear
+                  {t("devInspector.clear", "Clear")}
                 </button>
               </div>
 
@@ -1920,7 +1978,9 @@ export function DevToolbar() {
                             dir.color,
                           )}
                         >
-                          {dir.label}
+                          {entry.direction === "send"
+                            ? t("devInspector.network.outShort", "OUT")
+                            : t("devInspector.network.inShort", "IN")}
                         </span>
                         <span
                           className="text-[10px] text-muted-foreground shrink-0 w-16 truncate"
@@ -1943,8 +2003,8 @@ export function DevToolbar() {
                   {filteredNet.length === 0 && (
                     <div className="px-3 py-8 text-center text-muted-foreground/50 text-xs">
                       {netFilter || dirFilter !== "all" || typeFilter !== "all"
-                        ? "No matching messages"
-                        : "No network activity yet"}
+                        ? t("devInspector.network.noMatching", "No matching messages")
+                        : t("devInspector.network.empty", "No network activity yet")}
                     </div>
                   )}
                   <div ref={netEndRef} />
@@ -1967,10 +2027,16 @@ export function DevToolbar() {
                   onChange={(e) => setCrdtPageId(e.target.value)}
                   className="h-5 px-1.5 text-[10px] rounded bg-transparent border border-border text-foreground focus:outline-none max-w-[140px]"
                 >
-                  <option value="all">all pages</option>
+                  <option value="all">
+                    {t("devInspector.crdt.allPages", "all pages")}
+                  </option>
                   {crdtPages.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.title.startsWith("space:") ? `[space] ${p.title.slice(6, 14)}...` : p.title || p.id.slice(0, 12)}
+                      {p.title.startsWith("space:")
+                        ? t("devInspector.crdt.spaceLabel", "[space] {{id}}…", {
+                            id: p.title.slice(6, 14),
+                          })
+                        : p.title || p.id.slice(0, 12)}
                     </option>
                   ))}
                 </select>
@@ -1983,7 +2049,9 @@ export function DevToolbar() {
                   onChange={(e) => setCrdtOpType(e.target.value)}
                   className="h-5 px-1.5 text-[10px] rounded bg-transparent border border-border text-foreground focus:outline-none"
                 >
-                  <option value="all">all ops</option>
+                  <option value="all">
+                    {t("devInspector.crdt.allOperations", "all operations")}
+                  </option>
                   {CRDT_OP_TYPES.map((t) => (
                     <option key={t} value={t}>
                       {t}
@@ -2000,7 +2068,7 @@ export function DevToolbar() {
                     type="text"
                     value={crdtFilter}
                     onChange={(e) => setCrdtFilter(e.target.value)}
-                    placeholder="Filter..."
+                    placeholder={t("devInspector.filter", "Filter…")}
                     className="h-5 w-full ps-7 pe-5 text-[11px] rounded bg-transparent text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
                   />
                   {crdtFilter && (
@@ -2022,18 +2090,20 @@ export function DevToolbar() {
                   onClick={copyCrdtOps}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
-                  {crdtCopied ? "Copied!" : "Copy"}
+                  {crdtCopied
+                    ? t("devInspector.copied", "Copied!")
+                    : t("devInspector.copy", "Copy")}
                 </button>
                 <button
                   onClick={openCrdtExport}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
-                  Export
+                  {t("devInspector.export", "Export")}
                 </button>
                 <button
                   onClick={loadCrdtOps}
                   className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
-                  title="Reload"
+                  title={t("devInspector.reload", "Reload")}
                 >
                   <RefreshIcon spinning={crdtLoading} />
                 </button>
@@ -2090,7 +2160,9 @@ export function DevToolbar() {
                     })}
                   {crdtOps.length === 0 && (
                     <div className="px-3 py-8 text-center text-muted-foreground/50 text-xs">
-                      {crdtLoading ? "Loading..." : "No operations found"}
+                      {crdtLoading
+                        ? t("common.loading", "Loading…")
+                        : t("devInspector.crdt.noOperations", "No operations found")}
                     </div>
                   )}
                 </div>
@@ -2101,16 +2173,18 @@ export function DevToolbar() {
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-sm">
                   <div className="w-[280px] rounded-lg border border-border bg-popover shadow-2xl p-4 flex flex-col gap-3">
                     <div className="text-xs font-semibold text-foreground">
-                      Export CRDT ops
+                      {t("devInspector.crdt.exportTitle", "Export CRDT operations")}
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                       {crdtExportTotal === null ? (
-                        "Counting rows…"
+                        t("devInspector.crdt.counting", "Counting rows…")
                       ) : (
                         <>
-                          {crdtExportTotal.toLocaleString()} op
-                          {crdtExportTotal === 1 ? "" : "s"} match the current
-                          filters. How many do you want to export?
+                          {t(
+                            "devInspector.crdt.exportPrompt",
+                            "{{count}} operations match the current filters. How many do you want to export?",
+                            { count: crdtExportTotal },
+                          )}
                         </>
                       )}
                     </div>
@@ -2133,7 +2207,7 @@ export function DevToolbar() {
                         onClick={() => setCrdtExportOpen(false)}
                         className="h-6 px-2 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                       >
-                        Cancel
+                        {t("common.cancel", "Cancel")}
                       </button>
                       <button
                         onClick={runCrdtExport}
@@ -2144,7 +2218,9 @@ export function DevToolbar() {
                         }
                         className="h-6 px-2 rounded text-[11px] text-foreground bg-muted hover:bg-muted/70 transition-colors disabled:opacity-40"
                       >
-                        {crdtExporting ? "Exporting…" : "Export"}
+                        {crdtExporting
+                          ? t("devInspector.exporting", "Exporting…")
+                          : t("devInspector.export", "Export")}
                       </button>
                     </div>
                   </div>
@@ -2162,13 +2238,17 @@ export function DevToolbar() {
             >
               <div className="flex items-center h-8 px-2 border-b border-border shrink-0 gap-1.5">
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {connectedPeers.length} connected · {knownPeers.length} known
+                  {t(
+                    "devInspector.peers.headerSummary",
+                    "{{connected}} connected · {{known}} known",
+                    { connected: connectedPeers.length, known: knownPeers.length },
+                  )}
                 </span>
                 <div className="flex-1" />
                 <button
                   onClick={loadPeers}
                   className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
-                  title="Reload"
+                  title={t("devInspector.reload", "Reload")}
                 >
                   <RefreshIcon spinning={peersLoading} />
                 </button>
@@ -2250,7 +2330,7 @@ export function DevToolbar() {
                     if (allPeerIds.length === 0) {
                       return (
                         <div className="py-8 text-center text-muted-foreground/50 text-xs">
-                          No peers seen yet
+                          {t("devInspector.peers.noneSeen", "No peers seen yet")}
                         </div>
                       );
                     }
@@ -2260,9 +2340,18 @@ export function DevToolbar() {
                         {/* Summary card */}
                         <div className="rounded-lg border border-border bg-muted/30 p-2.5 flex flex-col gap-1.5">
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-semibold text-foreground">All peers</span>
+                            <span className="text-[11px] font-semibold text-foreground">
+                              {t("devInspector.peers.all", "All peers")}
+                            </span>
                             <span className="text-[10px] text-muted-foreground tabular-nums">
-                              {connectedPeers.length} connected · {allPeerIds.length} total
+                              {t(
+                                "devInspector.peers.summary",
+                                "{{connected}} connected · {{total}} total",
+                                {
+                                  connected: connectedPeers.length,
+                                  total: allPeerIds.length,
+                                },
+                              )}
                             </span>
                           </div>
                           <div className="flex items-center gap-3 text-[10px] font-mono">
@@ -2316,10 +2405,14 @@ export function DevToolbar() {
                           {/* Last communicated */}
                           <div className="text-[10px] text-muted-foreground/50">
                             {isConnected
-                              ? <span className="text-emerald-400/80">Connected</span>
+                              ? <span className="text-emerald-400/80">
+                                  {t("devInspector.peers.connected", "Connected")}
+                                </span>
                               : lc > 0
-                                ? <span>Last seen {fmtRelTime(lc)}</span>
-                                : <span>Never connected</span>
+                                ? <span>{t("devInspector.peers.lastSeen", "Last seen {{time}}", {
+                                    time: fmtRelTime(lc, t),
+                                  })}</span>
+                                : <span>{t("devInspector.peers.neverConnected", "Never connected")}</span>
                             }
                           </div>
 
@@ -2346,7 +2439,9 @@ export function DevToolbar() {
                               )}
                             </>
                           ) : (
-                            <span className="text-[10px] text-muted-foreground/40">No messages this session</span>
+                            <span className="text-[10px] text-muted-foreground/40">
+                              {t("devInspector.peers.noMessages", "No messages this session")}
+                            </span>
                           )}
                         </div>
                       );
@@ -2394,7 +2489,9 @@ export function DevToolbar() {
                 conn === "connected" ? "bg-emerald-500" : "bg-red-500",
               )}
             />
-            <span className="text-[11px] font-medium">Dev</span>
+            <span className="text-[11px] font-medium">
+              {t("devInspector.shortLabel", "Dev")}
+            </span>
           </button>
           <div
             className={cn(

@@ -24,7 +24,7 @@ export default function PrivacyPage() {
     <div className="privacy">
       <nav className="privacy-nav">
         <Link to="/home" className="privacy-logo">
-          tasfer
+          {t("brand.wordmark", "tasfer")}
         </Link>
         <Link to="/home" className="privacy-nav-back">
           <DirArrow towards="back" />
@@ -36,7 +36,7 @@ export default function PrivacyPage() {
         {/* Isolated: the ">" prompt is a bidi neutral, so under dir=rtl it
             would mirror to "<" and jump to the far end of the label. */}
         <div className="privacy-label">
-          <span dir="ltr">&gt; privacy</span>
+          <span dir="ltr">&gt; {t("privacy.kicker", "privacy")}</span>
         </div>
         <h1 className="privacy-title">
           {t("privacy.title", "privacy policy")}
@@ -131,7 +131,7 @@ export default function PrivacyPage() {
 
       <footer className="privacy-footer">
         <Link to="/home" className="privacy-logo">
-          tasfer
+          {t("brand.wordmark", "tasfer")}
         </Link>
       </footer>
     </div>

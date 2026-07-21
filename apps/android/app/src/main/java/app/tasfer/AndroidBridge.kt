@@ -81,7 +81,7 @@ class AndroidBridge(
     fun copy(text: String) {
         if (!isTrustedCaller()) return
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("Copied Text", text)
+        val clip = ClipData.newPlainText(context.getString(R.string.clipboard_copied_text), text)
         clipboard.setPrimaryClip(clip)
     }
 
@@ -89,7 +89,7 @@ class AndroidBridge(
     fun cut(text: String) {
         if (!isTrustedCaller()) return
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("Cut Text", text)
+        val clip = ClipData.newPlainText(context.getString(R.string.clipboard_cut_text), text)
         clipboard.setPrimaryClip(clip)
     }
 

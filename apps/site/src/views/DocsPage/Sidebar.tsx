@@ -55,7 +55,10 @@ export function Sidebar({
 
   function match(item: NavItem) {
     if (!query) return true;
-    return (item.title + " " + item.kw).toLowerCase().includes(query);
+    const translatedTitle = t(item.titleKey, item.title);
+    return (translatedTitle + " " + item.title + " " + item.kw)
+      .toLowerCase()
+      .includes(query);
   }
 
   const anyMatch = FLAT.some(match);
@@ -96,11 +99,15 @@ export function Sidebar({
               }
             >
               {section.icon}
-              {section.label}
+              {section.labelKey ? t(section.labelKey, section.label) : section.label}
             </div>
             {visibleGroups.map((g, gi) => (
               <div className="dx-nav-group" key={gi}>
-                {g.label ? <div className="dx-nav-group-label">{g.label}</div> : null}
+                {g.label ? (
+                  <div className="dx-nav-group-label">
+                    {g.labelKey ? t(g.labelKey, g.label) : g.label}
+                  </div>
+                ) : null}
                 <ul className="dx-nav-list">
                   {g.items.map((it) => (
                     <li key={it.route}>
@@ -109,7 +116,7 @@ export function Sidebar({
                         to={"/docs/" + it.route}
                         onClick={onNavigate}
                       >
-                        {highlightTitle(it.title, query)}
+                        {highlightTitle(t(it.titleKey, it.title), query)}
                       </Link>
                     </li>
                   ))}

@@ -104,7 +104,7 @@ One term, one rendering. Deviations are bugs.
 | Mirror (folder) | نسخ أحادي الاتجاه | **never `مزامنة`** — mirroring is not sync |
 | Offline | دون اتصال | not `بدون إنترنت`; local sync works with no internet |
 | Invite code | رمز الدعوة | |
-| Cryptographic keys | مفاتيح تشفيرية | adjective — not the idafa `مفاتيح تشفير` (= *encryption* keys) |
+| Cryptographic keys | مفاتيح التشفير | the natural technical term in Arabic |
 
 > **Relay must not be `وسيط`.** The landing page sold "no intermediary"
 > (`بدون وسيط`) and then named a core component "the intermediary". The privacy

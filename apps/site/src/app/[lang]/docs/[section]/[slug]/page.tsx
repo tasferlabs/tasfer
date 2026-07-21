@@ -1,12 +1,11 @@
 import DocsArticle from "@/views/DocsPage/DocsArticle";
 import { FLAT } from "@/views/DocsPage/docsNav";
 
-/** Only the routes enumerated in the docs nav are emitted (static export). */
 export const dynamicParams = false;
 
 export function generateStaticParams() {
-  return FLAT.map((p) => {
-    const [section, slug] = p.route.split("/");
+  return FLAT.map((page) => {
+    const [section, slug] = page.route.split("/");
     return { section, slug };
   });
 }

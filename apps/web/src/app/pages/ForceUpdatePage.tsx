@@ -101,7 +101,7 @@ export default function ForceUpdatePage() {
 
         {/* Build info for debugging */}
         <p className="text-xs text-muted-foreground/60" aria-hidden="true">
-          Build: {BUILD_TIMESTAMP} · {BUILD_COMMIT}
+          {t("update.build", "Build")}: {BUILD_TIMESTAMP} · {BUILD_COMMIT}
         </p>
       </div>
     </div>

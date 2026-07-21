@@ -1,0 +1,419 @@
+{/* @tasfer/editor API reference — Schema & nodes. */}
+
+import { Lede, PropsTable } from "../../../docsComponents";
+
+<Lede>
+  يحدّد `Schema` ممّا تتكوّن الوثيقة: أنواع الكتل والسمات المضمّنة التي يفهمها
+  المحرّر. يحتوي `baseSchema` الافتراضي على المجموعة الأساسية الصغيرة؛ أضف
+  الميزات الاختيارية باستخدام `baseSchema.use(...)`، أو سجّل مواصفات عقد وسمات
+  مخصّصة باستخدام `baseSchema.extend(...)`.
+</Lede>
+
+<h2 id="base">أنواع الكتل الأساسية</h2>
+
+<PropsTable
+  cols={["نوع الكتلة", "Markdown", "ملاحظات"]}
+  rows={[
+    {
+      name: "paragraph",
+      type: "(plain text)",
+      desc: "كتلة النص الافتراضية.",
+    },
+    {
+      name: "heading1 / 2 / 3",
+      type: "# / ## / ###",
+      desc: 'ثلاثة مستويات للعناوين. يُطابَق setBlock({ type: "heading", level }) معها.',
+    },
+    { name: "bullet_list", type: "- ", desc: "عنصر في قائمة غير مرتّبة." },
+    { name: "numbered_list", type: "1. ", desc: "عنصر في قائمة مرتّبة." },
+    { name: "todo_list", type: "- [ ] ", desc: "عنصر مهمة قابل للتحديد." },
+    { name: "quote", type: "> ", desc: "اقتباس كتلي." },
+    { name: "code", type: "```", desc: "كتلة شيفرة حرفية محاطة بسياج." },
+    {
+      name: "image",
+      type: "![alt](url)",
+      desc: "عقدة طرفية. السمات: width وheight وobjectFit وalt.",
+    },
+    {
+      name: "line",
+      type: "---",
+      desc: 'فاصل أفقي طرفي (عنصر "hr" التقليدي).',
+    },
+  ]}
+/>
+
+<h2 id="marks">السمات المضمّنة الأساسية</h2>
+
+السمات هي تنسيقات مضمّنة تحملها مقاطع النص. أسماؤها في CRDT هي `strong` و`emphasis` و`strike` (وليست bold أو italic أو strikethrough). تُبدّل السمات القابلة للتبديل على امتداد التحديد باستخدام `change((c) => c.setMark(name))`؛ أما `link` فيحمل بيانات، لذلك يُطبّق بدلًا من ذلك بنطاق وسمات صريحة — `setMark(name, { attrs, range })`.
+
+<PropsTable
+  cols={["السمة", "Markdown", "قابلة للتبديل", "ملاحظات"]}
+  rows={[
+    { name: "strong", type: "**…**", desc: "نعم · عريض." },
+    { name: "emphasis", type: "*…*", desc: "نعم · مائل." },
+    { name: "strike", type: "~~…~~", desc: "نعم · يتوسطه خط." },
+    { name: "code", type: "`…`", desc: "نعم · مقطع شيفرة مضمّن." },
+    {
+      name: "link",
+      type: "[text](url)",
+      desc: "لا — يحمل عنوان URL في attrs؛ ويُطبّق عبر setMark(name, { attrs, range }).",
+    },
+  ]}
+/>
+
+<h2 id="math">الرياضيات الاختيارية</h2>
+
+الرياضيات ميزة وليست نوع عقدة أساسيًا. لا يحمّل المدخل الجذري
+`@tasfer/editor` ولا `baseSchema` الحزمة `@tasfer/tex`، لذلك لا تتحمّل
+المضيفات التي لا تحتاج إلى الصيغ أي تبعية رياضية أو تكلفة تأليف. ثبّت رياضيات
+العرض (`$$…$$`) والرياضيات المضمّنة (`$…$`) معًا من نقطة الدخول المخصّصة:
+
+```bash
+npm install @tasfer/editor @tasfer/tex
+```
+
+```ts
+// appDataSchema.ts — safe to import from workers and persistence code
+import { baseDataSchema } from "@tasfer/editor";
+import { mathDataExtension } from "@tasfer/editor/math/data";
+
+export const appDataSchema = baseDataSchema.extend(mathDataExtension());
+
+// editorSchema.ts — imported only by the interactive editor surface
+import { baseSchema, createEditor } from "@tasfer/editor";
+import { mathExtension } from "@tasfer/editor/math";
+
+export const appSchema = baseSchema.use(mathExtension());
+
+const editor = createEditor({
+  element,
+  markdown: String.raw`Euler: $e^{i\pi}+1=0$`,
+  schema: appSchema,
+});
+```
+
+يمثّل `appSchema` نصف اللوحة/المحرّر؛ أما `appDataSchema` المركّب بصورة مستقلة
+فيمثّل نصف التخزين والتسلسل الآمن لبيئات Workers. يُسجَّل كل جزء مرة واحدة في
+المواصفة التي تملكه: تحمل مواصفة كتلة الرياضيات برنامج الترميز الخاص بها
+ومتعرّف العرض `$$…$$`، وتحمل مواصفة سمة الرياضيات متعرّف التضمين `$…$`
+وسلوك السمة المنظّمة، ويحمل مدخل `structuredKinds` للنوع المشترك `"math"`
+محوّل استنساخ اللقطة. ويثبّت `appSchema` الكامل أيضًا أصناف العرض، ومحوّلات
+التحديد الخاصة بالنوع `"math"` (مسلسل الحافظة ومحلّل النطاق الذي يُبقي
+التحديدات المثبّتة ذرّية البنية)، وقواعد الإدخال الفوري. أبقِ التعريفين
+متلازمين، لكن افصل وحدتيهما حتى لا يقيّم Worker يستورد مخطط البيانات الرسم
+البياني التفاعلي.
+
+إذا كان ينبغي ألا يستورد Worker عرض الرياضيات التفاعلي، فركّب فيه مدخل
+البيانات فقط. يسجّل هذا المدخل المواصفات السابقة — برامج الترميز وصياغة
+Markdown وسلوك السمة المنظّمة ومحوّل استنساخ النوع — من دون إنشاء `MathNode`
+أو `MathMark` أو حزمة الإدخال/التحديد الفوري (تحلّ محوّلات تحديد النوع
+التحديدات عبر محرّك تخطيط `@tasfer/tex`، ولذلك تنتمي عمدًا إلى الامتداد
+الكامل):
+
+```ts
+import { baseDataSchema } from "@tasfer/editor";
+import { mathDataExtension } from "@tasfer/editor/math/data";
+
+export const workerDataSchema = baseDataSchema.extend(mathDataExtension());
+```
+
+عمليات `content_edit` المنظّمة مستقلة عن المخطط ويُعاد تشغيلها عبر مخطط
+البيانات هذا. تثبّت المحرّرات التفاعلية الامتداد الكامل:
+
+```ts
+const mathSchema = baseSchema.use(mathExtension());
+```
+
+يستخدم كلّ من تحرير العرض والتحرير المضمّن عمليات `MathDocument` المنظّمة.
+ينشئ كل مسار إنشاء — استيراد Markdown، وقواعد إدخال `$…$`/`$$`، وتغليف
+تحديد، وتحويل كتلة — الوثيقة المنظّمة فورًا؛ فالشجرة هي المصدر الوحيد لمحتوى
+الصيغة.
+
+```ts
+import {
+  createDoc,
+  createEditor,
+  parsePage,
+  serializeToMarkdown,
+  tokenizePage,
+} from "@tasfer/editor";
+
+const doc = createDoc({ markdown: savedMarkdown, schema: appDataSchema });
+const attachedEditor = createEditor({ element, doc, schema: appSchema });
+const page = parsePage(
+  tokenizePage(importedMarkdown, appDataSchema),
+  appDataSchema,
+);
+const output = serializeToMarkdown(page.blocks, undefined, {
+  schema: appDataSchema,
+});
+```
+
+من دون `mathExtension`، يبقى الإدخال المحاط بعلامات الدولار نصًا حرفيًا:
+يحافظ المحلّل على مصدر `$...$` و`$$...$$` بدلًا من تفسيره أو إسقاطه بصمت.
+يتيح ذلك لعميل لا يدعم الرياضيات الاحتفاظ بمحتوى وارد من نظير أحدث أو مختلف
+الإعداد إلى أن تُثبّت الميزة. في وثيقة تدعم الرياضيات، لا تخزّن المعادلة
+المضمّنة أي LaTeX في محارف الكتلة إطلاقًا: ترتكز السمة على محرف نائب واحد
+لاستبدال الكائن (U+FFFC)، ويقيم محتواها بالكامل في مرفق `MathDocument`
+المشار إليه. النص المسطّح لكتلة العرض فارغ؛ ومحتواها هو الوثيقة صاحبة السلطة
+على الكتلة. يعرض مضيف لا يملك ميزة الرياضيات رمز المحرف النائب.
+وتكشف الميزة أيضًا `MathDocument` و`mathDocumentToStructured`
+و`structuredToMathDocument` و`parseMathDocumentInit`؛ وتوفّر نواة المحرّر
+CRDT العام للشجرة/النص `content_edit` الذي تستهدفه تلك المحوّلات. تملك
+رياضيات العرض المدعومة بشجرة كتلتها؛ أما الرياضيات المضمّنة المدعومة بشجرة
+فهي مرفق تكميلي تشير إليه السمة المغطّية. ولا يكتب أيّ من المسارين تمثيل LaTeX
+ثانيًا قابلًا للتحرير.
+يمكن التحويل بين الشكلين دون فقدان: يؤدي ضغط Backspace عند الحافة الأولى
+لمعادلة عرض إلى تحويلها إلى شريحة مضمّنة، بينما يؤدي تحويل كتلة لا تحتوي إلا
+على شريحة مضمّنة واحدة إلى `math` — عبر `setBlock({ type: "math" })` أو أمر
+شرطة مائلة أو قائمة سياقية — إلى ترقية الشجرة نفسها إلى معادلة عرض.
+
+<h2 id="extend">التوسعة</h2>
+
+يثبّت `use` حزمة ميزات قابلة لإعادة الاستخدام. يمكن لكائنات الميزات أن تضيف
+عقدًا وسمات ومحوّلات للأنواع المنظّمة وقواعد إدخال فوري وخطافات إجراءات وقيمًا
+افتراضية للسمة أو النصوص. متعرّفات صياغة Markdown وسلوك المحتوى المنظّم ليست
+مفاتيح ميزات: بل تحملها مواصفات العقد والسمات نفسها (`markdownSyntax` في
+كليهما و`structured` في السمات)، فيُسجَّل كل نوع مرة واحدة مع كل ما يملكه.
+جميع الأوجه غير قابلة للتغيير ومحصورة في المخطط الناتج، لذلك يمكن لمحرّرين
+تثبيت مجموعتين مختلفتين من الميزات في الصفحة نفسها:
+
+```ts
+import {
+  baseSchema,
+  defineMark,
+  defineNode,
+  type FeatureExtension,
+} from "@tasfer/editor";
+
+export const calloutFeature = {
+  name: "callouts",
+  nodes: [defineNode("callout", { attrs: { tone: { default: "note" } } })],
+  marks: [defineMark("highlight", { attrs: { color: { default: "yellow" } } })],
+} as const satisfies FeatureExtension;
+
+const schema = baseSchema.use(calloutFeature);
+```
+
+استخدم `as const satisfies FeatureExtension` لقيم الميزات المصدّرة: فهو
+يتحقق من عقد الميزة العام مع الاحتفاظ بالأنواع الحرفية للعقد والسمات والخصائص
+في واجهة `Editor` الناتجة. يمثّل `name` الاختياري بيانات وصفية وليس مفتاحًا
+لإزالة التكرار؛ فاستدعاء `use` مرتين يركّب الميزة مرتين، وبالسلوك نفسه في
+`extend` حيث يسود التعريف اللاحق.
+
+للتسجيل لمرة واحدة، يظل `extend` واجهة المستوى الأدنى. يستقبل _مصفوفات_ من
+مواصفات العقد والسمات ويعيد مخططًا جديدًا غير قابل للتغيير:
+
+```ts
+const oneOffSchema = baseSchema.extend({
+  nodes: [defineNode("one_off")],
+});
+```
+
+تترك الطريقتان المخطط الأساسي دون مساس، لذا يمكن تشغيل مخططين مختلفين في
+محرّرين على صفحة واحدة. يُستنتج نوع المخطط ويُمرّر عبر `Doc` و`Editor`
+وارتباطات React و`ChangeApi` و`query`؛ ولا تحتاج إلى تمرير نوع عام يدويًا:
+
+```ts
+const editor = createEditor({ element, schema });
+
+editor.change((c) => {
+  c.setBlock({ type: "callout", tone: "note" });
+  c.setMark("highlight", { attrs: { color: "orange" } });
+
+  c.setBlock({ type: "calluot" }); // TypeScript error: unknown block
+  c.setMark("higlight"); // TypeScript error: unknown mark
+});
+
+const block = editor.query.block();
+if (block?.type === "callout") {
+  block.attrs.tone; // string
+}
+```
+
+<h2 id="restrict">التقييد (الأنواع المسموح بها)</h2>
+
+يحدّد `use` و`extend` الأنواع التي _توجد_. أما `restrict` فيحدّد أيًّا منها
+يجوز للمستخدم المحلي _إنشاؤه_ — بقائمة سماح على نمط ProseMirror. يعيد مخططًا
+جديدًا غير قابل للتغيير، ويترك السجل الكامل (وبالتالي العرض) دون مساس، وهو
+الأداة المناسبة للحقول المقيّدة مثل عنوان من سطر واحد أو مربع تعليق بنص بسيط:
+
+```ts
+// A title field: the user can only ever produce a heading1, with no inline marks.
+const titleSchema = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
+const title = createEditor({ element, schema: titleSchema });
+```
+
+- احذف مفتاحًا لتترك ذلك البعد بلا تقييد؛ فالقيمة `marks: []` تنشئ حقلًا خاليًا
+  من التنسيق فعلًا. يجب أن يكون كل اسم مسجّلًا مسبقًا (طبّق `use` أو `extend`
+  أولًا، ثم `restrict` أخيرًا).
+- تظل كتلة `paragraph` الاحتياطية قابلة للإنشاء **دائمًا** ولا يمكن استبعادها،
+  حتى لا تصبح الوثيقة غير قابلة للتمثيل مطلقًا — ولا حاجة إلى إدراجها.
+- لا يفرض `baseSchema` الافتراضي أي قيود: من دون استدعاء `restrict` يكون كل
+  نوع مسجّل قابلًا للإنشاء، تمامًا كما كان.
+
+**الإنشاء مقابل العرض.** يقيّد `restrict` _الإنشاء فقط_. تُرفض تحويلات الشرطة
+المائلة/القائمة، والانقسامات بمفتاح Enter، واختصارات Markdown (`# ` و`- `)،
+واللصق، واستدعاءات واجهة `change` التي قد تنشئ نوعًا غير مسموح به (فتصبح بلا
+أثر)، أو تُحوّل إلى فقرة بسيطة؛ كما لا يكون للسمات غير المسموح بها (`setMark`
+و`toggleMark` واختصار `**bold**`) أي أثر. لكن المحرّر المقيّد يظل **يعرض**
+كتلة مسجّلة غير مسموح بها إذا وصلت بطريقة أخرى — باللصق أو الاستيراد أو
+المزامنة من متعاون يستخدم مخططًا أقل تقييدًا. يُطبّع اللصق والاستيراد وفق
+قائمة السماح (فيُلصق العنوان غير المسموح به كنص، وتُسقط الصورة)؛ ولا يُعاد
+كتابة محتوى الوثيقة المتزامن مسبقًا.
+
+**التعاون آمن.** قائمة السماح قيد على الإنشاء وليست قيدًا على التخزين —
+يتجاهلها سجل CRDT والمختزِل تمامًا. يظل نظيران بقائمتي سماح _مختلفتين_ (مثل
+حقل عنوان مقفل ومتن كامل) متقاربين: لا تتحكم قائمة السماح إلا فيما يستطيع
+النظير إنشاءه، وليس في كيفية عرضه للسجل المشترك. راجع
+[التعاون](/docs/editor/collaboration).
+
+```ts
+const restricted = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
+
+// Query the allow-list to gate your own toolbar / slash menu chrome:
+restricted.data.isBlockAllowed("bullet_list"); // false
+restricted.data.isMarkAllowed("strong"); // false
+restricted.data.hasBlock("bullet_list"); // true — still registered, still renders
+```
+
+<h2 id="window">نوافذ العرض (أسطح العنوان)</h2>
+
+يحدّد `restrict` الأنواع التي يجوز للمحرّر إنشاؤها؛ بينما تحدّد **نافذة العرض**
+أي _كتل_ الوثيقة يعرضها المحرّر ويحرّرها. مرّرها في خيار `window` إلى
+`mountEditor` أو `createEditor` أو `useEditor`. احذفها (وهو الوضع الافتراضي)
+لإنشاء محرّر للوثيقة كاملة.
+
+الاستخدام الأبرز للنافذة هو **محرّر العنوان**: سطح ثانٍ مدمج مرتبط بالـ`Doc`
+_نفسه_ الذي يستخدمه المتن الرئيسي، ومحصور في كتلة العنوان وحدها. ولأن
+المحرّرين يشتركان في وثيقة CRDT واحدة، يحدّث تحرير العنوان عنوان المتن فورًا —
+من دون أي توصيل إضافي للمزامنة (فالتعاون قائم على الوثيقة لا على السطح).
+
+```ts
+import {
+  createDoc,
+  createEditor,
+  baseSchema,
+  titleBlockWindow,
+} from "@tasfer/editor";
+
+const doc = createDoc({
+  markdown: "# My page\n\nBody…",
+  schema: baseSchema.data,
+});
+
+// Full body editor over the whole doc.
+const body = createEditor({ element: bodyEl, doc });
+
+// A title editor over the SAME doc — only the title block, only a heading1.
+const title = createEditor({
+  element: titleEl,
+  doc,
+  schema: baseSchema.restrict({ blocks: ["heading1"], marks: [] }),
+  window: titleBlockWindow(),
+});
+```
+
+- يحصر `titleBlockWindow()` النطاق في **كتلة عنوان** الوثيقة — أول كتلة تحمل
+  نصًا (عنوان أو فقرة أو قائمة أو غيرها)، مع تجاوز الصور أو الفواصل في
+  البداية. وهو يحلّ الكتلة بنيويًا، فتظل النافذة في مكانها حتى عندما يكون
+  العنوان فارغًا مؤقتًا. يحصر `blockIdWindow(id)` النطاق في كتلة محدّدة؛ ويعيد
+  `titleBlockIndex(blocks)` فهرس كتلة العنوان (أو `-1`).
+- هذه نوافذ **لكتلة واحدة**: لا يمكن أن ينقسم السطح (لا أثر لمفتاح Enter)، ولا
+  أن يندمج بكتلة مجاورة (لا أثر لـBackspace/Delete عند الحواف)، ولا أن يكتسب
+  كتلًا من اللصق (إذ يسطّحها إلى نص مضمّن)، ولا يمكن لمؤشر الكتابة مغادرة
+  النافذة. ولا تعدّل النافذة أي كتلة سوى كتلتها.
+- النافذة شأن **عرض/إنشاء فقط** — وليست شأن تخزين قط. تتجاهلها الوثيقة
+  والمختزِل والمزامنة، لذلك يتقارب دائمًا محرّر ذو نافذة ومحرّر كامل على
+  الوثيقة نفسها. اقرنها بـ`restrict` لتقييد نوع الكتلة الواحدة أيضًا (مثلًا:
+  «يجب أن تكون `heading1` دائمًا»)؛ وتظل الكتلة _تعرض_ نوعها الحالي أيًا كان.
+
+`ViewWindow` هو الشكل العام (`{ select, singleBlock? }`) إذا احتجت إلى قاعدة
+مخصّصة — يعيد `select(blocks)` مجموعة الفهارس الأصلية المطلوب عرضها.
+
+<h2 id="definenode">defineNode(type, config)</h2>
+
+يصرّح بنوع كتلة مخصّص. العقد المخصّصة في الإصدار الأول عقد طرفية فارغة (`content: "none"`) تُحوّل ذهابًا وإيابًا عبر وسم عام `<x-type …attrs>`، لذلك لا حاجة إلى تغيير مُجزِّئ الرموز.
+
+<PropsTable
+  cols={["الحقل", "النوع", "الوصف"]}
+  rows={[
+    {
+      name: "attrs",
+      type: "Record<string, AttrSpec>",
+      desc: "الخصائص المصرّح بها، ويُنسخ كل منها كحقل في المستوى الأعلى (عبر block_set). يستنتج TypeScript الأنواع الأولية من default، والاتحادات الأضيق من دالة validate التي تعمل كحارس نوع.",
+    },
+    {
+      name: "render",
+      type: "BoxRenderStyle",
+      desc: "رسم تصريحي لعارض الصندوق المضمّن — background وborderLeft وlabel. يُتجاهل عند توفير node.",
+    },
+    {
+      name: "node",
+      type: "Node",
+      desc: "عقدة Canvas مخصّصة تُستخدم للعرض بدل الصندوق المولّد. تتولى الرسم واختبار الإصابة والطبقات المتراكبة الخاصة بها.",
+    },
+    {
+      name: "markdownSyntax",
+      type: "SyntaxRule[]",
+      desc: "متعرّفات Markdown التي يملكها نوع الكتلة هذا (عادةً ضمن نطاق الكتلة). لا تُستهلك الرموز المنبعثة إلا عندما يطالب بها برنامج ترميز — ولا يطالب التحويل العام ذهابًا وإيابًا عبر <x-type/> بأي منها، لذا تتطلب القاعدة المخصّصة عقدة توفّر برنامج التسلسل الخاص بها مع markdown.tokens مطابقة.",
+    },
+    {
+      name: "toMarkdown / toHtml / toText",
+      type: "(block) => string",
+      desc: "يتجاوز التسلسل الافتراضي بالوسم العام. لا تتجاوز toMarkdown إلا إذا ضمنت إمكان تحليل الناتج مجددًا.",
+    },
+  ]}
+/>
+
+<h2 id="definemark">defineMark(type, config?)</h2>
+
+يصرّح بسمة مضمّنة مخصّصة. من دون config، يسجّل اسم تنسيق منسوخًا وقابلًا للتبديل؛ وتضيف الحقول الاختيارية الرسم والتسلسل.
+
+<PropsTable
+  cols={["الحقل", "النوع", "الوصف"]}
+  rows={[
+    {
+      name: "render",
+      type: "Mark",
+      desc: "نسخة من صنف فرعي لـMark — تعيد دالتها style() رسم اللوحة (اللون أو الشريحة أو التسطير). إذا حذفته تُنسخ السمة لكنها تُرسم كنص بسيط.",
+    },
+    {
+      name: "codec",
+      type: "MarkCodec",
+      desc: "تحويل Markdown/HTML ذهابًا وإيابًا — المحدّدات (==text==) ووسم HTML. إذا حذفته تبقى السمة عبر CRDT لكنها تُسقط عند تصدير Markdown.",
+    },
+    {
+      name: "markdownSyntax",
+      type: "SyntaxRule[]",
+      desc: "متعرّفات Markdown التي يملكها نوع السمة هذا (عادةً ضمن النطاق المضمّن). لا تُستهلك الرموز المنبعثة إلا عندما يطالب بها برنامج ترميز، لذا تحتاج القاعدة المخصّصة إلى برنامج ترميز مكتوب يدويًا وبرموز مطابقة.",
+    },
+    {
+      name: "structured",
+      type: "StructuredMarkFacet",
+      desc: "سلوك المحتوى المنظّم لنوع السمة هذا — التهيئة المبكرة للمرفق (create)، وحل المصدر المعتمد من المرفق (resolve)، ومراجع المرفقات لتنظيف دورة الحياة (references)، وإعادة كتابة النسخ (clone). ترتكز السمة المنظّمة على محرف نائب واحد؛ ومرفقها هو السلطة الوحيدة على المحتوى.",
+    },
+    {
+      name: "attrs",
+      type: "Record<string, AttrSpec>",
+      desc: "تصريح وقت الترجمة بالبيانات التي تحملها mark.attrs. يحدّد أنواع setMark(name, { attrs }) وquery.marks().",
+    },
+  ]}
+/>
+
+```ts
+const schema = baseSchema.extend({
+  marks: [
+    defineMark("highlight", {
+      render: new HighlightMark(),
+      codec: highlightCodec,
+    }),
+  ],
+});
+```
+
+يعيد كل من `defineNode` و`defineMark` مواصفات يمكنك تمريرها مباشرة إلى
+`extend` أو تجميعها في `FeatureExtension` يُثبّت باستخدام `use`. راجع
+[العقد والسمات المخصّصة](/docs/editor/custom-nodes) للتعرّف على أسلوب التأليف
+الذي يبدأ بالأصناف، والنصوص التي تملكها العقدة، ومواضع الطبقات المتراكبة،
+وكيفية تحويل البيانات ذهابًا وإيابًا عبر Markdown.

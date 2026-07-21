@@ -44,7 +44,7 @@ export function AvatarPreviewDialog({
                 onClick={() => onOpenChange(false)}
               >
                 <DialogPrimitive.Title className="sr-only">
-                  {name || "Avatar"}
+                  {name || t("common.avatar", "Avatar")}
                 </DialogPrimitive.Title>
 
                 <div
@@ -53,7 +53,7 @@ export function AvatarPreviewDialog({
                 >
                   <img
                     src={imageUrl}
-                    alt={name || "Avatar"}
+                    alt={name || t("common.avatar", "Avatar")}
                     className="max-h-[70vh] max-w-[90vw] sm:max-w-[min(28rem,85vw)] rounded-2xl object-contain shadow-2xl"
                   />
                   {name && (

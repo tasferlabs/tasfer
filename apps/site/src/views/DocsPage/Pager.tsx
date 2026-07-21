@@ -20,7 +20,7 @@ export function Pager({ route }: { route: string }) {
             <DirArrow towards="back" />
             {t("docs.pager.prev", "previous")}
           </span>
-          <span className="dx-pager-title">{prev.title}</span>
+          <span className="dx-pager-title">{t(prev.titleKey, prev.title)}</span>
         </Link>
       ) : (
         <span />
@@ -31,7 +31,7 @@ export function Pager({ route }: { route: string }) {
             {t("docs.pager.next", "next")}
             <DirArrow towards="forward" />
           </span>
-          <span className="dx-pager-title">{next.title}</span>
+          <span className="dx-pager-title">{t(next.titleKey, next.title)}</span>
         </Link>
       ) : (
         <span />

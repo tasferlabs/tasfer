@@ -1,0 +1,41 @@
+import type { Metadata } from "next";
+import HomePage from "@/views/HomePage/HomePage";
+import { getDictionary, isLng } from "@/lib/i18n/locales";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ lang: string }>;
+}): Promise<Metadata> {
+  const { lang } = await params;
+  if (!isLng(lang)) return {};
+  const dictionary = getDictionary(lang);
+  const title = dictionary["metadata.title"];
+  const description = dictionary["metadata.description"];
+  return {
+    alternates: {
+      canonical: `/${lang}/home`,
+      languages: { en: "/en/home", ar: "/ar/home" },
+    },
+    openGraph: {
+      type: "website",
+      locale: lang,
+      siteName: lang === "ar" ? "تصفير" : "Tasfer",
+      title,
+      description,
+      url: `/${lang}/home`,
+      images: [
+        {
+          url: lang === "ar" ? "/og.ar.png" : "/og.png",
+          width: 1200,
+          height: 630,
+          alt: title,
+        },
+      ],
+    },
+  };
+}
+
+export default function Page() {
+  return <HomePage />;
+}

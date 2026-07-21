@@ -24,6 +24,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Pause, Play } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { Block } from "@tasfer/editor";
 import {
   getVisibleTextFromRuns,
@@ -247,6 +248,7 @@ function posLabel(p: { blockIndex: number; textIndex: number } | null): string {
 }
 
 function BlockRow({ block }: { block: BlockView }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const isText = block.charRuns !== undefined;
   return (
@@ -293,12 +295,14 @@ function BlockRow({ block }: { block: BlockView }) {
         <div className="px-4 py-2 bg-muted/30 flex flex-col gap-2 text-[10px]">
           {block.orderKey && (
             <div className="text-muted-foreground">
-              orderKey: <span className="text-foreground">{block.orderKey}</span>
+              {t("devInspector.editor.orderKey", "Order key")}: <span className="text-foreground">{block.orderKey}</span>
             </div>
           )}
           {Object.keys(block.attrs).length > 0 && (
             <div>
-              <div className="text-muted-foreground/60 mb-0.5">attrs</div>
+              <div className="text-muted-foreground/60 mb-0.5">
+                {t("devInspector.editor.attributes", "Attributes")}
+              </div>
               <pre className="text-muted-foreground whitespace-pre-wrap break-all">
                 {JSON.stringify(block.attrs, null, 2)}
               </pre>
@@ -307,14 +311,16 @@ function BlockRow({ block }: { block: BlockView }) {
           {block.charRuns && block.charRuns.length > 0 && (
             <div>
               <div className="text-muted-foreground/60 mb-0.5">
-                charRuns ({block.charRuns.length})
+                {t("devInspector.editor.characterRuns", "Character runs ({{count}})", {
+                  count: block.charRuns.length,
+                })}
               </div>
               <div className="flex flex-col gap-px font-mono">
                 <div className="flex gap-2 text-muted-foreground/50">
-                  <span className="w-16 shrink-0">peer</span>
-                  <span className="w-12 shrink-0 text-end">start</span>
-                  <span className="w-10 shrink-0 text-end">del</span>
-                  <span className="min-w-0 flex-1">text</span>
+                  <span className="w-16 shrink-0">{t("devInspector.editor.peer", "Peer")}</span>
+                  <span className="w-12 shrink-0 text-end">{t("devInspector.editor.start", "Start")}</span>
+                  <span className="w-10 shrink-0 text-end">{t("devInspector.editor.deletedShort", "Del")}</span>
+                  <span className="min-w-0 flex-1">{t("devInspector.editor.text", "Text")}</span>
                 </div>
                 {block.charRuns.map((run, i) => (
                   <div key={i} className="flex gap-2">
@@ -348,7 +354,9 @@ function BlockRow({ block }: { block: BlockView }) {
           {block.formats && block.formats.length > 0 && (
             <div>
               <div className="text-muted-foreground/60 mb-0.5">
-                formats ({block.formats.length})
+                {t("devInspector.editor.formats", "Formats ({{count}})", {
+                  count: block.formats.length,
+                })}
               </div>
               <pre className="text-muted-foreground whitespace-pre-wrap break-all">
                 {JSON.stringify(block.formats, null, 2)}
@@ -362,6 +370,7 @@ function BlockRow({ block }: { block: BlockView }) {
 }
 
 export function DevEditorState() {
+  const { t } = useTranslation();
   const { editor } = useActiveEditor();
   const [view, setView] = useState<EditorStateView | null>(null);
   const [paused, setPaused] = useState(false);
@@ -422,7 +431,10 @@ export function DevEditorState() {
   if (!editor || !view) {
     return (
       <div className="flex flex-col flex-1 min-h-0 items-center justify-center text-muted-foreground/50 text-xs">
-        No active editor — open a page to inspect its state.
+        {t(
+          "devInspector.editor.noActiveEditor",
+          "No active editor — open a page to inspect its state.",
+        )}
       </div>
     );
   }
@@ -439,26 +451,41 @@ export function DevEditorState() {
               ? "bg-amber-500/20 text-amber-600"
               : "text-muted-foreground hover:text-foreground hover:bg-muted",
           )}
-          title={paused ? "Resume live updates" : "Pause live updates"}
+          title={paused
+            ? t("devInspector.editor.resumeUpdates", "Resume live updates")
+            : t("devInspector.editor.pauseUpdates", "Pause live updates")}
         >
           {paused ? <Play className="w-2.5 h-2.5" /> : <Pause className="w-2.5 h-2.5" />}
-          <span>{paused ? "Paused" : "Live"}</span>
+          <span>{paused
+            ? t("devInspector.editor.paused", "Paused")
+            : t("devInspector.editor.live", "Live")}</span>
         </button>
         <div className="w-px h-3.5 bg-border shrink-0" />
         <span
           className="text-muted-foreground truncate"
-          title={`peer ${view.peerId}`}
+          title={t("devInspector.editor.peerId", "Peer {{id}}", { id: view.peerId })}
         >
           {view.peerId.slice(0, 8)}
         </span>
         <span className="text-muted-foreground/60">·</span>
         <span className="text-foreground">{view.mode}</span>
-        {view.isFocused && <span className="text-emerald-500">focused</span>}
+        {view.isFocused && (
+          <span className="text-emerald-500">
+            {t("devInspector.editor.focused", "Focused")}
+          </span>
+        )}
         <div className="flex-1" />
         {summary && (
           <span className="text-muted-foreground/60 tabular-nums">
-            {summary.blocks} blocks · {summary.chars} chars
-            {summary.deleted > 0 && ` · ${summary.deleted} del`}
+            {t(
+              "devInspector.editor.summary",
+              "{{blocks}} blocks · {{chars}} characters",
+              { blocks: summary.blocks, chars: summary.chars },
+            )}
+            {summary.deleted > 0 &&
+              t("devInspector.editor.deletedSummary", " · {{count}} deleted", {
+                count: summary.deleted,
+              })}
           </span>
         )}
         {paused && (
@@ -466,49 +493,54 @@ export function DevEditorState() {
             onClick={refresh}
             className="h-5 px-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
-            Refresh
+            {t("devInspector.refresh", "Refresh")}
           </button>
         )}
         <button
           onClick={copy}
           className="h-5 px-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
         >
-          Copy
+          {t("devInspector.copy", "Copy")}
         </button>
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
         {/* State summary */}
         <div className="px-2.5 py-2 border-b border-border/30 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] font-mono">
-          <KeyVal label="cursor" value={posLabel(view.cursor)} />
+          <KeyVal label={t("devInspector.editor.cursor", "Cursor")} value={posLabel(view.cursor)} />
           <KeyVal
-            label="selection"
+            label={t("devInspector.editor.selection", "Selection")}
             value={
               view.selection
                 ? `${posLabel(view.selection.anchor)} → ${posLabel(
                     view.selection.focus,
-                  )}${view.selection.isCollapsed ? " (collapsed)" : ""}`
+                  )}${view.selection.isCollapsed ? ` (${t("devInspector.editor.collapsed", "collapsed")})` : ""}`
                 : "—"
             }
           />
           <KeyVal
-            label="undo/redo"
+            label={t("devInspector.editor.undoRedo", "Undo/redo")}
             value={`${view.undoDepth} / ${view.redoDepth}`}
           />
-          <KeyVal label="activeMenu" value={view.activeMenu} />
-          <KeyVal label="marksMode" value={view.activeMarksMode} />
+          <KeyVal label={t("devInspector.editor.activeMenu", "Active menu")} value={view.activeMenu} />
+          <KeyVal label={t("devInspector.editor.marksMode", "Marks mode")} value={view.activeMarksMode} />
           <KeyVal
-            label="composition"
-            value={view.composition ? "active" : "—"}
+            label={t("devInspector.editor.composition", "Composition")}
+            value={view.composition ? t("devInspector.editor.active", "Active") : "—"}
           />
           <KeyVal
-            label="caretScratch"
-            value={view.caretScratchActive ? "active" : "—"}
+            label={t("devInspector.editor.caretScratch", "Caret scratch")}
+            value={view.caretScratchActive ? t("devInspector.editor.active", "Active") : "—"}
           />
-          <KeyVal label="visible" value={`${view.visibleBlockCount} blocks`} />
+          <KeyVal
+            label={t("devInspector.editor.visible", "Visible")}
+            value={t("devInspector.editor.blockCount", "{{count}} blocks", {
+              count: view.visibleBlockCount,
+            })}
+          />
           {view.decorationLayers.length > 0 && (
             <KeyVal
-              label="decorations"
+              label={t("devInspector.editor.decorations", "Decorations")}
               value={view.decorationLayers.join(", ")}
             />
           )}

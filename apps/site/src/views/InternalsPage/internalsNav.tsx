@@ -10,6 +10,10 @@ import * as mathBlock from "./pages/math-block.mdx";
 import * as obsidian from "./pages/obsidian.mdx";
 import * as oneInterface from "./pages/one-interface-mutliple-backends.mdx";
 import * as transitionPlan from "./pages/transition-plan.mdx";
+import {
+  INTERNAL_NOTE_SLUGS,
+  type InternalNoteSlug,
+} from "./internalNoteSlugs";
 
 /* ============================================================
    Internal notes — the hidden /docs/internals build log.
@@ -55,7 +59,7 @@ export interface InternalNote {
 }
 
 // slug → module. Slugs are the ./pages filenames without extension.
-const MODULES: Record<string, NoteModule> = {
+const MODULES: Record<InternalNoteSlug, NoteModule> = {
   accessibility,
   compatibility,
   "crdt-compaction": crdtCompaction,
@@ -69,15 +73,16 @@ const MODULES: Record<string, NoteModule> = {
 };
 
 // Newest-first.
-export const NOTES: InternalNote[] = Object.entries(MODULES)
-  .map(([slug, mod]): InternalNote => {
+export const NOTES: InternalNote[] = INTERNAL_NOTE_SLUGS
+  .map((slug): InternalNote => {
+    const mod = MODULES[slug];
     const fm = mod.frontmatter;
     return {
       slug,
       Comp: mod.default,
       title: fm.title,
       date: fm.date,
-      summary: fm.summary,
+      summary: fm.summary ?? "",
     };
   })
   .sort((a, b) => b.date.localeCompare(a.date));

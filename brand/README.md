@@ -38,7 +38,10 @@ painted between the splash disappearing and the web content's first paint.
 
 The wordmark is the lowercase word **tasfer** set in the UI sans at weight
 600 with `-0.03em` letter spacing, in the foreground ink color (the mark
-carries the green). In Arabic copy the product name is written **تصفير**.
+carries the green). In Arabic the wordmark — and the product name in copy —
+is **تصفير**, set in the same weight and color but at normal tracking: the
+negative Latin tracking crowds the joins of a cursive script. It ships as
+the `brand.wordmark` translation key rather than a hardcoded literal.
 
 ## Regenerating assets
 
