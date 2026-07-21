@@ -3,7 +3,7 @@
      public/app/locales/ar/translation.json. Run `npm run gen:android-strings`. -->
 <resources>
     <string name="loading">جارٍ التحميل...</string>
-    <string name="camera_permission_required">إذن الكاميرا مطلوب لالتقاط الصور</string>
+    <string name="camera_permission_required">يلزم إذن الكاميرا لالتقاط الصور</string>
     <string name="camera_open_failed">تعذّر فتح الكاميرا</string>
     <string name="image_process_failed">تعذّرت معالجة الصورة</string>
 </resources>
