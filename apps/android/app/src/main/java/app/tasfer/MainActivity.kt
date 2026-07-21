@@ -1,6 +1,7 @@
 package app.tasfer
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -17,6 +18,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Base64
 import android.util.DisplayMetrics
+import android.view.Gravity
 import android.view.Menu
 import android.view.View
 import android.view.animation.Animation
@@ -42,12 +44,23 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : BridgeActivity() {
 
-    // Loading screen
-    private lateinit var loadingScreen: View
-    private lateinit var spinnerImage: ImageView
+    private companion object {
+        /** How long a staged share payload is kept before it can be pruned. */
+        const val SHARE_RETENTION_MS = 60 * 60 * 1000L
+    }
+
+    // Loading screen. Null when setupCustomViews found the content view in an
+    // unexpected shape and bailed — every use site then simply has no overlay,
+    // rather than the inset listener crashing on an unset lateinit.
+    private var loadingScreen: View? = null
+
+    // Off-main-thread work for bridge file/image I/O.
+    private val backgroundExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     // Safe area insets
     private var topInset = 0
@@ -97,6 +110,11 @@ class MainActivity : BridgeActivity() {
                 }
             }
         })
+    }
+
+    override fun onDestroy() {
+        backgroundExecutor.shutdown()
+        super.onDestroy()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -183,16 +201,16 @@ class MainActivity : BridgeActivity() {
             wrapper.addView(view)
         }
 
-        loadingScreen = layoutInflater.inflate(R.layout.loading_screen, wrapper, false)
-        wrapper.addView(loadingScreen, RelativeLayout.LayoutParams(
+        val overlay = layoutInflater.inflate(R.layout.loading_screen, wrapper, false)
+        wrapper.addView(overlay, RelativeLayout.LayoutParams(
             RelativeLayout.LayoutParams.MATCH_PARENT,
             RelativeLayout.LayoutParams.MATCH_PARENT
         ))
 
         contentView.addView(wrapper)
 
-        spinnerImage = loadingScreen.findViewById(R.id.spinnerImage)
-        startSpinnerAnimation()
+        loadingScreen = overlay
+        startSpinnerAnimation(overlay.findViewById(R.id.spinnerImage))
     }
 
     // ---- Image picker ----
@@ -269,31 +287,81 @@ class MainActivity : BridgeActivity() {
     }
 
     private fun handleSelectedImage(uri: Uri) {
-        try {
-            contentResolver.openInputStream(uri)?.use { inputStream ->
-                val bytes = inputStream.readBytes()
-                val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
-                val dataUrl = "data:$mimeType;base64,$base64"
-
-                bridge.webView.post {
-                    val escapedData = dataUrl.replace("'", "\\'")
-                    bridge.webView.evaluateJavascript(
-                        "window.postMessage({type: 'native-image-selected', dataUrl: '$escapedData'}, '*');",
-                        null
-                    )
+        // Reading and base64-encoding a full-resolution photo is multi-megabyte
+        // work, and this runs in the activity-result callback — i.e. on the main
+        // thread — so doing it inline janks the UI and ANRs on large images.
+        backgroundExecutor.execute {
+            val dataUrl = try {
+                contentResolver.openInputStream(uri)?.use { inputStream ->
+                    val bytes = inputStream.readBytes()
+                    val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
+                    "data:$mimeType;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
                 }
+            } catch (_: Exception) {
+                null
             }
-        } catch (_: Exception) {
-            Toast.makeText(this, getString(R.string.image_process_failed), Toast.LENGTH_SHORT).show()
+
+            runOnUiThread {
+                if (dataUrl == null) {
+                    Toast.makeText(this, getString(R.string.image_process_failed), Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                // JSONObject.quote emits a fully escaped JS string literal. Escaping
+                // only `'` by hand breaks on a backslash or newline in the MIME type.
+                bridge.webView.evaluateJavascript(
+                    "window.postMessage({type: 'native-image-selected', dataUrl: ${JSONObject.quote(dataUrl)}}, '*');",
+                    null
+                )
+            }
         }
     }
 
     // ---- File sharing ----
 
+    /** Staging dir for share-sheet payloads. */
+    private val shareDir: File
+        get() = File(cacheDir, "share").apply { mkdirs() }
+
+    /**
+     * Resolve [fileName] to a file directly inside [shareDir], or null when it
+     * escapes.
+     *
+     * [fileName] crosses the bridge from JavaScript, so an unchecked
+     * `File(cacheDir, fileName)` would let `../` segments reach anywhere under the
+     * app's private data dir — the SQLite database included — and the write lands
+     * before FileProvider would reject the path. Canonicalising both sides also
+     * collapses symlinks. Same rule as AndroidBridge.resolveInStorage, tightened
+     * to a single flat directory since share names are never nested.
+     */
+    private fun resolveShareFile(fileName: String): File? {
+        return try {
+            val base = shareDir.canonicalFile
+            val target = File(base, fileName).canonicalFile
+            if (target.parentFile == base) target else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Drop payloads left behind by earlier exports — nothing else deletes them,
+     * since the chooser gives no completion signal. Only entries old enough that
+     * their share sheet cannot still be reading them are removed.
+     */
+    private fun pruneShareDir() {
+        val cutoff = System.currentTimeMillis() - SHARE_RETENTION_MS
+        try {
+            shareDir.listFiles()?.forEach { file ->
+                if (file.lastModified() < cutoff) file.deleteRecursively()
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     fun shareFileData(bytes: ByteArray, fileName: String, mimeType: String): Boolean {
         return try {
-            val file = File(cacheDir, fileName)
+            val file = resolveShareFile(fileName) ?: return false
+            pruneShareDir()
             file.writeBytes(bytes)
             val uri = FileProvider.getUriForFile(this, "${applicationContext.packageName}.fileprovider", file)
 
@@ -393,6 +461,9 @@ class MainActivity : BridgeActivity() {
      * the JS promise registered under [callbackId] with the chosen item id, or
      * null when dismissed without a selection. Runs on the UI thread.
      */
+    // RtlHardcoded: the anchor gravity below is deliberately absolute — see the
+    // comment at the call site. START is what breaks this in Arabic.
+    @SuppressLint("RtlHardcoded")
     fun showNativeContextMenu(json: String, callbackId: String) {
         try {
             val root = JSONObject(json)
@@ -410,6 +481,13 @@ class MainActivity : BridgeActivity() {
             val content = findViewById<FrameLayout>(android.R.id.content)
             val anchorView = View(this)
             anchorView.layoutParams = FrameLayout.LayoutParams(1, 1).apply {
+                // Pin to an absolute LEFT gravity. FrameLayout's default child
+                // gravity is TOP|START, which resolves to RIGHT under an RTL
+                // locale (Arabic) — it then lays out from `rightMargin` and
+                // ignores `leftMargin`, dropping the menu at the screen edge.
+                // The anchor is in physical viewport pixels, so LEFT is correct
+                // in both directions.
+                gravity = Gravity.TOP or Gravity.LEFT
                 leftMargin = anchorX
                 topMargin = anchorY
             }
@@ -574,7 +652,7 @@ class MainActivity : BridgeActivity() {
                 }
             }
 
-            loadingScreen.setPadding(0, topInset, 0, bottomInset)
+            loadingScreen?.setPadding(0, topInset, 0, bottomInset)
 
             // Consume the insets so the framework doesn't propagate the IME inset
             // to the WebView and pan the document to reveal the focused
@@ -589,7 +667,7 @@ class MainActivity : BridgeActivity() {
 
     // ---- Loading screen ----
 
-    private fun startSpinnerAnimation() {
+    private fun startSpinnerAnimation(spinnerImage: ImageView) {
         val rotateAnimation = RotateAnimation(
             0f, 360f,
             Animation.RELATIVE_TO_SELF, 0.5f,
@@ -603,11 +681,12 @@ class MainActivity : BridgeActivity() {
     }
 
     private fun hideLoadingScreen() {
-        loadingScreen.animate()
+        val overlay = loadingScreen ?: return
+        overlay.animate()
             .alpha(0f)
             .setDuration(300)
             .withEndAction {
-                loadingScreen.visibility = View.GONE
+                overlay.visibility = View.GONE
             }
             .start()
     }
@@ -670,7 +749,7 @@ class MainActivity : BridgeActivity() {
             val newNightMode = (newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
             if (newNightMode != isNightMode) {
                 isNightMode = newNightMode
-                loadingScreen.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
+                loadingScreen?.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
                 updateSystemBarsAppearance(isNightMode)
             }
         }
@@ -690,7 +769,7 @@ class MainActivity : BridgeActivity() {
                 }
                 else -> false
             }
-            loadingScreen.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
+            loadingScreen?.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
             updateSystemBarsAppearance(isNightMode)
         }
     }
@@ -698,7 +777,7 @@ class MainActivity : BridgeActivity() {
     fun onWebColorSchemeChanged(colorScheme: String) {
         runOnUiThread {
             isNightMode = colorScheme == "dark"
-            loadingScreen.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
+            loadingScreen?.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
             updateSystemBarsAppearance(isNightMode)
         }
     }

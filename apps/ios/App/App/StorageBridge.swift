@@ -14,6 +14,37 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
         return tasfer
     }()
 
+    /// `standardizedFileURL` collapses `..` textually; `resolvingSymlinksInPath`
+    /// then collapses any link planted inside the sandbox. Applying both to each
+    /// side is what makes the containment check below meaningful.
+    private func canonical(_ url: URL) -> URL {
+        return url.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    /// Resolve `path` inside the storage sandbox, or nil when it escapes.
+    ///
+    /// `path` crosses the bridge from JavaScript, so a bare
+    /// `baseURL.appendingPathComponent(path)` lets `../` segments reach anywhere
+    /// in the app container — with `delete` removing directories recursively.
+    /// Mirrors `AndroidBridge.resolveInStorage`.
+    private func resolveInStorage(_ path: String) -> URL? {
+        let base = canonical(baseURL)
+        let target = canonical(base.appendingPathComponent(path))
+        guard target == base || target.path.hasPrefix(base.path + "/") else { return nil }
+        return target
+    }
+
+    /// Resolve `fileName` to a file directly inside the temp dir used to stage
+    /// share-sheet payloads, or nil when it escapes. Same rule as
+    /// `resolveInStorage`, tightened to one flat directory since share names are
+    /// never nested.
+    private func resolveShareFile(_ fileName: String) -> URL? {
+        let base = canonical(fileManager.temporaryDirectory)
+        let target = canonical(base.appendingPathComponent(fileName))
+        guard target.deletingLastPathComponent().path == base.path else { return nil }
+        return target
+    }
+
     func userContentController(
         _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
     ) {
@@ -39,9 +70,10 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
                let fileName = body["fileName"] as? String,
                let bytes = Data(base64Encoded: dataStr)
             {
-                // Write to temp file
-                let tempDir = FileManager.default.temporaryDirectory
-                let tempFile = tempDir.appendingPathComponent(fileName)
+                guard let tempFile = resolveShareFile(fileName) else {
+                    sendCallback(callbackId: callbackId, result: nil, error: "Invalid fileName")
+                    return
+                }
                 do {
                     try bytes.write(to: tempFile)
                 } catch {
@@ -97,8 +129,11 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
                 let dataStr = body["data"] as? String,
                 let bytes = Data(base64Encoded: dataStr)
             {
+                guard let url = resolveInStorage(path) else {
+                    errorMsg = "Invalid path"
+                    break
+                }
                 do {
-                    let url = baseURL.appendingPathComponent(path)
                     try fileManager.createDirectory(
                         at: url.deletingLastPathComponent(),
                         withIntermediateDirectories: true,
@@ -115,7 +150,10 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
 
         case "read":
             if let path = body["path"] as? String {
-                let url = baseURL.appendingPathComponent(path)
+                guard let url = resolveInStorage(path) else {
+                    errorMsg = "Invalid path"
+                    break
+                }
                 if let data = fileManager.contents(atPath: url.path) {
                     result = data.base64EncodedString()
                 } else {
@@ -127,7 +165,10 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
 
         case "delete":
             if let path = body["path"] as? String {
-                let url = baseURL.appendingPathComponent(path)
+                guard let url = resolveInStorage(path) else {
+                    errorMsg = "Invalid path"
+                    break
+                }
                 do {
                     if fileManager.fileExists(atPath: url.path) {
                         try fileManager.removeItem(at: url)
@@ -142,7 +183,10 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
 
         case "list":
             if let path = body["path"] as? String {
-                let url = baseURL.appendingPathComponent(path)
+                guard let url = resolveInStorage(path) else {
+                    result = [String]()
+                    break
+                }
                 do {
                     if fileManager.fileExists(atPath: url.path) {
                         let files = try fileManager.contentsOfDirectory(atPath: url.path)
@@ -159,7 +203,10 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
 
         case "exists":
             if let path = body["path"] as? String {
-                let url = baseURL.appendingPathComponent(path)
+                guard let url = resolveInStorage(path) else {
+                    result = false
+                    break
+                }
                 result = fileManager.fileExists(atPath: url.path)
             } else {
                 errorMsg = "Invalid path"

@@ -11,6 +11,30 @@ if (keystorePropsFile.exists()) {
     keystoreProps.load(new FileInputStream(keystorePropsFile))
 }
 
+// Play rejects an upload whose versionCode was already used, so it has to grow on
+// every release. Derive it from the semver instead of keeping a second counter in
+// sync by hand: bumping versionName is then the only step. fastlane applies the
+// same packing (see `android_version_code` in fastlane/Fastfile); change both or
+// neither. The 1.4.2 -> 10402 layout caps minor and patch at 99.
+//
+// Tracks apps/web/package.json. The previous "0.0.0" placeholder is not
+// expressible here: it derives a versionCode of 0, which AGP rejects outright.
+def tasferVersionName = "0.1.0"
+def tasferSemver = (tasferVersionName =~ /^(\d+)\.(\d+)\.(\d+)$/)
+if (!tasferSemver.matches()) {
+    throw new GradleException(
+        "versionName '${tasferVersionName}' is not a bare major.minor.patch semver")
+}
+def tasferMajor = tasferSemver.group(1).toInteger()
+def tasferMinor = tasferSemver.group(2).toInteger()
+def tasferPatch = tasferSemver.group(3).toInteger()
+if (tasferMinor > 99 || tasferPatch > 99) {
+    throw new GradleException(
+        "versionName '${tasferVersionName}': minor and patch must each be <= 99, " +
+        "otherwise the derived versionCode collides with the next major/minor")
+}
+def tasferVersionCode = tasferMajor * 10000 + tasferMinor * 100 + tasferPatch
+
 android {
     namespace = "app.tasfer"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -18,8 +42,8 @@ android {
         applicationId "app.tasfer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.0.0"
+        versionCode tasferVersionCode
+        versionName tasferVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -42,7 +66,9 @@ android {
             if (keystorePropsFile.exists()) {
                 signingConfig signingConfigs.release
             }
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     compileOptions {
