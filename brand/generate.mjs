@@ -6,10 +6,17 @@
  *    drawn as a single calligraphic stroke — on a transparent background:
  *    in-app wordmarks, readme, anywhere the mark sits on arbitrary surfaces.
  *    Green #43a047 on light surfaces, #66bb6a on ink/dark surfaces.
- *  - "plate": the app-icon rendition — white glyph on a solid green (#43a047)
- *    plate — used for favicons, PWA icons, and desktop/iOS/Android launcher
- *    icons.
- *  - splash screens: ink (#101012) background with the #66bb6a glyph.
+ *  - "icon": the app-icon rendition — the #43a047 glyph on a transparent
+ *    canvas, no plate. Favicons, PWA icons, and the desktop icons, where the
+ *    host surface is meant to show through.
+ *  - The mobile launcher icons are opaque instead: a white plate on light, an
+ *    ink (#101012) plate on dark, behind the same green glyph. On iOS this is
+ *    forced — App Store validation rejects an icon carrying alpha — and
+ *    Android matches it so the two platforms read the same. The iOS tinted
+ *    appearance, which Apple composites over its own background, is the one
+ *    variant that keeps its transparency.
+ *  - splash screens: the inverse of the icon — a solid #43a047 field with a
+ *    white glyph in the middle.
  *
  * Usage: cd brand && npm install && npm run generate
  * (macOS required for the .icns step, which shells out to `iconutil`.)
@@ -24,9 +31,8 @@ import pngToIco from "png-to-ico";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const GREEN = "#43a047"; // mark on light surfaces, icon plate
-const GREEN_DARK = "#66bb6a"; // mark on ink/dark surfaces
-const INK = "#101012"; // splash background
+const GREEN = "#43a047"; // mark on light surfaces, app-icon glyph, splash plate
+const INK = "#101012"; // iOS dark-appearance plate
 
 // ---------------------------------------------------------------------------
 // Geometry — the sifr glyph lives in a 100x140 space, matching brand/logo.svg.
@@ -41,10 +47,13 @@ const GLYPH_HEIGHT = 132;
 const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
 /**
- * Compose an icon: optional plate + glyph centered in a width x height canvas.
+ * Compose an icon: an optional full-bleed plate + the glyph centered in a
+ * width x height canvas. Plates are used wherever the platform wants an opaque
+ * icon face; the web and desktop renditions leave the canvas transparent.
  *  - glyph: fraction of the canvas' short edge the glyph's height spans
- *  - radius: plate corner radius as a fraction of the plate edge
- *  - margin: transparent margin around the plate, fraction of the canvas
+ *  - radius: plate corner radius as a fraction of the canvas' short edge
+ *    (0 = square, 0.5 = circle). Only the pre-API-26 Android icons need it —
+ *    iOS and modern Android launchers apply their own mask.
  */
 function iconSvg({
   size,
@@ -52,17 +61,14 @@ function iconSvg({
   height = size,
   plate = null,
   radius = 0,
-  margin = 0,
   glyph = 0.6,
-  fill = "#ffffff",
+  fill = GREEN,
 }) {
   const parts = [];
   if (plate) {
-    const edge = Math.min(width, height) * (1 - 2 * margin);
-    const x = (width - edge) / 2;
-    const y = (height - edge) / 2;
+    const rx = fmt(radius * Math.min(width, height));
     parts.push(
-      `<rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(edge)}" height="${fmt(edge)}" rx="${fmt(radius * edge)}" fill="${plate}"/>`,
+      `<rect width="${width}" height="${height}" rx="${rx}" fill="${plate}"/>`,
     );
   }
   const k = (glyph * Math.min(width, height)) / GLYPH_HEIGHT;
@@ -72,13 +78,18 @@ function iconSvg({
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${parts.join("")}</svg>`;
 }
 
-/** Full-canvas splash: ink background with a centered green glyph. */
+/**
+ * Full-canvas splash: solid green with a centered white glyph — the inverse of
+ * the app icon. Note this does not match `ios.backgroundColor` /
+ * `android.backgroundColor` in apps/web/capacitor.config.js (ink), which is
+ * painted between the splash going away and the web content's first paint.
+ */
 function splashSvg(width, height, glyph = 0.22) {
   const k = (glyph * Math.min(width, height)) / GLYPH_HEIGHT;
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
-    `<rect width="${width}" height="${height}" fill="${INK}"/>` +
-    `<g transform="translate(${fmt(width / 2)} ${fmt(height / 2)}) scale(${fmt(k)}) translate(${-GLYPH_CX} ${-GLYPH_CY})"><path d="${GLYPH_PATH}" fill="${GREEN_DARK}"/></g>` +
+    `<rect width="${width}" height="${height}" fill="${GREEN}"/>` +
+    `<g transform="translate(${fmt(width / 2)} ${fmt(height / 2)}) scale(${fmt(k)}) translate(${-GLYPH_CX} ${-GLYPH_CY})"><path d="${GLYPH_PATH}" fill="#ffffff"/></g>` +
     `</svg>`
   );
 }
@@ -89,22 +100,37 @@ async function png(svg, out) {
   console.log("wrote", path.relative(ROOT, out));
 }
 
+/**
+ * Same, but written without an alpha channel. App Store validation rejects an
+ * app icon that merely *carries* alpha (ITMS-90717), even when every pixel is
+ * fully opaque, so the iOS light and dark appearances must be flattened.
+ */
+async function pngOpaque(svg, out) {
+  await fs.promises.mkdir(path.dirname(out), { recursive: true });
+  await sharp(Buffer.from(svg)).removeAlpha().png().toFile(out);
+  console.log("wrote", path.relative(ROOT, out), "(no alpha)");
+}
+
 const at = (...p) => path.join(ROOT, ...p);
 
 // ---------------------------------------------------------------------------
 // Renditions
 // ---------------------------------------------------------------------------
-const mark = (size) => iconSvg({ size, fill: GREEN, glyph: 0.94 });
-const plate = (size, { glyph = 0.56, radius = 0.2237, margin = 0 } = {}) =>
-  iconSvg({ size, plate: GREEN, radius, margin, glyph });
-const plateSquare = (size, glyph) => iconSvg({ size, plate: GREEN, glyph });
-const plateCircle = (size, glyph) =>
-  iconSvg({ size, plate: GREEN, radius: 0.5, glyph });
+const mark = (size) => iconSvg({ size, glyph: 0.94 });
+/** App icon: the green glyph on a transparent canvas, no plate. */
+const icon = (size, glyph = 0.86) => iconSvg({ size, glyph });
+/** iOS only — opaque plate behind the glyph, since Apple forbids alpha. */
+const iosIcon = (plate, fill = GREEN) =>
+  iconSvg({ size: 1024, plate, fill, glyph: 0.52 });
+/**
+ * Android legacy (pre-API-26) launcher icons. These are drawn as-is — no
+ * adaptive layers, no launcher mask — so the plate carries its own shape and
+ * cannot follow the system theme the way the adaptive background does.
+ */
+const androidLegacy = (size, glyph, radius) =>
+  iconSvg({ size, plate: "#ffffff", radius, glyph });
 
 async function main() {
-  // Master vector for the plate rendition, kept next to logo.svg for reuse.
-  fs.writeFileSync(at("brand", "logo-plate.svg"), plate(64) + "\n");
-
   // The bare mark (transparent, green) — readme, site headers, app chrome.
   for (const out of [
     at("logo.png"),
@@ -114,17 +140,18 @@ async function main() {
     await png(mark(1024), out);
   }
 
-  // Favicons and PWA icons (plate rendition).
-  await png(plate(32, { glyph: 0.6 }), at("apps", "web", "public", "favicon.png"));
-  await png(plate(64, { glyph: 0.6 }), at("apps", "site", "public", "favicon.png"));
-  // Maskable PWA icons are full-bleed; keep the glyph inside the safe zone.
-  await png(plateSquare(192, 0.5), at("apps", "web", "public", "icon-192.png"));
-  await png(plateSquare(512, 0.5), at("apps", "web", "public", "icon-512.png"));
+  // Favicons and PWA icons. Transparent, so these are declared `purpose: any`
+  // in the web manifest — a maskable icon would need an opaque full-bleed
+  // plate, which is exactly what this rendition drops.
+  await png(icon(32, 0.94), at("apps", "web", "public", "favicon.png"));
+  await png(icon(64, 0.94), at("apps", "site", "public", "favicon.png"));
+  await png(icon(192), at("apps", "web", "public", "icon-192.png"));
+  await png(icon(512), at("apps", "web", "public", "icon-512.png"));
 
   // Desktop (Electron).
   const res = at("apps", "desktop", "resources");
-  await png(plate(512), path.join(res, "icon.png"));
-  await png(plate(1024), path.join(res, "icon-1024.png"));
+  await png(icon(512), path.join(res, "icon.png"));
+  await png(icon(1024), path.join(res, "icon-1024.png"));
   // macOS template tray icon: black glyph + alpha, tinted by the system.
   await png(
     iconSvg({ size: 22, fill: "#000000", glyph: 0.82 }),
@@ -140,13 +167,14 @@ async function main() {
   const icoPngs = [];
   for (const s of [16, 24, 32, 48, 64, 128, 256]) {
     const p = path.join(icoTmp, `icon-${s}.png`);
-    await sharp(Buffer.from(plate(s, { glyph: 0.6 }))).png().toFile(p);
+    await sharp(Buffer.from(icon(s, 0.9))).png().toFile(p);
     icoPngs.push(p);
   }
   fs.writeFileSync(path.join(res, "icon.ico"), await pngToIco(icoPngs));
   console.log("wrote", path.relative(ROOT, path.join(res, "icon.ico")));
 
-  // icon.icns (macOS) — Big Sur style: rounded plate with a transparent margin.
+  // icon.icns (macOS) — the glyph fills the Big Sur content box (~0.8 of the
+  // canvas); the surrounding margin is transparent rather than a plate.
   const icnsTmp = fs.mkdtempSync(path.join(os.tmpdir(), "tasfer-icns-"));
   const iconset = path.join(icnsTmp, "icon.iconset");
   fs.mkdirSync(iconset);
@@ -155,7 +183,7 @@ async function main() {
       ["", s],
       ["@2x", s * 2],
     ]) {
-      const svg = plate(px, { glyph: 0.52, margin: 0.09 });
+      const svg = icon(px, 0.8);
       await sharp(Buffer.from(svg))
         .png()
         .toFile(path.join(iconset, `icon_${s}x${s}${suffix}.png`));
@@ -165,24 +193,36 @@ async function main() {
   console.log("wrote", path.relative(ROOT, path.join(res, "icon.icns")));
 
   // iOS app icon (full bleed — iOS applies its own mask) and splash screens.
+  // App Store validation rejects an alpha channel, so the light and dark
+  // appearances are opaque: a white / ink plate behind the green glyph. The
+  // tinted appearance is a grayscale glyph on alpha, which iOS composites over
+  // its own background — the one place transparency is allowed.
   const appiconset = at("apps", "ios", "App", "App", "Assets.xcassets", "AppIcon.appiconset");
-  await png(plateSquare(1024, 0.52), path.join(appiconset, "AppIcon.png"));
-  await png(plateSquare(1024, 0.52), path.join(appiconset, "AppIcon-512@2x.png"));
+  await pngOpaque(iosIcon("#ffffff"), path.join(appiconset, "AppIcon.png"));
+  await pngOpaque(iosIcon(INK), path.join(appiconset, "AppIcon-dark.png"));
+  await png(
+    iconSvg({ size: 1024, fill: "#ffffff", glyph: 0.52 }),
+    path.join(appiconset, "AppIcon-tinted.png"),
+  );
   const splashset = at("apps", "ios", "App", "App", "Assets.xcassets", "Splash.imageset");
   for (const name of ["splash-2732x2732.png", "splash-2732x2732-1.png", "splash-2732x2732-2.png"]) {
     await png(splashSvg(2732, 2732), path.join(splashset, name));
   }
 
-  // Android launcher icons. The adaptive-icon background color lives in
-  // res/values/ic_launcher_background.xml and must stay GREEN.
+  // Android launcher icons — an opaque icon face, like iOS. The adaptive
+  // background color lives in res/values/ic_launcher_background.xml (white)
+  // and res/values-night/ic_launcher_background.xml (ink).
   const resDir = at("apps", "android", "app", "src", "main", "res");
   const densities = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
   for (const [dpi, m] of Object.entries(densities)) {
     const dir = path.join(resDir, `mipmap-${dpi}`);
-    // Adaptive foreground: transparent, white glyph inside the 66/108 safe zone.
+    // Adaptive foreground: the green glyph on alpha, so the background layer
+    // shows through — the layering is what makes the composed icon opaque.
+    // 0.42 of the 108dp canvas sits inside the 66dp safe zone and matches the
+    // glyph's optical size on the iOS plate.
     await png(iconSvg({ size: 108 * m, glyph: 0.42 }), path.join(dir, "ic_launcher_foreground.png"));
-    await png(plate(48 * m, { glyph: 0.54, radius: 0.2 }), path.join(dir, "ic_launcher.png"));
-    await png(plateCircle(48 * m, 0.5), path.join(dir, "ic_launcher_round.png"));
+    await png(androidLegacy(48 * m, 0.54, 0.2), path.join(dir, "ic_launcher.png"));
+    await png(androidLegacy(48 * m, 0.5, 0.5), path.join(dir, "ic_launcher_round.png"));
   }
 
   // Android splash screens (dimensions match the checked-in Capacitor set).
