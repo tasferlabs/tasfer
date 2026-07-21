@@ -12,20 +12,20 @@ import { APP_OPEN_URL } from "@/lib/appUrl";
 
 <h2 id="install">Install</h2>
 
-Tasfer runs as a native desktop app, and also right in your browser as a local web build. Pick whichever fits your machine:
+Tasfer runs right in your browser as a local web build today; signed native desktop and mobile builds are on the way. Pick whichever fits your machine:
 
 <CardGrid>
-  <Card
-    to="app/getting-started"
-    icon={<Icons.Download />}
-    title="Desktop (macOS / Windows / Linux)"
-    desc="Signed builds on the GitHub releases page. The app checks GitHub Releases for updates."
-  />
   <Card
     to={APP_OPEN_URL}
     icon={<Icons.Compass />}
     title="Open in web"
     desc="Launch Tasfer straight in your browser — nothing to install, your work still stays local on your device."
+  />
+  <Card
+    to="/download"
+    icon={<Icons.Download />}
+    title="Desktop & mobile"
+    desc="Native builds for macOS, Windows, Linux, iOS, and Android are being packaged. See the download page for the latest."
   />
 </CardGrid>
 

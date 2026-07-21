@@ -586,8 +586,10 @@ export function Card({
       </a>
     );
   }
+  // Absolute in-app paths ("/download") route as-is; bare slugs are docs routes.
+  const href = to.startsWith("/") ? to : "/docs/" + to;
   return (
-    <Link className="dx-card" to={"/docs/" + to}>
+    <Link className="dx-card" to={href}>
       {inner}
     </Link>
   );

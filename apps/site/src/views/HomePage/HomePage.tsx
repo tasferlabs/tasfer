@@ -646,6 +646,9 @@ export default function HomePage() {
           </Link>
           <nav className="lp-nav">
             <Link to="/docs">{t("home.lp.nav.docs", "docs")}</Link>
+            <Link to="/download">
+              {t("home.lp.nav.download", "download")}
+            </Link>
             <a href="#repo" onClick={scrollTo("repo")}>
               {t("home.lp.nav.source", "source")}
             </a>
@@ -1022,6 +1025,9 @@ export default function HomePage() {
               {t("home.lp.footer.manifesto", "manifesto")}
             </Link>
             <Link to="/docs">{t("home.lp.footer.docs", "docs")}</Link>
+            <Link to="/download">
+              {t("home.lp.nav.download", "download")}
+            </Link>
             <a href={REPO_URL} target="_blank" rel="noreferrer">
               {t("home.lp.footer.source", "source")}
             </a>
