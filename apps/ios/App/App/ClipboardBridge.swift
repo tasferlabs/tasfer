@@ -44,13 +44,12 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
                     UIApplication.shared.open(url)
                 }
             }
-        case "theme-change":
-            if let theme = body["theme"] as? String {
-                updateAppTheme(theme: theme)
-            }
         case "setColorScheme":
-            if let colorScheme = body["colorScheme"] as? String {
-                updateAppColorScheme(colorScheme: colorScheme)
+            // Keyed off the user's theme *setting*, not the scheme it resolved
+            // to: pinning the window in system mode would freeze the WebView's
+            // trait collection and the app would stop following the OS.
+            if let source = body["source"] as? String {
+                updateInterfaceStyle(source: source)
             }
         default:
             break
@@ -73,39 +72,25 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
         generator.impactOccurred()
     }
 
-    private func updateAppTheme(theme: String) {
+    /**
+     Mirror the in-app theme setting onto the window, so UIKit-drawn chrome —
+     the keyboard, context menus, selection UI — follows it. `.unspecified`
+     hands the window back to the OS setting.
+     */
+    private func updateInterfaceStyle(source: String) {
         DispatchQueue.main.async {
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                let window = windowScene.windows.first
             {
-                switch theme {
+                switch source {
                 case "dark":
                     window.overrideUserInterfaceStyle = .dark
                 case "light":
                     window.overrideUserInterfaceStyle = .light
-                case "system":
-                    window.overrideUserInterfaceStyle = .unspecified
                 default:
                     window.overrideUserInterfaceStyle = .unspecified
                 }
             }
-        }
-    }
-
-    private func updateAppColorScheme(colorScheme: String) {
-        DispatchQueue.main.async {
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-               let window = windowScene.windows.first
-            {
-                switch colorScheme {
-                case "dark":
-                    window.overrideUserInterfaceStyle = .dark
-                case "light":
-                    window.overrideUserInterfaceStyle = .light
-                default:
-                    break
-                }
-            } 
         }
     }
 }

@@ -33,6 +33,7 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
@@ -171,6 +172,7 @@ class MainActivity : BridgeActivity() {
                 injectTasferBridgeShim()
                 hideLoadingScreen()
                 injectSafeAreaInsets()
+                notifySystemColorScheme()
             }
         })
     }
@@ -393,7 +395,7 @@ class MainActivity : BridgeActivity() {
                         trigger: function(s) { nb.haptic(s); return Promise.resolve(); }
                     },
                     editor: {
-                        setColorScheme: function(s) { nb.setColorScheme(s); return Promise.resolve(); },
+                        setColorScheme: function(s, src) { nb.setColorScheme(s, src || s); return Promise.resolve(); },
                         showContextMenu: function(req) {
                             return new Promise(function(resolve) {
                                 if (!window.__nativeContextMenuCallbacks) window.__nativeContextMenuCallbacks = new Map();
@@ -713,40 +715,89 @@ class MainActivity : BridgeActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
 
-        if (themeMode == "system") {
-            val newNightMode = (newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-            if (newNightMode != isNightMode) {
-                isNightMode = newNightMode
-                loadingScreen?.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
-                updateSystemBarsAppearance(isNightMode)
-            }
-        }
+        // uiMode is in this activity's configChanges, so an OS theme switch lands
+        // here instead of recreating the activity — and this is the only signal
+        // the web layer gets for it (see notifySystemColorScheme). With an
+        // explicit in-app theme the night-mode override owns newConfig.uiMode,
+        // so there is nothing of the OS left to follow.
+        if (themeMode != "system") return
+
+        val newNightMode = (newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        if (newNightMode == isNightMode) return
+
+        isNightMode = newNightMode
+        loadingScreen?.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
+        updateSystemBarsAppearance(isNightMode)
+        notifySystemColorScheme()
     }
 
     // ---- Theme management ----
 
-    fun onWebThemeChanged(theme: String) {
+    /**
+     * [colorScheme] is the light/dark the web app resolved to, [source] the
+     * user's theme setting ("light", "dark" or "system").
+     */
+    fun onWebColorSchemeChanged(colorScheme: String, source: String) {
         runOnUiThread {
-            themeMode = theme
-            isNightMode = when (theme) {
-                "dark" -> true
-                "light" -> false
-                "system" -> {
-                    val currentNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-                    currentNightMode == Configuration.UI_MODE_NIGHT_YES
-                }
-                else -> false
-            }
+            themeMode = source
+            applyNightMode(source)
+            // In system mode the web app's own reading of the OS setting can be
+            // stale (that is what notifySystemColorScheme is for), so take it
+            // from the configuration the override just stopped shadowing.
+            isNightMode = if (source == "system") systemNightMode() else colorScheme == "dark"
             loadingScreen?.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
             updateSystemBarsAppearance(isNightMode)
+            notifySystemColorScheme()
         }
     }
 
-    fun onWebColorSchemeChanged(colorScheme: String) {
-        runOnUiThread {
-            isNightMode = colorScheme == "dark"
-            loadingScreen?.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
-            updateSystemBarsAppearance(isNightMode)
+    /**
+     * Mirror the in-app theme onto the activity's own night mode, so OS-drawn
+     * chrome that resolves against the activity theme — the context-menu
+     * PopupMenu, selection UI, dialogs — follows the app rather than the device.
+     * The soft keyboard is not one of them: an IME is a separate process and
+     * themes itself from the system setting, with no per-app control.
+     *
+     * Because the activity handles uiMode config changes, AppCompat applies this
+     * by updating the activity's resources in place and dispatching
+     * onConfigurationChanged — no recreate, so the WebView and its document
+     * survive a theme switch.
+     */
+    private fun applyNightMode(source: String) {
+        val mode = when (source) {
+            "dark" -> AppCompatDelegate.MODE_NIGHT_YES
+            "light" -> AppCompatDelegate.MODE_NIGHT_NO
+            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
+        if (delegate.localNightMode != mode) {
+            delegate.localNightMode = mode
+        }
+    }
+
+    private fun systemNightMode(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+    /**
+     * Post the OS light/dark setting to the web layer.
+     *
+     * The WebView answers `prefers-color-scheme` from the activity theme's
+     * `isLightTheme`, resolved when the WebView was created. The activity
+     * declares uiMode in its configChanges, so an OS theme switch never
+     * recreates it and the media query keeps reporting the old value — a web app
+     * following the system would never move off the scheme it launched in.
+     *
+     * Only meaningful while no night-mode override is in effect (see
+     * applyNightMode); with one, `resources` describes the override, not the OS,
+     * and the web app is not following the OS anyway.
+     */
+    private fun notifySystemColorScheme() {
+        if (themeMode != "system") return
+        val scheme = if (systemNightMode()) "dark" else "light"
+        bridge?.webView?.post {
+            bridge.webView.evaluateJavascript(
+                "window.postMessage({type:'system-color-scheme-changed',scheme:'$scheme'},'*');",
+                null
+            )
         }
     }
 

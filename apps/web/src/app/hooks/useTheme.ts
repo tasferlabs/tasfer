@@ -22,21 +22,67 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return "system";
   });
 
+  // The OS light/dark setting. Normally `prefers-color-scheme`, but the Android
+  // shell reports it explicitly — see the listener below.
+  const [systemScheme, setSystemScheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "light";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  });
+
   const [effectiveTheme, setEffectiveTheme] = useState<"light" | "dark">(() => {
     if (typeof window !== "undefined") {
       if (theme === "system") {
-        return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        return systemScheme;
       }
       return theme === "dark" ? "dark" : "light";
     }
     return "light";
   });
 
+  // Track the OS setting regardless of the current theme, so switching back to
+  // "system" resolves against a value that is still current.
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const onMediaChange = () =>
+      setSystemScheme(mediaQuery.matches ? "dark" : "light");
+
+    // The Android WebView answers `prefers-color-scheme` from the activity
+    // theme's `isLightTheme`, which it resolved when the WebView was created.
+    // The activity declares `uiMode` in its `configChanges`, so an OS theme
+    // switch never recreates it and the media query keeps reporting the old
+    // value; MainActivity posts the change instead. Other platforms never send
+    // this message and stay on the media query alone.
+    const onNativeScheme = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; scheme?: unknown } | null;
+      if (
+        event.source !== window ||
+        !data ||
+        data.type !== "system-color-scheme-changed"
+      ) {
+        return;
+      }
+      if (data.scheme === "dark" || data.scheme === "light") {
+        setSystemScheme(data.scheme);
+      }
+    };
+
+    mediaQuery.addEventListener("change", onMediaChange);
+    window.addEventListener("message", onNativeScheme);
+    return () => {
+      mediaQuery.removeEventListener("change", onMediaChange);
+      window.removeEventListener("message", onNativeScheme);
+    };
+  }, []);
+
   useEffect(() => {
     const root = document.documentElement;
 
     // Sync color scheme to native platforms (iOS/Android)
-    // This ensures keyboard, context menus, and other native UI match the app theme
+    // This ensures context menus, selection UI and other native chrome match
+    // the app theme (on iOS the soft keyboard follows too; Android leaves IME
+    // theming to the system).
     const syncNativeColorScheme = (scheme: "light" | "dark") => {
       // Set CSS color-scheme for browser/webview hints
       root.style.colorScheme = scheme;
@@ -51,20 +97,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       // the Electron desktop bridge (window.tasfer), so OS-drawn chrome like the
       // native context menu follows the in-app theme rather than the desktop
       // environment's theme. `theme` (the setting, incl. "system") is passed as
-      // the source so desktop keeps deferring to the OS in system mode.
+      // the source so hosts keep deferring to the OS in system mode instead of
+      // pinning themselves to the scheme that happens to be resolved now.
       setNativeColorScheme(scheme, theme);
     };
 
     // Update effective theme based on theme setting
     const updateEffectiveTheme = () => {
-      let newEffectiveTheme: "light" | "dark";
-
-      if (theme === "system") {
-        const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-        newEffectiveTheme = isDark ? "dark" : "light";
-      } else {
-        newEffectiveTheme = theme === "dark" ? "dark" : "light";
-      }
+      const newEffectiveTheme: "light" | "dark" =
+        theme === "system" ? systemScheme : theme === "dark" ? "dark" : "light";
 
       setEffectiveTheme(newEffectiveTheme);
 
@@ -80,15 +121,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     };
 
     updateEffectiveTheme();
-
-    // Listen for system theme changes
-    if (theme === "system") {
-      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      const handler = () => updateEffectiveTheme();
-      mediaQuery.addEventListener("change", handler);
-      return () => mediaQuery.removeEventListener("change", handler);
-    }
-  }, [theme]);
+  }, [theme, systemScheme]);
 
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);

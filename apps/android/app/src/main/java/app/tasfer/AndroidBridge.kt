@@ -121,16 +121,14 @@ class AndroidBridge(
         }
     }
 
+    /**
+     * [colorScheme] is the light/dark the web app resolved to, [source] the
+     * user's theme setting ("light", "dark" or "system").
+     */
     @JavascriptInterface
-    fun setTheme(theme: String) {
+    fun setColorScheme(colorScheme: String, source: String) {
         if (!isTrustedCaller()) return
-        (context as? MainActivity)?.onWebThemeChanged(theme)
-    }
-
-    @JavascriptInterface
-    fun setColorScheme(colorScheme: String) {
-        if (!isTrustedCaller()) return
-        (context as? MainActivity)?.onWebColorSchemeChanged(colorScheme)
+        (context as? MainActivity)?.onWebColorSchemeChanged(colorScheme, source)
     }
 
     @JavascriptInterface

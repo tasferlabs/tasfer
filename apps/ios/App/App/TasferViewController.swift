@@ -213,7 +213,7 @@ class TasferViewController: CAPBridgeViewController {
                         trigger: function(style) { return callNative({action: 'haptic', style: style}); }
                     },
                     editor: {
-                        setColorScheme: function(scheme) { return callNative({action: 'setColorScheme', colorScheme: scheme}); }\(contextMenuJS)
+                        setColorScheme: function(scheme, source) { return callNative({action: 'setColorScheme', colorScheme: scheme, source: source || scheme}); }\(contextMenuJS)
                     },
                     navigation: {
                         openUrl: function(url) { return callNative({action: 'open-url', url: url}); },

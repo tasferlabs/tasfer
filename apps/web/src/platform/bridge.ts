@@ -57,7 +57,21 @@ export interface TasferBridge {
   };
 
   editor: {
-    setColorScheme(scheme: "light" | "dark"): Promise<void>;
+    /**
+     * Push the resolved light/dark scheme, plus the user's theme *setting*, to
+     * the shell so its own chrome (context menus, selection handles, system
+     * bars) follows the in-app theme.
+     *
+     * `source` is "system" whenever the app is following the OS. Shells pin
+     * their night mode to `scheme` only for an explicit light/dark setting;
+     * pinning it in system mode would freeze the WebView's
+     * `prefers-color-scheme` at the current value and the app would stop
+     * following the OS entirely.
+     */
+    setColorScheme(
+      scheme: "light" | "dark",
+      source: "light" | "dark" | "system",
+    ): Promise<void>;
     /**
      * Present a platform-native context menu and resolve with the chosen item's
      * id, or null if the menu was dismissed without a selection.
@@ -161,7 +175,7 @@ export function isNative(): boolean {
  * keep following it (and OS theme changes still propagate); it defaults to the
  * resolved scheme when the caller has no distinct setting.
  *
- * iOS/Android receive the resolved scheme through the unified TasferBridge.
+ * iOS/Android receive both through the unified TasferBridge.
  * Electron desktop has no TasferBridge — it uses the generic `window.tasfer`
  * IPC bridge (see `nativeContextMenu`) — and would otherwise leave `nativeTheme`
  * following the desktop environment's theme (e.g. dark GTK under i3), so we
@@ -174,7 +188,7 @@ export function setNativeColorScheme(
   source: "light" | "dark" | "system" = scheme,
 ): void {
   try {
-    void getBridge()?.editor.setColorScheme(scheme);
+    void getBridge()?.editor.setColorScheme(scheme, source);
   } catch (e) {
     console.debug("setColorScheme (native bridge) failed:", e);
   }
