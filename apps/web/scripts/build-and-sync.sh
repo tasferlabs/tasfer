@@ -90,3 +90,24 @@ if [[ "${TASFER_CAP_SYNC:-}" == "1" ]]; then
 else
   npx cap copy "$PLATFORM"
 fi
+
+# Source maps are ~40% of the release APK and hand every user the readable
+# source, which also defeats the R8 obfuscation the release build applies.
+# Drop them from the copied native bundle only — `dist/` keeps its maps, so the
+# web deploy and its error reporting are unaffected.
+case "$PLATFORM" in
+  android) NATIVE_WEB_DIR="$WEB_DIR/../android/app/src/main/assets/public" ;;
+  ios) NATIVE_WEB_DIR="$WEB_DIR/../ios/App/App/public" ;;
+esac
+if [[ -d "$NATIVE_WEB_DIR" ]]; then
+  map_count=$(find "$NATIVE_WEB_DIR" -name '*.map' -type f | wc -l | tr -d ' ')
+  if [[ "$map_count" != "0" ]]; then
+    find "$NATIVE_WEB_DIR" -name '*.map' -type f -delete
+    # Strip the now-dangling //# sourceMappingURL= trailers so the WebView
+    # doesn't log a failed fetch for every chunk it loads.
+    find "$NATIVE_WEB_DIR" -name '*.js' -type f -exec \
+      sed -i.bak -e '/^\/\/# sourceMappingURL=/d' {} +
+    find "$NATIVE_WEB_DIR" -name '*.js.bak' -type f -delete
+    echo "build-and-sync.sh: removed $map_count source map(s) from the $PLATFORM bundle"
+  fi
+fi

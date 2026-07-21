@@ -89,9 +89,7 @@ end
 # Play changelogs are keyed by <play-locale>/changelogs/<versionCode>.txt, so
 # write them on the fly from the same source. Returns the versionCode.
 def stage_android_changelog(notes)
-  gradle = File.read(File.expand_path("../apps/android/app/build.gradle", __dir__))
-  version_code = gradle[/versionCode\s+(\d+)/, 1]
-  UI.user_error!("Could not read versionCode from apps/android/app/build.gradle") unless version_code
+  version_code = android_version_code
   notes.each do |lang, text|
     if text.length > PLAY_CHANGELOG_MAX
       UI.user_error!("fastlane/release_notes/#{lang}.txt is #{text.length} chars; Play allows #{PLAY_CHANGELOG_MAX}.")
@@ -140,13 +138,32 @@ def confirm_release!(prompt)
 end
 
 def ios_marketing_version
-  pbxproj = File.read(File.expand_path("../#{APP_PROJECT}/project.pbxproj", __dir__))
+  # Explicit encoding: with no LANG set (CI runners) Ruby reads as US-ASCII and
+  # any non-ASCII byte in the file makes the regex below raise.
+  pbxproj = File.read(File.expand_path("../#{APP_PROJECT}/project.pbxproj", __dir__), encoding: "UTF-8")
   pbxproj[/MARKETING_VERSION = ([^;]+);/, 1]&.strip
 end
 
 def android_version_name
-  gradle = File.read(File.expand_path("../apps/android/app/build.gradle", __dir__))
-  gradle[/versionName\s+"([^"]+)"/, 1]
+  gradle = File.read(File.expand_path("../apps/android/app/build.gradle", __dir__), encoding: "UTF-8")
+  gradle[/tasferVersionName\s*=\s*"([^"]+)"/, 1]
+end
+
+# build.gradle derives versionCode from versionName rather than storing a literal,
+# so mirror that packing here. Keep in step with the block at the top of
+# apps/android/app/build.gradle.
+def android_version_code
+  name = android_version_name
+  UI.user_error!("Could not read versionName from apps/android/app/build.gradle") unless name
+  parts = name.split(".")
+  unless parts.length == 3 && parts.all? { |p| p.match?(/\A\d+\z/) }
+    UI.user_error!("versionName '#{name}' is not a bare major.minor.patch semver")
+  end
+  major, minor, patch = parts.map(&:to_i)
+  if minor > 99 || patch > 99
+    UI.user_error!("versionName '#{name}': minor and patch must each be <= 99")
+  end
+  major * 10000 + minor * 100 + patch
 end
 
 # App Store Connect API key — non-interactive auth (no Apple ID password / 2FA).

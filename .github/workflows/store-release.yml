@@ -106,6 +106,16 @@ jobs:
         working-directory: apps/web
         run: npm ci
 
+      # capacitor-cordova-android-plugins is gitignored and must exist before
+      # Gradle configuration; the in-build sync only runs `cap copy`. The empty
+      # assets/public placeholder stops `cap update` from running a full copy,
+      # which would need the web bundle the Gradle build hasn't built yet.
+      - name: Generate Capacitor Android project
+        working-directory: apps/web
+        run: |
+          mkdir -p ../android/app/src/main/assets/public
+          npx cap update android
+
       - name: Write signing keys
         env:
           ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
