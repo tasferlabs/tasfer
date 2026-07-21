@@ -1,0 +1,40 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "NSCameraUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app needs access to your camera to take photos for your notes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا التطبيق إلى الوصول إلى الكاميرا لالتقاط صور لملاحظاتك."
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app needs access to your photo library to select images for your notes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا التطبيق إلى الوصول إلى مكتبة صورك لاختيار صور لملاحظاتك."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
