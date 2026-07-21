@@ -150,8 +150,11 @@ function SnapshotItem({ snapshot, onPreview }: SnapshotItemProps) {
             </p>
           )}
           <p className="text-xs text-muted-foreground">
-            {snapshot.blockCount}{" "}
-            {snapshot.blockCount === 1 ? t("blocks.blockKw", "block") : t("blocks.blocksKw", "blocks")}
+            {t("blocks.blocksCount", {
+              count: snapshot.blockCount,
+              defaultValue_one: "{{count, number}} block",
+              defaultValue_other: "{{count, number}} blocks",
+            })}
           </p>
         </div>
       </div>

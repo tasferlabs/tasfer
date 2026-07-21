@@ -99,7 +99,7 @@ function PageSettingsImpl({
   setShowRenameDialog: (open: boolean) => void;
   setShowShareDialog: (open: boolean) => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const {
     fontStyle,
@@ -284,12 +284,11 @@ function PageSettingsImpl({
               {t("settings.showWordCount", "Show word count")}
             </label>
             <p className="text-xs text-muted-foreground">
-              <span className="font-medium">
-                {new Intl.NumberFormat(i18n.language).format(wordCount)}
-              </span>{" "}
-              {wordCount === 1
-                ? t("common.word", "word")
-                : t("common.words", "words")}
+              {t("common.wordCount", {
+                count: wordCount,
+                defaultValue_one: "{{count, number}} word",
+                defaultValue_other: "{{count, number}} words",
+              })}
             </p>
           </div>
           <Switch

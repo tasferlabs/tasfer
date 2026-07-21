@@ -56,12 +56,19 @@ export function SnapshotPreview({
           <div className="flex gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <Layers className="h-3 w-3 shrink-0" />
-              {snapshot.opCount} {snapshot.opCount === 1 ? t("snapshot.operation", "operation") : t("snapshot.operations", "operations")}
+              {t("snapshot.operationsCount", {
+                count: snapshot.opCount,
+                defaultValue_one: "{{count, number}} operation",
+                defaultValue_other: "{{count, number}} operations",
+              })}
             </span>
             <span className="flex items-center gap-1">
               <FileText className="h-3 w-3 shrink-0" />
-              {snapshot.blockCount}{" "}
-              {snapshot.blockCount === 1 ? t("blocks.blockKw", "block") : t("blocks.blocksKw", "blocks")}
+              {t("blocks.blocksCount", {
+                count: snapshot.blockCount,
+                defaultValue_one: "{{count, number}} block",
+                defaultValue_other: "{{count, number}} blocks",
+              })}
             </span>
           </div>
         </div>
