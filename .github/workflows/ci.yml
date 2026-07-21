@@ -126,6 +126,12 @@ jobs:
         working-directory: apps/web
         run: npm ci
 
+      # capacitor-cordova-android-plugins is gitignored and must exist before
+      # Gradle configuration; the in-build sync only runs `cap copy`.
+      - name: Generate Capacitor Android project
+        working-directory: apps/web
+        run: npx cap update android
+
       - name: Build
         working-directory: apps/android
         run: ./gradlew assembleDebug
