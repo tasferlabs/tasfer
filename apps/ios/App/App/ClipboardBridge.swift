@@ -96,18 +96,24 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
         }
     }
 
-    /// Adopt the in-app language picker's choice as the app's language, so text
+    /// Adopt an explicit in-app language choice as the app's language, so text
     /// iOS draws itself — the camera and photo-library permission prompts, the
     /// Settings-bundle page — follows it instead of the device language.
     ///
     /// `AppleLanguages` is resolved by the system when the process launches, so
     /// this lands on next launch rather than immediately. That is acceptable
     /// here: none of the strings it governs are on screen at the moment the
-    /// user switches, and the web layer re-pushes on every startup.
-    ///
-    /// Written only when the value actually changes — this is called on every
-    /// launch, and an unconditional write would dirty defaults each time.
+    /// user switches, and the WebView stays consistent in-session through the
+    /// web layer's session pin. Called only on an explicit picker change; at
+    /// startup the web layer reads this value back (`initialLocale` in the
+    /// bridge shim) rather than pushing, so a stale web cache can never revert
+    /// a choice made in iOS Settings.
     private func updateAppLocale(tag: String) {
+        // Persisted and later interpolated into the bridge shim's JS source —
+        // accept only a plain language tag.
+        guard tag.range(of: "^[A-Za-z0-9-]{1,35}$", options: .regularExpression) != nil else {
+            return
+        }
         let defaults = UserDefaults.standard
         let current = (defaults.array(forKey: "AppleLanguages") as? [String])?.first
         guard current != tag else { return }

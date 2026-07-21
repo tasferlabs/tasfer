@@ -41,9 +41,9 @@
         </activity>
 
         <!-- Persists AppCompatDelegate.setApplicationLocales below API 33, where
-             the platform has no per-app language store. Only covers app start
-             before the WebView loads: the web layer re-pushes the picker's
-             choice on every launch (see `setNativeLocale`). -->
+             the platform has no per-app language store. This store is the
+             source of truth: the web layer reads it back at startup via
+             `AndroidBridge.getLocale` instead of pushing its own cache. -->
         <service
             android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
             android:enabled="false"

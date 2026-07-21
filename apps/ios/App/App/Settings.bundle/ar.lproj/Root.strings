@@ -3,5 +3,5 @@
    Run `npm run gen:ios-strings`. */
 
 "DEVELOPER_GROUP_TITLE" = "المطوّر";
-"DEVELOPER_GROUP_FOOTER" = "إظهار لوحة مفتش تصفير لفحص قاعدة البيانات والشبكة وحالة CRDT والمحرّر";
+"DEVELOPER_GROUP_FOOTER" = "إظهار لوحة مفتش تصفير لفحص حالة قاعدة البيانات والشبكة وCRDT والمحرّر";
 "SHOW_INSPECTOR_TITLE" = "إظهار مفتش تصفير";

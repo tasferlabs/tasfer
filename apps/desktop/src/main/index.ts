@@ -189,10 +189,10 @@ function setDevToolsEnabled(value: boolean): void {
 // ── Interface language ─────────────────────────────────────────────────────
 // The macOS application menu and the tray menu are drawn by the OS from labels
 // this process supplies, so they cannot read i18next in the renderer. The web
-// layer pushes the in-app language over `app:setLocale` on startup and on every
-// change (see `setNativeLocale`); it is persisted so the menus are already right
-// on the next launch, before the renderer has loaded. The OS language is only
-// the initial guess, for a first run that has not been told otherwise.
+// layer pushes the in-app language over `app:setLocale` on an explicit picker
+// change (see `setNativeLocale`); it is persisted so the menus are already
+// right on the next launch, before the renderer has loaded. The OS language is
+// only the initial guess, for a first run that has not been told otherwise.
 
 let locale: Locale = FALLBACK_LOCALE;
 
@@ -464,7 +464,7 @@ app.whenReady().then(() => {
   registerContextMenuHandlers();
   registerThemeHandlers();
 
-  // In-app language, pushed by the renderer on startup and on every change, so
+  // In-app language, pushed by the renderer on an explicit picker change, so
   // the OS-drawn macOS menu and tray follow the in-app picker rather than the
   // desktop environment's language.
   ipcMain.handle("app:setLocale", (_event, tag: string) => setLocale(tag));

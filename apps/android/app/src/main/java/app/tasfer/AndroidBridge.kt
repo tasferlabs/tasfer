@@ -11,6 +11,7 @@ import android.util.Log
 import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import androidx.appcompat.app.AppCompatDelegate
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -138,6 +139,17 @@ class AndroidBridge(
     fun setLocale(tag: String) {
         if (!isTrustedCaller()) return
         (context as? MainActivity)?.onWebLocaleChanged(tag)
+    }
+
+    /**
+     * The app's explicitly-set locale, "" when it follows the system. Read
+     * synchronously during web locale detection — before the TasferBridge shim
+     * exists — so the stored choice outranks any stale web-side cache.
+     */
+    @JavascriptInterface
+    fun getLocale(): String {
+        if (!isTrustedCaller()) return ""
+        return AppCompatDelegate.getApplicationLocales().toLanguageTags()
     }
 
     @JavascriptInterface

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useTheme, type Theme } from "@/app/hooks/useTheme";
 import { useConfirmation } from "@/app/components/ConfirmationDialog";
+import { setNativeLocale } from "@/platform/bridge";
 import {
   usePageSettings,
   DENSITY_STOPS,
@@ -216,6 +217,9 @@ export function LanguageSelect() {
     if (!confirmed) return;
 
     document.cookie = `locale=${id};path=/;max-age=${365 * 24 * 60 * 60}`;
+    // The only push site: the native store takes the choice here and startup
+    // detection reads it back, so it stays the source of truth on mobile.
+    setNativeLocale(id);
     i18n.changeLanguage(id);
     window.location.reload();
   }

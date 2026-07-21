@@ -23,22 +23,28 @@
         LTR for an Arabic reader.
 
     Must run inline and ahead of any module for both to land in time. The lookup
-    mirrors i18next-browser-languagedetector's order (see src/i18n.ts:
-    querystring -> cookie "locale" -> localStorage -> navigator) so this guess
-    matches the language i18next settles on and nothing reflows once it does.
+    mirrors i18next's detection order (see src/i18n.ts: querystring ->
+    native shell (session pin, iOS shim snapshot, Android live read) ->
+    cookie "locale" -> localStorage -> navigator) so this guess matches the
+    language i18next settles on and nothing reflows once it does.
     src/main.tsx takes over from there.
   -->
   <script>
     (function(){
-      var lng="";
+      var lng="",pin="";
+      try{pin=sessionStorage.getItem("tasfer.locale.pin")||"";}catch(e){}
       try{
+        var tb=window.TasferBridge,nb=window.__NativeBridge;
         lng=new URLSearchParams(location.search).get("lng")
+          ||pin
+          ||(tb&&tb.app&&tb.app.initialLocale)
+          ||(nb&&nb.getLocale&&nb.getLocale())
           ||decodeURIComponent((document.cookie.match(/(?:^|;\s*)locale=([^;]*)/)||[])[1]||"")
           ||localStorage.getItem("i18nextLng")
           ||navigator.language
           ||"";
       }catch(e){}
-      var isAr=lng.toLowerCase().split("-")[0]==="ar";
+      var isAr=lng.toLowerCase().split(/[-,]/)[0]==="ar";
       var r=document.documentElement;
       r.lang=isAr?"ar":"en";
       r.dir=isAr?"rtl":"ltr";

@@ -7,7 +7,6 @@ import { RouterProvider } from "react-router-dom";
 import { Direction } from "radix-ui";
 import { registerSW } from "virtual:pwa-register";
 import { initPlatform } from "./platform";
-import { setNativeLocale } from "./platform/bridge";
 import { AuthProvider } from "./app/contexts/AuthContext";
 import { PopupQueueProvider } from "./app/contexts/PopupQueueContext";
 import { markVisit } from "./lib/appVisits";
@@ -40,23 +39,19 @@ function loadArabicFontsIfNeeded() {
   }
 }
 
-// Mirror the language onto the native shell, so OS-drawn text (permission
-// dialogs, toasts, native menus) follows the in-app picker. Pushed on startup
-// as well as on change, so a host that missed an earlier switch self-heals.
-function syncNativeLocale() {
-  setNativeLocale(i18next.resolvedLanguage || i18next.language || "en");
-}
+// No native-locale push here: startup reads the shell's stored locale via the
+// `nativeShell` detector (see i18n.ts); pushing happens only on an explicit
+// picker change (see LanguageSelect), so a cached web language can never
+// revert an OS-level per-app choice — and Android never recreates mid-boot.
 
 const onLanguageChanged = () => {
   updateDocumentDirection();
   loadArabicFontsIfNeeded();
-  syncNativeLocale();
 };
 
 const onInitialized = () => {
   updateDocumentDirection();
   loadArabicFontsIfNeeded();
-  syncNativeLocale();
 };
 
 i18next.on("languageChanged", onLanguageChanged);

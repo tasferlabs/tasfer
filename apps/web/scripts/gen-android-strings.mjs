@@ -24,8 +24,9 @@
 // makes the app appear under Android 13+ Settings → Apps → Language. Deriving it
 // here means adding a locale can't leave the per-app language picker behind.
 //
-// Run via `npm run gen:android-strings` (also wired into the cap:sync scripts so
-// the resources are regenerated before every native sync).
+// Run via `npm run gen:android-strings`. Also run by scripts/build-and-sync.sh —
+// the Gradle preBuild hook every real Android build (including CI releases)
+// goes through — and by the cap:sync convenience scripts.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -95,6 +96,18 @@ function renderXml(lng, resources) {
   );
 }
 
+// Skip the write when content is unchanged: this runs on every native build
+// (build-and-sync.sh), and a fresh mtime would re-trigger Gradle's resource
+// merge each time.
+function writeIfChanged(path, content) {
+  try {
+    if (readFileSync(path, "utf8") === content) return;
+  } catch {
+    // Missing file — write it.
+  }
+  writeFileSync(path, content);
+}
+
 // res/xml/locales_config.xml — the platform's list of languages this app ships,
 // used by the Android 13+ per-app language picker. The fallback locale goes
 // first as the default.
@@ -143,7 +156,7 @@ function main() {
 
     const out = join(ANDROID_RES, valuesDir, "strings_generated.xml");
     mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, renderXml(lng, resources));
+    writeIfChanged(out, renderXml(lng, resources));
     console.log(
       `gen-android-strings: wrote ${resources.length} string(s) to ` +
         `res/${valuesDir}/strings_generated.xml (${lng}).`,
@@ -152,7 +165,7 @@ function main() {
 
   const localesConfig = join(ANDROID_RES, "xml", "locales_config.xml");
   mkdirSync(dirname(localesConfig), { recursive: true });
-  writeFileSync(localesConfig, renderLocalesConfig());
+  writeIfChanged(localesConfig, renderLocalesConfig());
   console.log(
     `gen-android-strings: wrote ${LOCALES.length} locale(s) to ` +
       `res/xml/locales_config.xml.`,

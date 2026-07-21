@@ -684,22 +684,27 @@ class MainActivity : BridgeActivity() {
     // ---- Locale management ----
 
     /**
-     * Adopt the in-app language picker's choice as the app's locale, so natively
+     * Adopt an explicit in-app language choice as the app's locale, so natively
      * drawn text — the camera toasts, the permission prompt, the loading-screen
      * contentDescription — matches the WebView instead of following the device
      * language.
      *
-     * The web layer pushes this on every startup as well as on change (see
-     * `setNativeLocale`), so no state is kept here; AppCompat's own persistence
-     * (the `AppLocalesMetadataHolderService` in the manifest) only has to cover
-     * the window before the WebView has loaded.
+     * Called only when the user picks a language. At startup the web layer
+     * instead reads the stored choice back (`AndroidBridge.getLocale`), so the
+     * AppCompat store — persisted below API 33 by the
+     * `AppLocalesMetadataHolderService` in the manifest — is the single source
+     * of truth and a stale web cache can never revert an OS-level per-app
+     * choice.
      *
-     * Re-applying the current locale is skipped: below API 33 AppCompat delivers
-     * the change by recreating the activity, and the startup push would
-     * otherwise recreate it once on every launch.
+     * Re-applying the current locale is skipped: below API 33 AppCompat
+     * delivers the change by recreating the activity.
      */
     fun onWebLocaleChanged(tag: String) {
+        // A malformed tag parses to the empty list; applying that would clear
+        // the stored choice, so it is dropped instead.
+        if (!tag.matches(Regex("[A-Za-z0-9,-]{1,64}"))) return
         val requested = LocaleListCompat.forLanguageTags(tag)
+        if (requested.isEmpty) return
         if (requested == AppCompatDelegate.getApplicationLocales()) return
         runOnUiThread {
             AppCompatDelegate.setApplicationLocales(requested)
