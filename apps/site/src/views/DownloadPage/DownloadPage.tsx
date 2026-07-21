@@ -35,7 +35,7 @@ export default function DownloadPage() {
         <p className="download-intro">
           {t(
             "download.intro",
-            "Tasfer runs locally on your device. Today it installs straight from your browser — nothing to sign up for, your work never leaves your machine. Signed desktop and mobile builds are on the way.",
+            "Two ways in; one of them exists today. The browser install is the whole editor, not a trimmed-down preview — the desktop and mobile builds being packaged now wrap this same app. Start in the browser and you lose nothing by not waiting.",
           )}
         </p>
 
