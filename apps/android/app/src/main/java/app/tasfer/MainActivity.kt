@@ -118,7 +118,13 @@ class MainActivity : BridgeActivity() {
     override fun load() {
         super.load()
 
-        bridge.webView.addJavascriptInterface(AndroidBridge(this, bridge.webView), "__NativeBridge")
+        // The interface is attached to the WebView, not to a page, so it gates every
+        // call on the main frame's origin (see AndroidBridge.isTrustedCaller) using
+        // the same rule set Capacitor gates its own bridge on. Seed it with the URL
+        // we are about to load, then keep it current on every navigation below.
+        val nativeBridge = AndroidBridge(this, bridge.webView, bridge.allowedOriginRules)
+        nativeBridge.onNavigation(bridge.appUrl)
+        bridge.webView.addJavascriptInterface(nativeBridge, "__NativeBridge")
 
         bridge.webView.isVerticalScrollBarEnabled = false
         bridge.webView.isHorizontalScrollBarEnabled = false
@@ -135,7 +141,19 @@ class MainActivity : BridgeActivity() {
         bridge.webView.isFocusableInTouchMode = true
 
         bridge.addWebViewListener(object : WebViewListener() {
+            // Track the main-frame origin from the earliest point a navigation is
+            // visible, so the bridge is never open to a document that has already
+            // started loading but not yet finished.
+            override fun onPageStarted(webView: WebView) {
+                nativeBridge.onNavigation(webView.url)
+            }
+
+            override fun onPageCommitVisible(view: WebView, url: String) {
+                nativeBridge.onNavigation(url)
+            }
+
             override fun onPageLoaded(webView: WebView) {
+                nativeBridge.onNavigation(webView.url)
                 injectTasferBridgeShim()
                 hideLoadingScreen()
                 injectSafeAreaInsets()
