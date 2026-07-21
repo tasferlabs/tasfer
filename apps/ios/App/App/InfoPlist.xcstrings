@@ -9,12 +9,6 @@
             "state": "translated",
             "value": "Tasfer"
           }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تصفير"
-          }
         }
       }
     },
@@ -26,61 +20,20 @@
             "state": "translated",
             "value": "This app needs access to your camera to take photos for your notes."
           }
-        },
-        "ar": {
+        }
+      }
+    },
+    "NSPhotoLibraryUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "يستخدم تصفير الكاميرا لالتقاط صور تضيفها إلى ملاحظاتك."
-          }
-        }
-      }
-    },
-    "CFBundleName" : {
-      "comment" : "Bundle name",
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "App"
-          }
-        }
-      }
-    },
-    "NSCameraUsageDescription" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "يحتاج هذا التطبيق إلى الوصول إلى الكاميرا لالتقاط صور لملاحظاتك."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This app needs access to your camera to take photos for your notes."
-          }
-        }
-      }
-    },
-    "NSPhotoLibraryUsageDescription" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "يحتاج هذا التطبيق إلى الوصول إلى مكتبة صورك لاختيار صور لملاحظاتك."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This app needs access to your photo library to select images for your notes."
+            "value": "This app needs access to your photo library to select images for your notes."
           }
         }
       }
     }
   },
-  "version" : "1.0"
+  "version": "1.0"
 }

@@ -15,18 +15,18 @@ export async function generateMetadata({
   return {
     alternates: {
       canonical: `/${lang}/home`,
-      languages: { en: "/en/home", ar: "/ar/home" },
+      languages: { en: "/en/home" },
     },
     openGraph: {
       type: "website",
       locale: lang,
-      siteName: lang === "ar" ? "تصفير" : "Tasfer",
+      siteName: "Tasfer",
       title,
       description,
       url: `/${lang}/home`,
       images: [
         {
-          url: lang === "ar" ? "/og.ar.png" : "/og.png",
+          url: "/og.png",
           width: 1200,
           height: 630,
           alt: title,

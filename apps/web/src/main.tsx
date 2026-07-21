@@ -18,7 +18,7 @@ import { initNativeDevToolsSync } from "./lib/devTools";
 import { requestPersistentStorage } from "./lib/persistentStorage";
 import LoadingScreen from "./components/ui/loading-screen";
 import { MobileAppNudge } from "./app/components/MobileAppNudge/MobileAppNudge";
-import { loadFonts, loadArabicFonts } from "./fonts";
+import { loadFonts } from "./fonts";
 import "./i18n";
 import i18next from "i18next";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
@@ -31,14 +31,6 @@ function updateDocumentDirection() {
   document.documentElement.lang = lang;
 }
 
-// Load Arabic fonts when language is or switches to Arabic
-function loadArabicFontsIfNeeded() {
-  const lang = i18next.language || "en";
-  if (lang === "ar" || lang.startsWith("ar-")) {
-    loadArabicFonts();
-  }
-}
-
 // No native-locale push here: startup reads the shell's stored locale via the
 // `nativeShell` detector (see i18n.ts); pushing happens only on an explicit
 // picker change (see LanguageSelect), so a cached web language can never
@@ -46,12 +38,10 @@ function loadArabicFontsIfNeeded() {
 
 const onLanguageChanged = () => {
   updateDocumentDirection();
-  loadArabicFontsIfNeeded();
 };
 
 const onInitialized = () => {
   updateDocumentDirection();
-  loadArabicFontsIfNeeded();
 };
 
 i18next.on("languageChanged", onLanguageChanged);

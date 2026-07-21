@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { I18nextProvider } from "react-i18next";
 import { createI18n, type Lng } from "@/lib/i18n/config";
-import { loadArabicFonts } from "@/lib/fonts";
 
 /**
  * Wraps the app in react-i18next's provider.
@@ -23,7 +22,6 @@ export function I18nProvider({
 
   useEffect(() => {
     document.cookie = `locale=${lng}; Path=/; Max-Age=31536000; SameSite=Lax`;
-    if (lng === "ar") void loadArabicFonts();
   }, [lng]);
 
   return <I18nextProvider i18n={i18n}>{children}</I18nextProvider>;

@@ -3,5 +3,4 @@
      LOCALES list. Run `npm run gen:android-strings`. -->
 <locale-config xmlns:android="http://schemas.android.com/apk/res/android">
     <locale android:name="en"/>
-    <locale android:name="ar"/>
 </locale-config>

@@ -10,8 +10,8 @@
 // source locale so the plist can't drift from translation.json.
 //
 // A String Catalog is a single file (like Assets.xcassets), so once it is
-// registered in project.pbxproj — file ref + Resources build phase, with `ar`
-// added to knownRegions — adding a language needs no further Xcode-project edits.
+// registered in project.pbxproj — file ref + Resources build phase — locale
+// entries can be regenerated from the supported locale list below.
 //
 // Source of truth for *which* Info.plist keys are localized is the IOS_INFOPLIST
 // map below; each maps an Info.plist key to a translation key that must exist in
@@ -50,9 +50,8 @@ const SETTINGS_BUNDLE_DIR = join(IOS_APP_DIR, "Settings.bundle");
 // Info.plist key -> translation key. Adding a localized Info.plist string means
 // adding an entry here and the key to translation.json.
 const IOS_INFOPLIST = {
-  // The brand is written "تصفير" in Arabic, so the home-screen label is
-  // translatable copy. iOS picks it by DEVICE locale, so an Arabic phone shows
-  // تصفير regardless of the language chosen inside the app.
+  // Keep the home-screen label sourced from the translation catalog along with
+  // the other native strings.
   CFBundleDisplayName: "brand.name",
   NSCameraUsageDescription: "native.cameraUsageDescription",
   NSPhotoLibraryUsageDescription: "native.photoLibraryUsageDescription",
@@ -68,7 +67,7 @@ const SETTINGS_BUNDLE = {
 
 // Locales to emit. The first is the catalog's source language and the per-key
 // fallback for every other locale.
-const LOCALES = ["en", "ar"];
+const LOCALES = ["en"];
 const SOURCE_LNG = LOCALES[0];
 
 function loadLocale(lng) {

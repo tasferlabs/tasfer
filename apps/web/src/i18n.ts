@@ -25,7 +25,7 @@ i18next
       order: ["querystring", "nativeShell", "cookie", "localStorage", "navigator"],
     },
     fallbackLng: "en",
-    supportedLngs: ["en", "ar"],
+    supportedLngs: ["en"],
     backend: {
       loadPath: `${import.meta.env.BASE_URL}app/locales/{{lng}}/{{ns}}.json`,
     },

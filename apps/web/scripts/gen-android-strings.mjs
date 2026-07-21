@@ -70,7 +70,6 @@ const ANDROID_STRINGS = {
 // every other locale falls back to per key.
 const LOCALES = [
   { lng: "en", valuesDir: "values" },
-  { lng: "ar", valuesDir: "values-ar" },
 ];
 const FALLBACK_LNG = LOCALES[0].lng;
 

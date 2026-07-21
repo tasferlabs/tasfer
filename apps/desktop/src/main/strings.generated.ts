@@ -2,7 +2,7 @@
 // apps/web/public/app/locales/<lng>/translation.json.
 // Run `npm run gen:desktop-strings` in apps/web.
 
-export const LOCALES = ["en", "ar"] as const;
+export const LOCALES = ["en"] as const;
 
 export type Locale = (typeof LOCALES)[number];
 
@@ -17,11 +17,5 @@ export const STRINGS: Record<Locale, Record<StringKey, string>> = {
     "menu.showInspector": "Show Tasfer Inspector",
     "menu.showTasfer": "Show Tasfer",
     "menu.quit": "Quit",
-  },
-  "ar": {
-    "menu.view": "عرض",
-    "menu.showInspector": "إظهار مفتش تصفير",
-    "menu.showTasfer": "إظهار تصفير",
-    "menu.quit": "إنهاء",
   },
 };

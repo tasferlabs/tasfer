@@ -42,7 +42,7 @@ const DESKTOP_STRINGS = [
 
 // Locales to emit. The first is the source language and the per-key fallback for
 // every other locale.
-const LOCALES = ["en", "ar"];
+const LOCALES = ["en"];
 const SOURCE_LNG = LOCALES[0];
 
 function loadLocale(lng) {

@@ -36,7 +36,6 @@ const DESCRIPTION_KEY = "manifest.description";
 // href index.html ships with, and the fallback for any locale without a file.
 const LOCALES = [
   { lng: "en", dir: "ltr" },
-  { lng: "ar", dir: "rtl" },
 ];
 const SOURCE_LNG = LOCALES[0].lng;
 

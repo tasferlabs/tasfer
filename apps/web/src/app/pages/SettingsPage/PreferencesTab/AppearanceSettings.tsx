@@ -197,7 +197,6 @@ const LANGUAGES: Array<{
   dir: "ltr" | "rtl";
 }> = [
   { id: "en", code: "EN", native: "English", dir: "ltr" },
-  { id: "ar", code: "AR", native: "العربية", dir: "rtl" },
 ];
 
 export function LanguageSelect() {
