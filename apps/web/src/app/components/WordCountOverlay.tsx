@@ -5,17 +5,18 @@ import { WordCountDetails } from "./WordCountDetails";
 
 export function WordCountOverlay() {
   const { showWordCount, wordCount } = usePageSettings();
-  const { i18n, t } = useTranslation();
+  const { t } = useTranslation();
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   if (!showWordCount) {
     return null;
   }
 
-  const formattedCount = new Intl.NumberFormat(i18n.language).format(wordCount);
-  const label = `${formattedCount} ${
-    wordCount === 1 ? t("common.word", "word") : t("common.words", "words")
-  }`;
+  const label = t("common.wordCount", {
+    count: wordCount,
+    defaultValue_one: "{{count, number}} word",
+    defaultValue_other: "{{count, number}} words",
+  });
 
   return (
     <>

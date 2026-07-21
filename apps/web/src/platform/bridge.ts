@@ -1,8 +1,9 @@
 /**
  * Native Bridge — TasferBridge
  *
- * Both iOS and Android inject `window.TasferBridge` with the same shape.
- * All methods return Promises so consumers never need platform branching.
+ * Both iOS and Android inject `window.TasferBridge` with the same method
+ * shape; all methods return Promises so consumers never need platform
+ * branching. (Data properties may be platform-specific — see `app`.)
  *
  * Editor callbacks (undo, redo, toggleStrong, etc.) live on a separate
  * `window.TasferEditorCallbacks` object that the web app assigns and
@@ -104,6 +105,26 @@ export interface TasferBridge {
   };
 
   /**
+   * App-level host settings that outlive a single editor view.
+   * Optional — shells built before this existed omit it.
+   */
+  app?: {
+    /**
+     * Adopt `tag` (a BCP-47 language tag) as the shell's UI language, so text
+     * the WebView never draws — permission dialogs, toasts, the iOS Settings
+     * bundle — follows the in-app language picker instead of the device
+     * language. See `setNativeLocale`.
+     */
+    setLocale(tag: string): Promise<void>;
+    /**
+     * The shell's explicitly-chosen locale, "" when it follows the system.
+     * iOS injects it as a launch-time snapshot; Android exposes a live
+     * `__NativeBridge.getLocale()` instead. See `getNativeExplicitLocale`.
+     */
+    initialLocale?: string;
+  };
+
+  /**
    * App-lifecycle coordination for background sync. The native shell calls
    * `window.__tasferLifecycle.onPause/onResume` (see SyncLifecycleController)
    * around app background/foreground; the web side calls `endFlush()` back to
@@ -135,6 +156,12 @@ declare global {
   interface Window {
     TasferBridge?: TasferBridge;
     TasferEditorCallbacks?: TasferEditorCallbacks;
+    /**
+     * Android's raw JavascriptInterface object. Unlike the TasferBridge shim
+     * (injected at page load), it exists from document start, which locale
+     * detection depends on.
+     */
+    __NativeBridge?: { getLocale?: () => string };
   }
 }
 
@@ -189,6 +216,97 @@ export function setNativeColorScheme(
     void desktop?.invoke("editor:setColorScheme", source);
   } catch (e) {
     console.debug("setColorScheme (desktop bridge) failed:", e);
+  }
+}
+
+/** Session pin for an in-app language choice; dies with the WebView session. */
+const LOCALE_PIN_KEY = "tasfer.locale.pin";
+
+/** Plain language tag, also safe to interpolate anywhere. */
+const LOCALE_TAG_RE = /^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/;
+
+/**
+ * The locale the native shell is explicitly set to, or null when there is no
+ * shell or it follows the system language.
+ *
+ * Consulted by i18next detection ahead of the web cookie/localStorage caches:
+ * the OS per-app language setting and the in-app picker both land in the
+ * native store, so it always holds the latest explicit choice — a cached web
+ * value must not outrank it (it did: an Android 13 user's Settings choice was
+ * reverted by the web cache on the next start).
+ *
+ * The session pin covers the one stale window: iOS's `initialLocale` is a
+ * launch-time snapshot, so right after the picker runs, the pin written by
+ * `setNativeLocale` is fresher for same-session reloads.
+ */
+export function getNativeExplicitLocale(): string | null {
+  if (typeof window === "undefined") return null;
+  let tag: string | null = null;
+  try {
+    tag = window.sessionStorage.getItem(LOCALE_PIN_KEY);
+  } catch {
+    // Storage-less contexts fall through to the shell itself.
+  }
+  if (!tag) {
+    try {
+      tag =
+        window.__NativeBridge?.getLocale?.() ??
+        getBridge()?.app?.initialLocale ??
+        null;
+    } catch (e) {
+      console.debug("getNativeExplicitLocale failed:", e);
+      return null;
+    }
+  }
+  if (!tag) return null;
+  // Android returns a comma-separated LocaleList; the first tag decides. Only
+  // its language subtag is returned: i18next prefers an exact supportedLngs
+  // match from ANY detector over a regional variant from a higher-priority
+  // one, so a native "ar-EG" (iOS Settings and Android's suggested locales
+  // write regioned tags) would lose to a stale cached "en" — the exact revert
+  // this function exists to prevent.
+  const first = tag.split(",")[0];
+  if (!LOCALE_TAG_RE.test(first)) return null;
+  return first.split("-")[0].toLowerCase();
+}
+
+/**
+ * Push an explicit in-app language choice to the native host so OS-drawn text
+ * (permission prompts, toasts, native menus) follows the picker.
+ *
+ * Called only when the user picks a language — never at startup. Startup runs
+ * the other direction: i18next reads the shell's stored locale through
+ * `getNativeExplicitLocale`, keeping the native store the single source of
+ * truth on mobile.
+ *
+ * `tag` is a BCP-47 language tag. Android applies it via
+ * `AppCompatDelegate.setApplicationLocales`, iOS writes the `AppleLanguages`
+ * default (lands next launch — the session pin bridges the gap), Electron
+ * rebuilds its menu and tray. Plain web is a no-op (the `locale` cookie
+ * already governs it). Fire-and-forget: a missing or failing host must never
+ * break the language switch itself.
+ */
+export function setNativeLocale(tag: string): void {
+  try {
+    const app = getBridge()?.app;
+    if (app) {
+      window.sessionStorage.setItem(LOCALE_PIN_KEY, tag);
+      void app.setLocale(tag);
+    }
+  } catch (e) {
+    console.debug("setLocale (native bridge) failed:", e);
+  }
+  try {
+    const desktop = (
+      window as unknown as {
+        tasfer?: {
+          invoke(channel: string, ...args: unknown[]): Promise<unknown>;
+        };
+      }
+    ).tasfer;
+    void desktop?.invoke("app:setLocale", tag);
+  } catch (e) {
+    console.debug("setLocale (desktop bridge) failed:", e);
   }
 }
 

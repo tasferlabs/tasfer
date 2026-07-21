@@ -63,7 +63,7 @@ export function ColorPicker({ color, onChange }: ColorPickerProps) {
           !color ? "border-foreground" : "border-transparent",
         )}
         onClick={handleClear}
-        aria-label="Default color"
+        aria-label={t("editor.defaultColor", "Default color")}
       />
       {PRESET_COLORS.map((hex) => (
         <button
@@ -76,7 +76,9 @@ export function ColorPicker({ color, onChange }: ColorPickerProps) {
           )}
           style={{ backgroundColor: hex }}
           onClick={() => handleSelect(hex)}
-          aria-label={`Select color ${hex}`}
+          aria-label={t("editor.selectColor", "Select color {{color}}", {
+            color: hex,
+          })}
         />
       ))}
     </div>

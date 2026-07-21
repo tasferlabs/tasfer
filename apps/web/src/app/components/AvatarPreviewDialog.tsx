@@ -1,6 +1,7 @@
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { AnimatePresence, motion } from "framer-motion";
 import { XIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface AvatarPreviewDialogProps {
   open: boolean;
@@ -15,6 +16,7 @@ export function AvatarPreviewDialog({
   imageUrl,
   name,
 }: AvatarPreviewDialogProps) {
+  const { t } = useTranslation();
   if (!imageUrl) return null;
 
   return (
@@ -70,7 +72,7 @@ export function AvatarPreviewDialog({
                   transition={{ duration: 0.2, delay: 0.1 }}
                 >
                   <XIcon className="size-5" />
-                  <span className="sr-only">Close</span>
+                  <span className="sr-only">{t("common.close", "Close")}</span>
                 </motion.button>
               </motion.div>
             </DialogPrimitive.Content>

@@ -10,6 +10,7 @@ import android.util.Base64
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import androidx.appcompat.app.AppCompatDelegate
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -134,6 +135,21 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    fun setLocale(tag: String) {
+        if (!isTrustedCaller()) return
+        (context as? MainActivity)?.onWebLocaleChanged(tag)
+    }
+
+    /**
+     * The app's explicitly-set locale, "" when it follows the system. Read
+     * synchronously during web locale detection — before the TasferBridge shim
+     * exists — so the stored choice outranks any stale web-side cache.
+     */
+    @JavascriptInterface
+    fun getLocale(): String {
+        if (!isTrustedCaller()) return ""
+        return AppCompatDelegate.getApplicationLocales().toLanguageTags()
+    }
     fun shareFile(base64Data: String, fileName: String, mimeType: String): Boolean {
         if (!isTrustedCaller()) return false
         return try {

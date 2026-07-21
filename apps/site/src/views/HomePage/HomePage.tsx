@@ -5,7 +5,6 @@ import { Link } from "@/components/Link";
 import BrandMark from "@/components/BrandMark";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/providers/ThemeProvider";
-import { loadArabicFonts } from "@/lib/fonts";
 import { APP_OPEN_URL } from "@/lib/appUrl";
 import "./HomePage.css";
 
@@ -488,17 +487,11 @@ function RelayDiagram() {
 }
 
 export default function HomePage() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const deferredPrompt = useRef<BeforeInstallPromptEvent | null>(null);
   const [installable, setInstallable] = useState(false);
   const [installed, setInstalled] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    if (i18n.language === "ar") {
-      loadArabicFonts();
-    }
-  }, [i18n.language]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);

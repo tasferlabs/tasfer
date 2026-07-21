@@ -8,19 +8,16 @@
 #
 # Usage: build-and-sync.sh <ios|android>
 #
-# Set TASFER_SKIP_WEB_BUILD=1 to skip (e.g. CI that builds the web bundle in a
-# separate step, or to avoid a double build).
+# Set TASFER_SKIP_WEB_BUILD=1 to skip the web build + cap copy (e.g. CI that
+# builds the web bundle in a separate step, or to avoid a double build). Native
+# string generation still runs — it writes committed files into the native
+# project and skipping it is how stale strings reach a release.
 set -euo pipefail
 
 PLATFORM="${1:-}"
 if [[ "$PLATFORM" != "ios" && "$PLATFORM" != "android" ]]; then
   echo "build-and-sync.sh: expected platform 'ios' or 'android', got '$PLATFORM'" >&2
   exit 1
-fi
-
-if [[ "${TASFER_SKIP_WEB_BUILD:-}" == "1" ]]; then
-  echo "build-and-sync.sh: TASFER_SKIP_WEB_BUILD=1, skipping web build + sync"
-  exit 0
 fi
 
 # The web app lives one level up from this script's directory (apps/web/scripts -> apps/web).
@@ -63,15 +60,27 @@ ensure_node_on_path() {
 
   if ! command -v node >/dev/null 2>&1; then
     echo "build-and-sync.sh: could not find 'node' on PATH." >&2
-    echo "  Install Node, or set TASFER_SKIP_WEB_BUILD=1 to skip this step." >&2
+    echo "  Install Node. (Needed even with TASFER_SKIP_WEB_BUILD=1: native" >&2
+    echo "  string resources are regenerated from translation.json here.)" >&2
     exit 1
   fi
 }
 
 ensure_node_on_path
+cd "$WEB_DIR"
+
+# Regenerate the native string resources (strings_generated.xml,
+# locales_config.xml, Settings.bundle *.strings, InfoPlist.xcstrings) before
+# every native build — including skipped-web-build ones, which is the release
+# path — so a translation.json edit can never ship stale native text.
+npm run "gen:$PLATFORM-strings"
+
+if [[ "${TASFER_SKIP_WEB_BUILD:-}" == "1" ]]; then
+  echo "build-and-sync.sh: TASFER_SKIP_WEB_BUILD=1, skipping web build + sync"
+  exit 0
+fi
 
 echo "build-and-sync.sh: building web app and syncing '$PLATFORM' (node $(node -v))"
-cd "$WEB_DIR"
 npm run build
 
 # Per-build we run `cap copy` (web assets + capacitor.config.json) only — NOT

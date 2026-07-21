@@ -72,6 +72,21 @@ export const metadata: Metadata = {
  */
 const themeScript = `(function(){try{var t=localStorage.getItem('theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;if(d){r.classList.add('dark');}r.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
 
+/**
+ * Pre-hydration locale script: sets lang/dir from the same cookie/navigator
+ * lookup `detectLng()` performs, so Arabic visitors never get an LTR frame.
+ *
+ * The markup below ships lang="en" dir="ltr" because this is a static export —
+ * every route is prerendered once, in English, with no request to read the
+ * cookie from. This script corrects the document before first paint;
+ * I18nProvider then swaps the content to Arabic and keeps lang/dir in sync on
+ * later language changes. With JS off, the English prerender and the English
+ * lang/dir stay consistent.
+ *
+ * Keep the lookup in step with detectLng() in @/lib/i18n/config.
+ */
+const localeScript = `(function(){try{var m=document.cookie.match(/(?:^|;\\s*)locale=(en|ar)(?:;|$)/);var ar=m?m[1]==='ar':/^ar/i.test(navigator.language||'');var r=document.documentElement;r.lang=ar?'ar':'en';r.dir=ar?'rtl':'ltr';}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: {
@@ -81,6 +96,7 @@ export default function RootLayout({
     <html lang="en" dir="ltr" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: localeScript }} />
         <Providers>{children}</Providers>
       </body>
     </html>

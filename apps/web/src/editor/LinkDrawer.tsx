@@ -95,7 +95,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
               htmlFor="link-text"
               className="text-xs font-medium text-muted-foreground"
             >
-              Link Text
+              {t("editor.link.linkText", "Link Text")}
             </label>
             <Input
               id="link-text"
@@ -103,7 +103,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
               value={editedText}
               onChange={(e) => setEditedText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Enter link text"
+              placeholder={t("editor.link.enterText", "Enter link text")}
               className="h-9"
               autoFocus={!isMobile}
             />

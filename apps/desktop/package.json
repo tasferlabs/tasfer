@@ -12,7 +12,8 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "gen:strings": "node ../web/scripts/gen-desktop-strings.mjs",
+    "build": "npm run gen:strings && electron-vite build",
     "preview": "electron-vite preview",
     "package": "electron-builder",
     "package:dir": "electron-builder --dir",

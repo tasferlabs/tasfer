@@ -197,6 +197,20 @@ export function ImportAllDialog({
     allSpaces.find((s) => s.id === selectedSpaceId)?.name ||
     t("common.untitled", "Untitled");
 
+  // Pluralised on their own so the summary sentence stays a single translatable
+  // unit; languages with dual/few/many forms need the noun phrase, not a numeral
+  // glued to a bare plural.
+  const pagesPhrase = t("import.pagesCount", {
+    count: result?.pagesCreated ?? 0,
+    defaultValue_one: "{{count, number}} page",
+    defaultValue_other: "{{count, number}} pages",
+  });
+  const imagesPhrase = t("import.imagesCount", {
+    count: result?.imagesUploaded ?? 0,
+    defaultValue_one: "{{count, number}} image",
+    defaultValue_other: "{{count, number}} images",
+  });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -394,28 +408,25 @@ export function ImportAllDialog({
           <>
             <div className="space-y-3">
               <p className="text-sm">
-                {t("common.created", "Created")} {result.pagesCreated}{" "}
-                {result.pagesCreated === 1
-                  ? t("common.pageKw", "page")
-                  : t("common.pagesKw", "pages")}
-                {result.imagesUploaded > 0 && (
-                  <>
-                    , {t("blocks.uploadedKw", "uploaded")}{" "}
-                    {result.imagesUploaded}{" "}
-                    {result.imagesUploaded === 1
-                      ? t("blocks.imageKw", "image")
-                      : t("blocks.imagesKw", "images")}
-                  </>
-                )}
+                {result.imagesUploaded > 0
+                  ? t("import.doneSummaryWithImages", {
+                      defaultValue: "Created {{pages}}, uploaded {{images}}",
+                      pages: pagesPhrase,
+                      images: imagesPhrase,
+                    })
+                  : t("import.doneSummary", {
+                      defaultValue: "Created {{pages}}",
+                      pages: pagesPhrase,
+                    })}
               </p>
               {result.errors.length > 0 && (
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-destructive">
-                    {result.errors.length}{" "}
-                    {result.errors.length === 1
-                      ? t("common.errorKw", "error")
-                      : t("common.errorsKw", "errors")}
-                    :
+                    {t("import.errorsCount", {
+                      count: result.errors.length,
+                      defaultValue_one: "{{count, number}} error:",
+                      defaultValue_other: "{{count, number}} errors:",
+                    })}
                   </p>
                   <ul className="text-xs text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
                     {result.errors.map((err, i) => (

@@ -33,8 +33,10 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.os.LocaleListCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -384,6 +386,9 @@ class MainActivity : BridgeActivity() {
                 var nb = window.__NativeBridge;
                 if (!nb) return;
                 window.TasferBridge = {
+                    app: {
+                        setLocale: function(tag) { nb.setLocale(tag); return Promise.resolve(); }
+                    },
                     clipboard: {
                         copy: function(t) { nb.copy(t); return Promise.resolve(); },
                         cut: function(t) { nb.cut(t); return Promise.resolve(); },
@@ -720,6 +725,36 @@ class MainActivity : BridgeActivity() {
                 loadingScreen?.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
                 updateSystemBarsAppearance(isNightMode)
             }
+        }
+    }
+
+    // ---- Locale management ----
+
+    /**
+     * Adopt an explicit in-app language choice as the app's locale, so natively
+     * drawn text — the camera toasts, the permission prompt, the loading-screen
+     * contentDescription — matches the WebView instead of following the device
+     * language.
+     *
+     * Called only when the user picks a language. At startup the web layer
+     * instead reads the stored choice back (`AndroidBridge.getLocale`), so the
+     * AppCompat store — persisted below API 33 by the
+     * `AppLocalesMetadataHolderService` in the manifest — is the single source
+     * of truth and a stale web cache can never revert an OS-level per-app
+     * choice.
+     *
+     * Re-applying the current locale is skipped: below API 33 AppCompat
+     * delivers the change by recreating the activity.
+     */
+    fun onWebLocaleChanged(tag: String) {
+        // A malformed tag parses to the empty list; applying that would clear
+        // the stored choice, so it is dropped instead.
+        if (!tag.matches(Regex("[A-Za-z0-9,-]{1,64}"))) return
+        val requested = LocaleListCompat.forLanguageTags(tag)
+        if (requested.isEmpty) return
+        if (requested == AppCompatDelegate.getApplicationLocales()) return
+        runOnUiThread {
+            AppCompatDelegate.setApplicationLocales(requested)
         }
     }
 

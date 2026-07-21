@@ -16,6 +16,13 @@ import {
 } from "electron";
 import fs from "fs";
 import path from "path";
+import {
+  FALLBACK_LOCALE,
+  LOCALES,
+  STRINGS,
+  type Locale,
+  type StringKey,
+} from "./strings.generated";
 import { getDb, closeDb } from "./db";
 import { registerDbHandlers } from "./handlers/db";
 import { registerFsHandlers } from "./handlers/fs";
@@ -138,20 +145,29 @@ const isTilingWm = detectTilingWm();
 
 const settingsPath = () => path.join(app.getPath("userData"), "settings.json");
 
-function readDevToolsEnabled(): boolean {
+interface Settings {
+  devToolsEnabled?: boolean;
+  locale?: string;
+}
+
+function readSettings(): Settings {
   try {
-    const raw = fs.readFileSync(settingsPath(), "utf8");
-    return JSON.parse(raw)?.devToolsEnabled === true;
+    return JSON.parse(fs.readFileSync(settingsPath(), "utf8")) ?? {};
   } catch {
-    return false; // No file yet / unreadable → off by default.
+    return {}; // No file yet / unreadable → defaults.
   }
 }
 
-function writeDevToolsEnabled(value: boolean): void {
+/**
+ * Merge `patch` into the persisted settings. Read-modify-write rather than a
+ * whole-file replace: more than one setting lives here now, and writing just the
+ * changed key would drop the others.
+ */
+function writeSettings(patch: Settings): void {
   try {
     fs.writeFileSync(
       settingsPath(),
-      JSON.stringify({ devToolsEnabled: value }),
+      JSON.stringify({ ...readSettings(), ...patch }),
       "utf8",
     );
   } catch {
@@ -164,10 +180,46 @@ let devToolsEnabled = false;
 /** Apply a new value: persist, mirror onto the menu checkbox, push to renderer. */
 function setDevToolsEnabled(value: boolean): void {
   devToolsEnabled = value;
-  writeDevToolsEnabled(value);
+  writeSettings({ devToolsEnabled: value });
   const item = Menu.getApplicationMenu()?.getMenuItemById("show-dev-tools");
   if (item) item.checked = value;
   mainWindow?.webContents.send("devtools:set", value);
+}
+
+// ── Interface language ─────────────────────────────────────────────────────
+// The macOS application menu and the tray menu are drawn by the OS from labels
+// this process supplies, so they cannot read i18next in the renderer. The web
+// layer pushes the in-app language over `app:setLocale` on an explicit picker
+// change (see `setNativeLocale`); it is persisted so the menus are already
+// right on the next launch, before the renderer has loaded. The OS language is
+// only the initial guess, for a first run that has not been told otherwise.
+
+let locale: Locale = FALLBACK_LOCALE;
+
+/** Reduce a BCP-47 tag ("ar-EG") to a locale we ship, else the fallback. */
+function normalizeLocale(tag: string | undefined): Locale {
+  const base = (tag ?? "").toLowerCase().split("-")[0];
+  return (LOCALES as readonly string[]).includes(base)
+    ? (base as Locale)
+    : FALLBACK_LOCALE;
+}
+
+/** Main-process translation lookup, mirroring i18next's per-key fallback. */
+function t(key: StringKey): string {
+  return STRINGS[locale][key] ?? STRINGS[FALLBACK_LOCALE][key];
+}
+
+/** Adopt a new language: persist, then redraw the OS-drawn menus. */
+function setLocale(tag: string): void {
+  const next = normalizeLocale(tag);
+  if (next === locale) return;
+  locale = next;
+  writeSettings({ locale: next });
+  if (process.platform === "darwin") {
+    Menu.setApplicationMenu(buildMacMenu());
+  }
+  // Rebuild rather than relabel: Electron menu items are immutable once built.
+  if (tray) tray.setContextMenu(buildTrayMenu());
 }
 
 // Dev mode: load from Vite dev server. Prod: load built files.
@@ -273,7 +325,7 @@ function buildMacMenu(): Menu {
     { role: "fileMenu" },
     { role: "editMenu" },
     {
-      label: "View",
+      label: t("menu.view"),
       submenu: [
         { role: "reload" },
         { role: "forceReload" },
@@ -283,7 +335,7 @@ function buildMacMenu(): Menu {
           id: "show-dev-tools",
           // Distinct from Electron's built-in "Toggle Developer Tools" above —
           // this drives Tasfer's own in-app inspector panel.
-          label: "Show Tasfer Inspector",
+          label: t("menu.showInspector"),
           type: "checkbox",
           checked: devToolsEnabled,
           click: () => setDevToolsEnabled(!devToolsEnabled),
@@ -299,6 +351,32 @@ function buildMacMenu(): Menu {
     { role: "windowMenu" },
   ];
   return Menu.buildFromTemplate(template);
+}
+
+/** Tray context menu. Rebuilt on language change — menu items are immutable. */
+function buildTrayMenu(): Menu {
+  return Menu.buildFromTemplate([
+    {
+      label: t("menu.showTasfer"),
+      click: () => {
+        if (mainWindow) {
+          if (process.platform === "darwin") {
+            app.dock?.show();
+          }
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      },
+    },
+    { type: "separator" },
+    {
+      label: t("menu.quit"),
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
 }
 
 function createTray() {
@@ -317,30 +395,7 @@ function createTray() {
   tray = new Tray(icon);
   tray.setToolTip("Tasfer");
 
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: "Show Tasfer",
-      click: () => {
-        if (mainWindow) {
-          if (process.platform === "darwin") {
-            app.dock?.show();
-          }
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      },
-    },
-    { type: "separator" },
-    {
-      label: "Quit",
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      },
-    },
-  ]);
-
-  tray.setContextMenu(contextMenu);
+  tray.setContextMenu(buildTrayMenu());
 
   // Click on tray icon shows the window (primary action)
   tray.on("click", () => {
@@ -389,7 +444,12 @@ app.whenReady().then(() => {
 
   // Load the persisted "Show Developer Tools" setting before the window (and its
   // preload) reads it.
-  devToolsEnabled = readDevToolsEnabled();
+  const settings = readSettings();
+  devToolsEnabled = settings.devToolsEnabled === true;
+
+  // Language for the OS-drawn menus, before the renderer has had a chance to
+  // push one. `app.getLocale()` is only the first-run guess.
+  locale = normalizeLocale(settings.locale ?? app.getLocale());
 
   // Initialize database
   getDb();
@@ -403,6 +463,11 @@ app.whenReady().then(() => {
   registerPdfHandlers();
   registerContextMenuHandlers();
   registerThemeHandlers();
+
+  // In-app language, pushed by the renderer on an explicit picker change, so
+  // the OS-drawn macOS menu and tray follow the in-app picker rather than the
+  // desktop environment's language.
+  ipcMain.handle("app:setLocale", (_event, tag: string) => setLocale(tag));
 
   // IPC handlers for custom menu bar actions (Windows/Linux renderer menu)
   ipcMain.handle("app:reload", () => mainWindow?.webContents.reload());

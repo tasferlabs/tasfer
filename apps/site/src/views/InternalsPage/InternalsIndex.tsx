@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "@/components/Link";
+import { DirArrow } from "@/components/DirArrow";
 import { PkgMgrProvider } from "@/views/DocsPage/docsComponents";
 import { DocsHeader } from "@/views/DocsPage/DocsHeader";
 import { NOTES } from "./internalsNav";
@@ -68,7 +69,10 @@ export default function InternalsIndex() {
           </article>
         </main>
         <footer className="ix-foot">
-          <Link to="/docs">{t("internals.backToDocs", "← Documentation")}</Link>
+          <Link to="/docs">
+            <DirArrow towards="back" />
+            {t("internals.backToDocs", "Documentation")}
+          </Link>
           <a href={REPO_URL} target="_blank" rel="noreferrer">
             {t("docs.nav.github", "GitHub")}
           </a>

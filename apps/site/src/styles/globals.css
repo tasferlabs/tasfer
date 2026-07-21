@@ -108,6 +108,18 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Direction-aware inline arrow (see components/DirArrow.tsx). Mirrored by
+   transform rather than by leaving a Bidi_Mirrored "←"/"→" in a translation. */
+.dir-arrow {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  vertical-align: -0.125em;
+}
+[dir="rtl"] .dir-arrow {
+  transform: scaleX(-1);
+}
+
 /* Selection color matches the editor app. */
 ::selection {
   background-color: oklch(from var(--primary) l c h / 0.3);

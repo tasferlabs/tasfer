@@ -69,7 +69,10 @@ export default function DocsArticle({
               <div className="dx-eyebrow">404</div>
               <h1 className="dx-h1">{t("docs.notFound.title", "This page wandered off.")}</h1>
               <p className="dx-lede">
-                {t("docs.notFound.body", "The page")} <code>{route}</code>{" "}
+                {/* dir="ltr" isolates the route: its "/" separators are bidi
+                    neutrals that would otherwise reorder inside Arabic prose. */}
+                {t("docs.notFound.body", "The page")}{" "}
+                <code dir="ltr">{route}</code>{" "}
                 {t("docs.notFound.bodyTail", "doesn't exist. Try the documentation home, or search the sidebar.")}
               </p>
               <Link className="dx-btn dx-btn-primary" to="/docs">
