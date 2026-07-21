@@ -1,9 +1,9 @@
 {
   "name": "Tasfer",
   "short_name": "Tasfer",
-  "description": "Markdown notes that stay on your device — end-to-end encrypted, syncing directly between your devices. No cloud, no account.",
-  "lang": "en",
-  "dir": "ltr",
+  "description": "ملاحظات Markdown تبقى على جهازك — مشفّرة طرفًا إلى طرف، تتزامن مباشرة بين أجهزتك. بدون سحابة، بدون حساب.",
+  "lang": "ar",
+  "dir": "rtl",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

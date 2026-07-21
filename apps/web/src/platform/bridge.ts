@@ -106,6 +106,20 @@ export interface TasferBridge {
   };
 
   /**
+   * App-level host settings that outlive a single editor view.
+   * Optional — shells built before this existed omit it.
+   */
+  app?: {
+    /**
+     * Adopt `tag` (a BCP-47 language tag) as the shell's UI language, so text
+     * the WebView never draws — permission dialogs, toasts, the iOS Settings
+     * bundle — follows the in-app language picker instead of the device
+     * language. See `setNativeLocale`.
+     */
+    setLocale(tag: string): Promise<void>;
+  };
+
+  /**
    * App-lifecycle coordination for background sync. The native shell calls
    * `window.__tasferLifecycle.onPause/onResume` (see SyncLifecycleController)
    * around app background/foreground; the web side calls `endFlush()` back to
@@ -191,6 +205,42 @@ export function setNativeColorScheme(
     void desktop?.invoke("editor:setColorScheme", source);
   } catch (e) {
     console.debug("setColorScheme (desktop bridge) failed:", e);
+  }
+}
+
+/**
+ * Push the in-app language to the native host so OS-drawn text follows the
+ * in-app picker rather than the device language.
+ *
+ * Without this the picker only rewrites the WebView: an English-device user who
+ * picks العربية got an Arabic UI wrapped in English camera toasts, an English
+ * camera-permission prompt and an English Settings-bundle page.
+ *
+ * `tag` is a BCP-47 language tag. Each host applies it its own way — Android
+ * `AppCompatDelegate.setApplicationLocales`, iOS the `AppleLanguages` default,
+ * Electron a menu/tray rebuild — and each is expected to no-op when the value
+ * is unchanged, since this is called on every startup as well as on change.
+ * Plain web is a no-op (the `locale` cookie already governs it).
+ * Fire-and-forget: a missing or failing host must never break the language
+ * switch itself.
+ */
+export function setNativeLocale(tag: string): void {
+  try {
+    void getBridge()?.app?.setLocale(tag);
+  } catch (e) {
+    console.debug("setLocale (native bridge) failed:", e);
+  }
+  try {
+    const desktop = (
+      window as unknown as {
+        tasfer?: {
+          invoke(channel: string, ...args: unknown[]): Promise<unknown>;
+        };
+      }
+    ).tasfer;
+    void desktop?.invoke("app:setLocale", tag);
+  } catch (e) {
+    console.debug("setLocale (desktop bridge) failed:", e);
   }
 }
 

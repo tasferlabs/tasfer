@@ -202,6 +202,9 @@ class TasferViewController: CAPBridgeViewController {
 
                 window.TasferBridge = {
                     devToolsEnabled: \(devToolsEnabled),
+                    app: {
+                        setLocale: function(tag) { return callNative({action: 'setLocale', locale: tag}); }
+                    },
                     clipboard: {
                         copy: function(text) { return callNative({action: 'copy', text: text}); },
                         cut: function(text) { return callNative({action: 'cut', text: text}); },

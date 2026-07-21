@@ -31,8 +31,10 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.os.LocaleListCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -321,6 +323,9 @@ class MainActivity : BridgeActivity() {
                 var nb = window.__NativeBridge;
                 if (!nb) return;
                 window.TasferBridge = {
+                    app: {
+                        setLocale: function(tag) { nb.setLocale(tag); return Promise.resolve(); }
+                    },
                     clipboard: {
                         copy: function(t) { nb.copy(t); return Promise.resolve(); },
                         cut: function(t) { nb.cut(t); return Promise.resolve(); },
@@ -673,6 +678,31 @@ class MainActivity : BridgeActivity() {
                 loadingScreen.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
                 updateSystemBarsAppearance(isNightMode)
             }
+        }
+    }
+
+    // ---- Locale management ----
+
+    /**
+     * Adopt the in-app language picker's choice as the app's locale, so natively
+     * drawn text — the camera toasts, the permission prompt, the loading-screen
+     * contentDescription — matches the WebView instead of following the device
+     * language.
+     *
+     * The web layer pushes this on every startup as well as on change (see
+     * `setNativeLocale`), so no state is kept here; AppCompat's own persistence
+     * (the `AppLocalesMetadataHolderService` in the manifest) only has to cover
+     * the window before the WebView has loaded.
+     *
+     * Re-applying the current locale is skipped: below API 33 AppCompat delivers
+     * the change by recreating the activity, and the startup push would
+     * otherwise recreate it once on every launch.
+     */
+    fun onWebLocaleChanged(tag: String) {
+        val requested = LocaleListCompat.forLanguageTags(tag)
+        if (requested == AppCompatDelegate.getApplicationLocales()) return
+        runOnUiThread {
+            AppCompatDelegate.setApplicationLocales(requested)
         }
     }
 

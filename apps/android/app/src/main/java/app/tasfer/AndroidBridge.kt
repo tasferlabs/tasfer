@@ -135,6 +135,12 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    fun setLocale(tag: String) {
+        if (!isTrustedCaller()) return
+        (context as? MainActivity)?.onWebLocaleChanged(tag)
+    }
+
+    @JavascriptInterface
     fun dismissKeyboard() {
         if (!isTrustedCaller()) return
         (context as? MainActivity)?.runOnUiThread {
