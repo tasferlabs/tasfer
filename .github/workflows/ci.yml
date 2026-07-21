@@ -130,7 +130,9 @@ jobs:
       # Gradle configuration; the in-build sync only runs `cap copy`.
       - name: Generate Capacitor Android project
         working-directory: apps/web
-        run: npx cap update android
+        run: |
+          mkdir -p ../android/app/src/main/assets
+          npx cap update android
 
       - name: Build
         working-directory: apps/android
