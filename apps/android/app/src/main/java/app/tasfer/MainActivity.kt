@@ -70,9 +70,6 @@ class MainActivity : BridgeActivity() {
     private var isNightMode = false
     private var themeMode = "system"
 
-    // Physical keyboard detection
-    private var hasPhysicalKeyboard = false
-
     // Keyboard height tracking (px)
     private var lastKeyboardHeightPx = -1
 
@@ -98,7 +95,6 @@ class MainActivity : BridgeActivity() {
 
         setupCustomViews()
         setupWindowInsets()
-        detectPhysicalKeyboard()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -175,7 +171,6 @@ class MainActivity : BridgeActivity() {
                 injectTasferBridgeShim()
                 hideLoadingScreen()
                 injectSafeAreaInsets()
-                notifyPhysicalKeyboardState()
             }
         })
     }
@@ -399,7 +394,6 @@ class MainActivity : BridgeActivity() {
                     },
                     editor: {
                         setColorScheme: function(s) { nb.setColorScheme(s); return Promise.resolve(); },
-                        dismissKeyboard: function() { nb.dismissKeyboard(); return Promise.resolve(); },
                         showContextMenu: function(req) {
                             return new Promise(function(resolve) {
                                 if (!window.__nativeContextMenuCallbacks) window.__nativeContextMenuCallbacks = new Map();
@@ -624,16 +618,7 @@ class MainActivity : BridgeActivity() {
 
             val density = resources.displayMetrics.density
 
-            // Update physical keyboard heuristic from IME height
             val isKeyboardVisible = windowInsets.isVisible(WindowInsetsCompat.Type.ime())
-            if (isKeyboardVisible) {
-                val keyboardHeightDp = (ime.bottom - bottomInset) / density
-                val isSoftKeyboard = keyboardHeightDp > 100
-                if (isSoftKeyboard == hasPhysicalKeyboard) {
-                    hasPhysicalKeyboard = !isSoftKeyboard
-                    notifyPhysicalKeyboardState()
-                }
-            }
 
             // Notify JS of soft keyboard height so the toolbar can be positioned correctly.
             // Use ime.bottom directly (not ime.bottom - bottomInset) because the WebView viewport
@@ -723,27 +708,10 @@ class MainActivity : BridgeActivity() {
         }
     }
 
-    // ---- Physical keyboard detection ----
-
-    private fun detectPhysicalKeyboard() {
-        val config = resources.configuration
-        // No op for now
-        // hasPhysicalKeyboard = config.hardKeyboardHidden != Configuration.HARDKEYBOARDHIDDEN_YES &&
-        //     config.hardKeyboardHidden != Configuration.HARDKEYBOARDHIDDEN_UNDEFINED
-    }
-
-    private fun notifyPhysicalKeyboardState() {
-        bridge.webView.evaluateJavascript(
-            "window.postMessage({type: 'physical-keyboard-connected', connected: $hasPhysicalKeyboard}, '*');",
-            null
-        )
-    }
-
     // ---- Configuration changes ----
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        detectPhysicalKeyboard()
 
         if (themeMode == "system") {
             val newNightMode = (newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES

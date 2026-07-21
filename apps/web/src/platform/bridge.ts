@@ -58,8 +58,6 @@ export interface TasferBridge {
 
   editor: {
     setColorScheme(scheme: "light" | "dark"): Promise<void>;
-    /** Atomically clear native WebView focus and hide the Android IME. */
-    dismissKeyboard?(): Promise<void>;
     /**
      * Present a platform-native context menu and resolve with the chosen item's
      * id, or null if the menu was dismissed without a selection.
