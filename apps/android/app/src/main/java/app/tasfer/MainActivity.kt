@@ -204,7 +204,7 @@ class MainActivity : BridgeActivity() {
             if (isGranted) {
                 launchCameraInternal()
             } else {
-                Toast.makeText(this, "Camera permission is required to take photos", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.camera_permission_required), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -246,7 +246,7 @@ class MainActivity : BridgeActivity() {
 
             cameraLauncher.launch(currentPhotoUri!!)
         } catch (_: IOException) {
-            Toast.makeText(this, "Failed to open camera", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.camera_open_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -267,7 +267,7 @@ class MainActivity : BridgeActivity() {
                 }
             }
         } catch (_: Exception) {
-            Toast.makeText(this, "Failed to process image", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.image_process_failed), Toast.LENGTH_SHORT).show()
         }
     }
 

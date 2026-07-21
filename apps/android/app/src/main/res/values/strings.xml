@@ -1,28 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!-- Non-translatable config only. Translatable UI strings are generated into
+     strings_generated.xml by apps/web/scripts/gen-android-strings.mjs. -->
 <resources>
     <string name="app_name">Tasfer</string>
     <string name="title_activity_main">Tasfer</string>
     <string name="package_name">app.tasfer</string>
     <string name="custom_url_scheme">app.tasfer</string>
-    <string name="loading">Loading...</string>
-    <string name="undo">Undo</string>
-    <string name="redo">Redo</string>
-    <string name="format">Format</string>
-    <string name="inline_format">Inline Format</string>
-    <string name="block_type">Block Type</string>
-    <string name="bold">Bold</string>
-    <string name="italic">Italic</string>
-    <string name="code">Code</string>
-    <string name="strikethrough">Strikethrough</string>
-    <string name="close">Close</string>
-    <string name="dismiss_keyboard">Dismiss Keyboard</string>
-    <string name="heading_1">Heading 1</string>
-    <string name="heading_2">Heading 2</string>
-    <string name="heading_3">Heading 3</string>
-    <string name="paragraph">Paragraph</string>
-    <string name="numbered_list">Numbered List</string>
-    <string name="task_list">Task List</string>
-    <string name="bulleted_list">Bulleted List</string>
-    <string name="image">Image</string>
-    <string name="divider">Divider</string>
 </resources>
