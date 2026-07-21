@@ -76,6 +76,10 @@ The editor API specification lives in:
 
 Update the relevant page whenever its public contract changes.
 
+# Translation
+
+We should not hardcode any string, in the app. Everything should be localized. Translations should not be word by word instead we should keep though the meaning. Currently we have only arabic as second language. But you should should use subagent to find best wording for each language.
+
 ## Verification
 
 Canvas content is not reliably visible to DOM-based browser automation, and text
