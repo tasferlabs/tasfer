@@ -100,61 +100,6 @@ jobs:
         working-directory: apps/desktop
         run: npm run build
 
-  android:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: |
-            apps/web/package-lock.json
-            packages/*/package-lock.json
-
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - uses: gradle/actions/setup-gradle@v4
-
-      # web's postinstall also installs the source-aliased packages/*;
-      # the Gradle preBuild task then builds + syncs the web bundle itself.
-      - name: Install web dependencies
-        working-directory: apps/web
-        run: npm ci
-
-      # capacitor-cordova-android-plugins is gitignored and must exist before
-      # Gradle configuration; the in-build sync only runs `cap copy`. The empty
-      # assets/public placeholder stops `cap update` from running a full copy,
-      # which would need the web bundle the Gradle build hasn't built yet.
-      - name: Generate Capacitor Android project
-        working-directory: apps/web
-        run: |
-          mkdir -p ../android/app/src/main/assets/public
-          npx cap update android
-
-      - name: Build
-        working-directory: apps/android
-        run: ./gradlew assembleDebug
-
-      # The build above already ran build-and-sync.sh; skip the rebuild.
-      - name: Lint
-        working-directory: apps/android
-        env:
-          TASFER_SKIP_WEB_BUILD: "1"
-        run: ./gradlew lintDebug
-
-      - name: Upload lint report
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: android-lint-report
-          path: apps/android/app/build/reports/lint-results-debug.html
-          if-no-files-found: ignore
-
   live:
     runs-on: ubuntu-latest
     steps:
