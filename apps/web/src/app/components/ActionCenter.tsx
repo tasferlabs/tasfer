@@ -1,4 +1,5 @@
 import { Command } from "cmdk";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Calendar,
   ChevronLeft,
@@ -154,33 +155,10 @@ export function ActionCenter() {
 
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const mobileContainerRef = useRef<HTMLDivElement>(null);
-
-  // Keep mobile overlay mounted during close animation
-  const [mobileVisible, setMobileVisible] = useState(false);
-  const [mobileAnimating, setMobileAnimating] = useState(false);
 
   // Per-item usage stats. Loaded once and updated on each selection; drives the
   // frecency component of the ranking so frequently-used items float up.
   const [frecency, setFrecency] = useState<FrecencyStore>(loadFrecency);
-
-  useEffect(() => {
-    if (open && isMobile) {
-      setMobileVisible(true);
-      // Trigger enter animation on next frame
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => setMobileAnimating(true)),
-      );
-    } else if (!open && isMobile) {
-      setMobileAnimating(false);
-    }
-  }, [open, isMobile]);
-
-  const handleMobileTransitionEnd = useCallback(() => {
-    if (!mobileAnimating) {
-      setMobileVisible(false);
-    }
-  }, [mobileAnimating]);
 
   const { data: pages } = useSearchPages(open ? activeSpaceId : null, search);
 
@@ -496,59 +474,60 @@ export function ActionCenter() {
   };
 
   if (isMobile) {
-    if (!mobileVisible && !open) return null;
-
     return (
-      <div
-        ref={mobileContainerRef}
-        onTransitionEnd={handleMobileTransitionEnd}
-        className="fixed inset-0 z-50 bg-background flex flex-col"
-        style={{
-          paddingTop:
-            "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-          paddingBottom:
-            "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-          opacity: mobileAnimating ? 1 : 0,
-          transform: mobileAnimating ? "translateY(0)" : "translateY(8px)",
-          transition: "opacity 0.2s ease, transform 0.2s ease",
-        }}
-      >
-        <Command shouldFilter={false} className="flex flex-col flex-1 min-h-0">
-          <div className="flex items-center gap-2 px-2 shrink-0 h-12">
-            <button
-              onClick={() => setOpen(false)}
-              className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-muted-foreground active:bg-accent"
-            >
-              <ChevronLeft size={22} />
-            </button>
-            <Command.Input
-              ref={inputRef}
-              value={search}
-              onValueChange={setSearch}
-              placeholder={t(
-                "editor.searchPagesActions",
-                "Search pages, actions...",
-              )}
-              className="flex-1 h-10 bg-transparent text-base outline-none placeholder:text-muted-foreground"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                className="shrink-0 px-3 h-9 text-sm text-muted-foreground active:text-foreground"
-              >
-                {t("common.cancel", "Cancel")}
-              </button>
-            )}
-          </div>
-          <div className="border-b border-border" />
-          <Command.List ref={listRef} className="flex-1 overflow-y-auto p-2">
-            <Command.Empty className="py-12 text-center text-sm text-muted-foreground">
-              {t("common.noResultsFound", "No results found")}
-            </Command.Empty>
-            {renderList(mobileItemClass)}
-          </Command.List>
-        </Command>
-      </div>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8, pointerEvents: "none" }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="fixed inset-0 z-50 bg-background flex flex-col"
+            style={{
+              paddingTop:
+                "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+              paddingBottom:
+                "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+            }}
+          >
+            <Command shouldFilter={false} className="flex flex-col flex-1 min-h-0">
+              <div className="flex items-center gap-2 px-2 shrink-0 h-12">
+                <button
+                  onClick={() => setOpen(false)}
+                  className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-muted-foreground active:bg-accent"
+                >
+                  <ChevronLeft size={22} />
+                </button>
+                <Command.Input
+                  ref={inputRef}
+                  value={search}
+                  onValueChange={setSearch}
+                  placeholder={t(
+                    "editor.searchPagesActions",
+                    "Search pages, actions...",
+                  )}
+                  className="flex-1 h-10 bg-transparent text-base outline-none placeholder:text-muted-foreground"
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch("")}
+                    className="shrink-0 px-3 h-9 text-sm text-muted-foreground active:text-foreground"
+                  >
+                    {t("common.cancel", "Cancel")}
+                  </button>
+                )}
+              </div>
+              <div className="border-b border-border" />
+              <Command.List ref={listRef} className="flex-1 overflow-y-auto p-2">
+                <Command.Empty className="py-12 text-center text-sm text-muted-foreground">
+                  {t("common.noResultsFound", "No results found")}
+                </Command.Empty>
+                {renderList(mobileItemClass)}
+              </Command.List>
+            </Command>
+          </motion.div>
+        )}
+      </AnimatePresence>
     );
   }
 
