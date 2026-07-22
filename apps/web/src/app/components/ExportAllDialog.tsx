@@ -10,14 +10,18 @@ import {
 } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
 import { getPages, getPage, type IListPage } from "../api/pages.api";
-import { getPlatform } from "@/platform";
 import { useSpaces } from "../contexts/SpaceContext";
-import { serializeToMarkdown, type PageMetadata } from "@tasfer/editor";
+import {
+  serializeToMarkdown,
+  type Block,
+  type PageMetadata,
+} from "@tasfer/editor";
 import { downloadFile } from "@/downloadFile";
 import { collectAssetRefs } from "@tasfer/editor";
 import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
 import { appDataSchema } from "@/appDataSchema";
+import { extFromMime, fetchImageBlob } from "@/lib/exportAssets";
 
 interface ExportAllDialogProps {
   open: boolean;
@@ -37,23 +41,9 @@ function sanitizeName(name: string): string {
   );
 }
 
-/** Extract image ID from a URL like /api/images/{id} */
-function extractImageId(url: string): string | null {
-  const match = url.match(/\/api\/images\/([^/?#]+)/);
-  return match ? match[1] : null;
-}
-
-/** Guess file extension from mime type */
-function extFromMime(mime: string): string {
-  const map: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/gif": "gif",
-    "image/webp": "webp",
-    "image/svg+xml": "svg",
-    "image/bmp": "bmp",
-  };
-  return map[mime] || "bin";
+/** Relative prefix from a file at zipPath up to the ZIP root (e.g. "Space/Page.md" → "../") */
+function relativeRootPrefix(zipPath: string): string {
+  return "../".repeat(zipPath.split("/").length - 1);
 }
 
 function extractPageMetadata(page: IPage): PageMetadata | undefined {
@@ -106,11 +96,16 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
     try {
       const zip = new JSZip();
-      const imageIds = new Set<string>();
+      const assetRefs = new Set<string>();
       const spacesToExport = allSpaces.filter((s) => selected.has(s.id));
 
-      // Pending markdown entries — rewritten after images are fetched
-      const pendingFiles: Array<{ zipPath: string; markdown: string }> = [];
+      // Pending pages — serialized after images are fetched, so asset refs can
+      // be mapped to bundled files by the serializer itself
+      const pendingFiles: Array<{
+        zipPath: string;
+        blocks: Block[];
+        metadata?: PageMetadata;
+      }> = [];
 
       // First pass: count total pages for progress
       let totalPages = 0;
@@ -167,28 +162,16 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
           const fullPage = await getPage(listPage.id);
           const blocks = fullPage.blocks || [];
           const metadata = extractPageMetadata(fullPage);
-          const markdown = serializeToMarkdown(blocks, metadata, {
-            schema: appDataSchema,
-          });
 
-          // Collect image IDs from block asset references
           for (const ref of collectAssetRefs(blocks, appDataSchema)) {
-            const imgId = extractImageId(ref);
-            if (imgId) imageIds.add(imgId);
-          }
-
-          // Also collect image IDs from markdown text (inline images)
-          const mdImgRegex = /\/api\/images\/([^)"/?#\s]+)/g;
-          let mdMatch;
-          while ((mdMatch = mdImgRegex.exec(markdown)) !== null) {
-            imageIds.add(mdMatch[1]);
+            assetRefs.add(ref);
           }
 
           const zipPath = listPage.hasChildren
             ? `${parentPath}${pageName}/${pageName}.md`
             : `${parentPath}${pageName}.md`;
 
-          pendingFiles.push({ zipPath, markdown });
+          pendingFiles.push({ zipPath, blocks, metadata });
 
           if (listPage.hasChildren) {
             const children = await getPages(spaceId, listPage.id, {
@@ -218,32 +201,29 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
         await exportPages(space.id, pages, spacePath);
       }
 
-      // Fetch all images and build id→filename map
-      const imageExtMap = new Map<string, string>(); // id → "id.ext"
+      // Fetch all images into the ZIP and build ref→filename map
+      const refToFileName = new Map<string, string>();
 
-      if (imageIds.size > 0) {
+      if (assetRefs.size > 0) {
         setProgress((prev) => ({
           done: prev.done,
-          total: prev.total + imageIds.size,
+          total: prev.total + assetRefs.size,
         }));
       }
 
-      for (const imgId of imageIds) {
+      let imgIndex = 0;
+      for (const ref of assetRefs) {
         if (abortRef.current) return;
-        try {
-          const imgUrl = await getPlatform().assets.getUrl(imgId);
-          const response = await fetch(imgUrl);
-          if (response.ok) {
-            const blob = await response.blob();
-            const contentType =
-              response.headers.get("content-type") || "image/png";
-            const ext = extFromMime(contentType);
-            const fileName = `${imgId}.${ext}`;
-            imageExtMap.set(imgId, fileName);
-            zip.file(`images/${fileName}`, blob);
-          }
-        } catch {
-          // Skip images that fail to fetch
+        const blob = await fetchImageBlob(ref);
+        if (blob) {
+          const ext = extFromMime(blob.type);
+          // Asset hashes double as stable filenames; other refs (e.g. external
+          // urls) get an indexed name
+          const fileName = /^[\w-]+$/.test(ref)
+            ? `${ref}.${ext}`
+            : `image_${imgIndex++}.${ext}`;
+          refToFileName.set(ref, fileName);
+          zip.file(`images/${fileName}`, blob);
         }
         done++;
         setProgress((prev) => ({ ...prev, done }));
@@ -251,16 +231,18 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
       if (abortRef.current) return;
 
-      // Rewrite image URLs in markdown and add to ZIP
-      for (const { zipPath, markdown } of pendingFiles) {
-        const rewritten = markdown.replace(
-          /\/api\/images\/([^)"/?#\s]+)/g,
-          (_match, id) => {
-            const fileName = imageExtMap.get(id);
-            return fileName ? `./images/${fileName}` : `./images/${id}`;
+      // Serialize each page, pointing asset refs at the bundled files.
+      // Unfetched refs keep their original url.
+      for (const { zipPath, blocks, metadata } of pendingFiles) {
+        const toRoot = relativeRootPrefix(zipPath);
+        const markdown = serializeToMarkdown(blocks, metadata, {
+          schema: appDataSchema,
+          mapAssetUrl: (url) => {
+            const fileName = refToFileName.get(url);
+            return fileName ? `${toRoot}images/${fileName}` : url;
           },
-        );
-        zip.file(zipPath, rewritten);
+        });
+        zip.file(zipPath, markdown);
       }
 
       // Generate and download

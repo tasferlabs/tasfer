@@ -23,10 +23,9 @@ import { serializeToMarkdown } from "@tasfer/editor";
 import { serializeToHTML } from "@tasfer/editor";
 import { collectAssetRefs } from "@tasfer/editor";
 import { extractTitleFromBlocks } from "@tasfer/editor/internal";
-import { imageCache } from "@tasfer/editor/internal";
 import { renderToSVG } from "@tasfer/editor/math";
-import { getPlatform } from "@/platform";
 import { getTexFontUrl } from "@/fonts";
+import { extFromMime, fetchImageBlob } from "@/lib/exportAssets";
 import { getPage } from "../api/pages.api";
 import type { PageMetadata } from "@tasfer/editor";
 import { downloadFile } from "@/downloadFile";
@@ -42,72 +41,6 @@ function base64ToBlob(base64: string, mimeType: string): Blob {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: mimeType });
-}
-
-/** Guess file extension from mime type */
-function extFromMime(mime: string): string {
-  const map: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/gif": "gif",
-    "image/webp": "webp",
-    "image/svg+xml": "svg",
-    "image/bmp": "bmp",
-  };
-  return map[mime] || "bin";
-}
-
-/** Convert a cached HTMLImageElement to a Blob by drawing to an offscreen canvas */
-function imageElementToBlob(img: HTMLImageElement): Promise<Blob | null> {
-  return new Promise((resolve) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      resolve(null);
-      return;
-    }
-    ctx.drawImage(img, 0, 0);
-    canvas.toBlob((blob) => resolve(blob), "image/png");
-  });
-}
-
-/** Fetch an image blob, resolving asset hashes via the platform and falling back to imageCache. */
-async function fetchImageBlob(url: string): Promise<Blob | null> {
-  const isAlreadyUrl =
-    url.startsWith("blob:") ||
-    url.startsWith("data:") ||
-    url.startsWith("http://") ||
-    url.startsWith("https://");
-
-  // Resolve asset hashes (e.g. "assets/<hash>.png") to a real URL the same way the renderer does
-  let resolvedUrl = url;
-  if (!isAlreadyUrl) {
-    try {
-      resolvedUrl = await getPlatform().assets.getUrl(url);
-    } catch {
-      // ignore — fall through to fetch attempt / cache fallback
-    }
-  }
-
-  try {
-    const response = await fetch(resolvedUrl);
-    if (response.ok) {
-      const blob = await response.blob();
-      if (blob.size > 0) return blob;
-    }
-  } catch {
-    // fetch failed — fall through to imageCache
-  }
-
-  // Fallback: extract from the renderer's in-memory image cache (handles revoked blob URLs)
-  const cached = imageCache.get(url);
-  if (cached && cached.complete && cached.naturalWidth > 0) {
-    return imageElementToBlob(cached);
-  }
-
-  return null;
 }
 
 interface ExportDialogProps {
@@ -338,7 +271,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const handleExportMarkdown = async () => {
     const metadata = await fetchMetadata();
 
-    // All asset references owned by the blocks (handles blob:, /api/images/, etc.)
+    // All asset references owned by the blocks (asset hashes, blob:, etc.)
     const assetUrls = collectAssetRefs(currentBlocks, appDataSchema);
 
     // No images → plain .md download

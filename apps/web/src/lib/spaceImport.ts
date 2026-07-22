@@ -88,14 +88,18 @@ function guessMimeType(fileName: string): string {
   return map[ext || ""] || "application/octet-stream";
 }
 
-/** Replace ./images/{filename} with the uploaded asset id in markdown. */
+/**
+ * Replace image links into the bundle's images/ folder with the uploaded asset
+ * id. Exported pages link at their own depth (./images/, ../images/, …), so
+ * any relative prefix is accepted.
+ */
 function rewriteImageUrls(
   markdown: string,
   imageUrlMap: Map<string, string>,
 ): string {
   return markdown.replace(
-    /\.\/images\/([^)"/?#\s]+)/g,
-    (_match, fileName) => imageUrlMap.get(fileName) || `./images/${fileName}`,
+    /(?:\.\.?\/)+images\/([^)"/?#\s]+)/g,
+    (match, fileName) => imageUrlMap.get(fileName) || match,
   );
 }
 

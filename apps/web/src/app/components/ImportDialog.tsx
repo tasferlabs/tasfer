@@ -190,7 +190,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
             }
           });
 
-          // Upload each image and build fileName → /api/images/{newId} map
+          // Upload each image and build fileName → asset-id map
           const imageUrlMap = new Map<string, string>();
           for (const { fileName, entry } of imageEntries) {
             try {
@@ -231,11 +231,11 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
 
           const mdContent = await mdEntry.async("string");
 
-          // Rewrite ./images/{fileName} → /api/images/{newId}
+          // Rewrite relative images/ links (./images/, ../images/, …) → asset id
           markdown = mdContent.replace(
-            /\.\/images\/([^)"/?#\s]+)/g,
-            (_match: string, fileName: string) => {
-              return imageUrlMap.get(fileName) || `./images/${fileName}`;
+            /(?:\.\.?\/)+images\/([^)"/?#\s]+)/g,
+            (match: string, fileName: string) => {
+              return imageUrlMap.get(fileName) || match;
             },
           );
         } else {
