@@ -44,6 +44,8 @@ import { sortBlocksByOrder } from "@tasfer/editor/sync/block-order";
 // blocks; the doc's op log is the source of truth for titles.
 import { deriveTitles, extractBodyText } from "../lib/pageTitle";
 import { appDataSchema } from "../appDataSchema";
+import { collectAssetRefs } from "@tasfer/editor";
+import { AssetPrefetcher } from "./asset-prefetch";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
@@ -54,6 +56,7 @@ interface EngineReplicator {
     ops: import("@tasfer/editor/state-types").Operation[],
   ): void;
   requestAsset(hash: string): Promise<boolean>;
+  onPeerReady(cb: (publicKey: string) => void): () => void;
   addPeer(publicKey: string): Promise<void>;
   removePeer(publicKey: string): Promise<void>;
   startPairing(opts: {
@@ -231,9 +234,12 @@ export class Engine implements Platform {
     // Fire-and-forget: it replays each page's op log, so it runs in the
     // background rather than delaying the first paint; search picks up body
     // matches page-by-page as it completes, and titles work immediately.
-    void this.backfillBodyText().catch((err) =>
-      console.warn("[Engine] body_text backfill failed:", err),
-    );
+    // The asset sweep runs after it (not concurrently) so at most one
+    // background pass is replaying op logs at a time.
+    void this.backfillBodyText()
+      .catch((err) => console.warn("[Engine] body_text backfill failed:", err))
+      .then(() => this.sweepAssetRefs())
+      .catch((err) => console.warn("[Engine] asset sweep failed:", err));
   }
 
   // ---------------------------------------------------------------------------
@@ -337,7 +343,24 @@ export class Engine implements Platform {
   /** Set the replicator instance for space sync + pairing */
   setReplicator(repl: EngineReplicator): void {
     this.replicator = repl;
+    // A peer completing its handshake is the earliest moment queued asset
+    // pulls can succeed — retry everything still missing.
+    repl.onPeerReady(() => this.assetPrefetcher.retry());
   }
+
+  /**
+   * Eagerly pulls referenced-but-missing assets from peers, so images arrive
+   * with the ops that reference them instead of on first render. Fed by
+   * remote page/space ops and the startup sweep (see sweepAssetRefs).
+   */
+  private assetPrefetcher = new AssetPrefetcher({
+    listLocalAssetHashes: async () => {
+      const files = await this.driver.fs.list(`${this.driver.basePath}/assets`);
+      return new Set(files.map((f) => f.slice(0, 64)));
+    },
+    requestAsset: (hash) =>
+      this.replicator?.requestAsset(hash) ?? Promise.resolve(false),
+  });
 
   // ---------------------------------------------------------------------------
   // ReplicatorHost implementation
@@ -2243,6 +2266,7 @@ export class Engine implements Platform {
     spaceId: string,
     ops: SpaceOperation[],
   ): Promise<void> {
+    const avatarRefs: string[] = [];
     for (const op of ops) {
       await this.storeSpaceOp(op);
       await this.applySpaceOp(op);
@@ -2255,7 +2279,16 @@ export class Engine implements Platform {
           this.replicator.addPeer(op.publicKey);
         }
       }
+
+      if (
+        op.op === "member_set" &&
+        op.field === "avatar" &&
+        typeof op.value === "string"
+      ) {
+        avatarRefs.push(op.value);
+      }
     }
+    this.assetPrefetcher.noteRefs(avatarRefs);
     this.notifySpaceChange(spaceId);
   }
 
@@ -2293,6 +2326,11 @@ export class Engine implements Platform {
         this.rebuildBlocksFromOps(pageId)
           .then((rebuilt) => {
             if (rebuilt) {
+              // Blocks in hand — pull any assets the changed doc references
+              // before anyone opens the page.
+              this.assetPrefetcher.noteRefs(
+                collectAssetRefs(rebuilt.blocks, appDataSchema),
+              );
               return this.refreshDerivedTitlesFromBlocks(pageId, rebuilt.blocks);
             }
           })
@@ -2370,6 +2408,50 @@ export class Engine implements Platform {
         );
       } catch (err) {
         console.warn("[Engine] body_text backfill failed for", id, err);
+      }
+    }
+  }
+
+  /**
+   * Seed the asset prefetcher with every reference reachable from local data:
+   * all pages' blocks (archived included — they can be restored) plus member
+   * avatars. Runs once per boot in the background, so assets referenced by
+   * pages that synced while their holder was only briefly online — or before
+   * eager prefetch existed — are pulled without anyone opening the page.
+   * Uses the page snapshot when it is current and replays the op log
+   * otherwise, the same fast/slow split as pages.get.
+   */
+  private async sweepAssetRefs(): Promise<void> {
+    const members = await this.driver.db.query<{ avatar: string }>(
+      "SELECT DISTINCT avatar FROM space_members WHERE avatar IS NOT NULL",
+    );
+    this.assetPrefetcher.noteRefs(members.map((m) => m.avatar));
+
+    const pages = await this.driver.db.query<{ id: string }>(
+      "SELECT id FROM pages",
+    );
+    for (const { id } of pages) {
+      try {
+        const currentVV = await this.pageClockVV(id);
+        const cached = await this.loadSnapshot(id);
+        let blocks =
+          cached && vvEqual(cached.vv, currentVV) ? cached.blocks : null;
+        if (!blocks) {
+          const rebuilt = await this.rebuildBlocksFromOps(id);
+          if (rebuilt) {
+            blocks = rebuilt.blocks;
+            // Persist the rebuilt snapshot so the next boot's sweep (and the
+            // next page open) take the fast path.
+            this.snapshots.save(id, blocks, rebuilt.vv).catch(() => {});
+          }
+        }
+        if (blocks) {
+          this.assetPrefetcher.noteRefs(
+            collectAssetRefs(blocks, appDataSchema),
+          );
+        }
+      } catch (err) {
+        console.warn("[Engine] asset sweep failed for page", id, err);
       }
     }
   }

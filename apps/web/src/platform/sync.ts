@@ -36,7 +36,7 @@
  *     { type: "sync-req",   pageId, versionVector, requesterId }
  *     { type: "sync-res",   pageId, ops[], versionVector }
  *
- *   Asset (lazy pull):
+ *   Asset (pull; requested on-demand at render and eagerly by AssetPrefetcher):
  *     { type: "asset-req",  hash }
  *     { type: "asset-data", hash, ext, data }
  *
@@ -237,7 +237,7 @@ interface SyncResMsg {
   ops: Operation[];
   versionVector: Record<string, number>;
 }
-/** Lazy asset request: "I need this content-addressed asset — can you send it?" Triggered when an image block is rendered but the local asset store has no data for that hash. */
+/** Asset request: "I need this content-addressed asset — can you send it?" Sent when an image block renders without local data for its hash, and eagerly by the AssetPrefetcher for every referenced hash missing from the local store. */
 interface AssetReqMsg {
   type: "asset-req";
   hash: string;
@@ -443,6 +443,7 @@ export class Replicator {
   private connectedPeersListeners = new Set<(peers: string[]) => void>();
   private pageEventListeners = new Set<Partial<PageEvents>>();
   private versionMismatchListeners = new Set<(info: PeerVersionInfo) => void>();
+  private peerReadyListeners = new Set<(publicKey: string) => void>();
 
   constructor(network: NetworkDriver, host: ReplicatorHost) {
     this.network = network;
@@ -817,6 +818,18 @@ export class Replicator {
     this.versionMismatchListeners.add(cb);
     return () => {
       this.versionMismatchListeners.delete(cb);
+    };
+  }
+
+  /**
+   * Subscribe to a peer completing the `hello` handshake with compatible
+   * versions — the earliest moment requests to that peer can succeed. Fires
+   * on every accepted hello, including reconnects after pause/resume.
+   */
+  onPeerReady(cb: (publicKey: string) => void): () => void {
+    this.peerReadyListeners.add(cb);
+    return () => {
+      this.peerReadyListeners.delete(cb);
     };
   }
 
@@ -1305,6 +1318,9 @@ export class Replicator {
         room.callbacks.onRoomPeers?.(spacePeerIds, undefined);
       }
     }
+
+    // Handshake complete — the peer can now serve sync and asset requests.
+    for (const cb of this.peerReadyListeners) cb(fromPubKey);
   }
 
   // --- Replication ---
@@ -1801,6 +1817,7 @@ export class Replicator {
     this.connectionListeners.clear();
     this.connectedPeersListeners.clear();
     this.pageEventListeners.clear();
+    this.peerReadyListeners.clear();
   }
 }
 
