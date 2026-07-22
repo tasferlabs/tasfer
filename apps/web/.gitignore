@@ -26,3 +26,5 @@ dev-dist
 
 # mkcert LAN dev certs (see vite.config.ts)
 certs/
+.vercel
+.env*
