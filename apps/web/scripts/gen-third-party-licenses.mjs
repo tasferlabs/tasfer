@@ -43,6 +43,10 @@ const OUT = join(webRoot, "public", "THIRD-PARTY-LICENSES.txt");
 // First-party scopes/packages — our own code, not third-party attribution.
 const FIRST_PARTY = /^(@tasfer\/|@tasfer\/|@tasfer-examples\/|tasfer(-|$))/;
 
+// Type declarations and the TypeScript compiler can appear in `npm ls` through
+// peer dependency edges even with `--omit=dev`; none are shipped in the app.
+const TYPE_ONLY = /^(@types\/|typescript$)/;
+
 /** Run `npm ls` for a root, returning the parsed tree (or null on failure). */
 function npmTree(cwd) {
   let out;
@@ -86,6 +90,7 @@ function collect() {
     const walk = (deps) => {
       if (!deps) return;
       for (const [name, info] of Object.entries(deps)) {
+        if (TYPE_ONLY.test(name)) continue;
         if (info.version && !FIRST_PARTY.test(name)) {
           const key = `${name}@${info.version}`;
           if (!pkgs.has(key)) {
@@ -131,7 +136,10 @@ function licenseText(pkg) {
   const chunks = [];
   for (const f of files) {
     try {
-      const text = readFileSync(join(pkg.path, f), "utf8").trim();
+      const text = readFileSync(join(pkg.path, f), "utf8")
+        .replace(/\r\n?/g, "\n")
+        .replace(/[ \t]+$/gm, "")
+        .trim();
       if (text) chunks.push(text);
     } catch {
       /* unreadable — skip */
