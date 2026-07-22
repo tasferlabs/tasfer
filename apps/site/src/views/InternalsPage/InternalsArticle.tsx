@@ -86,8 +86,20 @@ export default function InternalsArticle({ slug }: { slug: string }) {
               <h1 className="ix-title">{note.title}</h1>
               {note.summary ? <p className="ix-lede">{note.summary}</p> : null}
               <div className="ix-byline">
-                <span className="author">
-                  {t("internals.author", "Tasfer")}
+                <span className="authors">
+                  {note.authors.map((author, index) => (
+                    <span key={author}>
+                      {index > 0 ? ", " : null}
+                      <a
+                        className="author"
+                        href={`https://github.com/${author}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {author}
+                      </a>
+                    </span>
+                  ))}
                 </span>
                 <span className="dot" aria-hidden="true" />
                 <span>{formatDate(note.date)}</span>

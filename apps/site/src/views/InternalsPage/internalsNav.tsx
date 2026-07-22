@@ -40,6 +40,7 @@ import {
 interface NoteFrontmatter {
   title: string;
   date: string;
+  authors: string[];
   summary: string;
   source?: string;
 }
@@ -54,6 +55,7 @@ export interface InternalNote {
   title: string;
   /** Date the note was written (ISO yyyy-mm-dd). */
   date: string;
+  authors: string[];
   summary: string;
   Comp: ComponentType;
 }
@@ -82,6 +84,7 @@ export const NOTES: InternalNote[] = INTERNAL_NOTE_SLUGS
       Comp: mod.default,
       title: fm.title,
       date: fm.date,
+      authors: fm.authors,
       summary: fm.summary ?? "",
     };
   })
