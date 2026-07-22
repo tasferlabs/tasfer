@@ -36,6 +36,9 @@ const DOWNLOAD_LINKS = {
   googlePlay: "https://play.google.com/store/apps/details?id=app.tasfer",
 };
 
+// Keep native download UI in place for when the builds and store listings launch.
+const SHOW_NATIVE_APP_DOWNLOADS = false;
+
 /**
  * The one web-install path relevant to this client, so the dialog shows a
  * single set of instructions instead of every platform's:
@@ -459,17 +462,21 @@ function InstallOptions() {
   return (
     <div className="flex flex-col gap-6">
       {webInstall}
-      {isMobileDevice ? mobileApps : desktopApp}
-      <Accordion type="single" collapsible className="-my-2">
-        <AccordionItem value="more" className="border-b-0">
-          <AccordionTrigger className="py-2 text-[13px] text-muted-foreground">
-            {t("install.moreOptions", "More ways to install")}
-          </AccordionTrigger>
-          <AccordionContent className="pt-1.5 pb-2">
-            {isMobileDevice ? desktopApp : mobileApps}
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
+      {SHOW_NATIVE_APP_DOWNLOADS && (
+        <>
+          {isMobileDevice ? mobileApps : desktopApp}
+          <Accordion type="single" collapsible className="-my-2">
+            <AccordionItem value="more" className="border-b-0">
+              <AccordionTrigger className="py-2 text-[13px] text-muted-foreground">
+                {t("install.moreOptions", "More ways to install")}
+              </AccordionTrigger>
+              <AccordionContent className="pt-1.5 pb-2">
+                {isMobileDevice ? desktopApp : mobileApps}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </>
+      )}
     </div>
   );
 }
