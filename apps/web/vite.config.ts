@@ -13,6 +13,11 @@ import { microfrontends } from "@vercel/microfrontends/experimental/vite";
 // (path resolves against this package root).
 process.env.VC_MICROFRONTENDS_CONFIG ??= "../site/microfrontends.json";
 
+// On Vercel the app is a microfrontend child served under /app: the plugin
+// sets base to /app and emits into dist/app so request paths match files.
+// Native/Electron builds load from file:// and need a relative base instead.
+const isVercelBuild = !!process.env.VERCEL;
+
 const buildTimestamp = DateTime.utc().toFormat("yyyyMMddHHmm");
 
 // Short commit the build was cut from, with a `-dirty` suffix when the working
@@ -86,7 +91,7 @@ const versionConfig = JSON.parse(
 
 export default defineConfig({
   plugins: [
-    microfrontends(),
+    microfrontends(isVercelBuild ? { basePath: "/app" } : {}),
     tailwindcss(),
     react({
       // @tasfer/tex is aliased to source, which includes the generated ESM data
@@ -117,7 +122,7 @@ export default defineConfig({
     __BUILD_COMMIT__: JSON.stringify(buildCommit),
     __CLIENT_VERSION__: versionConfig.version,
   },
-  base: "./",
+  ...(isVercelBuild ? {} : { base: "./" }),
   build: { sourcemap: true },
   // The device-node SharedWorker bundles the Engine, whose lazy `import()`s
   // require code-splitting — unsupported by the default `iife` worker format.

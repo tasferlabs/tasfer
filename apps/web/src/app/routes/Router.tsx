@@ -23,44 +23,52 @@ const ArchivePage = React.lazy(
 const createRouter =
   getClientPlatform() === "web" ? createBrowserRouter : createHashRouter;
 
-export const router = createRouter([
-  {
-    path: "/",
-    element: <Layout />,
-    errorElement: <RouteErrorBoundary />,
-    children: [
-      {
-        index: true,
-        loader: () => {
-          const lastRoute = localStorage.getItem("lastRoute");
+// "/app/" when served as a microfrontend child on the web; "./" in native
+// builds, where the hash router needs no basename.
+const base = import.meta.env.BASE_URL;
+const basename = base.startsWith("/") ? base.replace(/\/$/, "") || "/" : "/";
 
-          return redirect(lastRoute || "/page");
+export const router = createRouter(
+  [
+    {
+      path: "/",
+      element: <Layout />,
+      errorElement: <RouteErrorBoundary />,
+      children: [
+        {
+          index: true,
+          loader: () => {
+            const lastRoute = localStorage.getItem("lastRoute");
+
+            return redirect(lastRoute || "/page");
+          },
         },
-      },
-      {
-        path: "page/:id",
-        element: <EditorPage />,
-      },
-      {
-        path: "page",
-        element: <EditorPage />,
-      },
-      {
-        path: "calendar",
-        element: <CalendarPage />,
-      },
-      {
-        path: "settings",
-        element: <SettingsPage />,
-      },
-      {
-        path: "archive",
-        element: <ArchivePage />,
-      },
-    ],
-  },
-  {
-    path: "*",
-    element: <Navigate to="/" replace />,
-  },
-]);
+        {
+          path: "page/:id",
+          element: <EditorPage />,
+        },
+        {
+          path: "page",
+          element: <EditorPage />,
+        },
+        {
+          path: "calendar",
+          element: <CalendarPage />,
+        },
+        {
+          path: "settings",
+          element: <SettingsPage />,
+        },
+        {
+          path: "archive",
+          element: <ArchivePage />,
+        },
+      ],
+    },
+    {
+      path: "*",
+      element: <Navigate to="/" replace />,
+    },
+  ],
+  { basename },
+);

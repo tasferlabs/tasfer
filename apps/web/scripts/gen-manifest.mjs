@@ -55,6 +55,11 @@ const LOCALES = [
 ];
 const SOURCE_LNG = LOCALES[0].lng;
 
+// On Vercel the app is served under /app (microfrontend child); every URL in
+// the manifest must carry that prefix. Native builds serve from the root.
+const ROOT = process.env.VERCEL ? "/app" : "";
+const p = (url) => `${ROOT}${url}`;
+
 // Everything the manifest carries that isn't language-dependent.
 const BASE = {
   name: "Tasfer",
@@ -192,23 +197,24 @@ function main() {
       description: t(DESCRIPTION_KEY),
       lang: lng,
       dir,
-      id: BASE.id,
-      start_url: BASE.start_url,
-      scope: BASE.scope,
+      id: p(BASE.id),
+      start_url: p(BASE.start_url),
+      scope: p(BASE.scope),
       display: BASE.display,
       orientation: BASE.orientation,
       background_color: BASE.background_color,
       theme_color: BASE.theme_color,
       categories: BASE.categories,
       launch_handler: BASE.launch_handler,
-      icons: BASE.icons,
+      icons: BASE.icons.map((icon) => ({ ...icon, src: p(icon.src) })),
       screenshots: SCREENSHOTS.map(({ labelKey, ...shot }) => ({
         ...shot,
+        src: p(shot.src),
         label: t(labelKey),
       })),
       shortcuts: SHORTCUTS.map(({ nameKey, url }) => ({
         name: t(nameKey),
-        url,
+        url: p(url),
       })),
     };
 

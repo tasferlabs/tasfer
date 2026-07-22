@@ -4,6 +4,6 @@
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [{ "source": "/(.*)", "destination": "/app/index.html" }],
   "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../packages ../../shared ../../version.json"
 }
