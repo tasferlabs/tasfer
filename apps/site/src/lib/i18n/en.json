@@ -5,6 +5,8 @@
   "og.tagline": "Private, end-to-end encrypted markdown. No cloud. No account.",
   "metadata.title": "Tasfer — private markdown notes that stay on your device",
   "metadata.description": "A markdown-based editor that keeps your writing yours — every note stays on your device, end-to-end encrypted, syncing directly between your devices. No cloud. No account. No company reading your words.",
+  "notFound.title": "Page not found",
+  "notFound.body": "This page doesn't exist, or it hasn't synced to this device yet. Check the link, or head back to your workspace.",
   "docs.metadata.title": "Documentation",
   "docs.metadata.description": "Guides for using Tasfer, syncing your notes, and hosting your own relay.",
   "docs.tag": "docs",
