@@ -54,7 +54,7 @@ resolve automatically.
 | Token                  | Role                                           | Light                                | Dark                                 |
 | ---------------------- | ---------------------------------------------- | ------------------------------------ | ------------------------------------ |
 | `--primary`            | Brand green — primary actions, focus, the mark | `oklch(0.629 0.154 145)` ≈ `#43a047` | `oklch(0.718 0.142 145)` ≈ `#66bb6a` |
-| `--primary-foreground` | Text/icon on primary                           | `oklch(0.98 0.02 145)`               | `oklch(0.26 0.05 173)`               |
+| `--primary-foreground` | Text/icon on primary                           | `oklch(0.98 0.02 145)`               | `oklch(0.26 0.05 145)`               |
 | `--background`         | Page surface                                   | `#ffffff`                            | `#09090b`                            |
 | `--foreground`         | Body text                                      | `#09090b`                            | `oklch(0.985 0 0)` ≈ `#fafafa`       |
 | `--card` / `--popover` | Raised surfaces                                | `#ffffff`                            | `oklch(0.21 0.006 285.9)`            |
@@ -63,7 +63,7 @@ resolve automatically.
 | `--accent`             | Hover / low-emphasis fills                     | `oklch(0.967 0.001 286.4)`           | `oklch(0.274 0.006 286)`             |
 | `--secondary`          | Secondary buttons/chips                        | `oklch(0.967 0.001 286.4)`           | `oklch(0.274 0.006 286)`             |
 | `--border` / `--input` | Hairlines, field edges                         | `oklch(0.92 0.004 286.3)`            | `oklch(1 0 0 / 10%)`                 |
-| `--ring`               | Focus ring                                     | `oklch(0.6332 0.1426 163 / 60%)`     | same                                 |
+| `--ring`               | Focus ring                                     | `oklch(0.6332 0.1426 145 / 60%)`     | same                                 |
 | `--destructive`        | Errors, destructive actions                    | `oklch(0.577 0.245 27.3)`            | `oklch(0.704 0.191 22.2)`            |
 
 **Notes**

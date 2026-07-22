@@ -1,10 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Capacitor defaults -->
-    <color name="colorPrimary">#FF009869</color>
-    <color name="colorPrimaryDark">#FF009869</color>
-    <color name="colorAccent">#FF009869</color>
-
     <!-- Light Theme Colors -->
     <color name="light_background">#FFFFFFFF</color>
     <color name="light_foreground">#FF09090B</color>
@@ -12,8 +7,8 @@
     <color name="light_card_foreground">#FF09090B</color>
     <color name="light_popover">#FFFFFFFF</color>
     <color name="light_popover_foreground">#FF09090B</color>
-    <color name="light_primary">#FF009869</color>
-    <color name="light_primary_foreground">#FFEDFDF5</color>
+    <color name="light_primary">#FF43A047</color>
+    <color name="light_primary_foreground">#FFF1FCF0</color>
     <color name="light_secondary">#FFF4F4F5</color>
     <color name="light_secondary_foreground">#FF18181B</color>
     <color name="light_muted">#FFF4F4F5</color>
@@ -23,7 +18,7 @@
     <color name="light_destructive">#FFE7000B</color>
     <color name="light_border">#FFE4E4E7</color>
     <color name="light_input">#FFE4E4E7</color>
-    <color name="light_ring">#9900A471</color>
+    <color name="light_ring">#994AA050</color>
 
     <!-- Dark Theme Colors -->
     <color name="dark_background">#FF09090B</color>
@@ -32,8 +27,8 @@
     <color name="dark_card_foreground">#FFFAFAFA</color>
     <color name="dark_popover">#FF18181B</color>
     <color name="dark_popover_foreground">#FFFAFAFA</color>
-    <color name="dark_primary">#FF15BA81</color>
-    <color name="dark_primary_foreground">#FF002C22</color>
+    <color name="dark_primary">#FF66BB6A</color>
+    <color name="dark_primary_foreground">#FF132A14</color>
     <color name="dark_secondary">#FF27272A</color>
     <color name="dark_secondary_foreground">#FFFAFAFA</color>
     <color name="dark_muted">#FF27272A</color>
@@ -43,7 +38,7 @@
     <color name="dark_destructive">#FFFF6467</color>
     <color name="dark_border">#1AFFFFFF</color>
     <color name="dark_input">#26FFFFFF</color>
-    <color name="dark_ring">#9900A471</color>
+    <color name="dark_ring">#994AA050</color>
 
     <!-- Theme-aware color aliases -->
     <color name="background">@color/light_background</color>
