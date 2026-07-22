@@ -7,6 +7,7 @@
     },
     "tasfer-app": {
       "packageName": "tasfer",
+      "development": { "local": 4000 },
       "routing": [{ "paths": ["/app", "/app/:path*"] }]
     }
   }
