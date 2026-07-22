@@ -7,7 +7,7 @@ import {
   Plus,
   Settings,
   Sun,
-  Trash2,
+  Archive,
 } from "lucide-react";
 import {
   Fragment,
@@ -234,20 +234,19 @@ export function ActionCenter() {
         run: () => navigate("/calendar"),
       },
       {
-        id: "bin",
-        label: t("nav.goToBin", "Go to Bin"),
+        id: "archive",
+        label: t("nav.goToArchive", "Go to Archive"),
         keywords: [
-          "bin",
-          t("bin.binKw", "bin"),
+          "archive",
+          t("archive.archiveKw", "archive"),
           "trash",
           t("common.trashKw", "trash"),
-          "archive",
           t("common.archiveKw", "archive"),
           "deleted",
           t("common.deletedKw", "deleted"),
         ],
-        icon: <Trash2 size={16} />,
-        run: () => navigate("/bin"),
+        icon: <Archive size={16} />,
+        run: () => navigate("/archive"),
       },
       {
         id: "settings",

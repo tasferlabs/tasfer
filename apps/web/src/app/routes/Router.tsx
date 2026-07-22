@@ -16,7 +16,9 @@ const CalendarPage = React.lazy(
 const SettingsPage = React.lazy(
   () => import("../pages/SettingsPage/SettingsPage"),
 );
-const BinPage = React.lazy(() => import("../pages/BinPage/BinPage"));
+const ArchivePage = React.lazy(
+  () => import("../pages/ArchivePage/ArchivePage"),
+);
 
 const createRouter =
   getClientPlatform() === "web" ? createBrowserRouter : createHashRouter;
@@ -52,8 +54,8 @@ export const router = createRouter([
         element: <SettingsPage />,
       },
       {
-        path: "bin",
-        element: <BinPage />,
+        path: "archive",
+        element: <ArchivePage />,
       },
     ],
   },

@@ -17,7 +17,7 @@ import {
 } from "@dnd-kit/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { FileText, PanelLeftClose, Search } from "lucide-react";
+import { Archive, FileText, PanelLeftClose, Search } from "lucide-react";
 import React, { useState } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../components/ui/button";
@@ -75,10 +75,12 @@ const pageCollisionDetection: CollisionDetection = (args) => {
     return hits.filter((h) => dataFor(h.id)?.type === "space-drop-zone");
   }
 
-  // The Bin nav link never overlaps a page drop zone, but resolve it first so
+  // The Archive nav link never overlaps a page drop zone, but resolve it first so
   // a drop on it can't lose to any broader container hit.
-  const bin = hits.find((h) => dataFor(h.id)?.type === "bin-drop-zone");
-  if (bin) return [bin];
+  const archive = hits.find(
+    (h) => dataFor(h.id)?.type === "archive-drop-zone",
+  );
+  if (archive) return [archive];
 
   const insertion = hits.find((h) => {
     const d = dataFor(h.id);
@@ -223,7 +225,7 @@ export function SidebarContent({
     },
   });
 
-  // Soft-delete for drag-to-Bin. The dragged page can come from any list, so
+  // Soft-delete for drag-to-Archive. The dragged page can come from any list, so
   // the optimistic update sweeps every cached pages query, like movePage.
   const { mutate: deletePage } = useDeletePage({
     onMutate: async (variables) => {
@@ -251,7 +253,7 @@ export function SidebarContent({
     },
   });
 
-  // Cache invalidation (spaces + pages, including the Bin) is handled inside
+  // Cache invalidation (spaces + pages, including the Archive) is handled inside
   // useArchiveSpace so every caller stays consistent.
   const { mutate: requestArchiveSpace } = useArchiveSpace();
 
@@ -427,9 +429,9 @@ export function SidebarContent({
       return;
     }
 
-    // Drop on the Bin nav link: soft-delete the page (restorable from /bin).
+    // Drop on the Archive nav link: soft-delete the page (restorable from /archive).
     // Same confirmation and navigate-away behavior as the context-menu delete.
-    if (overData?.type === "bin-drop-zone") {
+    if (overData?.type === "archive-drop-zone") {
       const confirmed = await getConfirmation({
         title: t("page.deletePage", "Delete Page"),
         description: t(
@@ -710,7 +712,7 @@ export function SidebarContent({
               )}
             </div>
           )}
-          {/* The DndContext wraps the nav links too, so the Bin link can act
+          {/* The DndContext wraps the nav links too, so the Archive link can act
               as a drop target for pages dragged out of the spaces tree. */}
           <DndContext
             sensors={sensors}
@@ -765,7 +767,7 @@ export function SidebarContent({
                 </div>
                 {t("calendar.title", "Calendar")}
               </NavLink>
-              <BinNavLink />
+              <ArchiveNavLink />
 
               <button
                 className={style.appNavigationLink}
@@ -867,18 +869,18 @@ export function SidebarContent({
 }
 
 /**
- * The Bin nav link doubles as a drop target: dropping a page on it moves the
- * page to the Bin. Lives in its own component because `useDroppable` must run
+ * The Archive nav link doubles as a drop target: dropping a page on it archives
+ * the page. Lives in its own component because `useDroppable` must run
  * under the sidebar's DndContext, which SidebarContent itself renders.
  */
-function BinNavLink() {
+function ArchiveNavLink() {
   const { t } = useTranslation();
   const { active } = useDndContext();
   const isPageDrag = active?.data.current?.type === "pageLink";
   const { isOver, setNodeRef } = useDroppable({
-    id: "bin-drop",
+    id: "archive-drop",
     disabled: !isPageDrag,
-    data: { type: "bin-drop-zone" },
+    data: { type: "archive-drop-zone" },
   });
 
   return (
@@ -888,15 +890,15 @@ function BinNavLink() {
         clsx(
           style.appNavigationLink,
           isActive && style.active,
-          isOver && isPageDrag && style.binDropTarget,
+          isOver && isPageDrag && style.archiveDropTarget,
         )
       }
-      to={"/bin"}
+      to={"/archive"}
     >
       <div className={style.appNavigationLinkIcon}>
-        <Icons.Trash width={24} height={24} />
+        <Archive width={24} height={24} />
       </div>
-      {t("bin.title", "Bin")}
+      {t("archive.title", "Archive")}
     </NavLink>
   );
 }

@@ -78,7 +78,7 @@ One term, one rendering. Deviations are bugs.
 | Parent page | الصفحة الأم | not `الأصلية`, which means *original* |
 | No parent (root) | بلا صفحة أم (الجذر) | it names a *choice*, not a description |
 | Block | كتلة | |
-| Bin | سلة المحذوفات | |
+| Archive | الأرشيف | |
 | Archive (verb) | أرشفة | |
 | Draft | مسودة | |
 | Snapshot | لقطة | |

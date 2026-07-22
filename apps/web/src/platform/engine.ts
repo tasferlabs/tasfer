@@ -1379,7 +1379,7 @@ export class Engine implements Platform {
       // deleted subtree as a separate entry.
       //
       // Pages whose space is archived are excluded: an archived space is hidden
-      // as a whole (see spaces.listArchived in the Bin), and restoring the space
+      // as a whole (see spaces.listArchived in the Archive), and restoring the space
       // brings its still-live pages back. Listing those pages' individually
       // deleted members here would let them be restored into a hidden space.
       const rows = await this.driver.db.query<{

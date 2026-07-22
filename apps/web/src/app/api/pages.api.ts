@@ -137,7 +137,7 @@ export function useDeletePage<TContext = unknown>(
   });
 }
 
-// Archived (soft-deleted) pages — the Bin
+// Archived (soft-deleted) pages — the Archive
 export async function getArchivedPages(): Promise<ArchivedPageItem[]> {
   const platform = getPlatform();
   return platform.pages.listArchived();

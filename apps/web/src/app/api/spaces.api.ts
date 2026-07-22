@@ -29,8 +29,8 @@ export type { ArchivedSpaceItem };
 
 /**
  * Invalidate everything affected by a space changing its archived state.
- * Archiving or restoring a space moves it between the sidebar and the Bin, and
- * shifts which of its deleted pages the Bin can surface (pages in an archived
+ * Archiving or restoring a space moves it between the sidebar and the Archive,
+ * and shifts which of its archived pages the Archive can surface (pages in an archived
  * space are hidden with it), so both space and page lists must refresh.
  */
 function spaceArchiveKeys(): string[][] {
@@ -271,4 +271,3 @@ export function useAddSpaceMember<TContext = unknown>(
     ...options,
   });
 }
-

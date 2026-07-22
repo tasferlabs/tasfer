@@ -73,7 +73,7 @@ export interface PagePathSegment {
   color?: string | null;
 }
 
-/** A soft-deleted page surfaced in the Bin (root of an archived subtree) */
+/** A soft-deleted page surfaced in the Archive (root of an archived subtree) */
 export interface ArchivedPageItem {
   id: string;
   title: string;
@@ -229,7 +229,7 @@ export interface Space {
   createdAt: string;
 }
 
-/** An archived space surfaced in the Bin */
+/** An archived space surfaced in the Archive */
 export interface ArchivedSpaceItem {
   id: string;
   name: string;
@@ -484,7 +484,7 @@ export interface Platform {
   spaces: {
     /** List all spaces this device is a member of */
     list(): Promise<Space[]>;
-    /** List archived spaces this device is a member of (for the Bin) */
+    /** List archived spaces this device is a member of (for the Archive) */
     listArchived(): Promise<ArchivedSpaceItem[]>;
     /** Get a space with its members */
     get(id: string): Promise<Space & { members: SpaceMember[] }>;

@@ -9,9 +9,9 @@ import {
   type ArchivedPageItem,
 } from "../../api/pages.api";
 import { TitlePreview } from "../../TitlePreview";
-import style from "./BinPage.module.css";
+import style from "./ArchivePage.module.css";
 
-interface BinPreviewProps {
+interface ArchivePreviewProps {
   item: ArchivedPageItem;
   onRestore: () => void;
   restoring: boolean;
@@ -27,19 +27,19 @@ interface BinPreviewProps {
  * no archived filter — and render it through the editor's static readonly mount
  * (no sync, no offline store), mirroring SnapshotPreview.
  */
-export default function BinPreview({
+export default function ArchivePreview({
   item,
   onRestore,
   restoring,
   showHeader = true,
-}: BinPreviewProps) {
+}: ArchivePreviewProps) {
   const { t } = useTranslation();
   const { data: snapshots, isLoading } = useGetPageSnapshots(item.id);
 
   // Snapshots come newest-first; index 0 is the most recent full content.
   const blocks = useMemo(() => snapshots?.[0]?.blocks ?? null, [snapshots]);
 
-  const deletedAgo =
+  const archivedAgo =
     DateTime.fromISO(item.archivedAt).toRelative() ?? item.archivedAt;
 
   return (
@@ -60,12 +60,14 @@ export default function BinPreview({
               />
             </h2>
             <span className={style.previewMeta}>
-              {t("bin.deletedAgo", "Deleted {{time}}", { time: deletedAgo })}
+              {t("archive.archivedAgo", "Archived {{time}}", {
+                time: archivedAgo,
+              })}
             </span>
           </div>
           <Button size="sm" onClick={onRestore} disabled={restoring}>
             <RotateCcw className="me-1.5 h-4 w-4" />
-            {t("bin.restore", "Restore")}
+            {t("archive.restore", "Restore")}
           </Button>
         </header>
       )}
@@ -79,13 +81,13 @@ export default function BinPreview({
           <MountedEditor
             key={item.id}
             snapshot={blocks}
-            pageId={`bin-preview-${item.id}`}
+            pageId={`archive-preview-${item.id}`}
             readonly
             className="h-full"
           />
         ) : (
           <div className={style.previewState}>
-            {t("bin.noContent", "This page has no content")}
+            {t("archive.noContent", "This page has no content")}
           </div>
         )}
       </div>

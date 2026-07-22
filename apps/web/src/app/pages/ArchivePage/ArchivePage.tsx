@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DateTime } from "luxon";
-import { ChevronRight, FileText, Folder, RotateCcw } from "lucide-react";
+import { Archive, ChevronRight, FileText, Folder, RotateCcw } from "lucide-react";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
@@ -20,17 +20,16 @@ import {
   useUnarchiveSpace,
   type ArchivedSpaceItem,
 } from "../../api/spaces.api";
-import Icons from "../../components/uiKit/Icons/Icons";
-import BinPreview from "./BinPreview";
+import ArchivePreview from "./ArchivePreview";
 import clsx from "clsx";
-import style from "./BinPage.module.css";
+import style from "./ArchivePage.module.css";
 
-/** A single Bin row: either an archived space or a deleted page. */
-type BinEntry =
+/** A single Archive row: either an archived space or an archived page. */
+type ArchiveEntry =
   | { kind: "space"; archivedAt: string; space: ArchivedSpaceItem }
   | { kind: "page"; archivedAt: string; page: ArchivedPageItem };
 
-export default function BinPage() {
+export default function ArchivePage() {
   const { t, i18n } = useTranslation();
   const { spaces } = useSpaces();
   const isMobile = useResponsive("(max-width: 768px)");
@@ -55,7 +54,7 @@ export default function BinPage() {
   // (flipped in RTL where its inline-start edge is on the right).
   const isRtl = i18n.dir() === "rtl";
   const listPaneRef = useRef<HTMLDivElement>(null);
-  const [listWidth, setListWidth] = useLocalStorage("bin-list-width", 320);
+  const [listWidth, setListWidth] = useLocalStorage("archive-list-width", 320);
   const [isResizing, setIsResizing] = useState(false);
 
   const startResizing = useCallback(() => setIsResizing(true), []);
@@ -90,11 +89,11 @@ export default function BinPage() {
     [spaces],
   );
 
-  // The Bin is one chronological stream: archived spaces and deleted pages are
+  // The Archive is one chronological stream: archived spaces and pages are
   // interleaved purely by when they were removed, newest first. ISO-8601
   // timestamps compare correctly as strings, so no Date parsing is needed.
-  const entries = useMemo<BinEntry[]>(() => {
-    const out: BinEntry[] = [];
+  const entries = useMemo<ArchiveEntry[]>(() => {
+    const out: ArchiveEntry[] = [];
     for (const space of archivedSpaces ?? []) {
       out.push({ kind: "space", archivedAt: space.archivedAt, space });
     }
@@ -124,7 +123,7 @@ export default function BinPage() {
     }
   }, [isMobile, selectedId, archived]);
 
-  // Drop the selection if its page leaves the bin (restored here or by a peer).
+  // Drop the selection if its page leaves the archive (restored here or by a peer).
   useEffect(() => {
     if (selectedId && archived && !archived.some((p) => p.id === selectedId)) {
       setSelectedId(null);
@@ -154,7 +153,7 @@ export default function BinPage() {
     <div
       className={style.list}
       role="listbox"
-      aria-label={t("bin.title", "Bin")}
+      aria-label={t("archive.title", "Archive")}
     >
       {entries.map((entry) => {
         if (entry.kind === "space") {
@@ -178,8 +177,8 @@ export default function BinPage() {
                 className={style.restore}
                 onClick={() => unarchiveSpace(space.id)}
                 disabled={isRestoringSpace}
-                title={t("bin.restoreSpace", "Restore space")}
-                aria-label={t("bin.restoreSpace", "Restore space")}
+                title={t("archive.restoreSpace", "Restore space")}
+                aria-label={t("archive.restoreSpace", "Restore space")}
               >
                 <RotateCcw className={style.restoreIcon} aria-hidden />
               </button>
@@ -233,8 +232,8 @@ export default function BinPage() {
                 handleRestore(page.id);
               }}
               disabled={isPending}
-              title={t("bin.restorePage", "Restore page")}
-              aria-label={t("bin.restorePage", "Restore page")}
+              title={t("archive.restorePage", "Restore page")}
+              aria-label={t("archive.restorePage", "Restore page")}
             >
               <RotateCcw className={style.restoreIcon} aria-hidden />
             </button>
@@ -247,7 +246,10 @@ export default function BinPage() {
   // Touch-first list. Each row's single job is to open the item; restore is a
   // deliberate action inside the drawer, so there is no inline button to mis-tap.
   const mobileList = (
-    <ul className={style.mobileList} aria-label={t("bin.title", "Bin")}>
+    <ul
+      className={style.mobileList}
+      aria-label={t("archive.title", "Archive")}
+    >
       {entries.map((entry) => {
         const isSpace = entry.kind === "space";
         const accent = entry.kind === "page" ? entry.page.color : undefined;
@@ -262,7 +264,7 @@ export default function BinPage() {
             ? entry.page.spaceId
               ? (spaceName.get(entry.page.spaceId) ?? null)
               : null
-            : t("bin.typeSpace", "Space");
+            : t("archive.typeSpace", "Space");
         const time = DateTime.fromISO(entry.archivedAt).toRelative() ?? "";
         return (
           <li key={`${entry.kind}-${isSpace ? entry.space.id : entry.page.id}`}>
@@ -310,14 +312,16 @@ export default function BinPage() {
   return (
     <div className={style.container}>
       <TopActionBarPortal>
-        <span className={style.headerTitle}>{t("bin.title", "Bin")}</span>
+        <span className={style.headerTitle}>
+          {t("archive.title", "Archive")}
+        </span>
         {!isEmpty && totalCount > 0 && (
           <span className={style.headerCount}>{totalCount}</span>
         )}
         {!isMobile && selected && (
           <div className={style.headerPreview}>
             <span className={style.headerSelMeta}>
-              {t("bin.deletedAgo", "Deleted {{time}}", {
+              {t("archive.archivedAgo", "Archived {{time}}", {
                 time: DateTime.fromISO(selected.archivedAt).toRelative() ?? "",
               })}
             </span>
@@ -327,7 +331,7 @@ export default function BinPage() {
               disabled={isPending}
             >
               <RotateCcw className="me-1.5 h-4 w-4" />
-              {t("bin.restore", "Restore")}
+              {t("archive.restore", "Restore")}
             </Button>
           </div>
         )}
@@ -336,15 +340,15 @@ export default function BinPage() {
       {isEmpty ? (
         <div className={style.empty}>
           <span className={style.emptyIcon}>
-            <Icons.Trash width={28} height={28} />
+            <Archive width={28} height={28} />
           </span>
           <p className={style.emptyTitle}>
-            {t("bin.empty", "No deleted pages")}
+            {t("archive.empty", "No archived pages or spaces")}
           </p>
           <p className={style.emptyHint}>
             {t(
-              "bin.emptyHint",
-              "Pages you delete land here and can be restored.",
+              "archive.emptyHint",
+              "Pages and spaces you archive appear here and can be restored.",
             )}
           </p>
         </div>
@@ -360,7 +364,7 @@ export default function BinPage() {
                 {selected?.title || t("common.untitled", "Untitled")}
               </DrawerTitle>
               {selected && (
-                <BinPreview
+                <ArchivePreview
                   item={selected}
                   restoring={isPending}
                   onRestore={() => handleRestore(selected.id)}
@@ -386,7 +390,7 @@ export default function BinPage() {
                       t("space.untitled", "Untitled space")}
                   </h2>
                   <p className={style.spaceSheetMeta}>
-                    {t("bin.deletedAgo", "Deleted {{time}}", {
+                    {t("archive.archivedAgo", "Archived {{time}}", {
                       time:
                         DateTime.fromISO(
                           selectedSpace.archivedAt,
@@ -395,7 +399,7 @@ export default function BinPage() {
                   </p>
                   <p className={style.spaceSheetHint}>
                     {t(
-                      "bin.spaceRestoreHint",
+                      "archive.spaceRestoreHint",
                       "Restoring brings the space and its pages back.",
                     )}
                   </p>
@@ -408,7 +412,7 @@ export default function BinPage() {
                     disabled={isRestoringSpace}
                   >
                     <RotateCcw className="me-1.5 h-4 w-4" />
-                    {t("bin.restore", "Restore")}
+                    {t("archive.restore", "Restore")}
                   </Button>
                 </div>
               )}
@@ -431,11 +435,11 @@ export default function BinPage() {
                 onMouseDown={startResizing}
                 role="separator"
                 aria-orientation="vertical"
-                aria-label={t("bin.resizeList", "Resize list")}
+                aria-label={t("archive.resizeList", "Resize list")}
               />
             )}
             {selected ? (
-              <BinPreview
+              <ArchivePreview
                 item={selected}
                 restoring={isPending}
                 onRestore={() => handleRestore(selected.id)}
@@ -444,9 +448,11 @@ export default function BinPage() {
             ) : (
               <div className={style.previewEmpty}>
                 <span className={style.emptyIcon}>
-                  <Icons.Trash width={24} height={24} />
+                  <Archive width={24} height={24} />
                 </span>
-                <p>{t("bin.selectPrompt", "Select a page to preview it")}</p>
+                <p>
+                  {t("archive.selectPrompt", "Select a page to preview it")}
+                </p>
               </div>
             )}
           </div>

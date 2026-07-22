@@ -91,7 +91,7 @@ export async function movePageAcrossSpaces(
 
   // Everything is safely recreated — remove the source subtree. This is the
   // normal soft-delete tombstone (archive + page_remove), so the originals land
-  // in the source Bin (recoverable) and their CRDT ops are retained, never
+  // in the source Archive (recoverable) and their CRDT ops are retained, never
   // hard-deleted.
   await platform.pages.delete(rootId);
 
