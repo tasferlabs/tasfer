@@ -893,7 +893,7 @@ export class Replicator {
   }): Promise<void> {
     if (this.pairingSession) await this.cancelPairing();
 
-    const topicHex = opts.invite.topic;
+    const topicHex = await deriveInviteTopic(opts.invite.secret);
 
     // Derive and register encryption key for the pairing topic
     const pairingKey = await derivePairingKey(opts.invite.secret, topicHex);
@@ -1589,11 +1589,8 @@ export class Replicator {
     session: PairingSession,
   ): Promise<void> {
     const cryptoDriver = this.host.getCrypto();
-    const secretBytes = enc.encode(session.invite.secret);
-    const hash = new Uint8Array(
-      await crypto.subtle.digest("SHA-256", secretBytes),
-    );
-    const proof = await cryptoDriver.sign(session.privateKey, hash);
+    const challenge = await derivePairingProofChallenge(session.invite.secret);
+    const proof = await cryptoDriver.sign(session.privateKey, challenge);
 
     const msg: Message = {
       type: "pair-hello",
@@ -1619,11 +1616,8 @@ export class Replicator {
     if (session.completedPeers.has(msg.publicKey)) return;
 
     const cryptoDriver = this.host.getCrypto();
-    const secretBytes = enc.encode(session.invite.secret);
-    const hash = new Uint8Array(
-      await crypto.subtle.digest("SHA-256", secretBytes),
-    );
-    const valid = await cryptoDriver.verify(msg.publicKey, msg.proof, hash);
+    const challenge = await derivePairingProofChallenge(session.invite.secret);
+    const valid = await cryptoDriver.verify(msg.publicKey, msg.proof, challenge);
 
     if (!valid) {
       session.callbacks.onError?.(
@@ -1639,7 +1633,7 @@ export class Replicator {
 
     // If we received a hello, send ack back
     if (msg.type === "pair-hello") {
-      const proof = await cryptoDriver.sign(session.privateKey, hash);
+      const proof = await cryptoDriver.sign(session.privateKey, challenge);
       const ackMsg: Message = {
         type: "pair-ack",
         publicKey: session.localPublicKey,
@@ -1803,26 +1797,56 @@ async function computePeerTopic(
 }
 
 /**
- * Derive an encryption key for a pairing topic.
- * Both peers know the invite secret and topic — HKDF produces the same key.
+ * Every use of the invite secret goes through here with its own label, so no
+ * two derivations ever produce the same bytes. That separation is what keeps
+ * the topic — the one derivation that is server-visible — from revealing or
+ * equaling anything else derived from the secret.
  */
-async function derivePairingKey(
+async function hkdfFromSecret(
   secretHex: string,
-  topicHex: string,
+  label: string,
 ): Promise<Uint8Array> {
-  const secret = hexToBytes(secretHex);
-  const info = enc.encode("tasfer-pair:" + topicHex);
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
-    secret.buffer as ArrayBuffer,
+    hexToBytes(secretHex).buffer as ArrayBuffer,
     "HKDF",
     false,
     ["deriveBits"],
   );
   const bits = await crypto.subtle.deriveBits(
-    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info },
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new Uint8Array(32),
+      info: enc.encode(label),
+    },
     keyMaterial,
     256,
   );
   return new Uint8Array(bits);
+}
+
+/** Signaling topic for an invite — derived, so the invite carries only the secret. */
+async function deriveInviteTopic(secretHex: string): Promise<string> {
+  return bytesToHex(await hkdfFromSecret(secretHex, "tasfer-topic"));
+}
+
+/**
+ * Challenge both peers sign to prove they hold the invite secret. Must stay
+ * distinct from the topic: the topic is visible to the signaling server, and
+ * a signature over a server-known value would prove nothing.
+ */
+function derivePairingProofChallenge(secretHex: string): Promise<Uint8Array> {
+  return hkdfFromSecret(secretHex, "tasfer-proof");
+}
+
+/**
+ * Derive an encryption key for a pairing topic.
+ * Both peers know the invite secret — HKDF produces the same key.
+ */
+function derivePairingKey(
+  secretHex: string,
+  topicHex: string,
+): Promise<Uint8Array> {
+  return hkdfFromSecret(secretHex, "tasfer-pair:" + topicHex);
 }

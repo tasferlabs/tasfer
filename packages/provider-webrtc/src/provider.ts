@@ -13,7 +13,9 @@
  *     status.textContent = s.connected ? `live · ${s.peers} peer(s)` : "offline";
  *   });
  *
- * It just builds a {@link WebrtcTransport} and hands it to the transport-agnostic
+ * It hashes the room name into the wire topic the server routes on — the room
+ * name is the capability here, so only its digest ever leaves the client —
+ * then builds a {@link WebrtcTransport} and hands it to the transport-agnostic
  * `createProvider`. Swapping transports (relay, BroadcastChannel, your own) is a
  * different factory over the same protocol — nothing else changes.
  */
@@ -36,11 +38,21 @@ export interface CreateWebrtcProviderOptions {
   iceServers?: RTCIceServer[];
 }
 
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(input),
+  );
+  return Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 export function createWebrtcProvider(
   options: CreateWebrtcProviderOptions,
 ): Provider {
   const transport = new WebrtcTransport({
-    room: options.room,
+    topic: sha256Hex(options.room),
     signaling: options.signaling,
     peerId: options.peerId ?? options.doc.peerId,
     iceServers: options.iceServers,

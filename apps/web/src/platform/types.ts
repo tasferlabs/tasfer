@@ -332,9 +332,11 @@ export type SpaceOperation =
 
 /** An invite for peer pairing + space joining */
 export interface SpaceInvite {
-  /** One-time topic for signaling discovery (random hex) */
-  topic: string;
-  /** Shared secret for mutual authentication (random hex) */
+  /**
+   * Shared secret (random hex) — the invite capability. The signaling topic,
+   * pairing proof, and encryption keys all derive from it (HKDF, one label
+   * each); the secret itself never goes on the wire.
+   */
   secret: string;
   /** Space to join after pairing */
   spaceId: string;

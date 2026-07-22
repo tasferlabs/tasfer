@@ -23,7 +23,7 @@ Sync is per-space: a space syncs only with the devices you invite into it.
 
 <Steps>
   <Step title="Create an invite">
-    In the sidebar, open the space menu and choose **Invite members**. Tasfer generates an invite containing a discovery topic and a secret, shown as an **Invite Code** and a **QR Code**. The secret is created locally and is never sent to the relay.
+    In the sidebar, open the space menu and choose **Invite members**. Tasfer generates an invite containing a secret, shown as an **Invite Code** and a **QR Code**. The secret is created locally and is never sent to the relay — the discovery topic your devices meet on is a hash derived from it.
   </Step>
   <Step title="Join from the other device">
     On the second device choose **Join someone's space** — paste the code, scan the QR, or import an invite file. The devices exchange public keys directly, prove they hold the invite secret, and derive a shared encryption key. Your identity keypair is generated locally and its private key never leaves the device.
