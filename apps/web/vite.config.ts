@@ -141,11 +141,5 @@ export default defineConfig({
     https: lanHttps,
     // Replaced by our own devtools-styled overlay (see src/dev/viteErrorOverlay).
     hmr: { overlay: false },
-    proxy: {
-      "/api": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-      },
-    },
   },
 });

@@ -57,9 +57,9 @@ Pages are not stored as markdown files. The CRDT state, operation log, snapshots
 ### Assets, content-addressed
 
 - Images/files stored as `assets/{content-hash}.{ext}`
-- **CRDT ops sync eagerly** (tiny), **assets sync lazily** (pulled when document is opened)
+- **CRDT ops sync eagerly** (tiny), **assets are prefetched eagerly too**: any referenced hash missing locally is pulled from connected peers, no need to open the document
 - Deduplication for free via content hashing
-- Your own assets always kept; remote assets cached with LRU eviction
+- Assets are kept until you delete them, nothing is evicted automatically
 
 ### SQLite
 

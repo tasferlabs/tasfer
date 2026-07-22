@@ -5,17 +5,12 @@ import {
   cleanupOutdatedCaches,
   matchPrecache,
 } from "workbox-precaching";
-import { Router } from "./sw-router";
 
 declare let self: ServiceWorkerGlobalScope;
-
-// Initialize router
-const app = new Router();
 
 // Register fetch event handler
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  const pathname = url.pathname;
 
   // Don't intercept cross-origin requests - let the browser handle them natively.
   // Third-party resources (CDN images, the signaling server's TURN credentials,
@@ -28,29 +23,15 @@ self.addEventListener("fetch", (event) => {
     return; // Don't call respondWith - native fetch keeps the right credentials mode
   }
 
-  // Don't intercept static assets - let Workbox's precacheAndRoute handle them
-  // This ensures precached assets are served from cache during app updates,
-  // preventing 404 errors when old files are deleted from the server
-  if (!pathname.startsWith("/api/") && event.request.mode !== "navigate") {
-    return; // Don't call respondWith - let Workbox handle it
-  }
-
-  // Don't intercept mutation requests (PUT/POST/DELETE) - let them go directly
-  // to the network. The SW's error-swallowing pattern can silently lose mutations
-  // when the fetch fails but the user is online (queued mutations only replay on
-  // the "online" event, which never fires if already online).
-  if (event.request.method !== "GET" && event.request.mode !== "navigate") {
+  // Only intercept navigations. Static assets stay with Workbox's
+  // precacheAndRoute (so precached files keep serving during app updates), and
+  // everything else goes straight to the network - there is no server API; all
+  // data lives in the local-first store.
+  if (event.request.mode !== "navigate") {
     return;
   }
 
-  event.respondWith(
-    (async () => {
-      const response = await app.handleRequest(event.request);
-      if (response) return response;
-      // No route matched, pass through to network
-      return authFetch(event.request);
-    })()
-  );
+  event.respondWith(handleNavigation(event.request));
 });
 
 console.log("[SW] Service worker script loaded");
@@ -62,8 +43,14 @@ self.addEventListener("install", (event) => {
       console.log("[SW] Installing new version");
 
       // Clear old offline-fallback cache (may have stale index.html with old asset hashes)
-      // Keep pages-list and pages-data - user data shouldn't be cleared on app updates
       await caches.delete("offline-fallback");
+
+      // Drop server-era API caches. The centralized server is gone (P2P
+      // local-first); pages and images now live in the local store, so these
+      // caches are dead weight on old installs.
+      await Promise.all(
+        ["pages-list", "pages-data", "images"].map((name) => caches.delete(name))
+      );
 
       // Cache fresh index.html for offline fallback
       const cache = await caches.open("offline-fallback");
@@ -90,29 +77,6 @@ self.addEventListener("message", (event) => {
 // Must be called before matchPrecache can be used
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
-
-// Helper to clean up caches when a page is deleted
-async function cleanupPageCaches(pageId: string): Promise<void> {
-  // Delete from pages-data cache
-  const pagesDataCache = await caches.open("pages-data");
-  await pagesDataCache.delete(`/api/pages/${pageId}`);
-
-  // Clear pages-list cache (forces fresh fetch on next request)
-  const pagesListCache = await caches.open("pages-list");
-  const keys = await pagesListCache.keys();
-  for (const key of keys) {
-    await pagesListCache.delete(key);
-  }
-
-  // Notify client to clean up IndexedDB and native storage
-  const clients = await self.clients.matchAll({ type: "window" });
-  clients.forEach((client) => {
-    client.postMessage({
-      type: "PAGE_DELETED",
-      pageId,
-    });
-  });
-}
 
 // Helper to fetch with credentials (for basic auth support)
 function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -167,134 +131,20 @@ async function getOfflineIndexHtml(): Promise<Response> {
   );
 }
 
-// ============================================================
-// Routes
-// ============================================================
-
-// Cache page list with network-first
-// Fresh data when online, cached data when offline
-app.get("/api/pages/list", async (req, res) => {
-  const cache = await caches.open("pages-list");
-  const request = req._request;
-
-  try {
-    // Try network first for fresh data
-    const response = await authFetch(request.clone());
-
-    if (response.ok) {
-      // Cache successful response
-      await cache.put(request, response.clone());
-    }
-
-    return res.send(response);
-  } catch {
-    // Offline - serve from cache
-    const cached = await cache.match(request);
-    if (cached) return res.send(cached);
-
-    // No cache, return offline error
-    return res.json({ success: false }, { status: 503 });
-  }
-});
-
-// Cache individual pages with network-first and 404 cache cleanup
-// Content should be fresh when online, cached when offline
-app.get("/api/pages/{id}", async (req, res) => {
-  const cache = await caches.open("pages-data");
-  const request = req._request;
-  const pageId = req.params.id;
-
-  try {
-    const response = await authFetch(request.clone());
-
-    if (response.status === 404 && pageId) {
-      // Page was deleted - clean up caches
-      await cleanupPageCaches(pageId);
-      return res.send(response);
-    }
-
-    if (response.ok) {
-      // Cache successful response
-      await cache.put(request, response.clone());
-    }
-
-    return res.send(response);
-  } catch {
-    // Offline - serve from cache
-    const cached = await cache.match(request);
-    if (cached) return res.send(cached);
-
-    // No cache, return offline error
-    return res.json({ success: false }, { status: 503 });
-  }
-});
-
-// Cache images with cache-first (immutable by ID)
-app.get("/api/images/{id}", async (req, res) => {
-  const cache = await caches.open("images");
-  const request = req._request;
-
-  // Check cache first
-  const cached = await cache.match(request);
-  if (cached) {
-    return res.send(cached);
-  }
-
-  // Not in cache, fetch from network
-  try {
-    const response = await authFetch(request.clone());
-    if (response.ok) {
-      await cache.put(request, response.clone());
-    }
-    return res.send(response);
-  } catch {
-    return res.json({ success: false }, { status: 503 });
-  }
-});
-
-// Pass through other API GET requests to network
-app.get("/api/{path+}", async (req, res) => {
-  try {
-    return res.send(await authFetch(req._request.clone()));
-  } catch {
-    return res.json({ success: false }, { status: 503 });
-  }
-});
-
-// Navigation handler - catch-all for non-API requests
-// This handles SPA navigation with offline fallback
-app.get("*", async (req, res) => {
-  const request = req._request;
-
-  // Only handle navigation requests (HTML pages)
-  if (request.mode !== "navigate") {
-    // Let it pass through to network
-    return res.fetch(request);
-  }
-
-  const pathname = new URL(request.url).pathname;
-  // Don't handle API routes (already handled above, but just in case)
-  if (pathname.startsWith("/api/")) {
-    return res.fetch(request);
-  }
-
-  // Network-first for navigation to ensure fresh index.html with correct asset hashes
-  // Falls back to cached index.html on any network failure for offline support
-  // The recovery script in index.html handles stale cached assets
+// SPA navigation - network-first to ensure fresh index.html with correct asset
+// hashes, falling back to cached index.html on any network failure for offline
+// support. The recovery script in index.html handles stale cached assets.
+async function handleNavigation(request: Request): Promise<Response> {
   try {
     const response = await authFetch(request.clone());
     if (response.ok) {
       // Update the offline fallback cache with fresh index.html
       const cache = await caches.open("offline-fallback");
       await cache.put("/index.html", response.clone());
-      return res.send(response);
     }
-    // Non-OK response (4xx, 5xx) - still return it so browser/recovery can handle
-    return res.send(response);
+    // Non-OK responses (4xx, 5xx) still return so browser/recovery can handle
+    return response;
   } catch {
-    // Network failed - serve cached index.html for offline support
-    // If cached assets are stale, the recovery script in index.html will handle it
-    const cachedIndex = await getOfflineIndexHtml();
-    return res.send(cachedIndex);
+    return getOfflineIndexHtml();
   }
-});
+}
