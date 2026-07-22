@@ -56,9 +56,7 @@ export class WaSqliteDb implements DbDriver {
       if (!ok) throw new Error(DB_LOCKED_ERROR);
     }
 
-    const module = await moduleFactory({
-      locateFile: (file: string) => `/${file}`,
-    });
+    const module = await moduleFactory();
     this.sqlite3 = Factory(module);
 
     // IndexedDB-backed VFS: works in any worker context (including this
