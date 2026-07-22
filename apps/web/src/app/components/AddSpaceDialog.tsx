@@ -29,17 +29,19 @@ import {
   Plus,
   QrCode,
   Shield,
+  Upload,
   UserPlus,
   Users,
   WifiOff,
 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { cancelPairing, useAcceptInvite, useCreateSpace } from "../api/spaces.api";
 import useResponsive from "../hooks/useResponsive";
-import { decodeInvite } from "../inviteCode";
+import { decodeInvite, isInviteExpired } from "../inviteCode";
+import type { SpaceInvite } from "@/platform/types";
 import { QRScannerView } from "./QRScannerView";
 
 interface AddSpaceDialogProps {
@@ -87,10 +89,17 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   const JoinSchema = useMemo(
     () =>
       z.object({
-        code: z.string().min(1, t("validation.required", "Required")).refine(
-          (val) => decodeInvite(val) !== null,
-          t("space.invalidInviteCode", "Invalid invite code"),
-        ),
+        code: z
+          .string()
+          .min(1, t("validation.required", "Required"))
+          .refine(
+            (val) => decodeInvite(val) !== null,
+            t("space.invalidInviteCode", "Invalid invite code"),
+          )
+          .refine((val) => {
+            const invite = decodeInvite(val);
+            return !invite || !isInviteExpired(invite);
+          }, t("space.inviteExpired", "This invite has expired. Ask for a new one.")),
       }),
     [t],
   );
@@ -101,9 +110,12 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   });
 
   const [joinStatus, setJoinStatus] = useState<"input" | "connecting" | "done" | "error">("input");
-  const [joinTab, setJoinTab] = useState<"code" | "scan">("code");
+  const [joinTab, setJoinTab] = useState<"code" | "file" | "scan">("code");
+  const [inviteFileName, setInviteFileName] = useState("");
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [spaceName, setSpaceName] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { mutate: acceptInvite } = useAcceptInvite({
     onError: (err) => {
@@ -112,12 +124,19 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
     },
   });
 
-  function handleJoin(data: z.infer<typeof JoinSchema>) {
-    const invite = decodeInvite(data.code);
-    if (!invite) return;
+  /** Invite currently being accepted — cancel target on close */
+  const activeInviteRef = useRef<SpaceInvite | null>(null);
 
+  function runJoin(invite: SpaceInvite) {
+    if (isInviteExpired(invite)) {
+      setJoinStatus("error");
+      setErrorMsg(
+        t("space.inviteExpired", "This invite has expired. Ask for a new one."),
+      );
+      return;
+    }
     setJoinStatus("connecting");
-
+    activeInviteRef.current = invite;
     acceptInvite({
       invite,
       callbacks: {
@@ -136,6 +155,12 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
     });
   }
 
+  function handleJoin(data: z.infer<typeof JoinSchema>) {
+    const invite = decodeInvite(data.code);
+    if (!invite) return;
+    runJoin(invite);
+  }
+
   // Reset state when dialog opens/closes
   useEffect(() => {
     if (open) {
@@ -144,11 +169,17 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       setView("pick");
       setJoinStatus("input");
       setJoinTab("code");
+      setInviteFileName("");
+      setIsDraggingFile(false);
       setSpaceName("");
       setErrorMsg("");
     }
     return () => {
-      cancelPairing();
+      const invite = activeInviteRef.current;
+      if (invite) {
+        activeInviteRef.current = null;
+        cancelPairing(invite);
+      }
     };
   }, [open]);
 
@@ -203,7 +234,10 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
               {t("space.joinSpace", "Join space")}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {t("space.joinSpaceDesc", "Use an invite code from someone you trust")}
+              {t(
+                "space.joinSpaceDesc",
+                "Join using an invite code, invite file, or QR code from someone you trust",
+              )}
             </p>
           </div>
           <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
@@ -272,29 +306,52 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       setErrorMsg(t("space.invalidInviteCode", "Invalid invite code"));
       return;
     }
-    setJoinStatus("connecting");
-    acceptInvite({
-      invite,
-      callbacks: {
-        onConnected: () => {},
-        onComplete: (_peer, name) => {
-          if (name) setSpaceName(name);
-          setJoinStatus("done");
-          queryClient.invalidateQueries({ queryKey: ["spaces"] });
-          queryClient.invalidateQueries({ queryKey: ["pages"] });
-        },
-        onError: (msg) => {
-          setJoinStatus("error");
-          setErrorMsg(msg);
-        },
-      },
-    });
+    runJoin(invite);
+  }
+
+  async function handleInviteFile(file: File) {
+    setIsDraggingFile(false);
+    setInviteFileName(file.name);
+    try {
+      const invite = decodeInvite(await file.text());
+      if (!invite) {
+        setJoinStatus("error");
+        setErrorMsg(t("space.invalidInviteCode", "Invalid invite code"));
+        return;
+      }
+      runJoin(invite);
+    } catch {
+      setJoinStatus("error");
+      setErrorMsg(t("import.failed", "Import failed"));
+    }
+  }
+
+  function handleFileDrag(event: React.DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setIsDraggingFile(true);
+  }
+
+  function handleFileDragLeave(event: React.DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+      return;
+    }
+    setIsDraggingFile(false);
+  }
+
+  function handleFileDrop(event: React.DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    setIsDraggingFile(false);
+    const file = event.dataTransfer.files[0];
+    if (file) void handleInviteFile(file);
   }
 
   const joinInputView = (
     <div className="flex flex-col gap-4">
       {/* Tab switcher */}
-      <div className="flex rounded-lg bg-muted p-1 gap-1">
+      <div className="grid grid-cols-3 rounded-lg bg-muted p-1 gap-1">
         <button
           type="button"
           onClick={() => setJoinTab("code")}
@@ -306,6 +363,18 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
         >
           <Link2 className="h-3.5 w-3.5" />
           {t("share.inviteCode", "Invite Code")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setJoinTab("file")}
+          className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all ${
+            joinTab === "file"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Upload className="h-3.5 w-3.5" />
+          {t("onboarding.importFile", "Import file")}
         </button>
         <button
           type="button"
@@ -354,6 +423,50 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
         </Form>
       )}
 
+      {/* Invite file tab */}
+      {joinTab === "file" && (
+        <div className="flex flex-col gap-4">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            onDragEnter={handleFileDrag}
+            onDragOver={handleFileDrag}
+            onDragLeave={handleFileDragLeave}
+            onDrop={handleFileDrop}
+            className={`flex min-h-32 w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 transition-colors ${
+              isDraggingFile
+                ? "border-primary bg-primary/5 text-primary"
+                : "border-border text-muted-foreground hover:border-primary/40 hover:bg-primary/5"
+            }`}
+          >
+            <Upload className="h-6 w-6" />
+            <span className="text-sm font-medium text-foreground">
+              {isDraggingFile
+                ? t("import.dropFile", "Drop file here")
+                : inviteFileName ||
+                  t("onboarding.chooseInviteFile", "Choose an invite file")}
+            </span>
+            <span className="text-xs">
+              {t(
+                "onboarding.tasferInviteHint",
+                "A .tasferinvite file from your peer",
+              )}
+            </span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".tasferinvite,text/plain,application/json"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void handleInviteFile(file);
+              event.target.value = "";
+            }}
+            hidden
+          />
+        </div>
+      )}
+
       {/* QR Scanner tab */}
       {joinTab === "scan" && (
         <QRScannerView
@@ -365,7 +478,11 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   );
 
   function handleCancelJoin() {
-    cancelPairing();
+    const invite = activeInviteRef.current;
+    if (invite) {
+      activeInviteRef.current = null;
+      cancelPairing(invite);
+    }
     setJoinStatus("input");
     setSpaceName("");
   }

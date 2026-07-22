@@ -181,18 +181,42 @@ export function useGetSpaceMembers(spaceId?: string) {
 
 // --- Pairing-based invite ---
 
-export async function createInvite(spaceId: string): Promise<SpaceInvite> {
+export async function getSpace(spaceId: string): Promise<ISpace> {
   const platform = getPlatform();
-  return platform.pairing.createInvite(spaceId);
+  const space = await platform.spaces.get(spaceId);
+  return { id: space.id, name: space.name, createdAt: space.createdAt };
+}
+
+export async function createInvite(data: {
+  spaceId: string;
+  ttlMs: number;
+}): Promise<SpaceInvite> {
+  const platform = getPlatform();
+  return platform.pairing.createInvite(data.spaceId, data.ttlMs);
 }
 
 export function useCreateInvite<TContext = unknown>(
-  options?: UseMutationOptions<SpaceInvite, Error, string, TContext>,
+  options?: UseMutationOptions<
+    SpaceInvite,
+    Error,
+    { spaceId: string; ttlMs: number },
+    TContext
+  >,
 ) {
   return useMutation({
     mutationFn: createInvite,
     ...options,
   });
+}
+
+export async function getInvite(spaceId: string): Promise<SpaceInvite | null> {
+  const platform = getPlatform();
+  return platform.pairing.getInvite(spaceId);
+}
+
+export async function revokeInvite(spaceId: string): Promise<void> {
+  const platform = getPlatform();
+  await platform.pairing.revokeInvite(spaceId);
 }
 
 export async function acceptInvite(
@@ -229,9 +253,9 @@ export function useWaitForPeer<TContext = unknown>(
   });
 }
 
-export async function cancelPairing(): Promise<void> {
+export async function cancelPairing(invite: SpaceInvite): Promise<void> {
   const platform = getPlatform();
-  await platform.pairing.cancel();
+  await platform.pairing.cancel(invite);
 }
 
 // Legacy stubs — no longer used but kept for compile compat

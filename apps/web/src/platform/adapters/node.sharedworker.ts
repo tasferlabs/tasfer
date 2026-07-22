@@ -61,6 +61,7 @@ const ready: Promise<void> = (async () => {
   console.log("[node] init: engine ready");
   replicator
     .start()
+    .then(() => engine.resumePendingInvites())
     .catch((e) => console.error("[node] replicator start failed:", e));
 })();
 

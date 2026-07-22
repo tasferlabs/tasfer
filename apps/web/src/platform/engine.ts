@@ -65,7 +65,8 @@ interface EngineReplicator {
     privateKey: string;
     callbacks: PairCallbacks;
   }): Promise<void>;
-  cancelPairing(): Promise<void>;
+  cancelPairing(secret?: string): Promise<void>;
+  isPairingActive(secret: string): boolean;
 }
 
 // =============================================================================
@@ -100,6 +101,13 @@ const SCHEMA_SQL = `
     name        TEXT NOT NULL DEFAULT '',
     archived_at TEXT,
     created_at  TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS invites (
+    secret     TEXT PRIMARY KEY,
+    space_id   TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS space_members (
@@ -680,6 +688,8 @@ export class Engine implements Platform {
         "UPDATE spaces SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
         [now, id],
       );
+      // An archived space should not accept new members
+      await this.pairing.revokeInvite(id);
       this.notifySpaceChange(id);
     },
 
@@ -736,136 +746,251 @@ export class Engine implements Platform {
   // ---------------------------------------------------------------------------
 
   pairing = {
-    createInvite: async (spaceId: string): Promise<SpaceInvite> => {
+    createInvite: async (
+      spaceId: string,
+      ttlMs: number,
+    ): Promise<SpaceInvite> => {
+      // One pending invite per space — replacing revokes the previous one
+      await this.pairing.revokeInvite(spaceId);
+
       const secretBytes = new Uint8Array(32);
       crypto.getRandomValues(secretBytes);
       const secret = bytesToHex(secretBytes);
+      const expiresAt = Date.now() + ttlMs;
 
-      return { secret, spaceId };
+      await this.driver.db.mutate(
+        "INSERT INTO invites (secret, space_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+        [secret, spaceId, new Date().toISOString(), expiresAt],
+      );
+      const invite = { secret, spaceId, expiresAt };
+      try {
+        await this.listenForInvite(invite);
+      } catch (e) {
+        // Offline is fine — the invite stays valid; waitForPeer and startup
+        // resume re-arm listening.
+        console.warn("[Engine] invite created but listening failed:", e);
+      }
+      return invite;
+    },
+
+    getInvite: async (spaceId: string): Promise<SpaceInvite | null> => {
+      const [row] = await this.driver.db.query<{
+        secret: string;
+        expires_at: number;
+      }>("SELECT secret, expires_at FROM invites WHERE space_id = ?", [
+        spaceId,
+      ]);
+      if (!row) return null;
+      if (row.expires_at <= Date.now()) {
+        await this.pairing.revokeInvite(spaceId);
+        return null;
+      }
+      return { secret: row.secret, spaceId, expiresAt: row.expires_at };
+    },
+
+    revokeInvite: async (spaceId: string): Promise<void> => {
+      const rows = await this.driver.db.query<{ secret: string }>(
+        "SELECT secret FROM invites WHERE space_id = ?",
+        [spaceId],
+      );
+      await this.driver.db.mutate("DELETE FROM invites WHERE space_id = ?", [
+        spaceId,
+      ]);
+      for (const row of rows) {
+        this.inviteObservers.delete(row.secret);
+        await this.replicator?.cancelPairing(row.secret);
+      }
     },
 
     waitForPeer: async (
       invite: SpaceInvite,
       callbacks?: PairCallbacks,
     ): Promise<void> => {
-      invariant(this.replicator, "Replicator not initialized");
-      const identity = await this.identity.get();
-      const privateKey = await this.getPrivateKey();
-      const space = await this.spaces.get(invite.spaceId);
-
-      await this.replicator.startPairing({
-        invite,
-        role: "initiator",
-        spaceName: space.name,
-        localPublicKey: identity.publicKey,
-        localName: identity.name,
-        privateKey,
-        callbacks: {
-          multi: callbacks?.multi,
-          onConnected: callbacks?.onConnected,
-          onPeerIdentity: callbacks?.onPeerIdentity,
-          onComplete: async (peer) => {
-            // Derive shared signaling key from pairing secret + both public keys
-            const sharedKey = await deriveSharedSignalingKey(
-              invite.secret,
-              identity.publicKey,
-              peer.publicKey,
-            );
-            await this.peers.trust(peer.publicKey, peer.name, sharedKey);
-            // Insert member into DB first so recomputeSharedSpaces (triggered
-            // by emitSpaceOp -> addPeer) can find this peer in the space.
-            await this.driver.db.mutate(
-              `INSERT INTO space_members (space_id, public_key, name, added_at)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
-              [
-                invite.spaceId,
-                peer.publicKey,
-                peer.name,
-                new Date().toISOString(),
-                peer.name,
-              ],
-            );
-            await this.emitSpaceOp(invite.spaceId, {
-              op: "member_add",
-              publicKey: peer.publicKey,
-              name: peer.name,
-            });
-            this.notifySpaceChange(invite.spaceId);
-            callbacks?.onComplete?.(peer);
-          },
-          onError: callbacks?.onError,
-        },
-      });
+      if (callbacks) this.inviteObservers.set(invite.secret, callbacks);
+      await this.listenForInvite(invite);
     },
 
     acceptInvite: async (
       invite: SpaceInvite,
       callbacks?: PairCallbacks,
-    ): Promise<void> => {
-      invariant(this.replicator, "Replicator not initialized");
-      const identity = await this.identity.get();
-      const privateKey = await this.getPrivateKey();
+    ): Promise<void> => this._acceptInvite(invite, callbacks),
 
-      await this.replicator.startPairing({
-        invite,
-        role: "acceptor",
-        localPublicKey: identity.publicKey,
-        localName: identity.name,
-        privateKey,
-        callbacks: {
-          onConnected: callbacks?.onConnected,
-          onPeerIdentity: callbacks?.onPeerIdentity,
-          onComplete: async (peer, spaceName) => {
-            // Derive shared signaling key from pairing secret + both public keys
-            const sharedKey = await deriveSharedSignalingKey(
-              invite.secret,
-              identity.publicKey,
-              peer.publicKey,
-            );
-            await this.peers.trust(peer.publicKey, peer.name, sharedKey);
-
-            // Create the space locally from invite metadata
-            const now = new Date().toISOString();
-            await this.driver.db.mutate(
-              `INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET archived_at = NULL`,
-              [invite.spaceId, spaceName ?? "", now],
-            );
-            // Add self as member
-            await this.driver.db.mutate(
-              `INSERT INTO space_members (space_id, public_key, name, added_at)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
-              [
-                invite.spaceId,
-                identity.publicKey,
-                identity.name,
-                now,
-                identity.name,
-              ],
-            );
-            // Add the initiator as member (so hello exchange can identify shared spaces)
-            await this.driver.db.mutate(
-              `INSERT INTO space_members (space_id, public_key, name, added_at)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
-              [invite.spaceId, peer.publicKey, peer.name, now, peer.name],
-            );
-
-            // Replicator.addPeer is called automatically after pairing completes
-            this.notifySpaceChange(invite.spaceId);
-            callbacks?.onComplete?.(peer, spaceName);
-          },
-          onError: callbacks?.onError,
-        },
-      });
-    },
-
-    cancel: async (): Promise<void> => {
-      if (this.replicator) await this.replicator.cancelPairing();
+    cancel: async (invite: SpaceInvite): Promise<void> => {
+      this.inviteObservers.delete(invite.secret);
+      if (this.replicator) await this.replicator.cancelPairing(invite.secret);
     },
   };
+
+  /**
+   * UI callbacks attached to a listening invite (latest attach wins).
+   * Sessions are engine-owned and outlive any dialog; observers only add
+   * feedback, looked up at fire time so a dead tab's callbacks are skipped.
+   */
+  private inviteObservers = new Map<string, PairCallbacks>();
+
+  /** In-flight session starts, so concurrent callers share one attempt. */
+  private inviteListens = new Map<string, Promise<void>>();
+
+  /**
+   * Ensure a pairing session is listening for acceptors of this invite
+   * (inviter side). Idempotent; runs multi-peer until the invite expires or
+   * is revoked.
+   */
+  private listenForInvite = async (invite: SpaceInvite): Promise<void> => {
+    if (this.replicator?.isPairingActive(invite.secret)) return;
+    const pending = this.inviteListens.get(invite.secret);
+    if (pending) return pending;
+    const listen = this.startInviteSession(invite).finally(() => {
+      this.inviteListens.delete(invite.secret);
+    });
+    this.inviteListens.set(invite.secret, listen);
+    return listen;
+  };
+
+  private startInviteSession = async (invite: SpaceInvite): Promise<void> => {
+    invariant(this.replicator, "Replicator not initialized");
+    const identity = await this.identity.get();
+    const privateKey = await this.getPrivateKey();
+    const space = await this.spaces.get(invite.spaceId);
+    const observer = () => this.inviteObservers.get(invite.secret);
+
+    await this.replicator.startPairing({
+      invite,
+      role: "initiator",
+      spaceName: space.name,
+      localPublicKey: identity.publicKey,
+      localName: identity.name,
+      privateKey,
+      callbacks: {
+        onConnected: () => observer()?.onConnected?.(),
+        onPeerIdentity: (peer) => observer()?.onPeerIdentity?.(peer),
+        onComplete: async (peer) => {
+          // Derive shared signaling key from pairing secret + both public keys
+          const sharedKey = await deriveSharedSignalingKey(
+            invite.secret,
+            identity.publicKey,
+            peer.publicKey,
+          );
+          await this.peers.trust(peer.publicKey, peer.name, sharedKey);
+          // Insert member into DB first so recomputeSharedSpaces (triggered
+          // by emitSpaceOp -> addPeer) can find this peer in the space.
+          await this.driver.db.mutate(
+            `INSERT INTO space_members (space_id, public_key, name, added_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
+            [
+              invite.spaceId,
+              peer.publicKey,
+              peer.name,
+              new Date().toISOString(),
+              peer.name,
+            ],
+          );
+          await this.emitSpaceOp(invite.spaceId, {
+            op: "member_add",
+            publicKey: peer.publicKey,
+            name: peer.name,
+          });
+          this.notifySpaceChange(invite.spaceId);
+          observer()?.onComplete?.(peer);
+        },
+        onError: (error) => observer()?.onError?.(error),
+      },
+    });
+  };
+
+  private _acceptInvite = async (
+    invite: SpaceInvite,
+    callbacks?: PairCallbacks,
+  ): Promise<void> => {
+    invariant(this.replicator, "Replicator not initialized");
+    const identity = await this.identity.get();
+    const privateKey = await this.getPrivateKey();
+
+    await this.replicator.startPairing({
+      invite,
+      role: "acceptor",
+      localPublicKey: identity.publicKey,
+      localName: identity.name,
+      privateKey,
+      callbacks: {
+        onConnected: callbacks?.onConnected,
+        onPeerIdentity: callbacks?.onPeerIdentity,
+        onComplete: async (peer, spaceName) => {
+          // Derive shared signaling key from pairing secret + both public keys
+          const sharedKey = await deriveSharedSignalingKey(
+            invite.secret,
+            identity.publicKey,
+            peer.publicKey,
+          );
+          await this.peers.trust(peer.publicKey, peer.name, sharedKey);
+
+          // Create the space locally from invite metadata
+          const now = new Date().toISOString();
+          await this.driver.db.mutate(
+            `INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET archived_at = NULL`,
+            [invite.spaceId, spaceName ?? "", now],
+          );
+          // Add self as member
+          await this.driver.db.mutate(
+            `INSERT INTO space_members (space_id, public_key, name, added_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
+            [
+              invite.spaceId,
+              identity.publicKey,
+              identity.name,
+              now,
+              identity.name,
+            ],
+          );
+          // Add the initiator as member (so hello exchange can identify shared spaces)
+          await this.driver.db.mutate(
+            `INSERT INTO space_members (space_id, public_key, name, added_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
+            [invite.spaceId, peer.publicKey, peer.name, now, peer.name],
+          );
+
+          // Replicator.addPeer is called automatically after pairing completes
+          this.notifySpaceChange(invite.spaceId);
+          callbacks?.onComplete?.(peer, spaceName);
+        },
+        onError: callbacks?.onError,
+      },
+    });
+  };
+
+  /** Re-listen for persisted invites after startup; drops expired ones. */
+  async resumePendingInvites(): Promise<void> {
+    const rows = await this.driver.db.query<{
+      secret: string;
+      space_id: string;
+      expires_at: number;
+    }>("SELECT secret, space_id, expires_at FROM invites");
+
+    for (const row of rows) {
+      if (row.expires_at <= Date.now()) {
+        await this.driver.db.mutate("DELETE FROM invites WHERE secret = ?", [
+          row.secret,
+        ]);
+        continue;
+      }
+      try {
+        await this.listenForInvite({
+          secret: row.secret,
+          spaceId: row.space_id,
+          expiresAt: row.expires_at,
+        });
+      } catch (e) {
+        console.warn(
+          `[Engine] failed to resume invite for space ${row.space_id}:`,
+          e,
+        );
+      }
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Pages

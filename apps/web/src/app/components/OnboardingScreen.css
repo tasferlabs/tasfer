@@ -461,14 +461,16 @@
   font: inherit;
   transition: border-color var(--ob-dur-fast), background var(--ob-dur-fast);
 }
-.ob-import:hover {
+.ob-import:hover,
+.ob-import.is-dragging {
   border-color: var(--primary);
   background: oklch(from var(--primary) l c h / 0.04);
 }
 .ob-import svg {
   color: var(--muted-foreground);
 }
-.ob-import:hover svg {
+.ob-import:hover svg,
+.ob-import.is-dragging svg {
   color: var(--primary);
 }
 .ob-import-title {

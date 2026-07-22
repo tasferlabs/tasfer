@@ -42,7 +42,8 @@ import {
   useCreateSpace,
 } from "../api/spaces.api";
 import { useAuth } from "../contexts/AuthContext";
-import { decodeInvite } from "../inviteCode";
+import { decodeInvite, isInviteExpired } from "../inviteCode";
+import type { SpaceInvite } from "@/platform/types";
 import { AvatarCropDialog } from "./AvatarCropDialog";
 import "./OnboardingScreen.css";
 import { QRScannerView } from "./QRScannerView";
@@ -582,6 +583,7 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
   const [method, setMethod] = useState<JoinMethod>("code");
   const [code, setCode] = useState("");
   const [fileName, setFileName] = useState("");
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [status, setStatus] = useState<JoinStatus>("input");
   const [camera, setCamera] = useState(false);
   const [spaceName, setSpaceName] = useState("");
@@ -589,6 +591,9 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { mutate: acceptInvite } = useAcceptInvite();
+
+  /** Invite currently being accepted — cancel target */
+  const activeInviteRef = useRef<SpaceInvite | null>(null);
 
   const canJoin =
     (method === "code" && code.trim().length > 0) ||
@@ -601,7 +606,15 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
       setErrorMsg(t("space.invalidInviteCode", "Invalid invite code"));
       return;
     }
+    if (isInviteExpired(invite)) {
+      setStatus("error");
+      setErrorMsg(
+        t("space.inviteExpired", "This invite has expired. Ask for a new one."),
+      );
+      return;
+    }
     setStatus("connecting");
+    activeInviteRef.current = invite;
     acceptInvite({
       invite,
       callbacks: {
@@ -621,6 +634,7 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
   }
 
   async function handleFile(file: File) {
+    setIsDraggingFile(false);
     setFileName(file.name);
     try {
       const text = await file.text();
@@ -632,13 +646,43 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
     }
   }
 
+  function handleFileDrag(event: React.DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setIsDraggingFile(true);
+  }
+
+  function handleFileDragLeave(event: React.DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+      return;
+    }
+    setIsDraggingFile(false);
+  }
+
+  function handleFileDrop(event: React.DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    setIsDraggingFile(false);
+    const file = event.dataTransfer.files[0];
+    if (file) void handleFile(file);
+  }
+
   function handleScan(data: string) {
     setCamera(false);
     runJoin(data);
   }
 
+  function cancelActiveJoin() {
+    const invite = activeInviteRef.current;
+    if (invite) {
+      activeInviteRef.current = null;
+      cancelPairing(invite);
+    }
+  }
+
   function handleCancel() {
-    cancelPairing();
+    cancelActiveJoin();
     setStatus("input");
     setSpaceName("");
     setErrorMsg("");
@@ -646,7 +690,7 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
 
   useEffect(() => {
     return () => {
-      cancelPairing();
+      cancelActiveJoin();
     };
   }, []);
 
@@ -768,7 +812,13 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
       {method === "file" && (
         <>
           <button
-            className={`ob-import${fileName ? " has-file" : ""}`}
+            className={`ob-import${fileName ? " has-file" : ""}${
+              isDraggingFile ? " is-dragging" : ""
+            }`}
+            onDragEnter={handleFileDrag}
+            onDragOver={handleFileDrag}
+            onDragLeave={handleFileDragLeave}
+            onDrop={handleFileDrop}
             onClick={() => {
               if (fileName) {
                 setFileName("");
@@ -780,8 +830,10 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
           >
             <Upload size={22} strokeWidth={1.5} />
             <span className="ob-import-title">
-              {fileName ||
-                t("onboarding.chooseInviteFile", "Choose an invite file")}
+              {isDraggingFile
+                ? t("import.dropFile", "Drop file here")
+                : fileName ||
+                  t("onboarding.chooseInviteFile", "Choose an invite file")}
             </span>
             <span className="ob-import-sub">
               {fileName

@@ -206,10 +206,13 @@ async function _initPlatformInner(): Promise<Platform> {
   }
 
   // Start the replicator in the background — do not block app render on network I/O
-  replicator.start().catch((e) => {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error(`[Sync] Replicator failed to start: ${msg}`);
-  });
+  replicator
+    .start()
+    .then(() => engine.resumePendingInvites())
+    .catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[Sync] Replicator failed to start: ${msg}`);
+    });
 
   // Make sync lifecycle-aware: pause/flush on app background, reconnect on
   // foreground. Native (iOS/Android) drives this via window.__tasferLifecycle;

@@ -203,6 +203,8 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
   },
   pairing: {
     createInvite: { kind: "request" },
+    getInvite: { kind: "request" },
+    revokeInvite: { kind: "request" },
     waitForPeer: { kind: "callbackMethod", cbArg: 1 },
     acceptInvite: { kind: "callbackMethod", cbArg: 1 },
     cancel: { kind: "request" },

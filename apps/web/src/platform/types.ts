@@ -340,6 +340,12 @@ export interface SpaceInvite {
   secret: string;
   /** Space to join after pairing */
   spaceId: string;
+  /**
+   * Expiry (unix ms). Carried inside the invite code so the acceptor can
+   * reject a stale invite offline; the inviter stops listening and drops the
+   * persisted invite at this time.
+   */
+  expiresAt: number;
 }
 
 /** Pairing lifecycle callbacks */
@@ -348,8 +354,6 @@ export interface PairCallbacks {
   onPeerIdentity?: (peer: { publicKey: string; name: string }) => void;
   onComplete?: (peer: Peer, spaceName?: string) => void | Promise<void>;
   onError?: (error: string) => void;
-  /** Multi-peer mode: allow multiple peers to join before explicitly stopping */
-  multi?: boolean;
 }
 
 // =============================================================================
@@ -508,14 +512,25 @@ export interface Platform {
   // ---------------------------------------------------------------------------
 
   pairing: {
-    /** Create an invite for a space (generates one-time topic + secret) */
-    createInvite(spaceId: string): Promise<SpaceInvite>;
-    /** Wait for a peer to accept the invite (inviter side) */
+    /**
+     * Create (and persist) the invite for a space, replacing any previous
+     * one. The engine listens for acceptors until the invite expires or is
+     * revoked — surviving dialog close and app restarts.
+     */
+    createInvite(spaceId: string, ttlMs: number): Promise<SpaceInvite>;
+    /** The space's pending (unexpired) invite, if any */
+    getInvite(spaceId: string): Promise<SpaceInvite | null>;
+    /** Revoke the space's pending invite and stop listening for it */
+    revokeInvite(spaceId: string): Promise<void>;
+    /**
+     * Attach UI callbacks to the invite's listening session (inviter side),
+     * starting it if not already open (e.g. ephemeral QR invites).
+     */
     waitForPeer(invite: SpaceInvite, callbacks?: PairCallbacks): Promise<void>;
     /** Accept a pairing invite (acceptor side) */
     acceptInvite(invite: SpaceInvite, callbacks?: PairCallbacks): Promise<void>;
-    /** Cancel an active pairing session */
-    cancel(): Promise<void>;
+    /** Cancel the pairing session for an invite (acceptor side) */
+    cancel(invite: SpaceInvite): Promise<void>;
   };
 
   // ---------------------------------------------------------------------------

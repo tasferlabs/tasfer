@@ -318,7 +318,7 @@ interface RoomState {
   peerOrigin: Map<string, string>;
 }
 
-/** Holds all state for an in-progress device-pairing flow. A pairing session is created when the user generates or scans an invite code and is torn down once both sides have exchanged proofs and stored each other as trusted peers. */
+/** Holds all state for an in-progress device-pairing flow. Initiator sessions listen until the invite expires or is revoked (surviving dialog close); an acceptor session is torn down once both sides have exchanged proofs and stored each other as trusted peers. */
 interface PairingSession {
   topicHex: string;
   topic: NetworkTopic;
@@ -331,10 +331,12 @@ interface PairingSession {
   privateKey: string;
   callbacks: PairCallbacks;
   completed: boolean;
-  /** Multi-peer mode: don't destroy topic after first peer */
+  /** Multi-peer (initiator): don't destroy topic after first peer */
   multi: boolean;
   /** Track peers that already completed pairing (by public key) */
   completedPeers: Set<string>;
+  /** Tears the session down when the invite expires */
+  expiryTimer: ReturnType<typeof setTimeout> | null;
 }
 
 // =============================================================================
@@ -414,8 +416,8 @@ export class Replicator {
   /** Open document rooms, keyed by pageId */
   private rooms = new Map<string, RoomState>();
 
-  /** Active pairing session */
-  private pairingSession: PairingSession | null = null;
+  /** Active pairing sessions, keyed by invite secret */
+  private pairingSessions = new Map<string, PairingSession>();
 
   /** Pending asset requests: hash → resolve callbacks waiting for the data */
   private pendingAssetRequests = new Map<
@@ -891,7 +893,13 @@ export class Replicator {
     privateKey: string;
     callbacks: PairCallbacks;
   }): Promise<void> {
-    if (this.pairingSession) await this.cancelPairing();
+    // Starting again for the same invite (e.g. an acceptor retry) replaces its session
+    await this.cancelPairing(opts.invite.secret);
+
+    if (Date.now() >= opts.invite.expiresAt) {
+      opts.callbacks.onError?.("Invite expired");
+      return;
+    }
 
     const topicHex = await deriveInviteTopic(opts.invite.secret);
 
@@ -901,7 +909,7 @@ export class Replicator {
 
     const topic = await this.network.join(hexToBytes(topicHex));
 
-    this.pairingSession = {
+    const session: PairingSession = {
       topicHex,
       topic,
       invite: opts.invite,
@@ -912,11 +920,12 @@ export class Replicator {
       privateKey: opts.privateKey,
       callbacks: opts.callbacks,
       completed: false,
-      multi: opts.callbacks.multi ?? false,
+      multi: opts.role === "initiator",
       completedPeers: new Set(),
+      expiryTimer: null,
     };
-
-    const session = this.pairingSession;
+    this.pairingSessions.set(opts.invite.secret, session);
+    this.armPairingExpiry(session);
 
     const handlePeer = (peer: NetworkPeer) => {
       if (session.completed) return;
@@ -926,7 +935,7 @@ export class Replicator {
         const msg = decode(data);
         if (!msg || session.completed) return;
         if (msg.type === "pair-hello" || msg.type === "pair-ack") {
-          await this.handlePairingMessage(peer, msg);
+          await this.handlePairingMessage(peer, msg, session);
         }
       });
 
@@ -937,11 +946,41 @@ export class Replicator {
     for (const peer of topic.getPeers()) handlePeer(peer);
   }
 
-  async cancelPairing(): Promise<void> {
-    if (!this.pairingSession) return;
-    this.network.unregisterTopicKey(this.pairingSession.topicHex);
-    await this.pairingSession.topic.destroy();
-    this.pairingSession = null;
+  /** Whether a pairing session is currently open for this invite secret. */
+  isPairingActive(secret: string): boolean {
+    return this.pairingSessions.has(secret);
+  }
+
+  /** Cancel the pairing session for one invite secret, or all of them. */
+  async cancelPairing(secret?: string): Promise<void> {
+    const sessions =
+      secret !== undefined
+        ? [this.pairingSessions.get(secret)]
+        : [...this.pairingSessions.values()];
+    for (const session of sessions) {
+      if (session) await this.teardownPairingSession(session);
+    }
+  }
+
+  private async teardownPairingSession(session: PairingSession): Promise<void> {
+    if (session.expiryTimer) clearTimeout(session.expiryTimer);
+    session.expiryTimer = null;
+    this.pairingSessions.delete(session.invite.secret);
+    this.network.unregisterTopicKey(session.topicHex);
+    await session.topic.destroy();
+  }
+
+  /** setTimeout is capped at 2^31-1 ms, so re-arm until expiry is reachable. */
+  private armPairingExpiry(session: PairingSession): void {
+    const delay = session.invite.expiresAt - Date.now();
+    if (delay <= 0) {
+      void this.teardownPairingSession(session);
+      return;
+    }
+    session.expiryTimer = setTimeout(
+      () => this.armPairingExpiry(session),
+      Math.min(delay, 0x7fffffff),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1608,9 +1647,15 @@ export class Replicator {
   private async handlePairingMessage(
     peer: NetworkPeer,
     msg: PairHelloMsg | PairAckMsg,
+    session: PairingSession,
   ): Promise<void> {
-    const session = this.pairingSession;
-    if (!session || session.completed) return;
+    if (session.completed) return;
+
+    // Backstop for the expiry timer: never complete a pairing past expiry
+    if (Date.now() >= session.invite.expiresAt) {
+      await this.teardownPairingSession(session);
+      return;
+    }
 
     // Skip if we already paired with this peer (multi-peer mode)
     if (session.completedPeers.has(msg.publicKey)) return;
@@ -1666,12 +1711,10 @@ export class Replicator {
     // Establish replication connection to the new peer
     await this.addPeer(msg.publicKey);
 
-    // In single-peer mode, clean up immediately
+    // In single-peer mode (acceptor), clean up immediately
     if (!session.multi) {
       session.completed = true;
-      this.network.unregisterTopicKey(session.topicHex);
-      await session.topic.destroy();
-      this.pairingSession = null;
+      await this.teardownPairingSession(session);
     }
   }
 
