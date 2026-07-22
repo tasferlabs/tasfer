@@ -4,7 +4,7 @@
     "tasfer-home": {
       "development": { "fallback": "tasfer.app" }
     },
-    "tasfer": {
+    "tasfer-app": {
       "routing": [{ "paths": ["/app", "/app/:path*"] }]
     }
   }
