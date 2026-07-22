@@ -8,6 +8,8 @@ import {
 
 declare let self: ServiceWorkerGlobalScope;
 
+const appIndexUrl = new URL("index.html", self.registration.scope).href;
+
 // Register fetch event handler
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
@@ -54,7 +56,12 @@ self.addEventListener("install", (event) => {
 
       // Cache fresh index.html for offline fallback
       const cache = await caches.open("offline-fallback");
-      await cache.add(new Request("/index.html", { cache: "reload", credentials: "include" }));
+      await cache.add(
+        new Request(appIndexUrl, {
+          cache: "reload",
+          credentials: "include",
+        }),
+      );
 
       console.log("[SW] Install complete");
     })()
@@ -87,11 +94,11 @@ function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
 async function getOfflineIndexHtml(): Promise<Response> {
   // 1. Check our dedicated offline-fallback cache first
   const fallbackCache = await caches.open("offline-fallback");
-  const fallback = await fallbackCache.match("/index.html");
+  const fallback = await fallbackCache.match(appIndexUrl);
   if (fallback) return fallback;
 
   // 2. Try Workbox's precache
-  const precached = await matchPrecache("/index.html");
+  const precached = await matchPrecache(appIndexUrl);
   if (precached) return precached;
 
   // Last resort - styled fallback matching recovery UI
@@ -140,7 +147,7 @@ async function handleNavigation(request: Request): Promise<Response> {
     if (response.ok) {
       // Update the offline fallback cache with fresh index.html
       const cache = await caches.open("offline-fallback");
-      await cache.put("/index.html", response.clone());
+      await cache.put(appIndexUrl, response.clone());
     }
     // Non-OK responses (4xx, 5xx) still return so browser/recovery can handle
     return response;

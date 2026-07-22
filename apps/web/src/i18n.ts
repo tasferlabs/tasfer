@@ -28,7 +28,7 @@ i18next
     supportedLngs: ["en"],
     backend: {
       loadPath: import.meta.env.BASE_URL.startsWith("/")
-        ? `${import.meta.env.BASE_URL.replace(/\/$/, "")}/locales/{{lng}}/{{ns}}.json`
+        ? `${import.meta.env.BASE_URL.replace(/\/?$/, "/")}app/locales/{{lng}}/{{ns}}.json`
         : `${import.meta.env.BASE_URL}app/locales/{{lng}}/{{ns}}.json`,
     },
     fallbackNS: "translation",

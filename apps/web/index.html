@@ -18,7 +18,8 @@
       var isDark=t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme:dark)").matches);
       if(isDark){
         document.documentElement.classList.add("dark");
-        document.getElementById("favicon").setAttribute("href","/favicon-dark.svg");
+        var favicon=document.getElementById("favicon");
+        favicon.setAttribute("href",favicon.href.replace("favicon-light.svg","favicon-dark.svg"));
       }
     })()
   </script>
