@@ -8,6 +8,11 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { microfrontends } from "@vercel/microfrontends/experimental/vite";
 
+// The microfrontends config lives in the default app (apps/site) and there is
+// no root workspace for the plugin to infer it from; point it there explicitly
+// (path resolves against this package root).
+process.env.VC_MICROFRONTENDS_CONFIG ??= "../site/microfrontends.json";
+
 const buildTimestamp = DateTime.utc().toFormat("yyyyMMddHHmm");
 
 // Short commit the build was cut from, with a `-dirty` suffix when the working
