@@ -71,6 +71,8 @@
   "docs.hub.foot.editorDocs": "SDK roadmap",
   "docs.hub.foot.editor": "editor",
   "docs.hub.foot.source": "source",
+  "download.metadata.title": "Download",
+  "download.metadata.description": "Download Tasfer for macOS, Windows, or Linux — or open it in your browser. No account, no telemetry; your notes stay on your own disk.",
   "download.titleA": "Your machine.",
   "download.titleEm": "Your copy.",
   "download.lede": "No account. No telemetry. Download the binary, verify it if you like, and everything you write stays on the disk it was written to.",

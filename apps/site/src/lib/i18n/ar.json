@@ -63,6 +63,8 @@
   "docs.hub.foot.editorDocs": "خارطة طريق الحزمة",
   "docs.hub.foot.editor": "المحرّر",
   "docs.hub.foot.source": "المصدر",
+  "download.metadata.title": "تنزيل",
+  "download.metadata.description": "نزّل تصفير لنظام macOS أو Windows أو Linux، أو افتحه في متصفحك. بلا حساب ولا تتبّع؛ وتبقى ملاحظاتك على قرصك أنت.",
   "download.titleA": "جهازك.",
   "download.titleEm": "نسختك.",
   "download.lede": "لا حساب. ولا تتبُّع. نزّل الملف، وتحقّق منه إن شئت، وكل ما تكتبه يبقى على القرص الذي كُتب عليه.",
