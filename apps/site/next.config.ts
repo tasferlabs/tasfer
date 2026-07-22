@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
+import { withMicrofrontends } from "@vercel/microfrontends/next/config";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -47,4 +48,4 @@ const withMDX = createMDX({
   },
 });
 
-export default withMDX(nextConfig);
+export default withMicrofrontends(withMDX(nextConfig));

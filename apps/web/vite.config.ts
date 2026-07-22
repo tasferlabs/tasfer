@@ -6,6 +6,7 @@ import { DateTime } from "luxon";
 import { join, resolve } from "path";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { microfrontends } from "@vercel/microfrontends/experimental/vite";
 
 const buildTimestamp = DateTime.utc().toFormat("yyyyMMddHHmm");
 
@@ -80,6 +81,7 @@ const versionConfig = JSON.parse(
 
 export default defineConfig({
   plugins: [
+    microfrontends(),
     tailwindcss(),
     react({
       // @tasfer/tex is aliased to source, which includes the generated ESM data
