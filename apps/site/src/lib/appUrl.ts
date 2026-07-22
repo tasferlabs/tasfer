@@ -7,6 +7,10 @@
 // https://tasfer.app is the prod default, localhost:4000 is the dev fallback.
 export const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ??
-  (process.env.NODE_ENV === "development" ? "http://localhost:4000" : "https://tasfer.app");
+  (process.env.NODE_ENV === "development"
+    ? "http://localhost:4000"
+    : "https://tasfer.app");
 
-export const APP_OPEN_URL = `${APP_URL}/page`;
+export const APP_OPEN_URL = !!process.env.VERCEL
+  ? `${APP_URL}/app/page`
+  : `${APP_URL}/page`;
