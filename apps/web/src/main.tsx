@@ -1,26 +1,25 @@
 // Markdown (place of truth) <-export/import-> Intermediate state + ephemeral state np -> DOM
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type ReactNode, Suspense, useState, useEffect } from "react";
+import i18next from "i18next";
+import { Direction } from "radix-ui";
+import { type ReactNode, Suspense, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
-import { Direction } from "radix-ui";
 import { registerSW } from "virtual:pwa-register";
-import { initPlatform } from "./platform";
+import { ToastProvider } from "./app/components/Toast";
 import { AuthProvider } from "./app/contexts/AuthContext";
 import { PopupQueueProvider } from "./app/contexts/PopupQueueContext";
-import { markVisit } from "./lib/appVisits";
-import { ToastProvider } from "./app/components/Toast";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
 import { router } from "./app/routes/Router";
-import { initNativeDevToolsSync } from "./lib/devTools";
-import { requestPersistentStorage } from "./lib/persistentStorage";
 import LoadingScreen from "./components/ui/loading-screen";
-import { MobileAppNudge } from "./app/components/MobileAppNudge/MobileAppNudge";
 import { loadFonts } from "./fonts";
 import "./i18n";
-import i18next from "i18next";
+import { markVisit } from "./lib/appVisits";
+import { initNativeDevToolsSync } from "./lib/devTools";
+import { requestPersistentStorage } from "./lib/persistentStorage";
+import { initPlatform } from "./platform";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
 
 // Set document direction and lang based on current language
@@ -140,7 +139,7 @@ const App = () => (
               <Suspense fallback={<LoadingScreen />}>
                 <PopupQueueProvider>
                   <RouterProvider router={router} />
-                  <MobileAppNudge />
+                  {/* <MobileAppNudge /> */}
                 </PopupQueueProvider>
               </Suspense>
             </VersionProvider>
