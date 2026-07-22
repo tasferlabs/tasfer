@@ -66,8 +66,11 @@ export default async function LocaleLayout({
   const { lang } = await params;
   if (!isLng(lang)) notFound();
 
+  // suppressHydrationWarning: the inline theme script sets `.dark` and
+  // color-scheme on <html> before hydration, so its attributes legitimately
+  // differ from the server render.
   return (
-    <html lang={lang} dir="ltr">
+    <html lang={lang} dir="ltr" suppressHydrationWarning>
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Providers lng={lang}>{children}</Providers>
