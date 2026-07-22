@@ -10,7 +10,8 @@ directly to HTML canvas and stores document state in a CRDT.
   keep state in instances, arguments, or scoped context.
 - The editor core must remain node- and mark-agnostic. So that users who use package can opt in what to use.
 - All user-facing strings must be i18n'd. Add translation keys with the UI text.
-- Keep public editor documentation accurate when changing a public API.
+- The editor SDK is not public yet. Internal package APIs may change with the
+  app and carry no external compatibility or documentation commitment.
 - Never do things with git with your intuitive, if unsure please consult me.
 - Stop wasting time on meaningless tests, there is no test for ux.
 - If you creating a worktree, put it in .worktrees
@@ -64,17 +65,12 @@ package or application directory.
 See [`docs/engineering-reference.md`](docs/engineering-reference.md) before
 making architectural, CRDT, persistence, or platform changes.
 
-## Public API documentation
+## Editor SDK status
 
-The editor API specification lives in:
-
-- `apps/site/src/views/DocsPage/pages/editor/api-editor.mdx`
-- `apps/site/src/views/DocsPage/pages/editor/api-commands.mdx`
-- `apps/site/src/views/DocsPage/pages/editor/api-schema.mdx`
-- `apps/site/src/views/DocsPage/pages/editor/custom-nodes.mdx`
-- `apps/site/src/views/DocsPage/pages/editor/collaboration.mdx`
-
-Update the relevant page whenever its public contract changes.
+The `packages/*` boundaries are internal product architecture. Their source is
+MIT-licensed, but the packages are unpublished and unsupported for external use
+while a public editor SDK remains on the roadmap. The public site should
+describe only that status, not an installation path or API contract.
 
 # Translation
 

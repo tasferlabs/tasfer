@@ -17,7 +17,7 @@
  * v1 scope: custom block types are LEAF, void nodes (no text content, no
  * nested blocks). They serialize through the generic `<x-type …>` HTML-tag
  * round-trip, so no tokenizer changes are needed. Text-bearing and
- * block-containing custom nodes are future steps — see docs/editor/custom-nodes.
+ * block-containing custom nodes are future steps.
  */
 
 import { getBaseDataSchema } from "./baseDataSchema";

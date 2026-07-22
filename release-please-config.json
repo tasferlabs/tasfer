@@ -5,32 +5,10 @@
   "bump-patch-for-minor-pre-major": true,
   "separate-pull-requests": false,
   "packages": {
-    "packages/tex": { "component": "tex" },
-    "packages/editor": { "component": "editor" },
-    "packages/provider-core": { "component": "provider-core" },
-    "packages/provider-indexeddb": { "component": "provider-indexeddb" },
-    "packages/provider-relay": { "component": "provider-relay" },
-    "packages/provider-webrtc": { "component": "provider-webrtc" },
-    "packages/react": { "component": "react" },
     "apps/desktop": {
       "component": "desktop",
       "include-component-in-tag": false,
       "draft": true
     }
-  },
-  "plugins": [
-    {
-      "type": "linked-versions",
-      "groupName": "tasfer packages",
-      "components": [
-        "tex",
-        "editor",
-        "provider-core",
-        "provider-indexeddb",
-        "provider-relay",
-        "provider-webrtc",
-        "react"
-      ]
-    }
-  ]
+  }
 }

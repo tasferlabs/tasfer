@@ -87,7 +87,7 @@ apps/
 ├── site/       # Marketing site + docs (Next.js)
 ├── ios/        # iOS (Capacitor)
 └── android/    # Android (Capacitor)
-packages/       # the @tasfer/* ecosystem — the product core, published for external consumers
+packages/       # MIT-licensed @tasfer/* modules — internal product architecture
 ├── editor/             # @tasfer/editor — headless canvas + CRDT editor engine
 ├── tex/                # @tasfer/tex — canvas-native LaTeX math layout & rendering
 ├── react/              # @tasfer/react — React 19 bindings (useEditor, <Editor>)
@@ -116,29 +116,25 @@ All user-facing strings must use i18next — never hardcode text in components.
 
 ## Releases
 
-Versioning is automated with [release-please](https://github.com/googleapis/release-please).
-Use [Conventional Commits](https://www.conventionalcommits.org/) for anything
-release-worthy — `fix:` bumps patch, `feat:` bumps minor, `feat!:`/`fix!:` bumps
-major. A commit only affects the packages whose directories it touches.
+Desktop versioning is automated with
+[release-please](https://github.com/googleapis/release-please). Use Conventional
+Commits for release-worthy changes: `fix:` bumps patch, `feat:` bumps minor, and
+`feat!:`/`fix!:` bumps major.
 
 How the cycle works:
 
-- release-please maintains a release PR on `main` that accumulates version bumps
-  and changelogs. The `packages/*` libraries are versioned in lockstep; the
-  desktop app (`apps/desktop`) is versioned independently and tagged `v<version>`.
-- Merging the release PR creates the tags and GitHub releases, then:
-  - the packages are built in dependency order and published to npm
-    (peer ranges between them are pinned at publish time), and
-  - the desktop app is built and signed for macOS/Windows/Linux into a draft
-    release, which is published once all platforms have uploaded.
+- release-please maintains a desktop release PR on `main` with version bumps and
+  changelog entries. The MIT-licensed `packages/*` modules are not published.
+- Merging the release PR creates the desktop tag and GitHub release. The app is
+  built and signed for macOS, Windows, and Linux into a draft release, which is
+  published once all platforms have uploaded.
 - `apps/live` deploys to Cloudflare on every push to `main` that touches it.
 - `apps/web` and `apps/site` deploy continuously via Vercel (two projects with
   root directories `apps/web` and `apps/site`; the web project needs "Include
   source files outside of the Root Directory" enabled).
 
-Dry runs: the **npm Publish** workflow can be dispatched with `dry_run`, and
-**Native Release** can be dispatched with `publish: false` to build without
-touching a release.
+The **Native Release** workflow can be dispatched with `publish: false` to build
+without publishing a release.
 
 ### App Store & Play (after a desktop release)
 

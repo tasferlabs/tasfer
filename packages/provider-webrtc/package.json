@@ -1,6 +1,7 @@
 {
   "name": "@tasfer/provider-webrtc",
   "version": "0.1.0",
+  "private": true,
   "description": "WebRTC transport for @tasfer/editor — direct peer-to-peer document sync after a small signaling step.",
   "type": "module",
   "license": "MIT",
@@ -8,10 +9,6 @@
     "type": "git",
     "url": "git+https://github.com/hamza512b/tasfer.git",
     "directory": "packages/provider-webrtc"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
   },
   "engines": {
     "node": ">=22"
@@ -46,6 +43,7 @@
     }
   },
   "scripts": {
+    "prepublishOnly": "node -e \"throw new Error('Publishing is disabled while the SDK is internal')\"",
     "build": "tsdown",
     "dev": "tsdown --watch"
   },

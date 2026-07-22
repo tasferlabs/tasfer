@@ -9,7 +9,6 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
-  <a href="#use-the-editor-in-your-own-app"><img src="https://img.shields.io/badge/editor%20engine-MIT-green.svg" alt="Editor engine: MIT"></a>
   <a href="#"><img src="https://img.shields.io/badge/platform-web%20%7C%20desktop%20%7C%20mobile-brightgreen.svg" alt="Platforms"></a>
   <a href="#contributing"><img src="https://img.shields.io/badge/PRs-welcome-orange.svg" alt="PRs Welcome"></a>
 </p>
@@ -31,7 +30,7 @@
 
 Tasfer is a markdown editor that renders directly on HTML5 Canvas — the editing feel of Google Docs with the block model of Notion. Everything runs locally on your device. Collaboration happens directly between peers over WebRTC; a stateless relay only helps them find each other. No central server, no accounts, no cloud dependency.
 
-The engine is a headless, framework-agnostic core (`@tasfer/editor`, MIT) that the app in this repo is one host for — you can embed it in your own app.
+The MIT-licensed editor engine is split into internal packages so its architecture can evolve independently from the app chrome. A supported public SDK is on the roadmap, but the packages are not published yet.
 
 ## Features
 
@@ -107,8 +106,8 @@ The engine lives in `packages/`; the runnable apps live in `apps/`.
 
 ```
 packages/
-├── editor/              Headless canvas editor engine — document model, CRDT, actions, schema (@tasfer/editor, MIT)
-├── react/               React 19 bindings — useEditor hook + <Editor> component (@tasfer/react, MIT)
+├── editor/              Internal canvas editor engine — document model, CRDT, actions, schema
+├── react/               Internal React 19 bindings — useEditor hook + <Editor> component
 ├── tex/                 Canvas-native LaTeX layout and rendering
 ├── provider-core/       Transport-agnostic sync protocol
 ├── provider-webrtc/     Direct peer-to-peer transport
@@ -140,17 +139,20 @@ shared/                  Shared TypeScript utilities (identity, invariants)
 
 **Identity** — Each device generates an Ed25519 keypair on first launch. Public keys serve as peer identities. Trust is established through one-time pairing invites with mutual signature verification.
 
-## Use the editor in your own app
+## Editor SDK roadmap
 
-The editor engine is not tied to Tasfer, the app. It ships as a standalone, **MIT-licensed** package — `@tasfer/editor` for the framework-agnostic core, `@tasfer/react` for React 19 bindings — so you can drop a canvas-native, CRDT-backed editor into your own product and bring your own nodes, marks, theme, and providers.
-
-Start with the [editor documentation](https://www.tasfer.app/docs/editor/install): installation, your first editor, custom nodes, theming, collaboration, and the full API reference.
+The `@tasfer/*` editor packages are **MIT-licensed source**. A supported public
+SDK is on the roadmap, but the packages are not published to npm yet and do not
+currently carry an external API, compatibility, documentation, or support
+promise. Follow the [SDK roadmap](https://www.tasfer.app/docs/editor/roadmap) for
+status updates.
 
 ## Contributing
 
 We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) before submitting a pull request.
 
-By contributing, you agree that your contributions will be licensed under the AGPL-3.0 License.
+Contributions are licensed according to the directory they modify; see
+[Licensing](LICENSING.md) for the full breakdown.
 
 ## Code of Conduct
 
@@ -166,4 +168,6 @@ Need help using or contributing to Tasfer? See [SUPPORT.md](SUPPORT.md) for supp
 
 ## License
 
-The Tasfer app is licensed under the [GNU Affero General Public License v3.0](LICENSE). The editor engine packages (`@tasfer/editor`, `@tasfer/react`) are MIT-licensed.
+The Tasfer app is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+Internal packages remain MIT-licensed source even though they are not currently
+published or supported as an SDK. See [Licensing](LICENSING.md).

@@ -1,6 +1,7 @@
 {
   "name": "@tasfer/tex",
   "version": "0.1.0",
+  "private": true,
   "description": "Canvas-native, live-editable LaTeX math layout & rendering engine.",
   "type": "module",
   "license": "MIT",
@@ -8,10 +9,6 @@
     "type": "git",
     "url": "git+https://github.com/hamza512b/tasfer.git",
     "directory": "packages/tex"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
   },
   "engines": {
     "node": ">=22"
@@ -57,6 +54,7 @@
     }
   },
   "scripts": {
+    "prepublishOnly": "node -e \"throw new Error('Publishing is disabled while the SDK is internal')\"",
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "gen:math-icons": "npm run build && node scripts/gen-math-chip-icons.mjs",

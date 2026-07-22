@@ -1,14 +1,11 @@
 /**
- * @tasfer/editor — the curated public API.
+ * @tasfer/editor — the main internal entry point.
  *
- * This module IS the contract owed to external consumers. The package exposes
- * the stable root plus explicit optional-feature entries such as
- * `@tasfer/editor/math`. Engine machinery and first-party host plumbing live
- * under `@tasfer/editor/internal` (no semver guarantee); legacy deep entries
- * remain available while first-party consumers migrate. Keep this root surface
- * tight: prefer adding capability through nodes, marks, and feature facets over
- * new top-level exports. Math's historical root exports remain as compatibility
- * aliases; new integrations should use the explicit `./math` entry.
+ * This module is the curated surface used by first-party consumers. Keep it
+ * tight so it can become the basis of the public SDK when that roadmap work
+ * begins. Engine machinery and host plumbing live under
+ * `@tasfer/editor/internal`; optional features use entries such as
+ * `@tasfer/editor/math`.
  */
 
 // Mount / lifecycle

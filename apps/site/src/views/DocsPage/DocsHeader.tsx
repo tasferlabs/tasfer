@@ -64,14 +64,19 @@ export function DocsHeader({
             {t("docs.nav.appDocs", "App docs")}
           </Link>
           <Link
-            to="/docs/editor/install"
+            to="/docs/editor/roadmap"
             className={activeSection === "editor" ? "is-active" : ""}
           >
-            {t("docs.nav.editorDocs", "Editor docs")}
+            {t("docs.nav.editorDocs", "SDK roadmap")}
           </Link>
           <Link to="/home">{t("docs.nav.landing", "Landing")}</Link>
           <ThemeToggle />
-          <a className="dx-ghost-link" href={REPO_URL} target="_blank" rel="noreferrer">
+          <a
+            className="dx-ghost-link"
+            href={REPO_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
             <Icons.GitHub />
             {t("docs.nav.github", "GitHub")}
           </a>

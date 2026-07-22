@@ -720,10 +720,9 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
 }
 
 /**
- * The public action/lifecycle surface implemented by {@link Editor} — the
- * contract owed to external consumers. Kept as a standalone interface so the
- * rich documentation lives in one place and the class is compile-checked
- * (`class Editor implements EditorApi`) against it.
+ * The action/lifecycle surface implemented by {@link Editor}. Kept as a
+ * standalone interface so the documentation lives in one place and the class
+ * is compile-checked (`class Editor implements EditorApi`) against it.
  *
  * Organized by audience: the flat members here are the everyday
  * content/command surface; content reads live on the {@link QueryApi} `query`
@@ -4889,17 +4888,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // Each (field, value) is a block_set op. The field/value are validated
       // against the block type's registered schema when the op is applied, so
       // this stays generic — the editor needs no per-block-type knowledge here.
-      const ops: Operation[] = entries.map(
-        ([field, value]): Operation => ({
-          op: "block_set",
-          id: s.CRDTbinding.nextId(),
-          clock: s.CRDTbinding.getClock(),
-          pageId: s.CRDTbinding.pageId,
-          blockId,
-          field,
-          value,
-        }),
-      );
+      const ops: Operation[] = entries.map(([field, value]): Operation => ({
+        op: "block_set",
+        id: s.CRDTbinding.nextId(),
+        clock: s.CRDTbinding.getClock(),
+        pageId: s.CRDTbinding.pageId,
+        blockId,
+        field,
+        value,
+      }));
 
       return {
         state: {

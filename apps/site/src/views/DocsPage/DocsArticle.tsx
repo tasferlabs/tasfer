@@ -15,7 +15,9 @@ import "./DocsPage.css";
 function Breadcrumb({ meta }: { meta: PageMeta }) {
   const { t } = useTranslation();
   const sectionHome =
-    meta.sectionId === "app" ? "/docs/app/getting-started" : "/docs/editor/install";
+    meta.sectionId === "app"
+      ? "/docs/app/getting-started"
+      : "/docs/editor/roadmap";
   return (
     <>
       <div className="dx-breadcrumb">
@@ -27,7 +29,9 @@ function Breadcrumb({ meta }: { meta: PageMeta }) {
         {meta.group ? (
           <>
             <span className="sep">/</span>
-            <span>{meta.groupKey ? t(meta.groupKey, meta.group) : meta.group}</span>
+            <span>
+              {meta.groupKey ? t(meta.groupKey, meta.group) : meta.group}
+            </span>
           </>
         ) : null}
         <span className="sep">/</span>
@@ -65,17 +69,26 @@ export default function DocsArticle({
       <div className="dx-page">
         <DocsHeader onMenu={() => setDrawer(true)} />
         <div className="dx-shell">
-          <Sidebar current={route} open={drawer} onNavigate={() => setDrawer(false)} />
+          <Sidebar
+            current={route}
+            open={drawer}
+            onNavigate={() => setDrawer(false)}
+          />
           <main className="dx-main">
             <article className="dx-article">
               <div className="dx-eyebrow">404</div>
-              <h1 className="dx-h1">{t("docs.notFound.title", "This page wandered off.")}</h1>
+              <h1 className="dx-h1">
+                {t("docs.notFound.title", "This page wandered off.")}
+              </h1>
               <p className="dx-lede">
                 {/* dir="ltr" isolates the route: its "/" separators are bidi
                     neutrals that would otherwise reorder inside Arabic prose. */}
                 {t("docs.notFound.body", "The page")}{" "}
                 <code dir="ltr">{route}</code>{" "}
-                {t("docs.notFound.bodyTail", "doesn't exist. Try the documentation home, or search the sidebar.")}
+                {t(
+                  "docs.notFound.bodyTail",
+                  "doesn't exist. Try the documentation home, or search the sidebar.",
+                )}
               </p>
               <Link className="dx-btn dx-btn-primary" to="/docs">
                 <Icons.ArrowLeft />
@@ -85,7 +98,10 @@ export default function DocsArticle({
           </main>
           <div className="dx-toc" />
         </div>
-        <div className={"dx-scrim" + (drawer ? " is-open" : "")} onClick={() => setDrawer(false)} />
+        <div
+          className={"dx-scrim" + (drawer ? " is-open" : "")}
+          onClick={() => setDrawer(false)}
+        />
       </div>
     );
   }
@@ -97,9 +113,16 @@ export default function DocsArticle({
     <FrameworkProvider>
       <PkgMgrProvider>
         <div className="dx-page">
-          <DocsHeader activeSection={activeSection} onMenu={() => setDrawer(true)} />
+          <DocsHeader
+            activeSection={activeSection}
+            onMenu={() => setDrawer(true)}
+          />
           <div className="dx-shell">
-            <Sidebar current={route} open={drawer} onNavigate={() => setDrawer(false)} />
+            <Sidebar
+              current={route}
+              open={drawer}
+              onNavigate={() => setDrawer(false)}
+            />
             <main className="dx-main">
               <article className="dx-article">
                 <Breadcrumb meta={meta} />
@@ -109,7 +132,10 @@ export default function DocsArticle({
             </main>
             <Toc route={route} />
           </div>
-          <div className={"dx-scrim" + (drawer ? " is-open" : "")} onClick={() => setDrawer(false)} />
+          <div
+            className={"dx-scrim" + (drawer ? " is-open" : "")}
+            onClick={() => setDrawer(false)}
+          />
         </div>
       </PkgMgrProvider>
     </FrameworkProvider>

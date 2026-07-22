@@ -5,9 +5,11 @@ rules that apply to every task live in the repository root `AGENTS.md`.
 
 ## Editor package
 
-`packages/editor` is the product core and a standalone library. Its public entry
+`packages/editor` is the MIT-licensed product core and an internal library. Its main entry
 point is `packages/editor/src/index.ts`; the package also exposes deep subpath
-imports. `apps/web` consumes its TypeScript source through path aliases.
+imports for internal consumers. `apps/web` consumes its TypeScript source
+through path aliases. A public SDK is on the roadmap, but no external API or
+compatibility contract exists yet.
 
 Important areas:
 
@@ -134,12 +136,11 @@ All visible strings use `useTranslation()` in React or `i18next.t()` in plain
 TypeScript. Translation files live under
 `apps/web/public/app/locales/{lang}/translation.json`.
 
-## Public documentation
+## SDK documentation
 
-The public editor docs under
-`apps/site/src/views/DocsPage/pages/editor/` are the human-readable API
-specification. Consult them before changing public behavior and update them in
-the same change.
+The public site exposes only the editor SDK roadmap status. Package APIs are
+internal and may change together with their app callers without public API
+documentation or compatibility shims.
 
 Internal design notes under `apps/site/src/views/InternalsPage/pages/` are
 background material, not necessarily current runtime contracts. Confirm their

@@ -1,12 +1,12 @@
 # Licensing
 
 Tasfer is **dual-licensed by directory**. The deployable apps are copyleft; the
-reusable `@tasfer/*` libraries are permissive so anyone can build on them —
-including in closed-source and commercial products — with no friction.
+internal `@tasfer/*` packages remain permissively licensed source. They are not
+currently published or supported as a public SDK.
 
 | Path                                                          | License               | Why                                                                                                              |
 | ------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `packages/*` (`@tasfer/*`)                                 | **MIT**               | The product's reusable core. Embed it in anything, commercial or proprietary, no obligations beyond attribution. |
+| `packages/*` (`@tasfer/*`)                                 | **MIT**               | Internal product modules and the foundation of a future public SDK. The source remains permissively licensed.     |
 | `examples/*`, and any `example`/`examples` dir in a package   | **MIT**               | Meant to be copy-pasted into your own apps.                                                                      |
 | `apps/*` (`web`, `desktop`, `live`, `site`, `ios`, `android`) | **AGPL-3.0-or-later** | The deployable products. Forks and hosted/network deployments must share their source.                           |
 
@@ -37,8 +37,8 @@ is governed by the AGPL.
 
 ## Commercial / proprietary use
 
-- **The libraries (`packages/*`) are MIT** — use them in commercial and
-  closed-source software freely.
+- **The packages (`packages/*`) are MIT-licensed source**, but their APIs are
+  internal, unpublished, and unsupported until the public SDK is ready.
 - **The apps are AGPL** for the public. As the sole copyright holder, Tasfer's
   owner additionally offers the apps under separate commercial terms (including
   the App Store / Play Store builds), which is permitted because a copyright
