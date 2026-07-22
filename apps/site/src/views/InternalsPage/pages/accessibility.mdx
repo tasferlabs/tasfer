@@ -1,0 +1,27 @@
+---
+title: "Accessibility Input Implementation"
+date: "2026-01-09"
+authors: ["hamza512b"]
+summary: "Making the canvas editor reachable by screen readers with a hidden contenteditable mirror of the document — the same approach Google Docs takes."
+---
+
+## Problem
+
+Canvas-based editors are invisible to screen readers and accessibility tools. Users need to interact with actual DOM elements that assistive technologies can access.
+The editor should be accessible to many people, it should be easy to navigate for screen readers and so on. It should be as useful for a blind person as for any other user.
+I am designing the system for people to use, however people tend to forget that.
+
+It might be hard to think of everything. But we cannot just exclude people just because we use canvas.
+
+## How Google Docs Does It
+
+- Uses a **hidden contenteditable element** positioned at the cursor
+- The contenteditable mirrors the document structure (headings, paragraphs, lists)
+- Screen readers read from this hidden DOM while users see the canvas
+- Browser selection API syncs with canvas cursor
+
+## References
+
+- [Google Docs Accessibility](https://www.google.com/accessibility/)
+- [ARIA Authoring Practices](https://www.w3.org/WAI/ARIA/apg/)
+- [ContentEditable Best Practices](https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/contenteditable)

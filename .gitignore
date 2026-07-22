@@ -1,0 +1,56 @@
+# For new contributors, add what is missing please here 👀
+
+
+# Dependencies
+node_modules
+
+# Build output
+dist
+cdn
+out
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# AI tooling
+!.claude/launch.json
+!.claude/output-styles/**
+!.claude/output-styles
+.claude/**
+
+# Release signing (never commit keys)
+*.keystore
+*.jks
+apps/android/keystore.properties
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output
+# Store-native release-note copies are generated from fastlane/release_notes/.
+fastlane/metadata/
+build/ios/
+
+# My notes
+internal
+
+# OS
+.DS_Store
+
+# design-sync (claude.ai/design)
+# Staged scripts, build output, machine state, fork symlink — regenerated per run.
+# The rest of .design-sync/ (config.json, NOTES.md, conventions.md, previews/,
+# compile-css.mjs, tsconfig.dssync.json) IS committed — it's the durable sync input.
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/previews/.cache/
+.design-sync/node_modules
+# Generated Tailwind stylesheet for the DS bundle (regenerate: node .design-sync/compile-css.mjs).
+apps/web/.design-sync.compiled.css
+
+# Git
+.worktrees

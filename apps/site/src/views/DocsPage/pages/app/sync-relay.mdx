@@ -1,0 +1,61 @@
+{/* Tasfer app docs — Sync & relay setup. */}
+
+import { Callout, Lede, PropsTable, Step, Steps } from "../../docsComponents";
+
+<Lede>
+  Nothing syncs until you share it. When you share a space, your devices talk
+  **directly, peer-to-peer over WebRTC, with keys that never leave your
+  devices.** A signaling relay exists only to introduce devices that can't see
+  each other directly — and it can't read a thing.
+</Lede>
+
+<h2 id="how">How sync works</h2>
+
+Three stages, in plain terms:
+
+- **Introduce.** A signaling relay tells your two devices how to reach each other. It holds no accounts and learns nothing else.
+- **Direct.** Your devices negotiate an encrypted peer-to-peer WebRTC channel and talk to each other with no third party in the path.
+- **Fallback.** If a direct path can't be made (strict NAT, locked-down network), traffic is encrypted on-device with AES-256-GCM and forwarded through the relay as bytes it cannot decrypt. Still no accounts, still no logs.
+
+<h2 id="share">Share a space</h2>
+
+Sync is per-space: a space syncs only with the devices you invite into it.
+
+<Steps>
+  <Step title="Create an invite">
+    In the sidebar, open the space menu and choose **Invite members**. Tasfer generates an invite containing a secret, shown as an **Invite Code** and a **QR Code**. The secret is created locally and is never sent to the relay — the discovery topic your devices meet on is a hash derived from it.
+  </Step>
+  <Step title="Join from the other device">
+    On the second device choose **Join someone's space** — paste the code, scan the QR, or import an invite file. The devices exchange public keys directly, prove they hold the invite secret, and derive a shared encryption key. Your identity keypair is generated locally and its private key never leaves the device.
+  </Step>
+  <Step title="Edit anywhere">
+    The space now converges across every member device — edit offline on one and the changes merge cleanly when the devices next see each other.
+  </Step>
+</Steps>
+
+<Callout kind="warn" title="Treat invite codes like passwords.">Anyone who has the code can join the space, and codes do not currently expire. Share them over a channel you trust, and prefer the QR code when the other device is in the same room.</Callout>
+
+<h2 id="default-relay">The default relay</h2>
+
+Out of the box, Tasfer uses `wss://signaling.tasfer.app` for the introduce/fallback step. It holds no accounts, stores no messages, and is structurally unable to decrypt your documents. If that's not enough trust — and it shouldn't have to be — run your own.
+
+<h2 id="own-relay">Use your own relay</h2>
+
+The relay endpoint is fixed when the app is built, via the `VITE_SIGNAL_URL` environment variable:
+
+```bash
+# in apps/web, before building or running the app:
+VITE_SIGNAL_URL=wss://signaling.example.org npm run build
+```
+
+There is currently no in-app setting to change it at runtime — pointing at your own relay means building the app yourself.
+
+<Callout kind="tip" title="Your relay, your rules.">Running your own relay means no third party — not even the Tasfer project — is ever in the path of an introduction. See [Self-hosting the relay](/docs/app/self-hosting).</Callout>
+
+<h2 id="troubleshoot">When devices won't connect</h2>
+
+<PropsTable cols={["Symptom", "Likely cause", "Fix"]} rows={[
+  { name: "Devices never see each other", type: "Relay unreachable", desc: "Check that your network allows outbound WSS (443) and that both devices are online at the same time." },
+  { name: "Connected, but not directly", type: "Strict NAT both ends", desc: "Expected — sync still works, just via the encrypted relay fallback. Nothing to fix." },
+  { name: "Invite code rejected", type: "Code mistyped or truncated", desc: "Codes are long. Copy and paste them whole, or use the QR code or invite file instead." },
+]} />

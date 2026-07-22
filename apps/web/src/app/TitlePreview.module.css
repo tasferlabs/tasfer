@@ -1,0 +1,27 @@
+/*
+ * Chrome for the inline HTML the mark codecs emit inside a TitlePreview.
+ * Deliberately minimal: text color, font and size inherit from the host row,
+ * so a preview blends into whatever label slot it fills.
+ */
+
+.preview a {
+  /* Preview hosts (sidebar rows, cards) navigate on click themselves — a
+     nested live link must not hijack or double the navigation. */
+  pointer-events: none;
+  color: inherit;
+  text-decoration: underline;
+}
+
+.preview code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 0 0.25em;
+}
+
+.preview svg {
+  /* Tailwind preflight makes svg display:block; restore inline flow. The
+     baseline offset comes from the SVG's own inline vertical-align style. */
+  display: inline-block;
+}

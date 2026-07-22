@@ -1,0 +1,39 @@
+/**
+ * Declaration-emit project for tsdown's dts step (rolldown-plugin-dts) in the
+ * packages that inline the repo-root `shared/` source (editor, tex).
+ *
+ * TypeScript 7's native compiler emits declarations only for files under the
+ * dts project's root directory, which rolldown-plugin-dts fixes to this file's
+ * directory. Rooting the project at the repo root lets `shared/` get
+ * declarations alongside each package's `src/`. Not used for typechecking —
+ * the per-package `tsconfig.json` remains the source of truth for that.
+ */
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "allowJs": true,
+    "resolveJsonModule": true,
+
+    "strict": true,
+    "erasableSyntaxOnly": true,
+
+    "paths": {
+      "@shared/*": ["./shared/*"],
+      "@tasfer/tex": ["./packages/tex/src/index.ts"],
+      "@tasfer/tex/*": ["./packages/tex/src/*"]
+    }
+  },
+  "include": ["packages/editor/src", "packages/tex/src", "shared"]
+}

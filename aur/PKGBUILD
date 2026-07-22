@@ -1,0 +1,20 @@
+# Maintainer: Hamza Khuswan <hamza512b@users.noreply.github.com>
+pkgname=tasfer-bin
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="A canvas-based markdown editor. Local-first, peer-to-peer, no cloud."
+arch=('x86_64')
+url="https://github.com/tasferlabs/tasfer"
+license=('custom')
+depends=('gtk3' 'nss' 'libxss' 'alsa-lib')
+provides=('tasfer')
+conflicts=('tasfer')
+source=("${url}/releases/download/v${pkgver}/tasfer-${pkgver}.pacman")
+# Update after first release: makepkg -g >> PKGBUILD
+sha256sums=('SKIP')
+
+package() {
+  # The .pacman artifact from electron-builder is itself a tar archive
+  # with usr/ structure — just copy it into the package directory
+  cp -r "${srcdir}/usr" "${pkgdir}/usr"
+}

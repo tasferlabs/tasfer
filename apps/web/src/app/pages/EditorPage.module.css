@@ -1,0 +1,74 @@
+.appErrorState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1rem;
+  height: 100%;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.appErrorState svg {
+  max-width: 250px;
+}
+
+.appError {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.appErrorDescription {
+  font-size: 1rem;
+  opacity: 0.7;
+}
+
+.buttonContainer {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+}
+
+button.breadcrumbs:hover {
+  background-color: var(--muted);
+}
+
+.breadcrumbLink {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  color: var(--foreground);
+  display: inline-block;
+  font-size: 0.875rem;
+  flex-shrink: 10;
+}
+
+.breadcrumbLink:last-child {
+  flex-shrink: 1;
+  min-width: 70px;
+}
+
+.breadcrumbSeparator {
+  color: color-mix(in srgb, var(--foreground), transparent 50%);
+  flex-shrink: 0;
+}
+
+:global([dir="rtl"]) .breadcrumbSeparator {
+  transform: scaleX(-1);
+}
+

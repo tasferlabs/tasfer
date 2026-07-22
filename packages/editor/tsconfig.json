@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "allowJs": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+
+    /* Resolve the repo-root shared helpers and the sibling @tasfer/tex
+       source the same way vitest/apps-web do — needed for a standalone
+       typecheck and for tsdown's .d.ts emit. */
+    "paths": {
+      "@shared/*": ["../../shared/*"],
+      "@tasfer/tex": ["../tex/src/index.ts"],
+      "@tasfer/tex/*": ["../tex/src/*"]
+    }
+  },
+  "include": ["src"]
+}

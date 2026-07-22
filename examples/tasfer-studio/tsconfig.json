@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+
+    /* Bundler mode — packages are consumed as raw TS source via the aliases below. */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+
+    "paths": {
+      "@tasfer/editor": ["../../packages/editor/src/index.ts"],
+      "@tasfer/editor/*": ["../../packages/editor/src/*"],
+      "@tasfer/tex": ["../../packages/tex/src/index.ts"],
+      "@tasfer/tex/*": ["../../packages/tex/src/*"],
+      "@tasfer/react": ["../../packages/react/src/index.ts"],
+      "@tasfer/react/*": ["../../packages/react/src/*"],
+      "@shared/*": ["../../shared/*"],
+      "@/*": ["./src/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
+    }
+  },
+  "include": ["src"]
+}

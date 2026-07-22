@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "jsx": "react-jsx",
+    // Resolve sibling @tasfer packages from their built dist declarations
+    // (react re-exports editor types that reference @tasfer/tex). Build them
+    // in dependency order: tex and editor before this. React's own types come
+    // from the locally-installed @types/react(-dom) devDependencies.
+    "paths": {
+      "*": ["./*"],
+      "@tasfer/editor": ["../editor/dist/index.d.mts"],
+      "@tasfer/editor/*": ["../editor/dist/*"],
+      "@tasfer/tex": ["../tex/dist/index.d.mts"],
+      "@tasfer/tex/*": ["../tex/dist/*"]
+    }
+  },
+  "include": ["src"]
+}

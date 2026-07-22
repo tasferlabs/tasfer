@@ -1,0 +1,33 @@
+---
+title: "One interface for all platforms"
+date: "2026-07-15"
+authors: ["hamza512b"]
+summary: "Tasfer runs on web, desktop, IOS, Android, and more"
+---
+
+Tasfer is one codebase. The editor, the document model, the sync engine. All of it is the web app. What actually changes between web, desktop, iOS and Android isnot the product, it is the small set of things only the operating system can do: pate the content, buzz the phone, hand a PDF to the share sheet, open a native context menu, pick a photo.
+
+## One interface
+
+So there is a single interface, `TasferBridge`. Each native shell injects `window.TasferBridge` with the exact same shape, `clipboard`, `haptic`, `editor`, `navigation`, `files`, `storage`. Every method returns a Promise, so a caller never branches on platform; it awaits and moves on.
+
+On plain web there is no bridge at all. `getBridge()` returns `null`, and each call site degrades on its own terms, haptics fall back to the Vibration API, sharing falls back to a download. Web is not a special case bolted on; it is just the platform that answers the fewest calls.
+
+## Platform handlers
+
+The implementations behind that interface are the platform handlers. They honor the same contract in whatever the OS gives them:
+
+- **iOS** injects the bridge and routes each call through `WKScriptMessageHandler` back to Swift, resolving the Promise by id.
+- **Android** binds a class of `@JavascriptInterface` methods into the WebView and answers the same way.
+- **Desktop** is the odd one out. Electron has no `TasferBridge` — it reuses the
+  generic `window.Tasfer` IPC bridge for the few things it needs, like native
+  menus and pushing the color scheme to `nativeTheme`.
+
+What does not exist simply fallbacks.
+
+## Why this holds
+
+The interface is the contract. When I add a capability I add one method to
+`TasferBridge`, then teach each handler to answer it — the product code is written
+once and never learns which platform it is on. A new platform is a new handler and
+nothing else moves.

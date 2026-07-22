@@ -1,0 +1,759 @@
+/**
+ * CRDT Sync Engine
+ *
+ * Public API for the operation-log CRDT system.
+ * Provides methods for emitting operations, applying remote operations,
+ * and subscribing to state changes.
+ */
+
+import { getBaseDataSchema } from "../baseDataSchema";
+import { IS_DEV } from "../env";
+import type { Block, Char, CharRun, Mark, Page } from "../serlization/loadPage";
+import type { CRDTbinding } from "../state-types";
+import type {
+  BlockDelete,
+  BlockInsert,
+  BlockProps,
+  BlockSet,
+  BlockType,
+  ContentEdit,
+  HLC,
+  MarkSet,
+  Operation,
+  OpLog,
+  TextDelete,
+  TextInsert,
+  VersionVector,
+} from "../state-types";
+import { findBlock } from "./block-lookup";
+import { isTextualBlock } from "./block-registry";
+import { getCharIdsInRangeFromRuns } from "./char-runs";
+import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
+import {
+  createIdGenerator,
+  extractCounter,
+  extractPeerId,
+  generateBlockId,
+  generatePeerId,
+} from "./id";
+import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
+import { findCharIdAtPosition } from "./reducer";
+import type { DataSchema } from "./schema";
+import type {
+  StructuredDocument,
+  StructuredMutation,
+} from "./structured-content";
+
+// ==========================================================================
+// CRDT Context (per editor instance)
+// ==========================================================================
+
+/**
+ * Create a CRDT context for a single editor instance.
+ *
+ * Encapsulates the id generator + Hybrid Logical Clock + page id that used to
+ * live in module-level globals. Each editor instance owns its own binding, so
+ * multiple editors (e.g. a readonly snapshot preview alongside the main editor)
+ * can coexist on the same page without clobbering each other's id/clock state.
+ *
+ * The returned object holds its `hlc`/`idGen` in a closure and mutates them in
+ * place — the methods are not bound to `this`, so they can be passed as bare
+ * references (e.g. into snapshot-diff's `OpsContext`).
+ *
+ * @param pageId - The page ID
+ * @param peerId - Optional peer ID (generated if not provided)
+ */
+export function createCRDTbinding(
+  pageId: string,
+  peerId?: string,
+): CRDTbinding {
+  // A binding's peerId is the origin half of every op id (`peerId:counter`) and
+  // the key the version vector tracks per-origin counters under. An EMPTY peerId
+  // is catastrophic, not cosmetic: two peers that both edit as "" share one VV
+  // bucket, their op ids collide (`:5` vs `:5`), and `isOpKnown` silently drops
+  // whichever arrives second — peers permanently diverge. `??` only defaults on
+  // null/undefined, so a caller passing "" (e.g. an async device identity that
+  // hasn't resolved yet) would slip through; guard the empty string too. This
+  // is an invariant the binding owns, not a caller-compat shim: a CRDT origin id
+  // must be non-empty and unique.
+  const actualPeerId = peerId && peerId.length > 0 ? peerId : generatePeerId();
+  if (IS_DEV && peerId !== undefined && actualPeerId !== peerId) {
+    console.error(
+      `[createCRDTbinding] empty peerId for page ${pageId}; generated "${actualPeerId}" instead. ` +
+        `Pass a stable, non-empty peer id (an empty origin id collides across peers and drops ops).`,
+    );
+  }
+  const idGen = createIdGenerator(actualPeerId);
+  let hlc = createHLC(actualPeerId);
+
+  return {
+    pageId,
+    nextId(): string {
+      return idGen();
+    },
+    getClock(): HLC {
+      hlc = tickHLC(hlc);
+      return { ...hlc };
+    },
+    getPeerId(): string {
+      return hlc.peerId;
+    },
+    advanceClock(remoteClock: HLC): void {
+      hlc = receiveHLC(hlc, remoteClock);
+    },
+    advanceIdCounter(n: number): void {
+      idGen.advance(n);
+    },
+  };
+}
+
+/**
+ * Scan a page's blocks for the highest id-counter value present anywhere —
+ * block ids plus flat and nested structured node/character identities. The
+ * page-level counterpart of
+ * `maxOpIdCounter`, for documents loaded as blocks (parsed markdown,
+ * snapshots) rather than as an op log. Used to advance the local idGen past
+ * every counter in the loaded document so new local ids never alias an
+ * existing one, and so freshly typed chars (still an RGA, counter-first
+ * tie-break — see `compareIds`) land adjacent to their anchor rather than
+ * after pre-existing siblings. (Block order no longer relies on this — blocks
+ * carry explicit `orderKey`s.)
+ */
+export function maxPageIdCounter(blocks: readonly Block[]): number {
+  let max = 0;
+  for (const block of blocks) {
+    const bc = observedIdentityCounter(block.id);
+    if (bc > max) max = bc;
+    if (isTextualBlock(block)) {
+      for (const run of block.charRuns ?? []) {
+        const lastCounter = run.startCounter + run.text.length - 1;
+        if (lastCounter > max) max = lastCounter;
+      }
+    }
+    for (const document of Object.values(block.structuredContent ?? {})) {
+      max = Math.max(max, maxStructuredDocumentIdCounter(document));
+    }
+  }
+  return max;
+}
+
+function maxCharRunCounter(runs: readonly CharRun[]): number {
+  let max = 0;
+  for (const run of runs) {
+    max = Math.max(max, run.startCounter + run.text.length - 1);
+  }
+  return max;
+}
+
+function observedIdentityCounter(id: string): number {
+  const counter = extractCounter(id);
+  return Number.isSafeInteger(counter) && counter >= 0 ? counter : 0;
+}
+
+export function maxStructuredDocumentIdCounter(
+  document: StructuredDocument,
+): number {
+  let max = observedIdentityCounter(document.rootId);
+  for (const node of Object.values(document.nodes)) {
+    max = Math.max(max, observedIdentityCounter(node.id));
+    for (const runs of Object.values(node.textFields)) {
+      max = Math.max(max, maxCharRunCounter(runs));
+    }
+  }
+  return max;
+}
+
+/**
+ * Scan ops for the highest id-counter value present anywhere — op ids,
+ * inserted-block ids, inserted-char starting counters (and their full run
+ * length). Used to advance our local idGen past every counter we've seen
+ * so RGA sibling sorts place new local ids after pre-existing siblings.
+ */
+export function maxOpIdCounter(ops: readonly Operation[]): number {
+  let max = 0;
+  for (const op of ops) {
+    const c = observedIdentityCounter(op.id);
+    if (c > max) max = c;
+    if (op.op === "block_insert") {
+      const bc = observedIdentityCounter(op.blockId);
+      if (bc > max) max = bc;
+    } else if (op.op === "text_insert") {
+      for (const run of op.charRuns) {
+        const lastCounter = run.startCounter + run.text.length - 1;
+        if (lastCounter > max) max = lastCounter;
+      }
+    } else if (op.op === "content_edit") {
+      max = Math.max(max, observedIdentityCounter(op.contentId));
+      if (op.edit.kind === "document_init") {
+        max = Math.max(max, maxStructuredDocumentIdCounter(op.edit.document));
+      } else if (op.edit.kind === "node_insert") {
+        max = Math.max(max, observedIdentityCounter(op.edit.node.id));
+        for (const runs of Object.values(op.edit.node.textFields ?? {})) {
+          max = Math.max(max, maxCharRunCounter(runs));
+        }
+      } else if (op.edit.kind === "text_insert") {
+        max = Math.max(max, maxCharRunCounter(op.edit.charRuns));
+        max = Math.max(max, observedIdentityCounter(op.edit.nodeId));
+      } else if (op.edit.kind !== "document_delete") {
+        max = Math.max(max, observedIdentityCounter(op.edit.nodeId));
+      }
+    }
+  }
+  return max;
+}
+
+// Re-export types for consumers
+export type {
+  BlockDelete,
+  BlockInsert,
+  BlockProps,
+  BlockSet,
+  BlockType,
+  ContentEdit,
+  HLC,
+  MarkSet,
+  Operation,
+  TextDelete,
+  TextInsert,
+  VersionVector,
+} from "../state-types";
+
+// BlockSet ops carry an untyped wire shape (`field: string, value: unknown`)
+// by design — a peer may forward a `block_set` for a custom block type this
+// build has never heard of. There is deliberately NO compile-time table of
+// "block type → its settable fields": that would be a hardcoded enumeration of
+// every block type, the very thing the dynamic-schema model avoids. Field
+// validity is enforced at runtime through the per-instance schema
+// (`DataSchema.validateField` → the block's own `FieldDescriptor`s), which
+// covers built-in and custom types uniformly. Emit `block_set` ops via the
+// engine's `createBlockSet(blockId, field, value)` method (see `SyncEngine`).
+
+// Re-export utilities
+export { compareHLC, deserializeHLC, serializeHLC } from "./hlc";
+export { deserializeVV, serializeVV } from "./oplog";
+export {
+  cleanSnapshotForSave,
+  findCharIdAtPosition,
+  getVisibleBlocks,
+  getVisibleTextFromBlock,
+} from "./reducer";
+
+type StateChangeListener = (state: Page) => void;
+
+/**
+ * Sync engine for a single page's operation log.
+ *
+ * Created with `createSyncEngine(binding)`. The engine owns the op log and
+ * version vector, but NOT the clock/id state — that lives on the
+ * `CRDTbinding` it is given, which is the single per-instance source of
+ * ids, HLC and peer identity, shared with the editor that emits operations.
+ */
+export interface SyncEngine {
+  /** The peer ID stamped on operations (from the shared binding). */
+  getPeerId(): string;
+  /** The page ID this engine logs operations for. */
+  getPageId(): string;
+  /** Generate the next unique ID (delegates to the shared binding). */
+  nextId(): string;
+  /**
+   * Load saved operations into the engine.
+   * Initializes the opLog and version vector from persisted state, and
+   * advances the shared binding's clock/id-counter past everything loaded so
+   * new local ops out-order and out-counter historical ones.
+   */
+  loadOperations(ops: Operation[]): void;
+  /**
+   * Emit local operations. Operations are added to the log. Listeners are
+   * NOT notified because local operations are applied directly to
+   * EditorState for immediate feedback. Use apply() for remote operations.
+   */
+  emit(ops: Operation[]): void;
+  /**
+   * Apply remote operations. Operations are merged into the log, the shared
+   * binding's clock/id-counter are advanced past them, and listeners are
+   * notified.
+   */
+  apply(ops: Operation[]): void;
+  /** Get the current computed state. */
+  getState(): Page;
+  /** Get all operations in the log. */
+  getOperations(): Operation[];
+  /** Get operations that a peer (identified by its version vector) is missing. */
+  getOpsSince(peerVV: VersionVector): Operation[];
+  /**
+   * Get operations after a specific HLC clock (null returns all operations).
+   * Used for delta sync - only send operations not yet in the snapshot.
+   */
+  getOperationsAfterClock(clock: HLC | null): Operation[];
+  /** Get the latest HLC clock from operations, or null if no operations. */
+  getLatestClock(): HLC | null;
+  /**
+   * Compact the operation log by removing operations <= snapshotClock
+   * (already saved in a snapshot). Returns the number of operations removed.
+   */
+  compactOperations(snapshotClock: HLC): number;
+  /** Get the current version vector. */
+  getVersionVector(): VersionVector;
+  /** Subscribe to state changes. Returns an unsubscribe function. */
+  onStateChange(callback: StateChangeListener): () => void;
+
+  // Operation creators — id/clock/pageId are stamped from the shared binding.
+  createTextInsert(
+    blockId: string,
+    afterCharId: string | null,
+    charRuns: CharRun[],
+  ): TextInsert;
+  createTextDelete(blockId: string, charIds: string[]): TextDelete;
+  createFormatSet(
+    blockId: string,
+    charIds: string[],
+    format: Mark,
+    value: boolean,
+  ): MarkSet;
+  createBlockInsert(
+    orderKey: string,
+    blockType: BlockType,
+    initialProps?: BlockProps,
+  ): BlockInsert;
+  createBlockDelete(blockId: string): BlockDelete;
+  createBlockSet(blockId: string, field: string, value: unknown): BlockSet;
+  createContentEdit(
+    blockId: string,
+    contentId: string,
+    edit: StructuredMutation,
+  ): ContentEdit;
+
+  // Convenience methods (position/range based).
+  /** Insert text at a visible position in a block (char IDs auto-generated). */
+  insertText(blockId: string, position: number, text: string): TextInsert;
+  /** Delete text in a visible range [startIndex, endIndex) within a block. */
+  deleteText(blockId: string, startIndex: number, endIndex: number): TextDelete;
+  /** Format text in a visible range [startIndex, endIndex) within a block. */
+  formatText(
+    blockId: string,
+    startIndex: number,
+    endIndex: number,
+    format: Mark,
+    value: boolean,
+  ): MarkSet;
+  /** Insert a new paragraph block at the given fractional-index position. */
+  insertParagraph(orderKey: string): BlockInsert;
+  /** Change a block's type. */
+  changeBlockType(blockId: string, newType: BlockType): BlockSet;
+  /** Toggle a todo item's checked state. */
+  toggleTodo(blockId: string): BlockSet;
+  /** Set a list item's indent level (clamped to >= 0). */
+  setIndent(blockId: string, indent: number): BlockSet;
+}
+
+/**
+ * Create a sync engine that manages the CRDT op log for a single page.
+ *
+ * The engine does not own any clock/id/peer state of its own — it stamps and
+ * advances the `CRDTbinding` it is given. Pass the SAME binding the editor
+ * instance uses (see `mountEditor`'s `crdtBinding` option) so the editor and
+ * the sync engine share one id/clock source: applying remote ops here
+ * automatically keeps locally-emitted editor ops causally ahead, with no
+ * manual clock mirroring by the host.
+ *
+ * @example
+ * const binding = createCRDTbinding("page-123", peerId);
+ * const engine = createSyncEngine(binding);
+ *
+ * // Subscribe to state changes
+ * engine.onStateChange((state) => {
+ *   render(state);
+ * });
+ *
+ * // Emit local operations (orderKey from `generateKeyBetween`/`orderKeyAfter`)
+ * const blockInsert = engine.createBlockInsert(generateKeyBetween(null, null), "paragraph");
+ * engine.emit([blockInsert]);
+ *
+ * // Apply remote operations
+ * engine.apply(remoteOps);
+ */
+export function createSyncEngine(
+  binding: CRDTbinding,
+  schema: DataSchema = getBaseDataSchema(),
+): SyncEngine {
+  let opLog: OpLog = createOpLog(binding.pageId);
+  const listeners = new Set<StateChangeListener>();
+
+  function getState(): Page {
+    return opLog.state;
+  }
+
+  function notifyListeners(): void {
+    const state = getState();
+    for (const listener of listeners) {
+      listener(state);
+    }
+  }
+
+  /** Create the base operation fields, stamped from the shared binding. */
+  function createBaseOp(): { id: string; clock: HLC; pageId: string } {
+    return {
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: binding.pageId,
+    };
+  }
+
+  /**
+   * Advance the shared binding past a batch of loaded/remote ops so future
+   * local ops respect causality: the HLC must out-order every op we've seen
+   * (mergeOps full-rebuild sorts by HLC) and the id-counter must out-counter
+   * every id we've seen (RGA sibling sort compares by counter — see
+   * maxOpIdCounter).
+   */
+  function advanceBindingPast(ops: Operation[]): void {
+    for (const op of ops) {
+      binding.advanceClock(op.clock);
+    }
+    binding.advanceIdCounter(maxOpIdCounter(ops));
+  }
+
+  /**
+   * Convert Char[] to CharRun[] for storage.
+   * Handles chars from multiple peers by splitting into separate runs.
+   */
+  function charsToCharRuns(chars: Char[]): CharRun[] {
+    if (chars.length === 0) return [];
+
+    const runs: CharRun[] = [];
+    let currentPeerId = extractPeerId(chars[0].id);
+    let currentStartCounter = extractCounter(chars[0].id);
+    let currentText = "";
+    let currentDeleted: boolean[] = [];
+
+    for (let i = 0; i < chars.length; i++) {
+      const char = chars[i];
+      const peerId = extractPeerId(char.id);
+      const counter = extractCounter(char.id);
+
+      // Check if continues current run (same peer, consecutive counter)
+      if (
+        peerId === currentPeerId &&
+        counter === currentStartCounter + currentText.length
+      ) {
+        currentText += char.char;
+        currentDeleted.push(char.deleted ?? false);
+      } else {
+        // Finish current run
+        if (currentText.length > 0) {
+          runs.push(
+            createCharRunFromDeleted(
+              currentPeerId,
+              currentStartCounter,
+              currentText,
+              currentDeleted,
+            ),
+          );
+        }
+
+        // Start new run
+        currentPeerId = peerId;
+        currentStartCounter = counter;
+        currentText = char.char;
+        currentDeleted = [char.deleted ?? false];
+      }
+    }
+
+    // Finish last run
+    if (currentText.length > 0) {
+      runs.push(
+        createCharRunFromDeleted(
+          currentPeerId,
+          currentStartCounter,
+          currentText,
+          currentDeleted,
+        ),
+      );
+    }
+
+    return runs;
+  }
+
+  /** Helper to create CharRun with optional deletedMask */
+  function createCharRunFromDeleted(
+    peerId: string,
+    startCounter: number,
+    text: string,
+    deleted: boolean[],
+  ): CharRun {
+    const hasDeleted = deleted.some((d) => d);
+
+    if (!hasDeleted) {
+      return { peerId, startCounter, text };
+    }
+
+    // Create deletedMask bitmap
+    const deletedMask: number[] = new Array(Math.ceil(deleted.length / 8)).fill(
+      0,
+    );
+    deleted.forEach((isDeleted, i) => {
+      if (isDeleted) {
+        const byteIndex = Math.floor(i / 8);
+        const bitIndex = i % 8;
+        deletedMask[byteIndex] |= 1 << bitIndex;
+      }
+    });
+
+    return { peerId, startCounter, text, deletedMask };
+  }
+
+  function createTextInsert(
+    blockId: string,
+    afterCharId: string | null,
+    charRuns: CharRun[],
+  ): TextInsert {
+    return {
+      ...createBaseOp(),
+      op: "text_insert",
+      blockId,
+      afterCharId,
+      charRuns,
+    };
+  }
+
+  function createTextDelete(blockId: string, charIds: string[]): TextDelete {
+    return {
+      ...createBaseOp(),
+      op: "text_delete",
+      blockId,
+      charIds,
+    };
+  }
+
+  function createFormatSet(
+    blockId: string,
+    charIds: string[],
+    format: Mark,
+    value: boolean,
+  ): MarkSet {
+    return {
+      ...createBaseOp(),
+      op: "mark_set",
+      blockId,
+      charIds,
+      format,
+      value,
+    };
+  }
+
+  function createBlockInsert(
+    orderKey: string,
+    blockType: BlockType,
+    initialProps?: BlockProps,
+  ): BlockInsert {
+    return {
+      ...createBaseOp(),
+      op: "block_insert",
+      orderKey,
+      blockId: generateBlockId(binding.nextId),
+      blockType,
+      initialProps,
+    };
+  }
+
+  function createBlockDelete(blockId: string): BlockDelete {
+    return {
+      ...createBaseOp(),
+      op: "block_delete",
+      blockId,
+    };
+  }
+
+  function createBlockSetOp(
+    blockId: string,
+    field: string,
+    value: unknown,
+  ): BlockSet {
+    return {
+      ...createBaseOp(),
+      op: "block_set",
+      blockId,
+      field,
+      value,
+    };
+  }
+
+  function createContentEdit(
+    blockId: string,
+    contentId: string,
+    edit: StructuredMutation,
+  ): ContentEdit {
+    return {
+      ...createBaseOp(),
+      op: "content_edit",
+      blockId,
+      contentId,
+      edit,
+    };
+  }
+
+  return {
+    getPeerId(): string {
+      return binding.getPeerId();
+    },
+
+    getPageId(): string {
+      return binding.pageId;
+    },
+
+    nextId(): string {
+      return binding.nextId();
+    },
+
+    loadOperations(ops: Operation[]): void {
+      for (const op of ops) {
+        opLog = appendOp(opLog, op, schema);
+      }
+      advanceBindingPast(ops);
+    },
+
+    emit(ops: Operation[]): void {
+      for (const op of ops) {
+        opLog = appendOp(opLog, op, schema);
+      }
+      // Don't notify listeners for local ops - EditorState is already updated
+    },
+
+    apply(ops: Operation[]): void {
+      advanceBindingPast(ops);
+      opLog = mergeOps(opLog, ops, schema);
+      notifyListeners();
+    },
+
+    getState,
+
+    getOperations(): Operation[] {
+      return opLog.operations;
+    },
+
+    getOpsSince(peerVV: VersionVector): Operation[] {
+      return getOpsSince(opLog, peerVV);
+    },
+
+    getOperationsAfterClock(clock: HLC | null): Operation[] {
+      if (!clock) {
+        return opLog.operations;
+      }
+
+      return opLog.operations.filter((op) => compareHLC(op.clock, clock) > 0);
+    },
+
+    getLatestClock(): HLC | null {
+      if (opLog.operations.length === 0) {
+        return null;
+      }
+
+      let latest = opLog.operations[0].clock;
+      for (const op of opLog.operations) {
+        if (compareHLC(op.clock, latest) > 0) {
+          latest = op.clock;
+        }
+      }
+      return { ...latest };
+    },
+
+    compactOperations(snapshotClock: HLC): number {
+      const beforeCount = opLog.operations.length;
+
+      // Keep only operations after the snapshot clock (not yet saved)
+      opLog.operations = opLog.operations.filter(
+        (op) => compareHLC(op.clock, snapshotClock) > 0,
+      );
+
+      const removed = beforeCount - opLog.operations.length;
+      if (removed > 0) {
+        console.log(
+          `[SyncEngine] Compacted ${removed} operations (${opLog.operations.length} remaining)`,
+        );
+      }
+      return removed;
+    },
+
+    getVersionVector(): VersionVector {
+      return opLog.versionVector;
+    },
+
+    onStateChange(callback: StateChangeListener): () => void {
+      listeners.add(callback);
+      return () => {
+        listeners.delete(callback);
+      };
+    },
+
+    createTextInsert,
+    createTextDelete,
+    createFormatSet,
+    createBlockInsert,
+    createBlockDelete,
+    createBlockSet: createBlockSetOp,
+    createContentEdit,
+
+    insertText(blockId: string, position: number, text: string): TextInsert {
+      const block = findBlock(getState(), blockId);
+      const afterCharId = block ? findCharIdAtPosition(block, position) : null;
+
+      const chars: Char[] = Array.from(text).map((char) => ({
+        id: binding.nextId(),
+        char,
+      }));
+
+      const charRuns = charsToCharRuns(chars);
+      return createTextInsert(blockId, afterCharId, charRuns);
+    },
+
+    deleteText(
+      blockId: string,
+      startIndex: number,
+      endIndex: number,
+    ): TextDelete {
+      const block = findBlock(getState(), blockId);
+      const charIds =
+        block && isTextualBlock(block)
+          ? getCharIdsInRangeFromRuns(block.charRuns, startIndex, endIndex)
+          : [];
+
+      return createTextDelete(blockId, charIds);
+    },
+
+    formatText(
+      blockId: string,
+      startIndex: number,
+      endIndex: number,
+      format: Mark,
+      value: boolean,
+    ): MarkSet {
+      const block = findBlock(getState(), blockId);
+      const charIds =
+        block && isTextualBlock(block)
+          ? getCharIdsInRangeFromRuns(block.charRuns, startIndex, endIndex)
+          : [];
+
+      return createFormatSet(blockId, charIds, format, value);
+    },
+
+    insertParagraph(orderKey: string): BlockInsert {
+      return createBlockInsert(orderKey, "paragraph");
+    },
+
+    changeBlockType(blockId: string, newType: BlockType): BlockSet {
+      return createBlockSetOp(blockId, "type", newType);
+    },
+
+    toggleTodo(blockId: string): BlockSet {
+      const block = findBlock(getState(), blockId);
+      const currentChecked =
+        block && "checked" in block ? block.checked : false;
+
+      return createBlockSetOp(blockId, "checked", !currentChecked);
+    },
+
+    setIndent(blockId: string, indent: number): BlockSet {
+      return createBlockSetOp(blockId, "indent", Math.max(0, indent));
+    },
+  };
+}

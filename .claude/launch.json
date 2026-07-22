@@ -1,0 +1,20 @@
+{
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 4000,
+      "cwd": "apps/web",
+      "autoPort": true
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 4100,
+      "cwd": "apps/site",
+      "autoPort": true
+    }
+  ]
+}

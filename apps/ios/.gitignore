@@ -1,0 +1,16 @@
+App/build
+App/Pods
+App/output
+App/App/public
+DerivedData
+xcuserdata
+
+# Local signing config (holds each developer's own DEVELOPMENT_TEAM)
+DeveloperSettings.xcconfig
+
+# Cordova plugins for Capacitor
+capacitor-cordova-ios-plugins
+
+# Generated Config files
+App/App/capacitor.config.json
+App/App/config.xml

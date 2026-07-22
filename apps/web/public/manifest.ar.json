@@ -1,0 +1,100 @@
+{
+  "name": "Tasfer",
+  "short_name": "Tasfer",
+  "description": "ملاحظات Markdown تبقى على جهازك — مشفّرة طرفًا إلى طرف، تتزامن مباشرة بين أجهزتك. بدون سحابة، بدون حساب.",
+  "lang": "ar",
+  "dir": "rtl",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#43a047",
+  "categories": [
+    "productivity",
+    "utilities"
+  ],
+  "launch_handler": {
+    "client_mode": [
+      "navigate-existing",
+      "auto"
+    ]
+  },
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-mono-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "monochrome"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/desktop-light.png",
+      "sizes": "2560x1600",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "ملاحظات ومهام ومعادلات في محرّر لوحة الرسم — المظهر الفاتح"
+    },
+    {
+      "src": "/screenshots/desktop-dark.png",
+      "sizes": "2560x1600",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "معادلات تُرسم مباشرةً على لوحة الرسم — المظهر الداكن"
+    },
+    {
+      "src": "/screenshots/mobile-light.png",
+      "sizes": "780x1688",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "ملاحظة تتضمّن مهامًا على الهاتف — المظهر الفاتح"
+    },
+    {
+      "src": "/screenshots/mobile-dark.png",
+      "sizes": "780x1688",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "ملاحظة فيزياء على الهاتف — المظهر الداكن"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "صفحة جديدة",
+      "url": "/page?new"
+    },
+    {
+      "name": "التقويم",
+      "url": "/calendar"
+    },
+    {
+      "name": "الأرشيف",
+      "url": "/archive"
+    }
+  ]
+}

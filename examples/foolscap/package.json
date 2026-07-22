@@ -1,0 +1,24 @@
+{
+  "name": "@tasfer-examples/foolscap",
+  "license": "MIT",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Foolscap — a distraction-free writing studio built on @tasfer/editor.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^6.0.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5"
+  }
+}

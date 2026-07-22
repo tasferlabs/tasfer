@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Theme-aware color aliases for dark mode -->
+    <color name="background">@color/dark_background</color>
+    <color name="foreground">@color/dark_foreground</color>
+    <color name="card">@color/dark_card</color>
+    <color name="card_foreground">@color/dark_card_foreground</color>
+    <color name="popover">@color/dark_popover</color>
+    <color name="popover_foreground">@color/dark_popover_foreground</color>
+    <color name="primary">@color/dark_primary</color>
+    <color name="primary_foreground">@color/dark_primary_foreground</color>
+    <color name="secondary">@color/dark_secondary</color>
+    <color name="secondary_foreground">@color/dark_secondary_foreground</color>
+    <color name="muted">@color/dark_muted</color>
+    <color name="muted_foreground">@color/dark_muted_foreground</color>
+    <color name="accent">@color/dark_accent</color>
+    <color name="accent_foreground">@color/dark_accent_foreground</color>
+    <color name="destructive">@color/dark_destructive</color>
+    <color name="border">@color/dark_border</color>
+    <color name="input">@color/dark_input</color>
+    <color name="ring">@color/dark_ring</color>
+</resources>

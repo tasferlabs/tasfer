@@ -1,0 +1,304 @@
+import { invalidateAffectedBlocks } from "../rendering/renderer";
+import type { EditorState, UndoGroup, UndoManagerState } from "../state-types";
+import type { Operation } from "../state-types";
+import {
+  captureContentSelection,
+  restoreContentSelection,
+} from "../structured-selection";
+import {
+  captureCRDTCursor,
+  captureCRDTSelection,
+  restoreCursor,
+  restoreSelection,
+} from "./crdt-utils";
+import { invertOperations, refreshOps } from "./inverse";
+import { applyOp, applyOps } from "./reducer";
+
+export const initialUndoManagerState: UndoManagerState = {
+  undoStack: [],
+  redoStack: [],
+};
+
+/**
+ * Record operations to the undo stack.
+ *
+ * Captures the inverses of `ops` against `stateBefore` and stores them on
+ * the UndoGroup. At undo time those inverses are re-stamped with fresh
+ * id/clock and applied verbatim — they don't get recomputed from current
+ * state. That decouples undo from any intervening remote edits and removes
+ * a whole class of "inverse function drifted from apply function" bugs.
+ *
+ * Clears the redo stack since a new action invalidates redo history.
+ *
+ * @param stateBefore - The state BEFORE the operations were applied
+ * @param stateAfter - The state AFTER the operations were applied
+ * @param ops - The operations that were applied
+ * @param peerId - The peer ID of the user who performed the operations
+ */
+export function recordUndoOps(
+  stateBefore: EditorState,
+  stateAfter: EditorState,
+  ops: readonly Operation[],
+  peerId: string,
+): EditorState {
+  if (ops.length === 0) return stateAfter;
+
+  const cursorBefore = captureCRDTCursor(stateBefore);
+  const selectionBefore = captureCRDTSelection(stateBefore);
+  const contentSelectionBefore = captureContentSelection(stateBefore);
+  const cursorAfter = captureCRDTCursor(stateAfter);
+  const selectionAfter = captureCRDTSelection(stateAfter);
+  const contentSelectionAfter = captureContentSelection(stateAfter);
+
+  // Capture inverses now, against stateBefore. invertOperations folds
+  // applyOp through `ops` so each op's inverse is computed against the
+  // state immediately before that specific op was applied.
+  const inverses = invertOperations(
+    ops,
+    stateBefore.document.page,
+    (page, op) => applyOp(page, op, stateBefore.schema),
+    stateAfter.CRDTbinding,
+    stateBefore.schema,
+  );
+
+  const undoGroup: UndoGroup = {
+    operations: ops,
+    inverses,
+    peerId,
+    cursorBefore,
+    selectionBefore,
+    contentSelectionBefore,
+    cursorAfter,
+    selectionAfter,
+    contentSelectionAfter,
+  };
+
+  return {
+    ...stateAfter,
+    undoManager: {
+      undoStack: [...stateAfter.undoManager.undoStack, undoGroup],
+      redoStack: [], // Clear redo stack on new operations
+    },
+  };
+}
+
+/**
+ * Undo the last operation group by this user.
+ *
+ * Applies the captured inverses (re-stamped with fresh id/clock via
+ * refreshOps) instead of recomputing them from current state. The captured
+ * inverses encode the original action's pre-state and apply cleanly even if
+ * other peers have edited the document around them in the meantime.
+ *
+ * Returns the updated state and the inverse operations that were applied
+ * (already stamped with fresh id/clock, ready to be broadcast to peers).
+ */
+/**
+ * Whether {@link undoState} would currently change the document: there is at
+ * least one undo group from this peer with non-empty captured inverses. Empty
+ * groups are skipped by `undoState`, so they don't count — this predicate
+ * matches what an actual undo would do. Cheap enough to read on every render
+ * (it backs `editor.state.canUndo`).
+ */
+export function canUndoState(state: EditorState): boolean {
+  const peerId = state.CRDTbinding.getPeerId();
+  return state.undoManager.undoStack.some(
+    (g) => g.peerId === peerId && g.inverses.length > 0,
+  );
+}
+
+/** Whether {@link redoState} would currently change the document — there is a
+ * redo group from this peer (redo groups always carry operations). Backs
+ * `editor.state.canRedo`. */
+export function canRedoState(state: EditorState): boolean {
+  const peerId = state.CRDTbinding.getPeerId();
+  return state.undoManager.redoStack.some((g) => g.peerId === peerId);
+}
+
+export function undoState(state: EditorState): {
+  state: EditorState;
+  ops: Operation[];
+} {
+  const { undoStack, redoStack } = state.undoManager;
+  const currentPeerId = state.CRDTbinding.getPeerId();
+
+  // Find the last undo group from this user
+  let lastUserGroupIndex = -1;
+  for (let i = undoStack.length - 1; i >= 0; i--) {
+    if (undoStack[i].peerId === currentPeerId) {
+      lastUserGroupIndex = i;
+      break;
+    }
+  }
+
+  if (lastUserGroupIndex === -1) {
+    // No undo operations from this user
+    return { state, ops: [] };
+  }
+
+  const undoGroup = undoStack[lastUserGroupIndex];
+
+  // If the captured inverses are empty (e.g. all the original ops were
+  // no-ops in the first place), skip this group and try the next.
+  if (undoGroup.inverses.length === 0) {
+    const newUndoStack = [
+      ...undoStack.slice(0, lastUserGroupIndex),
+      ...undoStack.slice(lastUserGroupIndex + 1),
+    ];
+    return undoState({
+      ...state,
+      undoManager: { ...state.undoManager, undoStack: newUndoStack },
+    });
+  }
+
+  // Re-stamp the captured inverses with fresh id/clock so peers (and the
+  // local oplog) see them as new events. Payload is unchanged.
+  const inverseOps = refreshOps(undoGroup.inverses, state.CRDTbinding);
+
+  // Apply inverse operations to the page
+  const newPage = applyOps(state.document.page, inverseOps, state.schema);
+
+  // Create state with new page
+  let newState: EditorState = {
+    ...state,
+    document: {
+      ...state.document,
+      page: newPage,
+    },
+  };
+
+  invalidateAffectedBlocks(newState, inverseOps);
+
+  // Restore cursor/selection to the state BEFORE the operation was performed
+  newState = restoreCursor(newState, undoGroup.cursorBefore);
+  newState = restoreSelection(newState, undoGroup.selectionBefore);
+  newState = restoreContentSelection(
+    newState,
+    undoGroup.contentSelectionBefore,
+  );
+
+  // Update undo/redo stacks
+  const newUndoStack = [
+    ...undoStack.slice(0, lastUserGroupIndex),
+    ...undoStack.slice(lastUserGroupIndex + 1),
+  ];
+
+  // Carry the original group onto the redo stack verbatim, including its
+  // captured inverses. A subsequent redo→undo cycle will reuse the same
+  // inverses, keeping the round-trip deterministic.
+  const redoGroup: UndoGroup = {
+    operations: undoGroup.operations,
+    inverses: undoGroup.inverses,
+    peerId: currentPeerId,
+    cursorBefore: undoGroup.cursorBefore,
+    selectionBefore: undoGroup.selectionBefore,
+    contentSelectionBefore: undoGroup.contentSelectionBefore,
+    cursorAfter: undoGroup.cursorAfter,
+    selectionAfter: undoGroup.selectionAfter,
+    contentSelectionAfter: undoGroup.contentSelectionAfter,
+  };
+
+  return {
+    state: {
+      ...newState,
+      undoManager: {
+        undoStack: newUndoStack,
+        redoStack: [...redoStack, redoGroup],
+      },
+    },
+    ops: inverseOps,
+  };
+}
+
+/**
+ * Redo the last undone operation group by this user.
+ *
+ * Re-applies the original operations (re-stamped with fresh id/clock via
+ * refreshOps). The captured inverses are carried back to the undo stack so
+ * subsequent re-undo uses the same inverses — the same emit-time pre-state
+ * is still the correct rollback target.
+ */
+export function redoState(state: EditorState): {
+  state: EditorState;
+  ops: Operation[];
+} {
+  const { undoStack, redoStack } = state.undoManager;
+  const currentPeerId = state.CRDTbinding.getPeerId();
+
+  // Find the last redo group from this user
+  let lastUserGroupIndex = -1;
+  for (let i = redoStack.length - 1; i >= 0; i--) {
+    if (redoStack[i].peerId === currentPeerId) {
+      lastUserGroupIndex = i;
+      break;
+    }
+  }
+
+  if (lastUserGroupIndex === -1) {
+    // No redo operations from this user
+    return { state, ops: [] };
+  }
+
+  const redoGroupData = redoStack[lastUserGroupIndex];
+
+  // Re-stamp the original ops with fresh id/clock. The originals are
+  // already in every peer's version vector from the first broadcast, so
+  // re-sending them would be a no-op; the re-stamped copies propagate
+  // normally. Semantic effect is identical because the payload is unchanged.
+  const redoOps = refreshOps(redoGroupData.operations, state.CRDTbinding);
+
+  // Apply redo operations to the page
+  const newPage = applyOps(state.document.page, redoOps, state.schema);
+
+  // Create state with new page
+  let newState: EditorState = {
+    ...state,
+    document: {
+      ...state.document,
+      page: newPage,
+    },
+  };
+
+  invalidateAffectedBlocks(newState, redoOps);
+
+  // Restore cursor/selection to the state AFTER the operation was performed
+  newState = restoreCursor(newState, redoGroupData.cursorAfter);
+  newState = restoreSelection(newState, redoGroupData.selectionAfter);
+  newState = restoreContentSelection(
+    newState,
+    redoGroupData.contentSelectionAfter,
+  );
+
+  // Update undo/redo stacks
+  const newRedoStack = [
+    ...redoStack.slice(0, lastUserGroupIndex),
+    ...redoStack.slice(lastUserGroupIndex + 1),
+  ];
+
+  // Carry the captured inverses back to the undo stack so subsequent
+  // re-undo rolls back to the same emit-time pre-state.
+  const undoGroup: UndoGroup = {
+    operations: redoGroupData.operations,
+    inverses: redoGroupData.inverses,
+    peerId: currentPeerId,
+    cursorBefore: redoGroupData.cursorBefore,
+    selectionBefore: redoGroupData.selectionBefore,
+    contentSelectionBefore: redoGroupData.contentSelectionBefore,
+    cursorAfter: redoGroupData.cursorAfter,
+    selectionAfter: redoGroupData.selectionAfter,
+    contentSelectionAfter: redoGroupData.contentSelectionAfter,
+  };
+
+  return {
+    state: {
+      ...newState,
+      undoManager: {
+        undoStack: [...undoStack, undoGroup],
+        redoStack: newRedoStack,
+      },
+    },
+    ops: redoOps,
+  };
+}
+
+//NOTE - this should be crdt folder

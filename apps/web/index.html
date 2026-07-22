@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="icon" id="favicon" type="image/svg+xml" href="/favicon-light.svg" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" id="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#43a047" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+  <title>Tasfer</title>
+  <!-- Apply dark class BEFORE styles.css so all CSS variables resolve to the correct theme immediately -->
+  <script>
+    (function(){
+      var t=localStorage.getItem("theme");
+      var isDark=t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme:dark)").matches);
+      if(isDark){
+        document.documentElement.classList.add("dark");
+        document.getElementById("favicon").setAttribute("href","/favicon-dark.svg");
+      }
+    })()
+  </script>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+
+<body>
+  <div id="electron-menubar" style="display:none"></div>
+  <div id="root">
+    <div id="loading" style="display:flex;align-items:center;justify-content:center;height:100dvh;width:100%">
+      <img id="loading-spinner" src="/spinner.png" alt="Loading..." width="32" height="32"
+        style="animation:spin 1s linear infinite" />
+    </div>
+    <style>
+      @keyframes spin{to{transform:rotate(360deg)}}
+    </style>
+    <script>
+      (function(){
+        /* Electron on Windows/Linux: show menubar early to avoid flash + fix scrollbar */
+        if(window.tasfer&&window.tasfer.platform!=="darwin"){
+          var mb=document.getElementById("electron-menubar");
+          mb.style.display="block";
+          mb.style.height="36px";
+          mb.style.webkitAppRegion="drag";
+          document.getElementById("loading").style.height="calc(100dvh - 36px)";
+          document.documentElement.style.overflow="hidden";
+        }
+      })()
+    </script>
+  </div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>

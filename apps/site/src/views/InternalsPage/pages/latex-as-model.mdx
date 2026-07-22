@@ -1,0 +1,12 @@
+---
+title: "LaTeX as the Document Model"
+date: "2026-07-10"
+authors: ["hamza512b"]
+summary: "Findings from porting KaTeX to canvas: why LaTeX source cannot be the source of truth for math blocks in a CRDT editor, and what we take from TeX instead."
+---
+
+LaTeX could be the source of truth for a math block when a single user is editing and no CRDT is involved. For our case it does not make sense at all. And even in that single-user scenario, where it could work, it is still really hard to implement.
+
+The root problem is that LaTeX is a language designed and built with no consideration that it would be used as a document model. It is a typesetting language: it describes how to lay out a formula once, not how to represent one that is being edited — let alone edited concurrently by several peers. A CRDT needs stable, addressable structure to merge against, and a flat string of TeX source has none.
+
+What I am going for now is to draw inspiration from the TeX language as far as I can — make math a first-class citizen of the document — but not abide by TeX's constraints.

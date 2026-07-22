@@ -1,0 +1,100 @@
+{
+  "name": "Tasfer",
+  "short_name": "Tasfer",
+  "description": "Markdown notes that stay on your device — end-to-end encrypted, syncing directly between your devices. No cloud, no account.",
+  "lang": "en",
+  "dir": "ltr",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#43a047",
+  "categories": [
+    "productivity",
+    "utilities"
+  ],
+  "launch_handler": {
+    "client_mode": [
+      "navigate-existing",
+      "auto"
+    ]
+  },
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-mono-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "monochrome"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/desktop-light.png",
+      "sizes": "2560x1600",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Notes, tasks and math on the canvas editor — light theme"
+    },
+    {
+      "src": "/screenshots/desktop-dark.png",
+      "sizes": "2560x1600",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Equations rendered natively on the canvas — dark theme"
+    },
+    {
+      "src": "/screenshots/mobile-light.png",
+      "sizes": "780x1688",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "A note with tasks on a phone — light theme"
+    },
+    {
+      "src": "/screenshots/mobile-dark.png",
+      "sizes": "780x1688",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "A physics note on a phone — dark theme"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New page",
+      "url": "/page?new"
+    },
+    {
+      "name": "Calendar",
+      "url": "/calendar"
+    },
+    {
+      "name": "Archive",
+      "url": "/archive"
+    }
+  ]
+}

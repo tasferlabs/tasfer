@@ -1,0 +1,14 @@
+---
+title: "Difference between Tasfer and Obsidian"
+date: "2026-06-16"
+authors: ["hamza512b"]
+summary: "Why Tasfer exists next to Obsidian: open source, CRDT-first, and canvas-rendered instead of contenteditable."
+---
+
+Obsidian has a very large user base and is battle tested, but I can not trust my thoughts and my life's work with closed source software. I appreciate the recent work of the authors, where what I believe is a tilt towards openness with tools such as [Defuddle](https://github.com/kepano/defuddle). In fact I use Defuddle internally and there is no reason to reinvent the wheel and not support the initiative.
+
+On the technical side Obsidian is right now far more established, but Tasfer is a bit different.
+
+It is not only an editor, it is a package. The editor and package are CRDT first. CRDT as stated means the document is not a file you save, it is an operation log that converges. Every edit is an operation stamped with a _Clock_. So two peers editing the same paragraph offline merge deterministically when they reconnect: no last-write-wins, no conflict files.
+
+It also uses the canvas instead of contenteditable and ProseMirror. Where as Tasfer is closer to how Google Docs renderers than to a typical Markdown app. No much difference from end user perspective, but makes much difference when developing.

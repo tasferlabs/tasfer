@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose an improvement or idea.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the outcome you want.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Any additional context
+      placeholder: Mockups, references, constraints, tradeoffs.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: This request aligns with Tasfer's local-first and privacy-respecting goals, and this is not a security issue. For security issues look at ([SECURITY.md](SECURITY.md)).
+          required: false
+        - label: I agree with contributing guidelines.
+          required: true

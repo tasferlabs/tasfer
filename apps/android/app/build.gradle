@@ -1,0 +1,164 @@
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+
+// Release signing is configured via apps/android/keystore.properties (gitignored).
+// Copy keystore.properties.example next to it and fill it in. When the file is
+// absent (fresh checkout / CI without secrets), release builds fall back to
+// unsigned output so debug builds still work.
+def keystorePropsFile = rootProject.file("keystore.properties")
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
+// Play rejects an upload whose versionCode was already used, so it has to grow on
+// every release. Derive it from the semver instead of keeping a second counter in
+// sync by hand: bumping versionName is then the only step. fastlane applies the
+// same packing (see `android_version_code` in fastlane/Fastfile); change both or
+// neither. The 1.4.2 -> 10402 layout caps minor and patch at 99.
+//
+// Tracks apps/web/package.json. The previous "0.0.0" placeholder is not
+// expressible here: it derives a versionCode of 0, which AGP rejects outright.
+def tasferVersionName = "0.1.0"
+def tasferSemver = (tasferVersionName =~ /^(\d+)\.(\d+)\.(\d+)$/)
+if (!tasferSemver.matches()) {
+    throw new GradleException(
+        "versionName '${tasferVersionName}' is not a bare major.minor.patch semver")
+}
+def tasferMajor = tasferSemver.group(1).toInteger()
+def tasferMinor = tasferSemver.group(2).toInteger()
+def tasferPatch = tasferSemver.group(3).toInteger()
+if (tasferMinor > 99 || tasferPatch > 99) {
+    throw new GradleException(
+        "versionName '${tasferVersionName}': minor and patch must each be <= 99, " +
+        "otherwise the derived versionCode collides with the next major/minor")
+}
+def tasferVersionCode = tasferMajor * 10000 + tasferMinor * 100 + tasferPatch
+
+android {
+    namespace = "app.tasfer"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "app.tasfer"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode tasferVersionCode
+        versionName tasferVersionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (keystorePropsFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    kotlinOptions {
+        jvmTarget = '21'
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation "androidx.activity:activity-ktx:$androidxActivityVersion"
+    implementation "androidx.core:core-ktx:$androidxCoreVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+// Build the web app and run `cap sync` before every native build, so an
+// Android Studio "Run"/"Build" always packages the latest web bundle.
+// Set TASFER_SKIP_WEB_BUILD=1 to skip the web build + copy; native string
+// generation from translation.json still runs (see build-and-sync.sh).
+// Locate Git Bash's bash.exe on Windows. A bare `bash` on PATH resolves to the
+// WSL launcher (System32\bash.exe) first, which cannot run a Windows-path shell
+// script and fails to even start when no WSL distro is configured.
+def findGitBash = {
+    def candidates = []
+    def override = System.getenv('GIT_BASH')
+    if (override) candidates << override
+    // Derive from `git` on PATH: <Git>\cmd\git.exe -> <Git>\bin\bash.exe.
+    System.getenv('PATH')?.split(File.pathSeparator)?.each { dir ->
+        def gitExe = new File(dir as String, 'git.exe')
+        if (gitExe.isFile()) {
+            def root = gitExe.parentFile?.parentFile
+            if (root) {
+                candidates << new File(root, 'bin/bash.exe').absolutePath
+                candidates << new File(root, 'usr/bin/bash.exe').absolutePath
+            }
+        }
+    }
+    // Common install locations.
+    [System.getenv('ProgramFiles'), System.getenv('ProgramFiles(x86)')].each { base ->
+        if (base) candidates << "${base}\\Git\\bin\\bash.exe" as String
+    }
+    def localAppData = System.getenv('LOCALAPPDATA')
+    if (localAppData) candidates << "${localAppData}\\Programs\\Git\\bin\\bash.exe" as String
+    return candidates.find { it && new File(it as String).isFile() }
+}
+
+tasks.register('tasferWebBuildAndSync', Exec) {
+    description = 'Build the web app and sync it into the Android project'
+    // app -> android -> apps -> repo; web lives at apps/web.
+    def script = file("${rootProject.projectDir}/../web/scripts/build-and-sync.sh")
+    workingDir rootProject.projectDir
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        def bash = findGitBash()
+        if (bash == null) {
+            throw new GradleException(
+                'Could not find Git Bash (bash.exe). Install Git for Windows, or set the ' +
+                'GIT_BASH environment variable to the full path of bash.exe.')
+        }
+        // Pass a forward-slash path: Git Bash handles `C:/...` for both the script
+        // argument and the script's own dirname/cd, whereas backslashes break them.
+        commandLine bash, script.absolutePath.replace('\\', '/'), 'android'
+    } else {
+        commandLine 'bash', script.absolutePath, 'android'
+    }
+}
+preBuild.dependsOn 'tasferWebBuildAndSync'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

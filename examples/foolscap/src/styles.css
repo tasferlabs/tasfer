@@ -1,0 +1,386 @@
+/* ── Foolscap — a distraction-free writing studio ─────────────────────────── */
+
+:root {
+  --paper: #f3efe6;
+  --ink: #201d18;
+  --rule: #e4ddcd;
+  --amber: #c0522f;
+  --muted: #8c8473;
+  --faint: #a79f8d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.foolscap {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Chapters rail ────────────────────────────────────────────────────────── */
+
+.rail {
+  flex: none;
+  width: 248px;
+  background: #ece7da;
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  padding: 26px 20px;
+}
+
+.rail__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 30px;
+}
+
+.rail__mark {
+  width: 30px;
+  height: 30px;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.rail__wordmark {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.rail__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 4px;
+}
+
+.rail__title {
+  font-family: "Spectral", Georgia, serif;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 24px;
+  line-height: 1.2;
+}
+
+.rail__chapters {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rail__chapter {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.rail__chapter-name {
+  font-family: "Spectral", Georgia, serif;
+  font-size: 15px;
+}
+
+.rail__chapter-name--draft {
+  font-style: italic;
+}
+
+.rail__chapter-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+
+.rail__chapter--active {
+  background: #faf7f0;
+  border-left: 2px solid var(--amber);
+  padding: 9px 10px;
+}
+
+.rail__chapter--active .rail__chapter-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.rail__chapter--active .rail__chapter-count {
+  color: var(--amber);
+}
+
+.rail__chapter--muted {
+  color: #b8b09e;
+}
+
+.rail__goal {
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+}
+
+.rail__goal-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 8px;
+}
+
+.rail__goal-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--rule);
+  overflow: hidden;
+  margin-bottom: 7px;
+}
+
+.rail__goal-fill {
+  height: 100%;
+  background: var(--amber);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.rail__goal-caption {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── Writing stage ────────────────────────────────────────────────────────── */
+
+.stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(120% 80% at 50% 0%, #fbf8f2 0%, #f3efe6 70%);
+}
+
+.stage__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 36px;
+}
+
+.stage__crumb {
+  font-size: 13px;
+  color: var(--faint);
+  letter-spacing: 0.02em;
+}
+
+.stage__tools {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.stage__ring {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.stage__ring-dial {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+
+.stage__ring-hole {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #f7f3eb;
+  margin: 5px;
+}
+
+.stage__ring-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stage__divider {
+  width: 1px;
+  height: 22px;
+  background: #e4ddcd;
+}
+
+.stage__icon {
+  color: var(--muted);
+  display: inline-flex;
+}
+
+.stage__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  padding: 14px 40px 0;
+}
+
+.stage__column {
+  width: 100%;
+  max-width: 660px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.stage__page-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #b8b09e;
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.stage__page-title {
+  font-family: "Spectral", Georgia, serif;
+  margin: 0 0 18px;
+  font-size: 38px;
+  font-weight: 600;
+  color: #181610;
+  text-align: center;
+  letter-spacing: -0.01em;
+}
+
+.stage__editor {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The editor canvas is transparent, so the stage gradient shows through the
+   page margins — exactly the "page floating on paper" look. */
+.stage__editor canvas {
+  background: transparent;
+}
+
+.stage__margin-note {
+  position: absolute;
+  right: -256px;
+  top: 300px;
+  width: 218px;
+  background: #ffffff;
+  border: 1px solid #e8e0d1;
+  border-radius: 10px;
+  padding: 12px 13px;
+  box-shadow: 0 6px 18px rgba(120, 90, 40, 0.12);
+}
+
+.stage__margin-note-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.stage__margin-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.stage__margin-note-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #565044;
+}
+
+/* Margin note only fits when there is room beside the column. */
+@media (max-width: 1320px) {
+  .stage__margin-note {
+    display: none;
+  }
+}
+
+.stage__capsule {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: #201d18;
+  color: #f4e6db;
+  border-radius: 30px;
+  padding: 11px 20px;
+  box-shadow: 0 14px 36px rgba(40, 30, 15, 0.32);
+  font-size: 14px;
+}
+
+.stage__capsule-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stage__capsule-divider {
+  width: 1px;
+  height: 16px;
+  background: #423d35;
+}
+
+.stage__capsule-saved {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #e2926a;
+}
+
+.stage__tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.stage__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6fb083;
+  transition: background 0.3s ease;
+}
+
+.stage__dot--busy {
+  background: #e2926a;
+}

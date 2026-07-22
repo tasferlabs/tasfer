@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    // Resolve sibling @tasfer packages from their built dist declarations.
+    // Build them in dependency order: editor and provider-core before this.
+    "paths": {
+      "*": ["./*"],
+      "@tasfer/editor": ["../editor/dist/index.d.mts"],
+      "@tasfer/editor/*": ["../editor/dist/*"],
+      "@tasfer/provider-core": ["../provider-core/dist/index.d.mts"],
+      "@tasfer/provider-core/*": ["../provider-core/dist/*"]
+    }
+  },
+  "include": ["src"]
+}

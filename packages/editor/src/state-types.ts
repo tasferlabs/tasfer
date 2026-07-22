@@ -1,0 +1,1495 @@
+import type { ActionBus } from "./action-bus";
+import type { DecorationLayers } from "./rendering/decorations";
+import type { MarkRegistry } from "./rendering/marks/Mark";
+import type { NodeRegistry } from "./rendering/nodes/Node";
+import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
+import type { Block, CharRun, Mark, Page } from "./serlization/loadPage";
+import type { ContentPoint, ContentSelection } from "./structured-selection";
+import type { DataSchema } from "./sync/schema";
+import type { StructuredMutation } from "./sync/structured-content";
+import type { IdentityAllocator } from "@shared/identity";
+
+// =============================================================================
+// CRDT Types — P2P Offline-Tolerant Live Updates
+//
+// The CRDT is a first-class part of the editor state model: every edit is an
+// `Operation`, `EditorState` carries the `CRDTbinding` that stamps them, and
+// undo/redo stores operations rather than snapshots. These types therefore
+// live here, alongside the rest of the state model, rather than in sync/.
+// =============================================================================
+
+/**
+ * Hybrid Logical Clock for total ordering of operations.
+ * Pure Lamport clock: counter + peerId for causality tracking.
+ * No wall clock dependency - immune to system clock skew.
+ */
+export interface HLC {
+  /** Logical counter - increments on each operation */
+  counter: number;
+  /** Peer ID - tie-breaker for concurrent operations */
+  peerId: string;
+}
+
+/**
+ * A block type name. Just `string` — deliberately NOT a closed union of the
+ * built-in types. Block types are fully dynamic: a block type exists because a
+ * node was registered for it on a schema (`baseSchema` for the built-ins,
+ * `extend(...)` for custom ones), and the runtime `BLOCK_REGISTRY` is the only
+ * source of truth for "what built-in types exist." Custom and built-in types
+ * are indistinguishable at the type level — both flow as plain strings through
+ * ops, the registry helpers, and `Block["type"]` — so no code can hardcode an
+ * exhaustive list of them. The alias is kept purely as intent-revealing
+ * documentation at signatures that mean "a block type name."
+ */
+export type BlockType = string;
+
+/**
+ * Block properties that can be set via BlockSet operation.
+ */
+export interface BlockProps {
+  /** List item indentation level */
+  indent?: number;
+  /** Todo item checked state */
+  checked?: boolean;
+  /** Image URL */
+  url?: string;
+  /** Image alt text */
+  alt?: string;
+  /** Image width */
+  width?: number | "full";
+  /** Image height */
+  height?: number;
+  /** Image object fit */
+  objectFit?: "cover" | "contain";
+  /** Math block LaTeX source */
+  latex?: string;
+  /** Math block display mode (true = display/block, false = inline) */
+  displayMode?: boolean;
+  /**
+   * Per-block visual style overrides (see `BlockRuntimeState.style`). Synced
+   * per-property as `style.<key>` `block_set` ops; carried whole only here, so a
+   * block can be created or restored (block_insert initialProps) with style.
+   */
+  style?: Record<string, unknown>;
+}
+
+/**
+ * Base operation fields shared by all operation types.
+ */
+export interface BaseOp {
+  /** Unique operation ID: `${peerId}:${counter}` */
+  id: string;
+  /** Hybrid logical clock timestamp */
+  clock: HLC;
+  /** Page this operation belongs to */
+  pageId: string;
+}
+
+/**
+ * Insert characters into a block's text content.
+ */
+export interface TextInsert extends BaseOp {
+  op: "text_insert";
+  /** Block to insert into */
+  blockId: string;
+  /** Insert after this character ID (null = beginning) */
+  afterCharId: string | null;
+  /** Character runs to insert (compressed format) */
+  charRuns: CharRun[];
+}
+
+/**
+ * Delete characters from a block (tombstone).
+ */
+export interface TextDelete extends BaseOp {
+  op: "text_delete";
+  /** Block to delete from */
+  blockId: string;
+  /** Character IDs to mark as deleted */
+  charIds: string[];
+}
+
+/**
+ * Set formatting on a range of characters.
+ */
+export interface MarkSet extends BaseOp {
+  op: "mark_set";
+  /** Block containing the characters */
+  blockId: string;
+  /** Character IDs to format */
+  charIds: string[];
+  /** Mark to apply (its per-mark data, e.g. a link's url, rides `format.attrs`) */
+  format: Mark;
+  /** Whether to apply the mark (`true`) or remove it from the range (`false`) */
+  value: boolean;
+}
+
+/**
+ * Insert a new block into the document.
+ */
+export interface BlockInsert extends BaseOp {
+  op: "block_insert";
+  /**
+   * Fractional-index position key for the new block (see `fractional-index.ts`).
+   * Document order is `sort by (orderKey, id)`; the emitter mints a key in the
+   * gap after the intended predecessor.
+   */
+  orderKey: string;
+  /** New block's unique ID */
+  blockId: string;
+  /** Block type — a built-in `BlockType` or a custom schema-registered name. */
+  blockType: string & {};
+  /** Initial block properties */
+  initialProps?: BlockProps;
+}
+
+/**
+ * Delete a block (tombstone).
+ */
+export interface BlockDelete extends BaseOp {
+  op: "block_delete";
+  /** Block ID to mark as deleted */
+  blockId: string;
+}
+
+/**
+ * Set a block property (type, indent, checked, etc.).
+ *
+ * Block position is just another LWW field here: moving a block is a
+ * `block_set` of `field: "orderKey"` with a freshly minted key. There is no
+ * dedicated move op — ordering converges through the same HLC last-writer-wins
+ * path as every other block property.
+ */
+export interface BlockSet extends BaseOp {
+  op: "block_set";
+  /** Block to update */
+  blockId: string;
+  /** Property field name */
+  field: string;
+  /** New property value */
+  value: unknown;
+}
+
+/** Apply one schema-agnostic mutation to a structured attachment on a block. */
+export interface ContentEdit extends BaseOp {
+  op: "content_edit";
+  /** Block that owns the attachment. */
+  blockId: string;
+  /** Stable attachment identity (the structured document's root id). */
+  contentId: string;
+  /** Initialization or one normalized tree/text mutation. */
+  edit: StructuredMutation;
+}
+
+/**
+ * Union of all operation types.
+ */
+export type Operation =
+  | TextInsert
+  | TextDelete
+  | MarkSet
+  | BlockInsert
+  | BlockDelete
+  | BlockSet
+  | ContentEdit;
+
+/**
+ * Version vector tracking seen operations per peer.
+ * Maps peer ID to highest operation counter seen from that peer.
+ */
+export type VersionVector = Map<string, number>;
+
+/**
+ * Operation log for a page.
+ */
+export interface OpLog {
+  /** Page ID */
+  pageId: string;
+  /** All operations ordered by HLC */
+  operations: Operation[];
+  /** Version vector of seen operations */
+  versionVector: VersionVector;
+  /** Computed state from operations */
+  state: Page;
+}
+
+/**
+ * A font family key. Opaque string chosen by the host application — the editor
+ * does not assume any particular fonts exist. Keys are mapped to CSS
+ * font-stacks via `EditorStyles.fonts.families`.
+ */
+export type FontFamily = string;
+// Editor State Types
+export interface ClickTracker {
+  count: number;
+  lastClickTime: number;
+  lastClickPosition: { x: number; y: number } | null;
+}
+
+export interface LinkHoverState {
+  readonly position: Position;
+  readonly url: string;
+  readonly text: string;
+  readonly x: number;
+  readonly y: number;
+  readonly startIndex: number;
+  readonly endIndex: number;
+}
+
+// Unified menu system - only one menu can be active at a time
+export type ActiveMenu =
+  | { type: "none" }
+  | {
+      // A host-defined overlay (popover/drawer/tooltip), anchored at a block.
+      // The engine knows nothing about which overlay it is: `key` maps to a host
+      // component (the node/mark that declares it in `overlays()` reads this back
+      // by key), `data` is an opaque host payload. This is the generic slot every
+      // host overlay flows through — the engine never names a specific overlay.
+      //
+      // The anchored block is addressed by stable `blockId`, not a positional
+      // index: the menu is stored across ticks (opened on one tap/frame, read
+      // back by the overlay producer and compared on a later one), so a
+      // positional index could be invalidated by a concurrent remote edit in
+      // between. Consumers resolve the id to the current index when they need one.
+      type: "overlay";
+      key: string;
+      blockId: string;
+      x: number;
+      y: number;
+      data?: unknown;
+    };
+
+// Document State - Only this goes in undo/redo
+export interface DocumentState {
+  readonly page: Page;
+  readonly cursor: CursorState | null;
+  readonly selection: SelectionState | null;
+  /** Active caret/range inside a structured attachment, separate from DocPoint. */
+  readonly contentSelection: ContentSelection | null;
+}
+
+// Composition State - IME input composition tracking
+export interface CompositionState {
+  readonly isComposing: boolean;
+  readonly text: string;
+  /** Stable start in either flat block text or an extension-owned document. */
+  readonly startPosition: Position | ContentPoint;
+  readonly cursorOffset: number; // Cursor position within composition text
+}
+
+// Active formats mode for typing
+export type ActiveFormatsMode =
+  | { type: "inherit" } // Inherit formatting from previous character (normal typing)
+  | { type: "explicit"; formats: readonly Mark[] }; // Explicit formatting mode (Ctrl+B toggled on/off)
+
+// Drag handle position on an image
+export type DragHandlePosition = "left" | "right" | "bottom" | null;
+
+// Drag state for selection handle (mobile text selection). The handle under the
+// finger is always the selection focus (the opposite handle is the fixed
+// anchor), so the dragged endpoint is unambiguous and needs no stored type.
+export interface SelectionHandleDragState {
+  readonly startX: number;
+  readonly startY: number;
+}
+
+/**
+ * Active block-reorder drag, started from a block's left-gutter handle. The
+ * block is addressed by stable `blockId` (survives concurrent remote edits that
+ * shift indices); `pointerY` is the live canvas-y of the pointer (for painting a
+ * follow indicator); `dropIndex` is the insertion index in `[0..N]` among the
+ * current visible blocks where the block would land — the renderer paints the
+ * insertion line there and the drag's `onEnd` resolves it to an `afterBlockId`.
+ */
+export interface BlockDragState {
+  readonly blockId: string;
+  readonly pointerY: number;
+  readonly dropIndex: number;
+}
+
+// Image Hover State - Not a menu, just visual feedback
+export interface ImageHoverState {
+  readonly blockIndex: number;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly hoveredHandle: DragHandlePosition; // Track which drag handle is being hovered
+}
+
+/**
+ * Caret-anchored scratch stashed by a node/mark in {@link UIState.caretScratch}.
+ * `type` is the owning node/mark type (for debugging / future multi-owner use);
+ * `blockId`/`offset` anchor it to a caret position. It's "active" only while the
+ * caret stays at that exact spot (see `isCaretScratchActive`); any caret move
+ * clears the whole slot.
+ */
+export interface CaretScratch {
+  readonly type: string;
+  readonly blockId: string;
+  readonly offset: number;
+}
+
+/**
+ * The editing unit adjacent to a caret, resolved by a node/mark's `deleteUnit`
+ * seam — a `[from, to)` block-text range plus whether it's a multi-part construct
+ * (selected first, deleted on the next press) versus a plain leaf (deleted now).
+ * The engine applies it uniformly; the node/mark only says *what* the unit is.
+ */
+export interface CaretDeleteUnit {
+  readonly from: number;
+  readonly to: number;
+  readonly isConstruct: boolean;
+}
+
+/**
+ * The result of a node/mark's `transformTypedInput` seam: the (possibly rewritten)
+ * string to insert, and whether inline-markdown auto-format should be skipped for
+ * this keystroke (e.g. a `$`/`*` typed inside an inline-math chip must not be
+ * reinterpreted as markdown).
+ */
+export interface TypedInputTransform {
+  readonly input: string;
+  readonly suppressMarkdown?: boolean;
+  /**
+   * Block-text index to insert at instead of the caret, when the keystroke's
+   * meaning targets a position the caret isn't at — e.g. a script (`^`/`_`)
+   * typed at the end of an accent's base attaches to the whole construct, so
+   * math redirects the insert to just past it (`\dot{x|}` + `^` → `\dot{x}^`).
+   * The caret lands after the inserted text as usual. Absent: insert at caret.
+   */
+  readonly insertAt?: number;
+  /**
+   * Absolute block-text index the caret should land at after the insert, when it
+   * belongs INSIDE the inserted text rather than after it — e.g. a typed script
+   * emits its empty box outright (`^{}`) so it can't swallow the following atom,
+   * and the caret must sit between the braces (`aa|aaa` + `^` → `aa^{}aaa` with
+   * the caret in the box). Absent: the caret lands after the inserted text.
+   */
+  readonly caret?: number;
+}
+
+/**
+ * Placeholder text a node/mark wants spliced into the block right after a user
+ * edit (e.g. typing `\frac` fills in its `{}{}` slots), plus where the caret
+ * should end up — what its `TEXT_INPUTTED` observer returns. Each insert's `at`
+ * is an
+ * index into the block's CURRENT text; the host applies them as real CRDT ops
+ * (right-to-left to keep indices valid) within the same edit, so the materialized
+ * braces sync to collaborators. `caret` is the final caret index after all inserts
+ * are applied.
+ */
+export interface ContentMaterialization {
+  readonly inserts: readonly { readonly at: number; readonly text: string }[];
+  readonly caret: number;
+  /**
+   * Block range `[from, to)` (post-insert) the host must (re-)mark so the
+   * materialized text stays part of the same span. Set for an inline-math chip,
+   * whose placeholder braces can land at the chip's right edge — outside the
+   * math mark — and would otherwise become plain text after the chip. Absent for
+   * a block equation, whose whole text is already the formula.
+   */
+  readonly markRange?: { readonly from: number; readonly to: number };
+}
+
+// UI State - Transient interaction state (menus, popovers, mode)
+export interface UIState {
+  readonly mode: EditorMode;
+  readonly isReadonlyBase: boolean; // True if editor was initialized in readonly mode (persists through select mode)
+  readonly activeMenu: ActiveMenu; // Unified menu system: engine-native menus (slash/context) + the generic host `overlay` slot
+  readonly isHoveringLinkWithModifier: boolean;
+  readonly isHoveringCheckbox: boolean;
+  readonly isHoveringPeerIndicator: boolean;
+  readonly inlineMathHover: {
+    readonly blockIndex: number;
+    readonly startIndex: number;
+    readonly endIndex: number;
+  } | null;
+  readonly hoveredMathBlockIndex: number | null;
+  /**
+   * Ephemeral, caret-anchored scratch owned by a node/mark (keyed by its `type`).
+   * Set by a node/mark right after an edit (in its `TEXT_INPUTTED` observer) to
+   * stash UI that's valid *only while the caret stays put*, and reset to `null`
+   * by {@link updateCursor} on ANY caret move — so the engine never interprets
+   * the value, it only clears it. Inline/block math uses it for in-progress
+   * command rendering (`\in` heading to `\int` draws as literal source instead of
+   * its symbol until the caret commits it). Purely cosmetic; never persisted,
+   * never in undo.
+   */
+  readonly caretScratch: CaretScratch | null;
+  readonly composition: CompositionState | null;
+  readonly activeMarksMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
+  readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
+  // Link hover state (not a blocking menu): the engine detects hover over a link
+  // mark and records it here; the host `link` mark renders a tooltip overlay from
+  // it. Engine-owned hover state, parallel to imageHover/inlineMathHover.
+  readonly linkHover: LinkHoverState | null;
+  // Transient, per-block canvas view-state, keyed by blockId. An opaque host
+  // payload a node reads to paint ephemeral chrome (e.g. an image's upload
+  // spinner) without the engine modelling that chrome as a menu/overlay. Set via
+  // `editor.setNodeViewState`; not document content, never persisted.
+  readonly nodeViewState: Readonly<Record<string, unknown>>;
+  readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
+  // Block id whose left-gutter drag handle the mouse is currently over, or null.
+  // Drives painting the Notion-style reorder grip; set by the desktop hover path
+  // off the same region hit-test the drag uses, so hover and drag never disagree.
+  readonly hoveredDragHandleBlockId: string | null;
+  // Active block-reorder drag (left-gutter handle), or null.
+  readonly blockDrag: BlockDragState | null;
+  // Insertion-gap index for an external drag (e.g. a dropped image file) hovering
+  // the canvas, or null. Drives the same insertion line the renderer paints for a
+  // block reorder, minus the gutter grip. Set by the host via
+  // `editor.view.showDropIndicator`; never persisted, never in undo.
+  readonly externalDropIndex: number | null;
+  // Ephemeral, range-anchored overlays the renderer paints on top of the
+  // document without them being content (find highlights, remote cursors). Keyed
+  // by an opaque layer name; never persisted, never in undo. See
+  // `rendering/decorations.ts`.
+  readonly decorations: DecorationLayers;
+}
+
+/**
+ * A per-editor VIEW WINDOW: restricts which of the document's blocks this editor
+ * renders and edits, without changing the underlying doc. Two editors attached
+ * to one shared `Doc` can show disjoint windows of it (e.g. a `TitleEditor`
+ * scoped to the title block alongside a full `PageEditor`) and — because the doc
+ * is the single source of truth — stay live-synced with zero extra wiring.
+ *
+ * A window is purely a view/authoring concern: it NEVER filters ops in the
+ * reducer or oplog, so peers converge on the full doc regardless of anyone's
+ * window. It is node/mark-agnostic — `select` is an opaque host-supplied rule
+ * and the core never names a block type. See `titleBlockWindow`.
+ */
+export interface ViewWindow {
+  /**
+   * Given the doc's full block list (document order, tombstones included),
+   * return the set of ORIGINAL indices this editor shows. Re-evaluated on every
+   * visible-blocks derivation, so a dynamic rule (e.g. "the first text block")
+   * tracks insertions/deletions. Must be pure and deterministic.
+   */
+  readonly select: (blocks: readonly Block[]) => ReadonlySet<number>;
+  /**
+   * When true this is a SINGLE-BLOCK surface: authoring ops that would create,
+   * split, or merge-away a block are suppressed, and the caret is kept inside
+   * the window. Set by windows that resolve to exactly one block (e.g. the
+   * title). Like `Schema.restrict`, this is an authoring-time gate only.
+   */
+  readonly singleBlock?: boolean;
+}
+
+// View State - Ephemeral view properties
+export interface ViewState {
+  readonly isFocused: boolean;
+  readonly clickTracker: ClickTracker;
+  readonly scrollbar: ScrollbarState;
+  readonly momentum: MomentumState;
+  visibleBlocks: (Block & { originalIndex: number })[];
+  /**
+   * This editor's block window, or undefined for a full-document editor (the
+   * default). Immutable per instance; every `getVisibleBlocks` derivation honors
+   * it. See {@link ViewWindow}.
+   */
+  readonly window?: ViewWindow;
+}
+
+/**
+ * The cross-node user-facing strings the editor paints onto the canvas (block
+ * placeholders). The package ships English defaults and no i18n library; a
+ * localized host overrides these at mount via `MountEditorOptions.strings`. For
+ * the block placeholders, `placeholderOverrides` (more specific) wins over
+ * `strings`.
+ *
+ * Strings that belong to a single block type (image upload/status labels, …)
+ * are NOT here — they live on the owning {@link Node} as
+ * its `strings` catalog and are overridden per type via
+ * {@link EditorTheme.nodeStrings}. This interface is only the strings with no
+ * single owning node.
+ */
+export interface EditorStrings {
+  readonly placeholderHeading1: string;
+  readonly placeholderHeading2: string;
+  readonly placeholderHeading3: string;
+  /** Paragraph placeholder on devices with a physical keyboard. */
+  readonly placeholderParagraph: string;
+  /** Paragraph placeholder on touch devices (no "/" key to advertise). */
+  readonly placeholderParagraphTouch: string;
+  readonly placeholderListItem: string;
+  readonly placeholderTodoItem: string;
+  readonly placeholderMath: string;
+}
+
+/**
+ * Per-instance resolved node strings: block type → its localized string catalog
+ * (the node's English defaults merged with `theme.nodeStrings[type]`). Built
+ * once at mount and on every `setTheme`, stored on {@link EditorState}; a node
+ * reads its slice via the protected `str(state, key)` helper. Keyed by node
+ * `type` so it stays per-instance — never a field on the shared node singleton.
+ */
+export type NodeStringsMap = ReadonlyMap<
+  string,
+  Readonly<Record<string, string>>
+>;
+
+/**
+ * A renderer-agnostic descriptor for a piece of host UI a node wants floated
+ * over one of its blocks — an "overlay slot." A node declares these from its
+ * current data + UI state (see `Node.overlays`); the engine collects them per
+ * visible block (`editor.collectOverlays()`); the host maps `key` to a
+ * component and mounts it at `rect`.
+ *
+ * This is what lets a node own its UI without the engine importing React: the
+ * engine only ever says "render whatever is registered under `key`, here." The
+ * built-in image/math popovers migrate onto this; custom nodes use it to bring
+ * their own editing chrome.
+ */
+export interface NodeOverlay {
+  /** Stable key the host's overlay registry maps to a component. */
+  readonly key: string;
+  /**
+   * The block this overlay belongs to, addressed by stable `blockId`. The host
+   * overlay component captures this and acts on it asynchronously (after an
+   * upload resolves, after the user finishes typing in a popover), so it must
+   * survive concurrent remote edits that shift block indices — the component
+   * resolves the id to the current block at apply time.
+   */
+  readonly blockId: string;
+  /**
+   * Where to float the UI, in the same container/viewport coordinate space the
+   * host positions its portals in (origin at the canvas top-left, current
+   * scroll already applied — i.e. directly usable as `left`/`top`/`width`/
+   * `height`). `width`/`height` are optional: omit them for a point anchor
+   * (e.g. a popover that positions its own content off this origin) and
+   * `collectOverlays` fills both with `1`.
+   */
+  readonly rect: OverlayRect;
+  /** Optional serializable payload forwarded to the host component. */
+  readonly data?: unknown;
+}
+
+/**
+ * The placement of a {@link NodeOverlay}. `width`/`height` are optional at the
+ * declaration site (a 1×1 point anchor by default); `collectOverlays`
+ * normalizes them so every collected overlay carries concrete dimensions.
+ */
+export interface OverlayRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width?: number;
+  readonly height?: number;
+}
+// The host font registry and selected font family are per-instance: they live
+// on `EditorTheme` (`fonts` / `fontFamily`), resolved into `resolvedStyles`.
+
+// Undo tracks operations per user for independent undo/redo.
+//
+// Inverses are captured AT EMIT TIME (in `recordUndoOps`) against the page
+// state the user actually had, then stored on the group. At undo time the
+// stored inverses are re-stamped with fresh id/clock and applied directly
+// — no recomputation from current state. This decouples undo from any
+// intervening remote edits and eliminates the class of bugs where inverse
+// extraction drifts behind apply behaviour (e.g. forgetting to copy a new
+// block field into the inverse block_insert's initialProps).
+export interface UndoGroup {
+  readonly operations: readonly Operation[]; // Original operations performed (used for redo broadcast)
+  readonly inverses: readonly Operation[]; // Captured at emit time; replayed verbatim on undo
+  readonly peerId?: string; // User who performed these operations
+  readonly cursorBefore: CRDTCursorState | null; // Cursor state before operations (restored on undo)
+  readonly selectionBefore: CRDTSelectionState | null; // Selection state before operations (restored on undo)
+  readonly contentSelectionBefore: ContentSelection | null;
+  readonly cursorAfter: CRDTCursorState | null; // Cursor state after operations (restored on redo)
+  readonly selectionAfter: CRDTSelectionState | null; // Selection state after operations (restored on redo)
+  readonly contentSelectionAfter: ContentSelection | null;
+}
+
+export interface UndoManagerState {
+  readonly undoStack: readonly UndoGroup[];
+  readonly redoStack: readonly UndoGroup[];
+}
+
+// New unified EditorState
+export interface EditorState {
+  readonly document: DocumentState;
+  readonly ui: UIState;
+  readonly view: ViewState;
+  readonly undoManager: UndoManagerState;
+  readonly CRDTbinding: CRDTbinding;
+  /**
+   * Per-instance action bus (see `action`): hooks for the editor's
+   * imperative actions — link activation, touch-gesture milestones. The engine
+   * dispatches through `state.actionBus`; hosts attach handlers via
+   * `editor.registerAction`. Owned by this editor — NOT a module global — so
+   * two editors on a page keep separate listeners.
+   */
+  readonly actionBus: ActionBus;
+  /**
+   * Per-instance registry of block views (layout/paint/hit-test per block type).
+   * Owned by this editor — NOT a module global — so multiple editors on the same
+   * page can register different block sets and so block types are opt-in at mount.
+   */
+  readonly nodes: NodeRegistry;
+  /**
+   * Per-instance registry of inline marks (the rendering facet: style channels
+   * + replacement painting per mark type). Owned by this editor — NOT a module
+   * global — so multiple editors on the same page can register different mark
+   * sets and so marks are opt-in at mount. Mirrors {@link nodes}.
+   */
+  readonly marks: MarkRegistry;
+  /**
+   * The canvas-free document schema for this instance — the CRDT/serialization
+   * facets plus the authoring allow-list. Carried by reference (mirrors
+   * {@link nodes}/{@link marks}) so every authoring path can consult
+   * `state.schema.isBlockAllowed` / `coerceCreatable` / `isMarkAllowed` before
+   * minting or morphing content. Defaults to the base (unrestricted) schema.
+   * The reducer never reads the allow-list, so this only gates local authoring.
+   */
+  readonly schema: DataSchema;
+  /**
+   * The host's raw styling input for this instance (tokens + style overrides +
+   * fonts + selected family + strings). Kept so `setTheme` can merge a partial
+   * update and re-resolve. Read at render time only for the few dynamic overlays
+   * (mobile horizontal padding, window-focus selection color).
+   */
+  readonly theme: EditorTheme;
+  /**
+   * The fully-resolved styles for this instance — `theme` merged over the
+   * neutral defaults, computed once at mount and on every `setTheme`. Replaces
+   * the former module-level style globals + per-render `getComputedStyle`
+   * reads, so editors never clobber each other's styling and the engine never
+   * touches the DOM. Read (with tiny dynamic overlays) by `getEditorStyles`.
+   */
+  readonly resolvedStyles: EditorStyles;
+  /**
+   * Per-instance node string catalogs (block type → localized strings), built
+   * from each registered node's `strings` defaults overlaid with
+   * `theme.nodeStrings`. Read by a node via its protected `str(state, key)`
+   * helper. Per-instance (not a node-singleton field) so two editors localize
+   * independently.
+   */
+  readonly resolvedNodeStrings: NodeStringsMap;
+}
+
+// Action result - all actions return state + operations
+export interface ActionResult {
+  readonly state: EditorState;
+  readonly ops: Operation[];
+}
+
+export interface CursorState {
+  readonly position: Position;
+  readonly lastUpdate: number;
+}
+
+export interface SelectionState {
+  readonly anchor: Position;
+  readonly focus: Position;
+  readonly isForward: boolean;
+  readonly isCollapsed: boolean;
+  readonly lastUpdate?: number;
+  /**
+   * Tracks initial selection boundaries from double/triple-click gestures.
+   *
+   * When a user double-clicks a word or triple-clicks a line, this boundary preserves
+   * the original selected range. As the user drags to extend the selection, the anchor
+   * point dynamically adjusts based on drag direction:
+   * - Dragging before the start: anchor moves to end, focus follows cursor
+   * - Dragging after the end: anchor stays at start, focus follows cursor
+   * - Dragging within boundary: keeps the full boundary selected
+   *
+   * This ensures intuitive word/line-level selection expansion while maintaining
+   * the originally selected unit. Should NOT be preserved when creating programmatic
+   * selections (like Select All) that don't originate from user gestures.
+   */
+  readonly initialBoundary?: {
+    readonly start: Position;
+    readonly end: Position;
+  };
+}
+
+export interface PartialSelectionState {
+  readonly anchor: Position;
+  readonly focus: Position;
+  readonly lastUpdate?: number;
+  readonly isForward?: boolean;
+  readonly isCollapsed?: boolean;
+  /**
+   * Optional initial boundary for gesture-based selections (double/triple-click).
+   * If undefined, any existing initialBoundary will be cleared.
+   * Set to null to explicitly clear it, or provide a boundary to set/preserve it.
+   */
+  readonly initialBoundary?: {
+    readonly start: Position;
+    readonly end: Position;
+  } | null;
+}
+
+export interface Position {
+  readonly blockIndex: number;
+  readonly textIndex: number;
+}
+
+/**
+ * CRDT-compatible position that uses IDs instead of indexes.
+ * This survives concurrent operations since IDs are stable.
+ */
+export interface CRDTPosition {
+  readonly blockId: string; // Block ID (stable across operations)
+  readonly afterCharId: string | null; // Character ID the cursor is after, null = start of block
+}
+
+/**
+ * CRDT-compatible cursor state for undo/redo.
+ */
+export interface CRDTCursorState {
+  readonly position: CRDTPosition;
+}
+
+/**
+ * CRDT-compatible selection state for undo/redo.
+ */
+export interface CRDTSelectionState {
+  readonly anchor: CRDTPosition;
+  readonly focus: CRDTPosition;
+}
+
+export interface ViewportState {
+  readonly scrollY: number;
+  readonly width: number;
+  readonly height: number;
+  readonly documentHeight: number;
+}
+
+/** Exact viewport range produced by the latest content paint. */
+export interface VisibleBlockRange {
+  start: number;
+  end: number;
+  /** Viewport-space top of `start`, including scroll offset. */
+  startY: number;
+  /**
+   * The `viewport.scrollY` this snapshot was painted at. `startY` is only valid
+   * for that scroll; consumers that hit-test against a (possibly newer) live
+   * viewport must re-base `startY` by the scroll delta. Undefined on the
+   * pre-first-paint placeholder.
+   */
+  scrollY?: number;
+}
+
+export interface TouchState {
+  readonly startY: number;
+  readonly startScrollY: number;
+  readonly lastY: number;
+  readonly lastTime: number;
+  readonly velocity: number;
+  readonly isScrolling: boolean;
+}
+
+export type EditorMode = "edit" | "select" | "suspended" | "readonly";
+
+// Rendering Types
+export interface RenderedBlock {
+  readonly block: Block;
+  readonly bounds: BlockBounds;
+  readonly lines: RenderedLine[];
+}
+
+export interface BlockBounds {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface RenderedLine {
+  readonly text: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  /** Text baseline measured from the line's top edge. */
+  readonly baselineOffset?: number;
+  readonly startIndex: number;
+  readonly endIndex: number;
+}
+
+// Style Configuration
+/** Styling for a caret decoration's name flag (e.g. a remote peer's label). */
+/**
+ * Geometry of the out-of-view peer indicators — the small "pills" pinned to a
+ * viewport edge that point toward a collaborator scrolled off-screen. All
+ * dimensions are themeable so a host can restyle them or, in particular, push
+ * them clear of platform chrome (a mobile safe area) via the `inset*` fields —
+ * the engine itself stays unaware of safe areas; it just reads these numbers.
+ */
+export interface OutOfViewIndicatorStyles {
+  /** Inset (px) from the inline-start (left) viewport edge to the first pill. */
+  readonly insetInlineStart: number;
+  /**
+   * Extra inset (px) added below the canvas top padding for pills pointing at
+   * peers above the viewport. Zero keeps them just under the top content padding.
+   */
+  readonly insetTop: number;
+  /** Inset (px) from the bottom viewport edge for pills pointing at peers below. */
+  readonly insetBottom: number;
+  /** Pill height (px). */
+  readonly pillHeight: number;
+  /** Inner padding (px) around the pill's initial. */
+  readonly pillPadding: number;
+  /** Font size (px) of the pill's initial. */
+  readonly fontSize: number;
+  /** Chevron size (px) drawn at the pill's pointing tip. */
+  readonly chevronSize: number;
+  /** Horizontal gap (px) between adjacent pills. */
+  readonly gap: number;
+  /** Breathing gap (px) from the viewport edge so the chevron isn't flush. */
+  readonly edgeMargin: number;
+  /** Font weight of the pill's initial (a CSS `font-weight` string). */
+  readonly initialFontWeight: string;
+}
+
+export interface RemoteCursorStyles {
+  /**
+   * Width (px) of a remote peer's caret bar. Independent of the local
+   * {@link CursorStyles.width} so peer carets can be tuned separately; defaults
+   * to the same 2px.
+   */
+  readonly caretWidth: number;
+  /** Label text on a caret flag. */
+  readonly labelTextColor: string;
+  /** Font size (px) of the name label drawn above a caret. */
+  readonly labelFontSize: number;
+  /** Inner padding (px) around the name-label text. */
+  readonly labelPadding: number;
+  /** Corner radius (px) of the name-label background. */
+  readonly labelBorderRadius: number;
+  /** Vertical gap (px) between the caret top and the label's bottom edge. */
+  readonly labelGap: number;
+  /** Size (px) of an optional glyph drawn before the label text. */
+  readonly labelIconSize: number;
+  /** Gap (px) between the label glyph and the text. */
+  readonly labelIconGap: number;
+  /** Geometry of the off-screen peer indicator pills. */
+  readonly outOfViewIndicator: OutOfViewIndicatorStyles;
+}
+
+export interface EditorStyles {
+  readonly canvas: CanvasStyles;
+  readonly fonts: FontStyles;
+  /**
+   * The currently-selected font family key (from `fonts.families`). When unset
+   * the editor uses `fonts.defaultFamily`. Resolved per instance — switching it
+   * is a theme change (`setTheme({ fontFamily })`), not a module global.
+   */
+  readonly fontFamily: FontFamily | null;
+  readonly blocks: BlockStyles;
+  readonly selection: SelectionStyles;
+  readonly cursor: CursorStyles;
+  readonly remoteCursor: RemoteCursorStyles;
+  readonly placeholder: PlaceholderStyles;
+  readonly textFormats: TextFormatStyles;
+  readonly imageResize: ImageResizeStyles;
+  readonly list: ListStyles;
+  readonly scrollbar: ScrollbarStyles;
+  readonly unknownBlock: UnknownBlockStyles;
+}
+
+/**
+ * Host-defined font registry. The editor renders/measures text using these
+ * CSS font-stacks; it ships only a neutral system-font default and expects the
+ * consumer to register their own faces (and to load them).
+ */
+export interface FontStyles {
+  /** Map of family key → CSS font-stack (e.g. `{ sans: "Inter, sans-serif" }`). */
+  readonly families: Readonly<Record<string, string>>;
+  /** Family key used when none is explicitly selected. Must exist in `families`. */
+  readonly defaultFamily: FontFamily;
+}
+
+export interface CanvasStyles {
+  readonly paddingTop: number;
+  readonly paddingBottom: number;
+  readonly paddingLeft: number;
+  readonly paddingRight: number;
+  readonly lineHeight: number;
+}
+
+export interface MathStyles {
+  /** Internal padding above/below the equation, inside the card surface. */
+  readonly paddingTop: number;
+  readonly paddingBottom: number;
+  /**
+   * Outer flow margin above/below the card — breathing room separating the
+   * filled surface from adjacent prose. Zeroed on an edge shared with another
+   * card block (code/math/quote) so stacked cards keep tiling flush.
+   */
+  readonly marginTop: number;
+  readonly marginBottom: number;
+  readonly minHeight: number;
+  readonly hoverBackgroundColor: string;
+  readonly hoverBorderRadius: number;
+  /**
+   * Opacity for the range-selection highlight painted inside a block equation.
+   * A block equation always paints its own filled card surface (code/hover
+   * background), so the shared `selection.opacity` — tuned for text sitting on
+   * the plain document background — composites too weakly over that surface to
+   * see. This stronger value restores parity with how a text selection reads.
+   */
+  readonly selectionOpacity: number;
+  /** Fill for MathJax error-marker background rects (block + inline math). */
+  readonly errorBackgroundColor: string;
+  readonly placeholder: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    /** Ghost-text size (px). Absolute — a block equation's placeholder is
+     *  smaller than its typeset body, so it is not scaled from body text. */
+    readonly fontSize: number;
+    /** Ghost-text weight (CSS `font-weight` string). */
+    readonly fontWeight: string;
+  };
+}
+
+export interface BlockStyles {
+  readonly heading1: TextStyle;
+  readonly heading2: TextStyle;
+  readonly heading3: TextStyle;
+  readonly paragraph: TextStyle;
+  readonly image: ImageStyles;
+  readonly line: LineStyles;
+  readonly math: MathStyles;
+  readonly bulletList: TextStyle;
+  readonly numberedList: TextStyle;
+  readonly todoList: TextStyle;
+  readonly code: CodeBlockStyle;
+  readonly quote: QuoteBlockStyle;
+}
+
+export interface QuoteBlockStyle extends TextStyle {
+  /**
+   * Outer flow margin above/below the card — breathing room separating the
+   * filled surface from adjacent prose. Zeroed on an edge shared with another
+   * card block (code/math/quote) so stacked cards keep tiling flush.
+   */
+  readonly marginTop: number;
+  readonly marginBottom: number;
+  readonly backgroundColor: string;
+  readonly backgroundOpacity: number;
+  readonly accentColor: string;
+  readonly accentWidth: number;
+  readonly accentGap: number;
+  readonly borderRadius: number;
+  readonly paddingX: number;
+  readonly paddingY: number;
+  /**
+   * Reduced top inset / bottom padding used on an edge shared with an adjacent
+   * quote, so consecutive quotes couple into one card with tighter internal
+   * spacing instead of stacking two full pads. Should be ≤ `paddingY`.
+   */
+  readonly joinedPaddingY: number;
+}
+
+/**
+ * Code block styling. Extends {@link TextStyle} (so the text-geometry passes can
+ * consume it via `getTextStyle`) with the container chrome a code block draws:
+ * a rounded background box with its own internal padding.
+ */
+export interface CodeBlockStyle extends TextStyle {
+  /**
+   * Outer flow margin above/below the card — breathing room separating the
+   * filled surface from adjacent prose. Zeroed on an edge shared with another
+   * card block (code/math/quote) so stacked cards keep tiling flush.
+   */
+  readonly marginTop: number;
+  readonly marginBottom: number;
+  readonly backgroundColor: string;
+  readonly borderRadius: number;
+  /** Internal padding above the first line / below the last line. */
+  readonly paddingTop: number;
+  /** Internal padding on the left and right of the text area. */
+  readonly paddingX: number;
+  /** Per-token-kind colors for syntax highlighting. */
+  readonly syntax: CodeSyntaxStyle;
+}
+
+export interface CodeSyntaxStyle {
+  readonly keyword: string;
+  readonly string: string;
+  readonly comment: string;
+  readonly number: string;
+  readonly function: string;
+}
+
+export interface LineStyles {
+  readonly height: number; // Total height of the line block including padding
+  readonly lineHeight: number; // Thickness of the actual line
+  readonly color: string;
+  readonly paddingTop: number;
+  readonly paddingBottom: number;
+}
+
+export interface TextStyle {
+  readonly fontSize: number;
+  readonly fontWeight: string;
+  readonly color: string;
+  readonly lineHeight: number;
+  /**
+   * Space (px) above the first line, baked into the block's layout height.
+   * Prose rhythm puts more space above a heading than below it (the gap binds
+   * the heading to the content it introduces), so headings carry a real value
+   * here while body blocks use 0 and space themselves with `paddingBottom`
+   * alone. Code blocks reuse it as the top inset of their background box.
+   */
+  readonly paddingTop?: number;
+  readonly paddingBottom: number;
+  /**
+   * Optional per-block-type placeholder appearance, set via
+   * `theme.styles.blocks.<type>.placeholder` (or `setTheme`). Lets a host tune
+   * the empty-block ghost text (color / relative size / weight) independently per
+   * block type — resolved off each block's own style, so core needs no type
+   * switch. Omitted fields fall back: `color` → {@link PlaceholderStyles.color},
+   * `fontScale` → 1, `fontWeight` → the block's own weight.
+   */
+  readonly placeholder?: BlockPlaceholderStyle;
+}
+
+/**
+ * Per-block-type override of the empty-block placeholder's appearance. All
+ * fields optional; see {@link TextStyle.placeholder} for the fallbacks. The
+ * placeholder text itself is resolved separately (the node's `placeholderText`
+ * hook / {@link PlaceholderStyles}); this is only its paint style.
+ */
+export interface BlockPlaceholderStyle {
+  /** Text color. Defaults to the global {@link PlaceholderStyles.color}. */
+  readonly color?: string;
+  /** Multiplier on the block's font size (1 = same size as the block text). */
+  readonly fontScale?: number;
+  /** Font weight (CSS string). Defaults to the block's own weight. */
+  readonly fontWeight?: string;
+}
+
+export interface CursorStyles {
+  readonly width: number;
+  readonly color: string;
+  readonly blinkInterval: number;
+  /**
+   * Duration of the caret "landing" morph, in milliseconds — the circle-to-bar
+   * flourish played when the caret navigates to a new position. Set to 0 to
+   * disable the animation.
+   */
+  readonly landingDuration: number;
+  /** Radius of the circle the caret morphs from when it lands, in CSS pixels. */
+  readonly landingRadius: number;
+  /** Radius of the touch-device cursor drag handle (the small circle). */
+  readonly handleRadius: number;
+  /** Height of the stem connecting the cursor to its touch drag handle. */
+  readonly handleStemHeight: number;
+}
+
+/**
+ * Scrollbar appearance — colors plus geometry/timing, all overridable per
+ * instance through `theme.styles.scrollbar` (e.g.
+ * `setTheme({ styles: { scrollbar: { width: 10, borderRadius: 0 } } })`).
+ * Colors default from the `scrollbar*` tokens; geometry/timing from neutral
+ * built-in defaults. `width` additionally narrows on touch devices — unless the
+ * host sets it explicitly, in which case that value is used on every device.
+ */
+export interface ScrollbarStyles {
+  // ── Colors (token-derived) ────────────────────────────────────────────────
+  readonly trackColor: string;
+  readonly thumbColor: string;
+  readonly thumbHoverColor: string;
+  readonly thumbActiveColor: string;
+  // ── Geometry ──────────────────────────────────────────────────────────────
+  /** Track/thumb width in px. Desktop default 12; touch narrows to 8 unless set. */
+  readonly width: number;
+  /** Smallest thumb height in px, so it stays grabbable in very long documents. */
+  readonly minThumbHeight: number;
+  /** Inset of the track from the viewport edges, in px. */
+  readonly padding: number;
+  /** Corner radius of the track and thumb, in px (0 = square). */
+  readonly borderRadius: number;
+  // ── Auto-hide timing ──────────────────────────────────────────────────────
+  /** ms the scrollbar stays fully visible after interaction before fading out. */
+  readonly fadeDelay: number;
+  /** ms the fade-out animation takes once it starts. */
+  readonly fadeDuration: number;
+  /** Invisible touch hit-area width in px (≥ `width`) for easier grabbing. */
+  readonly touchTargetWidth: number;
+}
+
+/**
+ * Fallback paint for blocks the editor cannot render (unknown/custom-without-a-
+ * view block types). Drawn as a muted dashed box with a label.
+ */
+export interface UnknownBlockStyles {
+  readonly backgroundColor: string;
+  readonly borderColor: string;
+  readonly textColor: string;
+  /** CSS font-stack for the "Unsupported block" label. */
+  readonly fontFamily: string;
+}
+
+export interface SelectionStyles {
+  readonly backgroundColor: string;
+  /** Selection fill used when the browser window is blurred (desktop only). */
+  readonly unfocusedBackgroundColor: string;
+  readonly opacity: number;
+  /** Default opacity for a range decoration's fill when it sets none (e.g. a
+   * remote peer's selection; its color comes from the decoration). */
+  readonly remoteOpacity: number;
+  /**
+   * Corner radius (px) of the selection-highlight rects. 0 (default) keeps the
+   * historical sharp rectangles. Each line rect is rounded independently, so a
+   * multi-line selection reads as a stack of rounded ribbons.
+   */
+  readonly cornerRadius: number;
+  readonly handles: SelectionHandleStyles;
+}
+
+export interface SelectionHandleStyles {
+  readonly size: number; // Diameter of the handle circle
+  readonly color: string; // Handle color (usually matches selection color)
+  readonly touchTargetSize: number; // Larger touch target for easier interaction
+  readonly stemHeight: number; // Height of the vertical stem below/above the circle
+  readonly stemWidth: number; // Width of the stem
+}
+
+export interface PlaceholderStyles {
+  readonly heading1: {
+    readonly text: string;
+  };
+  readonly heading2: {
+    readonly text: string;
+  };
+  readonly heading3: {
+    readonly text: string;
+  };
+  readonly paragraph: {
+    readonly keyboardCompatibleText: string;
+    readonly touchCompatiableText: string;
+  };
+  readonly listItem: {
+    readonly text: string;
+  };
+  readonly todoItem: {
+    readonly text: string;
+  };
+  readonly math: {
+    readonly text: string;
+  };
+  readonly color: string;
+  /**
+   * When true, every empty block paints its placeholder — not only the block
+   * with the caret. Default false (focused-only, the historical behavior). Still
+   * gated by edit mode with no active selection/composition. Per-block-type
+   * appearance ({@link TextStyle.placeholder}) applies either way.
+   */
+  readonly showUnfocused: boolean;
+}
+
+export interface TextFormatStyles {
+  readonly code: {
+    readonly backgroundColor: string;
+    readonly color: string;
+    readonly padding: number;
+    readonly borderRadius: number;
+  };
+  readonly link: {
+    readonly color: string;
+    readonly underlineThickness: number;
+    readonly hoverColor: string;
+  };
+  readonly inlineMath: {
+    readonly backgroundColor: string;
+    readonly hoverBackgroundColor: string;
+    readonly color: string;
+    readonly padding: number;
+    readonly borderRadius: number;
+  };
+}
+
+export interface ImageResizeStyles {
+  readonly dragHandles: {
+    readonly vertical: {
+      readonly length: number;
+      readonly thickness: number;
+      readonly borderRadius: number;
+      readonly backgroundColor: string;
+      readonly hoverBackgroundColor: string;
+      readonly opacity: number;
+      readonly hoverOpacity: number;
+      readonly inset: number;
+    };
+    readonly horizontal: {
+      readonly length: number;
+      readonly thickness: number;
+      readonly borderRadius: number;
+      readonly backgroundColor: string;
+      readonly hoverBackgroundColor: string;
+      readonly opacity: number;
+      readonly hoverOpacity: number;
+      readonly inset: number;
+    };
+  };
+  readonly outline: {
+    readonly color: string;
+    readonly width: number;
+    readonly opacity: number;
+    readonly hoverOpacity: number;
+    readonly dashPattern: readonly number[];
+  };
+  readonly constraints: {
+    readonly minWidth: number;
+    readonly minHeight: number;
+  };
+}
+
+export interface ListStyles {
+  readonly bullet: {
+    readonly character: string;
+    readonly color: string;
+    readonly size: number;
+  };
+  readonly numbered: {
+    readonly color: string;
+    readonly minWidth: number;
+  };
+  readonly todo: {
+    readonly checkboxSize: number;
+    readonly checkboxBorderColor: string;
+    readonly checkboxCheckedColor: string;
+    readonly checkboxBorderRadius: number;
+    readonly checkmarkColor: string;
+  };
+  readonly indent: {
+    readonly size: number;
+    readonly maxLevel: number;
+  };
+  readonly marker: {
+    readonly offsetX: number;
+    readonly textGap: number;
+  };
+}
+
+export interface ImageStyles {
+  readonly placeholder: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    readonly borderColor: string;
+  };
+  readonly loading: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+  };
+  readonly uploading: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+  };
+  readonly error: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+  };
+  readonly hover: {
+    readonly overlayColor: string;
+    readonly buttonBackgroundColor: string;
+    readonly buttonTextColor: string;
+  };
+  readonly dimensions: {
+    readonly height: number;
+    readonly placeholderHeight: number;
+    readonly paddingBottom: number;
+    readonly buttonWidth: number;
+    readonly buttonHeight: number;
+    readonly borderRadius: number;
+  };
+}
+
+/**
+ * Recursive partial — every leaf of `T` becomes optional, arrays kept whole.
+ * Used so a host can override any single style leaf without restating the tree.
+ */
+export type DeepPartial<T> = T extends readonly (infer _U)[]
+  ? T
+  : T extends object
+    ? { [K in keyof T]?: DeepPartial<T[K]> }
+    : T;
+
+/**
+ * Semantic color palette — the small set of values that drive the editor's
+ * appearance. Setting a handful of tokens re-themes the whole editor; the
+ * resolved {@link EditorStyles} default every color leaf to one of these.
+ *
+ * The editor ships neutral, opinion-free defaults (see `DEFAULT_TOKENS`); a
+ * host overrides them per instance via `mountEditor({ theme: { tokens } })` or
+ * `editor.setTheme({ tokens })`. Nothing here is read from the DOM — a host
+ * driving these from CSS variables converts them on its own side.
+ */
+export interface ThemeTokens {
+  /** Default body text. */
+  readonly text: string;
+  /** Heading text (h1–h3). */
+  readonly heading: string;
+  /** Placeholder/ghost text. */
+  readonly placeholder: string;
+  /** Page background (used for hover button backgrounds etc.). */
+  readonly background: string;
+  /** Foreground on `background`. */
+  readonly foreground: string;
+  /** Hairlines, dividers, the `line` block, checkbox borders. */
+  readonly border: string;
+  /** Muted surface (image/math placeholder backgrounds, hover wash). */
+  readonly muted: string;
+  /** Text/icon on a muted surface. */
+  readonly mutedForeground: string;
+  /** Accent (cursor, links, todo check, resize handles). */
+  readonly primary: string;
+  /** Foreground on `primary` (e.g. the checkmark). */
+  readonly primaryForeground: string;
+  /** Error surface (image upload failure). */
+  readonly destructive: string;
+  /** Foreground on `destructive`. */
+  readonly destructiveForeground: string;
+  /** Text caret. */
+  readonly cursor: string;
+  /** Selection fill (focused). */
+  readonly selection: string;
+  /** Selection fill when the window is blurred (desktop). */
+  readonly selectionUnfocused: string;
+  /** Label text on a remote peer's cursor flag. */
+  readonly remoteCursorLabelText: string;
+  /** Inline `code` background. */
+  readonly codeBackground: string;
+  /** Inline `code` text. */
+  readonly codeText: string;
+  /** Link text. */
+  readonly link: string;
+  /** Link text on hover. */
+  readonly linkHover: string;
+  /** Wash over a cover image on hover. */
+  readonly coverImageOverlay: string;
+  /** Scrollbar track. */
+  readonly scrollbarTrack: string;
+  /** Scrollbar thumb. */
+  readonly scrollbarThumb: string;
+  /** Scrollbar thumb (hover). */
+  readonly scrollbarThumbHover: string;
+  /** Scrollbar thumb (dragging). */
+  readonly scrollbarThumbActive: string;
+  /** Fallback box fill for unrenderable blocks. */
+  readonly unknownBlockBackground: string;
+  /** Fallback box border for unrenderable blocks. */
+  readonly unknownBlockBorder: string;
+  /** Fallback box label text for unrenderable blocks. */
+  readonly unknownBlockText: string;
+  /** MathJax error-marker background. */
+  readonly mathErrorBackground: string;
+  /** Code-block syntax highlighting colors (keyword/string/comment/number/function). */
+  readonly codeKeyword: string;
+  readonly codeString: string;
+  readonly codeComment: string;
+  readonly codeNumber: string;
+  readonly codeFunction: string;
+}
+
+/**
+ * The host's styling input for an editor instance — the headless theming
+ * surface. All fields optional; anything omitted falls back to the editor's
+ * neutral defaults.
+ *
+ * Two tiers, layered: `tokens` (semantic palette — set a few, re-theme
+ * everything) then `styles` (a deep-partial override of the fully-resolved
+ * {@link EditorStyles}, for pixel-level control of any single leaf). `fonts`
+ * registers the host's font families (the host loads the faces); `fontFamily`
+ * selects the active one.
+ *
+ * Resolved once into an {@link EditorStyles} stored per instance — no module
+ * globals, no DOM reads — so two editors on a page can be themed independently.
+ */
+export interface EditorTheme {
+  readonly tokens?: Partial<ThemeTokens>;
+  readonly styles?: DeepPartial<EditorStyles>;
+  readonly fonts?: Partial<FontStyles>;
+  readonly fontFamily?: FontFamily | null;
+  /**
+   * Localized canvas placeholder strings. English defaults ship with the
+   * editor; override per instance. For block placeholders, an explicit
+   * `styles.placeholder.*.text` wins over `strings`. Strings owned by a single
+   * block type live in {@link nodeStrings}, not here.
+   */
+  readonly strings?: Partial<EditorStrings>;
+  /**
+   * Per-node string overrides, keyed by block `type` then by the node's local
+   * string key — e.g. `{ image: { clickToUpload: "…" }, math: { … } }`. Each
+   * node ships English defaults in its own `strings` catalog; values here win
+   * for this instance. Merged into {@link EditorState.resolvedNodeStrings} at
+   * resolve time.
+   */
+  readonly nodeStrings?: Readonly<
+    Record<string, Readonly<Record<string, string>>>
+  >;
+}
+
+// Event Types
+export interface EditorEvent {
+  readonly type: string;
+  readonly preventDefault: () => void;
+  readonly stopPropagation: () => void;
+}
+
+export interface MouseEvent extends EditorEvent {
+  readonly x: number;
+  readonly y: number;
+  readonly button: number;
+  readonly shiftKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
+}
+
+export interface KeyboardEvent extends EditorEvent {
+  readonly key: string;
+  readonly code: string;
+  readonly shiftKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
+  readonly altKey: boolean;
+}
+export interface CharacterMetrics {
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface FontMetrics {
+  readonly fontSize: number;
+  readonly fontWeight: string;
+  readonly fontFamily: FontFamily;
+  readonly ascent: number;
+  readonly descent: number;
+}
+
+/**
+ * Per-editor-instance CRDT context. Replaces the former module-level globals
+ * (id generator + Hybrid Logical Clock + page id) so two editor instances can
+ * coexist on the same page (e.g. a readonly snapshot preview alongside the main
+ * editor) without clobbering each other's id/clock state.
+ *
+ * Carried by reference on `EditorState`; its internal HLC and id-counter mutate
+ * in place. It is intentionally NOT part of any undo/redo snapshot — it is
+ * ambient instance context, not immutable document state.
+ */
+export interface CRDTbinding extends IdentityAllocator {
+  /** The page this binding generates operations for. */
+  readonly pageId: string;
+  /**
+   * Generate the next unique identity in this page/peer collision domain.
+   * This is the authoritative allocator for every live persisted feature.
+   */
+  nextId(): string;
+  /** Get the current clock, ticking it forward. Returns a fresh copy. */
+  getClock(): HLC;
+  /** This instance's peer id. */
+  getPeerId(): string;
+  /**
+   * Advance the clock to be at least as recent as a remote clock. Call after
+   * loading/receiving operations so new local ops out-order historical ones.
+   */
+  advanceClock(remote: HLC): void;
+  /** Bump the id counter so the next generated id has counter > n. */
+  advanceIdCounter(n: number): void;
+}

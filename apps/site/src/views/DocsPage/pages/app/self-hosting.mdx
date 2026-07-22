@@ -1,0 +1,54 @@
+{/* Tasfer app docs — Self-hosting the relay. */}
+
+import { Callout, Lede, PropsTable } from "../../docsComponents";
+
+<Lede>
+  The relay is a small, stateless signaling service: it introduces peers and
+  forwards encrypted bytes it cannot read. **It has no database, no accounts, and
+  nothing worth subpoenaing.** It ships as a Cloudflare Worker you deploy from the
+  repo.
+</Lede>
+
+<h2 id="what">What it is</h2>
+
+The relay lives in [`apps/live`](https://github.com/tasferlabs/tasfer/tree/main/apps/live): a TypeScript Cloudflare Worker with one Durable Object per discovery topic, so peers on a topic always meet on the same instance. It exposes one endpoint:
+
+<PropsTable cols={["Endpoint", "Type", "Description"]} rows={[
+  { name: "/topic/{topic}?peerId=…", type: "WebSocket", desc: "Joins the topic's room. Signaling and encrypted fallback frames are forwarded to the addressed peer, never stored. Connected members can also request short-lived TURN credentials (Cloudflare Calls) over this socket, so peers behind strict NAT can still connect." },
+]} />
+
+<h2 id="run">Run it</h2>
+
+Deploying takes a Cloudflare account and Wrangler:
+
+```bash
+cd apps/live
+npm install
+
+# TURN credentials for the NAT-traversal fallback (Cloudflare Calls):
+npx wrangler secret put TURN_KEY_ID
+npx wrangler secret put TURN_API_TOKEN
+
+npx wrangler dev
+npx wrangler deploy
+```
+
+Set your domain in `apps/live/wrangler.toml`, then build the app against it with `VITE_SIGNAL_URL=wss://signaling.example.org` — see [Use your own relay](/docs/app/sync-relay#own-relay).
+
+<h2 id="config">Configuration</h2>
+
+<PropsTable cols={["Setting", "Where", "Description"]} rows={[
+  { name: "routes", type: "wrangler.toml", desc: "The domain the Worker is served from. The default deployment uses signaling.tasfer.app." },
+  { name: "TURN_KEY_ID", type: "wrangler secret", desc: "Cloudflare Calls TURN key id, used to mint short-lived TURN credentials. Stored as a Worker secret, never in the repo." },
+  { name: "TURN_API_TOKEN", type: "wrangler secret", desc: "API token for the TURN key. Stored as a Worker secret, never in the repo." },
+  { name: "VITE_SIGNAL_URL", type: "apps/web build env", desc: "Points the app at your relay. Baked in at build time." },
+]} />
+
+<Callout kind="note" title="What it never stores.">The Worker keeps no user data. Each topic's Durable Object holds the currently connected WebSockets in memory; the only bytes it persists are a short-lived cached TURN credential and a daily mint counter. No message history, no peer directory, no account table — restart it and nothing of yours is lost.</Callout>
+
+<h2 id="notes">Operational notes</h2>
+
+- **TLS and scaling are Cloudflare's problem.** The Worker runs on Cloudflare's edge; there are no certificates to manage and no load balancer to configure.
+- **It forwards opaque ciphertext.** Signaling and fallback frames are encrypted on-device before they reach the Worker — there is no decryption key on the server to protect, which is the whole point.
+- **TURN minting is bounded.** Credentials are minted only for connected room members — never over anonymous HTTP — one mint is cached per room, and a global daily budget caps the account's worst-case TURN bill.
+- **It is Cloudflare-specific today.** The Worker relies on Durable Objects and on Cloudflare Calls for TURN; running it on other infrastructure means porting those two pieces.

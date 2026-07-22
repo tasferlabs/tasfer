@@ -1,0 +1,537 @@
+/* ============================================================
+   Download page — same editorial language as the landing page
+   (serif display, green accent, dot field), scoped to `dl-`.
+   Tokens are aliased onto the app theme so light/dark follows
+   the `.dark` class like every other page.
+   ============================================================ */
+
+.dl-page {
+  --bg: var(--background);
+  --fg: var(--foreground);
+  --dl-muted: var(--muted);
+  --dl-muted-fg: var(--muted-foreground);
+
+  --font-ui:
+    "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-editorial:
+    "Libre Baskerville", Georgia, "Times New Roman", Times, serif;
+  --font-mono:
+    ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  --dl-radius: 0.45rem;
+  --dl-radius-sm: calc(var(--dl-radius) - 2px);
+  --dl-duration: 0.15s;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 17px;
+  line-height: 1.7;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.dl-page * {
+  box-sizing: border-box;
+}
+
+.dl-page ::selection {
+  background: oklch(from var(--primary) l c h / 0.25);
+  color: var(--fg);
+}
+
+.dl-column {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 32px;
+  position: relative;
+}
+
+/* ── Header ── */
+
+/* Overlay, not sticky-in-flow — same as the landing header, so the hero's dot
+   field starts at the top of the viewport and shows through the nav. Backdrop
+   arrives only once scrolled. */
+.dl-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: transparent;
+  transition:
+    background var(--dl-duration),
+    backdrop-filter var(--dl-duration);
+}
+
+.dl-header.is-scrolled {
+  background: oklch(from var(--bg) l c h / 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.dl-header-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.dl-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+  color: var(--wordmark-color);
+  text-decoration: none;
+}
+
+.dl-wordmark-mark {
+  width: 26px;
+  height: 26px;
+}
+
+.dl-nav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.dl-nav a:not(.dl-nav-cta) {
+  font-size: 14px;
+  color: var(--dl-muted-fg);
+  text-decoration: none;
+  transition: color var(--dl-duration);
+}
+
+.dl-nav a:not(.dl-nav-cta):hover {
+  color: var(--fg);
+}
+
+.dl-nav-cta {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: var(--dl-radius-sm);
+  padding: 8px 16px;
+  transition:
+    border-color var(--dl-duration),
+    background var(--dl-duration);
+}
+
+.dl-nav-cta:hover {
+  border-color: var(--fg);
+  background: var(--dl-muted);
+}
+
+.dl-theme-btn {
+  background: transparent;
+  border: 0;
+  padding: 6px;
+  color: var(--dl-muted-fg);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--dl-radius-sm);
+  transition:
+    color var(--dl-duration),
+    background var(--dl-duration);
+}
+
+.dl-theme-btn:hover {
+  color: var(--fg);
+  background: var(--dl-muted);
+}
+
+.dl-theme-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── Hero ── */
+
+/* Padding matches the landing hero so the dot field lands identically; the top
+   value also has to clear the fixed header. */
+.dl-hero {
+  position: relative;
+  padding: clamp(80px, 14vh, 160px) 0 clamp(80px, 12vh, 140px);
+  overflow: hidden;
+}
+
+/* Same dot field as the landing hero: a flat fill masked by the shared SVG, so
+   the texture follows the theme instead of being a baked-in colour.
+   The SVG's own fade only reaches zero near the bottom of a hero as tall as the
+   landing one; this hero is shorter, so the dots would end on a hard line. The
+   second mask layer dissolves them over whatever height this hero happens to
+   be — dot size and position stay identical to the landing page. */
+.dl-hero-grid {
+  position: absolute;
+  inset: 0;
+  background: var(--muted-foreground);
+  -webkit-mask:
+    url("/dot-grid.svg") center top / 80% auto no-repeat,
+    linear-gradient(to bottom, #000 45%, transparent 95%);
+  mask:
+    url("/dot-grid.svg") center top / 80% auto no-repeat,
+    linear-gradient(to bottom, #000 45%, transparent 95%);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+  mask-mode: alpha;
+  -webkit-mask-mode: alpha;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .dl-hero-grid {
+    -webkit-mask-size:
+      200% auto,
+      auto;
+    mask-size:
+      200% auto,
+      auto;
+  }
+}
+
+.dl-title {
+  font-family: var(--font-editorial);
+  font-weight: 400;
+  font-size: clamp(40px, 7vw, 86px);
+  line-height: 1.06;
+  letter-spacing: -0.025em;
+  margin: 0 0 32px;
+}
+
+.dl-title em {
+  font-style: italic;
+  color: var(--primary);
+}
+
+.dl-lede {
+  font-size: 19px;
+  line-height: 1.65;
+  color: var(--dl-muted-fg);
+  max-width: 46ch;
+  margin: 0 0 40px;
+}
+
+.dl-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.dl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 26px;
+  border: 1px solid transparent;
+  border-radius: var(--dl-radius-sm);
+  font-size: 16px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background var(--dl-duration),
+    border-color var(--dl-duration);
+}
+
+.dl-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.dl-btn-accent {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+
+.dl-btn-accent:hover {
+  background: oklch(from var(--primary) calc(l + 0.06) c h);
+  border-color: oklch(from var(--primary) calc(l + 0.06) c h);
+}
+
+.dl-btn-ghost {
+  background: transparent;
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+.dl-btn-ghost:hover {
+  border-color: var(--fg);
+}
+
+/* macOS is offered as a pair rather than a guess — the two stay together when
+   the row wraps, so Intel never ends up orphaned on its own line. */
+.dl-hero-pair {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dl-hero-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dl-muted-fg);
+}
+
+.dl-hero-file {
+  font-family: var(--font-mono);
+  color: var(--fg);
+}
+
+/* ── Platform grid ── */
+
+.dl-platforms {
+  padding-bottom: clamp(64px, 10vh, 120px);
+}
+
+.dl-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.dl-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--dl-radius);
+  background: var(--bg);
+  transition:
+    border-color var(--dl-duration),
+    background var(--dl-duration);
+}
+
+.dl-card:hover {
+  border-color: oklch(from var(--fg) l c h / 0.35);
+}
+
+/* The build matching the visitor's machine — tinted, not shouted. */
+.dl-card.is-detected {
+  border-color: oklch(from var(--primary) l c h / 0.55);
+  background: oklch(from var(--primary) l c h / 0.045);
+}
+
+.dl-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dl-card-title {
+  font-family: var(--font-editorial);
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.dl-card-badge {
+  font-size: 12px;
+  color: var(--primary);
+  border: 1px solid oklch(from var(--primary) l c h / 0.35);
+  border-radius: 999px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
+.dl-card-desc {
+  margin: 0 0 4px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--dl-muted-fg);
+}
+
+.dl-card-assets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.dl-asset {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--dl-radius-sm);
+  font-size: 14px;
+  color: var(--fg);
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    border-color var(--dl-duration),
+    background var(--dl-duration);
+}
+
+.dl-asset:hover {
+  border-color: var(--primary);
+  background: oklch(from var(--primary) l c h / 0.07);
+}
+
+.dl-asset svg {
+  width: 15px;
+  height: 15px;
+  color: var(--dl-muted-fg);
+}
+
+.dl-asset:hover svg {
+  color: var(--primary);
+}
+
+/* Store builds that don't exist yet: shaped like the others so the grid stays
+   even, but visibly inert — no hover, no pointer, no promise of a link. */
+.dl-asset.is-pending {
+  border-style: dashed;
+  color: var(--dl-muted-fg);
+  cursor: default;
+}
+
+.dl-asset-note {
+  font-size: 12px;
+  color: oklch(from var(--dl-muted-fg) l c h / 0.75);
+}
+
+.dl-note {
+  margin: 32px 0 0;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--dl-muted-fg);
+  max-width: 78ch;
+}
+
+.dl-note a {
+  color: var(--fg);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.dl-note a:hover {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+}
+
+/* ── Footer ── */
+
+.dl-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding: 36px 0 60px;
+}
+
+.dl-footer-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--dl-muted-fg);
+}
+
+.dl-footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dl-footer-word {
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.03em;
+  color: var(--wordmark-color);
+}
+
+.dl-footer a {
+  color: var(--dl-muted-fg);
+  text-decoration: none;
+}
+
+.dl-footer a:hover {
+  color: var(--fg);
+}
+
+.dl-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+/* ── Mobile ── */
+
+@media (max-width: 960px) {
+  .dl-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .dl-page {
+    font-size: 16px;
+  }
+
+  .dl-column,
+  .dl-header-inner,
+  .dl-footer-inner {
+    padding-inline: 20px;
+  }
+
+  .dl-nav {
+    gap: 16px;
+  }
+
+  /* Docs and source stay in the footer on narrow screens; the nav keeps the
+     theme toggle and the one action worth thumb-reach. */
+  .dl-nav a:not(.dl-nav-cta) {
+    display: none;
+  }
+
+  .dl-lede {
+    font-size: 17px;
+  }
+
+  .dl-hero-actions {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .dl-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dl-card {
+    padding: 24px;
+  }
+}

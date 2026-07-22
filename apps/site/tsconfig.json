@@ -1,0 +1,52 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "ES2022"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "types": [
+      "mdx",
+      "node"
+    ],
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
+  },
+  // mdx-analyzer (the vscode-mdx TS plugin) resolves each .mdx's real exports in
+  // the editor, so it needs the same frontmatter plugins as next.config.ts to
+  // synthesize the `frontmatter` export. Build-time tsc ignores this key and uses
+  // the ambient *.mdx type in src/global.d.ts instead.
+  "mdx": {
+    "plugins": ["remark-gfm", "remark-frontmatter", "remark-mdx-frontmatter"]
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

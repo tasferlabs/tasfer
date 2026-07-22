@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a bug (🐞)
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not worry if it is duplicated, any feedback is appreciated.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      placeholder: Describe the issue.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide how can I reproduce it.
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Web
+        - Desktop
+        - iOS
+        - Android
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: App version, commit SHA, or branch. You can find build number in the app info page, in settings.
+      placeholder: e.g. 0.1.0 or main@abc1234
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots, or recordings
+      description: Paste logs and drag/drop screenshots if available.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: This is not a security report (Please be aware those must follow SECURITY.md).
+          required: true
+        - label: I agree with contributing guidelines.
+          required: true

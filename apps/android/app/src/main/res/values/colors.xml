@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light Theme Colors -->
+    <color name="light_background">#FFFFFFFF</color>
+    <color name="light_foreground">#FF09090B</color>
+    <color name="light_card">#FFFFFFFF</color>
+    <color name="light_card_foreground">#FF09090B</color>
+    <color name="light_popover">#FFFFFFFF</color>
+    <color name="light_popover_foreground">#FF09090B</color>
+    <color name="light_primary">#FF43A047</color>
+    <color name="light_primary_foreground">#FFF1FCF0</color>
+    <color name="light_secondary">#FFF4F4F5</color>
+    <color name="light_secondary_foreground">#FF18181B</color>
+    <color name="light_muted">#FFF4F4F5</color>
+    <color name="light_muted_foreground">#FF71717B</color>
+    <color name="light_accent">#FFF4F4F5</color>
+    <color name="light_accent_foreground">#FF18181B</color>
+    <color name="light_destructive">#FFE7000B</color>
+    <color name="light_border">#FFE4E4E7</color>
+    <color name="light_input">#FFE4E4E7</color>
+    <color name="light_ring">#994AA050</color>
+
+    <!-- Dark Theme Colors -->
+    <color name="dark_background">#FF09090B</color>
+    <color name="dark_foreground">#FFFAFAFA</color>
+    <color name="dark_card">#FF18181B</color>
+    <color name="dark_card_foreground">#FFFAFAFA</color>
+    <color name="dark_popover">#FF18181B</color>
+    <color name="dark_popover_foreground">#FFFAFAFA</color>
+    <color name="dark_primary">#FF66BB6A</color>
+    <color name="dark_primary_foreground">#FF132A14</color>
+    <color name="dark_secondary">#FF27272A</color>
+    <color name="dark_secondary_foreground">#FFFAFAFA</color>
+    <color name="dark_muted">#FF27272A</color>
+    <color name="dark_muted_foreground">#FF9F9FA9</color>
+    <color name="dark_accent">#FF27272A</color>
+    <color name="dark_accent_foreground">#FFFAFAFA</color>
+    <color name="dark_destructive">#FFFF6467</color>
+    <color name="dark_border">#1AFFFFFF</color>
+    <color name="dark_input">#26FFFFFF</color>
+    <color name="dark_ring">#994AA050</color>
+
+    <!-- Theme-aware color aliases -->
+    <color name="background">@color/light_background</color>
+    <color name="foreground">@color/light_foreground</color>
+    <color name="card">@color/light_card</color>
+    <color name="card_foreground">@color/light_card_foreground</color>
+    <color name="popover">@color/light_popover</color>
+    <color name="popover_foreground">@color/light_popover_foreground</color>
+    <color name="primary">@color/light_primary</color>
+    <color name="primary_foreground">@color/light_primary_foreground</color>
+    <color name="secondary">@color/light_secondary</color>
+    <color name="secondary_foreground">@color/light_secondary_foreground</color>
+    <color name="muted">@color/light_muted</color>
+    <color name="muted_foreground">@color/light_muted_foreground</color>
+    <color name="accent">@color/light_accent</color>
+    <color name="accent_foreground">@color/light_accent_foreground</color>
+    <color name="destructive">@color/light_destructive</color>
+    <color name="border">@color/light_border</color>
+    <color name="input">@color/light_input</color>
+    <color name="ring">@color/light_ring</color>
+</resources>

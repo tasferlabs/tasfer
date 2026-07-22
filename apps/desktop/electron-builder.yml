@@ -1,0 +1,85 @@
+appId: app.tasfer
+productName: Tasfer
+
+# Versionless artifact names. The download page links every build through
+# https://github.com/tasferlabs/tasfer/releases/latest/download/<file>, a
+# permalink that only resolves while the filename is stable across releases.
+# The names are duplicated in apps/site/src/views/DownloadPage/DownloadPage.tsx
+# (FILES) — change them together or the site starts linking to 404s.
+# ${arch} keeps its per-target spelling: x64 stays "x64" for dmg/exe, but
+# becomes "x86_64" for AppImage and "amd64" for deb.
+artifactName: ${productName}-${arch}.${ext}
+
+publish:
+  provider: github
+  owner: hamza512b
+  repo: tasfer
+
+directories:
+  output: release
+
+asar: true
+
+files:
+  - out/**
+  - package.json
+  - resources/**
+
+extraResources:
+  - from: ../web/dist
+    to: web
+
+icon: resources/icon.png
+
+mac:
+  icon: resources/icon.icns
+  category: public.app-category.productivity
+  # Both arches from the arm64 runner: Intel Macs are still a large share of
+  # the installed base, and x64 is a plain cross-build. zip is the format
+  # electron-updater consumes on macOS; dmg is what people download.
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+
+win:
+  icon: resources/icon.ico
+  target: nsis
+
+nsis:
+  oneClick: true
+  perMachine: false
+
+linux:
+  icon: resources/icon.png
+  target:
+    - AppImage
+    - deb
+    - pacman
+  category: Office
+
+pacman:
+  # Pin runtime deps explicitly. electron-builder's auto-detected list
+  # includes http-parser, which Arch dropped from its repos and which the
+  # Electron binary no longer links against, making the package
+  # uninstallable. Keep this list in sync with the binary's real needs.
+  depends:
+    - c-ares
+    - ffmpeg
+    - gtk3
+    - libevent
+    - libvpx
+    - libxslt
+    - libxss
+    - minizip
+    - nss
+    - re2
+    - snappy
+    - libnotify
+    - libappindicator-gtk3

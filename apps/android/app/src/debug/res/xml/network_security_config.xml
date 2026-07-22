@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only override: trusts user-installed CAs so the WebView accepts
+     the mkcert certificate of the CAP_SERVER_URL dev server (which must be
+     HTTPS, see apps/web/capacitor.config.ts). Never ships in release. -->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <!-- AcceptsUserCertificates: intentional, and this file lives in
+                 src/debug/ so it cannot reach a release build. -->
+            <certificates src="user" tools:ignore="AcceptsUserCertificates" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,0 +1,277 @@
+# Tasfer store-release automation (iOS App Store + Google Play).
+#
+# Normally run in CI via the Store Release workflow (public logs); the same
+# lanes work locally from the repo root:
+#   bundle exec fastlane ios beta         TestFlight
+#   bundle exec fastlane ios release      App Store, submits for review
+#   bundle exec fastlane android beta     Play open-testing track
+#   bundle exec fastlane android release  Play production, submits for review
+#
+# The web bundle is built + synced into the native projects AUTOMATICALLY during
+# the native build (see apps/web/scripts/build-and-sync.sh):
+#   - iOS:     an Xcode run-script build phase fires during gym's archive
+#   - Android: the Gradle preBuild web-build task fires during `bundle`
+# so these lanes only drive the native build + upload.
+#
+# Versions follow the desktop release: stamp the released v<version> first with
+#   node scripts/release/set-native-version.mjs
+#
+# Secrets are read from fastlane/.env (gitignored) — see fastlane/.env.example.
+require "dotenv"
+require "fileutils"
+Dotenv.load(File.expand_path(".env", __dir__))
+
+default_platform(:ios)
+
+APP_PROJECT = "apps/ios/App/App.xcodeproj"
+APP_SCHEME  = "App"
+AAB_PATH    = "apps/android/app/build/outputs/bundle/release/app-release.aab"
+
+# ── Release notes (localized) ───────────────────────────────────────────────
+# Per-language notes are the source of truth, edited before each release:
+#   fastlane/release_notes/<lang>.txt   (en, ar)
+# The store-native copies (iOS metadata files, Android per-versionCode
+# changelogs) are generated from these at upload time and are gitignored — you
+# never hand-edit them.
+#
+# The App Store and Play use DIFFERENT locale codes for the same language, so
+# each app language maps to both:  app lang => [App Store Connect, Play Console].
+# `en` is the default/fallback. ALL languages are REQUIRED — a missing or empty
+# note file for any supported language blocks the release (never upload empty
+# notes, and never let a language silently fall back to English).
+RELEASE_NOTES_DIR = File.expand_path("release_notes", __dir__)
+DEFAULT_LANG = "en"
+
+# Play caps changelogs at 500 chars/locale; TestFlight + App Store allow 4000.
+PLAY_CHANGELOG_MAX = 500
+
+NOTE_LOCALES = {
+  "en" => { asc: "en-US", play: "en-US" },
+  "ar" => { asc: "ar-SA", play: "ar"    },
+}
+
+# Read the per-language note for EVERY supported language, keyed by app language.
+# Enforces: every language in NOTE_LOCALES is present and non-empty — a missing
+# or blank file for any language blocks the release.
+def release_notes_by_lang
+  notes = {}
+  NOTE_LOCALES.each_key do |lang|
+    path = File.join(RELEASE_NOTES_DIR, "#{lang}.txt")
+    unless File.exist?(path)
+      UI.user_error!("Missing fastlane/release_notes/#{lang}.txt — release notes are required for every language (#{NOTE_LOCALES.keys.join(", ")}).")
+    end
+    text = File.read(path).strip
+    UI.user_error!("fastlane/release_notes/#{lang}.txt is empty — every language requires release notes.") if text.empty?
+    notes[lang] = text
+  end
+  notes
+end
+
+# TestFlight "What to Test", localized. `default` covers any locale without its
+# own entry, so TestFlight never rejects an unconfigured language.
+def testflight_localized_info(notes)
+  info = { "default" => { whats_new: notes[DEFAULT_LANG] } }
+  notes.each { |lang, text| info[NOTE_LOCALES[lang][:asc]] = { whats_new: text } }
+  info
+end
+
+# deliver reads "What's New" from metadata/<asc-locale>/release_notes.txt. Only
+# these files are staged, so deliver pushes just the notes and leaves the rest of
+# each App Store listing untouched.
+def stage_ios_release_notes(notes)
+  notes.each do |lang, text|
+    dir = File.expand_path("metadata/#{NOTE_LOCALES[lang][:asc]}", __dir__)
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, "release_notes.txt"), text)
+  end
+end
+
+# Play changelogs are keyed by <play-locale>/changelogs/<versionCode>.txt, so
+# write them on the fly from the same source. Returns the versionCode.
+def stage_android_changelog(notes)
+  version_code = android_version_code
+  notes.each do |lang, text|
+    if text.length > PLAY_CHANGELOG_MAX
+      UI.user_error!("fastlane/release_notes/#{lang}.txt is #{text.length} chars; Play allows #{PLAY_CHANGELOG_MAX}.")
+    end
+    dir = File.expand_path("metadata/android/#{NOTE_LOCALES[lang][:play]}/changelogs", __dir__)
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, "#{version_code}.txt"), text)
+  end
+  version_code
+end
+
+# Gradle needs a JDK, but macOS ships no system Java, so `gradle` can die with
+# "Unable to locate a Java Runtime". Resolve a JDK here and export JAVA_HOME
+# for the Gradle steps. Precedence:
+#   1. JAVA_HOME (respect an explicit override, e.g. from fastlane/.env)
+#   2. /usr/libexec/java_home (a real system/Homebrew JDK, if any)
+#   3. Android Studio's bundled JBR (always present for Android devs)
+def ensure_java_home
+  candidates = []
+  candidates << ENV["JAVA_HOME"] if ENV["JAVA_HOME"] && !ENV["JAVA_HOME"].empty?
+  detected = `/usr/libexec/java_home 2>/dev/null`.strip
+  candidates << detected unless detected.empty?
+  candidates << "/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+
+  home = candidates.find { |dir| dir && File.executable?(File.join(dir, "bin", "java")) }
+  UI.user_error!(
+    "No Java runtime found. Install a JDK (e.g. `brew install --cask temurin`) " \
+    "or Android Studio, or set JAVA_HOME in fastlane/.env.",
+  ) unless home
+
+  ENV["JAVA_HOME"] = home
+  ENV["PATH"] = "#{File.join(home, "bin")}:#{ENV["PATH"]}"
+  UI.message("Using JAVA_HOME=#{home}")
+  home
+end
+
+# Production releases submit straight to store review, so gate them behind an
+# explicit confirmation before anything is built or uploaded. Non-interactive
+# runs (e.g. CI) must opt in with RELEASE_CONFIRM=yes.
+def confirm_release!(prompt)
+  return if ENV["RELEASE_CONFIRM"] == "yes"
+  unless UI.interactive?
+    UI.user_error!("Confirmation required: run interactively or set RELEASE_CONFIRM=yes. (#{prompt})")
+  end
+  UI.user_error!("Release cancelled — nothing was built or uploaded.") unless UI.confirm(prompt)
+end
+
+def ios_marketing_version
+  # Explicit encoding: with no LANG set (CI runners) Ruby reads as US-ASCII and
+  # any non-ASCII byte in the file makes the regex below raise.
+  pbxproj = File.read(File.expand_path("../#{APP_PROJECT}/project.pbxproj", __dir__), encoding: "UTF-8")
+  pbxproj[/MARKETING_VERSION = ([^;]+);/, 1]&.strip
+end
+
+def android_version_name
+  gradle = File.read(File.expand_path("../apps/android/app/build.gradle", __dir__), encoding: "UTF-8")
+  gradle[/tasferVersionName\s*=\s*"([^"]+)"/, 1]
+end
+
+# build.gradle derives versionCode from versionName rather than storing a literal,
+# so mirror that packing here. Keep in step with the block at the top of
+# apps/android/app/build.gradle.
+def android_version_code
+  name = android_version_name
+  UI.user_error!("Could not read versionName from apps/android/app/build.gradle") unless name
+  parts = name.split(".")
+  unless parts.length == 3 && parts.all? { |p| p.match?(/\A\d+\z/) }
+    UI.user_error!("versionName '#{name}' is not a bare major.minor.patch semver")
+  end
+  major, minor, patch = parts.map(&:to_i)
+  if minor > 99 || patch > 99
+    UI.user_error!("versionName '#{name}': minor and patch must each be <= 99")
+  end
+  major * 10000 + minor * 100 + patch
+end
+
+# App Store Connect API key — non-interactive auth (no Apple ID password / 2FA).
+def asc_api_key
+  app_store_connect_api_key(
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    key_filepath: ENV.fetch("ASC_KEY_PATH"),
+    in_house: false,
+  )
+end
+
+def archive_ios
+  xcargs = "-allowProvisioningUpdates"
+  # On CI there is no signed-in Xcode account or local certificate, so use
+  # Xcode cloud-managed signing: authenticate xcodebuild with the ASC API key
+  # and let it fetch/create the distribution cert + profile. setup_ci gives the
+  # build a temporary unlocked keychain. No .p12 export, no match repo.
+  if ENV["CI"]
+    setup_ci
+    xcargs += " -authenticationKeyPath #{File.absolute_path(ENV.fetch('ASC_KEY_PATH'))}" \
+              " -authenticationKeyID #{ENV.fetch('ASC_KEY_ID')}" \
+              " -authenticationKeyIssuerID #{ENV.fetch('ASC_ISSUER_ID')}"
+  end
+  build_app(
+    project: APP_PROJECT,
+    scheme: APP_SCHEME,
+    export_method: "app-store",
+    output_directory: "build/ios",
+    clean: true,
+    xcargs: xcargs,
+  )
+end
+
+platform :ios do
+  desc "Archive and upload a new build to TestFlight"
+  lane :beta do
+    api_key = asc_api_key
+    notes = release_notes_by_lang
+    archive_ios
+    upload_to_testflight(
+      api_key: api_key,
+      localized_build_info: testflight_localized_info(notes), # localized "What to Test"
+      skip_waiting_for_build_processing: true,
+    )
+    UI.success("iOS build uploaded to TestFlight ✈️")
+  end
+
+  desc "Archive, upload to the App Store, and submit for review (release manually after approval)"
+  lane :release do
+    confirm_release!("Submit Tasfer #{ios_marketing_version || "(unknown version)"} to the App Store and send it for review?")
+    api_key = asc_api_key
+    stage_ios_release_notes(release_notes_by_lang)
+    archive_ios
+    upload_to_app_store(
+      api_key: api_key,
+      submit_for_review: true,   # send the build to App Store review
+      automatic_release: false,  # after approval, press "Release" manually in App Store Connect
+      # Answers the review questions that would otherwise block/prompt the submission.
+      # Adjust if the app ever adds non-exempt encryption or an advertising SDK (IDFA).
+      submission_information: {
+        export_compliance_uses_encryption: false,
+        add_id_info_uses_idfa: false,
+      },
+      skip_metadata: false,   # push the staged "What's New" note...
+      skip_screenshots: true, # ...but only release_notes.txt exists, so nothing else changes
+      precheck_include_in_app_purchases: false,
+      force: true, # skip the HTML preview confirmation prompt
+    )
+    UI.success("iOS build uploaded to App Store Connect and submitted for review 🍎")
+  end
+end
+
+platform :android do
+  desc "Build a signed AAB and upload to the Play open-testing track"
+  lane :beta do
+    ensure_java_home
+    stage_android_changelog(release_notes_by_lang)
+    gradle(project_dir: "apps/android", task: "clean")
+    gradle(project_dir: "apps/android", task: "bundle", build_type: "Release")
+    upload_to_play_store(
+      track: "beta", # Play API name for the Open testing track
+      aab: AAB_PATH,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: false, # upload the staged changelog
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+    UI.success("Android AAB uploaded to Play open-testing track 🤖")
+  end
+
+  desc "Build a signed AAB, upload to the Play production track, and submit for review"
+  lane :release do
+    confirm_release!("Submit Tasfer #{android_version_name || "(unknown version)"} to Google Play production and send it for review?")
+    ensure_java_home
+    stage_android_changelog(release_notes_by_lang)
+    gradle(project_dir: "apps/android", task: "clean")
+    gradle(project_dir: "apps/android", task: "bundle", build_type: "Release")
+    upload_to_play_store(
+      track: "production",
+      aab: AAB_PATH,
+      release_status: "completed", # send for review; goes live to 100% on approval
+      changes_not_sent_for_review: false,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: false, # upload the staged changelog
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+    UI.success("Android AAB uploaded to Play production and submitted for review 🤖")
+  end
+end

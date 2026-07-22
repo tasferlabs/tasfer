@@ -1,0 +1,225 @@
+/* ── Base ── */
+
+.privacy {
+  --home-mono:
+    ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --home-text:
+    "Noto Sans Arabic", ui-monospace, "SFMono-Regular", "SF Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+
+  position: relative;
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--home-text);
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Nav ── */
+
+.privacy-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 40px;
+  background: oklch(from var(--background) l c h / 85%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.privacy-logo {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--wordmark-color);
+  text-transform: lowercase;
+  text-decoration: none;
+}
+
+/* In Arabic the wordmark reads "تصفير" — a cursive script, where the Latin
+   negative tracking crowds the joins. */
+[dir="rtl"] .privacy-logo {
+  letter-spacing: normal;
+}
+
+.privacy-nav-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  text-decoration: none;
+  font-size: 13px;
+  transition: color 0.15s;
+}
+
+.privacy-nav-back:hover {
+  color: var(--foreground);
+}
+
+/* ── Content ── */
+
+.privacy-content {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 120px 40px 100px;
+}
+
+.privacy-label {
+  font-family: var(--home-mono);
+  font-size: 12px;
+  color: oklch(from var(--primary) l c h / 60%);
+  margin-bottom: 24px;
+  letter-spacing: 0.05em;
+}
+
+.privacy-title {
+  font-family: var(--home-text);
+  font-size: clamp(28px, 5vw, 44px);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--foreground);
+  margin: 0 0 16px;
+  letter-spacing: -0.02em;
+}
+
+.privacy-date {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  margin: 0 0 48px;
+}
+
+.privacy-intro {
+  font-size: 15px;
+  color: var(--foreground);
+  line-height: 1.9;
+  margin: 0 0 48px;
+}
+
+/* ── Policy Items ── */
+
+.privacy-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.privacy-item {
+  display: flex;
+  gap: 24px;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.privacy-item:first-child {
+  border-top: 1px solid var(--border);
+}
+
+.privacy-item-num {
+  font-size: 12px;
+  color: oklch(from var(--primary) l c h / 60%);
+  font-weight: 600;
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.privacy-item h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.privacy-item p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  line-height: 1.8;
+}
+
+/* ── Contact ── */
+
+.privacy-contact {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 40px 100px;
+}
+
+.privacy-contact-box {
+  border: 1px solid var(--border);
+  padding: 28px;
+}
+
+.privacy-contact-box p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  line-height: 1.8;
+}
+
+.privacy-contact-box a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.privacy-contact-box a:hover {
+  text-decoration: underline;
+}
+
+/* ── Footer ── */
+
+.privacy-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 40px;
+  border-top: 1px solid var(--border);
+}
+
+.privacy-footer-text {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  letter-spacing: 0.03em;
+}
+
+/* ── Mobile ── */
+
+@media (max-width: 640px) {
+  .privacy-nav {
+    padding: 16px 20px;
+  }
+
+  .privacy-content {
+    padding: 80px 20px 60px;
+  }
+
+  .privacy-item {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .privacy-contact {
+    padding: 0 20px 60px;
+  }
+
+  .privacy-footer {
+    flex-direction: column;
+    gap: 12px;
+    padding: 24px 20px;
+    text-align: center;
+  }
+}

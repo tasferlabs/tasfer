@@ -1,0 +1,270 @@
+/* ============================================================
+   Internals — hidden, blog-style long-form notes.
+
+   This builds on the documentation layer (DocsPage.css), which is
+   imported alongside this file by InternalsArticle.tsx. It reuses:
+     • the .dx-page token layer (fonts, radius, motion, light/dark)
+     • the .dx-article prose + MDX component styles (callouts, code
+       fences, tables, cards, steps, …)
+   and only adds the blog chrome: a single centered reading column,
+   an editorial hero, a byline/meta row, and a slim footer.
+
+   Blog selectors are scoped under `.dx-page.ix-blog` so they override
+   the docs defaults regardless of stylesheet import order, and never
+   leak into the docs pages.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   Reading column
+   ------------------------------------------------------------ */
+.dx-page.ix-blog .ix-main {
+  min-width: 0;
+}
+
+/* Override the docs article width/padding for a narrower, more
+   editorial long-form measure. Keeps the .dx-article class so all the
+   prose + MDX component styles still apply to the body. */
+.dx-page.ix-blog .ix-article {
+  max-width: 712px;
+  margin: 0 auto;
+  padding: clamp(52px, 9vh, 104px) 28px 120px;
+}
+
+@media (max-width: 620px) {
+  .dx-page.ix-blog .ix-article {
+    padding: 40px 22px 90px;
+  }
+}
+
+/* ------------------------------------------------------------
+   Hero
+   ------------------------------------------------------------ */
+.dx-page.ix-blog .ix-hero {
+  margin: 0 0 44px;
+  padding-bottom: 30px;
+  /* border-bottom: 1px solid var(--border); */
+}
+
+.dx-page.ix-blog .ix-title {
+  font-family: var(--font-editorial);
+  font-weight: 400;
+  font-size: clamp(38px, 5.6vw, 60px);
+  line-height: 1.05;
+  letter-spacing: -0.026em;
+  color: var(--fg);
+  margin: 18px 0 0;
+  text-wrap: balance;
+}
+.dx-page.ix-blog .ix-title em {
+  font-style: italic;
+  color: var(--primary);
+}
+
+.dx-page.ix-blog .ix-lede {
+  font-family: var(--font-editorial);
+  font-size: 20px;
+  line-height: 1.55;
+  color: var(--cy-muted-fg);
+  margin: 22px 0 0;
+  max-width: 54ch;
+}
+
+/* Byline / meta — terminal mono chips separated by hairline dots. */
+.dx-page.ix-blog .ix-byline {
+  display: flex;
+  align-items: center;
+  gap: 0 12px;
+  flex-wrap: wrap;
+  margin-top: 26px;
+  font-family: var(--font-terminal);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  color: var(--cy-muted-fg);
+}
+.dx-page.ix-blog .ix-byline .author {
+  color: var(--fg);
+}
+.dx-page.ix-blog .ix-byline .dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+/* ------------------------------------------------------------
+   Body — a touch larger and airier than the docs measure, for
+   comfortable long-form reading. Targets the MDX prose rendered
+   inside .ix-body (still inheriting the .dx-article rules).
+   ------------------------------------------------------------ */
+.dx-page.ix-blog .ix-body > p {
+  font-size: 17px;
+  line-height: 1.8;
+}
+.dx-page.ix-blog .ix-body > ul li,
+.dx-page.ix-blog .ix-body > ol li {
+  font-size: 17px;
+  line-height: 1.8;
+}
+
+/* Lead-in: the first body paragraph sits closer to the hero. */
+.dx-page.ix-blog .ix-body > p:first-child {
+  margin-top: 0;
+}
+
+/* Pull-quote helper available to the MDX (`> ` blockquotes). */
+.dx-page.ix-blog .ix-body blockquote {
+  margin: 30px 0;
+  padding: 4px 0 4px 22px;
+  border-left: 2px solid var(--primary);
+  font-family: var(--font-editorial);
+  font-style: italic;
+  font-size: 20px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.dx-page.ix-blog .ix-body blockquote p {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------
+   Tables — markdown (`| … |`) tables in the notes render as raw
+   <table> elements (the MDX map only overrides code fences), so the
+   class-based .dx-table styles in DocsPage.css never reach them.
+   Style the bare elements here, scoped to the blog body, reusing the
+   same hairline-grid / mono-header aesthetic as the docs .dx-table.
+   ------------------------------------------------------------ */
+.dx-page.ix-blog .ix-body table {
+  width: 100%;
+  margin: 0 0 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--cy-radius-lg);
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+.dx-page.ix-blog .ix-body th {
+  text-align: left;
+  font-family: var(--font-terminal);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cy-muted-fg);
+  padding: 11px 16px;
+  background: var(--cy-muted);
+  border-bottom: 1px solid var(--border);
+}
+.dx-page.ix-blog .ix-body td {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--fg);
+}
+.dx-page.ix-blog .ix-body tr:last-child td {
+  border-bottom: 0;
+}
+.dx-page.ix-blog .ix-body th:not(:first-child),
+.dx-page.ix-blog .ix-body td:not(:first-child) {
+  border-left: 1px solid var(--border);
+}
+.dx-page.ix-blog .ix-body td strong {
+  font-weight: 600;
+}
+/* The mono inline-code styling from .dx-article already applies inside
+   cells; just keep long table code from forcing nowrap overflow. */
+.dx-page.ix-blog .ix-body td :not(pre) > code {
+  white-space: normal;
+}
+
+/* Let wide tables scroll on narrow viewports rather than overflow the
+   reading column. */
+@media (max-width: 620px) {
+  .dx-page.ix-blog .ix-body table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+/* ------------------------------------------------------------
+   Archive index — the list of notes at /docs/internals.
+   ------------------------------------------------------------ */
+.dx-page.ix-blog .ix-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.dx-page.ix-blog .ix-entry {
+  border-bottom: 1px solid var(--border);
+}
+.dx-page.ix-blog .ix-entry a {
+  display: block;
+  padding: 22px 4px;
+  text-decoration: none;
+  color: inherit;
+  transition: background var(--cy-duration-fast);
+}
+.dx-page.ix-blog .ix-entry a:hover {
+  background: var(--cy-subtle-bg, rgba(127, 127, 127, 0.06));
+}
+.dx-page.ix-blog .ix-entry-date {
+  font-family: var(--font-terminal);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--cy-muted-fg);
+}
+.dx-page.ix-blog .ix-entry-title {
+  font-family: var(--font-editorial);
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: -0.012em;
+  color: var(--fg);
+  margin: 6px 0 0;
+}
+.dx-page.ix-blog .ix-entry a:hover .ix-entry-title {
+  color: var(--primary);
+}
+.dx-page.ix-blog .ix-entry-summary {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--cy-muted-fg);
+  margin: 8px 0 0;
+  max-width: 64ch;
+}
+
+/* ------------------------------------------------------------
+   Footer
+   ------------------------------------------------------------ */
+.dx-page.ix-blog .ix-foot {
+  max-width: 712px;
+  margin: 0 auto;
+  padding: 26px 28px 72px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--cy-muted-fg);
+}
+.dx-page.ix-blog .ix-foot a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cy-muted-fg);
+  text-decoration: none;
+  transition: color var(--cy-duration-fast);
+}
+.dx-page.ix-blog .ix-foot a:hover {
+  color: var(--fg);
+}
+
+@media (max-width: 620px) {
+  .dx-page.ix-blog .ix-foot {
+    padding: 22px 22px 56px;
+  }
+}

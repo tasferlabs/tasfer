@@ -1,0 +1,58 @@
+{
+  "name": "@tasfer/provider-indexeddb",
+  "version": "0.1.0",
+  "private": true,
+  "description": "IndexedDB persistence for @tasfer/editor — stores the CRDT op log locally so reloads are instant and edits survive offline.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tasferlabs/tasfer.git",
+    "directory": "packages/provider-indexeddb"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./*": {
+      "import": {
+        "types": "./dist/*.d.mts",
+        "default": "./dist/*.mjs"
+      },
+      "require": {
+        "types": "./dist/*.d.cts",
+        "default": "./dist/*.cjs"
+      }
+    }
+  },
+  "scripts": {
+    "prepublishOnly": "node -e \"throw new Error('Publishing is disabled while the SDK is internal')\"",
+    "build": "tsdown",
+    "dev": "tsdown --watch"
+  },
+  "peerDependencies": {
+    "@tasfer/editor": "*",
+    "typescript": ">=5.9.3"
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.12",
+    "typescript": "^7.0.2"
+  }
+}

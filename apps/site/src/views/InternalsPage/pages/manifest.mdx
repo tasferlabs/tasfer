@@ -1,0 +1,32 @@
+---
+title: "The Tasfer Manifest"
+date: "2026-03-22"
+authors: ["hamza512b"]
+summary: "Why Tasfer exists: no landlords, offline by default, your data on your device, and an architecture that enforces the philosophy rather than just allowing it."
+---
+
+We built another editor. Not because the world needed one — but because every existing one asks you to trust someone else with your thoughts.
+
+Tasfer is a rejection of that premise. No cloud you don't control. No server that can go down and take your work with it. No company that can read your notes, change the terms, or shut the doors.
+
+Your documents live on your device. When you collaborate, data flows directly between peers — encrypted, ephemeral, yours. The architecture doesn't just support this philosophy. It enforces it.
+
+## How it works
+
+Tasfer turns your app into your server. Your device holds your data, runs the logic, and serves itself — you connect to it from anywhere. No round-trips to someone else's infrastructure, no loading spinners, no permission asked.
+
+When you need to collaborate, connections are direct. A thin relay finds your peers, then steps aside. No data stored, no data read, no data owned. Your data is encrypted on your device before it goes anywhere. Only you hold the keys. Not even we can read what you write.
+
+Edit on multiple devices. Go offline for days. Come back and everything merges — no conflicts, no data loss. The sync engine is built on an operation-log CRDT with a hybrid logical clock, designed to handle real-world editing patterns without a central authority.
+
+## Under the hood
+
+Sync runs on peer-to-peer connections. Authentication is a cryptographic keypair — no passwords, no accounts, no server holding your credentials. Storage is local to your device.
+
+## What we believe
+
+**No landlords.** Your editor should not have a login wall, a pricing page, or a terms of service update every quarter.
+
+**Offline is the default.** Network is a feature, not a requirement. Everything works without it. Sync is a bonus.
+
+**Fork the movement.** Open source means you can take this, change it, ship it. Build exactly what you want. No permission needed.

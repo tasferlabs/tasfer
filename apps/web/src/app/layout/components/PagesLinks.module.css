@@ -1,0 +1,453 @@
+@reference "../../../../styles.css";
+
+.link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  width: 100%;
+  border-radius: 4px;
+  height: 34px;
+  padding-inline: 4px;
+  cursor: grab;
+  user-select: none;
+  gap: 2px;
+}
+
+.link:active {
+  cursor: grabbing;
+}
+
+.link:hover {
+  background-color: var(--accent);
+}
+
+.link.active {
+  background-color: color-mix(in srgb, var(--primary), transparent 85%);
+}
+
+.link.active:hover {
+  background-color: color-mix(in srgb, var(--primary), transparent 75%);
+}
+
+.link.isOver {
+  background-color: color-mix(in srgb, var(--primary), transparent 20%);
+}
+
+.linkTitle {
+  flex: 1 1 0;
+  min-width: 0;
+  margin-inline-start: 5px;
+  overflow: hidden;
+}
+
+/* Child combinator: the label slot nests its own inline markup (the
+   TitlePreview's marks), which must not re-acquire the row-label box styles. */
+.linkTitle > a,
+.linkTitle > span {
+  color: var(--foreground);
+  text-decoration: none;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 4px;
+  cursor: inherit;
+}
+
+.linkTitle input {
+  font-weight: 500;
+  color: var(--foreground);
+  background: none;
+  border: none;
+  outline: none;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  display: block;
+  padding: 4px;
+}
+
+.menuTrigger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: none;
+  border: none;
+  color: var(--foreground);
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+
+.menuTrigger:hover {
+  background-color: var(--accent);
+  opacity: 1;
+}
+
+.link:hover .menuTrigger,
+.menuTriggerOpen {
+  display: flex;
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  background: none;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 0;
+}
+
+.action svg {
+  width: 20px;
+  height: 20px;
+}
+
+.action:hover {
+  @apply bg-primary/10 dark:bg-primary/40;
+}
+
+.action.active:hover {
+  @apply bg-muted dark:bg-muted/80;
+}
+
+.accordion {
+  padding-inline-start: 0.5rem;
+  padding-block-start: 0.5rem;
+  padding-block-end: 0.5rem;
+}
+
+.empty {
+  color: var(--muted-foreground);
+  /* padding: 1px; */
+  font-size: 0.875rem;
+}
+
+.linkWrapper {
+  position: relative;
+}
+
+.sortBar {
+  position: absolute;
+  inset-inline: 0;
+  height: 6px;
+  width: 100%;
+  background-color: transparent;
+  z-index: 1;
+}
+
+.sortBar.before {
+  top: -3px;
+}
+
+.sortBar.after {
+  bottom: -3px;
+}
+
+.sortBar.active {
+  background-color: var(--primary);
+}
+
+.sortBar.hide {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .link {
+    height: 44px;
+    border-radius: 10px;
+    padding-inline: 6px;
+  }
+
+  .link:active {
+    background-color: var(--accent);
+    transition: background-color 0.05s ease;
+  }
+
+  .link.active {
+    background-color: color-mix(in srgb, var(--primary), transparent 85%);
+    border-radius: 10px;
+  }
+
+  .linkTitle {
+    height: 100%;
+    flex: 1 1 0;
+    min-width: 40px;
+    overflow: hidden;
+    margin-inline-start: 4px;
+  }
+
+  .linkTitle > a,
+  .linkTitle > span,
+  .linkTitle > input {
+    height: 100%;
+    line-height: 44px;
+    padding: 0;
+    font-size: 0.9375rem;
+  }
+
+  .action {
+    width: 34px;
+    height: 34px;
+  }
+
+  .menuTrigger {
+    width: 34px;
+    height: 34px;
+  }
+
+  .accordion {
+    padding-inline-start: 0.375rem;
+  }
+}
+
+.allEmpty {
+  padding-block: 0.5rem;
+  color: var(--muted-foreground);
+}
+
+/* Drop zones for drag and drop.
+ *
+ * All three zones overlap the row. `before` covers the top band, `after` the
+ * bottom band, and `inside` the whole row (so its nest indicator can outline
+ * the full row). The collision detector resolves the overlap by pointer
+ * position, preferring before/after over inside, so the top/bottom bands insert
+ * a sibling and only the centre nests.
+ *
+ * Zones are pointer-events:none: dnd-kit detects drops from the measured rects,
+ * not DOM hit-testing, so the zones never need to receive events — and must not,
+ * or they would swallow clicks on the row beneath them.
+ */
+.dropZone {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 10;
+  pointer-events: none;
+  transition: all 0.15s ease;
+}
+
+.dropZoneBefore {
+  top: 0;
+  height: 38%;
+}
+
+.dropZoneAfter {
+  bottom: 0;
+  height: 38%;
+}
+
+.dropZoneInside {
+  top: 0;
+  bottom: 0;
+  background-color: transparent;
+}
+
+/* Insertion line at the row's outer edge. */
+.dropZoneActive.dropZoneBefore {
+  box-shadow: inset 0 2px 0 0 var(--primary);
+}
+
+.dropZoneActive.dropZoneAfter {
+  box-shadow: inset 0 -2px 0 0 var(--primary);
+}
+
+.dropZoneActive.dropZoneInside {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--primary), transparent 90%);
+}
+
+.pageWrapper {
+  position: relative;
+  min-width: 0;
+  /* overflow: hidden; */
+}
+
+/* Positioning context for a single row's drop zones — excludes the expanded
+   children accordion that follows it inside .pageWrapper. */
+.pageRow {
+  position: relative;
+}
+
+.isDragging {
+  opacity: 0.4;
+}
+
+.dragOverlay {
+  padding: 8px 12px;
+  background: var(--card);
+  border: 2px solid var(--primary);
+  border-radius: 6px;
+  cursor: grabbing;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  max-width: 300px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (pointer: coarse) {
+  /* Always show collapse button on coarse pointer */
+  .collapseAction {
+    display: flex;
+  }
+
+  /* Always show menu trigger on touch devices */
+  .menuTrigger {
+    display: flex;
+  }
+}
+
+.collapseIcon {
+  transition: transform 0.15s ease;
+}
+
+:global([dir="rtl"]) .collapseIcon {
+  transform: scaleX(-1);
+}
+
+.collapseIconExpanded {
+  transform: rotate(90deg);
+}
+
+:global([dir="rtl"]) .collapseIconExpanded {
+  transform: scaleX(-1) rotate(90deg);
+}
+
+/* Hide collapse button if no children on fine pointer */
+.collapseAction:not(.hasChildren) {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  /* Always show collapse button on coarse pointer */
+  .collapseAction:not(.hasChildren) {
+    display: flex;
+  }
+}
+
+/*
+ * The collapse toggle doubles as the page's color blob s:
+ * the colored dot at rest; hovering the row (or keyboard-focusing the
+ * toggle) swaps it for the chevron on a translucent pad tinted with the
+ * page color, keeping contrast against the hovered row. The swap is
+ * instant — no size or position animation. Coarse pointers have no hover,
+ * so they always get the chevron.
+ */
+.collapseAction {
+  position: relative;
+}
+
+.collapseBlob {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--page-blob-color);
+}
+
+/* Pages with no chosen color keep the faded default dot. */
+.collapseBlobDefault {
+  opacity: 0.3;
+}
+
+/* The pad is drawn on the chevron itself — a small rounded square, clearly
+   lighter than the hovered row. The 30px button stays
+   as the hit target but never paints its own background. */
+.collapseAction .collapseIcon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  border-radius: 4px;
+  stroke-width: 2;
+  color: var(--muted-foreground);
+  opacity: 0;
+}
+
+.link:hover .collapseBlob,
+.collapseAction:focus-visible .collapseBlob {
+  opacity: 0;
+}
+
+.link:hover .collapseAction .collapseIcon,
+.collapseAction:focus-visible .collapseIcon {
+  opacity: 1;
+  background-color: color-mix(in srgb, var(--foreground), transparent 89%);
+}
+
+.collapseAction:hover,
+.collapseAction.active:hover {
+  background: none;
+}
+
+.collapseAction:hover .collapseIcon {
+  background-color: color-mix(in srgb, var(--foreground), transparent 82%);
+  color: var(--foreground);
+}
+
+/* Coarse pointers have no hover, so the chevron occupies the toggle
+   full-time and the page color moves to its own dot beside it. Fine
+   pointers never show this dot — the blob lives inside the toggle. */
+.touchBlob {
+  display: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@media (pointer: coarse) {
+  .collapseBlob {
+    opacity: 0;
+  }
+
+  .collapseAction .collapseIcon {
+    opacity: 1;
+  }
+
+  .touchBlob {
+    display: block;
+  }
+}
+
+.accordionAddButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  padding-inline-start: 2px;
+  margin-inline-start: -4px;
+  margin-top: 8px;
+}
+
+.accordionAddButton:hover {
+  background-color: var(--accent);
+  color: var(--foreground);
+}
+
+.accordionAddButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

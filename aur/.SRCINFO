@@ -1,0 +1,16 @@
+pkgbase = tasfer-bin
+	pkgdesc = A canvas-based markdown editor. Local-first, peer-to-peer, no cloud.
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/tasferlabs/tasfer
+	arch = x86_64
+	license = custom
+	depends = gtk3
+	depends = nss
+	depends = libxss
+	depends = alsa-lib
+	provides = tasfer
+	conflicts = tasfer
+	source = https://github.com/tasferlabs/tasfer/releases/download/desktop-v1.0.0/tasfer-1.0.0.pacman
+
+pkgname = tasfer-bin

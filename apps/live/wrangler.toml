@@ -1,0 +1,30 @@
+name = "tasfer-signal"
+main = "src/worker.ts"
+compatibility_date = "2025-03-01"
+
+# Custom domain — requires tasfer.app zone in Cloudflare DNS
+routes = [
+  { pattern = "signaling.tasfer.app", custom_domain = true }
+]
+
+# Cloudflare Calls TURN credentials — get from: CF Dashboard → Calls → TURN → Create Key.
+# Both are secrets, kept out of the repo. Set each on the deployed Worker:
+#   wrangler secret put TURN_KEY_ID
+#   wrangler secret put TURN_API_TOKEN
+# For local dev, put both in apps/live/.dev.vars (gitignored).
+
+# TURN_BUDGET is the global daily ceiling on TURN credential mints — the
+# billing backstop. Per-peer and per-room limits live in SignalRoom itself.
+[durable_objects]
+bindings = [
+  { name = "SIGNAL_ROOM", class_name = "SignalRoom" },
+  { name = "TURN_BUDGET", class_name = "TurnBudget" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SignalRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["TurnBudget"]

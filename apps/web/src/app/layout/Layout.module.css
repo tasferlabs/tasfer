@@ -1,0 +1,829 @@
+.appContainer {
+  display: flex;
+  flex-direction: row;
+  height: calc(100dvh - var(--devtool-height, 0px));
+  transition: height 0.05s ease-out;
+}
+
+/* Windows/Linux Electron: subtract menu bar height (36px) */
+:global(body.electron:not(.electron-mac)) .appContainer {
+  height: calc(100dvh - 36px - var(--devtool-height, 0px));
+}
+
+.appSidebar {
+  flex: 0 0 auto;
+  min-width: 300px;
+  max-width: 500px;
+  display: flex;
+  flex-direction: row;
+  color: var(--muted-foreground);
+  overflow: hidden;
+}
+
+.appFrame {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: calc(100dvh - var(--devtool-height, 0px));
+  border-start-start-radius: 0px;
+  border-start-end-radius: 10px;
+  border-end-end-radius: 10px;
+  border-end-start-radius: 0px;
+  z-index: 1;
+  min-width: 0;
+}
+
+.dark .appFrame {
+  box-shadow: none;
+}
+
+.appSidebar .appSidebarContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1 1 0;
+  width: calc(100% - 6px);
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  /* for touch dragging to work */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.sidebarPanelSlot {
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Electron macOS: clear traffic lights in panel mode */
+:global(body.electron) .sidebarPanelSlot {
+  padding-top: var(--mac-chrome-bar-height);
+}
+
+:global(body.electron:not(.electron-mac)) .sidebarPanelSlot {
+  padding-top: 8px;
+}
+
+.appSidebar .appSidebarResizer {
+  flex: 0 0 6px;
+  justify-self: flex-end;
+  align-items: center;
+  cursor: col-resize;
+  border-inline-start: 2px solid var(--background);
+  border-inline-end: 2px solid var(--background);
+  background-color: var(--border);
+}
+
+.appSidebar .appSidebarResizer:hover {
+  background: color-mix(in srgb, var(--primary), transparent 80%);
+  border: none;
+}
+:global(.dark) .appSidebar .appSidebarResizer:hover {
+  background: var(--primary);
+  border: none;
+}
+
+.appHeader {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  padding-block: 0;
+  padding-inline: 0.5rem 0.25rem;
+  /* Support both Android (--safe-area-inset-top) and iOS (env()) */
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  height: calc(
+    60px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
+  );
+  /* background-color: var(--editor-background); */
+  color: var(--muted-foreground);
+  z-index: 1;
+  width: 100%;
+  user-select: none;
+}
+
+/* Electron macOS: action bar sits inside the title bar region */
+:global(body.electron) .appHeader {
+  -webkit-app-region: drag;
+  height: var(--mac-chrome-bar-height);
+  padding-top: 0;
+}
+
+/* Electron macOS: clear traffic lights when sidebar is closed */
+:global(body.electron-mac) .appHeaderSidebarClosed {
+  padding-left: 100px;
+}
+
+/* Electron macOS + RTL: sidebar is on the right, so traffic lights overlap the header even when sidebar is open */
+:global([dir="rtl"] body.electron-mac) .appHeader {
+  padding-left: 76px;
+}
+
+/* Windows/Linux: menu bar is a separate row above, so action bar is normal height */
+:global(body.electron:not(.electron-mac)) .appHeader {
+  min-height: 56px;
+  padding-top: 0;
+}
+
+:global(body.electron) .appHeader button,
+:global(body.electron) .appHeader a,
+:global(body.electron) .appHeader input {
+  -webkit-app-region: no-drag;
+}
+
+/* Slot children (portaled content) are interactive, not the empty space */
+:global(body.electron) .appHeaderSlot > * {
+  -webkit-app-region: no-drag;
+}
+
+.iconButton {
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--muted-foreground);
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 4px;
+}
+
+.iconButton:hover {
+  color: var(--foreground);
+  background-color: var(--muted);
+}
+
+.appHeaderOpenSidebar {
+  visibility: hidden;
+}
+
+.appHeader:hover .appHeaderOpenSidebar {
+  visibility: visible;
+}
+
+.appHeaderTitles {
+  display: flex;
+  align-items: center;
+  max-width: 70vw;
+  min-width: 0;
+  user-select: none;
+}
+
+.appHeaderTitle {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  color: var(--foreground);
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  flex-shrink: 10;
+}
+
+/* Last breadcrumb item (current page) should be more visible */
+.appHeaderTitle:last-child {
+  flex-shrink: 1;
+  min-width: 80px;
+}
+
+.appHeaderTitleSeparator {
+  color: var(--foreground);
+  flex-shrink: 0;
+}
+
+.appHeaderTitle:hover {
+  color: var(--foreground);
+  background-color: var(--muted);
+}
+
+.appNavigationLinks {
+  padding-block: 0;
+  padding-inline: 1rem 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.appNavigationLinks > * + * {
+  margin-block-start: 0.25rem;
+}
+
+.appNavigationLink {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 0;
+  height: 32px;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+@media (max-width: 768px) {
+  .appNavigationLinks {
+    padding-inline: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.75rem;
+  }
+
+  .appNavigationLink {
+    height: 44px;
+    padding-inline: 0.5rem;
+    border-radius: 10px;
+    font-size: 1rem;
+    gap: 10px;
+  }
+
+  .appNavigationLink:active {
+    background-color: var(--accent);
+    transition: background-color 0.05s ease;
+  }
+
+  /* Pills on mobile: the tint carries the active state, no edge rail. */
+  .appNavigationLink.active::before {
+    display: none;
+  }
+}
+
+.appNavigationLinkIcon {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.appNavigationLinkIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+@media (max-width: 768px) {
+  .appNavigationLinkIcon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .appNavigationLinkIcon svg {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.appNavigationLink:hover {
+  background-color: var(--accent);
+}
+
+:global(.dark) .appNavigationLink:hover {
+  background-color: var(--accent);
+}
+
+/* Current app section: a soft primary tint plus a left rail, so it reads as
+   the active destination and stays distinct from an active page in the tree. */
+.appNavigationLink.active {
+  background-color: color-mix(in srgb, var(--primary), transparent 88%);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.appNavigationLink.active:hover {
+  background-color: color-mix(in srgb, var(--primary), transparent 80%);
+}
+
+.appNavigationLink.active::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -1rem;
+  inset-block: 4px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background-color: var(--primary);
+}
+
+.appNavigationLink.active .appNavigationLinkIcon {
+  color: var(--primary);
+}
+
+/* Live drop target while a page is dragged over the Archive link. */
+.appNavigationLink.archiveDropTarget {
+  background-color: color-mix(in srgb, var(--destructive), transparent 85%);
+  color: var(--destructive);
+  outline: 1px dashed var(--destructive);
+  outline-offset: -1px;
+}
+
+.appNavigationLink.archiveDropTarget .appNavigationLinkIcon {
+  color: var(--destructive);
+}
+
+.appNavigationLinkShortcut {
+  /* margin-inline-start: auto; */
+  font-size: 0.7rem;
+  font-family: inherit;
+  color: var(--muted-foreground);
+  background-color: var(--muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  line-height: 1;
+}
+
+.appNavigationLinkBadge {
+  background-color: var(--primary);
+  color: var(--background);
+  font-size: 0.75rem;
+  padding: 0.125rem 0.25rem;
+  border-radius: 4px;
+  display: inline-block;
+  min-width: 20px;
+  text-align: center;
+  line-height: 1;
+  margin-inline-start: auto;
+}
+
+.appSidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 60px;
+  padding-block: 0;
+  padding-inline: 1rem 0.25rem;
+}
+
+@media (max-width: 768px) {
+  .appSidebarHeader {
+    flex: 0 0 auto;
+    min-height: 56px;
+    padding-inline: 0.75rem;
+  }
+}
+
+@media (min-width: 769px) {
+  .appSidebarHeader {
+    flex: 0 0 auto;
+    min-height: 60px;
+    padding: 0.25rem 0.5rem;
+  }
+}
+
+.appSidebarFooter {
+  flex: 0 0 auto;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Electron macOS: sidebar header sits alongside traffic lights (always on the left) */
+:global(body.electron) .appSidebarHeader {
+  -webkit-app-region: drag;
+  padding-left: 76px;
+  min-height: var(--mac-chrome-bar-height);
+}
+
+/* RTL: sidebar is on the right, no traffic lights to clear */
+:global([dir="rtl"] body.electron-mac) .appSidebarHeader {
+  padding-left: 0;
+}
+
+/* Electron Windows: no traffic lights to clear */
+:global(body.electron:not(.electron-mac)) .appSidebarHeader {
+  padding-top: 4px;
+  padding-inline-start: 0.5rem;
+  min-height: 56px;
+}
+
+:global(body.electron) .appSidebarHeader button,
+:global(body.electron) .appSidebarHeader a {
+  -webkit-app-region: no-drag;
+}
+
+.appSidebarMain {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.appSidebarMain > div {
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.appSidebarSection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 4px 1rem;
+  flex-shrink: 0;
+}
+
+/*
+ * Trailing drop target that grows to fill the column below the last space.
+ * Keeps the bottom of the sidebar droppable: a page dropped here appends to the
+ * last space, a space dropped here moves to the end.
+ */
+.appSidebarTail {
+  flex: 1 1 auto;
+  min-height: 4rem;
+}
+
+.appSidebarTailActive {
+  box-shadow: inset 0 2px 0 0 var(--primary);
+}
+
+/* The draggable region of a space header (collapse chevron + icon + title). */
+.appSidebarSectionHandle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: grab;
+  color: inherit;
+  text-align: start;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.appSidebarSectionHandle:active {
+  cursor: grabbing;
+}
+
+.appSidebarSectionDragging {
+  opacity: 0.4;
+}
+
+/* Insertion indicator between space headers while reordering spaces. */
+.spaceDropZone {
+  height: 4px;
+  margin: 0 1rem;
+  border-radius: 2px;
+  transition: background-color 0.15s ease;
+}
+
+.spaceDropZoneActive {
+  background-color: var(--primary);
+}
+
+@media (max-width: 768px) {
+  .appSidebarSection {
+    padding: 6px 0.75rem;
+  }
+}
+
+.appSidebarScrollArea {
+  height: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/*
+ * Override Radix ScrollArea's internal table display. A flex column lets the
+ * trailing `.appSidebarTail` grow into whatever vertical room is left, so the
+ * empty area below the last space stays a reachable drop target (drop a page to
+ * append it / a space to move it to the end) rather than dead, undroppable space.
+ */
+.appSidebarScrollArea :global([data-radix-scroll-area-viewport]) > div {
+  display: flex !important;
+  flex-direction: column;
+  min-width: 0 !important;
+}
+
+.appSidebarScrollArea > div {
+  display: block !important;
+  height: 100%;
+  min-width: 0;
+}
+
+.appSidebarScrollArea > div > div {
+  /*
+   * Fill the available height when the space list is short (so the area reads
+   * as one continuous panel and the trailing drop zone is reachable), but grow
+   * past it and scroll when there are many spaces. A fixed `height: 100%` here
+   * combined with `height: 100%` on each `.appSidebarPages` made every space
+   * stack a full viewport tall.
+   */
+  min-height: 100%;
+  min-width: 0;
+}
+
+.appSidebarSectionTitle {
+  font-weight: 700;
+  color: var(--foreground);
+  /* text-transform: uppercase; */
+
+  flex: 0 0 max-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/*
+ * The space icon slot doubles as the collapse indicator:
+ * the box glyph at rest, replaced by the chevron on its own pad
+ * when the header is hovered or focused. Touch has no hover, so it keeps
+ * the glyph; the whole header is the toggle there.
+ */
+.appSidebarSectionIcon {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.appSidebarSectionIcon .appSidebarCollapseIcon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  border-radius: 4px;
+  stroke-width: 2;
+  color: var(--muted-foreground);
+  opacity: 0;
+  transition: transform 0.15s ease;
+}
+
+.appSidebarCollapseIconOpen {
+  transform: rotate(90deg);
+}
+
+.appSidebarSectionHandle:hover .appSidebarCollapseIcon,
+.appSidebarSectionHandle:focus-visible .appSidebarCollapseIcon {
+  background-color: color-mix(in srgb, var(--foreground), transparent 89%);
+}
+
+.appSidebarSectionHandle .appSidebarCollapseIcon:hover {
+  background-color: color-mix(in srgb, var(--foreground), transparent 82%);
+  color: var(--foreground);
+}
+
+.appSidebarSectionHandle:hover .appSidebarSpaceGlyph,
+.appSidebarSectionHandle:focus-visible .appSidebarSpaceGlyph {
+  opacity: 0;
+}
+
+.appSidebarSectionHandle:hover .appSidebarCollapseIcon,
+.appSidebarSectionHandle:focus-visible .appSidebarCollapseIcon {
+  opacity: 1;
+}
+
+.appSidebarSection .appSidebarSectionButton:first-of-type {
+  margin-inline-start: auto;
+}
+.appSidebarSectionIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.appSidebarSectionDivider {
+  flex: 4 0 auto;
+  height: 1px;
+  background-color: var(--border);
+}
+
+.appSidebarSectionButton {
+  background: none;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  flex: 0 0 auto;
+  border-radius: 4px;
+}
+
+.appSidebarSectionButton:hover {
+  background-color: color-mix(in srgb, var(--foreground), transparent 90%);
+}
+
+.appSidebarSectionPagesArea {
+  flex: 1 1 300px;
+  margin-top: 0.25rem;
+}
+
+/* Electron: sidebar footer is also draggable */
+:global(body.electron) .appSidebarFooter {
+  -webkit-app-region: no-drag;
+}
+
+.floatingSidebar {
+  position: fixed;
+  inset: 0;
+  background-color: var(--background);
+  z-index: 50;
+  /* Support both Android (--safe-area-inset-*) and iOS (env()) */
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  padding-bottom: var(
+    --safe-area-inset-bottom,
+    env(safe-area-inset-bottom, 0px)
+  );
+  padding-inline-start: var(
+    --safe-area-inset-left,
+    env(safe-area-inset-left, 0px)
+  );
+  padding-inline-end: var(
+    --safe-area-inset-right,
+    env(safe-area-inset-right, 0px)
+  );
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  transform: translateX(-100%);
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+:global([dir="rtl"]) .floatingSidebar {
+  transform: translateX(100%);
+}
+
+.floatingSidebarOpen {
+  transform: translateX(0);
+}
+
+:global([dir="rtl"]) .floatingSidebarOpen {
+  transform: translateX(0);
+}
+
+.visible {
+  visibility: visible;
+}
+
+.appHeaderUserNav {
+  margin-inline-start: auto;
+}
+
+.illustration {
+  max-width: 300px;
+  width: 100%;
+  color: var(--foreground);
+}
+
+:global(.dark) .illustration {
+  color: var(--foreground);
+}
+
+.addPageButton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 4px;
+  font-size: 0.875rem;
+  height: 32px;
+}
+
+.addPageButton svg {
+  width: 24px;
+  height: 24px;
+  fill: var(--foreground);
+}
+
+.addPageButton:hover {
+  background-color: var(--accent);
+}
+
+:global(.dark) .addPageButton:hover {
+  background-color: var(--accent);
+}
+
+.LinksArea {
+  flex: 1 0 auto;
+}
+
+.appSidebarPages {
+  /*
+   * Vertical room for the first/last item's drop indicators. The `before` zone
+   * sits at top: -4px and the `after` zone at bottom: -4px, so at the very top
+   * and bottom of a list they overhang the content box. Without this padding,
+   * `overflow: hidden` clips those indicators: the drop still registers but its
+   * preview line is never painted. Must be >= the 4px indicator overhang.
+   */
+  padding-block: 6px;
+  padding-inline: 1rem 0.25rem;
+  /*
+   * Size to the pages it contains rather than growing to fill the column —
+   * otherwise, in the sidebar's flex layout, every space would stack
+   * screen-height again. The trailing `.appSidebarTail` absorbs spare space
+   * instead. `min-height` keeps a small target for dropping a page into an
+   * otherwise-empty space.
+   */
+  flex: 0 0 auto;
+  min-height: 2rem;
+  border-radius: 4px;
+  overflow: hidden;
+  min-width: 0;
+
+  /* for touch dragging to work */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+@media (max-width: 768px) {
+  .appSidebarPages {
+    padding-inline: 0.75rem 0.25rem;
+  }
+}
+
+.appSidebarPagesDragging {
+  background-color: color-mix(in srgb, var(--primary), transparent 80%);
+}
+
+.usersList {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  position: relative;
+}
+
+.usersList > :nth-child(1) .userAvatar {
+  z-index: 2; /* Higher z-index for the first element */
+}
+
+.userAvatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* flex-direction: row-reverse; */
+  background-color: var(--avatar-color);
+  color: var(--avatar-color-text);
+  border: 2px solid var(--background);
+  margin-inline-start: -8px;
+  box-sizing: content-box;
+  transition:
+    margin-inline-start 0.2s ease,
+    transform 0.2s ease;
+  cursor: pointer;
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.userAvatar:hover {
+  transform: scale(1.1);
+  z-index: 10;
+}
+
+.usersList:hover .userAvatar {
+  margin-inline-start: 4px;
+}
+
+.dragOverlay {
+  padding: 8px 12px;
+  background: var(--card);
+  border: 2px solid var(--primary);
+  border-radius: 6px;
+  cursor: grabbing;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  max-width: 300px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
