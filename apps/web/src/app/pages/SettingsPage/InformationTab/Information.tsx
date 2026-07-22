@@ -10,6 +10,7 @@ import {
   useDevToolsUnlocked,
 } from "@/lib/devTools";
 import { getClientPlatform } from "@/platform";
+import { publicAssetUrl } from "@/lib/publicAssetUrl";
 
 // Taps on the version line needed to reveal the hidden Tasfer Inspector toggle
 // (the classic Android "tap build number" gesture).
@@ -111,7 +112,7 @@ export function Information() {
         </p>
         <p>
           <a
-            href={`${import.meta.env.BASE_URL}THIRD-PARTY-LICENSES.txt`}
+            href={publicAssetUrl("THIRD-PARTY-LICENSES.txt")}
             target="_blank"
             rel="noreferrer noopener"
             className="underline"

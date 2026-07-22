@@ -22,6 +22,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { detectDeviceType } from "@/platform";
+import { publicAssetUrl } from "@/lib/publicAssetUrl";
 import useResponsive from "../hooks/useResponsive";
 
 /**
@@ -382,7 +383,6 @@ function DesktopAppDownloads() {
 /** Official App Store / Google Play badges (same artwork as MobileAppNudge). */
 function MobileAppBadges() {
   const { t } = useTranslation();
-  const base = import.meta.env.BASE_URL;
   return (
     <div className="flex flex-col gap-3.5">
       <p className="text-[13px] leading-[1.55] text-muted-foreground">
@@ -399,7 +399,7 @@ function MobileAppBadges() {
           className="rounded-[8px] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
           <img
-            src={`${base}badges/app-store.svg`}
+            src={publicAssetUrl("badges/app-store.svg")}
             alt={t("install.appStore", "Download on the App Store")}
             className="h-10 w-auto"
           />
@@ -411,7 +411,7 @@ function MobileAppBadges() {
           className="rounded-[8px] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
           <img
-            src={`${base}badges/play-store.svg`}
+            src={publicAssetUrl("badges/play-store.svg")}
             alt={t("install.googlePlay", "Get it on Google Play")}
             className="h-10 w-auto"
           />

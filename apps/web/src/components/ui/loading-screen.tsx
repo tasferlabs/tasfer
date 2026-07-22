@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { publicAssetUrl } from "@/lib/publicAssetUrl";
 import { useTranslation } from "react-i18next";
 
 export default function LoadingScreen() {
@@ -11,7 +12,7 @@ export default function LoadingScreen() {
     >
       <img
         className="animate-spin"
-        src={`${import.meta.env.BASE_URL}spinner.png`}
+        src={publicAssetUrl("spinner.png")}
         alt={t("common.loading", "Loading...")}
         width={32}
         height={32}

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { invariant } from "@shared/invariant";
+import { publicAssetUrl } from "@/lib/publicAssetUrl";
 import { setNativeColorScheme } from "@/platform/bridge";
 
 export type Theme = "light" | "dark" | "system";
@@ -51,7 +52,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       // pre-paint value; this covers runtime changes)
       const favicon = document.getElementById("favicon");
       if (favicon) {
-        favicon.setAttribute("href", `/favicon-${scheme}.svg`);
+        favicon.setAttribute("href", publicAssetUrl(`favicon-${scheme}.svg`));
       }
 
       // Sync to native platform. Covers both the iOS/Android TasferBridge and
@@ -116,4 +117,3 @@ export const useTheme = (): ThemeContextType => {
   invariant(context, "useTheme must be used within a ThemeProvider");
   return context;
 };
-
