@@ -47,6 +47,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         metaColorScheme.setAttribute("content", scheme);
       }
 
+      // The favicon's tile color follows the theme (index.html sets the
+      // pre-paint value; this covers runtime changes)
+      const favicon = document.getElementById("favicon");
+      if (favicon) {
+        favicon.setAttribute("href", `/favicon-${scheme}.svg`);
+      }
+
       // Sync to native platform. Covers both the iOS/Android TasferBridge and
       // the Electron desktop bridge (window.tasfer), so OS-drawn chrome like the
       // native context menu follows the in-app theme rather than the desktop
