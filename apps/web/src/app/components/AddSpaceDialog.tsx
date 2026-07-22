@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { SpaceInvite } from "@/platform/types";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -40,6 +39,7 @@ import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { cancelPairing, useAcceptInvite, useCreateSpace } from "../api/spaces.api";
 import useResponsive from "../hooks/useResponsive";
+import { decodeInvite } from "../inviteCode";
 import { QRScannerView } from "./QRScannerView";
 
 interface AddSpaceDialogProps {
@@ -48,28 +48,6 @@ interface AddSpaceDialogProps {
 }
 
 type View = "pick" | "create" | "join";
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** Unpack 80 bytes: topic (32B) + secret (32B) + spaceId (16B) */
-function decodeInvite(code: string): SpaceInvite | null {
-  try {
-    const str = atob(code.trim());
-    if (str.length !== 80) return null;
-    const bytes = new Uint8Array(80);
-    for (let i = 0; i < 80; i++) bytes[i] = str.charCodeAt(i);
-    const topic = bytesToHex(bytes.subarray(0, 32));
-    const secret = bytesToHex(bytes.subarray(32, 64));
-    const raw = bytes.subarray(64, 80);
-    const end = raw.indexOf(0);
-    const spaceId = new TextDecoder().decode(raw.subarray(0, end >= 0 ? end : 16));
-    return { topic, secret, spaceId };
-  } catch {
-    return null;
-  }
-}
 
 export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   const { t } = useTranslation();

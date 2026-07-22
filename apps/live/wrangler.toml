@@ -13,19 +13,18 @@ routes = [
 #   wrangler secret put TURN_API_TOKEN
 # For local dev, put both in apps/live/.dev.vars (gitignored).
 
+# TURN_BUDGET is the global daily ceiling on TURN credential mints — the
+# billing backstop. Per-peer and per-room limits live in SignalRoom itself.
 [durable_objects]
 bindings = [
-  { name = "SIGNAL_ROOM", class_name = "SignalRoom" }
+  { name = "SIGNAL_ROOM", class_name = "SignalRoom" },
+  { name = "TURN_BUDGET", class_name = "TurnBudget" }
 ]
-
-# Caps TURN credential minting per client IP. Credentials are usable for
-# arbitrary relayed traffic and are billed to this account, so the endpoint is
-# rate-limited on top of requiring the caller to name a topic.
-[[ratelimits]]
-name = "TURN_RATE_LIMITER"
-namespace_id = "1001"
-simple = { limit = 10, period = 60 }
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["SignalRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["TurnBudget"]

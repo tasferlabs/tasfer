@@ -737,15 +737,11 @@ export class Engine implements Platform {
 
   pairing = {
     createInvite: async (spaceId: string): Promise<SpaceInvite> => {
-      const topicBytes = new Uint8Array(32);
-      crypto.getRandomValues(topicBytes);
-      const topic = bytesToHex(topicBytes);
-
       const secretBytes = new Uint8Array(32);
       crypto.getRandomValues(secretBytes);
       const secret = bytesToHex(secretBytes);
 
-      return { topic, secret, spaceId };
+      return { secret, spaceId };
     },
 
     waitForPeer: async (

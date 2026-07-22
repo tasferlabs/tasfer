@@ -13,7 +13,9 @@
  *   ← { type: "peer-left", peerId }
  *   ← { type: "signal",    from, data }
  *
- * The room name is hashed to the hex topic the server routes on. A deterministic
+ * The transport sends the topic it is given verbatim — deriving a topic from
+ * secret material (e.g. hashing a room name) is the caller's job, so what the
+ * server sees is decided in exactly one place per consumer. A deterministic
  * initiator (higher peerId offers) prevents duplicate connections.
  *
  * Trimmed from apps/web's production adapter. Deliberately omitted here, each a
@@ -26,8 +28,12 @@ import type { Transport, TransportPeer } from "@tasfer/provider-core";
 import { ChunkAssembler, chunkMessage } from "./chunk";
 
 export interface WebrtcTransportOptions {
-  /** Logical room — replicas sharing a room (and signaling server) converge. */
-  room: string;
+  /**
+   * Wire topic the server routes on: 64 hex chars, derived from secret
+   * material by the caller (see `createWebrtcProvider`). May be a promise so
+   * a sync factory can hand over an in-flight derivation.
+   */
+  topic: string | Promise<string>;
   /** Signaling base URL, e.g. "wss://relay.example.com". No trailing slash. */
   signaling: string;
   /** This replica's stable id. Pass `doc.peerId`. */
@@ -40,15 +46,7 @@ const DEFAULT_ICE: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
 ];
 
-async function sha256Hex(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(input),
-  );
-  return Array.from(new Uint8Array(digest), (b) =>
-    b.toString(16).padStart(2, "0"),
-  ).join("");
-}
+const TOPIC_PATTERN = /^[a-f0-9]{64}$/;
 
 class WebrtcPeer implements TransportPeer {
   readonly id: string;
@@ -132,7 +130,7 @@ interface SignalMessage {
 }
 
 export class WebrtcTransport implements Transport {
-  private readonly room: string;
+  private readonly topic: string | Promise<string>;
   private readonly signaling: string;
   private readonly peerId: string;
   private readonly iceServers: RTCIceServer[];
@@ -145,7 +143,7 @@ export class WebrtcTransport implements Transport {
   private readonly leaveListeners = new Set<(id: string) => void>();
 
   constructor(options: WebrtcTransportOptions) {
-    this.room = options.room;
+    this.topic = options.topic;
     this.signaling = options.signaling.replace(/\/$/, "");
     this.peerId = options.peerId;
     this.iceServers = options.iceServers ?? DEFAULT_ICE;
@@ -154,7 +152,12 @@ export class WebrtcTransport implements Transport {
   connect(): Promise<void> {
     if (this.connecting) return this.connecting;
     this.connecting = (async () => {
-      const topicHex = await sha256Hex(this.room);
+      const topicHex = (await this.topic).toLowerCase();
+      if (!TOPIC_PATTERN.test(topicHex)) {
+        throw new Error(
+          `[provider-webrtc] topic must be 64 hex chars, got "${topicHex.slice(0, 16)}…"`,
+        );
+      }
       // `peerId` is a caller-supplied string: `#` would truncate the query and
       // `&`/`=` would inject parameters, so the server would see a different id.
       const url = `${this.signaling}/topic/${topicHex}?peerId=${encodeURIComponent(this.peerId)}`;
