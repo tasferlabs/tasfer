@@ -10,6 +10,7 @@ declare module "*.mdx" {
   export const frontmatter: {
     title: string;
     date: string;
+    authors: string[];
     summary: string;
     source?: string;
   };
