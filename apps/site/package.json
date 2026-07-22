@@ -6,7 +6,7 @@
   "description": "Tasfer marketing site + documentation (Next.js, static export)",
   "scripts": {
     "dev": "next dev -p 4100",
-    "build": "next build --webpack",
+    "build": "npm run og && next build --webpack",
     "start": "next start -p 4100",
     "og": "node scripts/generate-og.mjs"
   },

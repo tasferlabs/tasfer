@@ -14,6 +14,7 @@ import "@fontsource/space-grotesk/600.css";
 import "@fontsource/space-grotesk/700.css";
 
 import { getDictionary, isLng, SUPPORTED_LNGS } from "@/lib/i18n/locales";
+import { getOgImage } from "@/lib/og";
 import { Providers } from "@/providers/Providers";
 
 const SITE_ORIGIN = "https://www.tasfer.app";
@@ -35,7 +36,7 @@ export async function generateMetadata({
   const dictionary = getDictionary(lang);
   const title = dictionary["metadata.title"];
   const description = dictionary["metadata.description"];
-  const ogImage = "/og.png";
+  const ogImage = getOgImage("home", lang);
 
   return {
     metadataBase: new URL(SITE_ORIGIN),
@@ -46,7 +47,7 @@ export async function generateMetadata({
     robots: { index: true, follow: true },
     openGraph: {
       type: "website",
-      locale: "en",
+      locale: lang,
       siteName: "Tasfer",
       title,
       description,

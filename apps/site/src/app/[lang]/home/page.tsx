@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import HomePage from "@/views/HomePage/HomePage";
 import { getDictionary, isLng } from "@/lib/i18n/locales";
+import { getOgImage } from "@/lib/og";
 
 export async function generateMetadata({
   params,
@@ -26,7 +27,7 @@ export async function generateMetadata({
       url: `/${lang}/home`,
       images: [
         {
-          url: "/og.png",
+          url: getOgImage("home", lang),
           width: 1200,
           height: 630,
           alt: title,
