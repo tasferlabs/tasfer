@@ -18,11 +18,17 @@
  *
  *   → { type: "signal", target, data }   (encrypted SDP offer/answer/ICE)
  *   → { type: "relay",  target, data }   (encrypted binary — fallback)
+ *   → { type: "turn-request" }           (mint TURN credentials for this room)
  *   ← { type: "peers",     peerIds }     (current peers on connect)
  *   ← { type: "peer-join", peerId }
  *   ← { type: "peer-left", peerId }
  *   ← { type: "signal",    from, data }
  *   ← { type: "relay",     from, data }
+ *   ← { type: "turn-response", iceServers } / { type: "turn-response", error }
+ *
+ * TURN credentials are requested over the signaling socket rather than HTTP:
+ * the server mints them only for connected room members, which is what rate
+ * limits minting without punishing users who share an IP (CGNAT).
  */
 
 import { invariant } from "@shared/invariant";
@@ -37,14 +43,21 @@ const STUN_ONLY_CONFIG: RTCConfiguration = {
 };
 
 /**
- * How long before we re-fetch TURN credentials. The Worker mints them with a
- * 1h TTL, so this refreshes at half-life: a peer connection created at any
- * moment gets credentials that are still valid.
+ * How long before we re-request TURN credentials. The server mints them with
+ * a 1h TTL and may serve a room-cached mint up to 20 minutes old, so a peer
+ * connection created at any moment gets credentials that are still valid.
  */
 const TURN_CREDENTIAL_REFRESH_MS = 30 * 60 * 1000; // 30m
 
-/** Cool-off after a failed credential fetch, so a down endpoint isn't hammered. */
+/** Cool-off after a failed credential request, so a down server isn't hammered. */
 const TURN_CREDENTIAL_RETRY_MS = 60 * 1000; // 1m
+
+/**
+ * Bound on waiting for a turn-response. Covers the server's 5s upstream mint
+ * budget plus transit; past it, connections proceed with whatever ICE config
+ * is already held.
+ */
+const TURN_RESPONSE_TIMEOUT_MS = 6000;
 
 // =============================================================================
 // E2E Encryption — AES-256-GCM with HKDF-derived keys
@@ -455,6 +468,20 @@ class RelayPeer implements NetworkPeer {
 // Topic — manages peer connections + its own WebSocket to CF
 // =============================================================================
 
+/** Driver-side TURN credential state, shared by every topic. */
+interface TurnCredentialManager {
+  /** A topic's socket (re)opened — refresh credentials through it if stale. */
+  socketOpened(topic: WebRtcTopic): void;
+  /** A turn-response frame arrived (routed outside the ordered inbound chain). */
+  handleTurnResponse(msg: unknown): void;
+  /**
+   * Resolves once no credential request is in flight. Resolves immediately
+   * while TURN credentials are held — a background rotation must not delay
+   * new connections.
+   */
+  credentialsSettled(): Promise<void>;
+}
+
 class WebRtcTopic implements NetworkTopic {
   private localPeerId: string;
   private topicHex: string;
@@ -463,6 +490,7 @@ class WebRtcTopic implements NetworkTopic {
   private encKey: CryptoKey;
   /** Read per connection, not captured: TURN credentials expire and are refreshed. */
   private getRtcConfig: () => RTCConfiguration;
+  private turn: TurnCredentialManager;
   private ws: WebSocket | null = null;
   private wsReady: Promise<void> = Promise.resolve();
   /** Serializes inbound frame handling — see {@link enqueueWsMessage}. */
@@ -482,12 +510,14 @@ class WebRtcTopic implements NetworkTopic {
     signalUrl: string,
     encKey: CryptoKey,
     getRtcConfig: () => RTCConfiguration,
+    turn: TurnCredentialManager,
   ) {
     this.localPeerId = localPeerId;
     this.topicHex = topicHex;
     this.signalUrl = signalUrl;
     this.encKey = encKey;
     this.getRtcConfig = getRtcConfig;
+    this.turn = turn;
   }
 
   /** Connect to the CF Worker and start receiving signals. */
@@ -545,6 +575,7 @@ class WebRtcTopic implements NetworkTopic {
       console.log(`[WS] connected topic=${topicShort} peer=${this.localPeerId.slice(0, 8)}`);
       this.reconnectAttempt = 0;
       resolveReady();
+      this.turn.socketOpened(this);
     };
 
     socket.onmessage = (e) => {
@@ -605,10 +636,25 @@ class WebRtcTopic implements NetworkTopic {
    * `offer` that creates its RTCPeerConnection (the candidate is then dropped),
    * and lets relay chunks reassemble out of order. One at a time, in arrival
    * order, is the only thing the signaling protocol will tolerate.
+   *
+   * turn-response is the one exception, delivered here outside the chain:
+   * the chain's head may be a `peers` frame awaiting that very response
+   * (see credentialsSettled), so routing it through would deadlock.
    */
   private enqueueWsMessage(raw: unknown): void {
+    let msg: unknown;
+    try {
+      msg = JSON.parse(typeof raw === "string" ? raw : String(raw));
+    } catch { return; }
+    if (typeof msg !== "object" || msg === null) return;
+
+    if ((msg as { type?: unknown }).type === "turn-response") {
+      this.turn.handleTurnResponse(msg);
+      return;
+    }
+
     this.inbound = this.inbound
-      .then(() => this.handleWsMessage(raw))
+      .then(() => this.handleWsMessage(msg))
       .catch((e) => {
         console.error(`[WS] message handler failed topic=${this.topicHex.slice(0, 8)}`, e);
       });
@@ -620,6 +666,16 @@ class WebRtcTopic implements NetworkTopic {
     } else {
       console.error(`[WS] send dropped — socket not open (state=${this.ws?.readyState ?? "null"}) topic=${this.topicHex.slice(0, 8)}`);
     }
+  }
+
+  /**
+   * Send a turn-request if the socket is open. The driver owns credential
+   * state and timing; the topic only provides the transport.
+   */
+  trySendTurnRequest(): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify({ type: "turn-request" }));
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -640,13 +696,7 @@ class WebRtcTopic implements NetworkTopic {
   // Incoming WebSocket messages
   // ---------------------------------------------------------------------------
 
-  private async handleWsMessage(raw: any) {
-    let msg: any;
-    try {
-      msg = JSON.parse(typeof raw === "string" ? raw : raw.toString());
-    } catch { return; }
-    if (typeof msg !== "object" || msg === null) return;
-
+  private async handleWsMessage(msg: any) {
     const topicShort = this.topicHex.slice(0, 8);
     // The signaling server is untrusted (it is the party this file encrypts
     // against), so its frames are validated before they are dereferenced.
@@ -657,6 +707,9 @@ class WebRtcTopic implements NetworkTopic {
         if (!Array.isArray(msg.peerIds)) return;
         const peerIds: string[] = msg.peerIds.filter(isPeerId);
         console.log(`[WS] peers topic=${topicShort} count=${peerIds.length} ids=[${peerIds.map((id) => id.slice(0, 8)).join(", ")}]`);
+        // Hold new connections briefly while a TURN mint is in flight, so the
+        // first RTCPeerConnections are built relay-capable.
+        await this.turn.credentialsSettled();
         for (const peerId of peerIds) {
           await this._handlePeerJoin(peerId);
         }
@@ -665,6 +718,7 @@ class WebRtcTopic implements NetworkTopic {
       case "peer-join":
         if (!isPeerId(msg.peerId)) return;
         console.log(`[WS] peer-join topic=${topicShort} peer=${msg.peerId.slice(0, 8)}`);
+        await this.turn.credentialsSettled();
         await this._handlePeerJoin(msg.peerId);
         break;
       case "peer-left":
@@ -1022,15 +1076,20 @@ class WebRtcTopic implements NetworkTopic {
 // Driver — manages topics, each with its own WebSocket to CF
 // =============================================================================
 
-class WebRtcNetworkDriver implements NetworkDriver {
+class WebRtcNetworkDriver implements NetworkDriver, TurnCredentialManager {
   private signalUrl: string;
   private localPeerId: string = "";
   private topics = new Map<string, WebRtcTopic>();
   private topicKeys = new Map<string, Uint8Array>();
   private rtcConfig: RTCConfiguration = STUN_ONLY_CONFIG;
+  private hasTurnCredentials = false;
   private credentialsFetchedAt = 0;
   private credentialsFailedAt = 0;
-  private credentialsFetching: Promise<void> | null = null;
+  private turnRequest: {
+    settled: Promise<void>;
+    resolve: () => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(signalUrl: string) {
@@ -1057,46 +1116,70 @@ class WebRtcNetworkDriver implements NetworkDriver {
   }
 
   /**
-   * Fetch short-lived TURN credentials from the Worker and cache them.
-   * Falls back to STUN-only if the endpoint is unavailable (e.g. not yet
-   * configured). The endpoint is topic-scoped: naming a topic is the capability
-   * that authorizes minting, so a topic we are about to join is passed through.
-   *
+   * Request TURN credentials through `topic`'s signaling socket, unless they
+   * are fresh, cooling down after a failure, or already being requested.
    * `force` bypasses the freshness check for the periodic rotation.
+   * Returns true when a request went out; the matching turn-response (or the
+   * timeout) settles it via handleTurnResponse / finishTurnRequest.
    */
-  private async ensureTurnCredentials(topicHex: string, force = false): Promise<void> {
+  private startTurnRequest(topic: WebRtcTopic, force: boolean): boolean {
+    if (this.turnRequest) return false;
     const now = Date.now();
-    if (!force && now - this.credentialsFetchedAt < TURN_CREDENTIAL_REFRESH_MS) return;
-    if (now - this.credentialsFailedAt < TURN_CREDENTIAL_RETRY_MS) return;
-    if (this.credentialsFetching) return this.credentialsFetching;
+    if (!force && now - this.credentialsFetchedAt < TURN_CREDENTIAL_REFRESH_MS) return false;
+    if (now - this.credentialsFailedAt < TURN_CREDENTIAL_RETRY_MS) return false;
+    if (!topic.trySendTurnRequest()) return false;
 
-    this.credentialsFetching = (async () => {
-      try {
-        const httpUrl = this.signalUrl.replace(/^wss?:\/\//, (m) => m === "wss://" ? "https://" : "http://");
-        const res = await fetch(`${httpUrl}/topic/${topicHex}/turn-credentials`, {
-          signal: AbortSignal.timeout(5000),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const { iceServers } = await res.json() as { iceServers: RTCIceServer };
-        this.rtcConfig = {
-          iceServers: [
-            { urls: "stun:stun.cloudflare.com:3478" },
-            iceServers,
-          ],
-        };
-        this.credentialsFetchedAt = Date.now();
-        this.credentialsFailedAt = 0;
-        console.log("[WebRTC] TURN credentials fetched");
-      } catch (e) {
-        console.warn("[WebRTC] TURN credentials unavailable, using STUN only:", e);
-        this.rtcConfig = STUN_ONLY_CONFIG;
-        this.credentialsFailedAt = Date.now();
-      } finally {
-        this.credentialsFetching = null;
-      }
-    })();
+    let resolve!: () => void;
+    const settled = new Promise<void>((r) => { resolve = r; });
+    const timer = setTimeout(() => {
+      // Keep whatever config is held — existing credentials may outlive a
+      // failed rotation — and back off before the next attempt.
+      this.credentialsFailedAt = Date.now();
+      console.warn("[WebRTC] TURN credential request timed out");
+      this.finishTurnRequest();
+    }, TURN_RESPONSE_TIMEOUT_MS);
+    this.turnRequest = { settled, resolve, timer };
+    return true;
+  }
 
-    return this.credentialsFetching;
+  private finishTurnRequest(): void {
+    const req = this.turnRequest;
+    if (!req) return;
+    this.turnRequest = null;
+    clearTimeout(req.timer);
+    req.resolve();
+  }
+
+  socketOpened(topic: WebRtcTopic): void {
+    this.startTurnRequest(topic, false);
+  }
+
+  handleTurnResponse(msg: unknown): void {
+    const frame = msg as { iceServers?: unknown; error?: unknown };
+    // The signaling server is untrusted — validate before adopting.
+    if (frame.iceServers && typeof frame.iceServers === "object") {
+      this.rtcConfig = {
+        iceServers: [
+          { urls: "stun:stun.cloudflare.com:3478" },
+          frame.iceServers as RTCIceServer,
+        ],
+      };
+      this.hasTurnCredentials = true;
+      this.credentialsFetchedAt = Date.now();
+      this.credentialsFailedAt = 0;
+      console.log("[WebRTC] TURN credentials fetched");
+    } else {
+      // Keep the current config: STUN-only if we never had credentials, the
+      // previous (possibly still valid) credentials if a rotation failed.
+      this.credentialsFailedAt = Date.now();
+      console.warn("[WebRTC] TURN credentials unavailable, using STUN only:", frame.error);
+    }
+    this.finishTurnRequest();
+  }
+
+  credentialsSettled(): Promise<void> {
+    if (!this.turnRequest || this.hasTurnCredentials) return Promise.resolve();
+    return this.turnRequest.settled;
   }
 
   /**
@@ -1107,9 +1190,11 @@ class WebRtcNetworkDriver implements NetworkDriver {
   private startCredentialRefresh(): void {
     if (this.refreshTimer) return;
     this.refreshTimer = setInterval(() => {
-      const topicHex = this.topics.keys().next().value;
-      if (!topicHex) return;
-      void this.ensureTurnCredentials(topicHex, true);
+      // Any topic with an open socket can carry the request. If none is open,
+      // skip: the next socketOpened() refreshes by staleness.
+      for (const topic of this.topics.values()) {
+        if (this.startTurnRequest(topic, true)) break;
+      }
     }, TURN_CREDENTIAL_REFRESH_MS);
   }
 
@@ -1126,10 +1211,12 @@ class WebRtcNetworkDriver implements NetworkDriver {
     invariant(rawKey, `NetworkDriver: registerTopicKey() must be called before join(${hex.slice(0, 8)}…)`);
     const encKey = await deriveAesKey(rawKey, `tasfer-signal:${hex}`);
 
-    await this.ensureTurnCredentials(hex);
+    // TURN credentials are requested once the topic's socket opens (see
+    // socketOpened); `peers` handling gates on the response so first
+    // connections are built relay-capable.
     this.startCredentialRefresh();
 
-    const nt = new WebRtcTopic(this.localPeerId, hex, this.signalUrl, encKey, this.currentRtcConfig);
+    const nt = new WebRtcTopic(this.localPeerId, hex, this.signalUrl, encKey, this.currentRtcConfig, this);
     this.topics.set(hex, nt);
 
     await nt.connect();
@@ -1176,6 +1263,7 @@ class WebRtcNetworkDriver implements NetworkDriver {
       clearInterval(this.refreshTimer);
       this.refreshTimer = null;
     }
+    this.finishTurnRequest();
     for (const [, topic] of this.topics) {
       await topic.destroy();
     }
