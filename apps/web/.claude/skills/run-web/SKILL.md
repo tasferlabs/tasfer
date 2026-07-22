@@ -56,6 +56,20 @@ Then **look at the PNGs** — that's how you verify a canvas change. Add
   without it the LAN origin is an insecure context and crypto/OPFS break. For
   local driving just use plain `npm run dev` (localhost is already secure).
 
+## PWA manifest screenshots
+
+`seed-shoot.mjs` reseeds the profile's space with showcase content (colored
+pages, math, todos) through the app's own markdown importer, then captures the
+four screenshots `scripts/gen-manifest.mjs` references:
+
+```bash
+node seed-shoot.mjs --publish   # writes into ../../../public/screenshots/
+```
+
+Shots land in `/tmp/tasfer-pwa-shots` (override with `--out`); `--publish`
+copies the canonical four into `public/screenshots/`. It wipes and reseeds the
+`.pw-profile` space — `driver.mjs reset` restores the cold onboarding flow.
+
 ## Troubleshooting
 
 - **Driver: "never reached the editor canvas"** — the dev server isn't up (or is

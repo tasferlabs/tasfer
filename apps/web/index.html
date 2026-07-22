@@ -4,7 +4,8 @@
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/png" href="/favicon.png" />
-  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <link rel="icon" id="favicon" type="image/svg+xml" href="/favicon-light.svg" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="manifest" id="manifest" href="/manifest.json" />
   <meta name="theme-color" content="#43a047" />
   <meta name="color-scheme" content="light dark" />
@@ -15,7 +16,10 @@
     (function(){
       var t=localStorage.getItem("theme");
       var isDark=t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme:dark)").matches);
-      if(isDark)document.documentElement.classList.add("dark");
+      if(isDark){
+        document.documentElement.classList.add("dark");
+        document.getElementById("favicon").setAttribute("href","/favicon-dark.svg");
+      }
     })()
   </script>
   <link rel="stylesheet" href="/styles.css" />

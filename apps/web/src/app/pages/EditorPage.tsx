@@ -50,7 +50,12 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import {
+  Navigate,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { ActiveUsersAvatars } from "../components/ActiveUsersAvatars";
 import { PageSettings } from "../components/PageSettings";
 import { SavingIndicator } from "../components/SavingIndicator";
@@ -104,6 +109,8 @@ const PAGE_TAG_CLASS = "text-muted-foreground hover:text-foreground gap-1.5";
 
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const isNewPageDeepLink = !id && searchParams.has("new");
   const queryClient = useQueryClient();
   const {
     setIsSaving: setGlobalIsSaving,
@@ -473,6 +480,10 @@ export default function EditorPage() {
 
   // For testing error state.
   // return <EditorErrorState />;
+
+  if (isNewPageDeepLink) {
+    return <NewPageDeepLink />;
+  }
 
   // Check persisted state first - once entered, stay until user navigates
   if (persistedState === "empty") {
@@ -1047,6 +1058,42 @@ function PageActionBar({ pageId }: { pageId: string }) {
       </div>
     </>
   );
+}
+
+function NewPageDeepLink() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { activeSpaceId } = useSpaces();
+  const creationStartedRef = useRef(false);
+  const { mutate: createPage, isError } = useCreatePage({
+    onSuccess: (newPage) => {
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      navigate(`/page/${newPage.id}`, { replace: true });
+    },
+  });
+
+  useEffect(() => {
+    if (!activeSpaceId || creationStartedRef.current) return;
+    creationStartedRef.current = true;
+    createPage({ title: "", parentId: null, spaceId: activeSpaceId });
+  }, [activeSpaceId, createPage]);
+
+  if (isError) {
+    return (
+      <div className={style.appErrorState}>
+        <TriangleAlert className="mx-auto mb-2 size-24 text-red-300 dark:text-red-600" />
+        <div className={style.appError}>
+          {t("error.failedToCreatePage", "Failed to create new page")}
+        </div>
+        <Button onClick={() => window.location.reload()}>
+          {t("error.boundary.reload", "Reload")}
+        </Button>
+      </div>
+    );
+  }
+
+  return <EditorLoadingState />;
 }
 
 export function EditorLoadingState({ padding = true }: { padding?: boolean }) {
