@@ -2,8 +2,6 @@
 <!-- Non-translatable config only. Translatable UI strings are generated into
      strings_generated.xml by apps/web/scripts/gen-android-strings.mjs. -->
 <resources>
-    <string name="app_name" translatable="false">Tasfer</string>
-    <string name="title_activity_main" translatable="false">Tasfer</string>
     <string name="package_name" translatable="false">app.tasfer</string>
     <string name="custom_url_scheme" translatable="false">app.tasfer</string>
 </resources>
