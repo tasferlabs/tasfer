@@ -48,7 +48,7 @@ open App.xcodeproj
 The **Build & sync web** phase runs `apps/web/scripts/build-and-sync.sh` on every
 build, which builds `apps/web` and copies the output into `App/App/public/`
 (gitignored). To run against a live dev server instead, see the HTTPS dev setup in
-[../../docs/ssl-dev-setup.md](../../docs/ssl-dev-setup.md).
+[../../dev-docs/ssl-dev-setup.md](../../dev-docs/ssl-dev-setup.md).
 
 ## Licensing
 

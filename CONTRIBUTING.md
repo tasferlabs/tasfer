@@ -71,7 +71,7 @@ The mobile WebViews (and any non-localhost browser) need a **secure context** fo
 `crypto.subtle`, OPFS, and Web Locks, so the LAN dev server must be served over
 HTTPS with a locally trusted mkcert certificate. Generating the cert and trusting
 it on each device (including the per-device iOS Simulator step) is documented in
-[docs/ssl-dev-setup.md](docs/ssl-dev-setup.md).
+[dev-docs/ssl-dev-setup.md](dev-docs/ssl-dev-setup.md).
 
 Building the native iOS app (macOS + Xcode only) also needs a one-time signing
 setup so your Apple Developer Team ID stays out of git — see
