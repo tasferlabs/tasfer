@@ -1,10 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/microfrontends.json",
   "applications": {
-    "site": {
+    "tasfer-home": {
       "development": { "fallback": "tasfer.app" }
     },
-    "web": {
+    "tasfer": {
       "routing": [{ "paths": ["/app", "/app/:path*"] }]
     }
   }
