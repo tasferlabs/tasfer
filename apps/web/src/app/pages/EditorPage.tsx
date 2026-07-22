@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   formatDatePreferred,
   formatTimePreferred,
+  getResolvedTimezone,
 } from "@/lib/dateTimePreferences";
 import { countWordsFromBlocks } from "@/lib/documentStats";
 import { deriveTitles } from "@/lib/pageTitle";
@@ -46,7 +47,6 @@ import {
   Trash,
   TriangleAlert,
 } from "lucide-react";
-import { DateTime } from "luxon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -590,13 +590,16 @@ function formatScheduleLabel(
   t: TFunction,
 ): string {
   const d = new Date(iso);
+  const timeZone = getResolvedTimezone();
   const date = formatDatePreferred(d, {
     month: "short",
     day: "numeric",
+    timeZone,
   });
   const time = formatTimePreferred(d, {
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
   if (duration) {
     return t("format.dateTimeDuration", {
@@ -638,7 +641,7 @@ function ScheduleContent({
     },
   });
 
-  const tz = DateTime.local().zoneName;
+  const tz = getResolvedTimezone();
 
   const { control } = useForm<ScheduleFormValues>({
     defaultValues: {

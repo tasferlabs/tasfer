@@ -1,9 +1,11 @@
+import { DateTime } from "luxon";
 import type { ICalendarPage } from "../../api/pages.api";
 import {
   formatTimePreferred,
   formatDatePreferred,
   createDateTimeFormatter,
   getWeekStart,
+  getResolvedTimezone,
 } from "@/lib/dateTimePreferences";
 
 // ── Constants ──
@@ -15,6 +17,49 @@ export const MIN_DRAG_MINUTES = 15;
 export const SNAP_PX = (SNAP_MINUTES / 60) * HOUR_HEIGHT;
 
 export type ViewMode = "day" | "week";
+
+// ── Display time zone ──
+//
+// The grid works in "wall dates": plain Dates whose local components carry the
+// wall-clock time of the preferred display zone (Settings → Date & Time).
+// Stored instants are converted at the boundary — zonedWallDate on the way in,
+// wallDateToUtcIso on the way out — so the grid's local-Date math (setHours,
+// getDay, …) needs no zone awareness. With the default "system" preference
+// every conversion is the identity.
+
+/** Stored instant → wall date in the display zone. */
+export function zonedWallDate(iso: string): Date {
+  const d = DateTime.fromISO(iso).setZone(getResolvedTimezone());
+  return new Date(
+    d.year,
+    d.month - 1,
+    d.day,
+    d.hour,
+    d.minute,
+    d.second,
+    d.millisecond,
+  );
+}
+
+/** Wall date in the display zone → UTC ISO instant for storage. */
+export function wallDateToUtcIso(date: Date): string {
+  return DateTime.fromJSDate(date)
+    .setZone(getResolvedTimezone(), { keepLocalTime: true })
+    .toUTC()
+    .toISO()!;
+}
+
+/** Wall-date epoch ms → the instant epoch ms it represents in the display zone. */
+export function wallMsToInstantMs(ms: number): number {
+  return DateTime.fromMillis(ms)
+    .setZone(getResolvedTimezone(), { keepLocalTime: true })
+    .toMillis();
+}
+
+/** The current moment as a wall date in the display zone. */
+export function wallNow(): Date {
+  return zonedWallDate(new Date().toISOString());
+}
 
 // ── Helpers ──
 
@@ -101,7 +146,7 @@ export function formatEventTime(
   timestamp: string,
   duration?: number | null,
 ): string {
-  const date = new Date(timestamp);
+  const date = zonedWallDate(timestamp);
   const startMin = date.getHours() * 60 + date.getMinutes();
   if (duration) {
     return formatTimeRange(startMin, startMin + duration);
@@ -131,7 +176,7 @@ export function snapPx(px: number): number {
 }
 
 export function pageToStartMin(page: ICalendarPage): number {
-  const d = new Date(page.scheduledAt);
+  const d = zonedWallDate(page.scheduledAt);
   return d.getHours() * 60 + d.getMinutes();
 }
 

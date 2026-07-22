@@ -1,5 +1,4 @@
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
-import { TimezonePicker } from "@/components/timezonepicker/TimezonePicker";
 import { PagePicker } from "@/components/PagePicker";
 import { useConfirmation } from "@/app/components/ConfirmationDialog";
 import { Button } from "@/components/ui/button";
@@ -10,6 +9,13 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import {
   Tooltip,
@@ -23,17 +29,18 @@ import {
   extractTitleFromBlocks,
 } from "@tasfer/editor/internal";
 import { deriveTitles } from "@/lib/pageTitle";
+import { getResolvedTimezone } from "@/lib/dateTimePreferences";
 import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Calendar,
   CalendarDays,
+  Box,
   ChevronDown,
   Clock,
   Copy,
   FolderOpen,
-  Globe,
   GripHorizontal,
   Info,
   Maximize2,
@@ -192,6 +199,7 @@ export function EventPreview({
     clock?: unknown,
     parentId?: string | null,
     task?: boolean,
+    spaceId?: string,
   ) => void;
   // Draft schedule edits flow up so the grid's `__draft__` card stays in sync
   // with the sheet's date/duration fields (two-way with grid drag/resize).
@@ -207,12 +215,15 @@ export function EventPreview({
   const queryClient = useQueryClient();
   const popoverRef = useRef<HTMLDivElement>(null);
   const { panelRef, setHasPanel, slotMounted } = useSidebarPanel();
-  const { activeSpaceId } = useSpaces();
+  const { activeSpaceId, spaces } = useSpaces();
   const { getConfirmation } = useConfirmation();
 
   // Parent page selection
   const [draftParent, setDraftParent] = useState<ISearchPage | null>(null);
   const [draftIsTask, setDraftIsTask] = useState(true);
+  const [draftSpaceId, setDraftSpaceId] = useState<string | null>(
+    activeSpaceId,
+  );
   // Desktop draft parent picker: search mode swaps in for the drill-down rows.
   const [parentSearchOpen, setParentSearchOpen] = useState(false);
 
@@ -306,10 +317,11 @@ export function EventPreview({
       setPos(null); // will be computed from anchor
       setDraftParent(null);
       setDraftIsTask(true);
+      setDraftSpaceId(activeSpaceId);
       setParentSearchOpen(false);
       setDetailsOpen(false);
     }
-  }, [pageId, draftActive]);
+  }, [pageId, draftActive, activeSpaceId]);
 
   // Compute initial position from anchor (only when pos is null)
   const computed = useMemo(
@@ -555,6 +567,14 @@ export function EventPreview({
   });
 
   const isDraft = !!draft && !pageId;
+  const draftTargetSpaceId = draftSpaceId ?? activeSpaceId;
+
+  const handleDraftSpaceChange = useCallback((spaceId: string) => {
+    setDraftSpaceId(spaceId);
+    // Parent pages cannot cross space boundaries.
+    setDraftParent(null);
+    setParentSearchOpen(false);
+  }, []);
 
   const handleTaskToggle = useCallback(() => {
     if (isDraft) {
@@ -831,9 +851,9 @@ export function EventPreview({
     </div>
   );
 
-  // View-only time zone for the schedule fields: the stored instant is
-  // unchanged, it is just displayed and edited in the chosen zone.
-  const [tz, setTz] = useState(() => DateTime.local().zoneName);
+  // Display time zone from Settings: the stored instant is unchanged, it is
+  // just displayed and edited in the preferred zone.
+  const tz = getResolvedTimezone();
   const dateValue = isDraft
     ? (draft?.scheduledAt ?? null)
     : (previewPage?.scheduledAt ?? null);
@@ -899,8 +919,15 @@ export function EventPreview({
 
   const handleDraftSaveClick = useCallback(() => {
     const content = draftContentRef.current;
-    onDraftSave?.(content?.blocks, null, draftParent?.id ?? null, draftIsTask);
-  }, [onDraftSave, draftParent, draftIsTask]);
+    if (!draftTargetSpaceId) return;
+    onDraftSave?.(
+      content?.blocks,
+      null,
+      draftParent?.id ?? null,
+      draftIsTask,
+      draftTargetSpaceId,
+    );
+  }, [onDraftSave, draftParent, draftIsTask, draftTargetSpaceId]);
 
   // Desktop: Ctrl/Cmd+Enter saves a draft. Existing events already autosave, so
   // there is nothing to commit for them. Capture phase so the shortcut wins over
@@ -1097,10 +1124,6 @@ export function EventPreview({
         </Combobox>
       </div>
       <div className={style.previewRow}>
-        <Globe size={14} className={style.previewRowIcon} />
-        <TimezonePicker value={tz} onChange={setTz} />
-      </div>
-      <div className={style.previewRow}>
         <FolderOpen size={14} className={style.previewRowIcon} />
         <PagePicker
           spaceId={activeSpaceId}
@@ -1112,6 +1135,34 @@ export function EventPreview({
       {taskEventRow}
     </div>
   );
+
+  const draftSpaceRow =
+    isDraft && spaces.length > 1 && draftTargetSpaceId ? (
+      <div className={style.previewRow}>
+        <Box size={14} className={style.previewRowIcon} />
+        <Select
+          value={draftTargetSpaceId}
+          onValueChange={handleDraftSpaceChange}
+        >
+          <SelectTrigger
+            size="sm"
+            className="flex-1"
+            aria-label={t("space.selectSpace", "Select space")}
+          >
+            <SelectValue
+              placeholder={t("space.selectSpace", "Select space")}
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {spaces.map((space) => (
+              <SelectItem key={space.id} value={space.id}>
+                {space.name || t("space.untitled", "Untitled space")}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    ) : null;
 
   // Google-Calendar-style draft chrome (mobile). A top action bar (Cancel /
   // Save) sits above a scrollable body: title, then the date + duration rows,
@@ -1176,10 +1227,7 @@ export function EventPreview({
             </ComboboxContent>
           </Combobox>
         </div>
-        <div className={style.previewRow}>
-          <Globe size={16} className={style.previewRowIcon} />
-          <TimezonePicker value={tz} onChange={setTz} />
-        </div>
+        {draftSpaceRow}
       </div>
 
       <div className={style.draftSection}>
@@ -1188,7 +1236,7 @@ export function EventPreview({
           <span>{t("calendar.parentPage", "Parent page")}</span>
         </div>
         <DraftTagPicker
-          spaceId={activeSpaceId}
+          spaceId={draftTargetSpaceId}
           value={currentParent}
           onChange={handleParentChange}
         />
@@ -1305,10 +1353,7 @@ export function EventPreview({
           </ComboboxContent>
         </Combobox>
       </div>
-      <div className={style.previewRow}>
-        <Globe size={14} className={style.previewRowIcon} />
-        <TimezonePicker value={tz} onChange={setTz} />
-      </div>
+      {draftSpaceRow}
       {isDraft ? (
         // Drafts reuse the mobile sheet's drill-down parent picker, with a
         // search accelerator in the header: the magnifier swaps the tag rows
@@ -1331,7 +1376,7 @@ export function EventPreview({
           </div>
           {parentSearchOpen ? (
             <DraftParentSearch
-              spaceId={activeSpaceId}
+              spaceId={draftTargetSpaceId}
               onSelect={(page) => {
                 handleParentChange(page);
                 setParentSearchOpen(false);
@@ -1340,7 +1385,7 @@ export function EventPreview({
             />
           ) : (
             <DraftTagPicker
-              spaceId={activeSpaceId}
+              spaceId={draftTargetSpaceId}
               value={currentParent}
               onChange={handleParentChange}
             />

@@ -20,6 +20,7 @@ import useLocalStorage from "../../hooks/useLocalStorage";
 import useResponsive from "../../hooks/useResponsive";
 import type { Block } from "@tasfer/editor";
 import { deriveTitles } from "@/lib/pageTitle";
+import { getResolvedTimezone } from "@/lib/dateTimePreferences";
 import { getPlatform } from "@/platform";
 import {
   useGetCalendarPages,
@@ -47,6 +48,10 @@ import {
   pageToStartMin,
   shortDayName,
   formatMonthLong,
+  zonedWallDate,
+  wallDateToUtcIso,
+  wallMsToInstantMs,
+  wallNow,
   type ViewMode,
 } from "./utils";
 import { triggerHaptic } from "@/platform/bridge";
@@ -95,7 +100,7 @@ export default function CalendarPage() {
   useP2PPageEventsWithQueryClient();
   const timelineRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(() => wallNow());
   const [viewMode, setViewMode] = useLocalStorage<ViewMode>(
     "calendar-view",
     "day",
@@ -105,10 +110,10 @@ export default function CalendarPage() {
     false,
   );
 
-  const today = useMemo(() => new Date(), []);
+  const today = useMemo(() => wallNow(), []);
   const isToday = isSameDay(selectedDate, today);
   const [miniCalOpen, setMiniCalOpen] = useState(false);
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = getResolvedTimezone();
 
   // Overlay state derived from selectedDate
   const [overlayYear, setOverlayYear] = useState(() =>
@@ -214,7 +219,8 @@ export default function CalendarPage() {
       prevOverlayValue.current = target;
       guardDiscard(
         () => {
-          setSelectedDate(DateTime.fromISO(target, { zone: tz }).toJSDate());
+          // Parse as a wall date: the picked Y/M/D are display-zone components.
+          setSelectedDate(DateTime.fromISO(target).toJSDate());
           setMiniCalOpen(false);
         },
         () => {
@@ -286,16 +292,17 @@ export default function CalendarPage() {
     return d;
   }, [selectedDate, viewMode]);
 
-  // Compute query range covering prev + current + next for swipe panels
+  // Compute query range covering prev + current + next for swipe panels.
+  // Ranges are wall-date epochs; the query wants real instants.
   const { start, end } = useMemo(() => {
-    if (viewMode === "week") {
-      const prevRange = getWeekRange(prevDate);
-      const nextRange = getWeekRange(nextDate);
-      return { start: prevRange.start, end: nextRange.end };
-    }
-    const prevRange = getDayRange(prevDate);
-    const nextRange = getDayRange(nextDate);
-    return { start: prevRange.start, end: nextRange.end };
+    const prevRange =
+      viewMode === "week" ? getWeekRange(prevDate) : getDayRange(prevDate);
+    const nextRange =
+      viewMode === "week" ? getWeekRange(nextDate) : getDayRange(nextDate);
+    return {
+      start: wallMsToInstantMs(prevRange.start),
+      end: wallMsToInstantMs(nextRange.end),
+    };
   }, [prevDate, nextDate, viewMode]);
 
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
@@ -381,7 +388,7 @@ export default function CalendarPage() {
       scheduledDate.setHours(0, 0, 0, 0);
       scheduledDate.setMinutes(startMinutes);
       setDraftEvent({
-        scheduledAt: scheduledDate.toISOString(),
+        scheduledAt: wallDateToUtcIso(scheduledDate),
         duration: durationMinutes,
       });
       setPreviewPageId(null);
@@ -472,8 +479,10 @@ export default function CalendarPage() {
       _clock?: unknown,
       parentId?: string | null,
       task?: boolean,
+      spaceId?: string,
     ) => {
-      if (!draftEvent || !activeSpaceId) return;
+      const targetSpaceId = spaceId ?? activeSpaceId;
+      if (!draftEvent || !targetSpaceId) return;
       // Mark saving before the async create so the discard guards pass through
       // rather than prompting while the draft is being committed.
       savingDraftRef.current = true;
@@ -481,7 +490,7 @@ export default function CalendarPage() {
       createPage({
         ...(blocks ? deriveTitles(blocks) : { title: "" }),
         parentId: parentId ?? null,
-        spaceId: activeSpaceId,
+        spaceId: targetSpaceId,
         scheduledAt: draftEvent.scheduledAt,
         duration: draftEvent.duration,
         task: task ?? true,
@@ -526,7 +535,7 @@ export default function CalendarPage() {
   const pagesByDay = useMemo(() => {
     const map = new Map<string, ICalendarPage[]>();
     for (const page of timedPages) {
-      const d = new Date(page.scheduledAt);
+      const d = zonedWallDate(page.scheduledAt);
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(page);
@@ -542,7 +551,7 @@ export default function CalendarPage() {
   // Scroll to current hour on mount
   useEffect(() => {
     if (timelineRef.current) {
-      const currentHour = new Date().getHours();
+      const currentHour = wallNow().getHours();
       const targetScroll =
         currentHour * HOUR_HEIGHT - timelineRef.current.clientHeight / 3;
       timelineRef.current.scrollTop = Math.max(0, targetScroll);
@@ -565,7 +574,7 @@ export default function CalendarPage() {
   }
 
   function goToToday() {
-    guardDiscard(() => setSelectedDate(new Date()));
+    guardDiscard(() => setSelectedDate(wallNow()));
   }
 
   // ── dnd-kit: drag to move events ──
@@ -667,7 +676,7 @@ export default function CalendarPage() {
             if (viewMode === "day") {
               const base =
                 edgeDragTargetDayRef.current ||
-                new Date(activeDragPage!.scheduledAt);
+                zonedWallDate(activeDragPage!.scheduledAt);
               const newTarget = new Date(base);
               newTarget.setDate(newTarget.getDate() + edgeDir!);
               edgeDragTargetDayRef.current = newTarget;
@@ -750,12 +759,13 @@ export default function CalendarPage() {
         Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
       );
 
-      const targetDate = dragTargetDay || new Date(activeDragPage.scheduledAt);
+      const targetDate =
+        dragTargetDay || zonedWallDate(activeDragPage.scheduledAt);
       const scheduledDate = new Date(targetDate);
       scheduledDate.setHours(0, 0, 0, 0);
       scheduledDate.setMinutes(newStartMin);
 
-      const newISO = scheduledDate.toISOString();
+      const newISO = wallDateToUtcIso(scheduledDate);
       // Ctrl/Cmd-drag duplicates instead of moving: the original keeps its slot
       // and a copy lands where the drag ended. Drafts (unsaved) can't be
       // duplicated, so they fall through to the move behavior.
@@ -1295,13 +1305,13 @@ export default function CalendarPage() {
 
   // ── Now indicator ──
   const [nowMinutes, setNowMinutes] = useState(() => {
-    const now = new Date();
+    const now = wallNow();
     return now.getHours() * 60 + now.getMinutes();
   });
 
   useEffect(() => {
     const interval = setInterval(() => {
-      const now = new Date();
+      const now = wallNow();
       setNowMinutes(now.getHours() * 60 + now.getMinutes());
     }, 60000);
     return () => clearInterval(interval);
@@ -1399,7 +1409,7 @@ export default function CalendarPage() {
         {activeDragPage &&
           (() => {
             const ghostDay =
-              dragTargetDay || new Date(activeDragPage.scheduledAt);
+              dragTargetDay || zonedWallDate(activeDragPage.scheduledAt);
             if (!isSameDay(ghostDay, dayDate)) return null;
             const oldStartMin = pageToStartMin(activeDragPage);
             const duration = activeDragPage.duration || 60;
@@ -1601,7 +1611,7 @@ export default function CalendarPage() {
               fontSize="8"
               fontWeight="700"
             >
-              {new Date().getDate()}
+              {wallNow().getDate()}
             </text>
           </svg>
         </button>

@@ -22,16 +22,22 @@ import {
   setDateFormat,
   getWeekStart,
   setWeekStart,
+  getTimezone,
+  setTimezone,
   type TimeFormat,
   type DateFormat,
   type WeekStart,
+  type TimezonePreference,
 } from "@/lib/dateTimePreferences";
+import { TimezonePicker } from "@/components/timezonepicker/TimezonePicker";
 
 export function Preferences() {
   const { t, i18n } = useTranslation();
   const [timeFormat, setTimeFormatState] = useState<TimeFormat>(getTimeFormat);
   const [dateFormat, setDateFormatState] = useState<DateFormat>(getDateFormat);
   const [weekStartDay, setWeekStartState] = useState<WeekStart>(getWeekStart);
+  const [timezone, setTimezoneState] = useState<TimezonePreference>(getTimezone);
+  const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   function onChangeTimeFormat(value: TimeFormat) {
     setTimeFormat(value);
@@ -47,6 +53,11 @@ export function Preferences() {
     const day = Number(value) as WeekStart;
     setWeekStart(day);
     setWeekStartState(day);
+  }
+
+  function onChangeTimezone(zone: TimezonePreference) {
+    setTimezone(zone);
+    setTimezoneState(zone);
   }
 
   return (
@@ -123,6 +134,38 @@ export function Preferences() {
               <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+
+        <div className={styles.row}>
+          <div className={styles.column}>
+            <p className={cn("text-sm", styles.title)}>
+              {t("settings.dateTime.timezone", "Time zone")}
+            </p>
+            <p className="text-sm opacity-75">
+              {t(
+                "settings.dateTime.chooseTimezone",
+                "Choose the time zone dates and times are shown in",
+              )}
+            </p>
+          </div>
+          <div className={styles.timezoneControl}>
+            <TimezonePicker
+              value={timezone === "system" ? deviceTimezone : timezone}
+              onChange={onChangeTimezone}
+            />
+            {timezone !== "system" && (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground underline hover:text-foreground self-end"
+                onClick={() => onChangeTimezone("system")}
+              >
+                {t(
+                  "settings.dateTime.useSystemTimezone",
+                  "Use device time zone",
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
         <div className={styles.row}>

@@ -74,6 +74,13 @@ interface EngineReplicator {
 // =============================================================================
 
 const SCHEMA_VERSION = 0;
+
+// Dates persist as UTC instants regardless of the zone the UI edited in.
+// scheduled_at range queries compare ISO strings lexicographically, which is
+// only correct when every stored value shares the UTC "Z" shape.
+function toUtcIso(iso: string | null | undefined): string | null {
+  return iso ? new Date(iso).toISOString() : null;
+}
 // Bump whenever the materialized Block projection gains persisted semantics
 // that an older snapshot writer could have omitted while still sharing the same
 // op-log frontier (v2 adds generic structured-content attachments).
@@ -1179,6 +1186,7 @@ export class Engine implements Platform {
     create: async (data: PageCreateInput): Promise<PageFull> => {
       const id = nanoid(10);
       const now = new Date().toISOString();
+      const scheduledAt = toUtcIso(data.scheduledAt);
 
       const orderRows = await this.driver.db.query<{
         max_order: number | null;
@@ -1201,7 +1209,7 @@ export class Engine implements Platform {
           order,
           data.spaceId ?? null,
           data.task ? 1 : 0,
-          data.scheduledAt ?? null,
+          scheduledAt,
           data.duration ?? null,
           data.allDay !== undefined ? (data.allDay ? 1 : 0) : null,
           now,
@@ -1239,7 +1247,7 @@ export class Engine implements Platform {
           order,
           task: data.task,
           color: undefined,
-          scheduledAt: data.scheduledAt ?? null,
+          scheduledAt,
           duration: data.duration ?? null,
           allDay: data.allDay ?? null,
         });
@@ -1284,9 +1292,10 @@ export class Engine implements Platform {
         changedFields.push({ field: "color", value: data.color });
       }
       if (data.scheduledAt !== undefined) {
+        const scheduledAt = toUtcIso(data.scheduledAt);
         sets.push("scheduled_at = ?");
-        params.push(data.scheduledAt);
-        changedFields.push({ field: "scheduledAt", value: data.scheduledAt });
+        params.push(scheduledAt);
+        changedFields.push({ field: "scheduledAt", value: scheduledAt });
       }
       if (data.duration !== undefined) {
         sets.push("duration = ?");

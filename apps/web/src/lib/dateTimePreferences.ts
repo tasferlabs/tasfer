@@ -6,12 +6,15 @@ export type TimeFormat = "12h" | "24h" | "system";
 export type DateFormat = "MM/DD/YYYY" | "DD/MM/YYYY" | "YYYY-MM-DD" | "system";
 /** 0 = Sunday, 1 = Monday, 6 = Saturday */
 export type WeekStart = 0 | 1 | 6;
+/** An IANA zone id, or "system" to follow the device time zone. */
+export type TimezonePreference = string;
 
 // ── Storage ──
 
 const TIME_FORMAT_KEY = "timeFormat";
 const DATE_FORMAT_KEY = "dateFormat";
 const WEEK_START_KEY = "weekStart";
+const TIMEZONE_KEY = "timezone";
 
 export function getTimeFormat(): TimeFormat {
   if (typeof window === "undefined") return "system";
@@ -40,6 +43,23 @@ export function getWeekStart(): WeekStart {
 
 export function setWeekStart(day: WeekStart) {
   localStorage.setItem(WEEK_START_KEY, String(day));
+}
+
+export function getTimezone(): TimezonePreference {
+  if (typeof window === "undefined") return "system";
+  return localStorage.getItem(TIMEZONE_KEY) || "system";
+}
+
+export function setTimezone(zone: TimezonePreference) {
+  if (zone === "system") localStorage.removeItem(TIMEZONE_KEY);
+  else localStorage.setItem(TIMEZONE_KEY, zone);
+}
+
+/** The IANA zone all dates are displayed in: the preference, or the device zone. */
+export function getResolvedTimezone(): string {
+  const pref = getTimezone();
+  if (pref !== "system") return pref;
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
 // ── Formatting helpers ──
@@ -116,14 +136,17 @@ export function createDateTimeFormatter(
 
 /** Format an absolute date+time string (used in tooltips, etc.) */
 export function formatAbsoluteDateTime(date: Date): string {
+  const timeZone = getResolvedTimezone();
   const datePart = formatDatePreferred(date, {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone,
   });
   const timePart = formatTimePreferred(date, {
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
   return `${datePart} ${timePart}`;
 }
