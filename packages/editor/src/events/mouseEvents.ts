@@ -1,3 +1,4 @@
+import { CLOSE_CONTEXT_MENU } from "../action-bus";
 import {
   createParagraphAboveOnClick,
   createParagraphBelowOnClick,
@@ -91,6 +92,14 @@ export function handleMouseDown(
   // Close any active menu on mouse click (will be reopened below if needed)
   if (wasMenuOpen) {
     state = closeActiveMenu(state);
+  }
+
+  // The context menu is host-owned — signal it to close like the touch path
+  // does. Radix's own outside-click dismissal can't be relied on here: the
+  // canvas focus hack fires a synthetic click mid-mousedown, which newer
+  // Radix reads as an intercepted interaction and skips dismissing.
+  if (session.hostMenuCapturing) {
+    state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
   }
 
   state = {
@@ -793,11 +802,19 @@ export function handleWheel(
   viewport: ViewportState,
   event: WheelEvent,
   documentHeight: number,
+  session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): EditorState {
   // In suspended mode, block scrolling (but allow in readonly mode)
   if (state.ui.mode === "suspended") {
     return state;
+  }
+
+  // Scrolling has priority over menus (matching the touch path): the host-owned
+  // context menu is pinned to viewport coords, so it would detach from the
+  // content it targets as the document scrolls under it.
+  if (session.hostMenuCapturing) {
+    state.actionBus.dispatch(CLOSE_CONTEXT_MENU);
   }
 
   // Stop momentum when using wheel

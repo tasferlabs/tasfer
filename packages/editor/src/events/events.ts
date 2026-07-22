@@ -701,6 +701,7 @@ export function handleEvents(
           viewport,
           event as WheelEvent,
           documentHeight,
+          session,
           updateViewportCallback,
         );
         break;
