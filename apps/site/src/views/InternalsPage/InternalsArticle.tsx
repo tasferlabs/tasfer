@@ -52,7 +52,9 @@ export default function InternalsArticle({ slug }: { slug: string }) {
             <article className="dx-article ix-article">
               <header className="ix-hero">
                 <div className="dx-eyebrow">404</div>
-                <h1 className="ix-title">{t("internals.notFound", "This note wandered off.")}</h1>
+                <h1 className="ix-title">
+                  {t("internals.notFound", "This note wandered off.")}
+                </h1>
               </header>
             </article>
           </main>
@@ -80,11 +82,13 @@ export default function InternalsArticle({ slug }: { slug: string }) {
         <main className="ix-main">
           <article className="dx-article ix-article">
             <header className="ix-hero">
-              <div className="dx-eyebrow">{t("internals.kicker", "internals")}</div>
+              {/* <hr className="h-2 bg-primary"></hr> */}
               <h1 className="ix-title">{note.title}</h1>
               {note.summary ? <p className="ix-lede">{note.summary}</p> : null}
               <div className="ix-byline">
-                <span className="author">{t("internals.author", "Tasfer")}</span>
+                <span className="author">
+                  {t("internals.author", "Tasfer")}
+                </span>
                 <span className="dot" aria-hidden="true" />
                 <span>{formatDate(note.date)}</span>
               </div>

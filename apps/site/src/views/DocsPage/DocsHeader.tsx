@@ -4,11 +4,13 @@ import { Link } from "@/components/Link";
 import BrandMark from "@/components/BrandMark";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/providers/ThemeProvider";
+import { APP_OPEN_URL } from "@/lib/appUrl";
 import { Icons } from "./docsIcons";
+import { useState } from "react";
 
 const REPO_URL = "https://github.com/tasferlabs/tasfer";
 
-export function ThemeToggle() {
+export function ThemeToggle({ showLabel = false }: { showLabel?: boolean }) {
   const { effectiveTheme, setTheme } = useTheme();
   const { t } = useTranslation();
   const isDark = effectiveTheme === "dark";
@@ -19,6 +21,11 @@ export function ThemeToggle() {
       onClick={() => setTheme(isDark ? "light" : "dark")}
     >
       {isDark ? <Icons.Sun /> : <Icons.Moon />}
+      {showLabel ? (
+        <span className="dx-theme-label">
+          {t("common.toggleTheme", "Toggle theme")}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -34,6 +41,10 @@ export function DocsHeader({
   onMenu?: () => void;
 }) {
   const { t } = useTranslation();
+  const [isNavigationOpen, setNavigationOpen] = useState(false);
+
+  const closeNavigation = () => setNavigationOpen(false);
+
   return (
     <header className="dx-header">
       <div className="dx-header-inner">
@@ -56,21 +67,37 @@ export function DocsHeader({
         </Link>
         <span className="dx-wordmark-tag">{t("docs.tag", "docs")}</span>
         <span className="dx-header-spacer" />
-        <nav className="dx-header-nav">
+        <button
+          className="dx-site-menu-btn"
+          aria-label={t("docs.a11y.openNavigation", "Open navigation")}
+          aria-expanded={isNavigationOpen}
+          aria-controls="docs-site-navigation"
+          onClick={() => setNavigationOpen((open) => !open)}
+        >
+          {isNavigationOpen ? <Icons.Close /> : <Icons.Menu />}
+        </button>
+        <nav
+          className={"dx-header-nav" + (isNavigationOpen ? " is-open" : "")}
+          id="docs-site-navigation"
+        >
           <Link
             to="/docs/app/getting-started"
             className={activeSection === "app" ? "is-active" : ""}
+            onClick={closeNavigation}
           >
             {t("docs.nav.appDocs", "App docs")}
           </Link>
           <Link
             to="/docs/editor/roadmap"
             className={activeSection === "editor" ? "is-active" : ""}
+            onClick={closeNavigation}
           >
             {t("docs.nav.editorDocs", "SDK roadmap")}
           </Link>
-          <Link to="/home">{t("docs.nav.landing", "Landing")}</Link>
-          <ThemeToggle />
+          <Link to="/home" onClick={closeNavigation}>
+            {t("docs.nav.landing", "Landing")}
+          </Link>
+          <ThemeToggle showLabel />
           <a
             className="dx-ghost-link"
             href={REPO_URL}
@@ -79,6 +106,9 @@ export function DocsHeader({
           >
             <Icons.GitHub />
             {t("docs.nav.github", "GitHub")}
+          </a>
+          <a className="dx-open-app-link" href={APP_OPEN_URL}>
+            {t("docs.nav.openApp", "Open app")}
           </a>
         </nav>
       </div>
