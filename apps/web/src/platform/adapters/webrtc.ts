@@ -59,6 +59,11 @@ const TURN_CREDENTIAL_RETRY_MS = 60 * 1000; // 1m
  */
 const TURN_RESPONSE_TIMEOUT_MS = 6000;
 
+/** Direct WebRTC gets a bounded chance before the encrypted relay takes over. */
+const INITIAL_CONNECTION_TIMEOUT_MS = 12_000;
+const DISCONNECTED_GRACE_MS = 5_000;
+const ICE_RESTART_TIMEOUT_MS = 10_000;
+
 // =============================================================================
 // E2E Encryption — AES-256-GCM with HKDF-derived keys
 // =============================================================================
@@ -289,6 +294,7 @@ class WebRtcPeer implements NetworkPeer {
   private resolveDcReady!: () => void;
   private assembler = new ChunkAssembler();
   private nextMsgId = 0;
+  private opened = false;
 
   constructor(remotePublicKey: string, pc: RTCPeerConnection) {
     this.remotePublicKey = remotePublicKey;
@@ -316,15 +322,26 @@ class WebRtcPeer implements NetworkPeer {
       console.error(`[WebRTC] datachannel error remote=${rShort}`, e);
     };
 
-    if (dc.readyState === "open") {
+    const handleOpen = () => {
+      if (this.opened) return;
+      this.opened = true;
       this.resolveDcReady();
       onOpen?.();
+    };
+
+    if (dc.readyState === "open") {
+      handleOpen();
     } else {
-      dc.onopen = () => {
-        this.resolveDcReady();
-        onOpen?.();
-      };
+      dc.onopen = handleOpen;
     }
+  }
+
+  hasOpened(): boolean {
+    return this.opened;
+  }
+
+  isReady(): boolean {
+    return this.dc?.readyState === "open";
   }
 
   _fireClose() {
@@ -499,6 +516,11 @@ class WebRtcTopic implements NetworkTopic {
   private suspended = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectionDeadlines = new Map<string, ReturnType<typeof setTimeout>>();
+  private disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private restartAttempted = new Set<string>();
+  private pendingIce = new Map<string, (RTCIceCandidateInit | null)[]>();
+  private signalQueues = new Map<string, Promise<void>>();
 
   private peers = new Map<string, WebRtcPeer | RelayPeer>();
   private joinListeners = new Set<(peer: NetworkPeer) => void>();
@@ -682,9 +704,19 @@ class WebRtcTopic implements NetworkTopic {
   // Encrypted signal/relay sending
   // ---------------------------------------------------------------------------
 
-  private async sendSignal(target: string, data: unknown): Promise<void> {
-    const encrypted = await encrypt(this.encKey, JSON.stringify(data));
-    this.wsSend({ type: "signal", target, data: encrypted });
+  private sendSignal(target: string, data: unknown): Promise<void> {
+    // Encryption resolves out of order. Serialize per peer so offer/answer,
+    // candidates and the end-of-candidates marker stay in signaling order.
+    const previous = this.signalQueues.get(target) ?? Promise.resolve();
+    const pending = previous.catch(() => {}).then(async () => {
+      const encrypted = await encrypt(this.encKey, JSON.stringify(data));
+      this.wsSend({ type: "signal", target, data: encrypted });
+    });
+    this.signalQueues.set(target, pending);
+    void pending.finally(() => {
+      if (this.signalQueues.get(target) === pending) this.signalQueues.delete(target);
+    }).catch(() => {});
+    return pending;
   }
 
   private async sendRelay(target: string, data: string): Promise<void> {
@@ -769,6 +801,131 @@ class WebRtcTopic implements NetworkTopic {
   // Peer connection management (same logic as before)
   // ---------------------------------------------------------------------------
 
+  private configurePeer(remotePeerId: string, peer: WebRtcPeer): void {
+    const pc = peer.pc;
+    const rShort = remotePeerId.slice(0, 8);
+
+    pc.onicecandidate = (e) => {
+      const candidate = e.candidate ? e.candidate.toJSON() : null;
+      void this.sendSignal(remotePeerId, { type: "ice", candidate }).catch(
+        (err) => console.error(`[WebRTC] failed to send ice remote=${rShort}`, err),
+      );
+    };
+
+    pc.onicecandidateerror = (e) => {
+      console.warn(
+        `[WebRTC] ICE candidate error remote=${rShort} code=${e.errorCode} url=${e.url || "(unknown)"}`,
+      );
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] connectionState=${pc.connectionState} remote=${rShort}`);
+      if (pc.connectionState === "failed") {
+        this._promoteToRelay(remotePeerId);
+      } else if (pc.connectionState === "connected" && peer.isReady()) {
+        this.markPeerConnected(remotePeerId, peer);
+      } else if (pc.connectionState === "closed") {
+        this._removePeer(remotePeerId);
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] iceConnectionState=${pc.iceConnectionState} remote=${rShort}`);
+      if (pc.iceConnectionState === "failed") {
+        this._promoteToRelay(remotePeerId);
+      } else if (pc.iceConnectionState === "disconnected" && peer.hasOpened()) {
+        this.scheduleIceRecovery(remotePeerId, peer);
+      } else if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+        this.clearDisconnectTimer(remotePeerId);
+        if (peer.isReady()) this.markPeerConnected(remotePeerId, peer);
+      }
+    };
+  }
+
+  private markPeerConnected(remotePeerId: string, peer: WebRtcPeer): void {
+    if (this.peers.get(remotePeerId) !== peer) return;
+    this.clearConnectionDeadline(remotePeerId);
+    this.clearDisconnectTimer(remotePeerId);
+    this.restartAttempted.delete(remotePeerId);
+  }
+
+  private startConnectionDeadline(remotePeerId: string, peer: WebRtcPeer, timeoutMs: number): void {
+    this.clearConnectionDeadline(remotePeerId);
+    if (peer.pc.connectionState === "connected" && peer.isReady()) return;
+
+    const timer = setTimeout(() => {
+      this.connectionDeadlines.delete(remotePeerId);
+      if (this.peers.get(remotePeerId) !== peer) return;
+      if (peer.pc.connectionState === "connected" && peer.isReady()) return;
+      console.warn(`[WebRTC] direct connection timed out remote=${remotePeerId.slice(0, 8)} after=${timeoutMs}ms`);
+      this._promoteToRelay(remotePeerId);
+    }, timeoutMs);
+    this.connectionDeadlines.set(remotePeerId, timer);
+  }
+
+  private clearConnectionDeadline(remotePeerId: string): void {
+    const timer = this.connectionDeadlines.get(remotePeerId);
+    if (timer) clearTimeout(timer);
+    this.connectionDeadlines.delete(remotePeerId);
+  }
+
+  private clearDisconnectTimer(remotePeerId: string): void {
+    const timer = this.disconnectTimers.get(remotePeerId);
+    if (timer) clearTimeout(timer);
+    this.disconnectTimers.delete(remotePeerId);
+  }
+
+  private scheduleIceRecovery(remotePeerId: string, peer: WebRtcPeer): void {
+    if (this.disconnectTimers.has(remotePeerId)) return;
+    const timer = setTimeout(() => {
+      this.disconnectTimers.delete(remotePeerId);
+      if (this.peers.get(remotePeerId) !== peer || peer.pc.iceConnectionState !== "disconnected") return;
+
+      // Only the deterministic offerer restarts ICE, preventing offer glare.
+      if (this.localPeerId > remotePeerId && !this.restartAttempted.has(remotePeerId)) {
+        this.restartAttempted.add(remotePeerId);
+        void this.restartIce(remotePeerId, peer);
+      } else {
+        this.startConnectionDeadline(remotePeerId, peer, ICE_RESTART_TIMEOUT_MS);
+      }
+    }, DISCONNECTED_GRACE_MS);
+    this.disconnectTimers.set(remotePeerId, timer);
+  }
+
+  private async restartIce(remotePeerId: string, peer: WebRtcPeer): Promise<void> {
+    if (this.peers.get(remotePeerId) !== peer) return;
+    try {
+      peer.pc.restartIce();
+      const offer = await peer.pc.createOffer({ iceRestart: true });
+      await peer.pc.setLocalDescription(offer);
+      await this.sendSignal(remotePeerId, { type: "offer", sdp: offer });
+      console.log(`[WebRTC] ICE restart sent remote=${remotePeerId.slice(0, 8)}`);
+      this.startConnectionDeadline(remotePeerId, peer, ICE_RESTART_TIMEOUT_MS);
+    } catch (e) {
+      console.error(`[WebRTC] ICE restart failed remote=${remotePeerId.slice(0, 8)}`, e);
+      this._promoteToRelay(remotePeerId);
+    }
+  }
+
+  private queueIce(remotePeerId: string, candidate: RTCIceCandidateInit | null): void {
+    const queued = this.pendingIce.get(remotePeerId) ?? [];
+    if (queued.length < 64) queued.push(candidate);
+    this.pendingIce.set(remotePeerId, queued);
+  }
+
+  private async flushPendingIce(remotePeerId: string, peer: WebRtcPeer): Promise<void> {
+    const queued = this.pendingIce.get(remotePeerId);
+    if (!queued) return;
+    this.pendingIce.delete(remotePeerId);
+    for (const candidate of queued) {
+      try {
+        await peer.pc.addIceCandidate(candidate ? new RTCIceCandidate(candidate) : null);
+      } catch (e) {
+        console.warn(`[WebRTC] dropped stale ICE candidate from=${remotePeerId.slice(0, 8)}`, e);
+      }
+    }
+  }
+
   async _handlePeerJoin(remotePeerId: string) {
     // The room can name us back: a reconnect under the same peerId leaves the
     // old socket briefly alive, and the server lists it as a peer. Connecting
@@ -783,44 +940,17 @@ class WebRtcTopic implements NetworkTopic {
     const pc = new RTCPeerConnection(this.getRtcConfig());
     const peer = new WebRtcPeer(remotePeerId, pc);
     this.peers.set(remotePeerId, peer);
+    this.configurePeer(remotePeerId, peer);
 
     // Deterministic: higher ID creates the offer (prevents duplicate connections)
     const isInitiator = this.localPeerId > remotePeerId;
     console.log(`[WebRTC] new peer remote=${rShort} topic=${topicShort} role=${isInitiator ? "initiator" : "responder"}`);
 
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        void this.sendSignal(remotePeerId, { type: "ice", candidate: e.candidate }).catch(
-          (err) => console.error(`[WebRTC] failed to send ice remote=${rShort}`, err),
-        );
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] connectionState=${pc.connectionState} remote=${rShort}`);
-      if (pc.connectionState === "failed") {
-        console.error(`[WebRTC] connection failed remote=${rShort}`);
-        this._promoteToRelay(remotePeerId);
-      } else if (pc.connectionState === "closed") {
-        this._removePeer(remotePeerId);
-      }
-    };
-
-    // Firefox fires iceConnectionState "failed" more reliably than connectionState
-    pc.oniceconnectionstatechange = () => {
-      console.log(`[WebRTC] iceConnectionState=${pc.iceConnectionState} remote=${rShort}`);
-      if (pc.iceConnectionState === "failed") {
-        console.error(`[WebRTC] ICE failed remote=${rShort}`);
-        this._promoteToRelay(remotePeerId);
-      } else if (pc.iceConnectionState === "disconnected") {
-        console.warn(`[WebRTC] ICE disconnected remote=${rShort}`);
-      }
-    };
-
     if (isInitiator) {
       const dc = pc.createDataChannel("data", { ordered: true });
       peer._setDataChannel(dc, () => {
         console.log(`[WebRTC] datachannel opened remote=${rShort}`);
+        this.markPeerConnected(remotePeerId, peer);
         for (const cb of this.joinListeners) cb(peer);
       });
 
@@ -832,6 +962,7 @@ class WebRtcTopic implements NetworkTopic {
         await pc.setLocalDescription(offer);
         console.log(`[WebRTC] sent offer remote=${rShort}`);
         await this.sendSignal(remotePeerId, { type: "offer", sdp: offer });
+        this.startConnectionDeadline(remotePeerId, peer, INITIAL_CONNECTION_TIMEOUT_MS);
       } catch (e) {
         console.error(`[WebRTC] offer failed remote=${rShort}`, e);
         this._removePeer(remotePeerId);
@@ -840,6 +971,7 @@ class WebRtcTopic implements NetworkTopic {
       pc.ondatachannel = (e) => {
         peer._setDataChannel(e.channel, () => {
           console.log(`[WebRTC] datachannel opened remote=${rShort}`);
+          this.markPeerConnected(remotePeerId, peer);
           for (const cb of this.joinListeners) cb(peer);
         });
       };
@@ -859,9 +991,8 @@ class WebRtcTopic implements NetworkTopic {
     if (data.type === "offer") {
       // Ignore renegotiation offers on an already-connected peer — these are
       // spurious retries caused by duplicate peer-join events on the initiator side.
-      // Exception: if ICE has gone to "disconnected" or "failed", the existing
-      // connection is stale and the offer is a legitimate reconnect — tear down
-      // the old peer and accept the new connection.
+      // Exception: if ICE is unhealthy, accept the offer as a restart on the
+      // existing connection so its DataChannel can recover in place.
       if (peer instanceof WebRtcPeer && peer.pc.connectionState === "connected") {
         const iceHealthy =
           peer.pc.iceConnectionState === "connected" ||
@@ -871,39 +1002,17 @@ class WebRtcTopic implements NetworkTopic {
           return;
         }
         console.log(`[WebRTC] stale connection to ${fShort} (ice=${peer.pc.iceConnectionState}) — accepting reconnect offer`);
-        this._removePeer(from);
-        peer = undefined;
       }
 
       if (!peer) {
         const pc = new RTCPeerConnection(this.getRtcConfig());
         peer = new WebRtcPeer(from, pc);
         this.peers.set(from, peer);
-
-        pc.onicecandidate = (e) => {
-          if (e.candidate) {
-            void this.sendSignal(from, { type: "ice", candidate: e.candidate }).catch(
-              (err) => console.error(`[WebRTC] failed to send ice remote=${fShort}`, err),
-            );
-          }
-        };
-
-        pc.onconnectionstatechange = () => {
-          if (pc.connectionState === "failed") {
-            this._promoteToRelay(from);
-          } else if (pc.connectionState === "closed") {
-            this._removePeer(from);
-          }
-        };
-
-        pc.oniceconnectionstatechange = () => {
-          if (pc.iceConnectionState === "failed") {
-            this._promoteToRelay(from);
-          }
-        };
+        this.configurePeer(from, peer);
 
         pc.ondatachannel = (e) => {
           (peer as WebRtcPeer)._setDataChannel(e.channel, () => {
+            this.markPeerConnected(from, peer as WebRtcPeer);
             for (const cb of this.joinListeners) cb(peer!);
           });
         };
@@ -913,10 +1022,17 @@ class WebRtcTopic implements NetworkTopic {
       // out-of-state descriptions reject; without a catch the rejection escapes
       // the message queue and the half-built peer is stranded in the map.
       try {
-        await (peer as WebRtcPeer).pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        const answer = await (peer as WebRtcPeer).pc.createAnswer();
-        await (peer as WebRtcPeer).pc.setLocalDescription(answer);
+        const rtcPeer = peer as WebRtcPeer;
+        await rtcPeer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        await this.flushPendingIce(from, rtcPeer);
+        const answer = await rtcPeer.pc.createAnswer();
+        await rtcPeer.pc.setLocalDescription(answer);
         await this.sendSignal(from, { type: "answer", sdp: answer });
+        this.startConnectionDeadline(
+          from,
+          rtcPeer,
+          rtcPeer.hasOpened() ? ICE_RESTART_TIMEOUT_MS : INITIAL_CONNECTION_TIMEOUT_MS,
+        );
       } catch (e) {
         console.error(`[WebRTC] failed to answer offer from=${fShort}`, e);
         this._removePeer(from);
@@ -924,20 +1040,29 @@ class WebRtcTopic implements NetworkTopic {
     } else if (data.type === "answer") {
       if (!peer) return;
       try {
-        await (peer as WebRtcPeer).pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        const rtcPeer = peer as WebRtcPeer;
+        await rtcPeer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        await this.flushPendingIce(from, rtcPeer);
       } catch (e) {
         console.error(`[WebRTC] failed to apply answer from=${fShort}`, e);
       }
     } else if (data.type === "ice") {
-      if (!peer) return;
-      // A candidate can belong to a connection we just replaced, or arrive
-      // before the remote description is set. Dropping it is safe — the session
-      // generates its own — but throwing is not.
-      try {
-        await (peer as WebRtcPeer).pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-      } catch (e) {
-        console.warn(`[WebRTC] dropped ice candidate from=${fShort}`, e);
+      if (data.candidate !== null && (typeof data.candidate !== "object" || !data.candidate)) return;
+      const candidate = data.candidate as RTCIceCandidateInit | null;
+      if (!peer || !(peer as WebRtcPeer).pc.remoteDescription) {
+        this.queueIce(from, candidate);
+        return;
       }
+      try {
+        await (peer as WebRtcPeer).pc.addIceCandidate(candidate ? new RTCIceCandidate(candidate) : null);
+      } catch (e) {
+        // A restart candidate can overtake its offer; keep it for the next
+        // remote description instead of discarding a potentially viable path.
+        this.queueIce(from, candidate);
+        console.warn(`[WebRTC] deferred ICE candidate from=${fShort}`, e);
+      }
+    } else if (data.type === "relay-start") {
+      this._promoteToRelay(from, false);
     }
   }
 
@@ -946,15 +1071,26 @@ class WebRtcTopic implements NetworkTopic {
   }
 
   /** ICE failed — swap to relay transport, transparent to the Replicator */
-  private _promoteToRelay(remotePeerId: string) {
+  private _promoteToRelay(remotePeerId: string, notifyRemote = true) {
     const existing = this.peers.get(remotePeerId);
-    // Already relayed or already removed
-    if (!existing || existing instanceof RelayPeer) return;
+    if (existing instanceof RelayPeer) return;
+
+    this.clearConnectionDeadline(remotePeerId);
+    this.clearDisconnectTimer(remotePeerId);
+    this.restartAttempted.delete(remotePeerId);
+    this.pendingIce.delete(remotePeerId);
+    this.signalQueues.delete(remotePeerId);
+
+    if (notifyRemote) {
+      void this.sendSignal(remotePeerId, { type: "relay-start" }).catch((e) => {
+        console.error(`[WebRTC] failed to signal relay fallback remote=${remotePeerId.slice(0, 8)}`, e);
+      });
+    }
 
     // Remove from map BEFORE closing to prevent the "closed" connectionState
     // handler from firing _removePeer (which would emit leave events)
     this.peers.delete(remotePeerId);
-    existing.close();
+    existing?.close();
 
     // Create a relay peer that sends through the CF WebSocket (encrypted)
     const relayPeer = new RelayPeer(remotePeerId, (target, data) =>
@@ -962,7 +1098,7 @@ class WebRtcTopic implements NetworkTopic {
     );
     this.peers.set(remotePeerId, relayPeer);
 
-    console.log(`[WebRTC] ICE failed for ${remotePeerId.slice(0, 8)}… — falling back to relay`);
+    console.log(`[WebRTC] direct transport unavailable for ${remotePeerId.slice(0, 8)}… — falling back to relay`);
 
     // Fire join listeners so the Replicator sees a new (relay) peer
     for (const cb of this.joinListeners) cb(relayPeer);
@@ -975,7 +1111,7 @@ class WebRtcTopic implements NetworkTopic {
     // The remote side detected ICE failure before us and started relaying —
     // promote our side too so the message isn't dropped
     if (peer && !(peer instanceof RelayPeer)) {
-      this._promoteToRelay(from);
+      this._promoteToRelay(from, false);
       peer = this.peers.get(from);
     }
 
@@ -985,6 +1121,11 @@ class WebRtcTopic implements NetworkTopic {
   }
 
   private _removePeer(remotePeerId: string) {
+    this.clearConnectionDeadline(remotePeerId);
+    this.clearDisconnectTimer(remotePeerId);
+    this.restartAttempted.delete(remotePeerId);
+    this.pendingIce.delete(remotePeerId);
+    this.signalQueues.delete(remotePeerId);
     const peer = this.peers.get(remotePeerId);
     if (!peer) return;
     this.peers.delete(remotePeerId);
@@ -1053,6 +1194,13 @@ class WebRtcTopic implements NetworkTopic {
       peer.close();
     }
     this.peers.clear();
+    for (const timer of this.connectionDeadlines.values()) clearTimeout(timer);
+    for (const timer of this.disconnectTimers.values()) clearTimeout(timer);
+    this.connectionDeadlines.clear();
+    this.disconnectTimers.clear();
+    this.restartAttempted.clear();
+    this.pendingIce.clear();
+    this.signalQueues.clear();
   }
 
   async destroy(): Promise<void> {
@@ -1061,10 +1209,7 @@ class WebRtcTopic implements NetworkTopic {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    for (const peer of this.peers.values()) {
-      peer.close();
-    }
-    this.peers.clear();
+    this._reset();
     this.joinListeners.clear();
     this.leaveListeners.clear();
     this.ws?.close();
