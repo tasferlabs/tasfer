@@ -27,7 +27,11 @@ import {
   formatDurationLabel,
   type TFunction,
 } from "@/lib/utils";
-import * as Popover from "@radix-ui/react-popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Block } from "@tasfer/editor";
 import type { CursorUser } from "@tasfer/provider-core/cursors";
@@ -843,36 +847,24 @@ function ScheduleTag({
     );
   }
 
+  // Shared wrapper (modal + Escape containment) per the layered-surface
+  // contract; it also keeps dismissal off Radix's outside-click detection,
+  // which the canvas focus hack breaks (see mouseEvents.handleMouseDown).
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" className={PAGE_TAG_CLASS}>
           <Calendar />
           {label}
         </Button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          align="start"
-          sideOffset={8}
-          className="z-50 w-80 rounded-lg border border-border bg-popover p-4 shadow-lg animate-in fade-in-0 zoom-in-95"
-          onEscapeKeyDown={(e) => {
-            if (
-              document.querySelector(
-                '[data-slot="combobox-content"][data-open]',
-              )
-            ) {
-              e.preventDefault();
-            }
-          }}
-        >
-          <h3 className="text-sm font-semibold mb-3">
-            {t("calendar.schedule", "Schedule")}
-          </h3>
-          {content}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+      </PopoverTrigger>
+      <PopoverContent align="start" sideOffset={8} className="w-80 gap-0">
+        <h3 className="text-sm font-semibold mb-3">
+          {t("calendar.schedule", "Schedule")}
+        </h3>
+        {content}
+      </PopoverContent>
+    </Popover>
   );
 }
 
