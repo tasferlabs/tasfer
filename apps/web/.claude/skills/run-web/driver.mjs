@@ -72,14 +72,22 @@ async function waitBoot(page, ms = 12000) {
 }
 
 // Walk the onboarding carousel by clicking its primary button
-// (Continue → Continue → Just continue). Returns the number of steps clicked
-// (0 on a warm profile where onboarding is already done).
+// (Verify code → Continue → Continue → Just continue). Returns the number of
+// steps clicked (0 on a warm profile where onboarding is already done).
 async function onboard(page, ms = 15000) {
   const deadline = Date.now() + ms;
   let steps = 0;
   while (Date.now() < deadline) {
     const primary = page.locator(".ob-btn-primary:visible").last();
     if (!(await primary.count())) break; // not in the carousel
+    // Beta gate: its primary stays disabled until the access code is entered.
+    if (await primary.isDisabled().catch(() => false)) {
+      await page
+        .locator(".ob-input:visible")
+        .first()
+        .fill("tasfer-beta")
+        .catch(() => {});
+    }
     await primary.click().catch(() => {});
     steps++;
     await page.waitForTimeout(700); // "Just continue" persists a space async

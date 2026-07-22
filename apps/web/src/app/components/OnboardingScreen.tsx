@@ -1,4 +1,5 @@
 /* OnboardingScreen.tsx — Tasfer first-run flow.
+ *   0. beta      — private-beta access code gate (web platform only)
  *   1. identity  — the keypair Tasfer already generated; on-device by default
  *   2. profile   — optional name + avatar (collapsed), only matters for sharing
  *   3. space     — create your own (optional name) OR join a peer's
@@ -8,6 +9,7 @@
  * Every step is wired to the real platform APIs.
  */
 
+import { detectAdapter } from "@/platform";
 import type { SpaceInvite } from "@/platform/types";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -19,6 +21,7 @@ import {
   Copy,
   Fingerprint,
   ImagePlus,
+  KeyRound,
   Loader2,
   Lock,
   Plus,
@@ -44,8 +47,19 @@ import { AvatarCropDialog } from "./AvatarCropDialog";
 import "./OnboardingScreen.css";
 import { QRScannerView } from "./QRScannerView";
 
-const ALL_STEPS = ["identity", "profile", "space"] as const;
+const ALL_STEPS = ["beta", "identity", "profile", "space"] as const;
 type Step = (typeof ALL_STEPS)[number];
+
+const BETA_ACCESS_CODE = "tasfer-beta";
+const BETA_ACCESS_KEY = "betaAccessGranted";
+
+/** The web platform is gated behind a beta code; native builds are not. */
+function needsBetaGate(): boolean {
+  return (
+    detectAdapter() === "web" &&
+    localStorage.getItem(BETA_ACCESS_KEY) !== "true"
+  );
+}
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -84,6 +98,75 @@ function ProgressDots({ steps, step }: { steps: readonly Step[]; step: Step }) {
           }`}
         />
       ))}
+    </div>
+  );
+}
+
+/* ── 0. beta access gate (web only) ────────────────────────────────────── */
+function BetaStep({ onNext }: { onNext: () => void }) {
+  const { t } = useTranslation();
+  const [code, setCode] = useState("");
+  const [invalid, setInvalid] = useState(false);
+
+  function handleVerify() {
+    if (code.trim().toLowerCase() !== BETA_ACCESS_CODE) {
+      setInvalid(true);
+      return;
+    }
+    localStorage.setItem(BETA_ACCESS_KEY, "true");
+    onNext();
+  }
+
+  return (
+    <div className="ob-card">
+      <div className="ob-icon-wrap">
+        <KeyRound size={22} strokeWidth={1.5} />
+      </div>
+      <h2 className="ob-title">
+        {t("onboarding.betaTitle", "Tasfer is in private beta.")}
+      </h2>
+      <p className="ob-sub">
+        {t(
+          "onboarding.betaIntro",
+          "Access is limited to beta testers for now. Enter the access code.",
+        )}
+      </p>
+
+      <label className="ob-label">
+        {t("onboarding.accessCode", "Access code")}
+      </label>
+      <input
+        className="ob-input"
+        placeholder={t("onboarding.betaCodePlaceholder", "Beta access code")}
+        value={code}
+        onChange={(e) => {
+          setCode(e.target.value);
+          setInvalid(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleVerify();
+        }}
+        autoFocus
+      />
+
+      {invalid && (
+        <p className="ob-error" role="alert">
+          {t(
+            "onboarding.invalidAccessCode",
+            "That code doesn't match. Check it and try again.",
+          )}
+        </p>
+      )}
+
+      <div className="ob-actions">
+        <button
+          className="ob-btn ob-btn-primary"
+          onClick={handleVerify}
+          disabled={!code.trim()}
+        >
+          {t("onboarding.verifyCode", "Verify code")}
+        </button>
+      </div>
     </div>
   );
 }
@@ -848,7 +931,11 @@ function SpaceStep({ onBack }: { onBack: () => void }) {
 /* ── root ──────────────────────────────────────────────────────────────── */
 export function OnboardingScreen() {
   const { user } = useAuth();
-  const [step, setStep] = useState<Step>("identity");
+  // Decided once on mount: passing the gate mid-flow keeps the 4-dot layout.
+  const [steps] = useState<readonly Step[]>(() =>
+    needsBetaGate() ? ALL_STEPS : ALL_STEPS.filter((s) => s !== "beta"),
+  );
+  const [step, setStep] = useState<Step>(steps[0]);
   const [name, setName] = useState(user?.name ?? "");
   const [avatarId, setAvatarId] = useState<string | null>(user?.avatar ?? null);
 
@@ -964,8 +1051,9 @@ export function OnboardingScreen() {
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       />
 
-      <ProgressDots steps={ALL_STEPS} step={step} />
+      <ProgressDots steps={steps} step={step} />
 
+      {step === "beta" && <BetaStep onNext={() => go("identity")} />}
       {step === "identity" && <IdentityStep onNext={() => go("profile")} />}
       {step === "profile" && (
         <ProfileStep
