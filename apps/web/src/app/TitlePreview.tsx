@@ -44,6 +44,8 @@ function titleMarkdownToHtml(
           }
           return renderToSVG(source, displayMode, mathFontSize);
         },
+        undefined,
+        block.structuredContent,
       );
     }
   } catch {
