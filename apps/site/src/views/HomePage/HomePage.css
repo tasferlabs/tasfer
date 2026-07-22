@@ -264,12 +264,12 @@
 .lp-hero-title {
   font-family: var(--font-editorial);
   font-weight: 400;
-  font-size: clamp(38px, 6.4vw, 82px);
-  line-height: 1.06;
+  font-size: clamp(32px, 5vw, 62px);
+  line-height: 1.1;
   letter-spacing: -0.025em;
   color: var(--fg);
   margin: 0 0 36px;
-  max-width: 16ch;
+  max-width: 21ch;
 }
 .lp-hero-title em {
   font-style: italic;

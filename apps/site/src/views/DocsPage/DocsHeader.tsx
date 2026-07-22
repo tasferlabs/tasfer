@@ -87,13 +87,13 @@ export function DocsHeader({
           >
             {t("docs.nav.appDocs", "App docs")}
           </Link>
-          <Link
+          {/* <Link
             to="/docs/editor/roadmap"
             className={activeSection === "editor" ? "is-active" : ""}
             onClick={closeNavigation}
           >
             {t("docs.nav.editorDocs", "SDK roadmap")}
-          </Link>
+          </Link> */}
           <Link to="/home" onClick={closeNavigation}>
             {t("docs.nav.landing", "Landing")}
           </Link>

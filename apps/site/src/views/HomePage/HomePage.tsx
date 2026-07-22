@@ -679,10 +679,10 @@ export default function HomePage() {
           <div className="lp-hero-grid" aria-hidden="true" />
           <div className="column-wide" style={{ position: "relative" }}>
             <h1 className="lp-hero-title">
-              {t("home.lp.hero.titleA", "We don’t want your data.")}
+              {t("home.lp.hero.titleA", "Tasfer keeps every note on your machine.")}
               <br />
-              <em>{t("home.lp.hero.titleThoughts", "Your thoughts")}</em>{" "}
-              {t("home.lp.hero.titleB", "stay yours.")}
+              <em>{t("home.lp.hero.titleEm", "No server")}</em>{" "}
+              {t("home.lp.hero.titleC", "can read a word.")}
             </h1>
             <p className="lp-hero-lede">
               {t(
