@@ -31,6 +31,19 @@ const Icons = {
       <path d="M5 12h14M13 5l7 7-7 7" />
     </svg>
   ),
+  ArrowDown: (p: SVGProps<SVGSVGElement>) => (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...p}
+    >
+      <path d="M12 5v14M5 12l7 7 7-7" />
+    </svg>
+  ),
   Download: (p: SVGProps<SVGSVGElement>) => (
     <svg
       viewBox="0 0 24 24"
@@ -666,11 +679,10 @@ export default function HomePage() {
           <div className="lp-hero-grid" aria-hidden="true" />
           <div className="column-wide" style={{ position: "relative" }}>
             <h1 className="lp-hero-title">
-              {t("home.lp.hero.titleA", "You hand your thoughts")}
+              {t("home.lp.hero.titleA", "We don’t want your data.")}
               <br />
-              {t("home.lp.hero.titleB", "to strangers.")}
-              <br />
-              <em>{t("home.lp.hero.titleEm", "Every day.")}</em>
+              <em>{t("home.lp.hero.titleThoughts", "Your thoughts")}</em>{" "}
+              {t("home.lp.hero.titleB", "stay yours.")}
             </h1>
             <p className="lp-hero-lede">
               {t(
@@ -680,10 +692,6 @@ export default function HomePage() {
               <strong>
                 {t("home.lp.hero.ledeStrong", "Tasfer refuses that trade.")}
               </strong>
-              {t(
-                "home.lp.hero.lede2",
-                " Your files stay on your disk. Your keys never leave it. Sync is peer-to-peer and forgets you the moment it is done.",
-              )}
             </p>
             <div className="lp-hero-actions">
               <a className="lp-btn lp-btn-accent" href={APP_OPEN_URL}>
@@ -725,35 +733,35 @@ export default function HomePage() {
           <div className="column">
             <h2 className="lp-section-title">
               {t("home.lp.define.titleA", "Tasfer is a ")}
-              <em>{t("home.lp.define.titleEm", "markdown-based editor")}</em>
+              <em>
+                {t("home.lp.define.titleBeforeMarkdown", "")}
+                <Link className="lp-title-link" to="/docs/app/markdown">
+                  {t("home.lp.define.titleMarkdown", "markdown")}
+                </Link>
+              </em>
+              {t("home.lp.define.titleAfterMarkdown", "-based editor")}
               {t("home.lp.define.titleB", ".")}
             </h2>
             <p className="lp-define-lede">
               {t(
                 "home.lp.define.lede",
-                "An app you write in. Notes, drafts, journals — stored on your own disk, encrypted end-to-end when they travel, synced device-to-device with no central server and no account.",
+                "An app you write in. Notes, drafts, journals stored on your device, encrypted end-to-end on transient, synced device-to-device with no central server and no account.",
               )}
             </p>
             <blockquote className="lp-pullquote">
               {t(
                 "home.lp.define.pull",
-                "A place to write, an encrypted way to carry it, and the source code to prove both. That is the whole product.",
+                "The place to write your thoughts",
               )}
             </blockquote>
             <dl className="lp-define-facts">
               <div className="lp-define-fact">
                 <dt>{t("home.lp.define.fact.storageK", "storage")}</dt>
-                <dd>{t("home.lp.define.fact.storageV", "your disk")}</dd>
+                <dd>{t("home.lp.define.fact.storageV", "your device")}</dd>
               </div>
               <div className="lp-define-fact">
                 <dt>{t("home.lp.define.fact.syncK", "sync")}</dt>
-                <dd className="lp-define-sync">
-                  {t("home.lp.define.fact.syncDevice", "device")}
-                  <span className="lp-define-sync-to">
-                    {t("home.lp.define.fact.syncTo", "to")}
-                  </span>
-                  {t("home.lp.define.fact.syncDevice", "device")}
-                </dd>
+                <dd>{t("home.lp.define.fact.syncV", "peer to peer")}</dd>
               </div>
             </dl>
             <div className="lp-define-actions">
@@ -762,8 +770,8 @@ export default function HomePage() {
                 href="#premise"
                 onClick={scrollTo("premise")}
               >
-                {t("home.lp.define.readCase", "read the case")}
-                <Icons.Arrow />
+                {t("home.lp.define.readCase", "read more")}
+                <Icons.ArrowDown />
               </a>
             </div>
           </div>
@@ -928,15 +936,6 @@ export default function HomePage() {
                   >
                     <Icons.GitHub />
                     {t("home.lp.repo.browse", "browse the source")}
-                  </a>
-                  <a
-                    className="lp-btn lp-btn-ghost"
-                    href={`${REPO_URL}#readme`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {t("home.lp.repo.spec", "read the protocol spec")}
-                    <Icons.Arrow />
                   </a>
                 </div>
               </div>

@@ -413,6 +413,15 @@
   font-style: italic;
   color: var(--primary);
 }
+.lp-title-link {
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.12em;
+}
+.lp-title-link:hover {
+  text-decoration-thickness: 2px;
+}
 
 .lp-prose p {
   font-size: 18px;
@@ -491,15 +500,6 @@
   color: var(--primary);
   text-decoration-color: var(--primary);
 }
-.lp-define-sync {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.lp-define-sync-to {
-  color: var(--cy-muted-fg);
-}
-
 .lp-btn-accent {
   background: var(--primary);
   color: var(--primary-foreground);

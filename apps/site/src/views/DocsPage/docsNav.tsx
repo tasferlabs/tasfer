@@ -2,6 +2,7 @@ import { type ComponentType, type ReactElement } from "react";
 import { Icons } from "./docsIcons";
 import {
   AppGettingStarted,
+  AppMarkdown,
   AppPrivacy,
   AppSelfHosting,
   AppSyncRelay,
@@ -53,6 +54,13 @@ export const NAV: NavSection[] = [
             titleKey: "docs.navModel.app.gettingStarted",
             Comp: AppGettingStarted,
             kw: "install build space desktop first document setup export markdown",
+          },
+          {
+            route: "app/markdown",
+            title: "Markdown guide",
+            titleKey: "docs.navModel.app.markdown",
+            Comp: AppMarkdown,
+            kw: "markdown guide syntax shortcuts headings lists tasks code math latex images links import export",
           },
           {
             route: "app/sync-relay",
