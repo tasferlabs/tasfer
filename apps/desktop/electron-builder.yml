@@ -2,7 +2,7 @@ appId: app.tasfer
 productName: Tasfer
 
 # Versionless artifact names. The download page links every build through
-# https://github.com/hamza512b/tasfer/releases/latest/download/<file>, a
+# https://github.com/tasferlabs/tasfer/releases/latest/download/<file>, a
 # permalink that only resolves while the filename is stable across releases.
 # The names are duplicated in apps/site/src/views/DownloadPage/DownloadPage.tsx
 # (FILES) — change them together or the site starts linking to 404s.

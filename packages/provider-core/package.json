@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hamza512b/tasfer.git",
+    "url": "git+https://github.com/tasferlabs/tasfer.git",
     "directory": "packages/provider-core"
   },
   "engines": {

@@ -8,7 +8,7 @@ import { Callout, Lede, PropsTable } from "../../../docsComponents";
 
 <h2 id="what">ما هو؟</h2>
 
-يوجد المُرحِّل في [`apps/live`](https://github.com/hamza512b/tasfer/tree/main/apps/live): وهو Cloudflare Worker مكتوب بـTypeScript، مع Durable Object لكل موضوع اكتشاف كي يلتقي نظراء الموضوع على النسخة نفسها. ويوفر نقطتي نهاية:
+يوجد المُرحِّل في [`apps/live`](https://github.com/tasferlabs/tasfer/tree/main/apps/live): وهو Cloudflare Worker مكتوب بـTypeScript، مع Durable Object لكل موضوع اكتشاف كي يلتقي نظراء الموضوع على النسخة نفسها. ويوفر نقطتي نهاية:
 
 <PropsTable cols={["نقطة النهاية", "النوع", "الوصف"]} rows={[
   { name: "/topic/{topic}?peerId=…", type: "WebSocket", desc: "ينضم إلى غرفة الموضوع. تُمرر الإشارات وإطارات المسار البديل المشفرة إلى النظير المقصود ولا تُخزن." },

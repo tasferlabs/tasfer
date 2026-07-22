@@ -9,7 +9,7 @@ import { Icons } from "./docsIcons";
 import { DocsHeader } from "./DocsHeader";
 import "./DocsPage.css";
 
-const REPO_URL = "https://github.com/hamza512b/tasfer";
+const REPO_URL = "https://github.com/tasferlabs/tasfer";
 
 /** A sub-link inside a branch card. The whole card is also a link, so these
  *  are spans (no nested anchors) that navigate to a docs route on click. */

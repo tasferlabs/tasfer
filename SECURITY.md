@@ -8,7 +8,7 @@ If you discover a security vulnerability in Tasfer, please report it responsibly
 
 Instead, email security concerns to the maintainers directly. You can find contact information in the repository's profile or reach out via a private GitHub Security Advisory:
 
-1. Go to the [Security tab](https://github.com/hamza512b/tasfer/security/advisories) of this repository
+1. Go to the [Security tab](https://github.com/tasferlabs/tasfer/security/advisories) of this repository
 2. Click **"Report a vulnerability"**
 3. Provide a detailed description of the issue
 

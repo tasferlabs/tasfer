@@ -1,13 +1,13 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security issue
-    url: https://github.com/hamza512b/tasfer/security/advisories/new
+    url: https://github.com/tasferlabs/tasfer/security/advisories/new
     about: Please report security vulnerabilities privately.
   - name: Bug or feature request
-    url: https://github.com/hamza512b/tasfer/issues/new/choose
+    url: https://github.com/tasferlabs/tasfer/issues/new/choose
     about: Report a bug or request a feature.
   - name: Questions and support
-    url: https://github.com/hamza512b/tasfer/discussions
+    url: https://github.com/tasferlabs/tasfer/discussions
     about: Ask anything else in Discussions.
   - name: Discord Server
     url: https://discord.gg/drfUeSA8bw

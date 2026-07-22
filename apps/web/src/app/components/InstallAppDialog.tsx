@@ -31,7 +31,7 @@ import useResponsive from "../hooks/useResponsive";
  * to swap once the listing exists.
  */
 const DOWNLOAD_LINKS = {
-  desktop: "https://github.com/hamza512b/tasfer/releases/latest",
+  desktop: "https://github.com/tasferlabs/tasfer/releases/latest",
   appStore: "https://apps.apple.com/app/tasfer",
   googlePlay: "https://play.google.com/store/apps/details?id=app.tasfer",
 };

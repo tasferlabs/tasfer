@@ -8,7 +8,7 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { APP_OPEN_URL } from "@/lib/appUrl";
 import "./HomePage.css";
 
-const REPO_URL = "https://github.com/hamza512b/tasfer";
+const REPO_URL = "https://github.com/tasferlabs/tasfer";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -920,7 +920,7 @@ export default function HomePage() {
 
             <div className="lp-repo">
               <div>
-                <h3 className="lp-repo-title">github.com/hamza512b/tasfer</h3>
+                <h3 className="lp-repo-title">github.com/tasferlabs/tasfer</h3>
                 <p className="lp-repo-sub">
                   {t(
                     "home.lp.repo.repoSub",

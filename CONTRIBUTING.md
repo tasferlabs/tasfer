@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Tasfer! This guide will help you 
 
 ### Reporting Bugs
 
-All bug reports are welcome — no issue is too small. Before filing one, please search [existing issues](https://github.com/hamza512b/tasfer/issues) to avoid duplicates.
+All bug reports are welcome — no issue is too small. Before filing one, please search [existing issues](https://github.com/tasferlabs/tasfer/issues) to avoid duplicates.
 
 When reporting a bug, include:
 

@@ -8,7 +8,7 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { APP_OPEN_URL } from "@/lib/appUrl";
 import "./DownloadPage.css";
 
-const REPO_URL = "https://github.com/hamza512b/tasfer";
+const REPO_URL = "https://github.com/tasferlabs/tasfer";
 const RELEASES_URL = `${REPO_URL}/releases`;
 
 /**

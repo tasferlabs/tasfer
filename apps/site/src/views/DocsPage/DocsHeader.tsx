@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Icons } from "./docsIcons";
 
-const REPO_URL = "https://github.com/hamza512b/tasfer";
+const REPO_URL = "https://github.com/tasferlabs/tasfer";
 
 export function ThemeToggle() {
   const { effectiveTheme, setTheme } = useTheme();

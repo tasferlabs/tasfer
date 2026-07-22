@@ -11,7 +11,7 @@ import { Callout, Lede, PropsTable } from "../../docsComponents";
 
 <h2 id="what">What it is</h2>
 
-The relay lives in [`apps/live`](https://github.com/hamza512b/tasfer/tree/main/apps/live): a TypeScript Cloudflare Worker with one Durable Object per discovery topic, so peers on a topic always meet on the same instance. It exposes two endpoints:
+The relay lives in [`apps/live`](https://github.com/tasferlabs/tasfer/tree/main/apps/live): a TypeScript Cloudflare Worker with one Durable Object per discovery topic, so peers on a topic always meet on the same instance. It exposes two endpoints:
 
 <PropsTable cols={["Endpoint", "Type", "Description"]} rows={[
   { name: "/topic/{topic}?peerId=…", type: "WebSocket", desc: "Joins the topic's room. Signaling and encrypted fallback frames are forwarded to the addressed peer, never stored." },

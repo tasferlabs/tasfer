@@ -1,7 +1,7 @@
 import { useMatches } from "react-router-dom";
 
 export const GITHUB_NEW_ISSUE_URL =
-  "https://github.com/hamza512b/tasfer/issues/new";
+  "https://github.com/tasferlabs/tasfer/issues/new";
 
 /** Build a GitHub "new issue" URL with a prefilled title and body. */
 export function buildIssueUrl(title: string, body: string): string {

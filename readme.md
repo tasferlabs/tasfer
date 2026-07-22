@@ -57,7 +57,7 @@ This is a monorepo with **no root package manager workspace** — install and ru
 ### Run the web app
 
 ```bash
-git clone https://github.com/hamza512b/tasfer.git
+git clone https://github.com/tasferlabs/tasfer.git
 cd tasfer/apps/web
 npm install          # postinstall links the local packages/* for you
 npm run dev

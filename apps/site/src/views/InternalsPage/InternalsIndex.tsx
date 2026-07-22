@@ -10,7 +10,7 @@ import { NOTES } from "./internalsNav";
 import "@/views/DocsPage/DocsPage.css";
 import "./InternalsPage.css";
 
-const REPO_URL = "https://github.com/hamza512b/tasfer";
+const REPO_URL = "https://github.com/tasferlabs/tasfer";
 
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);

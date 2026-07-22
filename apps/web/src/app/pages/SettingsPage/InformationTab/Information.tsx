@@ -15,7 +15,7 @@ import { getClientPlatform } from "@/platform";
 // (the classic Android "tap build number" gesture).
 const UNLOCK_TAPS = 7;
 
-const REPO_URL = "https://github.com/hamza512b/tasfer";
+const REPO_URL = "https://github.com/tasferlabs/tasfer";
 
 // Where to surface the in-app Tasfer Inspector switch. iOS (Settings bundle) and
 // desktop (app menu) expose OS-level controls instead, so the in-app toggle is

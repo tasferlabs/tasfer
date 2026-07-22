@@ -14,4 +14,4 @@ Closes #
 
 ## Checklist
 
-- [ ] **If this PR touches `apps/*`:** I have read and agree to the [CLA](https://github.com/hamza512b/tasfer/blob/main/CLA.md) (not required for `packages/*` or `examples/*`, which are MIT)
+- [ ] **If this PR touches `apps/*`:** I have read and agree to the [CLA](https://github.com/tasferlabs/tasfer/blob/main/CLA.md) (not required for `packages/*` or `examples/*`, which are MIT)
