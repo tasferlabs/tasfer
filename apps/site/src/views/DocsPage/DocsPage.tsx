@@ -54,18 +54,15 @@ export default function DocsPage() {
           <h1 className="dx-hub-title">
             {t("docs.hub.title.a", "Tasfer today.")}
             <br />
-            <em>{t("docs.hub.title.b", "The SDK roadmap.")}</em>
+            <em>{t("docs.hub.title.b", "Every note on your own disk.")}</em>
           </h1>
           <p className="dx-hub-lede">
             {t(
               "docs.hub.lede.a",
-              "Use and self-host the Tasfer app today. Its editor packages are MIT-licensed, and a supported public SDK is on the roadmap,",
+              "Use and self-host the app now: peer-to-peer sync, end-to-end encryption, no accounts, and",
             )}{" "}
             <strong>
-              {t(
-                "docs.hub.lede.b",
-                "but it is not published or supported for external use yet.",
-              )}
+              {t("docs.hub.lede.b", "markdown files you can read without us.")}
             </strong>
           </p>
 
@@ -135,39 +132,6 @@ export default function DocsPage() {
                 />
               </div>
             </Link>
-          </div>
-
-          <div className="dx-hub-strip">
-            <div className="dx-hub-stat">
-              <span className="v">MIT</span>
-              <span className="k">
-                {t("docs.hub.stat.sdk", "editor packages")}
-              </span>
-            </div>
-            <div className="dx-hub-stat">
-              <span className="v">AGPL-3.0</span>
-              <span className="k">
-                {t("docs.hub.stat.appLicense", "app license")}
-              </span>
-            </div>
-            <div className="dx-hub-stat">
-              <span className="v">0</span>
-              <span className="k">
-                {t("docs.hub.stat.accounts", "accounts")}
-              </span>
-            </div>
-            <div className="dx-hub-stat">
-              <span className="v">CRDT</span>
-              <span className="k">
-                {t("docs.hub.stat.crdt", "first, by design")}
-              </span>
-            </div>
-            <div className="dx-hub-stat">
-              <span className="v">P2P</span>
-              <span className="k">
-                {t("docs.hub.stat.p2p", "encrypted sync")}
-              </span>
-            </div>
           </div>
         </div>
 

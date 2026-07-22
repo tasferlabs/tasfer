@@ -65,7 +65,7 @@ export function DocsHeader({
           <BrandMark className="dx-wordmark-mark" />
           {t("brand.wordmark", "tasfer")}
         </Link>
-        <span className="dx-wordmark-tag">{t("docs.tag", "docs")}</span>
+        {/* <span className="dx-wordmark-tag">{t("docs.tag", "docs")}</span> */}
         <span className="dx-header-spacer" />
         <button
           className="dx-site-menu-btn"
