@@ -2,9 +2,11 @@
   "$schema": "https://openapi.vercel.sh/microfrontends.json",
   "applications": {
     "tasfer-home": {
+      "packageName": "@tasfer/site",
       "development": { "fallback": "tasfer.app" }
     },
     "tasfer-app": {
+      "packageName": "tasfer",
       "routing": [{ "paths": ["/app", "/app/:path*"] }]
     }
   }
