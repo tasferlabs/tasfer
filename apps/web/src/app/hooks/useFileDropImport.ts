@@ -25,6 +25,23 @@ function dragHasFiles(e: React.DragEvent): boolean {
   return Array.from(e.dataTransfer.types).includes("Files");
 }
 
+/** Whether a foreground surface owns file-drop interaction. */
+function foregroundOwnsFileDrop(e: React.DragEvent): boolean {
+  const localTarget =
+    e.target instanceof Element &&
+    e.target.closest('[data-file-drop-scope="local"]') !== null;
+  if (localTarget) return true;
+
+  // Modal floating surfaces make the background inert through the app's shared
+  // layered-surface contract. This covers dialogs, drawers, sheets, popovers,
+  // menus, and future modal primitives without coupling this hook to any of them.
+  // Keep aria-modal as the fallback for custom surfaces outside Radix.
+  return (
+    document.body.style.pointerEvents === "none" ||
+    document.querySelector('[aria-modal="true"]') !== null
+  );
+}
+
 /**
  * Classify a drag from its item metadata. File contents aren't readable mid-drag,
  * but `kind`/`type` usually are: "image" routes to the in-document insertion line,
@@ -269,14 +286,25 @@ export function useFileDropImport(): UseFileDropImport {
   const onDragEnter = useCallback(
     (e: React.DragEvent) => {
       if (!isFileImport(e)) return;
+      if (foregroundOwnsFileDrop(e)) {
+        endDrag();
+        return;
+      }
       e.preventDefault();
     },
-    [isFileImport],
+    [endDrag, isFileImport],
   );
 
   const onDragOver = useCallback(
     (e: React.DragEvent) => {
       if (!isFileImport(e)) return;
+      // Dedicated controls (for example the import dialog's drop box) own both
+      // the drop and its visual state. Clear any window-level affordance that
+      // appeared while the pointer was travelling to the control.
+      if (foregroundOwnsFileDrop(e)) {
+        endDrag();
+        return;
+      }
       // Both dragover and drop must preventDefault, or the browser navigates to
       // the dropped file instead of letting us handle it.
       e.preventDefault();
@@ -318,6 +346,7 @@ export function useFileDropImport(): UseFileDropImport {
   const onDragLeave = useCallback(
     (e: React.DragEvent) => {
       if (!isFileImport(e)) return;
+      if (foregroundOwnsFileDrop(e)) return;
       // dragleave also fires when crossing between child elements, where it
       // reports coordinates inside the viewport. Clear only when the pointer has
       // truly left the window — coordinates at or beyond the viewport edges. The
@@ -335,6 +364,10 @@ export function useFileDropImport(): UseFileDropImport {
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       if (!isFileImport(e)) return;
+      if (foregroundOwnsFileDrop(e)) {
+        endDrag();
+        return;
+      }
       e.preventDefault();
 
       const dropped = Array.from(e.dataTransfer.files);

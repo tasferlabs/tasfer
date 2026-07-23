@@ -812,6 +812,7 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
       {method === "file" && (
         <>
           <button
+            data-file-drop-scope="local"
             className={`ob-import${fileName ? " has-file" : ""}${
               isDraggingFile ? " is-dragging" : ""
             }`}

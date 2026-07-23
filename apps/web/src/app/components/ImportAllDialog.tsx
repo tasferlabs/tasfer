@@ -232,6 +232,7 @@ export function ImportAllDialog({
           <>
             {/* Drop zone */}
             <div
+              data-file-drop-scope="local"
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}

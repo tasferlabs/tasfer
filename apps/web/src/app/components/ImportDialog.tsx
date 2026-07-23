@@ -478,6 +478,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         ) : (
           <>
             <div
+              data-file-drop-scope="local"
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}

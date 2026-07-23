@@ -427,6 +427,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       {joinTab === "file" && (
         <div className="flex flex-col gap-4">
           <button
+            data-file-drop-scope="local"
             type="button"
             onClick={() => fileInputRef.current?.click()}
             onDragEnter={handleFileDrag}
