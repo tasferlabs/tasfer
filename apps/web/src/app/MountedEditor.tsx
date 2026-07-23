@@ -687,36 +687,19 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
     // Restore the native/mobile toolbar after the drawer dismisses.
     if (window.TasferBridge) refocus();
   };
-  const update = (newUrl: string, newText: string) =>
+  const updateUrl = (newUrl: string) =>
     editor.change((c) => {
-      // newText is required (an empty range/text would shift indices); the
-      // caller's UI guards against empty input.
-      if (!newText) return;
+      const linkText = text || selectedText || "";
+      if (!linkText) return;
       const block = editor.query.block({ block: blockId });
       if (!block) return;
-      const link = { type: "link", attrs: { url: newUrl } };
-      // The link's existing text is `text` (edit) or the selected text (create).
-      // When it's unchanged, just (re)apply the mark so co-existing marks and
-      // character ids survive; otherwise replace the run with the new text.
-      const oldText = text ?? selectedText ?? "";
-      if (newText === oldText) {
-        c.setMark("link", {
-          attrs: link.attrs,
-          range: {
-            from: { block: block.id, offset: startIndex },
-            to: { block: block.id, offset: startIndex + newText.length },
-          },
-        });
-      } else {
-        c.insertText(
-          newText,
-          {
-            from: { block: block.id, offset: startIndex },
-            to: { block: block.id, offset: endIndex },
-          },
-          link,
-        );
-      }
+      c.setMark("link", {
+        attrs: { url: newUrl },
+        range: {
+          from: { block: block.id, offset: startIndex },
+          to: { block: block.id, offset: endIndex },
+        },
+      });
     });
   const clearLink = () =>
     editor.change((c) => {
@@ -737,10 +720,9 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
         x={x}
         y={y}
         url={url || undefined}
-        linkText={text || undefined}
         selectedText={selectedText}
-        onUpdate={(newUrl, newText) => {
-          update(newUrl, newText);
+        onUpdate={(newUrl) => {
+          updateUrl(newUrl);
           close();
         }}
         onClear={
@@ -763,8 +745,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
       x={x}
       y={y}
       url={url}
-      linkText={text}
-      onUpdate={update}
+      onUpdate={updateUrl}
       onClear={clearLink}
       onClose={close}
       collisionBoundary={portalContainer}
