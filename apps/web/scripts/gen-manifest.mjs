@@ -72,7 +72,7 @@ const BASE = {
   // tablets and foldables.
   orientation: "any",
   background_color: "#ffffff",
-  theme_color: "#43a047",
+  theme_color: "#ffffff",
   categories: ["productivity", "utilities"],
   // Focus the already-running app instead of piling up windows; falls back to
   // default behavior where launch_handler is unsupported.

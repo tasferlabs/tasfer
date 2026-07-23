@@ -7,7 +7,7 @@
   <link rel="icon" id="favicon" type="image/svg+xml" href="/favicon-light.svg" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="manifest" id="manifest" href="/manifest.json" />
-  <meta name="theme-color" content="#43a047" />
+  <meta name="theme-color" content="#ffffff" />
   <meta name="color-scheme" content="light dark" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
   <title>Tasfer</title>
@@ -16,6 +16,7 @@
     (function(){
       var t=localStorage.getItem("theme");
       var isDark=t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme:dark)").matches);
+      document.querySelector('meta[name="theme-color"]').setAttribute("content",isDark?"#09090b":"#ffffff");
       if(isDark){
         document.documentElement.classList.add("dark");
         var favicon=document.getElementById("favicon");

@@ -48,6 +48,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         metaColorScheme.setAttribute("content", scheme);
       }
 
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+      if (metaThemeColor) {
+        metaThemeColor.setAttribute("content", scheme === "dark" ? "#09090b" : "#ffffff");
+      }
+
       // Production follows the theme; environment-specific favicons stay on
       // their light palette (index.html sets the pre-paint production value).
       const favicon = document.getElementById("favicon");
