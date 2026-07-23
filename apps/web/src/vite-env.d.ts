@@ -14,6 +14,7 @@ interface ServiceWorkerRegistration {
 }
 
 interface ImportMetaEnv {
+  readonly VERCEL_ENV?: "production" | "preview" | "development";
   readonly VITE_STAGING?: string;
   readonly VITE_SIGNAL_URL?: string;
 }

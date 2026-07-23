@@ -121,6 +121,9 @@ export default defineConfig({
     __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
     __BUILD_COMMIT__: JSON.stringify(buildCommit),
     __CLIENT_VERSION__: versionConfig.version,
+    "import.meta.env.VERCEL_ENV": JSON.stringify(
+      process.env.VERCEL_ENV ?? null,
+    ),
   },
   ...(isVercelBuild ? {} : { base: "./" }),
   build: { sourcemap: true },

@@ -19,9 +19,18 @@ import { loadFonts } from "./fonts";
 import "./i18n";
 import { markVisit } from "./lib/appVisits";
 import { initNativeDevToolsSync } from "./lib/devTools";
+import { faviconUrl } from "./lib/favicon";
 import { requestPersistentStorage } from "./lib/persistentStorage";
 import { initPlatform } from "./platform";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
+
+const initialFavicon = document.getElementById("favicon");
+if (initialFavicon) {
+  const initialTheme = document.documentElement.classList.contains("dark")
+    ? "dark"
+    : "light";
+  initialFavicon.setAttribute("href", faviconUrl(initialTheme));
+}
 
 // Set document direction and lang based on current language
 function updateDocumentDirection() {
