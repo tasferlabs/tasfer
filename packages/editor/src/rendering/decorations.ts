@@ -14,9 +14,10 @@
  *   - a **caret** decoration is a thin caret (optionally with a label flag),
  *     painted via the same `calculateCursorPosition()` the local caret uses.
  *
- * Coordinates are stable flat **block-id + offset** points (the absolute form of
- * a public {@link DocPoint}) or identity-bearing structured {@link ContentPoint}s.
- * Both survive concurrent remote edits until paint time.
+ * Coordinates may be flat **block-id + offset** points (the absolute form of a
+ * public {@link DocPoint}), CRDT character gaps, or identity-bearing structured
+ * {@link ContentPoint}s. Character gaps survive concurrent text edits and are
+ * resolved to a live offset at paint time.
  *
  * Decorations live per-instance on {@link UIState.decorations}, keyed by an
  * opaque **layer** string (e.g. `"search"`, `"presence:<peerId>"`) so unrelated
@@ -28,16 +29,28 @@ import type { Position, SelectionState } from "../state-types";
 import type { ContentPoint, ContentSelection } from "../structured-selection";
 import { findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
-import { getVisibleLengthFromRuns } from "../sync/char-runs";
+import {
+  getVisibleLengthFromRuns,
+  getVisibleOffsetAfterChar,
+} from "../sync/char-runs";
 
-/** A stable point in a block's flat text. */
+/** An offset point in a block's flat text. */
 export interface FlatDecorationPoint {
   readonly block: string;
   readonly offset: number;
 }
 
+/** A CRDT-stable gap in a block's flat text. */
+export interface CharacterDecorationPoint {
+  readonly blockId: string;
+  readonly afterCharId: string | null;
+}
+
 /** A decoration endpoint may address flat text or extension-owned content. */
-export type DecorationPoint = FlatDecorationPoint | ContentPoint;
+export type DecorationPoint =
+  | FlatDecorationPoint
+  | CharacterDecorationPoint
+  | ContentPoint;
 
 /** A stable span between two points; structured endpoints share one attachment. */
 export interface DecorationRange {
@@ -155,20 +168,27 @@ export function resolveDecorationPoint(
   point: DecorationPoint,
   page: Page,
 ): Position | null {
-  const blockIndex = findBlockIndex(
-    page,
-    isContentDecorationPoint(point) ? point.blockId : point.block,
-  );
+  const blockIndex = findBlockIndex(page, decorationPointBlockId(point));
   if (blockIndex === -1) return null;
 
   const block = page.blocks[blockIndex];
   if (!block || block.deleted) return null;
 
-  let textIndex = isContentDecorationPoint(point) ? 0 : point.offset;
+  let textIndex = 0;
   if (isTextualBlock(block) && block.charRuns) {
-    textIndex = Math.min(textIndex, getVisibleLengthFromRuns(block.charRuns));
-  } else {
-    textIndex = 0;
+    if (isCharacterDecorationPoint(point)) {
+      const resolved = getVisibleOffsetAfterChar(
+        block.charRuns,
+        point.afterCharId,
+      );
+      if (resolved === null) return null;
+      textIndex = resolved;
+    } else if (!isContentDecorationPoint(point)) {
+      textIndex = Math.min(
+        point.offset,
+        getVisibleLengthFromRuns(block.charRuns),
+      );
+    }
   }
 
   return { blockIndex, textIndex: Math.max(0, textIndex) };
@@ -208,9 +228,18 @@ export function isContentDecorationPoint(
   return "kind" in point && (point.kind === "text" || point.kind === "gap");
 }
 
-/** The owning block id for either decoration-point currency. */
+/** Whether a flat decoration endpoint is anchored to a CRDT character gap. */
+export function isCharacterDecorationPoint(
+  point: DecorationPoint,
+): point is CharacterDecorationPoint {
+  return "afterCharId" in point && !isContentDecorationPoint(point);
+}
+
+/** The owning block id for any decoration-point currency. */
 export function decorationPointBlockId(point: DecorationPoint): string {
-  return isContentDecorationPoint(point) ? point.blockId : point.block;
+  return isContentDecorationPoint(point) || isCharacterDecorationPoint(point)
+    ? point.blockId
+    : point.block;
 }
 
 /** Resolve a structured decoration range without flattening its tree identity. */

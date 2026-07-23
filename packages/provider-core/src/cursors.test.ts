@@ -1,12 +1,71 @@
-import type { ContentSelection } from "@tasfer/editor";
+import type { Block, ContentSelection } from "@tasfer/editor";
 import { describe, expect, it } from "vitest";
 import {
   cursorPresenceToDecorations,
   selectionToCursorPresence,
+  type CursorDocument,
   type CursorUser,
 } from "./cursors";
 
 const user: CursorUser = { peerId: "peer-1", name: "Ada" };
+
+describe("flat cursor presence", () => {
+  it("publishes offsets as character-identity gaps", () => {
+    const run = { peerId: "author", startCounter: 10, text: "hello" };
+    const block = {
+      id: "block-1",
+      deleted: false,
+      charRuns: [run],
+    } as unknown as Block;
+    const doc = {
+      getRawBlocks: () => [block],
+    } satisfies CursorDocument;
+
+    const presence = selectionToCursorPresence(
+      { block: block.id, offset: 3 },
+      user,
+      null,
+      doc,
+    );
+
+    expect(presence).toMatchObject({
+      caret: {
+        blockId: block.id,
+        afterCharId: `${run.peerId}:${run.startCounter + 2}`,
+      },
+      selection: null,
+    });
+    expect(cursorPresenceToDecorations("peer-1", presence)).toMatchObject([
+      {
+        kind: "caret",
+        point: {
+          blockId: block.id,
+          afterCharId: `${run.peerId}:${run.startCounter + 2}`,
+        },
+      },
+    ]);
+
+    const rangePresence = selectionToCursorPresence(
+      {
+        from: { block: block.id, offset: 1 },
+        to: { block: block.id, offset: 4 },
+      },
+      user,
+      null,
+      doc,
+    );
+    expect(rangePresence.selection).toEqual({
+      from: {
+        blockId: block.id,
+        afterCharId: `${run.peerId}:${run.startCounter}`,
+      },
+      to: {
+        blockId: block.id,
+        afterCharId: `${run.peerId}:${run.startCounter + 3}`,
+      },
+    });
+  });
+});
 
 function contentSelection(
   afterAnchor: string | null,

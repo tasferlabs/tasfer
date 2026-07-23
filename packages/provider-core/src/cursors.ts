@@ -20,6 +20,7 @@
  */
 
 import type {
+  Block,
   ContentPoint,
   ContentSelection,
   Decoration,
@@ -74,14 +75,25 @@ export function getColorForPeer(
 // has no presence concept, it only paints decorations.
 // =============================================================================
 
-/** A stable point in a block's flat text. */
+/** Legacy offset point accepted from peers during protocol migration. */
 export interface FlatCursorPoint {
   readonly block: string;
   readonly offset: number;
 }
 
+/** A CRDT-stable character gap in a block's flat text. */
+export interface CharacterCursorPoint {
+  readonly blockId: string;
+  readonly afterCharId: string | null;
+}
+
 /** Presence may point into flat text or extension-owned structured content. */
-export type CursorPoint = FlatCursorPoint | ContentPoint;
+export type CursorPoint = CharacterCursorPoint | FlatCursorPoint | ContentPoint;
+
+/** The document data needed to turn a live offset into a character identity. */
+export interface CursorDocument {
+  getRawBlocks(): readonly Block[];
+}
 
 /** Identity + appearance a host publishes alongside its cursor. */
 export interface CursorUser {
@@ -207,13 +219,15 @@ export function cursorPresenceToDecorations(
 
 /**
  * Build a {@link CursorPresence} from the editor's flat and structured selection
- * snapshots plus the local user's identity. Structured selection takes
- * precedence while math or another attached editor owns the caret.
+ * snapshots plus the local user's identity. Pass the editor's document to encode
+ * flat offsets as CRDT character gaps. Structured selection already carries
+ * identities and takes precedence while an attached editor owns the caret.
  */
 export function selectionToCursorPresence(
   selection: DocRange | null,
   user: CursorUser,
   contentSelection: ContentSelection | null = null,
+  document?: CursorDocument,
 ): CursorPresence {
   if (contentSelection) {
     if (
@@ -233,13 +247,61 @@ export function selectionToCursorPresence(
   if (selection && typeof selection === "object" && "from" in selection) {
     const { from, to } = selection;
     if (isFlatCursorPoint(from) && isFlatCursorPoint(to)) {
-      return { user, caret: null, selection: { from, to } };
+      const charFrom = document ? pointToCharacterAnchor(from, document) : from;
+      const charTo = document ? pointToCharacterAnchor(to, document) : to;
+      if (charFrom && charTo) {
+        return { user, caret: null, selection: { from: charFrom, to: charTo } };
+      }
     }
   }
   if (isFlatCursorPoint(selection)) {
-    return { user, caret: selection, selection: null };
+    const caret = document
+      ? pointToCharacterAnchor(selection, document)
+      : selection;
+    return { user, caret, selection: null };
   }
   return { user, caret: null, selection: null };
+}
+
+function pointToCharacterAnchor(
+  point: FlatCursorPoint,
+  document: CursorDocument,
+): CharacterCursorPoint | null {
+  const block = document
+    .getRawBlocks()
+    .find((candidate) => candidate.id === point.block && !candidate.deleted);
+  if (!block) return null;
+
+  if (!("charRuns" in block) || !Array.isArray(block.charRuns)) {
+    return { blockId: block.id, afterCharId: null };
+  }
+
+  const targetOffset = Math.max(0, Math.trunc(point.offset));
+  if (targetOffset === 0) {
+    return { blockId: block.id, afterCharId: null };
+  }
+  let visibleOffset = 0;
+  let afterCharId: string | null = null;
+  for (const run of block.charRuns) {
+    for (let offset = 0; offset < run.text.length; offset++) {
+      if (isRunCharacterDeleted(run.deletedMask, offset)) continue;
+      visibleOffset += 1;
+      afterCharId = `${run.peerId}:${run.startCounter + offset}`;
+      if (visibleOffset >= targetOffset) {
+        return { blockId: block.id, afterCharId };
+      }
+    }
+  }
+  return { blockId: block.id, afterCharId };
+}
+
+function isRunCharacterDeleted(
+  deletedMask: number[] | undefined,
+  offset: number,
+): boolean {
+  if (!deletedMask) return false;
+  const byte = deletedMask[Math.floor(offset / 8)];
+  return byte !== undefined && (byte & (1 << (offset % 8))) !== 0;
 }
 
 function contentPointsAtSameStop(
@@ -278,6 +340,19 @@ function isFlatCursorPoint(p: unknown): p is FlatCursorPoint {
   );
 }
 
+function isCharacterCursorPoint(p: unknown): p is CharacterCursorPoint {
+  return (
+    typeof p === "object" &&
+    p !== null &&
+    "blockId" in p &&
+    typeof (p as { blockId: unknown }).blockId === "string" &&
+    "afterCharId" in p &&
+    ((p as { afterCharId: unknown }).afterCharId === null ||
+      typeof (p as { afterCharId: unknown }).afterCharId === "string") &&
+    !("kind" in p)
+  );
+}
+
 function isContentPoint(p: unknown): p is ContentPoint {
   if (typeof p !== "object" || p === null || !("kind" in p)) return false;
   const point = p as Partial<ContentPoint> & Record<string, unknown>;
@@ -304,7 +379,9 @@ function isContentPoint(p: unknown): p is ContentPoint {
 }
 
 function isCursorPoint(p: unknown): p is CursorPoint {
-  return isFlatCursorPoint(p) || isContentPoint(p);
+  return (
+    isCharacterCursorPoint(p) || isFlatCursorPoint(p) || isContentPoint(p)
+  );
 }
 
 /**
@@ -356,6 +433,8 @@ const presenceLayer = (peerId: string) => `presence:${peerId}`;
 export interface BindPresenceCursorsOptions {
   /** Local user identity broadcast with the cursor. */
   readonly user: CursorUser;
+  /** Document used to encode flat selections as CRDT character gaps. */
+  readonly document?: CursorDocument;
   /**
    * Hide a peer's cursor after this many ms with no update (still connected but
    * idle). Defaults to 10s; pass `0` to disable idle-hiding.
@@ -377,6 +456,10 @@ export function bindPresenceCursors(
   options: BindPresenceCursorsOptions,
 ): () => void {
   const { user, idleTimeout = 10000 } = options;
+  const document =
+    options.document ??
+    (editor.state as typeof editor.state & { readonly doc?: CursorDocument })
+      .doc;
   const presence: Presence = provider.presence;
 
   // Outbound: publish the local selection as presence.
@@ -386,6 +469,7 @@ export function bindPresenceCursors(
         editor.state.selection.range,
         user,
         editor.state.contentSelection,
+        document,
       ) as unknown as Record<string, unknown>,
     );
   };

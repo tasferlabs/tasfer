@@ -518,6 +518,7 @@ export { default as tokenizePage } from "./serlization/tokenizer";
 // `editor.setDecorations(layer, …)`; never document content.
 export type {
   CaretDecoration,
+  CharacterDecorationPoint,
   Decoration,
   DecorationLayers,
   DecorationPoint,
