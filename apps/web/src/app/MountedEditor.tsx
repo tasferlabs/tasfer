@@ -2026,12 +2026,15 @@ function PageEditor({
   useEffect(() => {
     const el = wrapperRef.current;
     if (!editor || !el) return;
+    let previousHorizontal: number | null = null;
     const apply = () => {
       const horizontal = horizontalPaddingForWidth(
         editorWidth,
         el.clientWidth,
         window.innerWidth > 768,
       );
+      if (horizontal === previousHorizontal) return;
+      previousHorizontal = horizontal;
       editor.setTheme({
         styles: {
           canvas: { paddingLeft: horizontal, paddingRight: horizontal },

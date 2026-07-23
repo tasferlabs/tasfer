@@ -100,6 +100,7 @@ import type {
   SchemaMarkInfo,
 } from "../schema-types";
 import { getCursorCoordinatesWithComposition } from "../selection";
+import { getTextPositionFromViewport } from "../selection";
 import { isNodeSelection } from "../selection";
 import { moveCursorToPosition } from "../selection";
 import { dropIndexAtPoint } from "../selection";
@@ -3576,6 +3577,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       patch = { ...patch, scrollY: this.viewport.scrollY };
     }
 
+    const reflowAnchor =
+      patch.width !== undefined &&
+      patch.width !== oldWidth &&
+      (patch.scrollY === undefined || patch.scrollY === this.viewport.scrollY)
+        ? this.captureViewportReflowAnchor()
+        : null;
+
     this.viewport = { ...this.viewport, ...patch };
     if (patch.scrollY !== undefined) this.pendingViewportAnchor = null;
 
@@ -3587,6 +3595,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       clearAllBlockCaches(this._state.document.page.blocks);
       this.documentHeightDirty = true; // Width change affects text wrapping and height
       this.rebuildBlockHeightIndex();
+      this.restoreViewportReflowAnchor(reflowAnchor);
     }
 
     // Schedule render for viewport changes
@@ -3602,6 +3611,58 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       styles.canvas.paddingBottom;
     this.viewport = { ...this.viewport, documentHeight };
     return documentHeight;
+  };
+
+  private captureViewportReflowAnchor = (): {
+    position: Position;
+    viewportOffsetY: number;
+  } | null => {
+    if (this.autoHeight) return null;
+    if (this.pendingViewportAnchor) return this.pendingViewportAnchor;
+    if (this.viewport.scrollY <= 0 || this.viewport.height <= 0) return null;
+
+    const styles = getEditorStyles(this._state);
+    const contentWidth =
+      this.viewport.width -
+      (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+    const x = styles.canvas.paddingLeft + Math.max(contentWidth / 2, 1);
+    const y = this.viewport.height / 2;
+    const position = getTextPositionFromViewport(
+      x,
+      y,
+      this._state,
+      this.viewport,
+      styles,
+      this.visibility,
+    );
+    if (!position) return null;
+    const coords = this.coordsAtIndexPosition(position);
+    return coords ? { position, viewportOffsetY: coords.y } : null;
+  };
+
+  private restoreViewportReflowAnchor = (
+    anchor: { position: Position; viewportOffsetY: number } | null,
+  ): void => {
+    if (!anchor) return;
+    const coords = this.coordsAtIndexPosition(anchor.position);
+    if (!coords) return;
+    const maxScroll = Math.max(
+      0,
+      this.calculateDocumentHeight() - this.viewport.height,
+    );
+    this.applyProgrammaticScroll(
+      Math.max(
+        0,
+        Math.min(
+          maxScroll,
+          this.viewport.scrollY + coords.y - anchor.viewportOffsetY,
+        ),
+      ),
+    );
+    this.pendingViewportAnchor = {
+      ...anchor,
+      remainingCorrections: 3,
+    };
   };
 
   /**
@@ -5393,6 +5454,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   setTheme = (patch: EditorTheme): void => {
+    const reflowAnchor = this.captureViewportReflowAnchor();
     const nextTheme = mergeTheme(this._state.theme, patch);
     this._state = {
       ...this._state,
@@ -5406,6 +5468,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     clearAllBlockCaches(this._state.document.page.blocks);
     this.documentHeightDirty = true;
     this.rebuildBlockHeightIndex();
+    this.restoreViewportReflowAnchor(reflowAnchor);
     this.scheduleRender();
   };
 

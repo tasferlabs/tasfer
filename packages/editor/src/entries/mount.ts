@@ -103,8 +103,7 @@ export type PlaceholderBlockType =
  * `{ paragraph: "Write…", heading1: "Title" }`).
  */
 export type PlaceholderOption =
-  | string
-  | Partial<Record<PlaceholderBlockType, string>>;
+  string | Partial<Record<PlaceholderBlockType, string>>;
 
 export interface MountEditorOptions<
   D extends SchemaDefinition = BaseSchemaDefinition,
@@ -595,6 +594,7 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     editor.updateViewport({ width: baseWidth, height: baseHeight });
   };
 
+  let resizeQueued = false;
   const resizeObserver = new ResizeObserver(() => {
     if (destroyed) return;
     const rect = container.getBoundingClientRect();
@@ -609,7 +609,15 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
       baseWidth = newWidth;
       baseHeight = Math.max(rect.height, 1);
     }
-    resizeCanvas();
+
+    // Let host observers update width-dependent theme values before painting;
+    // otherwise the editor briefly wraps at the new width with stale padding.
+    if (resizeQueued) return;
+    resizeQueued = true;
+    queueMicrotask(() => {
+      resizeQueued = false;
+      if (!destroyed) resizeCanvas();
+    });
   });
   resizeObserver.observe(container);
 
