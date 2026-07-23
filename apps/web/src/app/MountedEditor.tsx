@@ -2562,6 +2562,7 @@ function PageEditor({
         selectionToCursorPresence(
           mounted.editor.state.selection.range,
           localUserRef.current,
+          mounted.editor.state.contentSelection,
         ),
       );
     };
@@ -3029,6 +3030,7 @@ function PageEditor({
         selectionToCursorPresence(
           mountedRef.current.editor.state.selection.range,
           localUser,
+          mountedRef.current.editor.state.contentSelection,
         ),
       );
     }

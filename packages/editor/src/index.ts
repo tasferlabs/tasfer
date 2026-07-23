@@ -522,6 +522,7 @@ export type {
   DecorationLayers,
   DecorationPoint,
   DecorationRange,
+  FlatDecorationPoint,
   LabelIconShape,
   RangeDecoration,
 } from "./rendering/decorations";

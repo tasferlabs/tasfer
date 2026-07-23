@@ -9,15 +9,14 @@
  * or "awareness", only decorations.
  *
  * Two shapes, each reusing an existing painter:
- *   - a **range** decoration is a translucent fill over a text span, painted via
- *     the same `selectionRects()`/`fillRects()` the local selection uses;
+ *   - a **range** decoration is a translucent fill over a flat or structured
+ *     content span, painted through the same geometry as the local selection;
  *   - a **caret** decoration is a thin caret (optionally with a label flag),
  *     painted via the same `calculateCursorPosition()` the local caret uses.
  *
- * Coordinates are stable **block-id + offset** (the absolute form of a public
- * {@link DocPoint}) so a decoration computed in one tick survives concurrent
- * remote edits until it is painted many frames later — the id is resolved to a
- * live block index at paint time.
+ * Coordinates are stable flat **block-id + offset** points (the absolute form of
+ * a public {@link DocPoint}) or identity-bearing structured {@link ContentPoint}s.
+ * Both survive concurrent remote edits until paint time.
  *
  * Decorations live per-instance on {@link UIState.decorations}, keyed by an
  * opaque **layer** string (e.g. `"search"`, `"presence:<peerId>"`) so unrelated
@@ -26,26 +25,30 @@
 
 import type { Page } from "../serlization/loadPage";
 import type { Position, SelectionState } from "../state-types";
+import type { ContentPoint, ContentSelection } from "../structured-selection";
 import { findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleLengthFromRuns } from "../sync/char-runs";
 
-/** A stable point: a CRDT block id plus an offset into that block's text. */
-export interface DecorationPoint {
+/** A stable point in a block's flat text. */
+export interface FlatDecorationPoint {
   readonly block: string;
   readonly offset: number;
 }
 
-/** A stable span between two {@link DecorationPoint}s (may cross blocks). */
+/** A decoration endpoint may address flat text or extension-owned content. */
+export type DecorationPoint = FlatDecorationPoint | ContentPoint;
+
+/** A stable span between two points; structured endpoints share one attachment. */
 export interface DecorationRange {
   readonly from: DecorationPoint;
   readonly to: DecorationPoint;
 }
 
 /**
- * A translucent fill over a text span (find highlight, remote selection). The
- * producer supplies the `color`; `gutter` additionally surfaces the span as a
- * marker on the scrollbar track.
+ * A translucent fill over a flat or structured span (find highlight, remote
+ * selection). The producer supplies the `color`; `gutter` additionally surfaces
+ * the span as a marker on the scrollbar track.
  */
 export interface RangeDecoration {
   readonly kind: "range";
@@ -144,22 +147,24 @@ export function hasDecorations(layers: DecorationLayers): boolean {
 }
 
 /**
- * Resolve a stable {@link DecorationPoint} to a live {@link Position}. Returns
- * `null` if the block no longer exists; clamps the offset to the block's current
- * visible length. Mirrors how a remote cursor's block-id is resolved at paint
- * time, so a decoration stays put through concurrent edits.
+ * Resolve a stable point to its owning live block position. Flat offsets are
+ * clamped to the block's current visible length; structured points use offset 0
+ * as a carrier while their identity is resolved by the owning node/mark.
  */
 export function resolveDecorationPoint(
   point: DecorationPoint,
   page: Page,
 ): Position | null {
-  const blockIndex = findBlockIndex(page, point.block);
+  const blockIndex = findBlockIndex(
+    page,
+    isContentDecorationPoint(point) ? point.blockId : point.block,
+  );
   if (blockIndex === -1) return null;
 
   const block = page.blocks[blockIndex];
   if (!block || block.deleted) return null;
 
-  let textIndex = point.offset;
+  let textIndex = isContentDecorationPoint(point) ? 0 : point.offset;
   if (isTextualBlock(block) && block.charRuns) {
     textIndex = Math.min(textIndex, getVisibleLengthFromRuns(block.charRuns));
   } else {
@@ -179,6 +184,12 @@ export function rangeDecorationToSelection(
   range: DecorationRange,
   page: Page,
 ): SelectionState | null {
+  if (
+    isContentDecorationPoint(range.from) ||
+    isContentDecorationPoint(range.to)
+  ) {
+    return null;
+  }
   const anchor = resolveDecorationPoint(range.from, page);
   const focus = resolveDecorationPoint(range.to, page);
   if (!anchor || !focus) return null;
@@ -188,4 +199,31 @@ export function rangeDecorationToSelection(
     anchor.textIndex === focus.textIndex;
 
   return { anchor, focus, isForward: true, isCollapsed };
+}
+
+/** Whether a decoration endpoint addresses extension-owned structured content. */
+export function isContentDecorationPoint(
+  point: DecorationPoint,
+): point is ContentPoint {
+  return "kind" in point && (point.kind === "text" || point.kind === "gap");
+}
+
+/** The owning block id for either decoration-point currency. */
+export function decorationPointBlockId(point: DecorationPoint): string {
+  return isContentDecorationPoint(point) ? point.blockId : point.block;
+}
+
+/** Resolve a structured decoration range without flattening its tree identity. */
+export function rangeDecorationToContentSelection(
+  range: DecorationRange,
+): ContentSelection | null {
+  if (
+    !isContentDecorationPoint(range.from) ||
+    !isContentDecorationPoint(range.to) ||
+    range.from.blockId !== range.to.blockId ||
+    range.from.contentId !== range.to.contentId
+  ) {
+    return null;
+  }
+  return { anchor: range.from, focus: range.to };
 }

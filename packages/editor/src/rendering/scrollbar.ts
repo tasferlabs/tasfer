@@ -9,6 +9,7 @@ import { getEditorStyles } from "../styles";
 import type { BlockHeightIndex } from "./block-height-index";
 import {
   allDecorations,
+  decorationPointBlockId,
   type RangeDecoration,
   resolveDecorationPoint,
 } from "./decorations";
@@ -720,7 +721,7 @@ function renderScrollbarDecorationMarkers(
   ctx.save();
 
   for (const deco of decorations) {
-    const blockDocY = blockYMap.get(deco.range.from.block);
+    const blockDocY = blockYMap.get(decorationPointBlockId(deco.range.from));
     if (blockDocY === undefined) continue;
 
     const ratio = Math.max(0, Math.min(1, blockDocY / documentHeight));

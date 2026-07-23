@@ -20,6 +20,8 @@
  */
 
 import type {
+  ContentPoint,
+  ContentSelection,
   Decoration,
   DocRange,
   Editor,
@@ -67,18 +69,19 @@ export function getColorForPeer(
 }
 
 // =============================================================================
-// Presence — a block-id-anchored cursor/selection + identity a host broadcasts
-// over its own transport. Lives here, not in the editor: the engine has no
-// presence concept, it only paints decorations. The shape is DocRange-native
-// (see CursorPoint/CursorPresence below) so it maps straight from
-// `editor.state.selection.range` with no index→id conversion.
+// Presence — a stable flat or structured cursor/selection + identity a host
+// broadcasts over its own transport. Lives here, not in the editor: the engine
+// has no presence concept, it only paints decorations.
 // =============================================================================
 
-/** A stable point: CRDT block id + offset into that block's text. */
-export interface CursorPoint {
+/** A stable point in a block's flat text. */
+export interface FlatCursorPoint {
   readonly block: string;
   readonly offset: number;
 }
+
+/** Presence may point into flat text or extension-owned structured content. */
+export type CursorPoint = FlatCursorPoint | ContentPoint;
 
 /** Identity + appearance a host publishes alongside its cursor. */
 export interface CursorUser {
@@ -140,7 +143,10 @@ export function isSamePerson(
 export interface CursorPresence {
   readonly user: CursorUser;
   readonly caret: CursorPoint | null;
-  readonly selection: { readonly from: CursorPoint; readonly to: CursorPoint } | null;
+  readonly selection: {
+    readonly from: CursorPoint;
+    readonly to: CursorPoint;
+  } | null;
 }
 
 /** Default translucency for a remote peer's selection fill. */
@@ -200,28 +206,68 @@ export function cursorPresenceToDecorations(
 }
 
 /**
- * Build a {@link CursorPresence} from an editor's current selection (a
- * {@link DocRange}, as read from `editor.state.selection.range`) plus the local
- * user's identity. A collapsed selection (bare point) becomes a caret; a span
- * becomes a selection.
+ * Build a {@link CursorPresence} from the editor's flat and structured selection
+ * snapshots plus the local user's identity. Structured selection takes
+ * precedence while math or another attached editor owns the caret.
  */
 export function selectionToCursorPresence(
   selection: DocRange | null,
   user: CursorUser,
+  contentSelection: ContentSelection | null = null,
 ): CursorPresence {
+  if (contentSelection) {
+    if (
+      contentPointsAtSameStop(contentSelection.anchor, contentSelection.focus)
+    ) {
+      return { user, caret: contentSelection.focus, selection: null };
+    }
+    return {
+      user,
+      caret: null,
+      selection: {
+        from: contentSelection.anchor,
+        to: contentSelection.focus,
+      },
+    };
+  }
   if (selection && typeof selection === "object" && "from" in selection) {
     const { from, to } = selection;
-    if (isAbsolutePoint(from) && isAbsolutePoint(to)) {
+    if (isFlatCursorPoint(from) && isFlatCursorPoint(to)) {
       return { user, caret: null, selection: { from, to } };
     }
   }
-  if (isAbsolutePoint(selection)) {
+  if (isFlatCursorPoint(selection)) {
     return { user, caret: selection, selection: null };
   }
   return { user, caret: null, selection: null };
 }
 
-function isAbsolutePoint(p: unknown): p is CursorPoint {
+function contentPointsAtSameStop(
+  left: ContentPoint,
+  right: ContentPoint,
+): boolean {
+  if (left.kind === "text" && right.kind === "text") {
+    return (
+      left.blockId === right.blockId &&
+      left.contentId === right.contentId &&
+      left.nodeId === right.nodeId &&
+      left.field === right.field &&
+      left.afterCharId === right.afterCharId
+    );
+  }
+  if (left.kind === "gap" && right.kind === "gap") {
+    return (
+      left.blockId === right.blockId &&
+      left.contentId === right.contentId &&
+      left.parentId === right.parentId &&
+      left.slot === right.slot &&
+      left.afterNodeId === right.afterNodeId
+    );
+  }
+  return false;
+}
+
+function isFlatCursorPoint(p: unknown): p is FlatCursorPoint {
   return (
     typeof p === "object" &&
     p !== null &&
@@ -230,6 +276,35 @@ function isAbsolutePoint(p: unknown): p is CursorPoint {
     "offset" in p &&
     typeof (p as { offset: unknown }).offset === "number"
   );
+}
+
+function isContentPoint(p: unknown): p is ContentPoint {
+  if (typeof p !== "object" || p === null || !("kind" in p)) return false;
+  const point = p as Partial<ContentPoint> & Record<string, unknown>;
+  if (
+    (point.kind !== "text" && point.kind !== "gap") ||
+    typeof point.blockId !== "string" ||
+    typeof point.contentId !== "string" ||
+    (point.affinity !== "backward" && point.affinity !== "forward")
+  ) {
+    return false;
+  }
+  if (point.kind === "text") {
+    return (
+      typeof point.nodeId === "string" &&
+      typeof point.field === "string" &&
+      (point.afterCharId === null || typeof point.afterCharId === "string")
+    );
+  }
+  return (
+    typeof point.parentId === "string" &&
+    typeof point.slot === "string" &&
+    (point.afterNodeId === null || typeof point.afterNodeId === "string")
+  );
+}
+
+function isCursorPoint(p: unknown): p is CursorPoint {
+  return isFlatCursorPoint(p) || isContentPoint(p);
 }
 
 /**
@@ -254,10 +329,21 @@ function isCursorPresence(p: unknown): p is CursorPresence {
     return false;
   }
 
-  if (caret != null && !isAbsolutePoint(caret)) return false;
+  if (caret != null && !isCursorPoint(caret)) return false;
   if (selection != null) {
     if (typeof selection !== "object") return false;
-    if (!isAbsolutePoint(selection.from) || !isAbsolutePoint(selection.to)) {
+    if (!isCursorPoint(selection.from) || !isCursorPoint(selection.to)) {
+      return false;
+    }
+    const fromContent = isContentPoint(selection.from);
+    const toContent = isContentPoint(selection.to);
+    if (fromContent !== toContent) return false;
+    if (
+      fromContent &&
+      toContent &&
+      (selection.from.blockId !== selection.to.blockId ||
+        selection.from.contentId !== selection.to.contentId)
+    ) {
       return false;
     }
   }
@@ -296,10 +382,11 @@ export function bindPresenceCursors(
   // Outbound: publish the local selection as presence.
   const publish = () => {
     presence.set(
-      selectionToCursorPresence(editor.state.selection.range, user) as unknown as Record<
-        string,
-        unknown
-      >,
+      selectionToCursorPresence(
+        editor.state.selection.range,
+        user,
+        editor.state.contentSelection,
+      ) as unknown as Record<string, unknown>,
     );
   };
   publish();
