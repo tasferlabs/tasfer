@@ -48,8 +48,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         metaColorScheme.setAttribute("content", scheme);
       }
 
-      // The favicon's tile color follows the theme (index.html sets the
-      // pre-paint value; this covers runtime changes)
+      // Production follows the theme; environment-specific favicons stay on
+      // their light palette (index.html sets the pre-paint production value).
       const favicon = document.getElementById("favicon");
       if (favicon) {
         favicon.setAttribute("href", faviconUrl(scheme));
