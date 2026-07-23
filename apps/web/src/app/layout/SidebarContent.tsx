@@ -31,7 +31,6 @@ import {
 } from "../api/pages.api";
 // import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
 import { useAssetUrl } from "../api/images.api";
-import { getDisplayName } from "@tasfer/provider-core/cursors";
 import { useArchiveSpace } from "../api/spaces.api";
 import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
 import { StorageProtectionBanner } from "../components/StorageProtectionBanner";
@@ -628,13 +627,8 @@ export function SidebarContent({
     }
   }
 
-  // Friendly display name for the local user — falls back to "Anonymous"
-  // rather than an empty label when no name has been set.
-  const displayName = getDisplayName(
-    { name: user?.name },
-    t("collaboration.anonymous", "Anonymous"),
-  );
-  // User initials for avatar
+  const displayName = user?.name.trim() ?? "";
+  const hasSidebarProfile = Boolean(displayName && user?.avatar);
   const initials = displayName
     .split(" ")
     .map((w) => w[0])
@@ -643,8 +637,12 @@ export function SidebarContent({
     .slice(0, 2);
 
   const avatarUrl = useAssetUrl(user?.avatar);
+  const adapter = detectAdapterDetailed();
+  const isElectron = adapter.startsWith("electron");
   const shouldShowTheProfileAtTop =
-    detectAdapterDetailed() !== "electron-macos";
+    hasSidebarProfile && adapter !== "electron-macos";
+  const shouldOverlaySidebarClose =
+    !hasSidebarProfile && !isMobile && !isElectron;
   return (
     <>
       {/* Portal target for page panels (e.g. calendar event preview) — replaces entire sidebar */}
@@ -695,22 +693,36 @@ export function SidebarContent({
                 </Button>
               )}
             </div>
-          ) : (
+          ) : !isMobile && !shouldOverlaySidebarClose ? (
             <div className={style.appSidebarHeader}>
-              {!isMobile && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={() => setOpen(false)}
-                >
-                  <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
-                  <span className="sr-only">
-                    {t("sidebar.close", "Close sidebar")}
-                  </span>
-                </Button>
-              )}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setOpen(false)}
+              >
+                <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
+                <span className="sr-only">
+                  {t("sidebar.close", "Close sidebar")}
+                </span>
+              </Button>
             </div>
+          ) : null}
+          {shouldOverlaySidebarClose && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={clsx(
+                style.appSidebarCloseOverlay,
+                "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setOpen(false)}
+            >
+              <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
+              <span className="sr-only">
+                {t("sidebar.close", "Close sidebar")}
+              </span>
+            </Button>
           )}
           {/* The DndContext wraps the nav links too, so the Archive link can act
               as a drop target for pages dragged out of the spaces tree. */}
@@ -720,7 +732,13 @@ export function SidebarContent({
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div className={style.appNavigationLinks}>
+            <div
+              className={clsx(
+                style.appNavigationLinks,
+                shouldOverlaySidebarClose &&
+                  style.appNavigationLinksWithClose,
+              )}
+            >
               <button
                 className={style.appNavigationLink}
                 onClick={() => {
@@ -831,7 +849,7 @@ export function SidebarContent({
 
           <StorageProtectionBanner />
 
-          {!shouldShowTheProfileAtTop && (
+          {!shouldShowTheProfileAtTop && hasSidebarProfile && (
             <div className={style.appSidebarFooter}>
               <button
                 className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"

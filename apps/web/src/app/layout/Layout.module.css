@@ -39,6 +39,7 @@
 }
 
 .appSidebar .appSidebarContent {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -212,6 +213,14 @@
   margin-bottom: 1rem;
 }
 
+.appNavigationLinksWithClose {
+  padding-block-start: 0.25rem;
+}
+
+.appNavigationLinksWithClose > :first-child {
+  padding-inline-end: 2.5rem;
+}
+
 .appNavigationLinks > * + * {
   margin-block-start: 0.25rem;
 }
@@ -363,6 +372,13 @@
   flex: 0 0 60px;
   padding-block: 0;
   padding-inline: 1rem 0.25rem;
+}
+
+.appSidebarCloseOverlay {
+  position: absolute;
+  inset-block-start: 0.25rem;
+  inset-inline-end: 0.5rem;
+  z-index: 1;
 }
 
 @media (max-width: 768px) {
