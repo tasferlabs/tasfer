@@ -23,8 +23,8 @@ const nextConfig: NextConfig = {
   // The repo curates its own AGENTS.md/CLAUDE.md at the root; don't let
   // `next dev` generate per-app ones.
   agentRules: false,
-  // NEXT_PUBLIC_APP_URL (editor app base, default "" = same origin) is exposed
-  // automatically via the NEXT_PUBLIC_ prefix.
+  // NEXT_PUBLIC_APP_URL overrides the editor origin outside Vercel's
+  // microfrontend routing and is exposed automatically by the public prefix.
 };
 
 // The docs articles (src/views/DocsPage/pages/**/*.mdx) are MDX imported as
