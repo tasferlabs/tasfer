@@ -61,6 +61,7 @@ import {
   isAndroid,
   isTextualBlock,
   isTouchDevice,
+  isTouchOnlyDevice,
   type EditorWiring,
   type NodeOverlay,
   type PlaceholderStyles,
@@ -1402,7 +1403,7 @@ function PageEditor({
     setMatrixEditor(null);
     // Restore the caret on desktop; on touch this would re-raise the soft keyboard
     // right after dismissing the drawer, so leave focus where the drawer left it.
-    if (!isTouchDevice()) mountedRef.current?.editor.focus();
+    if (!isTouchOnlyDevice()) mountedRef.current?.editor.focus();
   }, []);
 
   // True while a text-input popover (image upload/edit or link edit) is open, so
@@ -3333,7 +3334,7 @@ function PageEditor({
     const selectionIsInlineMath = marks?.has("math") ?? false;
     if (
       hasSelection &&
-      !isTouchDevice() &&
+      !isTouchOnlyDevice() &&
       !readonly &&
       blockAllowsFormats &&
       !selectionIsInlineMath
@@ -3532,7 +3533,6 @@ function PageEditor({
           <MathCommandMenu
             editor={mountedRef.current.editor}
             getContainerRect={getSlashContainerRect}
-            disabled={isTouchDevice()}
           />,
           mountedRef.current.portalContainer,
         )}

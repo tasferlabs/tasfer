@@ -437,6 +437,8 @@ export const TEXT_INPUT = action<{
   text: string;
   blockIndex: number;
   textIndex: number;
+  /** Whether the character came from a physical key or the software input surface. */
+  inputSource?: "hardware-keyboard" | "input-surface";
   /** Stable nested landing point when a structured feature consumed the key. */
   contentPoint?: import("./structured-selection").ContentPoint;
 }>("text-input");

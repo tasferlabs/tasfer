@@ -19,7 +19,7 @@ import type {
   ContentMaterialization,
   TypedInputTransform,
 } from "../state-types";
-import { isTouchDevice } from "../state-utils";
+import { isTouchOnlyDevice } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { isMathEnvironmentCommandPrefix } from "./math-commands";
 import type { MathBlock } from "./MathNode";
@@ -1197,7 +1197,7 @@ export function getInlineMathWordRange(
   if (!latex) return null;
   const l = layoutMath(latex, { fontSize, displayMode: false, literalRange });
   return texSpanAtPoint(l, localX, localY, {
-    minTargetSize: isTouchDevice() ? 44 : 24,
+    minTargetSize: isTouchOnlyDevice() ? 44 : 24,
   });
 }
 
@@ -1218,7 +1218,7 @@ export function getInlineMathOffsetAtX(
   if (!latex) return 0;
   const l = layoutMath(latex, { fontSize, displayMode: false });
   return texHitTest(l, localX, localY, {
-    placeholderTargetSize: isTouchDevice() ? 44 : 24,
+    placeholderTargetSize: isTouchOnlyDevice() ? 44 : 24,
     drag,
     dragPrevOffset,
   });

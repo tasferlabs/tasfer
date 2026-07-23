@@ -87,7 +87,7 @@ const viewport: ViewportState = {
   documentHeight: 2_000,
 };
 
-function keydown(key: string): Event {
+function keydown(key: string, isTrusted = false): Event {
   return {
     key,
     code: `Key${key.toUpperCase()}`,
@@ -97,6 +97,7 @@ function keydown(key: string): Event {
     shiftKey: false,
     repeat: false,
     isComposing: false,
+    isTrusted,
     preventDefault() {},
     stopPropagation() {},
   } as unknown as Event;
@@ -366,13 +367,15 @@ describe("tree-backed display math state integration", () => {
     let state = placeFlatCaretAtBlockEdge(treeState("$$\n\n$$"));
     state = { ...state, view: { ...state.view, isFocused: true } };
     let observedPoint: ContentPoint | undefined;
+    let observedInputSource: string | undefined;
     let trigger: { blockId: string; backslashIndex: number } | undefined;
 
     state.actionBus.register(
       TEXT_INPUT,
-      ({ text, textIndex, contentPoint }) => {
+      ({ text, textIndex, contentPoint, inputSource }) => {
         if (text !== "\\" || !contentPoint) return;
         observedPoint = contentPoint;
+        observedInputSource = inputSource;
         trigger = {
           blockId: contentPoint.blockId,
           // The command menu resolves this sentinel from the committed tree
@@ -383,7 +386,7 @@ describe("tree-backed display math state integration", () => {
       },
     );
 
-    const typed = handleKeyDown(state, viewport, keydown("\\")).state;
+    const typed = handleKeyDown(state, viewport, keydown("\\", true)).state;
     const focus = typed.document.contentSelection?.focus;
 
     // The tree holds the literal pending `\`; its canonical projection spells
@@ -396,6 +399,8 @@ describe("tree-backed display math state integration", () => {
       blockId: block(typed).id,
     });
     expect(observedPoint).toEqual(focus);
+    expect(observedInputSource).toBe("hardware-keyboard");
+    expect(typed.ui.hasHardwareKeyboard).toBe(true);
     expect(trigger).toEqual({
       blockId: block(typed).id,
       backslashIndex: -1,

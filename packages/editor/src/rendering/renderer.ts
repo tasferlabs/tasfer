@@ -25,7 +25,7 @@ import type {
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
-import { isTouchDevice } from "../state-utils";
+import { isTouchOnlyDevice } from "../state-utils";
 import {
   type ContentPoint,
   isContentSelectionCollapsed,
@@ -1259,7 +1259,7 @@ export function renderCursorLayer(
   drawCaret(ctx, cursorPos, styles, caretLandingStartedAt);
 
   // Draw cursor drag handle on touch devices (small circle below cursor)
-  if (isTouchDevice()) {
+  if (isTouchOnlyDevice()) {
     const handleRadius = styles.cursor.handleRadius;
     const handleStemHeight = styles.cursor.handleStemHeight;
     const handleY =
@@ -1585,7 +1585,7 @@ export function renderSelectionHandles(
   heightIndex?: BlockHeightIndex,
 ) {
   // Only render handles on touch devices
-  if (!isTouchDevice()) {
+  if (!isTouchOnlyDevice()) {
     return;
   }
 

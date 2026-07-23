@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { TEXT_INPUT } from "@tasfer/editor";
+import { isTouchOnlyDevice } from "@tasfer/editor/internal";
 import {
   filterMathCommands,
   INSERT_MATH_COMMAND,
@@ -11,6 +12,10 @@ import {
   renderToSVG,
 } from "@tasfer/editor/math";
 import { activeTreeMath, treeMathCommandRun } from "./treeMath";
+import {
+  type KeyboardMenuInputSource,
+  shouldOpenKeyboardMenu,
+} from "./keyboardMenuInput";
 import useResponsive from "../app/hooks/useResponsive";
 import {
   Drawer,
@@ -27,13 +32,6 @@ interface MathCommandMenuProps {
   editor: AppEditor;
   /** The editor surface's viewport rect, for translating caret coords to screen. */
   getContainerRect: () => DOMRect | null | undefined;
-  /**
-   * When true, this floating menu (and its touch drawer) stays inert. Used on
-   * every touch platform — Android/web touch and the native iOS accessory —
-   * where the docked math toolbar row supersedes it. Only fine-pointer web keeps
-   * using this menu.
-   */
-  disabled?: boolean;
 }
 
 /** The `\`-trigger run we're tracking: the block + the identity of the `\`. */
@@ -43,6 +41,7 @@ interface Trigger {
   backslashIndex: number;
   /** Tree path: stable char id of the typed `\`, latched on first recompute. */
   backslashCharId?: string;
+  inputSource?: KeyboardMenuInputSource;
 }
 
 /**
@@ -64,7 +63,6 @@ interface Trigger {
 export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
   editor,
   getContainerRect,
-  disabled = false,
 }) => {
   const useDrawer = useResponsive("(pointer: coarse)");
   // Open trigger lives in a ref (set synchronously inside the TEXT_INPUT handler,
@@ -74,6 +72,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
     x: number;
     y: number;
     query: string;
+    inputSource?: KeyboardMenuInputSource;
   } | null>(null);
 
   const close = React.useCallback(() => {
@@ -172,7 +171,6 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
   );
 
   useEffect(() => {
-    if (disabled) return;
     const recompute = () => {
       const t = triggerRef.current;
       if (!t) return;
@@ -205,9 +203,13 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         const x = rect.left + coords.x;
         const y = rect.top + coords.y + coords.height;
         setMenu((prev) =>
-          prev && prev.x === x && prev.y === y && prev.query === run.query
+          prev &&
+          prev.x === x &&
+          prev.y === y &&
+          prev.query === run.query &&
+          prev.inputSource === t.inputSource
             ? prev
-            : { x, y, query: run.query },
+            : { x, y, query: run.query, inputSource: t.inputSource },
         );
         return;
       }
@@ -261,21 +263,30 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       const x = rect.left + coords.x;
       const y = rect.top + coords.y + coords.height;
       setMenu((prev) =>
-        prev && prev.x === x && prev.y === y && prev.query === query
+        prev &&
+        prev.x === x &&
+        prev.y === y &&
+        prev.query === query &&
+        prev.inputSource === t.inputSource
           ? prev
-          : { x, y, query },
+          : { x, y, query, inputSource: t.inputSource },
       );
     };
 
     // Edge-trigger the open on any `\`. The `\` isn't committed yet, so the
     // anchor/query — and the math-context gate (block equation vs. inside an
     // inline chip) — are decided in `recompute` on the next `subscribe` tick,
-    // which closes again immediately for a `\` typed in plain prose. Desktop
-    // keeps typing into the math; touch devices move search into a drawer.
+    // which closes again immediately for a `\` typed in plain prose. A
+    // touch-first device opens this only for a connected physical keyboard.
     const offInput = editor.registerAction(
       TEXT_INPUT,
-      ({ text, textIndex, contentPoint }) => {
-        if (text !== "\\") return;
+      ({ text, textIndex, contentPoint, inputSource }) => {
+        if (
+          text !== "\\" ||
+          !shouldOpenKeyboardMenu(isTouchOnlyDevice(), inputSource)
+        ) {
+          return;
+        }
         // The `\` was just typed at the caret, so the caret block IS the trigger
         // block; `recompute` validates the math context.
         const block = contentPoint
@@ -285,6 +296,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         triggerRef.current = {
           blockId: block.id,
           backslashIndex: contentPoint ? -1 : textIndex,
+          inputSource,
         };
       },
     );
@@ -293,10 +305,10 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       offInput();
       offSub();
     };
-  }, [editor, getContainerRect, close, disabled]);
+  }, [editor, getContainerRect, close]);
 
-  if (disabled || !menu) return null;
-  if (useDrawer) {
+  if (!menu) return null;
+  if (useDrawer && menu.inputSource !== "hardware-keyboard") {
     return (
       <MathCommandDrawer
         query={menu.query}

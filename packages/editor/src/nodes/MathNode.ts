@@ -136,7 +136,7 @@ import type {
 import {
   closeActiveMenu,
   isCaretScratchActive,
-  isTouchDevice,
+  isTouchOnlyDevice,
   updateMode,
 } from "../state-utils";
 import {
@@ -1719,7 +1719,7 @@ export class MathNode extends TextNode<MathBlock> {
     const baseX = originX + l.mathOffsetX;
     const baselineY = blockTopY + l.mathTop + l.mathLayout.height;
     return texHitTest(l.mathLayout, x - baseX, y - baselineY, {
-      placeholderTargetSize: isTouchDevice() ? 44 : 24,
+      placeholderTargetSize: isTouchOnlyDevice() ? 44 : 24,
       drag,
       dragPrevOffset: drag ? prevIndex : null,
     });
@@ -1746,7 +1746,7 @@ export class MathNode extends TextNode<MathBlock> {
     const baseX = originX + l.mathOffsetX;
     const baselineY = blockTopY + l.mathTop + l.mathLayout.height;
     return texSpanAtPoint(l.mathLayout, x - baseX, y - baselineY, {
-      minTargetSize: isTouchDevice() ? 44 : 24,
+      minTargetSize: isTouchOnlyDevice() ? 44 : 24,
     });
   }
 

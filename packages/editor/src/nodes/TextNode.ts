@@ -47,9 +47,9 @@ import {
 import { resolveMarkRunsFromChars } from "../inline-math-spans";
 import {
   getBlockTextContent,
-  isTouchDevice,
   memoizeNodeLayout,
   mergeBlockStyle,
+  shouldUseKeyboardPlaceholder,
 } from "../node-shared";
 import {
   allDecorations,
@@ -2877,13 +2877,15 @@ export class TextNode<
   protected placeholderText(
     block: B,
     styles: EditorStyles,
-    _state: EditorState,
+    state: EditorState,
   ): string {
     if (block.type === "paragraph") {
-      const isTouchOnly = isTouchDevice();
-      return isTouchOnly
-        ? styles.placeholder.paragraph.touchCompatiableText
-        : styles.placeholder.paragraph.keyboardCompatibleText;
+      const useKeyboardPlaceholder = shouldUseKeyboardPlaceholder(
+        state.ui.hasHardwareKeyboard,
+      );
+      return useKeyboardPlaceholder
+        ? styles.placeholder.paragraph.keyboardCompatibleText
+        : styles.placeholder.paragraph.touchCompatiableText;
     }
     // Narrow to heading types before indexing PlaceholderStyles (the list family
     // is handled by ListNode, never reaching this base implementation).

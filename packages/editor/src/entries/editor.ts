@@ -133,6 +133,7 @@ import {
   closeActiveMenu,
   isCaretScratchActive,
   isTouchDevice,
+  isTouchOnlyDevice,
   setActiveMenu,
   updateMode,
 } from "../state-utils";
@@ -1071,6 +1072,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       : null;
 
   private readonly eventsQueue: Event[] = [];
+  // Printable physical keys commit through the contenteditable's input event,
+  // which is later replayed as a synthetic key. Preserve the original source
+  // across that handoff so host typeaheads can distinguish it from an IME key.
+  private pendingTextInputSource: "hardware-keyboard" | "input-surface" | null =
+    null;
   private readonly listeners: ((state: EditorState) => void)[] = [];
 
   // Store clipboard data separately since it gets detached after the event handler
@@ -1142,6 +1148,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Click handler for focusing input (stored for cleanup)
   private canvasClickHandler: (() => void) | null = null;
+  private desktopPointerListenersAttached = false;
 
   // Named actions (from the schema), resolvable by name from a keyboard
   // `shortcut`. A value is either a raw EditorAction or a listenable MutationAction.
@@ -1259,7 +1266,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.canvasClickHandler = () => {
       this.focus();
     };
-    if (!isTouchDevice()) {
+    if (!isTouchOnlyDevice()) {
+      this.desktopPointerListenersAttached = true;
       this.contentCanvas.addEventListener("mousedown", this.canvasClickHandler);
 
       this.contentCanvas.addEventListener("contextmenu", this.eventsHandler);
@@ -1499,8 +1507,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     isHoveringDragHandle: boolean = false,
     isDraggingBlock: boolean = false,
   ) => {
-    // Only update cursor on desktop (not touch devices)
-    if (isTouchDevice()) {
+    // Only update the pointer cursor when a fine pointer is available.
+    if (isTouchOnlyDevice()) {
       return;
     }
 
@@ -2003,7 +2011,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // A left click that lands the caret elsewhere is a "jump" — arm the
       // landing morph for this frame. Ignored on touch (where `mousedown` is
       // synthesized but never places the caret).
-      if (!isTouchDevice()) this.caretJumpPending = true;
+      if (!isTouchOnlyDevice()) this.caretJumpPending = true;
     }
 
     // Paste is handled by the contenteditable surface's `paste` listener
@@ -2584,7 +2592,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // the ranged surface is only needed for the native copy/cut event — that
     // path forces it on demand via `forceRangedSelection`.
     const mirrorRangedSelection =
-      hasRangedSelection && (forceRangedSelection || !isTouchDevice());
+      hasRangedSelection && (forceRangedSelection || !isTouchOnlyDevice());
 
     const sig = this.selectionSignature(this._state);
     const sigUnchanged = sig === this.lastSelectionSig;
@@ -2763,9 +2771,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // the same keyboard pipeline as a hardware key — preserving block/inline
   // autoformat, the TEXT_INPUT host signal, and any plugin behavior.
   private queueSyntheticKey = (key: string) => {
-    this.eventsQueue.push(
-      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
-    );
+    const event = new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(event, "inputSource", {
+      value: this.pendingTextInputSource ?? "input-surface",
+    });
+    this.pendingTextInputSource = null;
+    this.eventsQueue.push(event);
   };
 
   // Apply a word-level replacement (autocorrect swap, predictive-text
@@ -3412,6 +3427,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     } else {
       // For regular character keys, prevent default to stop them from being processed by window listener
       // But allow the input event to fire
+      // A printable physical key is committed by that following input event,
+      // not this keydown. Preserve its source for queueSyntheticKey; virtual
+      // keyboards that only mutate the surface never arm this latch.
+      this.pendingTextInputSource =
+        e.key.length === 1 && !e.altKey && e.isTrusted
+          ? "hardware-keyboard"
+          : null;
       e.stopPropagation();
     }
   };
@@ -3458,7 +3480,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.contentCanvas.removeEventListener("click", this.canvasClickHandler);
     }
 
-    if (!isTouchDevice()) {
+    if (this.desktopPointerListenersAttached) {
       if (this.canvasClickHandler) {
         this.contentCanvas.removeEventListener(
           "mousedown",
@@ -3483,6 +3505,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
       window.removeEventListener("mouseup", this.windowMouseUpHandler);
       window.removeEventListener("mousemove", this.windowMouseMoveHandler);
+      this.desktopPointerListenersAttached = false;
     }
 
     this.contentCanvas.removeEventListener(

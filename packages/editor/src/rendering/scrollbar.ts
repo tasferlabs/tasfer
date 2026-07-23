@@ -1,4 +1,4 @@
-import { isTouchDevice } from "../events/eventUtils";
+import { isTouchOnlyDevice } from "../events/eventUtils";
 import { getDefaultDirection } from "../rtl";
 import type {
   EditorState,
@@ -116,7 +116,7 @@ export function updateSafeAreaCache(): void {
 export function getScrollbarStyles(state?: EditorState): ScrollbarStyles {
   const styles = getEditorStyles(state).scrollbar;
   const widthSetByHost = state?.theme.styles?.scrollbar?.width !== undefined;
-  if (isTouchDevice() && !widthSetByHost) {
+  if (isTouchOnlyDevice() && !widthSetByHost) {
     return { ...styles, width: 8 };
   }
   return styles;
@@ -232,7 +232,7 @@ export function renderScrollbar(
   );
 
   // iOS-style: Scale up when dragging (larger and more prominent)
-  const scale = scrollbarState.isDragging && isTouchDevice() ? 1.5 : 1.0;
+  const scale = scrollbarState.isDragging && isTouchOnlyDevice() ? 1.5 : 1.0;
   const scaledWidth = bounds.thumbWidth * scale;
   const scaledTrackWidth = bounds.trackWidth * scale;
   const widthDiff = scaledWidth - bounds.thumbWidth;
@@ -350,7 +350,7 @@ export function isPointInScrollbar(
 
   // Visual scrollbar is always styles.width, but use wider hit area on touch devices
   const visualWidth = styles.width;
-  const hitWidth = isTouchDevice()
+  const hitWidth = isTouchOnlyDevice()
     ? Math.max(visualWidth, styles.touchTargetWidth)
     : visualWidth;
 
