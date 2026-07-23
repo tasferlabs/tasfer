@@ -178,6 +178,25 @@ function withRemoteSelection(
   return { ...state, ui: { ...state.ui, decorations } };
 }
 
+function withRemoteBlockSelection(
+  state: EditorState,
+  blockId: string,
+): EditorState {
+  const decorations = setDecorationLayer(
+    state.ui.decorations,
+    "presence:peer-2",
+    [
+      {
+        kind: "block",
+        block: blockId,
+        color: REMOTE,
+        opacity: 0.3,
+      },
+    ],
+  );
+  return { ...state, ui: { ...state.ui, decorations } };
+}
+
 function structuredBlockEquation(latex: string) {
   const page = loadPage(`$$\n${latex}\n$$`, structuredMathSchema.data);
   const state = createInitialState(page, {
@@ -213,6 +232,13 @@ function structuredInlineEquation(latex: string) {
 }
 
 describe("block equation — remote peer selection highlight", () => {
+  it("paints a remote whole-block selection over the entire math card", () => {
+    const { state, blockId } = blockEquation("x+y=2");
+    const fills = paintFirstBlock(withRemoteBlockSelection(state, blockId));
+
+    expect(fills.some((fill) => fill.style === REMOTE)).toBe(true);
+  });
+
   it("paints a structured peer selection whose flat block text is empty", () => {
     const { state, block, document } = structuredBlockEquation("x+y=2");
     const start = mathContentSelectionFromSourceOffset(

@@ -2565,6 +2565,7 @@ function PageEditor({
           localUserRef.current,
           mounted.editor.state.contentSelection,
           mounted.doc,
+          mounted.editor.state.selection.block,
         ),
       );
     };
@@ -3034,6 +3035,7 @@ function PageEditor({
           localUser,
           mountedRef.current.editor.state.contentSelection,
           mountedRef.current.doc,
+          mountedRef.current.editor.state.selection.block,
         ),
       );
     }

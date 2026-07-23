@@ -100,6 +100,7 @@ import type {
   SchemaMarkInfo,
 } from "../schema-types";
 import { getCursorCoordinatesWithComposition } from "../selection";
+import { isNodeSelection } from "../selection";
 import { moveCursorToPosition } from "../selection";
 import { dropIndexAtPoint } from "../selection";
 import { isCursorBlinking } from "../selection";
@@ -459,12 +460,15 @@ export interface EditorStateSnapshot {
   /**
    * The current selection: `empty` is true for a bare caret (or no caret), and
    * `range` is the selection as a {@link DocRange} (a collapsed point for a
-   * caret), or `null` when there is no caret/selection — the same currency the
-   * {@link ChangeApi} methods accept, surfaced reactively.
+   * caret), or `null` when there is no caret/selection. `block` preserves the
+   * stable identity of an atomic whole-block selection, whose range endpoints
+   * otherwise occupy the same document stop.
    */
   readonly selection: {
     readonly empty: boolean;
     readonly range: DocRange | null;
+    /** Stable id of the atomically selected whole block, otherwise `null`. */
+    readonly block: string | null;
   };
   /**
    * The active identity-bearing caret/range inside a structured attachment.
@@ -5406,12 +5410,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   get state(): EditorStateSnapshot {
+    const selection = this._state.document.selection;
+    const selectedBlock =
+      selection && isNodeSelection(selection)
+        ? (this._state.document.page.blocks[selection.anchor.blockIndex]?.id ??
+          null)
+        : null;
     return {
       selection: {
-        empty:
-          !this._state.document.selection ||
-          this._state.document.selection.isCollapsed,
+        empty: !selection || selection.isCollapsed,
         range: docSelection(this._state),
+        block: selectedBlock,
       },
       contentSelection: cloneContentSelection(
         this._state.document.contentSelection,

@@ -1180,6 +1180,24 @@ export class MathNode extends TextNode<MathBlock> {
     ]);
     ctx.fill();
 
+    // A remote whole-block selection is distinct from a collapsed range: both
+    // endpoints occupy the same document stop, but the full card is selected.
+    for (const deco of allDecorations(state.ui.decorations)) {
+      if (deco.kind !== "block" || deco.block !== c.block.id) continue;
+      ctx.save();
+      ctx.globalAlpha = deco.opacity ?? styles.selection.remoteOpacity;
+      ctx.fillStyle = deco.color;
+      ctx.beginPath();
+      ctx.roundRect(x, y + layout.cardTop, width, layout.cardHeight, [
+        topRadius,
+        topRadius,
+        bottomRadius,
+        bottomRadius,
+      ]);
+      ctx.fill();
+      ctx.restore();
+    }
+
     // A node selection of this whole block (what Backspace/Delete from a
     // neighbouring block produces) selects the equation as one atomic unit, so
     // highlight the entire card surface — not just the typeset glyphs. An

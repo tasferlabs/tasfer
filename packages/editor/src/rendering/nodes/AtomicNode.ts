@@ -129,6 +129,15 @@ export abstract class AtomicNode<
     const { state, ctx, styles, blockIndex } = c;
 
     for (const deco of allDecorations(state.ui.decorations)) {
+      if (deco.kind === "block") {
+        if (deco.block !== c.block.id) continue;
+        ctx.save();
+        ctx.fillStyle = deco.color;
+        ctx.globalAlpha = deco.opacity ?? styles.selection.remoteOpacity;
+        this.fillSelectionRect(ctx, box, styles.selection.cornerRadius);
+        ctx.restore();
+        continue;
+      }
       if (deco.kind !== "range") continue;
       const selection = rangeDecorationToSelection(
         deco.range,

@@ -149,12 +149,15 @@ export function isSamePerson(
 
 /**
  * The presence payload for remote-cursor display — what a host publishes through
- * `provider.presence.set(...)`. A collaborator with a non-empty selection sends
- * `selection`; a plain caret sends `caret`.
+ * `provider.presence.set(...)`. A collaborator with a non-empty text selection
+ * sends `selection`, an atomic whole-block selection sends `block`, and a plain
+ * caret sends `caret`.
  */
 export interface CursorPresence {
   readonly user: CursorUser;
   readonly caret: CursorPoint | null;
+  /** Stable id of an atomically selected whole block. */
+  readonly block: string | null;
   readonly selection: {
     readonly from: CursorPoint;
     readonly to: CursorPoint;
@@ -187,6 +190,17 @@ export function cursorPresenceToDecorations(
   if (!isCursorPresence(presence)) return [];
 
   const color = presence.user.color || getColorForPeer(peerId);
+
+  if (presence.block) {
+    return [
+      {
+        kind: "block",
+        block: presence.block,
+        color,
+        opacity: REMOTE_SELECTION_OPACITY,
+      },
+    ];
+  }
 
   if (presence.selection) {
     return [
@@ -228,29 +242,42 @@ export function selectionToCursorPresence(
   user: CursorUser,
   contentSelection: ContentSelection | null = null,
   document?: CursorDocument,
+  block: string | null = null,
 ): CursorPresence {
   if (contentSelection) {
     if (
       contentPointsAtSameStop(contentSelection.anchor, contentSelection.focus)
     ) {
-      return { user, caret: contentSelection.focus, selection: null };
+      return {
+        user,
+        caret: contentSelection.focus,
+        block: null,
+        selection: null,
+      };
     }
     return {
       user,
       caret: null,
+      block: null,
       selection: {
         from: contentSelection.anchor,
         to: contentSelection.focus,
       },
     };
   }
+  if (block) return { user, caret: null, block, selection: null };
   if (selection && typeof selection === "object" && "from" in selection) {
     const { from, to } = selection;
     if (isFlatCursorPoint(from) && isFlatCursorPoint(to)) {
       const charFrom = document ? pointToCharacterAnchor(from, document) : from;
       const charTo = document ? pointToCharacterAnchor(to, document) : to;
       if (charFrom && charTo) {
-        return { user, caret: null, selection: { from: charFrom, to: charTo } };
+        return {
+          user,
+          caret: null,
+          block: null,
+          selection: { from: charFrom, to: charTo },
+        };
       }
     }
   }
@@ -258,9 +285,9 @@ export function selectionToCursorPresence(
     const caret = document
       ? pointToCharacterAnchor(selection, document)
       : selection;
-    return { user, caret, selection: null };
+    return { user, caret, block: null, selection: null };
   }
-  return { user, caret: null, selection: null };
+  return { user, caret: null, block: null, selection: null };
 }
 
 function pointToCharacterAnchor(
@@ -379,9 +406,7 @@ function isContentPoint(p: unknown): p is ContentPoint {
 }
 
 function isCursorPoint(p: unknown): p is CursorPoint {
-  return (
-    isCharacterCursorPoint(p) || isFlatCursorPoint(p) || isContentPoint(p)
-  );
+  return isCharacterCursorPoint(p) || isFlatCursorPoint(p) || isContentPoint(p);
 }
 
 /**
@@ -392,7 +417,7 @@ function isCursorPoint(p: unknown): p is CursorPoint {
  */
 function isCursorPresence(p: unknown): p is CursorPresence {
   if (typeof p !== "object" || p === null) return false;
-  const { user, caret, selection } = p as Partial<CursorPresence>;
+  const { user, caret, block, selection } = p as Partial<CursorPresence>;
 
   // `getDisplayName` trims `name`; the caret label reads `avatar` and `color`.
   if (typeof user !== "object" || user === null) return false;
@@ -407,6 +432,7 @@ function isCursorPresence(p: unknown): p is CursorPresence {
   }
 
   if (caret != null && !isCursorPoint(caret)) return false;
+  if (block != null && typeof block !== "string") return false;
   if (selection != null) {
     if (typeof selection !== "object") return false;
     if (!isCursorPoint(selection.from) || !isCursorPoint(selection.to)) {
@@ -470,6 +496,7 @@ export function bindPresenceCursors(
         user,
         editor.state.contentSelection,
         document,
+        editor.state.selection.block,
       ) as unknown as Record<string, unknown>,
     );
   };

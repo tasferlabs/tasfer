@@ -65,6 +65,29 @@ describe("flat cursor presence", () => {
       },
     });
   });
+
+  it("preserves an atomic whole-block selection", () => {
+    const range = {
+      from: { block: "math-block", offset: 0 },
+      to: { block: "math-block", offset: 0 },
+    };
+    const presence = selectionToCursorPresence(
+      range,
+      user,
+      null,
+      undefined,
+      "math-block",
+    );
+
+    expect(presence).toMatchObject({
+      caret: null,
+      block: "math-block",
+      selection: null,
+    });
+    expect(cursorPresenceToDecorations("peer-1", presence)).toMatchObject([
+      { kind: "block", block: "math-block" },
+    ]);
+  });
 });
 
 function contentSelection(

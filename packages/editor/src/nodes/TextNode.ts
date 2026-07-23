@@ -2499,6 +2499,29 @@ export class TextNode<
     // selection-rect machinery it uses for the local selection, and knows
     // nothing about what produced them.
     for (const deco of allDecorations(state.ui.decorations)) {
+      if (deco.kind !== "block" || deco.block !== c.block.id) continue;
+      const rects = this.selectionRects(
+        layout,
+        {
+          anchor: { blockIndex, textIndex: 0 },
+          focus: { blockIndex, textIndex: fullContent.length },
+          isForward: true,
+        },
+        blockIndex,
+        x,
+        y,
+        true,
+      );
+      this.fillRects(
+        ctx,
+        rects,
+        deco.color,
+        deco.opacity ?? styles.selection.remoteOpacity,
+        styles.selection.cornerRadius,
+      );
+    }
+
+    for (const deco of allDecorations(state.ui.decorations)) {
       if (deco.kind !== "range") continue;
       const sel = rangeDecorationToSelection(deco.range, state.document.page);
       if (!sel || sel.isCollapsed) continue;

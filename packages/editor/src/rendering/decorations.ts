@@ -48,9 +48,7 @@ export interface CharacterDecorationPoint {
 
 /** A decoration endpoint may address flat text or extension-owned content. */
 export type DecorationPoint =
-  | FlatDecorationPoint
-  | CharacterDecorationPoint
-  | ContentPoint;
+  FlatDecorationPoint | CharacterDecorationPoint | ContentPoint;
 
 /** A stable span between two points; structured endpoints share one attachment. */
 export interface DecorationRange {
@@ -71,6 +69,15 @@ export interface RangeDecoration {
   readonly opacity?: number;
   /** Also draw a marker for this span on the scrollbar track. */
   readonly gutter?: boolean;
+}
+
+/** A fill over one whole block, addressed by its stable document identity. */
+export interface BlockDecoration {
+  readonly kind: "block";
+  readonly block: string;
+  readonly color: string;
+  /** Fill opacity; falls back to the theme's remote-selection default. */
+  readonly opacity?: number;
 }
 
 /**
@@ -116,7 +123,7 @@ export interface CaretDecoration {
   };
 }
 
-export type Decoration = RangeDecoration | CaretDecoration;
+export type Decoration = RangeDecoration | BlockDecoration | CaretDecoration;
 
 /** Per-instance decoration store: opaque layer name -> that layer's decorations. */
 export type DecorationLayers = Readonly<Record<string, readonly Decoration[]>>;
