@@ -13,7 +13,7 @@
  * defined are omitted, so the editor's neutral defaults apply for those.
  */
 
-import { isTouchDevice } from "@tasfer/editor/internal";
+import { isTouchOnlyDevice } from "@tasfer/editor/internal";
 import type { EditorTheme, ThemeTokens } from "@tasfer/editor";
 
 /**
@@ -138,7 +138,7 @@ export function cssVarsToTheme(): EditorTheme {
       // On touch, keep the image resize handles clear of the scrollbar touch
       // target and the platform edge-gesture zone (see TOUCH_IMAGE_HANDLE_INSET),
       // and render them as compact grips rather than full-length bars.
-      ...(isTouchDevice()
+      ...(isTouchOnlyDevice()
         ? {
             imageResize: {
               dragHandles: {

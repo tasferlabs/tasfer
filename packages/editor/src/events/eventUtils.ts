@@ -2,6 +2,7 @@ import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
 } from "../constants";
+import { isTouchDevice, isTouchOnlyDevice } from "../node-shared";
 import { AtomicNode } from "../rendering/nodes";
 import { getBlockHeight } from "../rendering/renderer";
 import {
@@ -16,12 +17,8 @@ import type {
 } from "../state-types";
 import { getEditorStyles } from "../styles";
 
-export function isTouchDevice(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    ("ontouchstart" in window || navigator.maxTouchPoints > 0)
-  );
-}
+export { isTouchDevice, isTouchOnlyDevice };
+
 /**
  * Find the atomic (void/embed) block under a viewport point, dispatched through
  * the node registry: each AtomicNode reports its own interactive box via

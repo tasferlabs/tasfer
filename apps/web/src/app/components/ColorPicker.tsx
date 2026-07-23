@@ -54,7 +54,7 @@ export function ColorPicker({ color, onChange }: ColorPickerProps) {
 
   const grid = (
     <div
-      className="grid grid-cols-8 gap-2 p-1"
+      className="grid w-full max-w-sm grid-cols-8 gap-2 p-1"
       onClick={(e) => e.stopPropagation()}
     >
       <button

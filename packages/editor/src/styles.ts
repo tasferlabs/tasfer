@@ -1,10 +1,10 @@
 import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 import { currentFontFamily, getFontStack } from "./fonts";
 // From the leaf `node-shared`, not `state-utils`: `state-utils` imports the node
-// registry, and the node views import `styles`, so importing `isTouchDevice`
+// registry, and the node views import `styles`, so importing input helpers
 // from `state-utils` here would close a circular init (`styles → state-utils →
 // nodes → TextNode → styles`) that leaves `ListNode extends TextNode` undefined.
-import { isTouchDevice, mergeBlockStyle } from "./node-shared";
+import { isTouchOnlyDevice, mergeBlockStyle } from "./node-shared";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { Block } from "./serlization/loadPage";
 import type {
@@ -617,7 +617,7 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
 
   // Window focus defaults to true when unknown so selection renders focused.
   const isFocused = state?.view.isFocused ?? true;
-  const useFocusedSelection = isFocused || isTouchDevice();
+  const useFocusedSelection = isFocused || isTouchOnlyDevice();
 
   // Horizontal padding: explicit override (legacy `padding` option or
   // `theme.styles.canvas.padding*`, both folded into `theme.styles.canvas`)

@@ -396,6 +396,8 @@ export interface ContentMaterialization {
 export interface UIState {
   readonly mode: EditorMode;
   readonly isReadonlyBase: boolean; // True if editor was initialized in readonly mode (persists through select mode)
+  /** Latched after this editor receives a physical key; never shared or persisted. */
+  readonly hasHardwareKeyboard: boolean;
   readonly activeMenu: ActiveMenu; // Unified menu system: engine-native menus (slash/context) + the generic host `overlay` slot
   readonly isHoveringLinkWithModifier: boolean;
   readonly isHoveringCheckbox: boolean;
@@ -1445,6 +1447,10 @@ export interface MouseEvent extends EditorEvent {
 export interface KeyboardEvent extends EditorEvent {
   readonly key: string;
   readonly code: string;
+  /** True for a browser-delivered key; absent/false for synthesized input events. */
+  readonly isTrusted?: boolean;
+  /** Preserved origin when the contenteditable turns text input into a key event. */
+  readonly inputSource?: "hardware-keyboard" | "input-surface";
   readonly shiftKey: boolean;
   readonly ctrlKey: boolean;
   readonly metaKey: boolean;

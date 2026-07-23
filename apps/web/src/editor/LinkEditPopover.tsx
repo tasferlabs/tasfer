@@ -9,8 +9,7 @@ interface LinkEditPopoverProps {
   x: number;
   y: number;
   url: string;
-  linkText: string;
-  onUpdate: (newUrl: string, newText: string) => void;
+  onUpdate: (newUrl: string) => void;
   onClear: () => void;
   onClose: () => void;
   collisionBoundary?: HTMLElement | null;
@@ -21,7 +20,6 @@ export const LinkEditPopover: React.FC<LinkEditPopoverProps> = ({
   x,
   y,
   url,
-  linkText,
   onUpdate,
   onClear,
   onClose,
@@ -30,21 +28,14 @@ export const LinkEditPopover: React.FC<LinkEditPopoverProps> = ({
 }) => {
   const { t } = useTranslation();
   const [editedUrl, setEditedUrl] = useState(url);
-  const [editedText, setEditedText] = useState(linkText);
 
   useEffect(() => {
     setEditedUrl(url);
-    setEditedText(linkText);
-  }, [url, linkText]);
+  }, [url]);
 
   const handleUrlChange = (newUrl: string) => {
     setEditedUrl(newUrl);
-    onUpdate(newUrl, editedText);
-  };
-
-  const handleTextChange = (newText: string) => {
-    setEditedText(newText);
-    onUpdate(editedUrl, newText);
+    onUpdate(newUrl);
   };
 
   const handleClear = () => {
@@ -90,27 +81,7 @@ export const LinkEditPopover: React.FC<LinkEditPopoverProps> = ({
               </h3>
             </div>
 
-            {/* Form Fields */}
             <div className="space-y-3">
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="link-text"
-                  className="text-xs font-medium text-muted-foreground"
-                >
-                  {t("editor.link.linkText", "Link Text")}
-                </label>
-                <Input
-                  id="link-text"
-                  type="text"
-                  value={editedText}
-                  onChange={(e) => handleTextChange(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={t("editor.link.enterText", "Enter link text")}
-                  className="h-9"
-                  autoFocus
-                />
-              </div>
-
               <div className="space-y-1.5">
                 <label
                   htmlFor="link-url"
@@ -126,6 +97,7 @@ export const LinkEditPopover: React.FC<LinkEditPopoverProps> = ({
                   onKeyDown={handleKeyDown}
                   placeholder="https://example.com"
                   className="h-9"
+                  autoFocus
                 />
               </div>
             </div>

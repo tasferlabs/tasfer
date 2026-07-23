@@ -47,12 +47,13 @@ import {
 import { resolveMarkRunsFromChars } from "../inline-math-spans";
 import {
   getBlockTextContent,
-  isTouchDevice,
   memoizeNodeLayout,
   mergeBlockStyle,
+  shouldUseKeyboardPlaceholder,
 } from "../node-shared";
 import {
   allDecorations,
+  rangeDecorationToContentSelection,
   rangeDecorationToSelection,
 } from "../rendering/decorations";
 import type {
@@ -1059,12 +1060,10 @@ function computeSelectionRects(
 
   const rects: Rect[] = [];
 
-  if (
-    !(
-      (start.blockIndex === blockIndex && end.blockIndex === blockIndex) ||
-      (start.blockIndex <= blockIndex && end.blockIndex >= blockIndex)
-    )
-  ) {
+  if (!(
+    (start.blockIndex === blockIndex && end.blockIndex === blockIndex) ||
+    (start.blockIndex <= blockIndex && end.blockIndex >= blockIndex)
+  )) {
     return rects;
   }
 
@@ -2444,15 +2443,106 @@ export class TextNode<
       });
     }
 
+    const nestedSelectionRects = (selection: ContentSelection): Rect[] => {
+      if (
+        isContentSelectionCollapsed(selection) ||
+        selection.focus.blockId !== block.id ||
+        !layout.marks
+      ) {
+        return [];
+      }
+      const run = replacementRuns(
+        renderChars,
+        renderFormats,
+        layout.marks,
+        layout.structuredContent,
+      ).find(
+        (candidate) =>
+          candidate.mark.attrs?.contentId === selection.focus.contentId &&
+          candidate.replacement.contentSelectionRects,
+      );
+      if (!run) return [];
+
+      const baseX = this.baseX(layout, x);
+      const rects: Rect[] = [];
+      for (const line of layout.lines) {
+        const fragment = replacementFragmentGeometry(layout, line, run);
+        if (!fragment) continue;
+        const fragmentRects = run.replacement.contentSelectionRects?.(
+          fragment.text,
+          textStyle.fontSize,
+          selection,
+          {
+            blockId: block.id,
+            mark: run.mark,
+            attachments: layout.structuredContent,
+            sourceRange: fragment.sourceRange,
+          },
+        );
+        if (!fragmentRects) continue;
+        const baselineY =
+          y + insetY + line.y + (line.baselineOffset ?? fontMetrics.ascent);
+        for (const rect of fragmentRects) {
+          rects.push({
+            x: baseX + fragment.left + rect.x,
+            y: baselineY + rect.top,
+            width: rect.width,
+            height: rect.bottom - rect.top,
+          });
+        }
+      }
+      return rects;
+    };
+
     // Range decorations (find highlights, etc. — behind the local selection).
     // Generic, host-supplied overlays; the engine paints them with the same
     // selection-rect machinery it uses for the local selection, and knows
     // nothing about what produced them.
     for (const deco of allDecorations(state.ui.decorations)) {
+      if (deco.kind !== "block" || deco.block !== c.block.id) continue;
+      const rects = this.selectionRects(
+        layout,
+        {
+          anchor: { blockIndex, textIndex: 0 },
+          focus: { blockIndex, textIndex: fullContent.length },
+          isForward: true,
+        },
+        blockIndex,
+        x,
+        y,
+        true,
+      );
+      this.fillRects(
+        ctx,
+        rects,
+        deco.color,
+        deco.opacity ?? styles.selection.remoteOpacity,
+        styles.selection.cornerRadius,
+      );
+    }
+
+    for (const deco of allDecorations(state.ui.decorations)) {
       if (deco.kind !== "range") continue;
       const sel = rangeDecorationToSelection(deco.range, state.document.page);
       if (!sel || sel.isCollapsed) continue;
       const rects = this.selectionRects(layout, sel, blockIndex, x, y);
+      if (rects.length === 0) continue;
+      this.fillRects(
+        ctx,
+        rects,
+        deco.color,
+        deco.opacity ?? styles.selection.remoteOpacity,
+        styles.selection.cornerRadius,
+      );
+    }
+
+    // Structured range decorations use the replacement's own geometry. This is
+    // the remote-selection counterpart to the local nested selection below.
+    for (const deco of allDecorations(state.ui.decorations)) {
+      if (deco.kind !== "range") continue;
+      const selection = rangeDecorationToContentSelection(deco.range);
+      if (!selection) continue;
+      const rects = nestedSelectionRects(selection);
       if (rects.length === 0) continue;
       this.fillRects(
         ctx,
@@ -2503,59 +2593,14 @@ export class TextNode<
     // the run's own geometry instead, mirroring the display equation
     // (MathNode's contentSelection path).
     const nestedSel = state.document.contentSelection;
-    if (
-      nestedSel &&
-      !isContentSelectionCollapsed(nestedSel) &&
-      nestedSel.focus.blockId === block.id &&
-      layout.marks
-    ) {
-      const run = replacementRuns(
-        renderChars,
-        renderFormats,
-        layout.marks,
-        layout.structuredContent,
-      ).find(
-        (candidate) =>
-          candidate.mark.attrs?.contentId === nestedSel.focus.contentId &&
-          candidate.replacement.contentSelectionRects,
+    if (nestedSel) {
+      this.fillRects(
+        ctx,
+        nestedSelectionRects(nestedSel),
+        styles.selection.backgroundColor,
+        styles.selection.opacity,
+        styles.selection.cornerRadius,
       );
-      if (run) {
-        const baseX = this.baseX(layout, x);
-        const rects: Rect[] = [];
-        for (const line of layout.lines) {
-          const fragment = replacementFragmentGeometry(layout, line, run);
-          if (!fragment) continue;
-          const fragRects = run.replacement.contentSelectionRects?.(
-            fragment.text,
-            textStyle.fontSize,
-            nestedSel,
-            {
-              blockId: block.id,
-              mark: run.mark,
-              attachments: layout.structuredContent,
-              sourceRange: fragment.sourceRange,
-            },
-          );
-          if (!fragRects) continue;
-          const baselineY =
-            y + insetY + line.y + (line.baselineOffset ?? fontMetrics.ascent);
-          for (const r of fragRects) {
-            rects.push({
-              x: baseX + fragment.left + r.x,
-              y: baselineY + r.top,
-              width: r.width,
-              height: r.bottom - r.top,
-            });
-          }
-        }
-        this.fillRects(
-          ctx,
-          rects,
-          styles.selection.backgroundColor,
-          styles.selection.opacity,
-          styles.selection.cornerRadius,
-        );
-      }
     }
 
     // Placeholder (empty block, in edit mode, not composing/selecting). Shown
@@ -2855,13 +2900,15 @@ export class TextNode<
   protected placeholderText(
     block: B,
     styles: EditorStyles,
-    _state: EditorState,
+    state: EditorState,
   ): string {
     if (block.type === "paragraph") {
-      const isTouchOnly = isTouchDevice();
-      return isTouchOnly
-        ? styles.placeholder.paragraph.touchCompatiableText
-        : styles.placeholder.paragraph.keyboardCompatibleText;
+      const useKeyboardPlaceholder = shouldUseKeyboardPlaceholder(
+        state.ui.hasHardwareKeyboard,
+      );
+      return useKeyboardPlaceholder
+        ? styles.placeholder.paragraph.keyboardCompatibleText
+        : styles.placeholder.paragraph.touchCompatiableText;
     }
     // Narrow to heading types before indexing PlaceholderStyles (the list family
     // is handled by ListNode, never reaching this base implementation).

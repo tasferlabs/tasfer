@@ -1,4 +1,4 @@
-// `getBlockTextContent` / `getBlockTextLength` / `isTouchDevice` are defined in
+// The block and input-capability helpers are defined in
 // the leaf `node-shared` (not here) and re-exported below: the node views import
 // them, and the node registry imports back into this module, so keeping these off
 // `state-utils` breaks the `ListNode extends TextNode` circular-init hazard.
@@ -36,6 +36,7 @@ export {
   getBlockTextLength,
   isAndroid,
   isTouchDevice,
+  isTouchOnlyDevice,
 } from "./node-shared";
 import { initialUndoManagerState } from "./sync/crdt-undo";
 import { generatePeerId } from "./sync/id";
@@ -149,6 +150,7 @@ export function createInitialState(
     ui: {
       mode: (options?.mode ?? "edit") as EditorMode,
       isReadonlyBase: options?.mode === "readonly",
+      hasHardwareKeyboard: false,
       activeMenu: { type: "none" },
       isHoveringLinkWithModifier: false,
       isHoveringCheckbox: false,

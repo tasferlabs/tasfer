@@ -73,6 +73,7 @@ export {
   getBlockTextLength,
   isAndroid,
   isTouchDevice,
+  isTouchOnlyDevice,
 } from "./state-utils";
 export { canHaveFormats, isTextualBlock } from "./sync/block-registry";
 export {

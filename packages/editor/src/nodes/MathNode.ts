@@ -94,6 +94,7 @@ import {
 import { cardFlowMargins } from "../node-shared";
 import {
   allDecorations,
+  rangeDecorationToContentSelection,
   rangeDecorationToSelection,
 } from "../rendering/decorations";
 import type { MarkRegistry } from "../rendering/marks";
@@ -135,7 +136,7 @@ import type {
 import {
   closeActiveMenu,
   isCaretScratchActive,
-  isTouchDevice,
+  isTouchOnlyDevice,
   updateMode,
 } from "../state-utils";
 import {
@@ -293,9 +294,7 @@ function mathBlockSource(block: MathBlock): string {
 /** Resolve an optional feature block across the page's closed core union. */
 function mathBlockAt(state: EditorState, blockIndex: number): MathBlock | null {
   const block = state.document.page.blocks[blockIndex] as
-    | Block
-    | MathBlock
-    | undefined;
+    Block | MathBlock | undefined;
   return block && !block.deleted && block.type === "math" ? block : null;
 }
 
@@ -1181,6 +1180,24 @@ export class MathNode extends TextNode<MathBlock> {
     ]);
     ctx.fill();
 
+    // A remote whole-block selection is distinct from a collapsed range: both
+    // endpoints occupy the same document stop, but the full card is selected.
+    for (const deco of allDecorations(state.ui.decorations)) {
+      if (deco.kind !== "block" || deco.block !== c.block.id) continue;
+      ctx.save();
+      ctx.globalAlpha = deco.opacity ?? styles.selection.remoteOpacity;
+      ctx.fillStyle = deco.color;
+      ctx.beginPath();
+      ctx.roundRect(x, y + layout.cardTop, width, layout.cardHeight, [
+        topRadius,
+        topRadius,
+        bottomRadius,
+        bottomRadius,
+      ]);
+      ctx.fill();
+      ctx.restore();
+    }
+
     // A node selection of this whole block (what Backspace/Delete from a
     // neighbouring block produces) selects the equation as one atomic unit, so
     // highlight the entire card surface — not just the typeset glyphs. An
@@ -1317,11 +1334,46 @@ export class MathNode extends TextNode<MathBlock> {
         );
       }
 
+      const document = getMathStructuredDocument(c.block);
+      if (document && layout.mathDocumentLayout) {
+        for (const deco of allDecorations(state.ui.decorations)) {
+          if (deco.kind !== "range") continue;
+          const selection = rangeDecorationToContentSelection(deco.range);
+          if (
+            !selection ||
+            isContentSelectionCollapsed(selection) ||
+            selection.focus.blockId !== c.block.id
+          ) {
+            continue;
+          }
+          const range = mathSourceRangeFromContentSelection(
+            document,
+            selection,
+            layout.mathDocumentLayout,
+          );
+          if (!range) continue;
+          const rects = texSelectionRects(mathLayout, range.from, range.to).map(
+            (rect) => ({
+              x: drawX + rect.x,
+              y: baselineY + rect.y,
+              width: rect.width,
+              height: rect.height,
+            }),
+          );
+          this.fillRects(
+            ctx,
+            rects,
+            deco.color,
+            deco.opacity ?? styles.selection.remoteOpacity,
+            styles.selection.cornerRadius,
+          );
+        }
+      }
+
       // Selection highlight UNDER the glyphs — the "select-first" construct
       // deletion (and any range selection) draws over the rendered formula via
       // the tex selection rects (x from the math's left edge, y from baseline).
       const contentSelection = state.document.contentSelection;
-      const document = getMathStructuredDocument(c.block);
       const range =
         contentSelection &&
         contentSelection.focus.blockId === c.block.id &&
@@ -1685,7 +1737,7 @@ export class MathNode extends TextNode<MathBlock> {
     const baseX = originX + l.mathOffsetX;
     const baselineY = blockTopY + l.mathTop + l.mathLayout.height;
     return texHitTest(l.mathLayout, x - baseX, y - baselineY, {
-      placeholderTargetSize: isTouchDevice() ? 44 : 24,
+      placeholderTargetSize: isTouchOnlyDevice() ? 44 : 24,
       drag,
       dragPrevOffset: drag ? prevIndex : null,
     });
@@ -1712,7 +1764,7 @@ export class MathNode extends TextNode<MathBlock> {
     const baseX = originX + l.mathOffsetX;
     const baselineY = blockTopY + l.mathTop + l.mathLayout.height;
     return texSpanAtPoint(l.mathLayout, x - baseX, y - baselineY, {
-      minTargetSize: isTouchDevice() ? 44 : 24,
+      minTargetSize: isTouchOnlyDevice() ? 44 : 24,
     });
   }
 

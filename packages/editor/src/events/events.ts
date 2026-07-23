@@ -36,7 +36,7 @@ import {
   handleCompositionStart,
   handleCompositionUpdate,
 } from "./compositionEvents";
-import { isTouchDevice } from "./eventUtils";
+import { isTouchOnlyDevice } from "./eventUtils";
 import { handlePaste } from "./genericEvents";
 import { type InteractionSession, stopAutoScroll } from "./interaction-session";
 import { handleContextMenu, handleKeyDown } from "./keysEvents";
@@ -578,7 +578,7 @@ export function handleEvents(
         );
         break;
       case "mouseleave":
-        if (isTouchDevice()) {
+        if (isTouchOnlyDevice()) {
           break;
         }
         // The pointer is crossing onto a host-rendered interactive overlay (the
@@ -616,7 +616,7 @@ export function handleEvents(
         };
         break;
       case "mousedown":
-        if (isTouchDevice()) {
+        if (isTouchOnlyDevice()) {
           break;
         }
         const mouseDownResult = handleMouseDown(
@@ -634,7 +634,7 @@ export function handleEvents(
         collectedOps.push(...mouseDownResult.ops);
         break;
       case "mousemove":
-        if (isTouchDevice()) {
+        if (isTouchOnlyDevice()) {
           break;
         }
         state = handleMouseMove(
@@ -649,7 +649,7 @@ export function handleEvents(
         );
         break;
       case "mouseup":
-        if (isTouchDevice()) {
+        if (isTouchOnlyDevice()) {
           break;
         }
         const mouseUpResult = handleMouseUp(
@@ -693,7 +693,7 @@ export function handleEvents(
         }
         break;
       case "wheel":
-        if (isTouchDevice()) {
+        if (isTouchOnlyDevice()) {
           break;
         }
         state = handleWheel(

@@ -61,6 +61,7 @@ import {
   isAndroid,
   isTextualBlock,
   isTouchDevice,
+  isTouchOnlyDevice,
   type EditorWiring,
   type NodeOverlay,
   type PlaceholderStyles,
@@ -686,36 +687,19 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
     // Restore the native/mobile toolbar after the drawer dismisses.
     if (window.TasferBridge) refocus();
   };
-  const update = (newUrl: string, newText: string) =>
+  const updateUrl = (newUrl: string) =>
     editor.change((c) => {
-      // newText is required (an empty range/text would shift indices); the
-      // caller's UI guards against empty input.
-      if (!newText) return;
+      const linkText = text || selectedText || "";
+      if (!linkText) return;
       const block = editor.query.block({ block: blockId });
       if (!block) return;
-      const link = { type: "link", attrs: { url: newUrl } };
-      // The link's existing text is `text` (edit) or the selected text (create).
-      // When it's unchanged, just (re)apply the mark so co-existing marks and
-      // character ids survive; otherwise replace the run with the new text.
-      const oldText = text ?? selectedText ?? "";
-      if (newText === oldText) {
-        c.setMark("link", {
-          attrs: link.attrs,
-          range: {
-            from: { block: block.id, offset: startIndex },
-            to: { block: block.id, offset: startIndex + newText.length },
-          },
-        });
-      } else {
-        c.insertText(
-          newText,
-          {
-            from: { block: block.id, offset: startIndex },
-            to: { block: block.id, offset: endIndex },
-          },
-          link,
-        );
-      }
+      c.setMark("link", {
+        attrs: { url: newUrl },
+        range: {
+          from: { block: block.id, offset: startIndex },
+          to: { block: block.id, offset: endIndex },
+        },
+      });
     });
   const clearLink = () =>
     editor.change((c) => {
@@ -736,10 +720,9 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
         x={x}
         y={y}
         url={url || undefined}
-        linkText={text || undefined}
         selectedText={selectedText}
-        onUpdate={(newUrl, newText) => {
-          update(newUrl, newText);
+        onUpdate={(newUrl) => {
+          updateUrl(newUrl);
           close();
         }}
         onClear={
@@ -762,8 +745,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
       x={x}
       y={y}
       url={url}
-      linkText={text}
-      onUpdate={update}
+      onUpdate={updateUrl}
       onClear={clearLink}
       onClose={close}
       collisionBoundary={portalContainer}
@@ -1402,7 +1384,7 @@ function PageEditor({
     setMatrixEditor(null);
     // Restore the caret on desktop; on touch this would re-raise the soft keyboard
     // right after dismissing the drawer, so leave focus where the drawer left it.
-    if (!isTouchDevice()) mountedRef.current?.editor.focus();
+    if (!isTouchOnlyDevice()) mountedRef.current?.editor.focus();
   }, []);
 
   // True while a text-input popover (image upload/edit or link edit) is open, so
@@ -2562,6 +2544,9 @@ function PageEditor({
         selectionToCursorPresence(
           mounted.editor.state.selection.range,
           localUserRef.current,
+          mounted.editor.state.contentSelection,
+          mounted.doc,
+          mounted.editor.state.selection.block,
         ),
       );
     };
@@ -3029,6 +3014,9 @@ function PageEditor({
         selectionToCursorPresence(
           mountedRef.current.editor.state.selection.range,
           localUser,
+          mountedRef.current.editor.state.contentSelection,
+          mountedRef.current.doc,
+          mountedRef.current.editor.state.selection.block,
         ),
       );
     }
@@ -3329,7 +3317,7 @@ function PageEditor({
     const selectionIsInlineMath = marks?.has("math") ?? false;
     if (
       hasSelection &&
-      !isTouchDevice() &&
+      !isTouchOnlyDevice() &&
       !readonly &&
       blockAllowsFormats &&
       !selectionIsInlineMath
@@ -3528,7 +3516,6 @@ function PageEditor({
           <MathCommandMenu
             editor={mountedRef.current.editor}
             getContainerRect={getSlashContainerRect}
-            disabled={isTouchDevice()}
           />,
           mountedRef.current.portalContainer,
         )}

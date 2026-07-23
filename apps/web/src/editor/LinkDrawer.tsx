@@ -17,9 +17,8 @@ interface LinkDrawerProps {
   x: number;
   y: number;
   url?: string;
-  linkText?: string;
   selectedText?: string;
-  onUpdate: (newUrl: string, newText: string) => void;
+  onUpdate: (newUrl: string) => void;
   onClear?: () => void;
   onClose: () => void;
   collisionBoundary?: HTMLElement | null;
@@ -30,7 +29,6 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
   x,
   y,
   url = "",
-  linkText = "",
   selectedText = "",
   onUpdate,
   onClear,
@@ -40,24 +38,19 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
 }) => {
   const isMobile = useResponsive("(max-width: 768px)");
   const [editedUrl, setEditedUrl] = useState(url || "");
-  const [editedText, setEditedText] = useState(linkText || selectedText || "");
   const { t } = useTranslation();
   // Prevent keyboard from appearing on mobile when drawer opens
   usePreventMobileKeyboard(isMobile);
 
-  // When creating new link (no url), only require URL to be filled
-  // When editing existing link (has url), require both URL and text
   const isCreatingNewLink = !url;
 
   useEffect(() => {
     setEditedUrl(url || "");
-    setEditedText(linkText || selectedText || "");
-  }, [url, linkText, selectedText]);
+  }, [url]);
 
   const handleSubmit = () => {
-    const textToUse = isCreatingNewLink ? selectedText : editedText;
-    if (editedUrl.trim() && textToUse && textToUse.trim()) {
-      onUpdate(editedUrl, textToUse);
+    if (editedUrl.trim() && (!isCreatingNewLink || selectedText)) {
+      onUpdate(editedUrl);
       onClose();
     }
   };
@@ -79,37 +72,14 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
     }
   };
 
-  const isButtonDisabled = isCreatingNewLink
-    ? !editedUrl.trim() || !selectedText
-    : !editedUrl.trim() || !editedText.trim();
+  const isButtonDisabled =
+    !editedUrl.trim() || (isCreatingNewLink && !selectedText);
 
   // Shared content for both drawer and popover
   const content = (
     <>
       {/* Form Fields */}
       <div className="space-y-3">
-        {/* Only show editable link text field when editing existing link */}
-        {!isCreatingNewLink && (
-          <div className="space-y-1.5">
-            <label
-              htmlFor="link-text"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              {t("editor.link.linkText", "Link Text")}
-            </label>
-            <Input
-              id="link-text"
-              type="text"
-              value={editedText}
-              onChange={(e) => setEditedText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={t("editor.link.enterText", "Enter link text")}
-              className="h-9"
-              autoFocus={!isMobile}
-            />
-          </div>
-        )}
-
         <div className="space-y-1.5">
           <label
             htmlFor="link-url"
@@ -125,7 +95,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             onKeyDown={handleKeyDown}
             placeholder="https://example.com"
             className="h-9"
-            autoFocus={isCreatingNewLink && !isMobile}
+            autoFocus={!isMobile}
           />
         </div>
 

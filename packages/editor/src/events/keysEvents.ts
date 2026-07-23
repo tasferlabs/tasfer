@@ -118,6 +118,9 @@ export function handleKeyDown(
   const key = keyEvent.key;
   const code = keyEvent.code;
   const isCtrl = keyEvent.ctrlKey || keyEvent.metaKey;
+  const inputSource =
+    keyEvent.inputSource ??
+    (keyEvent.isTrusted === true ? "hardware-keyboard" : "input-surface");
 
   // In suspended mode, block all operations
   if (state.ui.mode === "suspended") {
@@ -150,6 +153,13 @@ export function handleKeyDown(
   // If editor is not focused, ignore keyboard input
   if (!state.view.isFocused) {
     return { state, ops };
+  }
+
+  if (inputSource === "hardware-keyboard" && !state.ui.hasHardwareKeyboard) {
+    state = {
+      ...state,
+      ui: { ...state.ui, hasHardwareKeyboard: true },
+    };
   }
 
   // Block most operations during composition - let IME handle input
@@ -898,6 +908,7 @@ export function handleKeyDown(
             text: key,
             blockIndex: inserted.position.blockIndex,
             textIndex: inserted.position.textIndex - key.length,
+            inputSource,
           });
         } else {
           const contentPoint = newState.document.contentSelection?.focus;
@@ -912,6 +923,7 @@ export function handleKeyDown(
                 // Structured positions carry identity, not one generic source
                 // offset. Host adapters derive their own projection if needed.
                 textIndex: 0,
+                inputSource,
                 contentPoint,
               });
             }

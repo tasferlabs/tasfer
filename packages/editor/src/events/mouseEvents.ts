@@ -49,7 +49,7 @@ import type { Operation } from "../sync/sync";
 import { hitTestAllRegions } from "./blockRegions";
 import {
   getAtomicBlockAtPoint,
-  isTouchDevice,
+  isTouchOnlyDevice,
   isWithinClickDistance,
 } from "./eventUtils";
 import {
@@ -638,7 +638,7 @@ export function handleMouseMove(
   // own hover state (ImageNode → resize-handle hover, MathNode → block +
   // inline-math chip hover).
   if (state.ui.mode !== "select") {
-    if (!isTouchDevice()) {
+    if (!isTouchOnlyDevice()) {
       // Generic desktop pointer-move: node + mark handlers update their own hover
       // UI off the resolved atomic block / caret position (ImageNode →
       // resize-handle hover, MathNode → block + inline-math chip hover, LinkMark

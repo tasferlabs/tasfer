@@ -186,6 +186,7 @@ export function useP2PRoom(
                 deviceId: user.deviceId,
               },
               caret: null,
+              block: null,
               selection: null,
             });
           }

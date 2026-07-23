@@ -23,8 +23,9 @@ import React, {
 import { useTranslation } from "react-i18next";
 import { CONVERT_BLOCK, TEXT_INPUT } from "@tasfer/editor";
 import type { AppEditor } from "../editorSchema";
-import { isTouchDevice } from "@tasfer/editor/internal";
+import { isTouchOnlyDevice } from "@tasfer/editor/internal";
 import { ScrollArea } from "../components/ui/scroll-area";
+import { shouldOpenKeyboardMenu } from "./keyboardMenuInput";
 
 /** Block types the slash menu can insert. Assignable to the engine's `Block["type"]`. */
 export type SlashBlockType =
@@ -366,13 +367,18 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
       );
     };
 
-    // Edge-trigger the open on a typed `/` (desktop only — the menu is
-    // keyboard-driven). The `/` isn't committed yet here, so the anchor/filter
-    // are computed on the next `subscribe` tick.
+    // Edge-trigger on a typed `/`. Touch-first devices suppress software-keyboard
+    // triggers but keep the menu when a connected physical keyboard typed it.
+    // The `/` isn't committed yet, so the next subscription tick anchors it.
     const offInput = editor.registerAction(
       TEXT_INPUT,
-      ({ text, textIndex }) => {
-        if (text !== "/" || isTouchDevice()) return;
+      ({ text, textIndex, inputSource }) => {
+        if (
+          text !== "/" ||
+          !shouldOpenKeyboardMenu(isTouchOnlyDevice(), inputSource)
+        ) {
+          return;
+        }
         // The `/` was just typed at the caret, so the caret block IS the block.
         const block = editor.query.block();
         if (!block) return;

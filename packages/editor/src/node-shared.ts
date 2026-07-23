@@ -146,6 +146,26 @@ export function isTouchDevice(): boolean {
 }
 
 /**
+ * Whether touch is available without a fine pointer such as a mouse or
+ * trackpad. This selects touch-first UI; it deliberately does not try to infer
+ * a mobile form factor.
+ */
+export function isTouchOnlyDevice(): boolean {
+  if (!isTouchDevice()) return false;
+  return !(
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(any-pointer: fine)").matches
+  );
+}
+
+/** Whether keyboard-specific chrome should win on this editor instance. */
+export function shouldUseKeyboardPlaceholder(
+  hasHardwareKeyboard: boolean,
+): boolean {
+  return hasHardwareKeyboard;
+}
+
+/**
  * Whether this is an Android browser or WebView (Capacitor / GBoard). Android's
  * soft keyboard re-derives autocapitalization from the text *before the cursor*
  * on every keystroke, so the input surface must mirror real sentence context or

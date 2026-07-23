@@ -22,13 +22,8 @@ directly to HTML canvas and stores document state in a CRDT.
 
 ## Compatibility status
 
-The product has not been released. Prefer a clean design over compatibility
-shims, migrations, or preserving obsolete APIs and data formats. Update all
-internal callers, tests, and docs in the same change.
-
-Post-release compatibility requirements are documented in
-[`apps/site/src/views/InternalsPage/pages/compatibility.mdx`](apps/site/src/views/InternalsPage/pages/compatibility.mdx);
-they are currently design guidance, not a constraint.
+Compatibility requirements are documented in
+[`apps/site/src/views/InternalsPage/pages/compatibility.mdx`](apps/site/src/views/InternalsPage/pages/compatibility.mdx).
 
 ## Repository map
 

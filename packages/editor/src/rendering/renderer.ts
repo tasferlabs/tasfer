@@ -25,8 +25,11 @@ import type {
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
-import { isTouchDevice } from "../state-utils";
-import { isContentSelectionCollapsed } from "../structured-selection";
+import { isTouchOnlyDevice } from "../state-utils";
+import {
+  type ContentPoint,
+  isContentSelectionCollapsed,
+} from "../structured-selection";
 import { getEditorStyles } from "../styles";
 import { findBlock } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
@@ -37,6 +40,7 @@ import { caretLandingProgress, caretLandingShape } from "./caret-landing";
 import {
   allDecorations,
   type CaretDecoration,
+  isContentDecorationPoint,
   type LabelIconShape,
   resolveDecorationPoint,
 } from "./decorations";
@@ -614,6 +618,7 @@ interface ResolvedCaret {
   decoration: CaretDecoration;
   position: Position;
   block: TextualBlock;
+  contentPoint?: ContentPoint;
 }
 
 /** Resolve every caret decoration to a paintable position in a textual block. */
@@ -625,7 +630,14 @@ function collectCaretDecorations(state: EditorState): ResolvedCaret[] {
     if (!position) continue;
     const block = state.document.page.blocks[position.blockIndex];
     if (!block || block.deleted || !isTextualBlock(block)) continue;
-    out.push({ decoration: deco, position, block });
+    out.push({
+      decoration: deco,
+      position,
+      block,
+      ...(isContentDecorationPoint(deco.point)
+        ? { contentPoint: deco.point }
+        : {}),
+    });
   }
   return out;
 }
@@ -853,10 +865,24 @@ function renderCaretDecorations(
     const { position, block, decoration } = caret;
     const caretColor = decoration.color;
 
+    const geometryState = caret.contentPoint
+      ? {
+          ...state,
+          document: {
+            ...state.document,
+            cursor: null,
+            selection: null,
+            contentSelection: {
+              anchor: caret.contentPoint,
+              focus: caret.contentPoint,
+            },
+          },
+        }
+      : state;
     const cursorPos = calculateCursorPosition(
       position,
       block,
-      state,
+      geometryState,
       viewport,
       styles,
       null,
@@ -1233,7 +1259,7 @@ export function renderCursorLayer(
   drawCaret(ctx, cursorPos, styles, caretLandingStartedAt);
 
   // Draw cursor drag handle on touch devices (small circle below cursor)
-  if (isTouchDevice()) {
+  if (isTouchOnlyDevice()) {
     const handleRadius = styles.cursor.handleRadius;
     const handleStemHeight = styles.cursor.handleStemHeight;
     const handleY =
@@ -1559,7 +1585,7 @@ export function renderSelectionHandles(
   heightIndex?: BlockHeightIndex,
 ) {
   // Only render handles on touch devices
-  if (!isTouchDevice()) {
+  if (!isTouchOnlyDevice()) {
     return;
   }
 
