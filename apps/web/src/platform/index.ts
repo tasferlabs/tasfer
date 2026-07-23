@@ -167,7 +167,8 @@ async function _initPlatformInner(): Promise<Platform> {
       );
     }
     const worker = new TasferNodeWorker();
-    const client = createPlatformClient(worker.port);
+    const { platform: client, ready } = createPlatformClient(worker.port);
+    await ready;
     startNetworkHostElection(worker.port, signalUrl);
     console.log("[platform] device-node SharedWorker active");
     _platform = client;

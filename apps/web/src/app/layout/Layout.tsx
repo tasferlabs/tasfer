@@ -8,6 +8,7 @@ import { DevToolbar } from "../components/DevToolbar";
 import { EditGroupDialog } from "../components/EditGroupDialog";
 import { ImportDialogProvider } from "../components/ImportDialogProvider";
 import { InviteMembersDialog } from "../components/InviteMembersDialog";
+import { DatabaseLockedScreen } from "../components/DatabaseLockedScreen";
 import { OnboardingScreen } from "../components/OnboardingScreen";
 import PeerVersionPopup from "../components/PeerVersionPopup";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
@@ -95,7 +96,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
     null,
   );
   const isMobile = useResponsive("(max-width: 768px)");
-  const { spaces, isLoading: spacesLoading } = useSpaces();
+  const { spaces, isLoading: spacesLoading, loadError } = useSpaces();
   const fileDrop = useFileDropImport();
 
   // Remember the last visited route so we can restore it on next visit
@@ -112,6 +113,10 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
   // Wait for spaces to load before deciding what to show
   if (spacesLoading) {
     return null;
+  }
+
+  if (loadError) {
+    return <DatabaseLockedScreen error={loadError} />;
   }
 
   if (spaces.length === 0) {

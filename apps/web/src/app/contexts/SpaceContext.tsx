@@ -7,12 +7,18 @@ interface SpaceContextValue {
   activeSpaceId: string | null;
   setActiveSpaceId: (id: string) => void;
   isLoading: boolean;
+  loadError: Error | null;
 }
 
 const SpaceContext = React.createContext<SpaceContextValue | null>(null);
 
 export function SpaceProvider({ children }: { children: React.ReactNode }) {
-  const { data: spaces = [], isLoading } = useGetSpaces();
+  const spacesQuery = useGetSpaces();
+  const spaces = spacesQuery.data ?? [];
+  const loadError =
+    spacesQuery.isError && spacesQuery.data === undefined
+      ? spacesQuery.error
+      : null;
   const [activeSpaceId, setActiveSpaceId] = React.useState<string | null>(null);
 
   // Default to first space
@@ -27,9 +33,10 @@ export function SpaceProvider({ children }: { children: React.ReactNode }) {
       spaces,
       activeSpaceId: activeSpaceId || spaces[0]?.id || null,
       setActiveSpaceId,
-      isLoading,
+      isLoading: spacesQuery.isLoading,
+      loadError,
     }),
-    [spaces, activeSpaceId, isLoading]
+    [spaces, activeSpaceId, spacesQuery.isLoading, loadError],
   );
 
   return <SpaceContext.Provider value={value}>{children}</SpaceContext.Provider>;

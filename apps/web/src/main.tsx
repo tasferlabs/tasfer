@@ -7,6 +7,7 @@ import { type ReactNode, Suspense, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { registerSW } from "virtual:pwa-register";
+import { DatabaseLockedScreen } from "./app/components/DatabaseLockedScreen";
 import { ToastProvider } from "./app/components/Toast";
 import { AuthProvider } from "./app/contexts/AuthContext";
 import { PopupQueueProvider } from "./app/contexts/PopupQueueContext";
@@ -180,75 +181,13 @@ function applyStoredTheme() {
   }
 }
 
-function renderTabError() {
+function renderPlatformError(error: unknown) {
   applyStoredTheme();
   if (!root) {
     root = createRoot(document.getElementById("root")!);
     (window as any).__TASFER_ROOT__ = root;
   }
-  root.render(<TabAlreadyOpenScreen />);
-}
-
-function TabAlreadyOpenScreen() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100dvh",
-        width: "100%",
-        overflow: "hidden",
-        fontFamily:
-          'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-        padding: "24px",
-        textAlign: "center",
-        background: "var(--background)",
-        color: "var(--foreground)",
-      }}
-    >
-      <div style={{ fontSize: "32px", marginBottom: "16px" }}>&#9888;</div>
-      <h1
-        style={{
-          fontSize: "18px",
-          fontWeight: 600,
-          margin: "0 0 12px",
-        }}
-      >
-        {i18next.t("error.tabAlreadyOpen", "Tasfer is already open")}
-      </h1>
-      <p
-        style={{
-          fontSize: "14px",
-          color: "var(--muted-foreground)",
-          maxWidth: "400px",
-          lineHeight: 1.7,
-          margin: "0 0 24px",
-        }}
-      >
-        {i18next.t(
-          "error.tabAlreadyOpenDesc",
-          "Tasfer can only run in one tab at a time. Please close this tab and use the one that's already open.",
-        )}
-      </p>
-      <button
-        onClick={() => window.location.reload()}
-        style={{
-          padding: "10px 24px",
-          background: "var(--primary)",
-          color: "var(--primary-foreground)",
-          border: "none",
-          cursor: "pointer",
-          fontFamily: "inherit",
-          fontSize: "13px",
-          fontWeight: 600,
-        }}
-      >
-        {i18next.t("error.tryAgainTab", "Try again")}
-      </button>
-    </div>
-  );
+  root.render(<DatabaseLockedScreen error={error} />);
 }
 
 if (platformReady) {
@@ -268,15 +207,8 @@ if (platformReady) {
       renderApp();
     })
     .catch((err) => {
-      // A "DB locked" failure means another build's connection holds the
-      // database — typically the previous build's SharedWorker still alive
-      // during a deploy. Show the "already open" screen instead of a blank
-      // load; it resolves once that worker (and its tabs) are gone.
-      if (String(err?.message ?? err).includes("TASFER_DB_LOCKED")) {
-        renderTabError();
-        return;
-      }
       console.error("[Platform] Failed to initialize:", err);
+      renderPlatformError(err);
     });
 }
 

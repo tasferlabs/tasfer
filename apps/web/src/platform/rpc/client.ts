@@ -1,7 +1,7 @@
 /**
- * Platform RPC client — builds a `Platform` whose methods are serialized over
- * an {@link RpcPort} to a {@link servePlatform} server wrapping the real
- * `Engine`.
+ * Platform RPC client — builds a connection whose `Platform` methods are
+ * serialized over an {@link RpcPort} to a {@link servePlatform} server wrapping
+ * the real `Engine`.
  *
  * Entirely generic: it iterates {@link PLATFORM_SCHEMA} and wires each method
  * by its {@link MethodKind}. The only hand-written bits are the two synchronous
@@ -29,7 +29,13 @@ interface Subscription {
   obj?: CbObject;
 }
 
-export function createPlatformClient(port: RpcPort): Platform {
+export interface PlatformClientConnection {
+  platform: Platform;
+  /** Resolves only after the worker engine and its database are ready. */
+  ready: Promise<void>;
+}
+
+export function createPlatformClient(port: RpcPort): PlatformClientConnection {
   let nextCallId = 1;
   let nextSubId = 1;
   let nextCbHandle = 1;
@@ -202,11 +208,13 @@ export function createPlatformClient(port: RpcPort): Platform {
 
   // Seed mirrors once, then track changes. Internal subscriptions are separate
   // from any the consumer opens, so user callbacks keep native semantics.
-  void call(RPC_INITIAL_STATE.ns, RPC_INITIAL_STATE.method, []).then((s) => {
-    const init = s as InitialState;
-    mirrors.connectionState = init.connectionState;
-    mirrors.connectedPeers = init.connectedPeers;
-  });
+  const ready = call(RPC_INITIAL_STATE.ns, RPC_INITIAL_STATE.method, []).then(
+    (s) => {
+      const init = s as InitialState;
+      mirrors.connectionState = init.connectionState;
+      mirrors.connectedPeers = init.connectedPeers;
+    },
+  );
   subscribe("sync", "onConnectionChange", {
     single: (state) => {
       mirrors.connectionState = state;
@@ -224,5 +232,8 @@ export function createPlatformClient(port: RpcPort): Platform {
     addEventListener("pagehide", () => port.postMessage({ t: "close" }));
   }
 
-  return platform as unknown as Platform;
+  return {
+    platform: platform as unknown as Platform,
+    ready: ready.then(() => undefined),
+  };
 }
