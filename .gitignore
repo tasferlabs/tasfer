@@ -30,7 +30,9 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/test_output
 # Store-native release-note copies are generated from fastlane/release_notes/.
-fastlane/metadata/
+# The permanent App Store listing under fastlane/metadata/ is version-controlled.
+fastlane/metadata/*/release_notes.txt
+fastlane/metadata/android/
 build/ios/
 
 # My notes

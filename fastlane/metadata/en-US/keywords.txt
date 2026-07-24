@@ -1,0 +1,1 @@
+notes,markdown,editor,offline,privacy,writing,collaboration,tasks,math,local-first

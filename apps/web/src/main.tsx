@@ -43,7 +43,7 @@ function updateDocumentDirection() {
 // No native-locale push here: startup reads the shell's stored locale via the
 // `nativeShell` detector (see i18n.ts); pushing happens only on an explicit
 // picker change (see LanguageSelect), so a cached web language can never
-// revert an OS-level per-app choice — and Android never recreates mid-boot.
+// revert the shell's choice — and Android never recreates mid-boot.
 
 const onLanguageChanged = () => {
   updateDocumentDirection();

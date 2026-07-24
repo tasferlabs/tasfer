@@ -1,0 +1,3 @@
+Tasfer requires no account or sign-in. All document data is stored locally on the device.
+
+The core editor, local storage, offline use, export, and settings can be reviewed immediately after launch. To test peer-to-peer collaboration, install Tasfer on two devices, create a pairing invitation on one device, and accept it on the other.
