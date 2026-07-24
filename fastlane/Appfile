@@ -2,7 +2,6 @@
 # Secrets come from fastlane/.env (gitignored); see fastlane/.env.example.
 
 app_identifier("app.tasfer") # iOS bundle id
-team_id("98V5CH5383")        # Apple Developer team
 
 for_platform :android do
   package_name("app.tasfer")

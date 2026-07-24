@@ -109,17 +109,18 @@ def validate_ios_metadata!
   UI.user_error!("iOS App Store metadata exceeds Apple limits:\n- #{oversized.join("\n- ")}") unless oversized.empty?
 end
 
-# Apple currently accepts 1290x2796 portrait captures for the 6.9-inch iPhone
-# slot. Keep one to ten opaque PNGs in each enabled App Store locale.
+# Keep one to ten opaque PNGs for both the 6.9-inch iPhone and 13-inch iPad
+# slots in each enabled App Store locale.
 def validate_ios_screenshots!
-  expected_size = [1_290, 2_796]
+  expected_sizes = {
+    "6.9-inch iPhone" => [[1_290, 2_796]],
+    "13-inch iPad" => [[2_048, 2_732], [2_732, 2_048]],
+  }.freeze
 
   IOS_LANGS.each do |lang|
     locale = NOTE_LOCALES.fetch(lang)[:asc]
     files = Dir[File.join(IOS_SCREENSHOTS_DIR, locale, "*.png")].sort
-    unless (1..10).cover?(files.length)
-      UI.user_error!("Expected 1-10 iOS screenshots for #{locale}; found #{files.length}")
-    end
+    counts = expected_sizes.transform_values { 0 }
 
     files.each do |path|
       header = File.binread(path, 26)
@@ -129,12 +130,16 @@ def validate_ios_screenshots!
 
       width, height = header.byteslice(16, 8).unpack("NN")
       color_type = header.getbyte(25)
-      unless [width, height] == expected_size
-        UI.user_error!("iOS screenshot must be #{expected_size.join('x')}: #{path} is #{width}x#{height}")
-      end
+      slot = expected_sizes.find { |_name, sizes| sizes.include?([width, height]) }&.first
+      UI.user_error!("Unsupported iOS screenshot dimensions: #{path} is #{width}x#{height}") unless slot
+      counts[slot] += 1
       if [4, 6].include?(color_type)
         UI.user_error!("iOS screenshot must not contain an alpha channel: #{path}")
       end
+    end
+
+    counts.each do |slot, count|
+      UI.user_error!("Expected 1-10 #{slot} screenshots for #{locale}; found #{count}") unless (1..10).cover?(count)
     end
   end
 end
@@ -296,8 +301,15 @@ def asc_api_key
   )
 end
 
+def apple_team_id
+  value = ENV["APPLE_TEAM_ID"].to_s.strip
+  UI.user_error!("APPLE_TEAM_ID must be a 10-character Apple Developer Team ID") unless value.match?(/\A[A-Z0-9]{10}\z/)
+  value
+end
+
 def archive_ios
-  xcargs = "-allowProvisioningUpdates"
+  team_id = apple_team_id
+  xcargs = "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{team_id}"
   # On CI there is no signed-in Xcode account or local certificate, so use
   # Xcode cloud-managed signing: authenticate xcodebuild with the ASC API key
   # and let it fetch/create the distribution cert + profile. setup_ci gives the
@@ -312,6 +324,7 @@ def archive_ios
     project: APP_PROJECT,
     scheme: APP_SCHEME,
     export_method: "app-store",
+    export_team_id: team_id,
     output_directory: "build/ios",
     clean: true,
     xcargs: xcargs,
