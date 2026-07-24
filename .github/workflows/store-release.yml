@@ -74,6 +74,10 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          APP_REVIEW_FIRST_NAME: ${{ secrets.APP_REVIEW_FIRST_NAME }}
+          APP_REVIEW_LAST_NAME: ${{ secrets.APP_REVIEW_LAST_NAME }}
+          APP_REVIEW_PHONE_NUMBER: ${{ secrets.APP_REVIEW_PHONE_NUMBER }}
+          APP_REVIEW_EMAIL_ADDRESS: ${{ secrets.APP_REVIEW_EMAIL_ADDRESS }}
           RELEASE_CONFIRM: yes
         run: bundle exec fastlane ios ${{ inputs.track }}
 

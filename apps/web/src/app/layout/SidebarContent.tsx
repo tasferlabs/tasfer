@@ -735,6 +735,9 @@ export function SidebarContent({
             <div
               className={clsx(
                 style.appNavigationLinks,
+                isMobile &&
+                  !hasSidebarProfile &&
+                  style.appNavigationLinksWithoutProfile,
                 shouldOverlaySidebarClose &&
                   style.appNavigationLinksWithClose,
               )}

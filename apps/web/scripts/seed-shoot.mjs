@@ -2,15 +2,15 @@
 // Seed the Tasfer web app with showcase content and capture the PWA manifest
 // screenshots (public/screenshots/*, referenced by scripts/gen-manifest.mjs).
 //
-// Reuses this skill's Playwright install and persistent .pw-profile (the
+// Reuses the run-web skill's Playwright install and persistent .pw-profile (the
 // profile's space gets wiped and reseeded — run `driver.mjs reset` afterwards
 // if you want the cold onboarding flow back).
 //
 // Usage:
-//   node seed-shoot.mjs [--out DIR] [--publish] [--headed]
+//   node scripts/seed-shoot.mjs [--out DIR] [--publish] [--headed]
 //
 // Shots land in --out (default /tmp/tasfer-pwa-shots). --publish additionally
-// copies the four canonical shots into apps/web/public/screenshots/.
+// copies the canonical shots into apps/web/public/screenshots/.
 //
 // Env: URL   base url (default http://localhost:4000)
 
@@ -19,11 +19,11 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
-
 const HERE = dirname(fileURLToPath(import.meta.url));
-const WEB_ROOT = resolve(HERE, "..", "..", "..");
+const WEB_ROOT = resolve(HERE, "..");
+const RUN_WEB_SKILL = join(WEB_ROOT, ".claude", "skills", "run-web");
+const require = createRequire(join(RUN_WEB_SKILL, "package.json"));
+const { chromium } = require("playwright");
 const BASE = process.env.URL || "http://localhost:4000";
 const argv = process.argv.slice(2);
 const has = (n) => argv.includes(`--${n}`);
@@ -97,6 +97,19 @@ color: #F59E0B
 # Meeting notes
 
 One sub-page per sync. Decisions in **bold**, owners in parentheses.
+
+## This week
+
+- [x] Align the canvas shortcuts with the mobile toolbar
+- [x] Ship the import improvements (Maya)
+- [ ] Prepare the pairing flow for the next beta
+
+**Decision:** keep every workspace fully local by default.
+
+## Next sync
+
+- Review the first-run experience
+- Choose the page templates for launch
 `,
   ],
   [
@@ -159,15 +172,20 @@ const CHILD_FILES = [
 
 const PARENT_TITLE = "Meeting notes";
 
-// The four shots the manifest references, with a caret parked on a believable
-// edit point. Caret coords are CSS px clicks into a text line; "End" then
-// snaps to the line end, so they only need to hit the right line, not the
-// right character.
+// Canonical source captures. The generic desktop/mobile files are used by the
+// PWA manifest; the named mobile captures compose the App Store screenshots.
+// Caret coords are CSS px clicks into a text line; "End" then snaps to the
+// line end.
 const PUBLISH = [
   ["desktop-light-roadmap.png", "desktop-light.png"],
   ["desktop-dark-physics.png", "desktop-dark.png"],
   ["mobile-light-roadmap.png", "mobile-light.png"],
+  ["mobile-light-roadmap.png", "mobile-light-roadmap.png"],
+  ["mobile-light-meetings.png", "mobile-light-meetings.png"],
   ["mobile-dark-physics.png", "mobile-dark.png"],
+  ["mobile-dark-physics.png", "mobile-dark-physics.png"],
+  ["mobile-dark-roadmap.png", "mobile-dark-roadmap.png"],
+  ["mobile-light-sidebar.png", "mobile-sidebar.png"],
 ];
 
 // ---------------------------------------------------------------------------
@@ -222,11 +240,20 @@ async function shotWithCaret(page, file, caret) {
   await page.screenshot({ path: join(OUT, file) });
 }
 
-const ctx = await chromium.launchPersistentContext(join(HERE, ".pw-profile"), {
-  headless: !has("headed"),
-  viewport: { width: 1280, height: 800 },
-  deviceScaleFactor: 2,
-});
+async function scrollEditorToTop(page) {
+  await page.mouse.move(200, 400);
+  await page.mouse.wheel(0, -10_000);
+  await page.waitForTimeout(100);
+}
+
+const ctx = await chromium.launchPersistentContext(
+  join(RUN_WEB_SKILL, ".pw-profile"),
+  {
+    headless: !has("headed"),
+    viewport: { width: 1280, height: 800 },
+    deviceScaleFactor: 2,
+  },
+);
 const page = ctx.pages()[0] || (await ctx.newPage());
 page.on("pageerror", (e) => console.error("[pageerror]", e.message));
 // Present as an installed app (the app's own iOS standalone signal), so the
@@ -284,8 +311,9 @@ const byTitle = Object.fromEntries(seeded.pages.map((p) => [p.title, p.id]));
 const roadmap = byTitle["Product roadmap"];
 const physics = byTitle["Wave mechanics"];
 
-// Reload so the sidebar reflects the seeded pages.
-await page.reload({ waitUntil: "domcontentloaded" });
+// The active route can point at a page just deleted during seeding. Return to
+// the app root before selecting a freshly imported page.
+await page.goto(BASE, { waitUntil: "domcontentloaded" });
 await waitBoot(page);
 
 // --- Desktop, light -------------------------------------------------------
@@ -306,15 +334,38 @@ await page.screenshot({ path: join(OUT, "desktop-dark-roadmap.png") });
 
 // --- Mobile ---------------------------------------------------------------
 await page.setViewportSize({ width: 390, height: 844 });
+// The capture profile is persistent, so never inherit a sidebar left open by
+// a previous run.
+await page.evaluate(() => localStorage.setItem("floating-sidebar-open", "false"));
 await setTheme(page, "light");
 await gotoPage(page, roadmap);
 // Caret: end of the intro paragraph ("…a word of it.").
 await shotWithCaret(page, "mobile-light-roadmap.png", { x: 180, y: 195 });
 
+await gotoPage(page, byTitle["Meeting notes"]);
+await page.screenshot({ path: join(OUT, "mobile-light-meetings.png") });
+
+await gotoPage(page, roadmap);
+
+// Sidebar navigation with the showcase tree visible. This is the page sidebar,
+// not the app Preferences or Page settings drawer.
+await page.getByRole("button", { name: /open sidebar/i }).click();
+await page.waitForTimeout(250);
+await page.screenshot({ path: join(OUT, "mobile-light-sidebar.png") });
+// Navigate through the floating sidebar so it closes before the math capture.
+await page.getByText("Wave mechanics", { exact: true }).click();
+await page
+  .getByRole("button", { name: /open sidebar/i })
+  .waitFor({ state: "visible" });
+
 await setTheme(page, "dark");
 await gotoPage(page, physics);
+await scrollEditorToTop(page);
 // Caret: end of the "Normalize the Gaussian wave packet" todo.
 await shotWithCaret(page, "mobile-dark-physics.png", { x: 200, y: 696 });
+
+await gotoPage(page, roadmap);
+await page.screenshot({ path: join(OUT, "mobile-dark-roadmap.png") });
 
 // Restore light for future driver runs.
 await page.setViewportSize({ width: 1280, height: 800 });

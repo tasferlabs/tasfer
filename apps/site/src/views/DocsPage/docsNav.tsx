@@ -5,6 +5,7 @@ import {
   AppMarkdown,
   AppPrivacy,
   AppSelfHosting,
+  AppSupport,
   AppSyncRelay,
   AppTroubleshooting,
   EditorRoadmap,
@@ -82,6 +83,13 @@ export const NAV: NavSection[] = [
             titleKey: "docs.navModel.app.troubleshooting",
             Comp: AppTroubleshooting,
             kw: "faq help fix problem backup export import account questions",
+          },
+          {
+            route: "app/support",
+            title: "Support",
+            titleKey: "docs.navModel.app.support",
+            Comp: AppSupport,
+            kw: "support contact email help report bug feedback app store",
           },
           {
             route: "app/self-hosting",
