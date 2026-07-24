@@ -18,7 +18,7 @@ const sourceDir = join(webRoot, "public", "screenshots");
 const outputDir = join(repo, "fastlane", "screenshots", "en-US");
 const seedScript = join(webRoot, "scripts", "seed-shoot.mjs");
 const rawDir = "/tmp/tasfer-app-store-raw";
-const baseUrl = process.env.URL || "http://localhost:4000";
+const baseUrl = process.env.URL || "http://127.0.0.1:4000";
 const skipCapture = process.argv.includes("--skip-capture");
 
 const escapeXml = (value) =>
@@ -48,18 +48,11 @@ const isServerReady = async () => {
   }
 };
 
-const waitForServer = async () => {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    if (await isServerReady()) return;
-    await new Promise((resolveWait) => setTimeout(resolveWait, 500));
-  }
-  throw new Error(`Tasfer did not become available at ${baseUrl}`);
-};
-
 if (!skipCapture) {
   if (!(await isServerReady())) {
-    await waitForServer();
+    throw new Error(
+      `Tasfer is not available at ${baseUrl}. Start it separately or pass --skip-capture.`,
+    );
   }
 
   await run(process.execPath, [seedScript, "--out", rawDir, "--publish"], {
@@ -68,13 +61,15 @@ if (!skipCapture) {
   });
 }
 
-try {
+{
   const sourceNames = {
     lightRoadmap: "mobile-light-roadmap.png",
     lightMeetings: "mobile-light-meetings.png",
     darkPhysics: "mobile-dark-physics.png",
     darkRoadmap: "mobile-dark-roadmap.png",
     sidebar: "mobile-sidebar.png",
+    desktopLight: "desktop-light.png",
+    desktopDark: "desktop-dark.png",
   };
   const sources = Object.fromEntries(
     await Promise.all(
@@ -212,5 +207,63 @@ try {
     }
     console.log("generated", output);
   }
-} finally {
+
+  const ipadShots = [
+    {
+      file: "ipad-01-notes-stay-yours.png",
+      source: "desktopLight",
+      background: ["#f5f3ea", "#dce9dd"],
+      ink: "#172118",
+      eyebrow: "PRIVATE BY DESIGN",
+      title: "Notes that stay yours.",
+    },
+    {
+      file: "ipad-02-beautiful-math.png",
+      source: "desktopDark",
+      background: ["#181b24", "#08090c"],
+      ink: "#f7f6f1",
+      eyebrow: "MATH, WITHOUT FRICTION",
+      title: "Beautiful math, inline.",
+    },
+  ];
+  for (const shot of ipadShots) {
+    const screenshot = await sharp(Buffer.from(sources[shot.source], "base64"))
+      .resize(2400, 1500, { fit: "fill" })
+      .png()
+      .toBuffer();
+    const svg = `
+      <svg width="2732" height="2048" viewBox="0 0 2732 2048" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="${shot.background[0]}"/>
+            <stop offset="1" stop-color="${shot.background[1]}"/>
+          </linearGradient>
+          <clipPath id="screen"><rect x="166" y="390" width="2400" height="1500" rx="48"/></clipPath>
+          <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+            <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.24"/>
+          </filter>
+        </defs>
+        <rect width="2732" height="2048" fill="url(#bg)"/>
+        <text x="166" y="118" fill="${shot.ink}" opacity="0.62" font-family="Helvetica Neue, Arial, sans-serif" font-size="30" font-weight="700" letter-spacing="7">${escapeXml(shot.eyebrow)}</text>
+        <text x="166" y="280" fill="${shot.ink}" font-family="Helvetica Neue, Arial, sans-serif" font-size="104" font-weight="700" letter-spacing="-3">${escapeXml(shot.title)}</text>
+        <rect x="166" y="410" width="2400" height="1480" rx="48" fill="#000" opacity="0.22" filter="url(#shadow)"/>
+        <g clip-path="url(#screen)">
+          <image href="data:image/png;base64,${screenshot.toString("base64")}" x="166" y="390" width="2400" height="1500" preserveAspectRatio="none"/>
+        </g>
+        <rect x="167" y="391" width="2398" height="1498" rx="47" fill="none" stroke="${shot.ink}" stroke-opacity="0.13" stroke-width="2"/>
+      </svg>`;
+
+    const output = join(outputDir, shot.file);
+    await sharp(Buffer.from(svg))
+      .flatten({ background: shot.background[0] })
+      .png({ compressionLevel: 9, adaptiveFiltering: true })
+      .toColorspace("srgb")
+      .toFile(output);
+
+    const metadata = await sharp(output).metadata();
+    if (metadata.width !== 2732 || metadata.height !== 2048 || metadata.hasAlpha) {
+      throw new Error(`${shot.file} is not an opaque 2732x2048 PNG`);
+    }
+    console.log("generated", output);
+  }
 }

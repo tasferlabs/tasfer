@@ -4,9 +4,9 @@ The release lane uploads only locales enabled by `IOS_LANGS` in the Fastfile.
 The current set is English-only under `en-US/`; Arabic listing files remain
 version-controlled separately and are not sent to App Store Connect.
 
-Each PNG is an opaque 1290x2796 portrait image for Apple's 6.9-inch iPhone
-screenshot slot. Keep between one and ten images per enabled locale and preserve
-the numeric filename prefixes to control their App Store order.
+Each locale contains opaque images for Apple's 6.9-inch iPhone (1290x2796) and
+13-inch iPad (2732x2048) screenshot slots. Keep between one and ten images per
+device slot. Numeric filename prefixes control their order.
 
 ## Regenerate
 
@@ -17,9 +17,9 @@ npm --prefix brand ci
 npm --prefix brand run generate:app-store-screenshots
 ```
 
-The script starts a local Tasfer development server only when one is not already
-running, wipes and seeds the dedicated `.claude/skills/run-web/.pw-profile`,
-captures the canonical app views, and composes the five images in this directory.
-It never uses the production beta site or a personal browser profile. Pass
-`--skip-capture` to reuse the checked-in source captures under
-`apps/web/public/screenshots/`.
+For fresh captures, start Tasfer separately at `http://127.0.0.1:4000` (or pass
+another address through `URL`). The script never starts or owns a development
+server. It wipes and seeds the dedicated `.claude/skills/run-web/.pw-profile`,
+captures canonical app views, and generates both phone and iPad device sets.
+Pass `--skip-capture` to reuse checked-in sources under
+`apps/web/public/screenshots/` without contacting a server.
