@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Generates the App Store screenshots from a deterministic local Tasfer run.
+// Generates the App Store and styled PWA screenshots from a deterministic local
+// Tasfer run.
 // It never uses the production/beta site or a personal browser profile.
 
-import { readFile, mkdir } from "node:fs/promises";
+import { copyFile, readFile, mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,12 +15,20 @@ const require = createRequire(join(repo, "brand", "package.json"));
 const sharp = require("sharp");
 
 const webRoot = join(repo, "apps", "web");
-const sourceDir = join(webRoot, "public", "screenshots");
+const sourceDir = join(repo, "fastlane", "screenshots", "source");
+const pwaOutputDir = join(webRoot, "public", "screenshots");
 const outputDir = join(repo, "fastlane", "screenshots", "en-US");
 const seedScript = join(webRoot, "scripts", "seed-shoot.mjs");
 const rawDir = "/tmp/tasfer-app-store-raw";
 const baseUrl = process.env.URL || "http://127.0.0.1:4000";
 const skipCapture = process.argv.includes("--skip-capture");
+
+const pwaOutputs = {
+  "01-notes-stay-yours.png": "pwa-mobile-light.png",
+  "03-beautiful-math.png": "pwa-mobile-dark.png",
+  "ipad-01-notes-stay-yours.png": "pwa-desktop-light.png",
+  "ipad-02-beautiful-math.png": "pwa-desktop-dark.png",
+};
 
 const escapeXml = (value) =>
   value
@@ -68,8 +77,8 @@ if (!skipCapture) {
     darkPhysics: "mobile-dark-physics.png",
     darkRoadmap: "mobile-dark-roadmap.png",
     sidebar: "mobile-sidebar.png",
-    desktopLight: "desktop-light.png",
-    desktopDark: "desktop-dark.png",
+    desktopLight: "desktop-light-roadmap.png",
+    desktopDark: "desktop-dark-physics.png",
   };
   const sources = Object.fromEntries(
     await Promise.all(
@@ -140,7 +149,10 @@ if (!skipCapture) {
     },
   ];
 
-  await mkdir(outputDir, { recursive: true });
+  await Promise.all([
+    mkdir(outputDir, { recursive: true }),
+    mkdir(pwaOutputDir, { recursive: true }),
+  ]);
 
   for (const shot of shots) {
     const metadata = await sharp(
@@ -206,6 +218,11 @@ if (!skipCapture) {
       throw new Error(`${shot.file} is not an opaque 1290x2796 PNG`);
     }
     console.log("generated", output);
+    if (pwaOutputs[shot.file]) {
+      const pwaOutput = join(pwaOutputDir, pwaOutputs[shot.file]);
+      await copyFile(output, pwaOutput);
+      console.log("generated", pwaOutput);
+    }
   }
 
   const ipadShots = [
@@ -265,5 +282,10 @@ if (!skipCapture) {
       throw new Error(`${shot.file} is not an opaque 2732x2048 PNG`);
     }
     console.log("generated", output);
+    if (pwaOutputs[shot.file]) {
+      const pwaOutput = join(pwaOutputDir, pwaOutputs[shot.file]);
+      await copyFile(output, pwaOutput);
+      console.log("generated", pwaOutput);
+    }
   }
 }

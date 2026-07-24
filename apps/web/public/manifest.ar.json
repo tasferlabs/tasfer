@@ -55,29 +55,29 @@
   ],
   "screenshots": [
     {
-      "src": "/screenshots/desktop-light.png",
-      "sizes": "2560x1600",
+      "src": "/screenshots/pwa-desktop-light.png",
+      "sizes": "2732x2048",
       "type": "image/png",
       "form_factor": "wide",
       "label": "ملاحظات ومهام ومعادلات في محرّر لوحة الرسم — المظهر الفاتح"
     },
     {
-      "src": "/screenshots/desktop-dark.png",
-      "sizes": "2560x1600",
+      "src": "/screenshots/pwa-desktop-dark.png",
+      "sizes": "2732x2048",
       "type": "image/png",
       "form_factor": "wide",
       "label": "معادلات تُرسم مباشرةً على لوحة الرسم — المظهر الداكن"
     },
     {
-      "src": "/screenshots/mobile-light.png",
-      "sizes": "780x1688",
+      "src": "/screenshots/pwa-mobile-light.png",
+      "sizes": "1290x2796",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "ملاحظة تتضمّن مهامًا على الهاتف — المظهر الفاتح"
     },
     {
-      "src": "/screenshots/mobile-dark.png",
-      "sizes": "780x1688",
+      "src": "/screenshots/pwa-mobile-dark.png",
+      "sizes": "1290x2796",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "ملاحظة فيزياء على الهاتف — المظهر الداكن"

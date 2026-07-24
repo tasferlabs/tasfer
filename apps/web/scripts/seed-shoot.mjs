@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Seed the Tasfer web app with showcase content and capture the PWA manifest
-// screenshots (public/screenshots/*, referenced by scripts/gen-manifest.mjs).
+// Seed the Tasfer web app with showcase content and capture the source images
+// used by generate-app-store-screenshots.mjs.
 //
 // Reuses the run-web skill's Playwright install and persistent .pw-profile (the
 // profile's space gets wiped and reseeded — run `driver.mjs reset` afterwards
@@ -10,7 +10,7 @@
 //   node scripts/seed-shoot.mjs [--out DIR] [--publish] [--headed]
 //
 // Shots land in --out (default /tmp/tasfer-pwa-shots). --publish additionally
-// copies the canonical shots into apps/web/public/screenshots/.
+// copies the canonical shots into fastlane/screenshots/source/.
 //
 // Env: URL   base url (default http://localhost:4000)
 
@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(HERE, "..");
+const REPO_ROOT = resolve(WEB_ROOT, "..", "..");
 const RUN_WEB_SKILL = join(WEB_ROOT, ".claude", "skills", "run-web");
 const require = createRequire(join(RUN_WEB_SKILL, "package.json"));
 const { chromium } = require("playwright");
@@ -172,17 +173,15 @@ const CHILD_FILES = [
 
 const PARENT_TITLE = "Meeting notes";
 
-// Canonical source captures. The generic desktop/mobile files are used by the
-// PWA manifest; the named mobile captures compose the App Store screenshots.
+// Canonical source captures used to compose the App Store and styled PWA
+// screenshots.
 // Caret coords are CSS px clicks into a text line; "End" then snaps to the
 // line end.
 const PUBLISH = [
-  ["desktop-light-roadmap.png", "desktop-light.png"],
-  ["desktop-dark-physics.png", "desktop-dark.png"],
-  ["mobile-light-roadmap.png", "mobile-light.png"],
+  ["desktop-light-roadmap.png", "desktop-light-roadmap.png"],
+  ["desktop-dark-physics.png", "desktop-dark-physics.png"],
   ["mobile-light-roadmap.png", "mobile-light-roadmap.png"],
   ["mobile-light-meetings.png", "mobile-light-meetings.png"],
-  ["mobile-dark-physics.png", "mobile-dark.png"],
   ["mobile-dark-physics.png", "mobile-dark-physics.png"],
   ["mobile-dark-roadmap.png", "mobile-dark-roadmap.png"],
   ["mobile-light-sidebar.png", "mobile-sidebar.png"],
@@ -374,7 +373,7 @@ await setTheme(page, "light");
 await ctx.close();
 
 if (has("publish")) {
-  const dest = join(WEB_ROOT, "public", "screenshots");
+  const dest = join(REPO_ROOT, "fastlane", "screenshots", "source");
   mkdirSync(dest, { recursive: true });
   for (const [src, out] of PUBLISH) {
     copyFileSync(join(OUT, src), join(dest, out));
