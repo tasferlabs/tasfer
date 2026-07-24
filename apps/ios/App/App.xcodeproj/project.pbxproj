@@ -27,6 +27,7 @@
 		A1000001TASFER000000000011 /* ContextMenuBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000011 /* ContextMenuBridge.swift */; };
 		A1000001TASFER000000000013 /* SqliteBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000013 /* SqliteBridgePlugin.swift */; };
 		A1000001TASFER000000000014 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000014 /* InfoPlist.xcstrings */; };
+		A1000001TASFER000000000015 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000015 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +54,7 @@
 		A1000002TASFER000000000011 /* ContextMenuBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextMenuBridge.swift; sourceTree = "<group>"; };
 		A1000002TASFER000000000013 /* SqliteBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqliteBridgePlugin.swift; sourceTree = "<group>"; };
 		A1000002TASFER000000000014 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		A1000002TASFER000000000015 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,6 +108,7 @@
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
 				A1000002TASFER000000000014 /* InfoPlist.xcstrings */,
+				A1000002TASFER000000000015 /* PrivacyInfo.xcprivacy */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
@@ -186,6 +189,7 @@
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
 				A1000001TASFER000000000014 /* InfoPlist.xcstrings in Resources */,
+				A1000001TASFER000000000015 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
