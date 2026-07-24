@@ -142,7 +142,7 @@ Store submissions run through the checked-in [`fastlane/Fastfile`](fastlane/Fast
 normally via the **Store Release** workflow so the exact build and submission
 happens in a public CI log. Flow:
 
-1. `node scripts/release/set-native-version.mjs` — stamps the released desktop
+1. `npm --prefix apps/web run set:native-version` — stamps the released desktop
    `v<version>` onto both native projects and bumps the shared build number.
 2. Edit `fastlane/release_notes/<lang>.txt` (all languages are required).
 3. Commit both, then dispatch **Store Release** on that ref, choosing the

@@ -58,17 +58,19 @@ Then **look at the PNGs** — that's how you verify a canvas change. Add
 
 ## PWA manifest screenshots
 
-`seed-shoot.mjs` reseeds the profile's space with showcase content (colored
-pages, math, todos) through the app's own markdown importer, then captures the
-four screenshots `scripts/gen-manifest.mjs` references:
+`scripts/seed-shoot.mjs` reseeds the profile's space with showcase content
+(colored pages, math, todos) through the app's own markdown importer, then
+captures the screenshots used by the PWA manifest and App Store artwork:
 
 ```bash
-node seed-shoot.mjs --publish   # writes into ../../../public/screenshots/
+node scripts/seed-shoot.mjs --publish
 ```
 
 Shots land in `/tmp/tasfer-pwa-shots` (override with `--out`); `--publish`
-copies the canonical four into `public/screenshots/`. It wipes and reseeds the
-`.pw-profile` space — `driver.mjs reset` restores the cold onboarding flow.
+copies the canonical captures into `public/screenshots/`. It wipes and reseeds
+the skill's `.pw-profile` space — `.claude/skills/run-web/driver.mjs reset`
+restores the cold onboarding flow. The script reuses the skill's Playwright
+dependency.
 
 ## Troubleshooting
 

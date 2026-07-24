@@ -143,16 +143,12 @@ class TasferViewController: CAPBridgeViewController {
         // surface its in-app developer toolbar without an env/build change.
         let devToolsEnabled = UserDefaults.standard.bool(forKey: "dev_tools_enabled")
 
-        // The app's explicitly-chosen language, "" when it follows the system:
-        // AppleLanguages from the app's own defaults domain, present only when
-        // iOS Settings or the in-app picker set it. A launch-time snapshot —
-        // fresh whenever iOS Settings changed it (that relaunches the app);
-        // same-session picker changes are covered by the web layer's session
-        // pin. Interpolated into JS source, so restricted to tag characters.
-        let storedLanguages = UserDefaults.standard
-            .persistentDomain(forName: Bundle.main.bundleIdentifier ?? "")?["AppleLanguages"]
-            as? [String]
-        let rawLocaleTag = storedLanguages?.first ?? ""
+        // Prefer the app-owned in-app choice, then the language iOS selected
+        // for Tasfer. Same-session picker changes use the web session pin.
+        // Interpolated into JS source, so restricted to tag characters.
+        let rawLocaleTag = UserDefaults.standard.string(forKey: "tasfer_locale")
+            ?? Bundle.main.preferredLocalizations.first
+            ?? ""
         let initialLocaleTag =
             rawLocaleTag.range(of: "^[A-Za-z0-9-]{1,35}$", options: .regularExpression) != nil
             ? rawLocaleTag : ""

@@ -13,9 +13,9 @@ that expose device features to the web layer.
 
 ## Signing setup
 
-Your Apple Developer **Team ID** is personal and must not be committed. The
-project reads it from a local, gitignored file instead of `project.pbxproj`, so
-your ID never lands in git and builds never re-add it.
+The Apple Developer Team ID is not tracked. Store Release CI reads
+`APPLE_TEAM_ID` from GitHub Actions secrets and passes it to Xcode through
+Fastlane. Local Xcode builds read the team from a gitignored override.
 
 One-time setup after cloning:
 
@@ -28,13 +28,14 @@ cp DeveloperSettings.xcconfig.example DeveloperSettings.xcconfig
 Find your Team ID under **Membership details** at
 <https://developer.apple.com/account>.
 
-`DeveloperSettings.xcconfig` is gitignored and is pulled into both the Debug and
-Release configs via `#include?`, so signing resolves automatically once it exists.
+`DeveloperSettings.xcconfig` is gitignored and is pulled into both Debug and
+Release via `#include?`. Local Fastlane releases also need the same value as
+`APPLE_TEAM_ID` in `fastlane/.env`.
 
 > **Do not change the Team in Xcode's _Signing & Capabilities_ tab.** It should
 > already show your team as resolved (inherited from the xcconfig). Selecting it
-> manually makes Xcode write `DEVELOPMENT_TEAM` back into the tracked
-> `project.pbxproj`. Leave it inherited and the tracked project stays clean.
+> manually makes Xcode write `DEVELOPMENT_TEAM` into `project.pbxproj`. Leave it
+> inherited from the xcconfig files so the tracked project stays clean.
 
 ## Building & running
 

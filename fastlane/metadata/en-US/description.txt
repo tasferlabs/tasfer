@@ -1,0 +1,20 @@
+Write, organize, and collaborate without handing your documents to a cloud service.
+
+Tasfer is a local-first canvas editor built for notes, tasks, structured writing, and mathematics. Your documents stay on your device and remain available offline. No account or sign-up is required.
+
+WRITE YOUR WAY
+• Create paragraphs, headings, lists, tasks, images, links, and dividers
+• Format text with bold, italic, strikethrough, and inline code
+• Write equations with canvas-native LaTeX mathematics
+• Work naturally with right-to-left and bidirectional text
+
+PRIVATE BY DESIGN
+• Documents are stored locally on your device
+• No analytics, advertising, trackers, or telemetry
+• No account and no central document server
+• Export your work whenever you choose
+
+COLLABORATE DIRECTLY
+Pair trusted devices and edit together through encrypted peer-to-peer connections. A stateless signaling service helps devices find each other but does not receive or store the contents of your documents.
+
+Tasfer is free and open-source software. Its privacy model is visible in the source code, not just promised in a policy.

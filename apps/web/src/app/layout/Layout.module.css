@@ -250,6 +250,10 @@
     padding-bottom: 0.75rem;
   }
 
+  .appNavigationLinksWithoutProfile {
+    padding-top: 0.75rem;
+  }
+
   .appNavigationLink {
     height: 44px;
     padding-inline: 0.5rem;

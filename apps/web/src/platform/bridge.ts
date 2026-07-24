@@ -230,10 +230,9 @@ const LOCALE_TAG_RE = /^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/;
  * shell or it follows the system language.
  *
  * Consulted by i18next detection ahead of the web cookie/localStorage caches:
- * the OS per-app language setting and the in-app picker both land in the
- * native store, so it always holds the latest explicit choice — a cached web
- * value must not outrank it (it did: an Android 13 user's Settings choice was
- * reverted by the web cache on the next start).
+ * the OS per-app language setting or the in-app picker is reflected by the
+ * native shell, so a cached web value must not outrank it (it did: an Android
+ * 13 user's Settings choice was reverted by the web cache on the next start).
  *
  * The session pin covers the one stale window: iOS's `initialLocale` is a
  * launch-time snapshot, so right after the picker runs, the pin written by
@@ -280,11 +279,11 @@ export function getNativeExplicitLocale(): string | null {
  * truth on mobile.
  *
  * `tag` is a BCP-47 language tag. Android applies it via
- * `AppCompatDelegate.setApplicationLocales`, iOS writes the `AppleLanguages`
- * default (lands next launch — the session pin bridges the gap), Electron
- * rebuilds its menu and tray. Plain web is a no-op (the `locale` cookie
- * already governs it). Fire-and-forget: a missing or failing host must never
- * break the language switch itself.
+ * `AppCompatDelegate.setApplicationLocales`; iOS stores an app-owned choice
+ * for the next WebView launch (the session pin bridges the gap); Electron
+ * rebuilds its menu and tray. Plain web is a no-op (the `locale` cookie already
+ * governs it). Fire-and-forget: a missing or failing host must never break the
+ * language switch itself.
  */
 export function setNativeLocale(tag: string): void {
   try {

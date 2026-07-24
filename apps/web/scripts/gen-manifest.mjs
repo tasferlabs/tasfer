@@ -115,29 +115,29 @@ const BASE = {
 // feeds desktop install UI, `"narrow"` feeds mobile.
 const SCREENSHOTS = [
   {
-    src: "/screenshots/desktop-light.png",
-    sizes: "2560x1600",
+    src: "/screenshots/pwa-desktop-light.png",
+    sizes: "2732x2048",
     type: "image/png",
     form_factor: "wide",
     labelKey: SCREENSHOT_LABEL_KEYS.desktopLight,
   },
   {
-    src: "/screenshots/desktop-dark.png",
-    sizes: "2560x1600",
+    src: "/screenshots/pwa-desktop-dark.png",
+    sizes: "2732x2048",
     type: "image/png",
     form_factor: "wide",
     labelKey: SCREENSHOT_LABEL_KEYS.desktopDark,
   },
   {
-    src: "/screenshots/mobile-light.png",
-    sizes: "780x1688",
+    src: "/screenshots/pwa-mobile-light.png",
+    sizes: "1290x2796",
     type: "image/png",
     form_factor: "narrow",
     labelKey: SCREENSHOT_LABEL_KEYS.mobileLight,
   },
   {
-    src: "/screenshots/mobile-dark.png",
-    sizes: "780x1688",
+    src: "/screenshots/pwa-mobile-dark.png",
+    sizes: "1290x2796",
     type: "image/png",
     form_factor: "narrow",
     labelKey: SCREENSHOT_LABEL_KEYS.mobileDark,

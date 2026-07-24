@@ -14,7 +14,7 @@
 # so these lanes only drive the native build + upload.
 #
 # Versions follow the desktop release: stamp the released v<version> first with
-#   node scripts/release/set-native-version.mjs
+#   npm --prefix apps/web run set:native-version
 #
 # Secrets are read from fastlane/.env (gitignored) — see fastlane/.env.example.
 require "dotenv"
@@ -40,6 +40,9 @@ AAB_PATH    = "apps/android/app/build/outputs/bundle/release/app-release.aab"
 # note file for any supported language blocks the release (never upload empty
 # notes, and never let a language silently fall back to English).
 RELEASE_NOTES_DIR = File.expand_path("release_notes", __dir__)
+IOS_METADATA_DIR = File.expand_path("metadata", __dir__)
+IOS_METADATA_UPLOAD_DIR = File.expand_path("../build/ios/metadata", __dir__)
+IOS_SCREENSHOTS_DIR = File.expand_path("screenshots", __dir__)
 DEFAULT_LANG = "en"
 
 # Play caps changelogs at 500 chars/locale; TestFlight + App Store allow 4000.
@@ -49,6 +52,118 @@ NOTE_LOCALES = {
   "en" => { asc: "en-US", play: "en-US" },
   "ar" => { asc: "ar-SA", play: "ar"    },
 }
+
+# Arabic source files stay checked in for future use, but iOS currently sends
+# English only. Android continues to use every language in NOTE_LOCALES.
+IOS_LANGS = %w[en].freeze
+
+IOS_LOCALIZED_METADATA_FILES = %w[
+  name.txt
+  subtitle.txt
+  description.txt
+  keywords.txt
+  promotional_text.txt
+  support_url.txt
+  marketing_url.txt
+  privacy_url.txt
+].freeze
+
+IOS_GLOBAL_METADATA_FILES = %w[
+  copyright.txt
+  primary_category.txt
+  review_information/notes.txt
+].freeze
+
+IOS_METADATA_LIMITS = {
+  "name.txt" => [:length, 30],
+  "subtitle.txt" => [:length, 30],
+  "description.txt" => [:length, 4_000],
+  "keywords.txt" => [:bytesize, 100],
+  "promotional_text.txt" => [:length, 170],
+}.freeze
+
+# Fail before an expensive archive if the checked-in App Store listing is
+# incomplete. Release notes are validated separately because they are generated
+# from fastlane/release_notes/<lang>.txt immediately before upload.
+def validate_ios_metadata!
+  files = IOS_GLOBAL_METADATA_FILES.map { |name| File.join(IOS_METADATA_DIR, name) }
+  IOS_LANGS.each do |lang|
+    locales = NOTE_LOCALES.fetch(lang)
+    IOS_LOCALIZED_METADATA_FILES.each do |name|
+      files << File.join(IOS_METADATA_DIR, locales[:asc], name)
+    end
+  end
+
+  missing = files.select { |path| !File.exist?(path) || File.read(path, encoding: "UTF-8").strip.empty? }
+  unless missing.empty?
+    relative = missing.map { |path| path.delete_prefix("#{File.expand_path('..', __dir__)}/") }
+    UI.user_error!("Missing or empty iOS App Store metadata:\n- #{relative.join("\n- ")}")
+  end
+
+  oversized = files.filter_map do |path|
+    measure, limit = IOS_METADATA_LIMITS[File.basename(path)]
+    next unless measure
+    size = File.read(path, encoding: "UTF-8").strip.public_send(measure)
+    "#{path.delete_prefix("#{File.expand_path('..', __dir__)}/")} is #{size}; limit is #{limit}" if size > limit
+  end
+  UI.user_error!("iOS App Store metadata exceeds Apple limits:\n- #{oversized.join("\n- ")}") unless oversized.empty?
+end
+
+# Keep one to ten opaque PNGs for both the 6.9-inch iPhone and 13-inch iPad
+# slots in each enabled App Store locale.
+def validate_ios_screenshots!
+  expected_sizes = {
+    "6.9-inch iPhone" => [[1_290, 2_796]],
+    "13-inch iPad" => [[2_048, 2_732], [2_732, 2_048]],
+  }.freeze
+
+  IOS_LANGS.each do |lang|
+    locale = NOTE_LOCALES.fetch(lang)[:asc]
+    files = Dir[File.join(IOS_SCREENSHOTS_DIR, locale, "*.png")].sort
+    counts = expected_sizes.transform_values { 0 }
+
+    files.each do |path|
+      header = File.binread(path, 26)
+      unless header.start_with?("\x89PNG\r\n\x1A\n".b) && header.bytesize >= 26
+        UI.user_error!("iOS screenshot is not a valid PNG: #{path}")
+      end
+
+      width, height = header.byteslice(16, 8).unpack("NN")
+      color_type = header.getbyte(25)
+      slot = expected_sizes.find { |_name, sizes| sizes.include?([width, height]) }&.first
+      UI.user_error!("Unsupported iOS screenshot dimensions: #{path} is #{width}x#{height}") unless slot
+      counts[slot] += 1
+      if [4, 6].include?(color_type)
+        UI.user_error!("iOS screenshot must not contain an alpha channel: #{path}")
+      end
+    end
+
+    counts.each do |slot, count|
+      UI.user_error!("Expected 1-10 #{slot} screenshots for #{locale}; found #{count}") unless (1..10).cover?(count)
+    end
+  end
+end
+
+def app_review_information
+  required = %w[
+    APP_REVIEW_FIRST_NAME
+    APP_REVIEW_LAST_NAME
+    APP_REVIEW_PHONE_NUMBER
+    APP_REVIEW_EMAIL_ADDRESS
+  ]
+  missing = required.select { |name| ENV[name].to_s.strip.empty? }
+  unless missing.empty?
+    UI.user_error!("Missing App Review contact environment variables: #{missing.join(', ')}")
+  end
+
+  {
+    first_name: ENV.fetch("APP_REVIEW_FIRST_NAME"),
+    last_name: ENV.fetch("APP_REVIEW_LAST_NAME"),
+    phone_number: ENV.fetch("APP_REVIEW_PHONE_NUMBER"),
+    email_address: ENV.fetch("APP_REVIEW_EMAIL_ADDRESS"),
+    notes: File.read(File.join(IOS_METADATA_DIR, "review_information", "notes.txt"), encoding: "UTF-8").strip,
+  }
+end
 
 # Read the per-language note for EVERY supported language, keyed by app language.
 # Enforces: every language in NOTE_LOCALES is present and non-empty — a missing
@@ -71,19 +186,29 @@ end
 # own entry, so TestFlight never rejects an unconfigured language.
 def testflight_localized_info(notes)
   info = { "default" => { whats_new: notes[DEFAULT_LANG] } }
-  notes.each { |lang, text| info[NOTE_LOCALES[lang][:asc]] = { whats_new: text } }
+  IOS_LANGS.each { |lang| info[NOTE_LOCALES.fetch(lang)[:asc]] = { whats_new: notes.fetch(lang) } }
   info
 end
 
-# deliver reads "What's New" from metadata/<asc-locale>/release_notes.txt. Only
-# these files are staged, so deliver pushes just the notes and leaves the rest of
-# each App Store listing untouched.
-def stage_ios_release_notes(notes)
-  notes.each do |lang, text|
-    dir = File.expand_path("metadata/#{NOTE_LOCALES[lang][:asc]}", __dir__)
-    FileUtils.mkdir_p(dir)
-    File.write(File.join(dir, "release_notes.txt"), text)
+# Build a generated deliver directory containing only enabled iOS locales.
+# Source metadata for disabled locales remains untouched and version-controlled.
+def stage_ios_metadata(notes)
+  FileUtils.rm_rf(IOS_METADATA_UPLOAD_DIR)
+  FileUtils.mkdir_p(IOS_METADATA_UPLOAD_DIR)
+
+  IOS_GLOBAL_METADATA_FILES.each do |name|
+    next if name.start_with?("review_information/")
+    FileUtils.cp(File.join(IOS_METADATA_DIR, name), File.join(IOS_METADATA_UPLOAD_DIR, name))
   end
+
+  IOS_LANGS.each do |lang|
+    locale = NOTE_LOCALES.fetch(lang)[:asc]
+    destination = File.join(IOS_METADATA_UPLOAD_DIR, locale)
+    FileUtils.cp_r(File.join(IOS_METADATA_DIR, locale), destination)
+    File.write(File.join(destination, "release_notes.txt"), notes.fetch(lang))
+  end
+
+  IOS_METADATA_UPLOAD_DIR
 end
 
 # Play changelogs are keyed by <play-locale>/changelogs/<versionCode>.txt, so
@@ -176,8 +301,15 @@ def asc_api_key
   )
 end
 
+def apple_team_id
+  value = ENV["APPLE_TEAM_ID"].to_s.strip
+  UI.user_error!("APPLE_TEAM_ID must be a 10-character Apple Developer Team ID") unless value.match?(/\A[A-Z0-9]{10}\z/)
+  value
+end
+
 def archive_ios
-  xcargs = "-allowProvisioningUpdates"
+  team_id = apple_team_id
+  xcargs = "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{team_id}"
   # On CI there is no signed-in Xcode account or local certificate, so use
   # Xcode cloud-managed signing: authenticate xcodebuild with the ASC API key
   # and let it fetch/create the distribution cert + profile. setup_ci gives the
@@ -192,6 +324,7 @@ def archive_ios
     project: APP_PROJECT,
     scheme: APP_SCHEME,
     export_method: "app-store",
+    export_team_id: team_id,
     output_directory: "build/ios",
     clean: true,
     xcargs: xcargs,
@@ -216,20 +349,29 @@ platform :ios do
   lane :release do
     confirm_release!("Submit Tasfer #{ios_marketing_version || "(unknown version)"} to the App Store and send it for review?")
     api_key = asc_api_key
-    stage_ios_release_notes(release_notes_by_lang)
+    validate_ios_metadata!
+    validate_ios_screenshots!
+    notes = release_notes_by_lang
     archive_ios
+    metadata_upload_dir = stage_ios_metadata(notes)
     upload_to_app_store(
       api_key: api_key,
+      metadata_path: metadata_upload_dir,
+      screenshots_path: IOS_SCREENSHOTS_DIR,
       submit_for_review: true,   # send the build to App Store review
       automatic_release: false,  # after approval, press "Release" manually in App Store Connect
+      app_review_information: app_review_information,
       # Answers the review questions that would otherwise block/prompt the submission.
       # Adjust if the app ever adds non-exempt encryption or an advertising SDK (IDFA).
       submission_information: {
         export_compliance_uses_encryption: false,
         add_id_info_uses_idfa: false,
+        content_rights_contains_third_party_content: false,
+        content_rights_has_rights: true,
       },
-      skip_metadata: false,   # push the staged "What's New" note...
-      skip_screenshots: true, # ...but only release_notes.txt exists, so nothing else changes
+      skip_metadata: false,   # push the checked-in listing and staged "What's New" notes
+      skip_screenshots: false, # upload only the checked-in locales (currently en-US)
+      overwrite_screenshots: true,
       precheck_include_in_app_purchases: false,
       force: true, # skip the HTML preview confirmation prompt
     )

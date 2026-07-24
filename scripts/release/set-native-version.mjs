@@ -7,9 +7,8 @@
 //   node scripts/release/set-native-version.mjs 0.2.0    set an explicit version
 //
 // The version name defaults to apps/desktop/package.json (the version
-// release-please last released as v<version>). The build number (iOS
-// CURRENT_PROJECT_VERSION / Android versionCode) is a single monotonic integer
-// = max(iOS, Android) + 1, which also self-heals any drift between the two.
+// release-please last released as v<version>). iOS gets a monotonically
+// increasing build number; Android derives versionCode from the semver.
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -21,14 +20,17 @@ const pbxPath = resolve(root, "apps/ios/App/App.xcodeproj/project.pbxproj");
 let gradle = readFileSync(gradlePath, "utf8");
 let pbx = readFileSync(pbxPath, "utf8");
 
-const androidCode = parseInt(gradle.match(/versionCode\s+(\d+)/)?.[1] ?? "0", 10);
-const iosBuild = parseInt(pbx.match(/CURRENT_PROJECT_VERSION\s*=\s*(\d+);/)?.[1] ?? "0", 10);
+const iosBuildMatch = pbx.match(/CURRENT_PROJECT_VERSION\s*=\s*(\d+);/);
+if (!iosBuildMatch) {
+  throw new Error("set-native-version: could not read the current iOS build number");
+}
+const iosBuild = parseInt(iosBuildMatch[1], 10);
 
 const arg = process.argv[2];
 let newName;
 if (arg) {
-  if (!/^\d+\.\d+(\.\d+)?$/.test(arg)) {
-    console.error(`set-native-version: invalid version "${arg}". Use X.Y[.Z].`);
+  if (!/^\d+\.\d+\.\d+$/.test(arg)) {
+    console.error(`set-native-version: invalid version "${arg}". Use X.Y.Z.`);
     process.exit(1);
   }
   newName = arg;
@@ -37,14 +39,24 @@ if (arg) {
   newName = desktop.version;
 }
 
-const newBuild = Math.max(androidCode, iosBuild) + 1;
+const newBuild = iosBuild + 1;
 
-gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${newBuild}`);
-gradle = gradle.replace(/versionName\s+"[^"]+"/, `versionName "${newName}"`);
+const gradleVersionPattern = /def tasferVersionName\s*=\s*"[^"]+"/;
+if (!gradleVersionPattern.test(gradle)) {
+  throw new Error("set-native-version: could not find tasferVersionName in build.gradle");
+}
+gradle = gradle.replace(
+  gradleVersionPattern,
+  `def tasferVersionName = "${newName}"`,
+);
+const originalPbx = pbx;
 pbx = pbx.replaceAll(/MARKETING_VERSION = [0-9.]+;/g, `MARKETING_VERSION = ${newName};`);
 pbx = pbx.replaceAll(/CURRENT_PROJECT_VERSION = \d+;/g, `CURRENT_PROJECT_VERSION = ${newBuild};`);
+if (pbx === originalPbx) {
+  throw new Error("set-native-version: could not update the iOS Xcode project");
+}
 
 writeFileSync(gradlePath, gradle);
 writeFileSync(pbxPath, pbx);
 
-console.log(`set-native-version: iOS + Android -> ${newName} (build ${newBuild})`);
+console.log(`set-native-version: iOS + Android -> ${newName} (iOS build ${newBuild})`);

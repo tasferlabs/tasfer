@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Brand asset sources and generator. Run `npm run generate` to rebuild every logo/icon asset in the repo from brand/logo.svg geometry.",
   "scripts": {
-    "generate": "node generate.mjs"
+    "generate": "node generate.mjs",
+    "generate:app-store-screenshots": "node ../apps/web/scripts/generate-app-store-screenshots.mjs"
   },
   "dependencies": {
     "png-to-ico": "^2.1.8",
