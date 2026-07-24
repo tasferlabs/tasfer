@@ -21,8 +21,14 @@ these once in App Store Connect before dispatching the release workflow:
 - Confirm the privacy, support, and marketing URLs are publicly reachable.
 - Add the four `APP_REVIEW_*` GitHub Actions secrets documented in
   `fastlane/.env.example`.
-- Add `ASC_KEY_ID`, `ASC_ISSUER_ID`, and base64-encoded `ASC_KEY_CONTENT`
-  GitHub Actions secrets.
+- Generate an Admin **team key** under App Store Connect **Users and Access →
+  Integrations → Team Keys** for the first cloud-signed build. Add its Key ID as
+  `ASC_KEY_ID`, the Team Keys page's Issuer ID as `ASC_ISSUER_ID`, and the
+  base64-encoded downloaded `.p8` as `ASC_KEY_CONTENT` GitHub Actions secrets.
+  All three values must belong to the same active key.
+- Add the 10-character Team ID from Apple Developer **Membership details** as
+  the `APPLE_TEAM_ID` GitHub Actions secret. It must be the team that owns the
+  `app.tasfer` bundle ID.
 
 The release lane uploads the checked-in 6.9-inch iPhone screenshots from
 `fastlane/screenshots/en-US/`. No Arabic screenshot directory is sent. Do not

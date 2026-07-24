@@ -67,7 +67,41 @@ jobs:
       - name: Write App Store Connect API key
         env:
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
-        run: printf '%s' "$ASC_KEY_CONTENT" | base64 -d > "$RUNNER_TEMP/AuthKey.p8"
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          for name in ASC_KEY_CONTENT ASC_KEY_ID ASC_ISSUER_ID APPLE_TEAM_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name is missing from GitHub Actions repository secrets"
+              exit 1
+            fi
+          done
+
+          if [[ ! "$ASC_KEY_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo "::error::ASC_KEY_ID must be the 10-character Key ID shown beside the team API key"
+            exit 1
+          fi
+          if [[ ! "$ASC_ISSUER_ID" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
+            echo "::error::ASC_ISSUER_ID must be the UUID shown at the top of App Store Connect's Team Keys page"
+            exit 1
+          fi
+          if [[ ! "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo "::error::APPLE_TEAM_ID must be the 10-character Team ID from Apple Developer membership details"
+            exit 1
+          fi
+
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          if ! printf '%s' "$ASC_KEY_CONTENT" | base64 -d > "$key_path"; then
+            echo "::error::ASC_KEY_CONTENT is not valid base64"
+            exit 1
+          fi
+          if ! grep -q '^-----BEGIN PRIVATE KEY-----$' "$key_path" || ! openssl pkey -in "$key_path" -check -noout >/dev/null 2>&1; then
+            echo "::error::ASC_KEY_CONTENT does not decode to a valid App Store Connect .p8 private key"
+            exit 1
+          fi
 
       - name: Build and upload
         env:
