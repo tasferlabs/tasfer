@@ -9,6 +9,7 @@ import {
   resolveStructuredMarkRanges,
 } from "../actions/structured-marks";
 import type { ContentSelectionSlice } from "../feature-facets";
+import type { TextualBlock } from "../nodes/TextNode";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import { escapeHtml } from "../serlization/codecs/inline";
@@ -51,6 +52,7 @@ import {
   charRunsToChars,
   charsToRuns,
   getVisibleTextFromRuns,
+  hasBlockAuthorityContent,
   iterateVisibleChars,
 } from "../sync/char-runs";
 import {
@@ -62,6 +64,7 @@ import {
 import { createIdGenerator, generateBlockId } from "../sync/id";
 import { applyOps, findNextVisibleBlockIndex } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
+import type { StructuredContentMap } from "../sync/structured-content";
 import Defuddle from "defuddle/full";
 
 // `defuddle/full` publishes a UMD/CommonJS runtime behind ESM-looking types.
@@ -152,6 +155,71 @@ function pushBlockFieldOps(
       value,
     } as BlockSet);
   }
+}
+
+/** A pasted block's attachments, re-addressed onto the block hosting them. */
+interface AdoptedStructuredContent {
+  /** Attachments keyed by their new, target-scoped content ids. */
+  readonly structuredContent: StructuredContentMap;
+  /** Rewrite a pasted mark so it references the cloned attachment. */
+  readonly rewriteMark: (mark: Mark) => Mark;
+  /** `document_init` edits that make the clones part of the op log. */
+  readonly ops: readonly Operation[];
+}
+
+/**
+ * Adopt a parsed clipboard block's structured attachments (an inline equation's
+ * tree, a display equation's authority document) into the block that will host
+ * them.
+ *
+ * Attachments are block-scoped and the parse minted them in the parser's own
+ * namespace, so copying the anchor characters and mark attrs alone leaves every
+ * mark pointing at content this document doesn't have — the equation renders as
+ * nothing. Cloning also emits the `content_edit` ops the flat text and marks
+ * already emit, so a remote peer (or a rebuild from the log) reconstructs the
+ * same attachments instead of an orphaned anchor.
+ *
+ * Returns `undefined` when a document kind has no lossless clone seam; callers
+ * abort the paste rather than commit half of it, matching the block-split path.
+ */
+function adoptPastedStructuredContent(
+  source: Block,
+  targetBlockId: string,
+  state: EditorState,
+): AdoptedStructuredContent | undefined {
+  const cloned = cloneStructuredBlockContent(
+    source,
+    targetBlockId,
+    state.CRDTbinding,
+    state.schema,
+  );
+  if (!cloned) return undefined;
+  return {
+    structuredContent: cloned.structuredContent,
+    ops: cloned.ops,
+    rewriteMark: (mark) =>
+      state.schema.cloneStructuredMark(mark.type, {
+        mark,
+        sourceBlockId: source.id,
+        targetBlockId,
+        attachments: source.structuredContent,
+        clonedContentIds: cloned.clonedContentIds,
+      }) ?? mark,
+  };
+}
+
+/**
+ * Whether a pasted block's content can be merged into the character stream of
+ * the block the caret sits in.
+ *
+ * False for atomic (void) blocks, and for a textual block whose content lives
+ * in a block-authority attachment rather than in flat characters — a display
+ * equation carries no characters to merge, and hanging its authority document
+ * on a paragraph would leave content nothing renders. Such a block is inserted
+ * as a block of its own instead, the same way an image is.
+ */
+function mergesIntoHostBlock(block: Block): block is TextualBlock {
+  return isTextualBlock(block) && !hasBlockAuthorityContent(block);
 }
 
 /**
@@ -1069,21 +1137,31 @@ function insertBlocksAtCursor(
 
   // If pasting a single block
   if (blocks.length === 1) {
-    // Pasting a single atomic block (image, line, math, or any custom void
-    // type): insert it after the current block. Descriptor-driven via
-    // `atomicBlockInsertOps`, so a new atomic type pastes for free with no
-    // per-type code here.
-    if (!isTextualBlock(blocks[0])) {
+    // Pasting a single standalone block — an atomic block (image, line, any
+    // custom void type) or a display equation (see `mergesIntoHostBlock`):
+    // insert it after the current block. Descriptor-driven via
+    // `atomicBlockInsertOps`, so a new type pastes for free with no per-type
+    // code here.
+    if (!mergesIntoHostBlock(blocks[0])) {
       const atomicBlock = blocks[0];
       const newBlockId = globalGenerateBlockId(state.CRDTbinding);
       const orderKey = orderKeyAfter(
         newState.document.page.blocks,
         currentBlock.id,
       );
+      const adopted = adoptPastedStructuredContent(
+        atomicBlock,
+        newBlockId,
+        state,
+      );
+      if (!adopted) return { state, ops: [] };
       const newAtomicBlock: Block = {
         ...atomicBlock,
         id: newBlockId,
         orderKey,
+        ...(Object.keys(adopted.structuredContent).length > 0
+          ? { structuredContent: adopted.structuredContent }
+          : {}),
       };
       invalidateBlockCache(newAtomicBlock);
 
@@ -1094,6 +1172,7 @@ function insertBlocksAtCursor(
           orderKey,
           state.CRDTbinding,
         ),
+        ...adopted.ops,
       );
 
       // Insert the block at its canonical sorted position — `blocks` keeps
@@ -1143,6 +1222,15 @@ function insertBlocksAtCursor(
       return { state: clearSelection(newState), ops };
     }
 
+    // Re-address the pasted block's attachments (e.g. an inline equation's
+    // tree) onto the host block before any mark references them.
+    const adoptedPasted = adoptPastedStructuredContent(
+      pasteBlock,
+      currentBlock.id,
+      state,
+    );
+    if (!adoptedPasted) return { state, ops: [] };
+
     // Insert the pasted text at cursor position
     const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
       newState.document.page,
@@ -1157,6 +1245,10 @@ function insertBlocksAtCursor(
     // format spans are computed from the paste-block's existing char IDs,
     // not from index ranges).
     let pageAcc = pageAfterInsert;
+    if (adoptedPasted.ops.length > 0) {
+      ops.push(...adoptedPasted.ops);
+      pageAcc = applyOps(pageAcc, [...adoptedPasted.ops], state.schema);
+    }
     const pasteChars: Char[] = [];
     for (const { id, char } of iterateVisibleChars(pasteBlock.charRuns)) {
       pasteChars.push({ id, char, deleted: false });
@@ -1186,7 +1278,7 @@ function insertBlocksAtCursor(
             pageId: state.CRDTbinding.pageId,
             blockId: currentBlock.id,
             charIds,
-            format: pasteFormat.format,
+            format: adoptedPasted.rewriteMark(pasteFormat.format),
             value: true,
           };
           ops.push(formatOp);
@@ -1294,18 +1386,31 @@ function insertBlocksAtCursor(
       ops.push(deleteOp);
     }
 
-    // Emit the ops to recreate a non-textual (atomic) block — image, line,
-    // math, or any custom void type — at a new position. The per-field work is
-    // descriptor-driven in `atomicBlockInsertOps`, so there is no per-type code
-    // here: a new atomic block type round-trips through paste for free.
+    // Emit the ops to recreate a non-textual (atomic) block — image, line, or
+    // any custom void type — at a new position, and re-address any attachments
+    // it owns onto the new block. The per-field work is descriptor-driven in
+    // `atomicBlockInsertOps`, so there is no per-type code here: a new atomic
+    // block type round-trips through paste for free. Returns the attachments to
+    // hang on the cloned block, or `undefined` when they can't be cloned.
     const pushAtomicBlockOps = (
       block: Block,
       newBlockId: string,
       orderKey: string,
-    ) => {
-      ops.push(
-        ...atomicBlockInsertOps(block, newBlockId, orderKey, state.CRDTbinding),
+    ): StructuredContentMap | undefined => {
+      // Mint the block's own ops FIRST: `getClock()` ticks per call, so ops
+      // created here carry ascending clocks. An attachment stamped before the
+      // `block_insert` that hosts it sorts ahead of that block on a rebuild
+      // from the log, where it would target a block that doesn't exist yet.
+      const blockOps = atomicBlockInsertOps(
+        block,
+        newBlockId,
+        orderKey,
+        state.CRDTbinding,
       );
+      const adopted = adoptPastedStructuredContent(block, newBlockId, state);
+      if (!adopted) return undefined;
+      ops.push(...blockOps, ...adopted.ops);
+      return adopted.structuredContent;
     };
 
     const firstPastedBlock = blocks[0];
@@ -1334,9 +1439,20 @@ function insertBlocksAtCursor(
       if (visibleAfter.length === 0) return true;
 
       const trailingBlockId = globalGenerateBlockId(state.CRDTbinding);
+      const orderKey = orderKeyAfter(blocksWithResults(), anchorId);
+      // Stamped before the tail's attachments so the block always sorts ahead
+      // of them on a rebuild from the log (see `pushAtomicBlockOps`).
+      const afterBlockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
+        orderKey,
+        blockId: trailingBlockId,
+        blockType: trailingSpillType,
+      };
       const clonedContent = cloneAfterStructuredContent(trailingBlockId);
       if (!clonedContent) return false;
-      const orderKey = orderKeyAfter(blocksWithResults(), anchorId);
       const newAfterChars: Char[] = visibleAfter.map((c) => ({
         id: state.CRDTbinding.nextId(),
         char: c.char,
@@ -1384,15 +1500,6 @@ function insertBlocksAtCursor(
       } as Block;
       invalidateBlockCache(afterBlock);
 
-      const afterBlockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        orderKey,
-        blockId: trailingBlockId,
-        blockType: trailingSpillType,
-      };
       ops.push(afterBlockInsertOp);
       ops.push(...clonedContent.ops);
 
@@ -1438,10 +1545,18 @@ function insertBlocksAtCursor(
     };
 
     // Handle first block
-    if (isTextualBlock(firstPastedBlock)) {
+    if (mergesIntoHostBlock(firstPastedBlock)) {
       // Merge first pasted block's content with current block
       const firstPastedText = getVisibleTextFromRuns(firstPastedBlock.charRuns);
       const beforeLength = beforeChars.filter((c) => !c.deleted).length;
+      // Its attachments move onto the host block, so its marks must reference
+      // the clones rather than the parser-namespace originals.
+      const adoptedFirst = adoptPastedStructuredContent(
+        firstPastedBlock,
+        currentBlock.id,
+        state,
+      );
+      if (!adoptedFirst) return { state, ops: [] };
       // Skip the insert when the first pasted block contributes no visible chars
       // (e.g. an empty source block) — inserting an empty run would throw in the
       // CRDT layer. The current block then just keeps its before-cursor content,
@@ -1460,6 +1575,7 @@ function insertBlocksAtCursor(
         ops.push(firstInsertOp);
         firstInsertedCharRuns = firstInsertOp.charRuns;
       }
+      ops.push(...adoptedFirst.ops);
       const firstBlockInPage = pasteWorkPage.blocks.find(
         (b) => b.id === currentBlock.id,
       );
@@ -1491,10 +1607,11 @@ function insertBlocksAtCursor(
           const newEndCharId = insertedChars[pasteEndIdx]?.id;
 
           if (newStartCharId && newEndCharId) {
+            const format = adoptedFirst.rewriteMark(pasteFormat.format);
             const newSpan: MarkSpan = {
               startCharId: newStartCharId,
               endCharId: newEndCharId,
-              format: pasteFormat.format,
+              format,
               clock: state.CRDTbinding.getClock(),
             };
             firstBlockFormats = [...firstBlockFormats, newSpan];
@@ -1509,7 +1626,7 @@ function insertBlocksAtCursor(
               pageId: state.CRDTbinding.pageId,
               blockId: currentBlock.id,
               charIds,
-              format: pasteFormat.format,
+              format,
               value: true,
             };
             ops.push(formatOp);
@@ -1523,15 +1640,26 @@ function insertBlocksAtCursor(
         // Keep spans over the tombstoned tail: undo revives those original
         // character identities, and their formatting must revive with them.
         formats: [...firstBlockFormats, ...afterFormats],
+        // The host keeps its own attachments (the tail's equations still live
+        // here until the trailing block clones them) and gains the pasted ones.
+        ...(Object.keys(adoptedFirst.structuredContent).length > 0 ||
+        currentBlock.structuredContent
+          ? {
+              structuredContent: {
+                ...currentBlock.structuredContent,
+                ...adoptedFirst.structuredContent,
+              },
+            }
+          : {}),
       };
       invalidateBlockCache(firstBlock);
       resultBlocks.push(firstBlock);
     } else {
-      // Non-textual (atomic) first pasted block — image/line/math/custom void.
-      // The current block keeps the before-cursor content; the atomic block is
-      // inserted right after it. One path for every atomic type (no per-type
-      // branch): the block is cloned with fresh ids and its ops come from the
-      // descriptor-driven helper.
+      // Standalone first pasted block — image/line/custom void, or a display
+      // equation. The current block keeps the before-cursor content; the
+      // standalone block is inserted right after it. One path for every such
+      // type (no per-type branch): the block is cloned with fresh ids and its
+      // ops come from the descriptor-driven helper.
       const firstBlock: Block = {
         ...currentBlock,
         charRuns: charsToRuns(beforeChars),
@@ -1542,13 +1670,21 @@ function insertBlocksAtCursor(
 
       const newAtomicBlockId = globalGenerateBlockId(state.CRDTbinding);
       const orderKey = orderKeyAfter(blocksWithResults(), currentBlock.id);
+      const adoptedAtomic = pushAtomicBlockOps(
+        firstPastedBlock,
+        newAtomicBlockId,
+        orderKey,
+      );
+      if (!adoptedAtomic) return { state, ops: [] };
       const newAtomicBlock: Block = {
         ...firstPastedBlock,
         id: newAtomicBlockId,
         orderKey,
+        ...(firstPastedBlock.structuredContent
+          ? { structuredContent: adoptedAtomic }
+          : {}),
       };
       invalidateBlockCache(newAtomicBlock);
-      pushAtomicBlockOps(firstPastedBlock, newAtomicBlockId, orderKey);
       resultBlocks.push(newAtomicBlock);
       lastInsertedBlockId = newAtomicBlockId;
     }
@@ -1565,16 +1701,43 @@ function insertBlocksAtCursor(
           blocksWithResults(),
           lastInsertedBlockId,
         );
+        const adoptedAtomic = pushAtomicBlockOps(block, newBlockId, orderKey);
+        if (!adoptedAtomic) return { state, ops: [] };
         const newAtomicBlock: Block = {
           ...block,
           id: newBlockId,
           orderKey,
+          ...(block.structuredContent
+            ? { structuredContent: adoptedAtomic }
+            : {}),
         };
         invalidateBlockCache(newAtomicBlock);
-        pushAtomicBlockOps(block, newBlockId, orderKey);
         resultBlocks.push(newAtomicBlock);
         lastInsertedBlockId = newBlockId;
       } else if (isTextualBlock(block)) {
+        // The block's own insert is stamped before its attachments (see
+        // `pushAtomicBlockOps`) so a rebuild from the log never sees an
+        // attachment for a block that doesn't exist yet.
+        const orderKey = orderKeyAfter(
+          blocksWithResults(),
+          lastInsertedBlockId,
+        );
+        const blockInsertOp: BlockInsert = {
+          op: "block_insert",
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
+          orderKey,
+          blockId: newBlockId,
+          blockType: block.type as any,
+        };
+        const adoptedMiddle = adoptPastedStructuredContent(
+          block,
+          newBlockId,
+          state,
+        );
+        if (!adoptedMiddle) return { state, ops: [] };
+
         // Generate new chars with new IDs for CRDT sync
         const visibleOldChars: Array<{ id: string; char: string }> = [];
         for (const { id, char } of iterateVisibleChars(block.charRuns)) {
@@ -1603,6 +1766,7 @@ function insertBlocksAtCursor(
                 ...f,
                 startCharId: newStartId,
                 endCharId: newEndId,
+                format: adoptedMiddle.rewriteMark(f.format),
                 clock: state.CRDTbinding.getClock(),
               };
             }
@@ -1610,10 +1774,6 @@ function insertBlocksAtCursor(
           })
           .filter((f): f is MarkSpan => f !== null);
 
-        const orderKey = orderKeyAfter(
-          blocksWithResults(),
-          lastInsertedBlockId,
-        );
         const newBlock: Block = {
           ...block,
           id: newBlockId,
@@ -1622,19 +1782,16 @@ function insertBlocksAtCursor(
           orderKey,
           charRuns: charsToRuns(newChars),
           formats: newFormats,
+          // Same for its attachments: keep the clones addressed to this block,
+          // not the parser-namespace originals the spread carried in.
+          ...(block.structuredContent
+            ? { structuredContent: adoptedMiddle.structuredContent }
+            : {}),
         };
         invalidateBlockCache(newBlock);
 
-        const blockInsertOp: BlockInsert = {
-          op: "block_insert",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          orderKey,
-          blockId: newBlockId,
-          blockType: newBlock.type as any,
-        };
         ops.push(blockInsertOp);
+        ops.push(...adoptedMiddle.ops);
 
         // Add text_insert operation for the block's content
         if (newChars.length > 0) {
@@ -1685,11 +1842,34 @@ function insertBlocksAtCursor(
 
     // Handle last block (if different from first block)
     if (blocks.length > 1) {
-      if (isTextualBlock(lastPastedBlock)) {
+      if (mergesIntoHostBlock(lastPastedBlock)) {
         // Last block: pasted content + after content from current block
         const lastBlockId = globalGenerateBlockId(state.CRDTbinding);
+        const lastOrderKey = orderKeyAfter(
+          blocksWithResults(),
+          lastInsertedBlockId,
+        );
+        // Stamped before either set of attachments below, so the block sorts
+        // ahead of them on a rebuild (see `pushAtomicBlockOps`).
+        const lastBlockInsertOp: BlockInsert = {
+          op: "block_insert",
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
+          orderKey: lastOrderKey,
+          blockId: lastBlockId,
+          blockType: lastPastedBlock.type as any,
+        };
         const clonedContent = cloneAfterStructuredContent(lastBlockId);
         if (!clonedContent) return { state, ops: [] };
+        // This block carries two sets of attachments: the ones it was pasted
+        // with, and the ones the host's after-cursor tail brings along.
+        const adoptedLast = adoptPastedStructuredContent(
+          lastPastedBlock,
+          lastBlockId,
+          state,
+        );
+        if (!adoptedLast) return { state, ops: [] };
 
         // Generate new chars with new IDs for pasted content
         const visiblePastedChars: Array<{ id: string; char: string }> = [];
@@ -1737,6 +1917,7 @@ function insertBlocksAtCursor(
                 ...f,
                 startCharId: newStartId,
                 endCharId: newEndId,
+                format: adoptedLast.rewriteMark(f.format),
                 clock: state.CRDTbinding.getClock(),
               };
             }
@@ -1771,35 +1952,28 @@ function insertBlocksAtCursor(
 
         const allNewFormats = [...newPastedFormats, ...newAfterFormats];
 
-        const orderKey = orderKeyAfter(
-          blocksWithResults(),
-          lastInsertedBlockId,
-        );
         const lastBlock: Block = {
           ...lastPastedBlock,
           id: lastBlockId,
           // `lastPastedBlock` is parsed from the clipboard — its order
           // points at a parser-namespace id that doesn't exist here.
-          orderKey,
+          orderKey: lastOrderKey,
           charRuns: charsToRuns(allNewChars),
           formats: allNewFormats,
-          ...(Object.keys(clonedContent.structuredContent).length > 0
-            ? { structuredContent: clonedContent.structuredContent }
+          ...(Object.keys(clonedContent.structuredContent).length > 0 ||
+          lastPastedBlock.structuredContent
+            ? {
+                structuredContent: {
+                  ...adoptedLast.structuredContent,
+                  ...clonedContent.structuredContent,
+                },
+              }
             : {}),
         };
         invalidateBlockCache(lastBlock);
 
-        const lastBlockInsertOp: BlockInsert = {
-          op: "block_insert",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          orderKey,
-          blockId: lastBlockId,
-          blockType: lastBlock.type as any,
-        };
         ops.push(lastBlockInsertOp);
-        ops.push(...clonedContent.ops);
+        ops.push(...adoptedLast.ops, ...clonedContent.ops);
 
         // Add text_insert operation for the block's content
         if (allNewChars.length > 0) {
@@ -1847,22 +2021,31 @@ function insertBlocksAtCursor(
 
         resultBlocks.push(lastBlock);
         lastInsertedBlockId = lastBlockId;
-      } else if (!isTextualBlock(lastPastedBlock)) {
-        // Re-create the atomic block (image, line, math, or any custom void
-        // type) at the new position, then spill any after-cursor content into a
-        // trailing paragraph. Type-agnostic: a new atomic type pastes for free.
+      } else {
+        // Re-create the standalone block (image, line, custom void type, or a
+        // display equation) at the new position, then spill any after-cursor
+        // content into a trailing paragraph — it can't hold the tail text.
+        // Type-agnostic: a new atomic type pastes for free.
         const newAtomicBlockId = globalGenerateBlockId(state.CRDTbinding);
         const orderKey = orderKeyAfter(
           blocksWithResults(),
           lastInsertedBlockId,
         );
+        const adoptedAtomic = pushAtomicBlockOps(
+          lastPastedBlock,
+          newAtomicBlockId,
+          orderKey,
+        );
+        if (!adoptedAtomic) return { state, ops: [] };
         const newAtomicBlock: Block = {
           ...lastPastedBlock,
           id: newAtomicBlockId,
           orderKey,
+          ...(lastPastedBlock.structuredContent
+            ? { structuredContent: adoptedAtomic }
+            : {}),
         };
         invalidateBlockCache(newAtomicBlock);
-        pushAtomicBlockOps(lastPastedBlock, newAtomicBlockId, orderKey);
         resultBlocks.push(newAtomicBlock);
         lastInsertedBlockId = newAtomicBlockId;
         if (!appendTrailingParagraph(newAtomicBlockId)) {
@@ -1871,9 +2054,9 @@ function insertBlocksAtCursor(
       }
     } else {
       // Single-block paste: the block itself was already handled above. If the
-      // pasted block is atomic and the cursor had after-content, spill it into a
-      // trailing paragraph (atomic blocks can't hold the tail text).
-      if (!isTextualBlock(firstPastedBlock)) {
+      // pasted block stands alone and the cursor had after-content, spill it
+      // into a trailing paragraph (such a block can't hold the tail text).
+      if (!mergesIntoHostBlock(firstPastedBlock)) {
         if (!appendTrailingParagraph(lastInsertedBlockId)) {
           return { state, ops: [] };
         }

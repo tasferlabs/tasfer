@@ -127,6 +127,93 @@ describe("content_edit operation", () => {
     );
   });
 
+  // An emitter that mints an attachment's ops before the `block_insert` that
+  // hosts it stamps them with an earlier clock, so the HLC sort hands them to
+  // the rebuild first. Dropping them there loses the attachment for good (an
+  // inline equation reloads as a bare anchor character), and logs written that
+  // way already exist — so the rebuild replays them once the block is there.
+  it("keeps an attachment stamped before the block that hosts it", () => {
+    const contentId = "p:2";
+    const operations: Operation[] = [
+      {
+        op: "content_edit",
+        id: "p:3",
+        clock: { counter: 1, peerId: "p" },
+        pageId: "page",
+        blockId: "p:10",
+        contentId,
+        edit: { kind: "document_init", document: document(contentId) },
+      },
+      {
+        op: "block_insert",
+        id: "p:1",
+        clock: { counter: 2, peerId: "p" },
+        pageId: "page",
+        blockId: "p:10",
+        blockType: "paragraph",
+        orderKey: "a0",
+      },
+    ];
+
+    const page = rebuildState("page", operations);
+
+    expect(page.blocks[0]?.structuredContent?.[contentId]).toBeDefined();
+  });
+
+  // Later edits to a deferred document must defer with it, or they would apply
+  // to a document that isn't there yet and be lost when the init lands.
+  it("keeps edits that follow a deferred attachment in order", () => {
+    const contentId = "p:2";
+    const operations: Operation[] = [
+      {
+        op: "content_edit",
+        id: "p:3",
+        clock: { counter: 1, peerId: "p" },
+        pageId: "page",
+        blockId: "p:10",
+        contentId,
+        edit: { kind: "document_init", document: document(contentId) },
+      },
+      {
+        op: "content_edit",
+        id: "p:4",
+        clock: { counter: 2, peerId: "p" },
+        pageId: "page",
+        blockId: "p:10",
+        contentId,
+        edit: {
+          kind: "node_insert",
+          node: {
+            id: "p:5",
+            type: "item",
+            placement: {
+              parentId: contentId,
+              slot: "children",
+              orderKey: "a0",
+            },
+          },
+        },
+      },
+      {
+        op: "block_insert",
+        id: "p:1",
+        clock: { counter: 3, peerId: "p" },
+        pageId: "page",
+        blockId: "p:10",
+        blockType: "paragraph",
+        orderKey: "a0",
+      },
+    ];
+
+    const document_ = rebuildState("page", operations).blocks[0]
+      ?.structuredContent?.[contentId];
+
+    expect(document_).toBeDefined();
+    expect(
+      getStructuredChildren(document_!, contentId, "children").map((n) => n.id),
+    ).toEqual(["p:5"]);
+  });
+
   it("refuses type morphs that would discard block-authoritative content", () => {
     const blockId = "owner:10";
     const contentId = "owner:11";
