@@ -19,6 +19,7 @@ import {
   validateStructuredMathDocument,
 } from "./structured";
 import {
+  adjacentMathTreeConstructRange,
   backspaceMathTree,
   completeMathCommand,
   deleteForwardMathTree,
@@ -208,6 +209,12 @@ describe("structured math tree editing", () => {
   it.each([
     [String.raw`^{}`, "scripts"],
     [String.raw`\sum_{}^{}`, "scripts"],
+    [String.raw`\vec{}`, "accent"],
+    [String.raw`\widehat{}`, "accent"],
+    [String.raw`\overline{}`, "wrapper"],
+    [String.raw`\boxed{}`, "wrapper"],
+    [String.raw`\mathbb{}`, "wrapper"],
+    [String.raw`\overset{}{}`, "stack"],
     [String.raw`\left(\right)`, "delimited"],
     [String.raw`\begin{bmatrix}{}&{}\\{}&{}\end{bmatrix}`, "matrix"],
     [String.raw`\alpha`, "symbol"],
@@ -256,19 +263,176 @@ describe("structured math tree editing", () => {
     expectSemanticallyEqual(undone, document);
   });
 
+  it("types into a committed accent's base instead of after the accent", () => {
+    const initial = mathDocument("");
+    const rowId = bodyRowId(initial);
+    const inserted = insertMathSemanticLatex(
+      initial,
+      rowCaret(rowId, null),
+      String.raw`\vec{}`,
+      identitySource("accent-insert"),
+    );
+    const document = applyResult(initial, inserted);
+    const accent = child(document, rowId, "children", "accent");
+    const base = child(document, accent.id, "base", "row");
+
+    // The committed construct leaves the caret INSIDE its empty base, so the
+    // next keystroke goes under the arrow rather than beside it.
+    expect(inserted.caret).toEqual(rowCaret(base.id, null));
+
+    const typed = insertMathText(
+      document,
+      inserted.caret,
+      "x",
+      identitySource("accent-typing", 200),
+    );
+    const edited = applyResult(document, typed);
+
+    expect(print(edited)).toBe(String.raw`\vec{x}`);
+    expect(getStructuredChildren(edited, rowId, "children")).toHaveLength(1);
+  });
+
+  it("removes the whole accent on Backspace in its empty base", () => {
+    const initial = mathDocument("a");
+    const rowId = bodyRowId(initial);
+    const inserted = insertMathSemanticLatex(
+      initial,
+      rowCaret(rowId, child(initial, rowId, "children", "raw-text").id),
+      String.raw`\dot{}`,
+      identitySource("accent-empty"),
+    );
+    const document = applyResult(initial, inserted);
+    const accent = child(document, rowId, "children", "accent");
+    const base = child(document, accent.id, "base", "row");
+
+    const removed = backspaceMathTree(document, rowCaret(base.id, null));
+
+    expect(removed.edits).toEqual([{ kind: "node_delete", nodeId: accent.id }]);
+    expect(print(applyResult(document, removed))).toBe("a");
+  });
+
+  it.each([
+    [String.raw`\overline{}`, "wrapper", "body"],
+    [String.raw`\boxed{}`, "wrapper", "body"],
+    [String.raw`\overset{}{}`, "stack", "script"],
+  ])(
+    "types into %s's first slot and drops the construct when it empties",
+    (latex, type, slot) => {
+      const initial = mathDocument("");
+      const rowId = bodyRowId(initial);
+      const inserted = insertMathSemanticLatex(
+        initial,
+        rowCaret(rowId, null),
+        latex,
+        identitySource(`slot-${type}`),
+      );
+      const document = applyResult(initial, inserted);
+      const construct = child(document, rowId, "children", type);
+      const first = child(document, construct.id, slot, "row");
+
+      expect(inserted.caret).toEqual(rowCaret(first.id, null));
+
+      const typed = insertMathText(
+        document,
+        inserted.caret,
+        "x",
+        identitySource(`slot-${type}-typing`, 200),
+      );
+      expect(print(applyResult(document, typed))).toBe(
+        latex.replace("{}", "{x}"),
+      );
+
+      // Emptied again, one Backspace takes the construct — never leaving the
+      // bare command behind to swallow whatever follows it.
+      const removed = backspaceMathTree(document, rowCaret(first.id, null));
+      expect(removed.edits).toEqual([
+        { kind: "node_delete", nodeId: construct.id },
+      ]);
+      expect(print(applyResult(document, removed))).toBe("");
+    },
+  );
+
+  it("keeps a stack alive while its other slot still has content", () => {
+    const initial = mathDocument("");
+    const rowId = bodyRowId(initial);
+    const inserted = insertMathSemanticLatex(
+      initial,
+      rowCaret(rowId, null),
+      String.raw`\overset{a}{}`,
+      identitySource("stack-partial"),
+    );
+    const document = applyResult(initial, inserted);
+    const stack = child(document, rowId, "children", "stack");
+    const base = child(document, stack.id, "base", "row");
+
+    expect(backspaceMathTree(document, rowCaret(base.id, null)).edits).toEqual(
+      [],
+    );
+  });
+
+  it("scripts a whole accented atom instead of expanding its base", () => {
+    // `\dot{x|}` + `^` reads as "square the accented x" (`\dot{x}^{2}`), the
+    // flat-source rule in `scriptAttachOffset`. Only non-stretchy accents
+    // escalate: spanning content is the point of `\widehat`.
+    const cases = [
+      [String.raw`\dot{x}`, String.raw`{\dot{x}}^{}`],
+      [String.raw`\widehat{x}`, String.raw`\widehat{{x}^{}}`],
+      [String.raw`\overline{x}`, String.raw`\overline{{x}^{}}`],
+      [String.raw`\dot{}`, String.raw`\dot{{}^{}}`],
+      [String.raw`\hat{\dot{x}}`, String.raw`{\hat{\dot{x}}}^{}`],
+    ] as const;
+    for (const [source, expected] of cases) {
+      const document = sourceDocument(source);
+      const caret = caretAtDeepestSlotEnd(document);
+      const scripted = insertMathSemanticLatex(
+        document,
+        caret,
+        String.raw`^{}`,
+        identitySource(`script-${source}`, 500),
+      );
+      expect(print(applyResult(document, scripted)), source).toBe(expected);
+    }
+  });
+
+  it("selects a whole accent before deleting it from the row beside it", () => {
+    const initial = mathDocument("");
+    const rowId = bodyRowId(initial);
+    const document = applyResult(
+      initial,
+      insertMathSemanticLatex(
+        initial,
+        rowCaret(rowId, null),
+        String.raw`\hat{x}`,
+        identitySource("accent-select"),
+      ),
+    );
+    const accent = child(document, rowId, "children", "accent");
+
+    expect(
+      adjacentMathTreeConstructRange(
+        document,
+        rowCaret(rowId, accent.id),
+        "backward",
+      ),
+    ).toEqual({
+      anchor: rowCaret(rowId, null),
+      focus: rowCaret(rowId, accent.id),
+    });
+  });
+
   it("keeps an unsupported parser fallback atomic under backward and forward delete", () => {
     const initial = mathDocument("");
     const rowId = bodyRowId(initial);
     const inserted = insertMathSemanticLatex(
       initial,
       rowCaret(rowId, null),
-      String.raw`\widehat{x}`,
+      String.raw`\neq`,
       identitySource("semantic-fallback"),
     );
     const document = applyResult(initial, inserted);
     const fallback = child(document, rowId, "children", "raw-latex");
 
-    expect(print(document)).toBe(String.raw`\widehat{x}`);
+    expect(print(document)).toBe(String.raw`\neq`);
     expect(inserted.caret).toEqual(rowCaret(rowId, fallback.id));
 
     const backward = backspaceMathTree(document, inserted.caret);
@@ -1121,6 +1285,37 @@ function mathDocument(text: string): StructuredDocument {
       identityAllocator: createDeterministicIdentityAllocator("source-char"),
     },
   );
+}
+
+/** A tree parsed from LaTeX, the way an imported equation is stored. */
+function sourceDocument(latex: string): StructuredDocument {
+  const identities = createDeterministicIdentityAllocator("source");
+  return mathDocumentToStructured(
+    parseMathDocument(latex, { identityAllocator: identities }),
+    { identityAllocator: identities },
+  );
+}
+
+/**
+ * The caret typing leaves at the end of the innermost slot: descend through
+ * each row's LAST child while that child owns rows of its own.
+ */
+function caretAtDeepestSlotEnd(document: StructuredDocument): MathTreeCaret {
+  let rowId = bodyRowId(document);
+  for (;;) {
+    const children = getStructuredChildren(document, rowId, "children");
+    const last = children.at(-1);
+    if (!last) return rowCaret(rowId, null);
+    const slots = ["base", "body", "script", "radicand", "numerator"]
+      .flatMap((slot) => getStructuredChildren(document, last.id, slot))
+      .filter((node) => node.type === "row");
+    if (slots.length === 0) {
+      return last.type === "raw-text"
+        ? textCaret(rowId, last.id, visibleCharacterIds(last).at(-1) ?? null)
+        : rowCaret(rowId, last.id);
+    }
+    rowId = slots.at(-1)!.id;
+  }
 }
 
 function matrixDocument(latex: string): StructuredDocument {
