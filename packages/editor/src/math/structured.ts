@@ -26,6 +26,9 @@ import {
   validateStructuredDocument,
 } from "../sync/structured-content";
 import {
+  isAccentCommand,
+  isStackCommand,
+  isWrapperCommand,
   type MathDocument,
   type MathMatrixCell,
   type MathMatrixRow,
@@ -298,6 +301,37 @@ class MathStructuredBuilder {
           node.subscript ? [node.subscript] : [],
         );
         return;
+      case "accent":
+        this.addNode(
+          node.id,
+          node.type,
+          placement,
+          {},
+          { command: node.command },
+        );
+        this.addRows(node.id, "base", [node.base]);
+        return;
+      case "wrapper":
+        this.addNode(
+          node.id,
+          node.type,
+          placement,
+          {},
+          { command: node.command },
+        );
+        this.addRows(node.id, "body", [node.body]);
+        return;
+      case "stack":
+        this.addNode(
+          node.id,
+          node.type,
+          placement,
+          {},
+          { command: node.command },
+        );
+        this.addRows(node.id, "script", [node.script]);
+        this.addRows(node.id, "base", [node.base]);
+        return;
       case "delimited":
         this.addNode(
           node.id,
@@ -518,6 +552,49 @@ class MathStructuredProjector {
           superscript: this.optionalRow(node.id, "superscript"),
           subscript: this.optionalRow(node.id, "subscript"),
         };
+      case "accent": {
+        this.requireShape(node, node.type, [], ["command"]);
+        const command = this.text(node, "command");
+        // An unknown command would print as a red unknown control word and
+        // could re-lex against its own braces; refuse the tree instead, so the
+        // attachment falls back to its authoritative source.
+        if (!isAccentCommand(command)) {
+          throw new Error(`Unsupported math accent: ${command}`);
+        }
+        return {
+          type: node.type,
+          id: node.id,
+          command,
+          base: this.row(this.onlyChild(node.id, "base")),
+        };
+      }
+      case "wrapper": {
+        this.requireShape(node, node.type, [], ["command"]);
+        const command = this.text(node, "command");
+        if (!isWrapperCommand(command)) {
+          throw new Error(`Unsupported math wrapper: ${command}`);
+        }
+        return {
+          type: node.type,
+          id: node.id,
+          command,
+          body: this.row(this.onlyChild(node.id, "body")),
+        };
+      }
+      case "stack": {
+        this.requireShape(node, node.type, [], ["command"]);
+        const command = this.text(node, "command");
+        if (!isStackCommand(command)) {
+          throw new Error(`Unsupported math stack: ${command}`);
+        }
+        return {
+          type: node.type,
+          id: node.id,
+          command,
+          script: this.row(this.onlyChild(node.id, "script")),
+          base: this.row(this.onlyChild(node.id, "base")),
+        };
+      }
       case "delimited":
         this.requireShape(node, node.type, [], ["left", "right"]);
         return {
