@@ -1137,6 +1137,61 @@ describe("interactive structured MathMark", () => {
     expect(layout.lines[0].width).toBeGreaterThan(105);
   });
 
+  describe("vertical exit from a chip", () => {
+    // Narrow enough that the prose below wraps onto a second line.
+    const narrow = { width: 300, height: 600, scrollY: 0, documentHeight: 600 };
+
+    it("keeps the nested caret when the chip's line has no line beyond it", () => {
+      // Regression: the exit used to plant the flat caret on the chip's run edge
+      // and run the ordinary line move, which at the document's first/last line
+      // clamps to the block edge — so ↑ inside a formula ejected the caret and
+      // slammed it to the start of the paragraph.
+      const before = enterMathOffset(
+        chipState("inline-edge-line", "a $x$ b"),
+        1,
+      );
+
+      for (const move of [MOVE_CURSOR_UP, MOVE_CURSOR_DOWN]) {
+        const moved = before.actionBus.dispatchState(move, before, {
+          viewport: narrow,
+        });
+        expect(moved.claimed).toBe(true);
+        expect(moved.ops).toEqual([]);
+        expect(moved.state.document.contentSelection?.focus).toEqual(
+          before.document.contentSelection?.focus,
+        );
+        expect(moved.state.document.cursor).toBeNull();
+      }
+    });
+
+    it("lands on the line above under the caret's own x", () => {
+      // The chip is ONE atomic char, so a column carried out of it collapses the
+      // whole formula onto that char's column: every offset inside a wide
+      // formula would exit at the same place, near the line's start. The exit is
+      // resolved geometrically instead, so a caret at the formula's end lands
+      // further along the line above than one at its start.
+      const latex = "a+b+c+d+e+f";
+      const wrapped = `alpha beta gamma delta epsilon zeta $${latex}$ tail`;
+      const exitFrom = (sourceOffset: number) => {
+        const before = enterMathOffset(
+          chipState(`inline-column-${sourceOffset}`, wrapped),
+          sourceOffset,
+        );
+        const moved = before.actionBus.dispatchState(MOVE_CURSOR_UP, before, {
+          viewport: narrow,
+        });
+        expect(moved.claimed).toBe(true);
+        expect(moved.state.document.contentSelection).toBeNull();
+        return moved.state.document.cursor?.position.textIndex ?? -1;
+      };
+
+      const fromStart = exitFrom(0);
+      const fromEnd = exitFrom(latex.length);
+      expect(fromStart).toBeGreaterThanOrEqual(0);
+      expect(fromEnd).toBeGreaterThan(fromStart);
+    });
+  });
+
   it("round-trips nested RTL caret and vertical drag through visual bidi geometry", () => {
     const latex = String.raw`a+\frac{b}{c}+d`;
     const initial = chipState("inline-rtl-tree", `مرحبا $${latex}$ عالم`);

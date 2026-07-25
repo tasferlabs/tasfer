@@ -356,10 +356,17 @@ export { toSVG, type ToSvgOptions } from "./paint/svg";
 export type { TextFallbackChar } from "./parse/ast";
 export { needsCommandSeparator, pendingCommandRange } from "./parse/parser";
 export {
+  accentCommands,
+  isAccentCommand,
+  isStackCommand,
+  isStretchyAccentCommand,
+  isWrapperCommand,
   type OperatorCommand,
   operatorCommands,
+  stackCommands,
   type SymbolCommand,
   symbolCommands,
+  wrapperCommands,
 } from "./vocabulary";
 
 // Stable structured-editing model. Unlike the rendering AST, these values have

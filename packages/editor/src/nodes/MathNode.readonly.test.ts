@@ -49,6 +49,7 @@ function hoverMathBlock(state: EditorState, canvasX = 100): EditorState {
     atomicBlock: null,
     viewport,
     resolveCoords: () => null,
+    resolveContentSelection: () => null,
     modifiers: { ctrlOrMeta: false },
   }).state;
 }

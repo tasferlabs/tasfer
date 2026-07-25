@@ -669,7 +669,7 @@ export function findTitleBlock(
 }
 
 /** Whether a block owns a block-authority structured document. */
-function hasBlockAuthorityContent(block: Block): boolean {
+export function hasBlockAuthorityContent(block: Block): boolean {
   return Object.values(block.structuredContent ?? {}).some(
     (document) => document.authority === "block",
   );

@@ -182,9 +182,10 @@ import type { IdentityAllocator } from "../sync/id";
 import { applyOp, applyOps } from "../sync/reducer";
 import { generateRestoreOperations } from "../sync/snapshot-diff";
 import {
+  canMorphCarryAttachments,
   canonicalizeStructuredDocument,
+  carryStructuredContent,
   hasStructuredBlockAuthority,
-  hasStructuredContent,
   type StructuredDocument,
   type StructuredMutation,
 } from "../sync/structured-content";
@@ -4518,12 +4519,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const blocks = s.document.page.blocks;
       const block = blocks[blockIndex];
       if (!block || block.deleted) return { state: s, ops: [] };
-      // Generic morph reconstructs the block and cannot carry block-scoped
-      // structured documents. This includes supplemental mark attachments: its
-      // copied mark attrs would otherwise retain a now-orphaned contentId.
-      // Offer the conversion to the owning feature first (which can convert
-      // losslessly through CONVERT_STRUCTURED_BLOCK); refuse when unclaimed.
-      if (hasStructuredContent(block)) {
+      // A generic morph reconstructs the block: it cannot reinterpret a document
+      // that owns the content surface, nor keep supplemental attachments
+      // reachable through a target that clears text or drops marks. Offer those
+      // conversions to the owning feature first (which can convert losslessly
+      // through CONVERT_STRUCTURED_BLOCK); refuse when unclaimed. Everything
+      // else morphs generically, carrying the attachments below.
+      if (
+        hasStructuredBlockAuthority(block) ||
+        !canMorphCarryAttachments(block, {
+          textual: s.schema.isTextual(type),
+          retainsMarks: s.schema.hasFormats(type),
+        })
+      ) {
         const owned = s.actionBus.dispatchState(CONVERT_STRUCTURED_BLOCK, s, {
           blockIndex,
           type,
@@ -4548,11 +4556,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         hasTextStorage(defaults) &&
         hasTextStorage(block)
       ) {
-        newBlock = {
-          ...defaults,
-          charRuns: block.charRuns,
-          formats: s.schema.hasFormats(type) ? block.formats : [],
-        } as Block;
+        // Supplemental attachments ride along with the text and marks that
+        // reach them (the guard above refused every other target).
+        newBlock = carryStructuredContent(
+          {
+            ...defaults,
+            charRuns: block.charRuns,
+            formats: s.schema.hasFormats(type) ? block.formats : [],
+          },
+          block,
+        ) as Block;
       }
       invalidateBlockCache(newBlock);
 

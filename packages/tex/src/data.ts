@@ -9,3 +9,12 @@
 export * from "./document";
 export { balanceBraces, escapeStrayCloseBraces } from "./edit/brace";
 export { canRenderMathChar } from "./edit/char";
+export {
+  accentCommands,
+  isAccentCommand,
+  isStackCommand,
+  isStretchyAccentCommand,
+  isWrapperCommand,
+  stackCommands,
+  wrapperCommands,
+} from "./vocabulary";

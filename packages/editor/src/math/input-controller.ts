@@ -270,10 +270,11 @@ export function applyMathTreeCommandToDocument(
   text: string,
   identities: IdentityAllocator,
   resolveCommand: MathCommandCompletionResolver,
+  trigger: "\\" | "/" = "\\",
 ): MathTreeEditResult {
   const safeRange = range
     ? expandMathTreeRangeToAtomicCommands(document, range, resolveCommand)
-    : trailingMathCommandRange(document, caret);
+    : trailingMathCommandRange(document, caret, trigger);
   return safeRange
     ? replaceMathTreeRangeWithSemanticLatex(
         document,
@@ -286,11 +287,11 @@ export function applyMathTreeCommandToDocument(
 
 /** The uncommitted `\`+letters command-entry run ending at a raw-text caret. */
 export interface TrailingMathCommandRun {
-  /** Letters typed after the `\` so far — empty right after the trigger. */
+  /** Text typed after the trigger so far — empty right after it is inserted. */
   readonly query: string;
-  /** Stable identity of the run's opening `\` character. */
-  readonly backslashCharId: string;
-  /** Exact `\query` text range, for replacing the run on completion. */
+  /** Stable identity of the run's opening trigger character. */
+  readonly triggerCharId: string;
+  /** Exact trigger + query text range, for replacing on completion. */
   readonly range: MathTreeRange;
 }
 
@@ -304,6 +305,7 @@ export interface TrailingMathCommandRun {
 export function trailingMathCommandRun(
   document: StructuredDocument,
   caret: MathTreeCaret,
+  trigger: "\\" | "/" = "\\",
 ): TrailingMathCommandRun | undefined {
   if (caret.kind !== "text") return undefined;
   const node = document.nodes[caret.nodeId];
@@ -316,15 +318,17 @@ export function trailingMathCommandRun(
     : -1;
   if (caret.afterCharId && anchorIndex < 0) return undefined;
   const position = anchorIndex + 1;
+  const escapedTrigger = trigger === "\\" ? "\\\\" : "/";
+  const queryPattern = trigger === "\\" ? "[A-Za-z]*" : "\\p{L}*";
   const match = characters
     .slice(0, position)
     .map((entry) => entry.char)
     .join("")
-    .match(/\\([A-Za-z]*)$/);
+    .match(new RegExp(`${escapedTrigger}(${queryPattern})$`, "u"));
   if (!match || match.index === undefined) return undefined;
   return {
     query: match[1],
-    backslashCharId: characters[match.index].id,
+    triggerCharId: characters[match.index].id,
     range: {
       anchor: {
         ...caret,
@@ -339,8 +343,9 @@ export function trailingMathCommandRun(
 export function trailingMathCommandRange(
   document: StructuredDocument,
   caret: MathTreeCaret,
+  trigger: "\\" | "/" = "\\",
 ): MathTreeRange | undefined {
-  return trailingMathCommandRun(document, caret)?.range;
+  return trailingMathCommandRun(document, caret, trigger)?.range;
 }
 
 function committedSemanticInput(input: string): {

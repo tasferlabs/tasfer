@@ -218,9 +218,7 @@ export function enterAdjacentMathTreeHorizontally(
     : findNextVisibleBlockIndex(state.document.page.blocks, blockIndex);
   if (adjacentIndex === null) return undefined;
   const adjacent = state.document.page.blocks[adjacentIndex] as
-    | Block
-    | MathBlock
-    | undefined;
+    Block | MathBlock | undefined;
   if (!adjacent || adjacent.deleted || adjacent.type !== "math") {
     return undefined;
   }
@@ -605,6 +603,7 @@ export function insertActiveMathTreeCommand(
   state: EditorState,
   text: string,
   caretOffset = text.length,
+  trigger: "\\" | "/" = "\\",
 ): MathTreeStateEditResult | undefined {
   const context = editableMathTreeContext(state);
   if (!context) return undefined;
@@ -619,6 +618,7 @@ export function insertActiveMathTreeCommand(
     text,
     state.CRDTbinding,
     unambiguousMathCommandCompletion,
+    trigger,
   );
   return settleMathTreeMutation(state, context, edited);
 }
@@ -657,9 +657,7 @@ function activeMathTreeContext(
     const blockIndex = findBlockIndex(state.document.page, point.blockId);
     if (blockIndex < 0) return undefined;
     const block = state.document.page.blocks[blockIndex] as
-      | Block
-      | MathBlock
-      | undefined;
+      Block | MathBlock | undefined;
     if (!block || block.deleted || block.type !== "math") return undefined;
     const contentId = mathContentIdForBlock(block.id);
     if (point.contentId !== contentId) return undefined;
@@ -690,9 +688,7 @@ function activeMathTreeContext(
   }
   const blockIndex = cursor.position.blockIndex;
   const block = state.document.page.blocks[blockIndex] as
-    | Block
-    | MathBlock
-    | undefined;
+    Block | MathBlock | undefined;
   if (!block || block.deleted || block.type !== "math") return undefined;
   const contentId = mathContentIdForBlock(block.id);
   const document = getMathStructuredDocument(block);
@@ -723,9 +719,7 @@ function contentSelectionOwnsMathTree(state: EditorState): boolean {
   const blockIndex = findBlockIndex(state.document.page, point.blockId);
   if (blockIndex < 0) return false;
   const block = state.document.page.blocks[blockIndex] as
-    | Block
-    | MathBlock
-    | undefined;
+    Block | MathBlock | undefined;
   return !!(
     block &&
     !block.deleted &&
@@ -749,9 +743,7 @@ function flatSelectionOwnsMathTree(state: EditorState): boolean {
   return [selection.anchor.blockIndex, selection.focus.blockIndex].some(
     (index) => {
       const block = state.document.page.blocks[index] as
-        | Block
-        | MathBlock
-        | undefined;
+        Block | MathBlock | undefined;
       return !!(
         block &&
         !block.deleted &&

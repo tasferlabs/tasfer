@@ -888,7 +888,7 @@ const SPACES: Record<string, number> = {
 };
 
 /** Accents (over the base). `widehat`/`widetilde` stretch to the base width. */
-const ACCENTS = new Set([
+export const ACCENTS = new Set([
   "hat",
   "widehat",
   "tilde",
@@ -905,10 +905,10 @@ const ACCENTS = new Set([
 ]);
 
 /** Accents whose glyph stretches to span the whole base. */
-const STRETCHY_ACCENTS = new Set(["widehat", "widetilde"]);
+export const STRETCHY_ACCENTS = new Set(["widehat", "widetilde"]);
 
 /** Full-width rules / stretchy braces placed over or under their body. */
-const OVER_UNDER = new Set([
+export const OVER_UNDER = new Set([
   "overline",
   "underline",
   "overbrace",
@@ -971,7 +971,7 @@ export const MATH_OPERATORS: Record<string, boolean> = {
 };
 
 /** Font/alphabet commands → the face variant their argument is set in. */
-const MATH_FONTS: Record<string, string> = {
+export const MATH_FONTS: Record<string, string> = {
   mathrm: "Main-Regular",
   mathbf: "Main-Bold",
   mathit: "Main-Italic",
@@ -1073,7 +1073,7 @@ export const RAW_TEXT_COMMANDS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /** Atom-class wrappers → resulting class. */
-const MCLASS_FORMS: Record<string, MClassNode["mclass"]> = {
+export const MCLASS_FORMS: Record<string, MClassNode["mclass"]> = {
   mathord: "mord",
   mathbin: "mbin",
   mathrel: "mrel",
@@ -1085,7 +1085,7 @@ const MCLASS_FORMS: Record<string, MClassNode["mclass"]> = {
 };
 
 /** Phantom-family commands → kind. */
-const PHANTOM_FORMS: Record<string, PhantomNode["kind"]> = {
+export const PHANTOM_FORMS: Record<string, PhantomNode["kind"]> = {
   phantom: "phantom",
   hphantom: "hphantom",
   vphantom: "vphantom",

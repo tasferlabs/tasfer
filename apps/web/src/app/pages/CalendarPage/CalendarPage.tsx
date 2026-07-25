@@ -160,7 +160,10 @@ export default function CalendarPage() {
   const savingDraftRef = useRef(false);
   const queryClient = useQueryClient();
 
-  const handlePreviewClose = useCallback(() => {
+  // Tear down the preview without asking. Only for paths that already carry an
+  // explicit discard intent (the draft footer's Cancel); everything else goes
+  // through `handlePreviewClose`.
+  const closePreviewNow = useCallback(() => {
     setPreviewPageId(null);
     setPreviewAnchor(null);
     setDraftEvent(null);
@@ -209,6 +212,14 @@ export default function CalendarPage() {
     },
     [draftEvent, draftHasContent, getConfirmation, t],
   );
+
+  // The single close sink for the preview. Every dismissal the preview exposes
+  // (Escape, click-outside, the X buttons, the mobile sheet's swipe-down) funnels
+  // here, so the discard confirmation is structural instead of wired per
+  // affordance — a new dismissal path can't silently drop a draft.
+  const handlePreviewClose = useCallback(() => {
+    guardDiscard(closePreviewNow);
+  }, [guardDiscard, closePreviewNow]);
 
   // Apply a mini-calendar date pick, guarding an in-progress draft. On cancel,
   // revert the overlay fields back to the current selection so the picker
@@ -268,16 +279,22 @@ export default function CalendarPage() {
     });
   }, [routeBlocker, getConfirmation, t]);
 
-  const handleEventClick = useCallback((pageId: string, rect: DOMRect) => {
-    if (pageId === "__draft__") {
-      // Draft event clicked - just set anchor for positioning
-      setPreviewAnchor(rect);
-      return;
-    }
-    setDraftEvent(null);
-    setPreviewPageId(pageId);
-    setPreviewAnchor(rect);
-  }, []);
+  const handleEventClick = useCallback(
+    (pageId: string, rect: DOMRect) => {
+      if (pageId === "__draft__") {
+        // Draft event clicked - just set anchor for positioning
+        setPreviewAnchor(rect);
+        return;
+      }
+      // Opening another event replaces the draft, so confirm first.
+      guardDiscard(() => {
+        setDraftEvent(null);
+        setPreviewPageId(pageId);
+        setPreviewAnchor(rect);
+      });
+    },
+    [guardDiscard],
+  );
 
   // Compute adjacent dates for swipe panels
   const prevDate = useMemo(() => {
@@ -387,14 +404,19 @@ export default function CalendarPage() {
       const scheduledDate = new Date(date || selectedDate);
       scheduledDate.setHours(0, 0, 0, 0);
       scheduledDate.setMinutes(startMinutes);
-      setDraftEvent({
-        scheduledAt: wallDateToUtcIso(scheduledDate),
-        duration: durationMinutes,
+      // A new draft replaces any open one. The grid's create gestures refuse to
+      // start while a draft is open in popover mode, but sidebar mode leaves the
+      // grid interactive, so guard here rather than trusting the callers.
+      guardDiscard(() => {
+        setDraftEvent({
+          scheduledAt: wallDateToUtcIso(scheduledDate),
+          duration: durationMinutes,
+        });
+        setPreviewPageId(null);
+        setPreviewAnchor(null);
       });
-      setPreviewPageId(null);
-      setPreviewAnchor(null);
     },
-    [activeSpaceId, selectedDate],
+    [activeSpaceId, selectedDate, guardDiscard],
   );
 
   // Duplicate an existing event into a new page: copies its title, parent,
@@ -1961,6 +1983,7 @@ export default function CalendarPage() {
         onSidebarModeChange={setSidebarMode}
         onDuplicate={(id) => duplicatePage(id, { select: true })}
         draft={draftEvent}
+        onDraftDiscard={closePreviewNow}
         onDraftSave={handleDraftSave}
         onDraftScheduleChange={(scheduledAt, duration) =>
           setDraftEvent((d) => (d ? { ...d, scheduledAt, duration } : d))

@@ -107,16 +107,68 @@ describe("MathDocument projection", () => {
     expect(document.root.body.children[1]).toMatchObject({ text: "xy" });
   });
 
+  it("projects an accent as a command over an editable base row", () => {
+    const document = parseMathDocument(String.raw`\vec{}+\dot{\frac{a}{b}}`);
+    const [accent, , scripted] = document.root.body.children;
+    if (accent?.type !== "accent") throw new Error("expected accent");
+    if (scripted?.type !== "accent") throw new Error("expected accent");
+
+    // An empty base is a real, addressable row — the slot a caret enters and
+    // types into — not an opaque `\vec{}` fallback leaf.
+    expect(accent.command).toBe("vec");
+    expect(accent.base.type).toBe("row");
+    expect(accent.base.children).toEqual([]);
+    // Whatever the accent covers stays structured beneath it.
+    expect(scripted.base.children.map((node) => node.type)).toEqual([
+      "fraction",
+    ]);
+
+    const ids = collectIds(document);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("projects one-body commands and stacks as editable slots", () => {
+    const document = parseMathDocument(
+      String.raw`\overline{x}\mathbb{}\boxed{a}\overset{!}{=}`,
+    );
+    const [overline, alphabet, boxed, stack] = document.root.body.children;
+    if (overline?.type !== "wrapper") throw new Error("expected wrapper");
+    if (alphabet?.type !== "wrapper") throw new Error("expected wrapper");
+    if (boxed?.type !== "wrapper") throw new Error("expected wrapper");
+    if (stack?.type !== "stack") throw new Error("expected stack");
+
+    expect([overline.command, alphabet.command, boxed.command]).toEqual([
+      "overline",
+      "mathbb",
+      "boxed",
+    ]);
+    expect(alphabet.body.children).toEqual([]);
+    expect(stack.command).toBe("overset");
+    expect(stack.script.children).toHaveLength(1);
+    expect(stack.base.children).toHaveLength(1);
+  });
+
+  it("keeps precomposed aliases raw so their spelling is never invented", () => {
+    // `\neq` parses into the same shape as `\not=` and `\mathstrut` into a
+    // `\vphantom`. Storing them as their construct would reprint them as
+    // `\not{=}` / `\vphantom{(}` — source the author never wrote.
+    for (const latex of [String.raw`\neq`, String.raw`\mathstrut`]) {
+      const document = parseMathDocument(latex);
+      expect(document.root.body.children[0]?.type).toBe("raw-latex");
+      expect(printMathDocument(document)).toBe(latex);
+    }
+  });
+
   it("preserves unsupported subtrees as exact raw LaTeX", () => {
-    const latex = String.raw`x+\widehat{ab}+\mathbf{z}+\doesnotexist`;
+    const latex = String.raw`x+{ab}+\neq+\doesnotexist`;
     const document = parseMathDocument(latex);
     const raw = document.root.body.children
       .filter((node) => node.type === "raw-latex")
       .map((node) => node.latex);
 
     expect(raw).toEqual([
-      String.raw`\widehat{ab}`,
-      String.raw`\mathbf{z}`,
+      String.raw`{ab}`,
+      String.raw`\neq`,
       String.raw`\doesnotexist`,
     ]);
     expect(printMathDocument(document)).toBe(latex);
@@ -134,6 +186,17 @@ describe("MathDocument LaTeX printer", () => {
       String.raw`\left\langle x\right\rangle`,
     ],
     [String.raw`\binom{n}{k}`, String.raw`\binom{n}{k}`],
+    // An accent's base is a slot, so it is always braced: a bare `\vec` would
+    // read whatever follows it in the projection as its base.
+    [String.raw`\vec v`, String.raw`\vec{v}`],
+    [String.raw`\dot`, String.raw`\dot{}`],
+    [String.raw`\widehat{ab}+1`, String.raw`\widehat{ab}+1`],
+    // One-body commands and stacks brace their slots for the same reason.
+    [String.raw`\overline x`, String.raw`\overline{x}`],
+    [String.raw`\mathbb R+1`, String.raw`\mathbb{R}+1`],
+    [String.raw`\not=`, String.raw`\not{=}`],
+    [String.raw`\fbox{a}`, String.raw`\fbox{a}`],
+    [String.raw`\stackrel{a}{b}`, String.raw`\stackrel{a}{b}`],
     [String.raw`\textbf{hello}`, String.raw`\textbf{hello}`],
     [String.raw`\operatorname*{rank}`, String.raw`\operatorname*{rank}`],
     [
@@ -435,6 +498,9 @@ function collectNodeIds(node: MathNode, ids: string[]): void {
       collectRowIds(node.base, ids);
       if (node.superscript) collectRowIds(node.superscript, ids);
       if (node.subscript) collectRowIds(node.subscript, ids);
+      break;
+    case "accent":
+      collectRowIds(node.base, ids);
       break;
     case "delimited":
       collectRowIds(node.body, ids);

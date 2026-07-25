@@ -1,6 +1,7 @@
 import { mathSymbols, type SymbolInfo } from "../data/symbols";
 import type { Node } from "../parse/ast";
 import { parse } from "../parse/parser";
+import { isStackCommand, isWrapperCommand } from "../vocabulary";
 import {
   type MathDocument,
   type MathFraction,
@@ -179,6 +180,13 @@ class AstProjector {
           superscript: node.sup ? this.rowFromNode(node.sup) : null,
           subscript: node.sub ? this.rowFromNode(node.sub) : null,
         };
+      case "accent":
+        return {
+          type: "accent",
+          id,
+          command: node.label.slice(1),
+          base: this.rowFromNode(node.base),
+        };
       case "leftright":
         return {
           type: "delimited",
@@ -208,16 +216,32 @@ class AstProjector {
           name: node.name,
           limits: node.limits,
         };
-      case "unknown":
-      case "sizeddelim":
-      case "accent":
       case "overunder":
       case "mathfont":
       case "not":
       case "mclass":
-      case "stack":
       case "boxed":
-      case "phantom":
+      case "phantom": {
+        const command = this.commandOf(node);
+        const body = node.type === "not" ? node.base : node.body;
+        return command && isWrapperCommand(command)
+          ? { type: "wrapper", id, command, body: this.rowFromNode(body) }
+          : this.rawLatex(node, id);
+      }
+      case "stack": {
+        const command = this.commandOf(node);
+        return command && isStackCommand(command)
+          ? {
+              type: "stack",
+              id,
+              command,
+              script: this.rowFromNode(node.script),
+              base: this.rowFromNode(node.base),
+            }
+          : this.rawLatex(node, id);
+      }
+      case "unknown":
+      case "sizeddelim":
       case "style":
       case "infix":
       case "space":
@@ -300,6 +324,18 @@ class AstProjector {
     }
 
     return { type: "raw-latex", id, latex };
+  }
+
+  /**
+   * The control word a node's source starts with (`\overline{x}` → `overline`).
+   * Precomposed aliases the parser expands into a construct's AST shape —
+   * `\neq` (⇒ `\not=`), `\mathstrut` (⇒ a `\vphantom`) — keep their own
+   * spelling here, so they fail the construct's command vocabulary and stay
+   * raw: reprinting them as `\neq{=}` would invent source the user never
+   * wrote. Null when the node's source is not a control word.
+   */
+  private commandOf(node: Node): string | null {
+    return /^\\([A-Za-z]+)/.exec(this.sourceFor(node))?.[1] ?? null;
   }
 
   private rawLatex(node: Node, id: MathItemId): MathRawLatex {

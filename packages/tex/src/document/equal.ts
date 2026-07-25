@@ -81,6 +81,17 @@ function nodeValue(
         node.superscript ? rowValue(node.superscript) : null,
         node.subscript ? rowValue(node.subscript) : null,
       ];
+    case "accent":
+      return ["accent", node.command, rowValue(node.base)];
+    case "wrapper":
+      return ["wrapper", node.command, rowValue(node.body)];
+    case "stack":
+      return [
+        "stack",
+        node.command,
+        rowValue(node.script),
+        rowValue(node.base),
+      ];
     case "delimited":
       return ["delimited", node.left, rowValue(node.body), node.right];
     case "matrix":

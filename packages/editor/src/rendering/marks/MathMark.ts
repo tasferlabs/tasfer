@@ -27,6 +27,7 @@ import {
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  type ViewportPayload,
 } from "../../actions/keyboard-actions";
 import { TEXT_CLICK } from "../../actions/pointer-actions";
 import { getInlineMathSpans } from "../../inline-math-spans";
@@ -44,6 +45,7 @@ import {
   enterInlineMathTreeAtPosition,
   exitActiveInlineMathTreeHorizontally,
   exitActiveInlineMathTreeSelectionHorizontally,
+  exitActiveInlineMathTreeVertically,
   extendActiveInlineMathTreeSelectionHorizontally,
   extendActiveInlineMathTreeSelectionVertically,
   hasActiveInlineMathTreeCaret,
@@ -407,21 +409,30 @@ export class MathMark extends Mark {
   registerActions(bus: ActionBus): void {
     bus.registerState(
       TEXT_CLICK,
-      (state, { position, modifiers }) =>
+      (state, { position, contentSelection, modifiers }) => {
         // A Shift+click with an active selection/caret is an EXTENSION gesture:
         // leave it unclaimed so the generic caret placement extends the flat
         // range across the chip (snapping covers it whole) instead of dropping
         // the caret into the chip's tree.
-        modifiers.shift &&
-        (state.document.selection ||
-          state.document.cursor ||
-          state.document.contentSelection)
-          ? undefined
-          : enterInlineMathTreeAtPosition(
-              state,
-              position.blockIndex,
-              position.textIndex,
-            ),
+        const extending =
+          modifiers.shift &&
+          (state.document.selection ||
+            state.document.cursor ||
+            state.document.contentSelection);
+        // The click already resolved to a caret INSIDE a formula — the construct
+        // under the pointer. Leaving it unclaimed places exactly that caret;
+        // claiming it here would enter at whichever edge the flat position
+        // projects to, so clicking a numerator would park the caret before the
+        // whole fraction. Only a chip with no tree to hit-test (a legacy run
+        // still awaiting its attachment) reaches the edge entry, which migrates
+        // it on the way in.
+        if (extending || contentSelection) return undefined;
+        return enterInlineMathTreeAtPosition(
+          state,
+          position.blockIndex,
+          position.textIndex,
+        );
+      },
       90,
     );
     const remove =
@@ -473,13 +484,14 @@ export class MathMark extends Mark {
       },
       110,
     );
-    const moveVertical = (direction: "up" | "down") => (state: EditorState) => {
-      const moved = moveActiveInlineMathTreeCaretVertically(state, direction);
-      if (moved) return moved;
-      return hasActiveInlineMathTreeCaret(state)
-        ? { state, ops: [], handled: true as const }
-        : undefined;
-    };
+    // A chip shares its line with prose: once the formula has no stacked row
+    // left in that direction the press belongs to the host line above/below,
+    // never to the chip (see `exitActiveInlineMathTreeVertically`).
+    const moveVertical =
+      (direction: "up" | "down") =>
+      (state: EditorState, { viewport }: ViewportPayload) =>
+        moveActiveInlineMathTreeCaretVertically(state, direction) ??
+        exitActiveInlineMathTreeVertically(state, direction, viewport);
     bus.registerState(MOVE_CURSOR_UP, moveVertical("up"), 110);
     bus.registerState(MOVE_CURSOR_DOWN, moveVertical("down"), 110);
     const extendVertical =
@@ -518,8 +530,8 @@ export class MathMark extends Mark {
     bus.registerState(EXTEND_SELECTION_RIGHT, extendHorizontal("right"), 110);
     bus.registerState(
       INSERT_MATH_COMMAND,
-      (state, { text, caretOffset }) =>
-        insertActiveInlineMathTreeCommand(state, text, caretOffset) ??
+      (state, { text, caretOffset, trigger }) =>
+        insertActiveInlineMathTreeCommand(state, text, caretOffset, trigger) ??
         (hasActiveInlineMathTreeCaret(state)
           ? { state, ops: [], handled: true as const }
           : undefined),

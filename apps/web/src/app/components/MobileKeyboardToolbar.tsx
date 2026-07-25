@@ -363,7 +363,7 @@ function MathRow({ query, chips, onInsert }: MathRowProps) {
         </div>
       ) : (
         <span className="min-w-0 flex-1 truncate px-3 text-sm text-muted-foreground">
-          {t("editor.math.noConstructs", "No matching constructs")}
+          {t("editor.math.noLatexCommands", "No matching LaTeX commands")}
         </span>
       )}
     </>

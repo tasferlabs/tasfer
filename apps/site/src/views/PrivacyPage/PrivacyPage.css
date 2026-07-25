@@ -1,225 +1,366 @@
-/* ── Base ── */
-
 .privacy {
-  --home-mono:
-    ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
-  --home-text:
-    "Noto Sans Arabic", ui-monospace, "SFMono-Regular", "SF Mono", Menlo,
-    Consolas, "Liberation Mono", monospace;
+  --privacy-bg: var(--background);
+  --privacy-fg: var(--foreground);
+  --privacy-muted: var(--muted);
+  --privacy-muted-fg: var(--muted-foreground);
+  --privacy-font-ui:
+    "Noto Sans Arabic", "Poppins", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --privacy-font-editorial:
+    "IBM Plex Sans Arabic", "Libre Baskerville", Georgia, "Times New Roman",
+    Times, serif;
+  --privacy-radius: 0.45rem;
+  --privacy-duration: 0.15s;
 
-  position: relative;
   min-height: 100vh;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--home-text);
-  font-size: 14px;
+  background: var(--privacy-bg);
+  color: var(--privacy-fg);
+  font-family: var(--privacy-font-ui);
+  font-size: 17px;
   line-height: 1.7;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* ── Nav ── */
+.privacy * {
+  box-sizing: border-box;
+}
 
-.privacy-nav {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+.privacy-header {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 50;
+  background: transparent;
+  transition:
+    background var(--privacy-duration),
+    backdrop-filter var(--privacy-duration);
+}
+
+.privacy-header.is-scrolled {
+  background: oklch(from var(--privacy-bg) l c h / 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.privacy-header-inner,
+.privacy-footer-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-inline: 32px;
+}
+
+.privacy-header-inner {
+  min-height: 70px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 40px;
-  background: oklch(from var(--background) l c h / 85%);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
+  gap: 24px;
 }
 
-.privacy-logo {
-  font-size: 16px;
+.privacy-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--wordmark-color);
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.03em;
-  color: var(--wordmark-color);
-  text-transform: lowercase;
   text-decoration: none;
 }
 
-/* In Arabic the wordmark reads "تصفير" — a cursive script, where the Latin
-   negative tracking crowds the joins. */
-[dir="rtl"] .privacy-logo {
-  letter-spacing: normal;
+.privacy-wordmark-mark {
+  width: 26px;
+  height: 26px;
 }
 
-.privacy-nav-back {
+.privacy-nav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.privacy-nav a:not(.privacy-nav-cta) {
+  color: var(--privacy-muted-fg);
+  font-size: 14px;
+  text-decoration: none;
+  transition: color var(--privacy-duration);
+}
+
+.privacy-nav a:not(.privacy-nav-cta):hover {
+  color: var(--privacy-fg);
+}
+
+.privacy-nav-cta {
+  padding: 8px 14px;
+  border: 1px solid var(--privacy-fg);
+  border-radius: calc(var(--privacy-radius) - 2px);
+  background: transparent;
+  color: var(--privacy-fg);
+  font-family: inherit;
+  font-size: 14px;
+  text-decoration: none;
+  transition:
+    background var(--privacy-duration),
+    color var(--privacy-duration);
+}
+
+.privacy-nav-cta:hover {
+  background: var(--privacy-fg);
+  color: var(--privacy-bg);
+}
+
+.privacy-theme-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--muted-foreground);
-  text-decoration: none;
-  font-size: 13px;
-  transition: color 0.15s;
+  padding: 6px;
+  border: 0;
+  border-radius: calc(var(--privacy-radius) - 2px);
+  background: transparent;
+  color: var(--privacy-muted-fg);
+  cursor: pointer;
+  transition:
+    color var(--privacy-duration),
+    background var(--privacy-duration);
 }
 
-.privacy-nav-back:hover {
-  color: var(--foreground);
+.privacy-theme-btn:hover {
+  background: var(--privacy-muted);
+  color: var(--privacy-fg);
 }
 
-/* ── Content ── */
+.privacy-theme-btn svg {
+  width: 18px;
+  height: 18px;
+}
 
-.privacy-content {
+.privacy-hero {
   position: relative;
-  z-index: 1;
+  padding-top: clamp(118px, 17vh, 180px);
+  overflow: hidden;
+}
+
+.privacy-hero-grid {
+  position: absolute;
+  inset: 0;
+  background: var(--privacy-muted-fg);
+  -webkit-mask:
+    url("/dot-grid.svg") center top / 80% auto no-repeat,
+    linear-gradient(to bottom, #000 35%, transparent 92%);
+  mask:
+    url("/dot-grid.svg") center top / 80% auto no-repeat,
+    linear-gradient(to bottom, #000 35%, transparent 92%);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.privacy-content,
+.privacy-contact {
+  position: relative;
   max-width: 720px;
   margin: 0 auto;
-  padding: 120px 40px 100px;
+  padding-inline: 32px;
+}
+
+.privacy-hero .privacy-content {
+  padding-bottom: 64px;
 }
 
 .privacy-label {
-  font-family: var(--home-mono);
+  margin-bottom: 30px;
+  color: var(--privacy-muted-fg);
   font-size: 12px;
-  color: oklch(from var(--primary) l c h / 60%);
-  margin-bottom: 24px;
-  letter-spacing: 0.05em;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 .privacy-title {
-  font-family: var(--home-text);
-  font-size: clamp(28px, 5vw, 44px);
-  font-weight: 700;
-  line-height: 1.15;
-  color: var(--foreground);
-  margin: 0 0 16px;
-  letter-spacing: -0.02em;
+  max-width: 10ch;
+  margin: 0 0 22px;
+  color: var(--privacy-fg);
+  font-family: var(--privacy-font-editorial);
+  font-size: clamp(44px, 7vw, 82px);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
 }
 
 .privacy-date {
+  margin: 0 0 44px;
+  color: var(--privacy-muted-fg);
   font-size: 13px;
-  color: var(--muted-foreground);
-  margin: 0 0 48px;
 }
 
 .privacy-intro {
-  font-size: 15px;
-  color: var(--foreground);
-  line-height: 1.9;
-  margin: 0 0 48px;
+  max-width: 56ch;
+  margin: 0;
+  color: var(--privacy-fg);
+  font-size: 19px;
+  line-height: 1.65;
 }
 
-/* ── Policy Items ── */
+.privacy-policy {
+  padding-bottom: 72px;
+}
 
 .privacy-items {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.privacy-item {
-  display: flex;
-  gap: 24px;
-  padding: 28px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.privacy-item:first-child {
   border-top: 1px solid var(--border);
 }
 
+.privacy-item {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 20px;
+  padding: 30px 0;
+  border-bottom: 1px solid var(--border);
+}
+
 .privacy-item-num {
-  font-size: 12px;
-  color: oklch(from var(--primary) l c h / 60%);
-  font-weight: 600;
   padding-top: 2px;
-  flex-shrink: 0;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
 }
 
 .privacy-item h3 {
   margin: 0 0 8px;
-  font-size: 14px;
+  color: var(--privacy-fg);
+  font-size: 16px;
   font-weight: 600;
-  color: var(--foreground);
 }
 
 .privacy-item p {
   margin: 0;
-  font-size: 13px;
-  color: var(--muted-foreground);
-  line-height: 1.8;
+  color: var(--privacy-muted-fg);
+  font-size: 15px;
+  line-height: 1.75;
 }
 
-/* ── Contact ── */
-
 .privacy-contact {
-  position: relative;
-  z-index: 1;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 0 40px 100px;
+  padding-bottom: 100px;
 }
 
 .privacy-contact-box {
-  border: 1px solid var(--border);
   padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--privacy-radius);
 }
 
 .privacy-contact-box p {
   margin: 0;
-  font-size: 13px;
-  color: var(--muted-foreground);
-  line-height: 1.8;
+  color: var(--privacy-muted-fg);
+  font-size: 15px;
 }
 
 .privacy-contact-box a {
-  color: var(--primary);
-  text-decoration: none;
+  color: var(--privacy-fg);
   font-weight: 600;
+  text-decoration-color: var(--border);
+  text-underline-offset: 4px;
 }
 
 .privacy-contact-box a:hover {
-  text-decoration: underline;
+  color: var(--primary);
+  text-decoration-color: var(--primary);
 }
-
-/* ── Footer ── */
 
 .privacy-footer {
-  position: relative;
-  z-index: 1;
+  border-top: 1px solid var(--border);
+  padding: 36px 0 60px;
+}
+
+.privacy-footer-inner {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  color: var(--privacy-muted-fg);
+  font-size: 13px;
+}
+
+.privacy-footer-brand {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 24px 40px;
-  border-top: 1px solid var(--border);
+  gap: 10px;
 }
 
-.privacy-footer-text {
-  font-size: 12px;
-  color: var(--muted-foreground);
-  letter-spacing: 0.03em;
+.privacy-footer-mark {
+  width: 18px;
+  height: 18px;
 }
 
-/* ── Mobile ── */
+.privacy-footer-word {
+  color: var(--wordmark-color);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
 
-@media (max-width: 640px) {
-  .privacy-nav {
-    padding: 16px 20px;
+.privacy-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+.privacy-footer a {
+  color: var(--privacy-muted-fg);
+  text-decoration: none;
+}
+
+.privacy-footer a:hover {
+  color: var(--privacy-fg);
+}
+
+[dir="rtl"] .privacy-wordmark,
+[dir="rtl"] .privacy-footer-word,
+[dir="rtl"] .privacy-title {
+  letter-spacing: normal;
+}
+
+[dir="rtl"] .privacy-title {
+  line-height: 1.3;
+}
+
+@media (max-width: 720px) {
+  .privacy-header-inner,
+  .privacy-footer-inner,
+  .privacy-content,
+  .privacy-contact {
+    padding-inline: 20px;
   }
 
-  .privacy-content {
-    padding: 80px 20px 60px;
+  .privacy-nav a {
+    display: none;
+  }
+
+  .privacy-hero-grid {
+    -webkit-mask-size:
+      200% auto,
+      auto;
+    mask-size:
+      200% auto,
+      auto;
+  }
+
+  .privacy-hero .privacy-content {
+    padding-bottom: 52px;
+  }
+
+  .privacy-policy {
+    padding-bottom: 56px;
   }
 
   .privacy-item {
-    flex-direction: column;
-    gap: 8px;
+    grid-template-columns: 36px 1fr;
+    gap: 12px;
   }
 
   .privacy-contact {
-    padding: 0 20px 60px;
-  }
-
-  .privacy-footer {
-    flex-direction: column;
-    gap: 12px;
-    padding: 24px 20px;
-    text-align: center;
+    padding-bottom: 72px;
   }
 }

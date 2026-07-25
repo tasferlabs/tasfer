@@ -65,6 +65,13 @@ describe("structured math adapter", () => {
     ]);
     expect(Object.keys(structured.nodes.text.textFields)).toEqual(["text"]);
     expect(Object.keys(structured.nodes.operator.textFields)).toEqual(["name"]);
+    expect(Object.keys(structured.nodes.accent.textFields)).toEqual([
+      "command",
+    ]);
+    expect(Object.keys(structured.nodes.wrapper.textFields)).toEqual([
+      "command",
+    ]);
+    expect(Object.keys(structured.nodes.stack.textFields)).toEqual(["command"]);
     expect(Object.keys(structured.nodes["raw-latex"].textFields)).toEqual([
       "latex",
     ]);
@@ -260,6 +267,25 @@ function everyNodeKindDocument(): MathDocument {
           subscript: null,
         },
         {
+          type: "accent",
+          id: "accent",
+          command: "vec",
+          base: row("accent-base"),
+        },
+        {
+          type: "wrapper",
+          id: "wrapper",
+          command: "overline",
+          body: row("wrapper-body"),
+        },
+        {
+          type: "stack",
+          id: "stack",
+          command: "overset",
+          script: row("stack-script"),
+          base: row("stack-base"),
+        },
+        {
           type: "delimited",
           id: "delimited",
           left: String.raw`\langle`,
@@ -290,7 +316,7 @@ function everyNodeKindDocument(): MathDocument {
         {
           type: "raw-latex",
           id: "raw-latex",
-          latex: String.raw`\widehat{x}`,
+          latex: String.raw`\overline{x}`,
         },
       ]),
     },

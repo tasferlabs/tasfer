@@ -73,6 +73,7 @@ function move(
     atomicBlock: null,
     viewport,
     resolveCoords: () => null,
+    resolveContentSelection: () => null,
     modifiers: { ctrlOrMeta: false },
   }).state;
 }

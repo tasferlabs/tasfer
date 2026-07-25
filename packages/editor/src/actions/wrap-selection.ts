@@ -50,6 +50,7 @@ import {
 } from "../sync/crdt-utils";
 import {
   createFeatureMarkInRange,
+  rangeAbsorbsStructuredMarks,
   rangeIntersectsStructuredMark,
 } from "./structured-marks";
 
@@ -152,19 +153,30 @@ function wrapWithMarks(
 
   const segments = formatableSegments(state, start, end);
   if (segments.length === 0) return null;
+  // Touching an existing projection of the same type is off limits — re-wrapping
+  // it would detach the attrs addressing its document — unless the segment
+  // swallows whole projections along with more than themselves, which the
+  // create path absorbs into one bigger formula (see
+  // `rangeAbsorbsStructuredMarks`).
   if (
     claimed.some(({ type }) =>
       segments.some((segment) => {
         const block = state.document.page.blocks[segment.blockIndex];
+        if (!block || block.deleted) return false;
         return (
-          !!block &&
-          !block.deleted &&
           rangeIntersectsStructuredMark(
             block,
             segment.from,
             segment.to,
             state.schema,
             type,
+          ) &&
+          !rangeAbsorbsStructuredMarks(
+            block,
+            segment.from,
+            segment.to,
+            type,
+            state.schema,
           )
         );
       }),

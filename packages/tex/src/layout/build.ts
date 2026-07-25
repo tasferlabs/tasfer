@@ -1274,11 +1274,24 @@ function buildMathFont(
   node: Extract<Node, { type: "mathfont" }>,
   style: Style,
 ): Built {
-  const box = buildExpression(
-    asNodes(node.body),
-    style,
-    node.variant as FontVariant,
-  );
+  const body = asNodes(node.body);
+  const variant = node.variant as FontVariant;
+  // An EMPTY body is the construct's own editable slot (`\mathbb{}` straight
+  // from a command menu): lay out the same faint placeholder every other slot
+  // gets, so the caret has somewhere to land. Unwrapping the group into the
+  // sibling path below would render nothing at all.
+  if (body.length === 0) {
+    const slot = emptySlot(node.body.span, style);
+    return {
+      box: listBox([{ box: slot.box, dx: 0, dy: 0 }], {
+        klass: "mord",
+        span: node.span,
+      }),
+      klass: "mord",
+      isCharBox: false,
+    };
+  }
+  const box = buildExpression(body, style, variant);
   box.span = node.span;
   return { box, klass: "mord", isCharBox: false };
 }

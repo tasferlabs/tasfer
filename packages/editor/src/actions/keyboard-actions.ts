@@ -44,7 +44,7 @@ import {
 
 /** Payload for the vertical/page moves — they need the viewport to resolve the
  * target visual line. */
-interface ViewportPayload {
+export interface ViewportPayload {
   viewport: ViewportState;
 }
 

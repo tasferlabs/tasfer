@@ -1,5 +1,6 @@
 export { mathDocumentsSemanticallyEqual } from "./equal";
 export {
+  type MathAccent,
   type MathDelimited,
   type MathDocument,
   type MathFraction,
@@ -15,10 +16,12 @@ export {
   type MathRoot,
   type MathRow,
   type MathScripts,
+  type MathStack,
   type MathSymbol,
   type MathSymbolClass,
   type MathText,
   type MathTextVariant,
+  type MathWrapper,
 } from "./model";
 export { printMathDocument, printMathRow } from "./print";
 export { parseMathDocument, type ParseMathDocumentOptions } from "./project";

@@ -17,6 +17,7 @@ import type {
   EditorState,
   Operation,
 } from "../state-types";
+import { updateContentSelection } from "../structured-selection";
 import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import {
@@ -27,7 +28,12 @@ import {
 import { applyOp } from "../sync/reducer";
 import { createStructuredMathMarkAttachment } from "./inline-structured";
 import { inlineMathTreeInputRule } from "./inline-tree-state";
-import { mathContentIdForBlock, parseMathDocumentInit } from "./structured";
+import {
+  getMathStructuredDocument,
+  mathContentIdForBlock,
+  parseMathDocumentInit,
+} from "./structured";
+import { mathContentSelectionFromSourceOffset } from "./tree-selection";
 import { mathTreeInputRule } from "./tree-state";
 
 const INLINE_MATH = /\$([^$\n]+)\$$/;
@@ -124,11 +130,21 @@ const displayDollarRule: FeatureInputRule = {
     if (blockIndex < 0) return undefined;
 
     page.blocks[blockIndex].cachedLayout = undefined;
-    const next = placeCaret(
-      { ...state, document: { ...state.document, page } },
-      blockIndex,
-      0,
-    );
+    const withPage = { ...state, document: { ...state.document, page } };
+    // Land the caret IN the tree, the way block conversion does — a display
+    // equation's content lives only there, and its flat projection is empty, so
+    // a compatibility cursor on it names an offset that stands for both block
+    // edges at once. Every leading-edge handler reads the nested caret; given
+    // the flat one they fall through to the tree's claimed no-op, which left
+    // Backspace dead on a just-typed `$$`. Flat stays the fallback for a tree
+    // that somehow refuses a caret.
+    const document = getMathStructuredDocument(page.blocks[blockIndex]);
+    const caret = document
+      ? mathContentSelectionFromSourceOffset(block.id, contentId, document, 0)
+      : null;
+    const next = caret
+      ? updateContentSelection(withPage, caret)
+      : placeCaret(withPage, blockIndex, 0);
     return {
       state: next,
       ops: [deleted.op, morph, init] satisfies Operation[],

@@ -687,6 +687,10 @@ export function rebuildState(
   // ordering not matching causal order when clocks weren't advanced).
   const insertedCharIds = new Set<string>();
   const deferredOps: Operation[] = [];
+  // Attachments whose first edit arrived before their block existed. Once a
+  // document is deferred, every later edit to it defers too, so the document's
+  // own edit order survives the split into two passes.
+  const deferredContent = new Set<string>();
 
   // Apply operations in order
   let state = createEmptyPageState(pageId);
@@ -710,10 +714,31 @@ export function rebuildState(
       continue;
     }
 
+    // Defer a structured edit whose block hasn't been inserted yet. An emitter
+    // that mints an attachment's ops before the `block_insert` that hosts it
+    // stamps them with an earlier clock, so the HLC sort hands them to us
+    // first — and `applyContentEdit` drops an edit for a block it can't find,
+    // silently losing the attachment (an inline equation becomes a bare anchor
+    // character). Replaying it after the block exists restores it, including
+    // from logs already written that way.
+    if (op.op === "content_edit") {
+      const key = `${op.blockId}\u0000${op.contentId}`;
+      if (
+        deferredContent.has(key) ||
+        findBlockIndex(state, op.blockId) === -1
+      ) {
+        deferredContent.add(key);
+        deferredOps.push(op);
+        continue;
+      }
+    }
+
     state = applyOp(state, op, schema);
   }
 
-  // Apply deferred deletes — the chars they reference should now exist
+  // Apply the deferred ops — the chars and blocks they reference now exist.
+  // They kept their sorted order, so each attachment still sees its own edits
+  // in sequence.
   for (const op of deferredOps) {
     state = applyOp(state, op, schema);
   }

@@ -6,6 +6,7 @@ import { stateAction } from "../action-bus";
 export const INSERT_MATH_COMMAND = stateAction<{
   readonly text: string;
   readonly caretOffset?: number;
+  readonly trigger?: "\\" | "/";
 }>("insert-math-command", (state) => ({ state, ops: [] }));
 
 /** Resize the structured matrix containing the active math-tree caret. */

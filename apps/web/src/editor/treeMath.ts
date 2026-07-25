@@ -71,11 +71,11 @@ export function activeTreeMath(editor: AppEditor): ActiveTreeMath | null {
 }
 
 export interface TreeMathCommandRun {
-  /** Letters typed after the `\` so far — empty right after the trigger. */
+  /** Text typed after the trigger so far — empty right after it is inserted. */
   readonly query: string;
-  /** Stable identity of the run's opening `\` character. */
-  readonly backslashCharId: string;
-  /** Collapsed selection at the run's `\`, for anchoring menu chrome. */
+  /** Stable identity of the run's opening trigger character. */
+  readonly triggerCharId: string;
+  /** Collapsed selection at the trigger, for anchoring menu chrome. */
   readonly anchor: ContentSelection | null;
 }
 
@@ -87,15 +87,16 @@ export interface TreeMathCommandRun {
  */
 export function treeMathCommandRun(
   context: ActiveTreeMath,
+  trigger: "\\" | "/" = "\\",
 ): TreeMathCommandRun | null {
   const caret = contentPointToMathTreeCaret(context.document, context.point);
   const run = caret
-    ? trailingMathCommandRun(context.document, caret)
+    ? trailingMathCommandRun(context.document, caret, trigger)
     : undefined;
   if (!run) return null;
   return {
     query: run.query,
-    backslashCharId: run.backslashCharId,
+    triggerCharId: run.triggerCharId,
     anchor: mathTreeCaretToContentSelection(
       context.blockId,
       context.contentId,

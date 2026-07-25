@@ -35,7 +35,11 @@ import {
   mathDocumentToStructured,
   validateStructuredMathDocument,
 } from "./structured";
-import { canRenderMathChar, parseMathDocument } from "@tasfer/tex/data";
+import {
+  canRenderMathChar,
+  isStretchyAccentCommand,
+  parseMathDocument,
+} from "@tasfer/tex/data";
 
 /** A stable gap inside a math row. `null` means before its first child. */
 export interface MathRowCaret {
@@ -494,9 +498,9 @@ export function insertMathSemanticLatex(
   if (!resolved) return failure(caret, "invalid-caret");
   if (latex.length === 0) return success(caret, []);
 
-  const site = semanticInsertionSite(math, caret, resolved);
-  if (!site) return failure(caret, "unsupported-position");
-  if (!placementsAtGap(math, site.gap, 1)) {
+  const requestedSite = semanticInsertionSite(math, caret, resolved);
+  if (!requestedSite) return failure(caret, "unsupported-position");
+  if (!placementsAtGap(math, requestedSite.gap, 1)) {
     return failure(caret, "invalid-caret");
   }
 
@@ -520,12 +524,20 @@ export function insertMathSemanticLatex(
   const children = getStructuredChildren(fragment, body.id, "children");
   if (children.length === 0) return success(caret, []);
 
+  // A script committed at the end of an accented atom scripts the WHOLE atom,
+  // so the insertion leaves the slot the caret sits in (see `escalatedScriptSite`).
+  const escalated = options.forceAtomic
+    ? undefined
+    : escalatedScriptSite(math, requestedSite, fragment, children);
+  const site = escalated?.site ?? requestedSite;
+  const siteResolved = escalated?.resolved ?? resolved;
+
   let absorption: ScriptBaseAbsorption | undefined;
   if (!options.forceAtomic) {
     try {
       absorption = absorbScriptBase(
         math,
-        resolved,
+        siteResolved,
         site,
         fragment,
         children,
@@ -1634,6 +1646,11 @@ function preferredNodeSlot(
         onlyChild(document, node.id, "subscript", "row") ??
         onlyChild(document, node.id, "superscript", "row")
       );
+    case "accent":
+      return onlyChild(document, node.id, "base", "row");
+    case "stack":
+      return onlyChild(document, node.id, "script", "row");
+    case "wrapper":
     case "delimited":
       return onlyChild(document, node.id, "body", "row");
     case "matrix": {
@@ -1735,6 +1752,90 @@ function absorbScriptBase(
       },
     ],
   };
+}
+
+/**
+ * Move a bare-base script commit OUT of the accent slot the caret rests in.
+ *
+ * A non-stretchy accent decorates one symbol and reads as a single atom, so a
+ * script typed at the end of its base (`\dot{x|}` — where filling a fresh
+ * `\dot{}` leaves the caret) means "script the accented atom" (`\dot{x}^{2}`),
+ * not "expand the base under the accent" (`\dot{x^{2}}`). Escalating the
+ * insertion site to the gap after the whole accent hands the construct to the
+ * sibling-absorption rule, which moves the accent into the script's base.
+ * Mirrors the flat-source rule in `scriptAttachOffset` (@tasfer/tex), including
+ * its escalation through nesting: `\hat{\dot{x|}}` scripts the whole `\hat`.
+ *
+ * Stretchy accents (`\widehat`) and body wrappers (`\overline`) never escalate:
+ * spanning arbitrary content is the point, so a script typed inside stays
+ * inside. An empty base has nothing to script and also stays put. Undefined
+ * when nothing escalates, leaving the requested site untouched.
+ */
+function escalatedScriptSite(
+  document: StructuredDocument,
+  site: SemanticInsertionSite,
+  fragment: StructuredDocument,
+  roots: readonly StructuredNode[],
+): { site: SemanticInsertionSite; resolved: ResolvedCaret } | undefined {
+  const root = roots.length === 1 ? roots[0] : undefined;
+  if (!root || root.type !== "scripts" || site.split) return undefined;
+  const base = onlyChild(fragment, root.id, "base", "row");
+  if (
+    !base ||
+    getStructuredChildren(fragment, base.id, "children").length > 0
+  ) {
+    return undefined;
+  }
+
+  let gap = site.gap;
+  let escalated: MathRowCaret | undefined;
+  for (;;) {
+    const next = accentGapAfterSlotEnd(document, gap);
+    if (!next) break;
+    escalated = next;
+    gap = next;
+  }
+  if (!escalated) return undefined;
+  const resolved = resolveCaret(document, escalated);
+  return resolved?.kind === "row"
+    ? { site: { gap: escalated }, resolved }
+    : undefined;
+}
+
+/**
+ * The gap just after the non-stretchy accent whose base row ends exactly at
+ * `gap`, or undefined. The caret must sit at the END of that base (nothing
+ * follows it in the row) and the base must hold content, mirroring
+ * `scriptEndHop`'s `base.body.length > 0` guard.
+ */
+function accentGapAfterSlotEnd(
+  document: StructuredDocument,
+  gap: MathRowCaret,
+): MathRowCaret | undefined {
+  const row = document.nodes[gap.rowId];
+  if (!row || row.deleted || row.type !== "row") return undefined;
+  if (row.placement.slot !== "base") return undefined;
+  const children = getStructuredChildren(document, row.id, "children");
+  if (children.length === 0 || children.at(-1)?.id !== gap.afterNodeId) {
+    return undefined;
+  }
+  const accentId = row.placement.parentId;
+  const accent = accentId ? document.nodes[accentId] : undefined;
+  if (
+    !accent ||
+    accent.deleted ||
+    accent.type !== "accent" ||
+    accent.placement.slot !== "children" ||
+    isStretchyAccentCommand(getStructuredText(document, accent.id, "command"))
+  ) {
+    return undefined;
+  }
+  const outerRowId = accent.placement.parentId;
+  const outerRow = outerRowId ? document.nodes[outerRowId] : undefined;
+  if (!outerRow || outerRow.deleted || outerRow.type !== "row") {
+    return undefined;
+  }
+  return rowCaret(outerRow.id, accent.id);
 }
 
 /** Move the last character before the caret into the construct's base row. */
@@ -1909,7 +2010,9 @@ function backspaceAtRowGap(
   if (isSemanticallyEmptyRow(document, resolved.row.id)) {
     const unwrapped = unwrapFromEmptyFractionSlot(document, resolved.row.id);
     if (unwrapped) return unwrapped;
-    const removed = removeEmptyRadical(document, resolved.row.id);
+    const removed =
+      removeEmptyRadical(document, resolved.row.id) ??
+      removeEmptyCommandConstruct(document, resolved.row.id);
     if (removed) return removed;
     const peeled = removeEmptyScriptSlot(document, resolved.row.id);
     if (peeled) return peeled;
@@ -2248,6 +2351,57 @@ function removeEmptyRadical(
   );
 }
 
+/**
+ * Backspace in a wholly empty command construct removes the construct, never
+ * its bare command: `\vec{|}`, `\overline{|}`, `\overset{|}{}` all disappear as
+ * a unit. Leaving `\vec` behind would print a command with no braces, which
+ * re-reads whatever follows it as its argument. A construct with content in any
+ * OTHER slot survives (`\overset{a}{|}` keeps the script), so the press falls
+ * through to ordinary navigation.
+ */
+function removeEmptyCommandConstruct(
+  document: StructuredDocument,
+  rowId: string,
+): MathTreeEditResult | undefined {
+  const row = document.nodes[rowId];
+  const ownerId = row?.placement.parentId;
+  const owner = ownerId ? document.nodes[ownerId] : undefined;
+  if (
+    !row ||
+    row.deleted ||
+    row.type !== "row" ||
+    !owner ||
+    owner.deleted ||
+    (owner.type !== "accent" &&
+      owner.type !== "wrapper" &&
+      owner.type !== "stack")
+  ) {
+    return undefined;
+  }
+  const siblingRows = navigationRowsForNode(document, owner);
+  if (
+    siblingRows.some(
+      (candidate) => !isSemanticallyEmptyRow(document, candidate.id),
+    )
+  ) {
+    return undefined;
+  }
+  const outerRowId = owner.placement.parentId;
+  const outerRow = outerRowId ? document.nodes[outerRowId] : undefined;
+  if (
+    !outerRow ||
+    outerRow.deleted ||
+    outerRow.type !== "row" ||
+    owner.placement.slot !== "children"
+  ) {
+    return undefined;
+  }
+  return success(
+    rowCaret(outerRow.id, previousSiblingId(document, outerRow.id, owner.id)),
+    [{ kind: "node_delete", nodeId: owner.id }],
+  );
+}
+
 function moveCaretRight(
   document: StructuredDocument,
   caret: MathTreeCaret,
@@ -2435,6 +2589,12 @@ function navigationRowsForNode(
       return [...rows("index"), ...rows("radicand")];
     case "scripts":
       return [...rows("base"), ...rows("subscript"), ...rows("superscript")];
+    case "accent":
+      return rows("base");
+    case "stack":
+      // Source order, which is also the order the two slots are typed in.
+      return [...rows("script"), ...rows("base")];
+    case "wrapper":
     case "delimited":
       return rows("body");
     case "matrix":
@@ -3029,6 +3189,9 @@ function isCompositeMathConstruct(node: StructuredNode): boolean {
     node.type === "fraction" ||
     node.type === "radical" ||
     node.type === "scripts" ||
+    node.type === "accent" ||
+    node.type === "wrapper" ||
+    node.type === "stack" ||
     node.type === "delimited" ||
     node.type === "matrix"
   );

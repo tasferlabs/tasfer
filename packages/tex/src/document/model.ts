@@ -94,6 +94,45 @@ export interface MathScripts {
   readonly subscript: MathRow | null;
 }
 
+/**
+ * An accent over a persistent base slot (`\hat{x}`, `\vec{v}`, `\widehat{ab}`).
+ * `command` excludes the leading backslash; whether the accent stretches is a
+ * property of that command, so it is derived at layout time, never stored.
+ */
+export interface MathAccent {
+  readonly type: "accent";
+  readonly id: MathItemId;
+  readonly command: string;
+  readonly base: MathRow;
+}
+
+/**
+ * A command wrapping ONE editable body — an over/under rule (`\overline{x}`),
+ * a frame (`\boxed{y}`), a font or alphabet (`\mathbb{R}`), an atom-class
+ * override (`\mathbin{…}`), a phantom, or `\not`. What the command draws is a
+ * property of the command itself, so it is derived when the source is read
+ * back; the tree stores only the command and its slot. Unlike an accent the
+ * argument is an ordinary body, not a base the command decorates.
+ */
+export interface MathWrapper {
+  readonly type: "wrapper";
+  readonly id: MathItemId;
+  readonly command: string;
+  readonly body: MathRow;
+}
+
+/**
+ * `\overset` / `\underset` / `\stackrel` — a script stacked over or under a
+ * base. Both slots are persistent and editable, in source order.
+ */
+export interface MathStack {
+  readonly type: "stack";
+  readonly id: MathItemId;
+  readonly command: string;
+  readonly script: MathRow;
+  readonly base: MathRow;
+}
+
 /** A body surrounded by automatically sized delimiters. */
 export interface MathDelimited {
   readonly type: "delimited";
@@ -169,6 +208,9 @@ export type MathNode =
   | MathFraction
   | MathRadical
   | MathScripts
+  | MathAccent
+  | MathWrapper
+  | MathStack
   | MathDelimited
   | MathMatrix
   | MathText

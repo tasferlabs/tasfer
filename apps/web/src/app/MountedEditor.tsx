@@ -2105,8 +2105,8 @@ function PageEditor({
                 name: chip.name,
               })),
               noMatchLabel: t(
-                "editor.math.noConstructs",
-                "No matching constructs",
+                "editor.math.noLatexCommands",
+                "No matching LaTeX commands",
               ),
             },
           }

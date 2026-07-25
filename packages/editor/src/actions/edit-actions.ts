@@ -651,15 +651,13 @@ export function escapeBelowSelfContainedBlock(
   currentBlock: Block | undefined,
   viewport: ViewportState,
 ): EdgeOutcome {
-  if (
-    !(
-      isLastBlock &&
-      currentBlock &&
-      isTextualBlock(currentBlock) &&
-      isSelfContained(currentBlock) &&
-      caretAtBlockBottom(state, viewport)
-    )
-  ) {
+  if (!(
+    isLastBlock &&
+    currentBlock &&
+    isTextualBlock(currentBlock) &&
+    isSelfContained(currentBlock) &&
+    caretAtBlockBottom(state, viewport)
+  )) {
     return { kind: "fallthrough" };
   }
   return appendTrailingParagraph(state, currentBlock);
@@ -679,15 +677,13 @@ export function escapeAboveSelfContainedBlock(
   currentBlock: Block | undefined,
   viewport: ViewportState,
 ): EdgeOutcome {
-  if (
-    !(
-      isFirstBlock &&
-      currentBlock &&
-      isTextualBlock(currentBlock) &&
-      isSelfContained(currentBlock) &&
-      caretAtBlockTop(state, viewport)
-    )
-  ) {
+  if (!(
+    isFirstBlock &&
+    currentBlock &&
+    isTextualBlock(currentBlock) &&
+    isSelfContained(currentBlock) &&
+    caretAtBlockTop(state, viewport)
+  )) {
     return { kind: "fallthrough" };
   }
   return prependLeadingParagraph(state);

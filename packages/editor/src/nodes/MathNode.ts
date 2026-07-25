@@ -51,11 +51,12 @@ import {
   SELECT_WORD_AT_POINT,
 } from "../actions/mouse-actions";
 import { POINTER_MOVE } from "../actions/pointer-actions";
+import { structuredMarkRunForContentPoint } from "../actions/structured-marks";
 import { TAP_SELECT_LINE, TAP_SELECT_WORD } from "../actions/touch-actions";
 import { BLOCK_DRAG_HANDLE_ANCHOR_HEIGHT } from "../constants";
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import { measureCtxText } from "../fonts";
-import { getInlineMathAtPosition } from "../inline-math";
+import { getInlineMathAtPosition, getInlineMathSpans } from "../inline-math";
 import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "../math/actions";
 import { mathBlockNodeCodec } from "../math/data";
 import { resolveStructuredInlineMathRuns } from "../math/inline-structured";
@@ -1889,8 +1890,9 @@ export class MathNode extends TextNode<MathBlock> {
     );
     bus.registerState(
       INSERT_MATH_COMMAND,
-      (state, { text, caretOffset }) =>
-        insertActiveMathTreeCommand(state, text, caretOffset) ?? undefined,
+      (state, { text, caretOffset, trigger }) =>
+        insertActiveMathTreeCommand(state, text, caretOffset, trigger) ??
+        undefined,
       100,
     );
     bus.registerState(
@@ -2149,7 +2151,16 @@ export class MathNode extends TextNode<MathBlock> {
 
     bus.registerState(
       POINTER_MOVE,
-      (state, { textPosition, blockUnderPoint, canvasX, viewport }) => {
+      (
+        state,
+        {
+          textPosition,
+          blockUnderPoint,
+          canvasX,
+          viewport,
+          resolveContentSelection,
+        },
+      ) => {
         // Readonly documents never highlight math on hover — neither the
         // full-block backdrop nor an inline chip (which would also flip the
         // pointer cursor). This handler is the sole writer of both hover slots,
@@ -2176,22 +2187,42 @@ export class MathNode extends TextNode<MathBlock> {
           blockIndex: mathBlockIndex,
         }).state;
 
-        // Inline-math chip hover — only when not over a block equation.
+        // Inline-math chip hover — only when not over a block equation. A chip is
+        // one atomic anchor char, so the flat position under the pointer only
+        // says the pointer is NEAR a chip (it resolves to one of its two edges,
+        // which the preceding text shares); the chip's own hit-test decides. That
+        // is the same resolution a click enters the formula through, so the lit
+        // region and the clickable region are one and the same — and, unlike
+        // probing the flat edges' caret geometry, it still answers while a nested
+        // caret sits in the block (a caret inside a chip owns every flat caret
+        // rect in its block).
         let inlineMathHover: InlineMathHover | null = null;
-        if (mathBlockIndex === null && textPosition) {
-          const inlineMath = getInlineMathAtPosition(
+        if (
+          mathBlockIndex === null &&
+          textPosition &&
+          getInlineMathAtPosition(
             textPosition.blockIndex,
             textPosition.textIndex,
             state,
-            "inside",
-            { x: canvasX, viewport },
-          );
-          if (inlineMath) {
-            inlineMathHover = {
-              blockIndex: textPosition.blockIndex,
-              startIndex: inlineMath.startIndex,
-              endIndex: inlineMath.endIndex,
-            };
+            "any",
+          )
+        ) {
+          const hit = resolveContentSelection();
+          const run = hit
+            ? structuredMarkRunForContentPoint(state, hit.focus)
+            : null;
+          const block = run && state.document.page.blocks[run.blockIndex];
+          // The resolved run is any structured mark; only a math chip lights.
+          if (
+            run &&
+            block &&
+            getInlineMathSpans(block).some(
+              (span) =>
+                span.startIndex === run.startIndex &&
+                span.endIndex === run.endIndex,
+            )
+          ) {
+            inlineMathHover = { ...run };
           }
         }
         return {

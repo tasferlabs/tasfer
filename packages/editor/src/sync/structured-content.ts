@@ -120,6 +120,40 @@ export function hasStructuredBlockAuthority(block: {
   );
 }
 
+/**
+ * Whether a generic type morph may carry a block's supplemental attachments,
+ * or must leave the conversion to the feature that owns them.
+ *
+ * Attachments are reachable through the marks that reference them, so a target
+ * that keeps the block's text and marks keeps them reachable — a paragraph
+ * holding an inline formula becomes a list, heading, or quote unchanged. A
+ * target that clears the text (a void block) or drops marks (code) would strand
+ * the documents behind an unreferenced anchor char, so those conversions stay
+ * refused until a feature claims them.
+ */
+export function canMorphCarryAttachments(
+  block: { readonly structuredContent?: StructuredContentMap },
+  target: { readonly textual: boolean; readonly retainsMarks: boolean },
+): boolean {
+  if (!hasStructuredContent(block)) return true;
+  return target.textual && target.retainsMarks;
+}
+
+/**
+ * Carry a block's attachments onto the block that replaces it in a local type
+ * morph, so a reconstructed-from-defaults block keeps what the `block_set type`
+ * reducer keeps. Attachment identities are scoped to the block id, which the
+ * morph preserves, so the copy stays addressable; without it the local view
+ * would drop documents that every remote replica retains.
+ */
+export function carryStructuredContent<Target>(
+  target: Target,
+  source: { readonly structuredContent?: StructuredContentMap },
+): Target {
+  if (!source.structuredContent) return target;
+  return { ...target, structuredContent: source.structuredContent };
+}
+
 /** One schema-independent mutation inside a structured document. */
 export type StructuredEdit =
   | {

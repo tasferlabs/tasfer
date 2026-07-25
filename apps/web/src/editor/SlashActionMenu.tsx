@@ -26,6 +26,7 @@ import type { AppEditor } from "../editorSchema";
 import { isTouchOnlyDevice } from "@tasfer/editor/internal";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { shouldOpenKeyboardMenu } from "./keyboardMenuInput";
+import { activeTreeMath } from "./treeMath";
 
 /** Block types the slash menu can insert. Assignable to the engine's `Block["type"]`. */
 export type SlashBlockType =
@@ -382,6 +383,14 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
         // The `/` was just typed at the caret, so the caret block IS the block.
         const block = editor.query.block();
         if (!block) return;
+        const inTreeMath = activeTreeMath(editor)?.blockId === block.id;
+        const inFlatMath = [textIndex, Math.max(0, textIndex - 1)].some(
+          (offset) =>
+            editor.query
+              .marks({ block: block.id, offset })
+              .some((mark) => mark.name === "math"),
+        );
+        if (block.type === "math" || inTreeMath || inFlatMath) return;
         triggerRef.current = { blockId: block.id, slashIndex: textIndex };
       },
     );
