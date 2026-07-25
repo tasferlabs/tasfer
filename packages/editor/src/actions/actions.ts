@@ -78,8 +78,9 @@ import {
 } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
 import {
+  canMorphCarryAttachments,
+  carryStructuredContent,
   hasStructuredBlockAuthority,
-  hasStructuredContent,
 } from "../sync/structured-content";
 import { isWordChar } from "../word-chars";
 import {
@@ -321,10 +322,12 @@ function applyMarkdownPrefix(
   if (!isTextualBlock(block)) {
     return { block, ops: [], removedPrefixLength: 0 };
   }
-  // Prefix conversion reconstructs/morphs the block through generic flat ops.
-  // Structured attachments are block-scoped, including supplemental mark
-  // documents, so keep the literal prefix until a feature owns the conversion.
-  if (hasStructuredContent(block)) {
+  // Prefix conversion morphs the block through generic flat ops, which cannot
+  // reinterpret a document that owns the block's content surface — keep the
+  // literal prefix there until a feature owns the conversion. Supplemental mark
+  // documents survive the morph in place, so `- ` still makes a list of a
+  // paragraph carrying an inline formula.
+  if (hasStructuredBlockAuthority(block)) {
     return { block, ops: [], removedPrefixLength: 0 };
   }
   const text = getVisibleTextFromRuns(block.charRuns);
@@ -1775,13 +1778,16 @@ export function deleteText(state: EditorState): ActionResult {
           };
         } else {
           // At indent 0: convert to paragraph
-          const paragraphBlock: Block = {
-            id: oldBlock.id,
-            orderKey: oldBlock.orderKey,
-            type: "paragraph",
-            charRuns: oldBlock.charRuns,
-            formats: oldBlock.formats,
-          };
+          const paragraphBlock: Block = carryStructuredContent(
+            {
+              id: oldBlock.id,
+              orderKey: oldBlock.orderKey,
+              type: "paragraph",
+              charRuns: oldBlock.charRuns,
+              formats: oldBlock.formats,
+            },
+            oldBlock,
+          );
           invalidateBlockCache(paragraphBlock);
           const newBlocks = [...state.document.page.blocks];
           newBlocks[blockIndex] = paragraphBlock;
@@ -1913,13 +1919,16 @@ export function deleteText(state: EditorState): ActionResult {
       if (isListBlock(oldBlock)) {
         const currentText = getBlockTextContent(oldBlock);
         if (currentText.length === 0) {
-          const paragraphBlock: Block = {
-            id: oldBlock.id,
-            orderKey: oldBlock.orderKey,
-            type: "paragraph",
-            charRuns: oldBlock.charRuns,
-            formats: oldBlock.formats,
-          };
+          const paragraphBlock: Block = carryStructuredContent(
+            {
+              id: oldBlock.id,
+              orderKey: oldBlock.orderKey,
+              type: "paragraph",
+              charRuns: oldBlock.charRuns,
+              formats: oldBlock.formats,
+            },
+            oldBlock,
+          );
           invalidateBlockCache(paragraphBlock);
           const newBlocks = [...state.document.page.blocks];
           newBlocks[blockIndex] = paragraphBlock;
@@ -3131,13 +3140,16 @@ export function splitBlock(state: EditorState): ActionResult {
     if (isEmpty) {
       if (oldBlock.indent === 0) {
         // Convert to paragraph if at base indent
-        const newParagraph: Block = {
-          id: oldBlock.id,
-          orderKey: oldBlock.orderKey,
-          type: "paragraph",
-          charRuns: [],
-          formats: [],
-        };
+        const newParagraph: Block = carryStructuredContent(
+          {
+            id: oldBlock.id,
+            orderKey: oldBlock.orderKey,
+            type: "paragraph",
+            charRuns: [],
+            formats: [],
+          },
+          oldBlock,
+        );
 
         const blockSetOp: BlockSet = {
           op: "block_set",
@@ -3941,18 +3953,25 @@ export function convertBlockAtCursor(
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return { state, ops: [] };
 
-  // Offer every conversion to the owning feature first: a block that owns
-  // structured documents has no lossless generic morph (core would orphan
-  // persisted contentId references), and a structured-authority TARGET type
-  // (display math) must be created together with its eager document. An
-  // unclaimed dispatch falls through to the generic morph — except for a
-  // structured source block, which is refused rather than corrupted.
+  // Offer every conversion to the owning feature first: a block that owns its
+  // content surface through a structured document has no lossless generic morph
+  // (core would orphan persisted contentId references), and a
+  // structured-authority TARGET type (display math) must be created together
+  // with its eager document. An unclaimed dispatch falls through to the generic
+  // morph — refused for a block-authoritative source, and for a target that
+  // can't keep supplemental attachments reachable.
   const owned = state.actionBus.dispatchState(CONVERT_STRUCTURED_BLOCK, state, {
     blockIndex,
     type: params.type,
   });
   if (owned.claimed) return { state: owned.state, ops: owned.ops };
-  if (hasStructuredContent(block)) {
+  if (
+    hasStructuredBlockAuthority(block) ||
+    !canMorphCarryAttachments(block, {
+      textual: hasTextContent(params.type),
+      retainsMarks: canHaveFormats(params.type),
+    })
+  ) {
     return { state, ops: [] };
   }
 
@@ -4091,11 +4110,14 @@ export function convertBlockAtCursor(
     block.orderKey ?? "",
   );
   if (!defaults) return { state, ops: [] };
-  const newBlock = {
-    ...defaults,
-    charRuns: updatedCharRuns,
-    formats: canHaveFormats(action.type) ? block.formats : [],
-  } as Block;
+  const newBlock = carryStructuredContent(
+    {
+      ...defaults,
+      charRuns: updatedCharRuns,
+      formats: canHaveFormats(action.type) ? block.formats : [],
+    },
+    block,
+  ) as Block;
 
   // Invalidate cache only for the changed block
   invalidateBlockCache(newBlock);
@@ -4238,13 +4260,16 @@ export function outdentListItem(state: EditorState): ActionResult {
   const currentIndent = block.indent || 0;
   if (currentIndent === 0) {
     // At base indent - convert to paragraph
-    const newBlock: Block = {
-      id: block.id,
-      orderKey: block.orderKey,
-      type: "paragraph",
-      charRuns: block.charRuns,
-      formats: block.formats,
-    };
+    const newBlock: Block = carryStructuredContent(
+      {
+        id: block.id,
+        orderKey: block.orderKey,
+        type: "paragraph",
+        charRuns: block.charRuns,
+        formats: block.formats,
+      },
+      block,
+    );
 
     invalidateBlockCache(newBlock);
 

@@ -172,9 +172,34 @@ describe("inline chip → display equation promote", () => {
     expect(result.state.document.page.blocks[0].type).toBe("paragraph");
   });
 
-  it("refuses a non-math target on a structured-content block", () => {
+  it("morphs generically to a textual target, keeping the chip attached", () => {
     const state = attachedChipState(LATEX);
+    const before = state.document.page.blocks[0];
     const result = convertBlockAtCursor(state, { type: "quote" });
+    const block = result.state.document.page.blocks[0];
+    expect(block.type).toBe("quote");
+    // The chip rides along: same attachment, same anchor text, same formula.
+    expect(block.structuredContent).toEqual(before.structuredContent);
+    expect(visibleTextOf(block)).toBe(visibleTextOf(before));
+    expect(
+      resolveStructuredInlineMathRuns(block as never as InlineMathHostBlock)[0]
+        .latex,
+    ).toBe(`${LATEX}b`);
+
+    // A remote peer replaying the ops alone lands on the same block.
+    let remote = snapshotPage(state.document.page);
+    for (const op of result.ops) {
+      remote = applyOp(remote, op, treeMathSchema.data);
+    }
+    expect(remote.blocks[0].type).toBe("quote");
+    expect(remote.blocks[0].structuredContent).toEqual(block.structuredContent);
+  });
+
+  it("refuses a target that would strand the chip's attachment", () => {
+    // `code` keeps the anchor char but drops the mark that reaches the tree, so
+    // the conversion stays refused rather than orphaning the formula.
+    const state = attachedChipState(LATEX);
+    const result = convertBlockAtCursor(state, { type: "code" });
     expect(result.ops).toEqual([]);
     expect(result.state.document.page.blocks[0].type).toBe("paragraph");
   });

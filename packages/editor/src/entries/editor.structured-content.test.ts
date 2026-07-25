@@ -372,8 +372,8 @@ describe("Editor structured-content public API", () => {
       expect(editor.getMarkdown()).toBe("a$xy$b");
     };
 
-    // Removing the ownership mark or morphing its host would still strand the
-    // attachment, so those operations remain protected.
+    // Removing the ownership mark would strand the attachment, so it stays
+    // protected.
     expect(
       editor.change((change) =>
         change.setMark("math", {
@@ -385,11 +385,23 @@ describe("Editor structured-content public API", () => {
         }),
       ),
     ).toBe(false);
+    unchanged();
+
+    // Morphing the host to another textual type does not: the attachment stays
+    // addressed by the same block id, and the mark that reaches it carries over.
     expect(
       editor.change((change) =>
         change.setBlock({ type: "heading1" }, { block: blockId }),
       ),
-    ).toBe(false);
+    ).toBe(true);
+    expect(editor.query.block({ block: blockId })?.type).toBe("heading");
+    expect(editor.query.block({ block: blockId })?.text).toBe(chipText);
+    expect(editor.getMarkdown()).toBe("# a$xy$b");
+    expect(
+      editor.change((change) =>
+        change.setBlock({ type: "paragraph" }, { block: blockId }),
+      ),
+    ).toBe(true);
     unchanged();
 
     const clipboard: HostClipboard = {
