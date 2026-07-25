@@ -89,6 +89,7 @@ import {
   expandSelectionAroundStructuredMarks,
   rangeIntersectsStructuredMark,
   resolveStructuredMarkRanges,
+  selectionAbsorbsStructuredMarks,
   selectionIntersectsStructuredMark,
   selectionPartiallyIntersectsStructuredMark,
   structuredMarkAttachmentCleanupOps,
@@ -3633,7 +3634,17 @@ export function toggleFormat(
   // Removing/reapplying the same mark type would detach or overwrite the attrs
   // that address its authoritative structured document. Other composable marks
   // may still be applied without touching that ownership link.
-  if (range && selectionIntersectsStructuredMark(state, formatType)) {
+  //
+  // The exception is a selection that SWALLOWS whole projections along with
+  // more than themselves — a formula plus the text after it, or two formulas
+  // and what sits between. Nothing is being re-wrapped or detached there; the
+  // user is asking for one bigger formula, and the create path absorbs the
+  // covered projections into its source.
+  if (
+    range &&
+    selectionIntersectsStructuredMark(state, formatType) &&
+    !selectionAbsorbsStructuredMarks(state, formatType)
+  ) {
     return { state, ops: [] };
   }
 
