@@ -1,7 +1,7 @@
 /** Generic authoring seam for marks that own structured attachments. */
 
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
-import { resolveMarkRuns } from "../inline-math-spans";
+import { type MarkRunData, resolveMarkRuns } from "../inline-math-spans";
 import {
   moveCursorToPosition,
   startSelection,
@@ -184,6 +184,140 @@ export function rangeIntersectsStructuredMark(
       (markType === undefined || run.markType === markType) &&
       startIndex < run.endIndex &&
       endIndex > run.startIndex,
+  );
+}
+
+/**
+ * The source text a new structured mark of `markType` should own for
+ * `[startIndex, endIndex)`.
+ *
+ * Characters outside any structured run are taken literally. A run of the SAME
+ * mark type lying wholly inside the range is ABSORBED rather than copied: its
+ * flat projection is a content-free anchor char, so it expands to the source
+ * its attachment resolves to (a legacy run with no resolvable attachment falls
+ * back to its own characters, which are its source). That makes "select a
+ * formula plus the text after it → mark as math" produce one formula over the
+ * whole thing instead of a chip whose source is a placeholder glyph.
+ *
+ * Returns undefined when the range clips a projection or covers a structured
+ * run of a DIFFERENT type — neither has a meaningful flattened source, so
+ * callers keep their conservative no-op.
+ */
+export function structuredMarkSourceForRange(
+  block: Block,
+  startIndex: number,
+  endIndex: number,
+  markType: string,
+  schema: DataSchema,
+): string | undefined {
+  if (!isTextualBlock(block)) return undefined;
+  const text = getVisibleTextFromRuns(block.charRuns).slice(
+    startIndex,
+    endIndex,
+  );
+  const covered = structuredRunsInRange(block, startIndex, endIndex, schema);
+  if (covered === undefined) return undefined;
+  if (covered.some((run) => run.name !== markType)) return undefined;
+  if (covered.length === 0) return text;
+
+  const attachments = block.structuredContent ?? {};
+  let source = "";
+  let cursor = startIndex;
+  for (const run of covered) {
+    source += text.slice(cursor - startIndex, run.startIndex - startIndex);
+    source +=
+      schema.resolveStructuredMark(run.name, {
+        mark: {
+          type: run.name,
+          ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
+        },
+        attachments,
+      }) ?? run.text;
+    cursor = run.endIndex;
+  }
+  return source + text.slice(cursor - startIndex);
+}
+
+/**
+ * Structured runs `[startIndex, endIndex)` wholly contains, in flat order, or
+ * undefined when the range cuts through one. A half-covered projection is not
+ * a unit any generic text path may flatten or delete.
+ */
+function structuredRunsInRange(
+  block: Block,
+  startIndex: number,
+  endIndex: number,
+  schema: DataSchema,
+): MarkRunData[] | undefined {
+  if (!isTextualBlock(block)) return [];
+  const structured = resolveMarkRuns(block).filter(
+    (run) =>
+      schema.structuredMark(run.name) !== undefined &&
+      startIndex < run.endIndex &&
+      endIndex > run.startIndex,
+  );
+  if (
+    structured.some(
+      (run) => run.startIndex < startIndex || run.endIndex > endIndex,
+    )
+  ) {
+    return undefined;
+  }
+  return structured.sort((left, right) => left.startIndex - right.startIndex);
+}
+
+/**
+ * Whether marking `[startIndex, endIndex)` as `markType` would absorb existing
+ * projections into a bigger one, rather than re-wrap a single existing mark.
+ *
+ * Re-wrapping one whole projection in its own mark type is the toggle/unwrap
+ * gesture and stays a no-op here; swallowing a projection together with
+ * anything else — surrounding text, or a second projection — is a genuine
+ * "make all of this one formula" request that {@link createFeatureMarkInRange}
+ * can serve through {@link structuredMarkSourceForRange}.
+ */
+export function rangeAbsorbsStructuredMarks(
+  block: Block,
+  startIndex: number,
+  endIndex: number,
+  markType: string,
+  schema: DataSchema,
+): boolean {
+  if (endIndex <= startIndex) return false;
+  if (schema.structuredMark(markType) === undefined) return false;
+  const covered = structuredRunsInRange(block, startIndex, endIndex, schema);
+  if (covered === undefined || covered.length === 0) return false;
+  if (covered.some((run) => run.name !== markType)) return false;
+  const soleRun =
+    covered.length === 1 &&
+    covered[0].startIndex === startIndex &&
+    covered[0].endIndex === endIndex;
+  return !soleRun;
+}
+
+/**
+ * {@link rangeAbsorbsStructuredMarks} for the current flat selection.
+ *
+ * Single-block only: the structured create path replaces one flat range with
+ * one anchor char, so a selection spanning blocks has no single formula to
+ * become and keeps the conservative no-op.
+ */
+export function selectionAbsorbsStructuredMarks(
+  state: EditorState,
+  markType: string,
+): boolean {
+  const selection = state.document.selection;
+  if (!selection || selection.isCollapsed) return false;
+  const [start, end] = orderedPositions(selection.anchor, selection.focus);
+  if (start.blockIndex !== end.blockIndex) return false;
+  const block = state.document.page.blocks[start.blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return false;
+  return rangeAbsorbsStructuredMarks(
+    block,
+    start.textIndex,
+    end.textIndex,
+    markType,
+    state.schema,
   );
 }
 
@@ -532,11 +666,21 @@ export function createFeatureMarkInRange(
   ) {
     return { newPage: page, ops: [], format: requested };
   }
-  const text = getVisibleTextFromRuns(block.charRuns).slice(
-    startIndex,
-    endIndex,
-  );
-  if (text.length === 0) {
+  // For a structured mark, projections of the same type inside the range are
+  // absorbed into the new source instead of contributing their content-free
+  // anchor char; the attachments they leave behind are deleted below, in this
+  // transaction. A plain mark keeps the literal flat slice.
+  const text =
+    schema.structuredMark(requested.type) === undefined
+      ? getVisibleTextFromRuns(block.charRuns).slice(startIndex, endIndex)
+      : structuredMarkSourceForRange(
+          block,
+          startIndex,
+          endIndex,
+          requested.type,
+          schema,
+        );
+  if (text === undefined || text.length === 0) {
     return { newPage: page, ops: [], format: requested };
   }
 
@@ -596,6 +740,20 @@ export function createFeatureMarkInRange(
     nextPage = marked.newPage;
     ops.push(marked.op);
     return { newPage: nextPage, ops, format: requested };
+  }
+
+  // Any projection the new source absorbed is about to lose its anchor char,
+  // so its attachment dies with it — same transaction, or the block keeps
+  // unreachable structured content.
+  for (const cleanup of structuredMarkAttachmentCleanupOps(
+    block,
+    startIndex,
+    endIndex,
+    binding,
+    schema,
+  )) {
+    nextPage = applyOp(nextPage, cleanup, schema);
+    ops.push(cleanup);
   }
 
   // Replace the captured range with the mark's single anchor char. The anchor
