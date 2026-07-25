@@ -769,6 +769,16 @@ export function EventPreview({
       // this close can raise) owns this Escape — dismissing that layer must not
       // also close the preview, and must not re-raise the confirmation.
       if (document.body.style.pointerEvents === "none") return;
+      // The parent search is the innermost layer while it is open, so Escape
+      // backs out of search mode and leaves the draft up. It has to be decided
+      // here: this capture listener sits ahead of the search input's own key
+      // handler, and stopping the event below would never let it run.
+      if (parentSearchOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setParentSearchOpen(false);
+        return;
+      }
       // This Escape is ours: stop it here, at the earliest point in the
       // propagation path. Closing can raise the discard confirmation
       // synchronously, and a Radix layer that mounts mid-dispatch registers its
@@ -781,7 +791,7 @@ export function EventPreview({
     }
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [isActive, handleClose]);
+  }, [isActive, handleClose, parentSearchOpen]);
 
   const { mutate: deletePage, isPending: isDeleting } = useDeletePage({
     onSuccess: () => {

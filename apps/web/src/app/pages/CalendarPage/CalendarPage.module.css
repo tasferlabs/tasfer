@@ -800,16 +800,18 @@
   background-color: var(--accent);
 }
 
+/* An open branch can also be the selected parent, so the selected fill is
+   declared last and wins where both apply. */
+.draftTagOpen {
+  border-color: var(--muted-foreground);
+  background-color: var(--accent);
+}
+
 .draftTagSelected {
   border-color: var(--primary);
   background-color: color-mix(in srgb, var(--primary) 14%, transparent);
   color: var(--primary);
   font-weight: 500;
-}
-
-.draftTagOpen {
-  border-color: var(--muted-foreground);
-  background-color: var(--accent);
 }
 
 .draftTagDot {
@@ -829,6 +831,20 @@
 .draftTagChevron {
   color: var(--muted-foreground);
   flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+:global([dir="rtl"]) .draftTagChevron {
+  transform: scaleX(-1);
+}
+
+/* Points down while this branch's children fill the row below. */
+.draftTagChevronOpen {
+  transform: rotate(90deg);
+}
+
+:global([dir="rtl"]) .draftTagChevronOpen {
+  transform: scaleX(-1) rotate(90deg);
 }
 
 .previewResizeBarTop {

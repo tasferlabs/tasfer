@@ -24,12 +24,14 @@ type DrillEntry = {
  * draft's parent page is chosen from horizontally-scrollable rows of "tags":
  *
  *   • Row 0 lists the space's top-level pages.
- *   • Tapping a tag that HAS sub-pages drills in — a new row of that page's
- *     children drops down below (the deeper rows above it stay, so the drill
- *     path reads top-to-bottom). Drilling does NOT select it. Tapping the same
- *     open tag again collapses it, so a drill-down can be undone.
- *   • Only a LEAF (a page with no sub-pages) becomes the selected parent; tap it
- *     again to deselect (back to root / no parent).
+ *   • Tapping a tag selects it as the parent — any page can hold sub-pages, so a
+ *     branch is as valid a choice as a leaf.
+ *   • A tag that HAS sub-pages also drills in on that same tap: a new row of its
+ *     children drops down below (the rows above it stay, so the drill path reads
+ *     top-to-bottom), leaving a deeper choice one tap away. Picking a child
+ *     replaces the selection and closes the rows below it.
+ *   • Tapping the selected tag again deselects it (back to root / no parent) and
+ *     collapses the branch it opened.
  *
  * State is intentionally local and ephemeral: the picker is mounted only while a
  * draft is open, so a fresh draft starts back at the top level. When it mounts
@@ -70,25 +72,16 @@ export function DraftTagPicker({
   const pick = (levelIndex: number, page: IListPage) => {
     // Anything drilled BELOW this level is replaced by this new choice.
     const base = drillPath.slice(0, levelIndex);
-    if (page.hasChildren) {
-      // Tapping the already-open branch again closes it, so the user can back
-      // out of a drill-down they've changed their mind about.
-      if (drillPath[levelIndex]?.id === page.id) {
-        setDrillPath(base);
-        return;
-      }
-      // Open this branch: its children appear as the next row. Navigating away
-      // from a previously chosen leaf clears the selection.
-      setDrillPath([...base, page]);
-      if (value) onChange(null);
-      return;
-    }
-    // Leaf: select it as the parent (or toggle it off), and close deeper rows.
-    setDrillPath(base);
+    // Tapping the current choice again undoes it: no parent, and the branch it
+    // opened collapses with it.
     if (value?.id === page.id) {
+      setDrillPath(base);
       onChange(null);
       return;
     }
+    // Select it, and — if it has sub-pages — open them as the next row so a
+    // deeper choice stays one tap away without losing this one.
+    setDrillPath(page.hasChildren ? [...base, page] : base);
     onChange({
       id: page.id,
       title: page.title,
@@ -171,7 +164,16 @@ function TagRow({
               />
             </span>
             {page.hasChildren && (
-              <ChevronRight size={13} className={style.draftTagChevron} />
+              // Selected and open are independent now that a branch can be
+              // both: the fill says "this is the parent", the chevron says
+              // whether its children are showing below.
+              <ChevronRight
+                size={13}
+                className={cn(
+                  style.draftTagChevron,
+                  isOpen && style.draftTagChevronOpen,
+                )}
+              />
             )}
           </button>
         );
@@ -183,10 +185,10 @@ function TagRow({
 /**
  * Search mode of the draft parent picker: swaps in for the tag rows while the
  * user types, showing a flat, keyboard-navigable list over ALL pages in the
- * space with each result's ancestor path. Unlike the drill-down (where tapping
- * a branch opens it), any result — branch or leaf — is directly selectable.
- * Selecting hands the page back to the host, which returns to browse mode;
- * DraftTagPicker then remounts with the drill path opened to the selection.
+ * space with each result's ancestor path — flat, so a deep page is reachable
+ * without drilling to it. Selecting hands the page back to the host, which
+ * returns to browse mode; DraftTagPicker then remounts with the drill path
+ * opened to the selection.
  */
 export function DraftParentSearch({
   spaceId,
@@ -206,8 +208,9 @@ export function DraftParentSearch({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
-      // Back out of search only — stop the popover's window-level Escape
-      // listener from closing the whole draft.
+      // Back out of search only. A host that claims Escape at the window level
+      // (the desktop popover does, to close the draft) gets it before this
+      // handler and must route it to `onCancel` itself; this covers the rest.
       e.stopPropagation();
       onCancel();
     } else if (e.key === "ArrowDown") {
