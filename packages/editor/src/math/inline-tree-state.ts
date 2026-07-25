@@ -412,7 +412,7 @@ export function rejoinAdjacentInlineMathChips(
 
   // Maximal chains of runs left touching (`endIndex === startIndex`).
   const chains: ResolvedInlineMathRun[][] = [];
-  for (let i = 0; i < runs.length; ) {
+  for (let i = 0; i < runs.length;) {
     let j = i;
     while (j + 1 < runs.length && runs[j].endIndex === runs[j + 1].startIndex) {
       j++;
@@ -1213,6 +1213,7 @@ export function insertActiveInlineMathTreeCommand(
   state: EditorState,
   text: string,
   caretOffset = text.length,
+  trigger: "\\" | "/" = "\\",
 ): InlineMathTreeStateResult | undefined {
   const context = activeInlineMathContext(state);
   if (!context) return undefined;
@@ -1224,6 +1225,7 @@ export function insertActiveInlineMathTreeCommand(
     text,
     state.CRDTbinding,
     unambiguousMathCommandCompletion,
+    trigger,
   );
   return settleInlineMathMutation(state, context, edited);
 }

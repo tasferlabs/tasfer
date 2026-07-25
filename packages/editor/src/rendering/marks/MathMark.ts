@@ -530,8 +530,8 @@ export class MathMark extends Mark {
     bus.registerState(EXTEND_SELECTION_RIGHT, extendHorizontal("right"), 110);
     bus.registerState(
       INSERT_MATH_COMMAND,
-      (state, { text, caretOffset }) =>
-        insertActiveInlineMathTreeCommand(state, text, caretOffset) ??
+      (state, { text, caretOffset, trigger }) =>
+        insertActiveInlineMathTreeCommand(state, text, caretOffset, trigger) ??
         (hasActiveInlineMathTreeCaret(state)
           ? { state, ops: [], handled: true as const }
           : undefined),

@@ -7,6 +7,7 @@ import { isTouchOnlyDevice } from "@tasfer/editor/internal";
 import {
   filterMathCommands,
   INSERT_MATH_COMMAND,
+  MATH_COMMANDS,
   type MathCommand,
   mathCommandInsertion,
   renderToSVG,
@@ -35,13 +36,31 @@ interface MathCommandMenuProps {
 }
 
 /** The `\`-trigger run we're tracking: the block + the identity of the `\`. */
+type MathMenuMode = "names" | "latex";
+type MathMenuTrigger = "/" | "\\";
+
+function normalizeMathElementSearch(value: string): string {
+  return value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
 interface Trigger {
   blockId: string;
-  /** Flat path: index of the `\` in the block's text. -1 on the tree path. */
-  backslashIndex: number;
-  /** Tree path: stable char id of the typed `\`, latched on first recompute. */
-  backslashCharId?: string;
+  mode: MathMenuMode;
+  trigger: MathMenuTrigger;
+  /** Flat path: index of the trigger in the block text. -1 on the tree path. */
+  triggerIndex: number;
+  /** Tree path: stable trigger identity, latched on first recompute. */
+  triggerCharId?: string;
   inputSource?: KeyboardMenuInputSource;
+}
+
+/** `/` starts a construct after a boundary; between operands it means division. */
+export function slashStartsMathConstruct(
+  source: string,
+  offset: number,
+): boolean {
+  const previous = source[offset - 1];
+  return previous === undefined || /[\s+\-=,;:([{]/.test(previous);
 }
 
 /**
@@ -72,6 +91,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
     x: number;
     y: number;
     query: string;
+    mode: MathMenuMode;
     inputSource?: KeyboardMenuInputSource;
   } | null>(null);
 
@@ -90,6 +110,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         editor.dispatch(INSERT_MATH_COMMAND, {
           text: insertion.text,
           caretOffset: insertion.caretOffset,
+          trigger: t.trigger,
         });
         close();
         return;
@@ -105,7 +126,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       // (its whole text IS the LaTeX), so `chip` stays undefined there.
       const block = editor.query.block({
         block: t.blockId,
-        offset: t.backslashIndex,
+        offset: t.triggerIndex,
       });
       // A display equation may still be carrying legacy compatibility text
       // until its first edit. Send command commits through the structural
@@ -118,13 +139,14 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         editor.dispatch(INSERT_MATH_COMMAND, {
           text: insertion.text,
           caretOffset: insertion.caretOffset,
+          trigger: t.trigger,
         });
         close();
         return;
       }
       const chip = block
         ? editor.query
-            .marks({ block: t.blockId, offset: t.backslashIndex })
+            .marks({ block: t.blockId, offset: t.triggerIndex })
             .find((m) => m.name === "math")
         : undefined;
       // The formula character right after the replaced run — the rest of the
@@ -138,7 +160,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       // Replace the typed "\query" with the construct (one undo step).
       editor.change((c) => {
         c.insertText(insertion.text, {
-          from: { block: t.blockId, offset: t.backslashIndex },
+          from: { block: t.blockId, offset: t.triggerIndex },
           to: { block: t.blockId, offset: caretIndex },
         });
         // Inline chip: the construct is covered positionally when it lands strictly
@@ -151,7 +173,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         // safe for the interior/edge cases too.
         if (chip) {
           const end =
-            chip.to + insertion.text.length - (caretIndex - t.backslashIndex);
+            chip.to + insertion.text.length - (caretIndex - t.triggerIndex);
           c.setMark("math", {
             active: true,
             range: {
@@ -162,7 +184,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         }
         c.select({
           block: t.blockId,
-          offset: t.backslashIndex + insertion.caretOffset,
+          offset: t.triggerIndex + insertion.caretOffset,
         });
       });
       close();
@@ -180,20 +202,22 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       // read from the raw-text field at the caret, never sliced out of the
       // projected source: the projection is allowed to diverge from what was
       // typed (a pending lone `\` projects as `\backslash`). The run is
-      // tracked by the `\`'s stable char identity, latched on the first tick
-      // after the trigger keystroke, so the menu closes exactly when THAT `\`
+      // tracked by the trigger's stable identity, latched on the first tick
+      // after the keystroke, so the menu closes exactly when that trigger
       // stops being the run the caret is completing.
       if (tree) {
         const run =
-          tree.blockId === t.blockId ? treeMathCommandRun(tree) : null;
+          tree.blockId === t.blockId
+            ? treeMathCommandRun(tree, t.trigger)
+            : null;
         if (
           !run ||
-          (t.backslashCharId && run.backslashCharId !== t.backslashCharId)
+          (t.triggerCharId && run.triggerCharId !== t.triggerCharId)
         ) {
           return close();
         }
-        if (!t.backslashCharId) {
-          triggerRef.current = { ...t, backslashCharId: run.backslashCharId };
+        if (!t.triggerCharId) {
+          triggerRef.current = { ...t, triggerCharId: run.triggerCharId };
         }
         const coords = editor.view.coordsAtContent(
           run.anchor?.focus ?? tree.point,
@@ -207,9 +231,16 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
           prev.x === x &&
           prev.y === y &&
           prev.query === run.query &&
+          prev.mode === t.mode &&
           prev.inputSource === t.inputSource
             ? prev
-            : { x, y, query: run.query, inputSource: t.inputSource },
+            : {
+                x,
+                y,
+                query: run.query,
+                mode: t.mode,
+                inputSource: t.inputSource,
+              },
         );
         return;
       }
@@ -224,13 +255,12 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
 
       const text = block.text;
       const caretIndex = flatPoint.offset ?? 0;
-      // Close when the caret left the `\` run: different block, moved at/before
-      // the `\`, or the `\` itself was deleted.
+      // Close when the caret leaves the trigger run or the trigger is deleted.
       if (
         block.id !== t.blockId ||
-        t.backslashIndex < 0 ||
-        caretIndex <= t.backslashIndex ||
-        text[t.backslashIndex] !== "\\"
+        t.triggerIndex < 0 ||
+        caretIndex <= t.triggerIndex ||
+        text[t.triggerIndex] !== t.trigger
       ) {
         return close();
       }
@@ -243,20 +273,20 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       // rather than the caret, whose right edge is exclusive.
       if (block.type !== "math") {
         const chip = editor.query
-          .marks({ block: block.id, offset: t.backslashIndex })
+          .marks({ block: block.id, offset: t.triggerIndex })
           .find((m) => m.name === "math");
         if (!chip || caretIndex > chip.to) {
           return close();
         }
       }
 
-      // A LaTeX command name is letters only — a space/brace/digit ends it.
-      const query = text.slice(t.backslashIndex + 1, caretIndex);
-      if (!/^[a-zA-Z]*$/.test(query)) return close();
+      const query = text.slice(t.triggerIndex + 1, caretIndex);
+      const validQuery = t.mode === "latex" ? /^[a-zA-Z]*$/ : /^\p{L}*$/u;
+      if (!validQuery.test(query)) return close();
 
       const coords = editor.view.coordsAtPos({
         block: block.id,
-        offset: t.backslashIndex,
+        offset: t.triggerIndex,
       });
       const rect = getContainerRect();
       if (!coords || !rect) return;
@@ -267,13 +297,15 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
         prev.x === x &&
         prev.y === y &&
         prev.query === query &&
+        prev.mode === t.mode &&
         prev.inputSource === t.inputSource
           ? prev
-          : { x, y, query, inputSource: t.inputSource },
+          : { x, y, query, mode: t.mode, inputSource: t.inputSource },
       );
     };
 
-    // Edge-trigger the open on any `\`. The `\` isn't committed yet, so the
+    // Edge-trigger `\` for LaTeX and `/` for the name-first construct menu.
+    // The trigger isn't committed yet, so the
     // anchor/query — and the math-context gate (block equation vs. inside an
     // inline chip) — are decided in `recompute` on the next `subscribe` tick,
     // which closes again immediately for a `\` typed in plain prose. A
@@ -281,8 +313,9 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
     const offInput = editor.registerAction(
       TEXT_INPUT,
       ({ text, textIndex, contentPoint, inputSource }) => {
+        const trigger = text === "\\" || text === "/" ? text : null;
         if (
-          text !== "\\" ||
+          !trigger ||
           !shouldOpenKeyboardMenu(isTouchOnlyDevice(), inputSource)
         ) {
           return;
@@ -293,9 +326,18 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
           ? editor.query.block({ block: contentPoint.blockId })
           : editor.query.block();
         if (!block) return;
+        if (trigger === "/") {
+          const tree = activeTreeMath(editor);
+          const source = tree?.blockId === block.id ? tree.source : block.text;
+          const offset =
+            tree?.blockId === block.id ? tree.sourceOffset : textIndex;
+          if (!slashStartsMathConstruct(source, offset)) return;
+        }
         triggerRef.current = {
           blockId: block.id,
-          backslashIndex: contentPoint ? -1 : textIndex,
+          mode: trigger === "/" ? "names" : "latex",
+          trigger,
+          triggerIndex: contentPoint ? -1 : textIndex,
           inputSource,
         };
       },
@@ -312,6 +354,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
     return (
       <MathCommandDrawer
         query={menu.query}
+        mode={menu.mode}
         onSelect={select}
         onClose={() => {
           close();
@@ -325,6 +368,7 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
       x={menu.x}
       y={menu.y}
       query={menu.query}
+      mode={menu.mode}
       onSelect={select}
       onClose={close}
     />
@@ -335,6 +379,7 @@ interface MathCommandListProps {
   x: number;
   y: number;
   query: string;
+  mode: MathMenuMode;
   onSelect: (cmd: MathCommand) => void;
   onClose: () => void;
 }
@@ -343,6 +388,7 @@ const MathCommandList: React.FC<MathCommandListProps> = ({
   x,
   y,
   query,
+  mode,
   onSelect,
   onClose,
 }) => {
@@ -375,6 +421,7 @@ const MathCommandList: React.FC<MathCommandListProps> = ({
         >
           <MathCommandPalette
             query={query}
+            mode={mode}
             onSelect={onSelect}
             onClose={onClose}
             maxHeight={maxHeight}
@@ -388,6 +435,7 @@ const MathCommandList: React.FC<MathCommandListProps> = ({
 
 interface MathCommandPaletteProps {
   query: string;
+  mode?: MathMenuMode;
   onSelect: (cmd: MathCommand) => void;
   /** Dismiss the palette (Escape / no match / caret left the `\` run). */
   onClose: () => void;
@@ -417,6 +465,7 @@ interface MathCommandPaletteProps {
  */
 export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
   query,
+  mode = "latex",
   onSelect,
   onClose,
   maxHeight,
@@ -426,15 +475,37 @@ export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
   captureKeyboardNavigation = true,
 }) => {
   const selectedRef = useRef<HTMLButtonElement>(null);
+  const { t } = useTranslation();
 
   // Filter + pre-render each candidate's preview SVG (cheap, but memoized so
   // typing a letter doesn't re-render every row's math from scratch).
   const items = useMemo(() => {
-    return filterMathCommands(query).map((cmd) => ({
+    const curatedIds = new Set(filterMathCommands("").map((cmd) => cmd.id));
+    const commands = filterMathCommands(query).filter(
+      (cmd) => mode === "latex" || curatedIds.has(cmd.id),
+    );
+    if (mode === "names" && query) {
+      const normalized = normalizeMathElementSearch(query);
+      const existing = new Set(commands.map((cmd) => cmd.id));
+      for (const cmd of MATH_COMMANDS) {
+        const label = t(`editor.math.elements.${cmd.id}`, cmd.name);
+        const matchesName = [label, cmd.name].some((name) =>
+          normalizeMathElementSearch(name).includes(normalized),
+        );
+        if (curatedIds.has(cmd.id) && !existing.has(cmd.id) && matchesName) {
+          commands.push(cmd);
+        }
+      }
+    }
+    return commands.map((cmd) => ({
       cmd,
       svg: renderToSVG(cmd.latex, false, 19),
+      label:
+        mode === "latex"
+          ? `\\${cmd.id}`
+          : t(`editor.math.elements.${cmd.id}`, cmd.name),
     }));
-  }, [query]);
+  }, [mode, query, t]);
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   useEffect(() => setSelectedIndex(0), [query]);
@@ -510,7 +581,7 @@ export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
     <div className={className}>
       <ScrollArea style={{ maxHeight }}>
         <div className="p-1.5">
-          {items.map(({ cmd, svg }, index) => {
+          {items.map(({ cmd, svg, label }, index) => {
             const isSelected = index === selectedIndex;
             return (
               <button
@@ -534,10 +605,7 @@ export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
                       : "text-popover-foreground"
                   }`}
                 >
-                  {cmd.name}
-                </span>
-                <span className="flex-shrink-0 text-xs text-muted-foreground/70 font-mono">
-                  \{cmd.id}
+                  {label}
                 </span>
               </button>
             );
@@ -550,6 +618,7 @@ export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
 
 interface MathCommandDrawerProps {
   query?: string;
+  mode?: MathMenuMode;
   onSelect: (cmd: MathCommand) => void;
   onClose: () => void;
 }
@@ -561,6 +630,7 @@ interface MathCommandDrawerProps {
  */
 export const MathCommandDrawer: React.FC<MathCommandDrawerProps> = ({
   query = "",
+  mode = "names",
   onSelect,
   onClose,
 }) => {
@@ -584,7 +654,9 @@ export const MathCommandDrawer: React.FC<MathCommandDrawerProps> = ({
         <div className="mx-auto flex h-full w-full max-w-lg flex-col">
           <DrawerHeader className="pb-2">
             <DrawerTitle>
-              {t("editor.math.chooseConstruct", "Choose a math construct")}
+              {mode === "latex"
+                ? t("editor.math.latexCommands", "LaTeX commands")
+                : t("editor.math.chooseConstruct", "Choose a math element")}
             </DrawerTitle>
           </DrawerHeader>
           <div className="relative px-4 pb-3">
@@ -600,12 +672,20 @@ export const MathCommandDrawer: React.FC<MathCommandDrawerProps> = ({
                 if (event.key === "Escape") onClose();
               }}
               placeholder={t(
-                "editor.math.searchConstructs",
-                "Search fractions, roots, symbols…",
+                mode === "latex"
+                  ? "editor.math.searchLatexCommands"
+                  : "editor.math.searchConstructs",
+                mode === "latex"
+                  ? "Search LaTeX commands…"
+                  : "Search fractions, roots, and symbols…",
               )}
               aria-label={t(
-                "editor.math.searchConstructs",
-                "Search fractions, roots, symbols…",
+                mode === "latex"
+                  ? "editor.math.searchLatexCommands"
+                  : "editor.math.searchConstructs",
+                mode === "latex"
+                  ? "Search LaTeX commands…"
+                  : "Search fractions, roots, and symbols…",
               )}
               className="h-11 ps-10"
               autoFocus
@@ -613,6 +693,7 @@ export const MathCommandDrawer: React.FC<MathCommandDrawerProps> = ({
           </div>
           <MathCommandPalette
             query={search}
+            mode={mode}
             onSelect={onSelect}
             onClose={onClose}
             maxHeight={520}
@@ -621,7 +702,12 @@ export const MathCommandDrawer: React.FC<MathCommandDrawerProps> = ({
             className="min-h-0 flex-1 overflow-hidden border-t border-border/50"
             emptyState={
               <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                {t("editor.math.noConstructs", "No matching constructs")}
+                {mode === "latex"
+                  ? t(
+                      "editor.math.noLatexCommands",
+                      "No matching LaTeX commands",
+                    )
+                  : t("editor.math.noConstructs", "No matching math elements")}
               </div>
             }
           />

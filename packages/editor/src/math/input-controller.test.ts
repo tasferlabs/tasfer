@@ -36,8 +36,20 @@ describe("trailingMathCommandRun", () => {
     const opening = trailingMathCommandRun(first.document, first.caret);
     const grown = typeInto(first.document, first.caret, "fr");
     const current = trailingMathCommandRun(grown.document, grown.caret);
-    expect(opening?.backslashCharId).toBeDefined();
-    expect(current?.backslashCharId).toBe(opening?.backslashCharId);
+    expect(opening?.triggerCharId).toBeDefined();
+    expect(current?.triggerCharId).toBe(opening?.triggerCharId);
+  });
+
+  it("reports a concatenated name after a slash trigger", () => {
+    const { document, caret } = typedMathDocument("/squareroot");
+    expect(trailingMathCommandRun(document, caret, "/")?.query).toBe(
+      "squareroot",
+    );
+  });
+
+  it("accepts a localized slash query without spaces", () => {
+    const { document, caret } = typedMathDocument("/كسر");
+    expect(trailingMathCommandRun(document, caret, "/")?.query).toBe("كسر");
   });
 
   it("returns nothing when no command run precedes the caret", () => {

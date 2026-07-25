@@ -1890,8 +1890,9 @@ export class MathNode extends TextNode<MathBlock> {
     );
     bus.registerState(
       INSERT_MATH_COMMAND,
-      (state, { text, caretOffset }) =>
-        insertActiveMathTreeCommand(state, text, caretOffset) ?? undefined,
+      (state, { text, caretOffset, trigger }) =>
+        insertActiveMathTreeCommand(state, text, caretOffset, trigger) ??
+        undefined,
       100,
     );
     bus.registerState(

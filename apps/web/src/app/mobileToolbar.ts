@@ -454,14 +454,14 @@ export function createMobileToolbarModel(
   const mathCommand = button(
     "math-command",
     "mathcommand",
-    t("editor.math.chooseConstruct", "Math commands"),
+    t("editor.math.latexCommands", "LaTeX commands"),
     { type: "open-math-commands" },
     { enabled: state.canOpenMathCommands },
   );
   const mathTrigger = button(
     "math-trigger",
     "mathcommand",
-    t("editor.math.chooseConstruct", "Math commands"),
+    t("editor.math.latexCommands", "LaTeX commands"),
     { type: "open-math-commands" },
     { enabled: state.canOpenMathCommands },
   );

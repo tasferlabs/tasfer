@@ -485,6 +485,23 @@ describe("tree-backed display math state integration", () => {
     ]);
   });
 
+  it("replaces a trailing slash name with the selected construct", () => {
+    const state = typeText(treeState("$$\n\n$$"), "/fraction").state;
+    const result = state.actionBus.dispatchState(INSERT_MATH_COMMAND, state, {
+      text: String.raw`\frac{}{}`,
+      caretOffset: 6,
+      trigger: "/",
+    });
+
+    expect(result.claimed).toBe(true);
+    expect(treeSource(result.state)).toBe(String.raw`\frac{}{}`);
+    expect(result.state.document.contentSelection?.focus).toMatchObject({
+      kind: "gap",
+      slot: "children",
+      afterNodeId: null,
+    });
+  });
+
   it("keeps typing after an accent commit under the accent", () => {
     const committed = typeText(treeState("$$\n\n$$"), String.raw`\ve`).state;
     const state = committed.actionBus.dispatchState(
