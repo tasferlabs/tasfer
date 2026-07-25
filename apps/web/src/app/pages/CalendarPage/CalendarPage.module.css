@@ -383,6 +383,13 @@
   flex-shrink: 0;
 }
 
+.previewTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-inline: 12px;
+}
+
 /* Mobile: collapsed schedule summary that expands into the rows above. */
 .previewDetails {
   display: flex;

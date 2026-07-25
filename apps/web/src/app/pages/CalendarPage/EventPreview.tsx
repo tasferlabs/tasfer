@@ -46,6 +46,7 @@ import {
   Maximize2,
   Search,
   Trash2,
+  Type,
   X,
 } from "lucide-react";
 import { DateTime } from "luxon";
@@ -182,18 +183,24 @@ export function EventPreview({
   onSidebarModeChange,
   onDuplicate,
   draft,
+  onDraftDiscard,
   onDraftSave,
   onDraftScheduleChange,
   onDraftContentChange,
 }: {
   pageId: string | null;
   anchor: DOMRect | null;
+  // Requests a close. The host confirms before dropping an in-progress draft, so
+  // every dismissal affordance here can call it unconditionally.
   onClose: () => void;
   sidebarMode: boolean;
   onSidebarModeChange: (mode: boolean) => void;
   // Duplicate the currently-previewed event into a new page and select it.
   onDuplicate?: (pageId: string) => void;
   draft?: DraftEvent | null;
+  // Drops the draft without confirming — for the footer's Cancel, where the
+  // discard is the user's stated intent.
+  onDraftDiscard?: () => void;
   onDraftSave?: (
     blocks?: Block[],
     clock?: unknown,
@@ -618,51 +625,6 @@ export function EventPreview({
         }
       : null;
 
-  // Close on click outside (popover mode only).
-  // Listens in the CAPTURE phase: when a modal Radix layer (date picker,
-  // timezone picker, combobox, ...) is dismissed by an outside pointerdown,
-  // Radix closes it synchronously (flushSync) from a document-level listener
-  // and restores <body>'s pointer-events before the event would reach a
-  // bubble listener. Capture runs first, while <body> still has
-  // pointer-events: none, so the dismissing click is reliably attributed to
-  // the modal layer instead of closing this popover too.
-  useEffect(() => {
-    if (!isActive || sidebarMode || isMobile) return;
-    function handlePointerDown(e: PointerEvent) {
-      // A modal Radix layer is open; this click belongs to that layer.
-      if (document.body.style.pointerEvents === "none") return;
-      const target = e.target as Node;
-      if (popoverRef.current?.contains(target)) return;
-      if (
-        target instanceof Element &&
-        target.closest(
-          '[data-radix-popper-content-wrapper], [role="dialog"], [role="alertdialog"], [data-slot="combobox-content"]',
-        )
-      ) {
-        return;
-      }
-      onClose();
-    }
-    // Delay listener to avoid closing on the same click that opened it
-    const timer = setTimeout(() => {
-      window.addEventListener("pointerdown", handlePointerDown, true);
-    }, 0);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("pointerdown", handlePointerDown, true);
-    };
-  }, [isActive, onClose, sidebarMode, isMobile]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!isActive) return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isActive, onClose]);
-
   // Save edits from preview editor
   const handleSave = useCallback(
     async (data: { pageId: string; blocks: Block[] }) => {
@@ -747,6 +709,79 @@ export function EventPreview({
     flush();
     onClose();
   }, [flush, onClose]);
+
+  // Close on click outside (popover mode only).
+  // Listens in the CAPTURE phase: when a modal Radix layer (date picker,
+  // timezone picker, combobox, ...) is dismissed by an outside pointerdown,
+  // Radix closes it synchronously (flushSync) from a document-level listener
+  // and restores <body>'s pointer-events before the event would reach a
+  // bubble listener. Capture runs first, while <body> still has
+  // pointer-events: none, so the dismissing click is reliably attributed to
+  // the modal layer instead of closing this popover too.
+  useEffect(() => {
+    if (!isActive || sidebarMode || isMobile) return;
+    function handlePointerDown(e: PointerEvent) {
+      // A modal Radix layer is open; this click belongs to that layer.
+      if (document.body.style.pointerEvents === "none") return;
+      const target = e.target as Node;
+      if (popoverRef.current?.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest(
+          '[data-radix-popper-content-wrapper], [role="dialog"], [role="alertdialog"], [data-slot="combobox-content"]',
+        )
+      ) {
+        return;
+      }
+      // A pointerdown on an event card (the resize handle is inside one) starts a
+      // move or resize on the grid behind the popover — not a dismissal. This
+      // covers the open event's own card and the draft's, both of which stay
+      // draggable while the preview is up. A genuine card *click* is separated
+      // from a drag by the card itself and routes through the host's event-click
+      // path, so nothing is lost by not closing here.
+      if (target instanceof Element && target.closest(`.${style.eventCard}`)) {
+        return;
+      }
+      handleClose();
+    }
+    // Delay listener to avoid closing on the same click that opened it
+    const timer = setTimeout(() => {
+      window.addEventListener("pointerdown", handlePointerDown, true);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [isActive, handleClose, sidebarMode, isMobile]);
+
+  // Close on Escape.
+  // CAPTURE phase: the editor forwards Escape into its own key queue with
+  // `stopPropagation`, so a bubble-phase listener never sees it while the title
+  // or body canvas has focus — which is most of the time this preview is open.
+  useEffect(() => {
+    if (!isActive) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      // Escape during IME composition cancels the composition; that one is the
+      // editor's to handle.
+      if (e.isComposing) return;
+      // A modal Radix layer (date picker, combobox, or the discard confirmation
+      // this close can raise) owns this Escape — dismissing that layer must not
+      // also close the preview, and must not re-raise the confirmation.
+      if (document.body.style.pointerEvents === "none") return;
+      // This Escape is ours: stop it here, at the earliest point in the
+      // propagation path. Closing can raise the discard confirmation
+      // synchronously, and a Radix layer that mounts mid-dispatch registers its
+      // own document-level Escape handler in time to receive this very event and
+      // dismiss itself again. Stopping also keeps the editor from treating it as
+      // a selection-clear on the way out.
+      e.preventDefault();
+      e.stopPropagation();
+      handleClose();
+    }
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [isActive, handleClose]);
 
   const { mutate: deletePage, isPending: isDeleting } = useDeletePage({
     onSuccess: () => {
@@ -943,9 +978,13 @@ export function EventPreview({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [isActive, isMobile, isDraft, handleDraftSaveClick]);
 
+  // Cancel states the intent outright, so it skips the host's confirmation. The
+  // fallback keeps the button live if a host doesn't wire the prop.
+  const discardDraft = onDraftDiscard ?? handleClose;
+
   const draftFooter = isDraft ? (
     <div className={style.previewDraftFooter}>
-      <Button variant="ghost" size="sm" onClick={handleClose}>
+      <Button variant="ghost" size="sm" onClick={discardDraft}>
         {t("common.cancel", "Cancel")}
       </Button>
       <Button size="sm" onClick={handleDraftSaveClick}>
@@ -964,10 +1003,8 @@ export function EventPreview({
     // title. Desktop keeps immediate focus. Enter commits the draft (single-block
     // window makes Enter inert in the engine).
     draftDoc ? (
-      // The gutter lives on a wrapper: TitleEditor draws the Input component's
-      // border box, so padding inside it would inset the text from its own
-      // border instead of insetting the field from the sheet edge.
-      <div className="px-3">
+      <div className={style.previewTitleRow}>
+        <Type size={14} className={style.previewRowIcon} aria-hidden />
         <TitleEditor
           doc={draftDoc}
           autoFocus={!isMobile}
@@ -1013,31 +1050,6 @@ export function EventPreview({
     type: isTask ? t("calendar.task", "Task") : t("calendar.event", "Event"),
   };
 
-  // An in-progress draft (the user has typed a title) should not be lost to an
-  // accidental tap outside the non-modal drawer. `onDraftSave` isn't called on
-  // dismiss, so confirm before discarding rather than silently dropping it.
-  const draftHasContent = () => {
-    const blocks = draftContentRef.current?.blocks;
-    return !!blocks && extractTitleFromBlocks(blocks).trim().length > 0;
-  };
-  const requestClose = () => {
-    if (isDraft && draftHasContent()) {
-      void getConfirmation({
-        title: t("calendar.discardDraftTitle", "Discard this event?"),
-        description: t(
-          "calendar.discardDraftBody",
-          "You've started creating this event. Discard it?",
-        ),
-        cancelText: t("calendar.keepEditing", "Keep editing"),
-        confirmText: t("common.discard", "Discard"),
-      }).then((confirmed) => {
-        if (confirmed) handleClose();
-      });
-      return;
-    }
-    handleClose();
-  };
-
   const duplicateButton =
     pageId && onDuplicate ? (
       <button
@@ -1076,7 +1088,7 @@ export function EventPreview({
         <button
           type="button"
           className={style.previewCloseBtn}
-          onClick={requestClose}
+          onClick={handleClose}
           aria-label={t("editor.closePreview", "Close preview")}
           title={t("editor.closePreview", "Close preview")}
         >
@@ -1173,7 +1185,7 @@ export function EventPreview({
       <button
         type="button"
         className={style.draftTopBarAction}
-        onClick={requestClose}
+        onClick={discardDraft}
       >
         {t("common.cancel", "Cancel")}
       </button>
@@ -1251,7 +1263,7 @@ export function EventPreview({
       <BottomSheet
         open={isActive}
         onOpenChange={(open) => {
-          if (!open) requestClose();
+          if (!open) handleClose();
         }}
         variant="peek"
         className="p-0"
@@ -1268,7 +1280,7 @@ export function EventPreview({
       <BottomSheet
         open={isActive}
         onOpenChange={(open) => {
-          if (!open) requestClose();
+          if (!open) handleClose();
         }}
         variant="sheet"
         className="p-0"
