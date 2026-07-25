@@ -307,8 +307,45 @@ describe("MathDocument identity-keyed layout", () => {
     ).not.toBeNull();
   });
 
+  it("gives an empty accent base a caret stop of its own", () => {
+    const document = parseMathDocument(String.raw`\vec{}`);
+    const accent = document.root.body.children[0];
+    if (accent?.type !== "accent") throw new Error("expected accent");
+    const layout = layoutMathDocument(document);
+
+    // The placeholder box under the accent is where content goes: without a
+    // caret stop of its own the slot would be unreachable and every keystroke
+    // would land beside the accent instead of under it.
+    expect(rowOffsets(layout, accent.base.id)).toEqual([0]);
+    expect(
+      mathDocumentCaretStop(layout, {
+        kind: "row",
+        rowId: accent.base.id,
+        offset: 0,
+      }),
+    ).not.toBeNull();
+  });
+
+  it("gives an empty alphabet body the same placeholder as any other slot", () => {
+    // `\mathbb{}` renders its body in another face; with nothing in it there
+    // is no glyph to draw, so without the slot placeholder a freshly inserted
+    // one would be invisible and unreachable.
+    const document = parseMathDocument(String.raw`\mathbb{}`);
+    const wrapper = document.root.body.children[0];
+    if (wrapper?.type !== "wrapper") throw new Error("expected wrapper");
+    const layout = layoutMathDocument(document);
+    const stop = mathDocumentCaretStop(layout, {
+      kind: "row",
+      rowId: wrapper.body.id,
+      offset: 0,
+    });
+
+    expect(stop?.placeholder).toBeDefined();
+    expect(layout.items.has(wrapper.id)).toBe(true);
+  });
+
   it("exposes unsupported raw LaTeX only through its atomic row edges", () => {
-    const document = parseMathDocument(String.raw`\widehat{x}`);
+    const document = parseMathDocument(String.raw`\neq`);
     const row = document.root.body;
     const fallback = row.children[0];
     if (fallback?.type !== "raw-latex") {

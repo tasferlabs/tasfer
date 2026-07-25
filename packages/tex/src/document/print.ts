@@ -169,6 +169,22 @@ class MathDocumentPrinter {
           this.writeArgument(node.superscript);
         }
         break;
+      case "accent":
+        // Always braced: a bare `\vec` would swallow whatever the printer
+        // emits next as its base (`\vec\frac{a}{b}`), re-parsing the sibling
+        // into the accent and de-structuring the row.
+        this.write(`\\${node.command}`);
+        this.writeArgument(node.base);
+        break;
+      case "wrapper":
+        this.write(`\\${node.command}`);
+        this.writeArgument(node.body);
+        break;
+      case "stack":
+        this.write(`\\${node.command}`);
+        this.writeArgument(node.script);
+        this.writeArgument(node.base);
+        break;
       case "delimited":
         this.writeDelimited(node);
         break;
