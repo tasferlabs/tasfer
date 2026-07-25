@@ -17,8 +17,14 @@ import {
   moveCursorLeft,
   moveCursorRight,
   moveCursorToPosition,
+  verticalStepFromNestedCaret,
 } from "../selection";
-import type { ContentEdit, EditorState, Operation } from "../state-types";
+import type {
+  ContentEdit,
+  EditorState,
+  Operation,
+  ViewportState,
+} from "../state-types";
 import {
   isContentSelectionCollapsed,
   normalizeContentSelection,
@@ -961,6 +967,50 @@ export function exitActiveInlineMathTreeHorizontally(
       direction === "left"
         ? moveCursorLeft(clearSelection(atEdge))
         : moveCursorRight(clearSelection(atEdge)),
+    ops: [],
+    handled: true,
+  };
+}
+
+/**
+ * Continue host-document navigation when vertical movement runs out of stacked
+ * rows inside an inline chip.
+ *
+ * A formula's own body is flat (see `mathDocumentCaretVertical`), so ↑/↓ there
+ * has no in-formula target at all — and a chip sits *in a line of prose*, not on
+ * a line of its own. The press therefore means the same as it does anywhere else
+ * in that paragraph: go to the line above/below, under the caret's own x
+ * (`verticalStepFromNestedCaret` resolves that geometrically — the chip is one
+ * atomic char, so a logical column carried out of it would collapse the whole
+ * formula onto its anchor's column and land the caret near the line's start).
+ *
+ * With no line on that side the press has nowhere to go, and the nested caret
+ * stays exactly where it is: dropping to the flat block edge there would eject
+ * the caret from the formula and slam it to the start/end of the paragraph.
+ */
+export function exitActiveInlineMathTreeVertically(
+  state: EditorState,
+  direction: "up" | "down",
+  viewport?: ViewportState,
+): InlineMathTreeStateResult | undefined {
+  const context = activeInlineMathContext(state);
+  if (!context) return undefined;
+  const target = verticalStepFromNestedCaret(
+    state,
+    context.blockIndex,
+    context.run.startIndex,
+    direction,
+    viewport,
+  );
+  if (!target) return { state, ops: [], handled: true };
+  return {
+    state: clearSelection(
+      moveCursorToPosition(
+        updateContentSelection(state, null),
+        target.blockIndex,
+        target.textIndex,
+      ),
+    ),
     ops: [],
     handled: true,
   };

@@ -27,6 +27,7 @@ import {
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  type ViewportPayload,
 } from "../../actions/keyboard-actions";
 import { TEXT_CLICK } from "../../actions/pointer-actions";
 import { getInlineMathSpans } from "../../inline-math-spans";
@@ -44,6 +45,7 @@ import {
   enterInlineMathTreeAtPosition,
   exitActiveInlineMathTreeHorizontally,
   exitActiveInlineMathTreeSelectionHorizontally,
+  exitActiveInlineMathTreeVertically,
   extendActiveInlineMathTreeSelectionHorizontally,
   extendActiveInlineMathTreeSelectionVertically,
   hasActiveInlineMathTreeCaret,
@@ -473,13 +475,14 @@ export class MathMark extends Mark {
       },
       110,
     );
-    const moveVertical = (direction: "up" | "down") => (state: EditorState) => {
-      const moved = moveActiveInlineMathTreeCaretVertically(state, direction);
-      if (moved) return moved;
-      return hasActiveInlineMathTreeCaret(state)
-        ? { state, ops: [], handled: true as const }
-        : undefined;
-    };
+    // A chip shares its line with prose: once the formula has no stacked row
+    // left in that direction the press belongs to the host line above/below,
+    // never to the chip (see `exitActiveInlineMathTreeVertically`).
+    const moveVertical =
+      (direction: "up" | "down") =>
+      (state: EditorState, { viewport }: ViewportPayload) =>
+        moveActiveInlineMathTreeCaretVertically(state, direction) ??
+        exitActiveInlineMathTreeVertically(state, direction, viewport);
     bus.registerState(MOVE_CURSOR_UP, moveVertical("up"), 110);
     bus.registerState(MOVE_CURSOR_DOWN, moveVertical("down"), 110);
     const extendVertical =

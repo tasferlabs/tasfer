@@ -3,6 +3,7 @@ import {
   getContentWithComposition,
   TextNode,
   type TextNodeLayout,
+  type TextualBlock,
 } from "./nodes/TextNode";
 import type { MarkRegistry } from "./rendering/marks";
 import type { NodeRegistry } from "./rendering/nodes/Node";
@@ -1655,6 +1656,142 @@ export function caretAtBlockTop(
   const lineIdx = lineIndexAt(layout, textIndex);
   return lineIdx <= 0;
 }
+
+/** Line whose own char range covers `textIndex`, or -1. Unlike
+ * {@link lineIndexAt} a boundary offset belongs to the line that CONTAINS the
+ * char, not to the line that merely ends there — what an atomic replacement run
+ * (an inline chip) needs to find the line it is painted on. */
+function lineIndexContaining(
+  layout: TextNodeLayout,
+  textIndex: number,
+): number {
+  for (let i = 0; i < layout.lines.length; i++) {
+    const line = layout.lines[i];
+    if (textIndex >= line.startIndex && textIndex < line.endIndex) return i;
+  }
+  return layout.lines.length > 0 ? layout.lines.length - 1 : -1;
+}
+
+/** Hit-test document x against one line of an already-computed layout. */
+function offsetAtLineX(
+  node: TextNode,
+  block: TextualBlock,
+  layout: TextNodeLayout,
+  lineIdx: number,
+  x: number,
+  styles: EditorStyles,
+): number {
+  const line = layout.lines[lineIdx];
+  // `positionFromPoint` resolves the line from `blockTopY + insetY + line.y`, so
+  // a zero block top keeps this block-local — no document walk needed.
+  return node.positionFromPoint(
+    block,
+    layout,
+    x,
+    layout.insetY + line.y + line.height / 2,
+    styles.canvas.paddingLeft,
+    0,
+  );
+}
+
+/**
+ * Flat position one visual line above/below the caret that currently sits inside
+ * a block's NESTED content (an inline math chip), keeping the caret's own x.
+ *
+ * A chip is a single atomic char in flat offsets but a wide box on screen, so the
+ * logical-column carry {@link moveCursorUp} uses for text cannot express where
+ * the caret visually is: every offset inside the formula collapses onto the chip's
+ * two edges. This resolves the target by geometry instead — the nested caret's
+ * real x, hit-tested against the target line — so leaving a formula lands the
+ * caret under it rather than at the column the chip's anchor char happens to
+ * occupy.
+ *
+ * `anchorIndex` is the chip's anchor offset (the run start). Returns `null` when
+ * there is no line on that side at all; the caller decides what a press at the
+ * document edge means (for a formula: nothing, so its caret stays put).
+ */
+export function verticalStepFromNestedCaret(
+  state: EditorState,
+  blockIndex: number,
+  anchorIndex: number,
+  direction: "up" | "down",
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+): Position | null {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return null;
+  const node = textNodeFor(state, block);
+  if (!node) return null;
+
+  const maxWidth = viewport
+    ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
+    : 800;
+  const layout = layoutFor(
+    node,
+    block,
+    blockIndex,
+    maxWidth,
+    styles,
+    state.marks,
+  );
+  const lineIdx = lineIndexContaining(layout, anchorIndex);
+  if (lineIdx === -1) return null;
+  // The nested caret's x: `caretRect` reads the active content selection and
+  // measures inside the chip, falling back to the anchor char's own edge when the
+  // formula has no geometry for the point.
+  const x = node.caretRect(
+    layout,
+    anchorIndex,
+    styles.canvas.paddingLeft,
+    0,
+    state,
+    block.id,
+  ).x;
+
+  const targetLine = direction === "up" ? lineIdx - 1 : lineIdx + 1;
+  if (targetLine >= 0 && targetLine < layout.lines.length) {
+    return {
+      blockIndex,
+      textIndex: offsetAtLineX(node, block, layout, targetLine, x, styles),
+    };
+  }
+
+  const adjacentIndex =
+    direction === "up"
+      ? findPreviousVisibleBlockIndex(state.document.page.blocks, blockIndex)
+      : findNextVisibleBlockIndex(state.document.page.blocks, blockIndex);
+  if (adjacentIndex === null) return null;
+  const adjacent = state.document.page.blocks[adjacentIndex];
+  // A visual block (image / divider) has no line to land a column on.
+  if (!isTextualBlock(adjacent)) {
+    return { blockIndex: adjacentIndex, textIndex: 0 };
+  }
+  const adjacentNode = textNodeFor(state, adjacent);
+  if (!adjacentNode) return { blockIndex: adjacentIndex, textIndex: 0 };
+  const adjacentLayout = layoutFor(
+    adjacentNode,
+    adjacent,
+    adjacentIndex,
+    maxWidth,
+    styles,
+    state.marks,
+  );
+  if (adjacentLayout.lines.length === 0) {
+    return { blockIndex: adjacentIndex, textIndex: 0 };
+  }
+  return {
+    blockIndex: adjacentIndex,
+    textIndex: offsetAtLineX(
+      adjacentNode,
+      adjacent,
+      adjacentLayout,
+      direction === "up" ? adjacentLayout.lines.length - 1 : 0,
+      x,
+      styles,
+    ),
+  };
+}
+
 /**
  * Move cursor up by one page
  * Moves the cursor up by approximately one viewport height

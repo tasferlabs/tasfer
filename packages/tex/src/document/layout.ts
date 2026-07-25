@@ -78,6 +78,13 @@ export interface MathDocumentItemLayout {
   readonly baseline: number;
   /** All visual caret stops contained by this item's projected range. */
   readonly caretStops: readonly MathDocumentCaretStop[];
+  /**
+   * The item this one sits directly inside — a node's parent row, or the node a
+   * row/matrix slot is a slot of. Absent for the document root and its body.
+   * This is the structural chain {@link mathDocumentCaretVertical} walks; it is
+   * derived from the identity tree, never from caret geometry.
+   */
+  readonly parentId?: MathItemId;
 }
 
 /**
@@ -131,6 +138,7 @@ export function createMathDocumentLayout(
 
   const samples: BoxSample[] = [];
   collectBoxSamples(layout.box, 0, 0, layout.fontSize, samples);
+  const parents = resolveItemParents(projection.items);
   const items = new Map<MathItemId, MathDocumentItemLayout>();
   for (const item of projection.items) {
     const itemStops = mappedStops.filter(
@@ -138,12 +146,14 @@ export function createMathDocumentLayout(
         stop.sourceOffset >= item.start && stop.sourceOffset <= item.end,
     );
     const geometry = geometryForItem(item, samples, itemStops);
+    const parentId = parents.get(item.id);
     items.set(item.id, {
       id: item.id,
       type: item.type,
       bounds: geometry.bounds,
       baseline: geometry.baseline,
       caretStops: itemStops,
+      ...(parentId === undefined ? {} : { parentId }),
     });
   }
 
@@ -168,8 +178,20 @@ export function mathDocumentCaretStop(
  * The current stop is resolved by identity rather than by its transient source
  * offset. This matters at aliased construct boundaries, where an outer row edge
  * and an inner field edge may share one printed offset but occupy different
- * visual rows. Horizontal distance dominates the target choice so fractions
- * retain the caret column; paired super/subscripts use their shared construct
+ * visual rows.
+ *
+ * Vertical motion is STRUCTURAL, not free geometry: it only ever moves between
+ * the stacked slots of a construct the caret is ALREADY inside (a fraction's
+ * halves, a script pair, a matrix's rows), walking outward through the identity
+ * chain when the innermost one has no row on that side. A caret on a row that
+ * stacks nothing — the formula's own body, a `\sqrt`'s radicand, a delimited
+ * body — is flat, so it has nowhere to go and returns null: the host then
+ * carries the press on to the line above/below. Geometry alone would instead
+ * grab the visually nearest stop anywhere in the formula, so ↑ on a long flat
+ * line jumped sideways into some unrelated superscript.
+ *
+ * Within the chosen construct horizontal distance dominates so a fraction
+ * retains the caret column; paired super/subscripts use their shared construct
  * identity to step over the base row directly.
  */
 export function mathDocumentCaretVertical(
@@ -206,23 +228,128 @@ export function mathDocumentCaretVertical(
     }
   }
 
-  const rowEpsilon = 0.5;
-  const horizontalWeight = 3;
+  // The slot the caret is in, then each enclosing one — a stacked construct is
+  // asked for a row on the requested side before the walk widens to its parent.
+  const rowId = caretRowId(current, position);
+  let origin = rowId === undefined ? undefined : layout.items.get(rowId);
+  // Keystrokes run this walk: a malformed chain must dead-end, never spin.
+  const seen = new Set<MathItemId>();
+  while (origin && !seen.has(origin.id)) {
+    seen.add(origin.id);
+    const parent =
+      origin.parentId === undefined
+        ? undefined
+        : layout.items.get(origin.parentId);
+    if (!parent) return null;
+    if (STACKED_CONSTRUCTS.has(parent.type)) {
+      const target = stackedSlotStop(
+        parent,
+        origin,
+        current,
+        targetX,
+        direction,
+      );
+      if (target) return target;
+    }
+    origin = parent;
+  }
+  return null;
+}
+
+/** Construct types whose slots occupy their own stacked rows. */
+const STACKED_CONSTRUCTS: ReadonlySet<MathDocumentItemType> = new Set([
+  "fraction",
+  "matrix",
+  "radical",
+  "scripts",
+  "stack",
+]);
+
+/** Rows nearer than this share the caret's row and are not a target. */
+const ROW_EPSILON = 0.5;
+
+/** How much more horizontal distance counts than vertical when scoring rows. */
+const HORIZONTAL_WEIGHT = 3;
+
+/**
+ * Best stop for a vertical step inside one stacked `construct`, coming out of
+ * its `origin` slot. Everything `origin` covers is excluded — its own row is not
+ * a target, and neither is a construct nested INSIDE it (reaching those needs a
+ * caret in them, exactly as reaching this one did). Outer-edge boundary stops
+ * are skipped: they sit on the parent baseline, not on a row of their own.
+ */
+function stackedSlotStop(
+  construct: MathDocumentItemLayout,
+  origin: MathDocumentItemLayout,
+  current: MathDocumentCaretStop,
+  targetX: number,
+  direction: "up" | "down",
+): MathDocumentCaretStop | null {
+  const covered = new Set(origin.caretStops);
   let target: MathDocumentCaretStop | null = null;
   let targetScore = Infinity;
-  for (const stop of layout.caretStops) {
-    if (stop.boundary) continue;
+  for (const stop of construct.caretStops) {
+    if (stop.boundary || covered.has(stop)) continue;
     const verticalDistance =
       direction === "up" ? current.y - stop.y : stop.y - current.y;
-    if (verticalDistance <= rowEpsilon) continue;
+    if (verticalDistance <= ROW_EPSILON) continue;
     const score =
-      Math.abs(stop.x - targetX) * horizontalWeight + verticalDistance;
+      Math.abs(stop.x - targetX) * HORIZONTAL_WEIGHT + verticalDistance;
     if (score < targetScore) {
       targetScore = score;
       target = stop;
     }
   }
   return target;
+}
+
+/**
+ * The row the caret rests in. A field address may omit its row, so the stop's
+ * matching alias supplies it — never another alias at the same visual location,
+ * which can belong to an enclosing row.
+ */
+function caretRowId(
+  current: MathDocumentCaretStop,
+  position: MathDocumentCaretAddress,
+): MathItemId | undefined {
+  if (position.rowId !== undefined) return position.rowId;
+  return current.positions.find((candidate) =>
+    positionsEqual(candidate, position),
+  )?.rowId;
+}
+
+/**
+ * Structural parent of every projected item. Nodes carry their parent row; rows
+ * and matrix slots are printed without an owner, so theirs is the innermost node
+ * whose projected range covers them.
+ *
+ * A node that fills its row completely (`{\frac{a}{b}}`, or a formula that IS
+ * one fraction) projects the SAME range as that row, so range containment alone
+ * would make the two each other's parent and any walk up the chain would spin
+ * forever. A node's own parent row is therefore never a candidate to be its
+ * child — that single exclusion is what keeps the relation a tree. The formula
+ * body, whose every child is excluded this way, correctly ends up with no owner.
+ */
+function resolveItemParents(
+  items: readonly ProjectedMathItem[],
+): ReadonlyMap<MathItemId, MathItemId> {
+  const parents = new Map<MathItemId, MathItemId>();
+  const nodes = items.filter((item) => item.parentRowId !== undefined);
+  for (const item of items) {
+    if (item.parentRowId !== undefined) {
+      parents.set(item.id, item.parentRowId);
+      continue;
+    }
+    let owner: ProjectedMathItem | undefined;
+    for (const node of nodes) {
+      if (node.id === item.id || node.parentRowId === item.id) continue;
+      if (node.start > item.start || node.end < item.end) continue;
+      if (owner && node.end - node.start >= owner.end - owner.start) continue;
+      owner = node;
+    }
+    if (owner) parents.set(item.id, owner.id);
+  }
+  return parents;
 }
 
 /** Resolve a legacy/source hit to the nearest stable tree-addressed caret. */
