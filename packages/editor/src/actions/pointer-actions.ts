@@ -26,6 +26,7 @@ import { stateAction } from "../action-bus";
 import type { NodeAtomicHit } from "../rendering/nodes/Node";
 import type { Block } from "../serlization/loadPage";
 import type { ActiveMenu, Position, ViewportState } from "../state-types";
+import type { ContentSelection } from "../structured-selection";
 
 /** Document-space coordinates of a caret position (the shape
  *  `getCursorDocumentCoords` returns). */
@@ -43,6 +44,14 @@ export interface DocCoords {
  * import chain they'd otherwise close a load-order cycle with.
  */
 export type CoordsResolver = (position: Position) => DocCoords | null;
+
+/**
+ * Resolve the pointer to the nested caret inside whatever structured attachment
+ * it landed on (the construct under the pointer in a formula), or `null` off any
+ * such run. Supplied lazily — hit-testing a formula costs a layout, so handlers
+ * call it only once a cheap check says the pointer is near a replacement run.
+ */
+export type ContentSelectionResolver = () => ContentSelection | null;
 
 /** Keyboard modifiers carried with a pointer interaction. */
 export interface PointerModifiers {
@@ -70,6 +79,14 @@ export const TEXT_CLICK = stateAction<{
   canvasX: number;
   canvasY: number;
   position: Position;
+  /**
+   * The nested caret the click point resolves to inside a structured attachment
+   * — the construct actually under the pointer — or `null` off any such run. A
+   * handler that would claim the click to enter its own run reads this and
+   * steps aside when it is set: the unclaimed path places exactly this caret,
+   * which is finer than the two flat edges the run projects to.
+   */
+  contentSelection?: ContentSelection | null;
   /** The active menu BEFORE this click (handlers that reopen an overlay read it). */
   previousMenu: ActiveMenu;
   viewport: ViewportState;
@@ -100,6 +117,12 @@ export const POINTER_MOVE = stateAction<{
   viewport: ViewportState;
   /** Resolve a caret position to document coords (link tooltip anchor, …). */
   resolveCoords: CoordsResolver;
+  /**
+   * Resolve the pointer to a nested caret inside a structured run — the exact
+   * same hit-test a click goes through, so a run's hover highlight can never
+   * disagree with the region a click enters it from.
+   */
+  resolveContentSelection: ContentSelectionResolver;
   modifiers: { readonly ctrlOrMeta: boolean };
 }>("pointer-move", (state) => ({ state, ops: [] }));
 

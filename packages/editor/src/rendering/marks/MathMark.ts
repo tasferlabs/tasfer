@@ -409,21 +409,30 @@ export class MathMark extends Mark {
   registerActions(bus: ActionBus): void {
     bus.registerState(
       TEXT_CLICK,
-      (state, { position, modifiers }) =>
+      (state, { position, contentSelection, modifiers }) => {
         // A Shift+click with an active selection/caret is an EXTENSION gesture:
         // leave it unclaimed so the generic caret placement extends the flat
         // range across the chip (snapping covers it whole) instead of dropping
         // the caret into the chip's tree.
-        modifiers.shift &&
-        (state.document.selection ||
-          state.document.cursor ||
-          state.document.contentSelection)
-          ? undefined
-          : enterInlineMathTreeAtPosition(
-              state,
-              position.blockIndex,
-              position.textIndex,
-            ),
+        const extending =
+          modifiers.shift &&
+          (state.document.selection ||
+            state.document.cursor ||
+            state.document.contentSelection);
+        // The click already resolved to a caret INSIDE a formula — the construct
+        // under the pointer. Leaving it unclaimed places exactly that caret;
+        // claiming it here would enter at whichever edge the flat position
+        // projects to, so clicking a numerator would park the caret before the
+        // whole fraction. Only a chip with no tree to hit-test (a legacy run
+        // still awaiting its attachment) reaches the edge entry, which migrates
+        // it on the way in.
+        if (extending || contentSelection) return undefined;
+        return enterInlineMathTreeAtPosition(
+          state,
+          position.blockIndex,
+          position.textIndex,
+        );
+      },
       90,
     );
     const remove =

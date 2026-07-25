@@ -1795,6 +1795,28 @@ export class TextNode<
     };
   }
 
+  /**
+   * The flat bounds of the replacement run holding the nested caret, or null
+   * when no nested caret sits in this block. The run is painted with the same
+   * emphasis a hover gives it (`MarkReplacement.paint`'s `hovered`), so an
+   * inline formula being edited reads as active the way a math block does.
+   */
+  private activeReplacementRange(
+    layout: TextNodeLayout,
+    state: EditorState,
+    blockId: string,
+  ): { startIndex: number; endIndex: number } | null {
+    const point = state.document.contentSelection?.focus;
+    if (!point || point.blockId !== blockId || !layout.marks) return null;
+    const run = replacementRuns(
+      layout.chars,
+      layout.formats,
+      layout.marks,
+      layout.structuredContent,
+    ).find((candidate) => candidate.mark.attrs?.contentId === point.contentId);
+    return run ? { startIndex: run.start, endIndex: run.end } : null;
+  }
+
   /** Direct nested hit-test for replacement marks with structured content. */
   override contentSelectionFromPoint(
     layoutValue: NodeLayout,
@@ -2332,16 +2354,17 @@ export class TextNode<
     const renderedLines: RenderedLine[] = [];
     const fullContent = getBlockTextContent(runtimeBlock);
 
-    // Highlight the hovered chip, or the one being edited — both are recorded in
-    // `inlineMathHover` (the open path sets it to the edited run's range).
-    const hoveredInlineMath =
-      state.ui.inlineMathHover &&
-      state.ui.inlineMathHover.blockIndex === blockIndex
-        ? {
-            startIndex: state.ui.inlineMathHover.startIndex,
-            endIndex: state.ui.inlineMathHover.endIndex,
-          }
+    // Highlight the hovered chip, or the one being edited: a replacement run
+    // holding the nested caret reads as active exactly like a math block does
+    // while the caret is in it, so the formula you are typing in stays lit once
+    // the pointer moves away.
+    const hover =
+      state.ui.inlineMathHover?.blockIndex === blockIndex
+        ? state.ui.inlineMathHover
         : null;
+    const hoveredInlineMath = hover
+      ? { startIndex: hover.startIndex, endIndex: hover.endIndex }
+      : this.activeReplacementRange(layout, state, block.id);
 
     // The collapsed caret's text index when it sits in this block — lets a
     // replacement run keep in-progress source (a half-typed math command) neutral

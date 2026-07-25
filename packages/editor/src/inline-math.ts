@@ -17,9 +17,8 @@ import {
   getInlineMathSpans,
   type InlineMathSpan,
 } from "./inline-math-spans";
-import { getCursorDocumentCoords } from "./selection";
 import type { Block } from "./serlization/loadPage";
-import type { EditorState, EditorStyles, ViewportState } from "./state-types";
+import type { EditorState } from "./state-types";
 import { isTextualBlock } from "./sync/block-registry";
 
 // Re-export the leaf span helpers so existing importers keep their `./inline-math`
@@ -64,17 +63,16 @@ export function findInlineMathSpan(
  * - "any":    return the chip if the index is anywhere within [startIndex,
  *             endIndex]
  *
- * When `pointer` is supplied, boundary positions are disambiguated by geometry:
- * `textIndex` alone can't tell "end of preceding text" from "start of chip"
- * (especially for single-char chips), so the pointer's x is checked against the
- * chip's rendered x-range.
+ * A position alone cannot say which side of a boundary the POINTER is on — a
+ * chip is one anchor char, so its edges are shared with the surrounding text.
+ * Callers that need that answer hit-test the chip itself (see
+ * `Node.contentSelectionFromPoint`) rather than probing caret geometry here.
  */
 export function getInlineMathAtPosition(
   blockIndex: number,
   textIndex: number,
   state: EditorState,
   mode: "inside" | "any" = "inside",
-  pointer?: { x: number; viewport: ViewportState; styles?: EditorStyles },
 ): {
   blockId: string;
   startIndex: number;
@@ -87,48 +85,11 @@ export function getInlineMathAtPosition(
 
   for (const span of getInlineMathSpans(block)) {
     const { startIndex: spanStart, endIndex: spanEnd } = span;
-
-    let insideHit =
+    const hit =
       mode === "any"
         ? textIndex >= spanStart && textIndex <= spanEnd
         : textIndex > spanStart && textIndex < spanEnd;
-
-    // Boundary disambiguation for single-char chips (and any case where
-    // textIndex sits on a chip boundary): textIndex alone can't tell "end of
-    // preceding text" from "start of chip". When pointer x is provided, verify
-    // the click landed within the chip's rendered x-range.
-    if (
-      !insideHit &&
-      mode === "inside" &&
-      pointer &&
-      (textIndex === spanStart || textIndex === spanEnd)
-    ) {
-      const startCoords = getCursorDocumentCoords(
-        { blockIndex, textIndex: spanStart },
-        state,
-        pointer.viewport,
-        pointer.styles,
-      );
-      const endCoords = getCursorDocumentCoords(
-        { blockIndex, textIndex: spanEnd },
-        state,
-        pointer.viewport,
-        pointer.styles,
-      );
-      if (
-        startCoords &&
-        endCoords &&
-        startCoords.y === endCoords.y &&
-        pointer.x >= startCoords.x &&
-        pointer.x <= endCoords.x
-      ) {
-        insideHit = true;
-      }
-    }
-
-    if (insideHit) {
-      return { blockId: block.id, ...span };
-    }
+    if (hit) return { blockId: block.id, ...span };
   }
 
   return null;

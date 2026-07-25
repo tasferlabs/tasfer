@@ -397,6 +397,18 @@ export function handleMouseDown(
     }
   }
 
+  // The nested caret under the pointer, resolved BEFORE the dispatch so claiming
+  // handlers can see how precisely the click already lands inside their own run.
+  const contentSelection = getContentSelectionFromViewport(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    "mouse",
+    styles,
+    visibility,
+  );
+
   // A resolved single click. Dispatch the generic TEXT_CLICK: nodes/marks may
   // claim it (a link Ctrl+click opens the URL, an inline-math chip opens its
   // editor, a trailing image appends a paragraph). This replaces the old per-node
@@ -405,6 +417,7 @@ export function handleMouseDown(
     canvasX,
     canvasY,
     position,
+    contentSelection,
     previousMenu,
     viewport,
     modifiers: {
@@ -418,15 +431,6 @@ export function handleMouseDown(
 
   // Nothing claimed the click: place the caret. If Shift is held, extend the
   // selection; otherwise start a new selection and enter select mode.
-  const contentSelection = getContentSelectionFromViewport(
-    canvasX,
-    canvasY,
-    state,
-    viewport,
-    "mouse",
-    styles,
-    visibility,
-  );
   return {
     state: state.actionBus.dispatchState(PLACE_CURSOR_AT_POINT, state, {
       position,
@@ -674,6 +678,16 @@ export function handleMouseMove(
         blockUnderPoint,
         viewport,
         resolveCoords: (pos) => getCursorDocumentCoords(pos, state, viewport),
+        resolveContentSelection: () =>
+          getContentSelectionFromViewport(
+            canvasX,
+            canvasY,
+            state,
+            viewport,
+            "mouse",
+            undefined,
+            visibility,
+          ),
         modifiers: { ctrlOrMeta: event.ctrlKey || event.metaKey },
       }).state;
     } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
