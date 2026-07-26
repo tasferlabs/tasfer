@@ -535,9 +535,20 @@ function buildNodeInner(
       }
       const box = buildExpression(node.body, style, font);
       box.span = node.span;
-      const isCharBox =
-        node.body.length === 1 &&
-        buildNode(node.body[0], style, font).isCharBox;
+      const onlyChild =
+        node.body.length === 1 ? buildNode(node.body[0], style, font) : null;
+      const isCharBox = onlyChild?.isCharBox ?? false;
+      // A braced one-character base (`{V}^{2}`) is still a character box.
+      // Preserve its italic correction through this list wrapper so Rule 18
+      // places scripts exactly as it does for the unbraced `V^2` form.
+      if (isCharBox && onlyChild) {
+        box.italic =
+          onlyChild.box.type === "glyph"
+            ? onlyChild.box.italic
+            : onlyChild.box.type === "list"
+              ? onlyChild.box.italic
+              : undefined;
+      }
       return { box, klass: "mord", isCharBox };
     }
     case "supsub":
@@ -1113,6 +1124,14 @@ function buildSupSub(
       : base.type === "list"
         ? (base.italic ?? 0)
         : 0;
+  // A character box's metric width excludes its italic correction, including
+  // when braces wrap it in a list. Operator wrappers already carry the
+  // correction in their width. Scripts flow after the corrected advance; a
+  // subscript then backs up by the correction.
+  const scriptX = base.width + (isCharBox ? italic : 0);
+  // Italic correction ends exactly at the glyph's overhang. Give superscripts
+  // on slanted letters a little visual air instead of letting their ink touch.
+  const supX = scriptX + (isCharBox && italic > 0 ? scriptspace : 0);
   const xHeight = sig(style, "xHeight");
 
   const children: Placed[] = [{ box: base, dx: 0, dy: 0 }];
@@ -1132,15 +1151,17 @@ function buildSupSub(
         subShift -= psi;
       }
     }
-    children.push({ box: supm, dx: base.width, dy: -supShift, role: "sup" });
+    children.push({ box: supm, dx: supX, dy: -supShift, role: "sup" });
     children.push({
       box: subm,
-      dx: base.width - italic,
+      dx: scriptX - italic,
       dy: subShift,
       role: "sub",
     });
     width =
-      base.width + Math.max(supm.width, subm.width - italic) + scriptspace;
+      scriptX +
+      Math.max(supm.width + (supX - scriptX), subm.width - italic) +
+      scriptspace;
   } else if (subm) {
     // Rule 18b
     subShift = Math.max(
@@ -1150,16 +1171,16 @@ function buildSupSub(
     );
     children.push({
       box: subm,
-      dx: base.width - italic,
+      dx: scriptX - italic,
       dy: subShift,
       role: "sub",
     });
-    width = base.width + (subm.width - italic) + scriptspace;
+    width = scriptX + (subm.width - italic) + scriptspace;
   } else if (supm) {
     // Rule 18c, d
     supShift = Math.max(supShift, minSupShift, supm.depth + 0.25 * xHeight);
-    children.push({ box: supm, dx: base.width, dy: -supShift, role: "sup" });
-    width = base.width + supm.width + scriptspace;
+    children.push({ box: supm, dx: supX, dy: -supShift, role: "sup" });
+    width = supX + supm.width + scriptspace;
   }
 
   const box = listBox(children, {

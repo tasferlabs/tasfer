@@ -82,3 +82,41 @@ describe("integral scripts stagger past the operator italic", () => {
     expect(g(intab, "a").y).toBeCloseTo(0.911, 2);
   });
 });
+
+describe("letter scripts clear italic overhangs", () => {
+  it("a superscript on a braced capital V clears its italic correction", () => {
+    // Structured math prints script bases as arguments: `{V}^{2}` rather than
+    // the visually equivalent `V^2`. The group wrapper must retain V's slant.
+    const nodes = [...walk(layout("{V}^{2}", false))];
+    const base = nodes.find(
+      (n) => n.box.type === "glyph" && n.box.char === "V",
+    )!;
+    const sup = nodes.find(
+      (n) => n.box.type === "glyph" && n.box.char === "2",
+    )!;
+    expect(base.box.type).toBe("glyph");
+    if (base.box.type !== "glyph") return;
+    expect(base.box.italic).toBeGreaterThan(0.2);
+    expect(sup.x).toBeCloseTo(
+      base.x + base.box.width + base.box.italic + 0.05,
+      3,
+    );
+  });
+
+  it("a subscript stays at the advance while the superscript clears the lean", () => {
+    const nodes = [...walk(layout("{V}_{a}^{b}", false))];
+    const base = nodes.find(
+      (n) => n.box.type === "glyph" && n.box.char === "V",
+    )!;
+    const sup = nodes.find(
+      (n) => n.box.type === "glyph" && n.box.char === "b",
+    )!;
+    const sub = nodes.find(
+      (n) => n.box.type === "glyph" && n.box.char === "a",
+    )!;
+    expect(base.box.type).toBe("glyph");
+    if (base.box.type !== "glyph") return;
+    expect(sub.x).toBeCloseTo(base.x + base.box.width, 3);
+    expect(sup.x - sub.x).toBeCloseTo(base.box.italic + 0.05, 3);
+  });
+});
