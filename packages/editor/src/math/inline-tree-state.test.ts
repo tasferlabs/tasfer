@@ -1161,6 +1161,22 @@ describe("interactive structured MathMark", () => {
     ).toBe("$$");
   });
 
+  it("keeps the nested caret in place after backspacing the final character", () => {
+    const before = enter(chipState("inline-delete-final", "$f$"));
+    const deleted = before.actionBus.dispatchState(DELETE_BACKWARD, before);
+
+    expect(deleted.claimed).toBe(true);
+    expect(canonicalSource(deleted.state)).toBe("");
+    expect(deleted.state.document.cursor).toBeNull();
+    expect(deleted.state.document.contentSelection).not.toBeNull();
+    expect(
+      mathSourceOffsetFromContentPoint(
+        inlineMathDocument(deleted.state)!,
+        deleted.state.document.contentSelection!.focus,
+      ),
+    ).toBe(0);
+  });
+
   it("maps an attached replacement point and caret to stable ContentSelection", () => {
     const state = insertText(enter(chipState()), "2").state;
     const block = state.document.page.blocks[0];

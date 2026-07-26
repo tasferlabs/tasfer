@@ -130,8 +130,8 @@ export function createMathDocumentLayout(
   const mappedStops = sourceCaretStops(layout).map((stop) =>
     mapCaretStop(stop, anchorsByOffset, projection),
   );
-  attachUnrepresentedAnchors(mappedStops, projection);
   addMissingEmptyRowStops(mappedStops, projection, layout.fontSize);
+  attachUnrepresentedAnchors(mappedStops, projection);
   mappedStops.sort(
     (left, right) => left.sourceOffset - right.sourceOffset || left.x - right.x,
   );
