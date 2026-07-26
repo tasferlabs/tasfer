@@ -1,4 +1,4 @@
-import { insertText } from "../actions/actions";
+import { getSelectionRange, insertText } from "../actions/actions";
 import {
   buildClipboardPayload,
   pasteFromClipboardEvent,
@@ -17,6 +17,8 @@ import {
   EXTEND_SELECTION_DOWN,
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
+  EXTEND_SELECTION_WORD_LEFT,
+  EXTEND_SELECTION_WORD_RIGHT,
   MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
@@ -60,6 +62,7 @@ import { structuredToMathDocument } from "./structured";
 import {
   mathContentSelectionFromSourceOffset,
   mathSourceOffsetFromContentPoint,
+  mathSourceRangeFromContentSelection,
 } from "./tree-selection";
 import { describe, expect, it } from "vitest";
 
@@ -249,6 +252,31 @@ describe("interactive structured MathMark", () => {
     },
   );
 
+  it.each([
+    ["left", EXTEND_SELECTION_WORD_LEFT, 12],
+    ["right", EXTEND_SELECTION_WORD_RIGHT, 1],
+  ] as const)(
+    "Shift+modifier+Arrow%s selects one adjacent attached construct",
+    (_name, action, sourceOffset) => {
+      const source = String.raw`a\frac{b}{c}+d`;
+      const before = enterMathOffset(
+        chipState(`inline-word-select-${_name}`, `$${source}$`),
+        sourceOffset,
+      );
+
+      const selected = before.actionBus.dispatchState(action, before);
+      const selection = selected.state.document.contentSelection;
+      const document = inlineMathDocument(selected.state);
+
+      expect(selected.claimed).toBe(true);
+      expect(
+        selection && document
+          ? mathSourceRangeFromContentSelection(document, selection)
+          : null,
+      ).toEqual({ from: 1, to: 12 });
+    },
+  );
+
   it("enters an inline formula from trailing prose and walks its units backward", () => {
     const source = String.raw`{P}*{1}\\pi{r}^{2}-{P}*{2}\pi{r}^{2}-\tau(2\pi rL)=0`;
     let state = chipState("inline-word-from-prose", `$${source}$ hello`);
@@ -277,6 +305,31 @@ describe("interactive structured MathMark", () => {
     ]);
     expect(state.document.contentSelection).toBeNull();
     expect(state.document.cursor?.position.textIndex).toBe(0);
+  });
+
+  it("extends a modifier selection from trailing prose across the formula", () => {
+    const source = String.raw`{P}*{1}\\pi{r}^{2}-{P}*{2}\pi{r}^{2}-\tau(2\pi rL)=0`;
+    let state = chipState("inline-word-select-from-prose", `$${source}$ hello`);
+    state = moveCursorToPosition(state, 0, flatText(state).length);
+
+    state = state.actionBus.dispatchState(
+      EXTEND_SELECTION_WORD_LEFT,
+      state,
+    ).state;
+    expect(getSelectionRange(state)).toEqual({
+      start: { blockIndex: 0, textIndex: 2 },
+      end: { blockIndex: 0, textIndex: 7 },
+    });
+
+    state = state.actionBus.dispatchState(
+      EXTEND_SELECTION_WORD_LEFT,
+      state,
+    ).state;
+    expect(state.document.contentSelection).toBeNull();
+    expect(getSelectionRange(state)).toEqual({
+      start: { blockIndex: 0, textIndex: 0 },
+      end: { blockIndex: 0, textIndex: 7 },
+    });
   });
 
   it("splits after the whole attached mark on Enter", () => {

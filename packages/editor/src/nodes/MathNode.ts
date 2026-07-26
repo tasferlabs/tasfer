@@ -40,6 +40,8 @@ import {
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
   EXTEND_SELECTION_UP,
+  EXTEND_SELECTION_WORD_LEFT,
+  EXTEND_SELECTION_WORD_RIGHT,
   MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
@@ -84,6 +86,7 @@ import {
   enterAdjacentMathTreeHorizontally,
   exitActiveMathTreeHorizontally,
   exitActiveMathTreeVertically,
+  extendActiveMathTreeSelectionByUnit,
   extendActiveMathTreeSelectionHorizontally,
   extendActiveMathTreeSelectionVertically,
   hasActiveMathTreeCaret,
@@ -1953,6 +1956,13 @@ export class MathNode extends TextNode<MathBlock> {
     };
     bus.registerState(MOVE_TO_PREVIOUS_WORD, moveWord("left"), 100);
     bus.registerState(MOVE_TO_NEXT_WORD, moveWord("right"), 100);
+    const extendWord = (direction: "left" | "right") => (state: EditorState) =>
+      extendActiveMathTreeSelectionByUnit(state, direction) ??
+      (hasActiveMathTreeCaret(state)
+        ? { state, ops: [], handled: true as const }
+        : undefined);
+    bus.registerState(EXTEND_SELECTION_WORD_LEFT, extendWord("left"), 100);
+    bus.registerState(EXTEND_SELECTION_WORD_RIGHT, extendWord("right"), 100);
     bus.registerState(
       MOVE_CONTENT_TAB,
       (state, { backward }) =>

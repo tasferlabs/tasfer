@@ -23,6 +23,8 @@ import {
   EXTEND_SELECTION_DOWN,
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
+  EXTEND_SELECTION_WORD_LEFT,
+  EXTEND_SELECTION_WORD_RIGHT,
   MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
@@ -355,6 +357,32 @@ describe("tree-backed display math state integration", () => {
           ? mathSourceOffsetFromContentPoint(document, point)
           : null,
       ).toBe(expectedOffset);
+    },
+  );
+
+  it.each([
+    ["left", EXTEND_SELECTION_WORD_LEFT, 12],
+    ["right", EXTEND_SELECTION_WORD_RIGHT, 1],
+  ] as const)(
+    "Shift+modifier+Arrow%s selects one adjacent structured construct",
+    (_name, action, sourceOffset) => {
+      const source = String.raw`a\frac{b}{c}+d`;
+      const before = placeTreeCaret(
+        treeState(`$$\n${source}\n$$`),
+        sourceOffset,
+      );
+
+      const selected = before.actionBus.dispatchState(action, before);
+      const selection = selected.state.document.contentSelection;
+      const document = getMathStructuredDocument(block(selected.state));
+
+      expect(selected.claimed).toBe(true);
+      expect(selection && document).toBeTruthy();
+      expect(
+        selection && document
+          ? mathSourceRangeFromContentSelection(document, selection)
+          : null,
+      ).toEqual({ from: 1, to: 12 });
     },
   );
 

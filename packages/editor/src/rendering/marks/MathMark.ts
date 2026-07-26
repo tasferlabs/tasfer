@@ -22,6 +22,8 @@ import {
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
   EXTEND_SELECTION_UP,
+  EXTEND_SELECTION_WORD_LEFT,
+  EXTEND_SELECTION_WORD_RIGHT,
   MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
@@ -49,6 +51,7 @@ import {
   exitActiveInlineMathTreeHorizontally,
   exitActiveInlineMathTreeSelectionHorizontally,
   exitActiveInlineMathTreeVertically,
+  extendActiveInlineMathTreeSelectionByUnit,
   extendActiveInlineMathTreeSelectionHorizontally,
   extendActiveInlineMathTreeSelectionVertically,
   hasActiveInlineMathTreeCaret,
@@ -491,6 +494,24 @@ export class MathMark extends Mark {
     };
     bus.registerState(MOVE_TO_PREVIOUS_WORD, moveWord("left"), 110);
     bus.registerState(MOVE_TO_NEXT_WORD, moveWord("right"), 110);
+    const extendWord =
+      (direction: "left" | "right") => (state: EditorState) => {
+        const moved = extendActiveInlineMathTreeSelectionByUnit(
+          state,
+          direction,
+        );
+        if (moved) return moved;
+        const exited = exitActiveInlineMathTreeSelectionHorizontally(
+          state,
+          direction,
+        );
+        if (exited) return exited;
+        return hasActiveInlineMathTreeCaret(state)
+          ? { state, ops: [], handled: true as const }
+          : undefined;
+      };
+    bus.registerState(EXTEND_SELECTION_WORD_LEFT, extendWord("left"), 110);
+    bus.registerState(EXTEND_SELECTION_WORD_RIGHT, extendWord("right"), 110);
     bus.registerState(
       MOVE_CONTENT_TAB,
       (state, { backward }) => {

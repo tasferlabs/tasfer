@@ -133,6 +133,48 @@ export function moveActiveMathTreeCaretByUnit(
 ): MathTreeStateEditResult | undefined {
   const context = activeMathTreeContext(state);
   if (!context) return undefined;
+  const caret = mathTreeUnitTarget(state, context, direction);
+  return caret
+    ? commitMathTreeResult(state, context, {
+        handled: true,
+        edits: [],
+        caret,
+      })
+    : undefined;
+}
+
+/** Extend a structured display-math selection by one adjacent math unit. */
+export function extendActiveMathTreeSelectionByUnit(
+  state: EditorState,
+  direction: "left" | "right",
+): MathTreeStateEditResult | undefined {
+  const context = activeMathTreeContext(state);
+  const current = state.document.contentSelection;
+  if (!context || !current) return undefined;
+  const caret = mathTreeUnitTarget(state, context, direction);
+  if (!caret) return undefined;
+  const selection = extendMathTreeContentSelection(
+    context.block.id,
+    context.contentId,
+    context.document,
+    current.anchor,
+    caret,
+    direction === "right" ? "end" : "start",
+  );
+  return selection
+    ? {
+        state: updateContentSelection(state, selection),
+        ops: [],
+        handled: true,
+      }
+    : undefined;
+}
+
+function mathTreeUnitTarget(
+  state: EditorState,
+  context: MathTreeContext,
+  direction: "left" | "right",
+): MathTreeCaret | undefined {
   const math = structuredToMathDocument(context.document);
   if (!math) return undefined;
   const source = getStructuredMathSource(context.block) ?? "";
@@ -171,15 +213,9 @@ export function moveActiveMathTreeCaretByUnit(
       context.caret,
       direction === "left" ? "arrow-left" : "arrow-right",
     );
-    return structural.handled
-      ? commitMathTreeResult(state, context, structural)
-      : undefined;
+    return structural.handled ? structural.caret : undefined;
   }
-  return commitMathTreeResult(state, context, {
-    handled: true,
-    edits: [],
-    caret,
-  });
+  return caret;
 }
 
 /**

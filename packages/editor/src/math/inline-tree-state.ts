@@ -808,6 +808,50 @@ export function moveActiveInlineMathTreeCaretByUnit(
 ): InlineMathTreeStateResult | undefined {
   const context = activeInlineMathContext(state);
   if (!context) return undefined;
+  const caret = inlineMathTreeUnitTarget(state, context, direction);
+  return caret
+    ? commitInlineMathResult(state, context, {
+        handled: true,
+        edits: [],
+        caret,
+      })
+    : undefined;
+}
+
+/** Extend an attached inline-math selection by one adjacent math unit. */
+export function extendActiveInlineMathTreeSelectionByUnit(
+  state: EditorState,
+  direction: "left" | "right",
+): InlineMathTreeStateResult | undefined {
+  const context = activeInlineMathContext(state);
+  const current = state.document.contentSelection;
+  if (!context || !current) return undefined;
+  const caret = inlineMathTreeUnitTarget(state, context, direction);
+  if (!caret) return undefined;
+  const target = mathTreeCaretToContentSelection(
+    context.block.id,
+    context.contentId,
+    context.document,
+    caret,
+  );
+  return target
+    ? {
+        state: updateContentSelection(state, {
+          anchor: current.anchor,
+          focus: target.focus,
+          lastUpdate: target.lastUpdate,
+        }),
+        ops: [],
+        handled: true,
+      }
+    : undefined;
+}
+
+function inlineMathTreeUnitTarget(
+  state: EditorState,
+  context: InlineMathTreeContext,
+  direction: "left" | "right",
+): MathTreeCaret | undefined {
   const math = structuredToMathDocument(context.document);
   const source = context.run.latex;
   const current = state.document.contentSelection;
@@ -847,15 +891,9 @@ export function moveActiveInlineMathTreeCaretByUnit(
       context.caret,
       direction === "left" ? "arrow-left" : "arrow-right",
     );
-    return structural.handled
-      ? commitInlineMathResult(state, context, structural)
-      : undefined;
+    return structural.handled ? structural.caret : undefined;
   }
-  return commitInlineMathResult(state, context, {
-    handled: true,
-    edits: [],
-    caret,
-  });
+  return caret;
 }
 
 /**
