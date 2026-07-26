@@ -24,7 +24,11 @@ import {
   replaceMathTreeRangeWithSemanticLatex,
 } from "./tree-edit";
 import { isValidLatex } from "@tasfer/tex";
-import { parseMathDocument, printMathDocument } from "@tasfer/tex/data";
+import {
+  mathDocumentsSemanticallyEqual,
+  parseMathDocument,
+  printMathDocument,
+} from "@tasfer/tex/data";
 
 /** Insert/replace input without exposing syntax-bearing punctuation as text. */
 export function applyMathTreeInputToDocument(
@@ -371,11 +375,23 @@ function committedSemanticInput(input: string): {
     const hasSemanticNode = parsed.root.body.children.some(
       (node) => node.type !== "raw-text",
     );
+    // Fidelity is semantic, not textual. The tree stores canonical LaTeX
+    // (`x^2` → `{x}^{2}`, collapsed spaces), so demanding `printed === input`
+    // would freeze nearly every pasted equation into one atomic blob — no
+    // caret inside it, nothing selectable, nothing editable. Freeze only when
+    // the canonical form does NOT re-parse to the same formula: the projection
+    // then failed to capture the source and the exact bytes are all we have.
+    // Constructs the parser doesn't know already survive as exact `raw-latex`
+    // leaves, so unsupported subtrees stay lossless without freezing the whole.
     const printed = printMathDocument(parsed);
+    const faithful = mathDocumentsSemanticallyEqual(
+      parsed,
+      parseMathDocument(printed),
+    );
     return {
       latex: input,
       caret: "end",
-      ...(!isValidLatex(input) || !hasSemanticNode || printed !== input
+      ...(!isValidLatex(input) || !hasSemanticNode || !faithful
         ? { forceAtomic: true }
         : {}),
     };

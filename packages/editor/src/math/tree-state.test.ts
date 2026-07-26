@@ -281,6 +281,39 @@ describe("tree-backed display math state integration", () => {
     },
   );
 
+  it.each(["left", "right", "up", "down"] as const)(
+    "does not fall through to document start from an unresolved nested caret on Arrow%s",
+    (_name) => {
+      const active = placeTreeCaret(treeState("$$\nxy\n$$\n\nafter"), 1);
+      const selection = active.document.contentSelection;
+      if (!selection || selection.focus.kind !== "text") {
+        throw new Error("expected a nested text caret");
+      }
+      const unresolved = {
+        ...selection,
+        anchor: { ...selection.focus, afterCharId: "missing-char" },
+        focus: { ...selection.focus, afterCharId: "missing-char" },
+      } as typeof selection;
+      const before = {
+        ...active,
+        document: {
+          ...active.document,
+          cursor: null,
+          contentSelection: unresolved,
+        },
+      };
+
+      const moved = handleKeyDown(
+        before,
+        viewport,
+        keydown(`Arrow${_name[0].toUpperCase()}${_name.slice(1)}`),
+      );
+
+      expect(moved.state.document.cursor).toBeNull();
+      expect(moved.state.document.contentSelection).toEqual(unresolved);
+    },
+  );
+
   it("scopes the first Select All to the tree and the second to the document", () => {
     const before = typeText(treeState("$$\n\n$$\n\nafter"), "ab").state;
     const first = before.actionBus.dispatchState(SELECT_ALL, before);
@@ -731,6 +764,31 @@ describe("tree-backed display math state integration", () => {
         getMathStructuredDocument(block(pasted!.state))?.nodes ?? {},
       ).some((node) => node.type === "radical" && !node.deleted),
     ).toBe(true);
+  });
+
+  // Real-world LaTeX rarely matches the canonical printing (implicit script
+  // braces, spaces). Judging fidelity by the source bytes froze every such
+  // paste into one atomic `raw-latex` leaf — an equation with no caret inside
+  // it, nothing selectable, nothing editable.
+  it("semanticizes pasted LaTeX that canonicalizes differently", () => {
+    const pasted = pasteFromClipboardEvent(
+      placeFlatCaretAtBlockEdge(treeState("$$\n\n$$")),
+      {} as ClipboardEvent,
+      {
+        html: "",
+        text: String.raw`P_1\pi r^2 - P_2 \pi r^2 - \tau(2\pi r L) = 0`,
+        imageFile: null,
+      },
+    );
+    expect(pasted).not.toBeNull();
+    expect(treeSource(pasted!.state)).toBe(
+      String.raw`{P}_{1}\pi{r}^{2}-{P}_{2}\pi{r}^{2}-\tau(2\pi rL)=0`,
+    );
+    const nodes = Object.values(
+      getMathStructuredDocument(block(pasted!.state))?.nodes ?? {},
+    ).filter((node) => !node.deleted);
+    expect(nodes.some((node) => node.type === "scripts")).toBe(true);
+    expect(nodes.some((node) => node.type === "raw-latex")).toBe(false);
   });
 
   it("keeps non-BMP committed text intact", () => {
