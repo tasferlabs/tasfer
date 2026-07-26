@@ -95,6 +95,9 @@ export function adjacentMathTreeConstructRange(
     gap = rowCaret(resolved.row.id, resolved.node.id);
   }
   if (!gap) return null;
+  if (direction === "backward") {
+    gap = outwardGapFromScriptBaseStart(math, gap);
+  }
 
   const at = resolveCaret(math, gap);
   if (!at || at.kind !== "row") return null;
@@ -2030,7 +2033,13 @@ function backspaceAtRowGap(
 
   const children = getStructuredChildren(document, resolved.row.id, "children");
   const previous = children[resolved.position - 1];
-  if (!previous) return failure(originalCaret, "no-navigation-target");
+  if (!previous) {
+    const outward = outwardGapFromScriptBaseStart(document, gap);
+    return outward.rowId !== gap.rowId ||
+      outward.afterNodeId !== gap.afterNodeId
+      ? backspaceAtRowGap(document, outward, originalCaret)
+      : failure(originalCaret, "no-navigation-target");
+  }
 
   if (isCharacterEditableLeaf(previous)) {
     const characters = visibleCharacters(previous);
@@ -2683,6 +2692,33 @@ function caretBeforeNode(
   return row && !row.deleted && row.type === "row"
     ? rowCaret(row.id, previousSiblingId(document, row.id, node.id))
     : undefined;
+}
+
+/**
+ * A scripts node's base is painted inline with its outer row. Its leading gap
+ * is therefore the same visual boundary as the gap before the whole scripts
+ * construct, not a dead nested-row boundary.
+ */
+function outwardGapFromScriptBaseStart(
+  document: StructuredDocument,
+  gap: MathRowCaret,
+): MathRowCaret {
+  let current = gap;
+  const visited = new Set<string>();
+  while (!current.afterNodeId && !visited.has(current.rowId)) {
+    visited.add(current.rowId);
+    const row = document.nodes[current.rowId];
+    const scriptsId =
+      row?.type === "row" && row.placement.slot === "base"
+        ? row.placement.parentId
+        : null;
+    const scripts = scriptsId ? document.nodes[scriptsId] : undefined;
+    if (!scripts || scripts.deleted || scripts.type !== "scripts") break;
+    const before = caretBeforeNode(document, scripts);
+    if (!before || before.kind !== "row") break;
+    current = before;
+  }
+  return current;
 }
 
 function fractionSlotCaret(

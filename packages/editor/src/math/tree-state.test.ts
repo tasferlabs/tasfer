@@ -1231,6 +1231,20 @@ describe("tree-backed display math state integration", () => {
     }
   });
 
+  it("backspaces the preceding symbol from the start of a scripted base", () => {
+    const source = String.raw`H=f\frac{l}{\oslash}\frac{\rho{V}^{2}}{2g}`;
+    const caretOffset = source.indexOf("{V}") + 1;
+    const before = placeTreeCaret(treeState(`$$\n${source}\n$$`), caretOffset);
+
+    const result = before.actionBus.dispatchState(DELETE_BACKWARD, before);
+
+    expect(result.claimed).toBe(true);
+    expect(operationKinds(result.ops)).toEqual(["content:node_delete"]);
+    expect(treeSource(result.state)).toBe(
+      String.raw`H=f\frac{l}{\oslash}\frac{{V}^{2}}{2g}`,
+    );
+  });
+
   it.each([
     ["Backspace", DELETE_BACKWARD, 11],
     ["Delete", DELETE_FORWARD, 0],
