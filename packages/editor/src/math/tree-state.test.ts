@@ -68,7 +68,9 @@ import {
 import {
   contentPointToMathTreeCaret,
   mathContentSelectionFromSourceOffset,
+  mathSourceOffsetFromContentPoint,
   mathSourceRangeFromContentSelection,
+  mathUnitBoundaryOffset,
 } from "./tree-selection";
 import { deleteActiveMathTreeSelection } from "./tree-state";
 import {
@@ -100,6 +102,16 @@ function keydown(key: string, isTrusted = false): Event {
     isTrusted,
     preventDefault() {},
     stopPropagation() {},
+  } as unknown as Event;
+}
+
+function modifiedKeydown(
+  key: "ArrowLeft" | "ArrowRight",
+  modifier: "ctrlKey" | "metaKey",
+): Event {
+  return {
+    ...(keydown(key) as unknown as Record<string, unknown>),
+    [modifier]: true,
   } as unknown as Event;
 }
 
@@ -313,6 +325,55 @@ describe("tree-backed display math state integration", () => {
       expect(moved.state.document.contentSelection).toEqual(unresolved);
     },
   );
+
+  it.each([
+    ["Ctrl", "ArrowLeft", "ctrlKey", 12, 1],
+    ["Ctrl", "ArrowRight", "ctrlKey", 1, 12],
+    ["Meta", "ArrowLeft", "metaKey", 12, 1],
+    ["Meta", "ArrowRight", "metaKey", 1, 12],
+  ] as const)(
+    "%s+%s jumps over the adjacent structured construct",
+    (_label, key, modifier, sourceOffset, expectedOffset) => {
+      const source = String.raw`a\frac{b}{c}+d`;
+      let before = placeTreeCaret(
+        treeState(`$$\n${source}\n$$\n\nafter`),
+        sourceOffset,
+      );
+      before = { ...before, view: { ...before.view, isFocused: true } };
+
+      const moved = handleKeyDown(
+        before,
+        viewport,
+        modifiedKeydown(key, modifier),
+      );
+
+      expect(moved.state.document.cursor).toBeNull();
+      const point = moved.state.document.contentSelection?.focus;
+      const document = getMathStructuredDocument(block(moved.state));
+      expect(
+        point && document
+          ? mathSourceOffsetFromContentPoint(document, point)
+          : null,
+      ).toBe(expectedOffset);
+    },
+  );
+
+  it("walks every visible unit across control-word separators", () => {
+    const source = String.raw`{P}*{1}\\pi{r}^{2}-{P}*{2}\pi{r}^{2}-\tau(2\pi rL)=0`;
+    const stops: number[] = [];
+    let offset = 0;
+    for (;;) {
+      const next = mathUnitBoundaryOffset(source, offset, "right");
+      if (next === null) break;
+      stops.push(next);
+      offset = next;
+    }
+
+    expect(stops).toEqual([
+      3, 4, 7, 8, 11, 18, 19, 22, 23, 26, 29, 36, 37, 41, 42, 43, 46, 48, 49,
+      50, 51, 52,
+    ]);
+  });
 
   it("scopes the first Select All to the tree and the second to the document", () => {
     const before = typeText(treeState("$$\n\n$$\n\nafter"), "ab").state;

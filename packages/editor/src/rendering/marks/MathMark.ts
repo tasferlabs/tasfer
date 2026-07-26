@@ -27,6 +27,8 @@ import {
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  MOVE_TO_NEXT_WORD,
+  MOVE_TO_PREVIOUS_WORD,
   type ViewportPayload,
 } from "../../actions/keyboard-actions";
 import { TEXT_CLICK } from "../../actions/pointer-actions";
@@ -41,6 +43,7 @@ import {
 } from "../../math/data";
 import {
   deleteActiveInlineMathTree,
+  enterAdjacentInlineMathTreeByUnit,
   enterAdjacentInlineMathTreeHorizontally,
   enterInlineMathTreeAtPosition,
   exitActiveInlineMathTreeHorizontally,
@@ -51,6 +54,7 @@ import {
   hasActiveInlineMathTreeCaret,
   insertActiveInlineMathTreeCommand,
   moveActiveInlineMathTreeCaret,
+  moveActiveInlineMathTreeCaretByUnit,
   moveActiveInlineMathTreeCaretVertically,
   ownsInlineMathTreeDelete,
   prepareInlineMathTreeForBlockSplit,
@@ -465,11 +469,28 @@ export class MathMark extends Mark {
         const moved = moveActiveInlineMathTreeCaret(state, motion);
         if (moved) return moved;
         return hasActiveInlineMathTreeCaret(state)
-          ? exitActiveInlineMathTreeHorizontally(state, direction)
+          ? (exitActiveInlineMathTreeHorizontally(state, direction) ?? {
+              state,
+              ops: [],
+              handled: true as const,
+            })
           : enterAdjacentInlineMathTreeHorizontally(state, direction);
       };
     bus.registerState(MOVE_CURSOR_LEFT, move("arrow-left"), 110);
     bus.registerState(MOVE_CURSOR_RIGHT, move("arrow-right"), 110);
+    const moveWord = (direction: "left" | "right") => (state: EditorState) => {
+      const moved = moveActiveInlineMathTreeCaretByUnit(state, direction);
+      if (moved) return moved;
+      return hasActiveInlineMathTreeCaret(state)
+        ? (exitActiveInlineMathTreeHorizontally(state, direction) ?? {
+            state,
+            ops: [],
+            handled: true as const,
+          })
+        : enterAdjacentInlineMathTreeByUnit(state, direction);
+    };
+    bus.registerState(MOVE_TO_PREVIOUS_WORD, moveWord("left"), 110);
+    bus.registerState(MOVE_TO_NEXT_WORD, moveWord("right"), 110);
     bus.registerState(
       MOVE_CONTENT_TAB,
       (state, { backward }) => {
@@ -489,9 +510,17 @@ export class MathMark extends Mark {
     // never to the chip (see `exitActiveInlineMathTreeVertically`).
     const moveVertical =
       (direction: "up" | "down") =>
-      (state: EditorState, { viewport }: ViewportPayload) =>
-        moveActiveInlineMathTreeCaretVertically(state, direction) ??
-        exitActiveInlineMathTreeVertically(state, direction, viewport);
+      (state: EditorState, { viewport }: ViewportPayload) => {
+        const moved = moveActiveInlineMathTreeCaretVertically(state, direction);
+        if (moved) return moved;
+        return hasActiveInlineMathTreeCaret(state)
+          ? (exitActiveInlineMathTreeVertically(state, direction, viewport) ?? {
+              state,
+              ops: [],
+              handled: true as const,
+            })
+          : undefined;
+      };
     bus.registerState(MOVE_CURSOR_UP, moveVertical("up"), 110);
     bus.registerState(MOVE_CURSOR_DOWN, moveVertical("down"), 110);
     const extendVertical =

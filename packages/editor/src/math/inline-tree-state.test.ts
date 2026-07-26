@@ -22,6 +22,8 @@ import {
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  MOVE_TO_NEXT_WORD,
+  MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
 import { TEXT_CLICK } from "../actions/pointer-actions";
 import { createFeatureMarkInRange } from "../actions/structured-marks";
@@ -55,7 +57,10 @@ import {
   enterInlineMathTreeAtPosition,
 } from "./inline-tree-state";
 import { structuredToMathDocument } from "./structured";
-import { mathContentSelectionFromSourceOffset } from "./tree-selection";
+import {
+  mathContentSelectionFromSourceOffset,
+  mathSourceOffsetFromContentPoint,
+} from "./tree-selection";
 import { describe, expect, it } from "vitest";
 
 const inlineTreeSchema = baseSchema.use(mathExtension());
@@ -222,6 +227,57 @@ describe("interactive structured MathMark", () => {
       );
     },
   );
+
+  it.each([
+    ["left", MOVE_TO_PREVIOUS_WORD, 12, 1],
+    ["right", MOVE_TO_NEXT_WORD, 1, 12],
+  ] as const)(
+    "modifier+Arrow%s jumps over the adjacent attached construct",
+    (_name, action, sourceOffset, expectedOffset) => {
+      const source = String.raw`a\frac{b}{c}+d`;
+      const before = enterMathOffset(
+        chipState(`inline-word-${_name}`, `$${source}$`),
+        sourceOffset,
+      );
+
+      const moved = before.actionBus.dispatchState(action, before);
+
+      expect(moved.claimed).toBe(true);
+      expect(moved.state.document.contentSelection?.focus).toEqual(
+        nestedPointAtSourceOffset(moved.state, expectedOffset),
+      );
+    },
+  );
+
+  it("enters an inline formula from trailing prose and walks its units backward", () => {
+    const source = String.raw`{P}*{1}\\pi{r}^{2}-{P}*{2}\pi{r}^{2}-\tau(2\pi rL)=0`;
+    let state = chipState("inline-word-from-prose", `$${source}$ hello`);
+    state = moveCursorToPosition(state, 0, flatText(state).length);
+
+    state = state.actionBus.dispatchState(MOVE_TO_PREVIOUS_WORD, state).state;
+    expect(state.document.cursor?.position.textIndex).toBe(2);
+
+    const offsets: number[] = [];
+    for (let step = 0; step < 30; step++) {
+      state = state.actionBus.dispatchState(MOVE_TO_PREVIOUS_WORD, state).state;
+      const point = state.document.contentSelection?.focus;
+      if (!point) break;
+      const block = state.document.page.blocks[0];
+      if (!isTextualBlock(block)) throw new Error("expected a textual block");
+      const run = resolveStructuredInlineMathRuns(block)[0];
+      if (!run?.document) throw new Error("expected an attached formula");
+      const offset = mathSourceOffsetFromContentPoint(run.document, point);
+      if (offset === null) throw new Error("expected a source offset");
+      offsets.push(offset);
+    }
+
+    expect(offsets).toEqual([
+      60, 59, 58, 57, 56, 52, 51, 50, 46, 45, 38, 34, 32, 31, 28, 27, 20, 17, 6,
+      4, 3, 1,
+    ]);
+    expect(state.document.contentSelection).toBeNull();
+    expect(state.document.cursor?.position.textIndex).toBe(0);
+  });
 
   it("splits after the whole attached mark on Enter", () => {
     const before = enter(chipState("inline-enter", "$x$tail"));
@@ -631,10 +687,7 @@ describe("interactive structured MathMark", () => {
     const before = chipState("inline-approach", "a$xy$b");
 
     const fromLeft = moveCursorToPosition(before, 0, 0);
-    const right = fromLeft.actionBus.dispatchState(
-      MOVE_CURSOR_RIGHT,
-      fromLeft,
-    );
+    const right = fromLeft.actionBus.dispatchState(MOVE_CURSOR_RIGHT, fromLeft);
     expect(right.claimed).toBe(true);
     expect(right.state.document.cursor).toBeNull();
     expect(right.state.document.contentSelection?.focus).toEqual(
@@ -642,10 +695,7 @@ describe("interactive structured MathMark", () => {
     );
 
     const fromRight = moveCursorToPosition(before, 0, 3);
-    const left = fromRight.actionBus.dispatchState(
-      MOVE_CURSOR_LEFT,
-      fromRight,
-    );
+    const left = fromRight.actionBus.dispatchState(MOVE_CURSOR_LEFT, fromRight);
     expect(left.claimed).toBe(true);
     expect(left.state.document.cursor).toBeNull();
     expect(left.state.document.contentSelection?.focus).toEqual(

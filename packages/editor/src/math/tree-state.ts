@@ -58,9 +58,11 @@ import {
   contentPointToMathTreeCaret,
   extendMathTreeContentSelection,
   mathContentSelectionFromSourceOffset,
+  mathSourceOffsetFromContentPoint,
   mathSourceRangeFromContentSelection,
   mathTreeCaretFromSourceOffset,
   mathTreeCaretToContentSelection,
+  mathUnitBoundaryOffset,
   moveMathTreeCaretVertically,
 } from "./tree-selection";
 
@@ -122,6 +124,62 @@ export function moveActiveMathTreeCaret(
         caret: context.caret,
       })
     : undefined;
+}
+
+/** Jump over the structural math unit adjacent to the active caret. */
+export function moveActiveMathTreeCaretByUnit(
+  state: EditorState,
+  direction: "left" | "right",
+): MathTreeStateEditResult | undefined {
+  const context = activeMathTreeContext(state);
+  if (!context) return undefined;
+  const math = structuredToMathDocument(context.document);
+  if (!math) return undefined;
+  const source = getStructuredMathSource(context.block) ?? "";
+  const current = state.document.contentSelection;
+  const sourceOffset = current
+    ? mathSourceOffsetFromContentPoint(context.document, current.focus)
+    : null;
+  if (sourceOffset === null) return undefined;
+  const targetOffset = mathUnitBoundaryOffset(source, sourceOffset, direction);
+  if (targetOffset === null) return undefined;
+  const caret = mathTreeCaretFromSourceOffset(
+    context.block.id,
+    context.contentId,
+    math,
+    context.document,
+    targetOffset,
+  );
+  if (!caret) return undefined;
+  const target = mathTreeCaretToContentSelection(
+    context.block.id,
+    context.contentId,
+    context.document,
+    caret,
+  );
+  const resolvedTargetOffset = target
+    ? mathSourceOffsetFromContentPoint(context.document, target.focus)
+    : null;
+  if (
+    resolvedTargetOffset === null ||
+    (direction === "left"
+      ? resolvedTargetOffset >= sourceOffset
+      : resolvedTargetOffset <= sourceOffset)
+  ) {
+    const structural = moveMathTreeCaret(
+      context.document,
+      context.caret,
+      direction === "left" ? "arrow-left" : "arrow-right",
+    );
+    return structural.handled
+      ? commitMathTreeResult(state, context, structural)
+      : undefined;
+  }
+  return commitMathTreeResult(state, context, {
+    handled: true,
+    edits: [],
+    caret,
+  });
 }
 
 /**

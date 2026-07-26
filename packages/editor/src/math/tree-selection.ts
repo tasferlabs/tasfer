@@ -24,7 +24,37 @@ import {
   type MathDocumentLayout,
   printMathDocument,
   resolveSelectionRange,
+  unitAfter,
+  unitBefore,
 } from "@tasfer/tex";
+
+/**
+ * Source boundary after jumping one adjacent visible math unit. Canonical
+ * LaTeX may contain an invisible whitespace separator after a control word
+ * (`\pi r`); skip only that whitespace instead of mistaking it for the edge of
+ * the formula.
+ */
+export function mathUnitBoundaryOffset(
+  source: string,
+  sourceOffset: number,
+  direction: "left" | "right",
+): number | null {
+  let cursor = Math.max(0, Math.min(sourceOffset, source.length));
+  for (;;) {
+    const unit =
+      direction === "left"
+        ? unitBefore(source, cursor)
+        : unitAfter(source, cursor);
+    if (unit) return direction === "left" ? unit.start : unit.end;
+    if (direction === "left") {
+      if (cursor === 0 || !/\s/u.test(source[cursor - 1])) return null;
+      cursor -= 1;
+    } else {
+      if (cursor === source.length || !/\s/u.test(source[cursor])) return null;
+      cursor += 1;
+    }
+  }
+}
 
 /** Convert a generic collapsed selection endpoint to the math editor currency. */
 export function contentPointToMathTreeCaret(

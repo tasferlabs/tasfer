@@ -45,6 +45,8 @@ import {
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  MOVE_TO_NEXT_WORD,
+  MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
 import {
   SELECT_LINE_AT_POINT,
@@ -87,6 +89,7 @@ import {
   hasActiveMathTreeCaret,
   insertActiveMathTreeCommand,
   moveActiveMathTreeCaret,
+  moveActiveMathTreeCaretByUnit,
   moveActiveMathTreeCaretVertically,
   ownsMathTreeMutation,
   resizeActiveMathTreeMatrix,
@@ -1903,22 +1906,53 @@ export class MathNode extends TextNode<MathBlock> {
     );
     bus.registerState(
       MOVE_CURSOR_LEFT,
-      (state) =>
-        moveActiveMathTreeCaret(state, "arrow-left") ??
-        (hasActiveMathTreeCaret(state)
-          ? exitActiveMathTreeHorizontally(state, "left")
-          : enterAdjacentMathTreeHorizontally(state, "left")),
+      (state) => {
+        const ownsCaret = hasActiveMathTreeCaret(state);
+        return (
+          moveActiveMathTreeCaret(state, "arrow-left") ??
+          (ownsCaret
+            ? (exitActiveMathTreeHorizontally(state, "left") ?? {
+                state,
+                ops: [],
+                handled: true as const,
+              })
+            : enterAdjacentMathTreeHorizontally(state, "left"))
+        );
+      },
       100,
     );
     bus.registerState(
       MOVE_CURSOR_RIGHT,
-      (state) =>
-        moveActiveMathTreeCaret(state, "arrow-right") ??
-        (hasActiveMathTreeCaret(state)
-          ? exitActiveMathTreeHorizontally(state, "right")
-          : enterAdjacentMathTreeHorizontally(state, "right")),
+      (state) => {
+        const ownsCaret = hasActiveMathTreeCaret(state);
+        return (
+          moveActiveMathTreeCaret(state, "arrow-right") ??
+          (ownsCaret
+            ? (exitActiveMathTreeHorizontally(state, "right") ?? {
+                state,
+                ops: [],
+                handled: true as const,
+              })
+            : enterAdjacentMathTreeHorizontally(state, "right"))
+        );
+      },
       100,
     );
+    const moveWord = (direction: "left" | "right") => (state: EditorState) => {
+      const ownsCaret = hasActiveMathTreeCaret(state);
+      return (
+        moveActiveMathTreeCaretByUnit(state, direction) ??
+        (ownsCaret
+          ? (exitActiveMathTreeHorizontally(state, direction) ?? {
+              state,
+              ops: [],
+              handled: true as const,
+            })
+          : undefined)
+      );
+    };
+    bus.registerState(MOVE_TO_PREVIOUS_WORD, moveWord("left"), 100);
+    bus.registerState(MOVE_TO_NEXT_WORD, moveWord("right"), 100);
     bus.registerState(
       MOVE_CONTENT_TAB,
       (state, { backward }) =>
@@ -1931,7 +1965,11 @@ export class MathNode extends TextNode<MathBlock> {
     const moveVertical = (direction: "up" | "down") => (state: EditorState) =>
       moveActiveMathTreeCaretVertically(state, direction) ??
       (hasActiveMathTreeCaret(state)
-        ? exitActiveMathTreeVertically(state, direction)
+        ? (exitActiveMathTreeVertically(state, direction) ?? {
+            state,
+            ops: [],
+            handled: true as const,
+          })
         : undefined);
     bus.registerState(MOVE_CURSOR_UP, moveVertical("up"), 100);
     bus.registerState(MOVE_CURSOR_DOWN, moveVertical("down"), 100);
