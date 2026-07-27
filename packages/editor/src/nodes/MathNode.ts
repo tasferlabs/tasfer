@@ -572,9 +572,9 @@ function demoteActiveStructuredMathBlock(
  * through {@link CONVERT_STRUCTURED_BLOCK} instead; this handler claims the
  * offer when the target is `math` and the block's visible content is exactly
  * one inline math chip plus insignificant whitespace (e.g. the separator space
- * a slash command left behind). Anything else — chips embedded in prose,
- * multiple chips, a non-math structured attachment — stays refused: prose has
- * no home inside a display equation.
+ * a slash command left behind). A chip embedded in prose is moved out instead
+ * (see {@link splitInlineMathChipToBlock}); anything else — multiple chips, a
+ * non-math structured attachment — stays refused.
  */
 function promoteInlineMathChipBlock(
   state: EditorState,
@@ -696,6 +696,124 @@ function promoteInlineMathChipBlock(
   next = caret
     ? updateContentSelection(next, caret)
     : moveCursorToPosition(next, blockIndex, 0);
+  return { state: next, ops, handled: true };
+}
+
+/**
+ * Move a chip that sits inside prose out into its own display equation.
+ *
+ * "Turn into math" on a block whose only content is one chip promotes it in
+ * place ({@link promoteInlineMathChipBlock}); with prose around the chip there
+ * is nothing to promote into — a display equation holds no prose — but a silent
+ * refusal reads as a broken command. So the prose keeps its block and the chip's
+ * tree becomes a NEW equation right after it: the same formula, nothing lost,
+ * and the caret continues inside it.
+ */
+function splitInlineMathChipToBlock(
+  state: EditorState,
+  blockIndex: number,
+  targetType: string,
+): { state: EditorState; ops: Operation[]; handled: true } | undefined {
+  if (targetType !== "math" || state.ui.composition) return undefined;
+  if (mathBlockAt(state, blockIndex)) return undefined;
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return undefined;
+  const runs = resolveStructuredInlineMathRuns(block);
+  if (runs.length !== 1) return undefined;
+  const run = runs[0];
+  if (!run.document || !run.contentId || run.latex === undefined) {
+    return undefined;
+  }
+  const visibleText = getVisibleTextFromRuns(block.charRuns);
+  const outsideChip =
+    visibleText.slice(0, run.startIndex) + visibleText.slice(run.endIndex);
+  // Whitespace-only surroundings are the in-place promote's case, not this one.
+  if (outsideChip.trim().length === 0) return undefined;
+
+  const source = run.latex;
+  const equationId = state.CRDTbinding.nextId();
+  // Re-address the chip's tree onto the new block before emitting anything, so
+  // a tree that cannot be cloned refuses cleanly.
+  const display = state.schema.cloneStructuredContent({
+    document: { ...run.document, authority: "block" },
+    sourceBlockId: block.id,
+    targetBlockId: equationId,
+    sourceContentId: run.contentId,
+    identities: state.CRDTbinding,
+  });
+  if (!display) return undefined;
+
+  const operationBase = () => ({
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+  });
+  const ops: Operation[] = [];
+  let page = state.document.page;
+
+  // Drop the chip from the prose: its attachment first, then its anchor char.
+  const removeAttachment: Operation = {
+    op: "content_edit",
+    ...operationBase(),
+    blockId: block.id,
+    contentId: run.contentId,
+    edit: { kind: "document_delete" },
+  };
+  ops.push(removeAttachment);
+  page = applyOps(page, [removeAttachment], state.schema);
+
+  const removedAnchor = deleteCharsInRange(
+    page,
+    block.id,
+    run.startIndex,
+    run.endIndex,
+    state.CRDTbinding,
+  );
+  ops.push(removedAnchor.op);
+  page = removedAnchor.newPage;
+
+  const insertEquation: Operation = {
+    op: "block_insert",
+    ...operationBase(),
+    orderKey: orderKeyAfter(page.blocks, block.id),
+    blockId: equationId,
+    blockType: "math",
+  };
+  ops.push(insertEquation);
+  page = applyOps(page, [insertEquation], state.schema);
+
+  const attachRoot: Operation = {
+    op: "content_edit",
+    ...operationBase(),
+    blockId: equationId,
+    contentId: display.contentId,
+    edit: { kind: "document_init", document: display.document },
+  };
+  ops.push(attachRoot);
+  page = applyOps(page, [attachRoot], state.schema);
+
+  const prose = page.blocks[findBlockIndex(page, block.id)];
+  if (prose) invalidateBlockCache(prose);
+  // The equation lands where every replica sorts it (a tombstone tied on this
+  // block's order key shifts the position), so resolve it by id.
+  const equationIndex = findBlockIndex(page, equationId);
+  const equation = equationIndex >= 0 ? page.blocks[equationIndex] : undefined;
+  if (equation) invalidateBlockCache(equation);
+
+  let next: EditorState = {
+    ...state,
+    document: { ...state.document, page },
+  };
+  next = clearSelection(next);
+  const caret = mathContentSelectionFromSourceOffset(
+    equationId,
+    display.contentId,
+    display.document,
+    source.length,
+  );
+  next = caret
+    ? updateContentSelection(next, caret)
+    : moveCursorToPosition(next, equationIndex >= 0 ? equationIndex : 0, 0);
   return { state: next, ops, handled: true };
 }
 
@@ -1825,14 +1943,15 @@ export class MathNode extends TextNode<MathBlock> {
     );
     // The demote's mirror: a "turn into math" conversion of a block whose only
     // content is one inline chip. Core's conversion offers every to-math morph
-    // through this seam; a plain textual block converts to an EMPTY equation
-    // with its eager authority document (its prose is cleared, matching the
-    // generic to-atomic conversion), so a display block never exists without
-    // its tree.
+    // through this seam; a chip embedded in prose moves out into its own
+    // equation, and a plain textual block converts to an EMPTY equation with its
+    // eager authority document (its prose is cleared, matching the generic
+    // to-atomic conversion), so a display block never exists without its tree.
     bus.registerState(
       CONVERT_STRUCTURED_BLOCK,
       (state, { blockIndex, type }) =>
         promoteInlineMathChipBlock(state, blockIndex, type) ??
+        splitInlineMathChipToBlock(state, blockIndex, type) ??
         convertBlockToEmptyMath(state, blockIndex, type),
       100,
     );

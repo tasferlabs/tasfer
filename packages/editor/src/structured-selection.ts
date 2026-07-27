@@ -71,6 +71,17 @@ export type ContentPoint = ContentTextPoint | ContentGapPoint;
 export interface ContentSelection {
   readonly anchor: ContentPoint;
   readonly focus: ContentPoint;
+  /**
+   * Unsnapped endpoints used only to continue an active selection gesture.
+   *
+   * A structured kind may widen the visible range to whole constructs. Keeping
+   * the endpoints that produced that range lets a reversing Shift+Arrow shrink
+   * the selection again instead of restarting from the widened edge.
+   */
+  readonly unsnapped?: {
+    readonly anchor: ContentPoint;
+    readonly focus: ContentPoint;
+  };
   /** Interaction timestamp used by caret blink/landing animation. */
   readonly lastUpdate?: number;
 }
@@ -149,7 +160,21 @@ export function contentSelectionsEqual(
   return (
     contentPointsEqual(left.anchor, right.anchor) &&
     contentPointsEqual(left.focus, right.focus) &&
+    contentSelectionEndpointsEqual(left.unsnapped, right.unsnapped) &&
     left.lastUpdate === right.lastUpdate
+  );
+}
+
+function contentSelectionEndpointsEqual(
+  left: ContentSelection["unsnapped"],
+  right: ContentSelection["unsnapped"],
+): boolean {
+  if (left === right) return true;
+  return !!(
+    left &&
+    right &&
+    contentPointsEqual(left.anchor, right.anchor) &&
+    contentPointsEqual(left.focus, right.focus)
   );
 }
 
@@ -311,9 +336,31 @@ export function normalizeContentSelection(
   if (!anchor || !focus || !areCompatibleContentPoints(anchor, focus)) {
     return null;
   }
-  return anchor === selection.anchor && focus === selection.focus
-    ? selection
-    : { ...selection, anchor, focus };
+  const unsnappedAnchor = selection.unsnapped
+    ? normalizeContentPoint(page, selection.unsnapped.anchor)
+    : null;
+  const unsnappedFocus = selection.unsnapped
+    ? normalizeContentPoint(page, selection.unsnapped.focus)
+    : null;
+  const unsnapped =
+    unsnappedAnchor &&
+    unsnappedFocus &&
+    areCompatibleContentPoints(unsnappedAnchor, unsnappedFocus) &&
+    areCompatibleContentPoints(anchor, unsnappedAnchor)
+      ? { anchor: unsnappedAnchor, focus: unsnappedFocus }
+      : undefined;
+  if (
+    anchor === selection.anchor &&
+    focus === selection.focus &&
+    ((!selection.unsnapped && !unsnapped) ||
+      (selection.unsnapped &&
+        unsnapped?.anchor === selection.unsnapped.anchor &&
+        unsnapped.focus === selection.unsnapped.focus))
+  ) {
+    return selection;
+  }
+  const { unsnapped: _discarded, ...rest } = selection;
+  return { ...rest, anchor, focus, ...(unsnapped ? { unsnapped } : {}) };
 }
 
 /** Make a detached plain-data copy suitable for snapshots or presence payloads. */
@@ -325,6 +372,14 @@ export function cloneContentSelection(
         ...selection,
         anchor: { ...selection.anchor },
         focus: { ...selection.focus },
+        ...(selection.unsnapped
+          ? {
+              unsnapped: {
+                anchor: { ...selection.unsnapped.anchor },
+                focus: { ...selection.unsnapped.focus },
+              },
+            }
+          : {}),
       }
     : null;
 }
@@ -376,6 +431,11 @@ export function updateContentSelection(
     state.document.page,
     selection,
   );
+  const unsnapped =
+    contentSelection?.unsnapped ??
+    (contentSelection
+      ? { anchor: contentSelection.anchor, focus: contentSelection.focus }
+      : undefined);
   // Every non-collapsed range passes through the owning feature's resolver
   // facet, so a range lands with the feature's structural discipline no matter
   // which gesture produced it — a drag, shift+click, keyboard extension, or
@@ -399,6 +459,13 @@ export function updateContentSelection(
         resolved,
       );
     }
+  }
+  if (contentSelection && unsnapped) {
+    const widened =
+      !contentPointsEqual(contentSelection.anchor, unsnapped.anchor) ||
+      !contentPointsEqual(contentSelection.focus, unsnapped.focus);
+    const { unsnapped: _discarded, ...rest } = contentSelection;
+    contentSelection = widened ? { ...rest, unsnapped } : rest;
   }
   if (
     contentSelectionsEqual(state.document.contentSelection, contentSelection) &&
