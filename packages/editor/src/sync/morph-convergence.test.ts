@@ -15,8 +15,10 @@ import { mathTestSchema, mathTestStateOptions } from "../__testutils__/math";
 import { convertBlockAtCursor } from "../actions/actions";
 import type { Paragraph } from "../nodes/TextNode";
 import type { Block, MarkSpan, Page } from "../serlization/loadPage";
-import type { BlockSet, EditorState } from "../state-types";
+import type { BlockSet, EditorState, Operation } from "../state-types";
 import { createInitialState } from "../state-utils";
+import { getVisibleTextFromRuns } from "./char-runs";
+import { invertOperation } from "./inverse";
 import { applyOp } from "./reducer";
 import { describe, expect, it } from "vitest";
 
@@ -47,22 +49,27 @@ function formatsOf(block: Page["blocks"][number]): MarkSpan[] {
   return (block as Paragraph).formats;
 }
 
+function textOf(block: Page["blocks"][number]): string {
+  return getVisibleTextFromRuns((block as Paragraph).charRuns);
+}
+
+function caretAtEnd(page: Page): EditorState {
+  const base = createInitialState(page, mathTestStateOptions());
+  return {
+    ...base,
+    document: {
+      ...base.document,
+      cursor: { position: { blockIndex: 0, textIndex: 5 }, lastUpdate: 0 },
+    },
+  };
+}
+
 describe.each(["math", "code"])(
   "formatted paragraph → %s converges across peers",
   (target) => {
     it("drops inline marks on both the originating and remote peers", () => {
       // Originating peer: convert via the action.
-      const base: EditorState = createInitialState(
-        pageWith(formattedParagraph()),
-        mathTestStateOptions(),
-      );
-      const originator: EditorState = {
-        ...base,
-        document: {
-          ...base.document,
-          cursor: { position: { blockIndex: 0, textIndex: 5 }, lastUpdate: 0 },
-        },
-      };
+      const originator = caretAtEnd(pageWith(formattedParagraph()));
       const { state: localState, ops } = convertBlockAtCursor(originator, {
         // "math" sits outside the closed core Block["type"] union; cast at the
         // feature boundary as the defineNode idiom does.
@@ -94,3 +101,55 @@ describe.each(["math", "code"])(
     });
   },
 );
+
+/**
+ * Convergence regression: a paragraph → code convert KEEPS the block's text —
+ * locally, on a peer replaying the ops, and on undo.
+ *
+ * `convertBlockAtCursor` emits only `block_set type=code` (+ the target type's
+ * own fields) and carries the char runs locally. The reducer used to carry them
+ * only for types sharing a `morphGroup`, which paragraph and code do not: the
+ * originator saw "hello" in a code block while every remote peer — and the
+ * local undo, which replays inverses through the same reducer — rebuilt it
+ * empty.
+ */
+describe("paragraph → code keeps its text across peers", () => {
+  it("replays the text onto a remote peer and restores it on undo", () => {
+    const originator = caretAtEnd(pageWith(formattedParagraph()));
+    const { state: localState, ops } = convertBlockAtCursor(originator, {
+      type: "code",
+    });
+    expect(localState.document.page.blocks[0].type).toBe("code");
+    expect(textOf(localState.document.page.blocks[0])).toBe("hello");
+
+    // Remote peer: same starting paragraph, replays only the emitted ops. Each
+    // inverse is computed against the page as it stood BEFORE its own op, which
+    // is exactly how the local undo stack builds them.
+    let remotePage = pageWith(formattedParagraph());
+    const inverses: Operation[] = [];
+    for (const op of ops) {
+      inverses.push(
+        ...invertOperation(
+          op,
+          remotePage,
+          originator.CRDTbinding,
+          mathTestSchema.data,
+        ),
+      );
+      remotePage = applyOp(remotePage, op, mathTestSchema.data);
+    }
+    expect(remotePage.blocks[0].type).toBe("code");
+    expect(textOf(remotePage.blocks[0])).toBe("hello");
+
+    // Undo: the inverses run newest-first and land back on the bold paragraph.
+    let undonePage = remotePage;
+    for (const inverse of [...inverses].reverse()) {
+      undonePage = applyOp(undonePage, inverse, mathTestSchema.data);
+    }
+    expect(undonePage.blocks[0].type).toBe("paragraph");
+    expect(textOf(undonePage.blocks[0])).toBe("hello");
+    expect(formatsOf(undonePage.blocks[0]).map((s) => s.format.type)).toEqual([
+      "bold",
+    ]);
+  });
+});
