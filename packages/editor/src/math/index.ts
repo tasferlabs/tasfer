@@ -52,4 +52,5 @@ export {
   trailingMathCommandRun,
 } from "./input-controller";
 export { mathInputRules } from "./input-rules";
+export { isUnambiguousLatexPaste, mathPasteRule } from "./paste";
 export * from "./tree-selection";

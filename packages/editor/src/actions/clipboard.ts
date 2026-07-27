@@ -1030,6 +1030,18 @@ function parsePlainTextToBlocks(
   }
 }
 
+/** Parse only when a feature recognizes the exact plain clipboard flavor. */
+function parseRecognizedPlainTextToBlocks(
+  text: string,
+  binding: CRDTbinding,
+  schema?: DataSchema,
+): Block[] {
+  const transformed = schema?.transformPastedText(text) ?? text;
+  return transformed === text
+    ? []
+    : parsePlainTextToBlocks(transformed, binding, schema);
+}
+
 /**
  * Insert blocks at cursor position
  * If there's a selection, it will be deleted first
@@ -2184,6 +2196,16 @@ export function pasteFromClipboardEvent(
     return text ? insertText(state, text) : null;
   }
 
+  // Recognize the exact plain flavor before HTML conversion can escape LaTeX.
+  if (text) {
+    const blocks = parseRecognizedPlainTextToBlocks(
+      text,
+      state.CRDTbinding,
+      state.schema,
+    );
+    if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+  }
+
   // Try to get HTML first
   if (html) {
     const blocks = parseHTMLToBlocks(html, state.CRDTbinding, state.schema);
@@ -2249,17 +2271,17 @@ export function pasteFromClipboardEventAsPlainText(
         return;
       }
 
-      const blocks = parsePlainTextToBlocks(
+      const blocks = parseRecognizedPlainTextToBlocks(
         text,
         state.CRDTbinding,
         state.schema,
       );
-      if (blocks.length === 0) {
-        resolve(null);
-        return;
-      }
+      const parsed =
+        blocks.length > 0
+          ? blocks
+          : parsePlainTextToBlocks(text, state.CRDTbinding, state.schema);
 
-      resolve(insertBlocksAtCursor(state, blocks));
+      resolve(insertBlocksAtCursor(state, parsed));
     } catch (error) {
       console.error("Failed to paste plain text from clipboard event:", error);
       resolve(null);
@@ -2309,6 +2331,14 @@ export async function pasteFromSystemClipboard(
         state.schema.ownsInput("before-insert", state, text)
       ) {
         return text ? insertText(state, text) : null;
+      }
+      if (text) {
+        const blocks = parseRecognizedPlainTextToBlocks(
+          text,
+          state.CRDTbinding,
+          state.schema,
+        );
+        if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
       }
       // HTML first (matches the navigator path) so a Tasfer round-trip stays
       // lossless via the html marker; otherwise fall back to plain text.
@@ -2360,6 +2390,15 @@ export async function pasteFromSystemClipboard(
       state.schema.ownsInput("before-insert", state, text)
     ) {
       return text ? insertText(state, text) : null;
+    }
+
+    if (text) {
+      const blocks = parseRecognizedPlainTextToBlocks(
+        text,
+        state.CRDTbinding,
+        state.schema,
+      );
+      if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
     }
 
     // Prefer HTML (matches the synchronous Cmd/Ctrl+V path): an image copied

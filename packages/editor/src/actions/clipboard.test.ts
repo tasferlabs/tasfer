@@ -11,6 +11,8 @@ import {
   type InlineMathHostBlock,
   resolveStructuredInlineMathRuns,
 } from "../math/inline-structured";
+import { isUnambiguousLatexPaste } from "../math/paste";
+import type { TextualBlock } from "../nodes/TextNode";
 import { moveCursorToPosition } from "../selection";
 import type { Block, CharRun } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
@@ -299,5 +301,84 @@ describe("repairMathBackslashes", () => {
     expect(repairMathBackslashes("a \\\\ b and $x=1$")).toBe(
       "a \\\\ b and $x=1$",
     );
+  });
+});
+
+describe("raw LaTeX paste", () => {
+  const paste = (text: string, html = "") => {
+    const state = moveCursorToPosition(
+      createInitialState(loadPage("", mathTestSchema.data), {
+        schema: mathTestSchema.data,
+      }),
+      0,
+      0,
+    );
+    return pasteFromClipboardEvent(state, {} as ClipboardEvent, {
+      html,
+      text,
+      imageFile: null,
+    });
+  };
+
+  it("pastes valid, unmistakable LaTeX as one structured math mark", () => {
+    const result = paste(
+      String.raw`\frac{x_1}{2}`,
+      String.raw`<p>\\frac{x\_1}{2}</p>`,
+    );
+    expect(result).not.toBeNull();
+    const block = result!.state.document.page.blocks[0];
+    expect(
+      resolveStructuredInlineMathRuns(block as InlineMathHostBlock).map(
+        (run) => run.latex,
+      ),
+    ).toEqual([String.raw`\frac{{x}_{1}}{2}`]);
+  });
+
+  it("recognizes a grouped accented engineering equation", () => {
+    const latex = String.raw`{\dot{W}}_{pump}=\frac{\Delta P\dot{V}}{\eta}`;
+    expect(isUnambiguousLatexPaste(latex)).toBe(true);
+    const result = paste(latex);
+    const block = result!.state.document.page.blocks[0];
+    expect(resolveStructuredInlineMathRuns(block as never)).toHaveLength(1);
+  });
+
+  it("keeps ordinary valid-TeX text and simple prose-like expressions plain", () => {
+    for (const text of ["hello", "42", "a + b", "hello_world"]) {
+      expect(isUnambiguousLatexPaste(text), text).toBe(false);
+      const result = paste(text);
+      const block = result!.state.document.page.blocks[0];
+      expect(resolveStructuredInlineMathRuns(block as never), text).toEqual([]);
+      expect(getVisibleTextFromRuns((block as TextualBlock).charRuns)).toBe(
+        text,
+      );
+    }
+  });
+
+  it("keeps unknown commands and malformed groups plain", () => {
+    for (const text of [
+      String.raw`\notARealCommand{x}`,
+      String.raw`x_{1`,
+      String.raw`\frac`,
+    ]) {
+      expect(isUnambiguousLatexPaste(text), text).toBe(false);
+    }
+  });
+
+  it("keeps LaTeX plain when math marks are not authorable", () => {
+    const schema = mathTestSchema.restrict({ marks: [] }).data;
+    const state = moveCursorToPosition(
+      createInitialState(loadPage("", schema), { schema }),
+      0,
+      0,
+    );
+    const text = String.raw`\frac{1}{2}`;
+    const result = pasteFromClipboardEvent(state, {} as ClipboardEvent, {
+      html: "",
+      text,
+      imageFile: null,
+    });
+    const block = result!.state.document.page.blocks[0] as TextualBlock;
+    expect(resolveStructuredInlineMathRuns(block)).toEqual([]);
+    expect(getVisibleTextFromRuns(block.charRuns)).toBe(text);
   });
 });

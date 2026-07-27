@@ -154,6 +154,7 @@ export type {
   FeatureInputPhase,
   FeatureInputRule,
   FeatureInputRuleCtx,
+  FeaturePasteRule,
   FeatureThemeDefaults,
   ResolvedFeatureThemeDefaults,
   StructuredContentClone,

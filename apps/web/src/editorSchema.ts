@@ -22,6 +22,7 @@ import { CodeNode, type NodeOverlay } from "@tasfer/editor/internal";
 import {
   mathContentSelectionKind,
   mathInputRules,
+  mathPasteRule,
   MathMark,
   MathNode,
 } from "@tasfer/editor/math";
@@ -254,16 +255,16 @@ export function openCodeLanguageMenu(editor: AppEditor, blockId: string): void {
  *
  * The CRDT + serialization half is the app-owned `appDataSchema`: core data
  * plus the math data facets, each carried by the spec that owns it. The
- * interactive schema adds math's tree input rules, the clipboard selection
- * serializer (it needs the tex layout engine, so it stays out of worker
- * bundles), and the matching rendering node/mark view list. Reducers and
- * workers do not need those authoring facets to replay the resulting
+ * interactive schema adds math's tree input and paste rules, the clipboard
+ * selection serializer (it needs the tex layout engine, so it stays out of
+ * worker bundles), and the matching rendering node/mark view list. Reducers
+ * and workers do not need those authoring facets to replay the resulting
  * structured operations.
  */
 export const appSchema = new Schema(
   appDataSchema
     .extend({ structuredKinds: [mathContentSelectionKind] })
-    .withFeatures({ inputRules: mathInputRules }),
+    .withFeatures({ inputRules: mathInputRules, pasteRules: [mathPasteRule] }),
   [
     new LineNode(),
     new TasferImageNode(),

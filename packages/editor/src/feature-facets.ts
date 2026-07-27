@@ -19,10 +19,11 @@
  * What remains a *feature bundle* surface ({@link FeatureFacets}, installed
  * with `Schema.use` / `DataSchema.withFeatures`) is only the genuinely
  * cross-type pieces: live-input rules that must fire while typing in other
- * blocks, feature-level action hooks, and theme defaults. Those are ordered by
- * explicit priority (high first), then installation order; reusing a facet id
- * replaces the earlier definition at the later installation position, which
- * makes overrides deterministic without deduplicating by feature name.
+ * blocks, whole-payload paste recognition, feature-level action hooks, and
+ * theme defaults. Those are ordered by explicit priority (high first), then
+ * installation order; reusing a facet id replaces the earlier definition at
+ * the later installation position, which makes overrides deterministic without
+ * deduplicating by feature name.
  *
  * Input-rule ids are load-bearing: dispatch gates match on `rule.id` (for
  * example math's tree-migration gate checks that its migration rule is
@@ -82,6 +83,14 @@ export interface FeatureInputRule extends OrderedFeatureFacet {
   apply(
     ctx: FeatureInputRuleCtx,
   ): (StateResult & { readonly handled?: boolean }) | undefined;
+}
+
+/** A feature-owned rewrite of clipboard text before Markdown parsing. */
+export interface FeaturePasteRule extends OrderedFeatureFacet {
+  /** Skip this rule when the schema forbids authoring the named mark. */
+  readonly requiresMark?: string;
+  /** Return `undefined` when this rule does not recognize the whole payload. */
+  transform(text: string): string | undefined;
 }
 
 /** Token emitted by a spec-owned markdown recognizer. */
@@ -313,6 +322,7 @@ export interface FeatureThemeDefaults {
  */
 export interface FeatureFacets {
   readonly inputRules?: readonly FeatureInputRule[];
+  readonly pasteRules?: readonly FeaturePasteRule[];
   readonly actions?: readonly FeatureActionHook[];
   readonly theme?: FeatureThemeDefaults;
   /** Removed — Markdown recognizers ride the owning spec's `markdownSyntax`. */
