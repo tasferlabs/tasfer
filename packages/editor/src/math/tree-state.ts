@@ -14,6 +14,8 @@ import {
 import type { Block } from "../serlization/loadPage";
 import type { ContentEdit, EditorState, Operation } from "../state-types";
 import {
+  type ContentPoint,
+  type ContentSelection,
   contentPointsEqual,
   isContentSelectionCollapsed,
   normalizeContentSelection,
@@ -151,13 +153,15 @@ export function extendActiveMathTreeSelectionByUnit(
   const context = activeMathTreeContext(state);
   const current = state.document.contentSelection;
   if (!context || !current) return undefined;
-  const caret = mathTreeUnitTarget(state, context, direction);
+  const continuation = mathTreeSelectionContinuation(context.document, current);
+  if (!continuation) return undefined;
+  const caret = mathTreeUnitTarget(state, context, direction, continuation);
   if (!caret) return undefined;
   const selection = extendMathTreeContentSelection(
     context.block.id,
     context.contentId,
     context.document,
-    current.anchor,
+    continuation.anchor,
     caret,
     direction === "right" ? "end" : "start",
   );
@@ -174,13 +178,17 @@ function mathTreeUnitTarget(
   state: EditorState,
   context: MathTreeContext,
   direction: "left" | "right",
+  from?: { readonly focus: ContentPoint; readonly caret: MathTreeCaret },
 ): MathTreeCaret | undefined {
   const math = structuredToMathDocument(context.document);
   if (!math) return undefined;
   const source = getStructuredMathSource(context.block) ?? "";
   const current = state.document.contentSelection;
   const sourceOffset = current
-    ? mathSourceOffsetFromContentPoint(context.document, current.focus)
+    ? mathSourceOffsetFromContentPoint(
+        context.document,
+        from?.focus ?? current.focus,
+      )
     : null;
   if (sourceOffset === null) return undefined;
   const targetOffset = mathUnitBoundaryOffset(source, sourceOffset, direction);
@@ -210,7 +218,7 @@ function mathTreeUnitTarget(
   ) {
     const structural = moveMathTreeCaret(
       context.document,
-      context.caret,
+      from?.caret ?? context.caret,
       direction === "left" ? "arrow-left" : "arrow-right",
     );
     return structural.handled ? structural.caret : undefined;
@@ -472,9 +480,11 @@ export function extendActiveMathTreeSelectionVertically(
   const context = activeMathTreeContext(state);
   const current = state.document.contentSelection;
   if (!context || !current) return undefined;
+  const continuation = mathTreeSelectionContinuation(context.document, current);
+  if (!continuation) return undefined;
   const caret = moveMathTreeCaretVertically(
     context.document,
-    context.caret,
+    continuation.caret,
     direction,
   );
   const selection = caret
@@ -482,7 +492,7 @@ export function extendActiveMathTreeSelectionVertically(
         context.block.id,
         context.contentId,
         context.document,
-        current.anchor,
+        continuation.anchor,
         caret,
         direction === "down" ? "end" : "start",
       )
@@ -508,9 +518,11 @@ export function extendActiveMathTreeSelectionHorizontally(
   const context = activeMathTreeContext(state);
   const current = state.document.contentSelection;
   if (!context || !current) return undefined;
+  const continuation = mathTreeSelectionContinuation(context.document, current);
+  if (!continuation) return undefined;
   const moved = moveMathTreeCaret(
     context.document,
-    context.caret,
+    continuation.caret,
     direction === "left" ? "arrow-left" : "arrow-right",
   );
   if (!moved.handled) return undefined;
@@ -518,7 +530,7 @@ export function extendActiveMathTreeSelectionHorizontally(
     context.block.id,
     context.contentId,
     context.document,
-    current.anchor,
+    continuation.anchor,
     moved.caret,
     direction === "right" ? "end" : "start",
   );
@@ -805,6 +817,19 @@ function activeMathTreeContext(
         caret,
       }
     : undefined;
+}
+
+function mathTreeSelectionContinuation(
+  document: StructuredDocument,
+  selection: ContentSelection,
+): {
+  readonly anchor: ContentPoint;
+  readonly focus: ContentPoint;
+  readonly caret: MathTreeCaret;
+} | null {
+  const { anchor, focus } = selection.unsnapped ?? selection;
+  const caret = contentPointToMathTreeCaret(document, focus);
+  return caret ? { anchor, focus, caret } : null;
 }
 
 function contentSelectionOwnsMathTree(state: EditorState): boolean {

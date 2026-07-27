@@ -26,6 +26,8 @@ import type {
   ViewportState,
 } from "../state-types";
 import {
+  type ContentPoint,
+  type ContentSelection,
   isContentSelectionCollapsed,
   normalizeContentSelection,
   updateContentSelection,
@@ -826,7 +828,17 @@ export function extendActiveInlineMathTreeSelectionByUnit(
   const context = activeInlineMathContext(state);
   const current = state.document.contentSelection;
   if (!context || !current) return undefined;
-  const caret = inlineMathTreeUnitTarget(state, context, direction);
+  const continuation = inlineMathSelectionContinuation(
+    context.document,
+    current,
+  );
+  if (!continuation) return undefined;
+  const caret = inlineMathTreeUnitTarget(
+    state,
+    context,
+    direction,
+    continuation,
+  );
   if (!caret) return undefined;
   const target = mathTreeCaretToContentSelection(
     context.block.id,
@@ -837,7 +849,7 @@ export function extendActiveInlineMathTreeSelectionByUnit(
   return target
     ? {
         state: updateContentSelection(state, {
-          anchor: current.anchor,
+          anchor: continuation.anchor,
           focus: target.focus,
           lastUpdate: target.lastUpdate,
         }),
@@ -851,6 +863,7 @@ function inlineMathTreeUnitTarget(
   state: EditorState,
   context: InlineMathTreeContext,
   direction: "left" | "right",
+  from?: { readonly focus: ContentPoint; readonly caret: MathTreeCaret },
 ): MathTreeCaret | undefined {
   const math = structuredToMathDocument(context.document);
   const source = context.run.latex;
@@ -858,7 +871,7 @@ function inlineMathTreeUnitTarget(
   if (!math || source === undefined || !current) return undefined;
   const sourceOffset = mathSourceOffsetFromContentPoint(
     context.document,
-    current.focus,
+    from?.focus ?? current.focus,
   );
   if (sourceOffset === null) return undefined;
   const targetOffset = mathUnitBoundaryOffset(source, sourceOffset, direction);
@@ -888,7 +901,7 @@ function inlineMathTreeUnitTarget(
   ) {
     const structural = moveMathTreeCaret(
       context.document,
-      context.caret,
+      from?.caret ?? context.caret,
       direction === "left" ? "arrow-left" : "arrow-right",
     );
     return structural.handled ? structural.caret : undefined;
@@ -988,9 +1001,14 @@ export function extendActiveInlineMathTreeSelectionVertically(
   const context = activeInlineMathContext(state);
   const current = state.document.contentSelection;
   if (!context || !current) return undefined;
+  const continuation = inlineMathSelectionContinuation(
+    context.document,
+    current,
+  );
+  if (!continuation) return undefined;
   const caret = moveMathTreeCaretVertically(
     context.document,
-    context.caret,
+    continuation.caret,
     direction,
   );
   const target = caret
@@ -1004,7 +1022,7 @@ export function extendActiveInlineMathTreeSelectionVertically(
   if (!target) return undefined;
   return {
     state: updateContentSelection(state, {
-      anchor: current.anchor,
+      anchor: continuation.anchor,
       focus: target.focus,
       lastUpdate: target.lastUpdate,
     }),
@@ -1021,9 +1039,14 @@ export function extendActiveInlineMathTreeSelectionHorizontally(
   const context = activeInlineMathContext(state);
   const current = state.document.contentSelection;
   if (!context || !current) return undefined;
+  const continuation = inlineMathSelectionContinuation(
+    context.document,
+    current,
+  );
+  if (!continuation) return undefined;
   const moved = moveMathTreeCaret(
     context.document,
-    context.caret,
+    continuation.caret,
     direction === "left" ? "arrow-left" : "arrow-right",
   );
   if (!moved.handled) return undefined;
@@ -1036,7 +1059,7 @@ export function extendActiveInlineMathTreeSelectionHorizontally(
   if (!target) return undefined;
   return {
     state: updateContentSelection(state, {
-      anchor: current.anchor,
+      anchor: continuation.anchor,
       focus: target.focus,
       lastUpdate: target.lastUpdate,
     }),
@@ -1541,6 +1564,19 @@ function activeInlineMathContext(
       ? {}
       : { range: { anchor, focus: caret } }),
   };
+}
+
+function inlineMathSelectionContinuation(
+  document: StructuredDocument,
+  selection: ContentSelection,
+): {
+  readonly anchor: ContentPoint;
+  readonly focus: ContentPoint;
+  readonly caret: MathTreeCaret;
+} | null {
+  const { anchor, focus } = selection.unsnapped ?? selection;
+  const caret = contentPointToMathTreeCaret(document, focus);
+  return caret ? { anchor, focus, caret } : null;
 }
 
 function inlineContextFromFlatPosition(

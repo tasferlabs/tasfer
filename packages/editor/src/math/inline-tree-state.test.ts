@@ -17,6 +17,7 @@ import {
   EXTEND_SELECTION_DOWN,
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
+  EXTEND_SELECTION_UP,
   EXTEND_SELECTION_WORD_LEFT,
   EXTEND_SELECTION_WORD_RIGHT,
   MOVE_CONTENT_TAB,
@@ -40,7 +41,7 @@ import { baseSchema } from "../schema";
 import { moveCursorToPosition, updateSelection } from "../selection";
 import { loadPage } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
-import type { EditorState } from "../state-types";
+import type { EditorState, ViewportState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { updateContentSelection } from "../structured-selection";
 import { getEditorStyles } from "../styles";
@@ -67,6 +68,13 @@ import {
 import { describe, expect, it } from "vitest";
 
 const inlineTreeSchema = baseSchema.use(mathExtension());
+
+const viewport: ViewportState = {
+  width: 800,
+  height: 600,
+  scrollY: 0,
+  documentHeight: 2_000,
+};
 
 /** One flat anchor char per chip — shorthand for readable flat-text asserts. */
 const A = STRUCTURED_MARK_ANCHOR_CHAR;
@@ -204,6 +212,47 @@ describe("interactive structured MathMark", () => {
     expect(right.claimed).toBe(true);
     expect(right.state.document.contentSelection?.anchor).toEqual(anchor);
     expect(right.state.document.contentSelection?.focus).toEqual(anchor);
+  });
+
+  it("shrinks back to the numerator after Shift+Down selected the fraction whole", () => {
+    const source = String.raw`{\dot{W}}_{pump}=\frac{\Delta P\dot{V}}{\eta}`;
+    const numeratorOffset = source.indexOf("V}") + 1;
+    const before = enterMathOffset(
+      chipState("inline-fraction-select-reverse", `$${source}$`),
+      numeratorOffset,
+    );
+    const selected = before.actionBus.dispatchState(
+      EXTEND_SELECTION_DOWN,
+      before,
+      { viewport },
+    ).state;
+    const selectedDocument = inlineMathDocument(selected);
+    const selection = selected.document.contentSelection;
+    expect(
+      selection && selectedDocument
+        ? mathSourceRangeFromContentSelection(selectedDocument, selection)
+        : null,
+    ).toEqual({ from: source.indexOf(String.raw`\frac`), to: source.length });
+
+    const reversed = selected.actionBus.dispatchState(
+      EXTEND_SELECTION_UP,
+      selected,
+      { viewport },
+    ).state;
+    const reversedSelection = reversed.document.contentSelection;
+    const reversedDocument = inlineMathDocument(reversed);
+    const accentStart = source.lastIndexOf(String.raw`\dot{V}`);
+    expect(
+      reversedSelection && reversedDocument
+        ? mathSourceRangeFromContentSelection(
+            reversedDocument,
+            reversedSelection,
+          )
+        : null,
+    ).toEqual({
+      from: accentStart,
+      to: accentStart + String.raw`\dot{V}`.length,
+    });
   });
 
   it.each([

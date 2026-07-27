@@ -70,7 +70,7 @@ export const PLACE_CURSOR_AT_POINT = stateAction<{
       const selection =
         extend && sameNestedContext
           ? {
-              anchor: current.anchor,
+              anchor: current.unsnapped?.anchor ?? current.anchor,
               focus: contentSelection.focus,
               lastUpdate: Date.now(),
             }

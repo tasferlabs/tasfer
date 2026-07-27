@@ -403,15 +403,19 @@ export function extendMathTreeContentSelection(
   const anchorOffset = mathSourceOffsetFromContentPoint(document, anchor);
   const focusOffset = mathSourceOffsetFromContentPoint(document, target.focus);
   if (anchorOffset === null || focusOffset === null) return plain;
-  return (
-    snapMathSelectionPoints(
-      document,
-      plain,
-      anchorOffset,
-      focusOffset,
-      travel,
-    ) ?? plain
+  const snapped = snapMathSelectionPoints(
+    document,
+    plain,
+    anchorOffset,
+    focusOffset,
+    travel,
   );
+  return snapped
+    ? {
+        ...snapped,
+        unsnapped: { anchor: plain.anchor, focus: plain.focus },
+      }
+    : plain;
 }
 
 /**
@@ -495,7 +499,7 @@ function snapMathSelectionPoints(
           snapped.focus,
         )?.focus;
   if (!anchor || !focus) return undefined;
-  return { anchor, focus, lastUpdate: selection.lastUpdate };
+  return { ...selection, anchor, focus };
 }
 
 /** Promote a transient source offset to a collapsed stable content selection. */
