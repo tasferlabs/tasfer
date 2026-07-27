@@ -93,10 +93,16 @@ async function setup() {
     ]),
     getPeerSharedKey: vi.fn(async () => "c".repeat(64)),
     getSpaceIds: vi.fn(async () => [SPACE_ID]),
+    getSpaceState: vi.fn(async () => "active" as const),
+    getPageSpaceState: vi.fn(async () => ({
+      spaceId: SPACE_ID,
+      state: "active" as const,
+    })),
     getSpaceMembers: vi.fn(async () => [{ publicKey: REMOTE_PUBLIC_KEY }]),
     getSpaceVV: vi.fn(async () => ({})),
     getPageVVs: vi.fn(async () => ({})),
     updatePeerLastSeen: vi.fn(async () => {}),
+    applyRemoteSpaceOps: vi.fn(async () => {}),
     applyRemotePageOps: vi.fn(async () => {}),
   } as unknown as ReplicatorHost;
 
@@ -108,6 +114,9 @@ async function setup() {
     host: host as ReplicatorHost & {
       getSpaceVV: ReturnType<typeof vi.fn>;
       updatePeerLastSeen: ReturnType<typeof vi.fn>;
+      getSpaceState: ReturnType<typeof vi.fn>;
+      getPageSpaceState: ReturnType<typeof vi.fn>;
+      applyRemoteSpaceOps: ReturnType<typeof vi.fn>;
       applyRemotePageOps: ReturnType<typeof vi.fn>;
     },
   };
@@ -227,6 +236,44 @@ describe("Replicator protocol negotiation", () => {
 
     peer.receive(pageOpsMessage(pageOp("legacy")));
     await flushPeerQueue();
+    expect(host.applyRemotePageOps).not.toHaveBeenCalled();
+  });
+
+  it("rejects catch-up data for a locally archived space", async () => {
+    const { peer, host } = await setup();
+
+    peer.receive({
+      type: "hello",
+      publicKey: REMOTE_PUBLIC_KEY,
+      protocolVersion: PROTOCOL_VERSION,
+      wireVersion: WIRE_VERSION,
+    });
+    await vi.waitFor(() => expect(host.getSpaceVV).toHaveBeenCalled());
+
+    host.getSpaceState.mockResolvedValue("archived");
+    peer.receive({
+      type: "sync-data",
+      spaceId: SPACE_ID,
+      spaceOps: [],
+      pageOps: { [PAGE_ID]: [pageOp("archived")] },
+    });
+    await flushPeerQueue();
+
+    expect(host.applyRemoteSpaceOps).not.toHaveBeenCalled();
+    expect(host.applyRemotePageOps).not.toHaveBeenCalled();
+
+    host.getPageSpaceState.mockResolvedValue({
+      spaceId: SPACE_ID,
+      state: "archived",
+    });
+    peer.receive({
+      type: "sync-res",
+      pageId: PAGE_ID,
+      ops: [pageOp("delayed-archived")],
+      versionVector: {},
+    });
+    await flushPeerQueue();
+
     expect(host.applyRemotePageOps).not.toHaveBeenCalled();
   });
 });

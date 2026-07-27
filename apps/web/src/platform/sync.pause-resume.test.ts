@@ -15,6 +15,7 @@ import type { Peer } from "./types";
 function makeReplicator(
   trustedPeers: Peer[] = [],
   sharedKey: string | null = "b".repeat(64),
+  hasActiveSpace = true,
 ) {
   const flush = vi.fn(async (_ms: number) => {});
   const pause = vi.fn(async () => {});
@@ -36,10 +37,33 @@ function makeReplicator(
 
   const getTrustedPeers = vi.fn(async () => trustedPeers);
   const getPeerSharedKey = vi.fn(async () => sharedKey);
-  const host = { getTrustedPeers, getPeerSharedKey } as unknown as ReplicatorHost;
+  const getSpaceIds = vi.fn(async () =>
+    hasActiveSpace && trustedPeers.some((peer) => peer.trusted)
+      ? ["space"]
+      : [],
+  );
+  const getSpaceMembers = vi.fn(async () =>
+    trustedPeers
+      .filter((peer) => peer.trusted)
+      .map((peer) => ({ publicKey: peer.publicKey })),
+  );
+  const host = {
+    getTrustedPeers,
+    getPeerSharedKey,
+    getSpaceIds,
+    getSpaceMembers,
+  } as unknown as ReplicatorHost;
 
   const replicator = new Replicator(network, host);
-  return { replicator, flush, pause, resume, getTrustedPeers, join, registerTopicKey };
+  return {
+    replicator,
+    flush,
+    pause,
+    resume,
+    getTrustedPeers,
+    join,
+    registerTopicKey,
+  };
 }
 
 describe("Replicator pause/resume", () => {
@@ -116,6 +140,24 @@ describe("Replicator pause/resume", () => {
 
     await replicator.pause();
     await expect(replicator.resume()).resolves.toBeUndefined();
+
+    expect(registerTopicKey).not.toHaveBeenCalled();
+    expect(join).not.toHaveBeenCalled();
+  });
+
+  it("does not connect to a trusted peer when every shared space is archived", async () => {
+    const peer = {
+      publicKey: "a".repeat(64),
+      trusted: true,
+    } as unknown as Peer;
+    const { replicator, join, registerTopicKey } = makeReplicator(
+      [peer],
+      "b".repeat(64),
+      false,
+    );
+
+    await replicator.pause();
+    await replicator.resume();
 
     expect(registerTopicKey).not.toHaveBeenCalled();
     expect(join).not.toHaveBeenCalled();

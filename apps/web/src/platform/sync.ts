@@ -119,6 +119,12 @@ export interface ReplicatorHost {
   getTrustedPeers(): Promise<Peer[]>;
   /** Get IDs of all spaces this device belongs to */
   getSpaceIds(): Promise<string[]>;
+  /** Whether a known space is currently eligible for replication. */
+  getSpaceState(spaceId: string): Promise<"active" | "archived" | "unknown">;
+  /** Resolve a page to its space and that space's current archive state. */
+  getPageSpaceState(
+    pageId: string,
+  ): Promise<{ spaceId: string; state: "active" | "archived" } | null>;
   /** Get members of a space (for access control) */
   getSpaceMembers(spaceId: string): Promise<{ publicKey: string }[]>;
   /** Get the version vector for a space's CRDT ops */
@@ -466,25 +472,58 @@ export class Replicator {
     // Set our public key as the signaling ID
     this.network.setLocalId(this.localPublicKey);
 
-    const trustedPeers = await this.host.getTrustedPeers();
-    console.log(
-      `[Sync] trusted peers: ${
-        trustedPeers
-          .filter((p) => p.trusted)
-          .map((p) => p.publicKey.slice(0, 8))
-          .join(", ") || "(none)"
-      }`,
+    await this.refreshSpaces();
+  }
+
+  /**
+   * Reconcile peer connections and routing with the currently active spaces.
+   * Archiving the last space shared with a peer closes its transport; restoring
+   * a space reconnects and lets the normal handshake catch up missing ops.
+   */
+  async refreshSpaces(): Promise<void> {
+    const [trustedPeers, spaceIds] = await Promise.all([
+      this.host.getTrustedPeers(),
+      this.host.getSpaceIds(),
+    ]);
+    const trusted = new Set(
+      trustedPeers.filter((peer) => peer.trusted).map((peer) => peer.publicKey),
     );
-    for (const peer of trustedPeers) {
-      if (peer.trusted) {
-        try {
-          await this.connectToPeer(peer.publicKey);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          console.error(
-            `[Sync] failed to connect to peer ${peer.publicKey.slice(0, 8)}: ${msg}`,
-          );
+    const activePeers = new Set<string>();
+
+    const memberLists = await Promise.all(
+      spaceIds.map((spaceId) => this.host.getSpaceMembers(spaceId)),
+    );
+    for (const members of memberLists) {
+      for (const member of members) {
+        if (
+          member.publicKey !== this.localPublicKey &&
+          trusted.has(member.publicKey)
+        ) {
+          activePeers.add(member.publicKey);
         }
+      }
+    }
+
+    const connectedOrListeningPeers = new Set([
+      ...this.peers.keys(),
+      ...[...this.topics.values()].map((entry) => entry.remotePubKey),
+    ]);
+    for (const publicKey of connectedOrListeningPeers) {
+      if (!activePeers.has(publicKey)) {
+        await this.removePeer(publicKey);
+      }
+    }
+
+    if (this.paused) return;
+
+    for (const publicKey of activePeers) {
+      try {
+        await this.addPeer(publicKey);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(
+          `[Sync] failed to connect to peer ${publicKey.slice(0, 8)}: ${msg}`,
+        );
       }
     }
   }
@@ -543,14 +582,6 @@ export class Replicator {
     this.updateConnectionState();
   }
 
-  /** True if a topic is already open for this peer. */
-  private hasTopicForPeer(publicKey: string): boolean {
-    for (const entry of this.topics.values()) {
-      if (entry.remotePubKey === publicKey) return true;
-    }
-    return false;
-  }
-
   /**
    * Suspend sync for app backgrounding. Best-effort flushes in-flight sends,
    * then closes every peer connection and suspends the signaling sockets —
@@ -598,20 +629,9 @@ export class Replicator {
     // onPeerJoin listeners re-fire handlePeerJoin → sendHello (a fresh round).
     await this.network.resume?.();
 
-    // Connect trusted peers that gained trust while backgrounded (no topic yet).
-    const trustedPeers = await this.host.getTrustedPeers();
-    for (const peer of trustedPeers) {
-      if (peer.trusted && !this.hasTopicForPeer(peer.publicKey)) {
-        try {
-          await this.connectToPeer(peer.publicKey);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          console.error(
-            `[Sync] resume: failed to connect to peer ${peer.publicKey.slice(0, 8)}: ${msg}`,
-          );
-        }
-      }
-    }
+    // Reconcile spaces changed while backgrounded and connect only peers that
+    // share at least one active space.
+    await this.refreshSpaces();
 
     this.updateConnectionState();
   }
@@ -1187,10 +1207,10 @@ export class Replicator {
 
       // Per-page sync (fallback)
       case "sync-req":
-        await this.handleSyncReq(msg);
+        await this.handleSyncReq(fromPubKey, msg);
         break;
       case "sync-res":
-        await this.handleSyncRes(msg);
+        await this.handleSyncRes(fromPubKey, msg);
         break;
 
       // Asset
@@ -1374,6 +1394,21 @@ export class Replicator {
       return;
     }
 
+    // Unknown spaces may be bootstrapped by pairing. A known space, however,
+    // must be active and shared; in particular, archived spaces never accept
+    // catch-up data until they are restored locally.
+    const spaceState = await this.host.getSpaceState(msg.spaceId);
+    if (
+      spaceState === "archived" ||
+      (spaceState === "active" &&
+        !(await this.ensureSharedSpace(conn, msg.spaceId)))
+    ) {
+      console.warn(
+        `[Sync] dropped sync-data for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (${spaceState} space)`,
+      );
+      return;
+    }
+
     const wasUnknown = !conn.sharedSpaces.has(msg.spaceId);
 
     if (msg.spaceOps.length > 0) {
@@ -1529,7 +1564,22 @@ export class Replicator {
 
   // --- Per-page sync (fallback) ---
 
-  private async handleSyncReq(msg: SyncReqMsg) {
+  private async canSyncPage(
+    fromPubKey: string,
+    pageId: string,
+  ): Promise<boolean> {
+    const conn = this.peers.get(fromPubKey);
+    const pageSpace = await this.host.getPageSpaceState(pageId);
+    return (
+      conn !== undefined &&
+      pageSpace?.state === "active" &&
+      (await this.ensureSharedSpace(conn, pageSpace.spaceId))
+    );
+  }
+
+  private async handleSyncReq(fromPubKey: string, msg: SyncReqMsg) {
+    if (!(await this.canSyncPage(fromPubKey, msg.pageId))) return;
+
     // Respond at the space-peer level from the DB — no need to have the page open
     const { ops, versionVector } = await this.host.buildPageSyncResponse(
       msg.pageId,
@@ -1549,7 +1599,9 @@ export class Replicator {
     }
   }
 
-  private async handleSyncRes(msg: SyncResMsg) {
+  private async handleSyncRes(fromPubKey: string, msg: SyncResMsg) {
+    if (!(await this.canSyncPage(fromPubKey, msg.pageId))) return;
+
     // Always persist ops — even if the page isn't open in the editor
     if (msg.ops.length > 0) {
       await this.host.applyRemotePageOps(msg.pageId, msg.ops);
