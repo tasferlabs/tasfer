@@ -223,7 +223,10 @@ export function mergeOps(
   const canApplyIncrementally =
     !lastExisting || compareHLC(lastExisting.clock, newOps[0].clock) < 0;
 
-  if (canApplyIncrementally) {
+  if (
+    canApplyIncrementally &&
+    !requiresMissingBlockDependencyReplay(log, newOps)
+  ) {
     let state = log.state;
     for (const op of newOps) {
       state = applyOp(state, op, schema);
@@ -254,6 +257,39 @@ export function mergeOps(
   const allOps = mergeSortedOps(log.operations, newOps);
   const state = rebuildState(log.pageId, allOps, schema);
   return { ...log, operations: allOps, versionVector: newVV, state };
+}
+
+/**
+ * A content edit can be stamped before the block that will host it. Applying
+ * that edit incrementally is a permanent no-op; canonical replay can defer it
+ * until the host exists. Check both this batch and unresolved edits retained
+ * in the existing log so a block arriving in a later batch also recovers them.
+ */
+function requiresMissingBlockDependencyReplay(
+  log: OpLog,
+  newOps: readonly Operation[],
+): boolean {
+  const knownBlocks = new Set(log.state.blocks.map((block) => block.id));
+  const pendingContentBlocks = new Set<string>();
+
+  for (const op of log.operations) {
+    if (op.op === "content_edit" && !knownBlocks.has(op.blockId)) {
+      pendingContentBlocks.add(op.blockId);
+    }
+  }
+
+  for (const op of newOps) {
+    if (op.op === "content_edit" && !knownBlocks.has(op.blockId)) {
+      pendingContentBlocks.add(op.blockId);
+      continue;
+    }
+    if (op.op === "block_insert") {
+      if (pendingContentBlocks.has(op.blockId)) return true;
+      knownBlocks.add(op.blockId);
+    }
+  }
+
+  return false;
 }
 
 /**
