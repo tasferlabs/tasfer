@@ -263,6 +263,46 @@ describe("structured math tree editing", () => {
     expectSemanticallyEqual(undone, document);
   });
 
+  it("commits a command before a sibling with a concurrent equal order key", () => {
+    const initial = sourceDocument("P");
+    const rowId = bodyRowId(initial);
+    const suffix = child(initial, rowId, "children", "raw-text");
+    const withRemoteSibling = applyStructuredEdit(initial, {
+      kind: "node_insert",
+      node: {
+        id: "000-remote",
+        type: "raw-text",
+        placement: suffix.placement,
+        attrs: {},
+        textFields: { text: [] },
+      },
+    });
+    const concurrent = applyStructuredEdit(withRemoteSibling, {
+      kind: "node_delete",
+      nodeId: "000-remote",
+    });
+    const typed = insertMathText(
+      concurrent,
+      textCaret(rowId, suffix.id, null),
+      String.raw`\Delt`,
+      identitySource("command-before-tie", 100),
+    );
+    const withQuery = applyResult(concurrent, typed);
+
+    const result = replaceMathTreeRangeWithSemanticLatex(
+      withQuery,
+      {
+        anchor: textCaret(rowId, suffix.id, null),
+        focus: typed.caret,
+      },
+      String.raw`\Delta`,
+      identitySource("semantic-before-tie", 200),
+    );
+    const edited = applyResult(withQuery, result);
+
+    expect(print(edited)).toBe(String.raw`\Delta P`);
+  });
+
   it("types into a committed accent's base instead of after the accent", () => {
     const initial = mathDocument("");
     const rowId = bodyRowId(initial);

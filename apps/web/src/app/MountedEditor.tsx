@@ -116,6 +116,10 @@ import {
   prewarmMenuIcons,
 } from "./nativeContextMenu";
 import { FindBar } from "../editor/FindBar";
+import {
+  findDocumentMatches,
+  type FindMatch,
+} from "../editor/findMatches";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
@@ -1171,7 +1175,7 @@ function readRootCssVar(name: string, fallback: string): string {
 
 /** Build the find-decoration list for a set of matches and the active index. */
 function searchDecorations(
-  matches: { blockId: string; startIndex: number; endIndex: number }[],
+  matches: readonly FindMatch[],
   activeIndex: number,
 ): Decoration[] {
   const baseColor = readRootCssVar(
@@ -1186,10 +1190,7 @@ function searchDecorations(
     const isActive = i === activeIndex;
     return {
       kind: "range",
-      range: {
-        from: { block: m.blockId, offset: m.startIndex },
-        to: { block: m.blockId, offset: m.endIndex },
-      },
+      range: m.range,
       color: isActive ? activeColor : baseColor,
       opacity: isActive
         ? SEARCH_HIGHLIGHT_ACTIVE_OPACITY
@@ -1416,9 +1417,7 @@ function PageEditor({
   const findBarOpenRef = useRef(false);
   findBarOpenRef.current = findBarOpen;
   const [findSearchText, setFindSearchText] = useState("");
-  const [findMatches, setFindMatches] = useState<
-    { blockId: string; startIndex: number; endIndex: number }[]
-  >([]);
+  const [findMatches, setFindMatches] = useState<FindMatch[]>([]);
   const [findActiveIndex, setFindActiveIndex] = useState(0);
 
   // Register find callback for PageSettings drawer
@@ -3045,41 +3044,19 @@ function PageEditor({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Search logic — compute matches when search text or page content changes
+  // Search logic — compute matches when the find query changes.
   const performSearch = useCallback((text: string) => {
-    if (!text || !mountedRef.current) {
+    if (!text || !mountedRef.current?.doc) {
       setFindMatches([]);
       setFindActiveIndex(0);
       mountedRef.current?.editor.view.clearDecorations("search");
       return;
     }
 
-    const matches: {
-      blockId: string;
-      startIndex: number;
-      endIndex: number;
-    }[] = [];
-    const lowerSearch = text.toLowerCase();
-
-    for (const block of mountedRef.current.editor.query.blocks({
-      from: "start",
-      to: "end",
-    })) {
-      const content = block.text.toLowerCase();
-      if (!content) continue;
-
-      let pos = 0;
-      while (true) {
-        const idx = content.indexOf(lowerSearch, pos);
-        if (idx === -1) break;
-        matches.push({
-          blockId: block.id,
-          startIndex: idx,
-          endIndex: idx + text.length,
-        });
-        pos = idx + 1;
-      }
-    }
+    const matches = findDocumentMatches(
+      mountedRef.current.doc.getRawBlocks(),
+      text,
+    );
 
     setFindMatches(matches);
     const newActiveIndex = matches.length > 0 ? 0 : -1;
@@ -3092,7 +3069,7 @@ function PageEditor({
     if (matches.length > 0) {
       mountedRef.current.editor.view.scrollToPosition({
         block: matches[0].blockId,
-        offset: matches[0].startIndex,
+        offset: matches[0].scrollOffset,
       });
     }
   }, []);
@@ -3115,15 +3092,26 @@ function PageEditor({
       );
       const match = findMatches[index];
       if (match) {
-        // setSelection speaks DocPoints, so the match's stable block id selects
-        // the span directly — no index resolution needed.
-        mountedRef.current.editor.setSelection({
-          from: { block: match.blockId, offset: match.startIndex },
-          to: { block: match.blockId, offset: match.endIndex },
-        });
+        if (match.selection.kind === "content") {
+          const selection = match.selection.selection;
+          mountedRef.current.editor.change((change) =>
+            change.selectContent({ ...selection, lastUpdate: Date.now() }),
+          );
+        } else {
+          mountedRef.current.editor.setSelection({
+            from: {
+              block: match.blockId,
+              offset: match.selection.startIndex,
+            },
+            to: {
+              block: match.blockId,
+              offset: match.selection.endIndex,
+            },
+          });
+        }
         mountedRef.current.editor.view.scrollToPosition({
           block: match.blockId,
-          offset: match.startIndex,
+          offset: match.scrollOffset,
         });
       }
     },
