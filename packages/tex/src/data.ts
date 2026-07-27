@@ -9,6 +9,7 @@
 export * from "./document";
 export { balanceBraces, escapeStrayCloseBraces } from "./edit/brace";
 export { canRenderMathChar } from "./edit/char";
+export { needsCommandSeparator } from "./parse/parser";
 export {
   accentCommands,
   isAccentCommand,

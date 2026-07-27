@@ -1162,12 +1162,39 @@ export function getInlineMathSelectionRects(
 ): InlineMathSelectionRect[] {
   if (!latex) return [];
   const l = layoutMath(latex, { fontSize, displayMode: false, literalRange });
-  return texSelectionRects(l, start, end).map((r) => ({
+  const rects = texSelectionRects(l, start, end).map((r) => ({
     x: r.x,
     top: r.y,
     bottom: r.y + r.height,
     width: r.width,
   }));
+  // Whole formulas are atomic to the flat editor, so their highlight must
+  // reach both chip-edge carets while preserving tex's vertical geometry.
+  if (start <= 0 && end >= latex.length && rects.length > 0) {
+    let leftmost = 0;
+    let rightmost = 0;
+    for (let i = 1; i < rects.length; i++) {
+      if (rects[i].x < rects[leftmost].x) leftmost = i;
+      if (
+        rects[i].x + rects[i].width >
+        rects[rightmost].x + rects[rightmost].width
+      ) {
+        rightmost = i;
+      }
+    }
+    const leftRect = rects[leftmost];
+    rects[leftmost] = {
+      ...leftRect,
+      x: 0,
+      width: leftRect.x + leftRect.width,
+    };
+    const rightRect = rects[rightmost];
+    rects[rightmost] = {
+      ...rightRect,
+      width: Math.max(0, l.width - rightRect.x),
+    };
+  }
+  return rects;
 }
 
 /**

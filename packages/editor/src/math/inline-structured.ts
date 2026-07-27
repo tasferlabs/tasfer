@@ -28,8 +28,7 @@ import {
   structuredToMathDocument,
   validateStructuredMathDocument,
 } from "./structured";
-import { needsCommandSeparator } from "@tasfer/tex";
-import { printMathDocument } from "@tasfer/tex/data";
+import { needsCommandSeparator, printMathDocument } from "@tasfer/tex/data";
 
 /** Persisted attributes accepted by the structured and legacy MathMark paths. */
 export type MathMarkAttrs = {
