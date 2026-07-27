@@ -579,6 +579,18 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return this.structuredMark(markType)?.resolve?.(ctx);
   }
 
+  /** Join sources while absorbing adjacent runs into one structured mark. */
+  joinStructuredMarkSources(
+    markType: string,
+    left: string,
+    right: string,
+  ): string {
+    return (
+      this.structuredMark(markType)?.joinSources?.({ left, right }) ??
+      left + right
+    );
+  }
+
   /** Rewrite a structured mark to the attachment ids cloned for its block. */
   cloneStructuredMark(
     markType: string,

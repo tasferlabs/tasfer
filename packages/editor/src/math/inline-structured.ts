@@ -28,6 +28,7 @@ import {
   structuredToMathDocument,
   validateStructuredMathDocument,
 } from "./structured";
+import { needsCommandSeparator } from "@tasfer/tex";
 import { printMathDocument } from "@tasfer/tex/data";
 
 /** Persisted attributes accepted by the structured and legacy MathMark paths. */
@@ -112,6 +113,10 @@ export const mathStructuredMarkFacet = {
       attachments: [{ contentId: created.contentId, edit: created.init }],
     };
   },
+  joinSources: ({ left, right }) =>
+    left +
+    (needsCommandSeparator(left, left.length, right[0] ?? "") ? " " : "") +
+    right,
   resolve: ({ mark, attachments }) =>
     getStructuredMathMarkSource(mark, attachments),
   references: ({ mark }) => {

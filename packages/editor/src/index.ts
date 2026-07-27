@@ -164,6 +164,7 @@ export type {
   StructuredMarkCreateCtx,
   StructuredMarkCreateResult,
   StructuredMarkFacet,
+  StructuredMarkJoinCtx,
   StructuredMarkResolveCtx,
   SyntaxCtx,
   SyntaxMatch,

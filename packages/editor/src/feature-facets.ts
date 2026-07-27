@@ -206,6 +206,12 @@ export interface StructuredMarkResolveCtx {
   readonly attachments: StructuredContentMap | undefined;
 }
 
+/** Canonical sources that became adjacent while creating one structured mark. */
+export interface StructuredMarkJoinCtx {
+  readonly left: string;
+  readonly right: string;
+}
+
 /** Context for rewriting a mark after its block attachments were cloned once. */
 export interface StructuredMarkCloneCtx {
   readonly mark: Mark;
@@ -229,6 +235,11 @@ export interface StructuredMarkCloneCtx {
  */
 export interface StructuredMarkFacet {
   create?(ctx: StructuredMarkCreateCtx): StructuredMarkCreateResult | undefined;
+  /**
+   * Join adjacent canonical sources without changing their meaning. Defaults
+   * to direct concatenation; features may preserve required syntax separators.
+   */
+  joinSources?(ctx: StructuredMarkJoinCtx): string;
   /**
    * Canonical source resolved from the mark's attachment, or undefined when
    * the referenced attachment is missing or invalid (the run then renders its

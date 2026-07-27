@@ -1433,7 +1433,7 @@ export function insertText(
         if (created.ops.length > 0) {
           pageAcc = created.newPage;
           ops.push(...created.ops);
-          newTextIndex = insertIndex + 1;
+          newTextIndex = created.startIndex + 1;
         }
         continue;
       }
@@ -3758,12 +3758,19 @@ export function toggleFormat(
         ...state,
         document: { ...state.document, page: created.newPage },
       };
-      next = moveCursorToPosition(next, start.blockIndex, start.textIndex + 1);
+      next = moveCursorToPosition(
+        next,
+        start.blockIndex,
+        created.startIndex + 1,
+      );
       next = updateSelection(next, {
-        anchor: { blockIndex: start.blockIndex, textIndex: start.textIndex },
+        anchor: {
+          blockIndex: start.blockIndex,
+          textIndex: created.startIndex,
+        },
         focus: {
           blockIndex: start.blockIndex,
-          textIndex: start.textIndex + 1,
+          textIndex: created.startIndex + 1,
         },
       });
       return { state: next, ops: [...created.ops] };
