@@ -2217,11 +2217,9 @@ export class MathNode extends TextNode<MathBlock> {
       if (!unit) return { state, ops: [], handled: true };
 
       return {
-        state: selectMathRange(
-          state,
-          position.blockIndex,
-          unit.start,
-          unit.end,
+        state: updateMode(
+          selectMathRange(state, position.blockIndex, unit.start, unit.end),
+          "select",
         ),
         ops: [],
         handled: true,
@@ -2244,11 +2242,14 @@ export class MathNode extends TextNode<MathBlock> {
       const block = mathBlockAt(state, position.blockIndex);
       if (!block) return;
       return {
-        state: selectMathRange(
-          state,
-          position.blockIndex,
-          0,
-          mathBlockSource(block).length,
+        state: updateMode(
+          selectMathRange(
+            state,
+            position.blockIndex,
+            0,
+            mathBlockSource(block).length,
+          ),
+          "select",
         ),
         ops: [],
         handled: true,
@@ -2496,6 +2497,7 @@ function selectMathRange(
       return updateContentSelection(state, {
         anchor: anchor.focus,
         focus: focus.focus,
+        initialBoundary: { start: anchor.focus, end: focus.focus },
         lastUpdate: Date.now(),
       });
     }

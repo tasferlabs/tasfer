@@ -1661,6 +1661,7 @@ describe("tree-backed display math state integration", () => {
     const content = selected.state.document.contentSelection;
     expect(content).not.toBeNull();
     expect(selected.state.document.selection).toBeNull();
+    expect(selected.state.ui.mode).toBe("select");
 
     const resized = selected.state.actionBus.dispatchState(
       RESIZE_MATH_MATRIX,
@@ -1679,6 +1680,66 @@ describe("tree-backed display math state integration", () => {
     if (matrix?.type !== "matrix") throw new Error("expected matrix");
     expect(matrix.rows).toHaveLength(3);
     expect(matrix.rows.every((row) => row.cells.length === 3)).toBe(true);
+  });
+
+  it("keeps the double-clicked construct selected when a drag begins", () => {
+    const latex = String.raw`a+\frac{x}{y}+z`;
+    const start = latex.indexOf("\\frac");
+    const end = latex.indexOf("+z");
+    let state = moveCursorToPosition(
+      treeState(`$$\n${latex}\n$$`),
+      0,
+      latex.length,
+    );
+    state = insertText(state, "").state;
+
+    const selected = state.actionBus.dispatchState(
+      SELECT_WORD_AT_POINT,
+      state,
+      {
+        position: { blockIndex: 0, textIndex: start + 1 },
+        range: { start, end },
+      },
+    ).state;
+    const document = getMathStructuredDocument(block(selected));
+    const initial = selected.document.contentSelection;
+    if (!document || !initial?.initialBoundary) {
+      throw new Error("expected a structured gesture selection");
+    }
+
+    const dragTo = (offset: number) => {
+      const hit = mathContentSelectionFromSourceOffset(
+        block(selected).id,
+        document.rootId,
+        document,
+        offset,
+      );
+      if (!hit) throw new Error("expected drag target");
+      return updateContentSelection(selected, {
+        anchor: initial.anchor,
+        focus: hit.focus,
+        initialBoundary: initial.initialBoundary,
+      }).document.contentSelection;
+    };
+
+    const inside = dragTo(latex.indexOf("x") + 1);
+    const backward = dragTo(0);
+    const forward = dragTo(latex.length);
+    if (!inside || !backward || !forward) {
+      throw new Error("expected continued structured selections");
+    }
+    expect(mathSourceRangeFromContentSelection(document, inside)).toEqual({
+      from: start,
+      to: end,
+    });
+    expect(mathSourceRangeFromContentSelection(document, backward)).toEqual({
+      from: 0,
+      to: end,
+    });
+    expect(mathSourceRangeFromContentSelection(document, forward)).toEqual({
+      from: start,
+      to: latex.length,
+    });
   });
 
   it("selects the whole equation as a nested selection on triple-click", () => {

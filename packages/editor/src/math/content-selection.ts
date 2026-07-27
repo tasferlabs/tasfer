@@ -22,6 +22,7 @@ import { MATH_STRUCTURED_KIND, structuredToMathDocument } from "./structured";
 import { getMathTreeRangeText } from "./tree-edit";
 import {
   contentPointToMathTreeCaret,
+  mathSourceOffsetFromContentPoint,
   mathSourceRangeFromContentSelection,
   snapMathContentSelection,
 } from "./tree-selection";
@@ -61,7 +62,40 @@ export function resolveMathContentSelection({
   document,
   selection,
 }: ContentSelectionCtx): ContentSelection | undefined {
-  return snapMathContentSelection(document, selection);
+  const boundary = selection.initialBoundary;
+  if (!boundary) return snapMathContentSelection(document, selection);
+
+  const start = mathSourceOffsetFromContentPoint(document, boundary.start);
+  const end = mathSourceOffsetFromContentPoint(document, boundary.end);
+  const focus = mathSourceOffsetFromContentPoint(document, selection.focus);
+  if (start === null || end === null || focus === null) {
+    return snapMathContentSelection(document, selection);
+  }
+
+  let adjusted: ContentSelection;
+  if (focus < start) {
+    adjusted = { ...selection, anchor: boundary.end };
+  } else if (focus > end) {
+    adjusted = { ...selection, anchor: boundary.start };
+  } else if (focus - start < end - focus) {
+    adjusted = {
+      ...selection,
+      anchor: boundary.end,
+      focus: boundary.start,
+    };
+  } else {
+    adjusted = {
+      ...selection,
+      anchor: boundary.start,
+      focus: boundary.end,
+    };
+  }
+
+  const snapped = snapMathContentSelection(document, adjusted) ?? adjusted;
+  return {
+    ...snapped,
+    unsnapped: { anchor: adjusted.anchor, focus: adjusted.focus },
+  };
 }
 
 /** The math kind's selection adapters, for hand-assembled interactive schemas. */
