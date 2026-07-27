@@ -2232,6 +2232,12 @@ describe("tree-backed display math state integration", () => {
     expect(treeSource(unknown)).toBe(String.raw`\wat`);
   });
 
+  it("completes an unambiguous display-cased command", () => {
+    const typed = typeText(treeState("$$\n\n$$"), String.raw`\Degree`);
+
+    expect(treeSource(typed.state)).toBe(String.raw`\degree`);
+  });
+
   it("completes a manually typed square root semantically and deletes it whole", () => {
     const typed = typeText(treeState("$$\n\n$$"), String.raw`\sqrt`).state;
     const document = getMathStructuredDocument(block(typed));

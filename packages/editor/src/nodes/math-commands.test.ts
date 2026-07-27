@@ -97,6 +97,15 @@ describe("math command catalog", () => {
       id: "alpha",
       latex: String.raw`\alpha`,
     });
+    expect(unambiguousMathCommandCompletion("Degree")).toEqual({
+      id: "degree",
+      latex: String.raw`\degree`,
+    });
+    expect(unambiguousMathCommandCompletion("Gamma")).toEqual({
+      id: "Gamma",
+      latex: String.raw`\Gamma`,
+    });
+    expect(unambiguousMathCommandCompletion("GAMMA")).toBeUndefined();
     expect(unambiguousMathCommandCompletion("in")).toBeUndefined();
     expect(unambiguousMathCommandCompletion("sin")).toBeUndefined();
     expect(unambiguousMathCommandCompletion("sin", "h")).toBeUndefined();
