@@ -37,6 +37,8 @@ import {
 } from "../actions/edit-actions";
 import {
   EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_END,
+  EXTEND_SELECTION_HOME,
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
   EXTEND_SELECTION_UP,
@@ -47,6 +49,8 @@ import {
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  MOVE_TO_LINE_END,
+  MOVE_TO_LINE_START,
   MOVE_TO_NEXT_WORD,
   MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
@@ -88,11 +92,13 @@ import {
   exitActiveMathTreeVertically,
   extendActiveMathTreeSelectionByUnit,
   extendActiveMathTreeSelectionHorizontally,
+  extendActiveMathTreeSelectionToRowEdge,
   extendActiveMathTreeSelectionVertically,
   hasActiveMathTreeCaret,
   insertActiveMathTreeCommand,
   moveActiveMathTreeCaret,
   moveActiveMathTreeCaretByUnit,
+  moveActiveMathTreeCaretToRowEdge,
   moveActiveMathTreeCaretVertically,
   ownsMathTreeMutation,
   resizeActiveMathTreeMatrix,
@@ -2117,6 +2123,24 @@ export class MathNode extends TextNode<MathBlock> {
           : undefined);
     bus.registerState(EXTEND_SELECTION_LEFT, extendHorizontal("left"), 100);
     bus.registerState(EXTEND_SELECTION_RIGHT, extendHorizontal("right"), 100);
+    const moveToRowEdge = (edge: "start" | "end") => (state: EditorState) =>
+      moveActiveMathTreeCaretToRowEdge(state, edge) ??
+      (hasActiveMathTreeCaret(state)
+        ? { state, ops: [], handled: true as const }
+        : undefined);
+    bus.registerState(MOVE_TO_LINE_START, moveToRowEdge("start"), 100);
+    bus.registerState(MOVE_TO_LINE_END, moveToRowEdge("end"), 100);
+    const extendToRowEdge =
+      (edge: "start" | "end") =>
+      (state: EditorState, { isCtrl }: { isCtrl: boolean }) =>
+        isCtrl
+          ? undefined
+          : (extendActiveMathTreeSelectionToRowEdge(state, edge) ??
+            (hasActiveMathTreeCaret(state)
+              ? { state, ops: [], handled: true as const }
+              : undefined));
+    bus.registerState(EXTEND_SELECTION_HOME, extendToRowEdge("start"), 100);
+    bus.registerState(EXTEND_SELECTION_END, extendToRowEdge("end"), 100);
     bus.registerState(
       DELETE_FORWARD,
       (state) => {

@@ -15,8 +15,8 @@ import type { Block } from "../serlization/loadPage";
 import type { ContentEdit, EditorState, Operation } from "../state-types";
 import {
   type ContentPoint,
-  type ContentSelection,
   contentPointsEqual,
+  type ContentSelection,
   isContentSelectionCollapsed,
   normalizeContentSelection,
   updateContentSelection,
@@ -53,6 +53,7 @@ import {
   mathTreeMatrixTargetCaret,
   type MathTreeMotion,
   type MathTreeRange,
+  mathTreeRowEdgeCaret,
   moveMathTreeCaret,
   resizeMathTreeMatrix,
 } from "./tree-edit";
@@ -145,6 +146,23 @@ export function moveActiveMathTreeCaretByUnit(
     : undefined;
 }
 
+/** Move an active display-math caret to its current structural row edge. */
+export function moveActiveMathTreeCaretToRowEdge(
+  state: EditorState,
+  edge: "start" | "end",
+): MathTreeStateEditResult | undefined {
+  const context = activeMathTreeContext(state);
+  if (!context) return undefined;
+  const caret = mathTreeRowEdgeCaret(context.document, context.caret, edge);
+  return caret
+    ? commitMathTreeResult(state, context, {
+        handled: true,
+        edits: [],
+        caret,
+      })
+    : undefined;
+}
+
 /** Extend a structured display-math selection by one adjacent math unit. */
 export function extendActiveMathTreeSelectionByUnit(
   state: EditorState,
@@ -164,6 +182,39 @@ export function extendActiveMathTreeSelectionByUnit(
     continuation.anchor,
     caret,
     direction === "right" ? "end" : "start",
+  );
+  return selection
+    ? {
+        state: updateContentSelection(state, selection),
+        ops: [],
+        handled: true,
+      }
+    : undefined;
+}
+
+/** Extend an active display-math selection to its current structural row edge. */
+export function extendActiveMathTreeSelectionToRowEdge(
+  state: EditorState,
+  edge: "start" | "end",
+): MathTreeStateEditResult | undefined {
+  const context = activeMathTreeContext(state);
+  const current = state.document.contentSelection;
+  if (!context || !current) return undefined;
+  const continuation = mathTreeSelectionContinuation(context.document, current);
+  if (!continuation) return undefined;
+  const caret = mathTreeRowEdgeCaret(
+    context.document,
+    continuation.caret,
+    edge,
+  );
+  if (!caret) return undefined;
+  const selection = extendMathTreeContentSelection(
+    context.block.id,
+    context.contentId,
+    context.document,
+    continuation.anchor,
+    caret,
+    edge,
   );
   return selection
     ? {

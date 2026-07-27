@@ -21,6 +21,8 @@ import {
 } from "../actions/input-actions";
 import {
   EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_END,
+  EXTEND_SELECTION_HOME,
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
   EXTEND_SELECTION_WORD_LEFT,
@@ -30,6 +32,8 @@ import {
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  MOVE_TO_LINE_END,
+  MOVE_TO_LINE_START,
 } from "../actions/keyboard-actions";
 import {
   SELECT_LINE_AT_POINT,
@@ -273,6 +277,41 @@ describe("tree-backed display math state integration", () => {
     expect(right.state.document.contentSelection?.anchor).toEqual(anchor);
     expect(right.state.document.contentSelection?.focus).toEqual(anchor);
   });
+
+  it.each([
+    ["Home", MOVE_TO_LINE_START, 0],
+    ["End", MOVE_TO_LINE_END, 3],
+  ] as const)(
+    "moves %s to the active math row edge",
+    (_key, action, offset) => {
+      const before = placeTreeCaret(treeState("$$\nabc\n$$"), 1);
+
+      const moved = before.actionBus.dispatchState(action, before);
+
+      expect(moved.claimed).toBe(true);
+      expect(contentTextOffset(moved.state)).toBe(offset);
+      expect(moved.state.document.cursor).toBeNull();
+    },
+  );
+
+  it.each([
+    ["Home", EXTEND_SELECTION_HOME, 0],
+    ["End", EXTEND_SELECTION_END, 3],
+  ] as const)(
+    "extends Shift+%s to the active math row edge",
+    (_key, action, offset) => {
+      const before = placeTreeCaret(treeState("$$\nabc\n$$"), 1);
+      const anchor = before.document.contentSelection?.focus;
+
+      const moved = before.actionBus.dispatchState(action, before, {
+        isCtrl: false,
+      });
+
+      expect(moved.claimed).toBe(true);
+      expect(moved.state.document.contentSelection?.anchor).toEqual(anchor);
+      expect(contentTextOffset(moved.state)).toBe(offset);
+    },
+  );
 
   it.each([
     ["left", MOVE_CURSOR_LEFT],

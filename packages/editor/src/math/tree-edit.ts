@@ -61,6 +61,18 @@ export interface MathTextCaret {
 /** Feature-local caret used by the pure tree controller. */
 export type MathTreeCaret = MathRowCaret | MathTextCaret;
 
+/** Resolve the first or last editable caret in the caret's current math row. */
+export function mathTreeRowEdgeCaret(
+  document: StructuredDocument,
+  caret: MathTreeCaret,
+  edge: "start" | "end",
+): MathTreeCaret | undefined {
+  const math = validMathDocument(document);
+  if (!math) return undefined;
+  const resolved = resolveCaret(math, caret);
+  return resolved ? enterRow(math, resolved.row, edge) : undefined;
+}
+
 /** A directional selection expressed entirely with stable tree identities. */
 export interface MathTreeRange {
   readonly anchor: MathTreeCaret;
