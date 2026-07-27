@@ -26,7 +26,6 @@ import {
   type StateResult,
   TEXT_INPUTTED,
 } from "../action-bus";
-import { deleteSelectedText } from "../actions/actions";
 import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
@@ -309,58 +308,6 @@ function mathBlockAt(state: EditorState, blockIndex: number): MathBlock | null {
   const block = state.document.page.blocks[blockIndex] as
     Block | MathBlock | undefined;
   return block && !block.deleted && block.type === "math" ? block : null;
-}
-
-/**
- * The math block whose ENTIRE equation the current selection covers (via
- * triple-click or the first Ctrl/Cmd+A), or null. Such a selection covers
- * everything the block holds, so Backspace and Delete remove the whole block,
- * like a node selection, instead of leaving an empty equation behind. An
- * already-flat node selection is excluded: the generic whole-block delete
- * branch owns it.
- */
-function wholeEquationSelectionBlockIndex(state: EditorState): number | null {
-  const content = state.document.contentSelection;
-  if (content) {
-    if (content.anchor.blockId !== content.focus.blockId) return null;
-    const blockIndex = state.document.page.blocks.findIndex(
-      (candidate) =>
-        candidate.id === content.focus.blockId && !candidate.deleted,
-    );
-    if (blockIndex < 0) return null;
-    const block = mathBlockAt(state, blockIndex);
-    const document = block ? getMathStructuredDocument(block) : undefined;
-    const math = block ? getMathDocumentForBlock(block) : undefined;
-    if (!block || !document || !math) return null;
-    // Structural check, deliberately NOT the source-offset bridge: each
-    // endpoint must sit AT an end of the root row. A partial selection inside
-    // an atomic construct (a withheld `\sin` scratch) snaps to the full source
-    // range through the bridge, but its endpoints live mid-field — that must
-    // stay a content delete.
-    const rootRow = math.root.body;
-    if (rootRow.children.length === 0) return null;
-    if (isContentSelectionCollapsed(content)) return null;
-    const anchor = contentPointToMathDocumentPosition(document, content.anchor);
-    const focus = contentPointToMathDocumentPosition(document, content.focus);
-    if (!anchor || !focus) return null;
-    const whole =
-      (atRootRowEdge(rootRow, anchor, "start") &&
-        atRootRowEdge(rootRow, focus, "end")) ||
-      (atRootRowEdge(rootRow, anchor, "end") &&
-        atRootRowEdge(rootRow, focus, "start"));
-    return whole ? blockIndex : null;
-  }
-  const sel = state.document.selection;
-  if (!sel || sel.isCollapsed || isNodeSelection(sel)) return null;
-  if (sel.anchor.blockIndex !== sel.focus.blockIndex) return null;
-  const blockIndex = sel.anchor.blockIndex;
-  const block = mathBlockAt(state, blockIndex);
-  if (!block) return null;
-  const length = mathBlockSource(block).length;
-  if (length === 0) return null;
-  const from = Math.min(sel.anchor.textIndex, sel.focus.textIndex);
-  const to = Math.max(sel.anchor.textIndex, sel.focus.textIndex);
-  return from <= 0 && to >= length ? blockIndex : null;
 }
 
 /**
@@ -1961,36 +1908,6 @@ export class MathNode extends TextNode<MathBlock> {
         convertBlockToEmptyMath(state, blockIndex, type),
       100,
     );
-    // A selection covering the whole equation leaves nothing worth keeping —
-    // deleting it removes the block itself, not just its content, instead of
-    // stranding an empty equation. Convert to the flat whole-block node
-    // selection and reuse the generic block delete (tombstone, only-block
-    // guard, cursor). Runs above the tree delete (100), which would empty the
-    // equation.
-    const deleteWholeEquationSelection: StateHandler<void> = (state) => {
-      const blockIndex = wholeEquationSelectionBlockIndex(state);
-      if (blockIndex === null) return;
-      const position: Position = { blockIndex, textIndex: 0 };
-      let next = updateContentSelection(state, null);
-      next = {
-        ...next,
-        document: {
-          ...next.document,
-          selection: {
-            anchor: position,
-            focus: position,
-            isForward: true,
-            isCollapsed: false,
-            lastUpdate: Date.now(),
-          },
-        },
-      };
-      return { ...deleteSelectedText(next), handled: true };
-    };
-    bus.registerState(DELETE_BACKWARD, deleteWholeEquationSelection, 110);
-    bus.registerState(DELETE_FORWARD, deleteWholeEquationSelection, 110);
-    bus.registerState(DELETE_WORD_BACKWARD, deleteWholeEquationSelection, 110);
-    bus.registerState(DELETE_WORD_FORWARD, deleteWholeEquationSelection, 110);
     // Structured display equations claim editing/navigation here. All
     // mutations are generic `content_edit` ops; inline MathMark registers its
     // own handlers.

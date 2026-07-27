@@ -463,6 +463,23 @@ describe("tree-backed display math state integration", () => {
     });
   });
 
+  it.each([
+    ["Backspace", DELETE_BACKWARD],
+    ["Delete", DELETE_FORWARD],
+  ] as const)(
+    "%s after Select All empties only the equation",
+    (_label, action) => {
+      const before = typeText(treeState("$$\n\n$$"), "ab").state;
+      const selected = before.actionBus.dispatchState(SELECT_ALL, before).state;
+
+      const deleted = selected.actionBus.dispatchState(action, selected);
+
+      expect(deleted.claimed).toBe(true);
+      expect(block(deleted.state).deleted).toBeUndefined();
+      expect(treeSource(deleted.state)).toBe("");
+    },
+  );
+
   it("demotes a structured display equation to the same structured inline math", () => {
     const before = selectActiveTreeText(
       typeText(treeState("$$\n\n$$"), "ab").state,
@@ -1300,14 +1317,15 @@ describe("tree-backed display math state integration", () => {
         selected.state.document.contentSelection?.focus,
       );
 
-      // The construct IS the whole equation here, so the selection covers the
-      // entire block (painted as a full-card highlight) — the second press
-      // deletes the block itself, not just its content.
+      // The construct IS the whole equation here, but this remains a content
+      // selection. The second press empties the equation without deleting its
+      // padded block container.
       const deleted = selected.state.actionBus.dispatchState(
         action,
         selected.state,
       );
-      expect(block(deleted.state).deleted).toBe(true);
+      expect(block(deleted.state).deleted).toBeUndefined();
+      expect(treeSource(deleted.state)).toBe("");
     },
   );
 
@@ -1315,7 +1333,7 @@ describe("tree-backed display math state integration", () => {
     ["plain text", "aa"],
     ["a construct", String.raw`\frac{a}{b}`],
   ] as const)(
-    "deletes the whole block when a triple-click selection over %s is deleted",
+    "deletes only the content when a triple-click selects all %s",
     (_label, source) => {
       const before = treeState(`$$\n${source}\n$$`);
       const selected = before.actionBus.dispatchState(
@@ -1330,7 +1348,8 @@ describe("tree-backed display math state integration", () => {
         selected.state,
       );
       expect(deleted.claimed).toBe(true);
-      expect(block(deleted.state).deleted).toBe(true);
+      expect(block(deleted.state).deleted).toBeUndefined();
+      expect(treeSource(deleted.state)).toBe("");
     },
   );
 
