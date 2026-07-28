@@ -952,6 +952,7 @@ export function parseHTMLToBlocks(
       bulletListMarker: "-",
       codeBlockStyle: "fenced",
       headingStyle: "atx",
+      hr: "---",
     }).turndown(html);
   } catch (error) {
     console.error("Failed to convert pasted HTML to Markdown:", error);

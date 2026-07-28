@@ -25,6 +25,7 @@ import {
   atomicBlockInsertOps,
   buildClipboardPayload,
   getSelectionPlainText,
+  parseHTMLToBlocks,
   pasteFromClipboardEvent,
   repairMathBackslashes,
 } from "./clipboard";
@@ -137,6 +138,18 @@ describe("multi-block paste — ordering & convergence", () => {
     for (let i = 1; i < keys.length; i++) {
       expect(keys[i - 1] < keys[i]).toBe(true);
     }
+  });
+});
+
+describe("external HTML paste", () => {
+  it("parses an hr element as a line block", () => {
+    const blocks = parseHTMLToBlocks(
+      "<p>Before</p><hr><p>After</p>",
+      createCRDTbinding("page-1", "peer-a"),
+    );
+
+    expect(blocks.filter((block) => block.type === "line")).toHaveLength(1);
+    expect(blocks.some((block) => block.type === "bullet_list")).toBe(false);
   });
 });
 
