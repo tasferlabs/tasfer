@@ -1,7 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Html5Qrcode as Html5QrcodeInstance } from "html5-qrcode";
-import { Camera, X } from "lucide-react";
+import type {
+  CameraDevice,
+  Html5Qrcode as Html5QrcodeInstance,
+} from "html5-qrcode";
+import { Camera, SwitchCamera, X } from "lucide-react";
 
 interface QRScannerViewProps {
   onScan: (data: string) => void;
@@ -19,13 +22,43 @@ export function QRScannerView({
   const scannerId = `qr-reader-${reactId.replace(/:/g, "")}`;
   const scannerRef = useRef<Html5QrcodeInstance | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const camerasRef = useRef<CameraDevice[]>([]);
+  const activeCameraIdRef = useRef<string | null>(null);
+  const onScanRef = useRef(onScan);
+  const tRef = useRef(t);
+  const mountedRef = useRef(false);
+  const switchingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [cameraCount, setCameraCount] = useState(0);
+  const [switching, setSwitching] = useState(false);
   const hasScannedRef = useRef(false);
   const isRunningRef = useRef(false);
+  onScanRef.current = onScan;
+  tRef.current = t;
+
+  function startCamera(scanner: Html5QrcodeInstance, cameraId: string) {
+    return scanner.start(
+      cameraId,
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        aspectRatio: 1,
+      },
+      (decodedText) => {
+        if (hasScannedRef.current) return;
+        hasScannedRef.current = true;
+        onScanRef.current(decodedText);
+      },
+      () => {
+        // Ignore scan failures while there is no QR code in the frame.
+      },
+    );
+  }
 
   useEffect(() => {
     let cancelled = false;
+    mountedRef.current = true;
 
     async function startScanner() {
       if (!containerRef.current) return;
@@ -46,9 +79,14 @@ export function QRScannerView({
         }
 
         if (cameras.length === 0) {
-          setError(t("scanner.noCamera", "No camera found on this device"));
+          setError(
+            tRef.current("scanner.noCamera", "No camera found on this device"),
+          );
           return;
         }
+
+        camerasRef.current = cameras;
+        setCameraCount(cameras.length);
 
         // Prefer back camera on mobile
         const backCamera = cameras.find(
@@ -59,22 +97,7 @@ export function QRScannerView({
         );
         const cameraId = backCamera ? backCamera.id : cameras[0].id;
 
-        await scanner.start(
-          cameraId,
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1,
-          },
-          (decodedText) => {
-            if (hasScannedRef.current) return;
-            hasScannedRef.current = true;
-            onScan(decodedText);
-          },
-          () => {
-            // ignore scan failures (no QR in frame)
-          },
-        );
+        await startCamera(scanner, cameraId);
 
         // Effect was cleaned up while the camera was starting — stop it now
         if (cancelled) {
@@ -86,19 +109,20 @@ export function QRScannerView({
         }
 
         isRunningRef.current = true;
+        activeCameraIdRef.current = cameraId;
         setReady(true);
       } catch (err) {
         if (cancelled) return;
         if (err instanceof Error && err.message.includes("Permission")) {
           setError(
-            t(
+            tRef.current(
               "scanner.permissionDenied",
               "Camera permission denied. Please allow camera access to scan QR codes.",
             ),
           );
         } else {
           setError(
-            t(
+            tRef.current(
               "scanner.cameraError",
               "Could not access camera. Make sure no other app is using it.",
             ),
@@ -111,6 +135,7 @@ export function QRScannerView({
 
     return () => {
       cancelled = true;
+      mountedRef.current = false;
       const scanner = scannerRef.current;
       if (scanner && isRunningRef.current) {
         isRunningRef.current = false;
@@ -120,7 +145,65 @@ export function QRScannerView({
           .catch(() => {});
       }
     };
-  }, [scannerId, onScan, t]);
+  }, [scannerId]);
+
+  async function handleSwitchCamera() {
+    const scanner = scannerRef.current;
+    const cameras = camerasRef.current;
+    const activeCameraId = activeCameraIdRef.current;
+    if (
+      !scanner ||
+      cameras.length < 2 ||
+      !activeCameraId ||
+      switchingRef.current
+    ) {
+      return;
+    }
+
+    const activeIndex = cameras.findIndex(
+      (camera) => camera.id === activeCameraId,
+    );
+    const nextCamera = cameras[(activeIndex + 1) % cameras.length];
+    switchingRef.current = true;
+    setSwitching(true);
+    setReady(false);
+
+    try {
+      isRunningRef.current = false;
+      await scanner.stop();
+
+      if (!mountedRef.current || scannerRef.current !== scanner) {
+        scanner.clear();
+        return;
+      }
+
+      await startCamera(scanner, nextCamera.id);
+
+      if (!mountedRef.current || scannerRef.current !== scanner) {
+        await scanner.stop();
+        scanner.clear();
+        return;
+      }
+
+      isRunningRef.current = true;
+      activeCameraIdRef.current = nextCamera.id;
+      setReady(true);
+    } catch {
+      if (mountedRef.current && scannerRef.current === scanner) {
+        setError(
+          tRef.current(
+            "scanner.cameraError",
+            "Could not access camera. Make sure no other app is using it.",
+          ),
+        );
+      }
+    } finally {
+      switchingRef.current = false;
+      if (mountedRef.current && scannerRef.current === scanner) {
+        setSwitching(false);
+      }
+    }
+  }
 
   if (error) {
     return (
@@ -188,6 +271,19 @@ export function QRScannerView({
             className="absolute top-3 end-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70"
           >
             <X className="h-4 w-4" />
+          </button>
+        )}
+
+        {cameraCount > 1 && (ready || switching) && (
+          <button
+            type="button"
+            onClick={handleSwitchCamera}
+            disabled={switching}
+            aria-label={t("scanner.switchCamera", "Switch camera")}
+            title={t("scanner.switchCamera", "Switch camera")}
+            className="absolute bottom-3 end-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 disabled:cursor-wait disabled:opacity-60"
+          >
+            <SwitchCamera className="h-4 w-4" />
           </button>
         )}
       </div>

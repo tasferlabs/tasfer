@@ -684,6 +684,7 @@
   "scanner.permissionDenied": "تم رفض إذن الكاميرا. يرجى السماح بالوصول إليها لمسح رموز QR.",
   "scanner.pointAtQR": "وجّه الكاميرا نحو رمز QR",
   "scanner.scanQR": "مسح رمز QR ضوئيًا",
+  "scanner.switchCamera": "تبديل الكاميرا",
   "share.activeInvites": "الدعوات النشطة",
   "share.copied": "تم النسخ!",
   "share.copy": "نسخ",

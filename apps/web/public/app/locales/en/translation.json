@@ -703,6 +703,7 @@
   "scanner.permissionDenied": "Camera permission denied. Please allow camera access to scan QR codes.",
   "scanner.pointAtQR": "Point your camera at a QR code",
   "scanner.scanQR": "Scan QR",
+  "scanner.switchCamera": "Switch camera",
   "share.activeInvites": "Active invites",
   "share.copied": "Copied!",
   "share.copy": "Copy",
