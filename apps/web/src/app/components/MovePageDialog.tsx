@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle } from "lucide-react";
+import { GitFork, LoaderCircle, Move } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { PagePicker } from "@/components/PagePicker";
 import { Button } from "@/components/ui/button";
+import { PopoverButton } from "@/components/ui/popover-button";
 import {
   Dialog,
   DialogContent,
@@ -20,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { movePageAcrossSpaces } from "@/lib/spaceMove";
+import { forkPageToSpace, movePageAcrossSpaces } from "@/lib/spaceMove";
 import { type ISearchPage, useMovePage } from "../api/pages.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useToast } from "./Toast";
@@ -51,10 +52,12 @@ export function MovePageDialog({
     null,
   );
   const [isMovingAcrossSpaces, setIsMovingAcrossSpaces] = useState(false);
+  const [isForking, setIsForking] = useState(false);
 
   const { mutateAsync: movePage, isPending: isMovingWithinSpace } =
     useMovePage();
   const isMoving = isMovingWithinSpace || isMovingAcrossSpaces;
+  const isWorking = isMoving || isForking;
   const selectedParentId = selectedParent?.id ?? null;
   const isSamePosition =
     selectedSpaceId === sourceSpaceId &&
@@ -72,7 +75,7 @@ export function MovePageDialog({
   }
 
   async function handleMove() {
-    if (!selectedSpaceId || isSamePosition || isMoving) return;
+    if (!selectedSpaceId || isSamePosition || isWorking) return;
 
     try {
       if (selectedSpaceId === sourceSpaceId) {
@@ -102,6 +105,30 @@ export function MovePageDialog({
       toast.error(t("page.moveFailed", "Move failed"));
     } finally {
       setIsMovingAcrossSpaces(false);
+    }
+  }
+
+  async function handleFork() {
+    if (!selectedSpaceId || isWorking) return;
+
+    setIsForking(true);
+    try {
+      const { newRootId } = await forkPageToSpace(pageId, selectedSpaceId, {
+        targetParentId: selectedParentId,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      if (newRootId) {
+        queryClient.invalidateQueries({ queryKey: ["page", newRootId] });
+        navigate(`/page/${newRootId}`);
+      }
+      toast.success(t("page.forkDone", "Page forked"));
+      onOpenChange(false);
+    } catch (error) {
+      console.error("[MovePageDialog] fork failed", error);
+      toast.error(t("page.forkFailed", "Fork failed"));
+    } finally {
+      setIsForking(false);
     }
   }
 
@@ -160,17 +187,47 @@ export function MovePageDialog({
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={isMoving}
+            disabled={isWorking}
           >
             {t("common.cancel", "Cancel")}
           </Button>
-          <Button
-            onClick={handleMove}
-            disabled={!selectedSpaceId || isSamePosition || isMoving}
+          <PopoverButton
+            disabled={!selectedSpaceId || isWorking}
+            contentProps={{ className: "w-72 gap-1 p-1" }}
+            content={
+              <>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start"
+                  onClick={handleMove}
+                  disabled={isSamePosition || isWorking}
+                >
+                  <Move />
+                  {t("common.move", "Move")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="h-auto w-full items-start justify-start whitespace-normal"
+                  onClick={handleFork}
+                  disabled={isWorking}
+                >
+                  <GitFork className="mt-0.5" />
+                  <span className="text-start">
+                    <span className="block">{t("page.fork", "Fork")}</span>
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      {t(
+                        "page.forkDescription",
+                        "Keep the original and create a copy at this destination.",
+                      )}
+                    </span>
+                  </span>
+                </Button>
+              </>
+            }
           >
-            {isMoving && <LoaderCircle className="animate-spin" />}
+            {isWorking && <LoaderCircle className="animate-spin" />}
             {t("common.move", "Move")}
-          </Button>
+          </PopoverButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>

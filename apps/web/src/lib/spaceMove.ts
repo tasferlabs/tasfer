@@ -41,14 +41,13 @@ export interface MoveAcrossSpacesResult {
 }
 
 /**
- * Recreate `rootId`'s subtree in `targetSpaceId`, then remove the originals.
+ * Recreate `rootId`'s subtree in `targetSpaceId` without removing the source.
  *
  * The subtree is returned parent-before-child, so each page's remapped parent
  * id is already known by the time we reach it. If the caller aborts partway,
- * the pages recreated so far are kept but the source is left intact — the user
- * sees a partial copy rather than lost data.
+ * the pages recreated so far are kept.
  */
-export async function movePageAcrossSpaces(
+export async function forkPageToSpace(
   rootId: string,
   targetSpaceId: string,
   opts: MoveAcrossSpacesOptions = {},
@@ -89,11 +88,26 @@ export async function movePageAcrossSpaces(
     opts.onProgress?.({ done: i + 1, total });
   }
 
+  return { newRootId: idMap.get(rootId) ?? null, idMap, aborted: false };
+}
+
+/**
+ * Recreate `rootId`'s subtree in `targetSpaceId`, then remove the originals.
+ * If recreation is aborted, the partial copy and full source are both kept.
+ */
+export async function movePageAcrossSpaces(
+  rootId: string,
+  targetSpaceId: string,
+  opts: MoveAcrossSpacesOptions = {},
+): Promise<MoveAcrossSpacesResult> {
+  const result = await forkPageToSpace(rootId, targetSpaceId, opts);
+  if (result.aborted) return result;
+
   // Everything is safely recreated — remove the source subtree. This is the
   // normal soft-delete tombstone (archive + page_remove), so the originals land
   // in the source Archive (recoverable) and their CRDT ops are retained, never
   // hard-deleted.
-  await platform.pages.delete(rootId);
+  await getPlatform().pages.delete(rootId);
 
-  return { newRootId: idMap.get(rootId) ?? null, idMap, aborted: false };
+  return result;
 }
