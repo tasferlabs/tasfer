@@ -187,6 +187,7 @@ export function EventPreview({
   onDraftSave,
   onDraftScheduleChange,
   onDraftContentChange,
+  calendarInteractionActive = false,
 }: {
   pageId: string | null;
   anchor: DOMRect | null;
@@ -214,6 +215,8 @@ export function EventPreview({
   // Reports whether the draft has a typed title, so the host can guard
   // navigation away from an in-progress draft.
   onDraftContentChange?: (hasContent: boolean) => void;
+  // Lets the active calendar move, resize, or creation gesture own Escape.
+  calendarInteractionActive?: boolean;
 }) {
   const { t } = useTranslation();
   const isRtl = i18next.dir() === "rtl";
@@ -224,6 +227,8 @@ export function EventPreview({
   const { panelRef, setHasPanel, slotMounted } = useSidebarPanel();
   const { activeSpaceId, spaces } = useSpaces();
   const { getConfirmation } = useConfirmation();
+  const calendarInteractionActiveRef = useRef(calendarInteractionActive);
+  calendarInteractionActiveRef.current = calendarInteractionActive;
 
   // Parent page selection
   const [draftParent, setDraftParent] = useState<ISearchPage | null>(null);
@@ -762,6 +767,7 @@ export function EventPreview({
     if (!isActive) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      if (calendarInteractionActiveRef.current) return;
       // Escape during IME composition cancels the composition; that one is the
       // editor's to handle.
       if (e.isComposing) return;

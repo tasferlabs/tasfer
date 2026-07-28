@@ -18,6 +18,19 @@ export const SNAP_PX = (SNAP_MINUTES / 60) * HOUR_HEIGHT;
 
 export type ViewMode = "day" | "week";
 
+export interface CalendarInterval {
+  id: string;
+  startMinutes: number;
+  duration: number;
+}
+
+export interface CalendarEventLayout {
+  lane: number;
+  laneCount: number;
+}
+
+const MIN_EVENT_HEIGHT_MINUTES = 20;
+
 // ── Display time zone ──
 //
 // The grid works in "wall dates": plain Dates whose local components carry the
@@ -178,6 +191,82 @@ export function snapPx(px: number): number {
 export function pageToStartMin(page: ICalendarPage): number {
   const d = zonedWallDate(page.scheduledAt);
   return d.getHours() * 60 + d.getMinutes();
+}
+
+export function layoutCalendarIntervals(
+  intervals: CalendarInterval[],
+): Map<string, CalendarEventLayout> {
+  const sorted = intervals
+    .map((interval) => ({
+      ...interval,
+      endMinutes:
+        interval.startMinutes +
+        Math.max(interval.duration, MIN_EVENT_HEIGHT_MINUTES),
+    }))
+    .sort((a, b) => {
+      if (a.startMinutes !== b.startMinutes) {
+        return a.startMinutes - b.startMinutes;
+      }
+      if (a.endMinutes !== b.endMinutes) return b.endMinutes - a.endMinutes;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+
+  const result = new Map<string, CalendarEventLayout>();
+  let group: { id: string; lane: number }[] = [];
+  let laneEnds: number[] = [];
+  let groupEnd = -Infinity;
+
+  const finishGroup = () => {
+    const laneCount = laneEnds.length;
+    for (const event of group) {
+      result.set(event.id, { lane: event.lane, laneCount });
+    }
+    group = [];
+    laneEnds = [];
+  };
+
+  for (const interval of sorted) {
+    if (group.length > 0 && interval.startMinutes >= groupEnd) {
+      finishGroup();
+      groupEnd = -Infinity;
+    }
+
+    let lane = laneEnds.findIndex(
+      (laneEnd) => laneEnd <= interval.startMinutes,
+    );
+    if (lane === -1) lane = laneEnds.length;
+    laneEnds[lane] = interval.endMinutes;
+    group.push({ id: interval.id, lane });
+    groupEnd = Math.max(groupEnd, interval.endMinutes);
+  }
+
+  if (group.length > 0) finishGroup();
+  return result;
+}
+
+export function getEventLaneInsets(
+  layout: CalendarEventLayout | undefined,
+  compact: boolean,
+): { insetInlineStart: string; insetInlineEnd: string } {
+  const { lane, laneCount } = layout ?? { lane: 0, laneCount: 1 };
+  const startFraction = lane / laneCount;
+  const endFraction = (lane + 1) / laneCount;
+  const remainingFraction = 1 - endFraction;
+  const baseStart = compact ? 0 : 68;
+  const baseEnd = compact ? 0 : 8;
+  const startGap = lane > 0 ? 2 : 0;
+  const endGap = lane < laneCount - 1 ? 2 : 0;
+  const startOffset =
+    baseStart * (1 - startFraction) - baseEnd * startFraction + startGap;
+  const endOffset =
+    -baseStart * remainingFraction +
+    baseEnd * (1 - remainingFraction) +
+    endGap;
+
+  return {
+    insetInlineStart: `calc(${startFraction * 100}% + ${startOffset}px)`,
+    insetInlineEnd: `calc(${remainingFraction * 100}% + ${endOffset}px)`,
+  };
 }
 
 export function shortDayName(date: Date): string {
