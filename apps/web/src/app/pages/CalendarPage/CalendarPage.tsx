@@ -47,6 +47,9 @@ import {
   pxToMinutes,
   snapPx,
   pageToStartMin,
+  layoutCalendarIntervals,
+  getEventLaneInsets,
+  type CalendarEventLayout,
   shortDayName,
   formatMonthLong,
   zonedWallDate,
@@ -608,6 +611,86 @@ export default function CalendarPage() {
   function getPagesForDay(date: Date): ICalendarPage[] {
     const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     return pagesByDay.get(key) || [];
+  }
+
+  function getTransientIntervalsForDay(day: Date) {
+    const intervals: {
+      id: string;
+      startMinutes: number;
+      duration: number;
+    }[] = [];
+
+    if (createDrag && isSameDay(createDrag.date, day)) {
+      intervals.push({
+        id: "__create_ghost__",
+        startMinutes: createDrag.startMinutes,
+        duration: createDrag.endMinutes - createDrag.startMinutes,
+      });
+    }
+
+    if (activeDragPage) {
+      const dragDay =
+        dragTargetDay || zonedWallDate(activeDragPage.scheduledAt);
+      if (isSameDay(dragDay, day)) {
+        const startMinutes = Math.max(
+          0,
+          Math.min(
+            pageToStartMin(activeDragPage) + dragDeltaMinutes,
+            TOTAL_HOURS * 60 - SNAP_MINUTES,
+          ),
+        );
+        intervals.push({
+          id: "__drag_ghost__",
+          startMinutes,
+          duration: activeDragPage.duration || 60,
+        });
+      }
+    }
+
+    return intervals;
+  }
+
+  function getLaidOutPages(dayPages: ICalendarPage[], day?: Date) {
+    const displayPages = dayPages.map((page) =>
+      resize?.pageId === page.id && resizeDuration !== null
+        ? { ...page, duration: resizeDuration }
+        : page,
+    );
+    const transientIntervals = day ? getTransientIntervalsForDay(day) : [];
+    const layouts = layoutCalendarIntervals(
+      [
+        ...displayPages
+          .filter(
+            (page) =>
+              !activeDragPage ||
+              page.id !== activeDragPage.id ||
+              transientIntervals.length === 0,
+          )
+          .map((page) => ({
+            id: page.id,
+            startMinutes: pageToStartMin(page),
+            duration: page.duration || 60,
+          })),
+        ...transientIntervals,
+      ],
+    );
+    return displayPages.map((page) => ({ page, layout: layouts.get(page.id) }));
+  }
+
+  function getTransientLayout(
+    day: Date,
+    interval: { id: string; startMinutes: number; duration: number },
+    excludedPageId?: string,
+  ): CalendarEventLayout | undefined {
+    const intervals = getPagesForDay(day)
+      .filter((page) => page.id !== excludedPageId)
+      .map((page) => ({
+        id: page.id,
+        startMinutes: pageToStartMin(page),
+        duration: page.duration || 60,
+      }));
+    intervals.push(interval);
+    return layoutCalendarIntervals(intervals).get(interval.id);
   }
 
   // Scroll to current hour on mount
@@ -1707,16 +1790,11 @@ export default function CalendarPage() {
         data-day-index={columnIndex}
         style={{ position: "relative", height: TOTAL_HOURS * HOUR_HEIGHT }}
       >
-        {dayPages.map((page) => (
+        {getLaidOutPages(dayPages, dayDate).map(({ page, layout }) => (
           <EventCard
             key={page.id}
-            page={{
-              ...page,
-              duration:
-                resize?.pageId === page.id && resizeDuration !== null
-                  ? resizeDuration
-                  : page.duration,
-            }}
+            page={page}
+            layout={layout}
             onResizeStart={handleResizeStart}
             onEventClick={handleEventClick}
             onDuplicate={(id) => duplicatePage(id, { select: true })}
@@ -1741,6 +1819,15 @@ export default function CalendarPage() {
             );
             const top = (newStartMin / 60) * HOUR_HEIGHT;
             const height = (duration / 60) * HOUR_HEIGHT;
+            const layout = getTransientLayout(
+              dayDate,
+              {
+                id: "__drag_ghost__",
+                startMinutes: newStartMin,
+                duration,
+              },
+              activeDragPage.id,
+            );
 
             const duplicating =
               isDuplicateDrag && activeDragPage.id !== "__draft__";
@@ -1748,7 +1835,11 @@ export default function CalendarPage() {
             return (
               <div
                 className={style.dropGhost}
-                style={{ top, height: Math.max(height, 20), insetInlineStart: 0, insetInlineEnd: 0 }}
+                style={{
+                  top,
+                  height: Math.max(height, 20),
+                  ...getEventLaneInsets(layout, true),
+                }}
               >
                 <span className={style.dropGhostTime}>
                   {formatTimeRange(newStartMin, newStartMin + duration)}
@@ -1771,8 +1862,14 @@ export default function CalendarPage() {
               height:
                 ((createDrag.endMinutes - createDrag.startMinutes) / 60) *
                 HOUR_HEIGHT,
-              insetInlineStart: 0,
-              insetInlineEnd: 0,
+              ...getEventLaneInsets(
+                getTransientLayout(dayDate, {
+                  id: "__create_ghost__",
+                  startMinutes: createDrag.startMinutes,
+                  duration: createDrag.endMinutes - createDrag.startMinutes,
+                }),
+                true,
+              ),
             }}
           >
             <span className={style.dragPreviewTime}>
@@ -2039,19 +2136,21 @@ export default function CalendarPage() {
                     style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
                   >
                     {renderHourLines()}
-                    {getPagesForDay(prevDate)
-                      .filter(
+                    {getLaidOutPages(
+                      getPagesForDay(prevDate).filter(
                         (p) => !activeDragPage || p.id !== activeDragPage.id,
-                      )
-                      .map((page) => (
-                        <EventCard
-                          key={page.id}
-                          page={page}
-                          onResizeStart={noopHandler}
-                          onEventClick={noopHandler}
-                          isDraft={false}
-                        />
-                      ))}
+                      ),
+                      prevDate,
+                    ).map(({ page, layout }) => (
+                      <EventCard
+                        key={page.id}
+                        page={page}
+                        layout={layout}
+                        onResizeStart={noopHandler}
+                        onEventClick={noopHandler}
+                        isDraft={false}
+                      />
+                    ))}
                     {isSameDay(prevDate, today) && (
                       <>
                         <div
@@ -2080,26 +2179,22 @@ export default function CalendarPage() {
                   >
                     {renderHourLines()}
 
-                    {getPagesForDay(selectedDate).map((page) => (
-                      <EventCard
-                        key={page.id}
-                        page={{
-                          ...page,
-                          duration:
-                            resize?.pageId === page.id &&
-                            resizeDuration !== null
-                              ? resizeDuration
-                              : page.duration,
-                        }}
-                        onResizeStart={handleResizeStart}
-                        onEventClick={handleEventClick}
-                        onDuplicate={(id) =>
-                          duplicatePage(id, { select: true })
-                        }
-                        onDelete={handleEventDelete}
-                        isDraft={page.id === "__draft__"}
-                      />
-                    ))}
+                    {getLaidOutPages(getPagesForDay(selectedDate), selectedDate).map(
+                      ({ page, layout }) => (
+                        <EventCard
+                          key={page.id}
+                          page={page}
+                          layout={layout}
+                          onResizeStart={handleResizeStart}
+                          onEventClick={handleEventClick}
+                          onDuplicate={(id) =>
+                            duplicatePage(id, { select: true })
+                          }
+                          onDelete={handleEventDelete}
+                          isDraft={page.id === "__draft__"}
+                        />
+                      ),
+                    )}
 
                     {/* Keep dragged EventCard mounted during edge-drag navigation */}
                     {/* {activeDragPage &&
@@ -2130,11 +2225,24 @@ export default function CalendarPage() {
                         );
                         const top = (newStartMin / 60) * HOUR_HEIGHT;
                         const height = (duration / 60) * HOUR_HEIGHT;
+                        const layout = getTransientLayout(
+                          selectedDate,
+                          {
+                            id: "__drag_ghost__",
+                            startMinutes: newStartMin,
+                            duration,
+                          },
+                          activeDragPage.id,
+                        );
 
                         return (
                           <div
                             className={style.dropGhost}
-                            style={{ top, height: Math.max(height, 20) }}
+                            style={{
+                              top,
+                              height: Math.max(height, 20),
+                              ...getEventLaneInsets(layout, false),
+                            }}
                           >
                             <span className={style.dropGhostTime}>
                               {formatTimeRange(newStartMin, newStartMin + duration)}
@@ -2169,6 +2277,15 @@ export default function CalendarPage() {
                             ((createDrag.endMinutes - createDrag.startMinutes) /
                               60) *
                             HOUR_HEIGHT,
+                          ...getEventLaneInsets(
+                            getTransientLayout(selectedDate, {
+                              id: "__create_ghost__",
+                              startMinutes: createDrag.startMinutes,
+                              duration:
+                                createDrag.endMinutes - createDrag.startMinutes,
+                            }),
+                            false,
+                          ),
                         }}
                       >
                         <span className={style.dragPreviewTime}>
@@ -2200,19 +2317,21 @@ export default function CalendarPage() {
                     style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
                   >
                     {renderHourLines()}
-                    {getPagesForDay(nextDate)
-                      .filter(
+                    {getLaidOutPages(
+                      getPagesForDay(nextDate).filter(
                         (p) => !activeDragPage || p.id !== activeDragPage.id,
-                      )
-                      .map((page) => (
-                        <EventCard
-                          key={page.id}
-                          page={page}
-                          onResizeStart={noopHandler}
-                          onEventClick={noopHandler}
-                          isDraft={false}
-                        />
-                      ))}
+                      ),
+                      nextDate,
+                    ).map(({ page, layout }) => (
+                      <EventCard
+                        key={page.id}
+                        page={page}
+                        layout={layout}
+                        onResizeStart={noopHandler}
+                        onEventClick={noopHandler}
+                        isDraft={false}
+                      />
+                    ))}
                     {isSameDay(nextDate, today) && (
                       <>
                         <div

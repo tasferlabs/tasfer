@@ -17,6 +17,8 @@ import {
   pageToStartMin,
   formatEventTime,
   formatTime,
+  getEventLaneInsets,
+  type CalendarEventLayout,
 } from "./utils";
 import style from "./CalendarPage.module.css";
 
@@ -26,6 +28,7 @@ export function EventCard({
   onEventClick,
   onDuplicate,
   onDelete,
+  layout,
   compact,
   isDraft,
 }: {
@@ -34,6 +37,7 @@ export function EventCard({
   onEventClick: (pageId: string, rect: DOMRect) => void;
   onDuplicate?: (pageId: string) => void;
   onDelete?: (pageId: string) => void;
+  layout?: CalendarEventLayout;
   compact?: boolean;
   isDraft?: boolean;
 }) {
@@ -69,9 +73,8 @@ export function EventCard({
         top,
         height: actualHeight,
         opacity: isDragging ? 0.3 : 1,
-        ...(compact
-          ? { insetInlineStart: 0, insetInlineEnd: 0, padding: "2px 6px" }
-          : {}),
+        ...getEventLaneInsets(layout, !!compact),
+        ...(compact ? { padding: "2px 6px" } : {}),
         ...(() => {
           const c =
             page.color ??
