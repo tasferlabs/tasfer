@@ -27,6 +27,7 @@ import { useToast } from "./Toast";
 
 interface MovePageDialogProps {
   pageId: string;
+  currentParentId: string | null;
   sourceSpaceId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -34,6 +35,7 @@ interface MovePageDialogProps {
 
 export function MovePageDialog({
   pageId,
+  currentParentId,
   sourceSpaceId,
   open,
   onOpenChange,
@@ -45,41 +47,45 @@ export function MovePageDialog({
   const navigate = useNavigate();
   const { id: currentPageId } = useParams<{ id: string }>();
   const [selectedSpaceId, setSelectedSpaceId] = useState(sourceSpaceId);
-  const [selectedParent, setSelectedParent] = useState<
-    ISearchPage | null | undefined
-  >(undefined);
+  const [selectedParent, setSelectedParent] = useState<ISearchPage | null>(
+    null,
+  );
   const [isMovingAcrossSpaces, setIsMovingAcrossSpaces] = useState(false);
 
   const { mutateAsync: movePage, isPending: isMovingWithinSpace } =
     useMovePage();
   const isMoving = isMovingWithinSpace || isMovingAcrossSpaces;
+  const selectedParentId = selectedParent?.id ?? null;
+  const isSamePosition =
+    selectedSpaceId === sourceSpaceId &&
+    selectedParentId === currentParentId;
 
   useEffect(() => {
     if (!open) return;
     setSelectedSpaceId(sourceSpaceId);
-    setSelectedParent(undefined);
+    setSelectedParent(null);
   }, [open, sourceSpaceId]);
 
   function handleSpaceChange(spaceId: string) {
     setSelectedSpaceId(spaceId);
-    setSelectedParent(undefined);
+    setSelectedParent(null);
   }
 
   async function handleMove() {
-    if (!selectedSpaceId || selectedParent === undefined || isMoving) return;
+    if (!selectedSpaceId || isSamePosition || isMoving) return;
 
     try {
       if (selectedSpaceId === sourceSpaceId) {
         await movePage({
           id: pageId,
-          parentId: selectedParent?.id ?? null,
+          parentId: selectedParentId,
         });
       } else {
         setIsMovingAcrossSpaces(true);
         const { idMap } = await movePageAcrossSpaces(
           pageId,
           selectedSpaceId,
-          { targetParentId: selectedParent?.id ?? null },
+          { targetParentId: selectedParentId },
         );
         queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
         if (currentPageId && idMap.has(currentPageId)) {
@@ -135,7 +141,7 @@ export function MovePageDialog({
 
           <label className="grid gap-2">
             <span className="text-sm font-medium">
-              {t("page.parentPage", "Parent page")}
+              {t("page.parentPageOptional", "Parent page (optional)")}
             </span>
             <PagePicker
               spaceId={selectedSpaceId}
@@ -145,7 +151,7 @@ export function MovePageDialog({
                 selectedSpaceId === sourceSpaceId ? pageId : undefined
               }
               showNoneOption
-              placeholder={t("page.selectParentPage", "Select a parent page")}
+              noneLabel={t("page.spaceRoot", "Space root (no parent)")}
             />
           </label>
         </div>
@@ -160,7 +166,7 @@ export function MovePageDialog({
           </Button>
           <Button
             onClick={handleMove}
-            disabled={selectedParent === undefined || isMoving}
+            disabled={!selectedSpaceId || isSamePosition || isMoving}
           >
             {isMoving && <LoaderCircle className="animate-spin" />}
             {t("common.move", "Move")}

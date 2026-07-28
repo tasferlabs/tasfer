@@ -535,6 +535,7 @@ export function PageLink({
       {spaceId && (
         <MovePageDialog
           pageId={data.id}
+          currentParentId={data.parentId}
           sourceSpaceId={spaceId}
           open={showMoveDialog}
           onOpenChange={setShowMoveDialog}

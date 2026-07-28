@@ -23,7 +23,7 @@ interface PagePickerProps {
   spaceId: string | null;
   value?: ISearchPage | null;
   onChange: (page: ISearchPage | null) => void;
-  placeholder?: string;
+  noneLabel?: string;
   excludeId?: string;
   showNoneOption?: boolean;
   className?: string;
@@ -36,7 +36,7 @@ export function PagePicker({
   spaceId,
   value,
   onChange,
-  placeholder,
+  noneLabel,
   excludeId,
   showNoneOption,
   className,
@@ -95,10 +95,8 @@ export function PagePicker({
                 >
                   {value ? (
                     <TitlePreview title={value.title} titleMd={value.titleMd} />
-                  ) : value === undefined && placeholder ? (
-                    placeholder
                   ) : (
-                    t("common.none", "None")
+                    noneLabel ?? t("common.none", "None")
                   )}
                 </span>
               </button>
@@ -157,7 +155,7 @@ export function PagePicker({
                   className="shrink-0 text-muted-foreground"
                 />
                 <span className="text-muted-foreground italic">
-                  {t("page.noParent", "No parent (root)")}
+                  {noneLabel ?? t("page.noParent", "No parent (root)")}
                 </span>
               </Command.Item>
             )}
