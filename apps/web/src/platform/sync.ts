@@ -1394,6 +1394,8 @@ export class Replicator {
       return;
     }
 
+    const wasUnknown = !conn.sharedSpaces.has(msg.spaceId);
+
     // Unknown spaces may be bootstrapped by pairing. A known space, however,
     // must be active and shared; in particular, archived spaces never accept
     // catch-up data until they are restored locally.
@@ -1408,8 +1410,6 @@ export class Replicator {
       );
       return;
     }
-
-    const wasUnknown = !conn.sharedSpaces.has(msg.spaceId);
 
     if (msg.spaceOps.length > 0) {
       await this.host.applyRemoteSpaceOps(msg.spaceId, msg.spaceOps);
