@@ -9,7 +9,8 @@
  */
 
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server.browser";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import type { LucideIcon } from "lucide-react";
 
 /** Logical icon size in px; rasterized at 2x for crisp menu rendering. */
@@ -24,7 +25,10 @@ function keyOf(id: string, color: string): string {
 }
 
 /** Cached PNG data URL for this icon/color, or undefined if not yet rasterized. */
-export function getCachedMenuIcon(id: string, color: string): string | undefined {
+export function getCachedMenuIcon(
+  id: string,
+  color: string,
+): string | undefined {
   return cache.get(keyOf(id, color));
 }
 
@@ -61,9 +65,15 @@ export async function rasterizeMenuIcon(
   if (cache.has(key) || inFlight.has(key)) return;
   inFlight.add(key);
   try {
-    const svg = renderToStaticMarkup(
-      createElement(Icon, { size: ICON_SIZE, color, strokeWidth: 2 }),
-    );
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    flushSync(() => {
+      root.render(
+        createElement(Icon, { size: ICON_SIZE, color, strokeWidth: 2 }),
+      );
+    });
+    const svg = host.innerHTML;
+    root.unmount();
     cache.set(key, await rasterize(svg));
   } catch {
     // Leave uncached — native falls back to a text-only row.
