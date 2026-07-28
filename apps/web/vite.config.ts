@@ -86,7 +86,7 @@ if (isHostMode && !lanHttps) {
 
 // Read version config from monorepo root
 const versionConfig = JSON.parse(
-  readFileSync(join(__dirname, "../../version.json"), "utf-8")
+  readFileSync(join(__dirname, "../../version.json"), "utf-8"),
 );
 
 export default defineConfig({
@@ -110,6 +110,9 @@ export default defineConfig({
       injectManifest: {
         // Headroom above Workbox's 2 MiB default for the largest single asset.
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        // HEIC decoding is rare and already loaded on demand. Do not make every
+        // PWA installation download the decoder up front.
+        globIgnores: ["**/heic-to-*.js"],
       },
       devOptions: {
         enabled: false,

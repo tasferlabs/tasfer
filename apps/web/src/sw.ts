@@ -5,6 +5,9 @@ import {
   cleanupOutdatedCaches,
   matchPrecache,
 } from "workbox-precaching";
+import { ExpirationPlugin } from "workbox-expiration";
+import { registerRoute } from "workbox-routing";
+import { CacheFirst } from "workbox-strategies";
 
 declare let self: ServiceWorkerGlobalScope;
 
@@ -51,7 +54,9 @@ self.addEventListener("install", (event) => {
       // local-first); pages and images now live in the local store, so these
       // caches are dead weight on old installs.
       await Promise.all(
-        ["pages-list", "pages-data", "images"].map((name) => caches.delete(name))
+        ["pages-list", "pages-data", "images"].map((name) =>
+          caches.delete(name),
+        ),
       );
 
       // Cache fresh index.html for offline fallback
@@ -64,7 +69,7 @@ self.addEventListener("install", (event) => {
       );
 
       console.log("[SW] Install complete");
-    })()
+    })(),
   );
 });
 
@@ -85,8 +90,23 @@ self.addEventListener("message", (event) => {
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
+// The HEIC decoder is deliberately excluded from the install-time precache.
+// Cache it after its first use so later conversions still work offline.
+registerRoute(
+  ({ url }) =>
+    url.origin === self.location.origin &&
+    /\/heic-to-[^/]+\.js$/.test(url.pathname),
+  new CacheFirst({
+    cacheName: "heic-decoder",
+    plugins: [new ExpirationPlugin({ maxEntries: 2, purgeOnQuotaError: true })],
+  }),
+);
+
 // Helper to fetch with credentials (for basic auth support)
-function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+function authFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
   return fetch(input, { ...init, credentials: "include" });
 }
 
@@ -134,7 +154,7 @@ async function getOfflineIndexHtml(): Promise<Response> {
   <p>Please reconnect to continue.</p>
 </body>
 </html>`,
-    { headers: { "Content-Type": "text/html" } }
+    { headers: { "Content-Type": "text/html" } },
   );
 }
 
