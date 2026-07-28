@@ -2283,6 +2283,11 @@ export function pasteFromClipboardEventAsPlainText(
           ? blocks
           : parsePlainTextToBlocks(text, state.CRDTbinding, state.schema);
 
+      if (parsed.length === 0) {
+        resolve(null);
+        return;
+      }
+
       resolve(insertBlocksAtCursor(state, parsed));
     } catch (error) {
       console.error("Failed to paste plain text from clipboard event:", error);
