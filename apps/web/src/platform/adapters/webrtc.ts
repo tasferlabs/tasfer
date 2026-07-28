@@ -42,6 +42,44 @@ const STUN_ONLY_CONFIG: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
+function normalizeIceServers(value: unknown): RTCIceServer[] | null {
+  const entries = Array.isArray(value) ? value : [value];
+  const servers: RTCIceServer[] = [];
+
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const candidate = entry as {
+      urls?: unknown;
+      username?: unknown;
+      credential?: unknown;
+    };
+    const rawUrls = typeof candidate.urls === "string"
+      ? [candidate.urls]
+      : Array.isArray(candidate.urls)
+        ? candidate.urls.filter((url): url is string => typeof url === "string")
+        : [];
+    // Cloudflare documents port 53 as browser-blocked. Add its standard web
+    // port alternatives as well: mobile networks often block 3478/5349 while
+    // permitting the same TURN service on 80/443.
+    const browserUrls = new Set(rawUrls.filter((url) => !/:53(?:\?|$)/.test(url)));
+    if (browserUrls.has("turn:turn.cloudflare.com:3478?transport=tcp")) {
+      browserUrls.add("turn:turn.cloudflare.com:80?transport=tcp");
+    }
+    if (browserUrls.has("turns:turn.cloudflare.com:5349?transport=tcp")) {
+      browserUrls.add("turns:turn.cloudflare.com:443?transport=tcp");
+    }
+    const urls = [...browserUrls];
+    if (urls.length === 0) continue;
+
+    const server: RTCIceServer = { urls };
+    if (typeof candidate.username === "string") server.username = candidate.username;
+    if (typeof candidate.credential === "string") server.credential = candidate.credential;
+    servers.push(server);
+  }
+
+  return servers.length > 0 ? servers : null;
+}
+
 /**
  * How long before we re-request TURN credentials. The server mints them with
  * a 1h TTL and may serve a room-cached mint up to 20 minutes old, so a peer
@@ -1331,12 +1369,16 @@ class WebRtcNetworkDriver implements NetworkDriver, TurnCredentialManager {
   handleTurnResponse(msg: unknown): void {
     const frame = msg as { iceServers?: unknown; error?: unknown };
     // The signaling server is untrusted — validate before adopting.
-    if (frame.iceServers && typeof frame.iceServers === "object") {
+    const iceServers = normalizeIceServers(frame.iceServers);
+    if (iceServers) {
+      const hasStun = iceServers.some((server) => {
+        const urls = typeof server.urls === "string" ? [server.urls] : server.urls;
+        return urls.some((url) => url.startsWith("stun:"));
+      });
       this.rtcConfig = {
-        iceServers: [
-          { urls: "stun:stun.cloudflare.com:3478" },
-          frame.iceServers as RTCIceServer,
-        ],
+        iceServers: hasStun
+          ? iceServers
+          : [{ urls: "stun:stun.cloudflare.com:3478" }, ...iceServers],
       };
       this.hasTurnCredentials = true;
       this.credentialsFetchedAt = Date.now();
