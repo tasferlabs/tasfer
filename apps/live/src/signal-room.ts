@@ -17,6 +17,7 @@
  *     { type: "signal", target, data }   — forward encrypted SDP/ICE
  *     { type: "relay",  target, data }   — forward encrypted relay data
  *     { type: "turn-request" }           — request TURN credentials
+ *     { type: "ping" }                   — keepalive; answered without waking
  *
  *   DO → Client:
  *     { type: "peers",     peerIds }     — existing peers (on connect)
@@ -24,6 +25,7 @@
  *     { type: "peer-left", peerId }      — a peer left
  *     { type: "signal",    from, data }  — forwarded encrypted SDP/ICE
  *     { type: "relay",     from, data }  — forwarded encrypted relay data
+ *     { type: "pong" }                   — keepalive reply (auto-response)
  *     { type: "turn-response", iceServers } / { type: "turn-response", error }
  *
  * TURN credentials are minted only over an accepted socket, so room
@@ -51,6 +53,20 @@ const CREDENTIAL_CACHE_MS = 20 * 60 * 1000;
  */
 const TURN_REQUESTS_PER_MINUTE = 5;
 
+/**
+ * Hibernation-safe keepalive frames.
+ *
+ * Nothing else keeps an idle signaling socket warm, so carrier NAT and
+ * intermediaries drop it with no close frame — the client only ever sees a
+ * 1006. The runtime answers PING with PONG *without* waking the DO, so a
+ * silent room still costs nothing while its sockets stay alive.
+ *
+ * Matched by exact string equality against what the client sends. Keep these
+ * byte-identical to `WS_PING_FRAME` in `apps/web/src/platform/adapters/webrtc.ts`.
+ */
+const PING_FRAME = '{"type":"ping"}';
+const PONG_FRAME = '{"type":"pong"}';
+
 interface CachedCredentials {
   iceServers: unknown;
   mintedAt: number;
@@ -66,6 +82,17 @@ export class SignalRoom extends DurableObject<Env> {
   private turnThrottle = new Map<string, { windowStart: number; count: number }>();
   /** Coalesces concurrent cache misses into one upstream mint. */
   private mintInFlight: Promise<{ iceServers: unknown } | { error: string }> | null = null;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Set on every construction, not just on first accept: the DO is rebuilt
+    // when it wakes from hibernation, and sockets restored into it must keep
+    // answering pings.
+    ctx.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair(PING_FRAME, PONG_FRAME),
+    );
+  }
+
   /**
    * Handle incoming HTTP request — upgrade to WebSocket.
    * The peerId is passed as a query parameter so we can tag the socket

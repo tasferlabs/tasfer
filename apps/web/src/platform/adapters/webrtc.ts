@@ -102,6 +102,35 @@ const INITIAL_CONNECTION_TIMEOUT_MS = 12_000;
 const DISCONNECTED_GRACE_MS = 5_000;
 const ICE_RESTART_TIMEOUT_MS = 10_000;
 
+/**
+ * Signaling-socket keepalive cadence. Must stay under the tightest common
+ * NAT/proxy idle window — mobile carriers routinely cull at 60s, and an idle
+ * socket dropped that way gives the client only a 1006 with no close frame.
+ * The DO answers these from its hibernation auto-response, so pinging a silent
+ * room never wakes it.
+ */
+const WS_PING_INTERVAL_MS = 25_000;
+
+/**
+ * Exact frame the DO's auto-response is keyed on. Byte-for-byte equality is
+ * what makes the reply hibernation-free — see `apps/live/src/signal-room.ts`.
+ */
+const WS_PING_FRAME = '{"type":"ping"}';
+
+/**
+ * Ceiling on one signaling connect. Without it a mobile connect that blackholes
+ * hangs on the OS TCP timeout (observed at 60–90s) before the retry loop even
+ * learns it failed.
+ */
+const WS_CONNECT_TIMEOUT_MS = 12_000;
+
+/**
+ * How long a socket must stay open before it counts as a success. Resetting
+ * the backoff on `onopen` alone lets a connection that dies milliseconds later
+ * pin the retry loop at the 1s floor indefinitely.
+ */
+const WS_STABLE_MS = 10_000;
+
 // =============================================================================
 // E2E Encryption — AES-256-GCM with HKDF-derived keys
 // =============================================================================
@@ -318,6 +347,18 @@ class ChunkAssembler {
   }
 }
 
+/**
+ * Send-buffer watermarks.
+ *
+ * `dc.send()` never blocks — it appends to the SCTP send buffer, and the
+ * browser tears the channel down once that buffer overflows (16 MB in Chrome),
+ * surfacing only as an opaque `error` followed by `close`. A space bootstrap
+ * or a single large asset chunks into far more than that, so writes stop at
+ * HIGH and resume when `bufferedamountlow` fires at LOW.
+ */
+const SEND_HIGH_WATER = 1024 * 1024; // 1 MB queued → stop writing
+const SEND_LOW_WATER = 256 * 1024; // drained to 256 KB → resume
+
 // =============================================================================
 // Peer — wraps one RTCPeerConnection + DataChannel
 // =============================================================================
@@ -333,6 +374,15 @@ class WebRtcPeer implements NetworkPeer {
   private assembler = new ChunkAssembler();
   private nextMsgId = 0;
   private opened = false;
+  private closed = false;
+  /** Serializes sends so one message's chunks never interleave with another's
+   *  while a batch is parked waiting for the send buffer to drain. */
+  private sendQueue: Promise<void> = Promise.resolve();
+  /** Bytes chunked but not yet handed to the socket. Read by `bufferedAmount()`. */
+  private pendingBytes = 0;
+  /** Resolvers for batches parked at the high-water mark; released on close so
+   *  a channel that dies mid-drain doesn't strand the queue. */
+  private drainWaiters = new Set<() => void>();
 
   constructor(remotePublicKey: string, pc: RTCPeerConnection) {
     this.remotePublicKey = remotePublicKey;
@@ -344,6 +394,7 @@ class WebRtcPeer implements NetworkPeer {
   _setDataChannel(dc: RTCDataChannel, onOpen?: () => void, onClose?: () => void) {
     this.dc = dc;
     dc.binaryType = "arraybuffer";
+    dc.bufferedAmountLowThreshold = SEND_LOW_WATER;
     const rShort = this.remotePublicKey.slice(0, 8);
 
     dc.onmessage = (e) => {
@@ -386,27 +437,61 @@ class WebRtcPeer implements NetworkPeer {
   }
 
   _fireClose() {
+    this.closed = true;
     this.assembler.clear();
+    // Unblock anything awaiting the channel, or queued batches never settle
+    // and their bytes stay counted in `pendingBytes` forever.
+    this.resolveDcReady();
+    for (const release of [...this.drainWaiters]) release();
     for (const cb of this.closeListeners) cb();
     this.messageListeners.clear();
     this.closeListeners.clear();
   }
 
-  private _sendRaw(data: Uint8Array): void {
-    this.dc!.send(data as ArrayBufferView<ArrayBuffer>);
+  /**
+   * Resolves once the send buffer has room again — immediately when it is
+   * already below the high-water mark, otherwise on the next
+   * `bufferedamountlow` event (or on close, whichever comes first).
+   */
+  private waitForDrain(dc: RTCDataChannel): Promise<void> {
+    if (this.closed || dc.bufferedAmount < SEND_HIGH_WATER) return Promise.resolve();
+    return new Promise((resolve) => {
+      const release = () => {
+        dc.removeEventListener("bufferedamountlow", release);
+        this.drainWaiters.delete(release);
+        resolve();
+      };
+      this.drainWaiters.add(release);
+      dc.addEventListener("bufferedamountlow", release);
+    });
   }
 
   send(data: Uint8Array): void {
+    if (this.closed) return;
     const chunks = chunkMessage(data, this.nextMsgId++);
-    if (this.dc?.readyState === "open") {
-      for (const chunk of chunks) this._sendRaw(chunk);
-    } else {
-      this.dcReady.then(() => {
-        if (this.dc?.readyState === "open") {
-          for (const chunk of chunks) this._sendRaw(chunk);
+    const batchBytes = chunks.reduce((n, c) => n + c.byteLength, 0);
+    this.pendingBytes += batchBytes;
+
+    this.sendQueue = this.sendQueue.then(async () => {
+      let unsent = batchBytes;
+      try {
+        await this.dcReady;
+        for (const chunk of chunks) {
+          const dc = this.dc;
+          if (this.closed || dc?.readyState !== "open") break;
+          await this.waitForDrain(dc);
+          if (this.closed || dc.readyState !== "open") break;
+          dc.send(chunk as ArrayBufferView<ArrayBuffer>);
+          unsent -= chunk.byteLength;
+          this.pendingBytes -= chunk.byteLength;
         }
-      });
-    }
+      } catch (e) {
+        console.error(`[WebRTC] send failed remote=${this.remotePublicKey.slice(0, 8)}`, e);
+      } finally {
+        // Whatever never went out must not stay counted, or flush() spins.
+        this.pendingBytes -= unsent;
+      }
+    });
   }
 
   onMessage(cb: (data: Uint8Array) => void): () => void {
@@ -419,9 +504,13 @@ class WebRtcPeer implements NetworkPeer {
     return () => { this.closeListeners.delete(cb); };
   }
 
-  /** Bytes still queued in the datachannel's send buffer (0 when drained). */
+  /**
+   * Bytes still owed to the remote: queued in the socket's send buffer, plus
+   * chunks parked behind the high-water mark. Both must reach zero before
+   * `flush()` lets `pause()` tear the connection down.
+   */
   bufferedAmount(): number {
-    return this.dc?.bufferedAmount ?? 0;
+    return (this.dc?.bufferedAmount ?? 0) + this.pendingBytes;
   }
 
   close(): void {
@@ -557,6 +646,10 @@ class WebRtcTopic implements NetworkTopic {
   private suspended = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Keepalive for the live socket; owned by whichever socket is current. */
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  /** Pending "this connection held long enough to count" reset. */
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
   private connectionDeadlines = new Map<string, ReturnType<typeof setTimeout>>();
   private disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private restartAttempted = new Set<string>();
@@ -601,6 +694,9 @@ class WebRtcTopic implements NetworkTopic {
     // settle their own `wsReady` (so nothing awaiting it hangs), but they must
     // not touch state that now belongs to the socket we are about to install.
     this.ws = null;
+    // Its keepalive would otherwise keep firing (harmlessly, but forever) until
+    // the replacement socket opens — which may never happen.
+    this.clearSocketTimers();
 
     // Captured per call rather than stored on the instance: a superseded
     // socket's handlers would otherwise settle the *next* socket's promise.
@@ -632,11 +728,25 @@ class WebRtcTopic implements NetworkTopic {
     const isCurrent = () => this.ws === socket;
     let opened = false;
 
+    // Fail fast instead of waiting out the OS TCP timeout. close() drives the
+    // normal onclose path, so the retry loop needs no special case for this.
+    const connectTimer = setTimeout(() => {
+      if (opened || !isCurrent()) return;
+      console.error(`[WS] connect timed out topic=${topicShort} after ${WS_CONNECT_TIMEOUT_MS}ms`);
+      try { socket.close(); } catch { /* already gone */ }
+    }, WS_CONNECT_TIMEOUT_MS);
+
     socket.onopen = () => {
       if (!isCurrent()) return;
       opened = true;
+      clearTimeout(connectTimer);
       console.log(`[WS] connected topic=${topicShort} peer=${this.localPeerId.slice(0, 8)}`);
-      this.reconnectAttempt = 0;
+      this.startKeepalive(socket, isCurrent);
+      // Only a connection that *holds* clears the backoff — see WS_STABLE_MS.
+      this.stableTimer = setTimeout(() => {
+        this.stableTimer = null;
+        if (isCurrent()) this.reconnectAttempt = 0;
+      }, WS_STABLE_MS);
       resolveReady();
       this.turn.socketOpened(this);
     };
@@ -647,6 +757,7 @@ class WebRtcTopic implements NetworkTopic {
     };
 
     socket.onclose = (ev) => {
+      clearTimeout(connectTimer);
       console.log(`[WS] closed topic=${topicShort} code=${ev.code} clean=${ev.wasClean} reason=${ev.reason || "(none)"}`);
       if (!ev.wasClean) {
         console.error(`[WS] unexpected close topic=${topicShort} code=${ev.code} reason=${ev.reason || "(none)"}`);
@@ -662,6 +773,9 @@ class WebRtcTopic implements NetworkTopic {
       // the `ws` reference. Touching any of them here would tear down a live
       // connection and start a second reconnect loop.
       if (!isCurrent()) return;
+
+      // Only now: while superseded, the timers belong to the newer socket.
+      this.clearSocketTimers();
 
       // Tear down peer connections but keep listeners so reconnected peers
       // re-trigger handlePeerJoin in the Replicator.
@@ -692,6 +806,30 @@ class WebRtcTopic implements NetworkTopic {
   }
 
   /**
+   * Ping until this socket is superseded or closed. A send that throws means
+   * the socket is already going down; onclose does the cleanup.
+   */
+  private startKeepalive(socket: WebSocket, isCurrent: () => boolean): void {
+    this.clearSocketTimers();
+    this.pingTimer = setInterval(() => {
+      if (!isCurrent() || socket.readyState !== WebSocket.OPEN) return;
+      try { socket.send(WS_PING_FRAME); } catch { /* closing */ }
+    }, WS_PING_INTERVAL_MS);
+  }
+
+  /** Drop the current socket's keepalive and pending backoff reset. */
+  private clearSocketTimers(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
+  }
+
+  /**
    * Hand an inbound frame to the serialized handler chain.
    *
    * Each frame decrypts asynchronously, and `crypto.subtle` does not resolve in
@@ -715,6 +853,9 @@ class WebRtcTopic implements NetworkTopic {
       this.turn.handleTurnResponse(msg);
       return;
     }
+
+    // Keepalive reply — carries nothing, and must not occupy the ordered chain.
+    if ((msg as { type?: unknown }).type === "pong") return;
 
     this.inbound = this.inbound
       .then(() => this.handleWsMessage(msg))
@@ -1235,6 +1376,7 @@ class WebRtcTopic implements NetworkTopic {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.clearSocketTimers();
     this._reset();
     this.ws?.close(1000);
     this.ws = null;
@@ -1272,6 +1414,7 @@ class WebRtcTopic implements NetworkTopic {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.clearSocketTimers();
     this._reset();
     this.joinListeners.clear();
     this.leaveListeners.clear();
