@@ -293,6 +293,45 @@
   height: 100dvh;
 }
 
+.button-square-ripple::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 180%;
+  aspect-ratio: 1;
+  content: "";
+  pointer-events: none;
+  background: currentColor;
+  border-radius: 10%;
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(35deg) scale(0.04);
+}
+
+.button-square-ripple[data-ripple-active]::after,
+.button-square-ripple:focus-visible:not([data-ripple-active])::after {
+  animation: button-square-ripple 850ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes button-square-ripple {
+  0% {
+    opacity: 0.28;
+    transform: translate(-50%, -50%) rotate(35deg) scale(0.04);
+  }
+  65% {
+    opacity: 0.1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(55deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button-square-ripple::after {
+    animation: none;
+  }
+}
+
 /* ── Color Picker ── */
 
 .color-picker-trigger {

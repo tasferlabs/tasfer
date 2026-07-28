@@ -1,11 +1,5 @@
-import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { GitFork, LoaderCircle, Move } from "lucide-react";
-import { useTranslation } from "react-i18next";
-import { useNavigate, useParams } from "react-router-dom";
 import { PagePicker } from "@/components/PagePicker";
 import { Button } from "@/components/ui/button";
-import { PopoverButton } from "@/components/ui/popover-button";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +16,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { forkPageToSpace, movePageAcrossSpaces } from "@/lib/spaceMove";
+import { useQueryClient } from "@tanstack/react-query";
+import { GitFork, MoveRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useNavigate, useParams } from "react-router-dom";
+import { PopoverButton } from "@/components/ui/popover-button";
 import { type ISearchPage, useMovePage } from "../api/pages.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useToast } from "./Toast";
@@ -60,8 +60,7 @@ export function MovePageDialog({
   const isWorking = isMoving || isForking;
   const selectedParentId = selectedParent?.id ?? null;
   const isSamePosition =
-    selectedSpaceId === sourceSpaceId &&
-    selectedParentId === currentParentId;
+    selectedSpaceId === sourceSpaceId && selectedParentId === currentParentId;
 
   useEffect(() => {
     if (!open) return;
@@ -85,11 +84,9 @@ export function MovePageDialog({
         });
       } else {
         setIsMovingAcrossSpaces(true);
-        const { idMap } = await movePageAcrossSpaces(
-          pageId,
-          selectedSpaceId,
-          { targetParentId: selectedParentId },
-        );
+        const { idMap } = await movePageAcrossSpaces(pageId, selectedSpaceId, {
+          targetParentId: selectedParentId,
+        });
         queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
         if (currentPageId && idMap.has(currentPageId)) {
           navigate(`/page/${idMap.get(currentPageId)}`);
@@ -131,6 +128,32 @@ export function MovePageDialog({
       setIsForking(false);
     }
   }
+
+  const actions = (
+    <div className="grid gap-0.5">
+      <Button
+        onClick={handleMove}
+        disabled={isSamePosition || isWorking}
+        loading={isMoving}
+        variant="unstyled"
+        className="w-full justify-start gap-2 px-2.5 hover:bg-muted focus-visible:bg-muted"
+      >
+        <MoveRight className="text-primary rtl:rotate-180" />
+        <span>{t("page.movePage", "Move page")}</span>
+      </Button>
+
+      <Button
+        onClick={handleFork}
+        disabled={isWorking}
+        loading={isForking}
+        variant="unstyled"
+        className="w-full justify-start gap-2 px-2.5 hover:bg-muted focus-visible:bg-muted"
+      >
+        <GitFork className="text-muted-foreground" />
+        <span>{t("page.fork", "Fork")}</span>
+      </Button>
+    </div>
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -174,9 +197,7 @@ export function MovePageDialog({
               spaceId={selectedSpaceId}
               value={selectedParent}
               onChange={setSelectedParent}
-              excludeId={
-                selectedSpaceId === sourceSpaceId ? pageId : undefined
-              }
+              excludeId={selectedSpaceId === sourceSpaceId ? pageId : undefined}
               showNoneOption
               noneLabel={t("page.spaceRoot", "Space root (no parent)")}
             />
@@ -192,41 +213,20 @@ export function MovePageDialog({
             {t("common.cancel", "Cancel")}
           </Button>
           <PopoverButton
-            disabled={!selectedSpaceId || isWorking}
-            contentProps={{ className: "w-72 gap-1 p-1" }}
-            content={
-              <>
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start"
-                  onClick={handleMove}
-                  disabled={isSamePosition || isWorking}
-                >
-                  <Move />
-                  {t("common.move", "Move")}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="h-auto w-full items-start justify-start whitespace-normal"
-                  onClick={handleFork}
-                  disabled={isWorking}
-                >
-                  <GitFork className="mt-0.5" />
-                  <span className="text-start">
-                    <span className="block">{t("page.fork", "Fork")}</span>
-                    <span className="block text-xs font-normal text-muted-foreground">
-                      {t(
-                        "page.forkDescription",
-                        "Keep the original and create a copy at this destination.",
-                      )}
-                    </span>
-                  </span>
-                </Button>
-              </>
-            }
+            content={actions}
+            contentProps={{
+              className: "w-44 gap-0 rounded-lg p-1",
+              sideOffset: 6,
+            }}
+            disabled={isWorking}
+            popoverTriggerLabel={t("common.actions", "Actions")}
+            primaryAction={{
+              onClick: handleMove,
+              disabled: isWorking || isSamePosition,
+              loading: isMoving,
+            }}
           >
-            {isWorking && <LoaderCircle className="animate-spin" />}
-            {t("common.move", "Move")}
+            {t("page.movePage", "Move")}
           </PopoverButton>
         </DialogFooter>
       </DialogContent>
