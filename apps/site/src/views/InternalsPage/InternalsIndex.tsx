@@ -46,8 +46,9 @@ export default function InternalsIndex() {
         <main className="ix-main">
           <article className="dx-article ix-article">
             <header className="ix-hero">
-              <div className="dx-eyebrow">{t("internals.archive.kicker", "internals · build log")}</div>
-              <h1 className="ix-title">{t("internals.archive.title", "Internal notes")}</h1>
+              <h1 className="ix-title">
+                {t("internals.archive.title", "Internal notes")}
+              </h1>
               <p className="ix-lede">
                 {t(
                   "internals.archive.lede",
@@ -59,7 +60,9 @@ export default function InternalsIndex() {
               {NOTES.map((note) => (
                 <li className="ix-entry" key={note.slug}>
                   <Link to={`/docs/internals/${note.slug}`}>
-                    <span className="ix-entry-date">{formatDate(note.date)}</span>
+                    <span className="ix-entry-date">
+                      {formatDate(note.date)}
+                    </span>
                     <h2 className="ix-entry-title">{note.title}</h2>
                     <p className="ix-entry-summary">{note.summary}</p>
                   </Link>
