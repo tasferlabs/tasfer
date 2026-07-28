@@ -5,8 +5,8 @@
  *
  * The guarantee: a Tasfer→Tasfer copy/paste is lossless. The copy payload's
  * HTML is prefixed with `<!--tasfer-clipboard:...-->`; `parseHTMLToBlocks`
- * decodes that Markdown (bypassing defuddle) so image sizing, block math, and
- * list indent — all dropped by the old rendered-HTML→defuddle path — survive.
+ * decodes that Markdown (bypassing generic HTML conversion) so image sizing,
+ * block math, and list indent — all dropped by the rendered-HTML path — survive.
  */
 
 import { mathTestSchema, mathTestStateOptions } from "../__testutils__/math";
@@ -171,8 +171,7 @@ describe("clipboard text/html round-trip", () => {
     );
 
     const image = blocks.find((b) => b.type === "image") as
-      | (Block & { url: string; width: unknown; objectFit: unknown })
-      | undefined;
+      (Block & { url: string; width: unknown; objectFit: unknown }) | undefined;
     expect(image).toBeDefined();
     expect(image!.url).toBe("https://example.com/a.png");
     expect(image!.width).toBe(200);
@@ -181,8 +180,7 @@ describe("clipboard text/html round-trip", () => {
     // Math content travels in the marker's markdown and re-imports as a
     // fresh block-authority attachment; the flat text stays empty.
     const math = blocks.find((b) => (b.type as string) === "math") as
-      | (Block & { charRuns: CharRun[]; displayMode: boolean })
-      | undefined;
+      (Block & { charRuns: CharRun[]; displayMode: boolean }) | undefined;
     expect(math).toBeDefined();
     expect(getVisibleTextFromRuns(math!.charRuns)).toBe("");
     expect(getStructuredMathSource(math!)).toBe("{x}^{2}+{y}^{2}");
@@ -200,7 +198,7 @@ describe("clipboard text/html round-trip", () => {
     // (`<html><body><!--StartFragment-->…<!--EndFragment-->`), so by paste time
     // the Tasfer marker is no longer at the start of the payload. The lossless
     // path must still kick in — otherwise a copied checklist falls back to
-    // defuddle and degrades to a plain bullet list.
+    // generic HTML conversion and degrades to a plain bullet list.
     const page = pageWith({
       id: "todo1",
       orderKey: "a0",

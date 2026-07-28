@@ -7,7 +7,7 @@
 // What it covers: the production dependency trees of apps/web AND of the
 // @tasfer/* packages it bundles from source via Vite aliases (editor, tex,
 // react) — because those are compiled into the same bundle, their runtime deps
-// (e.g. lowlight, defuddle) ship too but do NOT appear in apps/web's own tree.
+// (e.g. lowlight, turndown) ship too but do NOT appear in apps/web's own tree.
 // It also embeds @tasfer/tex's NOTICE, since the KaTeX material it vendors is
 // shipped as source (a devDependency of tex, so it never shows up in a
 // --omit=dev dependency walk).
@@ -17,12 +17,7 @@
 // browser is safe; omitting one that does is not.
 
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -58,7 +53,13 @@ function npmTree(cwd) {
     out = execFileSync(
       "npm",
       ["ls", "--omit=dev", "--all", "--long", "--json"],
-      { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, shell: true },
+      {
+        cwd,
+        encoding: "utf8",
+        maxBuffer: 256 * 1024 * 1024,
+        shell: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
     );
   } catch (err) {
     // `npm ls` exits non-zero on peer/optional warnings but still prints JSON.
@@ -85,7 +86,9 @@ function collect() {
     }
     const tree = npmTree(root);
     if (!tree) {
-      throw new Error(`could not read dependency tree for installed root ${root}`);
+      throw new Error(
+        `could not read dependency tree for installed root ${root}`,
+      );
     }
     const walk = (deps) => {
       if (!deps) return;

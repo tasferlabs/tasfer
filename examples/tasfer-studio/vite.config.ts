@@ -3,7 +3,7 @@ import { resolve } from "path";
 import { defineConfig } from "vite";
 
 // The @tasfer/* packages are consumed as raw TypeScript source (no build
-// step), exactly like apps/web. Their own transitive deps (defuddle, lowlight,
+// step), exactly like apps/web. Their own transitive deps (turndown, lowlight,
 // katex) resolve from packages/*/node_modules via Vite's filesystem walk.
 const repoRoot = resolve(__dirname, "../..");
 

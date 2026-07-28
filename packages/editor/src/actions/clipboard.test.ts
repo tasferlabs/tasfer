@@ -260,7 +260,7 @@ describe("getSelectionPlainText", () => {
 });
 
 describe("repairMathBackslashes", () => {
-  // The defuddle/turndown HTML → Markdown path doubles every backslash and only
+  // The Turndown HTML → Markdown path doubles every backslash and only
   // un-doubles a few non-backslash escapes, so pasted inline math arrives with
   // `\\degree` where the source had `\degree`. The math chip then renders the
   // stray backslash literally. Pin the repair so the chip's tree parses the

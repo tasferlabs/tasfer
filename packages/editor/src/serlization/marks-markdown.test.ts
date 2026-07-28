@@ -35,7 +35,7 @@ describe("inline mark markdown round-trip", () => {
   });
 });
 
-describe("link target parsing (defuddle / Turndown output forms)", () => {
+describe("link target parsing (Turndown output forms)", () => {
   it("drops the link title so it doesn't leak into the URL", () => {
     expect(
       roundTrip('See [the docs](https://example.com "Documentation").'),
