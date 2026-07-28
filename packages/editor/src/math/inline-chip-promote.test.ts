@@ -20,6 +20,7 @@ import { type Block, loadPage, type Page } from "../serlization/loadPage";
 import type { EditorState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
+import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
 import { applyOp } from "../sync/reducer";
 import { hasStructuredContent } from "../sync/structured-content";
 import { createCRDTbinding } from "../sync/sync";
@@ -159,7 +160,7 @@ describe("inline chip → display equation promote", () => {
     expect(converted.document.page.blocks[0].type).toBe(MATH);
   });
 
-  it("refuses when prose surrounds the chip", () => {
+  it("moves a chip out of prose into its own equation below", () => {
     let state = attachedChipState(LATEX);
     state = moveCursorToPosition(
       state,
@@ -167,9 +168,61 @@ describe("inline chip → display equation promote", () => {
       visibleTextOf(state.document.page.blocks[0]).length,
     );
     state = insertText(state, " and more prose").state;
-    const result = convertBlockAtCursor(state, { type: MATH });
-    expect(result.ops).toEqual([]);
-    expect(result.state.document.page.blocks[0].type).toBe("paragraph");
+
+    const { state: converted, ops } = convertBlockAtCursor(state, {
+      type: MATH,
+    });
+    const [prose, equation] = converted.document.page.blocks;
+    // The prose keeps its block, minus the chip's anchor char.
+    expect(prose.type).toBe("paragraph");
+    expect(visibleTextOf(prose)).toBe(" and more prose");
+    expect(hasStructuredContent(prose)).toBe(false);
+    // The formula becomes the equation right below, tree and all.
+    expect(equation.type).toBe(MATH);
+    expect(getStructuredMathSource(equation)).toBe(`${LATEX}b`);
+    // The caret continues inside the new equation.
+    expect(converted.document.contentSelection?.focus.blockId).toBe(
+      equation.id,
+    );
+
+    // A remote peer replaying the ops alone lands on the same two blocks.
+    let remote = snapshotPage(state.document.page);
+    for (const op of ops) {
+      remote = applyOp(remote, op, treeMathSchema.data);
+    }
+    expect(remote.blocks.map((b) => b.type)).toEqual(["paragraph", MATH]);
+    expect(visibleTextOf(remote.blocks[0])).toBe(" and more prose");
+    expect(getStructuredMathSource(remote.blocks[1])).toBe(`${LATEX}b`);
+  });
+
+  it("undoes a prose split back to the chip in its paragraph", () => {
+    let state = attachedChipState(LATEX);
+    state = moveCursorToPosition(
+      state,
+      0,
+      visibleTextOf(state.document.page.blocks[0]).length,
+    );
+    state = insertText(state, " and more prose").state;
+
+    const before = state;
+    const { state: converted, ops } = convertBlockAtCursor(before, {
+      type: MATH,
+    });
+    const undone = undoState(
+      recordUndoOps(before, converted, ops, before.CRDTbinding.getPeerId()),
+    ).state;
+
+    expect(
+      undone.document.page.blocks.filter((block) => !block.deleted).length,
+    ).toBe(1);
+    const block = undone.document.page.blocks[0];
+    expect(visibleTextOf(block)).toBe(
+      visibleTextOf(before.document.page.blocks[0]),
+    );
+    expect(
+      resolveStructuredInlineMathRuns(block as never as InlineMathHostBlock)[0]
+        ?.latex,
+    ).toBe(`${LATEX}b`);
   });
 
   it("morphs generically to a textual target, keeping the chip attached", () => {
@@ -193,6 +246,41 @@ describe("inline chip → display equation promote", () => {
     }
     expect(remote.blocks[0].type).toBe("quote");
     expect(remote.blocks[0].structuredContent).toEqual(block.structuredContent);
+  });
+
+  it("undoes back to the inline chip, mark and all", () => {
+    const before = attachedChipState(LATEX);
+    const { state: converted, ops } = convertBlockAtCursor(before, {
+      type: MATH,
+    });
+    const recorded = recordUndoOps(
+      before,
+      converted,
+      ops,
+      before.CRDTbinding.getPeerId(),
+    );
+    const undone = undoState(recorded).state;
+
+    const block = undone.document.page.blocks[0];
+    expect(block.type).toBe("paragraph");
+    // The chip is whole again: its anchor char, the mark that addresses the
+    // attachment, and the attachment itself. Restoring the text and the
+    // document without the mark would leave a bare anchor char and an
+    // unreachable formula.
+    expect(visibleTextOf(block)).toBe(
+      visibleTextOf(before.document.page.blocks[0]),
+    );
+    expect(
+      resolveStructuredInlineMathRuns(block as never as InlineMathHostBlock)[0]
+        ?.latex,
+    ).toBe(`${LATEX}b`);
+    expect(block.structuredContent).toEqual(
+      before.document.page.blocks[0].structuredContent,
+    );
+
+    // Redo lands back on the display equation.
+    const redone = redoState(undone).state;
+    expect(redone.document.page.blocks[0].type).toBe(MATH);
   });
 
   it("refuses a target that would strand the chip's attachment", () => {

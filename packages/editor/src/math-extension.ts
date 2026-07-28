@@ -13,11 +13,12 @@
  * the live input rules.
  */
 
-import type { FeatureInputRule } from "./feature-facets";
+import type { FeatureInputRule, FeaturePasteRule } from "./feature-facets";
 import { mathContentSelectionKind } from "./math/content-selection";
 import { type MathBlockAttrs, mathDataExtension } from "./math/data";
 import type { MathMarkAttrs } from "./math/inline-structured";
 import { mathInputRules } from "./math/input-rules";
+import { mathPasteRule } from "./math/paste";
 import { MathNode } from "./nodes/MathNode";
 import { MathMark } from "./rendering/marks/MathMark";
 import type { BlockSpec, MarkDef } from "./schema";
@@ -31,6 +32,7 @@ export type MathFeatureExtension = {
   readonly marks: readonly [MarkDef<"math", MathMarkAttrs>];
   readonly structuredKinds: readonly [StructuredKindSpec, StructuredKindSpec];
   readonly inputRules: readonly FeatureInputRule[];
+  readonly pasteRules: readonly FeaturePasteRule[];
 };
 
 /** Build a fresh, instance-safe math feature bundle. */
@@ -52,5 +54,6 @@ export function mathExtension(): MathFeatureExtension {
     ],
     structuredKinds: [...data.structuredKinds, mathContentSelectionKind],
     inputRules: mathInputRules,
+    pasteRules: [mathPasteRule],
   };
 }

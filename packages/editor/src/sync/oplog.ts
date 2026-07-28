@@ -146,6 +146,36 @@ export function appendOp(
 }
 
 /**
+ * Append operations produced by this replica. Local edits are already ordered
+ * and fresh, so the normal path stays incremental. The only local transaction
+ * that needs mergeOps' dependency replay is one that creates structured
+ * content before inserting its host block.
+ */
+export function appendLocalOps(
+  log: OpLog,
+  ops: Operation[],
+  schema: DataSchema = getBaseDataSchema(),
+): OpLog {
+  if (ops.length === 0) return log;
+
+  const pendingContentBlocks = new Set<string>();
+  for (const op of ops) {
+    if (op.op === "content_edit") {
+      pendingContentBlocks.add(op.blockId);
+    } else if (
+      op.op === "block_insert" &&
+      pendingContentBlocks.has(op.blockId)
+    ) {
+      return mergeOps(log, ops, schema);
+    }
+  }
+
+  let next = log;
+  for (const op of ops) next = appendOp(next, op, schema);
+  return next;
+}
+
+/**
  * Register operations that are already reflected in the log's materialized
  * state. This is the snapshot hydration path: it updates the operation log and
  * version vector without applying the operations to `state` again.
@@ -223,7 +253,10 @@ export function mergeOps(
   const canApplyIncrementally =
     !lastExisting || compareHLC(lastExisting.clock, newOps[0].clock) < 0;
 
-  if (canApplyIncrementally) {
+  if (
+    canApplyIncrementally &&
+    !requiresMissingBlockDependencyReplay(log, newOps)
+  ) {
     let state = log.state;
     for (const op of newOps) {
       state = applyOp(state, op, schema);
@@ -254,6 +287,39 @@ export function mergeOps(
   const allOps = mergeSortedOps(log.operations, newOps);
   const state = rebuildState(log.pageId, allOps, schema);
   return { ...log, operations: allOps, versionVector: newVV, state };
+}
+
+/**
+ * A content edit can be stamped before the block that will host it. Applying
+ * that edit incrementally is a permanent no-op; canonical replay can defer it
+ * until the host exists. Check both this batch and unresolved edits retained
+ * in the existing log so a block arriving in a later batch also recovers them.
+ */
+function requiresMissingBlockDependencyReplay(
+  log: OpLog,
+  newOps: readonly Operation[],
+): boolean {
+  const knownBlocks = new Set(log.state.blocks.map((block) => block.id));
+  const pendingContentBlocks = new Set<string>();
+
+  for (const op of log.operations) {
+    if (op.op === "content_edit" && !knownBlocks.has(op.blockId)) {
+      pendingContentBlocks.add(op.blockId);
+    }
+  }
+
+  for (const op of newOps) {
+    if (op.op === "content_edit" && !knownBlocks.has(op.blockId)) {
+      pendingContentBlocks.add(op.blockId);
+      continue;
+    }
+    if (op.op === "block_insert") {
+      if (pendingContentBlocks.has(op.blockId)) return true;
+      knownBlocks.add(op.blockId);
+    }
+  }
+
+  return false;
 }
 
 /**

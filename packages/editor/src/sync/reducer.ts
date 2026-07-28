@@ -10,6 +10,7 @@ import type { NodeRegistry } from "../rendering/nodes/Node";
 import {
   type Block,
   type Char,
+  type CharRun,
   type MarkSpan,
   type Page,
 } from "../serlization/loadPage";
@@ -27,7 +28,6 @@ import type {
 } from "../state-types";
 import { findBlock, findBlockIndex } from "./block-lookup";
 import {
-  canHaveFormats,
   isStyleField,
   isTextualBlock,
   readBlockStyle,
@@ -52,6 +52,24 @@ import {
   hasStructuredBlockAuthority,
   type StructuredContentMap,
 } from "./structured-content";
+
+/**
+ * Whether the block declares text in `schema` AND actually carries the storage —
+ * schema-aware so a custom textual node morphs like a built-in one, runtime-
+ * checked because a hand-built or legacy block may lack the arrays.
+ */
+function hasTextStorage(
+  block: Block,
+  schema: DataSchema,
+): block is Block & { charRuns: CharRun[]; formats: MarkSpan[] } {
+  return (
+    schema.isTextual(block.type) &&
+    "charRuns" in block &&
+    Array.isArray(block.charRuns) &&
+    "formats" in block &&
+    Array.isArray(block.formats)
+  );
+}
 
 /**
  * Create an empty page state.
@@ -561,11 +579,14 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
     );
     if (!newBlock) return state;
 
+    // Text carries whenever BOTH sides store text — the same rule every local
+    // morph applies (`convertBlockAtCursor`, the editor's convert command), so a
+    // peer replaying this op rebuilds the block its originator sees. Anything
+    // narrower diverges: paragraph → code preserves "hello" locally, and a
+    // remote peer would rebuild an empty code block.
     const morphedBlock: Block =
-      schema.canMorphTo(block.type, newType) &&
-      isTextualBlock(block) &&
-      isTextualBlock(newBlock)
-        ? {
+      hasTextStorage(block, schema) && hasTextStorage(newBlock, schema)
+        ? ({
             ...newBlock,
             charRuns: block.charRuns,
             // Marks only carry over when the target type can hold them. Morphing
@@ -573,10 +594,10 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
             // drop the spans — the originating peer's convert action already does
             // (`canHaveFormats(type) ? formats : []`), so preserving them here
             // would diverge: that peer sees no marks, remote peers keep them.
-            formats: canHaveFormats(newType) ? block.formats : [],
+            formats: schema.hasFormats(newType) ? block.formats : [],
             // The morph changes the block type (e.g. paragraph → heading), so the
             // old layout cache is invalid for the new type — let it recompute.
-          }
+          } as Block)
         : newBlock;
     const updatedBlock: Block = block.structuredContent
       ? ({

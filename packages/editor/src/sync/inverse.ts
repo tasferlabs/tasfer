@@ -36,8 +36,10 @@ import type {
 } from "../state-types";
 import { findBlock } from "./block-lookup";
 import {
+  canHaveFormats,
   getBlockDescriptor,
   getBlockFieldNames,
+  hasTextContent,
   isStyleField,
   isTextualBlock,
   readBlockStyle,
@@ -389,14 +391,75 @@ function invertBlockDelete(
  * Reads the prior value of the field from `pageBefore`. Uses the schema's
  * `extractForInverse` so type-specific extraction lives in one place.
  */
+/**
+ * Re-apply the mark spans a type morph drops.
+ *
+ * `block_set type` carries no marks, but the reducer clears `formats` when the
+ * target type can't hold them (math, code, any void type) — so inverting the
+ * field alone restores a paragraph stripped of every mark. An inline math chip
+ * is the loudest case: its formula lives in an attachment the mark's attrs
+ * address, so a lost span leaves the restored anchor char pointing at nothing.
+ *
+ * Each surviving span becomes one `mark_set` covering its own range, so remote
+ * peers — which dropped the same spans from the same op — rebuild them too.
+ * Marks re-apply over tombstoned chars (`applyFormatSet` walks ordinals over
+ * all chars), so this holds regardless of where the batch's `text_insert`
+ * inverse lands relative to this op.
+ */
+function restoreMorphedAwayMarks(
+  op: BlockSet,
+  block: Block,
+  binding: CRDTbinding,
+  schema?: DataSchema,
+): MarkSet[] {
+  if (!hasTextStorage(block, schema) || block.formats.length === 0) return [];
+  const target = op.value as string;
+  const retainsMarks =
+    (schema ? schema.isTextual(target) : hasTextContent(target)) &&
+    (schema ? schema.hasFormats(target) : canHaveFormats(target));
+  if (retainsMarks) return [];
+
+  // Document-order ordinals over ALL chars (tombstones included) so a span
+  // whose endpoint was already deleted still resolves — matching the reducer.
+  const ordinal = new Map<string, number>();
+  const ids: string[] = [];
+  for (const { id } of iterateAllChars(block.charRuns)) {
+    ordinal.set(id, ids.length);
+    ids.push(id);
+  }
+
+  const restores: MarkSet[] = [];
+  for (const span of block.formats) {
+    const startOrd = ordinal.get(span.startCharId);
+    const endOrd = ordinal.get(span.endCharId);
+    if (startOrd === undefined || endOrd === undefined) continue;
+    const charIds = ids.slice(
+      Math.min(startOrd, endOrd),
+      Math.max(startOrd, endOrd) + 1,
+    );
+    if (charIds.length === 0) continue;
+    restores.push({
+      op: "mark_set",
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: op.pageId,
+      blockId: op.blockId,
+      charIds,
+      format: span.format,
+      value: true,
+    });
+  }
+  return restores;
+}
+
 function invertBlockSet(
   op: BlockSet,
   pageBefore: Page,
   binding: CRDTbinding,
   schema?: DataSchema,
-): BlockSet | null {
+): Operation[] {
   const block = findBlock(pageBefore, op.blockId);
-  if (!block || block.deleted) return null;
+  if (!block || block.deleted) return [];
 
   const descriptor =
     schema?.getDescriptor(block.type) ?? getBlockDescriptor(block.type);
@@ -417,7 +480,7 @@ function invertBlockSet(
     previousValue = fieldDesc ? fieldDesc.extractForInverse(block) : undefined;
   }
 
-  return {
+  const restoreType: BlockSet = {
     op: "block_set",
     id: binding.nextId(),
     clock: binding.getClock(),
@@ -426,6 +489,11 @@ function invertBlockSet(
     field: op.field,
     value: previousValue,
   };
+  // The type is restored first, so the mark ops below land on a block that can
+  // hold them again.
+  return op.field === "type"
+    ? [restoreType, ...restoreMorphedAwayMarks(op, block, binding, schema)]
+    : [restoreType];
 }
 
 /**
@@ -459,10 +527,8 @@ export function invertOperation(
       const inv = invertBlockDelete(op, pageBefore, binding, schema);
       return inv ? [inv] : [];
     }
-    case "block_set": {
-      const inv = invertBlockSet(op, pageBefore, binding, schema);
-      return inv ? [inv] : [];
-    }
+    case "block_set":
+      return invertBlockSet(op, pageBefore, binding, schema);
     case "content_edit":
       return invertContentEdit(op, pageBefore, binding);
     default:

@@ -1062,6 +1062,14 @@ export default function CalendarPage() {
         const state = touchCreateRef.current;
         if (!state) return;
 
+        // Native scrolling can advance between the last touchmove and this
+        // timer. Scrolling wins over creation whenever the viewport moved.
+        const currentScrollTop = timelineRef.current?.scrollTop ?? 0;
+        if (Math.abs(currentScrollTop - state.scrollTop) > 5) {
+          touchCreateRef.current = null;
+          return;
+        }
+
         // Activate create mode
         state.active = true;
 
@@ -1096,6 +1104,26 @@ export default function CalendarPage() {
       weekDays,
     ],
   );
+
+  useEffect(() => {
+    const timeline = timelineRef.current;
+    if (!timeline) return;
+
+    function cancelTouchCreateOnScroll() {
+      const state = touchCreateRef.current;
+      if (!state) return;
+
+      clearTimeout(state.timer);
+      touchCreateRef.current = null;
+      if (state.active) setCreateDrag(null);
+    }
+
+    timeline.addEventListener("scroll", cancelTouchCreateOnScroll, {
+      passive: true,
+    });
+    return () =>
+      timeline.removeEventListener("scroll", cancelTouchCreateOnScroll);
+  }, []);
 
   // Native touchmove handler for create-drag (needs passive: false to preventDefault)
   useEffect(() => {

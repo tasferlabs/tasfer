@@ -537,6 +537,28 @@ describe("Editor structured-content public API", () => {
     editor.destroy();
   });
 
+  it("preserves a nested math caret across blur and refocus", () => {
+    const { editor, blockId } = createMathEditor();
+    const browserFocus = editor as unknown as {
+      applyBrowserFocus(focused: boolean): void;
+    };
+    browserFocus.applyBrowserFocus(true);
+    expect(
+      editor.change((change) =>
+        change.select({ block: blockId, offset: 2 }).insertText("X"),
+      ),
+    ).toBe(true);
+    const selection = editor.state.contentSelection;
+    expect(selection).not.toBeNull();
+
+    browserFocus.applyBrowserFocus(false);
+    browserFocus.applyBrowserFocus(true);
+
+    expect(editor.state.contentSelection).toEqual(selection);
+    expect(editor.state.selection.range).toBeNull();
+    editor.destroy();
+  });
+
   it("refuses a flat block merge that would discard authoritative content", () => {
     const page = loadPage("before\nafter");
     const contentId = `${page.blocks[1].id}/owned`;

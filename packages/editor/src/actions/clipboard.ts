@@ -65,15 +65,7 @@ import { createIdGenerator, generateBlockId } from "../sync/id";
 import { applyOps, findNextVisibleBlockIndex } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
 import type { StructuredContentMap } from "../sync/structured-content";
-import Defuddle from "defuddle/full";
-
-// `defuddle/full` publishes a UMD/CommonJS runtime behind ESM-looking types.
-// Node's ESM loader therefore exposes its callable default (with this helper as
-// a static property), not the declared named export. Reading that property keeps
-// both native ESM/headless consumers and browser bundlers on the same path.
-const { createMarkdownContent } = Defuddle as typeof Defuddle & {
-  createMarkdownContent: typeof import("defuddle/full").createMarkdownContent;
-};
+import TurndownService from "turndown";
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
   return generateBlockId(binding.nextId);
@@ -544,7 +536,7 @@ function blocksToMarkdown(blocks: Block[], schema: DataSchema): string {
  * comment (invisible to external apps, which just render the fragment that
  * follows) carrying the base64'd canonical Markdown of the selection. On paste
  * back into Tasfer, `parseHTMLToBlocks` decodes this instead of round-tripping
- * the rendered HTML through defuddle — which is lossy for image sizing, block
+ * the rendered HTML through a generic converter — which is lossy for image sizing, block
  * math, list nesting, and todo `checked` state. base64 keeps the payload free of
  * any `-->`.
  *
@@ -824,7 +816,7 @@ function segmentsToCharsAndFormats(
  * Flatten block-level links into inline ones.
  *
  * When an `<a>` wraps block content (e.g. `<a href><h1>Title</h1></a>`, common
- * for card/teaser links), Turndown — via defuddle — emits multi-line Markdown:
+ * for card/teaser links), Turndown emits multi-line Markdown:
  *
  *   [\n\n# Title\n\n](https://example.com)
  *
@@ -883,10 +875,9 @@ export function stripFragmentLinks(markdown: string): string {
 /**
  * Repair inline/block math that the HTML → Markdown conversion mangled.
  *
- * `createMarkdownContent` (defuddle → turndown) escapes Markdown
+ * Turndown escapes Markdown
  * metacharacters in text nodes, which includes doubling every backslash
- * (`\degree` → `\\degree`). defuddle reverses that escaping for a handful of
- * characters (`# $ % & ~ _ ^ { }`) but never for the backslash itself, so a
+ * (`\degree` → `\\degree`). Because backslashes remain escaped, a
  * LaTeX command inside pasted `$…$` / `$$…$$` math survives with a doubled
  * backslash and renders as a literal `\` (e.g. `100\degree C` shows the
  * backslash instead of `100°C`).
@@ -927,9 +918,9 @@ function containExternalImages(blocks: Block[]): Block[] {
  *
  * Source HTML from the system clipboard (Google Docs, web pages, other
  * editors) is wildly inconsistent, so instead of walking the DOM ourselves we
- * let defuddle normalize it into clean Markdown, then run that Markdown through
+ * let Turndown normalize it into clean Markdown, then run that Markdown through
  * the same parser the plain-text path uses. This keeps a single, well-tested
- * Markdown -> blocks pipeline and inherits defuddle's HTML cleanup.
+ * Markdown -> blocks pipeline without bundling a full article-extraction stack.
  */
 export function parseHTMLToBlocks(
   html: string,
@@ -939,7 +930,7 @@ export function parseHTMLToBlocks(
   if (!html.trim()) return [];
 
   // Our own copies carry the canonical Markdown in a leading marker comment.
-  // Reconstruct from it directly — lossless, and skips defuddle entirely —
+  // Reconstruct from it directly — lossless, and skips generic HTML conversion —
   // rather than parsing the rendered (lossy) HTML.
   const marker = html.match(TASFER_CLIPBOARD_MARKER_RE);
   if (marker) {
@@ -957,7 +948,12 @@ export function parseHTMLToBlocks(
 
   let markdown: string;
   try {
-    markdown = createMarkdownContent(html, "");
+    markdown = new TurndownService({
+      bulletListMarker: "-",
+      codeBlockStyle: "fenced",
+      headingStyle: "atx",
+      hr: "---",
+    }).turndown(html);
   } catch (error) {
     console.error("Failed to convert pasted HTML to Markdown:", error);
     return [];
@@ -1028,6 +1024,18 @@ function parsePlainTextToBlocks(
 
     return blocks;
   }
+}
+
+/** Parse only when a feature recognizes the exact plain clipboard flavor. */
+function parseRecognizedPlainTextToBlocks(
+  text: string,
+  binding: CRDTbinding,
+  schema?: DataSchema,
+): Block[] {
+  const transformed = schema?.transformPastedText(text) ?? text;
+  return transformed === text
+    ? []
+    : parsePlainTextToBlocks(transformed, binding, schema);
 }
 
 /**
@@ -2184,6 +2192,18 @@ export function pasteFromClipboardEvent(
     return text ? insertText(state, text) : null;
   }
 
+  // Recognize external plain LaTeX before HTML conversion can escape it. Our
+  // own rich payload must take the marker path below so prose that happens to
+  // be valid LaTeX round-trips without becoming a math mark.
+  if (text && !TASFER_CLIPBOARD_MARKER_RE.test(html)) {
+    const blocks = parseRecognizedPlainTextToBlocks(
+      text,
+      state.CRDTbinding,
+      state.schema,
+    );
+    if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+  }
+
   // Try to get HTML first
   if (html) {
     const blocks = parseHTMLToBlocks(html, state.CRDTbinding, state.schema);
@@ -2249,17 +2269,22 @@ export function pasteFromClipboardEventAsPlainText(
         return;
       }
 
-      const blocks = parsePlainTextToBlocks(
+      const blocks = parseRecognizedPlainTextToBlocks(
         text,
         state.CRDTbinding,
         state.schema,
       );
-      if (blocks.length === 0) {
+      const parsed =
+        blocks.length > 0
+          ? blocks
+          : parsePlainTextToBlocks(text, state.CRDTbinding, state.schema);
+
+      if (parsed.length === 0) {
         resolve(null);
         return;
       }
 
-      resolve(insertBlocksAtCursor(state, blocks));
+      resolve(insertBlocksAtCursor(state, parsed));
     } catch (error) {
       console.error("Failed to paste plain text from clipboard event:", error);
       resolve(null);
@@ -2309,6 +2334,14 @@ export async function pasteFromSystemClipboard(
         state.schema.ownsInput("before-insert", state, text)
       ) {
         return text ? insertText(state, text) : null;
+      }
+      if (text) {
+        const blocks = parseRecognizedPlainTextToBlocks(
+          text,
+          state.CRDTbinding,
+          state.schema,
+        );
+        if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
       }
       // HTML first (matches the navigator path) so a Tasfer round-trip stays
       // lossless via the html marker; otherwise fall back to plain text.
@@ -2360,6 +2393,15 @@ export async function pasteFromSystemClipboard(
       state.schema.ownsInput("before-insert", state, text)
     ) {
       return text ? insertText(state, text) : null;
+    }
+
+    if (text) {
+      const blocks = parseRecognizedPlainTextToBlocks(
+        text,
+        state.CRDTbinding,
+        state.schema,
+      );
+      if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
     }
 
     // Prefer HTML (matches the synchronous Cmd/Ctrl+V path): an image copied

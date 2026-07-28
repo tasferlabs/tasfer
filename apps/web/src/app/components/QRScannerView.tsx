@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Html5Qrcode } from "html5-qrcode";
+import type { Html5Qrcode as Html5QrcodeInstance } from "html5-qrcode";
 import { Camera, X } from "lucide-react";
 
 interface QRScannerViewProps {
@@ -9,11 +9,15 @@ interface QRScannerViewProps {
   hideClose?: boolean;
 }
 
-export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps) {
+export function QRScannerView({
+  onScan,
+  onClose,
+  hideClose,
+}: QRScannerViewProps) {
   const { t } = useTranslation();
   const reactId = useId();
   const scannerId = `qr-reader-${reactId.replace(/:/g, "")}`;
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerRef = useRef<Html5QrcodeInstance | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -26,8 +30,10 @@ export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps
     async function startScanner() {
       if (!containerRef.current) return;
 
-      let scanner: Html5Qrcode | null = null;
+      let scanner: Html5QrcodeInstance | null = null;
       try {
+        const { Html5Qrcode } = await import("html5-qrcode");
+        if (cancelled) return;
         scanner = new Html5Qrcode(scannerId, { verbose: false });
         scannerRef.current = scanner;
 
@@ -72,7 +78,10 @@ export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps
 
         // Effect was cleaned up while the camera was starting — stop it now
         if (cancelled) {
-          scanner.stop().then(() => scanner!.clear()).catch(() => {});
+          scanner
+            .stop()
+            .then(() => scanner!.clear())
+            .catch(() => {});
           return;
         }
 
@@ -134,7 +143,10 @@ export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps
   return (
     <div className="flex flex-col items-center gap-4">
       {/* Scanner container */}
-      <div className="relative w-full overflow-hidden rounded-xl" ref={containerRef}>
+      <div
+        className="relative w-full overflow-hidden rounded-xl"
+        ref={containerRef}
+      >
         {/* Camera feed — html5-qrcode renders into this div */}
         <div
           id={scannerId}
@@ -151,10 +163,13 @@ export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps
             {/* Clear center cutout */}
             <div className="relative h-[250px] w-[250px]">
               {/* Cutout (clear area) */}
-              <div className="absolute inset-0 rounded-2xl bg-black/40 ring-2 ring-white/20" style={{
-                boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)",
-                background: "transparent",
-              }} />
+              <div
+                className="absolute inset-0 rounded-2xl bg-black/40 ring-2 ring-white/20"
+                style={{
+                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)",
+                  background: "transparent",
+                }}
+              />
 
               {/* Corner markers */}
               <Corner position="top-left" />
@@ -186,7 +201,11 @@ export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps
 }
 
 /** Corner bracket markers for the viewfinder */
-function Corner({ position }: { position: "top-left" | "top-right" | "bottom-left" | "bottom-right" }) {
+function Corner({
+  position,
+}: {
+  position: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+}) {
   const isTop = position.includes("top");
   const isLeft = position.includes("left");
 

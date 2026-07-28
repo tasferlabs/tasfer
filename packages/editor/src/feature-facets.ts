@@ -19,10 +19,11 @@
  * What remains a *feature bundle* surface ({@link FeatureFacets}, installed
  * with `Schema.use` / `DataSchema.withFeatures`) is only the genuinely
  * cross-type pieces: live-input rules that must fire while typing in other
- * blocks, feature-level action hooks, and theme defaults. Those are ordered by
- * explicit priority (high first), then installation order; reusing a facet id
- * replaces the earlier definition at the later installation position, which
- * makes overrides deterministic without deduplicating by feature name.
+ * blocks, whole-payload paste recognition, feature-level action hooks, and
+ * theme defaults. Those are ordered by explicit priority (high first), then
+ * installation order; reusing a facet id replaces the earlier definition at
+ * the later installation position, which makes overrides deterministic without
+ * deduplicating by feature name.
  *
  * Input-rule ids are load-bearing: dispatch gates match on `rule.id` (for
  * example math's tree-migration gate checks that its migration rule is
@@ -82,6 +83,14 @@ export interface FeatureInputRule extends OrderedFeatureFacet {
   apply(
     ctx: FeatureInputRuleCtx,
   ): (StateResult & { readonly handled?: boolean }) | undefined;
+}
+
+/** A feature-owned rewrite of clipboard text before Markdown parsing. */
+export interface FeaturePasteRule extends OrderedFeatureFacet {
+  /** Skip this rule when the schema forbids authoring the named mark. */
+  readonly requiresMark?: string;
+  /** Return `undefined` when this rule does not recognize the whole payload. */
+  transform(text: string): string | undefined;
 }
 
 /** Token emitted by a spec-owned markdown recognizer. */
@@ -206,6 +215,12 @@ export interface StructuredMarkResolveCtx {
   readonly attachments: StructuredContentMap | undefined;
 }
 
+/** Canonical sources that became adjacent while creating one structured mark. */
+export interface StructuredMarkJoinCtx {
+  readonly left: string;
+  readonly right: string;
+}
+
 /** Context for rewriting a mark after its block attachments were cloned once. */
 export interface StructuredMarkCloneCtx {
   readonly mark: Mark;
@@ -229,6 +244,11 @@ export interface StructuredMarkCloneCtx {
  */
 export interface StructuredMarkFacet {
   create?(ctx: StructuredMarkCreateCtx): StructuredMarkCreateResult | undefined;
+  /**
+   * Join adjacent canonical sources without changing their meaning. Defaults
+   * to direct concatenation; features may preserve required syntax separators.
+   */
+  joinSources?(ctx: StructuredMarkJoinCtx): string;
   /**
    * Canonical source resolved from the mark's attachment, or undefined when
    * the referenced attachment is missing or invalid (the run then renders its
@@ -302,6 +322,7 @@ export interface FeatureThemeDefaults {
  */
 export interface FeatureFacets {
   readonly inputRules?: readonly FeatureInputRule[];
+  readonly pasteRules?: readonly FeaturePasteRule[];
   readonly actions?: readonly FeatureActionHook[];
   readonly theme?: FeatureThemeDefaults;
   /** Removed — Markdown recognizers ride the owning spec's `markdownSyntax`. */

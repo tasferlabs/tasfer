@@ -115,6 +115,65 @@ describe("createDoc", () => {
     expect(doc.getMarkdown()).toContain("local edit");
   });
 
+  it("recovers structured content stamped before its host block", () => {
+    const pageId = "page-attachment";
+    const blockId = "p-attachment:1";
+    const contentId = "p-attachment:2";
+    const contentInit: Operation = {
+      op: "content_edit",
+      id: "p-attachment:3",
+      clock: { counter: 1, peerId: "p-attachment" },
+      pageId,
+      blockId,
+      contentId,
+      edit: {
+        kind: "document_init",
+        document: {
+          version: 1,
+          kind: "math",
+          rootId: contentId,
+          nodes: {
+            [contentId]: {
+              id: contentId,
+              type: "root",
+              placement: { parentId: null, slot: "", orderKey: "" },
+              attrs: {},
+              textFields: {},
+            },
+          },
+        },
+      },
+    };
+    const blockInsert: Operation = {
+      op: "block_insert",
+      id: "p-attachment:4",
+      clock: { counter: 2, peerId: "p-attachment" },
+      pageId,
+      orderKey: "a0",
+      blockId,
+      blockType: "paragraph",
+    };
+    const doc = createDoc({ pageId, ops: [] });
+
+    // Persisted/transport batches may split at this boundary. The first edit
+    // stays in the log even though its host does not exist yet.
+    doc.applyUpdate([contentInit], "wire");
+    doc.applyUpdate([blockInsert], "wire");
+
+    expect(doc.getRawBlocks()[0]?.structuredContent?.[contentId]?.rootId).toBe(
+      contentId,
+    );
+    expect(doc.getRawBlocks()).toEqual(
+      rebuildState(pageId, doc.getOperations()).blocks,
+    );
+
+    const localDoc = createDoc({ pageId, ops: [] });
+    localDoc._ingestLocal([contentInit, blockInsert], "editor");
+    expect(
+      localDoc.getRawBlocks()[0]?.structuredContent?.[contentId]?.rootId,
+    ).toBe(contentId);
+  });
+
   it("round-trips through encodeState / createDoc(bytes)", () => {
     const [batch] = makePeerBatches("p-eee", ["persisted"]);
     const original = createDoc({ pageId: "page-9", ops: [] });

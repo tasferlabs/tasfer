@@ -66,6 +66,35 @@ describe("MathDocument identity-keyed layout", () => {
     ).toContainEqual(position);
   });
 
+  it("keeps an empty raw-text field addressable", () => {
+    const parsed = parseMathDocument("f", {
+      identityAllocator: createDeterministicIdentityAllocator("empty-field"),
+    });
+    const row = parsed.root.body;
+    const text = row.children[0];
+    if (text?.type !== "raw-text") throw new Error("expected raw text");
+    const document = {
+      ...parsed,
+      root: {
+        ...parsed.root,
+        body: {
+          ...row,
+          children: [{ ...text, text: "" }],
+        },
+      },
+    };
+
+    const stop = mathDocumentCaretStop(layoutMathDocument(document), {
+      kind: "field",
+      rowId: row.id,
+      nodeId: text.id,
+      field: "text",
+      offset: 0,
+    });
+
+    expect(stop?.sourceOffset).toBe(0);
+  });
+
   it("keeps root, fraction, numerator, and denominator independently addressable", () => {
     const document = parseMathDocument(String.raw`\frac{a}{b}`, {
       identityAllocator: createDeterministicIdentityAllocator("fraction"),

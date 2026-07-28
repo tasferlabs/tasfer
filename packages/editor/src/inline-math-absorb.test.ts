@@ -81,12 +81,48 @@ describe("marking math over an existing chip", () => {
     expect(attachmentCount(result.state)).toBe(1);
   });
 
+  it("joins a newly marked range directly beside an existing chip", () => {
+    const selected = select(pageState("$a$b"), 1, 2);
+
+    const result = toggleFormat(selected, "math");
+
+    expect(markdownOf(result.state)).toBe("$ab$");
+    expect(attachmentCount(result.state)).toBe(1);
+  });
+
+  it("joins on either side of a newly marked range", () => {
+    const selected = select(pageState("$a$b$c$"), 1, 2);
+
+    const result = toggleFormat(selected, "math");
+
+    expect(markdownOf(result.state)).toBe("$abc$");
+    expect(attachmentCount(result.state)).toBe(1);
+  });
+
+  it("preserves the separator required after a LaTeX control word", () => {
+    const selected = select(pageState("$\\sin$x"), 1, 2);
+
+    const result = toggleFormat(selected, "math");
+
+    expect(markdownOf(result.state)).toBe("$\\sin x$");
+    expect(attachmentCount(result.state)).toBe(1);
+  });
+
   it("does the same for the typed `$` gesture", () => {
     const selected = select(pageState("$a$ tail"), 0);
 
     const result = wrapSelectionOnInput(selected, "$");
 
     expect(result && markdownOf(result.state)).toBe("$atail$");
+  });
+
+  it("joins an adjacent range marked by the typed `$` gesture", () => {
+    const selected = select(pageState("$a$b"), 1, 2);
+
+    const result = wrapSelectionOnInput(selected, "$");
+
+    expect(result && markdownOf(result.state)).toBe("$ab$");
+    expect(result && attachmentCount(result.state)).toBe(1);
   });
 
   it("still refuses to re-wrap a chip that is the whole selection", () => {

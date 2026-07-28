@@ -4,7 +4,6 @@ import { ActionCenter } from "../components/ActionCenter";
 import { AddSpaceDialog } from "../components/AddSpaceDialog";
 import { BottomToolDock } from "../components/BottomToolDock";
 import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
-import { DevToolbar } from "../components/DevToolbar";
 import { EditGroupDialog } from "../components/EditGroupDialog";
 import { ImportDialogProvider } from "../components/ImportDialogProvider";
 import { InviteMembersDialog } from "../components/InviteMembersDialog";
@@ -23,6 +22,7 @@ import { useVersion } from "../contexts/VersionContext";
 import { useFileDropImport } from "../hooks/useFileDropImport";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useResponsive from "../hooks/useResponsive";
+import { useDevToolsEnabled } from "@/lib/devTools";
 import ForceUpdatePage from "../pages/ForceUpdatePage";
 import { FileDropChrome } from "./FileDropChrome";
 import { FloatingSidebar } from "./FloatingSidebar";
@@ -31,12 +31,20 @@ import { ResizableSidebar } from "./ResizableSidebar";
 import { TopActionBar } from "./TopActionBar";
 import { TopActionBarSlotProvider } from "./TopActionBarSlot";
 
+const DevToolbar = React.lazy(() =>
+  import("../components/DevToolbar").then((module) => ({
+    default: module.DevToolbar,
+  })),
+);
+
 export default function Layout() {
   // Dev-only smoke test for the error boundary: visit any page with `?boom` to
   // trigger a render error and see the RouteErrorBoundary. No-op in production.
   const { search } = useLocation();
   if (import.meta.env.DEV && new URLSearchParams(search).has("boom")) {
-    throw new Error("Test error triggered via ?boom (RouteErrorBoundary smoke test)");
+    throw new Error(
+      "Test error triggered via ?boom (RouteErrorBoundary smoke test)",
+    );
   }
 
   const { isLoading, meetsMinimum } = useVersion();
@@ -96,6 +104,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
     null,
   );
   const isMobile = useResponsive("(max-width: 768px)");
+  const devToolsEnabled = useDevToolsEnabled();
   const { spaces, isLoading: spacesLoading, loadError } = useSpaces();
   const fileDrop = useFileDropImport();
 
@@ -180,7 +189,11 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
       <ActionCenter />
       <PeerVersionPopup />
       <BottomToolDock>
-        <DevToolbar />
+        {devToolsEnabled && (
+          <React.Suspense fallback={null}>
+            <DevToolbar />
+          </React.Suspense>
+        )}
         {isPageRoute && <WordCountOverlay />}
       </BottomToolDock>
       {needsForceUpdate && <ForceUpdatePage />}

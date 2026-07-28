@@ -20,7 +20,7 @@
  * from the already-deduped type maps, so overriding a spec replaces its facets
  * wholesale, and every derivation path (`extend`, `restrict`, `withFeatures`,
  * direct construction) yields the same dispatch for the same specs. Only the
- * genuinely cross-type facets (live-input rules, action hooks, theme
+ * genuinely cross-type facets (live-input rules, paste rules, action hooks, theme
  * defaults) are installed separately with `withFeatures()` and threaded
  * through derivations unchanged.
  *
@@ -42,6 +42,7 @@ import {
   type FeatureInputPhase,
   type FeatureInputRule,
   type FeatureInputRuleCtx,
+  type FeaturePasteRule,
   type FeatureThemeDefaults,
   orderedFacets,
   type ResolvedFeatureThemeDefaults,
@@ -157,12 +158,14 @@ export interface StructuredKindAdapters {
  */
 export interface InstalledFeatureFacets {
   readonly inputRules: readonly FeatureInputRule[];
+  readonly pasteRules: readonly FeaturePasteRule[];
   readonly actions: readonly FeatureActionHook[];
   readonly themes: readonly FeatureThemeDefaults[];
 }
 
 const NO_FEATURES: InstalledFeatureFacets = {
   inputRules: [],
+  pasteRules: [],
   actions: [],
   themes: [],
 };
@@ -286,6 +289,7 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   /** Input rules per phase, in dispatch order. */
   private readonly inputRulesBefore: readonly FeatureInputRule[];
   private readonly inputRulesAfter: readonly FeatureInputRule[];
+  private readonly pasteRules: readonly FeaturePasteRule[];
 
   constructor(
     blockSpecs: readonly BlockSpecCore[],
@@ -411,6 +415,7 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     this.inputRulesAfter = orderedFacets(
       features.inputRules.filter((rule) => rule.phase === "after-insert"),
     );
+    this.pasteRules = orderedFacets(features.pasteRules);
   }
 
   /** Whether a block type is known to this schema. */
@@ -538,6 +543,16 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return { state: current, ops, handled: false };
   }
 
+  /** Let installed features recognize and rewrite a whole clipboard payload. */
+  transformPastedText(text: string): string {
+    for (const rule of this.pasteRules) {
+      if (rule.requiresMark && !this.isMarkAllowed(rule.requiresMark)) continue;
+      const transformed = rule.transform(text);
+      if (transformed !== undefined) return transformed;
+    }
+    return text;
+  }
+
   /** Installed action hooks in deterministic registration order. */
   actions(): readonly FeatureActionHook[] {
     return orderedFacets(this.features.actions);
@@ -577,6 +592,18 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     ctx: StructuredMarkResolveCtx,
   ): string | undefined {
     return this.structuredMark(markType)?.resolve?.(ctx);
+  }
+
+  /** Join sources while absorbing adjacent runs into one structured mark. */
+  joinStructuredMarkSources(
+    markType: string,
+    left: string,
+    right: string,
+  ): string {
+    return (
+      this.structuredMark(markType)?.joinSources?.({ left, right }) ??
+      left + right
+    );
   }
 
   /** Rewrite a structured mark to the attachment ids cloned for its block. */
@@ -848,6 +875,10 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
         inputRules: upsertFacetsById(
           this.features.inputRules,
           feature.inputRules ?? [],
+        ),
+        pasteRules: upsertFacetsById(
+          this.features.pasteRules,
+          feature.pasteRules ?? [],
         ),
         actions: upsertFacetsById(this.features.actions, feature.actions ?? []),
         themes: feature.theme

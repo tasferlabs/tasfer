@@ -1,8 +1,6 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./Data.module.css";
-import { ExportAllDialog } from "@/app/components/ExportAllDialog";
-import { ImportAllDialog } from "@/app/components/ImportAllDialog";
 import { useToast } from "@/app/components/Toast";
 import {
   getPersistentStorageStatus,
@@ -11,6 +9,17 @@ import {
 } from "@/lib/persistentStorage";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+
+const ExportAllDialog = lazy(() =>
+  import("@/app/components/ExportAllDialog").then((module) => ({
+    default: module.ExportAllDialog,
+  })),
+);
+const ImportAllDialog = lazy(() =>
+  import("@/app/components/ImportAllDialog").then((module) => ({
+    default: module.ImportAllDialog,
+  })),
+);
 
 export function Data() {
   const { t } = useTranslation();
@@ -54,8 +63,12 @@ export function Data() {
     <div className={styles.container}>
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t("export.title", "Export")}</p>
-          <p className="text-sm opacity-75">{t("export.allAsZip", "Export all pages as a ZIP file")}</p>
+          <p className={cn("text-sm", styles.title)}>
+            {t("export.title", "Export")}
+          </p>
+          <p className="text-sm opacity-75">
+            {t("export.allAsZip", "Export all pages as a ZIP file")}
+          </p>
         </div>
         <Button variant="outline" onClick={() => setShowExportDialog(true)}>
           {t("export.all", "Export all")}
@@ -64,8 +77,15 @@ export function Data() {
 
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t("import.title", "Import")}</p>
-          <p className="text-sm opacity-75">{t("import.fromZipOrMarkdown", "Import pages from a ZIP file or markdown files")}</p>
+          <p className={cn("text-sm", styles.title)}>
+            {t("import.title", "Import")}
+          </p>
+          <p className="text-sm opacity-75">
+            {t(
+              "import.fromZipOrMarkdown",
+              "Import pages from a ZIP file or markdown files",
+            )}
+          </p>
         </div>
         <Button variant="outline" onClick={() => setShowImportDialog(true)}>
           {t("import.title", "Import")}
@@ -105,15 +125,14 @@ export function Data() {
         </div>
       )}
 
-      <ExportAllDialog
-        open={showExportDialog}
-        onOpenChange={setShowExportDialog}
-      />
-
-      <ImportAllDialog
-        open={showImportDialog}
-        onOpenChange={setShowImportDialog}
-      />
+      <Suspense fallback={null}>
+        {showExportDialog && (
+          <ExportAllDialog open onOpenChange={setShowExportDialog} />
+        )}
+        {showImportDialog && (
+          <ImportAllDialog open onOpenChange={setShowImportDialog} />
+        )}
+      </Suspense>
     </div>
   );
 }

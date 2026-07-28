@@ -2096,13 +2096,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // editor must never hold a caret outside its window); a tap/click that
     // resolves a position places its own caret over this in the same frame
     // (pointer events are processed from the queue after this synchronous focus
-    // handler). An existing selection is left alone — focus returning from a
-    // menu/popover must not collapse it.
+    // handler). Any existing selection is left alone — including a structured
+    // content caret, which intentionally has no flat cursor. Focus returning
+    // from a menu/popover must not collapse it.
     if (
       focused &&
       !this._state.ui.isReadonlyBase &&
       this._state.document.selection === null &&
-      this._state.document.cursor === null
+      this._state.document.cursor === null &&
+      this._state.document.contentSelection === null
     ) {
       const resolved = resolvePoint(this._state, "start");
       if (resolved) {

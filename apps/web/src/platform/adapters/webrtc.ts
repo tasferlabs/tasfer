@@ -42,6 +42,44 @@ const STUN_ONLY_CONFIG: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
+function normalizeIceServers(value: unknown): RTCIceServer[] | null {
+  const entries = Array.isArray(value) ? value : [value];
+  const servers: RTCIceServer[] = [];
+
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const candidate = entry as {
+      urls?: unknown;
+      username?: unknown;
+      credential?: unknown;
+    };
+    const rawUrls = typeof candidate.urls === "string"
+      ? [candidate.urls]
+      : Array.isArray(candidate.urls)
+        ? candidate.urls.filter((url): url is string => typeof url === "string")
+        : [];
+    // Cloudflare documents port 53 as browser-blocked. Add its standard web
+    // port alternatives as well: mobile networks often block 3478/5349 while
+    // permitting the same TURN service on 80/443.
+    const browserUrls = new Set(rawUrls.filter((url) => !/:53(?:\?|$)/.test(url)));
+    if (browserUrls.has("turn:turn.cloudflare.com:3478?transport=tcp")) {
+      browserUrls.add("turn:turn.cloudflare.com:80?transport=tcp");
+    }
+    if (browserUrls.has("turns:turn.cloudflare.com:5349?transport=tcp")) {
+      browserUrls.add("turns:turn.cloudflare.com:443?transport=tcp");
+    }
+    const urls = [...browserUrls];
+    if (urls.length === 0) continue;
+
+    const server: RTCIceServer = { urls };
+    if (typeof candidate.username === "string") server.username = candidate.username;
+    if (typeof candidate.credential === "string") server.credential = candidate.credential;
+    servers.push(server);
+  }
+
+  return servers.length > 0 ? servers : null;
+}
+
 /**
  * How long before we re-request TURN credentials. The server mints them with
  * a 1h TTL and may serve a room-cached mint up to 20 minutes old, so a peer
@@ -303,7 +341,7 @@ class WebRtcPeer implements NetworkPeer {
   }
 
   /** Called by the topic when a data channel is established */
-  _setDataChannel(dc: RTCDataChannel, onOpen?: () => void) {
+  _setDataChannel(dc: RTCDataChannel, onOpen?: () => void, onClose?: () => void) {
     this.dc = dc;
     dc.binaryType = "arraybuffer";
     const rShort = this.remotePublicKey.slice(0, 8);
@@ -316,7 +354,10 @@ class WebRtcPeer implements NetworkPeer {
       }
     };
 
-    dc.onclose = () => this._fireClose();
+    dc.onclose = () => {
+      this._fireClose();
+      onClose?.();
+    };
 
     dc.onerror = (e) => {
       console.error(`[WebRTC] datachannel error remote=${rShort}`, e);
@@ -682,12 +723,14 @@ class WebRtcTopic implements NetworkTopic {
       });
   }
 
-  private wsSend(msg: unknown) {
+  private wsSend(msg: unknown): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
-    } else {
-      console.error(`[WS] send dropped — socket not open (state=${this.ws?.readyState ?? "null"}) topic=${this.topicHex.slice(0, 8)}`);
+      return;
     }
+    throw new Error(
+      `WebSocket is not open (state=${this.ws?.readyState ?? "null"}) topic=${this.topicHex.slice(0, 8)}`,
+    );
   }
 
   /**
@@ -814,12 +857,13 @@ class WebRtcTopic implements NetworkTopic {
 
     pc.onicecandidateerror = (e) => {
       console.warn(
-        `[WebRTC] ICE candidate error remote=${rShort} code=${e.errorCode} url=${e.url || "(unknown)"}`,
+        `[WebRTC] ICE candidate error remote=${rShort} code=${e.errorCode} url=${e.url || "(unknown)"} detail=${e.errorText || "(none)"}`,
       );
     };
 
     pc.onconnectionstatechange = () => {
       console.log(`[WebRTC] connectionState=${pc.connectionState} remote=${rShort}`);
+      if (this.peers.get(remotePeerId) !== peer) return;
       if (pc.connectionState === "failed") {
         this._promoteToRelay(remotePeerId);
       } else if (pc.connectionState === "connected" && peer.isReady()) {
@@ -831,6 +875,7 @@ class WebRtcTopic implements NetworkTopic {
 
     pc.oniceconnectionstatechange = () => {
       console.log(`[WebRTC] iceConnectionState=${pc.iceConnectionState} remote=${rShort}`);
+      if (this.peers.get(remotePeerId) !== peer) return;
       if (pc.iceConnectionState === "failed") {
         this._promoteToRelay(remotePeerId);
       } else if (pc.iceConnectionState === "disconnected" && peer.hasOpened()) {
@@ -847,6 +892,12 @@ class WebRtcTopic implements NetworkTopic {
     this.clearConnectionDeadline(remotePeerId);
     this.clearDisconnectTimer(remotePeerId);
     this.restartAttempted.delete(remotePeerId);
+  }
+
+  private handleDataChannelClose(remotePeerId: string, peer: WebRtcPeer): void {
+    if (this.peers.get(remotePeerId) !== peer) return;
+    console.warn(`[WebRTC] datachannel closed remote=${remotePeerId.slice(0, 8)}`);
+    this._removePeer(remotePeerId, peer);
   }
 
   private startConnectionDeadline(remotePeerId: string, peer: WebRtcPeer, timeoutMs: number): void {
@@ -948,11 +999,15 @@ class WebRtcTopic implements NetworkTopic {
 
     if (isInitiator) {
       const dc = pc.createDataChannel("data", { ordered: true });
-      peer._setDataChannel(dc, () => {
-        console.log(`[WebRTC] datachannel opened remote=${rShort}`);
-        this.markPeerConnected(remotePeerId, peer);
-        for (const cb of this.joinListeners) cb(peer);
-      });
+      peer._setDataChannel(
+        dc,
+        () => {
+          console.log(`[WebRTC] datachannel opened remote=${rShort}`);
+          this.markPeerConnected(remotePeerId, peer);
+          for (const cb of this.joinListeners) cb(peer);
+        },
+        () => this.handleDataChannelClose(remotePeerId, peer),
+      );
 
       // A peer-left (or suspend) arriving while these await can close `pc`, and
       // both calls then reject. Drop the half-built peer rather than leave it
@@ -965,15 +1020,19 @@ class WebRtcTopic implements NetworkTopic {
         this.startConnectionDeadline(remotePeerId, peer, INITIAL_CONNECTION_TIMEOUT_MS);
       } catch (e) {
         console.error(`[WebRTC] offer failed remote=${rShort}`, e);
-        this._removePeer(remotePeerId);
+        this._removePeer(remotePeerId, peer);
       }
     } else {
       pc.ondatachannel = (e) => {
-        peer._setDataChannel(e.channel, () => {
-          console.log(`[WebRTC] datachannel opened remote=${rShort}`);
-          this.markPeerConnected(remotePeerId, peer);
-          for (const cb of this.joinListeners) cb(peer);
-        });
+        peer._setDataChannel(
+          e.channel,
+          () => {
+            console.log(`[WebRTC] datachannel opened remote=${rShort}`);
+            this.markPeerConnected(remotePeerId, peer);
+            for (const cb of this.joinListeners) cb(peer);
+          },
+          () => this.handleDataChannelClose(remotePeerId, peer),
+        );
       };
     }
   }
@@ -1011,10 +1070,14 @@ class WebRtcTopic implements NetworkTopic {
         this.configurePeer(from, peer);
 
         pc.ondatachannel = (e) => {
-          (peer as WebRtcPeer)._setDataChannel(e.channel, () => {
-            this.markPeerConnected(from, peer as WebRtcPeer);
-            for (const cb of this.joinListeners) cb(peer!);
-          });
+          (peer as WebRtcPeer)._setDataChannel(
+            e.channel,
+            () => {
+              this.markPeerConnected(from, peer as WebRtcPeer);
+              for (const cb of this.joinListeners) cb(peer!);
+            },
+            () => this.handleDataChannelClose(from, peer as WebRtcPeer),
+          );
         };
       }
 
@@ -1035,7 +1098,7 @@ class WebRtcTopic implements NetworkTopic {
         );
       } catch (e) {
         console.error(`[WebRTC] failed to answer offer from=${fShort}`, e);
-        this._removePeer(from);
+        this._removePeer(from, peer);
       }
     } else if (data.type === "answer") {
       if (!peer) return;
@@ -1087,8 +1150,7 @@ class WebRtcTopic implements NetworkTopic {
       });
     }
 
-    // Remove from map BEFORE closing to prevent the "closed" connectionState
-    // handler from firing _removePeer (which would emit leave events)
+    // Remove from the map before closing so stale connection callbacks no-op.
     this.peers.delete(remotePeerId);
     existing?.close();
 
@@ -1120,13 +1182,14 @@ class WebRtcTopic implements NetworkTopic {
     }
   }
 
-  private _removePeer(remotePeerId: string) {
+  private _removePeer(remotePeerId: string, expected?: WebRtcPeer | RelayPeer) {
+    const peer = this.peers.get(remotePeerId);
+    if (expected && peer && peer !== expected) return;
     this.clearConnectionDeadline(remotePeerId);
     this.clearDisconnectTimer(remotePeerId);
     this.restartAttempted.delete(remotePeerId);
     this.pendingIce.delete(remotePeerId);
     this.signalQueues.delete(remotePeerId);
-    const peer = this.peers.get(remotePeerId);
     if (!peer) return;
     this.peers.delete(remotePeerId);
     peer.close();
@@ -1302,12 +1365,16 @@ class WebRtcNetworkDriver implements NetworkDriver, TurnCredentialManager {
   handleTurnResponse(msg: unknown): void {
     const frame = msg as { iceServers?: unknown; error?: unknown };
     // The signaling server is untrusted — validate before adopting.
-    if (frame.iceServers && typeof frame.iceServers === "object") {
+    const iceServers = normalizeIceServers(frame.iceServers);
+    if (iceServers) {
+      const hasStun = iceServers.some((server) => {
+        const urls = typeof server.urls === "string" ? [server.urls] : server.urls;
+        return urls.some((url) => url.startsWith("stun:"));
+      });
       this.rtcConfig = {
-        iceServers: [
-          { urls: "stun:stun.cloudflare.com:3478" },
-          frame.iceServers as RTCIceServer,
-        ],
+        iceServers: hasStun
+          ? iceServers
+          : [{ urls: "stun:stun.cloudflare.com:3478" }, ...iceServers],
       };
       this.hasTurnCredentials = true;
       this.credentialsFetchedAt = Date.now();

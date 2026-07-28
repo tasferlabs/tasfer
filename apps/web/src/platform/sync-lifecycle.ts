@@ -17,8 +17,8 @@
  *      via evaluateJavaScript, wrapped in a `beginBackgroundTask` window. When
  *      teardown finishes we call `bridge.lifecycle.endFlush()` to release that
  *      task early.
- *   2. Web/electron fallback — `visibilitychange` + `pagehide`, so behavior is
- *      correct off-iOS and as a belt-and-suspenders on iOS.
+ *   2. Web/electron fallback — visibility, page, and connectivity events, so
+ *      behavior is correct off-iOS and as a belt-and-suspenders on iOS.
  *
  * It owns no sync state; it is a thin coordinator over the Replicator.
  */
@@ -68,10 +68,16 @@ export class SyncLifecycleController {
       else this.handleResume();
     };
     const onPageHide = () => this.handlePause();
+    const onOffline = () => this.handlePause();
+    const onOnline = () => {
+      if (!document.hidden) this.handleResume();
+    };
 
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", onVisibility);
       window.addEventListener("pagehide", onPageHide);
+      window.addEventListener("offline", onOffline);
+      window.addEventListener("online", onOnline);
     }
 
     return () => {
@@ -80,6 +86,8 @@ export class SyncLifecycleController {
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", onVisibility);
         window.removeEventListener("pagehide", onPageHide);
+        window.removeEventListener("offline", onOffline);
+        window.removeEventListener("online", onOnline);
       }
       if (typeof window !== "undefined" && window.__tasferLifecycle) {
         delete window.__tasferLifecycle;

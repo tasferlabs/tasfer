@@ -81,9 +81,7 @@ type VisibleTokenType =
  * its own syntax recognizer and codec without editing this module.
  */
 export type TokenType =
-  | VisibleTokenType
-  | "newline"
-  | (string & Record<never, never>);
+  VisibleTokenType | "newline" | (string & Record<never, never>);
 
 export type VisibleToken = {
   type: VisibleTokenType;
@@ -484,7 +482,7 @@ function tokenizeHeading(state: TokenizerState, tokens: Token[]) {
 }
 /**
  * Tasfer has no inline image, so an inline/linked image (`![alt](src)`, e.g.
- * the `[![alt](src)](href)` form emitted when defuddle converts a linked
+ * the `[![alt](src)](href)` form emitted when Turndown converts a linked
  * image) is reduced to its alt text — that becomes the link's visible label.
  */
 function stripInlineImages(text: string): string {
@@ -498,7 +496,7 @@ function stripInlineImages(text: string): string {
  * Returns the cleaned, backslash-unescaped destination URL and the index just
  * past the closing `)`, or `null` if the target is malformed or spans a line
  * break (links are single-line here). This handles the forms a real Markdown
- * producer (e.g. Turndown, via defuddle) emits that the old "everything up to
+ * producer (e.g. Turndown) emits that the old "everything up to
  * the first `)`" scan got wrong:
  *   - titles:            `[t](url "title")`     → title dropped, url clean
  *   - parenthesised url: `[t](a_(b))`           → balanced parens kept

@@ -224,6 +224,20 @@ describe("structured mark creation seam", () => {
     expect(movedDocument?.kind).toBe("math");
     expect(blocks[0].structuredContent?.[sourceContentIds[0]]).toBeUndefined();
 
+    const hostInsert = result.ops.find(
+      (op) => op.op === "block_insert" && op.blockId === blocks[1].id,
+    );
+    const attachmentInit = result.ops.find(
+      (op) => op.op === "content_edit" && op.blockId === blocks[1].id,
+    );
+    expect(hostInsert).toBeDefined();
+    expect(attachmentInit).toBeDefined();
+    expect(hostInsert!.clock.counter).toBeLessThan(
+      attachmentInit!.clock.counter,
+    );
+    const counters = result.ops.map((op) => Number(op.id.split(":").at(-1)));
+    expect(counters).toEqual([...counters].sort((a, b) => a - b));
+
     // The whole transaction replays to the same page on a remote peer.
     const replayed = applyOps(
       attached.document.page,

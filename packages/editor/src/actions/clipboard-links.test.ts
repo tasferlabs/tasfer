@@ -8,9 +8,9 @@ function pasteToMarkdown(md: string): string {
   return serializeToMarkdown(loadPage(flattenBlockLevelLinks(md)).blocks);
 }
 
-describe("flattenBlockLevelLinks (block-level links from defuddle)", () => {
+describe("flattenBlockLevelLinks (block-level links from Turndown)", () => {
   it("collapses a heading wrapped in a link into an inline heading link", () => {
-    // Exact output defuddle/Turndown emits for <a href><h1>…</h1></a>.
+    // Exact output Turndown emits for <a href><h1>…</h1></a>.
     const md =
       "[\n\n# Introducing Myself and My Blog: A Fellow Creature\n\n](https://www.hamza.se/blog/a-fellow-creature)";
     expect(flattenBlockLevelLinks(md)).toBe(
@@ -51,7 +51,7 @@ describe("flattenBlockLevelLinks (block-level links from defuddle)", () => {
   });
 });
 
-describe("stripFragmentLinks (in-page anchor links from defuddle)", () => {
+describe("stripFragmentLinks (in-page anchor links from Turndown)", () => {
   it("unwraps a TOC link to its text", () => {
     expect(stripFragmentLinks("see [Introduction](#intro) below")).toBe(
       "see Introduction below",

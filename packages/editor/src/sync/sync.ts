@@ -36,7 +36,7 @@ import {
   generateBlockId,
   generatePeerId,
 } from "./id";
-import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
+import { appendLocalOps, createOpLog, getOpsSince, mergeOps } from "./oplog";
 import { findCharIdAtPosition } from "./reducer";
 import type { DataSchema } from "./schema";
 import type {
@@ -606,16 +606,12 @@ export function createSyncEngine(
     },
 
     loadOperations(ops: Operation[]): void {
-      for (const op of ops) {
-        opLog = appendOp(opLog, op, schema);
-      }
+      opLog = mergeOps(opLog, ops, schema);
       advanceBindingPast(ops);
     },
 
     emit(ops: Operation[]): void {
-      for (const op of ops) {
-        opLog = appendOp(opLog, op, schema);
-      }
+      opLog = appendLocalOps(opLog, ops, schema);
       // Don't notify listeners for local ops - EditorState is already updated
     },
 

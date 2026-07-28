@@ -7,10 +7,10 @@ glyphs; everything around it (sidebars, toolbars, status bars, theming) is the
 host's to invent. These two examples show how different that "everything around
 it" can look while the core stays identical.
 
-| Example | What it is | Vibe | Dev port |
-| --- | --- | --- | --- |
-| [`foolscap`](./foolscap) | A distraction-free **writing studio** | Warm paper, serif, typewriter focus | `4010` |
-| [`tasfer-studio`](./tasfer-studio) | A dark **markdown IDE** | File tree, live outline, peers | `4020` |
+| Example                            | What it is                            | Vibe                                | Dev port |
+| ---------------------------------- | ------------------------------------- | ----------------------------------- | -------- |
+| [`foolscap`](./foolscap)           | A distraction-free **writing studio** | Warm paper, serif, typewriter focus | `4010`   |
+| [`tasfer-studio`](./tasfer-studio) | A dark **markdown IDE**               | File tree, live outline, peers      | `4020`   |
 
 Both mount a real editor (type into it — markdown shortcuts, `**bold**`, `⌘B`,
 `# `, `- `, `> ` all work) and drive their chrome from live editor state
@@ -32,7 +32,7 @@ npm run dev
 > The apps consume `@tasfer/editor`, `@tasfer/react`, and `@tasfer/tex`
 > as **raw TypeScript source** via Vite/TS path aliases (exactly like
 > `apps/web`), so there is no build step for the packages. The engine's own
-> transitive dependencies (`defuddle`, `lowlight`, `katex`) resolve from each
+> transitive dependencies (`turndown`, `lowlight`, `katex`) resolve from each
 > package's local `node_modules`, so make sure the packages have been installed
 > at least once (`npm install` inside `packages/editor` and `packages/tex`).
 

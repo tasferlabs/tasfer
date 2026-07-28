@@ -30,6 +30,7 @@ import {
 import { getEditorStyles } from "../styles";
 import {
   getMathStructuredDocument,
+  getStructuredMathSource,
   structuredToMathDocument,
 } from "./structured";
 import type {
@@ -177,10 +178,10 @@ function touchEnd(
 }
 
 describe("structured display-math hit testing", () => {
-  it("triple-click then Backspace deletes the whole equation block", () => {
+  it("triple-click then Backspace empties the equation block", () => {
     // The full pointer flow, not a dispatched action: click-made selections
     // resolve to FIELD aliases of the equation edges (text positions), not row
-    // gaps, and the whole-block delete must recognize them.
+    // gaps. They still describe equation content, not its padded container.
     const value = geometry(treeMathState("aa"));
     let state = updateFocus(value.state, true);
     const x = viewport.width / 2;
@@ -216,7 +217,10 @@ describe("structured display-math hit testing", () => {
       altKey: false,
       preventDefault: () => {},
     } as unknown as Event);
-    expect(deleted.state.document.page.blocks[0].deleted).toBe(true);
+    expect(deleted.state.document.page.blocks[0].deleted).toBeUndefined();
+    expect(getStructuredMathSource(deleted.state.document.page.blocks[0])).toBe(
+      "",
+    );
   });
 
   it("lands directly in the numerator and denominator raw-text fields", () => {

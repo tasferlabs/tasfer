@@ -1,5 +1,5 @@
 // vite.config.ts aliases @tasfer/* to sibling package *source*, so their
-// runtime deps (e.g. lowlight, defuddle) resolve from each package's own
+// runtime deps (e.g. lowlight, turndown) resolve from each package's own
 // node_modules. Install those alongside web's install so a fresh clone works.
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";

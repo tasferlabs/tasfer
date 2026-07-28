@@ -61,6 +61,18 @@ export interface MathTextCaret {
 /** Feature-local caret used by the pure tree controller. */
 export type MathTreeCaret = MathRowCaret | MathTextCaret;
 
+/** Resolve the first or last editable caret in the caret's current math row. */
+export function mathTreeRowEdgeCaret(
+  document: StructuredDocument,
+  caret: MathTreeCaret,
+  edge: "start" | "end",
+): MathTreeCaret | undefined {
+  const math = validMathDocument(document);
+  if (!math) return undefined;
+  const resolved = resolveCaret(math, caret);
+  return resolved ? enterRow(math, resolved.row, edge) : undefined;
+}
+
 /** A directional selection expressed entirely with stable tree identities. */
 export interface MathTreeRange {
   readonly anchor: MathTreeCaret;
@@ -95,6 +107,9 @@ export function adjacentMathTreeConstructRange(
     gap = rowCaret(resolved.row.id, resolved.node.id);
   }
   if (!gap) return null;
+  if (direction === "backward") {
+    gap = outwardGapFromScriptBaseStart(math, gap);
+  }
 
   const at = resolveCaret(math, gap);
   if (!at || at.kind !== "row") return null;
@@ -236,6 +251,8 @@ type ResolvedCaret = ResolvedRowCaret | ResolvedTextCaret;
 
 interface SemanticInsertionSite {
   readonly gap: MathRowCaret;
+  /** Preserve a text-start insertion before this leaf when order keys tie. */
+  readonly beforeNodeId?: string;
   /** A middle-of-leaf splice retains the left run and clones this right run. */
   readonly split?: {
     readonly source: StructuredNode;
@@ -500,7 +517,9 @@ export function insertMathSemanticLatex(
 
   const requestedSite = semanticInsertionSite(math, caret, resolved);
   if (!requestedSite) return failure(caret, "unsupported-position");
-  if (!placementsAtGap(math, requestedSite.gap, 1)) {
+  if (
+    !placementsAtGap(math, requestedSite.gap, 1, requestedSite.beforeNodeId)
+  ) {
     return failure(caret, "invalid-caret");
   }
 
@@ -575,6 +594,7 @@ export function insertMathSemanticLatex(
     math,
     site.gap,
     children.length + (rightLeaf ? 1 : 0),
+    site.beforeNodeId,
   );
   if (!targetPlacements) return failure(caret, "invalid-caret");
   const edits: StructuredEdit[] = [];
@@ -1507,6 +1527,7 @@ function placementsAtGap(
   document: StructuredDocument,
   gap: MathRowCaret,
   count: number,
+  beforeNodeId?: string,
 ):
   | readonly {
       readonly parentId: string;
@@ -1524,16 +1545,53 @@ function placementsAtGap(
       ? -1
       : all.findIndex((node) => node.id === gap.afterNodeId);
   if (gap.afterNodeId !== null && anchorIndex < 0) return undefined;
-  const keys = generateNKeysBetween(
-    all[anchorIndex]?.placement.orderKey ?? null,
-    all[anchorIndex + 1]?.placement.orderKey ?? null,
-    count,
-  );
+  const bounds = strictPlacementBounds(all, anchorIndex, beforeNodeId);
+  if (!bounds) return undefined;
+  const keys = generateNKeysBetween(bounds.lower, bounds.upper, count);
   return keys.map((orderKey) => ({
     parentId: gap.rowId,
     slot: "children" as const,
     orderKey,
   }));
+}
+
+/** Collapse a concurrent equal-key sibling cohort to a strict key interval. */
+function strictPlacementBounds(
+  siblings: readonly StructuredNode[],
+  anchorIndex: number,
+  beforeNodeId?: string,
+):
+  { readonly lower: string | null; readonly upper: string | null } | undefined {
+  if (beforeNodeId !== undefined) {
+    const targetIndex = siblings.findIndex((node) => node.id === beforeNodeId);
+    if (targetIndex < 0 || targetIndex !== anchorIndex + 1) return undefined;
+    const upper = siblings[targetIndex].placement.orderKey;
+    let lowerIndex = targetIndex - 1;
+    while (
+      lowerIndex >= 0 &&
+      siblings[lowerIndex].placement.orderKey === upper
+    ) {
+      lowerIndex -= 1;
+    }
+    return {
+      lower: siblings[lowerIndex]?.placement.orderKey ?? null,
+      upper,
+    };
+  }
+
+  const lower = siblings[anchorIndex]?.placement.orderKey ?? null;
+  let upperIndex = anchorIndex + 1;
+  while (
+    lower !== null &&
+    upperIndex < siblings.length &&
+    siblings[upperIndex].placement.orderKey === lower
+  ) {
+    upperIndex += 1;
+  }
+  return {
+    lower,
+    upper: siblings[upperIndex]?.placement.orderKey ?? null,
+  };
 }
 
 function finiteMatrixDimension(value: number, fallback: number): number {
@@ -2030,7 +2088,13 @@ function backspaceAtRowGap(
 
   const children = getStructuredChildren(document, resolved.row.id, "children");
   const previous = children[resolved.position - 1];
-  if (!previous) return failure(originalCaret, "no-navigation-target");
+  if (!previous) {
+    const outward = outwardGapFromScriptBaseStart(document, gap);
+    return outward.rowId !== gap.rowId ||
+      outward.afterNodeId !== gap.afterNodeId
+      ? backspaceAtRowGap(document, outward, originalCaret)
+      : failure(originalCaret, "no-navigation-target");
+  }
 
   if (isCharacterEditableLeaf(previous)) {
     const characters = visibleCharacters(previous);
@@ -2685,6 +2749,33 @@ function caretBeforeNode(
     : undefined;
 }
 
+/**
+ * A scripts node's base is painted inline with its outer row. Its leading gap
+ * is therefore the same visual boundary as the gap before the whole scripts
+ * construct, not a dead nested-row boundary.
+ */
+function outwardGapFromScriptBaseStart(
+  document: StructuredDocument,
+  gap: MathRowCaret,
+): MathRowCaret {
+  let current = gap;
+  const visited = new Set<string>();
+  while (!current.afterNodeId && !visited.has(current.rowId)) {
+    visited.add(current.rowId);
+    const row = document.nodes[current.rowId];
+    const scriptsId =
+      row?.type === "row" && row.placement.slot === "base"
+        ? row.placement.parentId
+        : null;
+    const scripts = scriptsId ? document.nodes[scriptsId] : undefined;
+    if (!scripts || scripts.deleted || scripts.type !== "scripts") break;
+    const before = caretBeforeNode(document, scripts);
+    if (!before || before.kind !== "row") break;
+    current = before;
+  }
+  return current;
+}
+
 function fractionSlotCaret(
   document: StructuredDocument,
   fractionId: string,
@@ -2745,7 +2836,13 @@ function semanticInsertionSite(
   resolved: ResolvedCaret,
 ): SemanticInsertionSite | undefined {
   const gap = structuralGapForCaret(document, caret, resolved);
-  if (gap) return { gap };
+  if (gap) {
+    return resolved.kind === "text" &&
+      resolved.visibleCharacters.length > 0 &&
+      resolved.position === 0
+      ? { gap, beforeNodeId: resolved.node.id }
+      : { gap };
+  }
   if (resolved.kind !== "text") return undefined;
   if (
     resolved.position <= 0 ||
@@ -3014,13 +3111,12 @@ function placementAtGap(
       ? -1
       : all.findIndex((node) => node.id === gap.afterNodeId);
   if (gap.afterNodeId !== null && anchorIndex < 0) return undefined;
+  const bounds = strictPlacementBounds(all, anchorIndex);
+  if (!bounds) return undefined;
   return {
     parentId: gap.rowId,
     slot: "children",
-    orderKey: generateKeyBetween(
-      all[anchorIndex]?.placement.orderKey ?? null,
-      all[anchorIndex + 1]?.placement.orderKey ?? null,
-    ),
+    orderKey: generateKeyBetween(bounds.lower, bounds.upper),
   };
 }
 

@@ -43,6 +43,8 @@ interface Built {
   klass: AtomClass;
   /** True when the box is a single symbol (TeX's "character box"). */
   isCharBox: boolean;
+  /** Italic correction still to add when this atom enters ordinary math flow. */
+  trailingItalic?: number;
   /** Explicit space — suppresses inter-atom glue on both sides. */
   isSpace?: boolean;
 }
@@ -251,15 +253,30 @@ export function buildExpression(
   // Required argument/cell rows call buildNode directly and keep placeholders.
   const emptyOrdIsSlot = !expressionHasVisibleContent(nodes);
   const built = nodes.map((n) => buildNode(n, style, font, emptyOrdIsSlot));
+  const flowBoxes = built.map(mathFlowBox);
   const items: HItem[] = [];
   for (let i = 0; i < built.length; i++) {
     if (i > 0 && !built[i - 1].isSpace && !built[i].isSpace) {
       const glue = interAtomGlue(built[i - 1].klass, built[i].klass, style);
       if (glue) items.push({ kern: glue });
     }
-    items.push(built[i].box);
+    items.push(flowBoxes[i]);
   }
   return hbox(items);
+}
+
+/** Add a math-italic glyph's correction to its advance without changing its ink. */
+function mathFlowBox(built: Built): Box {
+  const italic = built.trailingItalic ?? 0;
+  if (italic <= 0) return built.box;
+  return {
+    ...listBox([{ box: built.box, dx: 0, dy: 0 }], {
+      width: built.box.width + italic,
+      klass: built.klass,
+      span: built.box.type === "glyph" ? built.box.span : null,
+    }),
+    unit: built.box.type === "glyph" && built.box.span !== null,
+  };
 }
 
 /** Whether an expression has ink besides empty/spacing-only groups. */
@@ -335,7 +352,8 @@ export function buildExpressionWrapped(
   if (n === 0) return hbox([]);
 
   // Per-item advance and the (discardable) glue that precedes it.
-  const widths = built.map((b) => b.box.width);
+  const flowBoxes = built.map(mathFlowBox);
+  const widths = flowBoxes.map((box) => box.width);
   const glue: number[] = new Array(n).fill(0);
   for (let i = 1; i < n; i++) {
     glue[i] =
@@ -392,7 +410,7 @@ export function buildExpressionWrapped(
     const items: HItem[] = [];
     for (let j = a; j <= b; j++) {
       if (j > a && glue[j]) items.push({ kern: glue[j] });
-      items.push(built[j].box);
+      items.push(flowBoxes[j]);
     }
     return hbox(items);
   };
@@ -511,7 +529,12 @@ function buildNodeInner(
         style.sizeMultiplier,
         node.span,
       );
-      return { box, klass: atomClassOf(node.info.group), isCharBox: true };
+      return {
+        box,
+        klass: atomClassOf(node.info.group),
+        isCharBox: true,
+        trailingItalic: box.italic,
+      };
     }
     case "ord": {
       // An empty group is an editable slot (a deleted-out numerator, an `x^{}`
@@ -535,9 +558,20 @@ function buildNodeInner(
       }
       const box = buildExpression(node.body, style, font);
       box.span = node.span;
-      const isCharBox =
-        node.body.length === 1 &&
-        buildNode(node.body[0], style, font).isCharBox;
+      const onlyChild =
+        node.body.length === 1 ? buildNode(node.body[0], style, font) : null;
+      const isCharBox = onlyChild?.isCharBox ?? false;
+      // A braced one-character base (`{V}^{2}`) is still a character box.
+      // Preserve its italic correction through this list wrapper so Rule 18
+      // places scripts exactly as it does for the unbraced `V^2` form.
+      if (isCharBox && onlyChild) {
+        box.italic =
+          onlyChild.box.type === "glyph"
+            ? onlyChild.box.italic
+            : onlyChild.box.type === "list"
+              ? onlyChild.box.italic
+              : undefined;
+      }
       return { box, klass: "mord", isCharBox };
     }
     case "supsub":
@@ -659,6 +693,17 @@ function buildAccent(
   if (node.stretchy) return buildStretchyAccent(node, style);
   const baseBuilt = buildNode(node.base, style.cramp());
   const base = baseBuilt.box;
+  const italic =
+    base.type === "glyph"
+      ? base.italic
+      : base.type === "list"
+        ? (base.italic ?? 0)
+        : 0;
+  const naturalWidth =
+    baseBuilt.isCharBox && base.type === "list"
+      ? base.width - italic
+      : base.width;
+  const advanceWidth = naturalWidth + italic;
   const info = mathSymbols[node.label];
   // `\vec`'s glyph (U+20D7) is a zero-advance COMBINING mark: the font paints it
   // to the left of the pen, so positioning it like a spacing accent drops the
@@ -671,7 +716,7 @@ function buildAccent(
 
   const clearance = Math.min(base.height, sig(style, "xHeight"));
   const skew = baseBuilt.isCharBox && base.type === "glyph" ? base.skew : 0;
-  const dx = (base.width - accent.width) / 2 + skew;
+  const dx = (naturalWidth - accent.width) / 2 + skew;
   // Accent sits just above the base, dipping `clearance` below the base's top.
   const dy = -(base.height - clearance) - accent.depth;
 
@@ -680,7 +725,12 @@ function buildAccent(
       { box: base, dx: 0, dy: 0 },
       { box: accent, dx, dy },
     ],
-    { width: base.width, klass: "mord", span: node.span },
+    {
+      width: advanceWidth,
+      klass: "mord",
+      span: node.span,
+      italic,
+    },
   );
   return { box, klass: "mord", isCharBox: false };
 }
@@ -1113,10 +1163,20 @@ function buildSupSub(
       : base.type === "list"
         ? (base.italic ?? 0)
         : 0;
+  // A bare character box's metric width excludes its italic correction. Flowed
+  // groups and operator wrappers already carry the correction in their width.
+  // Scripts follow the corrected advance; a subscript then backs up by it.
+  // A bare glyph has not entered ordinary flow yet, so its correction is still
+  // outside its width. A braced character or accent has already absorbed it.
+  const scriptX =
+    base.width + (isCharBox && base.type === "glyph" ? italic : 0);
+  // Italic correction ends exactly at the glyph's overhang. Give superscripts
+  // on slanted letters a little visual air instead of letting their ink touch.
+  const supX = scriptX + (isCharBox && italic > 0 ? scriptspace : 0);
   const xHeight = sig(style, "xHeight");
 
   const children: Placed[] = [{ box: base, dx: 0, dy: 0 }];
-  let width = base.width;
+  let width = scriptX;
 
   if (supm && subm) {
     supShift = Math.max(supShift, minSupShift, supm.depth + 0.25 * xHeight);
@@ -1132,15 +1192,17 @@ function buildSupSub(
         subShift -= psi;
       }
     }
-    children.push({ box: supm, dx: base.width, dy: -supShift, role: "sup" });
+    children.push({ box: supm, dx: supX, dy: -supShift, role: "sup" });
     children.push({
       box: subm,
-      dx: base.width - italic,
+      dx: scriptX - italic,
       dy: subShift,
       role: "sub",
     });
     width =
-      base.width + Math.max(supm.width, subm.width - italic) + scriptspace;
+      scriptX +
+      Math.max(supm.width + (supX - scriptX), subm.width - italic) +
+      scriptspace;
   } else if (subm) {
     // Rule 18b
     subShift = Math.max(
@@ -1150,16 +1212,16 @@ function buildSupSub(
     );
     children.push({
       box: subm,
-      dx: base.width - italic,
+      dx: scriptX - italic,
       dy: subShift,
       role: "sub",
     });
-    width = base.width + (subm.width - italic) + scriptspace;
+    width = scriptX + (subm.width - italic) + scriptspace;
   } else if (supm) {
     // Rule 18c, d
     supShift = Math.max(supShift, minSupShift, supm.depth + 0.25 * xHeight);
-    children.push({ box: supm, dx: base.width, dy: -supShift, role: "sup" });
-    width = base.width + supm.width + scriptspace;
+    children.push({ box: supm, dx: supX, dy: -supShift, role: "sup" });
+    width = supX + supm.width + scriptspace;
   }
 
   const box = listBox(children, {

@@ -59,6 +59,7 @@ interface EngineReplicator {
   onPeerReady(cb: (publicKey: string) => void): () => void;
   addPeer(publicKey: string): Promise<void>;
   removePeer(publicKey: string): Promise<void>;
+  refreshSpaces(): Promise<void>;
   startPairing(opts: {
     invite: SpaceInvite;
     role: "initiator" | "acceptor";
@@ -376,6 +377,35 @@ export class Engine implements Platform {
       getSpaceIds: async () => {
         const spaces = await this.spaces.list();
         return spaces.map((s) => s.id);
+      },
+      getSpaceState: async (spaceId: string) => {
+        const rows = await this.driver.db.query<{ archived_at: string | null }>(
+          "SELECT archived_at FROM spaces WHERE id = ?",
+          [spaceId],
+        );
+        if (rows.length === 0) return "unknown" as const;
+        return rows[0].archived_at === null
+          ? ("active" as const)
+          : ("archived" as const);
+      },
+      getPageSpaceState: async (pageId: string) => {
+        const rows = await this.driver.db.query<{
+          space_id: string;
+          archived_at: string | null;
+        }>(
+          `SELECT p.space_id, s.archived_at FROM pages p
+           JOIN spaces s ON s.id = p.space_id
+           WHERE p.id = ?`,
+          [pageId],
+        );
+        if (rows.length === 0) return null;
+        return {
+          spaceId: rows[0].space_id,
+          state:
+            rows[0].archived_at === null
+              ? ("active" as const)
+              : ("archived" as const),
+        };
       },
       getSpaceMembers: async (spaceId: string) => {
         const space = await this.spaces.get(spaceId);
@@ -720,6 +750,7 @@ export class Engine implements Platform {
       );
       // An archived space should not accept new members
       await this.pairing.revokeInvite(id);
+      await this.replicator?.refreshSpaces();
       this.notifySpaceChange(id);
     },
 
@@ -728,6 +759,7 @@ export class Engine implements Platform {
         "UPDATE spaces SET archived_at = NULL WHERE id = ?",
         [id],
       );
+      await this.replicator?.refreshSpaces();
       this.notifySpaceChange(id);
     },
 

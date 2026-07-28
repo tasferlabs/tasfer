@@ -86,7 +86,7 @@ function BetaStep({ onNext }: { onNext: () => void }) {
   const [invalid, setInvalid] = useState(false);
 
   function handleVerify() {
-    if (code.trim().toLowerCase() !== BETA_ACCESS_CODE) {
+    if (code.trim().toLowerCase() !== BETA_ACCESS_CODE.toLowerCase()) {
       setInvalid(true);
       return;
     }

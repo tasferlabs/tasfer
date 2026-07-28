@@ -63,14 +63,17 @@ export interface BlockCapabilities {
    */
   readonly selfContained?: boolean;
   /**
-   * Text-morph compatibility group. A block can be morphed to another via
-   * `block_set { field: "type" }` without orphaning CRDT-tracked content
-   * (charRuns/formats) exactly when both share the same non-empty `morphGroup`
-   * (or it's a no-op self-morph). The built-in rich-text family (paragraph,
-   * headings, lists) shares group `"text"`; visual and preformatted blocks omit
-   * it (they only morph to themselves). This replaces the hand-listed
-   * `textPreservingMorphs` set — a custom block joins the family by declaring
-   * the same group, with no global enumeration to edit.
+   * Interchangeability group for SUBSTITUTION: two types share one when a block
+   * of either reads as the same content in the other, so a schema that forbids
+   * one may coerce it to the other instead of dropping it (see
+   * `normalizeBlocks`). The built-in rich-text family (paragraph, headings,
+   * lists, math) shares group `"text"`; visual blocks and code omit it —
+   * a code block's text is source, not prose, so a schema that bans code drops
+   * it rather than flattening it into a paragraph.
+   *
+   * This does NOT gate whether a `block_set { field: "type" }` morph carries
+   * charRuns: it always does between two text-storing types, matching what the
+   * local convert actions do (see the `type` branch of `applyBlockSet`).
    */
   readonly morphGroup?: string;
   /**
@@ -252,9 +255,9 @@ const CODE_CAPS: BlockCapabilities = {
 // inline marks (`hasFormats: false`): the whole content is one equation rendered
 // through the tex bridge, not bold/italic-able text. `preformatted` keeps the
 // LaTeX verbatim (no markdown auto-format) the way code keeps source verbatim.
-// Unlike code, math participates in the text morph group: converting between a
-// display equation and rich text must preserve its CRDT char runs. Callers clear
-// or add marks explicitly as part of the same operation batch.
+// Unlike code, math joins the text morph group: its LaTeX reads as one line of
+// prose, so a schema that bans math coerces it to a paragraph instead of losing
+// the formula. Callers clear or add marks explicitly in the same op batch.
 const MATH_CAPS: BlockCapabilities = {
   hasText: true,
   hasFormats: false,
@@ -430,9 +433,10 @@ const codeDescriptor = {
     type: typeField,
     language: languageField,
   },
-  // Code omits a `morphGroup`, so it can only morph to itself: morphing into a
-  // paragraph would orphan its `language` field and reinterpret embedded "\n"
-  // chars (which a code block renders as hard line breaks) as run-on text.
+  // Code omits a `morphGroup`: its text is source, not prose, so a schema that
+  // bans code drops the block rather than flattening its "\n"-separated lines
+  // into a paragraph. Converting to/from code on purpose still keeps the text —
+  // that path doesn't consult `morphGroup`.
 } satisfies BlockTypeDescriptor;
 
 // The built-in block-type table — the single runtime source of truth for the
@@ -659,10 +663,14 @@ export function getBlockFieldNames(type: string): readonly string[] {
 }
 
 /**
- * Whether `from` can be morphed to `to` via `block_set { field: "type" }`
- * without orphaning CRDT-tracked content. True for a no-op self-morph, or when
+ * Whether a block of type `from` may be SUBSTITUTED by type `to` without
+ * misreading its content — the test a schema restriction uses to coerce a
+ * disallowed block instead of dropping it. True for a no-op self-morph, or when
  * both types share the same non-empty `morphGroup` capability (the rich-text
  * family). Derived purely from capabilities — no per-type morph list.
+ *
+ * Not a gate on type morphs themselves: the reducer carries text between any
+ * two text-storing types, because the local convert actions do.
  */
 export function canMorphTo(from: string, to: string): boolean {
   if (from === to) return REGISTRY[from] !== undefined;

@@ -32,7 +32,7 @@ import type {
 } from "./state-types";
 import { compareHLC } from "./sync/hlc";
 import {
-  appendOp,
+  appendLocalOps,
   createOpLog,
   deserializeVV,
   getOpsSince,
@@ -424,9 +424,7 @@ export function createDoc<D extends SchemaDefinition = BaseSchemaDefinition>(
 
     _ingestLocal(ops: Operation[], origin: unknown): void {
       if (ops.length === 0) return;
-      for (const op of ops) {
-        opLog = appendOp(opLog, op, schema);
-      }
+      opLog = appendLocalOps(opLog, ops, schema);
       trackLocalClocks(ops);
       page = opLog.state;
 

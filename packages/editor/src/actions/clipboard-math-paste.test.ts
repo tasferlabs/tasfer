@@ -100,6 +100,19 @@ describe("pasting LaTeX with dollar signs", () => {
     expect(markdown(replayed)).toBe(markdown(local));
   });
 
+  it("merges inline equations pasted directly beside each other", () => {
+    const { local, replayed } = paste(
+      "",
+      0,
+      "${h}_{l}$$=f\\frac{l}{\\oslash}\\frac{{V}^{2}}{2g}$",
+    );
+
+    expect(markdown(local)).toBe(
+      "${h}_{l}=f\\frac{l}{\\oslash}\\frac{{V}^{2}}{2g}$",
+    );
+    expect(markdown(replayed)).toBe(markdown(local));
+  });
+
   it("inserts a display equation pasted on its own as a math block", () => {
     const { local, replayed } = paste("Hello ", 6, "$$\n\\frac{1}{2}\n$$");
 

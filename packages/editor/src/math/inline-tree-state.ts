@@ -26,6 +26,8 @@ import type {
   ViewportState,
 } from "../state-types";
 import {
+  type ContentPoint,
+  type ContentSelection,
   isContentSelectionCollapsed,
   normalizeContentSelection,
   updateContentSelection,
@@ -69,6 +71,7 @@ import {
   mathSourceRangeFromContentSelection,
   mathTreeCaretFromSourceOffset,
   mathTreeCaretToContentSelection,
+  mathUnitBoundaryOffset,
   moveMathTreeCaretVertically,
 } from "./tree-selection";
 import { needsCommandSeparator } from "@tasfer/tex";
@@ -800,6 +803,166 @@ export function moveActiveInlineMathTreeCaret(
     : undefined;
 }
 
+/** Jump over the structural math unit adjacent to an attached inline caret. */
+export function moveActiveInlineMathTreeCaretByUnit(
+  state: EditorState,
+  direction: "left" | "right",
+): InlineMathTreeStateResult | undefined {
+  const context = activeInlineMathContext(state);
+  if (!context) return undefined;
+  const caret = inlineMathTreeUnitTarget(state, context, direction);
+  return caret
+    ? commitInlineMathResult(state, context, {
+        handled: true,
+        edits: [],
+        caret,
+      })
+    : undefined;
+}
+
+/** Extend an attached inline-math selection by one adjacent math unit. */
+export function extendActiveInlineMathTreeSelectionByUnit(
+  state: EditorState,
+  direction: "left" | "right",
+): InlineMathTreeStateResult | undefined {
+  const context = activeInlineMathContext(state);
+  const current = state.document.contentSelection;
+  if (!context || !current) return undefined;
+  const continuation = inlineMathSelectionContinuation(
+    context.document,
+    current,
+  );
+  if (!continuation) return undefined;
+  const caret = inlineMathTreeUnitTarget(
+    state,
+    context,
+    direction,
+    continuation,
+  );
+  if (!caret) return undefined;
+  const target = mathTreeCaretToContentSelection(
+    context.block.id,
+    context.contentId,
+    context.document,
+    caret,
+  );
+  return target
+    ? {
+        state: updateContentSelection(state, {
+          anchor: continuation.anchor,
+          focus: target.focus,
+          lastUpdate: target.lastUpdate,
+        }),
+        ops: [],
+        handled: true,
+      }
+    : undefined;
+}
+
+function inlineMathTreeUnitTarget(
+  state: EditorState,
+  context: InlineMathTreeContext,
+  direction: "left" | "right",
+  from?: { readonly focus: ContentPoint; readonly caret: MathTreeCaret },
+): MathTreeCaret | undefined {
+  const math = structuredToMathDocument(context.document);
+  const source = context.run.latex;
+  const current = state.document.contentSelection;
+  if (!math || source === undefined || !current) return undefined;
+  const sourceOffset = mathSourceOffsetFromContentPoint(
+    context.document,
+    from?.focus ?? current.focus,
+  );
+  if (sourceOffset === null) return undefined;
+  const targetOffset = mathUnitBoundaryOffset(source, sourceOffset, direction);
+  if (targetOffset === null) return undefined;
+  const caret = mathTreeCaretFromSourceOffset(
+    context.block.id,
+    context.contentId,
+    math,
+    context.document,
+    targetOffset,
+  );
+  if (!caret) return undefined;
+  const target = mathTreeCaretToContentSelection(
+    context.block.id,
+    context.contentId,
+    context.document,
+    caret,
+  );
+  const resolvedTargetOffset = target
+    ? mathSourceOffsetFromContentPoint(context.document, target.focus)
+    : null;
+  if (
+    resolvedTargetOffset === null ||
+    (direction === "left"
+      ? resolvedTargetOffset >= sourceOffset
+      : resolvedTargetOffset <= sourceOffset)
+  ) {
+    const structural = moveMathTreeCaret(
+      context.document,
+      from?.caret ?? context.caret,
+      direction === "left" ? "arrow-left" : "arrow-right",
+    );
+    return structural.handled ? structural.caret : undefined;
+  }
+  return caret;
+}
+
+/**
+ * Continue a host word-jump into a nearby inline formula. Only invisible prose
+ * whitespace may sit between the flat caret and the chip; a real prose word is
+ * left to the generic word mover. Entry and the first structural-unit jump
+ * happen in the same press.
+ */
+export function enterAdjacentInlineMathTreeByUnit(
+  state: EditorState,
+  direction: "left" | "right",
+): InlineMathTreeStateResult | undefined {
+  if (state.document.contentSelection) return undefined;
+  const position = collapsedFlatCursorPosition(state);
+  if (!position) return undefined;
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return undefined;
+  const text = getVisibleTextFromRuns(block.charRuns);
+  const rtl = getBlockDirection(block, state.marks) === "rtl";
+  const towardLowerIndex = (direction === "left") !== rtl;
+  const candidates = resolveStructuredInlineMathRuns(block)
+    .filter((run) => run.document && run.latex !== undefined)
+    .filter((run) =>
+      towardLowerIndex
+        ? run.endIndex <= position.textIndex &&
+          /^\s*$/u.test(text.slice(run.endIndex, position.textIndex))
+        : run.startIndex >= position.textIndex &&
+          /^\s*$/u.test(text.slice(position.textIndex, run.startIndex)),
+    )
+    .sort((left, right) =>
+      towardLowerIndex
+        ? right.endIndex - left.endIndex
+        : left.startIndex - right.startIndex,
+    );
+  const run = candidates[0];
+  if (!run) return undefined;
+  const boundary = {
+    blockIndex: position.blockIndex,
+    textIndex: towardLowerIndex ? run.endIndex : run.startIndex,
+  };
+  const atBoundary = moveCursorToPosition(
+    clearSelection(state),
+    boundary.blockIndex,
+    boundary.textIndex,
+  );
+  const entered = enterInlineMathRunEdgeFacingMove(
+    atBoundary,
+    boundary,
+    direction,
+  );
+  if (!entered) return undefined;
+  return (
+    moveActiveInlineMathTreeCaretByUnit(entered.state, direction) ?? entered
+  );
+}
+
 /** Move the active nested caret between visual rows of one inline formula. */
 export function moveActiveInlineMathTreeCaretVertically(
   state: EditorState,
@@ -838,9 +1001,14 @@ export function extendActiveInlineMathTreeSelectionVertically(
   const context = activeInlineMathContext(state);
   const current = state.document.contentSelection;
   if (!context || !current) return undefined;
+  const continuation = inlineMathSelectionContinuation(
+    context.document,
+    current,
+  );
+  if (!continuation) return undefined;
   const caret = moveMathTreeCaretVertically(
     context.document,
-    context.caret,
+    continuation.caret,
     direction,
   );
   const target = caret
@@ -854,7 +1022,7 @@ export function extendActiveInlineMathTreeSelectionVertically(
   if (!target) return undefined;
   return {
     state: updateContentSelection(state, {
-      anchor: current.anchor,
+      anchor: continuation.anchor,
       focus: target.focus,
       lastUpdate: target.lastUpdate,
     }),
@@ -871,9 +1039,14 @@ export function extendActiveInlineMathTreeSelectionHorizontally(
   const context = activeInlineMathContext(state);
   const current = state.document.contentSelection;
   if (!context || !current) return undefined;
+  const continuation = inlineMathSelectionContinuation(
+    context.document,
+    current,
+  );
+  if (!continuation) return undefined;
   const moved = moveMathTreeCaret(
     context.document,
-    context.caret,
+    continuation.caret,
     direction === "left" ? "arrow-left" : "arrow-right",
   );
   if (!moved.handled) return undefined;
@@ -886,7 +1059,7 @@ export function extendActiveInlineMathTreeSelectionHorizontally(
   if (!target) return undefined;
   return {
     state: updateContentSelection(state, {
-      anchor: current.anchor,
+      anchor: continuation.anchor,
       focus: target.focus,
       lastUpdate: target.lastUpdate,
     }),
@@ -1391,6 +1564,19 @@ function activeInlineMathContext(
       ? {}
       : { range: { anchor, focus: caret } }),
   };
+}
+
+function inlineMathSelectionContinuation(
+  document: StructuredDocument,
+  selection: ContentSelection,
+): {
+  readonly anchor: ContentPoint;
+  readonly focus: ContentPoint;
+  readonly caret: MathTreeCaret;
+} | null {
+  const { anchor, focus } = selection.unsnapped ?? selection;
+  const caret = contentPointToMathTreeCaret(document, focus);
+  return caret ? { anchor, focus, caret } : null;
 }
 
 function inlineContextFromFlatPosition(

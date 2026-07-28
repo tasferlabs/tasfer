@@ -26,7 +26,6 @@ import {
   type StateResult,
   TEXT_INPUTTED,
 } from "../action-bus";
-import { deleteSelectedText } from "../actions/actions";
 import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
@@ -37,14 +36,22 @@ import {
 } from "../actions/edit-actions";
 import {
   EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_END,
+  EXTEND_SELECTION_HOME,
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
   EXTEND_SELECTION_UP,
+  EXTEND_SELECTION_WORD_LEFT,
+  EXTEND_SELECTION_WORD_RIGHT,
   MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  MOVE_TO_LINE_END,
+  MOVE_TO_LINE_START,
+  MOVE_TO_NEXT_WORD,
+  MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
 import {
   SELECT_LINE_AT_POINT,
@@ -82,11 +89,15 @@ import {
   enterAdjacentMathTreeHorizontally,
   exitActiveMathTreeHorizontally,
   exitActiveMathTreeVertically,
+  extendActiveMathTreeSelectionByUnit,
   extendActiveMathTreeSelectionHorizontally,
+  extendActiveMathTreeSelectionToRowEdge,
   extendActiveMathTreeSelectionVertically,
   hasActiveMathTreeCaret,
   insertActiveMathTreeCommand,
   moveActiveMathTreeCaret,
+  moveActiveMathTreeCaretByUnit,
+  moveActiveMathTreeCaretToRowEdge,
   moveActiveMathTreeCaretVertically,
   ownsMathTreeMutation,
   resizeActiveMathTreeMatrix,
@@ -297,58 +308,6 @@ function mathBlockAt(state: EditorState, blockIndex: number): MathBlock | null {
   const block = state.document.page.blocks[blockIndex] as
     Block | MathBlock | undefined;
   return block && !block.deleted && block.type === "math" ? block : null;
-}
-
-/**
- * The math block whose ENTIRE equation the current selection covers (via
- * triple-click or the first Ctrl/Cmd+A), or null. Such a selection covers
- * everything the block holds, so Backspace and Delete remove the whole block,
- * like a node selection, instead of leaving an empty equation behind. An
- * already-flat node selection is excluded: the generic whole-block delete
- * branch owns it.
- */
-function wholeEquationSelectionBlockIndex(state: EditorState): number | null {
-  const content = state.document.contentSelection;
-  if (content) {
-    if (content.anchor.blockId !== content.focus.blockId) return null;
-    const blockIndex = state.document.page.blocks.findIndex(
-      (candidate) =>
-        candidate.id === content.focus.blockId && !candidate.deleted,
-    );
-    if (blockIndex < 0) return null;
-    const block = mathBlockAt(state, blockIndex);
-    const document = block ? getMathStructuredDocument(block) : undefined;
-    const math = block ? getMathDocumentForBlock(block) : undefined;
-    if (!block || !document || !math) return null;
-    // Structural check, deliberately NOT the source-offset bridge: each
-    // endpoint must sit AT an end of the root row. A partial selection inside
-    // an atomic construct (a withheld `\sin` scratch) snaps to the full source
-    // range through the bridge, but its endpoints live mid-field — that must
-    // stay a content delete.
-    const rootRow = math.root.body;
-    if (rootRow.children.length === 0) return null;
-    if (isContentSelectionCollapsed(content)) return null;
-    const anchor = contentPointToMathDocumentPosition(document, content.anchor);
-    const focus = contentPointToMathDocumentPosition(document, content.focus);
-    if (!anchor || !focus) return null;
-    const whole =
-      (atRootRowEdge(rootRow, anchor, "start") &&
-        atRootRowEdge(rootRow, focus, "end")) ||
-      (atRootRowEdge(rootRow, anchor, "end") &&
-        atRootRowEdge(rootRow, focus, "start"));
-    return whole ? blockIndex : null;
-  }
-  const sel = state.document.selection;
-  if (!sel || sel.isCollapsed || isNodeSelection(sel)) return null;
-  if (sel.anchor.blockIndex !== sel.focus.blockIndex) return null;
-  const blockIndex = sel.anchor.blockIndex;
-  const block = mathBlockAt(state, blockIndex);
-  if (!block) return null;
-  const length = mathBlockSource(block).length;
-  if (length === 0) return null;
-  const from = Math.min(sel.anchor.textIndex, sel.focus.textIndex);
-  const to = Math.max(sel.anchor.textIndex, sel.focus.textIndex);
-  return from <= 0 && to >= length ? blockIndex : null;
 }
 
 /**
@@ -566,9 +525,9 @@ function demoteActiveStructuredMathBlock(
  * through {@link CONVERT_STRUCTURED_BLOCK} instead; this handler claims the
  * offer when the target is `math` and the block's visible content is exactly
  * one inline math chip plus insignificant whitespace (e.g. the separator space
- * a slash command left behind). Anything else — chips embedded in prose,
- * multiple chips, a non-math structured attachment — stays refused: prose has
- * no home inside a display equation.
+ * a slash command left behind). A chip embedded in prose is moved out instead
+ * (see {@link splitInlineMathChipToBlock}); anything else — multiple chips, a
+ * non-math structured attachment — stays refused.
  */
 function promoteInlineMathChipBlock(
   state: EditorState,
@@ -690,6 +649,124 @@ function promoteInlineMathChipBlock(
   next = caret
     ? updateContentSelection(next, caret)
     : moveCursorToPosition(next, blockIndex, 0);
+  return { state: next, ops, handled: true };
+}
+
+/**
+ * Move a chip that sits inside prose out into its own display equation.
+ *
+ * "Turn into math" on a block whose only content is one chip promotes it in
+ * place ({@link promoteInlineMathChipBlock}); with prose around the chip there
+ * is nothing to promote into — a display equation holds no prose — but a silent
+ * refusal reads as a broken command. So the prose keeps its block and the chip's
+ * tree becomes a NEW equation right after it: the same formula, nothing lost,
+ * and the caret continues inside it.
+ */
+function splitInlineMathChipToBlock(
+  state: EditorState,
+  blockIndex: number,
+  targetType: string,
+): { state: EditorState; ops: Operation[]; handled: true } | undefined {
+  if (targetType !== "math" || state.ui.composition) return undefined;
+  if (mathBlockAt(state, blockIndex)) return undefined;
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return undefined;
+  const runs = resolveStructuredInlineMathRuns(block);
+  if (runs.length !== 1) return undefined;
+  const run = runs[0];
+  if (!run.document || !run.contentId || run.latex === undefined) {
+    return undefined;
+  }
+  const visibleText = getVisibleTextFromRuns(block.charRuns);
+  const outsideChip =
+    visibleText.slice(0, run.startIndex) + visibleText.slice(run.endIndex);
+  // Whitespace-only surroundings are the in-place promote's case, not this one.
+  if (outsideChip.trim().length === 0) return undefined;
+
+  const source = run.latex;
+  const equationId = state.CRDTbinding.nextId();
+  // Re-address the chip's tree onto the new block before emitting anything, so
+  // a tree that cannot be cloned refuses cleanly.
+  const display = state.schema.cloneStructuredContent({
+    document: { ...run.document, authority: "block" },
+    sourceBlockId: block.id,
+    targetBlockId: equationId,
+    sourceContentId: run.contentId,
+    identities: state.CRDTbinding,
+  });
+  if (!display) return undefined;
+
+  const operationBase = () => ({
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+  });
+  const ops: Operation[] = [];
+  let page = state.document.page;
+
+  // Drop the chip from the prose: its attachment first, then its anchor char.
+  const removeAttachment: Operation = {
+    op: "content_edit",
+    ...operationBase(),
+    blockId: block.id,
+    contentId: run.contentId,
+    edit: { kind: "document_delete" },
+  };
+  ops.push(removeAttachment);
+  page = applyOps(page, [removeAttachment], state.schema);
+
+  const removedAnchor = deleteCharsInRange(
+    page,
+    block.id,
+    run.startIndex,
+    run.endIndex,
+    state.CRDTbinding,
+  );
+  ops.push(removedAnchor.op);
+  page = removedAnchor.newPage;
+
+  const insertEquation: Operation = {
+    op: "block_insert",
+    ...operationBase(),
+    orderKey: orderKeyAfter(page.blocks, block.id),
+    blockId: equationId,
+    blockType: "math",
+  };
+  ops.push(insertEquation);
+  page = applyOps(page, [insertEquation], state.schema);
+
+  const attachRoot: Operation = {
+    op: "content_edit",
+    ...operationBase(),
+    blockId: equationId,
+    contentId: display.contentId,
+    edit: { kind: "document_init", document: display.document },
+  };
+  ops.push(attachRoot);
+  page = applyOps(page, [attachRoot], state.schema);
+
+  const prose = page.blocks[findBlockIndex(page, block.id)];
+  if (prose) invalidateBlockCache(prose);
+  // The equation lands where every replica sorts it (a tombstone tied on this
+  // block's order key shifts the position), so resolve it by id.
+  const equationIndex = findBlockIndex(page, equationId);
+  const equation = equationIndex >= 0 ? page.blocks[equationIndex] : undefined;
+  if (equation) invalidateBlockCache(equation);
+
+  let next: EditorState = {
+    ...state,
+    document: { ...state.document, page },
+  };
+  next = clearSelection(next);
+  const caret = mathContentSelectionFromSourceOffset(
+    equationId,
+    display.contentId,
+    display.document,
+    source.length,
+  );
+  next = caret
+    ? updateContentSelection(next, caret)
+    : moveCursorToPosition(next, equationIndex >= 0 ? equationIndex : 0, 0);
   return { state: next, ops, handled: true };
 }
 
@@ -1819,47 +1896,18 @@ export class MathNode extends TextNode<MathBlock> {
     );
     // The demote's mirror: a "turn into math" conversion of a block whose only
     // content is one inline chip. Core's conversion offers every to-math morph
-    // through this seam; a plain textual block converts to an EMPTY equation
-    // with its eager authority document (its prose is cleared, matching the
-    // generic to-atomic conversion), so a display block never exists without
-    // its tree.
+    // through this seam; a chip embedded in prose moves out into its own
+    // equation, and a plain textual block converts to an EMPTY equation with its
+    // eager authority document (its prose is cleared, matching the generic
+    // to-atomic conversion), so a display block never exists without its tree.
     bus.registerState(
       CONVERT_STRUCTURED_BLOCK,
       (state, { blockIndex, type }) =>
         promoteInlineMathChipBlock(state, blockIndex, type) ??
+        splitInlineMathChipToBlock(state, blockIndex, type) ??
         convertBlockToEmptyMath(state, blockIndex, type),
       100,
     );
-    // A selection covering the whole equation leaves nothing worth keeping —
-    // deleting it removes the block itself, not just its content, instead of
-    // stranding an empty equation. Convert to the flat whole-block node
-    // selection and reuse the generic block delete (tombstone, only-block
-    // guard, cursor). Runs above the tree delete (100), which would empty the
-    // equation.
-    const deleteWholeEquationSelection: StateHandler<void> = (state) => {
-      const blockIndex = wholeEquationSelectionBlockIndex(state);
-      if (blockIndex === null) return;
-      const position: Position = { blockIndex, textIndex: 0 };
-      let next = updateContentSelection(state, null);
-      next = {
-        ...next,
-        document: {
-          ...next.document,
-          selection: {
-            anchor: position,
-            focus: position,
-            isForward: true,
-            isCollapsed: false,
-            lastUpdate: Date.now(),
-          },
-        },
-      };
-      return { ...deleteSelectedText(next), handled: true };
-    };
-    bus.registerState(DELETE_BACKWARD, deleteWholeEquationSelection, 110);
-    bus.registerState(DELETE_FORWARD, deleteWholeEquationSelection, 110);
-    bus.registerState(DELETE_WORD_BACKWARD, deleteWholeEquationSelection, 110);
-    bus.registerState(DELETE_WORD_FORWARD, deleteWholeEquationSelection, 110);
     // Structured display equations claim editing/navigation here. All
     // mutations are generic `content_edit` ops; inline MathMark registers its
     // own handlers.
@@ -1903,22 +1951,60 @@ export class MathNode extends TextNode<MathBlock> {
     );
     bus.registerState(
       MOVE_CURSOR_LEFT,
-      (state) =>
-        moveActiveMathTreeCaret(state, "arrow-left") ??
-        (hasActiveMathTreeCaret(state)
-          ? exitActiveMathTreeHorizontally(state, "left")
-          : enterAdjacentMathTreeHorizontally(state, "left")),
+      (state) => {
+        const ownsCaret = hasActiveMathTreeCaret(state);
+        return (
+          moveActiveMathTreeCaret(state, "arrow-left") ??
+          (ownsCaret
+            ? (exitActiveMathTreeHorizontally(state, "left") ?? {
+                state,
+                ops: [],
+                handled: true as const,
+              })
+            : enterAdjacentMathTreeHorizontally(state, "left"))
+        );
+      },
       100,
     );
     bus.registerState(
       MOVE_CURSOR_RIGHT,
-      (state) =>
-        moveActiveMathTreeCaret(state, "arrow-right") ??
-        (hasActiveMathTreeCaret(state)
-          ? exitActiveMathTreeHorizontally(state, "right")
-          : enterAdjacentMathTreeHorizontally(state, "right")),
+      (state) => {
+        const ownsCaret = hasActiveMathTreeCaret(state);
+        return (
+          moveActiveMathTreeCaret(state, "arrow-right") ??
+          (ownsCaret
+            ? (exitActiveMathTreeHorizontally(state, "right") ?? {
+                state,
+                ops: [],
+                handled: true as const,
+              })
+            : enterAdjacentMathTreeHorizontally(state, "right"))
+        );
+      },
       100,
     );
+    const moveWord = (direction: "left" | "right") => (state: EditorState) => {
+      const ownsCaret = hasActiveMathTreeCaret(state);
+      return (
+        moveActiveMathTreeCaretByUnit(state, direction) ??
+        (ownsCaret
+          ? (exitActiveMathTreeHorizontally(state, direction) ?? {
+              state,
+              ops: [],
+              handled: true as const,
+            })
+          : undefined)
+      );
+    };
+    bus.registerState(MOVE_TO_PREVIOUS_WORD, moveWord("left"), 100);
+    bus.registerState(MOVE_TO_NEXT_WORD, moveWord("right"), 100);
+    const extendWord = (direction: "left" | "right") => (state: EditorState) =>
+      extendActiveMathTreeSelectionByUnit(state, direction) ??
+      (hasActiveMathTreeCaret(state)
+        ? { state, ops: [], handled: true as const }
+        : undefined);
+    bus.registerState(EXTEND_SELECTION_WORD_LEFT, extendWord("left"), 100);
+    bus.registerState(EXTEND_SELECTION_WORD_RIGHT, extendWord("right"), 100);
     bus.registerState(
       MOVE_CONTENT_TAB,
       (state, { backward }) =>
@@ -1931,7 +2017,11 @@ export class MathNode extends TextNode<MathBlock> {
     const moveVertical = (direction: "up" | "down") => (state: EditorState) =>
       moveActiveMathTreeCaretVertically(state, direction) ??
       (hasActiveMathTreeCaret(state)
-        ? exitActiveMathTreeVertically(state, direction)
+        ? (exitActiveMathTreeVertically(state, direction) ?? {
+            state,
+            ops: [],
+            handled: true as const,
+          })
         : undefined);
     bus.registerState(MOVE_CURSOR_UP, moveVertical("up"), 100);
     bus.registerState(MOVE_CURSOR_DOWN, moveVertical("down"), 100);
@@ -1950,6 +2040,24 @@ export class MathNode extends TextNode<MathBlock> {
           : undefined);
     bus.registerState(EXTEND_SELECTION_LEFT, extendHorizontal("left"), 100);
     bus.registerState(EXTEND_SELECTION_RIGHT, extendHorizontal("right"), 100);
+    const moveToRowEdge = (edge: "start" | "end") => (state: EditorState) =>
+      moveActiveMathTreeCaretToRowEdge(state, edge) ??
+      (hasActiveMathTreeCaret(state)
+        ? { state, ops: [], handled: true as const }
+        : undefined);
+    bus.registerState(MOVE_TO_LINE_START, moveToRowEdge("start"), 100);
+    bus.registerState(MOVE_TO_LINE_END, moveToRowEdge("end"), 100);
+    const extendToRowEdge =
+      (edge: "start" | "end") =>
+      (state: EditorState, { isCtrl }: { isCtrl: boolean }) =>
+        isCtrl
+          ? undefined
+          : (extendActiveMathTreeSelectionToRowEdge(state, edge) ??
+            (hasActiveMathTreeCaret(state)
+              ? { state, ops: [], handled: true as const }
+              : undefined));
+    bus.registerState(EXTEND_SELECTION_HOME, extendToRowEdge("start"), 100);
+    bus.registerState(EXTEND_SELECTION_END, extendToRowEdge("end"), 100);
     bus.registerState(
       DELETE_FORWARD,
       (state) => {
@@ -2109,11 +2217,9 @@ export class MathNode extends TextNode<MathBlock> {
       if (!unit) return { state, ops: [], handled: true };
 
       return {
-        state: selectMathRange(
-          state,
-          position.blockIndex,
-          unit.start,
-          unit.end,
+        state: updateMode(
+          selectMathRange(state, position.blockIndex, unit.start, unit.end),
+          "select",
         ),
         ops: [],
         handled: true,
@@ -2136,11 +2242,14 @@ export class MathNode extends TextNode<MathBlock> {
       const block = mathBlockAt(state, position.blockIndex);
       if (!block) return;
       return {
-        state: selectMathRange(
-          state,
-          position.blockIndex,
-          0,
-          mathBlockSource(block).length,
+        state: updateMode(
+          selectMathRange(
+            state,
+            position.blockIndex,
+            0,
+            mathBlockSource(block).length,
+          ),
+          "select",
         ),
         ops: [],
         handled: true,
@@ -2388,6 +2497,7 @@ function selectMathRange(
       return updateContentSelection(state, {
         anchor: anchor.focus,
         focus: focus.focus,
+        initialBoundary: { start: anchor.focus, end: focus.focus },
         lastUpdate: Date.now(),
       });
     }

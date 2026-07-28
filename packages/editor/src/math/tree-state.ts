@@ -14,7 +14,9 @@ import {
 import type { Block } from "../serlization/loadPage";
 import type { ContentEdit, EditorState, Operation } from "../state-types";
 import {
+  type ContentPoint,
   contentPointsEqual,
+  type ContentSelection,
   isContentSelectionCollapsed,
   normalizeContentSelection,
   updateContentSelection,
@@ -51,6 +53,7 @@ import {
   mathTreeMatrixTargetCaret,
   type MathTreeMotion,
   type MathTreeRange,
+  mathTreeRowEdgeCaret,
   moveMathTreeCaret,
   resizeMathTreeMatrix,
 } from "./tree-edit";
@@ -58,9 +61,11 @@ import {
   contentPointToMathTreeCaret,
   extendMathTreeContentSelection,
   mathContentSelectionFromSourceOffset,
+  mathSourceOffsetFromContentPoint,
   mathSourceRangeFromContentSelection,
   mathTreeCaretFromSourceOffset,
   mathTreeCaretToContentSelection,
+  mathUnitBoundaryOffset,
   moveMathTreeCaretVertically,
 } from "./tree-selection";
 
@@ -122,6 +127,154 @@ export function moveActiveMathTreeCaret(
         caret: context.caret,
       })
     : undefined;
+}
+
+/** Jump over the structural math unit adjacent to the active caret. */
+export function moveActiveMathTreeCaretByUnit(
+  state: EditorState,
+  direction: "left" | "right",
+): MathTreeStateEditResult | undefined {
+  const context = activeMathTreeContext(state);
+  if (!context) return undefined;
+  const caret = mathTreeUnitTarget(state, context, direction);
+  return caret
+    ? commitMathTreeResult(state, context, {
+        handled: true,
+        edits: [],
+        caret,
+      })
+    : undefined;
+}
+
+/** Move an active display-math caret to its current structural row edge. */
+export function moveActiveMathTreeCaretToRowEdge(
+  state: EditorState,
+  edge: "start" | "end",
+): MathTreeStateEditResult | undefined {
+  const context = activeMathTreeContext(state);
+  if (!context) return undefined;
+  const caret = mathTreeRowEdgeCaret(context.document, context.caret, edge);
+  return caret
+    ? commitMathTreeResult(state, context, {
+        handled: true,
+        edits: [],
+        caret,
+      })
+    : undefined;
+}
+
+/** Extend a structured display-math selection by one adjacent math unit. */
+export function extendActiveMathTreeSelectionByUnit(
+  state: EditorState,
+  direction: "left" | "right",
+): MathTreeStateEditResult | undefined {
+  const context = activeMathTreeContext(state);
+  const current = state.document.contentSelection;
+  if (!context || !current) return undefined;
+  const continuation = mathTreeSelectionContinuation(context.document, current);
+  if (!continuation) return undefined;
+  const caret = mathTreeUnitTarget(state, context, direction, continuation);
+  if (!caret) return undefined;
+  const selection = extendMathTreeContentSelection(
+    context.block.id,
+    context.contentId,
+    context.document,
+    continuation.anchor,
+    caret,
+    direction === "right" ? "end" : "start",
+  );
+  return selection
+    ? {
+        state: updateContentSelection(state, selection),
+        ops: [],
+        handled: true,
+      }
+    : undefined;
+}
+
+/** Extend an active display-math selection to its current structural row edge. */
+export function extendActiveMathTreeSelectionToRowEdge(
+  state: EditorState,
+  edge: "start" | "end",
+): MathTreeStateEditResult | undefined {
+  const context = activeMathTreeContext(state);
+  const current = state.document.contentSelection;
+  if (!context || !current) return undefined;
+  const continuation = mathTreeSelectionContinuation(context.document, current);
+  if (!continuation) return undefined;
+  const caret = mathTreeRowEdgeCaret(
+    context.document,
+    continuation.caret,
+    edge,
+  );
+  if (!caret) return undefined;
+  const selection = extendMathTreeContentSelection(
+    context.block.id,
+    context.contentId,
+    context.document,
+    continuation.anchor,
+    caret,
+    edge,
+  );
+  return selection
+    ? {
+        state: updateContentSelection(state, selection),
+        ops: [],
+        handled: true,
+      }
+    : undefined;
+}
+
+function mathTreeUnitTarget(
+  state: EditorState,
+  context: MathTreeContext,
+  direction: "left" | "right",
+  from?: { readonly focus: ContentPoint; readonly caret: MathTreeCaret },
+): MathTreeCaret | undefined {
+  const math = structuredToMathDocument(context.document);
+  if (!math) return undefined;
+  const source = getStructuredMathSource(context.block) ?? "";
+  const current = state.document.contentSelection;
+  const sourceOffset = current
+    ? mathSourceOffsetFromContentPoint(
+        context.document,
+        from?.focus ?? current.focus,
+      )
+    : null;
+  if (sourceOffset === null) return undefined;
+  const targetOffset = mathUnitBoundaryOffset(source, sourceOffset, direction);
+  if (targetOffset === null) return undefined;
+  const caret = mathTreeCaretFromSourceOffset(
+    context.block.id,
+    context.contentId,
+    math,
+    context.document,
+    targetOffset,
+  );
+  if (!caret) return undefined;
+  const target = mathTreeCaretToContentSelection(
+    context.block.id,
+    context.contentId,
+    context.document,
+    caret,
+  );
+  const resolvedTargetOffset = target
+    ? mathSourceOffsetFromContentPoint(context.document, target.focus)
+    : null;
+  if (
+    resolvedTargetOffset === null ||
+    (direction === "left"
+      ? resolvedTargetOffset >= sourceOffset
+      : resolvedTargetOffset <= sourceOffset)
+  ) {
+    const structural = moveMathTreeCaret(
+      context.document,
+      from?.caret ?? context.caret,
+      direction === "left" ? "arrow-left" : "arrow-right",
+    );
+    return structural.handled ? structural.caret : undefined;
+  }
+  return caret;
 }
 
 /**
@@ -378,9 +531,11 @@ export function extendActiveMathTreeSelectionVertically(
   const context = activeMathTreeContext(state);
   const current = state.document.contentSelection;
   if (!context || !current) return undefined;
+  const continuation = mathTreeSelectionContinuation(context.document, current);
+  if (!continuation) return undefined;
   const caret = moveMathTreeCaretVertically(
     context.document,
-    context.caret,
+    continuation.caret,
     direction,
   );
   const selection = caret
@@ -388,7 +543,7 @@ export function extendActiveMathTreeSelectionVertically(
         context.block.id,
         context.contentId,
         context.document,
-        current.anchor,
+        continuation.anchor,
         caret,
         direction === "down" ? "end" : "start",
       )
@@ -414,9 +569,11 @@ export function extendActiveMathTreeSelectionHorizontally(
   const context = activeMathTreeContext(state);
   const current = state.document.contentSelection;
   if (!context || !current) return undefined;
+  const continuation = mathTreeSelectionContinuation(context.document, current);
+  if (!continuation) return undefined;
   const moved = moveMathTreeCaret(
     context.document,
-    context.caret,
+    continuation.caret,
     direction === "left" ? "arrow-left" : "arrow-right",
   );
   if (!moved.handled) return undefined;
@@ -424,7 +581,7 @@ export function extendActiveMathTreeSelectionHorizontally(
     context.block.id,
     context.contentId,
     context.document,
-    current.anchor,
+    continuation.anchor,
     moved.caret,
     direction === "right" ? "end" : "start",
   );
@@ -711,6 +868,19 @@ function activeMathTreeContext(
         caret,
       }
     : undefined;
+}
+
+function mathTreeSelectionContinuation(
+  document: StructuredDocument,
+  selection: ContentSelection,
+): {
+  readonly anchor: ContentPoint;
+  readonly focus: ContentPoint;
+  readonly caret: MathTreeCaret;
+} | null {
+  const { anchor, focus } = selection.unsnapped ?? selection;
+  const caret = contentPointToMathTreeCaret(document, focus);
+  return caret ? { anchor, focus, caret } : null;
 }
 
 function contentSelectionOwnsMathTree(state: EditorState): boolean {

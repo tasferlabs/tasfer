@@ -21,13 +21,19 @@ import {
 } from "../actions/input-actions";
 import {
   EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_END,
+  EXTEND_SELECTION_HOME,
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
+  EXTEND_SELECTION_WORD_LEFT,
+  EXTEND_SELECTION_WORD_RIGHT,
   MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  MOVE_TO_LINE_END,
+  MOVE_TO_LINE_START,
 } from "../actions/keyboard-actions";
 import {
   SELECT_LINE_AT_POINT,
@@ -68,7 +74,9 @@ import {
 import {
   contentPointToMathTreeCaret,
   mathContentSelectionFromSourceOffset,
+  mathSourceOffsetFromContentPoint,
   mathSourceRangeFromContentSelection,
+  mathUnitBoundaryOffset,
 } from "./tree-selection";
 import { deleteActiveMathTreeSelection } from "./tree-state";
 import {
@@ -100,6 +108,16 @@ function keydown(key: string, isTrusted = false): Event {
     isTrusted,
     preventDefault() {},
     stopPropagation() {},
+  } as unknown as Event;
+}
+
+function modifiedKeydown(
+  key: "ArrowLeft" | "ArrowRight",
+  modifier: "ctrlKey" | "metaKey",
+): Event {
+  return {
+    ...(keydown(key) as unknown as Record<string, unknown>),
+    [modifier]: true,
   } as unknown as Event;
 }
 
@@ -261,6 +279,41 @@ describe("tree-backed display math state integration", () => {
   });
 
   it.each([
+    ["Home", MOVE_TO_LINE_START, 0],
+    ["End", MOVE_TO_LINE_END, 3],
+  ] as const)(
+    "moves %s to the active math row edge",
+    (_key, action, offset) => {
+      const before = placeTreeCaret(treeState("$$\nabc\n$$"), 1);
+
+      const moved = before.actionBus.dispatchState(action, before);
+
+      expect(moved.claimed).toBe(true);
+      expect(contentTextOffset(moved.state)).toBe(offset);
+      expect(moved.state.document.cursor).toBeNull();
+    },
+  );
+
+  it.each([
+    ["Home", EXTEND_SELECTION_HOME, 0],
+    ["End", EXTEND_SELECTION_END, 3],
+  ] as const)(
+    "extends Shift+%s to the active math row edge",
+    (_key, action, offset) => {
+      const before = placeTreeCaret(treeState("$$\nabc\n$$"), 1);
+      const anchor = before.document.contentSelection?.focus;
+
+      const moved = before.actionBus.dispatchState(action, before, {
+        isCtrl: false,
+      });
+
+      expect(moved.claimed).toBe(true);
+      expect(moved.state.document.contentSelection?.anchor).toEqual(anchor);
+      expect(contentTextOffset(moved.state)).toBe(offset);
+    },
+  );
+
+  it.each([
     ["left", MOVE_CURSOR_LEFT],
     ["right", MOVE_CURSOR_RIGHT],
   ] as const)(
@@ -280,6 +333,114 @@ describe("tree-backed display math state integration", () => {
       );
     },
   );
+
+  it.each(["left", "right", "up", "down"] as const)(
+    "does not fall through to document start from an unresolved nested caret on Arrow%s",
+    (_name) => {
+      const active = placeTreeCaret(treeState("$$\nxy\n$$\n\nafter"), 1);
+      const selection = active.document.contentSelection;
+      if (!selection || selection.focus.kind !== "text") {
+        throw new Error("expected a nested text caret");
+      }
+      const unresolved = {
+        ...selection,
+        anchor: { ...selection.focus, afterCharId: "missing-char" },
+        focus: { ...selection.focus, afterCharId: "missing-char" },
+      } as typeof selection;
+      const before = {
+        ...active,
+        document: {
+          ...active.document,
+          cursor: null,
+          contentSelection: unresolved,
+        },
+      };
+
+      const moved = handleKeyDown(
+        before,
+        viewport,
+        keydown(`Arrow${_name[0].toUpperCase()}${_name.slice(1)}`),
+      );
+
+      expect(moved.state.document.cursor).toBeNull();
+      expect(moved.state.document.contentSelection).toEqual(unresolved);
+    },
+  );
+
+  it.each([
+    ["Ctrl", "ArrowLeft", "ctrlKey", 12, 1],
+    ["Ctrl", "ArrowRight", "ctrlKey", 1, 12],
+    ["Meta", "ArrowLeft", "metaKey", 12, 1],
+    ["Meta", "ArrowRight", "metaKey", 1, 12],
+  ] as const)(
+    "%s+%s jumps over the adjacent structured construct",
+    (_label, key, modifier, sourceOffset, expectedOffset) => {
+      const source = String.raw`a\frac{b}{c}+d`;
+      let before = placeTreeCaret(
+        treeState(`$$\n${source}\n$$\n\nafter`),
+        sourceOffset,
+      );
+      before = { ...before, view: { ...before.view, isFocused: true } };
+
+      const moved = handleKeyDown(
+        before,
+        viewport,
+        modifiedKeydown(key, modifier),
+      );
+
+      expect(moved.state.document.cursor).toBeNull();
+      const point = moved.state.document.contentSelection?.focus;
+      const document = getMathStructuredDocument(block(moved.state));
+      expect(
+        point && document
+          ? mathSourceOffsetFromContentPoint(document, point)
+          : null,
+      ).toBe(expectedOffset);
+    },
+  );
+
+  it.each([
+    ["left", EXTEND_SELECTION_WORD_LEFT, 12],
+    ["right", EXTEND_SELECTION_WORD_RIGHT, 1],
+  ] as const)(
+    "Shift+modifier+Arrow%s selects one adjacent structured construct",
+    (_name, action, sourceOffset) => {
+      const source = String.raw`a\frac{b}{c}+d`;
+      const before = placeTreeCaret(
+        treeState(`$$\n${source}\n$$`),
+        sourceOffset,
+      );
+
+      const selected = before.actionBus.dispatchState(action, before);
+      const selection = selected.state.document.contentSelection;
+      const document = getMathStructuredDocument(block(selected.state));
+
+      expect(selected.claimed).toBe(true);
+      expect(selection && document).toBeTruthy();
+      expect(
+        selection && document
+          ? mathSourceRangeFromContentSelection(document, selection)
+          : null,
+      ).toEqual({ from: 1, to: 12 });
+    },
+  );
+
+  it("walks every visible unit across control-word separators", () => {
+    const source = String.raw`{P}*{1}\\pi{r}^{2}-{P}*{2}\pi{r}^{2}-\tau(2\pi rL)=0`;
+    const stops: number[] = [];
+    let offset = 0;
+    for (;;) {
+      const next = mathUnitBoundaryOffset(source, offset, "right");
+      if (next === null) break;
+      stops.push(next);
+      offset = next;
+    }
+
+    expect(stops).toEqual([
+      3, 4, 7, 8, 11, 18, 19, 22, 23, 26, 29, 36, 37, 41, 42, 43, 46, 48, 49,
+      50, 51, 52,
+    ]);
+  });
 
   it("scopes the first Select All to the tree and the second to the document", () => {
     const before = typeText(treeState("$$\n\n$$\n\nafter"), "ab").state;
@@ -301,6 +462,23 @@ describe("tree-backed display math state integration", () => {
       textIndex: 5,
     });
   });
+
+  it.each([
+    ["Backspace", DELETE_BACKWARD],
+    ["Delete", DELETE_FORWARD],
+  ] as const)(
+    "%s after Select All empties only the equation",
+    (_label, action) => {
+      const before = typeText(treeState("$$\n\n$$"), "ab").state;
+      const selected = before.actionBus.dispatchState(SELECT_ALL, before).state;
+
+      const deleted = selected.actionBus.dispatchState(action, selected);
+
+      expect(deleted.claimed).toBe(true);
+      expect(block(deleted.state).deleted).toBeUndefined();
+      expect(treeSource(deleted.state)).toBe("");
+    },
+  );
 
   it("demotes a structured display equation to the same structured inline math", () => {
     const before = selectActiveTreeText(
@@ -733,6 +911,31 @@ describe("tree-backed display math state integration", () => {
     ).toBe(true);
   });
 
+  // Real-world LaTeX rarely matches the canonical printing (implicit script
+  // braces, spaces). Judging fidelity by the source bytes froze every such
+  // paste into one atomic `raw-latex` leaf — an equation with no caret inside
+  // it, nothing selectable, nothing editable.
+  it("semanticizes pasted LaTeX that canonicalizes differently", () => {
+    const pasted = pasteFromClipboardEvent(
+      placeFlatCaretAtBlockEdge(treeState("$$\n\n$$")),
+      {} as ClipboardEvent,
+      {
+        html: "",
+        text: String.raw`P_1\pi r^2 - P_2 \pi r^2 - \tau(2\pi r L) = 0`,
+        imageFile: null,
+      },
+    );
+    expect(pasted).not.toBeNull();
+    expect(treeSource(pasted!.state)).toBe(
+      String.raw`{P}_{1}\pi{r}^{2}-{P}_{2}\pi{r}^{2}-\tau(2\pi rL)=0`,
+    );
+    const nodes = Object.values(
+      getMathStructuredDocument(block(pasted!.state))?.nodes ?? {},
+    ).filter((node) => !node.deleted);
+    expect(nodes.some((node) => node.type === "scripts")).toBe(true);
+    expect(nodes.some((node) => node.type === "raw-latex")).toBe(false);
+  });
+
   it("keeps non-BMP committed text intact", () => {
     const inserted = insertText(
       placeFlatCaretAtBlockEdge(treeState("$$\n\n$$")),
@@ -1084,6 +1287,20 @@ describe("tree-backed display math state integration", () => {
     }
   });
 
+  it("backspaces the preceding symbol from the start of a scripted base", () => {
+    const source = String.raw`H=f\frac{l}{\oslash}\frac{\rho{V}^{2}}{2g}`;
+    const caretOffset = source.indexOf("{V}") + 1;
+    const before = placeTreeCaret(treeState(`$$\n${source}\n$$`), caretOffset);
+
+    const result = before.actionBus.dispatchState(DELETE_BACKWARD, before);
+
+    expect(result.claimed).toBe(true);
+    expect(operationKinds(result.ops)).toEqual(["content:node_delete"]);
+    expect(treeSource(result.state)).toBe(
+      String.raw`H=f\frac{l}{\oslash}\frac{{V}^{2}}{2g}`,
+    );
+  });
+
   it.each([
     ["Backspace", DELETE_BACKWARD, 11],
     ["Delete", DELETE_FORWARD, 0],
@@ -1100,14 +1317,15 @@ describe("tree-backed display math state integration", () => {
         selected.state.document.contentSelection?.focus,
       );
 
-      // The construct IS the whole equation here, so the selection covers the
-      // entire block (painted as a full-card highlight) — the second press
-      // deletes the block itself, not just its content.
+      // The construct IS the whole equation here, but this remains a content
+      // selection. The second press empties the equation without deleting its
+      // padded block container.
       const deleted = selected.state.actionBus.dispatchState(
         action,
         selected.state,
       );
-      expect(block(deleted.state).deleted).toBe(true);
+      expect(block(deleted.state).deleted).toBeUndefined();
+      expect(treeSource(deleted.state)).toBe("");
     },
   );
 
@@ -1115,7 +1333,7 @@ describe("tree-backed display math state integration", () => {
     ["plain text", "aa"],
     ["a construct", String.raw`\frac{a}{b}`],
   ] as const)(
-    "deletes the whole block when a triple-click selection over %s is deleted",
+    "deletes only the content when a triple-click selects all %s",
     (_label, source) => {
       const before = treeState(`$$\n${source}\n$$`);
       const selected = before.actionBus.dispatchState(
@@ -1130,7 +1348,8 @@ describe("tree-backed display math state integration", () => {
         selected.state,
       );
       expect(deleted.claimed).toBe(true);
-      expect(block(deleted.state).deleted).toBe(true);
+      expect(block(deleted.state).deleted).toBeUndefined();
+      expect(treeSource(deleted.state)).toBe("");
     },
   );
 
@@ -1442,6 +1661,7 @@ describe("tree-backed display math state integration", () => {
     const content = selected.state.document.contentSelection;
     expect(content).not.toBeNull();
     expect(selected.state.document.selection).toBeNull();
+    expect(selected.state.ui.mode).toBe("select");
 
     const resized = selected.state.actionBus.dispatchState(
       RESIZE_MATH_MATRIX,
@@ -1460,6 +1680,66 @@ describe("tree-backed display math state integration", () => {
     if (matrix?.type !== "matrix") throw new Error("expected matrix");
     expect(matrix.rows).toHaveLength(3);
     expect(matrix.rows.every((row) => row.cells.length === 3)).toBe(true);
+  });
+
+  it("keeps the double-clicked construct selected when a drag begins", () => {
+    const latex = String.raw`a+\frac{x}{y}+z`;
+    const start = latex.indexOf("\\frac");
+    const end = latex.indexOf("+z");
+    let state = moveCursorToPosition(
+      treeState(`$$\n${latex}\n$$`),
+      0,
+      latex.length,
+    );
+    state = insertText(state, "").state;
+
+    const selected = state.actionBus.dispatchState(
+      SELECT_WORD_AT_POINT,
+      state,
+      {
+        position: { blockIndex: 0, textIndex: start + 1 },
+        range: { start, end },
+      },
+    ).state;
+    const document = getMathStructuredDocument(block(selected));
+    const initial = selected.document.contentSelection;
+    if (!document || !initial?.initialBoundary) {
+      throw new Error("expected a structured gesture selection");
+    }
+
+    const dragTo = (offset: number) => {
+      const hit = mathContentSelectionFromSourceOffset(
+        block(selected).id,
+        document.rootId,
+        document,
+        offset,
+      );
+      if (!hit) throw new Error("expected drag target");
+      return updateContentSelection(selected, {
+        anchor: initial.anchor,
+        focus: hit.focus,
+        initialBoundary: initial.initialBoundary,
+      }).document.contentSelection;
+    };
+
+    const inside = dragTo(latex.indexOf("x") + 1);
+    const backward = dragTo(0);
+    const forward = dragTo(latex.length);
+    if (!inside || !backward || !forward) {
+      throw new Error("expected continued structured selections");
+    }
+    expect(mathSourceRangeFromContentSelection(document, inside)).toEqual({
+      from: start,
+      to: end,
+    });
+    expect(mathSourceRangeFromContentSelection(document, backward)).toEqual({
+      from: 0,
+      to: end,
+    });
+    expect(mathSourceRangeFromContentSelection(document, forward)).toEqual({
+      from: start,
+      to: latex.length,
+    });
   });
 
   it("selects the whole equation as a nested selection on triple-click", () => {
@@ -2030,6 +2310,12 @@ describe("tree-backed display math state integration", () => {
 
     const unknown = typeText(treeState("$$\n\n$$"), String.raw`\wat`).state;
     expect(treeSource(unknown)).toBe(String.raw`\wat`);
+  });
+
+  it("completes an unambiguous display-cased command", () => {
+    const typed = typeText(treeState("$$\n\n$$"), String.raw`\Degree`);
+
+    expect(treeSource(typed.state)).toBe(String.raw`\degree`);
   });
 
   it("completes a manually typed square root semantically and deletes it whole", () => {

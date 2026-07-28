@@ -13,6 +13,11 @@ describe("app editor math composition", () => {
     expect(ids).toContain("math.inline-tree.input");
   });
 
+  it("installs raw LaTeX paste recognition", () => {
+    const latex = String.raw`{\dot{W}}_{pump}=\frac{\Delta P\dot{V}}{\eta}`;
+    expect(appSchema.data.transformPastedText(latex)).toBe(`$${latex}$`);
+  });
+
   it("carries math's spec facets on the worker-safe data schema", () => {
     expect(appDataSchema.syntaxRules().map((rule) => rule.id)).toEqual([
       "math.display-dollar-fence",

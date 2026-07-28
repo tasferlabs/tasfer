@@ -56,6 +56,12 @@ interface CachedCredentials {
   mintedAt: number;
 }
 
+interface ConnectionAttachment {
+  peerId: string;
+  superseded: boolean;
+  departed: boolean;
+}
+
 export class SignalRoom extends DurableObject<Env> {
   private turnThrottle = new Map<string, { windowStart: number; count: number }>();
   /** Coalesces concurrent cache misses into one upstream mint. */
@@ -85,27 +91,34 @@ export class SignalRoom extends DurableObject<Env> {
     // routing, and its eventual close would broadcast a spurious peer-left
     // that tears down the reconnected peer everywhere.
     for (const stale of this.ctx.getWebSockets(peerId)) {
-      try { stale.close(4000, "replaced by a newer connection"); } catch { /* already gone */ }
+      try {
+        stale.serializeAttachment({ peerId, superseded: true, departed: false } satisfies ConnectionAttachment);
+      } catch { /* attachment unavailable */ }
+      try {
+        stale.close(4000, "replaced by a newer connection");
+      } catch { /* already gone */ }
     }
 
     // Accept with peerId as tag (survives hibernation)
     this.ctx.acceptWebSocket(server, [peerId]);
+    server.serializeAttachment({ peerId, superseded: false, departed: false } satisfies ConnectionAttachment);
 
-    // Collect existing peer IDs (excluding the new one)
-    const existingPeerIds: string[] = [];
+    // Closing sockets remain visible to getWebSockets() until their close
+    // handshake finishes. Only advertise active identities, once each.
+    const existingPeerIds = new Set<string>();
     for (const ws of this.ctx.getWebSockets()) {
-      if (ws === server) continue;
+      if (ws === server || !this.isActiveSocket(ws)) continue;
       const tags = this.ctx.getTags(ws);
-      if (tags.length > 0) existingPeerIds.push(tags[0]);
+      if (tags.length > 0 && tags[0] !== peerId) existingPeerIds.add(tags[0]);
     }
 
     // Send peer list to the new connection
-    server.send(JSON.stringify({ type: "peers", peerIds: existingPeerIds }));
+    server.send(JSON.stringify({ type: "peers", peerIds: [...existingPeerIds] }));
 
     // Notify existing peers about the new arrival
     const joinMsg = JSON.stringify({ type: "peer-join", peerId });
     for (const ws of this.ctx.getWebSockets()) {
-      if (ws !== server) {
+      if (ws !== server && this.isActiveSocket(ws)) {
         try { ws.send(joinMsg); } catch { /* stale socket, will be cleaned up */ }
       }
     }
@@ -126,7 +139,7 @@ export class SignalRoom extends DurableObject<Env> {
     }
 
     const fromId = this.ctx.getTags(ws)[0];
-    if (!fromId) return;
+    if (!fromId || !this.isActiveSocket(ws)) return;
 
     if (msg.type === "turn-request") {
       await this.handleTurnRequest(ws, fromId);
@@ -157,17 +170,26 @@ export class SignalRoom extends DurableObject<Env> {
     const peerId = this.ctx.getTags(ws)[0];
     if (!peerId) return;
 
+    const attachment = this.connectionAttachment(ws);
+    if (attachment?.superseded || attachment?.departed) return;
+
     // A replacement socket with the same peerId may still be connected (this
     // close is an eviction, not a departure) — the peer is not gone.
     for (const peer of this.ctx.getWebSockets(peerId)) {
-      if (peer !== ws) return;
+      if (peer !== ws && this.isActiveSocket(peer)) return;
     }
+
+    // webSocketError can be followed by webSocketClose for the same socket.
+    // Persist the departure marker so peers receive exactly one leave event.
+    try {
+      ws.serializeAttachment({ peerId, superseded: false, departed: true } satisfies ConnectionAttachment);
+    } catch { /* already detached */ }
 
     this.turnThrottle.delete(peerId);
 
     const leaveMsg = JSON.stringify({ type: "peer-left", peerId });
     for (const peer of this.ctx.getWebSockets()) {
-      if (peer !== ws) {
+      if (peer !== ws && this.isActiveSocket(peer)) {
         try { peer.send(leaveMsg); } catch { /* stale socket */ }
       }
     }
@@ -182,7 +204,35 @@ export class SignalRoom extends DurableObject<Env> {
 
   /** Find a connected peer's WebSocket by peerId tag. */
   private findPeer(peerId: string): WebSocket | undefined {
-    return this.ctx.getWebSockets(peerId)[0];
+    return this.ctx.getWebSockets(peerId).find((ws) => this.isActiveSocket(ws));
+  }
+
+  private connectionAttachment(ws: WebSocket): ConnectionAttachment | null {
+    let value: unknown;
+    try {
+      value = ws.deserializeAttachment();
+    } catch {
+      return null;
+    }
+    if (typeof value !== "object" || value === null) return null;
+    const attachment = value as Partial<ConnectionAttachment>;
+    if (
+      typeof attachment.peerId !== "string" ||
+      typeof attachment.superseded !== "boolean" ||
+      typeof attachment.departed !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      peerId: attachment.peerId,
+      superseded: attachment.superseded,
+      departed: attachment.departed,
+    };
+  }
+
+  private isActiveSocket(ws: WebSocket): boolean {
+    if (ws.readyState !== WebSocket.OPEN) return false;
+    return this.connectionAttachment(ws)?.superseded !== true;
   }
 
   // ---------------------------------------------------------------------------

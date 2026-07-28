@@ -1433,7 +1433,7 @@ export function insertText(
         if (created.ops.length > 0) {
           pageAcc = created.newPage;
           ops.push(...created.ops);
-          newTextIndex = insertIndex + 1;
+          newTextIndex = created.startIndex + 1;
         }
         continue;
       }
@@ -2979,6 +2979,7 @@ export function moveToLineEnd(state: EditorState): EditorState {
 
 export function splitBlock(state: EditorState): ActionResult {
   if (!state.document.cursor) return { state, ops: [] };
+  const stateBeforeSplit = state;
 
   // A single-block surface (e.g. a TitleEditor) never splits into a second
   // block: Enter is inert here, so the block count stays fixed. Hosts map Enter
@@ -3076,27 +3077,15 @@ export function splitBlock(state: EditorState): ActionResult {
   ) {
     return { state, ops: [] };
   }
-  // Block 2's id is minted before its block_insert so the attachment clone
-  // (feature facets minting target-scoped identities) can address it.
+  // Block 2's id is minted early so attachment clones can address it. The
+  // clone itself is delayed until the block_insert is stamped in step 4: op
+  // ids/clocks and batch order must all put the host block before its content.
   const newBlockId = state.CRDTbinding.nextId();
   const movingContentIds = structuredMarkContentIdsFrom(
     oldBlock,
     textIndex,
     state.schema,
   );
-  const movedAttachments =
-    movingContentIds.size > 0
-      ? cloneStructuredBlockContent(
-          oldBlock,
-          newBlockId,
-          state.CRDTbinding,
-          state.schema,
-          movingContentIds,
-        )
-      : { structuredContent: {}, clonedContentIds: {}, ops: [] as const };
-  // A feature without a lossless clone seam keeps the conservative refusal:
-  // do not strand the only block that owns its attachment.
-  if (!movedAttachments) return { state, ops: [] };
 
   // Auto-detect URLs before splitting (Enter acts as a word boundary)
   let currentBlock = oldBlock;
@@ -3336,13 +3325,6 @@ export function splitBlock(state: EditorState): ActionResult {
   //    referencing run moved out dies with its chars here — its clone on
   //    block 2 is the authoritative copy from now on.
   if (textIndex < oldText.length) {
-    const attachmentCleanupOps = structuredMarkAttachmentCleanupOps(
-      currentBlock,
-      textIndex,
-      oldText.length,
-      state.CRDTbinding,
-      state.schema,
-    );
     const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
       pageAcc,
       oldBlock.id,
@@ -3352,6 +3334,15 @@ export function splitBlock(state: EditorState): ActionResult {
     );
     pageAcc = pageAfterDelete;
     ops.push(deleteOp);
+    // Stamp cleanup after the deletion because that is also the order in
+    // which the transaction returns and applies these operations.
+    const attachmentCleanupOps = structuredMarkAttachmentCleanupOps(
+      currentBlock,
+      textIndex,
+      oldText.length,
+      state.CRDTbinding,
+      state.schema,
+    );
     if (attachmentCleanupOps.length > 0) {
       ops.push(...attachmentCleanupOps);
       pageAcc = applyOps(pageAcc, attachmentCleanupOps, state.schema);
@@ -3414,6 +3405,20 @@ export function splitBlock(state: EditorState): ActionResult {
     blockId: newBlockId,
     blockType: blockCopy2Type,
   };
+  const movedAttachments =
+    movingContentIds.size > 0
+      ? cloneStructuredBlockContent(
+          oldBlock,
+          newBlockId,
+          state.CRDTbinding,
+          state.schema,
+          movingContentIds,
+        )
+      : { structuredContent: {}, clonedContentIds: {}, ops: [] as const };
+  // A feature without a lossless clone seam keeps the conservative refusal:
+  // do not strand the only block that owns its attachment. Work above only
+  // produced immutable candidate state and uncommitted ops.
+  if (!movedAttachments) return { state: stateBeforeSplit, ops: [] };
   ops.push(blockInsertOp);
   pageAcc = applyOps(pageAcc, [blockInsertOp]);
   if (movedAttachments.ops.length > 0) {
@@ -3758,12 +3763,19 @@ export function toggleFormat(
         ...state,
         document: { ...state.document, page: created.newPage },
       };
-      next = moveCursorToPosition(next, start.blockIndex, start.textIndex + 1);
+      next = moveCursorToPosition(
+        next,
+        start.blockIndex,
+        created.startIndex + 1,
+      );
       next = updateSelection(next, {
-        anchor: { blockIndex: start.blockIndex, textIndex: start.textIndex },
+        anchor: {
+          blockIndex: start.blockIndex,
+          textIndex: created.startIndex,
+        },
         focus: {
           blockIndex: start.blockIndex,
-          textIndex: start.textIndex + 1,
+          textIndex: created.startIndex + 1,
         },
       });
       return { state: next, ops: [...created.ops] };

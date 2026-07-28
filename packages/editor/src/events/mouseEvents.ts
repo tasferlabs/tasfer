@@ -518,6 +518,7 @@ export function extendDragSelectionToPoint(
     const updated = updateContentSelection(state, {
       anchor: contentSelection.anchor,
       focus: hit.focus,
+      initialBoundary: contentSelection.initialBoundary,
       lastUpdate: Date.now(),
     });
     return updated.document.contentSelection ? updated : null;
@@ -764,7 +765,7 @@ export function handleMouseUp(
   }
 
   if (state.ui.mode === "select") {
-    // Clear initialBoundary when finishing selection
+    // Clear the transient multi-click boundary when finishing selection.
     let newState = state;
     if (state.document.selection?.initialBoundary) {
       newState = {
@@ -778,6 +779,14 @@ export function handleMouseUp(
               }
             : null,
         },
+      };
+    }
+    if (newState.document.contentSelection?.initialBoundary) {
+      const { initialBoundary: _discarded, ...contentSelection } =
+        newState.document.contentSelection;
+      newState = {
+        ...newState,
+        document: { ...newState.document, contentSelection },
       };
     }
     return { state: updateMode(newState, "edit"), ops };

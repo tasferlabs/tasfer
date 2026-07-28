@@ -685,25 +685,41 @@ export const MATH_COMMANDS: readonly MathCommand[] = [
 
 /**
  * Resolve a fully typed command when no longer catalog id shares it as a
- * prefix, or when `following` proves that no longer match can be typed. The
- * tree editor can therefore keep `\\in` scratch while the user types `\\int`,
- * but commits `\\sin` before `(` or an unrelated following letter.
+ * prefix, or when `following` proves that no longer match can be typed. An
+ * unambiguous case-folded match also accepts the catalog's display casing
+ * (`\\Degree` → `\\degree`), while exact casing wins for distinct commands
+ * such as `\\Gamma` and `\\gamma`. The tree editor can therefore keep `\\in`
+ * scratch while the user types `\\int`, but commits `\\sin` before `(` or an
+ * unrelated following letter.
  */
 export function unambiguousMathCommandCompletion(
   command: string,
   following?: string,
 ): { readonly id: string; readonly latex: string } | undefined {
-  const exact = MATH_COMMANDS.find((candidate) => candidate.id === command);
+  const exactCase = MATH_COMMANDS.find((candidate) => candidate.id === command);
+  const foldedMatches = exactCase
+    ? []
+    : MATH_COMMANDS.filter(
+        (candidate) => candidate.id.toLowerCase() === command.toLowerCase(),
+      );
+  const exact =
+    exactCase ?? (foldedMatches.length === 1 ? foldedMatches[0] : undefined);
   if (!exact) return undefined;
+  const prefix = exactCase ? command : command.toLowerCase();
   const hasLongerPrefix = MATH_COMMANDS.some(
     (candidate) =>
-      candidate.id.length > command.length && candidate.id.startsWith(command),
+      candidate.id.length > command.length &&
+      (exactCase ? candidate.id : candidate.id.toLowerCase()).startsWith(
+        prefix,
+      ),
   );
   const extensionStillMatches =
     following !== undefined &&
     /^[A-Za-z]$/.test(following) &&
     MATH_COMMANDS.some((candidate) =>
-      candidate.id.startsWith(command + following),
+      (exactCase ? candidate.id : candidate.id.toLowerCase()).startsWith(
+        prefix + (exactCase ? following : following.toLowerCase()),
+      ),
     );
   return hasLongerPrefix && (following === undefined || extensionStillMatches)
     ? undefined

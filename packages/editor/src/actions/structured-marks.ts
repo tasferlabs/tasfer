@@ -41,6 +41,8 @@ export interface CreateFeatureMarkResult {
   readonly newPage: Page;
   readonly ops: readonly Operation[];
   readonly format: Mark;
+  /** Flat start of the resulting mark, including any adjacent absorbed runs. */
+  readonly startIndex: number;
 }
 
 /** One flat compatibility range whose installed feature resolves a tree source. */
@@ -223,19 +225,62 @@ export function structuredMarkSourceForRange(
   const attachments = block.structuredContent ?? {};
   let source = "";
   let cursor = startIndex;
+  const append = (fragment: string) => {
+    source = schema.joinStructuredMarkSources(markType, source, fragment);
+  };
   for (const run of covered) {
-    source += text.slice(cursor - startIndex, run.startIndex - startIndex);
-    source +=
+    append(text.slice(cursor - startIndex, run.startIndex - startIndex));
+    append(
       schema.resolveStructuredMark(run.name, {
         mark: {
           type: run.name,
           ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
         },
         attachments,
-      }) ?? run.text;
+      }) ?? run.text,
+    );
     cursor = run.endIndex;
   }
-  return source + text.slice(cursor - startIndex);
+  append(text.slice(cursor - startIndex));
+  return source;
+}
+
+/** Expand a new structured mark over resolvable same-type runs it touches. */
+function includeAdjacentStructuredRuns(
+  block: Block,
+  startIndex: number,
+  endIndex: number,
+  markType: string,
+  schema: DataSchema,
+): { startIndex: number; endIndex: number } {
+  if (!isTextualBlock(block)) return { startIndex, endIndex };
+  const attachments = block.structuredContent;
+  const runs = resolveMarkRuns(block)
+    .filter((run) => run.name === markType)
+    .sort((left, right) => left.startIndex - right.startIndex);
+  let start = startIndex;
+  let end = endIndex;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const run of runs) {
+      if (run.endIndex !== start && run.startIndex !== end) continue;
+      const source = schema.resolveStructuredMark(markType, {
+        mark: {
+          type: markType,
+          ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
+        },
+        attachments,
+      });
+      if (source === undefined && run.text === STRUCTURED_MARK_ANCHOR_CHAR) {
+        continue;
+      }
+      if (run.endIndex === start) start = run.startIndex;
+      if (run.startIndex === end) end = run.endIndex;
+      changed = true;
+    }
+  }
+  return { startIndex: start, endIndex: end };
 }
 
 /**
@@ -664,7 +709,16 @@ export function createFeatureMarkInRange(
     startIndex < 0 ||
     endIndex <= startIndex
   ) {
-    return { newPage: page, ops: [], format: requested };
+    return { newPage: page, ops: [], format: requested, startIndex };
+  }
+  if (schema.structuredMark(requested.type) !== undefined) {
+    ({ startIndex, endIndex } = includeAdjacentStructuredRuns(
+      block,
+      startIndex,
+      endIndex,
+      requested.type,
+      schema,
+    ));
   }
   // For a structured mark, projections of the same type inside the range are
   // absorbed into the new source instead of contributing their content-free
@@ -681,7 +735,7 @@ export function createFeatureMarkInRange(
           schema,
         );
   if (text === undefined || text.length === 0) {
-    return { newPage: page, ops: [], format: requested };
+    return { newPage: page, ops: [], format: requested, startIndex };
   }
 
   const created = schema.createStructuredMark(requested.type, {
@@ -739,7 +793,7 @@ export function createFeatureMarkInRange(
     );
     nextPage = marked.newPage;
     ops.push(marked.op);
-    return { newPage: nextPage, ops, format: requested };
+    return { newPage: nextPage, ops, format: requested, startIndex };
   }
 
   // Any projection the new source absorbed is about to lose its anchor char,
@@ -789,5 +843,5 @@ export function createFeatureMarkInRange(
   );
   nextPage = marked.newPage;
   ops.push(marked.op);
-  return { newPage: nextPage, ops, format: created.mark };
+  return { newPage: nextPage, ops, format: created.mark, startIndex };
 }
