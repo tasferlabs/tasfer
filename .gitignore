@@ -14,12 +14,6 @@ out
 .env.*
 !.env.example
 
-# AI tooling
-!.claude/launch.json
-!.claude/output-styles/**
-!.claude/output-styles
-.claude/**
-
 # Release signing (never commit keys)
 *.keystore
 *.jks

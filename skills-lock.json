@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "localize-web-ui": {
+      "source": "/Users/hamza/dev/tasfer/apps/web/skills",
+      "sourceType": "local",
+      "computedHash": "7493390de519f74664caae772707be95f1b0cd08603b2b25ac36387a174d3561"
+    },
+    "run-web": {
+      "source": "/Users/hamza/dev/tasfer/apps/web/skills",
+      "sourceType": "local",
+      "computedHash": "a60f8d986dd809a7d16e5a8de46a854eee896c27a586b3b6ac6dc18d77b9927f"
+    },
+    "write-commit-message": {
+      "source": "/Users/hamza/dev/tasfer/skills",
+      "sourceType": "local",
+      "computedHash": "b4509a8499e09abaf628a9d60e727fa9c892af739dd5e5f91d0f0c90dc41d0c6"
+    }
+  }
+}
