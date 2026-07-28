@@ -57,9 +57,6 @@ package or application directory.
   outside it.
 - `apps/web/src/editor/` contains host UI chrome, not editor-engine logic.
 
-See [`docs/engineering-reference.md`](docs/engineering-reference.md) before
-making architectural, CRDT, persistence, or platform changes.
-
 ## Editor SDK status
 
 The `packages/*` boundaries are internal product architecture. Their source is
