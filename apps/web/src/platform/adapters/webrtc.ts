@@ -897,11 +897,7 @@ class WebRtcTopic implements NetworkTopic {
   private handleDataChannelClose(remotePeerId: string, peer: WebRtcPeer): void {
     if (this.peers.get(remotePeerId) !== peer) return;
     console.warn(`[WebRTC] datachannel closed remote=${remotePeerId.slice(0, 8)}`);
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this._promoteToRelay(remotePeerId);
-    } else {
-      this._removePeer(remotePeerId, peer);
-    }
+    this._removePeer(remotePeerId, peer);
   }
 
   private startConnectionDeadline(remotePeerId: string, peer: WebRtcPeer, timeoutMs: number): void {
