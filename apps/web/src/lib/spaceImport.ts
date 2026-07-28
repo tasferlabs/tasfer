@@ -10,7 +10,7 @@
  * and translate {@link NoImportablePagesError} for display.
  */
 
-import JSZip from "jszip";
+import type JSZip from "jszip";
 import type { Block } from "@tasfer/editor/serlization/loadPage";
 import { getPlatform } from "@/platform";
 import { tokenizePage, parsePage, parseFrontmatter } from "@tasfer/editor";
@@ -325,6 +325,7 @@ async function importZip(
   const aborted = () => opts.isAborted?.() ?? false;
 
   const zipData = await file.arrayBuffer();
+  const { default: JSZip } = await import("jszip");
   const zip = await JSZip.loadAsync(zipData);
 
   const { imageEntries, roots } = buildPageTree(zip);
