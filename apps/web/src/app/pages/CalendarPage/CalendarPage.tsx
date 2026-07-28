@@ -25,6 +25,7 @@ import { getPlatform } from "@/platform";
 import {
   useGetCalendarPages,
   useCreatePage,
+  useDeletePage,
   useUpdatePage,
   updatePage as updatePageApi,
   type ICalendarPage,
@@ -57,6 +58,7 @@ import {
 import { triggerHaptic } from "@/platform/bridge";
 import { useP2PPageEventsWithQueryClient } from "../../hooks/useP2PPageEvents";
 import { EventCard } from "./EventCard";
+import { EventOverlay } from "./EventOverlay";
 import { EventPreview } from "./EventPreview";
 import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
@@ -86,6 +88,7 @@ interface ResizeState {
   originalDuration: number;
   originalStartMin: number;
   startY: number;
+  startScrollTop: number;
 }
 
 // ── Main component ──
@@ -398,6 +401,43 @@ export default function CalendarPage() {
     },
   });
 
+  const { mutate: deletePage } = useDeletePage({
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.removeQueries({ queryKey: ["page", variables.id] });
+      if (previewPageId === variables.id) closePreviewNow();
+    },
+  });
+
+  const handleEventDelete = useCallback(
+    async (pageId: string) => {
+      let hasChildren = false;
+      try {
+        hasChildren = (await getPlatform().pages.get(pageId)).hasChildren;
+      } catch {
+        // The generic confirmation is still safe if page details are unavailable.
+      }
+
+      const confirmed = await getConfirmation({
+        title: t("calendar.deleteEvent", "Delete event"),
+        description: hasChildren
+          ? t(
+              "calendar.eventHasSubPages",
+              "This event has sub-pages. Deleting it will also delete its sub-pages.",
+            )
+          : t(
+              "calendar.confirmDeleteEvent",
+              "Are you sure you want to delete this event?",
+            ),
+        cancelText: t("common.cancel", "Cancel"),
+        confirmText: t("common.delete", "Delete"),
+      });
+      if (confirmed) deletePage({ id: pageId });
+    },
+    [deletePage, getConfirmation, t],
+  );
+
   const createPageAtTime = useCallback(
     (startMinutes: number, durationMinutes: number, date?: Date) => {
       if (!activeSpaceId) return;
@@ -611,7 +651,10 @@ export default function CalendarPage() {
     null,
   );
   const [dragDeltaMinutes, setDragDeltaMinutes] = useState(0);
+  const dragDeltaMinutesRef = useRef(0);
+  const dragDeltaPxRef = useRef(0);
   const [dragTargetDay, setDragTargetDay] = useState<Date | null>(null);
+  const interactionPointerRef = useRef<{ x: number; y: number } | null>(null);
 
   // Ctrl/Cmd held during a move-drag turns it into a duplicate: the original
   // stays put and a copy is created at the drop slot. The ref drives the drop
@@ -628,6 +671,7 @@ export default function CalendarPage() {
   // Edge-drag navigation: when dragging near left/right edge, auto-navigate after delay
   const edgeDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const edgeDragDirRef = useRef<-1 | 1 | null>(null);
+  const edgeDragTransitionCancelRef = useRef<(() => void) | null>(null);
   // Track the target day for day-view edge navigation (accumulated offset from original date)
   const edgeDragTargetDayRef = useRef<Date | null>(null);
   const EDGE_THRESHOLD = 30; // px from edge to trigger
@@ -713,13 +757,26 @@ export default function CalendarPage() {
               track.style.transition = "transform 300ms cubic-bezier(0.2, 0, 0, 1)";
               track.style.transform = `translateX(${targetX}px)`;
               isNavigatingRef.current = true;
+              let settled = false;
               const onEnd = () => {
+                if (settled) return;
+                settled = true;
                 track.removeEventListener("transitionend", onEnd);
+                edgeDragTransitionCancelRef.current = null;
                 setSelectedDate((prev) => {
                   const next = new Date(prev);
                   next.setDate(next.getDate() + (viewMode === "week" ? edgeDir! * 7 : edgeDir!));
                   return next;
                 });
+              };
+              edgeDragTransitionCancelRef.current = () => {
+                if (settled) return;
+                settled = true;
+                track.removeEventListener("transitionend", onEnd);
+                track.style.transition = "none";
+                track.style.transform = "translateX(-100%)";
+                isNavigatingRef.current = false;
+                edgeDragTransitionCancelRef.current = null;
               };
               track.addEventListener("transitionend", onEnd);
             } else {
@@ -757,17 +814,30 @@ export default function CalendarPage() {
       triggerHaptic("medium");
       setActiveDragPage(page);
       setDragDeltaMinutes(0);
+      dragDeltaMinutesRef.current = 0;
+      dragDeltaPxRef.current = 0;
       setDragTargetDay(null);
       const ae = event.activatorEvent as
-        | { ctrlKey?: boolean; metaKey?: boolean }
+        | {
+            clientX?: number;
+            clientY?: number;
+            ctrlKey?: boolean;
+            metaKey?: boolean;
+          }
         | undefined;
+      if (typeof ae?.clientX === "number" && typeof ae.clientY === "number") {
+        interactionPointerRef.current = { x: ae.clientX, y: ae.clientY };
+      }
       setDragDuplicate(!!ae && (!!ae.ctrlKey || !!ae.metaKey));
     }
   }
 
   function handleDragMove(event: { delta: { y: number } }) {
+    dragDeltaPxRef.current = event.delta.y;
     const snappedDeltaPx = snapPx(event.delta.y);
-    setDragDeltaMinutes(pxToMinutes(snappedDeltaPx));
+    const deltaMinutes = pxToMinutes(snappedDeltaPx);
+    dragDeltaMinutesRef.current = deltaMinutes;
+    setDragDeltaMinutes(deltaMinutes);
   }
 
   function handleDragEnd(_event: DragEndEvent) {
@@ -775,7 +845,7 @@ export default function CalendarPage() {
     edgeDragTargetDayRef.current = null;
     if (activeDragPage) {
       const oldStartMin = pageToStartMin(activeDragPage);
-      let newStartMin = oldStartMin + dragDeltaMinutes;
+      let newStartMin = oldStartMin + dragDeltaMinutesRef.current;
       newStartMin = Math.max(
         0,
         Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
@@ -808,15 +878,22 @@ export default function CalendarPage() {
     }
     setActiveDragPage(null);
     setDragDeltaMinutes(0);
+    dragDeltaMinutesRef.current = 0;
+    dragDeltaPxRef.current = 0;
+    interactionPointerRef.current = null;
     setDragTargetDay(null);
     setDragDuplicate(false);
   }
 
   function handleDragCancel() {
     clearEdgeDragTimer();
+    edgeDragTransitionCancelRef.current?.();
     edgeDragTargetDayRef.current = null;
     setActiveDragPage(null);
     setDragDeltaMinutes(0);
+    dragDeltaMinutesRef.current = 0;
+    dragDeltaPxRef.current = 0;
+    interactionPointerRef.current = null;
     setDragTargetDay(null);
     setDragDuplicate(false);
   }
@@ -841,6 +918,7 @@ export default function CalendarPage() {
       originalDuration: page.duration || 60,
       originalStartMin: pageToStartMin(page),
       startY: e.clientY,
+      startScrollTop: timelineRef.current?.scrollTop ?? 0,
     };
     const dur = page.duration || 60;
 
@@ -848,6 +926,7 @@ export default function CalendarPage() {
     resizeDurationRef.current = dur;
     setResize(state);
     setResizeDuration(dur);
+    interactionPointerRef.current = { x: e.clientX, y: e.clientY };
 
     // Clean up any previous listeners
     resizeCleanupRef.current?.();
@@ -861,7 +940,10 @@ export default function CalendarPage() {
     function handlePointerMove(ev: PointerEvent) {
       const r = resizeRef.current;
       if (!r) return;
-      const deltaPx = snapPx(ev.clientY - r.startY);
+      const scrollDelta =
+        (timelineRef.current?.scrollTop ?? r.startScrollTop) -
+        r.startScrollTop;
+      const deltaPx = snapPx(ev.clientY - r.startY + scrollDelta);
       const deltaMin = pxToMinutes(deltaPx);
       const newDuration = Math.max(
         MIN_DRAG_MINUTES,
@@ -883,11 +965,27 @@ export default function CalendarPage() {
           updatePage({ id: r.pageId, duration: d });
         }
       }
+      resetResize();
+    }
+
+    function resetResize() {
       resizeRef.current = null;
       resizeDurationRef.current = null;
       setResize(null);
       setResizeDuration(null);
+      interactionPointerRef.current = null;
       cleanup();
+    }
+
+    function handlePointerCancel() {
+      resetResize();
+    }
+
+    function handleKeyDown(ev: KeyboardEvent) {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      resetResize();
     }
 
     function cleanup() {
@@ -896,13 +994,15 @@ export default function CalendarPage() {
       }
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+      window.removeEventListener("keydown", handleKeyDown, true);
       resizeCleanupRef.current = null;
     }
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
+    window.addEventListener("keydown", handleKeyDown, true);
     resizeCleanupRef.current = cleanup;
   }
 
@@ -961,6 +1061,7 @@ export default function CalendarPage() {
     );
 
     isCreateDragging.current = true;
+    interactionPointerRef.current = { x: e.clientX, y: e.clientY };
     setCreateDrag({
       startMinutes: minutes,
       endMinutes: minutes + SNAP_MINUTES,
@@ -973,6 +1074,7 @@ export default function CalendarPage() {
 
     function handleMouseMove(e: MouseEvent) {
       if (!isCreateDragging.current) return;
+      interactionPointerRef.current = { x: e.clientX, y: e.clientY };
       const el = gridRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
@@ -998,6 +1100,7 @@ export default function CalendarPage() {
     function handleMouseUp() {
       if (!isCreateDragging.current) return;
       isCreateDragging.current = false;
+      interactionPointerRef.current = null;
       setCreateDrag((prev) => {
         if (prev) {
           const duration = prev.endMinutes - prev.startMinutes;
@@ -1023,7 +1126,27 @@ export default function CalendarPage() {
     targetEl: HTMLElement;
     scrollTop: number;
     active: boolean;
+    startMinutes?: number;
   } | null>(null);
+
+  useEffect(() => {
+    if (!createDrag) return;
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      isCreateDragging.current = false;
+      const touchCreate = touchCreateRef.current;
+      if (touchCreate) clearTimeout(touchCreate.timer);
+      touchCreateRef.current = null;
+      interactionPointerRef.current = null;
+      setCreateDrag(null);
+    }
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [createDrag !== null]);
 
   const LONG_PRESS_MS = 400;
   const LONG_PRESS_MOVE_TOLERANCE = 10;
@@ -1078,6 +1201,11 @@ export default function CalendarPage() {
 
         const date = getColumnDateFromElement(state.targetEl);
         const minutes = getMinutesFromClientY(state.startY);
+        state.startMinutes = minutes;
+        interactionPointerRef.current = {
+          x: state.startX,
+          y: state.startY,
+        };
 
         setCreateDrag({
           startMinutes: minutes,
@@ -1114,8 +1242,8 @@ export default function CalendarPage() {
       if (!state) return;
 
       clearTimeout(state.timer);
+      if (state.active) return;
       touchCreateRef.current = null;
-      if (state.active) setCreateDrag(null);
     }
 
     timeline.addEventListener("scroll", cancelTouchCreateOnScroll, {
@@ -1135,6 +1263,10 @@ export default function CalendarPage() {
       if (!state) return;
 
       const touch = e.touches[0];
+      interactionPointerRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+      };
 
       if (!state.active) {
         // Before long-press fires: cancel if finger moves too much or if scroll changed
@@ -1157,7 +1289,8 @@ export default function CalendarPage() {
       // Active create-drag: prevent scroll and update preview
       e.preventDefault();
 
-      const startMinutes = getMinutesFromClientY(state.startY);
+      const startMinutes =
+        state.startMinutes ?? getMinutesFromClientY(state.startY);
       const currentMinutes = getMinutesFromClientY(touch.clientY);
 
       setCreateDrag((prev) => {
@@ -1210,9 +1343,145 @@ export default function CalendarPage() {
       }
 
       touchCreateRef.current = null;
+      interactionPointerRef.current = null;
     },
     [createPageAtTime],
   );
+
+  // Keep every vertical calendar interaction moving when the pointer reaches a
+  // timeline edge. The interaction calculations are refreshed from the actual
+  // scroll position, so create, resize, and move stay attached to grid time.
+  useEffect(() => {
+    const interactionActive =
+      activeDragPage !== null || resize !== null || createDrag !== null;
+    if (!interactionActive) return;
+
+    let frame = 0;
+
+    function trackPointer(e: PointerEvent) {
+      interactionPointerRef.current = { x: e.clientX, y: e.clientY };
+    }
+
+    function trackTouch(e: TouchEvent) {
+      const touch = e.touches[0];
+      if (touch) {
+        interactionPointerRef.current = {
+          x: touch.clientX,
+          y: touch.clientY,
+        };
+      }
+    }
+
+    function updateCreateAtPointer(clientY: number) {
+      const touchState = touchCreateRef.current;
+      const columnEl = touchState?.targetEl.closest(
+        `[data-day-index]`,
+      ) as HTMLElement | null;
+      const el = columnEl || gridRef.current;
+      if (!el) return;
+
+      const rect = el.getBoundingClientRect();
+      const currentMinutes = Math.max(
+        0,
+        Math.min(
+          pxToMinutes(clientY - rect.top),
+          TOTAL_HOURS * 60 - SNAP_MINUTES,
+        ),
+      );
+
+      setCreateDrag((prev) => {
+        if (!prev) return prev;
+        if (touchState?.active) {
+          const startMinutes = touchState.startMinutes ?? prev.startMinutes;
+          const minMin = Math.min(startMinutes, currentMinutes);
+          const maxMin = Math.max(startMinutes, currentMinutes) + SNAP_MINUTES;
+          return {
+            ...prev,
+            startMinutes: minMin,
+            endMinutes: Math.min(
+              Math.max(maxMin, minMin + MIN_DRAG_MINUTES),
+              TOTAL_HOURS * 60,
+            ),
+          };
+        }
+
+        if (!isCreateDragging.current) return prev;
+        const endMinutes = Math.max(
+          prev.startMinutes + MIN_DRAG_MINUTES,
+          currentMinutes + SNAP_MINUTES,
+        );
+        return {
+          ...prev,
+          endMinutes: Math.min(endMinutes, TOTAL_HOURS * 60),
+        };
+      });
+    }
+
+    function tick() {
+      const timeline = timelineRef.current;
+      const pointer = interactionPointerRef.current;
+      if (timeline && pointer) {
+        const rect = timeline.getBoundingClientRect();
+        const edgeSize = Math.min(80, rect.height / 3);
+        let speed = 0;
+
+        if (pointer.x >= rect.left && pointer.x <= rect.right) {
+          if (pointer.y < rect.top + edgeSize) {
+            speed =
+              -20 *
+              Math.min(1, (rect.top + edgeSize - pointer.y) / edgeSize);
+          } else if (pointer.y > rect.bottom - edgeSize) {
+            speed =
+              20 *
+              Math.min(
+                1,
+                (pointer.y - (rect.bottom - edgeSize)) / edgeSize,
+              );
+          }
+        }
+
+        if (speed !== 0) {
+          const before = timeline.scrollTop;
+          timeline.scrollTop += speed;
+          const scrollDelta = timeline.scrollTop - before;
+
+          if (scrollDelta !== 0) {
+            if (activeDragPage) {
+              dragDeltaPxRef.current += scrollDelta;
+              const minutes = pxToMinutes(snapPx(dragDeltaPxRef.current));
+              dragDeltaMinutesRef.current = minutes;
+              setDragDeltaMinutes(minutes);
+            } else if (resizeRef.current) {
+              const r = resizeRef.current;
+              const totalScrollDelta = timeline.scrollTop - r.startScrollTop;
+              const deltaMin = pxToMinutes(
+                snapPx(pointer.y - r.startY + totalScrollDelta),
+              );
+              const duration = Math.min(
+                Math.max(MIN_DRAG_MINUTES, r.originalDuration + deltaMin),
+                TOTAL_HOURS * 60 - r.originalStartMin,
+              );
+              resizeDurationRef.current = duration;
+              setResizeDuration(duration);
+            } else if (createDrag) {
+              updateCreateAtPointer(pointer.y);
+            }
+          }
+        }
+      }
+
+      frame = requestAnimationFrame(tick);
+    }
+
+    window.addEventListener("pointermove", trackPointer);
+    window.addEventListener("touchmove", trackTouch, { passive: true });
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("pointermove", trackPointer);
+      window.removeEventListener("touchmove", trackTouch);
+    };
+  }, [activeDragPage !== null, resize !== null, createDrag !== null]);
 
   // ── Swipe navigation (manual touch + transform) ──
   const swipeTrackRef = useRef<HTMLDivElement>(null);
@@ -1450,6 +1719,8 @@ export default function CalendarPage() {
             }}
             onResizeStart={handleResizeStart}
             onEventClick={handleEventClick}
+            onDuplicate={(id) => duplicatePage(id, { select: true })}
+            onDelete={handleEventDelete}
             compact={viewMode === "week"}
             isDraft={page.id === "__draft__"}
           />
@@ -1734,9 +2005,7 @@ export default function CalendarPage() {
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
-        autoScroll={{
-          threshold: { x: 0, y: 0.2 },
-        }}
+        autoScroll={false}
       >
         {viewMode === "day" ? (
           /* ── Day View ── */
@@ -1824,6 +2093,10 @@ export default function CalendarPage() {
                         }}
                         onResizeStart={handleResizeStart}
                         onEventClick={handleEventClick}
+                        onDuplicate={(id) =>
+                          duplicatePage(id, { select: true })
+                        }
+                        onDelete={handleEventDelete}
                         isDraft={page.id === "__draft__"}
                       />
                     ))}
@@ -2000,7 +2273,14 @@ export default function CalendarPage() {
           </>
         )}
 
-        <DragOverlay dropAnimation={null} />
+        <DragOverlay dropAnimation={null}>
+          {activeDragPage && (
+            <EventOverlay
+              page={activeDragPage}
+              deltaMinutes={dragDeltaMinutes}
+            />
+          )}
+        </DragOverlay>
       </DndContext>
 
       <EventPreview
@@ -2017,6 +2297,9 @@ export default function CalendarPage() {
           setDraftEvent((d) => (d ? { ...d, scheduledAt, duration } : d))
         }
         onDraftContentChange={setDraftHasContent}
+        calendarInteractionActive={
+          activeDragPage !== null || resize !== null || createDrag !== null
+        }
       />
     </div>
   );

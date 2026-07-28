@@ -1,7 +1,15 @@
 import { useRef } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Pencil, Trash2 } from "lucide-react";
 import i18next from "i18next";
+import { useTranslation } from "react-i18next";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import type { ICalendarPage } from "../../api/pages.api";
 import { TitlePreview } from "../../TitlePreview";
 import {
@@ -16,15 +24,20 @@ export function EventCard({
   page,
   onResizeStart,
   onEventClick,
+  onDuplicate,
+  onDelete,
   compact,
   isDraft,
 }: {
   page: ICalendarPage;
   onResizeStart: (pageId: string, e: React.PointerEvent) => void;
   onEventClick: (pageId: string, rect: DOMRect) => void;
+  onDuplicate?: (pageId: string) => void;
+  onDelete?: (pageId: string) => void;
   compact?: boolean;
   isDraft?: boolean;
 }) {
+  const { t } = useTranslation();
   const startMin = pageToStartMin(page);
   const duration = page.duration || 60;
   const top = (startMin / 60) * HOUR_HEIGHT;
@@ -42,10 +55,14 @@ export function EventCard({
   const showPath = page.path && actualHeight > 55;
 
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
 
-  return (
+  const card = (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        cardRef.current = node;
+        setNodeRef(node);
+      }}
       className={`${style.eventCard}${isDraft ? ` ${style.eventCardDraft}` : ""}`}
       {...(isDraft ? { "data-draft-card": "" } : {})}
       style={{
@@ -125,6 +142,37 @@ export function EventCard({
         }}
       />
     </div>
+  );
+
+  if (isDraft || !onDuplicate || !onDelete) return card;
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{card}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem
+          onSelect={() => {
+            const rect = cardRef.current?.getBoundingClientRect();
+            if (rect) onEventClick(page.id, rect);
+          }}
+        >
+          <Pencil />
+          {t("common.edit", "Edit")}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => onDuplicate(page.id)}>
+          <Copy />
+          {t("calendar.duplicateEvent", "Duplicate event")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          variant="destructive"
+          onSelect={() => onDelete(page.id)}
+        >
+          <Trash2 />
+          {t("calendar.deleteEvent", "Delete event")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
