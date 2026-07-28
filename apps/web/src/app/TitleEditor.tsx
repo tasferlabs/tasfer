@@ -157,9 +157,8 @@ export interface TitleEditorProps {
   /**
    * Grow the canvas to fit the title's content (wrapping to multiple lines)
    * instead of filling a fixed-height container, and never render a scrollbar.
-   * The container keeps the input chrome but only a minimum height — use for a
-   * self-sizing title. Default false, which keeps the fixed single-line
-   * input height.
+   * The container keeps the input chrome but only a minimum height. Defaults to
+   * true so long titles remain visible; pass false for a fixed single-line field.
    */
   autoHeight?: boolean;
   className?: string;
@@ -190,7 +189,7 @@ export function TitleEditor({
   onCancel,
   placeholder,
   autoFocus,
-  autoHeight,
+  autoHeight = true,
   className,
   style,
 }: TitleEditorProps) {

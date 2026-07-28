@@ -1011,13 +1011,12 @@ export function EventPreview({
 
   const editor = isDraft ? (
     // The compact title editor (a single-heading window over the draft doc)
-    // renders as a fixed single-line field — a draft title is short, and a fixed
-    // height keeps the sheet tight instead of reserving tall auto-grow space. On
-    // mobile the sheet stays compact (a "peek") so the grid behind it is visible
-    // and its handles remain draggable; auto-focusing would raise the keyboard and
-    // expand the sheet over the grid, so defer focus until the user taps the
-    // title. Desktop keeps immediate focus. Enter commits the draft (single-block
-    // window makes Enter inert in the engine).
+    // grows only when a long title wraps. On mobile the sheet starts compact (a
+    // "peek") so the grid behind it is visible and its handles remain draggable;
+    // auto-focusing would raise the keyboard and expand the sheet over the grid,
+    // so defer focus until the user taps the title. Desktop keeps immediate
+    // focus. Enter commits the draft (single-block window makes Enter inert in
+    // the engine).
     draftDoc ? (
       <div className={style.previewTitleRow}>
         <Type size={14} className={style.previewRowIcon} aria-hidden />

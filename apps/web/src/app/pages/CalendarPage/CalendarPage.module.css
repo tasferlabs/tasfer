@@ -600,10 +600,9 @@
   flex-direction: column;
 }
 
-/* The "Add title" editor sits at the top as a fixed single-line field. It hugs
-   the title editor's own height (a compact heading line + input-like gutters)
-   with a small vertical pad, so it reads as a title row without reserving a tall
-   block of empty space above the fields. */
+/* The "Add title" editor sits at the top and grows only when its title wraps.
+   It hugs the editor's own height with a small vertical pad, so it reads as a
+   title row without reserving empty space above the fields. */
 .draftTitleWrap {
   flex-shrink: 0;
   padding-block: 6px;
