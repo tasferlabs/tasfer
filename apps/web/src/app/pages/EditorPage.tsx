@@ -47,7 +47,15 @@ import {
   Trash,
   TriangleAlert,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import {
@@ -80,7 +88,6 @@ import EmptyStateIllustration from "../components/illustrations/empty-state";
 import { openImageUploadMenu } from "@/editorSchema";
 import { imageBleedHeight } from "@tasfer/editor/internal";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
-import { SnapshotRestore } from "../components/SnapshotRestore";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import {
   NARROW_CONTENT_WIDTH,
@@ -93,6 +100,12 @@ import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useResponsive from "../hooks/useResponsive";
 import style from "./EditorPage.module.css";
+
+const SnapshotRestore = lazy(() =>
+  import("../components/SnapshotRestore").then((module) => ({
+    default: module.SnapshotRestore,
+  })),
+);
 
 // Height of the page tag row (Schedule / Add cover): h-8 ghost buttons plus
 // py-2. Reserved as canvas top padding so document content starts below the
@@ -1305,11 +1318,11 @@ function EditorCorruptedState() {
           </a>
         </Button>
       </div>
-      <SnapshotRestore
-        open={showVersionHistory}
-        onOpenChange={setShowVersionHistory}
-        forkOnly
-      />
+      {showVersionHistory && (
+        <Suspense fallback={null}>
+          <SnapshotRestore open onOpenChange={setShowVersionHistory} forkOnly />
+        </Suspense>
+      )}
     </div>
   );
 }

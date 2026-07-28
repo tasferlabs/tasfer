@@ -1,6 +1,11 @@
 import React, { createContext, useCallback, useContext, useState } from "react";
 import { invariant } from "@shared/invariant";
-import { ImportAllDialog } from "./ImportAllDialog";
+
+const ImportAllDialog = React.lazy(() =>
+  import("./ImportAllDialog").then((module) => ({
+    default: module.ImportAllDialog,
+  })),
+);
 
 /** A page that imported pages can be nested under. */
 export interface ImportParent {
@@ -47,14 +52,18 @@ export function ImportDialogProvider({
   return (
     <ImportDialogContext.Provider value={{ openImport }}>
       {children}
-      <ImportAllDialog
-        open={!!target}
-        spaceId={target?.spaceId}
-        parent={target?.parent ?? null}
-        onOpenChange={(open) => {
-          if (!open) setTarget(null);
-        }}
-      />
+      {target && (
+        <React.Suspense fallback={null}>
+          <ImportAllDialog
+            open
+            spaceId={target.spaceId}
+            parent={target.parent}
+            onOpenChange={(open) => {
+              if (!open) setTarget(null);
+            }}
+          />
+        </React.Suspense>
+      )}
     </ImportDialogContext.Provider>
   );
 }

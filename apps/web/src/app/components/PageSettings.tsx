@@ -24,7 +24,7 @@ import {
   Trash2,
   Replace,
 } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { useDeletePage, useGetPages } from "../api/pages.api";
@@ -36,10 +36,19 @@ import {
 } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
 import { useConfirmation } from "./ConfirmationDialog";
-import { ExportDialog } from "./ExportDialog";
-import { ImportDialog } from "./ImportDialog";
 // import { ShareDialog } from "./ShareDialog";
-import { SnapshotRestore } from "./SnapshotRestore";
+
+const ExportDialog = lazy(() =>
+  import("./ExportDialog").then((module) => ({ default: module.ExportDialog })),
+);
+const ImportDialog = lazy(() =>
+  import("./ImportDialog").then((module) => ({ default: module.ImportDialog })),
+);
+const SnapshotRestore = lazy(() =>
+  import("./SnapshotRestore").then((module) => ({
+    default: module.SnapshotRestore,
+  })),
+);
 
 export function PageSettings() {
   const [showVersionHistory, setShowVersionHistory] = useState(false);
@@ -58,18 +67,17 @@ export function PageSettings() {
         setShowRenameDialog={setShowRenameDialog}
         setShowShareDialog={() => {}}
       />
-      <SnapshotRestore
-        open={showVersionHistory}
-        onOpenChange={setShowVersionHistory}
-      />
-      <ExportDialog
-        open={showExportDialog}
-        onOpenChange={setShowExportDialog}
-      />
-      <ImportDialog
-        open={showImportDialog}
-        onOpenChange={setShowImportDialog}
-      />
+      <Suspense fallback={null}>
+        {showVersionHistory && (
+          <SnapshotRestore open onOpenChange={setShowVersionHistory} />
+        )}
+        {showExportDialog && (
+          <ExportDialog open onOpenChange={setShowExportDialog} />
+        )}
+        {showImportDialog && (
+          <ImportDialog open onOpenChange={setShowImportDialog} />
+        )}
+      </Suspense>
       <RenameDialog
         pageId={pageId}
         open={showRenameDialog}
