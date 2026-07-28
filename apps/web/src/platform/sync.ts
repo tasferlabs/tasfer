@@ -153,7 +153,7 @@ export interface ReplicatorHost {
     pageId: string,
     remoteVV: Record<string, number>,
   ): Promise<{ ops: Operation[]; versionVector: Record<string, number> }>;
-  /** Get the shared encryption key for a peer (hex string). Returns null if not set. */
+  /** Get or derive the shared encryption key for a peer. Returns null for an unknown peer. */
   getPeerSharedKey(publicKey: string): Promise<string | null>;
   /** Update the last-seen timestamp for a peer to now */
   updatePeerLastSeen(publicKey: string): Promise<void>;
@@ -1030,8 +1030,8 @@ export class Replicator {
 
     // Register the E2E encryption key for this topic before joining. Without a
     // shared key we cannot encrypt signaling, and join() refuses to send it in
-    // cleartext — a peer we have not completed pairing with is simply not
-    // connectable yet, which is the correct outcome.
+    // cleartext. Direct pairings use their stored invite-derived key; other
+    // members derive one from the two replica identities.
     const sharedKeyHex = await this.host.getPeerSharedKey(remotePubKey);
     if (!sharedKeyHex) {
       console.warn(

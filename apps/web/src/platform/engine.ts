@@ -31,6 +31,7 @@ import type {
   SpaceInvite,
   PairCallbacks,
 } from "./types";
+import { deriveIdentitySharedSignalingKey } from "./peer-shared-key";
 import { invariant } from "@shared/invariant";
 import type { Driver, CryptoDriver, DbRow } from "./driver";
 import type { HLC } from "@tasfer/editor";
@@ -443,7 +444,22 @@ export class Engine implements Platform {
         const rows = await this.driver.db.query<{
           shared_key: string | null;
         }>("SELECT shared_key FROM peers WHERE public_key = ?", [publicKey]);
-        return rows[0]?.shared_key ?? null;
+        const storedKey = rows[0]?.shared_key;
+        if (storedKey) return storedKey;
+
+        // A member learned through the replicated space log was not directly
+        // paired with us, so it has no invite-derived key. Both replicas can
+        // still derive the same pairwise key from their identity keypairs and
+        // form the missing edge of the replica-set mesh.
+        if (rows.length === 0) return null;
+        if (!/^[a-f0-9]{64}$/i.test(publicKey)) return null;
+        const identity = await this.identity.get();
+        const privateKey = await this.getPrivateKey();
+        return deriveIdentitySharedSignalingKey(
+          privateKey,
+          identity.publicKey,
+          publicKey,
+        );
       },
       updatePeerLastSeen: async (publicKey: string): Promise<void> => {
         await this.driver.db.mutate(
