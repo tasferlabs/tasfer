@@ -23,6 +23,7 @@ import { applyOps, getVisibleBlocks } from "../sync/reducer";
 import { createCRDTbinding } from "../sync/sync";
 import {
   atomicBlockInsertOps,
+  buildClipboardPayload,
   getSelectionPlainText,
   pasteFromClipboardEvent,
   repairMathBackslashes,
@@ -332,6 +333,31 @@ describe("raw LaTeX paste", () => {
         (run) => run.latex,
       ),
     ).toEqual([String.raw`\frac{{x}_{1}}{2}`]);
+  });
+
+  it("round-trips internal prose that happens to be valid LaTeX", () => {
+    const text = String.raw`\alpha`;
+    const source = createInitialState(loadPage(text, mathTestSchema.data), {
+      schema: mathTestSchema.data,
+    });
+    const selected = {
+      ...source,
+      document: {
+        ...source.document,
+        selection: {
+          anchor: { blockIndex: 0, textIndex: 0 },
+          focus: { blockIndex: 0, textIndex: text.length },
+          isForward: true,
+          isCollapsed: false,
+        },
+      },
+    };
+    const payload = buildClipboardPayload(selected)!;
+    const result = paste(payload.plainText, payload.html);
+    const block = result!.state.document.page.blocks[0] as TextualBlock;
+
+    expect(resolveStructuredInlineMathRuns(block)).toEqual([]);
+    expect(getVisibleTextFromRuns(block.charRuns)).toBe(text);
   });
 
   it("recognizes a grouped accented engineering equation", () => {

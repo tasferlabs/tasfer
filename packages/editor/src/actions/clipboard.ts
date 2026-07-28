@@ -2196,8 +2196,10 @@ export function pasteFromClipboardEvent(
     return text ? insertText(state, text) : null;
   }
 
-  // Recognize the exact plain flavor before HTML conversion can escape LaTeX.
-  if (text) {
+  // Recognize external plain LaTeX before HTML conversion can escape it. Our
+  // own rich payload must take the marker path below so prose that happens to
+  // be valid LaTeX round-trips without becoming a math mark.
+  if (text && !TASFER_CLIPBOARD_MARKER_RE.test(html)) {
     const blocks = parseRecognizedPlainTextToBlocks(
       text,
       state.CRDTbinding,
