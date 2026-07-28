@@ -32,6 +32,7 @@ import type {
 } from "./state-types";
 import { compareHLC } from "./sync/hlc";
 import {
+  appendLocalOps,
   createOpLog,
   deserializeVV,
   getOpsSince,
@@ -423,9 +424,7 @@ export function createDoc<D extends SchemaDefinition = BaseSchemaDefinition>(
 
     _ingestLocal(ops: Operation[], origin: unknown): void {
       if (ops.length === 0) return;
-      // Merge the transaction as a batch so dependency recovery can see a
-      // host block and its structured content together.
-      opLog = mergeOps(opLog, ops, schema);
+      opLog = appendLocalOps(opLog, ops, schema);
       trackLocalClocks(ops);
       page = opLog.state;
 

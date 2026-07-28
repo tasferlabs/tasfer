@@ -146,6 +146,36 @@ export function appendOp(
 }
 
 /**
+ * Append operations produced by this replica. Local edits are already ordered
+ * and fresh, so the normal path stays incremental. The only local transaction
+ * that needs mergeOps' dependency replay is one that creates structured
+ * content before inserting its host block.
+ */
+export function appendLocalOps(
+  log: OpLog,
+  ops: Operation[],
+  schema: DataSchema = getBaseDataSchema(),
+): OpLog {
+  if (ops.length === 0) return log;
+
+  const pendingContentBlocks = new Set<string>();
+  for (const op of ops) {
+    if (op.op === "content_edit") {
+      pendingContentBlocks.add(op.blockId);
+    } else if (
+      op.op === "block_insert" &&
+      pendingContentBlocks.has(op.blockId)
+    ) {
+      return mergeOps(log, ops, schema);
+    }
+  }
+
+  let next = log;
+  for (const op of ops) next = appendOp(next, op, schema);
+  return next;
+}
+
+/**
  * Register operations that are already reflected in the log's materialized
  * state. This is the snapshot hydration path: it updates the operation log and
  * version vector without applying the operations to `state` again.

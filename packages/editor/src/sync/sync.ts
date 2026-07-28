@@ -36,7 +36,7 @@ import {
   generateBlockId,
   generatePeerId,
 } from "./id";
-import { createOpLog, getOpsSince, mergeOps } from "./oplog";
+import { appendLocalOps, createOpLog, getOpsSince, mergeOps } from "./oplog";
 import { findCharIdAtPosition } from "./reducer";
 import type { DataSchema } from "./schema";
 import type {
@@ -611,7 +611,7 @@ export function createSyncEngine(
     },
 
     emit(ops: Operation[]): void {
-      opLog = mergeOps(opLog, ops, schema);
+      opLog = appendLocalOps(opLog, ops, schema);
       // Don't notify listeners for local ops - EditorState is already updated
     },
 

@@ -166,6 +166,12 @@ describe("createDoc", () => {
     expect(doc.getRawBlocks()).toEqual(
       rebuildState(pageId, doc.getOperations()).blocks,
     );
+
+    const localDoc = createDoc({ pageId, ops: [] });
+    localDoc._ingestLocal([contentInit, blockInsert], "editor");
+    expect(
+      localDoc.getRawBlocks()[0]?.structuredContent?.[contentId]?.rootId,
+    ).toBe(contentId);
   });
 
   it("round-trips through encodeState / createDoc(bytes)", () => {
