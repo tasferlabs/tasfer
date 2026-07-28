@@ -574,7 +574,7 @@ export interface Platform {
     /** Reorder a page within its parent */
     reorder(id: string, order: number): Promise<void>;
     /** Search pages by title */
-    search(query: string): Promise<PageSearchResult[]>;
+    search(spaceId: string, query: string): Promise<PageSearchResult[]>;
     /** Get pages in a calendar date range */
     calendar(start: number, end: number): Promise<PageCalendarItem[]>;
     /** Get version history snapshots */

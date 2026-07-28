@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Download,
+  FolderInput,
   History,
   MoreVertical,
   Pencil,
@@ -27,7 +28,8 @@ import {
 import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
-import { useDeletePage, useGetPages } from "../api/pages.api";
+import { useDeletePage, useGetPage, useGetPages } from "../api/pages.api";
+import { MovePageDialog } from "./MovePageDialog";
 import { RenameDialog } from "./RenameDialog";
 import { useSpaces } from "../contexts/SpaceContext";
 import {
@@ -55,8 +57,10 @@ export function PageSettings() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
   // const [showShareDialog, setShowShareDialog] = useState(false);
   const { id: pageId } = useParams<{ id: string }>();
+  const { data: page } = useGetPage(pageId);
 
   return (
     <>
@@ -65,6 +69,7 @@ export function PageSettings() {
         setShowExportDialog={setShowExportDialog}
         setShowImportDialog={setShowImportDialog}
         setShowRenameDialog={setShowRenameDialog}
+        setShowMoveDialog={setShowMoveDialog}
         setShowShareDialog={() => {}}
       />
       <Suspense fallback={null}>
@@ -83,6 +88,14 @@ export function PageSettings() {
         open={showRenameDialog}
         onOpenChange={setShowRenameDialog}
       />
+      {pageId && page?.spaceId && (
+        <MovePageDialog
+          pageId={pageId}
+          sourceSpaceId={page.spaceId}
+          open={showMoveDialog}
+          onOpenChange={setShowMoveDialog}
+        />
+      )}
       {/* {pageId && (
         <ShareDialog
           pageId={pageId}
@@ -99,12 +112,14 @@ function PageSettingsImpl({
   setShowExportDialog,
   setShowImportDialog,
   setShowRenameDialog,
+  setShowMoveDialog,
   // setShowShareDialog,
 }: {
   setShowVersionHistory: (open: boolean) => void;
   setShowExportDialog: (open: boolean) => void;
   setShowImportDialog: (open: boolean) => void;
   setShowRenameDialog: (open: boolean) => void;
+  setShowMoveDialog: (open: boolean) => void;
   setShowShareDialog: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
@@ -329,6 +344,19 @@ function PageSettingsImpl({
           >
             <Pencil className="h-4 w-4" />
             {t("common.rename", "Rename")}
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
+            onClick={() => {
+              setShowMoveDialog(true);
+              setOpen(false);
+            }}
+          >
+            <FolderInput className="h-4 w-4" />
+            {t("page.movePage", "Move page")}
           </Button>
 
           <Button

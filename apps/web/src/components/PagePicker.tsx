@@ -23,6 +23,7 @@ interface PagePickerProps {
   spaceId: string | null;
   value?: ISearchPage | null;
   onChange: (page: ISearchPage | null) => void;
+  placeholder?: string;
   excludeId?: string;
   showNoneOption?: boolean;
   className?: string;
@@ -35,6 +36,7 @@ export function PagePicker({
   spaceId,
   value,
   onChange,
+  placeholder,
   excludeId,
   showNoneOption,
   className,
@@ -93,6 +95,8 @@ export function PagePicker({
                 >
                   {value ? (
                     <TitlePreview title={value.title} titleMd={value.titleMd} />
+                  ) : value === undefined && placeholder ? (
+                    placeholder
                   ) : (
                     t("common.none", "None")
                   )}

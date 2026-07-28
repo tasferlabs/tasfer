@@ -18,6 +18,7 @@ import {
 } from "../../api/pages.api";
 import { useConfirmation } from "../../components/ConfirmationDialog";
 import { useImportDialog } from "../../components/ImportDialogProvider";
+import { MovePageDialog } from "../../components/MovePageDialog";
 import { RenameDialog } from "../../components/RenameDialog";
 import { TitlePreview } from "../../TitlePreview";
 import Icons from "../../components/uiKit/Icons/Icons";
@@ -34,7 +35,7 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "../../../components/ui/drawer";
-import { Download, Ellipsis, LoaderCircle } from "lucide-react";
+import { Download, Ellipsis, FolderInput, LoaderCircle } from "lucide-react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
@@ -93,6 +94,7 @@ export function PageLink({
   const { id: currentPageId } = useParams<{ id: string }>();
   const wasDraggingRef = useRef(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(
     null,
@@ -442,6 +444,7 @@ export function PageLink({
             color={data.color}
             onColorChange={handleColorChange}
             onRename={() => setShowRenameDialog(true)}
+            onMove={spaceId ? () => setShowMoveDialog(true) : undefined}
             onDelete={handleDelete}
             isDeleting={isDeleting}
             onAdd={handleAdd}
@@ -485,6 +488,7 @@ export function PageLink({
                   onClose={() => setContextPos(null)}
                   onColorChange={handleColorChange}
                   onRename={() => setShowRenameDialog(true)}
+                  onMove={spaceId ? () => setShowMoveDialog(true) : undefined}
                   onDelete={handleDelete}
                   isDeleting={isDeleting}
                   onAdd={handleAdd}
@@ -528,6 +532,14 @@ export function PageLink({
         open={showRenameDialog}
         onOpenChange={setShowRenameDialog}
       />
+      {spaceId && (
+        <MovePageDialog
+          pageId={data.id}
+          sourceSpaceId={spaceId}
+          open={showMoveDialog}
+          onOpenChange={setShowMoveDialog}
+        />
+      )}
     </div>
   );
 }
@@ -578,6 +590,7 @@ function PageLinkMenuContent({
   onClose,
   onColorChange,
   onRename,
+  onMove,
   onDelete,
   isDeleting,
   onAdd,
@@ -589,6 +602,7 @@ function PageLinkMenuContent({
   onClose: () => void;
   onColorChange: (color: string | null) => void;
   onRename: () => void;
+  onMove?: () => void;
   onDelete: () => void;
   isDeleting: boolean;
   onAdd: () => void;
@@ -610,6 +624,18 @@ function PageLinkMenuContent({
           <Icons.Edit width={18} height={18} />
           {t("common.rename", "Rename")}
         </button>
+        {onMove && (
+          <button
+            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
+            onClick={() => {
+              onClose();
+              onMove();
+            }}
+          >
+            <FolderInput size={18} />
+            {t("page.movePage", "Move page")}
+          </button>
+        )}
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
           onClick={() => {
@@ -674,6 +700,7 @@ function PageLinkMenu({
   color,
   onColorChange,
   onRename,
+  onMove,
   onDelete,
   isDeleting,
   onAdd,
@@ -687,6 +714,7 @@ function PageLinkMenu({
   color: string | null | undefined;
   onColorChange: (color: string | null) => void;
   onRename: () => void;
+  onMove?: () => void;
   onDelete: () => void;
   isDeleting: boolean;
   onAdd: () => void;
@@ -710,6 +738,7 @@ function PageLinkMenu({
     onClose: () => onOpenChange(false),
     onColorChange,
     onRename,
+    onMove,
     onDelete,
     isDeleting,
     onAdd,

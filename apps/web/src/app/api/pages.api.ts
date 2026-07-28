@@ -223,11 +223,11 @@ export function useReorderPage<TContext = unknown>(
 
 // Search pages
 export async function searchPages(
-  _spaceId: string,
+  spaceId: string,
   query: string,
 ): Promise<ISearchPage[]> {
   const platform = getPlatform();
-  return platform.pages.search(query);
+  return platform.pages.search(spaceId, query);
 }
 
 export function useSearchPages(spaceId: string | null, query: string) {

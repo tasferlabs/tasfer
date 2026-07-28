@@ -1774,7 +1774,10 @@ export class Engine implements Platform {
       }
     },
 
-    search: async (query: string): Promise<PageSearchResult[]> => {
+    search: async (
+      spaceId: string,
+      query: string,
+    ): Promise<PageSearchResult[]> => {
       const rows = await this.driver.db.query<{
         id: string;
         title: string | null;
@@ -1783,8 +1786,8 @@ export class Engine implements Platform {
         parent_id: string | null;
         color: string | null;
       }>(
-        "SELECT id, title, title_md, body_text, parent_id, color FROM pages WHERE (title LIKE ? OR body_text LIKE ?) AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 20",
-        [`%${query}%`, `%${query}%`],
+        "SELECT id, title, title_md, body_text, parent_id, color FROM pages WHERE space_id = ? AND (title LIKE ? OR body_text LIKE ?) AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 20",
+        [spaceId, `%${query}%`, `%${query}%`],
       );
 
       const results: PageSearchResult[] = [];
