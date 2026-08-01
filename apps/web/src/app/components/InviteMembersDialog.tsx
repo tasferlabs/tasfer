@@ -94,7 +94,8 @@ function shortCode(invite: SpaceInvite): string {
 }
 
 function inviteFileName(spaceName: string | null): string {
-  const base = spaceName?.replace(/[\\/:*?"<>|]/g, "").trim() || "tasfer-invite";
+  const base =
+    spaceName?.replace(/[\\/:*?"<>|]/g, "").trim() || "tasfer-invite";
   return `${base}.tasferinvite`;
 }
 
@@ -189,7 +190,14 @@ export function InviteMembersDialog({
         justJoinedRef.current = peer.publicKey;
         setJoinedPeers((prev) => {
           if (prev.some((p) => p.publicKey === peer.publicKey)) return prev;
-          return [...prev, { publicKey: peer.publicKey, name: peer.name, joinedAt: Date.now() }];
+          return [
+            ...prev,
+            {
+              publicKey: peer.publicKey,
+              name: peer.name,
+              joinedAt: Date.now(),
+            },
+          ];
         });
         queryClient.invalidateQueries({ queryKey: ["spaces"] });
         queryClient.invalidateQueries({ queryKey: ["space-members", spaceId] });
@@ -256,13 +264,16 @@ export function InviteMembersDialog({
 
   const displayedQrInvite = qrInvite ?? invite;
 
-  const sectionLabel = "text-xs font-semibold uppercase tracking-wider text-foreground";
+  const sectionLabel =
+    "text-xs font-semibold uppercase tracking-wider text-foreground";
 
   const setupPhase = (
     <div className="flex min-w-0 flex-col gap-5">
       {/* Expiry options */}
       <div className="flex flex-col gap-2.5">
-        <span className={sectionLabel}>{t("share.expiresAfter", "Expires after")}</span>
+        <span className={sectionLabel}>
+          {t("share.expiresAfter", "Expires after")}
+        </span>
         <div className="flex flex-wrap gap-2">
           {INVITE_TTLS.map((ttl, i) => (
             <button
@@ -301,7 +312,9 @@ export function InviteMembersDialog({
           className="flex w-full items-center justify-between gap-2.5"
         >
           <span className="flex items-center gap-2">
-            <span className={sectionLabel}>{t("share.activeInvites", "Active invites")}</span>
+            <span className={sectionLabel}>
+              {t("share.activeInvites", "Active invites")}
+            </span>
             <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
               {activeInvite ? 1 : 0}
             </span>
@@ -319,7 +332,10 @@ export function InviteMembersDialog({
                 <Link2 className="h-4 w-4" />
               </span>
               <div className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate font-mono text-[13px] font-medium text-foreground" dir="ltr">
+                <span
+                  className="truncate font-mono text-[13px] font-medium text-foreground"
+                  dir="ltr"
+                >
                   {shortCode(activeInvite)}
                 </span>
                 <span className="text-xs text-muted-foreground">
@@ -339,7 +355,10 @@ export function InviteMembersDialog({
                   <DropdownMenuItem onSelect={handleViewActive}>
                     {t("common.view", "View")}
                   </DropdownMenuItem>
-                  <DropdownMenuItem variant="destructive" onSelect={handleRevoke}>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={handleRevoke}
+                  >
                     {t("share.revoke", "Revoke")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -395,9 +414,14 @@ export function InviteMembersDialog({
       {tab === "qr" && displayedQrInvite && (
         <div className="flex flex-col gap-2.5">
           <div className="flex flex-col gap-0.5">
-            <span className={sectionLabel}>{t("share.scanToJoin", "Scan to join")}</span>
+            <span className={sectionLabel}>
+              {t("share.scanToJoin", "Scan to join")}
+            </span>
             <span className="text-[13px] leading-normal text-muted-foreground">
-              {t("share.scanQrHint", "Scan this QR code with the Tasfer mobile app to join")}
+              {t(
+                "share.scanQrHint",
+                "Scan this QR code with the Tasfer mobile app to join",
+              )}
             </span>
           </div>
           <div className="flex justify-center py-1.5">
@@ -411,22 +435,6 @@ export function InviteMembersDialog({
               />
             </div>
           </div>
-          <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2.5">
-            <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="text-xs leading-normal text-muted-foreground">
-              {qrInvite
-                ? t(
-                    "share.qrExpiresOnClose",
-                    "This QR code stops working when you close this dialog.",
-                  )
-                : `${t(
-                    "share.inviteStaysActive",
-                    "Peers can keep joining until the invite expires, even if you close this dialog.",
-                  )} ${t("share.expiresRelative", "Expires {{when}}", {
-                    when: expiresFromNow(displayedQrInvite),
-                  })}`}
-            </span>
-          </div>
         </div>
       )}
 
@@ -434,25 +442,45 @@ export function InviteMembersDialog({
       {tab === "code" && invite && (
         <div className="flex flex-col gap-2.5">
           <div className="flex flex-col gap-0.5">
-            <span className={sectionLabel}>{t("share.inviteCode", "Invite Code")}</span>
+            <span className={sectionLabel}>
+              {t("share.inviteCode", "Invite Code")}
+            </span>
             <span className="text-[13px] leading-normal text-muted-foreground">
-              {t("share.shareCodeHint", "Share this code with people you want to invite. They can join using \"Join space\".")}
+              {t(
+                "share.shareCodeHint",
+                'Share this code with people you want to invite. They can join using "Join space".',
+              )}
             </span>
           </div>
           <div className="flex min-w-0 items-center gap-2.5 overflow-hidden rounded-xl border border-border bg-muted p-1.5 ps-3.5">
             <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground" dir="ltr">
+            <code
+              className="min-w-0 flex-1 truncate font-mono text-xs text-foreground"
+              dir="ltr"
+            >
               {encodeInvite(invite)}
             </code>
-            <Button variant="outline" size="sm" className="shrink-0" onClick={handleCopy}>
-              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={handleCopy}
+            >
+              {copied ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
               {copied ? t("share.copied", "Copied!") : t("share.copy", "Copy")}
             </Button>
           </div>
           <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2.5">
             <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="text-xs leading-normal text-muted-foreground">
-              {t("share.inviteStaysActive", "Peers can keep joining until the invite expires, even if you close this dialog.")}{" "}
+              {t(
+                "share.inviteStaysActive",
+                "Peers can keep joining until the invite expires, even if you close this dialog.",
+              )}{" "}
               {t("share.expiresRelative", "Expires {{when}}", {
                 when: expiresFromNow(invite),
               })}
@@ -465,9 +493,14 @@ export function InviteMembersDialog({
       {tab === "file" && invite && (
         <div className="flex flex-col gap-2.5">
           <div className="flex flex-col gap-0.5">
-            <span className={sectionLabel}>{t("share.inviteFile", "Invite file")}</span>
+            <span className={sectionLabel}>
+              {t("share.inviteFile", "Invite file")}
+            </span>
             <span className="text-[13px] leading-normal text-muted-foreground">
-              {t("share.saveFileHint", "Save the invite as a .tasferinvite file and send it to your peer. They can join by importing it.")}
+              {t(
+                "share.saveFileHint",
+                "Save the invite as a .tasferinvite file and send it to your peer. They can join by importing it.",
+              )}
             </span>
           </div>
           <div className="flex items-center gap-3 rounded-xl border border-border bg-muted px-3.5 py-3">
@@ -475,7 +508,10 @@ export function InviteMembersDialog({
               <FileDown className="h-4 w-4" />
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[13px] font-medium text-foreground" dir="ltr">
+              <span
+                className="truncate text-[13px] font-medium text-foreground"
+                dir="ltr"
+              >
                 {inviteFileName(spaceName)}
               </span>
               <span className="text-xs text-muted-foreground">
@@ -514,8 +550,14 @@ export function InviteMembersDialog({
         </Button>
         {tab === "code" && (
           <Button onClick={handleCopy}>
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            {copied ? t("share.copied", "Copied!") : t("share.copyCode", "Copy invite code")}
+            {copied ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+            {copied
+              ? t("share.copied", "Copied!")
+              : t("share.copyCode", "Copy invite code")}
           </Button>
         )}
         {tab === "file" && (
@@ -538,7 +580,9 @@ export function InviteMembersDialog({
         />
       )}
 
-      {!showTutorial && status !== "error" && (phase === "setup" ? setupPhase : sharePhase)}
+      {!showTutorial &&
+        status !== "error" &&
+        (phase === "setup" ? setupPhase : sharePhase)}
 
       {!showTutorial && status === "error" && (
         <div className="flex flex-col items-center py-6 gap-3">
@@ -576,7 +620,9 @@ export function InviteMembersDialog({
               </DrawerTitle>
             ) : (
               <DrawerHeader>
-                <DrawerTitle>{t("share.inviteMembers", "Invite members")}</DrawerTitle>
+                <DrawerTitle>
+                  {t("share.inviteMembers", "Invite members")}
+                </DrawerTitle>
               </DrawerHeader>
             )}
             <div className="px-4">{content}</div>
@@ -595,9 +641,14 @@ export function InviteMembersDialog({
           </DialogTitle>
         ) : (
           <DialogHeader>
-            <DialogTitle>{t("share.inviteMembers", "Invite members")}</DialogTitle>
+            <DialogTitle>
+              {t("share.inviteMembers", "Invite members")}
+            </DialogTitle>
             <DialogDescription>
-              {t("share.invitePeople", "Invite people to collaborate in this space")}
+              {t(
+                "share.invitePeople",
+                "Invite people to collaborate in this space",
+              )}
             </DialogDescription>
           </DialogHeader>
         )}
@@ -613,7 +664,10 @@ export function InviteMembersDialog({
 
 function PeerRow({ peer, isNew }: { peer: JoinedPeer; isNew: boolean }) {
   const { t } = useTranslation();
-  const displayName = getDisplayName(peer, t("collaboration.anonymous", "Anonymous"));
+  const displayName = getDisplayName(
+    peer,
+    t("collaboration.anonymous", "Anonymous"),
+  );
   const initial = displayName.charAt(0).toUpperCase();
 
   return (
@@ -626,14 +680,20 @@ function PeerRow({ peer, isNew }: { peer: JoinedPeer; isNew: boolean }) {
         {initial}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
+        <p className="text-sm font-medium text-foreground truncate">
+          {displayName}
+        </p>
         <p className="text-[10px] text-muted-foreground font-mono truncate">
           {peer.publicKey.slice(0, 8)}...{peer.publicKey.slice(-6)}
         </p>
       </div>
-      <UserCheck className={`h-4 w-4 shrink-0 transition-colors duration-500 ${
-        isNew ? "text-green-600 dark:text-green-400" : "text-muted-foreground/50"
-      }`} />
+      <UserCheck
+        className={`h-4 w-4 shrink-0 transition-colors duration-500 ${
+          isNew
+            ? "text-green-600 dark:text-green-400"
+            : "text-muted-foreground/50"
+        }`}
+      />
     </div>
   );
 }
