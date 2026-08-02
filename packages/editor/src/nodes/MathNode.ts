@@ -46,12 +46,15 @@ import {
   MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_PAGE_DOWN,
+  MOVE_CURSOR_PAGE_UP,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
   MOVE_TO_LINE_END,
   MOVE_TO_LINE_START,
   MOVE_TO_NEXT_WORD,
   MOVE_TO_PREVIOUS_WORD,
+  type ViewportPayload,
 } from "../actions/keyboard-actions";
 import {
   SELECT_LINE_AT_POINT,
@@ -99,6 +102,7 @@ import {
   moveActiveMathTreeCaretByUnit,
   moveActiveMathTreeCaretToRowEdge,
   moveActiveMathTreeCaretVertically,
+  movePageFromActiveMathTree,
   ownsMathTreeMutation,
   resizeActiveMathTreeMatrix,
   selectActiveMathTree,
@@ -2025,6 +2029,15 @@ export class MathNode extends TextNode<MathBlock> {
         : undefined);
     bus.registerState(MOVE_CURSOR_UP, moveVertical("up"), 100);
     bus.registerState(MOVE_CURSOR_DOWN, moveVertical("down"), 100);
+    const movePage =
+      (direction: "up" | "down") =>
+      (state: EditorState, { viewport }: ViewportPayload) =>
+        movePageFromActiveMathTree(state, direction, viewport) ??
+        (hasActiveMathTreeCaret(state)
+          ? { state, ops: [], handled: true as const }
+          : undefined);
+    bus.registerState(MOVE_CURSOR_PAGE_UP, movePage("up"), 100);
+    bus.registerState(MOVE_CURSOR_PAGE_DOWN, movePage("down"), 100);
     const extendVertical = (direction: "up" | "down") => (state: EditorState) =>
       extendActiveMathTreeSelectionVertically(state, direction) ??
       (hasActiveMathTreeCaret(state)

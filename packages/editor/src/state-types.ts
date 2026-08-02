@@ -810,6 +810,14 @@ export interface RenderedLine {
   readonly baselineOffset?: number;
   readonly startIndex: number;
   readonly endIndex: number;
+  /**
+   * Distance from the line's start edge to its first character, when a
+   * replacement run reflowing from an earlier line opens this one (an inline
+   * formula's continuation row). The row owns no character, so every x measured
+   * from the line start — caret, hit-test, selection, paint — begins past it.
+   * Absent on ordinary lines. Included in `width`.
+   */
+  readonly leadOffset?: number;
 }
 
 // Style Configuration

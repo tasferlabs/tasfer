@@ -40,6 +40,7 @@ import {
   getFontStack,
   measureCRDTPositions,
   measureTextUpToIndex,
+  type ReplacementSlice,
   type TextBatch,
   type WrappedLine,
   wrapText,
@@ -178,27 +179,59 @@ interface ReplacementFragment {
   readonly text: string;
   /** Range in the run's canonical replacement source represented by `text`. */
   readonly sourceRange: { readonly start: number; readonly end: number };
+  /** Whether the fragment opens its line rather than riding with the anchor. */
+  readonly lead: boolean;
+}
+
+/** The replacement slices a wrapped line renders (see {@link ReplacementSlice}). */
+interface LineSlices {
+  /** Continuation slice opening the line, from a run that started earlier. */
+  readonly lead?: ReplacementSlice;
+  /** Slices riding with an anchor char on the line, by anchor index. */
+  readonly anchored: ReadonlyMap<number, ReplacementSlice>;
 }
 
 /**
- * Resolve one marked run's intersection with a textual line. A structured run
- * is a single anchor char, so a fragment is always the whole run rendering its
- * whole canonical source.
+ * Resolve one marked run's piece of a textual line.
+ *
+ * A structured run is a single anchor char, so a run that reflows across lines
+ * cannot be sliced by character index: the wrap records the slices in SOURCE
+ * offsets instead (see {@link ReplacementSlice}), and a continuation slice's
+ * line holds none of the run's characters at all. Without slices the fragment is
+ * the whole run rendering its whole canonical source — the atomic chip.
  */
 function replacementFragment(
   run: ReplacementRun,
   lineStart: number,
   lineEnd: number,
+  slices?: LineSlices,
 ): ReplacementFragment | null {
+  const lead = slices?.lead;
+  if (lead && lead.index === run.start) {
+    return {
+      run,
+      start: lineStart,
+      end: lineStart,
+      text: run.text.slice(lead.sourceStart, lead.sourceEnd),
+      sourceRange: { start: lead.sourceStart, end: lead.sourceEnd },
+      lead: true,
+    };
+  }
   const start = Math.max(run.start, lineStart);
   const end = Math.min(run.end, lineEnd);
   if (end <= start) return null;
+  const anchored = slices?.anchored.get(run.start);
   return {
     run,
     start,
     end,
-    text: run.text,
-    sourceRange: { start: 0, end: run.text.length },
+    text: anchored
+      ? run.text.slice(anchored.sourceStart, anchored.sourceEnd)
+      : run.text,
+    sourceRange: anchored
+      ? { start: anchored.sourceStart, end: anchored.sourceEnd }
+      : { start: 0, end: run.text.length },
+    lead: false,
   };
 }
 
@@ -268,6 +301,12 @@ export interface TextNodeLayout extends NodeLayout {
    * reflowed paint. Empty when no chip wraps (every chip is one whole fragment).
    */
   readonly replCharWidths: Map<number, number>;
+  /**
+   * Replacement slices rendered on each line, parallel to `lines`. A run that
+   * reflows spans lines it owns no character on, so this — not the line's index
+   * range — is what resolves which piece of a formula a line draws.
+   */
+  readonly lineSlices: readonly LineSlices[];
 }
 
 interface ReplacementFragmentGeometry extends ReplacementFragment {
@@ -285,11 +324,25 @@ interface ReplacementFragmentGeometry extends ReplacementFragment {
  */
 function replacementFragmentGeometry(
   layout: TextNodeLayout,
+  lineIndex: number,
   line: RenderedLine,
   run: ReplacementRun,
 ): ReplacementFragmentGeometry | null {
-  const fragment = replacementFragment(run, line.startIndex, line.endIndex);
+  const fragment = replacementFragment(
+    run,
+    line.startIndex,
+    line.endIndex,
+    layout.lineSlices[lineIndex],
+  );
   if (!fragment) return null;
+  // A continuation row opens the line, so its box is simply the lead itself:
+  // from the line's start edge (the right edge in RTL) across its own width.
+  if (fragment.lead) {
+    const width = line.leadOffset ?? 0;
+    const left = layout.isRTL ? layout.adjustedMaxWidth - width : 0;
+    return { ...fragment, left, right: left + width };
+  }
+  const lead = line.leadOffset ?? 0;
   const widths = measureCRDTPositions(
     layout.chars,
     layout.formats,
@@ -315,15 +368,17 @@ function replacementFragmentGeometry(
   let edgeB: number;
   if (pureLine) {
     if (layout.isRTL) {
-      edgeA = layout.adjustedMaxWidth - widths[startLocal];
-      edgeB = layout.adjustedMaxWidth - widths[startLocal + 1];
+      edgeA = layout.adjustedMaxWidth - lead - widths[startLocal];
+      edgeB = layout.adjustedMaxWidth - lead - widths[startLocal + 1];
     } else {
-      edgeA = widths[startLocal];
-      edgeB = widths[startLocal + 1];
+      edgeA = lead + widths[startLocal];
+      edgeB = lead + widths[startLocal + 1];
     }
   } else {
     const lineWidth = widths[widths.length - 1];
-    const origin = layout.isRTL ? layout.adjustedMaxWidth - lineWidth : 0;
+    const origin = layout.isRTL
+      ? layout.adjustedMaxWidth - lead - lineWidth
+      : lead;
     const runLeft = new Map<(typeof runs)[number], number>();
     let cursor = origin;
     for (const bidiRun of visual) {
@@ -373,6 +428,12 @@ export interface RenderLineTextArgs<B extends TextualBlockBase = TextualBlock> {
   readonly caretIndex: number | null;
   /** Whether a math command is being typed at `caretIndex` (render it literally). */
   readonly commandEntryActive: boolean;
+  /**
+   * The replacement slices this line renders. Carries the continuation row of a
+   * reflowing run, which owns none of the line's characters and so cannot be
+   * discovered from `lineStartIndex`/`lineEndIndex`.
+   */
+  readonly slices?: LineSlices;
 }
 
 /** Structural text-bearing block accepted by the reusable TextNode base. */
@@ -825,6 +886,7 @@ function renderLine(
   caretIndex: number | null = null,
   commandEntryActive: boolean = false,
   attachments?: StructuredContentMap,
+  slices?: LineSlices,
 ) {
   ctx.direction = isRTL ? "rtl" : "ltr";
 
@@ -846,7 +908,40 @@ function renderLine(
     marks,
   );
 
+  const isHovered = (run: ReplacementRun): boolean =>
+    hoveredInlineMath !== null &&
+    run.start >= hoveredInlineMath.startIndex &&
+    run.end <= hoveredInlineMath.endIndex;
+
   let currentX = x;
+
+  // A continuation row of a reflowing run opens the line and owns none of its
+  // characters, so no batch can carry it: paint it here, before the line's own
+  // text, which starts past it.
+  const lead = slices?.lead;
+  const leadRun = lead
+    ? resolvedReplacements.find((run) => run.start === lead.index)
+    : undefined;
+  if (lead && leadRun) {
+    const text = leadRun.text.slice(lead.sourceStart, lead.sourceEnd);
+    const dims = leadRun.replacement.measure(text, textStyle.fontSize);
+    if (dims) {
+      leadRun.replacement.paint({
+        ctx,
+        text,
+        x: currentX,
+        y,
+        fontSize: textStyle.fontSize,
+        isRTL,
+        hovered: isHovered(leadRun),
+        dims,
+        styles,
+        requestRedraw,
+      });
+      currentX += isRTL ? -dims.width : dims.width;
+    }
+  }
+
   let batchVisibleStart = lineStartIndex;
 
   for (const batch of batches) {
@@ -869,8 +964,20 @@ function renderLine(
           batchVisibleStart >= run.start &&
           batchVisibleEnd <= run.end,
       );
+      // The run's slice on THIS line — the whole source unless the run reflows,
+      // in which case the anchor char carries only its first slice and the rest
+      // paint as the continuation rows above.
+      const anchored = owner ? slices?.anchored.get(owner.start) : undefined;
+      const partial =
+        anchored !== undefined &&
+        !(
+          anchored.sourceStart === 0 &&
+          anchored.sourceEnd === owner?.text.length
+        );
       const replacementText = owner
-        ? owner.text
+        ? anchored
+          ? owner.text.slice(anchored.sourceStart, anchored.sourceEnd)
+          : owner.text
         : style.replacementMark
           ? (style.replacement.source?.(batch.text, {
               mark: style.replacementMark,
@@ -893,10 +1000,15 @@ function renderLine(
         caretIndex <= batchVisibleEnd
           ? caretIndex - batchVisibleStart
           : undefined;
-      const edit: MarkReplacementEdit = {
-        caretOffset,
-        editing: commandEntryActive,
-      };
+      // A partial slice indexes its own substring, so a caret offset into the
+      // whole source would point at the wrong character — an in-progress command
+      // renders resolved rather than literal until the formula stops reflowing.
+      const edit: MarkReplacementEdit | undefined = partial
+        ? undefined
+        : {
+            caretOffset,
+            editing: commandEntryActive,
+          };
       const dims = style.replacement.measure(
         replacementText,
         textStyle.fontSize,
@@ -1119,41 +1231,32 @@ function computeSelectionRects(
     // (including its inflated padding, which the glyph rows don't cover) then
     // registers as touching the selection.
     if (confiningRun && !hitTest) {
+      // One pass per line the run appears on: a reflowing formula contributes a
+      // slice per line, each highlighting its own rows at its own left edge.
       const chipRects: Rect[] = [];
-      for (const line of layout.lines) {
-        if (
-          confiningRun.start < line.startIndex ||
-          confiningRun.start >= line.endIndex
-        ) {
-          continue;
-        }
+      for (const [lineIndex, line] of layout.lines.entries()) {
+        const fragment = replacementFragmentGeometry(
+          layout,
+          lineIndex,
+          line,
+          confiningRun,
+        );
+        if (!fragment) continue;
         const rowRects = confiningRun.replacement.selectionRects?.(
-          confiningRun.text,
+          fragment.text,
           textStyle.fontSize,
           0,
-          confiningRun.text.length,
+          fragment.text.length,
           { caretOffset: 0, editing: false },
         );
         if (!rowRects || rowRects.length === 0) continue;
-        const chipLeft = measureLineWidth(
-          chars,
-          formats,
-          line.startIndex,
-          confiningRun.start,
-          textStyle,
-          fontFamily,
-          fonts,
-          codePadding,
-          marks,
-          layout.replCharWidths,
-        );
         const baselineY =
           blockTopY +
           line.y +
           (line.baselineOffset ?? layout.fontMetrics.ascent);
         for (const rr of rowRects) {
           chipRects.push({
-            x: baseX + chipLeft + rr.x,
+            x: baseX + fragment.left + rr.x,
             y: baselineY + rr.top,
             width: rr.width,
             height: rr.bottom - rr.top,
@@ -1199,8 +1302,9 @@ function computeSelectionRects(
       layout.replCharWidths,
     );
 
-  layout.lines.forEach((line) => {
+  layout.lines.forEach((line, lineIndex) => {
     const lineY = blockTopY + line.y;
+    const lead = line.leadOffset ?? 0;
 
     // The logical block-index range of THIS line that the selection covers.
     // A selection that starts/ends outside this block contributes the whole
@@ -1213,7 +1317,26 @@ function computeSelectionRects(
     const lineSelEnd = endsHere
       ? Math.min(line.endIndex, end.textIndex)
       : line.endIndex;
-    if (lineSelStart >= lineSelEnd) return;
+    if (lineSelStart >= lineSelEnd) {
+      // A continuation row of a reflowing run holds none of the run's
+      // characters, so the index test above can never see it. Fill it directly
+      // when the selection covers the run its slice belongs to — otherwise a
+      // selected formula would highlight only the row its anchor sits on.
+      const leadSlice = layout.lineSlices[lineIndex]?.lead;
+      const covered =
+        leadSlice &&
+        (!startsHere || start.textIndex <= leadSlice.index) &&
+        (!endsHere || end.textIndex >= leadSlice.index + 1);
+      if (covered) {
+        rects.push({
+          x: isRTL ? baseX + maxWidth - lead : baseX,
+          y: lineY,
+          width: lead,
+          height: line.height,
+        });
+      }
+      return;
+    }
 
     // Resolve the line's bidi structure. A line whose only run is at the base
     // level needs no reordering — take the fast monotonic path, which also
@@ -1224,19 +1347,27 @@ function computeSelectionRects(
       runs.length === 0 || (runs.length === 1 && runs[0].level === baseLevel);
 
     if (isPureLine) {
-      let selectionStartX = baseX;
+      // The line opens with a continuation row whose run the selection also
+      // covers (it starts at or before the run's anchor): the fill starts at the
+      // line edge, taking the row in. Otherwise it starts past it.
+      const leadCovered =
+        lead > 0 &&
+        (!startsHere ||
+          start.textIndex <= (layout.lineSlices[lineIndex]?.lead?.index ?? -1));
+      let selectionStartX = leadCovered ? baseX : baseX + lead;
       let selectionEndX = baseX + line.width;
       if (isRTL) {
-        selectionEndX =
-          baseX + maxWidth - plainWidth(line.startIndex, lineSelStart);
+        selectionEndX = leadCovered
+          ? baseX + maxWidth
+          : baseX + maxWidth - lead - plainWidth(line.startIndex, lineSelStart);
         selectionStartX =
-          baseX + maxWidth - plainWidth(line.startIndex, lineSelEnd);
+          baseX + maxWidth - lead - plainWidth(line.startIndex, lineSelEnd);
       } else {
         if (lineSelStart > line.startIndex) {
-          selectionStartX = baseX + boundaryWidth(line, lineSelStart);
+          selectionStartX = baseX + lead + boundaryWidth(line, lineSelStart);
         }
         if (lineSelEnd < line.endIndex) {
-          selectionEndX = baseX + boundaryWidth(line, lineSelEnd);
+          selectionEndX = baseX + lead + boundaryWidth(line, lineSelEnd);
         }
       }
       rects.push({
@@ -1260,8 +1391,9 @@ function computeSelectionRects(
       );
     }
     // LTR lines are left-aligned (origin 0); RTL lines are right-aligned so the
-    // last visual run ends flush at maxWidth.
-    const origin = isRTL ? maxWidth - totalWidth : 0;
+    // last visual run ends flush at maxWidth. Both start past any continuation
+    // row opening the line.
+    const origin = isRTL ? maxWidth - lead - totalWidth : lead;
     const runLeft = new Map<(typeof runs)[number], number>();
     let cursorX = origin;
     for (const r of visual) {
@@ -1492,6 +1624,7 @@ export class TextNode<
       compositionRange,
       marks,
       block.structuredContent,
+      !isRTL,
     );
 
     const fontMetrics = getFontMetrics(
@@ -1521,6 +1654,7 @@ export class TextNode<
     // each line resolves its chip fragments, then threaded into every width
     // measurement so a chip that wrapped across lines is measured per slice.
     const replCharWidths = new Map<number, number>();
+    const lineSlices: LineSlices[] = [];
     let textIndex = 0;
     let lineY = 0;
     for (let i = 0; i < wrapped.length; i++) {
@@ -1529,34 +1663,60 @@ export class TextNode<
       const lineEndIndex = textIndex + wl.text.length;
       let ascent = textAscent;
       let descent = textDescent;
+      const anchored = new Map<number, ReplacementSlice>(
+        (wl.slices ?? []).map((slice) => [slice.index, slice]),
+      );
+      lineSlices.push({ lead: wl.leadSlice, anchored });
+      // A continuation row of a reflowing run opens the line: it owns no
+      // character, so its advance can't live in `replCharWidths` — it offsets
+      // every x measured from the line start instead, and grows the line box.
+      let leadOffset = 0;
+      if (wl.leadSlice) {
+        const run = replacements.find((r) => r.start === wl.leadSlice?.index);
+        const dims = run?.replacement.measure(
+          run.text.slice(wl.leadSlice.sourceStart, wl.leadSlice.sourceEnd),
+          textStyle.fontSize,
+        );
+        if (dims) {
+          leadOffset = dims.width;
+          ascent = Math.max(ascent, dims.height - dims.depthBelowBaseline);
+          descent = Math.max(descent, dims.depthBelowBaseline);
+        }
+      }
       // Replacement fragments on THIS line — a chip clipped to the line. Record
       // each fragment's first-char advance (rest → 0) so measurement attributes
       // the slice its own width, and grow the line box around the chip. A chip
-      // that wrapped contributes one fragment per line it spans; an unwrapped chip
-      // is its whole self on one line (fragment == run, identical to before).
+      // that reflowed contributes one slice per line it spans; an atomic chip is
+      // its whole self on one line (fragment == run, identical to before).
       for (const run of replacements) {
         const fragStart = Math.max(run.start, lineStartIndex);
         const fragEnd = Math.min(run.end, lineEndIndex);
         if (fragEnd <= fragStart) continue;
-        const dims = run.replacement.measure(run.text, textStyle.fontSize);
+        const slice = anchored.get(run.start);
+        const dims = run.replacement.measure(
+          slice ? run.text.slice(slice.sourceStart, slice.sourceEnd) : run.text,
+          textStyle.fontSize,
+        );
         if (!dims) continue;
         replCharWidths.set(fragStart, dims.width);
         for (let v = fragStart + 1; v < fragEnd; v++) replCharWidths.set(v, 0);
         ascent = Math.max(ascent, dims.height - dims.depthBelowBaseline);
         descent = Math.max(descent, dims.depthBelowBaseline);
       }
-      const width = measureLineWidth(
-        chars,
-        formats,
-        lineStartIndex,
-        lineEndIndex,
-        textStyle,
-        fontFamily,
-        fonts,
-        codePadding,
-        marks,
-        replCharWidths,
-      );
+      const width =
+        leadOffset +
+        measureLineWidth(
+          chars,
+          formats,
+          lineStartIndex,
+          lineEndIndex,
+          textStyle,
+          fontFamily,
+          fonts,
+          codePadding,
+          marks,
+          replCharWidths,
+        );
       const actualLineHeight = Math.max(lineHeight, ascent + descent);
       lines.push({
         text: wl.text,
@@ -1567,6 +1727,7 @@ export class TextNode<
         baselineOffset: ascent,
         startIndex: lineStartIndex,
         endIndex: lineEndIndex,
+        ...(leadOffset > 0 ? { leadOffset } : {}),
       });
       lineY += actualLineHeight;
       textIndex += wl.text.length;
@@ -1598,6 +1759,7 @@ export class TextNode<
       compositionRange,
       wrapped,
       replCharWidths,
+      lineSlices,
     };
   }
 
@@ -1666,8 +1828,13 @@ export class TextNode<
           candidate.replacement.contentCaretRect,
       );
       if (run) {
-        for (const line of layout.lines) {
-          const fragment = replacementFragmentGeometry(layout, line, run);
+        for (const [lineIndex, line] of layout.lines.entries()) {
+          const fragment = replacementFragmentGeometry(
+            layout,
+            lineIndex,
+            line,
+            run,
+          );
           if (!fragment) continue;
           const nestedCaret = run.replacement.contentCaretRect?.(
             fragment.text,
@@ -1696,8 +1863,18 @@ export class TextNode<
       }
     }
 
-    for (const line of layout.lines) {
+    for (const [lineIndex, line] of layout.lines.entries()) {
       if (textIndex >= line.startIndex && textIndex <= line.endIndex) {
+        // The trailing edge of a run that reflows past this line belongs after
+        // its LAST continuation row, not here: every row of it shares the same
+        // end index, and only the last one is followed by the run's own text.
+        if (
+          textIndex === line.endIndex &&
+          layout.lineSlices[lineIndex + 1]?.lead
+        ) {
+          continue;
+        }
+        const lead = line.leadOffset ?? 0;
         const currentY = blockTopY + insetY + line.y;
         // A replacement run is one atomic anchor char, so a flat caret only
         // ever rests on its edges — the boundary measure below covers it.
@@ -1739,7 +1916,7 @@ export class TextNode<
           for (const r of cRuns) {
             totalW += width(line.startIndex + r.start, line.startIndex + r.end);
           }
-          const origin = isRTL ? adjustedMaxWidth - totalW : 0;
+          const origin = isRTL ? adjustedMaxWidth - lead - totalW : lead;
           const runLeftX = new Map<(typeof cRuns)[number], number>();
           let cx = origin;
           for (const r of cVisual) {
@@ -1773,8 +1950,8 @@ export class TextNode<
         const widthFromStart = width(line.startIndex, textIndex);
         return {
           x: isRTL
-            ? baseX + adjustedMaxWidth - widthFromStart
-            : baseX + widthFromStart,
+            ? baseX + adjustedMaxWidth - lead - widthFromStart
+            : baseX + lead + widthFromStart,
           y: caretY,
           height: line.height,
         };
@@ -1836,13 +2013,18 @@ export class TextNode<
 
     const baseX = this.baseX(layout, 0);
     const pointX = local.x - baseX;
-    for (const line of layout.lines) {
+    for (const [lineIndex, line] of layout.lines.entries()) {
       const lineTop = layout.insetY + line.y;
       if (local.y < lineTop || local.y >= lineTop + line.height) continue;
       const baseline =
         lineTop + (line.baselineOffset ?? layout.fontMetrics.ascent);
       for (const run of runs) {
-        const fragment = replacementFragmentGeometry(layout, line, run);
+        const fragment = replacementFragmentGeometry(
+          layout,
+          lineIndex,
+          line,
+          run,
+        );
         if (!fragment) continue;
         const previousOwnedByRun =
           options.drag &&
@@ -1950,7 +2132,8 @@ export class TextNode<
         layout.replCharWidths,
       );
       const lineWidth = positionWidths[positionWidths.length - 1];
-      const origin = isRTL ? adjustedMaxWidth - lineWidth : 0;
+      const lead = line.leadOffset ?? 0;
+      const origin = isRTL ? adjustedMaxWidth - lead - lineWidth : lead;
 
       for (const run of runs) {
         // Only a whole, unwrapped chip on this line: the replacement resolves the
@@ -2059,6 +2242,9 @@ export class TextNode<
     const lineEndIndex = line.endIndex;
     const lineText = line.text;
     const relativeX = x - baseX;
+    // A continuation row of a reflowing chip opens the line, so the line's own
+    // characters begin past it (before it, measuring right-to-left, in RTL).
+    const lead = line.leadOffset ?? 0;
 
     const positionWidths = measureCRDTPositions(
       chars,
@@ -2087,7 +2273,7 @@ export class TextNode<
       bidiRunsList.length === 0 ||
       (bidiRunsList.length === 1 && bidiRunsList[0].level === baseLvl);
     if (!pureHitLine) {
-      const origin = isRTL ? adjustedMaxWidth - lineWidth : 0;
+      const origin = isRTL ? adjustedMaxWidth - lead - lineWidth : lead;
       const runLeftX = new Map<(typeof bidiRunsList)[number], number>();
       let cx = origin;
       for (const r of bidiVisual) {
@@ -2191,8 +2377,8 @@ export class TextNode<
 
     if (isRTL) {
       const maxWidth = adjustedMaxWidth;
-      const lineVisualStart = maxWidth - lineWidth;
-      const lineVisualEnd = maxWidth;
+      const lineVisualStart = maxWidth - lead - lineWidth;
+      const lineVisualEnd = maxWidth - lead;
 
       if (relativeX < lineVisualStart) {
         return lineEndIndex;
@@ -2206,7 +2392,7 @@ export class TextNode<
 
       for (let i = 0; i <= lineText.length; i++) {
         const widthFromStart = positionWidths[i];
-        const charVisualX = maxWidth - widthFromStart;
+        const charVisualX = maxWidth - lead - widthFromStart;
         const distance = Math.abs(relativeX - charVisualX);
 
         if (distance < minDistance) {
@@ -2217,15 +2403,15 @@ export class TextNode<
 
       return bestPosition;
     } else {
-      if (relativeX <= 0) {
+      if (relativeX <= lead) {
         return lineStartIndex;
       }
 
       let bestPosition = lineStartIndex;
-      let minDistance = Math.abs(relativeX);
+      let minDistance = Math.abs(relativeX - lead);
 
       for (let i = 0; i <= lineText.length; i++) {
-        const currentX = positionWidths[i];
+        const currentX = lead + positionWidths[i];
         const distance = Math.abs(relativeX - currentX);
 
         if (distance < minDistance) {
@@ -2250,10 +2436,10 @@ export class TextNode<
         if (run.start < lineStartIndex || run.start >= lineEndIndex) continue;
         const startLocal = run.start - lineStartIndex;
         if (startLocal + 1 >= positionWidths.length) continue;
-        // The run's anchor char carries its whole on-line width (the override
+        // The run's anchor char carries its on-line slice width (the override
         // map), so its left/right edges are the adjacent position widths.
-        const chipLeftX = positionWidths[startLocal];
-        const chipRightX = positionWidths[startLocal + 1];
+        const chipLeftX = lead + positionWidths[startLocal];
+        const chipRightX = lead + positionWidths[startLocal + 1];
         if (relativeX <= chipLeftX || relativeX >= chipRightX) {
           if (bestPosition > run.start && bestPosition < run.end) {
             bestPosition = relativeX <= chipLeftX ? run.start : run.end;
@@ -2389,7 +2575,12 @@ export class TextNode<
       const lineEndIndex = lyt.endIndex;
       const currentY = y + insetY + lyt.y;
       const baselineY = currentY + (lyt.baselineOffset ?? fontMetrics.ascent);
+      // `renderX` is the line's start edge — renderLine draws any continuation
+      // row there first and advances past it; everything else starts at the text
+      // origin, which is that row's far side.
       const renderX = isRTL ? adjustedX + adjustedMaxWidth : adjustedX;
+      const lead = lyt.leadOffset ?? 0;
+      const textX = isRTL ? renderX - lead : renderX + lead;
 
       if (lineIndex === 0) {
         // Per-type marker hook: no-op for headings/paragraph, draws the
@@ -2425,6 +2616,7 @@ export class TextNode<
         hoveredInlineMath,
         caretIndex,
         commandEntryActive,
+        slices: layout.lineSlices[lineIndex],
       });
 
       if (compositionRange) {
@@ -2440,7 +2632,7 @@ export class TextNode<
             lineEndIndex,
             compositionRange.start,
             compositionRange.end,
-            renderX,
+            textX,
             baselineY - fontMetrics.ascent,
             textStyle,
             fontFamily,
@@ -2463,6 +2655,7 @@ export class TextNode<
         baselineOffset: lyt.baselineOffset,
         startIndex: lineStartIndex,
         endIndex: lineEndIndex,
+        ...(lead > 0 ? { leadOffset: lead } : {}),
       });
     }
 
@@ -2488,8 +2681,13 @@ export class TextNode<
 
       const baseX = this.baseX(layout, x);
       const rects: Rect[] = [];
-      for (const line of layout.lines) {
-        const fragment = replacementFragmentGeometry(layout, line, run);
+      for (const [lineIndex, line] of layout.lines.entries()) {
+        const fragment = replacementFragmentGeometry(
+          layout,
+          lineIndex,
+          line,
+          run,
+        );
         if (!fragment) continue;
         const fragmentRects = run.replacement.contentSelectionRects?.(
           fragment.text,
@@ -2809,6 +3007,7 @@ export class TextNode<
       p.caretIndex,
       p.commandEntryActive,
       p.block.structuredContent,
+      p.slices,
     );
   }
 
@@ -2874,6 +3073,7 @@ export class TextNode<
     compositionRange: { start: number; end: number } | null,
     marks?: MarkRegistry,
     attachments?: StructuredContentMap,
+    allowReplacementBreaks: boolean = true,
   ): WrappedLine[] {
     return wrapText(
       chars,
@@ -2887,6 +3087,7 @@ export class TextNode<
       compositionRange,
       marks,
       attachments,
+      allowReplacementBreaks,
     );
   }
 

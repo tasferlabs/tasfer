@@ -275,6 +275,16 @@ export interface MarkReplacement {
     fontSize: number,
     edit?: MarkReplacementEdit,
   ): MarkReplacementDims | null;
+  /**
+   * Offsets in `text` where the line breaker may split this run across lines —
+   * inline math's top-level operators and relations. Each slice is measured,
+   * painted, and caret-mapped STANDALONE (see {@link MarkReplacementContentCtx.sourceRange}),
+   * so an offset must cut the source into independently renderable pieces.
+   *
+   * Omit — or return nothing — to keep the run one unbreakable unit: it then
+   * wraps whole and overflows its line when it cannot fit, like a long word.
+   */
+  breakpoints?(text: string, fontSize: number): readonly number[];
   paint(c: MarkReplacementPaintCtx): void;
   /**
    * Caret geometry for source `offset` within the run — x from the run's left

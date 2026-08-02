@@ -8,6 +8,7 @@ import {
   type FeatureInputRule,
   STRUCTURED_MARK_ANCHOR_CHAR,
 } from "../feature-facets";
+import { getBlockTextLength } from "../node-shared";
 import { unambiguousMathCommandCompletion } from "../nodes/math-commands";
 import type { TextualBlock } from "../nodes/TextNode";
 import { invalidateBlockCache } from "../rendering/renderer";
@@ -15,6 +16,8 @@ import { getBlockDirection } from "../rtl";
 import {
   clearSelection,
   moveCursorLeft,
+  moveCursorPageDown,
+  moveCursorPageUp,
   moveCursorRight,
   moveCursorToPosition,
   verticalStepFromNestedCaret,
@@ -1187,6 +1190,84 @@ export function exitActiveInlineMathTreeVertically(
     ops: [],
     handled: true,
   };
+}
+
+/**
+ * Home/End inside an inline chip belong to the HOST line, not to the formula.
+ *
+ * A chip shares its line with prose (see `exitActiveInlineMathTreeVertically`),
+ * so the press means the same inside the formula as it does anywhere else in
+ * that paragraph. A display equation IS its block, so there the same keys move
+ * to the formula's structural row edge (see `moveActiveMathTreeCaretToRowEdge`).
+ *
+ * The mark must claim these: the generic line movers read the FLAT cursor,
+ * which an active chip deliberately has none of, so the shared
+ * `clearSelection` in front of them would drop the nested caret — the only one
+ * the document has — and leave it caretless (the next keystroke then resolves
+ * against the document's start).
+ */
+export function exitActiveInlineMathTreeToLineEdge(
+  state: EditorState,
+  edge: "start" | "end",
+): InlineMathTreeStateResult | undefined {
+  const context = activeInlineMathContext(state);
+  if (!context) return undefined;
+  return {
+    state: moveCursorToPosition(
+      clearSelection(state),
+      context.blockIndex,
+      edge === "start" ? 0 : getBlockTextLength(context.block),
+    ),
+    ops: [],
+    handled: true,
+  };
+}
+
+/**
+ * PageUp/PageDown from inside a chip — the same host-line reasoning as
+ * {@link exitActiveInlineMathTreeToLineEdge}, and the same reason the mark must
+ * claim it. The page jump is taken from the chip's own flat boundary, so it
+ * carries the anchor's column rather than the caret's x: at page granularity
+ * the landing line is what matters, not the column within it.
+ */
+export function movePageFromActiveInlineMathTree(
+  state: EditorState,
+  direction: "up" | "down",
+  viewport?: ViewportState,
+): InlineMathTreeStateResult | undefined {
+  const context = activeInlineMathContext(state);
+  if (!context) return undefined;
+  const atChip = moveCursorToPosition(
+    clearSelection(state),
+    context.blockIndex,
+    context.run.startIndex,
+  );
+  return {
+    state:
+      direction === "up"
+        ? moveCursorPageUp(atChip, viewport)
+        : moveCursorPageDown(atChip, viewport),
+    ops: [],
+    handled: true,
+  };
+}
+
+/**
+ * Shift+Home/Shift+End out of a chip: the nested selection degrades to a flat
+ * one running from the host line edge to the chip's opposite boundary, so the
+ * formula is covered whole (an interior nested stop has no flat counterpart).
+ */
+export function extendActiveInlineMathTreeSelectionToLineEdge(
+  state: EditorState,
+  edge: "start" | "end",
+): InlineMathTreeStateResult | undefined {
+  const context = activeInlineMathContext(state);
+  if (!context) return undefined;
+  const exited = extendSelectionOutOfStructuredMark(state, {
+    blockIndex: context.blockIndex,
+    textIndex: edge === "start" ? 0 : getBlockTextLength(context.block),
+  });
+  return exited ? { state: exited, ops: [], handled: true } : undefined;
 }
 
 /**

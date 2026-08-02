@@ -19,6 +19,8 @@ import {
 } from "../../actions/edit-actions";
 import {
   EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_END,
+  EXTEND_SELECTION_HOME,
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
   EXTEND_SELECTION_UP,
@@ -27,8 +29,12 @@ import {
   MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_PAGE_DOWN,
+  MOVE_CURSOR_PAGE_UP,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  MOVE_TO_LINE_END,
+  MOVE_TO_LINE_START,
   MOVE_TO_NEXT_WORD,
   MOVE_TO_PREVIOUS_WORD,
   type ViewportPayload,
@@ -50,15 +56,18 @@ import {
   enterInlineMathTreeAtPosition,
   exitActiveInlineMathTreeHorizontally,
   exitActiveInlineMathTreeSelectionHorizontally,
+  exitActiveInlineMathTreeToLineEdge,
   exitActiveInlineMathTreeVertically,
   extendActiveInlineMathTreeSelectionByUnit,
   extendActiveInlineMathTreeSelectionHorizontally,
+  extendActiveInlineMathTreeSelectionToLineEdge,
   extendActiveInlineMathTreeSelectionVertically,
   hasActiveInlineMathTreeCaret,
   insertActiveInlineMathTreeCommand,
   moveActiveInlineMathTreeCaret,
   moveActiveInlineMathTreeCaretByUnit,
   moveActiveInlineMathTreeCaretVertically,
+  movePageFromActiveInlineMathTree,
   ownsInlineMathTreeDelete,
   prepareInlineMathTreeForBlockSplit,
   resizeActiveInlineMathTreeMatrix,
@@ -71,6 +80,7 @@ import {
   mathTreeCaretToContentSelection,
 } from "../../math/tree-selection";
 import {
+  getInlineMathBreakpoints,
   getInlineMathCaretRect,
   getInlineMathDims,
   getInlineMathOffsetAtX,
@@ -301,6 +311,10 @@ const inlineMathReplacement: MarkReplacement = {
     }
     return null;
   },
+  // Top-level operators and relations: a long formula reflows across lines
+  // there, exactly where AMS-style display math breaks. A lone construct (a
+  // fraction, a delimited group) has none, so it stays atomic.
+  breakpoints: (text) => getInlineMathBreakpoints(text),
   measure(text, fontSize, edit) {
     if (text.length === 0) return emptyChipDims(fontSize * INLINE_MATH_SCALE);
     return getInlineMathDims(
@@ -494,6 +508,23 @@ export class MathMark extends Mark {
     };
     bus.registerState(MOVE_TO_PREVIOUS_WORD, moveWord("left"), 110);
     bus.registerState(MOVE_TO_NEXT_WORD, moveWord("right"), 110);
+    // Home/End belong to the host line the chip sits in — and MUST be claimed:
+    // the generic movers work off the flat cursor an active chip doesn't have,
+    // so they would clear the nested caret and leave the document with none.
+    // Ctrl+Home/Ctrl+End (document edges) already target a flat position, so
+    // they stay with the generic handlers.
+    const lineEdge = (edge: "start" | "end") => (state: EditorState) =>
+      exitActiveInlineMathTreeToLineEdge(state, edge);
+    bus.registerState(MOVE_TO_LINE_START, lineEdge("start"), 110);
+    bus.registerState(MOVE_TO_LINE_END, lineEdge("end"), 110);
+    const extendLineEdge =
+      (edge: "start" | "end") =>
+      (state: EditorState, { isCtrl }: { isCtrl: boolean }) =>
+        isCtrl
+          ? undefined
+          : extendActiveInlineMathTreeSelectionToLineEdge(state, edge);
+    bus.registerState(EXTEND_SELECTION_HOME, extendLineEdge("start"), 110);
+    bus.registerState(EXTEND_SELECTION_END, extendLineEdge("end"), 110);
     const extendWord =
       (direction: "left" | "right") => (state: EditorState) => {
         const moved = extendActiveInlineMathTreeSelectionByUnit(
@@ -544,6 +575,12 @@ export class MathMark extends Mark {
       };
     bus.registerState(MOVE_CURSOR_UP, moveVertical("up"), 110);
     bus.registerState(MOVE_CURSOR_DOWN, moveVertical("down"), 110);
+    const movePage =
+      (direction: "up" | "down") =>
+      (state: EditorState, { viewport }: ViewportPayload) =>
+        movePageFromActiveInlineMathTree(state, direction, viewport);
+    bus.registerState(MOVE_CURSOR_PAGE_UP, movePage("up"), 110);
+    bus.registerState(MOVE_CURSOR_PAGE_DOWN, movePage("down"), 110);
     const extendVertical =
       (direction: "up" | "down") => (state: EditorState) => {
         const moved = extendActiveInlineMathTreeSelectionVertically(

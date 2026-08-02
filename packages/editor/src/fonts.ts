@@ -93,9 +93,32 @@ function replacementFor(
 }
 
 // Line wrapping result with information about consumed characters
+/**
+ * One rendered slice of a replacement run on a wrapped line.
+ *
+ * A structured run is a single atomic anchor char, so a formula that reflows
+ * across lines cannot be sliced by character index — the slices carry ranges in
+ * the run's canonical SOURCE instead. The first slice rides with the anchor char
+ * on the line where the chip starts; every later slice OPENS its own line
+ * ({@link WrappedLine.leadSlice}) and owns no character at all.
+ */
+export interface ReplacementSlice {
+  /** Visible index of the run's anchor char. */
+  readonly index: number;
+  /** Range in the run's canonical source this slice renders. */
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+  /** Rendered width of the slice's source, measured standalone. */
+  readonly width: number;
+}
+
 export interface WrappedLine {
   text: string;
   consumedSpace: boolean; // True if this line consumed a trailing space character
+  /** Continuation slice opening this line (its run started on an earlier line). */
+  leadSlice?: ReplacementSlice;
+  /** Slices riding with an anchor char on this line. */
+  slices?: ReplacementSlice[];
 }
 
 // Whether the host has reported that the base font faces are loaded. This is a
@@ -860,6 +883,16 @@ export function measureCharsUpToIndex(
   );
 }
 
+/** A replacement run that can reflow, resolved once before the wrap loop. */
+interface ChipPlan {
+  /** Visible index of the run's anchor char. */
+  readonly index: number;
+  /** Slice boundaries in the run's canonical source: [0, …breaks, length]. */
+  readonly bounds: readonly number[];
+  /** Rendered width of the source between two boundary indices (memoized). */
+  width(fromBound: number, toBound: number): number;
+}
+
 // Wrap CRDT text (Char[] with MarkSpan[]) for rendering
 // Uses incremental character measurement for O(n) complexity
 export function wrapText(
@@ -874,6 +907,14 @@ export function wrapText(
   _compositionRange: { start: number; end: number } | null = null,
   marks?: MarkRegistry,
   attachments?: StructuredContentMap,
+  // Whether a replacement run (an inline-math chip) may be SPLIT across lines at
+  // its internal break offsets. True in LTR text (the chip reflows at its
+  // operators). False in RTL: a formula is an atomic LTR box within the bidi
+  // line — the model every mainstream system uses (browsers/KaTeX/MathJax keep
+  // inline math an atomic inline-block) — and the RTL caret/selection/paint
+  // paths treat a chip atomically, so splitting it here would only diverge from
+  // them. An atomic chip still wraps as a WHOLE unit.
+  allowReplacementBreaks: boolean = true,
 ): WrappedLine[] {
   // Get visible text
   const visibleChars = chars.filter((c) => !c.deleted);
@@ -911,12 +952,16 @@ export function wrapText(
 
   // Pre-compute replacement-span layout for wrapping. A replacement run (an
   // inline-math chip) renders as glyphs, not its anchor character, so wrapping
-  // must use its rendered width. A run is one atomic unit: it wraps only as a
-  // whole (moves to its own line; overflows if wider than the line). `chipChars`
-  // flags every char inside a run so the Latin space-backtrack never splits one.
+  // must use its rendered width. A run MAY expose internal break offsets in its
+  // canonical source (math's top-level operators), and then it REFLOWS: the
+  // source is packed into per-line slices below instead of the whole formula
+  // moving as one block. A run without them stays atomic — it wraps only as a
+  // whole and overflows when it is wider than the line. `chipChars` flags every
+  // char inside a run so the Latin space-backtrack never splits one.
   const segFirstWidth = new Map<number, number>();
   const chipTail = new Set<number>();
   const chipChars = new Set<number>();
+  const chipPlans = new Map<number, ChipPlan>();
   // Resolve replacement runs through the SAME tolerant, ordinal-based resolver
   // the paint/caret path uses (`TextNode.replacementRuns`). A strict
   // `startCharId`/`endCharId` lookup dropped a whole chip to plain text — losing
@@ -942,7 +987,77 @@ export function wrapText(
     for (let i = startVis; i <= endVis; i++) chipChars.add(i);
     segFirstWidth.set(startVis, dims.width);
     for (let v = startVis + 1; v <= endVis; v++) chipTail.add(v);
+
+    // Slice boundaries in the run's canonical source: [0, …interior breaks,
+    // length]. A run with no interior break is one whole slice — the classic
+    // atomic chip — and never enters the reflow path below.
+    //
+    // Reflow needs the run to be exactly ONE anchor char: the slices live beside
+    // the line's characters rather than in them, so a run still spelled out as
+    // several compatibility chars (a legacy flat-source chip) has no place to
+    // put its tail and stays atomic.
+    const breaks =
+      allowReplacementBreaks && endVis === startVis
+        ? (replacement.breakpoints?.(text, fontSize) ?? [])
+        : [];
+    const bounds = [
+      0,
+      ...[...new Set(breaks)]
+        .filter((b) => b > 0 && b < text.length)
+        .sort((a, b) => a - b),
+      text.length,
+    ];
+    if (bounds.length <= 2) continue;
+    const widths = new Map<string, number>();
+    chipPlans.set(startVis, {
+      index: startVis,
+      bounds,
+      width: (a, b) => {
+        const key = `${a}:${b}`;
+        const cached = widths.get(key);
+        if (cached !== undefined) return cached;
+        // Each slice is painted and caret-mapped standalone, so it is measured
+        // standalone too — the same string the renderer will lay out.
+        const w =
+          replacement.measure(text.slice(bounds[a], bounds[b]), fontSize)
+            ?.width ?? 0;
+        widths.set(key, w);
+        return w;
+      },
+    });
   }
+
+  /**
+   * Greedily pack a reflowing run's segments into per-line slices: the first
+   * slice gets `firstBudget` (what is left on the current line), each
+   * continuation the full line. A lone segment wider than its budget takes a
+   * slice by itself and overflows — there is nothing finer to break.
+   */
+  const sliceChip = (
+    plan: ChipPlan,
+    firstBudget: number,
+    budget: number,
+  ): ReplacementSlice[] => {
+    const slices: ReplacementSlice[] = [];
+    let from = 0;
+    let limit = firstBudget;
+    while (from < plan.bounds.length - 1) {
+      let to = from + 1;
+      for (let k = from + 2; k < plan.bounds.length; k++) {
+        if (plan.width(from, k) > limit) break;
+        to = k;
+      }
+      slices.push({
+        index: plan.index,
+        sourceStart: plan.bounds[from],
+        sourceEnd: plan.bounds[to],
+        width: plan.width(from, to),
+      });
+      from = to;
+      limit = budget;
+    }
+    return slices;
+  };
 
   const lines: WrappedLine[] = [];
   let currentLine = "";
@@ -953,6 +1068,19 @@ export function wrapText(
   let lineCharWidths: number[] = [];
   let lineCharVis: number[] = [];
 
+  // Replacement slices belonging to the line being filled: `currentLead` opens
+  // it (its run started earlier), `currentSlices` ride with anchor chars on it.
+  let currentLead: ReplacementSlice | undefined;
+  let currentSlices: ReplacementSlice[] = [];
+  const pushLine = (text: string, consumedSpace: boolean): void => {
+    const line: WrappedLine = { text, consumedSpace };
+    if (currentLead) line.leadSlice = currentLead;
+    if (currentSlices.length > 0) line.slices = currentSlices;
+    lines.push(line);
+    currentLead = undefined;
+    currentSlices = [];
+  };
+
   for (
     let visibleIndex = 0;
     visibleIndex < visibleChars.length;
@@ -961,6 +1089,40 @@ export function wrapText(
     const char = visibleChars[visibleIndex].char;
     const isCJK = isCJKCharacter(char);
     const isSpace = char === " ";
+
+    // A reflowing replacement run: pack its source into slices here rather than
+    // letting the generic char path move the whole formula. The first slice
+    // rides with the anchor char; each continuation slice opens its own line, so
+    // the run spans lines it owns no character on.
+    const plan = chipPlans.get(visibleIndex);
+    if (plan) {
+      const started = currentLine.length > 0 || currentLead !== undefined;
+      let slices = sliceChip(plan, maxWidth - currentLineWidth, maxWidth);
+      if (started && slices[0].width > maxWidth - currentLineWidth) {
+        // Not even the first slice fits what is left of this line — break, then
+        // reflow the formula from a full-width line (it may need fewer slices).
+        pushLine(currentLine, false);
+        currentLine = "";
+        currentLineWidth = 0;
+        lineCharWidths = [];
+        lineCharVis = [];
+        slices = sliceChip(plan, maxWidth, maxWidth);
+      }
+      currentLine += char;
+      currentLineWidth += slices[0].width;
+      lineCharWidths.push(slices[0].width);
+      lineCharVis.push(visibleIndex);
+      currentSlices.push(slices[0]);
+      for (let s = 1; s < slices.length; s++) {
+        pushLine(currentLine, false);
+        currentLead = slices[s];
+        currentLine = "";
+        currentLineWidth = slices[s].width;
+        lineCharWidths = [];
+        lineCharVis = [];
+      }
+      continue;
+    }
 
     // Measure this single character (O(1) per character). A replacement segment's
     // first char carries the segment width; the rest carry 0.
@@ -994,13 +1156,13 @@ export function wrapText(
     // not shatter. It always rides with the segment it belongs to.
     if (
       currentLineWidth + charWidth > maxWidth &&
-      currentLine.length > 0 &&
+      (currentLine.length > 0 || currentLead !== undefined) &&
       !isChipTail
     ) {
       // Line is full, need to wrap
       if (isCJK || isSpace || hasCJK) {
         // For CJK or spaces, break here
-        lines.push({ text: currentLine, consumedSpace: isSpace });
+        pushLine(currentLine, isSpace);
         currentLine = isSpace ? "" : char;
         currentLineWidth = isSpace ? 0 : charWidth;
         lineCharWidths = isSpace ? [] : [charWidth];
@@ -1016,9 +1178,18 @@ export function wrapText(
           }
         }
         if (lastSpaceIndex > 0) {
-          // Break at the space
+          // Break at the space. Any anchored slice among the carried-over chars
+          // travels to the new line with them. (Only a run that fit in ONE slice
+          // can be here: a reflowing one ended its line the moment it was
+          // packed, so the carried text never holds a partial formula.)
           const lineToAdd = currentLine.substring(0, lastSpaceIndex);
-          lines.push({ text: lineToAdd, consumedSpace: true });
+          const carriedVis = new Set(lineCharVis.slice(lastSpaceIndex + 1));
+          const carriedSlices = currentSlices.filter((s) =>
+            carriedVis.has(s.index),
+          );
+          currentSlices = currentSlices.filter((s) => !carriedVis.has(s.index));
+          pushLine(lineToAdd, true);
+          currentSlices = carriedSlices;
 
           // Start new line with text after the space + current char
           const afterSpace = currentLine.substring(lastSpaceIndex + 1);
@@ -1040,7 +1211,7 @@ export function wrapText(
           lineCharVis.push(visibleIndex);
         } else {
           // No space found, force break
-          lines.push({ text: currentLine, consumedSpace: false });
+          pushLine(currentLine, false);
           currentLine = char;
           currentLineWidth = charWidth;
           lineCharWidths = [charWidth];
@@ -1056,9 +1227,10 @@ export function wrapText(
     }
   }
 
-  // Add remaining text
-  if (currentLine) {
-    lines.push({ text: currentLine, consumedSpace: false });
+  // Add the remaining text. A trailing line can be textless yet real — the last
+  // slice of a formula that ended the block owns no character.
+  if (currentLine || currentLead || currentSlices.length > 0) {
+    pushLine(currentLine, false);
   }
 
   return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
