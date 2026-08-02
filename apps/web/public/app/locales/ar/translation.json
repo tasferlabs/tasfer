@@ -1248,5 +1248,6 @@
   "devInspector.editor.caretScratch": "حالة المؤشر المؤقتة",
   "devInspector.editor.visible": "الظاهر",
   "devInspector.editor.blockCount": "عدد الكتل: {{count}}",
-  "devInspector.editor.decorations": "طبقات الزخرفة"
+  "devInspector.editor.decorations": "طبقات الزخرفة",
+  "sidebar.accountMenu": "قائمة الحساب"
 }

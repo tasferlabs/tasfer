@@ -17,10 +17,25 @@ import {
 } from "@dnd-kit/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Archive, FileText, PanelLeftClose, Search } from "lucide-react";
+import {
+  Archive,
+  ChevronDown,
+  FileText,
+  PanelLeftClose,
+  Plus,
+  Search,
+  User,
+} from "lucide-react";
 import React, { useState } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import {
   useCreatePage,
@@ -277,6 +292,12 @@ export function SidebarContent({
       parentId,
       spaceId,
     });
+  }
+
+  function openSearch() {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }),
+    );
   }
 
   async function archiveGroup(groupId: string) {
@@ -616,7 +637,12 @@ export function SidebarContent({
         if (siblings[siblings.length - 1]?.id === activeData.id) return;
         reorderPage({ id: activeData.id, order });
       } else if (isCrossSpace) {
-        await moveAcrossSpaces(activeData, targetSpaceId!, targetParentId, order);
+        await moveAcrossSpaces(
+          activeData,
+          targetSpaceId!,
+          targetParentId,
+          order,
+        );
       } else {
         movePage({
           id: activeData.id,
@@ -657,7 +683,93 @@ export function SidebarContent({
 
       {!hasPanel && (
         <>
-          {shouldShowTheProfileAtTop ? (
+          {isMobile ? (
+            /* Mobile collapses the nav list into one toolbar row: the avatar
+               opens a menu holding Settings and Archive, while Search, Calendar
+               and Add space stay visible, so spaces start near the top. */
+            <div
+              className={clsx(
+                style.appSidebarHeader,
+                style.appSidebarHeaderMobile,
+              )}
+            >
+              <DropdownMenu>
+                <DropdownMenuTrigger className={style.mobileAccountTrigger}>
+                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      initials || <User size={16} />
+                    )}
+                  </div>
+                  {displayName && (
+                    <span className="text-sm font-medium text-foreground truncate">
+                      {displayName}
+                    </span>
+                  )}
+                  <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="sr-only">
+                    {t("sidebar.accountMenu", "Account menu")}
+                  </span>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {avatarUrl && (
+                    <>
+                      <DropdownMenuItem
+                        onSelect={() => setAvatarPreviewOpen(true)}
+                      >
+                        {t("profile.viewAvatar", "View avatar")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  <DropdownMenuItem onSelect={() => navigate("/settings")}>
+                    {t("settings.title", "Settings")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate("/archive")}>
+                    {t("archive.title", "Archive")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <span className="flex-1" />
+              <button
+                type="button"
+                className={style.mobileHeaderButton}
+                onClick={openSearch}
+              >
+                <Search size={22} />
+                <span className="sr-only">{t("sidebar.search", "Search")}</span>
+              </button>
+              <NavLink
+                className={({ isActive }) =>
+                  clsx(
+                    style.mobileHeaderButton,
+                    isActive && style.mobileHeaderButtonActive,
+                  )
+                }
+                to={"/calendar"}
+              >
+                <Icons.Calendar width={24} height={24} />
+                <span className="sr-only">
+                  {t("calendar.title", "Calendar")}
+                </span>
+              </NavLink>
+              <button
+                type="button"
+                className={style.mobileHeaderButton}
+                onClick={() => onAddSpace()}
+              >
+                <Plus size={22} />
+                <span className="sr-only">
+                  {t("space.addSpace", "Add space")}
+                </span>
+              </button>
+            </div>
+          ) : shouldShowTheProfileAtTop ? (
             <div className={clsx(style.appSidebarHeader, "gap-3")}>
               <button
                 className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
@@ -732,76 +844,68 @@ export function SidebarContent({
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div
-              className={clsx(
-                style.appNavigationLinks,
-                isMobile &&
-                  !hasSidebarProfile &&
-                  style.appNavigationLinksWithoutProfile,
-                shouldOverlaySidebarClose &&
-                  style.appNavigationLinksWithClose,
-              )}
-            >
-              <button
-                className={style.appNavigationLink}
-                onClick={() => {
-                  document.dispatchEvent(
-                    new KeyboardEvent("keydown", {
-                      key: "k",
-                      metaKey: true,
-                      bubbles: true,
-                    }),
-                  );
-                }}
-              >
-                <div className={style.appNavigationLinkIcon}>
-                  <Search size={20} />
-                </div>
-                {t("sidebar.search", "Search")}
-                {isFine && (
-                  <kbd className={clsx(style.appNavigationLinkShortcut)}>
-                    {/Mac|iPhone|iPad/.test(navigator.platform)
-                      ? "\u2318K"
-                      : "Ctrl+K"}
-                  </kbd>
+            {/* Mobile folds these into the header toolbar above. */}
+            {!isMobile && (
+              <div
+                className={clsx(
+                  style.appNavigationLinks,
+                  shouldOverlaySidebarClose &&
+                    style.appNavigationLinksWithClose,
                 )}
-              </button>
-              <NavLink
-                className={({ isActive }) =>
-                  clsx(style.appNavigationLink, isActive && style.active)
-                }
-                to={"/settings"}
               >
-                <div className={style.appNavigationLinkIcon}>
-                  <Icons.Gear width={24} height={24} />
-                </div>
-                {t("settings.title", "Settings")}
-              </NavLink>
-              <NavLink
-                className={({ isActive }) =>
-                  clsx(style.appNavigationLink, isActive && style.active)
-                }
-                to={"/calendar"}
-              >
-                <div className={style.appNavigationLinkIcon}>
-                  <Icons.Calendar width={24} height={24} />
-                </div>
-                {t("calendar.title", "Calendar")}
-              </NavLink>
-              <ArchiveNavLink />
+                <button
+                  className={style.appNavigationLink}
+                  onClick={openSearch}
+                >
+                  <div className={style.appNavigationLinkIcon}>
+                    <Search size={20} />
+                  </div>
+                  {t("sidebar.search", "Search")}
+                  {isFine && (
+                    <kbd className={clsx(style.appNavigationLinkShortcut)}>
+                      {/Mac|iPhone|iPad/.test(navigator.platform)
+                        ? "\u2318K"
+                        : "Ctrl+K"}
+                    </kbd>
+                  )}
+                </button>
+                <NavLink
+                  className={({ isActive }) =>
+                    clsx(style.appNavigationLink, isActive && style.active)
+                  }
+                  to={"/settings"}
+                >
+                  <div className={style.appNavigationLinkIcon}>
+                    <Icons.Gear width={24} height={24} />
+                  </div>
+                  {t("settings.title", "Settings")}
+                </NavLink>
+                <NavLink
+                  className={({ isActive }) =>
+                    clsx(style.appNavigationLink, isActive && style.active)
+                  }
+                  to={"/calendar"}
+                >
+                  <div className={style.appNavigationLinkIcon}>
+                    <Icons.Calendar width={24} height={24} />
+                  </div>
+                  {t("calendar.title", "Calendar")}
+                </NavLink>
+                <ArchiveNavLink />
 
-              <button
-                className={style.appNavigationLink}
-                onClick={() => {
-                  onAddSpace();
-                }}
-              >
-                <div className={style.appNavigationLinkIcon}>
-                  <Icons.AddGroup />
-                </div>
-                {t("space.addSpace", "Add space")}
-              </button>
-            </div>
+                <button
+                  className={style.appNavigationLink}
+                  onClick={() => {
+                    onAddSpace();
+                  }}
+                >
+                  <div className={style.appNavigationLinkIcon}>
+                    <Icons.AddGroup />
+                  </div>
+                  {t("space.addSpace", "Add space")}
+                </button>
+              </div>
+            )}
 
             <div className={style.appSidebarMain}>
               <ScrollArea className={style.appSidebarScrollArea}>

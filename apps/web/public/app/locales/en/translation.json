@@ -1220,5 +1220,6 @@
   "devInspector.editor.caretScratch": "Caret scratch",
   "devInspector.editor.visible": "Visible",
   "devInspector.editor.blockCount": "{{count}} blocks",
-  "devInspector.editor.decorations": "Decorations"
+  "devInspector.editor.decorations": "Decorations",
+  "sidebar.accountMenu": "Account menu"
 }

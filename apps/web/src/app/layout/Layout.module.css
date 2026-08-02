@@ -250,10 +250,6 @@
     padding-bottom: 0.75rem;
   }
 
-  .appNavigationLinksWithoutProfile {
-    padding-top: 0.75rem;
-  }
-
   .appNavigationLink {
     height: 44px;
     padding-inline: 0.5rem;
@@ -391,6 +387,56 @@
     min-height: 56px;
     padding-inline: 0.75rem;
   }
+}
+
+/* Mobile toolbar row: identity on one side, Search and Create on the other.
+   It replaces the vertical nav list, so the spaces tree starts right below. */
+.appSidebarHeaderMobile {
+  gap: 0.25rem;
+  justify-content: flex-start;
+  border-bottom: 1px solid var(--border);
+  padding-block-end: 0.25rem;
+}
+
+.mobileAccountTrigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  max-width: 55%;
+  padding: 0.25rem 0.375rem;
+  border: none;
+  background: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.mobileAccountTrigger:active {
+  background-color: var(--accent);
+}
+
+.mobileHeaderButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: none;
+  color: var(--foreground);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.mobileHeaderButton:active {
+  background-color: var(--accent);
+  transition: background-color 0.05s ease;
+}
+
+.mobileHeaderButtonActive {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
 }
 
 @media (min-width: 769px) {
