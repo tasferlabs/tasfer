@@ -270,6 +270,17 @@ export function* iterateVisibleChars(
  * causality (afterCharId references a char from a not-yet-applied op) are
  * still handled by the mergeOps slow-path rebuild.
  *
+ * Idempotent per character ID. An insert carrying IDs the sequence already
+ * holds is a REPLAY of characters that once lived here, not new content: the
+ * inverse of `text_delete` re-inserts the ORIGINAL ids (see `invertTextDelete`),
+ * so undoing a delete arrives as an insert of chars the runs still carry as
+ * tombstones. Such an id is resurrected in place — splicing a second copy would
+ * leave two characters sharing one id, and every id → ordinal map downstream
+ * (`resolveMarkRunsFromChars`, the inverse builder, the caret paths) keeps only
+ * the last of them. A mark span anchored on that id would then resolve to the
+ * wrong copy, and to no visible char at all when that copy is the tombstone —
+ * silently dropping the run.
+ *
  * @returns New runs array (does not mutate input)
  */
 export function insertIntoRuns(
@@ -283,6 +294,98 @@ export function insertIntoRuns(
 
   if (newChars.length === 0) return runs;
 
+  if (newChars.some((char) => findCharInRuns(runs, char.id))) {
+    return replayIntoRuns(runs, afterCharId, newChars);
+  }
+
+  return spliceIntoRuns(runs, afterCharId, newChars);
+}
+
+/**
+ * The insert path for a batch that mixes already-present ids with genuinely new
+ * ones. Present ids are resurrected where they already sit (their CRDT position
+ * is the one the sequence recorded); each maximal group of new chars is spliced
+ * after the char preceding it, so the batch keeps its original order.
+ */
+function replayIntoRuns(
+  runs: CharRun[],
+  afterCharId: string | null,
+  newChars: Char[],
+): CharRun[] {
+  let result = runs;
+  let anchor = afterCharId;
+  let pending: Char[] = [];
+
+  const flushPending = (): void => {
+    if (pending.length === 0) return;
+    // `spliceIntoRuns` derives one run from the batch's first id, so it can only
+    // take characters whose ids are consecutive.
+    for (const group of consecutiveIdGroups(pending)) {
+      result = spliceIntoRuns(result, anchor, group);
+      anchor = group[group.length - 1].id;
+    }
+    pending = [];
+  };
+
+  for (const char of newChars) {
+    if (findCharInRuns(result, char.id)) {
+      flushPending();
+      result = restoreInRuns(result, char.id);
+      anchor = char.id;
+    } else {
+      pending.push(char);
+    }
+  }
+  flushPending();
+
+  return result;
+}
+
+/** Split a batch into maximal runs of one peer's consecutive counters. */
+function consecutiveIdGroups(chars: Char[]): Char[][] {
+  const groups: Char[][] = [];
+  for (const char of chars) {
+    const group = groups[groups.length - 1];
+    const last = group?.[group.length - 1];
+    if (
+      last &&
+      extractPeerId(last.id) === extractPeerId(char.id) &&
+      extractCounter(last.id) + 1 === extractCounter(char.id)
+    ) {
+      group.push(char);
+    } else {
+      groups.push([char]);
+    }
+  }
+  return groups;
+}
+
+/** Clear one character's tombstone bit, leaving its position untouched. */
+function restoreInRuns(runs: CharRun[], charId: string): CharRun[] {
+  const location = findCharInRuns(runs, charId);
+  if (!location || !location.deleted) return runs;
+
+  const run = runs[location.runIndex];
+  const mask = [...(run.deletedMask ?? [])];
+  const byteIndex = Math.floor(location.offset / 8);
+  const bitIndex = location.offset % 8;
+  if (byteIndex >= mask.length) return runs;
+  mask[byteIndex] &= ~(1 << bitIndex);
+
+  const result = [...runs];
+  result[location.runIndex] = {
+    ...run,
+    deletedMask: mask.some((byte) => byte !== 0) ? mask : undefined,
+  };
+  return result;
+}
+
+/** Place a batch of not-yet-present characters at its RGA position. */
+function spliceIntoRuns(
+  runs: CharRun[],
+  afterCharId: string | null,
+  newChars: Char[],
+): CharRun[] {
   const firstChar = newChars[0];
   const newRun: CharRun = {
     peerId: extractPeerId(firstChar.id),
