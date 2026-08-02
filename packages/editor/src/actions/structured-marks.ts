@@ -32,6 +32,7 @@ import {
 import { applyOp } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
 import {
+  adoptAttachmentsFromPage,
   canonicalizeStructuredDocument,
   type StructuredContentMap,
   type StructuredDocument,
@@ -115,6 +116,65 @@ export function cloneStructuredBlockContent(
     });
   }
   return { structuredContent, clonedContentIds, ops };
+}
+
+/**
+ * A copy of `block` with the attachments its structured marks reference but no
+ * longer carry adopted back from the rest of the page (tombstoned donors
+ * included) — the write-side counterpart of the reducer's mark_set heal. A
+ * merge or split cloning this block then re-addresses a previously dangling
+ * reference into a proper target-scoped clone instead of fossilizing it.
+ */
+export function withAdoptedMarkAttachments<T extends Block>(
+  block: T,
+  page: Page,
+  schema: DataSchema,
+): T {
+  if (!isTextualBlock(block)) return block;
+  const references = block.formats.flatMap((span) =>
+    schema.structuredMarkReferences(span.format.type, {
+      mark: span.format,
+      attachments: block.structuredContent,
+    }),
+  );
+  if (references.length === 0) return block;
+  const adopted = adoptAttachmentsFromPage(page, block, references);
+  if (!adopted) return block;
+  return {
+    ...block,
+    structuredContent: { ...(block.structuredContent ?? {}), ...adopted },
+  };
+}
+
+/**
+ * Whether every attachment `block`'s marks reference AND `block` actually owns
+ * received a target-scoped clone.
+ *
+ * The re-addressing step downstream falls back to the source mark verbatim when
+ * a feature declines to rewrite it, which is right for a plain mark but writes
+ * an unsatisfiable reference into the log for a structured one — the attachment
+ * stays on the source block, which the same transaction tombstones. Callers
+ * check this first and take their existing refusal branch instead.
+ *
+ * A reference the source does not own either is already broken: no clone could
+ * repair it, so it must not block the edit.
+ */
+export function structuredMarkClonesComplete(
+  block: Block,
+  clonedContentIds: Readonly<Record<string, string>>,
+  schema: DataSchema,
+): boolean {
+  if (!isTextualBlock(block)) return true;
+  const attachments = block.structuredContent;
+  if (!attachments || Object.keys(attachments).length === 0) return true;
+  return block.formats.every((span) =>
+    schema
+      .structuredMarkReferences(span.format.type, {
+        mark: span.format,
+        attachments,
+      })
+      .every((contentId) => !attachments[contentId] || clonedContentIds[contentId]),
+  );
 }
 
 /**

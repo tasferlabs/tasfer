@@ -154,6 +154,45 @@ export function carryStructuredContent<Target>(
   return { ...target, structuredContent: source.structuredContent };
 }
 
+/**
+ * Documents for `contentIds` that are missing on `host` but present on another
+ * block of the page — tombstoned donors included, since a block merge deletes
+ * the donor in the same transaction that re-marks the moved anchor.
+ *
+ * This is the read-side repair for marks whose attachment reference points at
+ * a block that no longer owns it (a merge or paste that could not clone kept
+ * the old content id). The documents are copied, not moved: the donor keeps
+ * its entry, which nothing renders once every referencing mark is healed.
+ * Returns undefined when there is nothing to adopt.
+ */
+export function adoptAttachmentsFromPage(
+  page: {
+    readonly blocks: ReadonlyArray<{
+      readonly id: string;
+      readonly structuredContent?: StructuredContentMap;
+    }>;
+  },
+  host: {
+    readonly id: string;
+    readonly structuredContent?: StructuredContentMap;
+  },
+  contentIds: readonly string[],
+): StructuredContentMap | undefined {
+  let adopted: Record<string, StructuredDocument> | undefined;
+  for (const contentId of contentIds) {
+    if (host.structuredContent?.[contentId]) continue;
+    for (const donor of page.blocks) {
+      if (donor.id === host.id) continue;
+      const document = donor.structuredContent?.[contentId];
+      if (document) {
+        (adopted ??= {})[contentId] = document;
+        break;
+      }
+    }
+  }
+  return adopted;
+}
+
 /** One schema-independent mutation inside a structured document. */
 export type StructuredEdit =
   | {

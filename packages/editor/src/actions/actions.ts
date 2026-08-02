@@ -94,7 +94,9 @@ import {
   selectionIntersectsStructuredMark,
   selectionPartiallyIntersectsStructuredMark,
   structuredMarkAttachmentCleanupOps,
+  structuredMarkClonesComplete,
   structuredMarkContentIdsFrom,
+  withAdoptedMarkAttachments,
 } from "./structured-marks";
 import { wrapSelectionOnInput } from "./wrap-selection";
 
@@ -570,6 +572,11 @@ export function mergeBlocksOps(
     };
   }
 
+  // Re-adopt any attachment a source mark references but the block no longer
+  // carries (a local view that dropped it, or an earlier merge that fossilized
+  // a cross-block reference) so the clone below re-addresses it properly.
+  source = withAdoptedMarkAttachments(source, page, schema);
+
   const sourceStructuredMarks = resolveStructuredMarkRanges(source, schema);
   const clonedContent =
     sourceStructuredMarks.length > 0
@@ -580,8 +587,15 @@ export function mergeBlocksOps(
           ops: [] as const,
         };
   // A feature that cannot clone one of its attachments keeps the old
-  // conservative behavior: do not tombstone the only block that owns it.
-  if (!clonedContent) {
+  // conservative behavior: do not tombstone the only block that owns it. The
+  // same refusal covers a clone that silently skipped an attachment a mark
+  // still references — re-addressing below would keep the source-scoped id and
+  // strand it on the block this merge deletes. Checked before any op is
+  // emitted, so the refusal leaves nothing behind.
+  if (
+    !clonedContent ||
+    !structuredMarkClonesComplete(source, clonedContent.clonedContentIds, schema)
+  ) {
     return {
       newPage: page,
       ops,
@@ -3081,8 +3095,16 @@ export function splitBlock(state: EditorState): ActionResult {
   // clone itself is delayed until the block_insert is stamped in step 4: op
   // ids/clocks and batch order must all put the host block before its content.
   const newBlockId = state.CRDTbinding.nextId();
-  const movingContentIds = structuredMarkContentIdsFrom(
+  // Same re-adoption as the merge path: a run whose attachment reference went
+  // stale would otherwise be skipped by the "moves with the trailing text"
+  // filter and carried to block 2 as a reference nothing can resolve.
+  const splitSource = withAdoptedMarkAttachments(
     oldBlock,
+    state.document.page,
+    state.schema,
+  );
+  const movingContentIds = structuredMarkContentIdsFrom(
+    splitSource,
     textIndex,
     state.schema,
   );
@@ -3408,7 +3430,7 @@ export function splitBlock(state: EditorState): ActionResult {
   const movedAttachments =
     movingContentIds.size > 0
       ? cloneStructuredBlockContent(
-          oldBlock,
+          splitSource,
           newBlockId,
           state.CRDTbinding,
           state.schema,
@@ -4487,33 +4509,45 @@ export function convertToList(
 
   if (!isTextualBlock(oldBlock)) return { state, ops: [] };
 
-  // Create new list block
+  // Create new list block. The literal is rebuilt from scratch, so it must
+  // carry the block's attachments explicitly — the `block_set type` reducer
+  // keeps them, and a local view that dropped them would render a chip the
+  // op log still describes (and fossilize the loss into the next merge).
   let newBlock: Block;
   if (listType === "bullet_list") {
-    newBlock = {
-      id: oldBlock.id,
-      type: "bullet_list",
-      charRuns: oldBlock.charRuns,
-      formats: oldBlock.formats,
-      indent: 0,
-    };
+    newBlock = carryStructuredContent(
+      {
+        id: oldBlock.id,
+        type: "bullet_list",
+        charRuns: oldBlock.charRuns,
+        formats: oldBlock.formats,
+        indent: 0,
+      },
+      oldBlock,
+    );
   } else if (listType === "numbered_list") {
-    newBlock = {
-      id: oldBlock.id,
-      type: "numbered_list",
-      charRuns: oldBlock.charRuns,
-      formats: oldBlock.formats,
-      indent: 0,
-    };
+    newBlock = carryStructuredContent(
+      {
+        id: oldBlock.id,
+        type: "numbered_list",
+        charRuns: oldBlock.charRuns,
+        formats: oldBlock.formats,
+        indent: 0,
+      },
+      oldBlock,
+    );
   } else {
-    newBlock = {
-      id: oldBlock.id,
-      type: "todo_list",
-      charRuns: oldBlock.charRuns,
-      formats: oldBlock.formats,
-      checked: false,
-      indent: 0,
-    };
+    newBlock = carryStructuredContent(
+      {
+        id: oldBlock.id,
+        type: "todo_list",
+        charRuns: oldBlock.charRuns,
+        formats: oldBlock.formats,
+        checked: false,
+        indent: 0,
+      },
+      oldBlock,
+    );
   }
 
   invalidateBlockCache(newBlock);

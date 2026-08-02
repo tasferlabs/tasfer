@@ -47,6 +47,7 @@ import { sortBlocksByOrder } from "./crdt-utils";
 import { compareHLC } from "./hlc";
 import type { DataSchema } from "./schema";
 import {
+  adoptAttachmentsFromPage,
   applyStructuredMutation,
   canonicalizeStructuredDocument,
   hasStructuredBlockAuthority,
@@ -254,7 +255,11 @@ function applyContentEdit(state: Page, op: ContentEdit): Page {
  * algorithm — they must stay in sync, otherwise the locally-rendered state
  * diverges from what remote peers compute from the same op.
  */
-function applyFormatSet(state: Page, op: MarkSet): Page {
+function applyFormatSet(
+  state: Page,
+  op: MarkSet,
+  schema: DataSchema = getBaseDataSchema(),
+): Page {
   const blockIndex = findBlockIndex(state, op.blockId);
 
   if (blockIndex === -1) {
@@ -430,9 +435,36 @@ function applyFormatSet(state: Page, op: MarkSet): Page {
     newFormats = [...kept, newSpan];
   }
 
+  // Heal a structured mark whose attachment lives on another block: a merge or
+  // paste that could not clone keeps the old content id, and the referenced
+  // document stays behind on the (often just-deleted) donor block. Attachments
+  // are block-scoped everywhere else, so adopt a copy onto the host — the mark
+  // resolves again and the dangling reference stops fossilizing. Deterministic
+  // under replay: the donor's state at this op's position in the log is the
+  // same on every replica.
+  const references =
+    op.value !== false
+      ? schema.structuredMarkReferences(op.format.type, {
+          mark: op.format,
+          attachments: block.structuredContent,
+        })
+      : [];
+  const adopted =
+    references.length > 0
+      ? adoptAttachmentsFromPage(state, block, references)
+      : undefined;
+
   const updatedBlock: Block = {
     ...block,
     formats: newFormats,
+    ...(adopted
+      ? {
+          structuredContent: {
+            ...(block.structuredContent ?? {}),
+            ...adopted,
+          },
+        }
+      : {}),
   };
 
   const newBlocks = [...state.blocks];
@@ -654,7 +686,7 @@ export function applyOp(
     case "text_delete":
       return applyTextDelete(state, op);
     case "mark_set":
-      return applyFormatSet(state, op);
+      return applyFormatSet(state, op, schema);
     case "block_insert":
       return applyBlockInsert(state, op, schema);
     case "block_delete":
