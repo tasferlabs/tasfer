@@ -5,6 +5,7 @@
 #   bundle exec fastlane ios beta         TestFlight
 #   bundle exec fastlane ios release      App Store, submits for review
 #   bundle exec fastlane ios screenshots  App Store screenshots only (see the lane)
+#   bundle exec fastlane android closed   Play closed-testing track
 #   bundle exec fastlane android beta     Play open-testing track
 #   bundle exec fastlane android release  Play production, submits for review
 #
@@ -48,6 +49,14 @@ DEFAULT_LANG = "en"
 
 # Play caps changelogs at 500 chars/locale; TestFlight + App Store allow 4000.
 PLAY_CHANGELOG_MAX = 500
+
+# Play's default closed-testing track is named "alpha" in the API ("Closed
+# testing - Alpha" in the console). Set PLAY_CLOSED_TRACK if the release goes to
+# a custom closed track instead — the value is the track's API name.
+def play_closed_track
+  track = ENV["PLAY_CLOSED_TRACK"].to_s.strip
+  track.empty? ? "alpha" : track
+end
 
 NOTE_LOCALES = {
   "en" => { asc: "en-US", play: "en-US" },
@@ -404,21 +413,34 @@ platform :ios do
   end
 end
 
+# Build + upload for the testing tracks. Production has its own lane because it
+# carries the review-submission flags.
+def upload_android_testing_track(track)
+  ensure_java_home
+  stage_android_changelog(release_notes_by_lang)
+  gradle(project_dir: "apps/android", task: "clean")
+  gradle(project_dir: "apps/android", task: "bundle", build_type: "Release")
+  upload_to_play_store(
+    track: track,
+    aab: AAB_PATH,
+    skip_upload_metadata: true,
+    skip_upload_changelogs: false, # upload the staged changelog
+    skip_upload_images: true,
+    skip_upload_screenshots: true,
+  )
+end
+
 platform :android do
+  desc "Build a signed AAB and upload to the Play closed-testing track"
+  lane :closed do
+    track = play_closed_track
+    upload_android_testing_track(track)
+    UI.success("Android AAB uploaded to Play closed-testing track '#{track}' 🤖")
+  end
+
   desc "Build a signed AAB and upload to the Play open-testing track"
   lane :beta do
-    ensure_java_home
-    stage_android_changelog(release_notes_by_lang)
-    gradle(project_dir: "apps/android", task: "clean")
-    gradle(project_dir: "apps/android", task: "bundle", build_type: "Release")
-    upload_to_play_store(
-      track: "beta", # Play API name for the Open testing track
-      aab: AAB_PATH,
-      skip_upload_metadata: true,
-      skip_upload_changelogs: false, # upload the staged changelog
-      skip_upload_images: true,
-      skip_upload_screenshots: true,
-    )
+    upload_android_testing_track("beta") # Play API name for the Open testing track
     UI.success("Android AAB uploaded to Play open-testing track 🤖")
   end
 

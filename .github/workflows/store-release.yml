@@ -10,6 +10,8 @@ name: Store Release
 #
 # Dispatching with track "release" IS the review-submission confirmation
 # (RELEASE_CONFIRM=yes below); "beta" goes to TestFlight / Play open testing.
+# "closed" is Play-only — TestFlight is already closed testing, so the iOS job
+# is skipped for it and "beta" covers the equivalent iOS distribution.
 #
 # iOS signing uses Xcode cloud-managed signing via the ASC API key — no
 # certificate export. The key needs the Admin role the first time (to create
@@ -23,10 +25,14 @@ on:
         options: [both, ios, android]
         default: both
       track:
-        description: "beta = TestFlight / Play open testing; release = store review"
+        description: "closed = Play closed testing (Android only); beta = TestFlight / Play open testing; release = store review"
         type: choice
-        options: [beta, release]
+        options: [closed, beta, release]
         default: beta
+      play_closed_track:
+        description: "Closed-testing track API name (track = closed only; blank = alpha)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -41,7 +47,8 @@ defaults:
 
 jobs:
   ios:
-    if: inputs.platform != 'android'
+    # "closed" has no iOS counterpart — TestFlight is already closed testing.
+    if: inputs.platform != 'android' && inputs.track != 'closed'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -175,5 +182,6 @@ jobs:
       - name: Build and upload
         env:
           PLAY_JSON_KEY_PATH: ${{ runner.temp }}/play-key.json
+          PLAY_CLOSED_TRACK: ${{ inputs.play_closed_track }}
           RELEASE_CONFIRM: yes
         run: bundle exec fastlane android ${{ inputs.track }}
