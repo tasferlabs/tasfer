@@ -30,6 +30,8 @@ import {
   MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_PAGE_DOWN,
+  MOVE_CURSOR_PAGE_UP,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
   MOVE_TO_LINE_END,
@@ -293,6 +295,30 @@ describe("tree-backed display math state integration", () => {
       expect(moved.state.document.cursor).toBeNull();
     },
   );
+
+  it("takes PageUp/PageDown out of the equation into the host document", () => {
+    // The nested caret is the equation's ONLY caret, so the generic page movers
+    // — which read the flat cursor and clear everything else first — used to
+    // leave the document with no caret at all.
+    const before = placeTreeCaret(
+      treeState("$$\nabc\n$$\n\nsecond\n\nthird"),
+      1,
+    );
+
+    const down = before.actionBus.dispatchState(MOVE_CURSOR_PAGE_DOWN, before, {
+      viewport,
+    });
+    expect(down.claimed).toBe(true);
+    expect(down.state.document.contentSelection).toBeNull();
+    expect(down.state.document.cursor?.position.blockIndex).toBeGreaterThan(0);
+
+    const up = before.actionBus.dispatchState(MOVE_CURSOR_PAGE_UP, before, {
+      viewport,
+    });
+    expect(up.claimed).toBe(true);
+    expect(up.state.document.contentSelection).toBeNull();
+    expect(up.state.document.cursor).not.toBeNull();
+  });
 
   it.each([
     ["Home", EXTEND_SELECTION_HOME, 0],

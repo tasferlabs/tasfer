@@ -15,6 +15,8 @@ import {
 } from "../actions/input-actions";
 import {
   EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_END,
+  EXTEND_SELECTION_HOME,
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
   EXTEND_SELECTION_UP,
@@ -23,8 +25,13 @@ import {
   MOVE_CONTENT_TAB,
   MOVE_CURSOR_DOWN,
   MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_PAGE_DOWN,
+  MOVE_CURSOR_PAGE_UP,
   MOVE_CURSOR_RIGHT,
   MOVE_CURSOR_UP,
+  MOVE_TO_DOCUMENT_START,
+  MOVE_TO_LINE_END,
+  MOVE_TO_LINE_START,
   MOVE_TO_NEXT_WORD,
   MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
@@ -1357,6 +1364,110 @@ describe("interactive structured MathMark", () => {
       const fromEnd = exitFrom(latex.length);
       expect(fromStart).toBeGreaterThanOrEqual(0);
       expect(fromEnd).toBeGreaterThan(fromStart);
+    });
+  });
+
+  describe("line edges from inside a chip", () => {
+    // Flat text: `a ␣ b` — the chip is one anchor char at index 2.
+    const hosted = () =>
+      enterMathOffset(chipState("inline-line-edge", "a $x$ b"), 1);
+
+    it("moves to the host line's edges on Home and End", () => {
+      // Regression: the generic movers read the flat cursor an active chip
+      // deliberately has none of, so their `clearSelection` dropped the nested
+      // caret and left the document caretless — the next keystroke then
+      // resolved against the document's start.
+      const before = hosted();
+
+      const home = before.actionBus.dispatchState(MOVE_TO_LINE_START, before);
+      expect(home.claimed).toBe(true);
+      expect(home.ops).toEqual([]);
+      expect(home.state.document.contentSelection).toBeNull();
+      expect(home.state.document.cursor?.position).toEqual({
+        blockIndex: 0,
+        textIndex: 0,
+      });
+
+      const end = before.actionBus.dispatchState(MOVE_TO_LINE_END, before);
+      expect(end.claimed).toBe(true);
+      expect(end.state.document.contentSelection).toBeNull();
+      expect(end.state.document.cursor?.position).toEqual({
+        blockIndex: 0,
+        textIndex: flatText(before).length,
+      });
+    });
+
+    it("covers the chip whole when Shift+Home/Shift+End extend out of it", () => {
+      const before = hosted();
+
+      const home = before.actionBus.dispatchState(
+        EXTEND_SELECTION_HOME,
+        before,
+        { isCtrl: false },
+      );
+      expect(home.claimed).toBe(true);
+      expect(home.state.document.contentSelection).toBeNull();
+      expect(getSelectionRange(home.state)).toEqual({
+        start: { blockIndex: 0, textIndex: 0 },
+        end: { blockIndex: 0, textIndex: 3 },
+      });
+
+      const end = before.actionBus.dispatchState(EXTEND_SELECTION_END, before, {
+        isCtrl: false,
+      });
+      expect(end.claimed).toBe(true);
+      expect(getSelectionRange(end.state)).toEqual({
+        start: { blockIndex: 0, textIndex: 2 },
+        end: { blockIndex: 0, textIndex: flatText(before).length },
+      });
+    });
+
+    it("takes PageUp/PageDown out of the chip into the host document", () => {
+      // Same defect as Home/End: the generic page movers see no flat cursor and
+      // clear the nested one, so the press used to end with no caret at all.
+      const before = enterMathOffset(
+        chipState("inline-page", "a $x$ b\n\nsecond\n\nthird"),
+        1,
+      );
+
+      const down = before.actionBus.dispatchState(
+        MOVE_CURSOR_PAGE_DOWN,
+        before,
+        {
+          viewport,
+        },
+      );
+      expect(down.claimed).toBe(true);
+      expect(down.ops).toEqual([]);
+      expect(down.state.document.contentSelection).toBeNull();
+      expect(down.state.document.cursor?.position.blockIndex).toBeGreaterThan(
+        0,
+      );
+
+      const up = before.actionBus.dispatchState(MOVE_CURSOR_PAGE_UP, before, {
+        viewport,
+      });
+      expect(up.claimed).toBe(true);
+      expect(up.state.document.contentSelection).toBeNull();
+      expect(up.state.document.cursor?.position).toEqual({
+        blockIndex: 0,
+        textIndex: 0,
+      });
+    });
+
+    it("leaves the document edges to the generic handlers", () => {
+      // Ctrl+Home/Ctrl+End already target a flat position, so the chip has
+      // nothing to add — but the caret must still survive the trip out.
+      const before = hosted();
+      const moved = before.actionBus.dispatchState(
+        MOVE_TO_DOCUMENT_START,
+        before,
+      );
+      expect(moved.state.document.contentSelection).toBeNull();
+      expect(moved.state.document.cursor?.position).toEqual({
+        blockIndex: 0,
+        textIndex: 0,
+      });
     });
   });
 

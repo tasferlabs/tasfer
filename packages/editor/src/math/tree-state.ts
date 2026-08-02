@@ -8,11 +8,18 @@ import { getBlockDirection } from "../rtl";
 import {
   isNodeSelection,
   moveCursorLeft,
+  moveCursorPageDown,
+  moveCursorPageUp,
   moveCursorRight,
   moveCursorToPosition,
 } from "../selection";
 import type { Block } from "../serlization/loadPage";
-import type { ContentEdit, EditorState, Operation } from "../state-types";
+import type {
+  ContentEdit,
+  EditorState,
+  Operation,
+  ViewportState,
+} from "../state-types";
 import {
   type ContentPoint,
   contentPointsEqual,
@@ -437,6 +444,31 @@ export function exitActiveMathTreeVertically(
     ),
     ops: [],
     handled: true,
+  };
+}
+
+/**
+ * PageUp/PageDown from inside a structured equation.
+ *
+ * The nested caret is the only one an active equation has, so the generic page
+ * movers — which read the flat cursor and clear everything else first — would
+ * leave the document caretless. Leave through the equation's vertical edge
+ * (the ↑/↓ contract, edge paragraph included) and take the page jump from the
+ * block that lands.
+ */
+export function movePageFromActiveMathTree(
+  state: EditorState,
+  direction: "up" | "down",
+  viewport?: ViewportState,
+): MathTreeStateEditResult | undefined {
+  const exited = exitActiveMathTreeVertically(state, direction);
+  if (!exited) return undefined;
+  return {
+    ...exited,
+    state:
+      direction === "up"
+        ? moveCursorPageUp(exited.state, viewport)
+        : moveCursorPageDown(exited.state, viewport),
   };
 }
 
