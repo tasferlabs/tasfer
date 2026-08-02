@@ -80,6 +80,7 @@ import {
   mathTreeCaretToContentSelection,
 } from "../../math/tree-selection";
 import {
+  getInlineMathBreakpoints,
   getInlineMathCaretRect,
   getInlineMathDims,
   getInlineMathOffsetAtX,
@@ -310,6 +311,10 @@ const inlineMathReplacement: MarkReplacement = {
     }
     return null;
   },
+  // Top-level operators and relations: a long formula reflows across lines
+  // there, exactly where AMS-style display math breaks. A lone construct (a
+  // fraction, a delimited group) has none, so it stays atomic.
+  breakpoints: (text) => getInlineMathBreakpoints(text),
   measure(text, fontSize, edit) {
     if (text.length === 0) return emptyChipDims(fontSize * INLINE_MATH_SCALE);
     return getInlineMathDims(

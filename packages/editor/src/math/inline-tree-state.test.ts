@@ -1287,11 +1287,10 @@ describe("interactive structured MathMark", () => {
     expect(caret.height).toBeGreaterThan(0);
   });
 
-  it("keeps a chip wider than the line as one atomic overflowing box", () => {
-    // A chip wraps only as a whole unit: there are no operator breakpoints
-    // anymore, so a formula wider than the line overflows instead of being
-    // divided across lines at flat offsets that no longer exist.
-    const latex = "a+b+c+d+e+f+g+h+i+j+k+l+m+n+o+p";
+  it("keeps a chip with no break point as one atomic overflowing box", () => {
+    // A formula reflows at its top-level operators; a lone construct has none,
+    // so it stays one unit and overflows the line rather than splitting.
+    const latex = "\\frac{\\frac{a}{b}}{c}";
     const state = enterMathOffset(
       chipState("inline-atomic-chip", `$${latex}$`),
       latex.length,
@@ -1302,14 +1301,14 @@ describe("interactive structured MathMark", () => {
     const layout = node.layout({
       block,
       blockIndex: 0,
-      maxWidth: 105,
+      maxWidth: 10,
       isFirst: true,
       styles: getEditorStyles(state),
       marks: state.marks,
     }) as TextNodeLayout;
 
     expect(layout.lines).toHaveLength(1);
-    expect(layout.lines[0].width).toBeGreaterThan(105);
+    expect(layout.lines[0].width).toBeGreaterThan(10);
   });
 
   describe("vertical exit from a chip", () => {
@@ -1345,8 +1344,11 @@ describe("interactive structured MathMark", () => {
       // formula would exit at the same place, near the line's start. The exit is
       // resolved geometrically instead, so a caret at the formula's end lands
       // further along the line above than one at its start.
-      const latex = "a+b+c+d+e+f";
-      const wrapped = `alpha beta gamma delta epsilon zeta $${latex}$ tail`;
+      // A radical has no top-level break, so the chip stays one unit and moves
+      // to the line below the prose whole — the case with a line above it.
+      const latex = "\\sqrt{a+b+c+d+e+f+g+h}";
+      const prose = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
+      const wrapped = `${prose} $${latex}$ tail`;
       const exitFrom = (sourceOffset: number) => {
         const before = enterMathOffset(
           chipState(`inline-column-${sourceOffset}`, wrapped),
