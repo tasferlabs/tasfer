@@ -1,0 +1,73 @@
+/* Site-wide beta notice. Sits in the flow above every page's own header and
+   scrolls away with the content; the overlay headers (landing, download,
+   privacy) ride down with it through --site-banner-h (globals.css). */
+
+.site-banner {
+  position: relative;
+  z-index: 80;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-display);
+}
+
+[data-beta-banner="off"] .site-banner {
+  display: none;
+}
+
+.site-banner-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.site-banner-tag {
+  margin-inline-end: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.site-banner-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+
+.site-banner-dismiss {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.site-banner-dismiss:hover {
+  color: var(--primary);
+}
+.site-banner-dismiss:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .site-banner-inner {
+    padding: 8px 16px;
+    gap: 12px;
+  }
+  .site-banner-text {
+    font-size: 12px;
+  }
+  .site-banner-tag {
+    margin-inline-end: 8px;
+  }
+}

@@ -13,12 +13,16 @@ import "@fontsource/space-grotesk/500.css";
 import "@fontsource/space-grotesk/600.css";
 import "@fontsource/space-grotesk/700.css";
 
+import { BetaBanner } from "@/components/BetaBanner";
 import { getDictionary, isLng, SUPPORTED_LNGS } from "@/lib/i18n/locales";
 import { getOgImage } from "@/lib/og";
 import { Providers } from "@/providers/Providers";
 
 const SITE_ORIGIN = "https://www.tasfer.app";
 const themeScript = `(function(){try{var t=localStorage.getItem('theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;if(d){r.classList.add('dark');}r.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
+// Marks a previously dismissed beta banner before first paint, so the bar and
+// the space it reserves never flash in for a returning visitor.
+const bannerScript = `(function(){try{if(localStorage.getItem('tasfer.banner.beta')==='dismissed'){document.documentElement.setAttribute('data-beta-banner','off');}}catch(e){}})();`;
 
 export const dynamicParams = false;
 
@@ -74,7 +78,11 @@ export default async function LocaleLayout({
     <html lang={lang} dir="ltr" suppressHydrationWarning>
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        <Providers lng={lang}>{children}</Providers>
+        <script dangerouslySetInnerHTML={{ __html: bannerScript }} />
+        <Providers lng={lang}>
+          <BetaBanner />
+          {children}
+        </Providers>
       </body>
     </html>
   );

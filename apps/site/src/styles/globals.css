@@ -111,6 +111,24 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* How much of the beta banner (components/BetaBanner.tsx) is still on screen —
+   the offset the overlay headers use so they don't cover it. The values below
+   are the pre-paint estimate of its height; the banner keeps the var in step
+   with the scroll position from mount on (as an inline style, which wins over
+   these rules), and the inline layout script sets data-beta-banner="off" before
+   first paint when the visitor dismissed it earlier. */
+:root {
+  --site-banner-h: 44px;
+}
+@media (max-width: 720px) {
+  :root {
+    --site-banner-h: 76px;
+  }
+}
+[data-beta-banner="off"] {
+  --site-banner-h: 0px;
+}
+
 /* Direction-aware inline arrow (see components/DirArrow.tsx). Mirrored by
    transform rather than by leaving a Bidi_Mirrored "←"/"→" in a translation. */
 .dir-arrow {

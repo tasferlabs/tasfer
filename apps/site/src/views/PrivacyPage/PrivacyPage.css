@@ -29,7 +29,8 @@
 
 .privacy-header {
   position: fixed;
-  inset: 0 0 auto;
+  /* Rides below the beta banner until it has scrolled away (BetaBanner.tsx). */
+  inset: var(--site-banner-h, 0px) 0 auto;
   z-index: 50;
   background: transparent;
   transition:

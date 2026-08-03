@@ -714,6 +714,16 @@ export default function HomePage() {
                 {t("home.lp.hero.readSource", "read the source")}
               </a>
             </div>
+            <p className="lp-hero-beta">
+              <span className="lp-hero-beta-dot" aria-hidden="true" />
+              <span>
+                <strong>{t("home.lp.hero.betaTitle", "Public beta.")}</strong>{" "}
+                {t(
+                  "home.lp.hero.betaBody",
+                  "It runs, it syncs, and it will break. Nothing you write here is guaranteed to survive an update — keep a copy elsewhere.",
+                )}
+              </span>
+            </p>
             <div className="lp-hero-meta">
               <span className="lp-hero-tagline">
                 {t("home.lp.hero.metaTailOpenSource", "Open source project")}

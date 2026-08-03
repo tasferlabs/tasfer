@@ -92,7 +92,9 @@
      and shows through it. Transparent at the top; gains a blurred backdrop
      only once scrolled, so content stays legible under it further down. */
   position: fixed;
-  top: 0;
+  /* Rides below the beta banner until it has scrolled away, then pins to the
+     top of the viewport (see components/BetaBanner.tsx). */
+  top: var(--site-banner-h, 0px);
   left: 0;
   right: 0;
   z-index: 50;
@@ -349,6 +351,33 @@
 .lp-btn svg {
   width: 16px;
   height: 16px;
+}
+
+/* Beta caveat under the hero CTAs — same warning the top banner carries, in the
+   one place a first-time reader is deciding whether to trust the app. */
+.lp-hero-beta {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 480px;
+  margin-top: 32px;
+  color: var(--cy-muted-fg);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.lp-hero-beta strong {
+  color: var(--fg);
+  font-weight: 500;
+}
+.lp-hero-beta-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 4px oklch(from var(--primary) l c h / 0.15);
+  animation: lp-pulse-dot 2.4s ease-in-out infinite;
 }
 
 .lp-hero-meta {
