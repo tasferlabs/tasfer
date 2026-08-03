@@ -12,6 +12,7 @@
   "docs.tag": "docs",
   "common.toggleTheme": "Toggle theme",
   "docs.a11y.openNavigation": "Open navigation",
+  "docs.a11y.navigation": "Documentation navigation",
   "docs.a11y.home": "Tasfer documentation home",
   "docs.copy.a11y": "Copy code",
   "docs.copy.copy": "Copy",

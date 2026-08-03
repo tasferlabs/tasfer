@@ -45,6 +45,12 @@
     0 0 0 0.5px oklch(0 0 0 / 0.04), 0 2px 6px oklch(0 0 0 / 0.04),
     0 12px 32px oklch(0 0 0 / 0.1), 0 28px 56px oklch(0 0 0 / 0.06);
 
+  /* Where the docs chrome ends in the viewport: the 60px header, plus whatever
+     of the beta banner is still on screen above it (components/BetaBanner.tsx).
+     The header itself needs no offset — it is sticky, so it follows the banner
+     out on its own — but everything pinned beneath it does. */
+  --dx-chrome-top: calc(60px + var(--site-banner-h, 0px));
+
   position: relative;
   width: 100%;
   min-height: 100vh;
@@ -652,6 +658,17 @@
   background: var(--border);
   border-radius: 8px;
 }
+.dx-page .dx-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 .dx-page .dx-menu-btn {
   display: none;
   background: transparent;
@@ -698,12 +715,58 @@
 }
 .dx-page .dx-sidebar {
   position: sticky;
-  top: 60px;
-  height: calc(100vh - 60px);
+  top: var(--dx-chrome-top);
+  height: calc(100vh - var(--dx-chrome-top));
   overflow-y: auto;
   border-right: 1px solid var(--border);
   padding: 24px 18px 64px 24px;
 }
+/* Site links at the foot of the drawer. They duplicate the header nav, which is
+   still visible at these widths, so they only appear once the header collapses
+   its own nav (860px) and the drawer is the only menu left. */
+.dx-page .dx-sidebar-site {
+  display: none;
+}
+@media (max-width: 860px) {
+  .dx-page .dx-sidebar-site {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    margin-top: 32px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  /* Same row as every other nav entry — the icon is what says what it does,
+     not a box around it. */
+  .dx-page .dx-sidebar-site .dx-nav-link,
+  .dx-page .dx-sidebar-site .dx-theme-btn {
+    min-height: 40px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px 6px 22px;
+    border-radius: var(--cy-radius-sm);
+    font-size: 13.5px;
+    color: var(--cy-muted-fg);
+  }
+  .dx-page .dx-sidebar-site .dx-nav-link:hover,
+  .dx-page .dx-sidebar-site .dx-theme-btn:hover {
+    color: var(--fg);
+    background: transparent;
+  }
+  .dx-page .dx-sidebar-site svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+  }
+  .dx-page .dx-sidebar-site .dx-theme-label {
+    margin-inline-start: 0;
+    font-size: 13.5px;
+  }
+}
+
 .dx-page .dx-search {
   position: relative;
   margin-bottom: 22px;
@@ -748,6 +811,15 @@
   padding: 2px 5px;
   pointer-events: none;
   background: var(--bg);
+}
+/* A key hint is noise without a physical keyboard to press it on. */
+@media (pointer: coarse) {
+  .dx-page .dx-search kbd {
+    display: none;
+  }
+  .dx-page .dx-search input {
+    padding-right: 12px;
+  }
 }
 .dx-page .dx-nav-section {
   margin-bottom: 26px;
@@ -1478,8 +1550,8 @@
 }
 .dx-page .dx-toc {
   position: sticky;
-  top: 60px;
-  max-height: calc(100vh - 60px);
+  top: var(--dx-chrome-top);
+  max-height: calc(100vh - var(--dx-chrome-top));
   overflow-y: auto;
   padding: 50px 24px 64px 8px;
 }
@@ -1520,10 +1592,11 @@
   border-left-color: var(--primary);
   font-weight: 500;
 }
+/* Only in the tree while the drawer is open — the dialog mounts and unmounts
+   it, so it needs no hidden resting state of its own. */
 .dx-page .dx-scrim {
-  display: none;
   position: fixed;
-  inset: 60px 0 0 0;
+  inset: var(--dx-chrome-top) 0 0 0;
   z-index: 55;
   background: oklch(0 0 0 / 0.4);
 }
@@ -1531,22 +1604,60 @@
 @media (max-width: 920px) {
   .dx-page .dx-sidebar {
     position: fixed;
-    top: 60px;
+    top: var(--dx-chrome-top);
     left: 0;
     bottom: 0;
     z-index: 56;
     width: 300px;
     height: auto;
     background: var(--bg);
-    transform: translateX(-105%);
-    transition: transform var(--cy-duration-base) var(--cy-easing-standard);
-  }
-  .dx-page .dx-sidebar.is-open {
-    transform: translateX(0);
     box-shadow: var(--cy-shadow-popover);
+    /* Radix locks the page behind the drawer, so this is the only surface
+       still scrolling; don't chain past its own ends. */
+    overscroll-behavior: contain;
+    outline: none;
   }
-  .dx-page .dx-scrim.is-open {
-    display: block;
+}
+
+/* The drawer mounts open and unmounts closed, so its motion is a keyframe
+   animation, not a transition between two resting states. Radix holds the
+   node in the tree until the closing animation ends. */
+@keyframes dx-drawer-in {
+  from {
+    transform: translateX(-105%);
+  }
+}
+@keyframes dx-drawer-out {
+  to {
+    transform: translateX(-105%);
+  }
+}
+@keyframes dx-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dx-scrim-out {
+  to {
+    opacity: 0;
+  }
+}
+.dx-page .dx-sidebar[data-state="open"] {
+  animation: dx-drawer-in var(--cy-duration-base) var(--cy-easing-standard);
+}
+.dx-page .dx-sidebar[data-state="closed"] {
+  animation: dx-drawer-out var(--cy-duration-base) var(--cy-easing-standard);
+}
+.dx-page .dx-scrim[data-state="open"] {
+  animation: dx-scrim-in var(--cy-duration-base) var(--cy-easing-standard);
+}
+.dx-page .dx-scrim[data-state="closed"] {
+  animation: dx-scrim-out var(--cy-duration-base) var(--cy-easing-standard);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dx-page .dx-sidebar[data-state],
+  .dx-page .dx-scrim[data-state] {
+    animation-duration: 1ms;
   }
 }
 .dx-page .dx-license {

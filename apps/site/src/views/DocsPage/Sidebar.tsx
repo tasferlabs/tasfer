@@ -1,10 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentPropsWithRef,
+  type ReactNode,
+} from "react";
 import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
+import BrandMark from "@/components/BrandMark";
+import { APP_OPEN_URL } from "@/lib/appUrl";
+import { ThemeToggle } from "./DocsHeader";
 import { Icons } from "./docsIcons";
 import { NAV, FLAT, type NavItem } from "./docsNav";
+
+const REPO_URL = "https://github.com/tasferlabs/tasfer";
 
 function highlightTitle(title: string, q: string): ReactNode {
   if (!q) return title;
@@ -19,17 +30,24 @@ function highlightTitle(title: string, q: string): ReactNode {
   );
 }
 
+/** Width at which the rail stops being a column of the shell and becomes the
+ *  drawer. Mirrors the breakpoint the sidebar CSS uses; DocsArticle reads it to
+ *  decide whether the rail is mounted inline or inside a modal dialog. */
+export const DRAWER_MEDIA = "(max-width: 920px)";
+
 /** Left navigation rail with type-ahead filtering. `current` is the active
- *  route (e.g. "app/getting-started"); `open` drives the mobile drawer. */
+ *  route (e.g. "app/getting-started"). Extra props land on the `<aside>` so a
+ *  Radix `Dialog.Content asChild` can drive it as the mobile drawer. */
 export function Sidebar({
   current,
-  open,
   onNavigate,
+  className,
+  children,
+  ...rest
 }: {
   current: string;
-  open: boolean;
-  onNavigate: () => void;
-}) {
+  onNavigate?: () => void;
+} & ComponentPropsWithRef<"aside">) {
   const { t } = useTranslation();
   const [q, setQ] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -64,7 +82,13 @@ export function Sidebar({
   const anyMatch = FLAT.some(match);
 
   return (
-    <aside className={"dx-sidebar" + (open ? " is-open" : "")}>
+    <aside
+      className={"dx-sidebar" + (className ? " " + className : "")}
+      {...rest}
+    >
+      {/* Empty in the shell; carries the dialog's accessible name when the
+          rail is mounted as the drawer. */}
+      {children}
       <div className="dx-search">
         <Icons.Search />
         <input
@@ -126,6 +150,38 @@ export function Sidebar({
           </div>
         );
       })}
+
+      {/* The site links the header nav shows on wider screens. Once the header
+          collapses, the drawer is the only menu, so they live here instead of
+          behind a second toggle. Hidden by CSS above the drawer breakpoint. */}
+      <div className="dx-sidebar-site">
+        <Link
+          className={
+            "dx-nav-link" + (current.startsWith("app/") ? " is-active" : "")
+          }
+          to="/docs/app/getting-started"
+          onClick={onNavigate}
+        >
+          {t("docs.nav.appDocs", "App docs")}
+        </Link>
+        <Link className="dx-nav-link" to="/home" onClick={onNavigate}>
+          {t("docs.nav.landing", "Landing")}
+        </Link>
+        <ThemeToggle showLabel />
+        <a
+          className="dx-nav-link"
+          href={REPO_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Icons.GitHub />
+          {t("docs.nav.github", "GitHub")}
+        </a>
+        <a className="dx-nav-link" href={APP_OPEN_URL}>
+          <BrandMark />
+          {t("docs.nav.openApp", "Open app")}
+        </a>
+      </div>
     </aside>
   );
 }

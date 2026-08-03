@@ -32,7 +32,11 @@ export function ThemeToggle({ showLabel = false }: { showLabel?: boolean }) {
 
 /** Shared docs header. Pass `onMenu` on article pages to show the mobile
  *  sidebar toggle; the hub omits it. `activeSection` highlights the matching
- *  nav link. */
+ *  nav link.
+ *
+ *  Exactly one menu button shows on a narrow screen. Article pages have the
+ *  sidebar drawer, which carries these same site links at its foot, so the
+ *  header's own toggle is left to the hub — where there is no drawer. */
 export function DocsHeader({
   activeSection = null,
   onMenu,
@@ -67,15 +71,17 @@ export function DocsHeader({
         </Link>
         {/* <span className="dx-wordmark-tag">{t("docs.tag", "docs")}</span> */}
         <span className="dx-header-spacer" />
-        <button
-          className="dx-site-menu-btn"
-          aria-label={t("docs.a11y.openNavigation", "Open navigation")}
-          aria-expanded={isNavigationOpen}
-          aria-controls="docs-site-navigation"
-          onClick={() => setNavigationOpen((open) => !open)}
-        >
-          {isNavigationOpen ? <Icons.Close /> : <Icons.Menu />}
-        </button>
+        {onMenu ? null : (
+          <button
+            className="dx-site-menu-btn"
+            aria-label={t("docs.a11y.openNavigation", "Open navigation")}
+            aria-expanded={isNavigationOpen}
+            aria-controls="docs-site-navigation"
+            onClick={() => setNavigationOpen((open) => !open)}
+          >
+            {isNavigationOpen ? <Icons.Close /> : <Icons.Menu />}
+          </button>
+        )}
         <nav
           className={"dx-header-nav" + (isNavigationOpen ? " is-open" : "")}
           id="docs-site-navigation"
