@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/drawer";
 import { detectDeviceType } from "@/platform";
 import { publicAssetUrl } from "@/lib/publicAssetUrl";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 
 /**
  * Where each "install" button points. Desktop builds ship from GitHub
@@ -497,7 +497,7 @@ export function InstallAppDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const isMobileViewport = useResponsive("(max-width: 768px)");
+  const { isMobile: isMobileViewport } = useMobileLayout();
 
   if (isMobileViewport) {
     return (

@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import i18next from "i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
-import useResponsive from "../../hooks/useResponsive";
+import useMobileLayout from "../../hooks/useMobileLayout";
 import type { Block } from "@tasfer/editor";
 import { deriveTitles } from "@/lib/pageTitle";
 import { getResolvedTimezone } from "@/lib/dateTimePreferences";
@@ -101,7 +101,7 @@ export default function CalendarPage() {
   const isRtl = i18next.dir() === "rtl";
   const navigate = useNavigate();
   const { getConfirmation } = useConfirmation();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const { activeSpaceId } = useSpaces();
   useP2PPageEventsWithQueryClient();
   const timelineRef = useRef<HTMLDivElement>(null);

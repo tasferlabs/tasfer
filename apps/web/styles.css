@@ -4,6 +4,12 @@
 
 @custom-variant dark (&:is(.dark *));
 @custom-variant data-active (&[data-state=active]);
+/* `md:` and wider match a phone in landscape, which is nothing like a desktop —
+   it is short, touch-driven, and loses half its height to the keyboard. Use
+   `desktop:` for rules that assume a real pointer and room to breathe. */
+@custom-variant desktop (
+  @media (min-width: 768px) and (not ((max-height: 600px) and (pointer: coarse)))
+);
 
 @theme inline {
   --font-sans: var(--font-sans);

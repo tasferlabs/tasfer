@@ -16,7 +16,7 @@ import {
 import { Upload, FileUp, FilePlus, Replace } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 import { tokenizePage } from "@tasfer/editor";
 import { getPlatform } from "@/platform";
 import { parsePage } from "@tasfer/editor";
@@ -81,7 +81,7 @@ function guessMimeType(fileName: string): string {
 export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const { t } = useTranslation();
   const { onRestoreSnapshot, currentBlocks } = usePageSettings();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingBlocks, setPendingBlocks] = useState<Block[] | null>(null);

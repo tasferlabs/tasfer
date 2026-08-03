@@ -17,7 +17,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "../components/ui/drawer";
-import useResponsive from "../app/hooks/useResponsive";
+import useMobileLayout from "../app/hooks/useMobileLayout";
 import { usePreventMobileKeyboard } from "../app/hooks/usePreventMobileKeyboard";
 import { isNative } from "@/platform/bridge";
 import { useTranslation } from "react-i18next";
@@ -50,7 +50,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
   container,
 }) => {
   const { t } = useTranslation();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const [imageUrl, setImageUrl] = useState(existingUrl || "");
   // On mobile, always default to 'file' mode to avoid keyboard appearing
   const [uploadMode, setUploadMode] = useState<"file" | "url">(

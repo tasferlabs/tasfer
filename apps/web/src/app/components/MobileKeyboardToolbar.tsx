@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import useMobileLayout from "../hooks/useMobileLayout";
 import type {
   MobileToolbarAction,
   MobileToolbarIcon,
@@ -102,6 +103,7 @@ export function MobileKeyboardToolbar({
   onAction,
 }: MobileKeyboardToolbarProps) {
   const { t } = useTranslation();
+  const { isShort } = useMobileLayout();
   const [openPanelId, setOpenPanelId] = useState<string | null>(null);
   const { layout } = model;
 
@@ -252,7 +254,14 @@ export function MobileKeyboardToolbar({
         </PanelRow>
       )}
 
-      <div className="flex flex-row items-stretch border-t border-border bg-background h-12">
+      <div
+        className={cn(
+          "flex flex-row items-stretch border-t border-border bg-background",
+          // Shorter row on a landscape phone, where the bar competes with the
+          // keyboard for what little document is left. Buttons are `h-full`.
+          isShort ? "h-10" : "h-12",
+        )}
+      >
         <div className="flex shrink-0 flex-row items-center">
           {layout.left.map(renderItem)}
           {/* Zone divider between the pinned left cluster and the scrollable

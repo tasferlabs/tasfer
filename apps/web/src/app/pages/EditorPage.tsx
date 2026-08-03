@@ -98,7 +98,7 @@ import { useTreeExpand } from "../contexts/TreeExpandContext";
 import { useDebouncedSave } from "../hooks/useDebouncedSave";
 import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 import style from "./EditorPage.module.css";
 
 const SnapshotRestore = lazy(() =>
@@ -832,7 +832,7 @@ function ScheduleTag({
   const { t } = useTranslation();
   const { data: page } = useGetPage(pageId);
   const [open, setOpen] = useState(false);
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
 
   const isScheduled = !!page?.scheduledAt;
   const label = isScheduled

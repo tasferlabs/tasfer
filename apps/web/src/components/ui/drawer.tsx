@@ -128,9 +128,10 @@ function DrawerContent({
           // text input) still has room once the soft keyboard opens, matching
           // the command palette. The top offset (`--drawer-top`) leaves a peek
           // of background when the keyboard is closed and collapses to 0 when it
-          // opens; height is `auto` so the top/bottom edges define it. At md+
-          // they collapse back to a bottom sheet.
-          "bg-background flex h-full flex-col text-sm data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-0 data-[vaul-drawer-direction=bottom]:top-[var(--drawer-top,0px)] data-[vaul-drawer-direction=bottom]:h-auto data-[vaul-drawer-direction=bottom]:rounded-t-xl data-[vaul-drawer-direction=bottom]:border-t data-[vaul-drawer-direction=bottom]:md:top-auto data-[vaul-drawer-direction=bottom]:md:h-full data-[vaul-drawer-direction=bottom]:md:mt-24 data-[vaul-drawer-direction=bottom]:md:max-h-[90vh] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=left]:rounded-r-xl data-[vaul-drawer-direction=left]:border-r data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=right]:rounded-l-xl data-[vaul-drawer-direction=right]:border-l data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[95vh] data-[vaul-drawer-direction=top]:rounded-b-xl data-[vaul-drawer-direction=top]:border-b data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm group/drawer-content fixed z-50",
+          // opens; height is `auto` so the top/bottom edges define it. They
+          // collapse back to a bottom sheet on `desktop:` — not `md:`, which a
+          // phone in landscape also matches while having none of the room.
+          "bg-background flex h-full flex-col text-sm data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-0 data-[vaul-drawer-direction=bottom]:top-[var(--drawer-top,0px)] data-[vaul-drawer-direction=bottom]:h-auto data-[vaul-drawer-direction=bottom]:rounded-t-xl data-[vaul-drawer-direction=bottom]:border-t data-[vaul-drawer-direction=bottom]:desktop:top-auto data-[vaul-drawer-direction=bottom]:desktop:h-full data-[vaul-drawer-direction=bottom]:desktop:mt-24 data-[vaul-drawer-direction=bottom]:desktop:max-h-[90vh] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=left]:rounded-r-xl data-[vaul-drawer-direction=left]:border-r data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=right]:rounded-l-xl data-[vaul-drawer-direction=right]:border-l data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[95vh] data-[vaul-drawer-direction=top]:rounded-b-xl data-[vaul-drawer-direction=top]:border-b data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm group/drawer-content fixed z-50",
           className
         )}
         style={
@@ -142,6 +143,13 @@ function DrawerContent({
             // Clear the notch only when expanded flush to the top; otherwise the
             // top offset already sits below it.
             paddingTop: expanded ? safeTop : undefined,
+            // Landscape puts the notch on a side edge, which a full-width
+            // bottom drawer runs straight into. Physical sides — the insets
+            // describe the device, not the writing direction.
+            paddingLeft:
+              "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
+            paddingRight:
+              "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
             // While the keyboard is open, reserve its height so content stays
             // above it; otherwise fall back to the safe-area inset (home
             // indicator). Either way, also clear `--keyboard-toolbar-height` —

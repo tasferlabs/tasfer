@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/drawer";
 import { computeDocumentStats } from "@/lib/documentStats";
 import { usePageSettings } from "../contexts/PageSettingsContext";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 
 interface WordCountDetailsProps {
   open: boolean;
@@ -31,7 +31,7 @@ interface WordCountDetailsProps {
 export function WordCountDetails({ open, onOpenChange }: WordCountDetailsProps) {
   const { currentBlocks } = usePageSettings();
   const { t, i18n } = useTranslation();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
 
   const stats = useMemo(
     () => computeDocumentStats(currentBlocks),

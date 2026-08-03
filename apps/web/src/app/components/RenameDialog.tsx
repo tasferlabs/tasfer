@@ -23,7 +23,7 @@ import { useGetPage, useUpdatePage } from "../api/pages.api";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import { useCollaborativeDoc } from "../useCollaborativeDoc";
 import { TitleEditor } from "../TitleEditor";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 
 export interface RenameDialogProps {
   /** The page whose title is edited. */
@@ -169,7 +169,7 @@ function RenameDialogView({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const { data: currentPage } = useGetPage(pageId || undefined);
 
   const { mutate: updatePage } = useUpdatePage({

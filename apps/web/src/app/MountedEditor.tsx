@@ -152,7 +152,7 @@ import {
   editorThemeForDensity,
   usePageSettings,
 } from "./contexts/PageSettingsContext";
-import useResponsive from "./hooks/useResponsive";
+import useMobileLayout from "./hooks/useMobileLayout";
 import {
   activeBlockMathCommand,
   createMobileToolbarModel,
@@ -678,7 +678,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
   portalContainer,
   refocus,
 }) => {
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const { blockId } = overlay;
   const { url, text, selectedText, startIndex, endIndex } =
     overlay.data as LinkEditOverlayData;
@@ -771,7 +771,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   refocus,
 }) => {
   const { t } = useTranslation();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { blockId } = overlay;

@@ -46,7 +46,7 @@ import {
   revokeInvite,
 } from "../api/spaces.api";
 import type { SpaceInvite, Peer } from "@/platform/types";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 import { getDisplayName } from "@tasfer/provider-core/cursors";
 import { encodeInvite, mintEphemeralInvite } from "../inviteCode";
 import { downloadFile } from "@/downloadFile";
@@ -106,7 +106,7 @@ export function InviteMembersDialog({
 }: InviteMembersDialogProps) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const dateLocale = i18n.language?.startsWith("ar") ? "ar" : "en";
 
   const [showTutorial, setShowTutorial] = useState(false);

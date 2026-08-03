@@ -39,7 +39,7 @@ import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { cancelPairing, useAcceptInvite, useCreateSpace } from "../api/spaces.api";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 import { decodeInvite, isInviteExpired } from "../inviteCode";
 import type { SpaceInvite } from "@/platform/types";
 import { QRScannerView } from "./QRScannerView";
@@ -54,7 +54,7 @@ type View = "pick" | "create" | "join";
 export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const [view, setView] = useState<View>("pick");
 
   // --- Create space ---

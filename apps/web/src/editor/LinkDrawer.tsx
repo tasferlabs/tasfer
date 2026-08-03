@@ -9,7 +9,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "../components/ui/drawer";
-import useResponsive from "../app/hooks/useResponsive";
+import useMobileLayout from "../app/hooks/useMobileLayout";
 import { usePreventMobileKeyboard } from "../app/hooks/usePreventMobileKeyboard";
 import { useTranslation } from "react-i18next";
 
@@ -36,7 +36,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
   collisionBoundary,
   container,
 }) => {
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const [editedUrl, setEditedUrl] = useState(url || "");
   const { t } = useTranslation();
   // Prevent keyboard from appearing on mobile when drawer opens

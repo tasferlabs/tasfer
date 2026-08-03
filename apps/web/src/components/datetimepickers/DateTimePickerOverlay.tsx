@@ -15,6 +15,12 @@ import { getLuxon, padValue, plusDatetime } from "./utils";
 import { TimePicker } from "./TimePicker";
 import { YearPicker } from "./YearPicker";
 import { getWeekStart, formatDatePreferred } from "@/lib/dateTimePreferences";
+import useResponsive from "@/app/hooks/useResponsive";
+import useMobileLayout from "@/app/hooks/useMobileLayout";
+
+/** Mirrors the `desktop:` CSS variant in styles.css, at this picker's own width. */
+const DESKTOP_QUERY =
+  "(min-width: 600px) and (not ((max-height: 600px) and (pointer: coarse)))";
 
 export function DateTimePickerOverlay({
   open,
@@ -87,21 +93,14 @@ export function DateTimePickerOverlay({
     onClose();
   };
 
-  // React to viewport changes so the picker swaps between the mobile dialog and
-  // desktop popover on resize/rotation instead of only at first render.
-  const [isDesktop, setIsDesktop] = useState(() =>
-    typeof window !== "undefined"
-      ? window.matchMedia("(min-width: 600px)").matches
-      : true,
-  );
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(min-width: 600px)");
-    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
-    setIsDesktop(mq.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
+  // Swaps between the mobile dialog and the desktop popover, and re-evaluates on
+  // resize/rotation rather than only at first render. Width alone would call a
+  // phone in landscape "desktop" and float a full month grid off the screen, so
+  // short touch viewports are excluded.
+  const isDesktop = useResponsive(DESKTOP_QUERY);
+  // Landscape phone: the mobile dialog's portrait sizing (48px day cells,
+  // text-lg headers) would fill the screen, so it steps down a size.
+  const { isShort } = useMobileLayout();
 
   const [yearView, setYearView] = useState(false);
   const [displayedDate, setDisplayedDate] = useState(() => {
@@ -469,7 +468,7 @@ export function DateTimePickerOverlay({
                   aria-label={day.name}
                   className={cn(
                     "flex-1 flex items-center justify-center p-0.5",
-                    isDesktop ? "text-base" : "text-lg",
+                    isShort ? "text-sm" : isDesktop ? "text-base" : "text-lg",
                   )}
                 >
                   <span aria-hidden="true">{day.abbr}</span>
@@ -507,7 +506,8 @@ export function DateTimePickerOverlay({
                           onClick={() => handleDaySelect(date)}
                           disabled={disabled || disabledByChoice}
                           className={cn(
-                            "aspect-square w-full h-full rounded-full text-base cursor-pointer",
+                            "aspect-square w-full h-full rounded-full cursor-pointer",
+                            isShort ? "text-sm" : "text-base",
                             active &&
                               "bg-primary text-primary-foreground hover:bg-primary/80",
                             today &&
@@ -541,7 +541,14 @@ export function DateTimePickerOverlay({
   if (!isDesktop) {
     return (
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-        <DialogContent className="max-w-sm p-4 pt-8">
+        {/* A month grid is taller than a landscape phone, and DialogContent
+            clips by default — cap it to the viewport and let it scroll. */}
+        <DialogContent
+          className={cn(
+            "max-h-[90dvh] overflow-y-auto",
+            isShort ? "max-w-[19rem] p-3 pt-6" : "max-w-sm p-4 pt-8",
+          )}
+        >
           <DialogTitle className="sr-only">
             {type === "time" ? t("common.time", "Time") : t("common.date", "Date")}
           </DialogTitle>

@@ -14,7 +14,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "../components/ui/drawer";
-import useResponsive from "../app/hooks/useResponsive";
+import useMobileLayout from "../app/hooks/useMobileLayout";
 import { usePreventMobileKeyboard } from "../app/hooks/usePreventMobileKeyboard";
 import { cn } from "@/lib/utils";
 
@@ -55,7 +55,7 @@ export function MatrixEditor({
   onClose,
 }: MatrixEditorProps) {
   const { t } = useTranslation();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   // The drawer covers the editor on touch; keep the soft keyboard down while it
   // is up (mirrors the link/image drawers).
   usePreventMobileKeyboard(isMobile && open);

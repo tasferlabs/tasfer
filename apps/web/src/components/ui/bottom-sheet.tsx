@@ -466,6 +466,13 @@ export function BottomSheet({
             style={{
               height,
               paddingTop: `calc(max(0px, ${safeTop} - ${topOverlap}px))`,
+              // Landscape puts the notch on a side edge; the sheet is edge to
+              // edge, so it has to clear it. Physical sides — the insets
+              // describe the device, not the writing direction.
+              paddingLeft:
+                "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
+              paddingRight:
+                "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
               // Keep the footer above the soft keyboard and the editor's global
               // fixed formatting toolbar (--keyboard-toolbar-height). A fixed
               // element doesn't follow the iOS visual viewport, hence reserving

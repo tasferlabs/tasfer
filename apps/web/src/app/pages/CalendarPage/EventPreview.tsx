@@ -66,7 +66,7 @@ import {
 import { useSidebarPanel } from "../../contexts/SidebarPanelContext";
 import { useSpaces } from "../../contexts/SpaceContext";
 import { useDebouncedSave } from "../../hooks/useDebouncedSave";
-import useResponsive from "../../hooks/useResponsive";
+import useMobileLayout from "../../hooks/useMobileLayout";
 import { MountedEditor } from "../../MountedEditor";
 import { TitleEditor } from "../../TitleEditor";
 import { appSchema } from "../../../editorSchema";
@@ -220,7 +220,7 @@ export function EventPreview({
 }) {
   const { t } = useTranslation();
   const isRtl = i18next.dir() === "rtl";
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   // const isFinePointer = useResponsive("(pointer: fine)");
   const queryClient = useQueryClient();
   const popoverRef = useRef<HTMLDivElement>(null);

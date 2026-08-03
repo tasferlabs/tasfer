@@ -25,7 +25,8 @@ import { TitlePreview } from "../TitlePreview";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useTheme } from "../hooks/useTheme";
 import { useQueryClient } from "@tanstack/react-query";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
+import useKeyboardInset from "../hooks/useKeyboardInset";
 import {
   frecencyBoost,
   frecencyValue,
@@ -41,6 +42,14 @@ const itemClass =
 
 const mobileItemClass =
   "flex items-center gap-3 rounded-xl px-3 py-3 text-base cursor-pointer select-none data-[selected=true]:bg-accent active:bg-accent";
+
+/** Top offset of the desktop dialog — 20% of the viewport, bounded on both ends. */
+const DIALOG_TOP = "clamp(1rem, 20dvh, 10rem)";
+const DIALOG_TOP_CLASS = "top-[clamp(1rem,20dvh,10rem)]";
+
+/** Mobile rows on a short (landscape) viewport, where the keyboard eats the list. */
+const compactMobileItemClass =
+  "flex items-center gap-3 rounded-xl px-3 py-1.5 text-sm cursor-pointer select-none data-[selected=true]:bg-accent active:bg-accent";
 
 const iconBoxClass =
   "flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center bg-muted/60 text-muted-foreground";
@@ -151,7 +160,8 @@ export function ActionCenter() {
   const { activeSpaceId } = useSpaces();
   const { setTheme, effectiveTheme } = useTheme();
   const queryClient = useQueryClient();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile, isShort } = useMobileLayout();
+  const keyboardInset = useKeyboardInset();
 
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -485,12 +495,22 @@ export function ActionCenter() {
             style={{
               paddingTop:
                 "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-              paddingBottom:
-                "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+              // Landscape puts the notch on a side edge, so the horizontal
+              // insets matter here as much as the vertical ones.
+              paddingLeft:
+                "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
+              paddingRight:
+                "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
+              // A `fixed` overlay does not follow the visual viewport, so the
+              // keyboard would cover the bottom of the list — reserve its height
+              // instead, never less than the home-indicator inset.
+              paddingBottom: `max(${keyboardInset}px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))`,
             }}
           >
             <Command shouldFilter={false} className="flex flex-col flex-1 min-h-0">
-              <div className="flex items-center gap-2 px-2 shrink-0 h-12">
+              <div
+                className={`flex items-center gap-2 px-2 shrink-0 ${isShort ? "h-11" : "h-12"}`}
+              >
                 <button
                   onClick={() => setOpen(false)}
                   className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-muted-foreground active:bg-accent"
@@ -517,11 +537,16 @@ export function ActionCenter() {
                 )}
               </div>
               <div className="border-b border-border" />
-              <Command.List ref={listRef} className="flex-1 overflow-y-auto p-2">
-                <Command.Empty className="py-12 text-center text-sm text-muted-foreground">
+              <Command.List
+                ref={listRef}
+                className={`flex-1 overflow-y-auto ${isShort ? "px-2 py-1" : "p-2"}`}
+              >
+                <Command.Empty
+                  className={`text-center text-sm text-muted-foreground ${isShort ? "py-6" : "py-12"}`}
+                >
                   {t("common.noResultsFound", "No results found")}
                 </Command.Empty>
-                {renderList(mobileItemClass)}
+                {renderList(isShort ? compactMobileItemClass : mobileItemClass)}
               </Command.List>
             </Command>
           </motion.div>
@@ -536,7 +561,7 @@ export function ActionCenter() {
       onOpenChange={setOpen}
       label={t("editor.actionCenter", "Action Center")}
       overlayClassName="fixed inset-0 z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
-      contentClassName="fixed top-[20%] left-1/2 z-50 w-full max-w-[560px] -translate-x-1/2 bg-background ring-foreground/10 rounded-xl ring-1 shadow-lg overflow-hidden outline-none"
+      contentClassName={`fixed ${DIALOG_TOP_CLASS} left-1/2 z-50 w-full max-w-[560px] -translate-x-1/2 bg-background ring-foreground/10 rounded-xl ring-1 shadow-lg overflow-hidden outline-none`}
       shouldFilter={false}
     >
       <Command.Input
@@ -545,7 +570,17 @@ export function ActionCenter() {
         placeholder={t("editor.searchPagesActions", "Search pages, actions...")}
         className="h-12 w-full border-b border-border bg-transparent px-4 text-sm outline-none placeholder:text-muted-foreground"
       />
-      <Command.List ref={listRef} className="max-h-[340px] overflow-y-auto p-2">
+      <Command.List
+        ref={listRef}
+        className="overflow-y-auto p-2"
+        // Height follows the viewport rather than a fixed 340px: on a short
+        // window — or a tablet whose on-screen keyboard covers the bottom — the
+        // list shrinks instead of running off-screen. 8rem covers the input row
+        // and the shortcut footer.
+        style={{
+          maxHeight: `max(6rem, min(340px, calc(100dvh - ${DIALOG_TOP} - 8rem - ${keyboardInset}px)))`,
+        }}
+      >
         <Command.Empty className="py-8 text-center text-sm text-muted-foreground">
           {t("common.noResultsFound", "No results found")}
         </Command.Empty>

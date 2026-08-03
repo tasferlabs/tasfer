@@ -28,7 +28,7 @@ import { RelativeDate } from "@/components/ui/relative-date";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 import { useConfirmation } from "./ConfirmationDialog";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useCreatePage, useGetPageSnapshots } from "../api/pages.api";
@@ -273,7 +273,7 @@ export function SnapshotRestore({
   const [previewingSnapshot, setPreviewingSnapshot] = useState<Snapshot | null>(
     null
   );
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const isRtl = i18n.dir() === "rtl";
   const navigate = useNavigate();
   const queryClient = useQueryClient();

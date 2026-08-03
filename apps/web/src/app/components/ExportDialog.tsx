@@ -18,7 +18,7 @@ import {
 import { ArrowLeft, Download, FileCode, FileType, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 import { serializeToMarkdown } from "@tasfer/editor";
 import { serializeToHTML } from "@tasfer/editor";
 import { collectAssetRefs } from "@tasfer/editor";
@@ -51,7 +51,7 @@ interface ExportDialogProps {
 export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const { t } = useTranslation();
   const { currentBlocks, pageId } = usePageSettings();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const [isExporting, setIsExporting] = useState(false);
   // Mobile only: the self-contained export HTML held for on-screen preview
   // before the user commits to generating/sharing the PDF. Null = show the

@@ -36,7 +36,7 @@ import {
   usePageSettings,
   type FontStyle,
 } from "../contexts/PageSettingsContext";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 import { useConfirmation } from "./ConfirmationDialog";
 // import { ShareDialog } from "./ShareDialog";
 
@@ -137,7 +137,7 @@ function PageSettingsImpl({
     onOpenFind,
   } = usePageSettings();
   const isViewOnly = permission === "view";
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
 
   // Page operations
   const { id: currentPageId } = useParams<{ id: string }>();

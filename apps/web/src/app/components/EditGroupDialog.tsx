@@ -37,7 +37,7 @@ import { AvatarPreviewDialog } from "./AvatarPreviewDialog";
 import { RelativeDate } from "@/components/ui/relative-date";
 import { cn } from "@/lib/utils";
 import type { ISpaceMember } from "../api/spaces.api";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 
 interface EditGroupDialogProps {
   spaceId: string;
@@ -53,7 +53,7 @@ export function EditGroupDialog({
   openInviteMembers,
 }: EditGroupDialogProps) {
   const { t } = useTranslation();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
 
   const content = (
     <Tabs defaultValue="general">

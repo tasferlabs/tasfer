@@ -21,7 +21,7 @@ import { TreeExpandProvider } from "../contexts/TreeExpandContext";
 import { useVersion } from "../contexts/VersionContext";
 import { useFileDropImport } from "../hooks/useFileDropImport";
 import useLocalStorage from "../hooks/useLocalStorage";
-import useResponsive from "../hooks/useResponsive";
+import useMobileLayout from "../hooks/useMobileLayout";
 import { useDevToolsEnabled } from "@/lib/devTools";
 import ForceUpdatePage from "../pages/ForceUpdatePage";
 import { FileDropChrome } from "./FileDropChrome";
@@ -103,7 +103,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
   const [inviteMembersId, setInviteMembersId] = React.useState<string | null>(
     null,
   );
-  const isMobile = useResponsive("(max-width: 768px)");
+  const { isMobile } = useMobileLayout();
   const devToolsEnabled = useDevToolsEnabled();
   const { spaces, isLoading: spacesLoading, loadError } = useSpaces();
   const fileDrop = useFileDropImport();
