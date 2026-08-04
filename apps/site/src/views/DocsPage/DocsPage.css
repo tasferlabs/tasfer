@@ -79,6 +79,10 @@
   display: block;
 }
 
+body:has(.dx-page) .site-banner-inner {
+  max-width: 1400px;
+}
+
 /* ------------------------------------------------------------
    Header
    ------------------------------------------------------------ */
@@ -274,7 +278,9 @@
     border-radius: var(--cy-radius-sm);
   }
   .dx-page .dx-header-nav a:not(.dx-ghost-link):not(.dx-open-app-link):hover,
-  .dx-page .dx-header-nav a:not(.dx-ghost-link):not(.dx-open-app-link):focus-visible,
+  .dx-page
+    .dx-header-nav
+    a:not(.dx-ghost-link):not(.dx-open-app-link):focus-visible,
   .dx-page .dx-theme-btn:focus-visible {
     background: var(--cy-muted);
     color: var(--fg);
