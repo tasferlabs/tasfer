@@ -671,7 +671,7 @@
   "banner.beta.text": "Tasfer is unfinished software. Sync can fail, formats may change, and notes can be lost. Keep your own backups.",
   "banner.beta.dismiss": "Dismiss",
   "home.lp.hero.betaTitle": "Public beta.",
-  "home.lp.hero.betaBody": "It runs, it syncs, and it will break. Nothing you write here is guaranteed to survive an update — keep a copy elsewhere.",
+  "home.lp.hero.betaBody": "It runs, it syncs, and it will break. Nothing you write here is guaranteed to survive an update.",
   "home.lp.hero.titleA": "Tasfer keeps every note on your machine.",
   "home.lp.hero.titleEm": "No server",
   "home.lp.hero.titleC": "can read a word.",

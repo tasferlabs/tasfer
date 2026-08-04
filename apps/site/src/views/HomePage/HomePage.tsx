@@ -720,7 +720,7 @@ export default function HomePage() {
                 <strong>{t("home.lp.hero.betaTitle", "Public beta.")}</strong>{" "}
                 {t(
                   "home.lp.hero.betaBody",
-                  "It runs, it syncs, and it will break. Nothing you write here is guaranteed to survive an update — keep a copy elsewhere.",
+                  "It runs, it syncs, and it will break. Nothing you write here is guaranteed to survive an update.",
                 )}
               </span>
             </p>
