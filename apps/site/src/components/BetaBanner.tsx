@@ -77,10 +77,12 @@ export function BetaBanner() {
     <div className="site-banner" role="status" ref={barRef}>
       <div className="site-banner-inner">
         <p className="site-banner-text">
-          <span className="site-banner-tag">{t("banner.beta.tag", "Beta")}</span>
+          <span className="site-banner-tag">
+            {t("banner.beta.tag", "Beta")}
+          </span>
           {t(
             "banner.beta.text",
-            "Tasfer is unfinished software. Sync can fail, formats may change, and notes can be lost. Keep your own backups — use at your own risk.",
+            "Tasfer is unfinished software. Sync can fail, formats may change, and notes can be lost. Keep your own backups.",
           )}
         </p>
         <button className="site-banner-dismiss" onClick={dismiss}>

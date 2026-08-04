@@ -15,12 +15,12 @@
 }
 
 .site-banner-inner {
-  max-width: 1400px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 10px 24px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: 16px;
 }
 
