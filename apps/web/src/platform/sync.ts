@@ -5,8 +5,22 @@
  * Each peer pair communicates over a single WebRTC DataChannel, carrying all
  * shared spaces.
  *
+ * Who we peer with — space membership, and nothing else:
+ *
+ *   - We dial exactly the members of the active spaces we belong to
+ *     ({@link Replicator.admittedPeers}). A key that shares no active space
+ *     with us is never dialed, however it reached our peer table.
+ *   - Membership propagates *within* a space: a `member_add` in a space we
+ *     belong to is how we learn about a co-member we were never introduced
+ *     to, and we then connect to them directly rather than routing through
+ *     whoever added them. Indirect acquaintance, direct connection.
+ *   - We never adopt a peer's peers. Nothing on the wire carries a roster,
+ *     and a space we do not already belong to cannot be pushed onto us — new
+ *     spaces arrive only through an invite (see `handleSyncData`). So a peer's
+ *     contacts in spaces we are not in stay invisible to us.
+ *
  * Protocol:
- *   1. Connect to each trusted peer via deterministic topic
+ *   1. Connect to each admitted peer via deterministic topic
  *      (SHA-256 of sorted public keys — only the two peers can compute it)
  *   2. Exchange hellos (public key + space list)
  *   3. For each shared space, bidirectional pull (send VV, receive missing ops)
@@ -115,9 +129,14 @@ export interface ReplicatorHost {
   getPrivateKey(): Promise<string>;
   /** Get the crypto driver for sign/verify */
   getCrypto(): CryptoDriver;
-  /** Get all trusted peers */
-  getTrustedPeers(): Promise<Peer[]>;
-  /** Get IDs of all spaces this device belongs to */
+  /**
+   * Every locally-known peer record. A record is not a licence to connect —
+   * membership is (see {@link Replicator.admittedPeers}). `trusted: false`
+   * marks a peer the local user revoked, which suppresses them even while
+   * they remain a space member.
+   */
+  getPeerRecords(): Promise<Peer[]>;
+  /** Get IDs of the active spaces this device belongs to */
   getSpaceIds(): Promise<string[]>;
   /** Whether a known space is currently eligible for replication. */
   getSpaceState(spaceId: string): Promise<"active" | "archived" | "unknown">;
@@ -476,33 +495,48 @@ export class Replicator {
   }
 
   /**
+   * The peers we are allowed to dial: every member of every active space we
+   * belong to, minus ourselves and minus locally revoked peers.
+   *
+   * This is the single admission rule for the whole replicator — membership
+   * grants the connection, and a peer record only ever takes it away. Nothing
+   * else may widen the set: not a peer's roster, not a space pushed at us by
+   * someone already connected. `getSpaceIds` already restricts to active
+   * spaces we are a member of, so a space we merely hold ops for (archived, or
+   * one we left) admits no one.
+   */
+  private async admittedPeers(): Promise<Set<string>> {
+    const [peerRecords, spaceIds] = await Promise.all([
+      this.host.getPeerRecords(),
+      this.host.getSpaceIds(),
+    ]);
+    const revoked = new Set(
+      peerRecords
+        .filter((peer) => !peer.trusted)
+        .map((peer) => peer.publicKey),
+    );
+
+    const memberLists = await Promise.all(
+      spaceIds.map((spaceId) => this.host.getSpaceMembers(spaceId)),
+    );
+    const admitted = new Set<string>();
+    for (const members of memberLists) {
+      for (const member of members) {
+        if (member.publicKey === this.localPublicKey) continue;
+        if (revoked.has(member.publicKey)) continue;
+        admitted.add(member.publicKey);
+      }
+    }
+    return admitted;
+  }
+
+  /**
    * Reconcile peer connections and routing with the currently active spaces.
    * Archiving the last space shared with a peer closes its transport; restoring
    * a space reconnects and lets the normal handshake catch up missing ops.
    */
   async refreshSpaces(): Promise<void> {
-    const [trustedPeers, spaceIds] = await Promise.all([
-      this.host.getTrustedPeers(),
-      this.host.getSpaceIds(),
-    ]);
-    const trusted = new Set(
-      trustedPeers.filter((peer) => peer.trusted).map((peer) => peer.publicKey),
-    );
-    const activePeers = new Set<string>();
-
-    const memberLists = await Promise.all(
-      spaceIds.map((spaceId) => this.host.getSpaceMembers(spaceId)),
-    );
-    for (const members of memberLists) {
-      for (const member of members) {
-        if (
-          member.publicKey !== this.localPublicKey &&
-          trusted.has(member.publicKey)
-        ) {
-          activePeers.add(member.publicKey);
-        }
-      }
-    }
+    const activePeers = await this.admittedPeers();
 
     const connectedOrListeningPeers = new Set([
       ...this.peers.keys(),
@@ -518,7 +552,7 @@ export class Replicator {
 
     for (const publicKey of activePeers) {
       try {
-        await this.addPeer(publicKey);
+        await this.connectAdmittedPeer(publicKey);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(
@@ -528,8 +562,27 @@ export class Replicator {
     }
   }
 
-  /** Connect to a newly-paired peer, or re-negotiate shared spaces if already connected. */
+  /**
+   * Connect to a newly-paired or newly-learned peer, or re-negotiate shared
+   * spaces if already connected.
+   *
+   * Callers reach this from outside the reconciler — a completed pairing, or a
+   * `member_add` replicated from another peer — so the admission rule is
+   * enforced here rather than trusted to the caller. A key that shares no
+   * active space with us is refused no matter who named it.
+   */
   async addPeer(publicKey: string): Promise<void> {
+    if (!(await this.admittedPeers()).has(publicKey)) {
+      console.warn(
+        `[Sync] refusing to connect to ${publicKey.slice(0, 8)}: shares no active space with us`,
+      );
+      return;
+    }
+    await this.connectAdmittedPeer(publicKey);
+  }
+
+  /** {@link addPeer} past the admission check — for callers that just made it. */
+  private async connectAdmittedPeer(publicKey: string): Promise<void> {
     const existing = this.peers.get(publicKey);
     if (existing) {
       // Already connected — recompute local sharedSpaces and push data only
@@ -1384,27 +1437,24 @@ export class Replicator {
 
   private async handleSyncData(fromPubKey: string, msg: SyncDataMsg) {
     const conn = this.peers.get(fromPubKey);
-    // Accept sync-data from any connected peer, even for unknown spaces.
-    // The data may contain space_set + member_add ops that bootstrap a space
-    // the remote peer created with us as a member.
-    if (!conn) {
+    // A space we do not already belong to cannot arrive this way. Letting a
+    // connected peer bootstrap an unknown space would hand us its `member_add`
+    // roster too, and every name on it would become one of our peers — a space
+    // we never joined, full of contacts we never met. New spaces come from an
+    // invite: the acceptor writes the space and its membership locally before
+    // it ever connects (`Engine.acceptInvite`), so pairing does not need this.
+    const wasUnknown = !conn?.sharedSpaces.has(msg.spaceId);
+    if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
       console.warn(
-        `[Sync] dropped sync-data for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (no connection)`,
+        `[Sync] dropped sync-data for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`,
       );
       return;
     }
 
-    const wasUnknown = !conn.sharedSpaces.has(msg.spaceId);
-
-    // Unknown spaces may be bootstrapped by pairing. A known space, however,
-    // must be active and shared; in particular, archived spaces never accept
-    // catch-up data until they are restored locally.
+    // `sharedSpaces` is a cache that can outlive an archive, so re-check the
+    // state: an archived space accepts no catch-up until it is restored.
     const spaceState = await this.host.getSpaceState(msg.spaceId);
-    if (
-      spaceState === "archived" ||
-      (spaceState === "active" &&
-        !(await this.ensureSharedSpace(conn, msg.spaceId)))
-    ) {
+    if (spaceState !== "active") {
       console.warn(
         `[Sync] dropped sync-data for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (${spaceState} space)`,
       );
@@ -1428,23 +1478,20 @@ export class Replicator {
       }
     }
 
-    // If this sync-data bootstrapped a previously unknown space, recompute
-    // shared spaces and send a sync-pull back so we get anything we missed.
+    // We only learned we share this space during this message — `hello` sent
+    // no pull for it. Pull now so we catch up on whatever preceded this batch.
     if (wasUnknown) {
-      await this.recomputeSharedSpaces(conn);
-      if (conn.sharedSpaces.has(msg.spaceId)) {
-        console.log(
-          `[Sync] bootstrapped space ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)}`,
-        );
-        const spaceVV = await this.host.getSpaceVV(msg.spaceId);
-        const pageVVs = await this.host.getPageVVs(msg.spaceId);
-        this.sendDirect(conn, {
-          type: "sync-pull",
-          spaceId: msg.spaceId,
-          spaceVV,
-          pageVVs,
-        });
-      }
+      console.log(
+        `[Sync] newly shared space ${msg.spaceId.slice(0, 8)} with ${fromPubKey.slice(0, 8)}`,
+      );
+      const spaceVV = await this.host.getSpaceVV(msg.spaceId);
+      const pageVVs = await this.host.getPageVVs(msg.spaceId);
+      this.sendDirect(conn, {
+        type: "sync-pull",
+        spaceId: msg.spaceId,
+        spaceVV,
+        pageVVs,
+      });
     }
   }
 

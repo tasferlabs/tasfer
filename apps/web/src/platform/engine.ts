@@ -374,7 +374,7 @@ export class Engine implements Platform {
       getIdentity: () => this.identity.get(),
       getPrivateKey: () => this.getPrivateKey(),
       getCrypto: (): CryptoDriver => this.driver.crypto,
-      getTrustedPeers: () => this.peers.list(),
+      getPeerRecords: () => this.peers.list(),
       getSpaceIds: async () => {
         const spaces = await this.spaces.list();
         return spaces.map((s) => s.id);
@@ -409,8 +409,14 @@ export class Engine implements Platform {
         };
       },
       getSpaceMembers: async (spaceId: string) => {
-        const space = await this.spaces.get(spaceId);
-        return space.members.map((m) => ({ publicKey: m.publicKey }));
+        // Reads the table rather than `spaces.get`: this list decides who we
+        // connect to, so a member soft-removed from the space must drop out of
+        // it. `spaces.get` deliberately keeps them for display.
+        const rows = await this.driver.db.query<{ public_key: string }>(
+          "SELECT public_key FROM space_members WHERE space_id = ? AND archived_at IS NULL",
+          [spaceId],
+        );
+        return rows.map((r) => ({ publicKey: r.public_key }));
       },
       getSpaceVV: (spaceId: string) => this.getSpaceVV(spaceId),
       getPageVVs: (spaceId: string) => this.getPageVVs(spaceId),
@@ -2322,12 +2328,19 @@ export class Engine implements Platform {
       await this.storeSpaceOp(op);
       await this.applySpaceOp(op);
 
-      // When a new member is added, connect to them so all peers
-      // have direct connections (not routed through the inviter).
+      // A member_add in a space we belong to is how we learn about a co-member
+      // nobody introduced us to. Connect to them directly rather than routing
+      // through whoever added them; addPeer re-checks membership itself, so a
+      // key named in a space we are not in gets nowhere.
       if (op.op === "member_add" && this.replicator) {
         const identity = await this.identity.get();
         if (op.publicKey !== identity.publicKey) {
-          this.replicator.addPeer(op.publicKey);
+          void this.replicator.addPeer(op.publicKey).catch((e: unknown) => {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.error(
+              `[Engine] failed to connect to new member ${op.publicKey.slice(0, 8)}: ${msg}`,
+            );
+          });
         }
       }
 
@@ -2816,10 +2829,13 @@ export class Engine implements Platform {
            ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?`,
           [op.spaceId, op.publicKey, op.name, now, op.name],
         );
-        // Also trust this peer
+        // Record the peer so it has a name to display. Membership is what
+        // admits it to sync (see Replicator.admittedPeers), so this must not
+        // re-raise `trusted` on conflict: a peer the local user revoked would
+        // otherwise be readmitted by the next member_add naming it.
         await this.driver.db.mutate(
           `INSERT INTO peers (public_key, name, trusted) VALUES (?, ?, 1)
-           ON CONFLICT(public_key) DO UPDATE SET name = COALESCE(?, name), trusted = 1`,
+           ON CONFLICT(public_key) DO UPDATE SET name = COALESCE(?, name)`,
           [op.publicKey, op.name, op.name],
         );
         break;

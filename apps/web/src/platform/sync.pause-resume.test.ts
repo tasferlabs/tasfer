@@ -35,7 +35,7 @@ function makeReplicator(
     resume,
   } as unknown as NetworkDriver;
 
-  const getTrustedPeers = vi.fn(async () => trustedPeers);
+  const getPeerRecords = vi.fn(async () => trustedPeers);
   const getPeerSharedKey = vi.fn(async () => sharedKey);
   const getSpaceIds = vi.fn(async () =>
     hasActiveSpace && trustedPeers.some((peer) => peer.trusted)
@@ -48,7 +48,7 @@ function makeReplicator(
       .map((peer) => ({ publicKey: peer.publicKey })),
   );
   const host = {
-    getTrustedPeers,
+    getPeerRecords,
     getPeerSharedKey,
     getSpaceIds,
     getSpaceMembers,
@@ -60,7 +60,7 @@ function makeReplicator(
     flush,
     pause,
     resume,
-    getTrustedPeers,
+    getPeerRecords,
     join,
     registerTopicKey,
   };
@@ -92,22 +92,22 @@ describe("Replicator pause/resume", () => {
   });
 
   it("resume() re-opens the network and re-queries trusted peers", async () => {
-    const { replicator, resume, getTrustedPeers } = makeReplicator();
+    const { replicator, resume, getPeerRecords } = makeReplicator();
 
     await replicator.pause();
     await replicator.resume();
 
     expect(resume).toHaveBeenCalledTimes(1);
-    expect(getTrustedPeers).toHaveBeenCalledTimes(1);
+    expect(getPeerRecords).toHaveBeenCalledTimes(1);
   });
 
   it("resume() without a prior pause is a no-op", async () => {
-    const { replicator, resume, getTrustedPeers } = makeReplicator();
+    const { replicator, resume, getPeerRecords } = makeReplicator();
 
     await replicator.resume();
 
     expect(resume).not.toHaveBeenCalled();
-    expect(getTrustedPeers).not.toHaveBeenCalled();
+    expect(getPeerRecords).not.toHaveBeenCalled();
   });
 
   it("resume() connects a trusted peer that has no topic yet", async () => {
@@ -115,14 +115,14 @@ describe("Replicator pause/resume", () => {
     // connect it — which routes through network.join() (here made to throw so
     // we can observe the attempt without standing up WebRTC).
     const peer = { publicKey: "a".repeat(64), trusted: true } as unknown as Peer;
-    const { replicator, getTrustedPeers, join, registerTopicKey } =
+    const { replicator, getPeerRecords, join, registerTopicKey } =
       makeReplicator([peer]);
 
     await replicator.pause();
     // Should not reject even though the underlying connect throws.
     await expect(replicator.resume()).resolves.toBeUndefined();
 
-    expect(getTrustedPeers).toHaveBeenCalledTimes(1);
+    expect(getPeerRecords).toHaveBeenCalledTimes(1);
     // The topic key is registered before the join, never after.
     expect(registerTopicKey).toHaveBeenCalledTimes(1);
     expect(join).toHaveBeenCalledTimes(1);

@@ -88,7 +88,7 @@ async function setup() {
 
   const host = {
     getIdentity: vi.fn(async () => ({ publicKey: LOCAL_PUBLIC_KEY })),
-    getTrustedPeers: vi.fn(async () => [
+    getPeerRecords: vi.fn(async () => [
       { publicKey: REMOTE_PUBLIC_KEY, trusted: true } as Peer,
     ]),
     getPeerSharedKey: vi.fn(async () => "c".repeat(64)),
