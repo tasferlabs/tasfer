@@ -65,6 +65,7 @@ import { createIdGenerator, generateBlockId } from "../sync/id";
 import { applyOps, findNextVisibleBlockIndex } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
 import type { StructuredContentMap } from "../sync/structured-content";
+import { hasStructuredContent } from "../sync/structured-content";
 import TurndownService from "turndown";
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
@@ -212,6 +213,21 @@ function adoptPastedStructuredContent(
  */
 function mergesIntoHostBlock(block: Block): block is TextualBlock {
   return isTextualBlock(block) && !hasBlockAuthorityContent(block);
+}
+
+/**
+ * A textual block with no visible characters and no attachments — the empty
+ * paragraph the markdown parser emits for a blank line, or the empty block a
+ * fresh caret sits in. Used to trim blank-line artifacts from a paste payload
+ * and to detect an empty paste host. A block whose only content is a structured
+ * attachment (an inline equation anchor renders zero visible text) is NOT empty.
+ */
+function isEmptyTextBlock(block: Block): boolean {
+  return (
+    isTextualBlock(block) &&
+    !hasStructuredContent(block) &&
+    getVisibleTextFromRuns(block.charRuns).length === 0
+  );
 }
 
 /**
@@ -1058,6 +1074,19 @@ function insertBlocksAtCursor(
   blocks = normalizeBlocks(blocks, state.schema);
   if (blocks.length === 0) return { state, ops: [] };
 
+  // Trim leading/trailing empty text blocks the parser emits for blank lines in
+  // the payload (a leading blank line becomes an empty paragraph). Left in, they
+  // paste as stray empty lines around the content. Interior blanks are kept —
+  // they're intentional spacing. A payload that is only empty blocks is left
+  // untouched, so "paste a blank line" still works.
+  if (blocks.some((b) => !isEmptyTextBlock(b))) {
+    let lead = 0;
+    while (lead < blocks.length && isEmptyTextBlock(blocks[lead])) lead++;
+    let tail = blocks.length;
+    while (tail > lead && isEmptyTextBlock(blocks[tail - 1])) tail--;
+    blocks = blocks.slice(lead, tail);
+  }
+
   // A single-block surface (e.g. a TitleEditor) never gains blocks from a paste.
   // Flatten the payload to one line of plain text and insert it inline at the
   // caret via the normal typing path (which also replaces any selection). Block
@@ -1125,7 +1154,53 @@ function insertBlocksAtCursor(
       textIndex = getBlockTextLength(lastVisibleBlock);
     }
   }
-  const currentBlock = newState.document.page.blocks[blockIndex];
+  let currentBlock = newState.document.page.blocks[blockIndex];
+
+  // Pasting into a truly empty block (no text, no attachments) drops the content
+  // in place: the empty host adopts the first pasted block's type and fields
+  // instead of forcing that block to merge into the host's type — which would,
+  // e.g., turn a pasted checklist's first item into a plain paragraph. The rest
+  // of the payload inserts after as usual. Skipped when the types already match
+  // (nothing to adopt) or the first block can't merge (an atomic block inserts
+  // as its own block regardless).
+  const firstPasted = blocks[0];
+  if (
+    isEmptyTextBlock(currentBlock) &&
+    mergesIntoHostBlock(firstPasted) &&
+    firstPasted.type !== currentBlock.type &&
+    state.schema.isBlockAllowed(firstPasted.type)
+  ) {
+    const retypeOps: Operation[] = [
+      {
+        op: "block_set",
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
+        blockId: currentBlock.id,
+        field: "type",
+        value: firstPasted.type,
+      } as BlockSet,
+    ];
+    // Carry the pasted block's declared fields (indent, checked, …) onto the
+    // host — descriptor-driven, so a new list type needs no code here.
+    pushBlockFieldOps(
+      firstPasted,
+      currentBlock.id,
+      state.CRDTbinding,
+      retypeOps,
+    );
+    ops.push(...retypeOps);
+    const retypedPage = applyOps(
+      newState.document.page,
+      retypeOps,
+      state.schema,
+    );
+    newState = {
+      ...newState,
+      document: { ...newState.document, page: retypedPage },
+    };
+    currentBlock = retypedPage.blocks[blockIndex];
+  }
 
   // A container block can opt in (via `Node.absorbsPastedParagraphs`) to
   // absorb pasted plain paragraphs into its own type, so multi-line plain text

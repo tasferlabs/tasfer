@@ -1248,6 +1248,56 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     const startBlockIndex = newPage.blocks.findIndex(
       (b: Block) => b.id === startBlock.id,
     );
+
+    // If the merge emptied the survivor and the selection began at that block's
+    // start, the user cut whole trailing lines away — collapse the leftover
+    // empty block into the previous line instead of stranding an empty item
+    // (e.g. an empty checkbox), provided a preceding textual block exists to
+    // hold the caret. A non-textual previous block (an image) can't take a text
+    // caret, so we keep the empty survivor as the caret target there.
+    const survivorBlock = newPage.blocks[startBlockIndex];
+    if (
+      survivorBlock &&
+      isTextualBlock(survivorBlock) &&
+      start.textIndex === 0 &&
+      getVisibleLength(survivorBlock.charRuns) === 0
+    ) {
+      let prevVisibleIndex = -1;
+      for (let i = startBlockIndex - 1; i >= 0; i--) {
+        if (!newPage.blocks[i].deleted) {
+          prevVisibleIndex = i;
+          break;
+        }
+      }
+      const prevBlock =
+        prevVisibleIndex !== -1 ? newPage.blocks[prevVisibleIndex] : undefined;
+      if (prevBlock && isTextualBlock(prevBlock)) {
+        const survivorDeleteOp: Operation = {
+          op: "block_delete",
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
+          blockId: startBlock.id,
+        };
+        ops.push(survivorDeleteOp);
+        newPage = applyOps(newPage, [survivorDeleteOp]);
+
+        invalidateBlockCache(prevBlock);
+
+        let collapsedState: EditorState = {
+          ...state,
+          document: { ...state.document, page: newPage },
+        };
+        collapsedState = moveCursorToPosition(
+          collapsedState,
+          prevVisibleIndex,
+          getVisibleLength(prevBlock.charRuns),
+        );
+        collapsedState = clearSelection(collapsedState);
+        return { state: collapsedState, ops };
+      }
+    }
+
     let removedPrefixLength = 0;
     if (startBlockIndex !== -1) {
       const blockCopy = newPage.blocks[startBlockIndex];
