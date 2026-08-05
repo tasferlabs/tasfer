@@ -5,8 +5,7 @@ import { useConfirmation } from "@/app/components/ConfirmationDialog";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
-  DragOverlay,
-  PointerSensor,
+  MouseSensor,
   TouchSensor,
   useSensor,
   useSensors,
@@ -31,10 +30,13 @@ import {
   type ICalendarPage,
 } from "../../api/pages.api";
 import {
-  HOUR_HEIGHT,
+  DEFAULT_HOUR_HEIGHT,
   TOTAL_HOURS,
   SNAP_MINUTES,
   MIN_DRAG_MINUTES,
+  minCreateMinutes,
+  clampHourHeight,
+  hourLabelStep,
   formatHour,
   formatDate,
   formatWeekRange,
@@ -46,6 +48,7 @@ import {
   getWeekDays,
   pxToMinutes,
   snapPx,
+  snapStartMin,
   pageToStartMin,
   layoutCalendarIntervals,
   getEventLaneInsets,
@@ -61,7 +64,6 @@ import {
 import { triggerHaptic } from "@/platform/bridge";
 import { useP2PPageEventsWithQueryClient } from "../../hooks/useP2PPageEvents";
 import { EventCard } from "./EventCard";
-import { EventOverlay } from "./EventOverlay";
 import { EventPreview } from "./EventPreview";
 import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
@@ -82,6 +84,24 @@ interface CreateDragState {
   startMinutes: number;
   endMinutes: number;
   date: Date;
+}
+
+// ── Pinch-zoom state ──
+
+interface PinchState {
+  startDistance: number;
+  startHourHeight: number;
+  /** Grid time under the initial pinch midpoint; stays put while zooming. */
+  anchorHours: number;
+  /** Scroll-content offset of hour 0, unaffected by the hour scale. */
+  gridOffset: number;
+}
+
+/** A zoom step to be re-anchored against the timeline's scroll position. */
+interface ZoomAnchor {
+  anchorHours: number;
+  gridOffset: number;
+  viewportY: number;
 }
 
 // ── Resize state ──
@@ -116,7 +136,30 @@ export default function CalendarPage() {
     false,
   );
 
-  const today = useMemo(() => wallNow(), []);
+  // ── Zoomable hour scale ──
+  //
+  // `hourHeight` drives layout and changes every frame of a pinch, so it lives
+  // in plain state; the stored copy is only read at mount and written once a
+  // gesture settles, keeping localStorage out of the gesture's hot path.
+  const [storedHourHeight, setStoredHourHeight] = useLocalStorage<number>(
+    "calendar-hour-height",
+    DEFAULT_HOUR_HEIGHT,
+  );
+  const [hourHeight, setHourHeight] = useState(() =>
+    clampHourHeight(storedHourHeight ?? DEFAULT_HOUR_HEIGHT),
+  );
+  // Event handlers read the scale through a ref so registering them doesn't
+  // depend on the current zoom.
+  const hourHeightRef = useRef(hourHeight);
+  hourHeightRef.current = hourHeight;
+  const pinchRef = useRef<PinchState | null>(null);
+  const zoomAnchorRef = useRef<ZoomAnchor | null>(null);
+  const zoomPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const labelStep = hourLabelStep(hourHeight);
+
+  const [today, setToday] = useState(() => wallNow());
   const isToday = isSameDay(selectedDate, today);
   const [miniCalOpen, setMiniCalOpen] = useState(false);
   const tz = getResolvedTimezone();
@@ -198,10 +241,10 @@ export default function CalendarPage() {
         return;
       }
       void getConfirmation({
-        title: t("calendar.discardDraftTitle", "Discard this event?"),
+        title: t("calendar.discardDraftTitle", "Discard this page?"),
         description: t(
           "calendar.discardDraftBody",
-          "You've started creating this event. Discard it?",
+          "You've started creating this page. Discard it?",
         ),
         cancelText: t("calendar.keepEditing", "Keep editing"),
         confirmText: t("common.discard", "Discard"),
@@ -272,10 +315,10 @@ export default function CalendarPage() {
   useEffect(() => {
     if (routeBlocker.state !== "blocked") return;
     void getConfirmation({
-      title: t("calendar.discardDraftTitle", "Discard this event?"),
+      title: t("calendar.discardDraftTitle", "Discard this page?"),
       description: t(
         "calendar.discardDraftBody",
-        "You've started creating this event. Discard it?",
+        "You've started creating this page. Discard it?",
       ),
       cancelText: t("calendar.keepEditing", "Keep editing"),
       confirmText: t("common.discard", "Discard"),
@@ -423,18 +466,18 @@ export default function CalendarPage() {
       }
 
       const confirmed = await getConfirmation({
-        title: t("calendar.deleteEvent", "Delete event"),
+        title: t("calendar.archiveEvent", "Archive event"),
         description: hasChildren
           ? t(
-              "calendar.eventHasSubPages",
-              "This event has sub-pages. Deleting it will also delete its sub-pages.",
+              "calendar.eventHasSubPagesArchive",
+              "This page has sub-pages. Archiving it moves them to the Archive too, where you can restore them anytime.",
             )
           : t(
-              "calendar.confirmDeleteEvent",
-              "Are you sure you want to delete this event?",
+              "calendar.confirmArchiveEvent",
+              "Archiving deletes nothing. This page moves to the Archive, where you can restore it anytime.",
             ),
         cancelText: t("common.cancel", "Cancel"),
-        confirmText: t("common.delete", "Delete"),
+        confirmText: t("common.archive", "Archive"),
       });
       if (confirmed) deletePage({ id: pageId });
     },
@@ -698,7 +741,8 @@ export default function CalendarPage() {
     if (timelineRef.current) {
       const currentHour = wallNow().getHours();
       const targetScroll =
-        currentHour * HOUR_HEIGHT - timelineRef.current.clientHeight / 3;
+        currentHour * hourHeightRef.current -
+        timelineRef.current.clientHeight / 3;
       timelineRef.current.scrollTop = Math.max(0, targetScroll);
     }
   }, [selectedDate, viewMode]);
@@ -723,19 +767,34 @@ export default function CalendarPage() {
   }
 
   // ── dnd-kit: drag to move events ──
+  // A mouse drag arms on distance alone: nothing competes with it, so waiting
+  // would only make the grab feel laggy. The threshold matches the click slop in
+  // EventCard, so a press either opens the event or drags it, never both.
+  // Touch keeps a press delay because the same gesture also scrolls the
+  // timeline; `tolerance` cancels the press when the finger travels first.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(MouseSensor, {
+      activationConstraint: { distance: 5 },
+    }),
     useSensor(TouchSensor, {
-      activationConstraint: { delay: 150, tolerance: 8 },
+      activationConstraint: { delay: 200, tolerance: 8 },
     }),
   );
 
   const [activeDragPage, setActiveDragPage] = useState<ICalendarPage | null>(
     null,
   );
+  // Mirrors `activeDragPage` for the native listeners that must not zoom or
+  // create while a move-drag owns the pointers.
+  const dragActiveRef = useRef(false);
+  dragActiveRef.current = activeDragPage !== null;
   const [dragDeltaMinutes, setDragDeltaMinutes] = useState(0);
   const dragDeltaMinutesRef = useRef(0);
   const dragDeltaPxRef = useRef(0);
+  // The dragged event's start-minute, captured at drag start, so the move can
+  // snap the absolute result (start + raw delta) to the grid instead of snapping
+  // the delta alone and inheriting an off-grid origin.
+  const dragStartMinRef = useRef(0);
   const [dragTargetDay, setDragTargetDay] = useState<Date | null>(null);
   const interactionPointerRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -891,6 +950,16 @@ export default function CalendarPage() {
     };
   }, [activeDragPage, viewMode, weekDays, clearEdgeDragTimer, isRtl, setDragDuplicate]);
 
+  // Turn a raw pixel offset into a minute delta whose result lands on the grid:
+  // snap `start + rawDelta` absolutely, then subtract the start so the existing
+  // `oldStartMin + delta` consumers (ghost + drop) stay on grid lines even when
+  // a zoom has left the event's origin off the current step.
+  function snappedDragDeltaMin(rawDeltaPx: number): number {
+    const hh = hourHeightRef.current;
+    const rawStart = dragStartMinRef.current + (rawDeltaPx / hh) * 60;
+    return snapStartMin(rawStart) - dragStartMinRef.current;
+  }
+
   function handleDragStart(event: DragStartEvent) {
     const page = event.active.data.current?.page as ICalendarPage | undefined;
     if (page) {
@@ -899,6 +968,7 @@ export default function CalendarPage() {
       setDragDeltaMinutes(0);
       dragDeltaMinutesRef.current = 0;
       dragDeltaPxRef.current = 0;
+      dragStartMinRef.current = pageToStartMin(page);
       setDragTargetDay(null);
       const ae = event.activatorEvent as
         | {
@@ -917,8 +987,7 @@ export default function CalendarPage() {
 
   function handleDragMove(event: { delta: { y: number } }) {
     dragDeltaPxRef.current = event.delta.y;
-    const snappedDeltaPx = snapPx(event.delta.y);
-    const deltaMinutes = pxToMinutes(snappedDeltaPx);
+    const deltaMinutes = snappedDragDeltaMin(event.delta.y);
     dragDeltaMinutesRef.current = deltaMinutes;
     setDragDeltaMinutes(deltaMinutes);
   }
@@ -1026,8 +1095,11 @@ export default function CalendarPage() {
       const scrollDelta =
         (timelineRef.current?.scrollTop ?? r.startScrollTop) -
         r.startScrollTop;
-      const deltaPx = snapPx(ev.clientY - r.startY + scrollDelta);
-      const deltaMin = pxToMinutes(deltaPx);
+      const deltaPx = snapPx(
+        ev.clientY - r.startY + scrollDelta,
+        hourHeightRef.current,
+      );
+      const deltaMin = pxToMinutes(deltaPx, hourHeightRef.current);
       const newDuration = Math.max(
         MIN_DRAG_MINUTES,
         r.originalDuration + deltaMin,
@@ -1140,14 +1212,20 @@ export default function CalendarPage() {
     const y = e.clientY - rect.top;
     const minutes = Math.max(
       0,
-      Math.min(pxToMinutes(y), TOTAL_HOURS * 60 - SNAP_MINUTES),
+      Math.min(
+        pxToMinutes(y, hourHeightRef.current),
+        TOTAL_HOURS * 60 - SNAP_MINUTES,
+      ),
     );
 
     isCreateDragging.current = true;
     interactionPointerRef.current = { x: e.clientX, y: e.clientY };
     setCreateDrag({
       startMinutes: minutes,
-      endMinutes: minutes + SNAP_MINUTES,
+      endMinutes: Math.min(
+        minutes + minCreateMinutes(hourHeightRef.current),
+        TOTAL_HOURS * 60,
+      ),
       date,
     });
   }
@@ -1164,13 +1242,16 @@ export default function CalendarPage() {
       const y = e.clientY - rect.top;
       const minutes = Math.max(
         0,
-        Math.min(pxToMinutes(y), TOTAL_HOURS * 60 - SNAP_MINUTES),
+        Math.min(
+          pxToMinutes(y, hourHeightRef.current),
+          TOTAL_HOURS * 60 - SNAP_MINUTES,
+        ),
       );
 
       setCreateDrag((prev) => {
         if (!prev) return prev;
         const endMin = Math.max(
-          prev.startMinutes + MIN_DRAG_MINUTES,
+          prev.startMinutes + minCreateMinutes(hourHeightRef.current),
           minutes + SNAP_MINUTES,
         );
         return {
@@ -1245,7 +1326,10 @@ export default function CalendarPage() {
     const y = clientY - rect.top;
     return Math.max(
       0,
-      Math.min(pxToMinutes(y), TOTAL_HOURS * 60 - SNAP_MINUTES),
+      Math.min(
+        pxToMinutes(y, hourHeightRef.current),
+        TOTAL_HOURS * 60 - SNAP_MINUTES,
+      ),
     );
   }, []);
 
@@ -1257,6 +1341,8 @@ export default function CalendarPage() {
         previewJustClosedRef.current
       )
         return;
+      // A second finger belongs to the zoom gesture, not to creation.
+      if (e.touches.length > 1 || pinchRef.current) return;
       const target = e.target as HTMLElement;
       if (target.closest(`.${style.eventCard}`)) return;
       if (target.closest(`.${style.resizeHandle}`)) return;
@@ -1292,7 +1378,10 @@ export default function CalendarPage() {
 
         setCreateDrag({
           startMinutes: minutes,
-          endMinutes: minutes + SNAP_MINUTES,
+          endMinutes: Math.min(
+            minutes + minCreateMinutes(hourHeightRef.current),
+            TOTAL_HOURS * 60,
+          ),
           date,
         });
       }, LONG_PRESS_MS);
@@ -1385,7 +1474,7 @@ export default function CalendarPage() {
           ...prev,
           startMinutes: minMin,
           endMinutes: Math.min(
-            Math.max(maxMin, minMin + MIN_DRAG_MINUTES),
+            Math.max(maxMin, minMin + minCreateMinutes(hourHeightRef.current)),
             TOTAL_HOURS * 60,
           ),
         };
@@ -1467,13 +1556,14 @@ export default function CalendarPage() {
       const currentMinutes = Math.max(
         0,
         Math.min(
-          pxToMinutes(clientY - rect.top),
+          pxToMinutes(clientY - rect.top, hourHeightRef.current),
           TOTAL_HOURS * 60 - SNAP_MINUTES,
         ),
       );
 
       setCreateDrag((prev) => {
         if (!prev) return prev;
+        const minCreate = minCreateMinutes(hourHeightRef.current);
         if (touchState?.active) {
           const startMinutes = touchState.startMinutes ?? prev.startMinutes;
           const minMin = Math.min(startMinutes, currentMinutes);
@@ -1482,7 +1572,7 @@ export default function CalendarPage() {
             ...prev,
             startMinutes: minMin,
             endMinutes: Math.min(
-              Math.max(maxMin, minMin + MIN_DRAG_MINUTES),
+              Math.max(maxMin, minMin + minCreate),
               TOTAL_HOURS * 60,
             ),
           };
@@ -1490,7 +1580,7 @@ export default function CalendarPage() {
 
         if (!isCreateDragging.current) return prev;
         const endMinutes = Math.max(
-          prev.startMinutes + MIN_DRAG_MINUTES,
+          prev.startMinutes + minCreate,
           currentMinutes + SNAP_MINUTES,
         );
         return {
@@ -1531,14 +1621,18 @@ export default function CalendarPage() {
           if (scrollDelta !== 0) {
             if (activeDragPage) {
               dragDeltaPxRef.current += scrollDelta;
-              const minutes = pxToMinutes(snapPx(dragDeltaPxRef.current));
+              const minutes = snappedDragDeltaMin(dragDeltaPxRef.current);
               dragDeltaMinutesRef.current = minutes;
               setDragDeltaMinutes(minutes);
             } else if (resizeRef.current) {
               const r = resizeRef.current;
               const totalScrollDelta = timeline.scrollTop - r.startScrollTop;
               const deltaMin = pxToMinutes(
-                snapPx(pointer.y - r.startY + totalScrollDelta),
+                snapPx(
+                  pointer.y - r.startY + totalScrollDelta,
+                  hourHeightRef.current,
+                ),
+                hourHeightRef.current,
               );
               const duration = Math.min(
                 Math.max(MIN_DRAG_MINUTES, r.originalDuration + deltaMin),
@@ -1587,6 +1681,7 @@ export default function CalendarPage() {
 
   const handleSwipeTouchStart = useCallback((e: React.TouchEvent) => {
     if (isNavigatingRef.current) return;
+    if (e.touches.length > 1 || pinchRef.current) return;
     const touch = e.touches[0];
     swipeTouchRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
     swipeDirRef.current = null;
@@ -1605,6 +1700,7 @@ export default function CalendarPage() {
       // accidental gesture; don't pan the whole grid between weeks there (use
       // the header arrows instead). Day view keeps day-to-day swiping.
       if (viewMode === "week") return;
+      if (pinchRef.current || e.touches.length > 1) return;
       const start = swipeTouchRef.current;
       if (!start) return;
       const touch = e.touches[0];
@@ -1705,6 +1801,164 @@ export default function CalendarPage() {
     );
   }, [viewMode, guardDiscard]);
 
+  // ── Zoom the hour scale (two-finger pinch, ⌘/Ctrl + wheel) ──
+
+  // Re-anchor the timeline after a zoom so the time the gesture grabbed stays
+  // under the fingers (or cursor) instead of the day sliding away.
+  useLayoutEffect(() => {
+    const anchor = zoomAnchorRef.current;
+    zoomAnchorRef.current = null;
+    const timeline = timelineRef.current;
+    if (!anchor || !timeline) return;
+    timeline.scrollTop = Math.max(
+      0,
+      anchor.gridOffset + anchor.anchorHours * hourHeight - anchor.viewportY,
+    );
+  }, [hourHeight]);
+
+  // Cancel a pending/active long-press create: a second finger means zoom.
+  const cancelTouchCreate = useCallback(() => {
+    const state = touchCreateRef.current;
+    if (state) clearTimeout(state.timer);
+    touchCreateRef.current = null;
+    isCreateDragging.current = false;
+    interactionPointerRef.current = null;
+    setCreateDrag(null);
+  }, []);
+
+  const persistHourHeight = useCallback(
+    (value: number) => {
+      setStoredHourHeight(Math.round(value));
+    },
+    [setStoredHourHeight],
+  );
+
+  useEffect(() => {
+    const maybeTimeline = timelineRef.current;
+    if (!maybeTimeline) return;
+    const timeline: HTMLDivElement = maybeTimeline;
+
+    const touchDistance = (a: Touch, b: Touch) =>
+      Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+
+    // Where hour 0 sits in the scroll content, and which hour a client Y is on.
+    function measure(clientY: number) {
+      const grid = gridRef.current;
+      if (!grid) return null;
+      const timelineRect = timeline.getBoundingClientRect();
+      const gridRect = grid.getBoundingClientRect();
+      return {
+        gridOffset: gridRect.top - timelineRect.top + timeline.scrollTop,
+        anchorHours: Math.min(
+          TOTAL_HOURS,
+          Math.max(0, (clientY - gridRect.top) / hourHeightRef.current),
+        ),
+        viewportY: clientY - timelineRect.top,
+      };
+    }
+
+    function onTouchStart(e: TouchEvent) {
+      if (e.touches.length !== 2 || dragActiveRef.current || resizeRef.current)
+        return;
+      const [a, b] = [e.touches[0], e.touches[1]];
+      const startDistance = touchDistance(a, b);
+      if (startDistance < 1) return;
+      const anchor = measure((a.clientY + b.clientY) / 2);
+      if (!anchor) return;
+
+      pinchRef.current = {
+        startDistance,
+        startHourHeight: hourHeightRef.current,
+        anchorHours: anchor.anchorHours,
+        gridOffset: anchor.gridOffset,
+      };
+      // The single-touch gestures this interrupts must not resume on release.
+      cancelTouchCreate();
+      swipeTouchRef.current = null;
+      swipeDirRef.current = null;
+    }
+
+    function onTouchMove(e: TouchEvent) {
+      const pinch = pinchRef.current;
+      if (!pinch || e.touches.length < 2) return;
+      if (e.cancelable) e.preventDefault();
+
+      const [a, b] = [e.touches[0], e.touches[1]];
+      const distance = touchDistance(a, b);
+      if (distance < 1) return;
+      const midY = (a.clientY + b.clientY) / 2;
+
+      zoomAnchorRef.current = {
+        gridOffset: pinch.gridOffset,
+        anchorHours: pinch.anchorHours,
+        viewportY: midY - timeline.getBoundingClientRect().top,
+      };
+      setHourHeight(
+        clampHourHeight(
+          pinch.startHourHeight * (distance / pinch.startDistance),
+        ),
+      );
+    }
+
+    function onTouchEnd(e: TouchEvent) {
+      if (!pinchRef.current || e.touches.length >= 2) return;
+      pinchRef.current = null;
+      const settled = Math.round(hourHeightRef.current);
+      setHourHeight(settled);
+      persistHourHeight(settled);
+    }
+
+    // Trackpad pinch arrives as a ctrl-wheel; ⌘ covers the explicit shortcut.
+    function onWheel(e: WheelEvent) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const anchor = measure(e.clientY);
+      if (anchor) zoomAnchorRef.current = anchor;
+      // Normalize the wheel delta: a trackpad reports pixels (fine-grained), but
+      // a physical mouse reports lines (~±3/notch) or pages, which would barely
+      // move the scale. Scale line/page steps up so a mouse notch zooms visibly.
+      const step =
+        e.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? e.deltaY * 16
+          : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? e.deltaY * 400
+            : e.deltaY;
+      const next = clampHourHeight(
+        hourHeightRef.current * Math.exp(-step / 180),
+      );
+      setHourHeight(next);
+      if (zoomPersistTimerRef.current) {
+        clearTimeout(zoomPersistTimerRef.current);
+      }
+      zoomPersistTimerRef.current = setTimeout(() => {
+        zoomPersistTimerRef.current = null;
+        persistHourHeight(hourHeightRef.current);
+      }, 400);
+    }
+
+    timeline.addEventListener("touchstart", onTouchStart, { passive: true });
+    timeline.addEventListener("touchmove", onTouchMove, { passive: false });
+    timeline.addEventListener("touchend", onTouchEnd);
+    timeline.addEventListener("touchcancel", onTouchEnd);
+    timeline.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      timeline.removeEventListener("touchstart", onTouchStart);
+      timeline.removeEventListener("touchmove", onTouchMove);
+      timeline.removeEventListener("touchend", onTouchEnd);
+      timeline.removeEventListener("touchcancel", onTouchEnd);
+      timeline.removeEventListener("wheel", onWheel);
+    };
+  }, [cancelTouchCreate, persistHourHeight, viewMode]);
+
+  useEffect(
+    () => () => {
+      if (zoomPersistTimerRef.current) {
+        clearTimeout(zoomPersistTimerRef.current);
+      }
+    },
+    [],
+  );
+
   // ── Now indicator ──
   const [nowMinutes, setNowMinutes] = useState(() => {
     const now = wallNow();
@@ -1715,6 +1969,8 @@ export default function CalendarPage() {
     const interval = setInterval(() => {
       const now = wallNow();
       setNowMinutes(now.getHours() * 60 + now.getMinutes());
+      // Roll the reference "today" over when the wall clock crosses midnight
+      setToday((prev) => (isSameDay(prev, now) ? prev : now));
     }, 60000);
     return () => clearInterval(interval);
   }, []);
@@ -1767,9 +2023,9 @@ export default function CalendarPage() {
       <div
         key={hour}
         className={style.hourLine}
-        style={{ top: hour * HOUR_HEIGHT }}
+        style={{ top: hour * hourHeight }}
       >
-        {viewMode === "day" && (
+        {viewMode === "day" && hour % labelStep === 0 && (
           <span className={style.timeLabel}>{formatHour(hour)}</span>
         )}
       </div>
@@ -1788,13 +2044,14 @@ export default function CalendarPage() {
         key={columnIndex ?? 0}
         className={style.weekColumn}
         data-day-index={columnIndex}
-        style={{ position: "relative", height: TOTAL_HOURS * HOUR_HEIGHT }}
+        style={{ position: "relative", height: TOTAL_HOURS * hourHeight }}
       >
         {getLaidOutPages(dayPages, dayDate).map(({ page, layout }) => (
           <EventCard
             key={page.id}
             page={page}
             layout={layout}
+            hourHeight={hourHeight}
             onResizeStart={handleResizeStart}
             onEventClick={handleEventClick}
             onDuplicate={(id) => duplicatePage(id, { select: true })}
@@ -1817,8 +2074,8 @@ export default function CalendarPage() {
               0,
               Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
             );
-            const top = (newStartMin / 60) * HOUR_HEIGHT;
-            const height = (duration / 60) * HOUR_HEIGHT;
+            const top = (newStartMin / 60) * hourHeight;
+            const height = (duration / 60) * hourHeight;
             const layout = getTransientLayout(
               dayDate,
               {
@@ -1837,11 +2094,16 @@ export default function CalendarPage() {
                 className={style.dropGhost}
                 style={{
                   top,
-                  height: Math.max(height, 20),
+                  height,
                   ...getEventLaneInsets(layout, true),
                 }}
               >
-                <span className={style.dropGhostTime}>
+                <span
+                  className={clsx(
+                    style.dropGhostTime,
+                    height < 18 && style.dropGhostTimeBelow,
+                  )}
+                >
                   {formatTimeRange(newStartMin, newStartMin + duration)}
                 </span>
                 {duplicating && (
@@ -1858,10 +2120,10 @@ export default function CalendarPage() {
           <div
             className={style.dragPreview}
             style={{
-              top: (createDrag.startMinutes / 60) * HOUR_HEIGHT,
+              top: (createDrag.startMinutes / 60) * hourHeight,
               height:
                 ((createDrag.endMinutes - createDrag.startMinutes) / 60) *
-                HOUR_HEIGHT,
+                hourHeight,
               ...getEventLaneInsets(
                 getTransientLayout(dayDate, {
                   id: "__create_ghost__",
@@ -1885,7 +2147,7 @@ export default function CalendarPage() {
               <div
                 className={style.nowIndicatorDot}
                 style={{
-                  top: (nowMinutes / 60) * HOUR_HEIGHT,
+                  top: (nowMinutes / 60) * hourHeight,
                   insetInlineStart: -4,
                   width: 8,
                   height: 8,
@@ -1894,7 +2156,7 @@ export default function CalendarPage() {
             )}
             <div
               className={style.nowIndicator}
-              style={{ top: (nowMinutes / 60) * HOUR_HEIGHT, insetInlineStart: 0 }}
+              style={{ top: (nowMinutes / 60) * hourHeight, insetInlineStart: 0 }}
             />
           </>
         )}
@@ -1907,22 +2169,24 @@ export default function CalendarPage() {
       <div
         ref={isCenter ? gridRef : undefined}
         className={style.weekGrid}
-        style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
+        style={{ height: TOTAL_HOURS * hourHeight }}
         onMouseDown={isCenter ? handleGridMouseDown : undefined}
         onTouchStart={isCenter ? handleGridTouchStart : undefined}
         onTouchEnd={isCenter ? handleGridTouchEnd : undefined}
         onTouchCancel={isCenter ? handleGridTouchEnd : undefined}
       >
         <div className={style.weekTimeLabels}>
-          {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
-            <div
-              key={hour}
-              className={style.weekTimeLabel}
-              style={{ top: hour * HOUR_HEIGHT }}
-            >
-              {formatHour(hour)}
-            </div>
-          ))}
+          {Array.from({ length: TOTAL_HOURS }, (_, hour) =>
+            hour % labelStep === 0 ? (
+              <div
+                key={hour}
+                className={style.weekTimeLabel}
+                style={{ top: hour * hourHeight }}
+              >
+                {formatHour(hour)}
+              </div>
+            ) : null,
+          )}
         </div>
         {days.map((day, i) => {
           let dayPages = getPagesForDay(day);
@@ -1939,7 +2203,7 @@ export default function CalendarPage() {
                 <div
                   key={hour}
                   className={style.weekHourLine}
-                  style={{ top: hour * HOUR_HEIGHT }}
+                  style={{ top: hour * hourHeight }}
                 />
               ))}
               {renderDayColumn(day, dayPages, isCenter ? i : undefined)}
@@ -2133,7 +2397,7 @@ export default function CalendarPage() {
                 <div className={style.swipePanel}>
                   <div
                     className={style.timelineGrid}
-                    style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
+                    style={{ height: TOTAL_HOURS * hourHeight }}
                   >
                     {renderHourLines()}
                     {getLaidOutPages(
@@ -2146,6 +2410,7 @@ export default function CalendarPage() {
                         key={page.id}
                         page={page}
                         layout={layout}
+                        hourHeight={hourHeight}
                         onResizeStart={noopHandler}
                         onEventClick={noopHandler}
                         isDraft={false}
@@ -2155,11 +2420,11 @@ export default function CalendarPage() {
                       <>
                         <div
                           className={style.nowIndicatorDot}
-                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                          style={{ top: (nowMinutes / 60) * hourHeight }}
                         />
                         <div
                           className={style.nowIndicator}
-                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                          style={{ top: (nowMinutes / 60) * hourHeight }}
                         />
                       </>
                     )}
@@ -2171,7 +2436,7 @@ export default function CalendarPage() {
                   <div
                     ref={gridRef}
                     className={style.timelineGrid}
-                    style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
+                    style={{ height: TOTAL_HOURS * hourHeight }}
                     onMouseDown={handleGridMouseDown}
                     onTouchStart={handleGridTouchStart}
                     onTouchEnd={handleGridTouchEnd}
@@ -2185,6 +2450,7 @@ export default function CalendarPage() {
                           key={page.id}
                           page={page}
                           layout={layout}
+                          hourHeight={hourHeight}
                           onResizeStart={handleResizeStart}
                           onEventClick={handleEventClick}
                           onDuplicate={(id) =>
@@ -2223,8 +2489,8 @@ export default function CalendarPage() {
                             TOTAL_HOURS * 60 - SNAP_MINUTES,
                           ),
                         );
-                        const top = (newStartMin / 60) * HOUR_HEIGHT;
-                        const height = (duration / 60) * HOUR_HEIGHT;
+                        const top = (newStartMin / 60) * hourHeight;
+                        const height = (duration / 60) * hourHeight;
                         const layout = getTransientLayout(
                           selectedDate,
                           {
@@ -2240,12 +2506,20 @@ export default function CalendarPage() {
                             className={style.dropGhost}
                             style={{
                               top,
-                              height: Math.max(height, 20),
+                              height,
                               ...getEventLaneInsets(layout, false),
                             }}
                           >
-                            <span className={style.dropGhostTime}>
-                              {formatTimeRange(newStartMin, newStartMin + duration)}
+                            <span
+                              className={clsx(
+                                style.dropGhostTime,
+                                height < 18 && style.dropGhostTimeBelow,
+                              )}
+                            >
+                              {formatTimeRange(
+                                newStartMin,
+                                newStartMin + duration,
+                              )}
                             </span>
                           </div>
                         );
@@ -2256,7 +2530,7 @@ export default function CalendarPage() {
                       resizeDuration !== null &&
                       (() => {
                         const endMin = resize.originalStartMin + resizeDuration;
-                        const top = (endMin / 60) * HOUR_HEIGHT;
+                        const top = (endMin / 60) * hourHeight;
                         return (
                           <div
                             className={style.resizeTimeLabel}
@@ -2272,11 +2546,11 @@ export default function CalendarPage() {
                       <div
                         className={style.dragPreview}
                         style={{
-                          top: (createDrag.startMinutes / 60) * HOUR_HEIGHT,
+                          top: (createDrag.startMinutes / 60) * hourHeight,
                           height:
                             ((createDrag.endMinutes - createDrag.startMinutes) /
                               60) *
-                            HOUR_HEIGHT,
+                            hourHeight,
                           ...getEventLaneInsets(
                             getTransientLayout(selectedDate, {
                               id: "__create_ghost__",
@@ -2299,11 +2573,11 @@ export default function CalendarPage() {
                       <>
                         <div
                           className={style.nowIndicatorDot}
-                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                          style={{ top: (nowMinutes / 60) * hourHeight }}
                         />
                         <div
                           className={style.nowIndicator}
-                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                          style={{ top: (nowMinutes / 60) * hourHeight }}
                         />
                       </>
                     )}
@@ -2314,7 +2588,7 @@ export default function CalendarPage() {
                 <div className={style.swipePanel}>
                   <div
                     className={style.timelineGrid}
-                    style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
+                    style={{ height: TOTAL_HOURS * hourHeight }}
                   >
                     {renderHourLines()}
                     {getLaidOutPages(
@@ -2327,6 +2601,7 @@ export default function CalendarPage() {
                         key={page.id}
                         page={page}
                         layout={layout}
+                        hourHeight={hourHeight}
                         onResizeStart={noopHandler}
                         onEventClick={noopHandler}
                         isDraft={false}
@@ -2336,11 +2611,11 @@ export default function CalendarPage() {
                       <>
                         <div
                           className={style.nowIndicatorDot}
-                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                          style={{ top: (nowMinutes / 60) * hourHeight }}
                         />
                         <div
                           className={style.nowIndicator}
-                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                          style={{ top: (nowMinutes / 60) * hourHeight }}
                         />
                       </>
                     )}
@@ -2392,14 +2667,6 @@ export default function CalendarPage() {
           </>
         )}
 
-        <DragOverlay dropAnimation={null}>
-          {activeDragPage && (
-            <EventOverlay
-              page={activeDragPage}
-              deltaMinutes={dragDeltaMinutes}
-            />
-          )}
-        </DragOverlay>
       </DndContext>
 
       <EventPreview

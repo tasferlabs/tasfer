@@ -34,6 +34,7 @@ import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Archive,
   Calendar,
   CalendarDays,
   Box,
@@ -45,7 +46,6 @@ import {
   Info,
   Maximize2,
   Search,
-  Trash2,
   Type,
   X,
 } from "lucide-react";
@@ -812,18 +812,18 @@ export function EventPreview({
     if (!pageId || !previewPage || isDeleting) return;
 
     const confirmed = await getConfirmation({
-      title: t("calendar.deleteEvent", "Delete event"),
+      title: t("calendar.archiveEvent", "Archive page"),
       description: previewPage.hasChildren
         ? t(
-            "calendar.eventHasSubPages",
-            "This event has sub-pages. Deleting it will also delete its sub-pages.",
+            "calendar.eventHasSubPagesArchive",
+            "This page has sub-pages. Archiving it moves them to the Archive too, where you can restore them anytime.",
           )
         : t(
-            "calendar.confirmDeleteEvent",
-            "Are you sure you want to delete this event?",
+            "calendar.confirmArchiveEvent",
+            "Archiving deletes nothing. This page moves to the Archive, where you can restore it anytime.",
           ),
       cancelText: t("common.cancel", "Cancel"),
-      confirmText: t("common.delete", "Delete"),
+      confirmText: t("common.archive", "Archive"),
     });
     if (!confirmed) return;
 
@@ -863,7 +863,7 @@ export function EventPreview({
           className={`${style.previewTypeToggleButton} ${!draftIsTask ? style.previewTypeToggleActive : ""}`}
           onClick={() => setDraftIsTask(false)}
         >
-          {t("calendar.event", "Event")}
+          {t("calendar.event", "Page")}
         </button>
       </div>
     </div>
@@ -879,7 +879,7 @@ export function EventPreview({
         disabled={!isTask && previewPage?.hasChildren}
       >
         {isTask
-          ? t("calendar.convertToEvent", "Convert to Event")
+          ? t("calendar.convertToEvent", "Convert to page")
           : t("calendar.convertToTask", "Convert to Task")}
       </button>
       {!isTask && previewPage?.hasChildren && (
@@ -1062,7 +1062,7 @@ export function EventPreview({
         : t("calendar.noDate", "No date"),
     duration: formatDurationLabel(currentDuration, t),
     space: currentParent?.title?.trim() || t("common.none", "None"),
-    type: isTask ? t("calendar.task", "Task") : t("calendar.event", "Event"),
+    type: isTask ? t("calendar.task", "Task") : t("calendar.event", "Page"),
   };
 
   const duplicateButton =
@@ -1071,8 +1071,8 @@ export function EventPreview({
         type="button"
         className={style.previewCloseBtn}
         onClick={handleDuplicate}
-        aria-label={t("calendar.duplicateEvent", "Duplicate event")}
-        title={t("calendar.duplicateEvent", "Duplicate event")}
+        aria-label={t("calendar.duplicateEvent", "Duplicate page")}
+        title={t("calendar.duplicateEvent", "Duplicate page")}
       >
         <Copy size={16} />
       </button>
@@ -1094,10 +1094,10 @@ export function EventPreview({
             className={style.previewDeleteIconBtn}
             onClick={handleDelete}
             disabled={isDeleting}
-            aria-label={t("calendar.deleteEvent", "Delete event")}
-            title={t("calendar.deleteEvent", "Delete event")}
+            aria-label={t("calendar.archiveEvent", "Archive page")}
+            title={t("calendar.archiveEvent", "Archive page")}
           >
-            <Trash2 size={16} />
+            <Archive size={16} />
           </button>
         )}
         <button
@@ -1486,10 +1486,10 @@ export function EventPreview({
                     className={style.previewDeleteIconBtn}
                     onClick={handleDelete}
                     disabled={isDeleting}
-                    aria-label={t("calendar.deleteEvent", "Delete event")}
-                    title={t("calendar.deleteEvent", "Delete event")}
+                    aria-label={t("calendar.archiveEvent", "Archive page")}
+                    title={t("calendar.archiveEvent", "Archive page")}
                   >
-                    <Trash2 size={16} />
+                    <Archive size={16} />
                   </button>
                 )}
                 <button
@@ -1550,10 +1550,10 @@ export function EventPreview({
                     className={style.previewDeleteIconBtn}
                     onClick={handleDelete}
                     disabled={isDeleting}
-                    aria-label={t("calendar.deleteEvent", "Delete event")}
-                    title={t("calendar.deleteEvent", "Delete event")}
+                    aria-label={t("calendar.archiveEvent", "Archive page")}
+                    title={t("calendar.archiveEvent", "Archive page")}
                   >
-                    <Trash2 size={16} />
+                    <Archive size={16} />
                   </button>
                 )}
                 <button

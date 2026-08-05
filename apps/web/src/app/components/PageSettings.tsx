@@ -22,7 +22,7 @@ import {
   Pencil,
   Search,
   // Share2,
-  Trash2,
+  Archive,
   Replace,
 } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
@@ -165,13 +165,13 @@ function PageSettingsImpl({
 
   const handleDelete = async () => {
     const confirmed = await getConfirmation({
-      title: t("page.deletePage", "Delete Page"),
+      title: t("page.archivePage", "Archive Page"),
       description: t(
-        "page.confirmDeletePage",
-        "Are you sure you want to delete this page?",
+        "page.confirmArchivePage",
+        "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
       ),
       cancelText: t("common.cancel", "Cancel"),
-      confirmText: t("common.delete", "Delete"),
+      confirmText: t("common.archive", "Archive"),
     });
 
     if (confirmed && currentPageId) {
@@ -363,12 +363,12 @@ function PageSettingsImpl({
           <Button
             variant="ghost"
             size="sm"
-            className="w-full justify-start gap-2 text-destructive hover:text-destructive px-2 py-5"
+            className="w-full justify-start gap-2 px-2 py-5"
             onClick={handleDelete}
             disabled={isDeleting}
           >
-            <Trash2 className="h-4 w-4" />
-            {t("common.delete", "Delete")}
+            <Archive className="h-4 w-4" />
+            {t("common.archive", "Archive")}
           </Button>
         </div>
       )}

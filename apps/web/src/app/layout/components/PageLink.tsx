@@ -35,7 +35,13 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "../../../components/ui/drawer";
-import { Download, Ellipsis, FolderInput, LoaderCircle } from "lucide-react";
+import {
+  Archive,
+  Download,
+  Ellipsis,
+  FolderInput,
+  LoaderCircle,
+} from "lucide-react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
@@ -263,13 +269,13 @@ export function PageLink({
 
   async function handleDelete() {
     const confirmed = await getConfirmation({
-      title: t("page.deletePage", "Delete Page"),
+      title: t("page.archivePage", "Archive Page"),
       description: t(
-        "page.confirmDeletePage",
-        "Are you sure you want to delete this page?",
+        "page.confirmArchivePage",
+        "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
       ),
       cancelText: t("common.cancel", "Cancel"),
-      confirmText: t("common.delete", "Delete"),
+      confirmText: t("common.archive", "Archive"),
     });
 
     if (confirmed) {
@@ -663,7 +669,7 @@ function PageLinkMenuContent({
           {t("import.title", "Import")}
         </button>
         <button
-          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-destructive text-start"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
           onClick={() => {
             onClose();
             onDelete();
@@ -673,9 +679,9 @@ function PageLinkMenuContent({
           {isDeleting ? (
             <LoaderCircle className="spin" size={18} />
           ) : (
-            <Icons.Trash width={18} height={18} />
+            <Archive size={18} />
           )}
-          {t("common.delete", "Delete")}
+          {t("common.archive", "Archive")}
         </button>
       </div>
       <div className="px-4 pb-4 pt-1">

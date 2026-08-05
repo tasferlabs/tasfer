@@ -141,6 +141,9 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding-bottom: 2rem;
+  /* Vertical scrolling stays native; a two-finger gesture is ours (hour-scale
+     zoom) rather than the browser's page pinch-zoom. */
+  touch-action: pan-y;
 }
 
 /* ── Swipe strip (3-panel horizontal scroll-snap) ── */
@@ -228,6 +231,46 @@
 
 .eventCard:active {
   cursor: grabbing;
+}
+
+/* Short events: drop the card's bottom padding and its inherited line box, so
+   the title sits against the top edge instead of being pushed past the bottom
+   one by the baseline of a 24px line. */
+.eventCardTight {
+  padding-bottom: 0;
+  line-height: 0;
+}
+
+/* Events too short to hold a line of text: a dot marks the slot instead of a
+   band of clipped glyphs. */
+.eventCardDot {
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  /* The card keeps the event's true height, which can be thinner than the dot;
+     let the dot sit centred on it rather than be clipped to a sliver. */
+  overflow: visible;
+}
+
+/* A few px of card is not a tap target, so the hit area reaches past it. */
+.eventCardDot::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -6px;
+  bottom: -6px;
+}
+
+/* Too-short events show an ellipsis rather than a colour swatch: it reads as
+   "more here, too small to show". Neutral, not the event's accent colour. */
+.eventEllipsis {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 0.5;
+  letter-spacing: 0.5px;
+  color: var(--muted-foreground);
 }
 
 .eventTitle {
@@ -1106,16 +1149,6 @@
 
 /* ── Drag overlay (follows cursor during move) ── */
 
-.eventOverlay {
-  background-color: var(--card);
-  border: 2px solid var(--primary);
-  border-radius: 6px;
-  padding: 4px 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  min-width: 160px;
-  pointer-events: none;
-}
-
 /* ── Drop ghost (snapped preview on grid during move) ── */
 
 .dropGhost {
@@ -1137,6 +1170,15 @@
   font-size: 0.7rem;
   font-weight: 500;
   color: var(--primary);
+}
+
+/* Short ghosts can't hold the label inside, so it sits just under the box
+   instead of spilling across it. */
+.dropGhostTimeBelow {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 100%;
+  margin-top: 2px;
 }
 
 .dropGhostBadge {

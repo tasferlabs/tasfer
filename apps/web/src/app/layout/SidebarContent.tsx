@@ -453,13 +453,13 @@ export function SidebarContent({
     // Same confirmation and navigate-away behavior as the context-menu delete.
     if (overData?.type === "archive-drop-zone") {
       const confirmed = await getConfirmation({
-        title: t("page.deletePage", "Delete Page"),
+        title: t("page.archivePage", "Archive Page"),
         description: t(
-          "page.confirmDeletePage",
-          "Are you sure you want to delete this page?",
+          "page.confirmArchivePage",
+          "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
         ),
         cancelText: t("common.cancel", "Cancel"),
-        confirmText: t("common.delete", "Delete"),
+        confirmText: t("common.archive", "Archive"),
       });
       if (!confirmed) return;
 

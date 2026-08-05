@@ -1,8 +1,9 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { ChevronLeft, ChevronRight, Copy, Pencil, Trash2 } from "lucide-react";
+import { Archive, ChevronLeft, ChevronRight, Copy, Pencil } from "lucide-react";
 import i18next from "i18next";
 import { useTranslation } from "react-i18next";
+import clsx from "clsx";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -13,7 +14,7 @@ import {
 import type { ICalendarPage } from "../../api/pages.api";
 import { TitlePreview } from "../../TitlePreview";
 import {
-  HOUR_HEIGHT,
+  DEFAULT_HOUR_HEIGHT,
   pageToStartMin,
   formatEventTime,
   formatTime,
@@ -21,6 +22,14 @@ import {
   type CalendarEventLayout,
 } from "./utils";
 import style from "./CalendarPage.module.css";
+
+// Below this the card can't fit a legible line of text, so it collapses to a
+// coloured dot instead of a strip of clipped glyphs.
+const DOT_ONLY_HEIGHT = 14;
+// Below this even the ellipsis won't fit; the bare coloured band stands in.
+const ELLIPSIS_MIN_HEIGHT = 10;
+// Below this a title still fits, but only without the card's bottom padding.
+const TIGHT_HEIGHT = 24;
 
 export function EventCard({
   page,
@@ -31,6 +40,7 @@ export function EventCard({
   layout,
   compact,
   isDraft,
+  hourHeight = DEFAULT_HOUR_HEIGHT,
 }: {
   page: ICalendarPage;
   onResizeStart: (pageId: string, e: React.PointerEvent) => void;
@@ -40,26 +50,58 @@ export function EventCard({
   layout?: CalendarEventLayout;
   compact?: boolean;
   isDraft?: boolean;
+  hourHeight?: number;
 }) {
   const { t } = useTranslation();
   const startMin = pageToStartMin(page);
   const duration = page.duration || 60;
-  const top = (startMin / 60) * HOUR_HEIGHT;
-  const height = (duration / 60) * HOUR_HEIGHT;
+  const top = (startMin / 60) * hourHeight;
+  const height = (duration / 60) * hourHeight;
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `event-${page.id}`,
     data: { page },
   });
 
-  const actualHeight = Math.max(height, 20);
   const timeStr = formatEventTime(page.scheduledAt, page.duration);
-  const showTimeSeparate = actualHeight > 40;
-  const showTimeInline = !showTimeSeparate && actualHeight > 25;
-  const showPath = page.path && actualHeight > 55;
+  const dotOnly = height < DOT_ONLY_HEIGHT;
+  const showEllipsis = dotOnly && height >= ELLIPSIS_MIN_HEIGHT;
+  const tight = !dotOnly && height < TIGHT_HEIGHT;
+  const showTimeSeparate = height > 40;
+  const showTimeInline = !showTimeSeparate && height > 25;
+  const showPath = page.path && height > 55;
+
+  const accent =
+    page.color ??
+    (page.path && [...page.path].reverse().find((p) => p.color)?.color) ??
+    null;
+  const accentColor =
+    accent && !isDraft ? accent : "var(--page-color-default)";
+  const titleFontSize = tight ? "0.65rem" : compact ? "0.7rem" : undefined;
+  const titleMathSize = tight ? 10 : compact ? 11 : 12;
 
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
+
+  // The card keeps `touch-action: none` so the browser can't steal the gesture
+  // and cancel dnd-kit's press before the move-drag arms. Scroll still wins:
+  // until the drag activates, vertical movement is forwarded to the timeline
+  // here, with a fling on release to match native momentum.
+  const panRef = useRef<{
+    scroller: HTMLElement;
+    lastY: number;
+    lastT: number;
+    velocity: number;
+  } | null>(null);
+  const flingRef = useRef<number | null>(null);
+  const draggingRef = useRef(false);
+  draggingRef.current = isDragging;
+
+  const stopFling = () => {
+    if (flingRef.current !== null) cancelAnimationFrame(flingRef.current);
+    flingRef.current = null;
+  };
+  useEffect(() => stopFling, []);
 
   const card = (
     <div
@@ -67,30 +109,75 @@ export function EventCard({
         cardRef.current = node;
         setNodeRef(node);
       }}
-      className={`${style.eventCard}${isDraft ? ` ${style.eventCardDraft}` : ""}`}
+      className={clsx(
+        style.eventCard,
+        isDraft && style.eventCardDraft,
+        tight && style.eventCardTight,
+        dotOnly && style.eventCardDot,
+      )}
       {...(isDraft ? { "data-draft-card": "" } : {})}
+      {...(dotOnly
+        ? {
+            "aria-label": `${page.title || t("common.untitled", "Untitled")} — ${timeStr}`,
+          }
+        : {})}
       style={{
         top,
-        height: actualHeight,
+        height,
         opacity: isDragging ? 0.3 : 1,
+        borderInlineStartColor: accentColor,
         ...getEventLaneInsets(layout, !!compact),
-        ...(compact ? { padding: "2px 6px" } : {}),
-        ...(() => {
-          const c =
-            page.color ??
-            (page.path &&
-              [...page.path].reverse().find((p) => p.color)?.color) ??
-            null;
-          return c && !isDraft
-            ? { borderInlineStartColor: c }
-            : { borderInlineStartColor: "var(--page-color-default)" };
-        })(),
+        ...(compact && !dotOnly
+          ? { padding: tight ? "0 6px" : "2px 6px" }
+          : {}),
       }}
       {...listeners}
       {...attributes}
       onPointerDown={(e) => {
         pointerStartRef.current = { x: e.clientX, y: e.clientY };
-        listeners?.onPointerDown?.(e as any);
+      }}
+      onTouchStart={(e) => {
+        stopFling();
+        const scroller =
+          e.touches.length === 1 ? findScroller(e.currentTarget) : null;
+        panRef.current = scroller
+          ? { scroller, lastY: e.touches[0].clientY, lastT: e.timeStamp, velocity: 0 }
+          : null;
+        listeners?.onTouchStart?.(e as any);
+      }}
+      onTouchMove={(e) => {
+        const pan = panRef.current;
+        // A second finger belongs to the timeline's zoom gesture, and once the
+        // drag has armed the card follows the finger instead of scrolling.
+        if (!pan || draggingRef.current || e.touches.length !== 1) {
+          panRef.current = null;
+          return;
+        }
+        const y = e.touches[0].clientY;
+        const dt = e.timeStamp - pan.lastT;
+        pan.scroller.scrollTop += pan.lastY - y;
+        if (dt > 0) pan.velocity = (pan.lastY - y) / dt;
+        pan.lastY = y;
+        pan.lastT = e.timeStamp;
+      }}
+      onTouchEnd={() => {
+        const pan = panRef.current;
+        panRef.current = null;
+        if (!pan || draggingRef.current || Math.abs(pan.velocity) < 0.05) return;
+        let velocity = pan.velocity;
+        let last = performance.now();
+        const step = (now: number) => {
+          const dt = now - last;
+          last = now;
+          velocity *= Math.pow(0.94, dt / 16);
+          if (Math.abs(velocity) < 0.02) return stopFling();
+          pan.scroller.scrollTop += velocity * dt;
+          flingRef.current = requestAnimationFrame(step);
+        };
+        flingRef.current = requestAnimationFrame(step);
+      }}
+      onTouchCancel={() => {
+        panRef.current = null;
       }}
       onClick={(e) => {
         if (!pointerStartRef.current) return;
@@ -103,13 +190,15 @@ export function EventCard({
         pointerStartRef.current = null;
       }}
     >
-      {showTimeInline && compact ? (
+      {dotOnly ? (
+        showEllipsis ? <span className={style.eventEllipsis}>…</span> : null
+      ) : showTimeInline && compact ? (
         <div className={style.eventInline}>
-          <span className={style.eventTitle} style={{ fontSize: "0.7rem" }}>
+          <span className={style.eventTitle} style={{ fontSize: titleFontSize }}>
             <TitlePreview
               title={page.title}
               titleMd={page.titleMd}
-              mathFontSize={11}
+              mathFontSize={titleMathSize}
             />
           </span>
           <span className={style.eventTimeInline}>{formatTime(startMin)}</span>
@@ -118,12 +207,12 @@ export function EventCard({
         <>
           <span
             className={style.eventTitle}
-            style={compact ? { fontSize: "0.7rem" } : undefined}
+            style={titleFontSize ? { fontSize: titleFontSize } : undefined}
           >
             <TitlePreview
               title={page.title}
               titleMd={page.titleMd}
-              mathFontSize={compact ? 11 : 12}
+              mathFontSize={titleMathSize}
             />
           </span>
           {showTimeSeparate && (
@@ -137,13 +226,25 @@ export function EventCard({
           {showPath && <PathBreadcrumb path={page.path!} compact={compact} />}
         </>
       )}
-      <div
-        className={style.resizeHandle}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onResizeStart(page.id, e);
-        }}
-      />
+      {/* A handle taller than the card would swallow the tap target, so it
+          tracks the card height and disappears once only a dot is left. */}
+      {!dotOnly && (
+        <div
+          className={style.resizeHandle}
+          style={
+            tight ? { height: Math.max(4, Math.round(height / 3)) } : undefined
+          }
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(page.id, e);
+          }}
+          // A press fires more than pointerdown (handled above): touchstart on
+          // touch, mousedown with a mouse. Either one bubbling to the card trips
+          // dnd-kit, moving the event while it resizes.
+          onTouchStart={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        />
+      )}
     </div>
   );
 
@@ -164,19 +265,25 @@ export function EventCard({
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onDuplicate(page.id)}>
           <Copy />
-          {t("calendar.duplicateEvent", "Duplicate event")}
+          {t("calendar.duplicateEvent", "Duplicate page")}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem
-          variant="destructive"
-          onSelect={() => onDelete(page.id)}
-        >
-          <Trash2 />
-          {t("calendar.deleteEvent", "Delete event")}
+        <ContextMenuItem onSelect={() => onDelete(page.id)}>
+          <Archive />
+          {t("calendar.archiveEvent", "Archive page")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );
+}
+
+function findScroller(from: HTMLElement): HTMLElement | null {
+  for (let el = from.parentElement; el; el = el.parentElement) {
+    if (el.scrollHeight <= el.clientHeight) continue;
+    const overflow = getComputedStyle(el).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return el;
+  }
+  return null;
 }
 
 function PathBreadcrumb({

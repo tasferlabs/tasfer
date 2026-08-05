@@ -10,11 +10,31 @@ import {
 
 // ── Constants ──
 
-export const HOUR_HEIGHT = 60;
+// The hour scale is zoomable (pinch on touch, ⌘/Ctrl + wheel on desktop), so
+// every px↔time conversion takes the current hour height instead of reading a
+// constant. `DEFAULT_HOUR_HEIGHT` is only the starting point.
+export const DEFAULT_HOUR_HEIGHT = 60;
+export const MIN_HOUR_HEIGHT = 20;
+export const MAX_HOUR_HEIGHT = 180;
 export const TOTAL_HOURS = 24;
+// Time snaps to 15-minute lines at every zoom level. Zooming out only shrinks
+// the pixels per step, never the granularity, so an event can still be placed
+// or resized to the quarter-hour when the day is scaled down.
 export const SNAP_MINUTES = 15;
 export const MIN_DRAG_MINUTES = 15;
-export const SNAP_PX = (SNAP_MINUTES / 60) * HOUR_HEIGHT;
+
+/**
+ * Minimum duration for a newly created event, scaled to the current zoom.
+ * Zoomed out, a 15-minute card shrinks to a few unreadable, un-grabbable
+ * pixels, so grow the create size to keep a fresh event at least as tall as a
+ * snap step looks at the default zoom. Users who want a shorter block can zoom
+ * in or edit it in the drawer. At the default zoom (or closer) this is just
+ * SNAP_MINUTES, so normal creation is unchanged.
+ */
+export function minCreateMinutes(hourHeight: number): number {
+  const steps = Math.max(1, Math.ceil(DEFAULT_HOUR_HEIGHT / hourHeight));
+  return steps * SNAP_MINUTES;
+}
 
 export type ViewMode = "day" | "week";
 
@@ -29,7 +49,10 @@ export interface CalendarEventLayout {
   laneCount: number;
 }
 
-const MIN_EVENT_HEIGHT_MINUTES = 20;
+// Cards render their real duration, so lanes are assigned from real times too
+// and events that touch stay full width. The floor only keeps zero-duration
+// events from stacking invisibly.
+const MIN_LAYOUT_MINUTES = 1;
 
 // ── Display time zone ──
 //
@@ -179,13 +202,35 @@ export function formatTimeRange(startMinutes: number, endMinutes: number): strin
   return formatter.formatRange(start, end);
 }
 
-export function pxToMinutes(px: number): number {
-  const raw = (px / HOUR_HEIGHT) * 60;
+export function clampHourHeight(px: number): number {
+  if (!Number.isFinite(px)) return DEFAULT_HOUR_HEIGHT;
+  return Math.min(MAX_HOUR_HEIGHT, Math.max(MIN_HOUR_HEIGHT, px));
+}
+
+/**
+ * Hours between rendered time labels. Zoomed out, one label per hour would
+ * collide, so thin them out while keeping the hour lines.
+ */
+export function hourLabelStep(hourHeight: number): number {
+  if (hourHeight < 26) return 3;
+  if (hourHeight < 40) return 2;
+  return 1;
+}
+
+export function pxToMinutes(px: number, hourHeight: number): number {
+  const raw = (px / hourHeight) * 60;
   return Math.round(raw / SNAP_MINUTES) * SNAP_MINUTES;
 }
 
-export function snapPx(px: number): number {
-  return Math.round(px / SNAP_PX) * SNAP_PX;
+export function snapPx(px: number, hourHeight: number): number {
+  const snap = (SNAP_MINUTES / 60) * hourHeight;
+  return Math.round(px / snap) * snap;
+}
+
+// Snap an absolute start-minute to the 15-minute grid, so a dragged event lands
+// on a grid line rather than preserving the original off-grid offset.
+export function snapStartMin(startMin: number): number {
+  return Math.round(startMin / SNAP_MINUTES) * SNAP_MINUTES;
 }
 
 export function pageToStartMin(page: ICalendarPage): number {
@@ -200,8 +245,7 @@ export function layoutCalendarIntervals(
     .map((interval) => ({
       ...interval,
       endMinutes:
-        interval.startMinutes +
-        Math.max(interval.duration, MIN_EVENT_HEIGHT_MINUTES),
+        interval.startMinutes + Math.max(interval.duration, MIN_LAYOUT_MINUTES),
     }))
     .sort((a, b) => {
       if (a.startMinutes !== b.startMinutes) {
