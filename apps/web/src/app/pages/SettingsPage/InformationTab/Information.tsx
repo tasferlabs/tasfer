@@ -11,6 +11,8 @@ import {
 } from "@/lib/devTools";
 import { getClientPlatform } from "@/platform";
 import { publicAssetUrl } from "@/lib/publicAssetUrl";
+import { formatAbsoluteDateTime } from "@/lib/dateTimePreferences";
+import { APP_VERSION, BUILD_TIMESTAMP, getBuildDate } from "@/version";
 
 // Taps on the version line needed to reveal the hidden Tasfer Inspector toggle
 // (the classic Android "tap build number" gesture).
@@ -30,6 +32,13 @@ export function Information() {
   const devToolsUnlocked = useDevToolsUnlocked();
   const tapsRef = useRef(0);
   const [justUnlocked, setJustUnlocked] = useState(false);
+
+  // The build instant is stored as UTC ISO; show it in the user's date, time and
+  // time zone preferences. Falls back to the raw value if it isn't a real date.
+  const buildDate = getBuildDate();
+  const builtAt = buildDate
+    ? formatAbsoluteDateTime(buildDate)
+    : BUILD_TIMESTAMP;
 
   // Link the commit to GitHub only when it's a real, clean hash — a dirty build
   // doesn't match its base commit, and "dev"/"unknown" aren't commits at all.
@@ -74,7 +83,10 @@ export function Information() {
 
       <div className="text-xs text-muted-foreground mt-auto pt-8 space-y-1">
         <p onClick={handleVersionTap} className="select-none w-fit">
-          {t("common.version", "Version")}: {__BUILD_TIMESTAMP__}
+          {t("common.version", "Version")}: {APP_VERSION}
+        </p>
+        <p className="w-fit">
+          {t("settings.information.built", "Built")}: {builtAt}
         </p>
         <p className="w-fit">
           {t("settings.information.commit", "Commit")}:{" "}

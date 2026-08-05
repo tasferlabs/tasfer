@@ -1,5 +1,11 @@
 import { Button } from "@/components/ui/button";
-import { BUILD_COMMIT, BUILD_TIMESTAMP } from "@/version";
+import {
+  APP_VERSION,
+  BUILD_COMMIT,
+  BUILD_TIMESTAMP,
+  getBuildDate,
+} from "@/version";
+import { formatAbsoluteDateTime } from "@/lib/dateTimePreferences";
 import { WifiOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,6 +17,11 @@ export default function ForceUpdatePage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const buildDate = getBuildDate();
+  const builtAt = buildDate
+    ? formatAbsoluteDateTime(buildDate)
+    : BUILD_TIMESTAMP;
 
   // Track online/offline status
   useEffect(() => {
@@ -101,7 +112,8 @@ export default function ForceUpdatePage() {
 
         {/* Build info for debugging */}
         <p className="text-xs text-muted-foreground/60" aria-hidden="true">
-          {t("update.build", "Build")}: {BUILD_TIMESTAMP} · {BUILD_COMMIT}
+          {APP_VERSION} · {t("update.build", "Build")}: {builtAt} ·{" "}
+          {BUILD_COMMIT}
         </p>
       </div>
     </div>

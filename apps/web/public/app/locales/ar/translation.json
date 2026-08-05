@@ -645,6 +645,7 @@
   "settings.fullWidth": "عرض كامل",
   "settings.information.title": "المعلومات",
   "settings.information.commit": "معرّف الإيداع",
+  "settings.information.built": "تاريخ البناء",
   "settings.information.license": "تصفير برنامج حر، مرخّص بموجب رخصة GNU AGPL-3.0.",
   "settings.information.thirdPartyLicenses": "تراخيص أطراف ثالثة",
   "settings.information.viewSource": "عرض الشيفرة المصدرية",

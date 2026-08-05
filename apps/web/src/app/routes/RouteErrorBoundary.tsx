@@ -141,7 +141,7 @@ function DevErrorView({ info }: { info: ErrorInfo }) {
 
       {/* Environment footer */}
       <div className="flex h-7 shrink-0 items-center gap-3 border-t border-border px-3 font-mono text-[10px] text-muted-foreground/70">
-        <span>v{__CLIENT_VERSION__}</span>
+        <span>v{__APP_VERSION__}</span>
         <span className="tabular-nums">{__BUILD_TIMESTAMP__}</span>
         <span>{__BUILD_COMMIT__}</span>
         <span className="min-w-0 truncate">{window.location.pathname}</span>

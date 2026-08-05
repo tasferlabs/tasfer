@@ -18,12 +18,24 @@ process.env.VC_MICROFRONTENDS_CONFIG ??= "../site/microfrontends.json";
 // Native/Electron builds load from file:// and need a relative base instead.
 const isVercelBuild = !!process.env.VERCEL;
 
-const buildTimestamp = DateTime.utc().toFormat("yyyyMMddHHmm");
+// ISO 8601 UTC instant, so the UI can format it in the user's date/time
+// preferences and diagnostics stay unambiguous across time zones.
+const buildTimestamp =
+  DateTime.utc().startOf("second").toISO({ suppressMilliseconds: true }) ??
+  "unknown";
 
-// Short commit the build was cut from, with a `-dirty` suffix when the working
-// tree had uncommitted changes. Falls back to a CI-provided SHA when `.git` is
-// absent (e.g. a shallow tarball build), and to "unknown" when neither exists.
+// Short commit the build was cut from. A CI-provided SHA wins: the checkout is
+// exactly that commit, and the build steps themselves leave files in the tree,
+// so `git status` there would report a false `-dirty`. Local builds read git
+// directly and keep the `-dirty` suffix for uncommitted changes; "unknown" when
+// neither is available (e.g. a source tarball with no `.git`).
 function resolveBuildCommit(): string {
+  const ciSha =
+    process.env.GITHUB_SHA ??
+    process.env.VERCEL_GIT_COMMIT_SHA ??
+    process.env.CF_PAGES_COMMIT_SHA;
+  if (ciSha) return ciSha.slice(0, 7);
+
   try {
     const git = (cmd: string) =>
       execSync(cmd, { cwd: __dirname, stdio: ["ignore", "pipe", "ignore"] })
@@ -33,11 +45,7 @@ function resolveBuildCommit(): string {
     const dirty = git("git status --porcelain").length > 0;
     return dirty ? `${short}-dirty` : short;
   } catch {
-    const ciSha =
-      process.env.GITHUB_SHA ??
-      process.env.VERCEL_GIT_COMMIT_SHA ??
-      process.env.CF_PAGES_COMMIT_SHA;
-    return ciSha ? ciSha.slice(0, 7) : "unknown";
+    return "unknown";
   }
 }
 
@@ -89,6 +97,13 @@ const versionConfig = JSON.parse(
   readFileSync(join(__dirname, "../../version.json"), "utf-8"),
 );
 
+// Marketing version shown to users. This package is the source of truth the
+// native versions track (android `tasferVersionName`, iOS `MARKETING_VERSION`);
+// `versionConfig.version` is the separate integer the API min-version check uses.
+const appVersion: string = JSON.parse(
+  readFileSync(join(__dirname, "package.json"), "utf-8"),
+).version;
+
 export default defineConfig({
   plugins: [
     microfrontends(isVercelBuild ? { basePath: "/app" } : {}),
@@ -123,6 +138,7 @@ export default defineConfig({
   define: {
     __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
     __BUILD_COMMIT__: JSON.stringify(buildCommit),
+    __APP_VERSION__: JSON.stringify(appVersion),
     __CLIENT_VERSION__: versionConfig.version,
     "import.meta.env.VERCEL_ENV": JSON.stringify(
       process.env.VERCEL_ENV ?? null,

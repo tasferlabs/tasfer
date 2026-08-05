@@ -48,7 +48,8 @@ export function buildEnvTable(path: string): string {
   return [
     "| | |",
     "| --- | --- |",
-    `| Version | ${__CLIENT_VERSION__} |`,
+    `| Version | ${__APP_VERSION__} |`,
+    `| Client | ${__CLIENT_VERSION__} |`,
     `| Build | ${__BUILD_TIMESTAMP__} |`,
     `| Commit | ${__BUILD_COMMIT__} |`,
     `| Path | ${path} |`,
