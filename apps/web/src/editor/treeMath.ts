@@ -16,6 +16,7 @@ import {
   mathTreeCaretToContentSelection,
   trailingMathCommandRun,
 } from "@tasfer/editor/math";
+import type { MathMenuTrigger } from "./mathCommandSearch";
 import type { AppEditor } from "../editorSchema";
 
 export interface ActiveTreeMath {
@@ -87,7 +88,7 @@ export interface TreeMathCommandRun {
  */
 export function treeMathCommandRun(
   context: ActiveTreeMath,
-  trigger: "\\" | "/" = "\\",
+  trigger: MathMenuTrigger = "\\",
 ): TreeMathCommandRun | null {
   const caret = contentPointToMathTreeCaret(context.document, context.point);
   const run = caret
@@ -104,4 +105,20 @@ export function treeMathCommandRun(
       run.range.anchor,
     ),
   };
+}
+
+/**
+ * The command run at the caret whichever trigger opened it — what chrome that
+ * doesn't own the trigger (the mobile toolbar) needs to mirror what is being
+ * typed. The two runs are mutually exclusive: a query is letters only, so the
+ * text before the caret can end in exactly one of `/query` and `\query`.
+ */
+export function activeTreeMathCommandRun(
+  context: ActiveTreeMath,
+): (TreeMathCommandRun & { trigger: MathMenuTrigger }) | null {
+  for (const trigger of ["/", "\\"] as const) {
+    const run = treeMathCommandRun(context, trigger);
+    if (run) return { ...run, trigger };
+  }
+  return null;
 }

@@ -127,9 +127,9 @@ import { LinkTooltip } from "../editor/LinkTooltip";
 import { MathCommandMenu } from "../editor/MathCommandMenu";
 import {
   activeTreeMath,
+  activeTreeMathCommandRun,
   treeMathAtAnchor,
   treeMathAtFocus,
-  treeMathCommandRun,
 } from "../editor/treeMath";
 import { MatrixEditor } from "../editor/MatrixEditor";
 import { SlashActionMenu } from "../editor/SlashActionMenu";
@@ -1665,14 +1665,18 @@ function PageEditor({
           editor.focus();
           break;
         case "open-math-commands": {
+          // Types a literal `/` — the element-name trigger. `\` stays the LaTeX
+          // trigger for hardware keyboards, but the toolbar button offers `/`:
+          // it reads as "insert a math element", searches localized names, and
+          // is what the row's chips then filter on as you keep typing.
           const tree = activeTreeMath(editor);
           if (tree) {
             editor.dispatch(TEXT_INPUT, {
-              text: "\\",
+              text: "/",
               blockIndex: 0,
               textIndex: tree.sourceOffset,
             });
-            editor.change((change) => change.insertText("\\"));
+            editor.change((change) => change.insertText("/"));
             editor.focus();
             break;
           }
@@ -1688,23 +1692,23 @@ function PageEditor({
 
           const block = editor.query.block(range);
           const caretOffset = range.offset ?? 0;
-          // Inserting `\` at either chip edge joins the chip via MathNode's
-          // edge-join observer, so both edges open the menu.
+          // Inserting the trigger at either chip edge joins the chip via
+          // MathNode's edge-join observer, so both edges open the menu.
           const insideInlineMath =
             block != null &&
             inlineMathChipAt(editor.query.marks, block.id, caretOffset) !==
               undefined;
           if (block?.type !== "math" && !insideInlineMath) break;
 
-          // Match a typed backslash: notify command-menu observers before the
-          // edit commits, then let the normal insertion pipeline update the
-          // equation and trigger a subscription tick that opens the palette.
+          // Match a typed `/`: notify command-menu observers before the edit
+          // commits, then let the normal insertion pipeline update the equation
+          // and trigger a subscription tick that opens the palette.
           editor.dispatch(TEXT_INPUT, {
-            text: "\\",
+            text: "/",
             blockIndex: 0,
             textIndex: caretOffset,
           });
-          editor.change((change) => change.insertText("\\"));
+          editor.change((change) => change.insertText("/"));
           editor.focus();
           break;
         }
@@ -1721,9 +1725,12 @@ function PageEditor({
               action.latex,
               tree.source[tree.sourceOffset] ?? "",
             );
+            // Pass the trigger that opened the run so the construct replaces
+            // the typed `/query` (or `\query`) instead of landing after it.
             editor.dispatch(INSERT_MATH_COMMAND, {
               text: insertion.text,
               caretOffset: insertion.caretOffset,
+              trigger: activeTreeMathCommandRun(tree)?.trigger,
             });
             editor.focus();
             break;
@@ -1748,6 +1755,7 @@ function PageEditor({
             editor.dispatch(INSERT_MATH_COMMAND, {
               text: insertion.text,
               caretOffset: insertion.caretOffset,
+              trigger: activeBlockMathCommand(block.text, caretOffset)?.trigger,
             });
             editor.focus();
             break;
@@ -1773,7 +1781,7 @@ function PageEditor({
           editor.change((change) => {
             if (active) {
               change.insertText(insertion.text, {
-                from: { block: block.id, offset: active.backslashIndex },
+                from: { block: block.id, offset: active.triggerIndex },
                 to: { block: block.id, offset: caretOffset },
               });
             } else {
@@ -1786,7 +1794,7 @@ function PageEditor({
             // formula. Idempotent for an interior drop already inside the mark.
             if (chip) {
               const delta = active
-                ? insertion.text.length - (caretOffset - active.backslashIndex)
+                ? insertion.text.length - (caretOffset - active.triggerIndex)
                 : insertion.text.length;
               change.setMark("math", {
                 active: true,
@@ -1796,7 +1804,7 @@ function PageEditor({
                 },
               });
             }
-            const caretBase = active ? active.backslashIndex : caretOffset;
+            const caretBase = active ? active.triggerIndex : caretOffset;
             change.select({
               block: block.id,
               offset: caretBase + insertion.caretOffset,
@@ -2103,10 +2111,15 @@ function PageEditor({
                 latex: chip.latex,
                 name: chip.name,
               })),
-              noMatchLabel: t(
-                "editor.math.noLatexCommands",
-                "No matching LaTeX commands",
-              ),
+              // The empty state names what was searched: element names for the
+              // `/` trigger, the LaTeX catalog for `\`.
+              noMatchLabel:
+                layout.middle.trigger === "\\"
+                  ? t(
+                      "editor.math.noLatexCommands",
+                      "No matching LaTeX commands",
+                    )
+                  : t("editor.math.noConstructs", "No matching math elements"),
             },
           }
         : rest;
@@ -2874,12 +2887,14 @@ function PageEditor({
 
       // Contextual math row. Present whenever the caret rests in math — a block
       // equation or an inline chip (including its start edge, the only caret
-      // stop a single-char chip has) — so it supersedes the touch `\` drawer in
-      // both. On the tree path the in-progress `\command` is read from the
+      // stop a single-char chip has) — so it supersedes the touch drawer in
+      // both. On the tree path the in-progress command is read from the
       // raw-text field at the caret (the projected source is not a faithful
       // echo of what was typed — a pending lone `\` projects as `\backslash`);
-      // a flat chip's LaTeX lives literally in the block text. `query` is the
-      // in-progress `\command`, or null while browsing.
+      // a flat chip's LaTeX lives literally in the block text. Either trigger
+      // feeds the row — the `/` the toolbar button types, or a `\` from a
+      // hardware keyboard — so the chips track what is typed after it and
+      // `query` goes back to null once the run ends.
       let math: MobileToolbarMathContext | null = null;
       if (
         (snapshot.selection.empty || treeMath !== null) &&
@@ -2889,7 +2904,7 @@ function PageEditor({
         const mathText =
           treeMath?.source ?? mounted.editor.query.block()?.text ?? "";
         const active = treeMath
-          ? treeMathCommandRun(treeMath)
+          ? activeTreeMathCommandRun(treeMath)
           : activeBlockMathCommand(mathText, caretOffset);
         // Edge detection runs on the math *source* the caret sits in: a block
         // equation is the whole block text; an inline chip is its own LaTeX at a
@@ -2906,6 +2921,7 @@ function PageEditor({
         // so the grid controls stay available while the matrix is selected.
         math = {
           query: active ? active.query : null,
+          trigger: active ? active.trigger : null,
           canCaretLeft: !mathSourceAtEdge(edgeLatex, edgeOffset, "left"),
           canCaretRight: !mathSourceAtEdge(edgeLatex, edgeOffset, "right"),
           matrix: matrixContextForCaret(mounted.editor),

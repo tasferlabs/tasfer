@@ -1,4 +1,9 @@
-import { filterMathCommands } from "@tasfer/editor/math";
+import {
+  mathElementLabel,
+  mathMenuMode,
+  type MathMenuTrigger,
+  searchMathCommands,
+} from "../editor/mathCommandSearch";
 
 export type MobileToolbarBlockType =
   | "paragraph"
@@ -105,27 +110,29 @@ export interface MathToolbarChip {
 
 /**
  * The contextual math row shown while the caret is in math — a block equation or
- * strictly inside an inline chip. In the browse state (`query === null`) it lists
- * a curated set of common constructs; once a `\command` is being typed it mirrors
- * the `\` menu's ranked matches, so tapping a chip is the same action as picking
- * from that menu. Both states are driven by the engine's
- * {@link filterMathCommands} catalog — one source of truth shared with the
- * floating menu and the inline drawer.
+ * strictly inside an inline chip. It carries chips only while a command is being
+ * typed (`query !== null`); the chips mirror the desktop menu's matches for the
+ * same trigger, so tapping one is the same action as picking from that menu.
+ * Both surfaces rank through {@link searchMathCommands} — one source of truth.
  */
 export interface MobileToolbarMathRow {
-  /** The in-progress `\` query, or null while browsing (no `\` typed yet). */
+  /** The in-progress query, or null while browsing (no trigger typed yet). */
   query: string | null;
+  /** Which trigger opened the run: `/` searches element names, `\` LaTeX. */
+  trigger: MathMenuTrigger | null;
   chips: MathToolbarChip[];
 }
 
 /** Caret-in-math context the host feeds in; null when the caret is not in math
  *  (neither a block equation nor inside an inline chip). `query` is the
- *  in-progress `\command` text, or null while browsing. `canCaretLeft`/
- *  `canCaretRight` are false when the caret sits on the formula's left/right edge
- *  — the step in that direction would leave the math, so the toolbar's caret
- *  control is disabled rather than silently exiting the equation. */
+ *  in-progress command text and `trigger` the character that opened it, or both
+ *  null while browsing. `canCaretLeft`/`canCaretRight` are false when the caret
+ *  sits on the formula's left/right edge — the step in that direction would
+ *  leave the math, so the toolbar's caret control is disabled rather than
+ *  silently exiting the equation. */
 export interface MobileToolbarMathContext {
   query: string | null;
+  trigger: MathMenuTrigger | null;
   canCaretLeft: boolean;
   canCaretRight: boolean;
   /** The grid construct the caret sits in (matrix/cases/aligned/array), or null.
@@ -320,48 +327,58 @@ const LIST_BLOCK_TYPES: readonly MobileToolbarBlockType[] = [
 /** Deepest indent a list item can reach; mirrors `indentListItem`'s clamp. */
 const MAX_LIST_INDENT = 6;
 
-const toChip = (cmd: {
-  id: string;
-  name: string;
-  latex: string;
-}): MathToolbarChip => ({ id: cmd.id, name: cmd.name, latex: cmd.latex });
-
 /**
  * Build the math row for a caret-in-math context (or null when not in math).
- * Construct suggestions surface ONLY while a `\command` is being typed (`query
+ * Construct suggestions surface ONLY while a command is being typed (`query
  * !== null`): the toolbar is narrow, and a permanent browse row of chips crowds
  * out the caret controls that let you step out of a construct (a mobile keyboard
  * has no arrow keys). While just editing (`query === null`) the row is empty —
- * tap the `\` trigger to open the catalog.
+ * tap the `/` trigger to start a command.
  */
 export function buildMathRow(
   math: MobileToolbarMathContext | null,
+  t: Translate,
 ): MobileToolbarMathRow | null {
   if (!math) return null;
-  if (math.query === null) return { query: null, chips: [] };
-  // Live: mirror the `\` menu's ranked matches, capped to keep the row light.
-  const chips = filterMathCommands(math.query).slice(0, 24).map(toChip);
-  return { query: math.query, chips };
+  if (math.query === null) return { query: null, trigger: null, chips: [] };
+  const trigger = math.trigger ?? "/";
+  const label = (key: string, fallback: string) => t(key, fallback);
+  // Live: mirror the menu's ranked matches, capped to keep the row light. The
+  // chip name is the a11y label, so it follows the UI language.
+  const chips = searchMathCommands(math.query, mathMenuMode(trigger), label)
+    .slice(0, 24)
+    .map((cmd) => ({
+      id: cmd.id,
+      name: mathElementLabel(cmd, label),
+      latex: cmd.latex,
+    }));
+  return { query: math.query, trigger, chips };
 }
 
 /**
- * The active `\command` being typed in FLAT math text (an inline chip whose
- * LaTeX lives literally in the block's text), or null. Tree-backed math reads
- * the run from the raw-text field instead (`treeMathCommandRun`) — its
- * projected source is not a faithful echo of what was typed. Detection: the
- * nearest `\` before the caret followed only by letters (a space/brace/digit
- * ends a command name). An empty query (the `\` just typed) still counts as
- * active — it surfaces the full ranked list.
+ * The active command being typed in FLAT math text (an inline chip whose LaTeX
+ * lives literally in the block's text), or null. Tree-backed math reads the run
+ * from the raw-text field instead (`activeTreeMathCommandRun`) — its projected
+ * source is not a faithful echo of what was typed. Detection: the nearest `/`
+ * or `\` before the caret followed only by query letters (a space/brace/digit
+ * ends a command name; `\` takes ASCII letters, `/` any script since it
+ * searches localized element names). An empty query (the trigger just typed)
+ * still counts as active — it surfaces the full ranked list.
  */
 export function activeBlockMathCommand(
   text: string,
   caretOffset: number,
-): { backslashIndex: number; query: string } | null {
-  const backslashIndex = text.lastIndexOf("\\", caretOffset - 1);
-  if (backslashIndex < 0) return null;
-  const query = text.slice(backslashIndex + 1, caretOffset);
-  if (!/^[a-zA-Z]*$/.test(query)) return null;
-  return { backslashIndex, query };
+): { triggerIndex: number; trigger: MathMenuTrigger; query: string } | null {
+  if (caretOffset <= 0) return null;
+  const backslash = text.lastIndexOf("\\", caretOffset - 1);
+  const slash = text.lastIndexOf("/", caretOffset - 1);
+  const triggerIndex = Math.max(backslash, slash);
+  if (triggerIndex < 0) return null;
+  const trigger: MathMenuTrigger = triggerIndex === slash ? "/" : "\\";
+  const query = text.slice(triggerIndex + 1, caretOffset);
+  const validQuery = trigger === "/" ? /^\p{L}*$/u : /^[a-zA-Z]*$/;
+  if (!validQuery.test(query)) return null;
+  return { triggerIndex, trigger, query };
 }
 
 /**
@@ -449,19 +466,19 @@ export function createMobileToolbarModel(
   // The native iOS accessory replaces the item with id "math-command" with the
   // live chip row (see NoAccessoryWebView.swift), so `mathCommand` is only the
   // chip-row anchor there — it is never rendered as a button. The visible,
-  // tappable `\` trigger is `mathTrigger`, which carries a distinct id so it
+  // tappable `/` trigger is `mathTrigger`, which carries a distinct id so it
   // renders as a real button on every shell while sitting beside the chips.
   const mathCommand = button(
     "math-command",
     "mathcommand",
-    t("editor.math.latexCommands", "LaTeX commands"),
+    t("editor.math.chooseConstruct", "Choose a math element"),
     { type: "open-math-commands" },
     { enabled: state.canOpenMathCommands },
   );
   const mathTrigger = button(
     "math-trigger",
     "mathcommand",
-    t("editor.math.latexCommands", "LaTeX commands"),
+    t("editor.math.chooseConstruct", "Choose a math element"),
     { type: "open-math-commands" },
     { enabled: state.canOpenMathCommands },
   );
@@ -565,7 +582,7 @@ export function createMobileToolbarModel(
  * the native iOS accessory renders. The native shell can't draw the live math
  * chip row, so a caret-in-math context emits the `mathCommand` anchor (id
  * "math-command") whose slot the accessory replaces with the chip glyphs; the
- * visible `\` trigger lives separately in `layout.left`. The overflow drawer
+ * visible `/` trigger lives separately in `layout.left`. The overflow drawer
  * becomes a single "more" menu (a native popup); and the trailing cluster
  * ("more" + dismiss) is pinned via the `fixed-row-start` marker the accessory
  * keys on to split scroll/fixed.
@@ -577,7 +594,7 @@ function flattenLayoutForNative(
   t: Translate,
 ): MobileToolbarItem[] {
   // The math middle is the live chip row, anchored by the `mathCommand` slot the
-  // accessory fills. It's present only while a `\command` is being typed (`query
+  // accessory fills. It's present only while a command is being typed (`query
   // !== null`); when just editing, the row is empty, so emit nothing and let the
   // caret controls in `layout.left` carry the context (mirrors the in-webview
   // bar's empty browse state — see `buildMathRow`).
@@ -689,11 +706,11 @@ function buildLayout(
   // Math owns the whole middle: structural blocks can't nest in an equation, so
   // there are no list/code controls to compete with the chip row.
   if (state.math) {
-    const mathRow = buildMathRow(state.math)!;
-    // Left/right caret steps, pinned beside the `\` trigger. In math they snap
+    const mathRow = buildMathRow(state.math, t)!;
+    // Left/right caret steps, pinned beside the `/` trigger. In math they snap
     // over whole constructs and out to their edges, so they are the way to leave
     // a `\dot`/script slot/fraction — a mobile keyboard has no arrow keys. They
-    // show ONLY while browsing (`query === null`): once a `\command` is being
+    // show ONLY while browsing (`query === null`): once a command is being
     // typed, the suggestion chips fill the middle, and the two clusters would
     // compete for the same scarce width — so the arrows step aside for them.
     const caretLeft: MobileToolbarItem = {
@@ -727,11 +744,13 @@ function buildLayout(
     const more: MobileToolbarItem[] = state.math.matrix
       ? [controls.matrixButton]
       : [];
-    // Pin the `\` trigger as the first contextual control (right after the
+    // Pin the `/` trigger as the first contextual control (right after the
     // always-leading undo/redo): the math middle is the chip row, so without this
-    // there's no quick way to start a typed `\command`. It inserts `\` and opens
-    // the command palette (see `open-math-commands`). On native the chip row is
-    // anchored separately via the `mathCommand` slot, so both stay visible.
+    // there's no quick way to start a command on a keyboard that hides `/` and
+    // `\` behind a symbol page. It types a literal `/` (see
+    // `open-math-commands`) and the chips then follow what you type after it. On
+    // native the chip row is anchored separately via the `mathCommand` slot, so
+    // both stay visible.
     return {
       context: "math",
       left: [

@@ -37,6 +37,7 @@ import type {
   MobileToolbarAction,
   MobileToolbarIcon,
   MobileToolbarItem,
+  MobileToolbarMathRow,
   MobileToolbarModel,
 } from "../mobileToolbar";
 
@@ -46,8 +47,8 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
   bold: <Bold className="size-5" />,
   italic: <Italic className="size-5" />,
   code: <Code className="size-5" />,
-  // A backslash `\` — the character this button types to open math commands.
-  // Inlined (Lucide has no backslash) with the exact same path/stroke as the iOS
+  // A forward slash `/` — the character this button types to open math commands.
+  // Inlined (Lucide has no slash glyph) with the exact same stroke as the iOS
   // asset (apps/ios/icons/mathcommand.svg) so both shells render an identical glyph.
   mathcommand: (
     <svg
@@ -59,7 +60,7 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="m5 5 14 14" />
+      <path d="m19 5-14 14" />
     </svg>
   ),
   math: <Sigma className="size-5" />,
@@ -141,7 +142,7 @@ export function MobileKeyboardToolbar({
   // cluster with a divider. Mirrors the native accessory's `zone-divider` rule
   // (see `flattenLayoutForNative`), so both shells fence identical zones — e.g.
   // undo/redo and an image block's settings button. The math row only carries
-  // content (chips / "no match") while a `\command` is being typed; the empty
+  // content (chips / "no match") while a command is being typed; the empty
   // browse state must not leave a dangling divider.
   const hasMiddle =
     middle.kind === "math" ? middle.query !== null : middleItems.length > 0;
@@ -276,6 +277,7 @@ export function MobileKeyboardToolbar({
           {middle.kind === "math" ? (
             <MathRow
               query={middle.query}
+              trigger={middle.trigger}
               chips={mathChips}
               onInsert={(latex) =>
                 onAction({ type: "insert-math-command", latex })
@@ -326,16 +328,17 @@ export function MobileKeyboardToolbar({
 
 interface MathRowProps {
   query: string | null;
+  trigger: MobileToolbarMathRow["trigger"];
   chips: Array<{ id: string; name: string; latex: string; svg: string }>;
   onInsert: (latex: string) => void;
 }
 
-// The contextual math row: while a `\command` is being typed it shows the
-// matching construct chips (rendered as glyph previews), or a clear "no match"
-// when the query resolves to nothing rather than a blank gap. While just editing
-// (`query === null`) it renders nothing — suggestions are one `\` tap away, and
+// The contextual math row: while a command is being typed it shows the matching
+// construct chips (rendered as glyph previews), or a clear "no match" when the
+// query resolves to nothing rather than a blank gap. While just editing
+// (`query === null`) it renders nothing — suggestions are one `/` tap away, and
 // the caret controls take the freed space (see `buildMathRow`).
-function MathRow({ query, chips, onInsert }: MathRowProps) {
+function MathRow({ query, trigger, chips, onInsert }: MathRowProps) {
   const { t } = useTranslation();
   if (query === null) return null;
   return (
@@ -372,7 +375,10 @@ function MathRow({ query, chips, onInsert }: MathRowProps) {
         </div>
       ) : (
         <span className="min-w-0 flex-1 truncate px-3 text-sm text-muted-foreground">
-          {t("editor.math.noLatexCommands", "No matching LaTeX commands")}
+          {/* Name what was searched: element names after `/`, LaTeX after `\`. */}
+          {trigger === "\\"
+            ? t("editor.math.noLatexCommands", "No matching LaTeX commands")
+            : t("editor.math.noConstructs", "No matching math elements")}
         </span>
       )}
     </>

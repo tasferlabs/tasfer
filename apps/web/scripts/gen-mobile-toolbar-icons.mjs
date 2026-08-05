@@ -13,7 +13,7 @@
 // glyphs), this script treats the imagesets as a DERIVED artifact of Lucide —
 // the exact source the web bar imports (`lucide-react`). It reads the matching
 // SVGs from `lucide-static` (a dev dep pinned to the same version) and, for the
-// one glyph Lucide lacks (`mathcommand`, a backslash), an inline copy kept
+// one glyph Lucide lacks (`mathcommand`, a forward slash), an inline copy kept
 // byte-identical to the web bar's inline SVG (MobileKeyboardToolbar.tsx).
 //
 // Source of truth for *which* icons the native toolbar needs is the
@@ -98,8 +98,8 @@ const LUCIDE = {
 // <svg> wrapper as the Lucide icons. Keep byte-identical to the web bar's inline
 // copy so both shells match.
 const CUSTOM_BODY = {
-  // A backslash `\` — the character the button types to open math commands.
-  mathcommand: `<path d="m5 5 14 14" />`,
+  // A forward slash `/` — the character the button types to open math commands.
+  mathcommand: `<path d="m19 5-14 14" />`,
 };
 
 // Canonical Lucide open tag (width/stroke/etc. shared by every Lucide icon). We

@@ -5,13 +5,17 @@ import { useTranslation } from "react-i18next";
 import { TEXT_INPUT } from "@tasfer/editor";
 import { isTouchOnlyDevice } from "@tasfer/editor/internal";
 import {
-  filterMathCommands,
   INSERT_MATH_COMMAND,
-  MATH_COMMANDS,
   type MathCommand,
   mathCommandInsertion,
   renderToSVG,
 } from "@tasfer/editor/math";
+import {
+  mathElementLabel,
+  type MathMenuMode,
+  type MathMenuTrigger,
+  searchMathCommands,
+} from "./mathCommandSearch";
 import { activeTreeMath, treeMathCommandRun } from "./treeMath";
 import {
   type KeyboardMenuInputSource,
@@ -36,13 +40,6 @@ interface MathCommandMenuProps {
 }
 
 /** The `\`-trigger run we're tracking: the block + the identity of the `\`. */
-type MathMenuMode = "names" | "latex";
-type MathMenuTrigger = "/" | "\\";
-
-function normalizeMathElementSearch(value: string): string {
-  return value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-}
-
 interface Trigger {
   blockId: string;
   mode: MathMenuMode;
@@ -52,15 +49,6 @@ interface Trigger {
   /** Tree path: stable trigger identity, latched on first recompute. */
   triggerCharId?: string;
   inputSource?: KeyboardMenuInputSource;
-}
-
-/** `/` starts a construct after a boundary; between operands it means division. */
-export function slashStartsMathConstruct(
-  source: string,
-  offset: number,
-): boolean {
-  const previous = source[offset - 1];
-  return previous === undefined || /[\s+\-=,;:([{]/.test(previous);
 }
 
 /**
@@ -310,6 +298,13 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
     // inline chip) — are decided in `recompute` on the next `subscribe` tick,
     // which closes again immediately for a `\` typed in plain prose. A
     // touch-first device opens this only for a connected physical keyboard.
+    //
+    // `/` arms at ANY offset, not just after a boundary: math has no spaces, so
+    // a boundary rule would confine the menu to a formula's first character,
+    // and constructs legitimately follow an operand (`a` → `\times`). The `/`
+    // stays plain division text throughout — the menu is a lens over it that
+    // dismisses itself once the query matches nothing, so `a/b` types through
+    // untouched.
     const offInput = editor.registerAction(
       TEXT_INPUT,
       ({ text, textIndex, contentPoint, inputSource }) => {
@@ -326,13 +321,6 @@ export const MathCommandMenu: React.FC<MathCommandMenuProps> = ({
           ? editor.query.block({ block: contentPoint.blockId })
           : editor.query.block();
         if (!block) return;
-        if (trigger === "/") {
-          const tree = activeTreeMath(editor);
-          const source = tree?.blockId === block.id ? tree.source : block.text;
-          const offset =
-            tree?.blockId === block.id ? tree.sourceOffset : textIndex;
-          if (!slashStartsMathConstruct(source, offset)) return;
-        }
         triggerRef.current = {
           blockId: block.id,
           mode: trigger === "/" ? "names" : "latex",
@@ -480,35 +468,24 @@ export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
   // Filter + pre-render each candidate's preview SVG (cheap, but memoized so
   // typing a letter doesn't re-render every row's math from scratch).
   const items = useMemo(() => {
-    const curatedIds = new Set(filterMathCommands("").map((cmd) => cmd.id));
-    const commands = filterMathCommands(query).filter(
-      (cmd) => mode === "latex" || curatedIds.has(cmd.id),
-    );
-    if (mode === "names" && query) {
-      const normalized = normalizeMathElementSearch(query);
-      const existing = new Set(commands.map((cmd) => cmd.id));
-      for (const cmd of MATH_COMMANDS) {
-        const label = t(`editor.math.elements.${cmd.id}`, cmd.name);
-        const matchesName = [label, cmd.name].some((name) =>
-          normalizeMathElementSearch(name).includes(normalized),
-        );
-        if (curatedIds.has(cmd.id) && !existing.has(cmd.id) && matchesName) {
-          commands.push(cmd);
-        }
-      }
-    }
-    return commands.map((cmd) => ({
+    const translate = (key: string, fallback: string) => t(key, fallback);
+    return searchMathCommands(query, mode, translate).map((cmd) => ({
       cmd,
       svg: renderToSVG(cmd.latex, false, 19),
       label:
-        mode === "latex"
-          ? `\\${cmd.id}`
-          : t(`editor.math.elements.${cmd.id}`, cmd.name),
+        mode === "latex" ? `\\${cmd.id}` : mathElementLabel(cmd, translate),
     }));
   }, [mode, query, t]);
 
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  useEffect(() => setSelectedIndex(0), [query]);
+  // `/` is also plain division, so nothing is preselected while its query is
+  // still empty (-1 = no row): Enter falls through to the editor instead of
+  // committing a construct. An arrow key or the first typed letter arms it.
+  const deferSelection = mode === "names" && !query;
+  const [selectedIndex, setSelectedIndex] = useState(deferSelection ? -1 : 0);
+  useEffect(
+    () => setSelectedIndex(deferSelection ? -1 : 0),
+    [query, deferSelection],
+  );
 
   // Refs so the once-registered keydown handler reads the latest values.
   const selectedIndexRef = useRef(0);
@@ -537,10 +514,16 @@ export const MathCommandPalette: React.FC<MathCommandPaletteProps> = ({
         case "ArrowUp":
           e.preventDefault();
           e.stopPropagation();
-          setSelectedIndex((i) => Math.max(i - 1, 0));
+          setSelectedIndex((i) => {
+            const len = itemsRef.current.length;
+            // Arming from "no row" goes to the end, so the two arrows differ.
+            if (i < 0) return len === 0 ? -1 : len - 1;
+            return Math.max(i - 1, 0);
+          });
           break;
         case "Enter":
         case "Tab": {
+          // No row armed (a bare `/`): let the key reach the editor.
           const item = itemsRef.current[selectedIndexRef.current];
           if (!item) break;
           e.preventDefault();
