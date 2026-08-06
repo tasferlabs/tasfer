@@ -724,8 +724,9 @@ function findRepositioningBlock(
 const NUDGE_STEP = 0.01;
 const NUDGE_STEP_COARSE = 0.1;
 
-/** Move the repositioning block's crop by one keyboard step and commit it.
- *  Returns undefined when nothing is repositioning, passing the key through. */
+/** Move the repositioning block's crop by one keyboard step, locally like every
+ *  other adjustment in the mode. Returns undefined when nothing is
+ *  repositioning, passing the key through. */
 function nudgeReposition(
   state: EditorState,
   axis: "x" | "y",
@@ -753,12 +754,7 @@ function nudgeReposition(
     blockIndex: target.blockIndex,
     position,
   }).state;
-  const committed = moved.actionBus.dispatchState(
-    COMMIT_IMAGE_REPOSITION,
-    moved,
-    { blockIndex: target.blockIndex, startPosition: current },
-  );
-  return { state: committed.state, ops: committed.ops, handled: true };
+  return { state: moved, ops: [], handled: true };
 }
 
 /** Leave reposition mode from the keyboard, if a block is in it. */
@@ -775,8 +771,8 @@ function exitRepositionFromKey(
   return { state: result.state, ops: result.ops, handled: true };
 }
 
-/** Apply a reposition drag's current pointer position to the block, transiently
- *  (the committing op is emitted by the drag's `onEnd`). */
+/** Apply a reposition drag's current pointer position to the block, locally
+ *  (the committing op comes from leaving the mode). */
 function applyRepositionDrag(
   state: EditorState,
   hit: ImageRepositionHit,
@@ -1049,22 +1045,22 @@ export class ImageNode extends AtomicNode<Image> {
               ImageRepositionHit | undefined;
             if (!h?.start) return { state: ctx.state };
             // A release with an unknown position (window-level mouseup) keeps
-            // whatever the last move produced rather than snapping back.
-            const state = p
-              ? applyRepositionDrag(ctx.state, h, p.x, p.y)
-              : ctx.state;
-            return state.actionBus.dispatchState(
-              COMMIT_IMAGE_REPOSITION,
-              state,
-              { blockIndex: h.blockIndex, startPosition: h.start.position },
-            );
+            // whatever the last move produced rather than snapping back. Still
+            // no op: releasing the pointer is not confirming — the user may drag
+            // again, and only leaving the mode saves the crop.
+            return {
+              state: p
+                ? applyRepositionDrag(ctx.state, h, p.x, p.y)
+                : ctx.state,
+            };
           },
           onCancel(ctx) {
             const h = ctx.session.captured?.hit as
               ImageRepositionHit | undefined;
             if (!h?.start) return ctx.state;
-            // Nothing was committed, so undo the drag by restoring the position
-            // it began from. The mode itself stays on.
+            // Undo just this drag by restoring the position it began from — not
+            // the position the mode was entered with, which Cancel owns. The
+            // mode itself stays on.
             return ctx.state.actionBus.dispatchState(
               UPDATE_IMAGE_REPOSITION,
               ctx.state,
@@ -2256,9 +2252,33 @@ function objectPositionOp(
 }
 
 /**
+ * The op committing a repositioning block's pending crop, or none if it never
+ * left the position the mode was entered with.
+ *
+ * Every adjustment inside the mode — drag, key nudge — is local only, so this is
+ * the SINGLE point where a reposition becomes an op: what peers receive and what
+ * storage keeps. A half-finished pan is nobody else's business, and a live one
+ * would otherwise flood peers with a position per pointer move.
+ */
+function repositionCommitOps(
+  state: EditorState,
+  blockIndex: number,
+): Operation[] {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || block.type !== "image") return [];
+  const view = state.ui.nodeViewState[block.id] as ImageViewState | undefined;
+  const origin = view?.reposition?.origin;
+  if (!origin) return [];
+  const current = imageObjectPosition(block as Image);
+  if (current.x === origin.x && current.y === origin.y) return [];
+  return [objectPositionOp(state, block.id, current)];
+}
+
+/**
  * Enter reposition mode on an image, remembering the crop position at entry so
- * {@link EXIT_IMAGE_REPOSITION} can revert to it. Pure UI change, no ops — the
- * mode itself is local, never shared with peers.
+ * {@link EXIT_IMAGE_REPOSITION} can revert to it, and confirm to tell a real
+ * move from a wash. Entering emits nothing of its own — the mode is local, never
+ * shared with peers.
  */
 export const ENTER_IMAGE_REPOSITION = stateAction<{ blockIndex?: number }>(
   "enter-image-reposition",
@@ -2274,22 +2294,30 @@ export const ENTER_IMAGE_REPOSITION = stateAction<{ blockIndex?: number }>(
     }
     // At most one block is ever in the mode: the keyboard handlers resolve their
     // target by scanning for it, and a second stuck one would shadow this.
+    // Leaving it this way is the same "keep the crop" exit as clicking away, so
+    // the block being displaced commits rather than losing its pending pan.
     let next = state;
+    const ops: Operation[] = [];
     const previous = findRepositioningBlock(state);
     if (previous && previous.block.id !== block.id) {
+      ops.push(...repositionCommitOps(next, previous.blockIndex));
       next = setImageReposition(next, previous.block.id, null);
     }
     return {
       state: setImageReposition(next, block.id, {
         origin: imageObjectPosition(block as Image),
       }),
-      ops: [],
+      ops,
     };
   },
 );
 
-/** Pan the crop during a reposition drag. Transient — no ops until the drag
- *  ends, so a single drag is one undo step and one op for peers. */
+/**
+ * Pan the crop while adjusting. Local only, for the WHOLE mode — not just one
+ * drag: peers and storage see nothing until the user confirms via
+ * {@link EXIT_IMAGE_REPOSITION}, so a session of dragging and nudging lands as
+ * one op and one undo step rather than a stream of intermediate crops.
+ */
 export const UPDATE_IMAGE_REPOSITION = stateAction<{
   blockIndex: number;
   position: { x: number; y: number };
@@ -2299,29 +2327,12 @@ export const UPDATE_IMAGE_REPOSITION = stateAction<{
 }));
 
 /**
- * Commit the crop position a reposition drag (or key nudge) landed on, emitting
- * one op if it actually moved. Stays in reposition mode — the user may keep
- * adjusting; leaving is {@link EXIT_IMAGE_REPOSITION}.
- */
-export const COMMIT_IMAGE_REPOSITION = stateAction<{
-  blockIndex: number;
-  startPosition: { x: number; y: number };
-}>("commit-image-reposition", (state, { blockIndex, startPosition }) => {
-  const block = state.document.page.blocks[blockIndex];
-  if (!block || block.deleted || block.type !== "image") {
-    return { state, ops: [] };
-  }
-  const position = imageObjectPosition(block as Image);
-  if (position.x === startPosition.x && position.y === startPosition.y) {
-    return { state, ops: [] };
-  }
-  return { state, ops: [objectPositionOp(state, block.id, position)] };
-});
-
-/**
- * Leave reposition mode. `revert` (Cancel / Escape) restores the position the
- * mode was entered with and emits the op for it — the drags inside the mode
- * already committed, so undoing them is a new op rather than a dropped buffer.
+ * Leave reposition mode, deciding what the whole session amounted to.
+ *
+ * Confirm (Done / Enter / clicking away) is where the crop is saved: one op for
+ * the position the user settled on, or none if they ended up back where they
+ * started. `revert` (Cancel / Escape) restores the entry position locally and
+ * emits nothing — no peer ever saw the pan, so there is nothing to take back.
  */
 export const EXIT_IMAGE_REPOSITION = stateAction<{
   blockIndex: number;
@@ -2331,20 +2342,16 @@ export const EXIT_IMAGE_REPOSITION = stateAction<{
   if (!block || block.deleted || block.type !== "image") {
     return { state, ops: [] };
   }
+  if (!revert) {
+    const ops = repositionCommitOps(state, blockIndex);
+    return { state: setImageReposition(state, block.id, null), ops };
+  }
+
   const view = state.ui.nodeViewState[block.id] as ImageViewState | undefined;
   const origin = view?.reposition?.origin;
   const cleared = setImageReposition(state, block.id, null);
-
-  if (!revert || !origin) return { state: cleared, ops: [] };
-
-  const current = imageObjectPosition(block as Image);
-  if (current.x === origin.x && current.y === origin.y) {
-    return { state: cleared, ops: [] };
-  }
-  return {
-    state: withObjectPosition(cleared, blockIndex, origin),
-    ops: [objectPositionOp(state, block.id, origin)],
-  };
+  if (!origin) return { state: cleared, ops: [] };
+  return { state: withObjectPosition(cleared, blockIndex, origin), ops: [] };
 });
 
 /**

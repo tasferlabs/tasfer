@@ -6,13 +6,20 @@
  * validation every peer replays through, and the markdown round-trip.
  */
 import { getBaseDataSchema } from "../baseDataSchema";
+import type { Page } from "../serlization/loadPage";
+import type { EditorState } from "../state-types";
+import { createInitialState } from "../state-utils";
 import {
   canRepositionImage,
+  ENTER_IMAGE_REPOSITION,
+  EXIT_IMAGE_REPOSITION,
   type Image,
   imageCache,
   imageObjectPosition,
   isImageDefault,
+  isRepositioning,
   repositionFromDelta,
+  UPDATE_IMAGE_REPOSITION,
 } from "./ImageNode";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -38,6 +45,57 @@ function imageBlock(props: Partial<Image> = {}): Image {
 afterEach(() => {
   imageCache.clear();
 });
+
+function stateWith(...blocks: Image[]): EditorState {
+  return createInitialState({
+    id: "page-1",
+    title: "t",
+    blocks,
+  } as unknown as Page);
+}
+
+/** Dispatch onto a state, accumulating every op the sequence emitted. */
+function run(
+  state: EditorState,
+  steps: readonly ((s: EditorState) => {
+    state: EditorState;
+    ops: readonly unknown[];
+  })[],
+): { state: EditorState; ops: unknown[] } {
+  let current = state;
+  const ops: unknown[] = [];
+  for (const step of steps) {
+    const r = step(current);
+    current = r.state;
+    ops.push(...r.ops);
+  }
+  return { state: current, ops };
+}
+
+function enter(blockIndex: number) {
+  return (s: EditorState) =>
+    s.actionBus.dispatchState(ENTER_IMAGE_REPOSITION, s, { blockIndex });
+}
+
+function pan(blockIndex: number, position: { x: number; y: number }) {
+  return (s: EditorState) =>
+    s.actionBus.dispatchState(UPDATE_IMAGE_REPOSITION, s, {
+      blockIndex,
+      position,
+    });
+}
+
+function exit(blockIndex: number, revert: boolean) {
+  return (s: EditorState) =>
+    s.actionBus.dispatchState(EXIT_IMAGE_REPOSITION, s, { blockIndex, revert });
+}
+
+function positionOf(
+  state: EditorState,
+  blockIndex: number,
+): { x: number; y: number } {
+  return imageObjectPosition(state.document.page.blocks[blockIndex] as Image);
+}
 
 describe("imageObjectPosition", () => {
   it("defaults to centered, the pre-feature behavior", () => {
@@ -130,6 +188,87 @@ describe("canRepositionImage", () => {
 
   it("is false before the image has decoded", () => {
     expect(canRepositionImage(imageBlock(), 1000, 250)).toBe(false);
+  });
+});
+
+/**
+ * The mode's op contract: adjusting is private, confirming is what publishes.
+ * A mid-pan crop reaching peers would show them positions the user is still
+ * scrubbing through and never chose, and it would put every intermediate frame
+ * in the op log — so the ONLY op comes from leaving the mode with a keep.
+ */
+describe("reposition op emission", () => {
+  it("emits nothing while the crop is being adjusted", () => {
+    const { state, ops } = run(stateWith(imageBlock()), [
+      enter(0),
+      pan(0, { x: 0.5, y: 0.2 }),
+      pan(0, { x: 0.5, y: 0.9 }),
+      pan(0, { x: 0.3, y: 0.7 }),
+    ]);
+    expect(ops).toEqual([]);
+    // Locally it has moved all along — the pan is live, just not shared.
+    expect(positionOf(state, 0)).toEqual({ x: 0.3, y: 0.7 });
+    expect(isRepositioning(state, "img0")).toBe(true);
+  });
+
+  it("emits one op for the confirmed position, not one per adjustment", () => {
+    const { state, ops } = run(stateWith(imageBlock()), [
+      enter(0),
+      pan(0, { x: 0.5, y: 0.2 }),
+      pan(0, { x: 0.4, y: 0.8 }),
+      exit(0, false),
+    ]);
+    expect(ops).toEqual([
+      expect.objectContaining({
+        op: "block_set",
+        blockId: "img0",
+        field: "objectPosition",
+        value: { x: 0.4, y: 0.8 },
+      }),
+    ]);
+    expect(positionOf(state, 0)).toEqual({ x: 0.4, y: 0.8 });
+    expect(isRepositioning(state, "img0")).toBe(false);
+  });
+
+  it("cancels with no op at all — peers never saw the pan to take back", () => {
+    const { state, ops } = run(
+      stateWith(imageBlock({ objectPosition: { x: 0.2, y: 0.2 } })),
+      [enter(0), pan(0, { x: 0.9, y: 0.9 }), exit(0, true)],
+    );
+    expect(ops).toEqual([]);
+    expect(positionOf(state, 0)).toEqual({ x: 0.2, y: 0.2 });
+    expect(isRepositioning(state, "img0")).toBe(false);
+  });
+
+  it("emits nothing when a session ends where it started", () => {
+    // Panning away and back is a wash: an op here would be a no-op edit that
+    // still costs peers a message and the log an entry.
+    const { ops } = run(stateWith(imageBlock()), [
+      enter(0),
+      pan(0, { x: 0.1, y: 0.9 }),
+      pan(0, { x: 0.5, y: 0.5 }),
+      exit(0, false),
+    ]);
+    expect(ops).toEqual([]);
+  });
+
+  it("commits the displaced image when the mode moves to another one", () => {
+    // Entering elsewhere ends the first block's session the same way clicking
+    // away does — keep, not discard — so its pending pan must not be stranded
+    // as a local-only value no peer and no reload would ever see.
+    const { state, ops } = run(
+      stateWith(imageBlock(), imageBlock({ id: "img1" })),
+      [enter(0), pan(0, { x: 0.7, y: 0.1 }), enter(1)],
+    );
+    expect(ops).toEqual([
+      expect.objectContaining({
+        blockId: "img0",
+        field: "objectPosition",
+        value: { x: 0.7, y: 0.1 },
+      }),
+    ]);
+    expect(isRepositioning(state, "img0")).toBe(false);
+    expect(isRepositioning(state, "img1")).toBe(true);
   });
 });
 

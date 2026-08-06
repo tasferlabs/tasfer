@@ -39,7 +39,6 @@ export {
   cancelImageHandleDrag,
   canRepositionImage,
   canRepositionImageAt,
-  COMMIT_IMAGE_REPOSITION,
   CREATE_PARAGRAPH_BELOW_IMAGE,
   END_IMAGE_HANDLE_DRAG,
   endImageHandleDrag,
