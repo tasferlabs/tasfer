@@ -62,6 +62,7 @@ import { SpaceSection } from "./components/SpaceSection";
 import { SidebarTailDrop } from "./components/SidebarTailDrop";
 // import pageLinkStyle from "./components/PagesLinks.module.css";
 import { detectAdapterDetailed } from "@/platform";
+import { isApplePlatform } from "@tasfer/editor";
 import { useTranslation } from "react-i18next";
 import { useSidebarPanel } from "../contexts/SidebarPanelContext";
 import useResponsive from "../hooks/useResponsive";
@@ -863,9 +864,7 @@ export function SidebarContent({
                   {t("sidebar.search", "Search")}
                   {isFine && (
                     <kbd className={clsx(style.appNavigationLinkShortcut)}>
-                      {/Mac|iPhone|iPad/.test(navigator.platform)
-                        ? "\u2318K"
-                        : "Ctrl+K"}
+                      {isApplePlatform() ? "\u2318K" : "Ctrl+K"}
                     </kbd>
                   )}
                 </button>

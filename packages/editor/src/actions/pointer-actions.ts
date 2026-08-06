@@ -55,7 +55,12 @@ export type ContentSelectionResolver = () => ContentSelection | null;
 
 /** Keyboard modifiers carried with a pointer interaction. */
 export interface PointerModifiers {
-  /** Ctrl (or Cmd on macOS) — the link-open / multi-select modifier. */
+  /**
+   * The command modifier — ⌘ on macOS, Ctrl elsewhere. Opens a link, or
+   * multi-selects. Named for the shape it used to have; it is *not* "either
+   * key", because Ctrl+click on macOS is the secondary click and must reach the
+   * context menu rather than following a link.
+   */
   readonly ctrlOrMeta: boolean;
   /** Shift — extends the active selection on click. */
   readonly shift: boolean;

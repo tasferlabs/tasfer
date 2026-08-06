@@ -19,6 +19,7 @@ import {
   structuredMarkRunForContentPoint,
 } from "../actions/structured-marks";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
+import { isApplePlatform } from "../platform";
 import {
   getScrollbarStyles,
   isPointInThumb,
@@ -64,6 +65,17 @@ import {
   routeCapturedEnd,
   routeCapturedMove,
 } from "./regions";
+
+/**
+ * The command modifier for a pointer interaction: ⌘ on macOS, Ctrl elsewhere.
+ *
+ * Not `ctrlKey || metaKey` — on macOS Ctrl+click is the *secondary* click, and
+ * treating it as a link-open both follows the link and races the context menu
+ * the OS is opening for the same press.
+ */
+function commandModifier(event: { ctrlKey: boolean; metaKey: boolean }) {
+  return isApplePlatform() ? event.metaKey : event.ctrlKey;
+}
 
 export function handleMouseDown(
   state: EditorState,
@@ -421,7 +433,7 @@ export function handleMouseDown(
     previousMenu,
     viewport,
     modifiers: {
-      ctrlOrMeta: event.ctrlKey || event.metaKey,
+      ctrlOrMeta: commandModifier(event),
       shift: event.shiftKey,
     },
   });
@@ -689,7 +701,7 @@ export function handleMouseMove(
             undefined,
             visibility,
           ),
-        modifiers: { ctrlOrMeta: event.ctrlKey || event.metaKey },
+        modifiers: { ctrlOrMeta: commandModifier(event) },
       }).state;
     } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
       // Clear any stale link hover on touch devices (link hover is desktop-only).

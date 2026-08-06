@@ -286,6 +286,8 @@ export {
   CONVERT_BLOCK,
   DELETE_BACKWARD,
   DELETE_FORWARD,
+  DELETE_TO_LINE_END,
+  DELETE_TO_LINE_START,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
   INSERT_TEXT,
@@ -499,6 +501,10 @@ export { DEFAULT_TOKENS, mergeTheme, resolveTheme } from "./styles";
 // The following re-exports support hosts that build their own document tooling
 // (import/export, presence UI, find, overlays) on top of the engine. They were
 // promoted from deep subpath imports so consumers can stay on the package root.
+
+// Key conventions — hosts that register their own shortcuts, or label them in
+// the UI, need the same ⌘-vs-Ctrl answer the built-in keymap uses.
+export { isApplePlatform } from "./platform";
 
 // Serialization — project a document to Markdown / HTML, parse Markdown back
 // into blocks, and collect the asset urls a block tree references.

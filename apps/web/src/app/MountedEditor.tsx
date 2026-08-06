@@ -37,6 +37,7 @@ import {
   REGION_DRAG_START,
   SCROLL,
   TEXT_INPUT,
+  isApplePlatform,
   mergeRegister,
   type Block,
   type CursorDragInfo,
@@ -3048,7 +3049,11 @@ function PageEditor({
       // Don't intercept when a dialog or drawer is open
       if (document.querySelector('[role="dialog"]')) return;
 
-      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+      // ⌘F on Apple, Ctrl+F elsewhere — not either-or: bare ⌃F is the caret's
+      // forward-character move on macOS, which the editor now honors. Matched on
+      // `code` so a non-Latin layout still reaches find.
+      const isCmd = isApplePlatform() ? e.metaKey : e.ctrlKey;
+      if (isCmd && e.code === "KeyF") {
         e.preventDefault();
         setFindBarOpen(true);
       } else if (e.key === "Escape" && findBarOpenRef.current) {

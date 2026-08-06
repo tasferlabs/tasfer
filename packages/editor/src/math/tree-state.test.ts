@@ -86,7 +86,7 @@ import {
   layoutMathDocument,
   mathDocumentCaretStop,
 } from "@tasfer/tex";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const treeMathSchema = baseSchema.use(mathExtension());
 
@@ -115,12 +115,21 @@ function keydown(key: string, isTrusted = false): Event {
 
 function modifiedKeydown(
   key: "ArrowLeft" | "ArrowRight",
-  modifier: "ctrlKey" | "metaKey",
+  modifier: "ctrlKey" | "metaKey" | "altKey",
 ): Event {
   return {
     ...(keydown(key) as unknown as Record<string, unknown>),
     [modifier]: true,
   } as unknown as Event;
+}
+
+/**
+ * Pin the OS the keymap resolves against. Node reports a Mac
+ * `navigator.platform`, so a modifier assertion left unpinned silently tests
+ * whichever machine happens to run it.
+ */
+function usePlatform(platform: "MacIntel" | "Win32"): void {
+  vi.stubGlobal("navigator", { platform, userAgent: platform });
 }
 
 function treeState(
@@ -242,6 +251,10 @@ function operationKinds(ops: readonly Operation[]): string[] {
 }
 
 describe("tree-backed display math state integration", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("creates a paragraph on Enter while the tree owns the caret", () => {
     const before = typeText(treeState("$$\n\n$$"), "x").state;
     expect(before.document.cursor).toBeNull();
@@ -393,14 +406,18 @@ describe("tree-backed display math state integration", () => {
     },
   );
 
+  // The word-granularity modifier is ⌥ on Apple platforms and Ctrl elsewhere —
+  // ⌘ means the line edge, not a word — so the jump is asserted per platform
+  // rather than accepting whichever modifier happens to be down.
   it.each([
-    ["Ctrl", "ArrowLeft", "ctrlKey", 12, 1],
-    ["Ctrl", "ArrowRight", "ctrlKey", 1, 12],
-    ["Meta", "ArrowLeft", "metaKey", 12, 1],
-    ["Meta", "ArrowRight", "metaKey", 1, 12],
+    ["MacIntel", "altKey", "ArrowLeft", 12, 1],
+    ["MacIntel", "altKey", "ArrowRight", 1, 12],
+    ["Win32", "ctrlKey", "ArrowLeft", 12, 1],
+    ["Win32", "ctrlKey", "ArrowRight", 1, 12],
   ] as const)(
-    "%s+%s jumps over the adjacent structured construct",
-    (_label, key, modifier, sourceOffset, expectedOffset) => {
+    "%s: the word modifier + %s jumps over the adjacent structured construct",
+    (platform, modifier, key, sourceOffset, expectedOffset) => {
+      usePlatform(platform);
       const source = String.raw`a\frac{b}{c}+d`;
       let before = placeTreeCaret(
         treeState(`$$\n${source}\n$$\n\nafter`),
@@ -424,6 +441,32 @@ describe("tree-backed display math state integration", () => {
       ).toBe(expectedOffset);
     },
   );
+
+  // ⌘←/⌘→ is the line edge on macOS, not a word jump — the distinction the
+  // Ctrl/Meta conflation used to erase.
+  it.each([
+    ["ArrowLeft", 0],
+    ["ArrowRight", 14],
+  ] as const)("macOS Cmd+%s moves to the line edge", (key, expectedOffset) => {
+    usePlatform("MacIntel");
+    const source = String.raw`a\frac{b}{c}+d`;
+    let before = placeTreeCaret(treeState(`$$\n${source}\n$$\n\nafter`), 1);
+    before = { ...before, view: { ...before.view, isFocused: true } };
+
+    const moved = handleKeyDown(
+      before,
+      viewport,
+      modifiedKeydown(key, "metaKey"),
+    );
+
+    const point = moved.state.document.contentSelection?.focus;
+    const document = getMathStructuredDocument(block(moved.state));
+    expect(
+      point && document
+        ? mathSourceOffsetFromContentPoint(document, point)
+        : null,
+    ).toBe(expectedOffset);
+  });
 
   it.each([
     ["left", EXTEND_SELECTION_WORD_LEFT, 12],

@@ -6,6 +6,8 @@ import {
   createParagraphBelow,
   DELETE_BACKWARD,
   DELETE_FORWARD,
+  DELETE_TO_LINE_END,
+  DELETE_TO_LINE_START,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
   escapeAboveSelfContainedBlock,
@@ -41,7 +43,13 @@ import {
   MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
 import { CURSOR_MOVED } from "../actions/pointer-actions";
-import { TOGGLE_STRONG } from "../rendering/marks";
+import { isApplePlatform } from "../platform";
+import {
+  TOGGLE_CODE,
+  TOGGLE_EMPHASIS,
+  TOGGLE_STRIKE,
+  TOGGLE_STRONG,
+} from "../rendering/marks";
 import {
   INDENT_LIST_ITEM,
   INSERT_TAB,
@@ -117,7 +125,26 @@ export function handleKeyDown(
   const keyEvent = event as unknown as KeyboardEvent;
   const key = keyEvent.key;
   const code = keyEvent.code;
-  const isCtrl = keyEvent.ctrlKey || keyEvent.metaKey;
+  const isApple = isApplePlatform();
+
+  // macOS splits into three modifiers what Windows/Linux put on one. Deriving
+  // them by role — rather than testing `ctrlKey || metaKey` — is what keeps each
+  // platform's own conventions intact:
+  //
+  //   role      macOS   Windows/Linux
+  //   command     ⌘        Ctrl        undo, select all, bold
+  //   word        ⌥        Ctrl        move/delete by word
+  //   line        ⌘         —          move/delete to line or document edge
+  //
+  // Windows and Linux have no line-edge chord at all: Home/End own that there,
+  // so `isLineMod` is Apple-only by design, not by omission.
+  const isCmd = isApple ? keyEvent.metaKey : keyEvent.ctrlKey;
+  const isWordMod = isApple ? keyEvent.altKey : keyEvent.ctrlKey;
+  const isLineMod = isApple && keyEvent.metaKey;
+  // The Cocoa emacs bindings (⌃A/⌃E/⌃K/…) every macOS text view answers to.
+  // Only bare Ctrl — with ⌘ or ⌥ also down the chord belongs to something else.
+  const isMacEmacs =
+    isApple && keyEvent.ctrlKey && !keyEvent.metaKey && !keyEvent.altKey;
   const inputSource =
     keyEvent.inputSource ??
     (keyEvent.isTrusted === true ? "hardware-keyboard" : "input-surface");
@@ -139,13 +166,25 @@ export function handleKeyDown(
       "Home",
       "End",
     ].includes(key);
-    const isCopy = isCtrl && code === "KeyC";
-    const isSelectAll = isCtrl && code === "KeyA";
+    const isCopy = isCmd && code === "KeyC";
+    const isSelectAll = isCmd && code === "KeyA";
     const isEscape = key === "Escape";
-    const isFind = isCtrl && code === "KeyF";
+    const isFind = isCmd && code === "KeyF";
+    // The read-only reader on a Mac navigates with ⌃A/⌃E/⌃B/⌃F/⌃P/⌃N too; the
+    // destructive half of the emacs set (⌃D/⌃H/⌃K) stays blocked.
+    const isEmacsNavigation =
+      isMacEmacs &&
+      ["KeyA", "KeyB", "KeyE", "KeyF", "KeyN", "KeyP"].includes(code);
 
     // Allow navigation, copy, select all, find, and escape in readonly mode
-    if (!isNavigationKey && !isCopy && !isSelectAll && !isEscape && !isFind) {
+    if (
+      !isNavigationKey &&
+      !isCopy &&
+      !isSelectAll &&
+      !isEscape &&
+      !isFind &&
+      !isEmacsNavigation
+    ) {
       return { state, ops };
     }
   }
@@ -165,11 +204,11 @@ export function handleKeyDown(
   // Block most operations during composition - let IME handle input
   if (state.ui.composition?.isComposing) {
     // Block undo/redo
-    if (isCtrl && (code === "KeyZ" || code === "KeyY")) {
+    if (isCmd && (code === "KeyZ" || code === "KeyY")) {
       return { state, ops };
     }
     // Block cut operation
-    if (isCtrl && code === "KeyX") {
+    if (isCmd && code === "KeyX") {
       return { state, ops };
     }
     // Block text input keys - let IME handle all text input
@@ -195,7 +234,7 @@ export function handleKeyDown(
 
   // Undo/Redo - handle these first, even if slash action is open
   // Use code instead of key for keyboard layout independence
-  if (isCtrl && code === "KeyZ" && !keyEvent.shiftKey) {
+  if (isCmd && code === "KeyZ" && !keyEvent.shiftKey) {
     const result = undoState(state);
     ensureCursorVisible(
       result.state,
@@ -206,7 +245,7 @@ export function handleKeyDown(
     );
     return { state: result.state, ops: result.ops };
   }
-  if (isCtrl && (code === "KeyY" || (keyEvent.shiftKey && code === "KeyZ"))) {
+  if (isCmd && (code === "KeyY" || (keyEvent.shiftKey && code === "KeyZ"))) {
     const result = redoState(state);
     ensureCursorVisible(
       result.state,
@@ -218,19 +257,79 @@ export function handleKeyDown(
     return { state: result.state, ops: result.ops };
   }
 
+  // macOS emacs-style text bindings. Every Cocoa text view answers to these and
+  // the browser supplies them for free in a normal text field — but the canvas
+  // surface swallows the keydown, so the editor has to provide them itself.
+  // Matched on `code`, so they survive a non-Latin keyboard layout.
+  if (isMacEmacs) {
+    const emacs = ((): { state: EditorState; ops: Operation[] } | null => {
+      switch (code) {
+        case "KeyA":
+          return state.actionBus.dispatchState(MOVE_TO_LINE_START, state);
+        case "KeyE":
+          return state.actionBus.dispatchState(MOVE_TO_LINE_END, state);
+        case "KeyB":
+          return state.actionBus.dispatchState(MOVE_CURSOR_LEFT, state);
+        case "KeyF":
+          return state.actionBus.dispatchState(MOVE_CURSOR_RIGHT, state);
+        case "KeyP":
+          return state.actionBus.dispatchState(MOVE_CURSOR_UP, state, {
+            viewport,
+          });
+        case "KeyN":
+          return state.actionBus.dispatchState(MOVE_CURSOR_DOWN, state, {
+            viewport,
+          });
+        case "KeyH":
+          return state.actionBus.dispatchState(DELETE_BACKWARD, state);
+        case "KeyD":
+          return state.actionBus.dispatchState(DELETE_FORWARD, state);
+        case "KeyK":
+          return state.actionBus.dispatchState(DELETE_TO_LINE_END, state);
+        default:
+          return null;
+      }
+    })();
+    if (emacs) {
+      event.preventDefault();
+      ensureCursorVisible(
+        emacs.state,
+        state,
+        viewport,
+        updateViewportCallback,
+        visibility,
+      );
+      return { state: emacs.state, ops: emacs.ops };
+    }
+  }
+
   // Select All
-  if (isCtrl && code === "KeyA") {
+  if (isCmd && code === "KeyA") {
     const result = state.actionBus.dispatchState(SELECT_ALL, state);
     ops.push(...result.ops);
     return { state: result.state, ops };
   }
 
-  // Bold
-  if (isCtrl && code === "KeyB") {
-    event.preventDefault();
-    const result = state.actionBus.dispatchState(TOGGLE_STRONG, state);
-    ops.push(...result.ops);
-    return { state: result.state, ops };
+  // Inline formatting. The engine stays mark-agnostic about *what* these do —
+  // each toggle resolves through the mark registry and no-ops when the schema
+  // doesn't include that mark.
+  if (isCmd) {
+    const toggle =
+      code === "KeyB" && !keyEvent.shiftKey
+        ? TOGGLE_STRONG
+        : code === "KeyI" && !keyEvent.shiftKey
+          ? TOGGLE_EMPHASIS
+          : code === "KeyE" && !keyEvent.shiftKey
+            ? TOGGLE_CODE
+            : code === "KeyX" && keyEvent.shiftKey
+              ? TOGGLE_STRIKE
+              : null;
+    if (toggle) {
+      event.preventDefault();
+      const result = state.actionBus.dispatchState(toggle, state);
+      ops.push(...result.ops);
+      return { state: result.state, ops };
+    }
   }
 
   // Tab - indent/outdent list items
@@ -354,7 +453,15 @@ export function handleKeyDown(
       // Ensure editor is focused
       newState = updateFocus(state, true);
 
-      if (isCtrl && keyEvent.shiftKey) {
+      if (keyEvent.shiftKey && isLineMod) {
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_HOME,
+          newState,
+          { isCtrl: false },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
+      } else if (keyEvent.shiftKey && isWordMod) {
         const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_WORD_LEFT,
           newState,
@@ -427,7 +534,16 @@ export function handleKeyDown(
               range.start.textIndex,
             );
           }
-        } else if (isCtrl) {
+        } else if (isLineMod) {
+          // ⌘← is the *logical* line start in both writing directions — an RTL
+          // block behaves like an LTR one rather than following visual order.
+          const moved = newState.actionBus.dispatchState(
+            MOVE_TO_LINE_START,
+            newState,
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
+        } else if (isWordMod) {
           const moved = newState.actionBus.dispatchState(
             MOVE_TO_PREVIOUS_WORD,
             newState,
@@ -458,7 +574,15 @@ export function handleKeyDown(
       // Ensure editor is focused
       newState = updateFocus(state, true);
 
-      if (isCtrl && keyEvent.shiftKey) {
+      if (keyEvent.shiftKey && isLineMod) {
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_END,
+          newState,
+          { isCtrl: false },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
+      } else if (keyEvent.shiftKey && isWordMod) {
         const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_WORD_RIGHT,
           newState,
@@ -532,7 +656,15 @@ export function handleKeyDown(
               range.end.textIndex,
             );
           }
-        } else if (isCtrl) {
+        } else if (isLineMod) {
+          // Logical line end — see the ⌘← note above.
+          const moved = newState.actionBus.dispatchState(
+            MOVE_TO_LINE_END,
+            newState,
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
+        } else if (isWordMod) {
           const moved = newState.actionBus.dispatchState(
             MOVE_TO_NEXT_WORD,
             newState,
@@ -560,11 +692,30 @@ export function handleKeyDown(
       // Ensure editor is focused
       newState = updateFocus(state, true);
 
-      if (keyEvent.shiftKey) {
+      if (keyEvent.shiftKey && isLineMod) {
+        // ⇧⌘↑ extends to the document start — reuses the Home extension, whose
+        // `isCtrl` flag already means "document edge, not line edge".
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_HOME,
+          newState,
+          { isCtrl: true },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
+      } else if (keyEvent.shiftKey) {
         const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_UP,
           newState,
           { viewport },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
+      } else if (isLineMod) {
+        // ⌘↑ jumps to the document start, skipping the leading-block escape
+        // handling below — there is nothing to escape into when we leave.
+        const moved = newState.actionBus.dispatchState(
+          MOVE_TO_DOCUMENT_START,
+          newState,
         );
         newState = moved.state;
         ops.push(...moved.ops);
@@ -619,11 +770,28 @@ export function handleKeyDown(
       // Ensure editor is focused
       newState = updateFocus(state, true);
 
-      if (keyEvent.shiftKey) {
+      if (keyEvent.shiftKey && isLineMod) {
+        // ⇧⌘↓ extends to the document end — see the ⇧⌘↑ note above.
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_END,
+          newState,
+          { isCtrl: true },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
+      } else if (keyEvent.shiftKey) {
         const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_DOWN,
           newState,
           { viewport },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
+      } else if (isLineMod) {
+        // ⌘↓ jumps to the document end — see the ⌘↑ note above.
+        const moved = newState.actionBus.dispatchState(
+          MOVE_TO_DOCUMENT_END,
+          newState,
         );
         newState = moved.state;
         ops.push(...moved.ops);
@@ -815,13 +983,13 @@ export function handleKeyDown(
         const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_HOME,
           newState,
-          { isCtrl },
+          { isCtrl: isCmd },
         );
         newState = moved.state;
         ops.push(...moved.ops);
       } else {
         const moved = newState.actionBus.dispatchState(
-          isCtrl ? MOVE_TO_DOCUMENT_START : MOVE_TO_LINE_START,
+          isCmd ? MOVE_TO_DOCUMENT_START : MOVE_TO_LINE_START,
           newState,
         );
         newState = moved.state;
@@ -836,13 +1004,13 @@ export function handleKeyDown(
         const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_END,
           newState,
-          { isCtrl },
+          { isCtrl: isCmd },
         );
         newState = moved.state;
         ops.push(...moved.ops);
       } else {
         const moved = newState.actionBus.dispatchState(
-          isCtrl ? MOVE_TO_DOCUMENT_END : MOVE_TO_LINE_END,
+          isCmd ? MOVE_TO_DOCUMENT_END : MOVE_TO_LINE_END,
           newState,
         );
         newState = moved.state;
@@ -855,8 +1023,15 @@ export function handleKeyDown(
       return { state: result.state, ops };
     }
     case "Backspace": {
+      // ⌘⌫ clears to the line start, ⌥⌫ (Ctrl+⌫ off Apple) one word. Line beats
+      // word: on macOS both flags can be up at once only if the user holds ⌘⌥,
+      // where ⌘ wins by convention.
       const result = state.actionBus.dispatchState(
-        isCtrl ? DELETE_WORD_BACKWARD : DELETE_BACKWARD,
+        isLineMod
+          ? DELETE_TO_LINE_START
+          : isWordMod
+            ? DELETE_WORD_BACKWARD
+            : DELETE_BACKWARD,
         state,
       );
       newState = result.state;
@@ -865,7 +1040,11 @@ export function handleKeyDown(
     }
     case "Delete": {
       const result = state.actionBus.dispatchState(
-        isCtrl ? DELETE_WORD_FORWARD : DELETE_FORWARD,
+        isLineMod
+          ? DELETE_TO_LINE_END
+          : isWordMod
+            ? DELETE_WORD_FORWARD
+            : DELETE_FORWARD,
         state,
       );
       newState = result.state;

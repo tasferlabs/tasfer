@@ -594,7 +594,11 @@ export function mergeBlocksOps(
   // emitted, so the refusal leaves nothing behind.
   if (
     !clonedContent ||
-    !structuredMarkClonesComplete(source, clonedContent.clonedContentIds, schema)
+    !structuredMarkClonesComplete(
+      source,
+      clonedContent.clonedContentIds,
+      schema,
+    )
   ) {
     return {
       newPage: page,
@@ -2785,6 +2789,96 @@ export function deleteWordBackward(state: EditorState): ActionResult {
     return { state: newState, ops };
   }
   return { state, ops };
+}
+
+/**
+ * Delete from the caret to the line edge (⌘⌫ / ⌘⌦ on macOS; ⌃K for the forward
+ * half). "Line" is the block, matching {@link moveToLineStart}/
+ * {@link moveToLineEnd} — logical in both writing directions, so an RTL block
+ * behaves the same as an LTR one.
+ *
+ * Unlike a word delete this never merges blocks: at the edge already, it is a
+ * no-op rather than a join, so a stray ⌘⌫ can't silently swallow a paragraph
+ * break.
+ */
+function deleteToLineEdge(
+  state: EditorState,
+  edge: "start" | "end",
+): ActionResult {
+  if (!state.document.cursor) return { state, ops: [] };
+
+  if (state.document.selection && !state.document.selection.isCollapsed) {
+    return deleteSelectedText(state);
+  }
+
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(
+    state.document.page,
+    state.document.cursor.position,
+  );
+  if (!cursorCRDT) return { state, ops: [] };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops: [] };
+
+  const { blockIndex, textIndex } = position;
+  const block = state.document.page.blocks[blockIndex];
+  if (!isTextualBlock(block)) return { state, ops: [] };
+
+  const text = getBlockTextContent(block);
+  const from = edge === "start" ? 0 : textIndex;
+  const to = edge === "start" ? textIndex : text.length;
+  if (from >= to) return { state, ops: [] };
+
+  // Same guard as a word delete: never chop a structured inline (an atomic math
+  // chip) in half.
+  if (rangeIntersectsStructuredMark(block, from, to, state.schema)) {
+    return { state, ops: [] };
+  }
+
+  const { newPage, op } = deleteCharsInRange(
+    state.document.page,
+    block.id,
+    from,
+    to,
+    state.CRDTbinding,
+  );
+  const ops: Operation[] = [op];
+
+  const blockCopy = newPage.blocks[blockIndex];
+  let removedPrefixLength = 0;
+  if (block.type === "paragraph") {
+    const prefix = applyMarkdownPrefix(
+      blockCopy,
+      state.CRDTbinding,
+      state.schema,
+    );
+    ops.push(...prefix.ops);
+    removedPrefixLength = prefix.removedPrefixLength;
+  }
+  invalidateBlockCache(blockCopy);
+
+  let newState: EditorState = {
+    ...state,
+    document: { ...state.document, page: newPage },
+  };
+  // The caret lands where the deleted run began; preserve active formats so a
+  // delete mid-typing doesn't drop the pending marks.
+  newState = moveCursorToPosition(
+    newState,
+    blockIndex,
+    Math.max(0, from - removedPrefixLength),
+    true,
+  );
+  return { state: newState, ops };
+}
+
+export function deleteToLineStart(state: EditorState): ActionResult {
+  return deleteToLineEdge(state, "start");
+}
+
+export function deleteToLineEnd(state: EditorState): ActionResult {
+  return deleteToLineEdge(state, "end");
 }
 
 // Find word boundaries for selection. Word characters are defined by

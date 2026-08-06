@@ -1,3 +1,4 @@
+import { isApplePlatform } from "@tasfer/editor";
 import { Command } from "cmdk";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -344,10 +345,13 @@ export function ActionCenter() {
     };
   }, [search, pages, actions, frecency]);
 
-  // Global keyboard shortcut
+  // Global keyboard shortcut. Matched on the command modifier the platform
+  // actually uses (⌘ on Apple, Ctrl elsewhere) and on `code`, so it survives a
+  // non-Latin layout — `e.key` is "لا" for this key on an Arabic keyboard.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      const isCmd = isApplePlatform() ? e.metaKey : e.ctrlKey;
+      if (isCmd && e.code === "KeyK") {
         e.preventDefault();
         e.stopPropagation();
         setOpen((prev) => !prev);

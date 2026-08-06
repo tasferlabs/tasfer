@@ -59,6 +59,7 @@ import {
   SURFACE_SENTINEL,
 } from "../input-diff";
 import { getBlockTextContent, isAndroid, isIOS } from "../node-shared";
+import { isApplePlatform } from "../platform";
 import {
   type BlockData as RuntimeBlockData,
   docMarks,
@@ -239,6 +240,18 @@ function applyAttrEntries<B extends Block>(
     }
   }
   return { ...block, ...flat, ...(style ? { style } : {}) } as B;
+}
+
+/**
+ * The `KeyboardEvent.code` a shortcut token denotes, for the letters and digits
+ * whose code is derivable — `"b"` → `"KeyB"`, `"1"` → `"Digit1"`. Returns null
+ * for everything else ("enter", "/", …), where the caller falls back to matching
+ * `e.key`, since those tokens have no single stable code across layouts.
+ */
+function keyCodeFor(token: string): string | null {
+  if (/^[a-z]$/.test(token)) return `Key${token.toUpperCase()}`;
+  if (/^[0-9]$/.test(token)) return `Digit${token}`;
+  return null;
 }
 
 /** Runtime storage guard for schema-declared textual extension blocks. */
@@ -3380,7 +3393,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // works. Force a fresh sync here, before the browser decides whether to
       // fire the event, then fall through (no preventDefault) so the native
       // copy/cut path runs as designed.
-      if (e.code === "KeyC" || e.code === "KeyX") {
+      // `KeyX` only without Shift — ⌘⇧X is strikethrough, not cut, and must
+      // reach the keymap rather than being consumed here.
+      if (e.code === "KeyC" || (e.code === "KeyX" && !e.shiftKey)) {
         this.lastSelectionSig = null;
         // Force the ranged DOM selection even on touch devices (where the
         // render-loop mirror keeps it collapsed to preserve the soft keyboard):
@@ -3424,7 +3439,33 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // Copy/cut (KeyC/KeyX) are intentionally excluded: they must fall through
       // so the browser fires native `copy`/`cut` events (handled by
       // copyHandler/cutHandler), which write the clipboard synchronously.
-      const handledShortcuts = ["KeyZ", "KeyY", "KeyA", "KeyB"];
+      //
+      // The macOS emacs text bindings (⌃A/⌃E/⌃K/…) also arrive as Ctrl chords,
+      // so they land in this branch. Forward them only on Apple platforms: off
+      // Apple the same codes are host shortcuts — Ctrl+F opens find — and must
+      // keep bubbling to the app's own listeners.
+      const macEmacs =
+        isApplePlatform() && e.ctrlKey && !e.metaKey && !e.altKey
+          ? ["KeyD", "KeyE", "KeyF", "KeyH", "KeyK", "KeyN", "KeyP"]
+          : [];
+      const handledShortcuts = [
+        "KeyZ",
+        "KeyY",
+        "KeyA",
+        "KeyB",
+        "KeyI",
+        "KeyE",
+        ...macEmacs,
+      ];
+      // ⌘⇧X (strikethrough) — excluded from the list above so a plain ⌘X still
+      // reaches the native cut path.
+      if (e.code === "KeyX" && e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.eventsQueue.push(e);
+        this.scheduleRender();
+        return;
+      }
       if (handledShortcuts.includes(e.code)) {
         // For editor shortcuts, forward to the events queue.
         e.preventDefault();
@@ -4703,7 +4744,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       else if (mod === "shift") wantShift = true;
       else return false; // unknown modifier token
     }
-    const isMac = /Mac|iP(hone|ad|od)/.test(navigator.platform);
+    const isMac = isApplePlatform();
     // `mod` resolves to ⌘ on macOS and Ctrl elsewhere; the platform-native key
     // must be down and the other must not, so a combo can't double-fire.
     if (wantMod) {
@@ -4715,7 +4756,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
     if (e.altKey !== wantAlt) return false;
     if (e.shiftKey !== wantShift) return false;
-    return e.key.toLowerCase() === key;
+    // Compare the physical key, not the character it produces. `e.key` would
+    // make every combo layout-dependent — ⌘B is `ب` on an Arabic layout and
+    // `∫` whenever ⌥ is held on macOS — while the built-in keymap has always
+    // matched on `code`. This keeps the two paths agreeing.
+    return keyCodeFor(key) === e.code || e.key.toLowerCase() === key;
   };
 
   // Run the first schema shortcut whose combo matches this event. Returns true

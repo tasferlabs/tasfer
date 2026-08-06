@@ -53,6 +53,8 @@ import { applyOps, findPreviousVisibleBlockIndex } from "../sync/reducer";
 import {
   deleteForward,
   deleteText,
+  deleteToLineEnd,
+  deleteToLineStart,
   deleteWordBackward,
   deleteWordForward,
   insertText,
@@ -399,6 +401,17 @@ export const DELETE_FORWARD = stateAction("delete-forward", (state) =>
 /** Delete forward to the next word boundary (Ctrl/Cmd+Delete). */
 export const DELETE_WORD_FORWARD = stateAction("delete-word-forward", (state) =>
   withContentDeleted(deleteWordForward(state)),
+);
+
+/** Delete back to the line start (⌘+Backspace on macOS). */
+export const DELETE_TO_LINE_START = stateAction(
+  "delete-to-line-start",
+  (state) => withContentDeleted(deleteToLineStart(state)),
+);
+
+/** Delete forward to the line end (⌘+Delete / ⌃K on macOS). */
+export const DELETE_TO_LINE_END = stateAction("delete-to-line-end", (state) =>
+  withContentDeleted(deleteToLineEnd(state)),
 );
 
 // ─── Block structure ─────────────────────────────────────────────────────────
