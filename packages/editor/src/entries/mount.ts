@@ -426,6 +426,12 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   hiddenInput.style.color = "transparent";
   // Preserve newlines/spaces in the selection mirror text (it's never visible).
   hiddenInput.style.whiteSpace = "pre";
+  // Pin the font so the surface's line box — which is what the OS reads as the
+  // IME caret rect when placing the candidate window — depends only on the
+  // `lineHeight` the engine sets per frame from the painted caret height, never
+  // on whatever font-size the host page happens to cascade in.
+  hiddenInput.style.fontSize = "12px";
+  hiddenInput.style.lineHeight = "1";
   hiddenInput.setAttribute("role", "textbox");
   hiddenInput.setAttribute("aria-multiline", "true");
   hiddenInput.setAttribute("aria-label", options?.ariaLabel ?? "Text editor");

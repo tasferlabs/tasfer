@@ -1936,7 +1936,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             const viewportY = isComposing
               ? cursorCoords.y - this.viewport.scrollY
               : cursorCoords.y;
-            this.hiddenInput.style.top = `${viewportY + cursorCoords.height}px`;
+            // The OS anchors the IME candidate window to the caret rect INSIDE
+            // this surface, not to its 1px box — and that rect is one of the
+            // surface's own line boxes tall. Anchoring the element at the
+            // caret's BOTTOM therefore stacked that line box on top, dropping
+            // the candidate list a full line below the composed text. Anchor at
+            // the caret's top instead and pin the line box to the caret height,
+            // so the rect the OS reads is the caret we actually paint.
+            this.hiddenInput.style.top = `${viewportY}px`;
+            this.hiddenInput.style.lineHeight = `${cursorCoords.height}px`;
           }
         }
 
