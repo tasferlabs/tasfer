@@ -38,6 +38,9 @@ export type MobileToolbarIcon =
   | "list_ordered"
   | "list_todo"
   | "image"
+  // Enter an image's reposition mode. Touch has no hover, so the on-canvas
+  // affordance never appears there — this is the only way in.
+  | "reposition"
   | "link"
   | "line"
   | "keyboard_dismiss"
@@ -93,6 +96,11 @@ export type MobileToolbarAction =
   | { type: "toggle-todo" }
   | { type: "edit-link" }
   | { type: "edit-image" }
+  // Put the selected image into reposition mode, where a drag over it pans the
+  // crop. Only the way IN lives here: once the mode is on, the engine pins its
+  // own Done/Cancel chrome to the image (it no longer gates that on hover), and
+  // those belong beside the crop the user is dragging, not at the screen edge.
+  | { type: "reposition-image" }
   // Open the code block's language picker as a drawer/sheet (the host renders it
   // as a bottom sheet on mobile). Replaces the flat language list that used to
   // live behind the overflow "more" button.
@@ -284,6 +292,14 @@ interface MobileToolbarState {
   linkActive: boolean;
   /** Whether a non-empty text selection exists that a new link could wrap. */
   canCreateLink: boolean;
+  /**
+   * Whether the selected image has crop slack to move at its drawn size. False
+   * off an image block, and for a cover whose aspect already matches its frame
+   * — offering a reposition that cannot move anything would be a lie.
+   */
+  canRepositionImage: boolean;
+  /** Whether the selected image is already in reposition mode. */
+  repositioningImage: boolean;
   math: MobileToolbarMathContext | null;
 }
 
@@ -523,6 +539,19 @@ export function createMobileToolbarModel(
     t("editor.image.editImage", "Edit Image"),
     { type: "edit-image" },
   );
+  // Disabled rather than hidden once the mode is on: re-entering would re-stamp
+  // the origin Cancel restores to, quietly making the pan so far permanent. The
+  // active state says the mode is running; Done/Cancel are on the image.
+  const repositionImage = button(
+    "reposition-image",
+    "reposition",
+    t("image.reposition", "Reposition"),
+    { type: "reposition-image" },
+    {
+      active: state.repositioningImage,
+      enabled: state.canRepositionImage && !state.repositioningImage,
+    },
+  );
   // Opens the code block's language picker drawer/sheet. Sits in the code
   // context's contextual middle beside the block switcher; it replaces the flat
   // language list that used to hide behind the overflow "more" button.
@@ -563,6 +592,7 @@ export function createMobileToolbarModel(
     dismiss,
     link,
     editImage,
+    repositionImage,
     editCode,
   });
 
@@ -672,6 +702,7 @@ function buildLayout(
     dismiss: MobileToolbarItem;
     link: MobileToolbarItem;
     editImage: MobileToolbarItem;
+    repositionImage: MobileToolbarItem;
     editCode: MobileToolbarItem;
   },
 ): MobileToolbarLayout {
@@ -686,18 +717,26 @@ function buildLayout(
     blockMenu,
     link,
     editImage,
+    repositionImage,
     editCode,
   } = controls;
   const right = [controls.dismiss];
 
   // An image block has no inline text to format: its whole contextual bar is the
-  // settings control (replace/remove), shown beside history. Selecting an image
-  // keeps the editor focused, so the bar/accessory stays up to host this.
+  // settings controls (reposition, replace/remove), shown beside history.
+  // Selecting an image keeps the editor focused, so the bar/accessory stays up
+  // to host this. Reposition appears only for a crop that can actually move, and
+  // only here on touch — its on-canvas twin is revealed by hover.
   if (state.blockType === "image") {
     return {
       context: "image",
       left: [undo, redo],
-      middle: { kind: "items", items: [editImage] },
+      middle: {
+        kind: "items",
+        items: state.canRepositionImage
+          ? [repositionImage, editImage]
+          : [editImage],
+      },
       more: [],
       right,
     };

@@ -568,6 +568,15 @@ export interface EditorViewApi {
   /** Get current scroll position. */
   getScrollY: () => number;
   /**
+   * The viewport the engine currently lays out against — canvas width/height
+   * (CSS px), scroll offset, and total document height. The engine measures the
+   * canvas itself, so this is the only place a host can learn the width its
+   * content column was wrapped to; chrome that must reason about drawn block
+   * geometry (e.g. how large an image ends up) reads it here rather than
+   * measuring a wrapper element that may not match.
+   */
+  getViewport: () => ViewportState;
+  /**
    * The fully-resolved {@link EditorStyles} the engine currently paints with —
    * the host {@link EditorTheme} (tokens + overrides + window-focus state)
    * collapsed into concrete values. A host drawing chrome that must visually
@@ -5576,6 +5585,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   getScrollY = (): number => this.viewport.scrollY;
 
+  getViewport = (): ViewportState => this.viewport;
+
   getStyles = (): EditorStyles => getEditorStyles(this._state);
 
   setDecorations = (
@@ -5670,6 +5681,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     coordsAtContent: this.coordsAtContentPoint,
     updateViewport: this.updateViewport,
     getScrollY: this.getScrollY,
+    getViewport: this.getViewport,
     getStyles: this.getStyles,
     scrollToPosition: this.scrollToPosition,
     setDecorations: this.setDecorations,

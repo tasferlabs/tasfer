@@ -24,7 +24,10 @@ import {
   CURSOR_DRAG_END,
   CURSOR_DRAG_MOVE,
   CURSOR_DRAG_START,
+  canRepositionImageAt,
   DRAG_DETENT,
+  ENTER_IMAGE_REPOSITION,
+  EXIT_IMAGE_REPOSITION,
   IMAGE_PASTE,
   INDENT_CODE,
   INDENT_LIST_ITEM,
@@ -93,11 +96,13 @@ import {
   Image as ImageIcon,
   Italic,
   Link,
+  Move,
   Scissors,
   Search,
   Sigma,
   Strikethrough,
   Type,
+  X,
 } from "lucide-react";
 import {
   useCallback,
@@ -117,10 +122,7 @@ import {
   prewarmMenuIcons,
 } from "./nativeContextMenu";
 import { FindBar } from "../editor/FindBar";
-import {
-  findDocumentMatches,
-  type FindMatch,
-} from "../editor/findMatches";
+import { findDocumentMatches, type FindMatch } from "../editor/findMatches";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
@@ -534,10 +536,16 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
 };
 
 /**
- * Renders the image hover chrome (download + edit buttons) for a
+ * Renders the image hover chrome (download + edit + reposition buttons) for a
  * `TasferImageNode`-declared `"image-hover"` slot. The descriptor's `rect` is
  * the image's drawn box; the buttons sit at its top-right. "Edit Image" opens
  * the image upload/edit menu just below itself.
+ *
+ * While the block is in reposition mode this row becomes the mode's own
+ * confirm/cancel pair — same slot, same button style and size — so entering the
+ * mode swaps the controls in place rather than opening a second piece of chrome
+ * somewhere else. The node suppresses the whole overlay mid-pan, so nothing here
+ * covers the crop while the user is actually dragging it.
  */
 const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
   overlay,
@@ -546,11 +554,20 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
 }) => {
   const { t } = useTranslation();
   const { blockId } = overlay;
+  const { repositioning, canReposition, blockIndex } = overlay.data as {
+    repositioning: boolean;
+    canReposition: boolean;
+    blockIndex: number;
+  };
   const block = editor.query.block({ block: blockId });
   if (block?.type !== "image" || typeof block.attrs.url !== "string")
     return null;
   const url = block.attrs.url;
   const alt = typeof block.attrs.alt === "string" ? block.attrs.alt : undefined;
+
+  const repositionLabel = t("image.reposition", "Reposition");
+  const doneLabel = t("common.done", "Done");
+  const cancelLabel = t("common.cancel", "Cancel");
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
@@ -564,37 +581,90 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
           gap: "6px",
         }}
       >
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            void downloadImage(url, alt);
-          }}
-          onMouseDown={(e) => e.preventDefault()}
-          aria-label={t("contextMenu.downloadImage", "Download image")}
-          title={t("contextMenu.downloadImage", "Download image")}
-        >
-          <Download className="size-4" />
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={(e) => {
-            const buttonRect = e.currentTarget.getBoundingClientRect();
-            const containerRect = portalContainer.getBoundingClientRect();
-            openImageUploadMenu(
-              editor,
-              blockId,
-              buttonRect.left - containerRect.left,
-              buttonRect.bottom - containerRect.top,
-            );
-          }}
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          <ImageIcon className="size-4" />
-          <span className="text-xs">{t("image.editImage", "Edit Image")}</span>
-        </Button>
+        {repositioning ? (
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                editor.dispatch(EXIT_IMAGE_REPOSITION, {
+                  blockIndex,
+                  revert: true,
+                })
+              }
+              onMouseDown={(e) => e.preventDefault()}
+              aria-label={cancelLabel}
+              title={cancelLabel}
+            >
+              <X className="size-4" />
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                editor.dispatch(EXIT_IMAGE_REPOSITION, {
+                  blockIndex,
+                  revert: false,
+                })
+              }
+              onMouseDown={(e) => e.preventDefault()}
+              aria-label={doneLabel}
+              title={doneLabel}
+            >
+              <Check className="size-4" />
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                void downloadImage(url, alt);
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              aria-label={t("contextMenu.downloadImage", "Download image")}
+              title={t("contextMenu.downloadImage", "Download image")}
+            >
+              <Download className="size-4" />
+            </Button>
+            {canReposition && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  editor.dispatch(ENTER_IMAGE_REPOSITION, { blockIndex })
+                }
+                onMouseDown={(e) => e.preventDefault()}
+                aria-label={repositionLabel}
+                title={repositionLabel}
+              >
+                <Move className="size-4" />
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={(e) => {
+                const buttonRect = e.currentTarget.getBoundingClientRect();
+                const containerRect = portalContainer.getBoundingClientRect();
+                openImageUploadMenu(
+                  editor,
+                  blockId,
+                  buttonRect.left - containerRect.left,
+                  buttonRect.bottom - containerRect.top,
+                );
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              <ImageIcon className="size-4" />
+              <span className="text-xs">
+                {t("image.editImage", "Edit Image")}
+              </span>
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1453,6 +1523,8 @@ function PageEditor({
     math: null as MobileToolbarMathContext | null,
     linkActive: false,
     canCreateLink: false,
+    canRepositionImage: false,
+    repositioningImage: false,
   });
 
   // The soft-keyboard inset (CSS px) the editor's viewport height is reduced by,
@@ -1927,6 +1999,13 @@ function PageEditor({
           const block = editor.query.block();
           if (block?.type !== "image") break;
           openImageUploadMenu(editor, block.id, 0, 0);
+          break;
+        }
+        case "reposition-image": {
+          // Enter the mode on the selected image — the engine resolves which
+          // block that is, since the toolbar has no hit-tested rect to name one
+          // by. From here the pinned on-canvas chrome carries Done/Cancel.
+          editor.dispatch(ENTER_IMAGE_REPOSITION, {});
           break;
         }
         case "open-matrix-editor":
@@ -2947,6 +3026,27 @@ function PageEditor({
         activeBlock != null &&
         activeBlock.type !== "image";
 
+      // The reposition affordance for touch, where the on-canvas one never
+      // appears (it is revealed by hover). `canRepositionImageAt` resolves the
+      // drawn frame through the same geometry paint uses, so the toolbar and the
+      // canvas agree on whether the crop has room to move. The mode itself is
+      // read off the image's own overlay, which the engine pins for exactly as
+      // long as the mode runs.
+      const canRepositionImage =
+        activeBlock?.type === "image" &&
+        canRepositionImageAt(
+          activeBlock.attrs,
+          mounted.editor.view.getViewport(),
+          mounted.editor.view.getStyles(),
+        );
+      const repositioningImage = newOverlays.some(
+        (o) =>
+          o.key === "image-hover" &&
+          o.blockId === activeBlock?.id &&
+          (o.data as { repositioning?: boolean } | undefined)?.repositioning ===
+            true,
+      );
+
       setMobileToolbar({
         canUndo: snapshot.canUndo,
         canRedo: snapshot.canRedo,
@@ -2962,6 +3062,8 @@ function PageEditor({
         math,
         linkActive,
         canCreateLink,
+        canRepositionImage,
+        repositioningImage,
       });
     });
 

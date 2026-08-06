@@ -32,6 +32,17 @@
  */
 
 import { type ActionBus, DRAG_DETENT, stateAction } from "../action-bus";
+import { CLEAR_SELECTION, SPLIT_BLOCK } from "../actions/edit-actions";
+import {
+  EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_LEFT,
+  EXTEND_SELECTION_RIGHT,
+  EXTEND_SELECTION_UP,
+  MOVE_CURSOR_DOWN,
+  MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_RIGHT,
+  MOVE_CURSOR_UP,
+} from "../actions/keyboard-actions";
 import { POINTER_MOVE, TEXT_CLICK } from "../actions/pointer-actions";
 import { EDGE_SCROLL_THRESHOLD, IMAGE_DEFAULT_HEIGHT } from "../constants";
 import {
@@ -93,6 +104,142 @@ export interface Image extends BlockRuntimeState {
   width?: number | "full"; // Width in pixels or 'full' for edge-to-edge
   height?: number; // Height in pixels (only used in cover mode)
   objectFit?: "cover" | "contain"; // How image should be fitted
+  /**
+   * Which part of a cropped image the frame shows, as CSS `object-position`
+   * fractions: `{x: 0, y: 0}` pins the crop to the top-left of the source,
+   * `{x: 1, y: 1}` to the bottom-right. Absent means centered (`0.5/0.5`), the
+   * behavior every image had before repositioning existed.
+   *
+   * Stored normalized, not in pixels, because the crop must survive the things
+   * that change the frame without changing intent: a bottom-handle resize, a
+   * narrower viewport (see `geometry`'s proportional-height branch), and a peer
+   * rendering the same block at a different width. Only meaningful in `cover`
+   * mode — `contain` crops nothing.
+   */
+  objectPosition?: { x: number; y: number };
+}
+
+/** A cover image's default crop origin: centered on both axes. */
+export const DEFAULT_OBJECT_POSITION = { x: 0.5, y: 0.5 } as const;
+
+/** Clamp a raw object-position fraction into the valid `[0, 1]` range. */
+function clampFraction(value: number): number {
+  return value < 0 ? 0 : value > 1 ? 1 : value;
+}
+
+/**
+ * A block's effective crop origin. Falls back to centered, and clamps stored
+ * values defensively — a peer on an older build (or a hand-edited op) can put
+ * anything on the block, and an out-of-range fraction would drag the drawn
+ * source rect off the decoded image and blank the frame.
+ */
+export function imageObjectPosition(block: Image): { x: number; y: number } {
+  const raw = block.objectPosition;
+  if (!raw) return DEFAULT_OBJECT_POSITION;
+  return { x: clampFraction(raw.x), y: clampFraction(raw.y) };
+}
+
+/**
+ * Format a crop origin as a CSS `object-position` value (`"40% 20%"`), the form
+ * both the exported stylesheet and the `data-object-position` round-trip use.
+ * Percentages are rounded to two decimals — finer than any drag can express,
+ * and enough that a round-trip never visibly moves the image.
+ */
+function formatObjectPosition(position: { x: number; y: number }): string {
+  const pct = (n: number): string => `${Number((n * 100).toFixed(2))}%`;
+  return `${pct(position.x)} ${pct(position.y)}`;
+}
+
+/**
+ * Parse a `"40% 20%"` object-position back into fractions. Returns undefined for
+ * anything else — a foreign `<img>` may carry keyword forms (`center`, `top
+ * left`) or units we don't store, and dropping to the centered default is the
+ * safe read.
+ */
+function parseObjectPosition(
+  raw: string | undefined,
+): { x: number; y: number } | undefined {
+  if (!raw) return undefined;
+  const parts = raw.trim().split(/\s+/);
+  if (parts.length !== 2) return undefined;
+  const values = parts.map((part) => {
+    if (!part.endsWith("%")) return Number.NaN;
+    return Number.parseFloat(part) / 100;
+  });
+  if (values.some((v) => !Number.isFinite(v))) return undefined;
+  return { x: clampFraction(values[0]), y: clampFraction(values[1]) };
+}
+
+/**
+ * How much of the source a `cover` crop hides on each axis, in *source* pixels
+ * — the room a reposition drag has to move. Exactly one axis is normally
+ * non-zero: the crop matches the frame on the other. Zero on both means the
+ * aspect ratios agree and there is nothing to reposition.
+ */
+export function imageCropSlack(
+  img: HTMLImageElement,
+  frameWidth: number,
+  frameHeight: number,
+): { x: number; y: number } {
+  if (frameWidth <= 0 || frameHeight <= 0) return { x: 0, y: 0 };
+  const imgAspect = img.naturalWidth / img.naturalHeight;
+  const frameAspect = frameWidth / frameHeight;
+  if (imgAspect > frameAspect) {
+    // Source is wider than the frame: it is cropped horizontally.
+    return { x: img.naturalWidth - img.naturalHeight * frameAspect, y: 0 };
+  }
+  return { x: 0, y: img.naturalHeight - img.naturalWidth / frameAspect };
+}
+
+/** Whether a block has any room to reposition — the gate for offering the
+ *  affordance at all. A crop whose aspect matches its frame hides nothing, and
+ *  a "Reposition" button that cannot move anything is a lie. */
+export function canRepositionImage(
+  block: Image,
+  frameWidth: number,
+  frameHeight: number,
+): boolean {
+  if ((block.objectFit ?? "cover") !== "cover" || !block.url) return false;
+  const img = imageCache.get(block.url);
+  if (!img?.complete || img.naturalWidth === 0) return false;
+  const slack = imageCropSlack(img, frameWidth, frameHeight);
+  // Sub-pixel slack is not worth a drag: it cannot move the image visibly.
+  return slack.x > 1 || slack.y > 1;
+}
+
+/**
+ * Translate a pointer delta (canvas px) into a new crop position, clamped to the
+ * image edges. The drag moves the IMAGE with the pointer, so the crop window
+ * travels the opposite way — hence the negated deltas.
+ *
+ * An axis with no slack is pinned: the drag simply does nothing there rather
+ * than accumulating an offset the clamp would swallow.
+ */
+export function repositionFromDelta(
+  img: HTMLImageElement,
+  frameWidth: number,
+  frameHeight: number,
+  start: { x: number; y: number },
+  deltaX: number,
+  deltaY: number,
+): { x: number; y: number } {
+  const slack = imageCropSlack(img, frameWidth, frameHeight);
+  // Source pixels per canvas pixel: in `cover` the image is scaled up until it
+  // covers both axes, so the smaller ratio is the one in effect.
+  const sourcePerCanvas = Math.min(
+    img.naturalWidth / frameWidth,
+    img.naturalHeight / frameHeight,
+  );
+  return {
+    x:
+      slack.x > 0
+        ? clampFraction(start.x - (deltaX * sourcePerCanvas) / slack.x)
+        : start.x,
+    y:
+      slack.y > 0
+        ? clampFraction(start.y - (deltaY * sourcePerCanvas) / slack.y)
+        : start.y,
+  };
 }
 
 // ── Image asset cache ──────────────────────────────────────────────────────
@@ -358,16 +505,21 @@ export function getDragHandleAtPoint(
 
 /**
  * Whether an image block is in default visual state (cover mode, full width,
- * default height) and thus losslessly representable as `![alt](url)`.
- * Serialization policy — lives with the node.
+ * default height, centered crop) and thus losslessly representable as
+ * `![alt](url)`. Serialization policy — lives with the node.
  */
 export function isImageDefault(block: Image): boolean {
   const width = block.width ?? "full";
   const height = block.height ?? IMAGE_DEFAULT_HEIGHT;
   const objectFit = block.objectFit ?? "cover";
+  const position = imageObjectPosition(block);
 
   return (
-    width === "full" && height === IMAGE_DEFAULT_HEIGHT && objectFit === "cover"
+    width === "full" &&
+    height === IMAGE_DEFAULT_HEIGHT &&
+    objectFit === "cover" &&
+    position.x === DEFAULT_OBJECT_POSITION.x &&
+    position.y === DEFAULT_OBJECT_POSITION.y
   );
 }
 
@@ -412,6 +564,102 @@ export function imageBleedHeight(
   return image.url ? (image.height ?? height) : placeholderHeight;
 }
 
+/**
+ * The image's drawn rect (size + inline offset) for a given content-column
+ * width. The single geometry source: the node's own layout, height, and paint
+ * passes all route through it, and so does the host-facing
+ * {@link canRepositionImageAt}, so no surface can disagree about how large the
+ * image draws.
+ */
+function imageGeometry(
+  block: Image,
+  maxWidth: number,
+  styles: EditorStyles,
+): ImageGeometry {
+  const { height: defaultImageHeight, placeholderHeight } =
+    styles.blocks.image.dimensions;
+
+  const mode = imageWidthMode(block);
+  const imageHeight = block.height ?? defaultImageHeight;
+
+  if (mode === "full") {
+    // Full width: edge-to-edge, ignoring page padding. Height via the shared
+    // helper so the host-facing `imageBleedHeight` can't disagree with paint.
+    return {
+      displayX: 0,
+      displayWidth:
+        maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight,
+      displayHeight: imageBleedHeight(block, styles) ?? placeholderHeight,
+    };
+  }
+
+  if (mode === "natural") {
+    // Contained default (e.g. a pasted image): fit the decoded image within
+    // the content column, centered, respecting page padding, with the height
+    // following the natural aspect ratio. Until the image decodes, reserve
+    // the full column width at placeholder height — the draw path invalidates
+    // the cached layout and repaints once the natural size is known.
+    const decoded = block.url ? imageCache.get(block.url) : undefined;
+    if (block.url && decoded?.complete && decoded.naturalWidth > 0) {
+      const aspect = decoded.naturalWidth / decoded.naturalHeight;
+      const displayWidth = Math.min(decoded.naturalWidth, maxWidth);
+      const displayX =
+        styles.canvas.paddingLeft + (maxWidth - displayWidth) / 2;
+      return { displayX, displayWidth, displayHeight: displayWidth / aspect };
+    }
+    return {
+      displayX: styles.canvas.paddingLeft,
+      displayWidth: maxWidth,
+      displayHeight: placeholderHeight,
+    };
+  }
+
+  // Custom width: respect padding, constrain to container, center.
+  const requestedWidth = mode;
+  const displayWidth = Math.min(requestedWidth, maxWidth);
+  const displayX = styles.canvas.paddingLeft + (maxWidth - displayWidth) / 2;
+
+  // Adjust height proportionally if the width was constrained, so images
+  // resized on desktop don't get distorted on mobile.
+  const displayHeight =
+    block.url && displayWidth < requestedWidth
+      ? imageHeight * (displayWidth / requestedWidth)
+      : block.url
+        ? imageHeight
+        : placeholderHeight;
+
+  return { displayX, displayWidth, displayHeight };
+}
+
+/**
+ * Whether an image has crop slack at the size it currently DRAWS at, resolved
+ * without a paint context.
+ *
+ * The on-canvas chrome tests the box it already holds ({@link
+ * canRepositionImage}); host chrome that owns no layout — the mobile toolbar,
+ * which is where the mode is reachable at all on touch, since the on-canvas
+ * affordance is revealed by hover — has only the block and the viewport. Both
+ * resolve the frame through {@link imageGeometry}, so the two surfaces always
+ * agree about whether the affordance is on offer.
+ */
+export function canRepositionImageAt(
+  block:
+    | Pick<Image, "url" | "width" | "height" | "objectFit">
+    | Readonly<Record<string, unknown>>,
+  viewport: ViewportState,
+  styles: EditorStyles,
+): boolean {
+  const image = block as Image;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const { displayWidth, displayHeight } = imageGeometry(
+    image,
+    maxWidth,
+    styles,
+  );
+  return canRepositionImage(image, displayWidth, displayHeight);
+}
+
 /** The resolved start descriptor of an in-progress resize drag. Lives on the
  *  captured hit (per-drag, node-owned) — there is no global UI slot for it. */
 interface ImageDragStart {
@@ -434,6 +682,129 @@ interface ImageResizeHit {
 }
 
 /**
+ * Hit data for the reposition pan drag. `box` is the image's drawn rect, kept
+ * for its dimensions only (the source↔canvas scale), so a viewport scroll
+ * mid-drag doesn't invalidate it. `start` is filled in `onStart`.
+ */
+interface ImageRepositionHit {
+  blockIndex: number;
+  box: BlockBounds;
+  start?: {
+    pointerX: number;
+    pointerY: number;
+    position: { x: number; y: number };
+  };
+}
+
+/**
+ * The block currently in reposition mode, if any. Only one is ever in the mode
+ * — {@link ENTER_IMAGE_REPOSITION} clears the others — so the keyboard handlers
+ * can find their target without the caret being on the image (an atomic block
+ * never holds the caret).
+ */
+function findRepositioningBlock(
+  state: EditorState,
+): { blockIndex: number; block: Image } | null {
+  const blocks = state.document.page.blocks;
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    if (block.deleted || block.type !== "image") continue;
+    if (isRepositioning(state, block.id)) {
+      return { blockIndex: i, block: block as Image };
+    }
+  }
+  return null;
+}
+
+/**
+ * Keyboard nudge step, as a fraction of the available slack rather than pixels:
+ * the handlers run off the action bus with no layout context, and a fraction
+ * behaves proportionally on every frame size. Shift takes the coarse step.
+ */
+const NUDGE_STEP = 0.01;
+const NUDGE_STEP_COARSE = 0.1;
+
+/** Move the repositioning block's crop by one keyboard step and commit it.
+ *  Returns undefined when nothing is repositioning, passing the key through. */
+function nudgeReposition(
+  state: EditorState,
+  axis: "x" | "y",
+  direction: -1 | 1,
+  coarse: boolean,
+): { state: EditorState; ops: Operation[]; handled: true } | undefined {
+  const target = findRepositioningBlock(state);
+  if (!target) return undefined;
+
+  const current = imageObjectPosition(target.block);
+  const step = (coarse ? NUDGE_STEP_COARSE : NUDGE_STEP) * direction;
+  const position = {
+    ...current,
+    [axis]: clampFraction(current[axis] + step),
+  } as { x: number; y: number };
+
+  // Claim the key even when the crop is already pinned at that edge: the arrow
+  // belongs to the mode, and letting it fall through would move the caret
+  // somewhere behind the image the user is still adjusting.
+  if (position.x === current.x && position.y === current.y) {
+    return { state, ops: [], handled: true };
+  }
+
+  const moved = state.actionBus.dispatchState(UPDATE_IMAGE_REPOSITION, state, {
+    blockIndex: target.blockIndex,
+    position,
+  }).state;
+  const committed = moved.actionBus.dispatchState(
+    COMMIT_IMAGE_REPOSITION,
+    moved,
+    { blockIndex: target.blockIndex, startPosition: current },
+  );
+  return { state: committed.state, ops: committed.ops, handled: true };
+}
+
+/** Leave reposition mode from the keyboard, if a block is in it. */
+function exitRepositionFromKey(
+  state: EditorState,
+  revert: boolean,
+): { state: EditorState; ops: Operation[]; handled: true } | undefined {
+  const target = findRepositioningBlock(state);
+  if (!target) return undefined;
+  const result = state.actionBus.dispatchState(EXIT_IMAGE_REPOSITION, state, {
+    blockIndex: target.blockIndex,
+    revert,
+  });
+  return { state: result.state, ops: result.ops, handled: true };
+}
+
+/** Apply a reposition drag's current pointer position to the block, transiently
+ *  (the committing op is emitted by the drag's `onEnd`). */
+function applyRepositionDrag(
+  state: EditorState,
+  hit: ImageRepositionHit,
+  pointerX: number,
+  pointerY: number,
+): EditorState {
+  const start = hit.start;
+  if (!start) return state;
+  const block = state.document.page.blocks[hit.blockIndex];
+  if (!block || block.deleted || block.type !== "image") return state;
+  const img = imageCache.get((block as Image).url);
+  if (!img?.complete || img.naturalWidth === 0) return state;
+
+  const position = repositionFromDelta(
+    img,
+    hit.box.width,
+    hit.box.height,
+    start.position,
+    pointerX - start.pointerX,
+    pointerY - start.pointerY,
+  );
+  return state.actionBus.dispatchState(UPDATE_IMAGE_REPOSITION, state, {
+    blockIndex: hit.blockIndex,
+    position,
+  }).state;
+}
+
+/**
  * The image node's transient per-block view-state (the value stored at
  * `ui.nodeViewState[block.id]`). `uploadStatus` is set host-side by the upload
  * flow; `resizeHandle` is set by the engine while a resize drag is in progress
@@ -444,6 +815,52 @@ interface ImageResizeHit {
 export interface ImageViewState {
   uploadStatus?: "uploading" | "error";
   resizeHandle?: "left" | "right" | "bottom";
+  /**
+   * Set while this block is in REPOSITION MODE — the opt-in state a cover enters
+   * from its hover chrome, in which a drag over the image pans the crop instead
+   * of scrolling the page. A mode (rather than a bare gesture) because a cover's
+   * slack is almost always vertical, and a vertical drag on the document's first
+   * block is the touch scroll gesture; stealing it would cost more than the
+   * feature is worth.
+   *
+   * `origin` is the crop position when the mode was entered, kept so Cancel can
+   * restore it — each drag inside the mode commits its own op (mirroring the
+   * resize drag), so reverting is a new op, not a discarded buffer.
+   */
+  reposition?: { origin: { x: number; y: number } };
+}
+
+/**
+ * Whether a block is currently in reposition mode. Hosts gate the mode's chrome
+ * on this ALONE, never additionally on hover: the pointer routinely leaves the
+ * image during the mode (a pan that drags past its edge, a reach for Done), and
+ * a hover-gated Done/Cancel would vanish exactly then.
+ */
+export function isRepositioning(state: EditorState, blockId: string): boolean {
+  return (
+    (state.ui.nodeViewState[blockId] as ImageViewState | undefined)
+      ?.reposition !== undefined
+  );
+}
+
+/** Merge reposition mode into a block's `nodeViewState` slot (or clear it with
+ *  `null`), preserving any host-set `uploadStatus` and resize highlight. */
+function setImageReposition(
+  state: EditorState,
+  blockId: string,
+  reposition: ImageViewState["reposition"] | null,
+): EditorState {
+  const prev = state.ui.nodeViewState[blockId] as ImageViewState | undefined;
+  const next: ImageViewState = { ...prev };
+  if (reposition === null) delete next.reposition;
+  else next.reposition = reposition;
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      nodeViewState: { ...state.ui.nodeViewState, [blockId]: next },
+    },
+  };
 }
 
 /** Merge a resize-handle highlight into a block's `nodeViewState` slot (or clear
@@ -546,62 +963,7 @@ export class ImageNode extends AtomicNode<Image> {
    * only on layout context (no origin), so both the height pass and paint use it.
    */
   private geometry(c: NodeLayoutCtx): ImageGeometry {
-    const block = c.block as Image;
-    const styles = c.styles;
-    const { height: defaultImageHeight, placeholderHeight } =
-      styles.blocks.image.dimensions;
-
-    const mode = imageWidthMode(block);
-    const imageHeight = block.height ?? defaultImageHeight;
-
-    if (mode === "full") {
-      // Full width: edge-to-edge, ignoring page padding. Height via the shared
-      // helper so the host-facing `imageBleedHeight` can't disagree with paint.
-      return {
-        displayX: 0,
-        displayWidth:
-          c.maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight,
-        displayHeight: imageBleedHeight(block, styles) ?? placeholderHeight,
-      };
-    }
-
-    if (mode === "natural") {
-      // Contained default (e.g. a pasted image): fit the decoded image within
-      // the content column, centered, respecting page padding, with the height
-      // following the natural aspect ratio. Until the image decodes, reserve
-      // the full column width at placeholder height — the draw path invalidates
-      // the cached layout and repaints once the natural size is known.
-      const decoded = block.url ? imageCache.get(block.url) : undefined;
-      if (block.url && decoded?.complete && decoded.naturalWidth > 0) {
-        const aspect = decoded.naturalWidth / decoded.naturalHeight;
-        const displayWidth = Math.min(decoded.naturalWidth, c.maxWidth);
-        const displayX =
-          styles.canvas.paddingLeft + (c.maxWidth - displayWidth) / 2;
-        return { displayX, displayWidth, displayHeight: displayWidth / aspect };
-      }
-      return {
-        displayX: styles.canvas.paddingLeft,
-        displayWidth: c.maxWidth,
-        displayHeight: placeholderHeight,
-      };
-    }
-
-    // Custom width: respect padding, constrain to container, center.
-    const requestedWidth = mode;
-    const displayWidth = Math.min(requestedWidth, c.maxWidth);
-    const displayX =
-      styles.canvas.paddingLeft + (c.maxWidth - displayWidth) / 2;
-
-    // Adjust height proportionally if the width was constrained, so images
-    // resized on desktop don't get distorted on mobile.
-    const displayHeight =
-      block.url && displayWidth < requestedWidth
-        ? imageHeight * (displayWidth / requestedWidth)
-        : block.url
-          ? imageHeight
-          : placeholderHeight;
-
-    return { displayX, displayWidth, displayHeight };
+    return imageGeometry(c.block as Image, c.maxWidth, c.styles);
   }
 
   protected intrinsicHeight(c: NodeLayoutCtx): number {
@@ -652,6 +1014,65 @@ export class ImageNode extends AtomicNode<Image> {
    */
   regions(c: NodeRegionCtx): readonly NodeHitRegion[] {
     return [
+      // The pan drag, live only while the block is in reposition mode. Capturing
+      // the pointer here is what suppresses page scroll over the image on touch
+      // — legitimate only because the user opted into the mode.
+      hitRegion({
+        id: "image-reposition",
+        priority: 55,
+        modes: ["edit", "select"],
+        hitTest: (p): ImageRepositionHit | null => {
+          const block = c.block as Image;
+          if (!isRepositioning(c.state, block.id)) return null;
+          const box = this.hitTestBox(c, c.origin, p);
+          return box ? { blockIndex: c.blockIndex, box } : null;
+        },
+        drag: {
+          onStart(h, p, ctx) {
+            const block = ctx.state.document.page.blocks[h.blockIndex];
+            if (!block || block.deleted || block.type !== "image") return null;
+            h.start = {
+              pointerX: p.x,
+              pointerY: p.y,
+              position: imageObjectPosition(block as Image),
+            };
+            return { state: withStoppedMomentum(ctx.state) };
+          },
+          onMove(p, ctx) {
+            const h = ctx.session.captured?.hit as
+              ImageRepositionHit | undefined;
+            if (!h?.start) return { state: ctx.state };
+            return { state: applyRepositionDrag(ctx.state, h, p.x, p.y) };
+          },
+          onEnd(p, ctx) {
+            const h = ctx.session.captured?.hit as
+              ImageRepositionHit | undefined;
+            if (!h?.start) return { state: ctx.state };
+            // A release with an unknown position (window-level mouseup) keeps
+            // whatever the last move produced rather than snapping back.
+            const state = p
+              ? applyRepositionDrag(ctx.state, h, p.x, p.y)
+              : ctx.state;
+            return state.actionBus.dispatchState(
+              COMMIT_IMAGE_REPOSITION,
+              state,
+              { blockIndex: h.blockIndex, startPosition: h.start.position },
+            );
+          },
+          onCancel(ctx) {
+            const h = ctx.session.captured?.hit as
+              ImageRepositionHit | undefined;
+            if (!h?.start) return ctx.state;
+            // Nothing was committed, so undo the drag by restoring the position
+            // it began from. The mode itself stays on.
+            return ctx.state.actionBus.dispatchState(
+              UPDATE_IMAGE_REPOSITION,
+              ctx.state,
+              { blockIndex: h.blockIndex, position: h.start.position },
+            ).state;
+          },
+        },
+      }),
       hitRegion({
         id: "image-resize",
         priority: 60,
@@ -664,6 +1085,9 @@ export class ImageNode extends AtomicNode<Image> {
           if (c.state.ui.isReadonlyBase) return null;
           const block = c.block as Image;
           if (!block.url) return null;
+          // Reposition mode owns the image body; resizing would fight the pan
+          // for the same drag. Matches the chrome, which hides the bars too.
+          if (isRepositioning(c.state, block.id)) return null;
           const box = this.hitTestBox(c, c.origin, p);
           if (!box) return null;
           const handle = getDragHandleAtPoint(
@@ -909,6 +1333,58 @@ export class ImageNode extends AtomicNode<Image> {
       },
       50,
     );
+
+    // Clicking away from the image being repositioned leaves the mode, keeping
+    // the crop — direct manipulation reads as already applied, so discarding it
+    // here would surprise. Deliberately does NOT claim the click: the user is
+    // also trying to put their caret somewhere, and that should still happen.
+    bus.registerState(
+      TEXT_CLICK,
+      (state, { position }) => {
+        const target = findRepositioningBlock(state);
+        if (!target || target.blockIndex === position.blockIndex) return;
+        return state.actionBus.dispatchState(EXIT_IMAGE_REPOSITION, state, {
+          blockIndex: target.blockIndex,
+          revert: false,
+        });
+      },
+      40,
+    );
+
+    // ── Reposition mode keyboard ─────────────────────────────────────────────
+    //
+    // While a cover is being repositioned the arrow keys nudge its crop and
+    // Escape/Enter leave the mode, all claimed above the caret handlers. This is
+    // what keeps the feature usable without a pointer — a drag-only reposition
+    // would be unreachable from the keyboard entirely. Every handler returns
+    // undefined when nothing is repositioning, so normal editing is untouched.
+    const nudge =
+      (axis: "x" | "y", direction: -1 | 1, coarse: boolean) =>
+      (state: EditorState) =>
+        nudgeReposition(state, axis, direction, coarse);
+
+    bus.registerState(MOVE_CURSOR_LEFT, nudge("x", -1, false), 100);
+    bus.registerState(MOVE_CURSOR_RIGHT, nudge("x", 1, false), 100);
+    bus.registerState(MOVE_CURSOR_UP, nudge("y", -1, false), 100);
+    bus.registerState(MOVE_CURSOR_DOWN, nudge("y", 1, false), 100);
+    // Shift+Arrow arrives as the selection-extending actions; in this mode it is
+    // the coarse step, the usual "shift means bigger increment" convention.
+    bus.registerState(EXTEND_SELECTION_LEFT, nudge("x", -1, true), 100);
+    bus.registerState(EXTEND_SELECTION_RIGHT, nudge("x", 1, true), 100);
+    bus.registerState(EXTEND_SELECTION_UP, nudge("y", -1, true), 100);
+    bus.registerState(EXTEND_SELECTION_DOWN, nudge("y", 1, true), 100);
+
+    // Escape reverts to the crop the mode was entered with; Enter keeps it.
+    bus.registerState(
+      CLEAR_SELECTION,
+      (state) => exitRepositionFromKey(state, true),
+      100,
+    );
+    bus.registerState(
+      SPLIT_BLOCK,
+      (state) => exitRepositionFromKey(state, false),
+      100,
+    );
   }
 
   /**
@@ -972,8 +1448,7 @@ export class ImageNode extends AtomicNode<Image> {
     // flow via `editor.setNodeViewState`). Not modelled as a menu/overlay.
     const uploadStatus = (
       state.ui.nodeViewState[block.id] as
-        | { uploadStatus?: "uploading" | "error" }
-        | undefined
+        { uploadStatus?: "uploading" | "error" } | undefined
     )?.uploadStatus;
 
     if (uploadStatus === "uploading") {
@@ -1049,7 +1524,12 @@ export class ImageNode extends AtomicNode<Image> {
 
   protected drawChrome(box: BlockBounds, c: NodePaintCtx): void {
     const objectFit = (c.block as Image).objectFit ?? "cover";
-    this.drawDragHandles(c, box, objectFit);
+    // Reposition mode owns the image: the resize bars would compete with a pan
+    // drag for the same pixels, so they stand down until the mode is left. The
+    // mode's own buttons are host overlay chrome, not painted here.
+    if (!isRepositioning(c.state, (c.block as Image).id)) {
+      this.drawDragHandles(c, box, objectFit);
+    }
   }
 
   private drawStatus(
@@ -1092,13 +1572,15 @@ export class ImageNode extends AtomicNode<Image> {
     let destHeight = height;
 
     if (objectFit === "cover") {
-      // Crop the image to fill the container.
+      // Crop the image to fill the container, offsetting the crop window by the
+      // block's object-position (centered when unset — the historical behavior).
+      const position = imageObjectPosition(c.block as Image);
       if (imgAspectRatio > containerAspectRatio) {
         sourceWidth = img.naturalHeight * containerAspectRatio;
-        sourceX = (img.naturalWidth - sourceWidth) / 2;
+        sourceX = (img.naturalWidth - sourceWidth) * position.x;
       } else {
         sourceHeight = img.naturalWidth / containerAspectRatio;
-        sourceY = (img.naturalHeight - sourceHeight) / 2;
+        sourceY = (img.naturalHeight - sourceHeight) * position.y;
       }
     } else {
       // Fit the entire image, maintaining aspect ratio.
@@ -1207,6 +1689,13 @@ export class ImageNode extends AtomicNode<Image> {
         }
         if (b.height !== undefined) attrs.push(`height="${b.height}"`);
         attrs.push(`data-object-fit="${objectFit}"`);
+        // Only a non-default crop is emitted, so an unrepositioned image keeps
+        // the attribute set it had before repositioning existed.
+        if (b.objectPosition !== undefined) {
+          attrs.push(
+            `data-object-position="${formatObjectPosition(imageObjectPosition(b))}"`,
+          );
+        }
 
         return `<img ${attrs.join(" ")} />`;
       },
@@ -1263,6 +1752,9 @@ export class ImageNode extends AtomicNode<Image> {
         const objectFit = attrs["data-object-fit"]
           ? (attrs["data-object-fit"] as "cover" | "contain")
           : undefined;
+        const objectPosition = parseObjectPosition(
+          attrs["data-object-position"],
+        );
 
         // Consume optional newline
         ctx.match(NEWLINE);
@@ -1275,6 +1767,7 @@ export class ImageNode extends AtomicNode<Image> {
           width,
           height,
           objectFit,
+          objectPosition,
         };
         return image;
       },
@@ -1295,6 +1788,11 @@ export class ImageNode extends AtomicNode<Image> {
           if (typeof b.width === "number") styles.push(`width:${b.width}px`);
           const fit = b.objectFit ?? "cover";
           styles.push(`object-fit:${fit}`);
+          if (b.objectPosition !== undefined) {
+            styles.push(
+              `object-position:${formatObjectPosition(imageObjectPosition(b))}`,
+            );
+          }
         }
 
         return `<img src="${escapeAttr(src)}" alt="${alt}" style="${styles.join(";")}" />`;
@@ -1716,6 +2214,138 @@ export const CANCEL_IMAGE_HANDLE_DRAG = stateAction<{ blockIndex: number }>(
     };
   },
 );
+
+// ── Reposition mode ──────────────────────────────────────────────────────────
+
+/** Write a crop position onto an image block in place. Transient by itself —
+ *  the caller decides whether to also emit the committing op. The block's
+ *  layout does not depend on the crop, so no height-cache invalidation. */
+function withObjectPosition(
+  state: EditorState,
+  blockIndex: number,
+  position: { x: number; y: number },
+): EditorState {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || block.type !== "image") return state;
+  const blocks = [...state.document.page.blocks];
+  blocks[blockIndex] = { ...block, objectPosition: position } as Block;
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      page: { ...state.document.page, blocks },
+    },
+  };
+}
+
+/** The `block_set` op committing a block's current crop position. */
+function objectPositionOp(
+  state: EditorState,
+  blockId: string,
+  position: { x: number; y: number },
+): Operation {
+  return {
+    op: "block_set",
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+    blockId,
+    field: "objectPosition",
+    value: position,
+  };
+}
+
+/**
+ * Enter reposition mode on an image, remembering the crop position at entry so
+ * {@link EXIT_IMAGE_REPOSITION} can revert to it. Pure UI change, no ops — the
+ * mode itself is local, never shared with peers.
+ */
+export const ENTER_IMAGE_REPOSITION = stateAction<{ blockIndex?: number }>(
+  "enter-image-reposition",
+  (state, { blockIndex }) => {
+    // Omitted index means "the selected image" — how host chrome addressed by
+    // the current block rather than by a hit-tested rect (the mobile toolbar)
+    // reaches the mode. The on-canvas affordance passes the index it hit.
+    const index = blockIndex ?? state.document.selection?.focus.blockIndex;
+    const block =
+      index === undefined ? undefined : state.document.page.blocks[index];
+    if (!block || block.deleted || block.type !== "image") {
+      return { state, ops: [] };
+    }
+    // At most one block is ever in the mode: the keyboard handlers resolve their
+    // target by scanning for it, and a second stuck one would shadow this.
+    let next = state;
+    const previous = findRepositioningBlock(state);
+    if (previous && previous.block.id !== block.id) {
+      next = setImageReposition(next, previous.block.id, null);
+    }
+    return {
+      state: setImageReposition(next, block.id, {
+        origin: imageObjectPosition(block as Image),
+      }),
+      ops: [],
+    };
+  },
+);
+
+/** Pan the crop during a reposition drag. Transient — no ops until the drag
+ *  ends, so a single drag is one undo step and one op for peers. */
+export const UPDATE_IMAGE_REPOSITION = stateAction<{
+  blockIndex: number;
+  position: { x: number; y: number };
+}>("update-image-reposition", (state, { blockIndex, position }) => ({
+  state: withObjectPosition(state, blockIndex, position),
+  ops: [],
+}));
+
+/**
+ * Commit the crop position a reposition drag (or key nudge) landed on, emitting
+ * one op if it actually moved. Stays in reposition mode — the user may keep
+ * adjusting; leaving is {@link EXIT_IMAGE_REPOSITION}.
+ */
+export const COMMIT_IMAGE_REPOSITION = stateAction<{
+  blockIndex: number;
+  startPosition: { x: number; y: number };
+}>("commit-image-reposition", (state, { blockIndex, startPosition }) => {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || block.type !== "image") {
+    return { state, ops: [] };
+  }
+  const position = imageObjectPosition(block as Image);
+  if (position.x === startPosition.x && position.y === startPosition.y) {
+    return { state, ops: [] };
+  }
+  return { state, ops: [objectPositionOp(state, block.id, position)] };
+});
+
+/**
+ * Leave reposition mode. `revert` (Cancel / Escape) restores the position the
+ * mode was entered with and emits the op for it — the drags inside the mode
+ * already committed, so undoing them is a new op rather than a dropped buffer.
+ */
+export const EXIT_IMAGE_REPOSITION = stateAction<{
+  blockIndex: number;
+  revert: boolean;
+}>("exit-image-reposition", (state, { blockIndex, revert }) => {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted || block.type !== "image") {
+    return { state, ops: [] };
+  }
+  const view = state.ui.nodeViewState[block.id] as ImageViewState | undefined;
+  const origin = view?.reposition?.origin;
+  const cleared = setImageReposition(state, block.id, null);
+
+  if (!revert || !origin) return { state: cleared, ops: [] };
+
+  const current = imageObjectPosition(block as Image);
+  if (current.x === origin.x && current.y === origin.y) {
+    return { state: cleared, ops: [] };
+  }
+  return {
+    state: withObjectPosition(cleared, blockIndex, origin),
+    ops: [objectPositionOp(state, block.id, origin)],
+  };
+});
 
 /**
  * Set or clear the image hover overlay (the resize-handle chrome). The handler

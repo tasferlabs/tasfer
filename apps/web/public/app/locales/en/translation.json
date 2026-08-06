@@ -506,6 +506,7 @@
   "image.clickToUpload": "Click to upload image",
   "image.loading": "Loading image...",
   "image.openLibrary": "Open Library",
+  "image.reposition": "Reposition",
   "image.takePhoto": "Take Photo",
   "image.updateImage": "Update Image",
   "image.uploadFailed": "Failed to upload image",

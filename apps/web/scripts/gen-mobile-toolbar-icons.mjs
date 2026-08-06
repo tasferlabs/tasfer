@@ -81,6 +81,7 @@ const LUCIDE = {
   list_ordered: "list-ordered",
   list_todo: "list-checks",
   image: "image",
+  reposition: "move",
   link: "link-2",
   line: "minus",
   keyboard_dismiss: "x",

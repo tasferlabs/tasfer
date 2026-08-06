@@ -37,15 +37,23 @@ export {
 export {
   CANCEL_IMAGE_HANDLE_DRAG,
   cancelImageHandleDrag,
+  canRepositionImage,
+  canRepositionImageAt,
+  COMMIT_IMAGE_REPOSITION,
   CREATE_PARAGRAPH_BELOW_IMAGE,
   END_IMAGE_HANDLE_DRAG,
   endImageHandleDrag,
+  ENTER_IMAGE_REPOSITION,
+  EXIT_IMAGE_REPOSITION,
   getDragHandleAtPoint,
   ImageNode,
+  imageObjectPosition,
+  isRepositioning,
   SET_IMAGE_HOVER,
   START_IMAGE_HANDLE_DRAG,
   startImageHandleDrag,
   UPDATE_IMAGE_HANDLE_DRAG,
+  UPDATE_IMAGE_REPOSITION,
   updateImageHandleDrag,
 } from "../../nodes/ImageNode";
 export { LineNode } from "../../nodes/LineNode";

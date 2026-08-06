@@ -159,6 +159,20 @@ const objectFitField = propField(
   (value) => value === "cover" || value === "contain",
 );
 
+/**
+ * The cover crop origin, as a pair of `[0, 1]` fractions. Both axes travel in
+ * ONE field so the CRDT's per-field last-writer-wins keeps them atomic: two
+ * peers repositioning the same cover converge on one of the two positions
+ * actually chosen, instead of interleaving into an x/y pair neither picked.
+ */
+const objectPositionField = propField("objectPosition", (value) => {
+  if (typeof value !== "object" || value === null) return false;
+  const { x, y } = value as { x: unknown; y: unknown };
+  const inRange = (n: unknown): boolean =>
+    typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
+  return inRange(x) && inRange(y);
+});
+
 const displayModeField = propField(
   "displayMode",
   (value) => typeof value === "boolean",
@@ -389,6 +403,7 @@ const imageDescriptor = {
     width: widthField,
     height: heightField,
     objectFit: objectFitField,
+    objectPosition: objectPositionField,
   },
 } satisfies BlockTypeDescriptor;
 

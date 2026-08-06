@@ -376,16 +376,24 @@ export {
 } from "./nodes/MathNode";
 export {
   CANCEL_IMAGE_HANDLE_DRAG,
+  canRepositionImage,
+  canRepositionImageAt,
+  COMMIT_IMAGE_REPOSITION,
   CREATE_PARAGRAPH_BELOW_IMAGE,
   END_IMAGE_HANDLE_DRAG,
+  ENTER_IMAGE_REPOSITION,
+  EXIT_IMAGE_REPOSITION,
+  imageObjectPosition,
   INDENT_CODE,
   INDENT_LIST_ITEM,
+  isRepositioning,
   OUTDENT_CODE,
   OUTDENT_LIST_ITEM,
   SET_IMAGE_HOVER,
   START_IMAGE_HANDLE_DRAG,
   TOGGLE_TODO_CHECKED,
   UPDATE_IMAGE_HANDLE_DRAG,
+  UPDATE_IMAGE_REPOSITION,
 } from "./rendering/nodes";
 
 // Core document model + CRDT operation types. The stored-mark CRDT record is

@@ -1,8 +1,10 @@
 import {
+  canRepositionImage,
   CodeMark,
   type Editor,
   EmphasisMark,
   ImageNode,
+  isRepositioning,
   LineNode,
   LinkMark,
   ListNode,
@@ -84,22 +86,45 @@ class TasferImageNode extends ImageNode {
       });
     }
 
-    // Hover chrome (download / edit buttons) over a non-placeholder image while
-    // it's hovered or while its upload menu is open — landed on the image box.
+    // Hover chrome (download / edit / reposition buttons) over a non-placeholder
+    // image while it's hovered, while its upload menu is open, or while it is in
+    // reposition mode — landed on the image box.
+    //
     // Suppressed while a resize drag is in progress (the engine records the
     // active handle in this block's transient view-state).
+    //
+    // Reposition mode PINS the chrome: once the block is in it, hover no longer
+    // gates anything. Hover-out would otherwise strand the user mid-task with no
+    // Done or Cancel to reach for — and the pointer necessarily leaves the image
+    // during a pan that drags past its edge.
     const isResizing = !!(
       state.ui.nodeViewState[block.id] as
         | { resizeHandle?: "left" | "right" | "bottom" }
         | undefined
     )?.resizeHandle;
+    const repositioning = isRepositioning(state, block.id);
     const hovered =
       state.ui.imageHover?.blockIndex === c.blockIndex && !isResizing;
-    if (block.type === "image" && block.url && (hovered || menuOpen)) {
+
+    if (
+      block.type === "image" &&
+      block.url &&
+      (hovered || menuOpen || repositioning)
+    ) {
+      const box = this.displayBox(c);
       result.push({
         key: "image-hover",
         blockId: c.block.id,
-        rect: this.displayBox(c),
+        rect: box,
+        // The reposition affordance is offered only when the crop actually has
+        // room to move; the engine owns that test since it holds the decoded
+        // image. `blockIndex` rides along because the mode's actions are
+        // addressed by index, which the React overlay cannot derive itself.
+        data: {
+          repositioning,
+          canReposition: canRepositionImage(block, box.width, box.height),
+          blockIndex: c.blockIndex,
+        },
       });
     }
 
