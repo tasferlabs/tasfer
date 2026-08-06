@@ -331,6 +331,60 @@ export interface CaretScratch {
 }
 
 /**
+ * A markdown auto-format that just fired and can still be taken back, by the
+ * next undo or Backspace, until the caret moves. Reverting emits a FORWARD edit
+ * (restore the block type, re-insert the literal syntax) instead of replaying
+ * the transform's inverses: the undo stack groups a whole event drain, so the
+ * rule's ops are not separable there, and a forward edit merges like any other.
+ */
+export type RevertibleInputRule =
+  | {
+      readonly kind: "block-prefix";
+      readonly ruleId: string;
+      readonly blockId: string;
+      /** Literal text the rule stripped from the block start. */
+      readonly removedText: string;
+      readonly previousType: string;
+      /** Pre-rule values of the non-`type` fields the rule set. */
+      readonly previousFields: Readonly<Record<string, unknown>>;
+      readonly caretAfter: number;
+    }
+  | {
+      readonly kind: "inline-wrap";
+      readonly ruleId: string;
+      readonly blockId: string;
+      readonly markType: string;
+      /** The delimiter that wrapped the text (`**`, `` ` ``, …). */
+      readonly marker: string;
+      readonly start: number;
+      readonly innerLen: number;
+      readonly caretAfter: number;
+    };
+
+export type BlockPrefixRevert = Extract<
+  RevertibleInputRule,
+  { kind: "block-prefix" }
+>;
+export type InlineWrapRevert = Extract<
+  RevertibleInputRule,
+  { kind: "inline-wrap" }
+>;
+
+/**
+ * A block-prefix rule that must not fire again while the literal text a revert
+ * put back still stands. Block prefixes match on block *start*, not on the
+ * caret, and are re-checked after every content edit — so without this the next
+ * keystroke (or Backspace, or a merge) would re-promote the block and make the
+ * revert unreachable. Inline wraps need no equivalent — they only match at the
+ * caret, so a revert already puts them out of reach.
+ */
+export interface SuppressedInputRule {
+  readonly blockId: string;
+  /** The restored syntax; suppression lasts while the block still starts with it. */
+  readonly prefix: string;
+}
+
+/**
  * The editing unit adjacent to a caret, resolved by a node/mark's `deleteUnit`
  * seam — a `[from, to)` block-text range plus whether it's a multi-part construct
  * (selected first, deleted on the next press) versus a plain leaf (deleted now).
@@ -419,6 +473,23 @@ export interface UIState {
    * never in undo.
    */
   readonly caretScratch: CaretScratch | null;
+  /**
+   * The markdown auto-format that fired on the last keystroke, still revertible.
+   * Armed at the end of the text-input transform and cleared by `updateCursor`
+   * on ANY caret move, exactly like {@link UIState.caretScratch}. Never
+   * persisted, never in undo.
+   */
+  readonly revertibleInputRule: RevertibleInputRule | null;
+  /**
+   * Set by a revert; keeps the rule from re-firing on the literal text it
+   * restored. Outlives {@link UIState.revertibleInputRule}, and is not
+   * caret-scoped: prefix promotion is re-asserted after *every* content edit
+   * (typing, deleting, merging, splitting), so this has to last exactly as long
+   * as the restored syntax does. Cleared once the block is gone or its text
+   * stops starting with the prefix — at which point retyping the trigger fires
+   * the rule again, as it should.
+   */
+  readonly suppressedInputRule: SuppressedInputRule | null;
   readonly composition: CompositionState | null;
   readonly activeMarksMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)

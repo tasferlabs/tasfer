@@ -2064,6 +2064,22 @@ export function clearSelection(state: EditorState): EditorState {
 
 // State Update Functions (Pure Functions)
 
+/**
+ * Whether a suppressed markdown prefix rule is still protecting anything: the
+ * block it was armed on must still exist and still start with the syntax a
+ * revert restored. Once either stops holding, the record is dead weight — and
+ * keeping it would block the rule from firing on text the user retyped
+ * deliberately.
+ */
+function suppressionStillApplies(state: EditorState): boolean {
+  const suppressed = state.ui.suppressedInputRule;
+  if (!suppressed) return false;
+  const index = findBlockIndex(state.document.page, suppressed.blockId);
+  const block = index === -1 ? undefined : state.document.page.blocks[index];
+  if (!block || block.deleted) return false;
+  return getBlockTextContent(block).startsWith(suppressed.prefix);
+}
+
 export function updateCursor(
   state: EditorState,
   position: Position | null,
@@ -2073,9 +2089,21 @@ export function updateCursor(
   // lingers once the caret leaves the spot that armed it. The owning node/mark
   // re-arms it after its own edit when still warranted (in its `TEXT_INPUTTED`
   // observer).
-  const ui = state.ui.caretScratch
-    ? { ...state.ui, caretScratch: null }
-    : state.ui;
+  // A markdown auto-format is revertible only while the caret sits where the
+  // transform left it, so it clears on the same signal.
+  let ui = state.ui;
+  if (ui.caretScratch || ui.revertibleInputRule) {
+    ui = { ...ui, caretScratch: null, revertibleInputRule: null };
+  }
+  // Its suppression outlives it, and is NOT caret-scoped: prefix promotion is a
+  // block-text invariant re-asserted after every edit, so the "keep this
+  // literal" decision has to last exactly as long as the literal text does.
+  // Leaving the block and coming back must not re-promote it; conversely,
+  // deleting the syntax releases the block, so deliberately retyping "- " makes
+  // a list again.
+  if (ui.suppressedInputRule && !suppressionStillApplies(state)) {
+    ui = { ...ui, suppressedInputRule: null };
+  }
   return {
     ...state,
     ui,

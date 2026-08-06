@@ -60,6 +60,7 @@ import {
   insertText,
   mergeBlocksOps,
   moveBlock,
+  revertInputRule,
   selectAll,
   splitBlock,
 } from "./actions";
@@ -325,6 +326,17 @@ function withContentDeleted(result: StateResult): StateResult {
   );
   return { state: settled.state, ops: [...result.ops, ...settled.ops] };
 }
+
+/**
+ * Take back the markdown auto-format that fired on the last keystroke, leaving
+ * the literal syntax in place. Dispatched by the undo and Backspace key branches
+ * ahead of their normal behavior; emits no ops when nothing is armed, which is
+ * how those branches know to fall through.
+ */
+export const REVERT_INPUT_RULE = stateAction(
+  "revert-input-rule",
+  (state) => revertInputRule(state) ?? { state, ops: [] },
+);
 
 /** Delete backward one position / the selection (Backspace). */
 export const DELETE_BACKWARD = stateAction("delete-backward", (state) => {

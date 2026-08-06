@@ -296,6 +296,7 @@ export {
   MOVE_BLOCK,
   moveBlock,
   registerEmptyBlockBackspaceExit,
+  REVERT_INPUT_RULE,
   SELECT_ALL,
   SPLIT_BLOCK,
 } from "./actions/edit-actions";

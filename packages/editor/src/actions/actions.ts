@@ -19,9 +19,13 @@ import {
 import { isListBlock } from "../serlization/loadPage";
 import type {
   ActionResult,
+  BlockPrefixRevert,
   CRDTbinding,
   EditorState,
+  InlineWrapRevert,
   Position,
+  RevertibleInputRule,
+  SuppressedInputRule,
 } from "../state-types";
 import type {
   BlockInsert,
@@ -233,6 +237,8 @@ function detectAndApplyInlineMarkdown(
   newPage: Page;
   newTextIndex: number;
   ops: Operation[];
+  /** Recipe to take the wrap back; `caretAfter` is the caller's to fill. */
+  revert: Omit<InlineWrapRevert, "caretAfter">;
 } | null {
   const block = findBlock(page, blockId);
   if (!block || !isTextualBlock(block)) return null;
@@ -302,6 +308,15 @@ function detectAndApplyInlineMarkdown(
       newPage: pageAcc,
       newTextIndex: matchStart + innerLen,
       ops,
+      revert: {
+        kind: "inline-wrap",
+        ruleId: format.type,
+        blockId,
+        markType: format.type,
+        marker: match[0].slice(0, markerLen),
+        start: matchStart,
+        innerLen,
+      },
     };
   }
 
@@ -314,15 +329,32 @@ function detectAndApplyInlineMarkdown(
  * Mutates the block in-place by removing the prefix from chars array.
  * `removedPrefixLength` is how many visible chars were stripped from the block
  * start; callers must shift any caret they place afterwards left by that much.
+ *
+ * `caretIndex` is where this edit left the caret in the block's post-edit text,
+ * and a rule fires only when that lands within the syntax it matched — the user
+ * was working on the trigger itself, under their own cursor. The rules match on
+ * block text and are re-asserted after every content edit, so without this an
+ * edit anywhere else in a block that merely happens to start with the syntax
+ * (pasted, merged, or arrived from a peer) would silently morph the block and
+ * swallow the prefix far from the caret. Recoverable, but only by an undo the
+ * user never asked to spend.
  */
 function applyMarkdownPrefix(
   block: Block,
   binding: CRDTbinding,
   schema: DataSchema,
+  caretIndex: number,
   preserveType: boolean = false,
-): { block: Block; ops: Operation[]; removedPrefixLength: number } {
+  suppressed: SuppressedInputRule | null = null,
+): {
+  block: Block;
+  ops: Operation[];
+  removedPrefixLength: number;
+  /** Recipe to take the promotion back; `caretAfter` is the caller's to fill. */
+  revert: Omit<BlockPrefixRevert, "caretAfter"> | null;
+} {
   if (!isTextualBlock(block)) {
-    return { block, ops: [], removedPrefixLength: 0 };
+    return { block, ops: [], removedPrefixLength: 0, revert: null };
   }
   // Prefix conversion morphs the block through generic flat ops, which cannot
   // reinterpret a document that owns the block's content surface — keep the
@@ -330,17 +362,52 @@ function applyMarkdownPrefix(
   // documents survive the morph in place, so `- ` still makes a list of a
   // paragraph carrying an inline formula.
   if (hasStructuredBlockAuthority(block)) {
-    return { block, ops: [], removedPrefixLength: 0 };
+    return { block, ops: [], removedPrefixLength: 0, revert: null };
   }
   const text = getVisibleTextFromRuns(block.charRuns);
   const ops: Operation[] = [];
   let removedPrefixLength = 0;
   const oldType = block.type;
 
+  // Revert bookkeeping: which rule fired, the literal text it ate, and the
+  // pre-rule values of every field it set. Captured before any mutation below,
+  // because the branches morph the block in place.
+  let ruleId: string | null = null;
+  let removedText = "";
+  const touchedFields = new Set<string>();
+  const previousFieldValues: Record<string, unknown> = {
+    indent: "indent" in block ? (block as { indent: unknown }).indent : 0,
+    checked:
+      "checked" in block ? (block as { checked: unknown }).checked : false,
+  };
+
+  /**
+   * No prefix rule fires while a revert's restored syntax still stands at this
+   * block's start — otherwise the next keystroke promotes the literal text the
+   * user just asked to keep. Keyed on the text rather than the rule that armed
+   * it, because the prefixes overlap: a reverted "- [ ] " is still a `- ` the
+   * bullet rule would happily claim.
+   */
+  const suppressedHere =
+    suppressed != null &&
+    suppressed.blockId === block.id &&
+    text.startsWith(suppressed.prefix);
+
+  /**
+   * Whether this edit landed inside the matched trigger of `length` — typing
+   * the final space of "# ", or backspacing the `x` out of "#x hello". Either
+   * way the user was working on the syntax itself, which is what separates a
+   * promotion they asked for from one an unrelated edit stumbled into. Deleting
+   * into the trigger leaves the caret partway through it, so this is a range
+   * rather than an exact landing.
+   */
+  const caretCompletes = (length: number) => caretIndex <= length;
+
   // Calculate indent level from leading spaces (2 spaces = 1 indent)
   const leadingSpaces = text.match(/^ +/)?.[0].length || 0;
   const indentLevel = Math.floor(leadingSpaces / 2);
   const textAfterSpaces = text.slice(leadingSpaces);
+  const numberedMatch = textAfterSpaces.match(/^(\d+)\. /);
 
   // Helper to remove prefix characters (mutates block.charRuns, generates text_delete op)
   const removePrefix = (startIdx: number, endIdx: number) => {
@@ -365,11 +432,13 @@ function applyMarkdownPrefix(
       };
       ops.push(deleteOp);
       removedPrefixLength += charIds.length;
+      removedText += text.slice(startIdx, endIdx);
     }
   };
 
   // Helper to emit block_set ops for type/property changes
   const setBlockField = (field: string, value: any) => {
+    touchedFields.add(field);
     const setOp: BlockSet = {
       op: "block_set",
       id: binding.nextId(),
@@ -387,9 +456,12 @@ function applyMarkdownPrefix(
   // place (a no-op for an unrestricted schema, where every type is allowed).
   if (
     textAfterSpaces.startsWith("- [ ] ") &&
-    schema.isBlockAllowed("todo_list")
+    schema.isBlockAllowed("todo_list") &&
+    caretCompletes(leadingSpaces + 6) &&
+    !suppressedHere
   ) {
     // Unchecked todo list
+    ruleId = "todo_list";
     (block as any).type = "todo_list";
     (block as any).checked = false;
     (block as any).indent = indentLevel;
@@ -400,9 +472,12 @@ function applyMarkdownPrefix(
   } else if (
     (textAfterSpaces.startsWith("- [x] ") ||
       textAfterSpaces.startsWith("- [X] ")) &&
-    schema.isBlockAllowed("todo_list")
+    schema.isBlockAllowed("todo_list") &&
+    caretCompletes(leadingSpaces + 6) &&
+    !suppressedHere
   ) {
     // Checked todo list
+    ruleId = "todo_list";
     (block as any).type = "todo_list";
     (block as any).checked = true;
     (block as any).indent = indentLevel;
@@ -412,44 +487,79 @@ function applyMarkdownPrefix(
     setBlockField("indent", indentLevel);
   } else if (
     textAfterSpaces.match(/^[-*+] /) &&
-    schema.isBlockAllowed("bullet_list")
+    schema.isBlockAllowed("bullet_list") &&
+    caretCompletes(leadingSpaces + 2) &&
+    !suppressedHere
   ) {
     // Bullet list
+    ruleId = "bullet_list";
     (block as any).type = "bullet_list";
     (block as any).indent = indentLevel;
     removePrefix(0, leadingSpaces + 2);
     if (oldType !== "bullet_list") setBlockField("type", "bullet_list");
     setBlockField("indent", indentLevel);
   } else if (
-    textAfterSpaces.match(/^\d+\. /) &&
-    schema.isBlockAllowed("numbered_list")
+    numberedMatch &&
+    schema.isBlockAllowed("numbered_list") &&
+    caretCompletes(leadingSpaces + numberedMatch[0].length) &&
+    !suppressedHere
   ) {
     // Numbered list
-    const match = textAfterSpaces.match(/^(\d+)\. /);
+    const match = numberedMatch;
     if (match) {
+      ruleId = "numbered_list";
       (block as any).type = "numbered_list";
       (block as any).indent = indentLevel;
       removePrefix(0, leadingSpaces + match[0].length);
       if (oldType !== "numbered_list") setBlockField("type", "numbered_list");
       setBlockField("indent", indentLevel);
     }
-  } else if (text.startsWith("### ") && schema.isBlockAllowed("heading3")) {
+  } else if (
+    text.startsWith("### ") &&
+    schema.isBlockAllowed("heading3") &&
+    caretCompletes(4) &&
+    !suppressedHere
+  ) {
+    ruleId = "heading3";
     block.type = "heading3";
     removePrefix(0, 4);
     if (oldType !== "heading3") setBlockField("type", "heading3");
-  } else if (text.startsWith("## ") && schema.isBlockAllowed("heading2")) {
+  } else if (
+    text.startsWith("## ") &&
+    schema.isBlockAllowed("heading2") &&
+    caretCompletes(3) &&
+    !suppressedHere
+  ) {
+    ruleId = "heading2";
     block.type = "heading2";
     removePrefix(0, 3);
     if (oldType !== "heading2") setBlockField("type", "heading2");
-  } else if (text.startsWith("# ") && schema.isBlockAllowed("heading1")) {
+  } else if (
+    text.startsWith("# ") &&
+    schema.isBlockAllowed("heading1") &&
+    caretCompletes(2) &&
+    !suppressedHere
+  ) {
+    ruleId = "heading1";
     block.type = "heading1";
     removePrefix(0, 2);
     if (oldType !== "heading1") setBlockField("type", "heading1");
-  } else if (text.startsWith("> ") && schema.isBlockAllowed("quote")) {
+  } else if (
+    text.startsWith("> ") &&
+    schema.isBlockAllowed("quote") &&
+    caretCompletes(2) &&
+    !suppressedHere
+  ) {
+    ruleId = "quote";
     block.type = "quote";
     removePrefix(0, 2);
     if (oldType !== "quote") setBlockField("type", "quote");
-  } else if (text.match(/^-{3,}$/) && schema.isBlockAllowed("line")) {
+  } else if (
+    text.match(/^-{3,}$/) &&
+    schema.isBlockAllowed("line") &&
+    caretCompletes(text.length) &&
+    !suppressedHere
+  ) {
     // Line/divider block - three or more dashes with nothing else
     // Generate text_delete for all visible chars before clearing
     const allCharIds: string[] = [];
@@ -468,11 +578,18 @@ function applyMarkdownPrefix(
       };
       ops.push(deleteOp);
       removedPrefixLength += allCharIds.length;
+      removedText = text;
     }
+    ruleId = "line";
     (block as any).type = "line";
     (block as any).charRuns = [];
     setBlockField("type", "line");
-  } else if (text === "```" && schema.isBlockAllowed("code")) {
+  } else if (
+    text === "```" &&
+    schema.isBlockAllowed("code") &&
+    caretCompletes(text.length) &&
+    !suppressedHere
+  ) {
     // Code block — three backticks on their own line. Like math (and unlike the
     // void `line`), code is textual, so the caret stays inside the (now empty)
     // block; the bottom of insertText clamps the cursor into the cleared block.
@@ -495,7 +612,9 @@ function applyMarkdownPrefix(
       };
       ops.push(deleteOp);
       removedPrefixLength += allCharIds.length;
+      removedText = text;
     }
+    ruleId = "code";
     (block as any).type = "code";
     (block as any).language = "";
     (block as any).charRuns = [];
@@ -508,7 +627,144 @@ function applyMarkdownPrefix(
     }
     // Chars stay as-is with formatting preserved
   }
-  return { block, ops, removedPrefixLength };
+
+  // Only a rule that actually promoted the block is revertible; the
+  // `!preserveType` reset above is a demotion, not an auto-format.
+  const revert: Omit<BlockPrefixRevert, "caretAfter"> | null = ruleId
+    ? {
+        kind: "block-prefix",
+        ruleId,
+        blockId: block.id,
+        removedText,
+        previousType: oldType,
+        previousFields: Object.fromEntries(
+          [...touchedFields]
+            .filter((f) => f !== "type")
+            .map((f) => [f, previousFieldValues[f]]),
+        ),
+      }
+    : null;
+  return { block, ops, removedPrefixLength, revert };
+}
+
+/**
+ * Take back the markdown auto-format that fired on the last keystroke, putting
+ * the literal syntax the user typed back in place ("# " stays "# " instead of
+ * becoming a heading). Bound to undo and to Backspace; returns `null` when
+ * nothing is armed so both callers fall through to their normal behavior.
+ *
+ * This emits a FORWARD edit rather than replaying the transform's inverses: the
+ * undo stack groups a whole event drain, so the rule's ops aren't separable
+ * there, and re-inserting the text as a fresh edit merges cleanly against
+ * whatever peers did in the meantime.
+ */
+export function revertInputRule(state: EditorState): ActionResult | null {
+  const record = state.ui.revertibleInputRule;
+  if (!record) return null;
+
+  const block = findBlock(state.document.page, record.blockId);
+  if (!block || block.deleted) return null;
+
+  const binding = state.CRDTbinding;
+  const ops: Operation[] = [];
+  let pageAcc = state.document.page;
+  let caret: number;
+  let suppressedInputRule: SuppressedInputRule | null =
+    state.ui.suppressedInputRule;
+
+  if (record.kind === "block-prefix") {
+    const restore = (field: string, value: unknown) => {
+      const op: BlockSet = {
+        op: "block_set",
+        id: binding.nextId(),
+        clock: binding.getClock(),
+        pageId: binding.pageId,
+        blockId: record.blockId,
+        field,
+        value,
+      };
+      ops.push(op);
+      pageAcc = applyOps(pageAcc, [op], state.schema);
+    };
+    if (block.type !== record.previousType) {
+      restore("type", record.previousType);
+    }
+    // Only fields the restored type actually declares — the reducer drops a set
+    // for anything else (a paragraph has no `indent`), so emitting it would just
+    // broadcast a no-op.
+    const declared = state.schema.getDescriptor(record.previousType)?.fields;
+    for (const [field, value] of Object.entries(record.previousFields)) {
+      if (declared && field in declared) restore(field, value);
+    }
+
+    if (record.removedText.length > 0) {
+      const { newPage, op } = insertCharsAtPosition(
+        pageAcc,
+        record.blockId,
+        0,
+        record.removedText,
+        binding,
+      );
+      pageAcc = newPage;
+      ops.push(op);
+    }
+    caret = record.caretAfter + record.removedText.length;
+    // The block once again starts with the syntax that promoted it, and block
+    // prefixes match on block start rather than on the caret — without this the
+    // very next keystroke would promote it right back.
+    suppressedInputRule = {
+      blockId: record.blockId,
+      prefix: record.removedText,
+    };
+  } else {
+    const { marker, start, innerLen } = record;
+    const unmarked = markCharsInRange(
+      pageAcc,
+      record.blockId,
+      start,
+      start + innerLen,
+      { type: record.markType } as Mark,
+      false,
+      binding,
+    );
+    pageAcc = unmarked.newPage;
+    ops.push(unmarked.op);
+
+    // Closing delimiter first: inserting at the start would shift the end index.
+    for (const at of [start + innerLen, start]) {
+      const { newPage, op } = insertCharsAtPosition(
+        pageAcc,
+        record.blockId,
+        at,
+        marker,
+        binding,
+      );
+      pageAcc = newPage;
+      ops.push(op);
+    }
+    caret = start + innerLen + marker.length * 2;
+  }
+
+  if (ops.length === 0) return null;
+
+  const blockIndex = pageAcc.blocks.findIndex(
+    (b) => b.id === record.blockId && !b.deleted,
+  );
+  if (blockIndex === -1) return null;
+  invalidateBlockCache(pageAcc.blocks[blockIndex]);
+
+  let newState: EditorState = {
+    ...state,
+    document: { ...state.document, page: pageAcc },
+  };
+  newState = moveCursorToPosition(newState, blockIndex, caret);
+  // `moveCursorToPosition` clears both slots on the way through; re-arm the
+  // suppression it must outlive.
+  newState = {
+    ...newState,
+    ui: { ...newState.ui, revertibleInputRule: null, suppressedInputRule },
+  };
+  return { state: newState, ops };
 }
 
 /**
@@ -536,6 +792,7 @@ export function mergeBlocksOps(
   binding: CRDTbinding,
   schema: DataSchema,
   applyMarkdown: boolean = true,
+  suppressed: SuppressedInputRule | null = null,
 ): {
   newPage: Page;
   ops: Operation[];
@@ -714,7 +971,14 @@ export function mergeBlocksOps(
     isTextualBlock(targetAfterMerge)
   ) {
     const clone = { ...targetAfterMerge } as Block;
-    const prefix = applyMarkdownPrefix(clone, binding, schema);
+    const prefix = applyMarkdownPrefix(
+      clone,
+      binding,
+      schema,
+      joinPoint,
+      false,
+      suppressed,
+    );
     if (prefix.ops.length > 0) {
       ops.push(...prefix.ops);
       pageAcc = applyOps(pageAcc, prefix.ops);
@@ -960,6 +1224,9 @@ export function deleteSelectedText(state: EditorState): ActionResult {
         blockCopy,
         state.CRDTbinding,
         state.schema,
+        start.textIndex,
+        false,
+        state.ui.suppressedInputRule,
       );
       ops.push(...prefix.ops);
       removedPrefixLength = prefix.removedPrefixLength;
@@ -1310,6 +1577,9 @@ export function deleteSelectedText(state: EditorState): ActionResult {
           blockCopy,
           state.CRDTbinding,
           state.schema,
+          start.textIndex,
+          false,
+          state.ui.suppressedInputRule,
         );
         ops.push(...prefix.ops);
         removedPrefixLength = prefix.removedPrefixLength;
@@ -1532,6 +1802,12 @@ export function insertText(
   // "after the inserted text" landing. Scripts aren't closing delimiters, so the
   // markdown path below never reassigns this.
   let finalTextIndex = caretOverride ?? newTextIndex;
+  // The auto-format this keystroke triggered, if any — armed onto the state at
+  // the very end so the caret move below doesn't immediately clear it.
+  let pendingRevert:
+    | Omit<BlockPrefixRevert, "caretAfter">
+    | Omit<InlineWrapRevert, "caretAfter">
+    | null = null;
 
   if (isClosingDelimiter && !inCodeBlock && !suppressInlineMarkdown) {
     const markdownResult = detectAndApplyInlineMarkdown(
@@ -1550,9 +1826,12 @@ export function insertText(
         blockBeforeMarkdown,
         state.CRDTbinding,
         state.schema,
+        finalTextIndex,
         oldBlock.type !== "paragraph",
+        state.ui.suppressedInputRule,
       );
       ops.push(...inlinePrefix.ops);
+      pendingRevert = inlinePrefix.revert ?? pendingRevert;
       invalidateBlockCache(blockBeforeMarkdown);
 
       let stateBeforeMarkdown: EditorState = {
@@ -1575,6 +1854,9 @@ export function insertText(
         markdownResult.newTextIndex - inlinePrefix.removedPrefixLength,
       );
       ops.push(...markdownResult.ops);
+      // The wrap is what this keystroke's delimiter triggered, so it owns the
+      // revert slot over any prefix promotion that rode along with it.
+      pendingRevert = markdownResult.revert;
     }
   }
 
@@ -1607,9 +1889,12 @@ export function insertText(
       blockCopy,
       state.CRDTbinding,
       state.schema,
+      finalTextIndex,
       oldBlock.type !== "paragraph",
+      state.ui.suppressedInputRule,
     );
     ops.push(...prefix.ops);
+    pendingRevert = prefix.revert ?? pendingRevert;
     // The caret sits after the just-typed text; a stripped prefix ("# ") came
     // off the block start before it, so the caret shifts left with the text
     // ("# |hello" → "|hello", not "he|llo").
@@ -1656,6 +1941,22 @@ export function insertText(
   });
   newState = settled.state;
   ops.push(...settled.ops);
+
+  // Arm the revert LAST: every caret move above (and any a node/mark made in
+  // its TEXT_INPUTTED observer) clears the slot on its way through.
+  if (pendingRevert) {
+    newState = {
+      ...newState,
+      ui: {
+        ...newState.ui,
+        revertibleInputRule: {
+          ...pendingRevert,
+          caretAfter:
+            newState.document.cursor?.position.textIndex ?? finalTextIndex,
+        } as RevertibleInputRule,
+      },
+    };
+  }
 
   return { state: newState, ops };
 }
@@ -1758,6 +2059,9 @@ export function deleteText(state: EditorState): ActionResult {
         blockCopy,
         state.CRDTbinding,
         state.schema,
+        textIndex - 1,
+        false,
+        state.ui.suppressedInputRule,
       );
       ops.push(...prefix.ops);
       removedPrefixLength = prefix.removedPrefixLength;
@@ -1958,6 +2262,8 @@ export function deleteText(state: EditorState): ActionResult {
         blockToPreserve,
         state.CRDTbinding,
         state.schema,
+        true,
+        state.ui.suppressedInputRule,
       );
       ops.push(...mergeOps);
 
@@ -2115,6 +2421,9 @@ export function deleteForward(state: EditorState): ActionResult {
         blockCopy,
         state.CRDTbinding,
         state.schema,
+        textIndex,
+        false,
+        state.ui.suppressedInputRule,
       );
       ops.push(...prefix.ops);
       removedPrefixLength = prefix.removedPrefixLength;
@@ -2208,6 +2517,8 @@ export function deleteForward(state: EditorState): ActionResult {
         blockToPreserve,
         state.CRDTbinding,
         state.schema,
+        true,
+        state.ui.suppressedInputRule,
       );
       ops.push(...mergeOps);
 
@@ -2578,6 +2889,9 @@ export function deleteWordForward(state: EditorState): ActionResult {
         blockCopy,
         state.CRDTbinding,
         state.schema,
+        textIndex,
+        false,
+        state.ui.suppressedInputRule,
       );
       ops.push(...prefix.ops);
       removedPrefixLength = prefix.removedPrefixLength;
@@ -2629,6 +2943,8 @@ export function deleteWordForward(state: EditorState): ActionResult {
         blockToPreserve,
         state.CRDTbinding,
         state.schema,
+        true,
+        state.ui.suppressedInputRule,
       );
       ops.push(...mergeOps);
 
@@ -2723,6 +3039,9 @@ export function deleteWordBackward(state: EditorState): ActionResult {
         blockCopy,
         state.CRDTbinding,
         state.schema,
+        startIndex,
+        false,
+        state.ui.suppressedInputRule,
       );
       ops.push(...prefix.ops);
       removedPrefixLength = prefix.removedPrefixLength;
@@ -2767,6 +3086,8 @@ export function deleteWordBackward(state: EditorState): ActionResult {
       blockToPreserve,
       state.CRDTbinding,
       state.schema,
+      true,
+      state.ui.suppressedInputRule,
     );
     ops.push(...mergeOps);
 
@@ -2852,6 +3173,9 @@ function deleteToLineEdge(
       blockCopy,
       state.CRDTbinding,
       state.schema,
+      from,
+      false,
+      state.ui.suppressedInputRule,
     );
     ops.push(...prefix.ops);
     removedPrefixLength = prefix.removedPrefixLength;
@@ -3530,6 +3854,9 @@ export function splitBlock(state: EditorState): ActionResult {
         mutableClone,
         state.CRDTbinding,
         state.schema,
+        textIndex,
+        false,
+        state.ui.suppressedInputRule,
       );
       if (prefixOps.length > 0) {
         ops.push(...prefixOps);

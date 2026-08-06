@@ -13,6 +13,7 @@ import {
   escapeAboveSelfContainedBlock,
   escapeBelowSelfContainedBlock,
   INSERT_TEXT,
+  REVERT_INPUT_RULE,
   SELECT_ALL,
   selectVisualBlockAfterMove,
   SPLIT_BLOCK,
@@ -235,6 +236,23 @@ export function handleKeyDown(
   // Undo/Redo - handle these first, even if slash action is open
   // Use code instead of key for keyboard layout independence
   if (isCmd && code === "KeyZ" && !keyEvent.shiftKey) {
+    // A markdown auto-format that just fired takes the first undo: it peels off
+    // the promotion and leaves the literal syntax, which is the only way to type
+    // "# foo" as text. The undo stack itself is untouched — see
+    // `revertInputRule`. Empty ops means it couldn't run; fall through.
+    if (state.ui.revertibleInputRule) {
+      const reverted = state.actionBus.dispatchState(REVERT_INPUT_RULE, state);
+      if (reverted.ops.length > 0) {
+        ensureCursorVisible(
+          reverted.state,
+          state,
+          viewport,
+          updateViewportCallback,
+          visibility,
+        );
+        return { state: reverted.state, ops: reverted.ops };
+      }
+    }
     const result = undoState(state);
     ensureCursorVisible(
       result.state,
@@ -1023,6 +1041,18 @@ export function handleKeyDown(
       return { state: result.state, ops };
     }
     case "Backspace": {
+      // A plain Backspace right after a markdown auto-format takes it back
+      // instead of deleting — the transform visibly ate those characters, so
+      // this is the other key users reach for. Modified deletes skip it.
+      if (state.ui.revertibleInputRule && !isLineMod && !isWordMod) {
+        const reverted = state.actionBus.dispatchState(
+          REVERT_INPUT_RULE,
+          state,
+        );
+        if (reverted.ops.length > 0) {
+          return { state: reverted.state, ops: [...ops, ...reverted.ops] };
+        }
+      }
       // ⌘⌫ clears to the line start, ⌥⌫ (Ctrl+⌫ off Apple) one word. Line beats
       // word: on macOS both flags can be up at once only if the user holds ⌘⌥,
       // where ⌘ wins by convention.

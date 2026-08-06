@@ -167,6 +167,8 @@ export function createInitialState(
       inlineMathHover: null,
       hoveredMathBlockIndex: null,
       caretScratch: null,
+      revertibleInputRule: null,
+      suppressedInputRule: null,
       decorations: {},
     },
     view: {

@@ -84,6 +84,8 @@ interface EditorStateView {
   readonly composition: unknown;
   readonly activeMarksMode: string;
   readonly caretScratch: unknown;
+  readonly revertibleInputRule: unknown;
+  readonly suppressedInputRule: unknown;
   readonly decorationLayers: string[];
   readonly visibleBlockCount: number;
   readonly blocks: BlockView[];
@@ -196,6 +198,8 @@ function projectState(state: RawEditorState): EditorStateView {
     composition: ui.composition,
     activeMarksMode: ui.activeMarksMode?.type ?? "inherit",
     caretScratch: ui.caretScratch,
+    revertibleInputRule: ui.revertibleInputRule,
+    suppressedInputRule: ui.suppressedInputRule,
     decorationLayers: Object.keys(ui.decorations ?? {}),
     visibleBlockCount: view.visibleBlocks?.length ?? 0,
     blocks,
@@ -223,6 +227,8 @@ interface RawEditorState {
     mode: string;
     activeMenu?: { type: string };
     caretScratch: unknown;
+    revertibleInputRule: unknown;
+    suppressedInputRule: unknown;
     composition: unknown;
     activeMarksMode?: { type: string };
     decorations?: Record<string, unknown>;
