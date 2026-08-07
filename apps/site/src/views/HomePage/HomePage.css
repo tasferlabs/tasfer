@@ -192,8 +192,29 @@
      foreground (not the near-invisible border) for a readable contrast, and
      scaled past 100% so the dots read larger behind the hero banner. */
   background: var(--muted-foreground);
-  -webkit-mask: url("/dot-grid.svg") center top / 80% auto no-repeat;
-  mask: url("/dot-grid.svg") center top / 80% auto no-repeat;
+  --dot-size: 1px; /* dot radius  */
+  --dot-gap: 30px; /* dot spacing */
+  /* fade — how far the field reaches before vanishing (center → edge) */
+  --fade-rx: 100%; /* horizontal reach */
+  --fade-ry: 100%; /* vertical reach   */
+  /* fade — falloff stops along that reach */
+  --fade-start: 0%; /* solid until here; small = starts fading near the middle */
+  --fade-end: 54%; /* fully gone at the reach above */
+  -webkit-mask: radial-gradient(
+    var(--fade-rx) var(--fade-ry) at center,
+    #fff var(--fade-start),
+    transparent var(--fade-end)
+  );
+  mask: radial-gradient(
+    var(--fade-rx) var(--fade-ry) at center,
+    #fff var(--fade-start),
+    transparent var(--fade-end)
+  );
+  background: radial-gradient(
+    var(--muted-foreground) var(--dot-size),
+    transparent calc(var(--dot-size) + 0.5px)
+  );
+  background-size: var(--dot-gap) var(--dot-gap);
   mask-mode: alpha;
   -webkit-mask-mode: alpha;
   opacity: 0.5;
