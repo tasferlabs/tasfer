@@ -566,7 +566,12 @@ export function handleEvents(
   }
 
   while (events.length > 0) {
-    const event = events[0];
+    // Dequeue BEFORE dispatching. If a handler throws, the drain unwinds without
+    // committing state — and an event left at the head would be re-drained (and
+    // re-throw) every following frame, wedging every later keystroke, pointer
+    // move and paste behind it forever. Losing the one bad event is the cheap
+    // failure; losing the queue is not.
+    const event = events.shift()!;
     switch (event.type) {
       case "contextmenu":
         state = handleContextMenu(
@@ -774,8 +779,6 @@ export function handleEvents(
         collectedOps.push(...compResult.ops);
         break;
     }
-
-    events.shift();
   }
 
   // Update scrollbar fade opacity

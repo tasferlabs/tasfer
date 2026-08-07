@@ -89,9 +89,20 @@ export function handleCompositionEnd(
   }
 
   const composedText = event.data || "";
-  const result = state.actionBus.dispatchState(COMPOSITION_END, state, {
-    data: composedText,
-  });
+  let result: { state: EditorState; ops: Operation[] };
+  try {
+    result = state.actionBus.dispatchState(COMPOSITION_END, state, {
+      data: composedText,
+    });
+  } catch (error) {
+    // The commit itself failed — a schema insert rule, a node's typed-input
+    // transform, or a host-registered override threw. The clear inside
+    // COMPOSITION_END never ran, so ending the session is on us: dropping the
+    // composed text costs the user one word, whereas a stranded `isComposing`
+    // costs them the editor (see the unconditional-clear note above).
+    console.error("Failed to commit IME composition:", error);
+    return { state: endComposition(state), ops: [] };
+  }
 
   // Scroll to make cursor visible after inserting the composed text. Only when
   // text was actually composed and inserted, mirroring the original handler.
