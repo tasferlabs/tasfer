@@ -43,7 +43,11 @@
   position: relative;
   width: 100%;
   min-height: 100vh;
-  overflow-x: hidden;
+  /* `clip`, not `hidden`: `overflow-x: hidden` computes `overflow-y: auto` and
+     turns this box into a scroll container, which the sticky header would then
+     stick to instead of the viewport. `clip` cuts the same overflow without
+     creating one. */
+  overflow-x: clip;
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-ui);
@@ -88,15 +92,10 @@
    ------------------------------------------------------------ */
 
 .lp-header {
-  /* Overlay (not sticky-in-flow) so the hero's dot field sits behind the nav
-     and shows through it. Transparent at the top; gains a blurred backdrop
-     only once scrolled, so content stays legible under it further down. */
-  position: fixed;
-  /* Rides below the beta banner until it has scrolled away, then pins to the
-     top of the viewport (see components/BetaBanner.tsx). */
-  top: var(--site-banner-h, 0px);
-  left: 0;
-  right: 0;
+  position: sticky;
+  /* The beta banner is in flow above this, so it scrolls away on its own and
+     the header pins at 0 behind it — no --site-banner-h offset needed. */
+  top: 0;
   z-index: 50;
   background: transparent;
   transition:
@@ -182,7 +181,7 @@
 .lp-hero {
   position: relative;
   padding: clamp(80px, 14vh, 160px) 0 clamp(80px, 12vh, 140px);
-  overflow: hidden;
+  /* overflow: hidden; */
 }
 
 .lp-hero-grid {
@@ -360,7 +359,7 @@
   align-items: flex-start;
   gap: 10px;
   max-width: 480px;
-  margin-top: 32px;
+  margin-top: 12px;
   color: var(--cy-muted-fg);
   font-size: 13px;
   line-height: 1.6;

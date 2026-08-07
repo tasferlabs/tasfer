@@ -679,7 +679,10 @@ export default function HomePage() {
           <div className="lp-hero-grid" aria-hidden="true" />
           <div className="column-wide" style={{ position: "relative" }}>
             <h1 className="lp-hero-title">
-              {t("home.lp.hero.titleA", "Tasfer keeps every note on your machine.")}
+              {t(
+                "home.lp.hero.titleA",
+                "Tasfer keeps every note on your machine.",
+              )}
               <br />
               <em>{t("home.lp.hero.titleEm", "No server")}</em>{" "}
               {t("home.lp.hero.titleC", "can read a word.")}
@@ -714,16 +717,7 @@ export default function HomePage() {
                 {t("home.lp.hero.readSource", "read the source")}
               </a>
             </div>
-            <p className="lp-hero-beta">
-              <span className="lp-hero-beta-dot" aria-hidden="true" />
-              <span>
-                <strong>{t("home.lp.hero.betaTitle", "Public beta.")}</strong>{" "}
-                {t(
-                  "home.lp.hero.betaBody",
-                  "It runs, it syncs, and it will break. Nothing you write here is guaranteed to survive an update.",
-                )}
-              </span>
-            </p>
+
             <div className="lp-hero-meta">
               <span className="lp-hero-tagline">
                 {t("home.lp.hero.metaTailOpenSource", "Open source project")}
@@ -735,6 +729,16 @@ export default function HomePage() {
                 )}
               </span>
             </div>
+            <p className="lp-hero-beta">
+              <span className="lp-hero-beta-dot" aria-hidden="true" />
+              <span>
+                <strong>{t("home.lp.hero.betaTitle", "Public beta.")}</strong>{" "}
+                {t(
+                  "home.lp.hero.betaBody",
+                  "It runs, it syncs, and it will break. Nothing you write here is guaranteed to survive an update.",
+                )}
+              </span>
+            </p>
           </div>
         </section>
 
@@ -759,10 +763,7 @@ export default function HomePage() {
               )}
             </p>
             <blockquote className="lp-pullquote">
-              {t(
-                "home.lp.define.pull",
-                "The place to write your thoughts",
-              )}
+              {t("home.lp.define.pull", "The place to write your thoughts")}
             </blockquote>
             <dl className="lp-define-facts">
               <div className="lp-define-fact">
