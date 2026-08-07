@@ -27,11 +27,26 @@ import { OpfsFsDriver } from "./opfs-fs";
 import { WebCryptoDriver } from "./web-crypto";
 import { NetworkProxy } from "../rpc/net-proxy";
 
+/**
+ * Ports connected while `ready` is still pending. Held so a stalled startup can
+ * be explained to tabs that are already waiting on it.
+ */
+const waiting = new Set<MessagePort>();
+/** A previous build's worker holds the database lock; we're queued behind it. */
+let staleBuild = false;
+
 // A SharedWorker can't open OPFS sync access handles (`createSyncAccessHandle`
 // is dedicated-worker-only) and can't spawn a nested dedicated `Worker` to do so
 // (Chromium doesn't expose `Worker` in SharedWorkerGlobalScope), so SQLite runs
 // here directly on an IndexedDB-backed VFS, which every worker context can reach.
-const db = new WaSqliteDb({ acquireLock: true });
+const db = new WaSqliteDb({
+  acquireLock: true,
+  onLockContended: () => {
+    console.warn("[node] database locked by an older build; waiting for it");
+    staleBuild = true;
+    for (const port of waiting) port.postMessage({ t: "staleBuild" });
+  },
+});
 // WebRTC can't run here; the proxy forwards to whichever tab holds the
 // `tasfer-net` lock (registered via the `netHost` message below).
 const netProxy = new NetworkProxy();
@@ -97,9 +112,8 @@ function serve(port: MessagePort): void {
 }
 
 /**
- * Init failed (e.g. the database is locked by another connection, or the
- * IndexedDB VFS can't do I/O). Reply to every call with the error so the tab
- * surfaces it instead of spinning forever.
+ * Init failed (e.g. the IndexedDB VFS can't do I/O). Reply to every call with
+ * the error so the tab surfaces it instead of spinning forever.
  *
  * We don't just forward `err.message` ("disk I/O error" is SQLite's generic
  * SQLITE_IOERR text): the error name and numeric `code` (incl. the extended
@@ -133,10 +147,21 @@ function serveError(port: MessagePort, err: Error): void {
 (self as any).onconnect = (e: MessageEvent) => {
   const port = e.ports[0];
   console.log("[node] onconnect");
+  waiting.add(port);
+  if (staleBuild) port.postMessage({ t: "staleBuild" });
   // Don't start the port here — servePlatform starts it once the handler is
   // attached, so messages the client queued before we're ready aren't dropped.
+  // Posting before that is safe: a port queues messages until it's started.
   ready.then(
-    () => serve(port),
-    () => serveError(port, initError ?? new Error("unknown init failure")),
+    () => {
+      // The tab stopped waiting when we told it the build was stale, so hand it
+      // back to a healthy startup rather than resuming mid-connection.
+      if (waiting.delete(port) && staleBuild) port.postMessage({ t: "resumed" });
+      serve(port);
+    },
+    () => {
+      waiting.delete(port);
+      serveError(port, initError ?? new Error("unknown init failure"));
+    },
   );
 };

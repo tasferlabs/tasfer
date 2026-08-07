@@ -140,7 +140,35 @@ export type ClientToServer =
   | CloseMsg
   | NetHostMsg;
 
-export type ServerToClient = ReturnMsg | EventMsg | CallbackMsg;
+/**
+ * server → client: startup is stalled because a SharedWorker from a *previous
+ * build* still holds the local-data lock (the worker's script URL is
+ * content-hashed, so a deploy leaves two workers on the origin until the old
+ * build's tabs go away). The tab shows the outdated-version screen and keeps
+ * this connection open — {@link ResumedMsg} follows once the wait ends.
+ */
+export interface StaleBuildMsg {
+  t: "staleBuild";
+}
+
+/**
+ * server → client: the contended lock landed and this connection is now served
+ * normally. The tab reloads, since it gave up on startup when it got
+ * {@link StaleBuildMsg}.
+ */
+export interface ResumedMsg {
+  t: "resumed";
+}
+
+/** Startup failure a {@link StaleBuildMsg} raises in the tab. */
+export const STALE_BUILD_ERROR = "TASFER_APP_OUTDATED";
+
+export type ServerToClient =
+  | ReturnMsg
+  | EventMsg
+  | CallbackMsg
+  | StaleBuildMsg
+  | ResumedMsg;
 
 export type RpcMessage = ClientToServer | ServerToClient;
 

@@ -23,9 +23,6 @@ import { IDBBatchAtomicVFS } from "wa-sqlite/src/examples/IDBBatchAtomicVFS.js";
 
 import type { DbDriver, DbRow, DbRunResult } from "../driver";
 
-/** Thrown when another build's connection still holds the database lock. */
-export const DB_LOCKED_ERROR = "TASFER_DB_LOCKED";
-
 const SQLITE_ROW = 100;
 
 export class WaSqliteDb implements DbDriver {
@@ -41,7 +38,14 @@ export class WaSqliteDb implements DbDriver {
    */
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(opts: { acquireLock: boolean }) {
+  /**
+   * Called once if the lock is already held, before we start waiting for it.
+   * Lets the host tell connected tabs why startup is stalled.
+   */
+  private onLockContended?: () => void;
+
+  constructor(opts: { acquireLock: boolean; onLockContended?: () => void }) {
+    this.onLockContended = opts.onLockContended;
     this.ready = this.init(opts.acquireLock);
   }
 
@@ -51,10 +55,7 @@ export class WaSqliteDb implements DbDriver {
   }
 
   private async init(acquireLock: boolean): Promise<void> {
-    if (acquireLock) {
-      const ok = await this.acquireDbLock();
-      if (!ok) throw new Error(DB_LOCKED_ERROR);
-    }
+    if (acquireLock) await this.acquireDbLock();
 
     const module = await moduleFactory();
     this.sqlite3 = Factory(module);
@@ -67,24 +68,43 @@ export class WaSqliteDb implements DbDriver {
   }
 
   /**
-   * Hold the `tasfer-app` lock for the lifetime of this worker. During a deploy
-   * the previous build's SharedWorker may still be alive holding this lock; the
-   * new worker then fails to acquire it and surfaces {@link DB_LOCKED_ERROR}
-   * rather than letting two builds open the same database at once.
+   * Hold the `tasfer-app` lock for the lifetime of this worker, so two builds
+   * never open the same database at once.
+   *
+   * A SharedWorker is keyed by its script URL, and ours is content-hashed, so a
+   * deploy produces a *second* worker: tabs opened before it keep the old one
+   * alive, tabs opened after start the new one. The new worker therefore finds
+   * the lock held and must wait — the previous build releases it as soon as its
+   * last tab closes or reloads. We probe first only to report the contention;
+   * the wait itself is an ordinary queued request that lands on its own.
    */
-  private acquireDbLock(): Promise<boolean> {
+  private async acquireDbLock(): Promise<void> {
     const locks = (self as any).navigator?.locks;
-    if (!locks) return Promise.resolve(true);
+    if (!locks) return;
+    if (await this.holdDbLock(locks, { ifAvailable: true })) return;
+    this.onLockContended?.();
+    await this.holdDbLock(locks, {});
+  }
+
+  /**
+   * Take `tasfer-app` and never give it back. Resolves true once held; with
+   * `ifAvailable` it resolves false instead of waiting when someone else holds
+   * it. A Web Locks failure resolves true so a broken lock API can't wedge
+   * startup — a single worker per origin is the common case regardless.
+   */
+  private holdDbLock(locks: any, opts: object): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      locks.request("tasfer-app", { ifAvailable: true }, (lock: unknown) => {
-        if (!lock) {
-          resolve(false);
-          return;
-        }
-        resolve(true);
-        // Never resolve — holds the lock until the worker dies.
-        return new Promise(() => {});
-      });
+      locks
+        .request("tasfer-app", opts, (lock: unknown) => {
+          if (!lock) {
+            resolve(false);
+            return;
+          }
+          resolve(true);
+          // Never resolve — holds the lock until the worker dies.
+          return new Promise(() => {});
+        })
+        .catch(() => resolve(true));
     });
   }
 

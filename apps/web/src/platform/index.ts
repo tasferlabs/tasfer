@@ -10,6 +10,7 @@ import type { DeviceType, Platform } from "./types";
 import { Engine } from "./engine";
 import { Replicator } from "./sync";
 import { createPlatformClient } from "./rpc/client";
+import { STALE_BUILD_ERROR } from "./rpc/protocol";
 import { startNetworkHostElection } from "./rpc/net-host";
 // Static `?sharedworker` import — the only form Vite reliably compiles to a
 // SharedWorker. A dynamic `import("...?sharedworker")` runs the module on the
@@ -22,6 +23,7 @@ import TasferNodeWorker from "./adapters/node.sharedworker?sharedworker";
 // Re-export all types for convenience
 export type * from "./types";
 export type * from "./driver";
+export { STALE_BUILD_ERROR } from "./rpc/protocol";
 
 // =============================================================================
 // Client platform detection (ios / android / web)
@@ -167,8 +169,19 @@ async function _initPlatformInner(): Promise<Platform> {
       );
     }
     const worker = new TasferNodeWorker();
-    const { platform: client, ready } = createPlatformClient(worker.port);
-    await ready;
+    // A deploy leaves the previous build's worker holding the local data until
+    // its last tab closes. Rather than wait behind a spinner of unknown length,
+    // fail startup so the tab can say so — and reload once the worker reports
+    // the wait is over, which needs no action from the person sitting here.
+    let onStaleBuild!: (err: Error) => void;
+    const staleBuild = new Promise<never>((_, reject) => {
+      onStaleBuild = reject;
+    });
+    const { platform: client, ready } = createPlatformClient(worker.port, {
+      onStaleBuild: () => onStaleBuild(new Error(STALE_BUILD_ERROR)),
+      onResumed: () => window.location.reload(),
+    });
+    await Promise.race([ready, staleBuild]);
     startNetworkHostElection(worker.port, signalUrl);
     console.log("[platform] device-node SharedWorker active");
     _platform = client;

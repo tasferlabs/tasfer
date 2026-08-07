@@ -35,7 +35,21 @@ export interface PlatformClientConnection {
   ready: Promise<void>;
 }
 
-export function createPlatformClient(port: RpcPort): PlatformClientConnection {
+/** Out-of-band notices from the worker host, outside any call's lifetime. */
+export interface PlatformClientHooks {
+  /**
+   * A previous build's worker still holds the local data, so `ready` will not
+   * settle until that build's last tab goes away. Fires at most once.
+   */
+  onStaleBuild?: () => void;
+  /** The stale-build wait ended; this connection is served again. */
+  onResumed?: () => void;
+}
+
+export function createPlatformClient(
+  port: RpcPort,
+  hooks?: PlatformClientHooks,
+): PlatformClientConnection {
   let nextCallId = 1;
   let nextSubId = 1;
   let nextCbHandle = 1;
@@ -77,6 +91,14 @@ export function createPlatformClient(port: RpcPort): PlatformClientConnection {
       }
       case "cb": {
         cbTables.get(msg.handle)?.[msg.key]?.(...msg.args);
+        break;
+      }
+      case "staleBuild": {
+        hooks?.onStaleBuild?.();
+        break;
+      }
+      case "resumed": {
+        hooks?.onResumed?.();
         break;
       }
     }
