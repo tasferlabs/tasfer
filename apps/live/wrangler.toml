@@ -1,6 +1,12 @@
 name = "tasfer-signal"
 main = "src/worker.ts"
-compatibility_date = "2025-03-01"
+# Keep at or after 2026-04-07: that is where `web_socket_auto_reply_to_close`
+# turns on. Below it the runtime leaves a peer's Close frame unanswered, the
+# socket sits in CLOSING, and every client sees a bare 1006 with no code or
+# reason — which reads as a network fault and hides the real cause.
+# Upper bound is whatever the installed workerd supports; a date past it makes
+# `wrangler dev` refuse to boot.
+compatibility_date = "2026-07-21"
 
 # Custom domain — requires tasfer.app zone in Cloudflare DNS
 routes = [
