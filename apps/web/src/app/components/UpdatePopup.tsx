@@ -8,20 +8,11 @@ import { BottomPopover } from "./BottomPopover";
 export default function UpdatePopup() {
   const { t } = useTranslation();
   const { registerPopup, unregisterPopup, isActivePopup } = usePopupQueue();
-  const {
-    updateAvailable,
-    updateDismissed,
-    meetsMinimum,
-    dismissUpdate,
-    performUpdate,
-  } = useVersion();
+  const { updateAvailable, updateDismissed, dismissUpdate, performUpdate } =
+    useVersion();
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Don't show popup if:
-  // - No update available
-  // - User dismissed this update
-  // - Minimum version not met (ForceUpdatePage handles this)
-  const eligible = updateAvailable && !updateDismissed && meetsMinimum;
+  const eligible = updateAvailable && !updateDismissed;
 
   // Share the bottom popover slot through the queue; an available update
   // outranks the promotional app gate (see POPUP_PRIORITIES).

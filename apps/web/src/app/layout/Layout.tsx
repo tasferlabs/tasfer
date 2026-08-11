@@ -18,12 +18,10 @@ import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
 import { SpacePrefsProvider } from "../contexts/SpacePrefsContext";
 import { TreeExpandProvider } from "../contexts/TreeExpandContext";
-import { useVersion } from "../contexts/VersionContext";
 import { useFileDropImport } from "../hooks/useFileDropImport";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { useDevToolsEnabled } from "@/lib/devTools";
-import ForceUpdatePage from "../pages/ForceUpdatePage";
 import { FileDropChrome } from "./FileDropChrome";
 import { FloatingSidebar } from "./FloatingSidebar";
 import style from "./Layout.module.css";
@@ -47,21 +45,6 @@ export default function Layout() {
     );
   }
 
-  const { isLoading, meetsMinimum } = useVersion();
-
-  // Track if app ever mounted with valid version (user was working)
-  const hadValidVersion = React.useRef(false);
-  if (!isLoading && meetsMinimum) {
-    hadValidVersion.current = true;
-  }
-
-  const needsForceUpdate = !isLoading && !meetsMinimum;
-
-  // If force update needed on first load, show update page directly
-  if (needsForceUpdate && !hadValidVersion.current) {
-    return <ForceUpdatePage />;
-  }
-
   return (
     <TopActionBarSlotProvider>
       <SpaceProvider>
@@ -73,7 +56,7 @@ export default function Layout() {
                   <ConfirmationDialogProvider>
                     <UnsavedChangesDialogProvider>
                       <ImportDialogProvider>
-                        <LayoutInner needsForceUpdate={needsForceUpdate} />
+                        <LayoutInner />
                       </ImportDialogProvider>
                     </UnsavedChangesDialogProvider>
                   </ConfirmationDialogProvider>
@@ -87,7 +70,7 @@ export default function Layout() {
   );
 }
 
-function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
+function LayoutInner() {
   const [resizableOpen, setResizableOpen] = useLocalStorage(
     "resizable-sidebar-open",
     true,
@@ -134,11 +117,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
 
   return (
     <>
-      <div
-        className={style.appContainer}
-        inert={needsForceUpdate ? (true as unknown as boolean) : undefined}
-        {...fileDrop.dropZoneProps}
-      >
+      <div className={style.appContainer} {...fileDrop.dropZoneProps}>
         {isMobile ? (
           <FloatingSidebar
             open={!!floatingOpen}
@@ -196,7 +175,6 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
         )}
         {isPageRoute && <WordCountOverlay />}
       </BottomToolDock>
-      {needsForceUpdate && <ForceUpdatePage />}
     </>
   );
 }

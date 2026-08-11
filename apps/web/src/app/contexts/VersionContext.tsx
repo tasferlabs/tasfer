@@ -27,7 +27,6 @@ export function VersionProvider({ children }: { children: ReactNode }) {
   const {
     isLoading,
     versionInfo,
-    meetsMinimum,
     updateAvailable: apiUpdateAvailable,
     platform,
     updateUrl,
@@ -136,7 +135,6 @@ export function VersionProvider({ children }: { children: ReactNode }) {
       value={{
         isLoading,
         versionInfo,
-        meetsMinimum,
         updateAvailable,
         updateDismissed,
         serviceWorkerUpdateReady,

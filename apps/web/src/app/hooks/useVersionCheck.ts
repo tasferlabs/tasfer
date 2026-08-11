@@ -8,7 +8,6 @@ export interface UpdateUrls {
 }
 
 export interface VersionInfo {
-  minVersion: number;
   latestVersion: number;
   updateUrls: UpdateUrls;
 }
@@ -20,8 +19,6 @@ export interface VersionCheckResult {
   error: string | null;
   /** Version info from the API */
   versionInfo: VersionInfo | null;
-  /** Whether the client meets minimum version requirements */
-  meetsMinimum: boolean;
   /** Whether a newer version is available */
   updateAvailable: boolean;
   /** Current platform */
@@ -127,7 +124,6 @@ export function useVersionCheck(): VersionCheckResult {
     isLoading,
     error,
     versionInfo: null,
-    meetsMinimum: true, // Desktop users should never be blocked from local data
     updateAvailable,
     platform,
     updateUrl: null,
