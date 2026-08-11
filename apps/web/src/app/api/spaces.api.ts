@@ -23,6 +23,8 @@ export interface ISpace {
   id: string;
   name: string;
   createdAt: string;
+  /** Admits only this person's own devices; cannot be invited into. */
+  personal?: boolean;
 }
 
 export type { ArchivedSpaceItem };
@@ -66,6 +68,7 @@ export async function getSpaces(): Promise<ISpace[]> {
     id: s.id,
     name: s.name,
     createdAt: s.createdAt,
+    personal: s.personal,
   }));
 }
 
@@ -76,14 +79,29 @@ export function useGetSpaces() {
   });
 }
 
-export async function createSpace(data: { name: string }): Promise<ISpace> {
+export async function createSpace(data: {
+  name: string;
+  personal?: boolean;
+}): Promise<ISpace> {
   const platform = getPlatform();
-  const space = await platform.spaces.create(data.name);
-  return { id: space.id, name: space.name, createdAt: space.createdAt };
+  const space = await platform.spaces.create(data.name, {
+    personal: data.personal,
+  });
+  return {
+    id: space.id,
+    name: space.name,
+    createdAt: space.createdAt,
+    personal: space.personal,
+  };
 }
 
 export function useCreateSpace<TContext = unknown>(
-  options?: UseMutationOptions<ISpace, Error, { name: string }, TContext>,
+  options?: UseMutationOptions<
+    ISpace,
+    Error,
+    { name: string; personal?: boolean },
+    TContext
+  >,
 ) {
   return useMutation({
     mutationFn: createSpace,
@@ -91,7 +109,10 @@ export function useCreateSpace<TContext = unknown>(
   });
 }
 
-export async function updateSpace(data: { id: string; name: string }): Promise<ISpace> {
+export async function updateSpace(data: {
+  id: string;
+  name: string;
+}): Promise<ISpace> {
   const platform = getPlatform();
   await platform.spaces.rename(data.id, data.name);
   const space = await platform.spaces.get(data.id);
@@ -99,7 +120,12 @@ export async function updateSpace(data: { id: string; name: string }): Promise<I
 }
 
 export function useUpdateSpace<TContext = unknown>(
-  options?: UseMutationOptions<ISpace, Error, { id: string; name: string }, TContext>,
+  options?: UseMutationOptions<
+    ISpace,
+    Error,
+    { id: string; name: string },
+    TContext
+  >,
 ) {
   return useMutation({
     mutationFn: updateSpace,
@@ -184,7 +210,20 @@ export function useGetSpaceMembers(spaceId?: string) {
 export async function getSpace(spaceId: string): Promise<ISpace> {
   const platform = getPlatform();
   const space = await platform.spaces.get(spaceId);
-  return { id: space.id, name: space.name, createdAt: space.createdAt };
+  return {
+    id: space.id,
+    name: space.name,
+    createdAt: space.createdAt,
+    personal: space.personal,
+  };
+}
+
+export function useGetSpace(spaceId?: string) {
+  return useQuery({
+    queryKey: ["space", spaceId],
+    queryFn: () => getSpace(spaceId!),
+    enabled: !!spaceId,
+  });
 }
 
 export async function createInvite(data: {
@@ -245,7 +284,12 @@ export async function waitForPeer(
 }
 
 export function useWaitForPeer<TContext = unknown>(
-  options?: UseMutationOptions<void, Error, { invite: SpaceInvite; callbacks?: PairCallbacks }, TContext>,
+  options?: UseMutationOptions<
+    void,
+    Error,
+    { invite: SpaceInvite; callbacks?: PairCallbacks },
+    TContext
+  >,
 ) {
   return useMutation({
     mutationFn: ({ invite, callbacks }) => waitForPeer(invite, callbacks),

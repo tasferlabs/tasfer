@@ -1,13 +1,6 @@
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Drawer,
-  DrawerContent,
-} from "@/components/ui/drawer";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import {
   Form,
   FormField,
@@ -16,6 +9,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,11 +28,15 @@ import {
   Users,
   WifiOff,
 } from "lucide-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
-import { cancelPairing, useAcceptInvite, useCreateSpace } from "../api/spaces.api";
+import {
+  cancelPairing,
+  useAcceptInvite,
+  useCreateSpace,
+} from "../api/spaces.api";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { decodeInvite, isInviteExpired } from "../inviteCode";
 import type { SpaceInvite } from "@/platform/types";
@@ -80,9 +78,12 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
     },
   });
 
+  const [createPersonal, setCreatePersonal] = useState(false);
+  const personalSwitchId = useId();
+
   function handleCreate(data: z.infer<typeof CreateSchema>) {
     if (isCreating) return;
-    createSpace({ name: data.name });
+    createSpace({ name: data.name, personal: createPersonal });
   }
 
   // --- Join space ---
@@ -96,10 +97,16 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
             (val) => decodeInvite(val) !== null,
             t("space.invalidInviteCode", "Invalid invite code"),
           )
-          .refine((val) => {
-            const invite = decodeInvite(val);
-            return !invite || !isInviteExpired(invite);
-          }, t("space.inviteExpired", "This invite has expired. Ask for a new one.")),
+          .refine(
+            (val) => {
+              const invite = decodeInvite(val);
+              return !invite || !isInviteExpired(invite);
+            },
+            t(
+              "space.inviteExpired",
+              "This invite has expired. Ask for a new one.",
+            ),
+          ),
       }),
     [t],
   );
@@ -109,7 +116,9 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
     defaultValues: { code: "" },
   });
 
-  const [joinStatus, setJoinStatus] = useState<"input" | "connecting" | "done" | "error">("input");
+  const [joinStatus, setJoinStatus] = useState<
+    "input" | "connecting" | "done" | "error"
+  >("input");
   const [joinTab, setJoinTab] = useState<"code" | "file" | "scan">("code");
   const [inviteFileName, setInviteFileName] = useState("");
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -117,15 +126,15 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   const [errorMsg, setErrorMsg] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  /** Invite currently being accepted — cancel target on close */
+  const activeInviteRef = useRef<SpaceInvite | null>(null);
+
   const { mutate: acceptInvite } = useAcceptInvite({
     onError: (err) => {
       setJoinStatus("error");
       setErrorMsg(err.message);
     },
   });
-
-  /** Invite currently being accepted — cancel target on close */
-  const activeInviteRef = useRef<SpaceInvite | null>(null);
 
   function runJoin(invite: SpaceInvite) {
     if (isInviteExpired(invite)) {
@@ -136,6 +145,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       return;
     }
     setJoinStatus("connecting");
+    setWasRestored(false);
     activeInviteRef.current = invite;
     acceptInvite({
       invite,
@@ -166,6 +176,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
     if (open) {
       createForm.reset();
       joinForm.reset();
+      setCreatePersonal(false);
       setView("pick");
       setJoinStatus("input");
       setJoinTab("code");
@@ -215,7 +226,10 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
               {t("space.createNewSpace", "Create new space")}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {t("space.createNewSpaceDesc", "Create a new space to organize your pages")}
+              {t(
+                "space.createNewSpaceDesc",
+                "Create a new space to organize your pages",
+              )}
             </p>
           </div>
           <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
@@ -251,19 +265,31 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
         </p>
         <SpaceRule
           icon={Users}
-          text={t("space.ruleAllMembers", "All members can see and edit every page in the space.")}
+          text={t(
+            "space.ruleAllMembers",
+            "All members can see and edit every page in the space.",
+          )}
         />
         <SpaceRule
           icon={Globe}
-          text={t("space.ruleP2P", "Pages sync directly between devices — peer-to-peer, no cloud.")}
+          text={t(
+            "space.ruleP2P",
+            "Pages sync directly between devices — peer-to-peer, no cloud.",
+          )}
         />
         <SpaceRule
           icon={WifiOff}
-          text={t("space.ruleOffline", "Works offline. Changes merge automatically when you reconnect.")}
+          text={t(
+            "space.ruleOffline",
+            "Works offline. Changes merge automatically when you reconnect.",
+          )}
         />
         <SpaceRule
           icon={Shield}
-          text={t("space.rulePrivate", "Your data lives on your devices and syncs over a peer-to-peer connection.")}
+          text={t(
+            "space.rulePrivate",
+            "Your data lives on your devices and syncs over a peer-to-peer connection.",
+          )}
         />
       </div>
     </div>
@@ -271,7 +297,10 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
 
   const createView = (
     <Form {...createForm}>
-      <form onSubmit={createForm.handleSubmit(handleCreate)} className="flex flex-col gap-4">
+      <form
+        onSubmit={createForm.handleSubmit(handleCreate)}
+        className="flex flex-col gap-4"
+      >
         <FormField
           control={createForm.control}
           name="name"
@@ -288,9 +317,32 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
           )}
         />
 
-        <p className="text-xs text-muted-foreground">
-          {t("space.createSpaceNote", "You'll be the only member. You can invite others later from space settings.")}
-        </p>
+        <div className="flex items-start justify-between gap-4 rounded-md">
+          <div className="flex flex-col gap-0.5">
+            <label
+              htmlFor={personalSwitchId}
+              className="cursor-pointer text-sm font-medium"
+            >
+              {t("space.personalSpace", "Keep this space to myself")}
+            </label>
+            <p
+              id={`${personalSwitchId}-note`}
+              className="text-xs text-muted-foreground"
+            >
+              {t(
+                "space.personalSpaceNote",
+                "Only your own devices can ever open it. It cannot be shared later, and this cannot be undone — so nothing you write here can become someone else's to read.",
+              )}
+            </p>
+          </div>
+          <Switch
+            id={personalSwitchId}
+            checked={createPersonal}
+            onCheckedChange={setCreatePersonal}
+            className="mt-0.5"
+            aria-describedby={`${personalSwitchId}-note`}
+          />
+        </div>
 
         <Button type="submit" className="w-full" loading={isCreating}>
           {t("space.createNewSpace", "Create new space")}
@@ -335,7 +387,10 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   function handleFileDragLeave(event: React.DragEvent<HTMLButtonElement>) {
     event.preventDefault();
     const nextTarget = event.relatedTarget;
-    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+    if (
+      nextTarget instanceof Node &&
+      event.currentTarget.contains(nextTarget)
+    ) {
       return;
     }
     setIsDraggingFile(false);
@@ -393,9 +448,15 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       {/* Invite code tab */}
       {joinTab === "code" && (
         <Form {...joinForm}>
-          <form onSubmit={joinForm.handleSubmit(handleJoin)} className="flex flex-col gap-4">
+          <form
+            onSubmit={joinForm.handleSubmit(handleJoin)}
+            className="flex flex-col gap-4"
+          >
             <p className="text-xs text-muted-foreground">
-              {t("space.joinSpaceNote", "By joining, you'll share all pages in this space with its members. Only join spaces from people you trust.")}
+              {t(
+                "space.joinSpaceNote",
+                "By joining, you'll share all pages in this space with its members. Only join spaces from people you trust.",
+              )}
             </p>
 
             <FormField
@@ -501,7 +562,12 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
           {t("space.waitingForPeer", "Waiting for peer to connect...")}
         </p>
       </div>
-      <Button variant="outline" size="sm" className="mt-1" onClick={handleCancelJoin}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-1"
+        onClick={handleCancelJoin}
+      >
         {t("common.cancel", "Cancel")}
       </Button>
     </div>
@@ -513,7 +579,9 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
         <Check className="h-5 w-5 text-green-600 dark:text-green-400" />
       </div>
       <p className="text-sm font-medium text-center">
-        {t("space.joinedSpace", 'Joined "{{name}}" successfully!', { name: spaceName })}
+        {t("space.joinedSpace", 'Joined "{{name}}" successfully!', {
+          name: spaceName,
+        })}
       </p>
       <Button
         variant="outline"
@@ -534,23 +602,32 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       <p className="text-sm text-destructive text-center">
         {errorMsg || t("common.error", "An error occurred")}
       </p>
-      <Button variant="outline" size="sm" onClick={() => setJoinStatus("input")}>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setJoinStatus("input")}
+      >
         {t("common.tryAgain", "Try again")}
       </Button>
     </div>
   );
 
   const joinView =
-    joinStatus === "input" ? joinInputView
-    : joinStatus === "connecting" ? joinConnectingView
-    : joinStatus === "done" ? joinDoneView
-    : joinErrorView;
+    joinStatus === "input"
+      ? joinInputView
+      : joinStatus === "connecting"
+        ? joinConnectingView
+        : joinStatus === "done"
+          ? joinDoneView
+          : joinErrorView;
 
   // --- Header ---
   const title =
-    view === "pick" ? t("space.addSpace", "Add space")
-    : view === "create" ? t("space.createNewSpace", "Create new space")
-    : t("space.joinSpace", "Join space");
+    view === "pick"
+      ? t("space.addSpace", "Add space")
+      : view === "create"
+        ? t("space.createNewSpace", "Create new space")
+        : t("space.joinSpace", "Join space");
 
   const header = (
     <div className="flex items-center gap-2 pb-1">
@@ -563,13 +640,14 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
           <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
         </button>
       )}
-      <DialogTitle className="text-lg font-medium text-foreground">{title}</DialogTitle>
+      <DialogTitle className="text-lg font-medium text-foreground">
+        {title}
+      </DialogTitle>
     </div>
   );
 
-  const body = view === "pick" ? pickView
-    : view === "create" ? createView
-    : joinView;
+  const body =
+    view === "pick" ? pickView : view === "create" ? createView : joinView;
 
   // --- Render ---
   if (isMobile) {
@@ -595,7 +673,13 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   );
 }
 
-function SpaceRule({ icon: Icon, text }: { icon: React.ElementType; text: string }) {
+function SpaceRule({
+  icon: Icon,
+  text,
+}: {
+  icon: React.ElementType;
+  text: string;
+}) {
   return (
     <div className="flex items-start gap-2 text-xs text-muted-foreground">
       <Icon className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary/60" />

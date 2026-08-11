@@ -109,9 +109,11 @@ export function SpaceSection({
             <DropdownMenuItem onSelect={() => onSpaceSettings(space.id)}>
               {t("space.settings", "Space settings")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onInviteMembers(space.id)}>
-              {t("share.inviteMembers", "Invite members")}
-            </DropdownMenuItem>
+            {!space.personal && (
+              <DropdownMenuItem onSelect={() => onInviteMembers(space.id)}>
+                {t("share.inviteMembers", "Invite members")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => openImport(space.id)}>
               {t("space.import", "Import")}
             </DropdownMenuItem>
