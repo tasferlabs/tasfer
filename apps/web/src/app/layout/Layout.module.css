@@ -864,8 +864,34 @@
   position: relative;
 }
 
-.usersList > :nth-child(1) .userAvatar {
-  z-index: 2; /* Higher z-index for the first element */
+/* The slot owns the overlap and the hover motion so the avatar and its device
+   badge move as one, and so the badge escapes the avatar's own clipping. */
+.avatarSlot {
+  position: relative;
+  display: flex;
+  margin-inline-start: -8px;
+  transition:
+    margin-inline-start 0.2s ease,
+    transform 0.2s ease;
+  cursor: pointer;
+}
+
+.avatarSlot:first-child {
+  margin-inline-start: 0;
+  z-index: 2; /* The row reads left to right; keep the first one on top. */
+}
+
+.avatarSlot:hover {
+  transform: scale(1.12);
+  z-index: 10;
+}
+
+.usersList:hover .avatarSlot {
+  margin-inline-start: 4px;
+}
+
+.usersList:hover .avatarSlot:first-child {
+  margin-inline-start: 0;
 }
 
 .userAvatar {
@@ -876,27 +902,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* flex-direction: row-reverse; */
   background-color: var(--avatar-color);
   color: var(--avatar-color-text);
   border: 2px solid var(--background);
-  margin-inline-start: -8px;
   box-sizing: content-box;
-  transition:
-    margin-inline-start 0.2s ease,
-    transform 0.2s ease;
-  cursor: pointer;
   font-size: 0.65rem;
   font-weight: 600;
 }
 
-.userAvatar:hover {
-  transform: scale(1.1);
-  z-index: 10;
-}
+@media (prefers-reduced-motion: reduce) {
+  .avatarSlot {
+    transition: none;
+  }
 
-.usersList:hover .userAvatar {
-  margin-inline-start: 4px;
+  .avatarSlot:hover {
+    transform: none;
+  }
 }
 
 .dragOverlay {

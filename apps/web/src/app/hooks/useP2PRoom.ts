@@ -160,6 +160,7 @@ export function useP2PRoom(
         color: getColorForPeer(identity.name || myPeerId),
         deviceType,
         deviceId: identity.publicKey,
+        personId: identity.rootPublicKey ?? undefined,
       });
 
       setSyncState({ status: "connecting" });
@@ -184,6 +185,7 @@ export function useP2PRoom(
                 color: user.color || getColorForPeer(user.name || joinedPeerId),
                 deviceType: user.deviceType,
                 deviceId: user.deviceId,
+                personId: user.personId,
               },
               caret: null,
               block: null,
@@ -229,6 +231,7 @@ export function useP2PRoom(
           avatar: identity.avatar,
           deviceType,
           deviceId: identity.publicKey,
+          personId: identity.rootPublicKey ?? undefined,
         },
         callbacks,
         spaceId,

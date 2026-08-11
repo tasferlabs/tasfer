@@ -278,6 +278,61 @@
   }
 }
 
+/* ── Device count badge ───────────────────────────────────────────────────
+   A person on more than one device stays one avatar; the badge on its corner
+   carries the count. It sits outside the avatar so the avatar's own clipping
+   never eats it, and is placed with logical insets so it mirrors in RTL. */
+.device-count-badge {
+  position: absolute;
+  inset-inline-end: -3px;
+  z-index: 1;
+  min-width: 15px;
+  height: 15px;
+  padding-inline: 3px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--badge-color, var(--primary));
+  color: #ffffff;
+  /* A ring rather than a border: it cuts the badge out of whatever avatar or
+     neighbour sits behind it without taking up layout. */
+  box-shadow: 0 0 0 2px var(--background);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  animation: device-count-badge-in 240ms cubic-bezier(0.2, 0.9, 0.3, 1.35);
+}
+
+.device-count-badge[data-placement="bottom"] {
+  inset-block-end: -3px;
+}
+
+.device-count-badge[data-placement="top"] {
+  inset-block-start: -3px;
+}
+
+/* Arriving from a device is a real event — the badge pops rather than blinks
+   into place, so a second device joining is noticed. */
+@keyframes device-count-badge-in {
+  from {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .device-count-badge {
+    animation: none;
+  }
+}
+
 /* Editor canvas selection and cursor colors */
 ::selection {
   background-color: oklch(from var(--primary) l c h / 0.3);

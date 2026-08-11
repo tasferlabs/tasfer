@@ -47,9 +47,19 @@ export interface ISpaceMember {
   userEmail: string;
   userAvatar: string | null;
   lastSeen: string | null;
+  /**
+   * Person this device belongs to, when known. Members sharing a rootKey are
+   * the same human on different devices — group them before display. Null for
+   * a device whose certificate has not arrived, which is every member from
+   * before device identity existed.
+   */
+  rootKey: string | null;
 }
 
-function memberToLegacy(m: SpaceMember, lastSeen: string | null = null): ISpaceMember {
+function memberToLegacy(
+  m: SpaceMember,
+  lastSeen: string | null = null,
+): ISpaceMember {
   return {
     id: m.publicKey,
     userId: m.publicKey,
@@ -58,7 +68,59 @@ function memberToLegacy(m: SpaceMember, lastSeen: string | null = null): ISpaceM
     userEmail: "",
     userAvatar: m.avatar,
     lastSeen,
+    rootKey: m.rootKey,
   };
+}
+
+/** One human in a space, together with every device they joined from. */
+export interface ISpacePerson extends ISpaceMember {
+  /**
+   * The person's devices, most recently seen first. Always holds at least the
+   * device the top-level fields were taken from.
+   */
+  devices: ISpaceMember[];
+}
+
+function lastSeenTime(member: ISpaceMember): number {
+  if (!member.lastSeen) return -Infinity;
+  const time = new Date(member.lastSeen).getTime();
+  return Number.isNaN(time) ? -Infinity : time;
+}
+
+/**
+ * Fold a member list into one entry per person, keeping their devices attached
+ * so the UI can show how many they are connected from.
+ *
+ * A person is represented by their most recently seen device, so presence
+ * reflects "is this person around" rather than the state of whichever device
+ * happened to join the space first. Members with no known certificate keep
+ * their own entry — an unidentified device is not evidence that it belongs to
+ * somebody already listed.
+ */
+export function groupMembersByPerson(members: ISpaceMember[]): ISpacePerson[] {
+  const byRootKey = new Map<string, ISpaceMember[]>();
+  const groups: ISpaceMember[][] = [];
+
+  for (const member of members) {
+    if (!member.rootKey) {
+      groups.push([member]);
+      continue;
+    }
+    const group = byRootKey.get(member.rootKey);
+    if (group) {
+      group.push(member);
+      continue;
+    }
+    const created = [member];
+    byRootKey.set(member.rootKey, created);
+    groups.push(created);
+  }
+
+  return groups.map((group) => {
+    // Stable sort keeps devices seen at the same time (or never) in join order.
+    const devices = [...group].sort((a, b) => lastSeenTime(b) - lastSeenTime(a));
+    return { ...devices[0], devices };
+  });
 }
 
 export async function getSpaces(): Promise<ISpace[]> {
@@ -187,14 +249,23 @@ export function useUnarchiveSpace<TContext = unknown>(
   });
 }
 
-export async function getSpaceMembers(spaceId: string): Promise<ISpaceMember[]> {
+export async function getSpaceMembers(
+  spaceId: string,
+): Promise<ISpacePerson[]> {
   const platform = getPlatform();
   const [space, peers] = await Promise.all([
     platform.spaces.get(spaceId),
     platform.peers.list(),
   ]);
   const peerLastSeen = new Map(peers.map((p) => [p.publicKey, p.lastSeen]));
-  return space.members.map((m) => memberToLegacy(m, peerLastSeen.get(m.publicKey) ?? null));
+  // One row per person, not per device: a collaborator with a laptop and a
+  // phone is one member of the space, and showing two would misrepresent both
+  // the roster and who has access. Their devices ride along on the row.
+  return groupMembersByPerson(
+    space.members.map((m) =>
+      memberToLegacy(m, peerLastSeen.get(m.publicKey) ?? null),
+    ),
+  );
 }
 
 export function useGetSpaceMembers(spaceId?: string) {
