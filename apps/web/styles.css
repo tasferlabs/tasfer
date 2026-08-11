@@ -33,6 +33,8 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-border: var(--border);
@@ -96,6 +98,10 @@
   --page-color-default: var(--muted-foreground);
   --accent-foreground: oklch(0.21 0.006 285.885);
   --destructive: oklch(0.577 0.245 27.325);
+  /* Caution, not failure: something needs attention but nothing was lost or
+     destroyed. Amber, darkened enough to stay legible on the light surface. */
+  --warning: oklch(0.66 0.14 70);
+  --warning-foreground: oklch(0.26 0.05 70);
   --info: #3b82f6;
   --info-foreground: oklch(0.985 0 0);
   --success: #43a047;
@@ -193,6 +199,8 @@
   --accent: oklch(0.274 0.006 286.033);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  /* Amber, brightened for the dark surface (the light value reads as brown). */
+  --warning: oklch(0.82 0.15 85);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.6332 0.1426 145 / 60%);

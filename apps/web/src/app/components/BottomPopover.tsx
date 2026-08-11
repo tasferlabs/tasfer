@@ -2,9 +2,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { AriaRole, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/* Shared shape for the floating bottom popovers (update prompt, peer-version
- * notice, mobile app nudge): slide-up animation, safe-area-aware placement,
- * and the card chrome. Content, queueing, and dismissal stay with callers. */
+/* Shared shape for the floating bottom popovers (update prompt, mobile app
+ * nudge): slide-up animation, safe-area-aware placement, and the card chrome.
+ * Content, queueing, and dismissal stay with callers. */
 
 const popupVariants = {
   hidden: { y: 80, opacity: 0 },

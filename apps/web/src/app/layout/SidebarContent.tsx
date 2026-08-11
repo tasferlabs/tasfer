@@ -48,6 +48,7 @@ import {
 import { useAssetUrl } from "../api/images.api";
 import { useArchiveSpace } from "../api/spaces.api";
 import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
+import { PeerVersionBanner } from "../components/PeerVersionBanner";
 import { StorageProtectionBanner } from "../components/StorageProtectionBanner";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { useToast, type ToastHandle } from "../components/Toast";
@@ -82,7 +83,8 @@ const pageCollisionDetection: CollisionDetection = (args) => {
 
   const dataFor = (id: string | number) =>
     args.droppableContainers.find((c) => c.id === id)?.data.current as
-      { type?: string; position?: string } | undefined;
+      | { type?: string; position?: string }
+      | undefined;
 
   // Spaces and pages share one DndContext. When a space is being dragged, only
   // the space insertion zones are valid targets — ignore page drop zones.
@@ -92,9 +94,7 @@ const pageCollisionDetection: CollisionDetection = (args) => {
 
   // The Archive nav link never overlaps a page drop zone, but resolve it first so
   // a drop on it can't lose to any broader container hit.
-  const archive = hits.find(
-    (h) => dataFor(h.id)?.type === "archive-drop-zone",
-  );
+  const archive = hits.find((h) => dataFor(h.id)?.type === "archive-drop-zone");
   if (archive) return [archive];
 
   const insertion = hits.find((h) => {
@@ -953,7 +953,11 @@ export function SidebarContent({
             </div>
           </DndContext>
 
-          <StorageProtectionBanner />
+          <div>
+            <PeerVersionBanner />
+
+            <StorageProtectionBanner />
+          </div>
 
           {!shouldShowTheProfileAtTop && hasSidebarProfile && (
             <div className={style.appSidebarFooter}>

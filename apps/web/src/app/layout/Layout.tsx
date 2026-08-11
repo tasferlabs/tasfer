@@ -9,11 +9,11 @@ import { ImportDialogProvider } from "../components/ImportDialogProvider";
 import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import { DatabaseLockedScreen } from "../components/DatabaseLockedScreen";
 import { OnboardingScreen } from "../components/OnboardingScreen";
-import PeerVersionPopup from "../components/PeerVersionPopup";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
 import { WordCountOverlay } from "../components/WordCountOverlay";
 import { ActiveEditorProvider } from "../contexts/ActiveEditorContext";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
+import { PeerVersionProvider } from "../contexts/PeerVersionContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
 import { SpacePrefsProvider } from "../contexts/SpacePrefsContext";
@@ -56,7 +56,9 @@ export default function Layout() {
                   <ConfirmationDialogProvider>
                     <UnsavedChangesDialogProvider>
                       <ImportDialogProvider>
-                        <LayoutInner />
+                        <PeerVersionProvider>
+                          <LayoutInner />
+                        </PeerVersionProvider>
                       </ImportDialogProvider>
                     </UnsavedChangesDialogProvider>
                   </ConfirmationDialogProvider>
@@ -166,7 +168,6 @@ function LayoutInner() {
       />
       <FileDropChrome fileDrop={fileDrop} spaces={spaces} />
       <ActionCenter />
-      <PeerVersionPopup />
       <BottomToolDock>
         {devToolsEnabled && (
           <React.Suspense fallback={null}>
