@@ -258,16 +258,59 @@ export async function cancelPairing(invite: SpaceInvite): Promise<void> {
   await platform.pairing.cancel(invite);
 }
 
-// Legacy stubs — no longer used but kept for compile compat
-export async function addSpaceMember(_data: { spaceId: string; email: string }): Promise<ISpaceMember> {
-  throw new Error("Use pairing invites instead of email");
+// ---------------------------------------------------------------------------
+// Device linking — adding another of YOUR devices, not another person.
+//
+// Kept separate from the invite helpers above because what it grants is
+// different in kind: the accepting device receives this identity and joins
+// every space, personal ones included.
+// ---------------------------------------------------------------------------
+
+export async function createDeviceLink(ttlMs: number): Promise<SpaceInvite> {
+  const platform = getPlatform();
+  return platform.pairing.createDeviceLink(ttlMs);
 }
 
-export function useAddSpaceMember<TContext = unknown>(
-  options?: UseMutationOptions<ISpaceMember, Error, { spaceId: string; email: string }, TContext>,
+export function useCreateDeviceLink<TContext = unknown>(
+  options?: UseMutationOptions<SpaceInvite, Error, { ttlMs: number }, TContext>,
 ) {
   return useMutation({
-    mutationFn: addSpaceMember,
+    mutationFn: ({ ttlMs }: { ttlMs: number }) => createDeviceLink(ttlMs),
+    ...options,
+  });
+}
+
+export async function revokeDeviceLink(): Promise<void> {
+  const platform = getPlatform();
+  await platform.pairing.revokeDeviceLink();
+}
+
+export async function waitForDevice(
+  invite: SpaceInvite,
+  callbacks?: PairCallbacks,
+): Promise<void> {
+  const platform = getPlatform();
+  await platform.pairing.waitForDevice(invite, callbacks);
+}
+
+export async function acceptDeviceLink(
+  invite: SpaceInvite,
+  callbacks?: PairCallbacks,
+): Promise<void> {
+  const platform = getPlatform();
+  await platform.pairing.acceptDeviceLink(invite, callbacks);
+}
+
+export function useAcceptDeviceLink<TContext = unknown>(
+  options?: UseMutationOptions<
+    void,
+    Error,
+    { invite: SpaceInvite; callbacks?: PairCallbacks },
+    TContext
+  >,
+) {
+  return useMutation({
+    mutationFn: ({ invite, callbacks }) => acceptDeviceLink(invite, callbacks),
     ...options,
   });
 }

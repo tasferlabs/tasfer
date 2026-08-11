@@ -93,6 +93,7 @@ async function setup() {
     ]),
     getPeerSharedKey: vi.fn(async () => "c".repeat(64)),
     getSpaceIds: vi.fn(async () => [SPACE_ID]),
+    getOwnDeviceKeys: vi.fn(async () => [] as string[]),
     getSpaceState: vi.fn(async () => "active" as const),
     getPageSpaceState: vi.fn(async () => ({
       spaceId: SPACE_ID,
@@ -124,7 +125,9 @@ async function setup() {
 
 describe("Replicator protocol negotiation", () => {
   it("uses a new semantic epoch while retaining the existing wire codec", () => {
-    expect(PROTOCOL_VERSION).toBe(2);
+    // v3 adds the `device_add` space op (device certificates). The wire codec
+    // is untouched — no op encoding changed, only the union grew.
+    expect(PROTOCOL_VERSION).toBe(3);
     expect(WIRE_VERSION).toBe(1);
 
     const operation = {

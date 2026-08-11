@@ -25,6 +25,13 @@ export interface Identity {
   name: string;
   /** Avatar URL or data URI */
   avatar: string | null;
+  /**
+   * Root ("person") public key. `publicKey` names this DEVICE — every install
+   * generates its own — while this names the human who owns it and signs the
+   * certificate for each device they link. Null only on a replica that has not
+   * finished bootstrapping its identity.
+   */
+  rootPublicKey: string | null;
 }
 
 /** A known peer */
@@ -216,6 +223,12 @@ export interface RoomUser {
    * other tabs and label it "You" instead of as a separate anonymous peer.
    */
   deviceId?: string;
+  /**
+   * Root ("person") public key behind `deviceId`, shared by every device this
+   * person has linked, so a presence UI can show them once with a card per
+   * device. Absent until the local identity has a root key.
+   */
+  personId?: string;
 }
 
 // =============================================================================
@@ -227,6 +240,13 @@ export interface Space {
   id: string;
   name: string;
   createdAt: string;
+  /**
+   * A personal space admits only the owner's own devices and mints no invites,
+   * so nothing written in it can later become someone else's to read. Set at
+   * creation and never cleared — see the `spaces.personal` column for why the
+   * one-way direction is the point.
+   */
+  personal?: boolean;
 }
 
 /** An archived space surfaced in the Archive */
@@ -240,10 +260,18 @@ export interface ArchivedSpaceItem {
 /** A member of a space */
 export interface SpaceMember {
   spaceId: string;
+  /** Device public key — one row per device, not per person. */
   publicKey: string;
   name: string;
   avatar: string | null;
   addedAt: string;
+  /**
+   * Root ("person") key that certified this device, when one is known. Members
+   * sharing a root key are the same human on different devices and should be
+   * presented as one. Null for a device whose certificate this replica has not
+   * seen — including every member that predates device identity.
+   */
+  rootKey: string | null;
 }
 
 // =============================================================================
@@ -280,6 +308,32 @@ export interface MemberSet extends SpaceBaseOp {
   publicKey: string;
   field: string;
   value: unknown;
+}
+
+/**
+ * Publish a device certificate: "this device key belongs to this person".
+ *
+ * Carries the proof itself rather than a claim, so any replica verifies it
+ * locally (see `verifyDeviceCert`). That is what keeps personal-space
+ * membership a pure function of the log — every replica holding these ops
+ * computes the same answer, instead of each one needing to be told separately
+ * which keys are the owner's.
+ *
+ * Not LWW and not removable. A device key binds to one root permanently; the
+ * first valid certificate a replica sees wins, so a second root cannot later
+ * claim a device that peers already resolved. There is no revocation op —
+ * see ./device-cert for why one would be theatre in a P2P network.
+ */
+export interface DeviceAdd extends SpaceBaseOp {
+  op: "device_add";
+  /** Root ("person") public key that signed the certificate. */
+  rootKey: string;
+  /** Device public key being vouched for. */
+  deviceKey: string;
+  /** Ed25519 signature over the canonical certificate statement. */
+  cert: string;
+  /** Unix ms of issuance; part of the signed statement. */
+  issuedAt: number;
 }
 
 /**
@@ -322,6 +376,7 @@ export type SpaceOperation =
   | SpaceSet
   | MemberAdd
   | MemberSet
+  | DeviceAdd
   | PageAdd
   | PageRemove
   | PageSet;
@@ -488,8 +543,12 @@ export interface Platform {
     listArchived(): Promise<ArchivedSpaceItem[]>;
     /** Get a space with its members */
     get(id: string): Promise<Space & { members: SpaceMember[] }>;
-    /** Create a new space (adds self as owner) */
-    create(name: string): Promise<Space>;
+    /**
+     * Create a new space (adds self as owner, plus every other device linked
+     * to this identity). `personal: true` restricts it to those devices
+     * permanently — it mints no invites and cannot be un-personalised.
+     */
+    create(name: string, options?: { personal?: boolean }): Promise<Space>;
     /** Rename a space */
     rename(id: string, name: string): Promise<void>;
     /** Archive a space locally (stop syncing, hide from list) */
@@ -531,6 +590,31 @@ export interface Platform {
     acceptInvite(invite: SpaceInvite, callbacks?: PairCallbacks): Promise<void>;
     /** Cancel the pairing session for an invite (acceptor side) */
     cancel(invite: SpaceInvite): Promise<void>;
+
+    /**
+     * Create (and persist) a device-link code — the invite that adds another
+     * of YOUR OWN devices rather than another person.
+     *
+     * Distinct from `createInvite` in what it grants: the accepting device
+     * receives the root identity and joins every space, personal ones
+     * included. At most one is pending at a time, and it should be given a
+     * short TTL, because for its lifetime the code is the account.
+     */
+    createDeviceLink(ttlMs: number): Promise<SpaceInvite>;
+    /** The pending (unexpired) device-link code, if any */
+    getDeviceLink(): Promise<SpaceInvite | null>;
+    /** Revoke the pending device-link code and stop listening for it */
+    revokeDeviceLink(): Promise<void>;
+    /** Attach UI callbacks to the device-link session (existing-device side) */
+    waitForDevice(
+      invite: SpaceInvite,
+      callbacks?: PairCallbacks,
+    ): Promise<void>;
+    /** Accept a device-link code on a new device */
+    acceptDeviceLink(
+      invite: SpaceInvite,
+      callbacks?: PairCallbacks,
+    ): Promise<void>;
   };
 
   // ---------------------------------------------------------------------------

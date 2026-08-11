@@ -18,6 +18,10 @@
  *     and a space we do not already belong to cannot be pushed onto us — new
  *     spaces arrive only through an invite (see `handleSyncData`). So a peer's
  *     contacts in spaces we are not in stay invisible to us.
+ *   - Our own other devices are the one exception, in both clauses: they are
+ *     always dialed, and a space one of them pushes at us is adopted. They
+ *     hold our root, so their spaces are already ours — this is what makes a
+ *     space created after linking reach the devices linked before it existed.
  *
  * Protocol:
  *   1. Connect to each admitted peer via deterministic topic
@@ -57,6 +61,16 @@
  *   Pairing (one-time topic):
  *     { type: "pair-hello", publicKey, name, proof, spaceId, spaceName }
  *     { type: "pair-ack",   publicKey, name, proof }
+ *
+ *   Device linking (one-time topic, distinct HKDF label):
+ *     { type: "device-link", rootPublicKey, rootPrivateKey, cert, issuedAt,
+ *                            deviceCerts[], spaces[] }
+ *
+ * Two kinds of pairing share this machinery and must not be confused. A space
+ * invite adds another PERSON to one space. A device link adds another of the
+ * local user's OWN devices to all of them, handing over the root identity that
+ * makes them recognisable as one person (see ./device-cert). They rendezvous on
+ * different topics, so a session only ever meets peers running the same mode.
  */
 
 import type {
@@ -116,7 +130,7 @@ import {
  * Bump on any protocol-level change; a higher remote value means "the peer may
  * speak things we don't yet understand".
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 // =============================================================================
 // ReplicatorHost — what the Replicator needs from the Engine
@@ -138,6 +152,12 @@ export interface ReplicatorHost {
   getPeerRecords(): Promise<Peer[]>;
   /** Get IDs of the active spaces this device belongs to */
   getSpaceIds(): Promise<string[]>;
+  /**
+   * Public keys of this person's OTHER devices — the ones certified under our
+   * own root. They are not peers in the ordinary sense: they are us, so they
+   * are always admitted and may hand us a space we have never seen.
+   */
+  getOwnDeviceKeys(): Promise<string[]>;
   /** Whether a known space is currently eligible for replication. */
   getSpaceState(spaceId: string): Promise<"active" | "archived" | "unknown">;
   /** Resolve a page to its space and that space's current archive state. */
@@ -284,6 +304,40 @@ interface PairAckMsg {
   proof: string;
 }
 
+/**
+ * Enrolment payload, sent by an already-linked device to a new one after the
+ * pairing proof succeeds. This is the device-link flow's whole point: it hands
+ * over the person's root identity and the space list, which is what lets the
+ * newcomer be recognised as the same human rather than a second collaborator.
+ *
+ * It carries the ROOT PRIVATE KEY. That is deliberate — every linked device can
+ * enrol the next one, so losing a single device never strands the account — but
+ * it makes the invite secret equivalent to full account access for its lifetime.
+ * The payload is sent only after both sides prove they hold that secret, and
+ * only over the pairing topic, which is encrypted with a key derived from it.
+ *
+ * The space list travels here because a space cannot be pushed onto a peer over
+ * normal replication (see `handleSyncData`): the newcomer must already own the
+ * rows before it connects, exactly as `Engine.acceptInvite` writes them for a
+ * single space.
+ */
+interface DeviceLinkMsg {
+  type: "device-link";
+  /** Root ("person") keypair, copied so any linked device can enrol the next. */
+  rootPublicKey: string;
+  rootPrivateKey: string;
+  /** Certificate the sender just issued for the recipient's device key. */
+  cert: string;
+  issuedAt: number;
+  /** Certificates for the sender's own devices, so the newcomer can verify membership without waiting for replication. */
+  deviceCerts: { deviceKey: string; cert: string; issuedAt: number }[];
+  /** Every space the sender belongs to, personal ones included. */
+  spaces: { id: string; name: string; personal: boolean }[];
+}
+
+/** The enrolment data an already-linked device hands a newcomer. */
+export type DeviceLinkPayload = Omit<DeviceLinkMsg, "type">;
+
 type Message =
   | HelloMsg
   | SyncPullMsg
@@ -298,7 +352,8 @@ type Message =
   | SyncResMsg
   | AssetReqMsg
   | PairHelloMsg
-  | PairAckMsg;
+  | PairAckMsg
+  | DeviceLinkMsg;
 
 // =============================================================================
 // Internal State
@@ -349,6 +404,16 @@ interface PairingSession {
   topic: NetworkTopic;
   invite: SpaceInvite;
   role: "initiator" | "acceptor";
+  /**
+   * "space" adds another person to one space; "device" adds another of the
+   * local user's own devices to all of them. The two use different signaling
+   * topics, so a session only ever meets peers running the same mode.
+   */
+  mode: "space" | "device";
+  /** Device mode, initiator: build the enrolment payload for a verified newcomer. */
+  issueDeviceLink?: (peerPublicKey: string) => Promise<DeviceLinkPayload | null>;
+  /** Device mode, acceptor: adopt the enrolment payload before connecting. */
+  applyDeviceLink?: (payload: DeviceLinkPayload) => Promise<void>;
   /** Space name — initiator provides from DB, acceptor receives via pair-hello */
   spaceName: string;
   localPublicKey: string;
@@ -506,9 +571,10 @@ export class Replicator {
    * one we left) admits no one.
    */
   private async admittedPeers(): Promise<Set<string>> {
-    const [peerRecords, spaceIds] = await Promise.all([
+    const [peerRecords, spaceIds, ownDevices] = await Promise.all([
       this.host.getPeerRecords(),
       this.host.getSpaceIds(),
+      this.host.getOwnDeviceKeys(),
     ]);
     const revoked = new Set(
       peerRecords
@@ -520,7 +586,13 @@ export class Replicator {
       spaceIds.map((spaceId) => this.host.getSpaceMembers(spaceId)),
     );
     const admitted = new Set<string>();
-    for (const members of memberLists) {
+    // Our own devices need no space in common: they are this person's other
+    // replicas, and a space that exists on only one of them is exactly the
+    // case they have to connect for.
+    for (const members of [
+      ...memberLists,
+      ownDevices.map((publicKey) => ({ publicKey })),
+    ]) {
       for (const member of members) {
         if (member.publicKey === this.localPublicKey) continue;
         if (revoked.has(member.publicKey)) continue;
@@ -528,6 +600,11 @@ export class Replicator {
       }
     }
     return admitted;
+  }
+
+  /** Whether a peer is another device of this person (certified under our root). */
+  private async isOwnDevice(publicKey: string): Promise<boolean> {
+    return (await this.host.getOwnDeviceKeys()).includes(publicKey);
   }
 
   /**
@@ -973,11 +1050,16 @@ export class Replicator {
   async startPairing(opts: {
     invite: SpaceInvite;
     role: "initiator" | "acceptor";
+    mode?: "space" | "device";
     spaceName?: string;
     localPublicKey: string;
     localName: string;
     privateKey: string;
     callbacks: PairCallbacks;
+    issueDeviceLink?: (
+      peerPublicKey: string,
+    ) => Promise<DeviceLinkPayload | null>;
+    applyDeviceLink?: (payload: DeviceLinkPayload) => Promise<void>;
   }): Promise<void> {
     // Starting again for the same invite (e.g. an acceptor retry) replaces its session
     await this.cancelPairing(opts.invite.secret);
@@ -987,7 +1069,11 @@ export class Replicator {
       return;
     }
 
-    const topicHex = await deriveInviteTopic(opts.invite.secret);
+    const mode = opts.mode ?? "space";
+    const topicHex =
+      mode === "device"
+        ? await deriveDeviceLinkTopic(opts.invite.secret)
+        : await deriveInviteTopic(opts.invite.secret);
 
     // Derive and register encryption key for the pairing topic
     const pairingKey = await derivePairingKey(opts.invite.secret, topicHex);
@@ -1000,6 +1086,9 @@ export class Replicator {
       topic,
       invite: opts.invite,
       role: opts.role,
+      mode,
+      issueDeviceLink: opts.issueDeviceLink,
+      applyDeviceLink: opts.applyDeviceLink,
       spaceName: opts.spaceName ?? "",
       localPublicKey: opts.localPublicKey,
       localName: opts.localName,
@@ -1022,6 +1111,8 @@ export class Replicator {
         if (!msg || session.completed) return;
         if (msg.type === "pair-hello" || msg.type === "pair-ack") {
           await this.handlePairingMessage(peer, msg, session);
+        } else if (msg.type === "device-link") {
+          await this.handleDeviceLink(msg, session);
         }
       });
 
@@ -1414,7 +1505,12 @@ export class Replicator {
 
   private async handleSyncPull(fromPubKey: string, msg: SyncPullMsg) {
     const conn = this.peers.get(fromPubKey);
-    if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
+    if (!conn) return;
+    if (!(await this.ensureSharedSpace(conn, msg.spaceId))) {
+      // Nothing to answer with — but if our own device is asking about a space
+      // we have never seen, it has one we are missing. Ask for it instead of
+      // going quiet; the reply bootstraps it (see {@link handleSyncData}).
+      if (await this.requestUnknownOwnSpace(conn, msg.spaceId)) return;
       console.warn(
         `[Sync] dropped sync-pull for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`,
       );
@@ -1437,24 +1533,36 @@ export class Replicator {
 
   private async handleSyncData(fromPubKey: string, msg: SyncDataMsg) {
     const conn = this.peers.get(fromPubKey);
-    // A space we do not already belong to cannot arrive this way. Letting a
-    // connected peer bootstrap an unknown space would hand us its `member_add`
+    if (!conn) return;
+    // A space we do not already belong to cannot arrive from another PERSON.
+    // Letting them bootstrap an unknown space would hand us their `member_add`
     // roster too, and every name on it would become one of our peers — a space
-    // we never joined, full of contacts we never met. New spaces come from an
+    // we never joined, full of contacts we never met. Their spaces come from an
     // invite: the acceptor writes the space and its membership locally before
     // it ever connects (`Engine.acceptInvite`), so pairing does not need this.
-    const wasUnknown = !conn?.sharedSpaces.has(msg.spaceId);
-    if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
-      console.warn(
-        `[Sync] dropped sync-data for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`,
-      );
-      return;
+    //
+    // Our own device is not another person. Its roster is our roster and its
+    // spaces are ours, so a space it pushes is adopted — the only way a space
+    // created after linking can reach a device linked before it existed.
+    const wasUnknown = !conn.sharedSpaces.has(msg.spaceId);
+    let adopting = false;
+    if (!(await this.ensureSharedSpace(conn, msg.spaceId))) {
+      if (!(await this.isOwnDevice(fromPubKey))) {
+        console.warn(
+          `[Sync] dropped sync-data for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`,
+        );
+        return;
+      }
+      adopting = true;
     }
 
     // `sharedSpaces` is a cache that can outlive an archive, so re-check the
-    // state: an archived space accepts no catch-up until it is restored.
+    // state: an archived space accepts no catch-up until it is restored. A
+    // sibling may only create a space we have never seen — one we archived
+    // here stays archived, since archiving is this device's own choice.
     const spaceState = await this.host.getSpaceState(msg.spaceId);
-    if (spaceState !== "active") {
+    const expected = adopting ? "unknown" : "active";
+    if (spaceState !== expected) {
       console.warn(
         `[Sync] dropped sync-data for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (${spaceState} space)`,
       );
@@ -1478,6 +1586,11 @@ export class Replicator {
       }
     }
 
+    // The space exists locally now, so let the transport see it before any
+    // further message for it arrives. Connecting to whoever else is in it is
+    // left to the engine, which reacts to the `member_add`s we just applied.
+    if (adopting) await this.recomputeSharedSpaces(conn);
+
     // We only learned we share this space during this message — `hello` sent
     // no pull for it. Pull now so we catch up on whatever preceded this batch.
     if (wasUnknown) {
@@ -1497,9 +1610,35 @@ export class Replicator {
 
   // --- Real-time push ---
 
+  /**
+   * A live op or a pull naming a space we have never seen is only meaningful
+   * from our own device: it holds a space we were never told about. Ask for it
+   * in full rather than dropping the message — {@link handleSyncData} adopts
+   * the reply. Returns whether the request was made.
+   */
+  private async requestUnknownOwnSpace(
+    conn: PeerConnection,
+    spaceId: string,
+  ): Promise<boolean> {
+    if (!(await this.isOwnDevice(conn.publicKey))) return false;
+    if ((await this.host.getSpaceState(spaceId)) !== "unknown") return false;
+    console.log(
+      `[Sync] requesting unknown space ${spaceId.slice(0, 8)} from own device ${conn.publicKey.slice(0, 8)}`,
+    );
+    this.sendDirect(conn, {
+      type: "sync-pull",
+      spaceId,
+      spaceVV: {},
+      pageVVs: {},
+    });
+    return true;
+  }
+
   private async handleSpaceOps(fromPubKey: string, msg: SpaceOpsMsg) {
     const conn = this.peers.get(fromPubKey);
-    if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
+    if (!conn) return;
+    if (!(await this.ensureSharedSpace(conn, msg.spaceId))) {
+      if (await this.requestUnknownOwnSpace(conn, msg.spaceId)) return;
       console.warn(
         `[Sync] dropped space-ops for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`,
       );
@@ -1511,7 +1650,9 @@ export class Replicator {
 
   private async handlePageOps(fromPubKey: string, msg: PageOpsMsg) {
     const conn = this.peers.get(fromPubKey);
-    if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
+    if (!conn) return;
+    if (!(await this.ensureSharedSpace(conn, msg.spaceId))) {
+      if (await this.requestUnknownOwnSpace(conn, msg.spaceId)) return;
       console.warn(
         `[Sync] dropped page-ops for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`,
       );
@@ -1759,6 +1900,68 @@ export class Replicator {
     peer.send(data);
   }
 
+  /**
+   * Issue and send the enrolment payload to a newly verified device. Failing to
+   * build one is not fatal to the pairing itself — the peer stays trusted — but
+   * it does mean the device is not yet enrolled, so it is surfaced as an error
+   * rather than swallowed.
+   */
+  private async sendDeviceLink(
+    peer: NetworkPeer,
+    peerPublicKey: string,
+    session: PairingSession,
+  ): Promise<void> {
+    const payload = await session.issueDeviceLink?.(peerPublicKey);
+    if (!payload) {
+      session.callbacks.onError?.("Could not issue a certificate for this device");
+      return;
+    }
+    const msg: Message = { type: "device-link", ...payload };
+    const data = encode(msg);
+    // Deliberately not logged through logNet: the payload carries the root
+    // private key, and devlog persists what it is given.
+    console.log(
+      `[Sync] sending device-link to ${peerPublicKey.slice(0, 8)} (${payload.spaces.length} spaces)`,
+    );
+    peer.send(data);
+  }
+
+  /**
+   * Adopt an enrolment payload as the newly linked device. Writes the root
+   * identity, certificates, and space rows, then reconciles the transport —
+   * the newcomer could not connect for any of these spaces until it owned them
+   * locally, since replication refuses to bootstrap an unknown space.
+   */
+  private async handleDeviceLink(
+    msg: DeviceLinkMsg,
+    session: PairingSession,
+  ): Promise<void> {
+    if (session.mode !== "device" || session.role !== "acceptor") {
+      console.warn(
+        "[Sync] ignoring device-link outside an accepting device-link session",
+      );
+      return;
+    }
+    if (!session.applyDeviceLink) return;
+
+    const { type: _type, ...payload } = msg;
+    try {
+      await session.applyDeviceLink(payload);
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      console.error(`[Sync] failed to adopt device-link: ${detail}`);
+      session.callbacks.onError?.("Could not complete device linking");
+      return;
+    }
+    // Held open past the handshake for exactly this message — see
+    // {@link handlePairingMessage}.
+    if (!session.multi) {
+      session.completed = true;
+      await this.teardownPairingSession(session);
+    }
+    await this.refreshSpaces();
+  }
+
   private async handlePairingMessage(
     peer: NetworkPeer,
     msg: PairHelloMsg | PairAckMsg,
@@ -1823,11 +2026,26 @@ export class Replicator {
       session.spaceName || undefined,
     );
 
+    // Device mode: the already-linked side now hands over the root identity and
+    // the space list. Sent only here — after the peer proved it holds the invite
+    // secret — because this payload is the account, not an introduction.
+    if (session.mode === "device" && session.role === "initiator") {
+      await this.sendDeviceLink(peer, msg.publicKey, session);
+    }
+
     // Establish replication connection to the new peer
     await this.addPeer(msg.publicKey);
 
-    // In single-peer mode (acceptor), clean up immediately
-    if (!session.multi) {
+    // In single-peer mode (acceptor), clean up immediately — except while a
+    // device-link acceptor is still owed its enrolment payload. The initiator
+    // only sends `device-link` after this exchange, so completing here would
+    // both silence the handler and destroy the topic under it, leaving a
+    // trusted device with no root identity, no spaces, and nothing to sync.
+    // {@link handleDeviceLink} closes the session once the payload lands; the
+    // expiry timer closes it if the payload never does.
+    const awaitingEnrolment =
+      session.mode === "device" && session.role === "acceptor";
+    if (!session.multi && !awaitingEnrolment) {
       session.completed = true;
       await this.teardownPairingSession(session);
     }
@@ -1988,6 +2206,19 @@ async function hkdfFromSecret(
 /** Signaling topic for an invite — derived, so the invite carries only the secret. */
 async function deriveInviteTopic(secretHex: string): Promise<string> {
   return bytesToHex(await hkdfFromSecret(secretHex, "tasfer-topic"));
+}
+
+/**
+ * Signaling topic for a device-link invite.
+ *
+ * The mode is carried by the rendezvous rather than by a field in the invite
+ * code: the code is a fixed 56 bytes and `decodeInvite` rejects any other
+ * length, so adding a flag byte would break pairing with every older client.
+ * A distinct HKDF label means the two flows simply never meet — a peer offering
+ * a space invite cannot be answered by a device-link acceptor, or the reverse.
+ */
+async function deriveDeviceLinkTopic(secretHex: string): Promise<string> {
+  return bytesToHex(await hkdfFromSecret(secretHex, "tasfer-device-topic"));
 }
 
 /**

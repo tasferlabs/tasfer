@@ -236,6 +236,11 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     waitForPeer: { kind: "callbackMethod", cbArg: 1 },
     acceptInvite: { kind: "callbackMethod", cbArg: 1 },
     cancel: { kind: "request" },
+    createDeviceLink: { kind: "request" },
+    getDeviceLink: { kind: "request" },
+    revokeDeviceLink: { kind: "request" },
+    waitForDevice: { kind: "callbackMethod", cbArg: 1 },
+    acceptDeviceLink: { kind: "callbackMethod", cbArg: 1 },
   },
   pages: {
     list: { kind: "request" },

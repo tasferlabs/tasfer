@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { getDisplayName } from "@tasfer/provider-core/cursors";
-import { Camera, Trash } from "lucide-react";
+import { LinkDeviceDialog } from "@/app/components/LinkDeviceDialog";
+import { Camera, MonitorSmartphone, Trash } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./Profile.module.css";
@@ -24,6 +25,7 @@ export function Profile() {
   const [saving, setSaving] = React.useState(false);
   const [pendingFile, setPendingFile] = React.useState<File | null>(null);
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [linkDeviceOpen, setLinkDeviceOpen] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const avatarUrl = useAssetUrl(avatarId);
 
@@ -167,6 +169,27 @@ export function Profile() {
         </div>
       </div>
 
+      <div className={styles.section}>
+        <div className={styles.row}>
+          <div className={styles.column}>
+            <p className={cn("text-sm", styles.title)}>
+              {t("device.sectionTitle", "Your devices")}
+            </p>
+            <p className="text-sm opacity-75">
+              {t(
+                "device.sectionDescription",
+                "Link another device to this identity so it shares all your spaces and appears as you, not as someone else.",
+              )}
+            </p>
+          </div>
+
+          <Button variant="outline" onClick={() => setLinkDeviceOpen(true)}>
+            <MonitorSmartphone size={16} />
+            {t("device.title", "Link a device")}
+          </Button>
+        </div>
+      </div>
+
       <div className={styles.actions}>
         <Button
           onClick={handleSave}
@@ -176,6 +199,11 @@ export function Profile() {
           {t("common.save", "Save")}
         </Button>
       </div>
+
+      <LinkDeviceDialog
+        open={linkDeviceOpen}
+        onOpenChange={setLinkDeviceOpen}
+      />
 
       <AvatarCropDialog
         file={pendingFile}
