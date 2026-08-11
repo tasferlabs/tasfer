@@ -844,6 +844,7 @@
   "space.personalSpace": "Keep this space to myself",
   "space.personalSpaceMembersNote": "This space is yours alone. Only your own devices can open it, and it cannot be shared.",
   "space.personalSpaceNote": "Only your own devices can ever open it. It cannot be shared later, and this cannot be undone — so nothing you write here can become someone else's to read.",
+  "space.restoredSpace": "Restored \"{{name}}\" — it was archived on this device.",
   "space.ruleAllMembers": "All members can see and edit every page in the space.",
   "space.ruleOffline": "Works offline. Changes merge automatically when you reconnect.",
   "space.ruleP2P": "Pages sync directly between devices — peer-to-peer, no cloud.",

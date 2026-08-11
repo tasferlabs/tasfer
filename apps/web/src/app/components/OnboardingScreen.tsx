@@ -493,13 +493,24 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
   const [status, setStatus] = useState<JoinStatus>("input");
   const [camera, setCamera] = useState(false);
   const [spaceName, setSpaceName] = useState("");
+  const [wasRestored, setWasRestored] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { mutate: acceptInvite } = useAcceptInvite();
-
   /** Invite currently being accepted — cancel target */
   const activeInviteRef = useRef<SpaceInvite | null>(null);
+
+  const { mutate: acceptInvite } = useAcceptInvite({
+    onSuccess: (result) => {
+      // Space already here, archived: restored outright, so no pairing runs
+      // and no callback below will fire.
+      if (result.status !== "restored") return;
+      activeInviteRef.current = null;
+      setSpaceName(result.spaceName);
+      setWasRestored(true);
+      setStatus("done");
+    },
+  });
 
   const canJoin =
     (method === "code" && code.trim().length > 0) ||
@@ -520,6 +531,7 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
       return;
     }
     setStatus("connecting");
+    setWasRestored(false);
     activeInviteRef.current = invite;
     acceptInvite({
       invite,
@@ -629,11 +641,17 @@ function SpaceJoin({ setView }: { setView: (v: SpaceView) => void }) {
             <Check size={24} strokeWidth={2} />
           </div>
           <div className="ob-status-title">
-            {spaceName
-              ? t("space.joinedSpace", 'Joined "{{name}}" successfully!', {
-                  name: spaceName,
-                })
-              : t("space.peerConnected", "Connected!")}
+            {!spaceName
+              ? t("space.peerConnected", "Connected!")
+              : wasRestored
+                ? t(
+                    "space.restoredSpace",
+                    'Restored "{{name}}" — it was archived on this device.',
+                    { name: spaceName },
+                  )
+                : t("space.joinedSpace", 'Joined "{{name}}" successfully!', {
+                    name: spaceName,
+                  })}
           </div>
         </div>
       </div>

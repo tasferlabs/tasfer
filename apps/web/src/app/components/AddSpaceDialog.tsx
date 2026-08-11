@@ -123,6 +123,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   const [inviteFileName, setInviteFileName] = useState("");
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [spaceName, setSpaceName] = useState("");
+  const [wasRestored, setWasRestored] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -130,6 +131,15 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   const activeInviteRef = useRef<SpaceInvite | null>(null);
 
   const { mutate: acceptInvite } = useAcceptInvite({
+    onSuccess: (result) => {
+      // The space was already here, archived — no pairing ran, so nothing else
+      // will report completion.
+      if (result.status !== "restored") return;
+      activeInviteRef.current = null;
+      setSpaceName(result.spaceName);
+      setWasRestored(true);
+      setJoinStatus("done");
+    },
     onError: (err) => {
       setJoinStatus("error");
       setErrorMsg(err.message);
@@ -183,6 +193,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       setInviteFileName("");
       setIsDraggingFile(false);
       setSpaceName("");
+      setWasRestored(false);
       setErrorMsg("");
     }
     return () => {
@@ -579,9 +590,15 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
         <Check className="h-5 w-5 text-green-600 dark:text-green-400" />
       </div>
       <p className="text-sm font-medium text-center">
-        {t("space.joinedSpace", 'Joined "{{name}}" successfully!', {
-          name: spaceName,
-        })}
+        {wasRestored
+          ? t(
+              "space.restoredSpace",
+              'Restored "{{name}}" — it was archived on this device.',
+              { name: spaceName },
+            )
+          : t("space.joinedSpace", 'Joined "{{name}}" successfully!', {
+              name: spaceName,
+            })}
       </p>
       <Button
         variant="outline"

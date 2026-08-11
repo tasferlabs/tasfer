@@ -329,20 +329,59 @@ export async function revokeInvite(spaceId: string): Promise<void> {
   await platform.pairing.revokeInvite(spaceId);
 }
 
+/**
+ * How an invite was taken up: by pairing with the inviter, or by restoring a
+ * space this device already had. `paired` only means the pairing session
+ * started — its progress arrives through {@link PairCallbacks}.
+ */
+export type AcceptInviteResult =
+  | { status: "paired" }
+  | { status: "restored"; spaceName: string };
+
 export async function acceptInvite(
   invite: SpaceInvite,
   callbacks?: PairCallbacks,
-): Promise<void> {
+): Promise<AcceptInviteResult> {
   const platform = getPlatform();
+
+  // An invite to a space we archived is a rejoin, not a join: the ops,
+  // membership and peer keys never left this device, so restoring the space is
+  // the whole job. Pairing again would only re-derive what we still have —
+  // and it would need the inviter online, while this works offline.
+  // `listArchived` is already scoped to spaces we are a member of.
+  const archived = await platform.spaces.listArchived();
+  const known = archived.find((space) => space.id === invite.spaceId);
+  if (known) {
+    await platform.spaces.unarchive(known.id);
+    return { status: "restored", spaceName: known.name };
+  }
+
   await platform.pairing.acceptInvite(invite, callbacks);
+  return { status: "paired" };
 }
 
 export function useAcceptInvite<TContext = unknown>(
-  options?: UseMutationOptions<void, Error, { invite: SpaceInvite; callbacks?: PairCallbacks }, TContext>,
+  options?: UseMutationOptions<
+    AcceptInviteResult,
+    Error,
+    { invite: SpaceInvite; callbacks?: PairCallbacks },
+    TContext
+  >,
 ) {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ invite, callbacks }) => acceptInvite(invite, callbacks),
     ...options,
+    onSuccess: (result, ...rest) => {
+      // A restore moves the space out of the Archive and back into the sidebar,
+      // same as unarchiving it by hand.
+      if (result.status === "restored") {
+        for (const key of spaceArchiveKeys()) {
+          queryClient.invalidateQueries({ queryKey: key });
+        }
+      }
+      options?.onSuccess?.(result, ...rest);
+    },
   });
 }
 
