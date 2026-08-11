@@ -103,6 +103,18 @@ const DISCONNECTED_GRACE_MS = 5_000;
 const ICE_RESTART_TIMEOUT_MS = 10_000;
 
 /**
+ * How long a peer stays marked as direct-hostile after ICE gave up on it.
+ *
+ * On a network where ICE cannot work at all — blocked STUN, or a resolver that
+ * fails the STUN hostname lookup — every signaling reconnect would otherwise
+ * re-run the full handshake and burn INITIAL_CONNECTION_TIMEOUT_MS before
+ * relaying again, restarting any sync that was in flight. Remembering the
+ * failure sends the reconnect straight to the relay. It expires because the
+ * verdict is about the network, not the peer, and networks change.
+ */
+const DIRECT_RETRY_AFTER_MS = 5 * 60_000;
+
+/**
  * Signaling-socket keepalive cadence. Must stay under the tightest common
  * NAT/proxy idle window — mobile carriers routinely cull at 60s, and an idle
  * socket dropped that way gives the client only a 1006 with no close frame.
@@ -358,6 +370,16 @@ class ChunkAssembler {
  */
 const SEND_HIGH_WATER = 1024 * 1024; // 1 MB queued → stop writing
 const SEND_LOW_WATER = 256 * 1024; // drained to 256 KB → resume
+
+/**
+ * Same watermark for the relay path, over the signaling socket instead.
+ *
+ * `ws.send()` never blocks either, and a relay-mode bootstrap hands it an
+ * entire document as fast as AES-GCM can encrypt the chunks. WebSocket has no
+ * `bufferedamountlow` event, so the drain is polled rather than awaited.
+ */
+const WS_SEND_HIGH_WATER = 1024 * 1024;
+const WS_DRAIN_POLL_MS = 50;
 
 // =============================================================================
 // Peer — wraps one RTCPeerConnection + DataChannel
@@ -653,6 +675,14 @@ class WebRtcTopic implements NetworkTopic {
   private connectionDeadlines = new Map<string, ReturnType<typeof setTimeout>>();
   private disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private restartAttempted = new Set<string>();
+  /** When ICE last gave up on a peer — see {@link DIRECT_RETRY_AFTER_MS}. */
+  private directFailedAt = new Map<string, number>();
+  /**
+   * Peers whose direct connection we kept alive past their `peer-left`. They
+   * are unreachable by relay until they rejoin, so a later transport failure
+   * has to remove them instead of falling back — see {@link _handlePeerLeft}.
+   */
+  private departedFromRoom = new Set<string>();
   private pendingIce = new Map<string, (RTCIceCandidateInit | null)[]>();
   private signalQueues = new Map<string, Promise<void>>();
 
@@ -777,9 +807,9 @@ class WebRtcTopic implements NetworkTopic {
       // Only now: while superseded, the timers belong to the newer socket.
       this.clearSocketTimers();
 
-      // Tear down peer connections but keep listeners so reconnected peers
-      // re-trigger handlePeerJoin in the Replicator.
-      this._reset();
+      // Drop only what the socket was carrying. Listeners stay so reconnected
+      // peers re-trigger handlePeerJoin in the Replicator.
+      this._dropSignalingDependentPeers();
       this.ws = null;
 
       // Skip reconnect when destroyed (terminal) or suspended (backgrounded):
@@ -904,8 +934,27 @@ class WebRtcTopic implements NetworkTopic {
   }
 
   private async sendRelay(target: string, data: string): Promise<void> {
+    await this.waitForWsDrain();
     const encrypted = await encrypt(this.encKey, data);
     this.wsSend({ type: "relay", target, data: encrypted });
+  }
+
+  /**
+   * Hold relay writes while the signaling socket's send buffer is over the
+   * high-water mark — the relay's equivalent of {@link WebRtcPeer.waitForDrain}.
+   * Returns as soon as the socket drains, is replaced, or dies; a dead socket
+   * lets `wsSend` throw, which the caller already treats as a failed send.
+   */
+  private async waitForWsDrain(): Promise<void> {
+    const socket = this.ws;
+    if (!socket) return;
+    while (
+      this.ws === socket &&
+      socket.readyState === WebSocket.OPEN &&
+      socket.bufferedAmount >= WS_SEND_HIGH_WATER
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, WS_DRAIN_POLL_MS));
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1033,6 +1082,8 @@ class WebRtcTopic implements NetworkTopic {
     this.clearConnectionDeadline(remotePeerId);
     this.clearDisconnectTimer(remotePeerId);
     this.restartAttempted.delete(remotePeerId);
+    // Direct works with this peer after all; let the next attempt start there.
+    this.directFailedAt.delete(remotePeerId);
   }
 
   private handleDataChannelClose(remotePeerId: string, peer: WebRtcPeer): void {
@@ -1099,6 +1150,14 @@ class WebRtcTopic implements NetworkTopic {
     }
   }
 
+  private recentlyFailedDirect(remotePeerId: string): boolean {
+    const failedAt = this.directFailedAt.get(remotePeerId);
+    if (failedAt === undefined) return false;
+    if (Date.now() - failedAt < DIRECT_RETRY_AFTER_MS) return true;
+    this.directFailedAt.delete(remotePeerId);
+    return false;
+  }
+
   private queueIce(remotePeerId: string, candidate: RTCIceCandidateInit | null): void {
     const queued = this.pendingIce.get(remotePeerId) ?? [];
     if (queued.length < 64) queued.push(candidate);
@@ -1124,10 +1183,21 @@ class WebRtcTopic implements NetworkTopic {
     // to ourselves wedges a peer slot forever — `isInitiator` is false for
     // equal ids, so the responder branch would wait for a channel nobody opens.
     if (remotePeerId === this.localPeerId) return;
+    // Back in the room: a connection we kept through its absence is reachable
+    // by relay again, so it no longer needs the departed special case.
+    this.departedFromRoom.delete(remotePeerId);
     if (this.peers.has(remotePeerId)) return;
 
     const rShort = remotePeerId.slice(0, 8);
     const topicShort = this.topicHex.slice(0, 8);
+
+    // ICE already failed here recently — go straight to the relay rather than
+    // spend another INITIAL_CONNECTION_TIMEOUT_MS proving it again.
+    if (this.recentlyFailedDirect(remotePeerId)) {
+      console.log(`[WebRTC] skipping direct attempt remote=${rShort} topic=${topicShort} — ICE failed recently`);
+      this._promoteToRelay(remotePeerId);
+      return;
+    }
 
     const pc = new RTCPeerConnection(this.getRtcConfig());
     const peer = new WebRtcPeer(remotePeerId, pc);
@@ -1271,7 +1341,45 @@ class WebRtcTopic implements NetworkTopic {
   }
 
   _handlePeerLeft(remotePeerId: string) {
+    // The room tracks signaling sockets, not transports. A peer whose
+    // DataChannel is already open is still reachable after its signaling socket
+    // drops, and it announces itself again when that socket comes back — tearing
+    // the connection down here would turn a signaling blip into a full resync.
+    // A genuine departure closes the channel too, and that path removes it.
+    const peer = this.peers.get(remotePeerId);
+    if (peer && this.survivesSignalingLoss(peer)) {
+      console.log(`[WebRTC] ${remotePeerId.slice(0, 8)} left the room — keeping the open direct connection`);
+      this.departedFromRoom.add(remotePeerId);
+      return;
+    }
     this._removePeer(remotePeerId);
+  }
+
+  /** True for peers whose transport is independent of the signaling socket. */
+  private survivesSignalingLoss(peer: WebRtcPeer | RelayPeer): boolean {
+    // A relay peer *is* the socket, and a half-built direct peer still needs
+    // signaling to finish its handshake. Neither outlives the connection.
+    return peer instanceof WebRtcPeer && peer.isReady();
+  }
+
+  /**
+   * Our signaling socket went away. Close the peers that depended on it and
+   * leave the ones that do not — see {@link survivesSignalingLoss}.
+   */
+  private _dropSignalingDependentPeers() {
+    for (const [remotePeerId, peer] of [...this.peers]) {
+      if (this.survivesSignalingLoss(peer)) continue;
+      this.clearConnectionDeadline(remotePeerId);
+      this.clearDisconnectTimer(remotePeerId);
+      this.restartAttempted.delete(remotePeerId);
+      this.departedFromRoom.delete(remotePeerId);
+      this.peers.delete(remotePeerId);
+      peer.close();
+    }
+    // Scratch state for in-flight signaling exchanges; meaningless once the
+    // socket that was carrying them is gone.
+    this.pendingIce.clear();
+    this.signalQueues.clear();
   }
 
   /** ICE failed — swap to relay transport, transparent to the Replicator */
@@ -1279,11 +1387,21 @@ class WebRtcTopic implements NetworkTopic {
     const existing = this.peers.get(remotePeerId);
     if (existing instanceof RelayPeer) return;
 
+    // A peer that already left the room cannot be relayed to — the server has
+    // no socket to forward through. Its direct connection outlived the room
+    // membership and has now failed too, so it is simply gone.
+    if (this.departedFromRoom.has(remotePeerId)) {
+      console.log(`[WebRTC] ${remotePeerId.slice(0, 8)} lost its direct connection after leaving the room — dropping`);
+      this._removePeer(remotePeerId);
+      return;
+    }
+
     this.clearConnectionDeadline(remotePeerId);
     this.clearDisconnectTimer(remotePeerId);
     this.restartAttempted.delete(remotePeerId);
     this.pendingIce.delete(remotePeerId);
     this.signalQueues.delete(remotePeerId);
+    this.directFailedAt.set(remotePeerId, Date.now());
 
     if (notifyRemote) {
       void this.sendSignal(remotePeerId, { type: "relay-start" }).catch((e) => {
@@ -1331,6 +1449,7 @@ class WebRtcTopic implements NetworkTopic {
     this.restartAttempted.delete(remotePeerId);
     this.pendingIce.delete(remotePeerId);
     this.signalQueues.delete(remotePeerId);
+    this.departedFromRoom.delete(remotePeerId);
     if (!peer) return;
     this.peers.delete(remotePeerId);
     peer.close();
@@ -1387,6 +1506,9 @@ class WebRtcTopic implements NetworkTopic {
     if (!this.suspended) return;
     this.suspended = false;
     this.reconnectAttempt = 0;
+    // Backgrounding usually means the network moved (Wi-Fi ↔ cellular), so the
+    // last verdict on direct connectivity no longer applies.
+    this.directFailedAt.clear();
     await this.ensureWs();
   }
 
@@ -1406,6 +1528,7 @@ class WebRtcTopic implements NetworkTopic {
     this.restartAttempted.clear();
     this.pendingIce.clear();
     this.signalQueues.clear();
+    this.departedFromRoom.clear();
   }
 
   async destroy(): Promise<void> {
