@@ -4762,61 +4762,125 @@ export function outdentListItem(state: EditorState): ActionResult {
 }
 
 /**
- * Move a block to sit immediately after `afterBlockId` (null = head of the
- * document) by minting a fresh fractional-index `orderKey` and emitting a
- * single `block_set` op for it. Position is an LWW register, so a move
- * converges through the same last-writer-wins path as any other block property
- * — no neighbour re-anchoring, no dedicated move op.
- *
- * Pure `(state) => { state, ops }` transform. Guards refuse to emit a no-op;
- * the local page is derived by replaying the emitted op through `applyOp` so
- * local emit and remote apply can never drift.
+ * Re-point the caret and selection at the blocks they were sitting on. A move
+ * re-sorts `page.blocks`, and both carry array indices — left alone they would
+ * address whichever blocks slid into their slots.
  */
-export function moveBlock(
+function withPositionsRebased(
   state: EditorState,
-  blockId: string,
+  before: Block[],
+  after: Block[],
+): EditorState {
+  const rebase = (pos: Position): Position => {
+    const id = before[pos.blockIndex]?.id;
+    if (id === undefined) return pos;
+    const blockIndex = after.findIndex((b) => b.id === id);
+    return blockIndex === -1 || blockIndex === pos.blockIndex
+      ? pos
+      : { ...pos, blockIndex };
+  };
+
+  const { cursor, selection } = state.document;
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      cursor: cursor
+        ? { ...cursor, position: rebase(cursor.position) }
+        : cursor,
+      selection: selection
+        ? {
+            ...selection,
+            anchor: rebase(selection.anchor),
+            focus: rebase(selection.focus),
+          }
+        : selection,
+    },
+  };
+}
+
+/**
+ * Move a run of blocks so they sit — in their existing relative order —
+ * immediately after `afterBlockId` (null = head of the document), by minting a
+ * fresh fractional-index `orderKey` for each and emitting one `block_set` per
+ * block. Position is an LWW register, so a move converges through the same
+ * last-writer-wins path as any other block property — no neighbour
+ * re-anchoring, no dedicated move op.
+ *
+ * Pure `(state) => { state, ops }` transform. Guards refuse to emit a no-op —
+ * including a drop into a gap inside the run, or on either of its edges, which
+ * would leave the order unchanged. The local page is derived by replaying the
+ * emitted ops through `applyOp` so local emit and remote apply can never drift.
+ */
+export function moveBlocks(
+  state: EditorState,
+  blockIds: readonly string[],
   afterBlockId: string | null,
 ): ActionResult {
   const page = state.document.page;
+  const ordered = sortBlocksByOrder(page.blocks).filter((b) => !b.deleted);
+  const moving = ordered.filter((b) => blockIds.includes(b.id));
+  if (moving.length === 0) return { state, ops: [] };
 
-  const block = findBlock(page, blockId);
-  if (!block || block.deleted) return { state, ops: [] };
-
-  // A block cannot follow itself.
-  if (afterBlockId === blockId) return { state, ops: [] };
+  // A block cannot follow itself, nor a sibling travelling with it.
+  if (afterBlockId !== null && moving.some((b) => b.id === afterBlockId)) {
+    return { state, ops: [] };
+  }
 
   // Refuse to anchor to a target that does not exist (or is tombstoned): the
-  // block would silently jump to the end of the document.
+  // blocks would silently jump to the end of the document.
   if (afterBlockId !== null) {
     const target = findBlock(page, afterBlockId);
     if (!target || target.deleted) return { state, ops: [] };
   }
 
-  // Already positioned immediately after the requested anchor — nothing to do.
-  const ordered = sortBlocksByOrder(page.blocks);
-  const currentIndex = ordered.findIndex((b) => b.id === blockId);
-  const predecessorId = currentIndex > 0 ? ordered[currentIndex - 1].id : null;
-  if (predecessorId === afterBlockId) return { state, ops: [] };
+  // Already sitting as one contiguous run immediately after the requested
+  // anchor — nothing to do.
+  const firstIndex = ordered.findIndex((b) => b.id === moving[0].id);
+  const contiguous = moving.every(
+    (b, i) => ordered[firstIndex + i]?.id === b.id,
+  );
+  const predecessorId = firstIndex > 0 ? ordered[firstIndex - 1].id : null;
+  if (contiguous && predecessorId === afterBlockId) return { state, ops: [] };
 
-  const op: BlockSet = {
-    op: "block_set",
-    id: state.CRDTbinding.nextId(),
-    clock: state.CRDTbinding.getClock(),
-    pageId: state.CRDTbinding.pageId,
-    blockId,
-    field: "orderKey",
-    value: orderKeyAfter(page.blocks, afterBlockId),
-  };
-
-  const newPage = applyOp(page, op);
+  const ops: Operation[] = [];
+  let newPage = page;
+  let anchorId = afterBlockId;
+  for (const block of moving) {
+    const op: BlockSet = {
+      op: "block_set",
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
+      blockId: block.id,
+      field: "orderKey",
+      // Minted against the page as it stands after the previous block landed,
+      // so each one chains onto its predecessor and the run keeps its internal
+      // order instead of every block piling into the same gap.
+      value: orderKeyAfter(newPage.blocks, anchorId),
+    };
+    newPage = applyOp(newPage, op);
+    ops.push(op);
+    anchorId = block.id;
+  }
 
   return {
-    state: {
-      ...state,
-      document: { ...state.document, page: newPage },
-    },
-    ops: [op],
+    state: withPositionsRebased(
+      { ...state, document: { ...state.document, page: newPage } },
+      page.blocks,
+      newPage.blocks,
+    ),
+    ops,
   };
+}
+
+/** Single-block {@link moveBlocks} — one `block_set` of the block's `orderKey`. */
+export function moveBlock(
+  state: EditorState,
+  blockId: string,
+  afterBlockId: string | null,
+): ActionResult {
+  return moveBlocks(state, [blockId], afterBlockId);
 }
 
 /**

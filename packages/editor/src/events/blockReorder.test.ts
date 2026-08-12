@@ -1,11 +1,13 @@
 /**
  * Block reorder (gutter drag handle). The handle is a chrome region whose
- * hitTest claims the left-gutter band over a block; its drag stashes a
- * `ui.blockDrag` (with the drop insertion index) and, on release, repositions
- * the block via the `MOVE_BLOCK` action — a single `block_set` of `orderKey`.
- * These tests pin the geometry (`dropIndexAtPoint`), the band hit-test, and the
- * start/move/end/cancel drag transitions. CRDT convergence of the emitted op is
- * covered separately by `sync/block-move.test.ts`.
+ * hitTest claims the left-gutter band over a block — or, when the selection
+ * spans several lines, over that whole run from one handle on its first line.
+ * Its drag stashes a `ui.blockDrag` (the moved blocks + the drop insertion
+ * index) and, on release, repositions them via the `MOVE_BLOCKS` action — one
+ * `block_set` of `orderKey` each. These tests pin the geometry
+ * (`dropIndexAtPoint`), the band hit-test, and the start/move/end/cancel drag
+ * transitions. CRDT convergence of the emitted ops is covered separately by
+ * `sync/block-move.test.ts`.
  */
 
 import { AtomicNode } from "../rendering/nodes/AtomicNode";
@@ -93,6 +95,31 @@ function order(state: EditorState): string[] {
     .map((b) => b.id);
 }
 
+/**
+ * `state` with a text selection running from block `from` to block `to`. The
+ * focus offset decides whether the trailing block counts as selected: offset 0
+ * highlights nothing in it.
+ */
+function withSelection(
+  state: EditorState,
+  from: number,
+  to: number,
+  focusTextIndex = 1,
+): EditorState {
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      selection: {
+        anchor: { blockIndex: from, textIndex: 0 },
+        focus: { blockIndex: to, textIndex: focusTextIndex },
+        isForward: true,
+        isCollapsed: false,
+      },
+    },
+  };
+}
+
 function dragHandle(): Region {
   const region = createChromeRegionRegistry()
     .all()
@@ -150,10 +177,12 @@ describe("block-drag-handle region hitTest", () => {
     expect(region.hitTest({ x: 20, y: topOf(0) + 10 }, "mouse", ctx)).toEqual({
       blockId: "A",
       originalIndex: 0,
+      blockIds: ["A"],
     });
     expect(region.hitTest({ x: 20, y: topOf(1) + 10 }, "mouse", ctx)).toEqual({
       blockId: "B",
       originalIndex: 1,
+      blockIds: ["B"],
     });
   });
 
@@ -174,6 +203,36 @@ describe("block-drag-handle region hitTest", () => {
       region.hitTest({ x: 20, y: topOf(0) + 10 }, "touch", ctx),
     ).toBeNull();
   });
+
+  // A selection spanning several lines gets ONE handle, on its first line —
+  // anywhere in the run's gutter grabs the whole run. Hover and drag share this
+  // hit test, so the grip is painted on that first line too.
+  describe("with a multi-line selection", () => {
+    const selected = ctxOf(withSelection(stateOf(["A", "B", "C", "D"]), 1, 2));
+    const run = { blockId: "B", originalIndex: 1, blockIds: ["B", "C"] };
+
+    it("resolves anywhere in the run to the first selected block", () => {
+      expect(region.hitTest({ x: 20, y: topOf(1) + 10 }, "mouse", selected)) //
+        .toEqual(run);
+      expect(region.hitTest({ x: 20, y: topOf(2) + 10 }, "mouse", selected)) //
+        .toEqual(run);
+    });
+
+    it("leaves a block outside the run as its own single handle", () => {
+      expect(
+        region.hitTest({ x: 20, y: topOf(3) + 10 }, "mouse", selected),
+      ).toEqual({ blockId: "D", originalIndex: 3, blockIds: ["D"] });
+    });
+
+    it("excludes a trailing block the selection only touches at offset 0", () => {
+      // Selecting into C's offset 0 highlights nothing in C, so the run is B
+      // alone and the handle stays per-block.
+      const ctx0 = ctxOf(withSelection(stateOf(["A", "B", "C", "D"]), 1, 2, 0));
+      expect(
+        region.hitTest({ x: 20, y: topOf(1) + 10 }, "mouse", ctx0),
+      ).toEqual({ blockId: "B", originalIndex: 1, blockIds: ["B"] });
+    });
+  });
 });
 
 describe("block-drag-handle drag lifecycle", () => {
@@ -187,12 +246,12 @@ describe("block-drag-handle drag lifecycle", () => {
     if (!drag) throw new Error("expected a drag spec");
     const state = stateOf(["A", "B", "C", "D"]);
     const res = drag.onStart(
-      { blockId: "B" },
+      { blockId: "B", originalIndex: 1, blockIds: ["B"] },
       { x: 20, y: topOf(1) + 30 },
       ctxOf(state),
     );
     expect(res?.state.ui.blockDrag).toEqual({
-      blockId: "B",
+      blockIds: ["B"],
       pointerY: topOf(1) + 30,
       dropIndex: 2, // past B's midpoint (y=20) → gap after B
     });
@@ -208,7 +267,7 @@ describe("block-drag-handle drag lifecycle", () => {
       ...state,
       ui: {
         ...state.ui,
-        blockDrag: { blockId: "B", pointerY: 0, dropIndex: 0 },
+        blockDrag: { blockIds: ["B"], pointerY: 0, dropIndex: 0 },
       },
     };
     expect(drag.onCancel(ctxOf(dragging)).ui.blockDrag).toBeNull();
@@ -222,7 +281,7 @@ describe("block-drag-handle drag lifecycle", () => {
       ...state,
       ui: {
         ...state.ui,
-        blockDrag: { blockId: "C", pointerY: 0, dropIndex: 0 },
+        blockDrag: { blockIds: ["C"], pointerY: 0, dropIndex: 0 },
       },
     };
     const res = drag.onEnd(null, ctxOf(dragging));
@@ -241,7 +300,7 @@ describe("block-drag-handle drag lifecycle", () => {
       ...state,
       ui: {
         ...state.ui,
-        blockDrag: { blockId: "A", pointerY: 0, dropIndex: 3 },
+        blockDrag: { blockIds: ["A"], pointerY: 0, dropIndex: 3 },
       },
     };
     const res = drag.onEnd(null, ctxOf(dragging));
@@ -257,12 +316,68 @@ describe("block-drag-handle drag lifecycle", () => {
       ...state,
       ui: {
         ...state.ui,
-        blockDrag: { blockId: "B", pointerY: 0, dropIndex: 1 },
+        blockDrag: { blockIds: ["B"], pointerY: 0, dropIndex: 1 },
       },
     };
     const res = drag.onEnd(null, ctxOf(dragging));
     expect(res?.ops).toHaveLength(0);
     expect(order(res!.state)).toEqual(["A", "B", "C", "D"]);
+  });
+
+  it("onEnd moves a whole run, keeping its internal order", () => {
+    const drag = region.drag;
+    if (!drag) throw new Error("expected a drag spec");
+    const state = stateOf(["A", "B", "C", "D"]);
+    // Drop [A,B] at the tail — one block_set per moved block.
+    const dragging: EditorState = {
+      ...state,
+      ui: {
+        ...state.ui,
+        blockDrag: { blockIds: ["A", "B"], pointerY: 0, dropIndex: 4 },
+      },
+    };
+    const res = drag.onEnd(null, ctxOf(dragging));
+    expect(res?.ops).toHaveLength(2);
+    expect(order(res!.state)).toEqual(["C", "D", "A", "B"]);
+  });
+
+  it("onEnd is a no-op when a run lands in a gap inside itself", () => {
+    const drag = region.drag;
+    if (!drag) throw new Error("expected a drag spec");
+    const state = stateOf(["A", "B", "C", "D"]);
+    // Gap index 2 sits between B and C — both are being dragged.
+    const dragging: EditorState = {
+      ...state,
+      ui: {
+        ...state.ui,
+        blockDrag: { blockIds: ["B", "C"], pointerY: 0, dropIndex: 2 },
+      },
+    };
+    const res = drag.onEnd(null, ctxOf(dragging));
+    expect(res?.ops).toHaveLength(0);
+    expect(order(res!.state)).toEqual(["A", "B", "C", "D"]);
+  });
+
+  // The move re-sorts page.blocks, and the selection addresses blocks by array
+  // index — left alone it would stay behind, highlighting whichever lines slid
+  // into the vacated slots instead of the ones the user just dragged.
+  it("onEnd keeps the selection on the blocks it moved", () => {
+    const drag = region.drag;
+    if (!drag) throw new Error("expected a drag spec");
+    const state = withSelection(stateOf(["A", "B", "C", "D"]), 0, 1);
+    const dragging: EditorState = {
+      ...state,
+      ui: {
+        ...state.ui,
+        blockDrag: { blockIds: ["A", "B"], pointerY: 0, dropIndex: 4 },
+      },
+    };
+    const res = drag.onEnd(null, ctxOf(dragging));
+    expect(order(res!.state)).toEqual(["C", "D", "A", "B"]);
+    const selection = res!.state.document.selection;
+    expect([selection?.anchor.blockIndex, selection?.focus.blockIndex]).toEqual(
+      [2, 3],
+    );
   });
 });
 
@@ -284,7 +399,7 @@ describe("block-drag-handle edge auto-scroll", () => {
       ...state,
       ui: {
         ...state.ui,
-        blockDrag: { blockId: "A", pointerY: 0, dropIndex: 0 },
+        blockDrag: { blockIds: ["A"], pointerY: 0, dropIndex: 0 },
       },
     });
   }
@@ -359,7 +474,7 @@ describe("block-drag-handle edge auto-scroll", () => {
         ...state,
         ui: {
           ...state.ui,
-          blockDrag: { blockId: "b0", pointerY: 760, dropIndex: before },
+          blockDrag: { blockIds: ["b0"], pointerY: 760, dropIndex: before },
         },
       }),
       viewport: scrolled,

@@ -294,7 +294,9 @@ export {
   JOIN_WITH_PREVIOUS_BLOCK,
   joinWithPreviousBlock,
   MOVE_BLOCK,
+  MOVE_BLOCKS,
   moveBlock,
+  moveBlocks,
   registerEmptyBlockBackspaceExit,
   REVERT_INPUT_RULE,
   SELECT_ALL,
@@ -519,8 +521,8 @@ export { isApplePlatform } from "./platform";
 export {
   isSafeLinkUrl,
   normalizeLinkUrl,
-  safeLinkHref,
   SAFE_LINK_PROTOCOLS,
+  safeLinkHref,
 } from "./url-safety";
 
 // Serialization — project a document to Markdown / HTML, parse Markdown back

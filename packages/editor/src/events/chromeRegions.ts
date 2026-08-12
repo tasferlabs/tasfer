@@ -10,7 +10,7 @@
  */
 
 import { CURSOR_DRAG_BOUNDARY, CURSOR_DRAG_END } from "../action-bus";
-import { MOVE_BLOCK } from "../actions/edit-actions";
+import { MOVE_BLOCKS } from "../actions/edit-actions";
 import {
   BLOCK_DRAG_HANDLE_HIT_WIDTH,
   EDGE_SCROLL_THRESHOLD,
@@ -33,6 +33,7 @@ import {
   getBlockIndexAtPoint,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
+  selectedBlockIds,
   snapSelectionToConstructs,
 } from "../selection";
 import type { EditorState } from "../state-types";
@@ -454,10 +455,25 @@ const peerIndicatorRegion: Region = {
 };
 
 /**
- * The block whose left-gutter handle band contains `p`, or `null`. The band is
+ * What a gutter-handle hit carries: the block the grip is painted on, plus
+ * every block the drag moves. The two differ for a multi-line selection, where
+ * the whole run is grabbed from one handle on its first line.
+ */
+interface GutterHandleHit {
+  readonly blockId: string;
+  readonly originalIndex: number;
+  readonly blockIds: readonly string[];
+}
+
+/**
+ * The gutter handle whose left-gutter band contains `p`, or `null`. The band is
  * the slice of the left padding nearest the content column (`[paddingLeft -
  * HIT_WIDTH, paddingLeft)`); the canvas gutter is never mirrored for RTL (text
  * direction is intra-block), so it is always on the left.
+ *
+ * When the point lands on a block inside a multi-line selection, the hit
+ * resolves to the run's FIRST block: the whole selection then shows a single
+ * grip there (hover and drag share this hit test) and moves as one.
  *
  * A full-bleed atomic block (an edge-to-edge image) draws its own content
  * across this band, so the block it covers owns the pixel — the handle yields
@@ -469,7 +485,7 @@ const peerIndicatorRegion: Region = {
 function blockAtGutterPoint(
   p: RegionPoint,
   ctx: RegionCtx,
-): { blockId: string; originalIndex: number } | null {
+): GutterHandleHit | null {
   const styles = getEditorStyles(ctx.state);
   const gutterInner = styles.canvas.paddingLeft;
   if (p.x < gutterInner - BLOCK_DRAG_HANDLE_HIT_WIDTH || p.x >= gutterInner) {
@@ -495,10 +511,22 @@ function blockAtGutterPoint(
     ctx.visibility,
   );
   if (originalIndex === null) return null;
-  const block = ctx.state.view.visibleBlocks.find(
-    (b) => b.originalIndex === originalIndex,
-  );
-  return block ? { blockId: block.id, originalIndex } : null;
+  const { visibleBlocks } = ctx.state.view;
+  const block = visibleBlocks.find((b) => b.originalIndex === originalIndex);
+  if (!block) return null;
+
+  const run = selectedBlockIds(ctx.state);
+  if (run?.includes(block.id)) {
+    const first = visibleBlocks.find((b) => b.id === run[0]);
+    if (first) {
+      return {
+        blockId: first.id,
+        originalIndex: first.originalIndex,
+        blockIds: run,
+      };
+    }
+  }
+  return { blockId: block.id, originalIndex, blockIds: [block.id] };
 }
 
 function setBlockDrag(
@@ -511,8 +539,10 @@ function setBlockDrag(
 /**
  * Block reorder handle — the left-gutter grab band. Hovering a block's gutter
  * shows a grip (painted by the renderer off `ui.hoveredDragHandleBlockId`);
- * dragging it repositions the block via the {@link MOVE_BLOCK} action on
- * release. Mouse only — touch reordering is a separate gesture (not built yet).
+ * dragging it repositions the block via the {@link MOVE_BLOCKS} action on
+ * release. A selection spanning several lines shows one grip on its first line
+ * and drags the whole run. Mouse only — touch reordering is a separate gesture
+ * (not built yet).
  */
 const blockDragHandleRegion: Region = {
   id: "block-drag-handle",
@@ -524,10 +554,10 @@ const blockDragHandleRegion: Region = {
   },
   drag: {
     onStart(hit, p, ctx) {
-      const { blockId } = hit as { blockId: string };
+      const { blockIds } = hit as GutterHandleHit;
       return {
         state: setBlockDrag(ctx.state, {
-          blockId,
+          blockIds,
           pointerY: p.y,
           dropIndex: dropIndexAtPoint(
             p.y,
@@ -604,14 +634,16 @@ const blockDragHandleRegion: Region = {
       if (!drag) return { state: cleared };
       // Resolve the STORED dropIndex (a window-level mouseup has no position).
       // visibleBlocks are in visual order, so the block at dropIndex-1 is the
-      // new predecessor; index 0 means the head of the document.
+      // new predecessor; index 0 means the head of the document. Landing on a
+      // block that is itself being dragged (a gap inside the run) is a no-op,
+      // which MOVE_BLOCKS already refuses.
       const { visibleBlocks } = cleared.view;
       const afterBlockId =
         drag.dropIndex <= 0
           ? null
           : (visibleBlocks[drag.dropIndex - 1]?.id ?? null);
-      const result = cleared.actionBus.dispatchState(MOVE_BLOCK, cleared, {
-        blockId: drag.blockId,
+      const result = cleared.actionBus.dispatchState(MOVE_BLOCKS, cleared, {
+        blockIds: drag.blockIds,
         afterBlockId,
       });
       return { state: result.state, ops: result.ops };

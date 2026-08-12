@@ -1039,6 +1039,35 @@ export function dropIndexAtPoint(
 }
 
 /**
+ * The ids of the blocks a selection spans, in visual order, or `null` when it
+ * covers at most one block. The gutter drag handle uses this to collapse a
+ * many-line selection into a single grab point on its first line that carries
+ * the whole run.
+ *
+ * A range ending at offset 0 of a block highlights nothing in that block, so
+ * the trailing block is excluded — the run is what the user sees selected.
+ */
+export function selectedBlockIds(state: EditorState): string[] | null {
+  const selection = state.document.selection;
+  if (!selection || selection.isCollapsed) return null;
+
+  const { anchor, focus } = selection;
+  const start = Math.min(anchor.blockIndex, focus.blockIndex);
+  let end = Math.max(anchor.blockIndex, focus.blockIndex);
+  if (end === start) return null;
+  const endPoint = anchor.blockIndex > focus.blockIndex ? anchor : focus;
+  if (endPoint.textIndex === 0) end--;
+  if (end <= start) return null;
+
+  // Scoped to the view window: a block outside it is neither painted nor
+  // draggable here, so it never joins the run.
+  const ids = state.view.visibleBlocks
+    .filter((b) => b.originalIndex >= start && b.originalIndex <= end)
+    .map((b) => b.id);
+  return ids.length > 1 ? ids : null;
+}
+
+/**
  * Whether canvas-y `y` lands in the empty area *below* the last visible block
  * (not merely below the fold). Used to distinguish a click in the trailing
  * whitespace from a click on the block's own last line — only the former

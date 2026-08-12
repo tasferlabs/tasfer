@@ -60,6 +60,7 @@ import {
   insertText,
   mergeBlocksOps,
   moveBlock,
+  moveBlocks,
   revertInputRule,
   selectAll,
   splitBlock,
@@ -448,9 +449,22 @@ export const MOVE_BLOCK = stateAction<{
   moveBlock(state, blockId, afterBlockId),
 );
 
+/**
+ * Reposition a run of blocks to sit immediately after `afterBlockId` (null =
+ * head), keeping their relative order — one `block_set` of `orderKey` per
+ * block. The multi-block form of {@link MOVE_BLOCK}, dispatched by the gutter
+ * drag handle when the selection spans several lines so they travel as one.
+ */
+export const MOVE_BLOCKS = stateAction<{
+  blockIds: readonly string[];
+  afterBlockId: string | null;
+}>("move-blocks", (state, { blockIds, afterBlockId }) =>
+  moveBlocks(state, blockIds, afterBlockId),
+);
+
 // Re-exported alongside its StateAction so a host can call the pure transform
 // directly, mirroring `joinWithPreviousBlock` / `JOIN_WITH_PREVIOUS_BLOCK`.
-export { moveBlock } from "./actions";
+export { moveBlock, moveBlocks } from "./actions";
 
 // The list indent/outdent actions (INDENT_LIST_ITEM / OUTDENT_LIST_ITEM) and the
 // mark toggles (TOGGLE_STRONG, …) are co-located with the node/mark they act on:
