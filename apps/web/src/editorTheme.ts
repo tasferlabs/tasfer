@@ -39,8 +39,16 @@ const TOUCH_IMAGE_HANDLE_INSET = 40;
  * tracks the painted grip (still comfortably tappable with the 12px touch
  * tolerance the engine adds on each side).
  */
-const TOUCH_IMAGE_HANDLE_LENGTH = 48;
-const TOUCH_IMAGE_HANDLE_BOTTOM_LENGTH = 64;
+const TOUCH_IMAGE_HANDLE_LENGTH = 64;
+const TOUCH_IMAGE_HANDLE_BOTTOM_LENGTH = 88;
+/**
+ * Thicker than the desktop 6px bar: a grip aimed at a thumb has to be visible
+ * as a target from arm's length, not just hittable. With the engine's 12px
+ * touch tolerance on each side this makes the grab band ~34px across, in line
+ * with the rest of the app's touch targets.
+ */
+const TOUCH_IMAGE_HANDLE_THICKNESS = 10;
+const TOUCH_IMAGE_HANDLE_RADIUS = 5;
 /** Slightly translucent so the grips rest lightly over photo content. */
 const TOUCH_IMAGE_HANDLE_OPACITY = 0.85;
 
@@ -145,10 +153,14 @@ export function cssVarsToTheme(): EditorTheme {
                 vertical: {
                   inset: TOUCH_IMAGE_HANDLE_INSET,
                   length: TOUCH_IMAGE_HANDLE_LENGTH,
+                  thickness: TOUCH_IMAGE_HANDLE_THICKNESS,
+                  borderRadius: TOUCH_IMAGE_HANDLE_RADIUS,
                   opacity: TOUCH_IMAGE_HANDLE_OPACITY,
                 },
                 horizontal: {
                   length: TOUCH_IMAGE_HANDLE_BOTTOM_LENGTH,
+                  thickness: TOUCH_IMAGE_HANDLE_THICKNESS,
+                  borderRadius: TOUCH_IMAGE_HANDLE_RADIUS,
                   opacity: TOUCH_IMAGE_HANDLE_OPACITY,
                 },
               },

@@ -1831,7 +1831,11 @@ function renderImageDragHandles(
 
   ctx.save();
 
+  // `bar` is the style set of the handle being drawn: the bottom bar is
+  // configured separately from the side bars, so a host that styles one
+  // differently (thicker touch grips, say) gets what it asked for.
   const renderBar = (
+    bar: typeof vertical | typeof horizontal,
     barX: number,
     barY: number,
     barWidth: number,
@@ -1839,13 +1843,11 @@ function renderImageDragHandles(
     isHovered: boolean,
   ): void => {
     ctx.save();
-    ctx.globalAlpha = isHovered ? vertical.hoverOpacity : vertical.opacity;
-    ctx.fillStyle = isHovered
-      ? vertical.hoverBackgroundColor
-      : vertical.backgroundColor;
-    if (vertical.borderRadius > 0) {
+    ctx.globalAlpha = isHovered ? bar.hoverOpacity : bar.opacity;
+    ctx.fillStyle = isHovered ? bar.hoverBackgroundColor : bar.backgroundColor;
+    if (bar.borderRadius > 0) {
       ctx.beginPath();
-      ctx.roundRect(barX, barY, barWidth, barHeight, vertical.borderRadius);
+      ctx.roundRect(barX, barY, barWidth, barHeight, bar.borderRadius);
       ctx.fill();
     } else {
       ctx.fillRect(barX, barY, barWidth, barHeight);
@@ -1860,6 +1862,7 @@ function renderImageDragHandles(
 
   // Left vertical bar
   renderBar(
+    vertical,
     x + vertical.inset,
     y + (height - verticalLength) / 2,
     vertical.thickness,
@@ -1869,6 +1872,7 @@ function renderImageDragHandles(
 
   // Right vertical bar
   renderBar(
+    vertical,
     x + width - vertical.inset - vertical.thickness,
     y + (height - verticalLength) / 2,
     vertical.thickness,
@@ -1879,6 +1883,7 @@ function renderImageDragHandles(
   // Bottom horizontal bar (cover mode only)
   if (showBottomHandle) {
     renderBar(
+      horizontal,
       x + (width - horizontalLength) / 2,
       y + height - horizontal.inset - horizontal.thickness,
       horizontalLength,
