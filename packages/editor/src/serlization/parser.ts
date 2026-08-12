@@ -39,6 +39,7 @@ interface ParserContext {
   blockIdCounter: number; // Counter for generating unique block IDs
   charIdCounter: number; // Counter for generating unique char IDs
   schema: DataSchema; // Block/mark types in play (codec dispatch source)
+  untypedBlockIds?: Set<string>; // Blocks the source declared no type for
 }
 
 // Generate a unique char ID.
@@ -196,9 +197,16 @@ function generateEmptyTree(): Page {
   };
 }
 
+/**
+ * `untypedBlockIds`, when passed, collects the ids of blocks that fell through
+ * to the fallback codec — text the source wrote with no block marker at all.
+ * It is a side channel on purpose: the distinction describes the *source*, not
+ * the block, so it must never ride along on `Block` into a snapshot or op.
+ */
 export default function parsePage(
   tokens: Token[],
   schema: DataSchema = getCompatibilityDataSchema(),
+  untypedBlockIds?: Set<string>,
 ): Page {
   const tree = generateEmptyTree();
 
@@ -208,6 +216,7 @@ export default function parsePage(
     blockIdCounter: 0,
     charIdCounter: 0,
     schema,
+    untypedBlockIds,
   };
 
   while (!isEnd(context)) {
@@ -314,17 +323,24 @@ function parseBlock(context: ParserContext): Block {
     }
   }
 
-  // Everything else parses as paragraph text.
-  return context.schema.getFallbackCodec()!.markdown.input!(ctx);
+  // Everything else parses as paragraph text. No codec claimed the leading
+  // token, so this type is the fallback rather than something the source asked
+  // for — recorded so callers can tell the two apart (paste keeps the host
+  // block's own type when the source declared none).
+  const block = context.schema.getFallbackCodec()!.markdown.input!(ctx);
+  context.untypedBlockIds?.add(block.id);
+  return block;
 }
 
 function emptyBlock(context: ParserContext): Block {
-  return {
+  const block: Block = {
     id: `block-${context.blockIdCounter++}`,
     type: "paragraph",
     charRuns: [],
     formats: [],
   };
+  context.untypedBlockIds?.add(block.id);
+  return block;
 }
 
 // Parse text into Char[] and MarkSpan[] (CRDT native format)

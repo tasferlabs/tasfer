@@ -204,13 +204,17 @@ export function parseFrontmatter(content: string): {
   return { content: remaining, metadata: hasValues ? metadata : undefined };
 }
 
-export function loadPage(content: string, schema?: DataSchema): Page {
+export function loadPage(
+  content: string,
+  schema?: DataSchema,
+  untypedBlockIds?: Set<string>,
+): Page {
   // Schema-optional callers retain the pre-feature-split built-in set. Passing
   // an explicit schema remains the way to opt into a precise feature set.
   schema ??= getCompatibilityDataSchema();
   const { content: body, metadata } = parseFrontmatter(content);
   const tokens = tokenizePage(body, schema);
-  const page = parsePage(tokens, schema);
+  const page = parsePage(tokens, schema, untypedBlockIds);
   if (metadata) page.metadata = metadata;
   // Coerce the parsed blocks to the schema's authoring allow-list — the import
   // analogue of paste normalization (a no-op for an unrestricted schema, so the

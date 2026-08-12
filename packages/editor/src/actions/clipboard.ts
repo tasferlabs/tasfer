@@ -942,6 +942,7 @@ export function parseHTMLToBlocks(
   html: string,
   binding: CRDTbinding,
   schema?: DataSchema,
+  untypedBlockIds?: Set<string>,
 ): Block[] {
   if (!html.trim()) return [];
 
@@ -955,6 +956,7 @@ export function parseHTMLToBlocks(
         decodeClipboardMarkdown(marker[1]),
         binding,
         schema,
+        untypedBlockIds,
       );
     } catch (error) {
       console.error("Failed to decode Tasfer clipboard payload:", error);
@@ -980,7 +982,7 @@ export function parseHTMLToBlocks(
   markdown = repairMathBackslashes(markdown);
   if (!markdown.trim()) return [];
   return containExternalImages(
-    parsePlainTextToBlocks(markdown, binding, schema),
+    parsePlainTextToBlocks(markdown, binding, schema, untypedBlockIds),
   );
 }
 
@@ -992,10 +994,11 @@ function parsePlainTextToBlocks(
   text: string,
   binding: CRDTbinding,
   schema?: DataSchema,
+  untypedBlockIds?: Set<string>,
 ): Block[] {
   try {
     // Use the markdown parser to properly handle inline formatting
-    const page = loadPage(text, schema);
+    const page = loadPage(text, schema, untypedBlockIds);
     return page.blocks;
   } catch (error) {
     console.error(
@@ -1035,6 +1038,10 @@ function parsePlainTextToBlocks(
         formats,
       };
 
+      // Same distinction the parser records: a line with no heading marker is
+      // a paragraph only because that is the fallback.
+      if (blockType === "paragraph") untypedBlockIds?.add(block.id);
+
       blocks.push(block);
     }
 
@@ -1047,11 +1054,12 @@ function parseRecognizedPlainTextToBlocks(
   text: string,
   binding: CRDTbinding,
   schema?: DataSchema,
+  untypedBlockIds?: Set<string>,
 ): Block[] {
   const transformed = schema?.transformPastedText(text) ?? text;
   return transformed === text
     ? []
-    : parsePlainTextToBlocks(transformed, binding, schema);
+    : parsePlainTextToBlocks(transformed, binding, schema, untypedBlockIds);
 }
 
 /**
@@ -1062,6 +1070,7 @@ function parseRecognizedPlainTextToBlocks(
 function insertBlocksAtCursor(
   state: EditorState,
   blocks: Block[],
+  untypedBlockIds?: Set<string>,
 ): ActionResult {
   if (blocks.length === 0) return { state, ops: [] };
   state = expandSelectionAroundStructuredMarks(state);
@@ -1163,11 +1172,18 @@ function insertBlocksAtCursor(
   // of the payload inserts after as usual. Skipped when the types already match
   // (nothing to adopt) or the first block can't merge (an atomic block inserts
   // as its own block regardless).
+  //
+  // Only a type the *source* declared is worth adopting. Unformatted text parses
+  // as a paragraph because that is the fallback, not because anything asked for
+  // one, so adopting it would let a default silently discard the type the user
+  // chose — pasting prose into an empty heading would erase the heading. Those
+  // blocks are reported in `untypedBlockIds` and leave the host's type alone.
   const firstPasted = blocks[0];
   if (
     isEmptyTextBlock(currentBlock) &&
     mergesIntoHostBlock(firstPasted) &&
     firstPasted.type !== currentBlock.type &&
+    !untypedBlockIds?.has(firstPasted.id) &&
     state.schema.isBlockAllowed(firstPasted.type)
   ) {
     const retypeOps: Operation[] = [
@@ -2267,6 +2283,10 @@ export function pasteFromClipboardEvent(
     return text ? insertText(state, text) : null;
   }
 
+  // Collects the blocks whose type the source never declared — see the empty-host
+  // retype in `insertBlocksAtCursor`. One set per paste; only one branch fills it.
+  const untypedBlockIds = new Set<string>();
+
   // Recognize external plain LaTeX before HTML conversion can escape it. Our
   // own rich payload must take the marker path below so prose that happens to
   // be valid LaTeX round-trips without becoming a math mark.
@@ -2275,15 +2295,22 @@ export function pasteFromClipboardEvent(
       text,
       state.CRDTbinding,
       state.schema,
+      untypedBlockIds,
     );
-    if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+    if (blocks.length > 0)
+      return insertBlocksAtCursor(state, blocks, untypedBlockIds);
   }
 
   // Try to get HTML first
   if (html) {
-    const blocks = parseHTMLToBlocks(html, state.CRDTbinding, state.schema);
+    const blocks = parseHTMLToBlocks(
+      html,
+      state.CRDTbinding,
+      state.schema,
+      untypedBlockIds,
+    );
     if (blocks.length > 0) {
-      return insertBlocksAtCursor(state, blocks);
+      return insertBlocksAtCursor(state, blocks, untypedBlockIds);
     }
   }
 
@@ -2298,9 +2325,10 @@ export function pasteFromClipboardEvent(
       text,
       state.CRDTbinding,
       state.schema,
+      untypedBlockIds,
     );
     if (blocks.length > 0) {
-      return insertBlocksAtCursor(state, blocks);
+      return insertBlocksAtCursor(state, blocks, untypedBlockIds);
     }
   }
 
@@ -2344,22 +2372,29 @@ export function pasteFromClipboardEventAsPlainText(
         return;
       }
 
+      const untypedBlockIds = new Set<string>();
       const blocks = parseRecognizedPlainTextToBlocks(
         text,
         state.CRDTbinding,
         state.schema,
+        untypedBlockIds,
       );
       const parsed =
         blocks.length > 0
           ? blocks
-          : parsePlainTextToBlocks(text, state.CRDTbinding, state.schema);
+          : parsePlainTextToBlocks(
+              text,
+              state.CRDTbinding,
+              state.schema,
+              untypedBlockIds,
+            );
 
       if (parsed.length === 0) {
         resolve(null);
         return;
       }
 
-      resolve(insertBlocksAtCursor(state, parsed));
+      resolve(insertBlocksAtCursor(state, parsed, untypedBlockIds));
     } catch (error) {
       console.error("Failed to paste plain text from clipboard event:", error);
       resolve(null);
@@ -2395,6 +2430,8 @@ export async function pasteFromSystemClipboard(
     let text = "";
     let imageBlob: Blob | null = null;
     let imageType = "";
+    // See the empty-host retype in `insertBlocksAtCursor`.
+    const untypedBlockIds = new Set<string>();
 
     if (clipboard) {
       try {
@@ -2415,22 +2452,32 @@ export async function pasteFromSystemClipboard(
           text,
           state.CRDTbinding,
           state.schema,
+          untypedBlockIds,
         );
-        if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+        if (blocks.length > 0)
+          return insertBlocksAtCursor(state, blocks, untypedBlockIds);
       }
       // HTML first (matches the navigator path) so a Tasfer round-trip stays
       // lossless via the html marker; otherwise fall back to plain text.
       if (html) {
-        const blocks = parseHTMLToBlocks(html, state.CRDTbinding, state.schema);
-        if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+        const blocks = parseHTMLToBlocks(
+          html,
+          state.CRDTbinding,
+          state.schema,
+          untypedBlockIds,
+        );
+        if (blocks.length > 0)
+          return insertBlocksAtCursor(state, blocks, untypedBlockIds);
       }
       if (text) {
         const blocks = parsePlainTextToBlocks(
           text,
           state.CRDTbinding,
           state.schema,
+          untypedBlockIds,
         );
-        if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+        if (blocks.length > 0)
+          return insertBlocksAtCursor(state, blocks, untypedBlockIds);
       }
       return null;
     }
@@ -2475,15 +2522,23 @@ export async function pasteFromSystemClipboard(
         text,
         state.CRDTbinding,
         state.schema,
+        untypedBlockIds,
       );
-      if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+      if (blocks.length > 0)
+        return insertBlocksAtCursor(state, blocks, untypedBlockIds);
     }
 
     // Prefer HTML (matches the synchronous Cmd/Ctrl+V path): an image copied
     // from a web page carries both `text/html` with an `<img>` and the bytes.
     if (html) {
-      const blocks = parseHTMLToBlocks(html, state.CRDTbinding, state.schema);
-      if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+      const blocks = parseHTMLToBlocks(
+        html,
+        state.CRDTbinding,
+        state.schema,
+        untypedBlockIds,
+      );
+      if (blocks.length > 0)
+        return insertBlocksAtCursor(state, blocks, untypedBlockIds);
     }
     // Pasted raw image (e.g. a screenshot) — insert a block and report the file
     // so the caller can dispatch IMAGE_PASTE to upload + rewrite the blob url.
@@ -2500,8 +2555,10 @@ export async function pasteFromSystemClipboard(
         text,
         state.CRDTbinding,
         state.schema,
+        untypedBlockIds,
       );
-      if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+      if (blocks.length > 0)
+        return insertBlocksAtCursor(state, blocks, untypedBlockIds);
     }
     return null;
   } catch (error) {
