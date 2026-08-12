@@ -238,6 +238,11 @@
 .ob-actions .ob-btn-primary {
   margin-inline-start: auto;
 }
+/* Identity step puts the alternate path on the action row itself. */
+.ob-actions-split {
+  gap: 16px;
+  flex-wrap: wrap;
+}
 
 .ob-btn {
   height: 36px;
@@ -723,31 +728,26 @@
 
 /* ── alternate path (bring an existing device in) ──────────────────────── */
 .ob-alt {
-  display: block;
-  width: 100%;
-  margin-top: 16px;
-  padding: 14px 0 0;
-  background: none;
-  border: none;
-  border-top: 1px solid var(--border);
-  text-align: center;
-  cursor: pointer;
-  font: 400 12.5px var(--ob-font-sans);
+  font: 400 13px var(--ob-font-sans);
   line-height: 1.5;
   color: var(--muted-foreground);
-  transition: color var(--ob-dur-fast);
 }
-.ob-alt:hover {
-  color: var(--foreground);
+.ob-alt-link {
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: 500 13px var(--ob-font-sans);
+  color: var(--primary);
+  transition: opacity var(--ob-dur-fast);
 }
-.ob-alt:focus-visible {
+.ob-alt-link:hover {
+  opacity: 0.8;
+}
+.ob-alt-link:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 3px;
   border-radius: 3px;
-}
-.ob-alt strong {
-  font-weight: 500;
-  color: var(--primary);
 }
 
 /* Standalone hint line — .ob-scan-text is centred and narrow by its wrapper. */

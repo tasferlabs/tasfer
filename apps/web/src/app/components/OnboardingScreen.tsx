@@ -203,16 +203,17 @@ function IdentityStep({
         </li>
       </ul>
 
-      <div className="ob-actions">
+      <div className="ob-actions ob-actions-split">
+        <span className="ob-alt">
+          {t("onboarding.alreadyHaveTasfer", "Already using Tasfer?")}{" "}
+          <button className="ob-alt-link" onClick={onLink}>
+            {t("onboarding.bringThisDeviceIn", "Link this device")}
+          </button>
+        </span>
         <button className="ob-btn ob-btn-primary" onClick={onNext}>
           {t("common.continue", "Continue")}
         </button>
       </div>
-
-      <button className="ob-alt" onClick={onLink}>
-        {t("onboarding.alreadyHaveTasfer", "Already using Tasfer?")}{" "}
-        <strong>{t("onboarding.bringThisDeviceIn", "Link this device")}</strong>
-      </button>
     </div>
   );
 }
