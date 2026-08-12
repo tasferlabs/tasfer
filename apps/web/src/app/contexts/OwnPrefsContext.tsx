@@ -154,7 +154,11 @@ export class OwnPrefsStore {
           if (await platform.prefs.seed(key, value)) adopted[key] = value;
         }
       } catch (err) {
-        console.warn(`[OwnPrefs] discarding ${legacy.storageKey}:`, err);
+        // Left in place for the next launch. A seed that failed (worker
+        // restarting, storage error) recorded no answer anywhere, so dropping
+        // the copy now would lose the value outright rather than retry it.
+        console.warn(`[OwnPrefs] could not adopt ${legacy.storageKey}:`, err);
+        continue;
       }
       // Dropped whether or not it was adopted: if the register already held an
       // answer for the key, this copy is a stale duplicate of a question that
