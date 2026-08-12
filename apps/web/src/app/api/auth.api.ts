@@ -16,6 +16,8 @@ export interface AuthUser {
   email: string;
   name: string;
   avatar: string | null;
+  /** Note about the current device. Local to it — never synced or shared. */
+  deviceDescription: string;
 }
 
 function identityToAuthUser(identity: Identity): AuthUser {
@@ -24,6 +26,7 @@ function identityToAuthUser(identity: Identity): AuthUser {
     email: "", // no email in decentralized model
     name: identity.name,
     avatar: identity.avatar,
+    deviceDescription: identity.deviceDescription,
   };
 }
 
@@ -42,6 +45,7 @@ export async function getMe(): Promise<AuthUser> {
 export async function updateProfile(data: {
   name?: string;
   avatar?: string | null;
+  deviceDescription?: string;
 }): Promise<AuthUser> {
   const platform = getPlatform();
   const identity = await platform.identity.update(data);

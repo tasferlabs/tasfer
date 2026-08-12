@@ -5,6 +5,7 @@ import { AvatarPreviewDialog } from "@/app/components/AvatarPreviewDialog";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { getDisplayName } from "@tasfer/provider-core/cursors";
 import { LinkDeviceDialog } from "@/app/components/LinkDeviceDialog";
@@ -18,6 +19,9 @@ export function Profile() {
   const { user, updateUser } = useAuth();
 
   const [name, setName] = React.useState(user?.name ?? "");
+  const [deviceDescription, setDeviceDescription] = React.useState(
+    user?.deviceDescription ?? "",
+  );
   const [avatarId, setAvatarId] = React.useState<string | null>(
     user?.avatar ?? null,
   );
@@ -30,7 +34,9 @@ export function Profile() {
   const avatarUrl = useAssetUrl(avatarId);
 
   const hasChanges =
-    name !== (user?.name ?? "") || avatarId !== (user?.avatar ?? null);
+    name !== (user?.name ?? "") ||
+    deviceDescription !== (user?.deviceDescription ?? "") ||
+    avatarId !== (user?.avatar ?? null);
 
   function handleAvatarClick() {
     if (avatarId) {
@@ -75,6 +81,7 @@ export function Profile() {
       setSaving(true);
       const updated = await updateProfile({
         name: name.trim(),
+        deviceDescription: deviceDescription.trim(),
         avatar: avatarId,
       });
       updateUser(updated);
@@ -165,6 +172,33 @@ export function Profile() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={t("profile.enterName", "Enter your name")}
+          />
+        </div>
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.row}>
+          <div className={styles.column}>
+            <p className={cn("text-sm", styles.title)}>
+              {t("profile.deviceDescription", "This device")}
+            </p>
+            <p className="text-sm opacity-75">
+              {t(
+                "profile.deviceDescriptionHint",
+                "A note to tell this device apart from your others. It stays here and is never shared.",
+              )}
+            </p>
+          </div>
+
+          <Textarea
+            className={styles.deviceDescription}
+            value={deviceDescription}
+            onChange={(e) => setDeviceDescription(e.target.value)}
+            rows={2}
+            placeholder={t(
+              "profile.enterDeviceDescription",
+              "Work laptop, kitchen tablet…",
+            )}
           />
         </div>
       </div>

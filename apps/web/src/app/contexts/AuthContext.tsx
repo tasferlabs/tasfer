@@ -1,5 +1,6 @@
 import React from "react";
 import { invariant } from "@shared/invariant";
+import { getPlatform } from "@/platform";
 import { type AuthUser, getMe } from "../api/auth.api";
 
 interface AuthState {
@@ -32,7 +33,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     restore();
-    return () => { cancelled = true; };
+
+    // The profile is no longer only ours to change: linking a device adopts the
+    // person's name and avatar, and a rename on any of their devices reaches
+    // the rest. Re-read rather than reload.
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = getPlatform().identity.onChange(() => {
+        void restore();
+      });
+    } catch {
+      // Platform not ready in this context; the initial read is all we get.
+    }
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, []);
 
   const updateUser = React.useCallback((user: AuthUser) => {

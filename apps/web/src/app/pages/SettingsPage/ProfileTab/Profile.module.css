@@ -77,6 +77,12 @@
   width: 300px;
 }
 
+.deviceDescription {
+  width: 300px;
+  flex: none;
+  resize: none;
+}
+
 .actions {
   display: flex;
   gap: 0.5rem;
@@ -90,7 +96,8 @@
     gap: 0.75rem;
   }
 
-  .nameInput {
+  .nameInput,
+  .deviceDescription {
     width: 100%;
   }
 
