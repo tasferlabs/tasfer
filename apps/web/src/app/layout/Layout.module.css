@@ -129,6 +129,25 @@
   }
 }
 
+/* Touch: the bar's controls are sized for a cursor, which a thumb misses.
+   Grow them to the ~44px target both mobile platforms ask for. Left out on a
+   landscape phone, where the bar itself is only 44px tall. */
+@media (pointer: coarse) and (min-height: 601px) {
+  .appHeader button {
+    min-block-size: 2.75rem;
+  }
+
+  .appHeader [data-slot="button"][data-size^="icon"] {
+    inline-size: 2.75rem;
+    block-size: 2.75rem;
+  }
+
+  .appHeader [data-slot="button"][data-size^="icon"] svg {
+    inline-size: 1.375rem;
+    block-size: 1.375rem;
+  }
+}
+
 /* The open page is archived, and ArchivedPageBanner has taken the bar's slot in
    place of the breadcrumb. The wash and rule turn the whole row into the
    banner's surface, closing it against the canvas below. */

@@ -124,6 +124,22 @@
   }
 }
 
+/* These sit in the top action bar, which sizes its own controls for a thumb on
+   touch (Layout.module.css); these carry no shared button box, so they widen
+   here. */
+@media (pointer: coarse) and (min-height: 601px) {
+  .todayButtonMobile,
+  .miniCalTrigger,
+  .headerNavButton {
+    min-inline-size: 2.75rem;
+  }
+
+  .todayButtonMobile svg {
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+  }
+}
+
 @media (max-width: 640px) {
   .headerTitleMobile {
     display: flex;
