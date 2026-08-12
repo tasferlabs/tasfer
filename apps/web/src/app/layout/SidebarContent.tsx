@@ -752,7 +752,7 @@ export function SidebarContent({
                     {t("settings.title", "Settings")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => navigate("/archive")}>
-                    {t("archive.title", "Archive")}
+                    {t("archive.open", "Open Archive")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1121,7 +1121,7 @@ function ArchiveNavLink() {
       <div className={style.appNavigationLinkIcon}>
         <Archive width={24} height={24} />
       </div>
-      {t("archive.title", "Archive")}
+      {t("archive.open", "Open Archive")}
     </SidebarNavLink>
   );
 }

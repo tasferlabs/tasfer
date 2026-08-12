@@ -138,7 +138,7 @@ export function MockWorkspaceBackdrop() {
               />
               <MockNavRow
                 icon={<Archive width={24} height={24} />}
-                label={t("archive.title", "Archive")}
+                label={t("archive.open", "Open Archive")}
               />
               <MockNavRow
                 icon={<Icons.AddGroup />}
