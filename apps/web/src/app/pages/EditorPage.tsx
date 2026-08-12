@@ -20,7 +20,11 @@ import {
   formatTimePreferred,
   getResolvedTimezone,
 } from "@/lib/dateTimePreferences";
-import { countWordsFromBlocks } from "@/lib/documentStats";
+import {
+  countWordsFromBlocks,
+  selectionSpanFromRange,
+  type SelectionSpan,
+} from "@/lib/documentStats";
 import { deriveTitles } from "@/lib/pageTitle";
 import { buildEnvTable, buildIssueUrl, useReportPath } from "@/lib/reportIssue";
 import {
@@ -137,6 +141,7 @@ export default function EditorPage() {
   const {
     setIsSaving: setGlobalIsSaving,
     setWordCount,
+    setSelectionSpan,
     setActiveUsers,
     setPageId,
     setCurrentBlocks,
@@ -217,6 +222,15 @@ export default function EditorPage() {
     }, 500),
   ).current;
 
+  // Follow the selection so the word-count pill and the statistics surface
+  // report the selected text instead of the whole document. Debounced because a
+  // drag-select emits a span per pointer move, and each one re-counts.
+  const debouncedSelectionUpdate = useRef(
+    debounce((span: SelectionSpan | null) => {
+      setSelectionSpan(span);
+    }, 200),
+  ).current;
+
   // Ref for the last derived title to avoid stale closures in the save callback.
   const currentTitleRef = useRef(currentTitle);
   useEffect(() => {
@@ -267,6 +281,35 @@ export default function EditorPage() {
     recompute();
     return activeEditor.subscribe(recompute);
   }, [activeEditor, applyTagRowTransform]);
+
+  // Publish the active editor's selected span. `change` is subscribed alongside
+  // `selectionchange` because the engine reports a tick that also edited content
+  // as a change only — typing inside a selection replaces it, and the pill has
+  // to drop back to the document count when it does.
+  useEffect(() => {
+    if (!activeEditor) return;
+    const sync = () => {
+      const span = selectionSpanFromRange(activeEditor.state.selection.range);
+      // Losing the selection applies at once — it costs no counting, and
+      // deferring it would leave a stale span over freshly edited blocks (typing
+      // over a selection is exactly that case).
+      if (!span) {
+        debouncedSelectionUpdate.cancel();
+        setSelectionSpan(null);
+        return;
+      }
+      debouncedSelectionUpdate(span);
+    };
+    sync();
+    const offSelection = activeEditor.on("selectionchange", sync);
+    const offChange = activeEditor.on("change", sync);
+    return () => {
+      offSelection();
+      offChange();
+      debouncedSelectionUpdate.cancel();
+      setSelectionSpan(null);
+    };
+  }, [activeEditor, debouncedSelectionUpdate, setSelectionSpan]);
 
   // Listen for page deletion events (both local and remote)
   useP2PPageEvents({

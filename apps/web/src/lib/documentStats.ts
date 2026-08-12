@@ -1,4 +1,4 @@
-import { type Block } from "@tasfer/editor";
+import { type Block, type DocRange } from "@tasfer/editor";
 import type { TextualBlock } from "@tasfer/editor/internal";
 import { getVisibleTextFromRuns, isTextualBlock } from "@tasfer/editor/internal";
 
@@ -50,24 +50,15 @@ function countSentences(text: string): number {
   return Math.max(1, matches ? matches.length : 0);
 }
 
-/**
- * Compute reader-facing statistics for a document. Only visible text from
- * textual, non-deleted blocks is considered; non-text blocks (image, math,
- * horizontal rule) contribute nothing.
- */
-export function computeDocumentStats(blocks: Block[]): DocumentStats {
+/** Aggregate the statistics over one text fragment per counted paragraph. */
+function statsFromTexts(texts: string[]): DocumentStats {
   let words = 0;
   let characters = 0;
   let charactersNoSpaces = 0;
   let sentences = 0;
   let paragraphs = 0;
 
-  for (const block of blocks) {
-    if (!isTextualBlock(block)) continue;
-    if (block.deleted) continue;
-
-    const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
-
+  for (const text of texts) {
     words += countWords(text);
     characters += [...text].length;
     charactersNoSpaces += [...text.replace(/\s/g, "")].length;
@@ -85,6 +76,80 @@ export function computeDocumentStats(blocks: Block[]): DocumentStats {
     paragraphs,
     readingTimeMinutes,
   };
+}
+
+/** Visible text of a block, or "" for non-textual and tombstoned blocks. */
+function visibleText(block: Block | undefined): string {
+  if (!block || !isTextualBlock(block) || block.deleted) return "";
+  return getVisibleTextFromRuns((block as TextualBlock).charRuns);
+}
+
+/**
+ * Compute reader-facing statistics for a document. Only visible text from
+ * textual, non-deleted blocks is considered; non-text blocks (image, math,
+ * horizontal rule) contribute nothing.
+ */
+export function computeDocumentStats(blocks: Block[]): DocumentStats {
+  return statsFromTexts(blocks.map(visibleText));
+}
+
+/**
+ * A selection resolved to block ids and offsets — the shape
+ * `editor.state.selection.range` takes while text is selected.
+ */
+export interface SelectionSpan {
+  from: { block: string; offset: number };
+  to: { block: string; offset: number };
+}
+
+/**
+ * Narrow the editor's `DocRange` to a span that covers text, or `null` when it
+ * covers none: a bare caret, an unresolved range, or a zero-width one (an image
+ * or other atomic block held as a node selection). Callers treat `null` as "no
+ * selection" and fall back to whole-document statistics.
+ */
+export function selectionSpanFromRange(
+  range: DocRange | null | undefined,
+): SelectionSpan | null {
+  if (!range || typeof range !== "object" || !("from" in range)) return null;
+  const { from, to } = range;
+  if (typeof from !== "object" || typeof to !== "object") return null;
+  if (!("offset" in from) || !("offset" in to)) return null;
+  if (from.offset === undefined || to.offset === undefined) return null;
+  if (from.block === to.block && from.offset === to.offset) return null;
+  return {
+    from: { block: from.block, offset: from.offset },
+    to: { block: to.block, offset: to.offset },
+  };
+}
+
+/**
+ * Statistics for the text inside `span` only. The first and last block
+ * contribute their selected slice; blocks between them contribute in full.
+ * Offsets are UTF-16 indices into a block's visible text, the same units the
+ * engine's selection speaks (see packages/editor/src/code-points.ts).
+ */
+export function computeSelectionStats(
+  blocks: Block[],
+  span: SelectionSpan,
+): DocumentStats {
+  const start = blocks.findIndex((block) => block.id === span.from.block);
+  const end = blocks.findIndex((block) => block.id === span.to.block);
+  // A stale span — the blocks it names have been edited away — counts nothing
+  // rather than silently reporting the whole document.
+  if (start === -1 || end === -1 || end < start) return statsFromTexts([]);
+
+  const texts: string[] = [];
+  for (let i = start; i <= end; i++) {
+    const text = visibleText(blocks[i]);
+    texts.push(
+      text.slice(
+        i === start ? span.from.offset : 0,
+        i === end ? span.to.offset : undefined,
+      ),
+    );
+  }
+  return statsFromTexts(texts);
 }
 
 /** Convenience wrapper for callers that only need the word count. */
