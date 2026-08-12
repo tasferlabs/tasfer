@@ -117,7 +117,6 @@ export function MobileAppNudge() {
         show={visible}
         role="region"
         aria-label={t("mobileNudge.label", "Get the Tasfer app")}
-        className="select-none"
       >
         <NudgeCard
           icon={

@@ -47,9 +47,12 @@ export function BottomPopover({
           variants={popupVariants}
           {...aria}
         >
+          {/* Not selectable: this is chrome, and the buttons already opt out of
+           * selection, so a double-click on the action row would otherwise land
+           * on the nearest selectable text and highlight the description. */}
           <div
             className={cn(
-              "max-w-md w-full overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg",
+              "max-w-md w-full select-none overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg",
               className,
             )}
           >
