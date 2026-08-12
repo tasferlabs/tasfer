@@ -219,6 +219,13 @@ export function MobileKeyboardToolbar({
       className="fixed bottom-0 left-0 right-0 z-50 flex flex-col"
       style={{ bottom: `${model.bottomInset}px` }}
       onTouchStart={(e) => e.stopPropagation()}
+      // Controls preserve the editor's focus themselves, but the bar's own
+      // chrome — the empty stretch of the scrollable middle, dividers, the
+      // panel rows' padding — would otherwise take focus off the hidden input
+      // and dismiss the keyboard on a tap that hit nothing. Guard it here on
+      // mousedown rather than pointerdown so the horizontal touch-pan of the
+      // scrollable zones survives (see the chip/cell handlers).
+      onMouseDown={(e) => e.preventDefault()}
     >
       {/* Transient panel above the bar — a menu's options, or the more drawer. */}
       {openMenu && (
