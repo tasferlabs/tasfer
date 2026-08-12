@@ -3551,14 +3551,6 @@ export function splitBlock(state: EditorState): ActionResult {
   ) {
     return { state, ops: [] };
   }
-  // The list split path below transfers neither marks nor attachments; keep
-  // refusing there rather than degrade a moved projection to raw text.
-  if (
-    isListBlock(oldBlock) &&
-    structuredRuns.some((run) => run.endIndex > textIndex)
-  ) {
-    return { state, ops: [] };
-  }
   // Block 2's id is minted early so attachment clones can address it. The
   // clone itself is delayed until the block_insert is stamped in step 4: op
   // ids/clocks and batch order must all put the host block before its content.
@@ -3613,156 +3605,76 @@ export function splitBlock(state: EditorState): ActionResult {
   const isAtEnd = textIndex === oldText.length;
   const isEmpty = oldText.length === 0;
 
-  // Handle list blocks
-  if (isListBlock(oldBlock)) {
-    // When Enter is pressed in an empty list item, outdent or convert to paragraph
-    if (isEmpty) {
-      if (oldBlock.indent === 0) {
-        // Convert to paragraph if at base indent
-        const newParagraph: Block = carryStructuredContent(
-          {
-            id: oldBlock.id,
-            orderKey: oldBlock.orderKey,
-            type: "paragraph",
-            charRuns: [],
-            formats: [],
-          },
-          oldBlock,
-        );
-
-        const blockSetOp: BlockSet = {
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: oldBlock.id,
-          field: "type",
-          value: "paragraph",
-        };
-        ops.push(blockSetOp);
-
-        const newBlocks = [
-          ...state.document.page.blocks.slice(0, blockIndex),
-          newParagraph,
-          ...state.document.page.blocks.slice(blockIndex + 1),
-        ];
-        const newPage = { ...state.document.page, blocks: newBlocks };
-        return {
-          state: {
-            ...state,
-            document: { ...state.document, page: newPage },
-          },
-          ops,
-        };
-      } else {
-        // Outdent the list item
-        const outdentedBlock: Block = {
-          ...oldBlock,
-          indent: oldBlock.indent - 1,
-        };
-        invalidateBlockCache(outdentedBlock);
-
-        const blockSetOp: BlockSet = {
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: oldBlock.id,
-          field: "indent",
-          value: oldBlock.indent - 1,
-        };
-        ops.push(blockSetOp);
-
-        const newBlocks = [...state.document.page.blocks];
-        newBlocks[blockIndex] = outdentedBlock;
-        const newPage = { ...state.document.page, blocks: newBlocks };
-        return {
-          state: {
-            ...state,
-            document: { ...state.document, page: newPage },
-          },
-          ops,
-        };
-      }
-    }
-
-    // Split the text content at cursor position
-    const afterCharsText = oldText.slice(textIndex);
-    let pageAcc = state.document.page;
-    if (textIndex < oldText.length) {
-      const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
-        pageAcc,
-        oldBlock.id,
-        textIndex,
-        oldText.length,
-        state.CRDTbinding,
+  // Enter in an EMPTY list item leaves the list instead of splitting it:
+  // outdent one level, or fall out to a paragraph at base indent. A non-empty
+  // item takes the generic split below like any other textual block.
+  if (isListBlock(oldBlock) && isEmpty) {
+    if (oldBlock.indent === 0) {
+      // Convert to paragraph if at base indent
+      const newParagraph: Block = carryStructuredContent(
+        {
+          id: oldBlock.id,
+          orderKey: oldBlock.orderKey,
+          type: "paragraph",
+          charRuns: [],
+          formats: [],
+        },
+        oldBlock,
       );
-      pageAcc = pageAfterDelete;
-      ops.push(deleteOp);
+
+      const blockSetOp: BlockSet = {
+        op: "block_set",
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
+        blockId: oldBlock.id,
+        field: "type",
+        value: "paragraph",
+      };
+      ops.push(blockSetOp);
+
+      const newBlocks = [
+        ...state.document.page.blocks.slice(0, blockIndex),
+        newParagraph,
+        ...state.document.page.blocks.slice(blockIndex + 1),
+      ];
+      const newPage = { ...state.document.page, blocks: newBlocks };
+      return {
+        state: { ...state, document: { ...state.document, page: newPage } },
+        ops,
+      };
     }
 
-    const newBlockId = state.CRDTbinding.nextId();
-    // Continue the same list type — but clamp to the authoring allow-list so a
-    // restricted editor never MINTS a disallowed type (coerceCreatable is
-    // identity when unrestricted). The COERCED type is what we emit, so a remote
-    // replay of this op converges. List-specific initialProps (checked/indent)
-    // only apply while the continuation stays a list; a coerced-to-paragraph
-    // fallback drops them.
-    const newBlockType = state.schema.coerceCreatable(
-      oldBlock.type,
-    ) as Block["type"];
-    const continuesList = newBlockType === oldBlock.type;
+    // Outdent the list item
+    const outdentedBlock: Block = {
+      ...oldBlock,
+      indent: oldBlock.indent - 1,
+    };
+    invalidateBlockCache(outdentedBlock);
 
-    const blockInsertOp: BlockInsert = {
-      op: "block_insert",
+    const blockSetOp: BlockSet = {
+      op: "block_set",
       id: state.CRDTbinding.nextId(),
       clock: state.CRDTbinding.getClock(),
       pageId: state.CRDTbinding.pageId,
-      orderKey: orderKeyAfter(state.document.page.blocks, oldBlock.id),
-      blockId: newBlockId,
-      blockType: newBlockType,
-      initialProps: continuesList
-        ? isTogglable(oldBlock.type)
-          ? { checked: false, indent: oldBlock.indent }
-          : { indent: oldBlock.indent }
-        : undefined,
+      blockId: oldBlock.id,
+      field: "indent",
+      value: oldBlock.indent - 1,
     };
-    ops.push(blockInsertOp);
-    pageAcc = applyOps(pageAcc, [blockInsertOp]);
+    ops.push(blockSetOp);
 
-    if (afterCharsText.length > 0) {
-      const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
-        pageAcc,
-        newBlockId,
-        0,
-        afterCharsText,
-        state.CRDTbinding,
-      );
-      pageAcc = pageAfterInsert;
-      ops.push(insertOp);
-    }
-
-    const block1Index = findBlockIndex(pageAcc, oldBlock.id);
-    const block2Index = findBlockIndex(pageAcc, newBlockId);
-    if (block1Index !== -1) invalidateBlockCache(pageAcc.blocks[block1Index]);
-    if (block2Index !== -1) invalidateBlockCache(pageAcc.blocks[block2Index]);
-
-    const newState: EditorState = {
-      ...state,
-      document: { ...state.document, page: pageAcc },
-    };
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = outdentedBlock;
+    const newPage = { ...state.document.page, blocks: newBlocks };
     return {
-      state: moveCursorToPosition(
-        newState,
-        block2Index !== -1 ? block2Index : blockIndex + 1,
-        0,
-      ),
+      state: { ...state, document: { ...state.document, page: newPage } },
       ops,
     };
   }
 
-  // Handle non-list text blocks. Headings have their familiar asymmetric split
-  // policy; every other textual type preserves its registered type by default.
+  // Handle the remaining text blocks. Headings have their familiar asymmetric
+  // split policy; every other textual type preserves its registered type by
+  // default — a list item continues as the same kind of list item.
   // Node-specific handlers can still claim SPLIT_BLOCK for special exits
   // (MathNode, CodeNode, QuoteNode). Falling back to "paragraph" here used to
   // silently erase any new textual node type on Enter.
@@ -3803,6 +3715,16 @@ export function splitBlock(state: EditorState): ActionResult {
   blockCopy2Type = state.schema.coerceCreatable(
     blockCopy2Type,
   ) as Block["type"];
+
+  // List-specific initialProps (checked/indent) only apply while the
+  // continuation stays the same list type; a coerced-to-paragraph fallback in a
+  // restricted editor drops them. A todo item's continuation starts unchecked.
+  const listContinuationProps =
+    isListBlock(oldBlock) && blockCopy2Type === oldBlock.type
+      ? isTogglable(oldBlock.type)
+        ? { checked: false, indent: oldBlock.indent }
+        : { indent: oldBlock.indent }
+      : undefined;
 
   // Split the text content. Every modification below routes through ops
   // and is replayed onto `pageAcc` via applyOps, so the local page state
@@ -3897,6 +3819,7 @@ export function splitBlock(state: EditorState): ActionResult {
     orderKey: orderKeyAfter(pageAcc.blocks, oldBlock.id),
     blockId: newBlockId,
     blockType: blockCopy2Type,
+    initialProps: listContinuationProps,
   };
   const movedAttachments =
     movingContentIds.size > 0
