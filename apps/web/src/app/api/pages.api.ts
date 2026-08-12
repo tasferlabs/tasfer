@@ -9,6 +9,7 @@ import { getPlatform } from "@/platform";
 import type {
   PageListItem,
   ArchivedPageItem,
+  ArchivedPageRef,
   PageFull,
   PageSearchResult,
   PageCalendarItem,
@@ -20,7 +21,7 @@ import type {
 // =============================================================================
 
 export type IListPage = PageListItem;
-export type { ArchivedPageItem };
+export type { ArchivedPageItem, ArchivedPageRef };
 export type IPage = PageFull;
 export type ISearchPage = PageSearchResult;
 export type ICalendarPage = PageCalendarItem;
@@ -135,6 +136,14 @@ export function useDeletePage<TContext = unknown>(
     mutationFn: deletePage,
     ...options,
   });
+}
+
+// A page that was archived after someone saved its link
+export async function getArchivedPage(
+  id: string,
+): Promise<ArchivedPageRef | null> {
+  const platform = getPlatform();
+  return platform.pages.getArchived(id);
 }
 
 // Archived (soft-deleted) pages — the Archive

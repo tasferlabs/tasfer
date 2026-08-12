@@ -33,14 +33,16 @@ export default function ArchivePreview({
   restoring,
   showHeader = true,
 }: ArchivePreviewProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data: snapshots, isLoading } = useGetPageSnapshots(item.id);
 
   // Snapshots come newest-first; index 0 is the most recent full content.
   const blocks = useMemo(() => snapshots?.[0]?.blocks ?? null, [snapshots]);
 
+  // Luxon defaults to the system locale, which is not what the app is set to.
   const archivedAgo =
-    DateTime.fromISO(item.archivedAt).toRelative() ?? item.archivedAt;
+    DateTime.fromISO(item.archivedAt).toRelative({ locale: i18n.language }) ??
+    item.archivedAt;
 
   return (
     <div className={style.preview}>

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DateTime } from "luxon";
-import { Archive, ChevronRight, FileText, Folder, RotateCcw } from "lucide-react";
+import {
+  Archive,
+  ChevronRight,
+  FileText,
+  Folder,
+  RotateCcw,
+} from "lucide-react";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
@@ -169,7 +175,9 @@ export default function ArchivePage() {
                   {space.name || t("space.untitled", "Untitled space")}
                 </span>
                 <span className={style.rowMeta}>
-                  {DateTime.fromISO(space.archivedAt).toRelative() ?? ""}
+                  {DateTime.fromISO(space.archivedAt).toRelative({
+                    locale: i18n.language,
+                  }) ?? ""}
                 </span>
               </div>
               <button
@@ -200,7 +208,11 @@ export default function ArchivePage() {
             role="option"
             aria-selected={isActive}
             tabIndex={0}
-            className={clsx(style.row, style.pageRow, isActive && style.rowActive)}
+            className={clsx(
+              style.row,
+              style.pageRow,
+              isActive && style.rowActive,
+            )}
             style={
               page.color
                 ? ({ "--row-accent": page.color } as React.CSSProperties)
@@ -221,7 +233,9 @@ export default function ArchivePage() {
               </span>
               {space && <span className={style.rowSpace}>{space}</span>}
               <span className={style.rowMeta}>
-                {DateTime.fromISO(page.archivedAt).toRelative() ?? ""}
+                {DateTime.fromISO(page.archivedAt).toRelative({
+                  locale: i18n.language,
+                }) ?? ""}
               </span>
             </div>
             <button
@@ -246,10 +260,7 @@ export default function ArchivePage() {
   // Touch-first list. Each row's single job is to open the item; restore is a
   // deliberate action inside the drawer, so there is no inline button to mis-tap.
   const mobileList = (
-    <ul
-      className={style.mobileList}
-      aria-label={t("archive.title", "Archive")}
-    >
+    <ul className={style.mobileList} aria-label={t("archive.title", "Archive")}>
       {entries.map((entry) => {
         const isSpace = entry.kind === "space";
         const accent = entry.kind === "page" ? entry.page.color : undefined;
@@ -265,7 +276,10 @@ export default function ArchivePage() {
               ? (spaceName.get(entry.page.spaceId) ?? null)
               : null
             : t("archive.typeSpace", "Space");
-        const time = DateTime.fromISO(entry.archivedAt).toRelative() ?? "";
+        const time =
+          DateTime.fromISO(entry.archivedAt).toRelative({
+            locale: i18n.language,
+          }) ?? "";
         return (
           <li key={`${entry.kind}-${isSpace ? entry.space.id : entry.page.id}`}>
             <button
@@ -322,7 +336,10 @@ export default function ArchivePage() {
           <div className={style.headerPreview}>
             <span className={style.headerSelMeta}>
               {t("archive.archivedAgo", "Archived {{time}}", {
-                time: DateTime.fromISO(selected.archivedAt).toRelative() ?? "",
+                time:
+                  DateTime.fromISO(selected.archivedAt).toRelative({
+                    locale: i18n.language,
+                  }) ?? "",
               })}
             </span>
             <Button
@@ -392,9 +409,9 @@ export default function ArchivePage() {
                   <p className={style.spaceSheetMeta}>
                     {t("archive.archivedAgo", "Archived {{time}}", {
                       time:
-                        DateTime.fromISO(
-                          selectedSpace.archivedAt,
-                        ).toRelative() ?? "",
+                        DateTime.fromISO(selectedSpace.archivedAt).toRelative({
+                          locale: i18n.language,
+                        }) ?? "",
                     })}
                   </p>
                   <p className={style.spaceSheetHint}>

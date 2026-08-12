@@ -75,13 +75,20 @@ import { useP2PPageEvents } from "@/app/hooks/useP2PPageEvents";
 import { PagePicker } from "@/components/PagePicker";
 import clsx from "clsx";
 import {
+  getArchivedPage,
   getPage,
+  getPageSnapshots,
   useCreatePage,
   useGetPage,
   useGetPages,
   useMovePage,
+  useRestorePage,
   useUpdatePage,
+  type ArchivedPageRef,
 } from "../api/pages.api";
+import { useUnarchiveSpace } from "../api/spaces.api";
+import { ArchivedPageBanner } from "../components/ArchivedPageBanner";
+import { useToast } from "../components/Toast";
 import CorruptionErrorState from "../components/illustrations/corruption-state";
 import EmptyStateIllustration from "../components/illustrations/empty-state";
 
@@ -121,6 +128,8 @@ const SCHEDULE_TAG_PADDING = { paddingTop: SCHEDULE_TAG_HEIGHT } as const;
 const PAGE_TAG_CLASS = "text-muted-foreground hover:text-foreground gap-1.5";
 
 export default function EditorPage() {
+  const { t } = useTranslation();
+  const { toast } = useToast();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const isNewPageDeepLink = !id && searchParams.has("new");
@@ -133,6 +142,7 @@ export default function EditorPage() {
     setCurrentBlocks,
     setOnRestoreSnapshot,
     setPermission,
+    setIsPageArchived,
   } = usePageSettings();
   const { mutateAsync: updatePage } = useUpdatePage();
   // Permission level from the API - determines if editor is readonly
@@ -145,6 +155,14 @@ export default function EditorPage() {
   const [isError, setIsError] = useState(false);
   // Track if page was deleted by another user (via WebSocket)
   const [isDeletedByOther, setIsDeletedByOther] = useState(false);
+  // Set when the URL points at a page the app no longer shows — archived
+  // itself, or live inside an archived space. It opens read-only behind a
+  // restore banner instead of looking like a page that never existed.
+  const [archivedPage, setArchivedPage] = useState<ArchivedPageRef | null>(
+    null,
+  );
+  // Bumped after a restore so the load effect re-runs against the live page.
+  const [reloadToken, setReloadToken] = useState(0);
   // Persisted editor state - once entered, stays until user takes action
   const [persistedState, setPersistedState] = useState<
     "empty" | "not-found" | "error" | "corrupted" | null
@@ -280,6 +298,7 @@ export default function EditorPage() {
       // Have page ID - check if we should show not-found state
       if (
         !isLoading &&
+        !archivedPage &&
         (isError || pageSnapshot === null || isDeletedByOther)
       ) {
         setPersistedState("not-found");
@@ -296,6 +315,7 @@ export default function EditorPage() {
     isError,
     pageSnapshot,
     isDeletedByOther,
+    archivedPage,
     persistedState,
     setLastPageId,
   ]);
@@ -316,11 +336,16 @@ export default function EditorPage() {
     async function loadPageData() {
       setIsLoading(true);
       setIsError(false);
+      setArchivedPage(null);
 
       try {
         const page = await getPage(id!);
         if (!cancelled) {
           const blocks = page.blocks || [];
+          // The page is live but its space is archived, so it loads while being
+          // absent from the sidebar. Show it read-only behind the banner rather
+          // than let edits go into a space nothing can see.
+          if (page.spaceArchivedAt && (await showArchived(blocks))) return;
           // Detect corrupted/empty page data — a valid page must have at least one visible block
           const hasVisibleBlocks = blocks.some((b) => !b.deleted);
           if (!hasVisibleBlocks) {
@@ -355,6 +380,10 @@ export default function EditorPage() {
           }
         }
       } catch (error) {
+        // `pages.get` filters archived rows, so a link saved before the page
+        // was archived lands here rather than on a missing id. Rebuild it
+        // read-only from the op log instead of claiming it never existed.
+        if (!cancelled && (await showArchived())) return;
         console.error("Failed to load page:", error);
         if (!cancelled) {
           setIsError(true);
@@ -363,12 +392,39 @@ export default function EditorPage() {
       }
     }
 
+    // Mount the page read-only behind the archived banner. `blocks` is passed
+    // when the page still loaded normally; otherwise the content is rebuilt
+    // from the op log, which `pages.snapshots` reads with no archived filter.
+    async function showArchived(blocks?: Block[]): Promise<boolean> {
+      try {
+        const ref = await getArchivedPage(id!);
+        if (!ref || cancelled) return false;
+        const content =
+          blocks ?? (await getPageSnapshots(id!))[0]?.blocks ?? [];
+        if (cancelled) return true;
+        setArchivedPage(ref);
+        setPageSnapshot(content);
+        setCurrentTitle(ref.title || "");
+        currentTitleMdRef.current = ref.titleMd || "";
+        setPageSpaceId(ref.spaceId ?? null);
+        setLocalPermission("view");
+        setPermission("view");
+        setIsLoading(false);
+        // Don't let "/" bounce back into a page the user deleted.
+        setLastPageId(null);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     loadPageData();
 
     return () => {
       cancelled = true;
     };
-  }, [id, debouncedWordCountUpdate]);
+    // reloadToken re-runs the load after a restore, against the live page.
+  }, [id, reloadToken, debouncedWordCountUpdate]);
 
   // Debounced save callback - only called for local user-initiated changes
   // Remote peer updates are NOT persisted by this user; peers handle saving their own changes
@@ -469,6 +525,50 @@ export default function EditorPage() {
     };
   }, [handleRestoreSnapshot, setOnRestoreSnapshot, permission]);
 
+  // Bring an archived page back and hand the editor over to the live page.
+  const handleRestored = useCallback(() => {
+    if (!id) return;
+    setArchivedPage(null);
+    setLocalPermission("owner");
+    setPermission("owner");
+    setLastPageId(id);
+    queryClient.invalidateQueries({ queryKey: ["page", id] });
+    setReloadToken((token) => token + 1);
+  }, [id, queryClient, setPermission, setLastPageId]);
+
+  const { mutateAsync: restorePage } = useRestorePage();
+  const { mutateAsync: unarchiveSpace } = useUnarchiveSpace();
+  const [isRestoringArchived, setIsRestoringArchived] = useState(false);
+
+  const handleRestoreArchived = useCallback(async () => {
+    if (!archivedPage) return;
+    setIsRestoringArchived(true);
+    try {
+      // An archived space has to come back first, or the page is restored into
+      // a space nothing can see. When only the space was archived the page is
+      // already live and there is nothing to restore at the page level.
+      if (archivedPage.archivedSpaceId) {
+        await unarchiveSpace(archivedPage.archivedSpaceId);
+      }
+      if (archivedPage.restoreRootId) {
+        await restorePage({ id: archivedPage.restoreRootId });
+      }
+      handleRestored();
+    } catch (error) {
+      console.error("Failed to restore archived page:", error);
+      toast.error(t("archive.restoreFailed", "Couldn't restore the page"));
+    } finally {
+      setIsRestoringArchived(false);
+    }
+  }, [archivedPage, restorePage, unarchiveSpace, handleRestored, toast, t]);
+
+  // Let the top action bar carry the banner's tint while an archived page is
+  // open, and drop it when the editor goes away.
+  useEffect(() => {
+    setIsPageArchived(archivedPage !== null);
+    return () => setIsPageArchived(false);
+  }, [archivedPage, setIsPageArchived]);
+
   // Prompt user before in-app navigation if saving
   useNavigationPrompt(isSaving);
 
@@ -514,7 +614,15 @@ export default function EditorPage() {
 
   // If no ID in URL
   if (!id) {
-    if (isLoadingPages || !activeSpaceId) {
+    // No space at all — onboarding is running on top of this. The pages query
+    // is disabled without a space, so a skeleton here would never resolve; the
+    // state is deliberately not persisted, so creating the first space falls
+    // straight through to it.
+    if (!activeSpaceId) {
+      return <EditorEmptyState />;
+    }
+
+    if (isLoadingPages) {
       return <EditorLoadingState />;
     }
 
@@ -542,7 +650,18 @@ export default function EditorPage() {
   return (
     <div className="flex flex-col w-full h-full">
       <TopActionBarPortal>
-        <PageActionBar pageId={id} />
+        {/* The breadcrumb has nothing useful to say about a page the app no
+            longer shows, so the banner takes the bar instead of stacking
+            under it. */}
+        {archivedPage ? (
+          <ArchivedPageBanner
+            page={archivedPage}
+            onRestore={handleRestoreArchived}
+            restoring={isRestoringArchived}
+          />
+        ) : (
+          <PageActionBar pageId={id} />
+        )}
       </TopActionBarPortal>
       <div className="relative flex-1 min-h-0 overflow-hidden">
         {/* Schedule tag overlaid on editor, scrolls with canvas content */}
@@ -835,6 +954,10 @@ function ScheduleTag({
   const { isMobile } = useMobileLayout();
 
   const isScheduled = !!page?.scheduledAt;
+  // Nothing to offer a viewer on an unscheduled page — the tag only earns its
+  // slot once it has a date to report.
+  if (readonly && !isScheduled) return null;
+
   const label = isScheduled
     ? formatScheduleLabel(page.scheduledAt!, page.duration || null, t)
     : t("calendar.schedule", "Schedule");

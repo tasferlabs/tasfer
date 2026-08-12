@@ -7,6 +7,7 @@ import useMobileLayout from "../hooks/useMobileLayout";
 import useKeyboardInset from "../hooks/useKeyboardInset";
 import { Button } from "../../components/ui/button";
 import { usePeerVersion } from "../contexts/PeerVersionContext";
+import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useTopActionBarSlotRef } from "./TopActionBarSlot";
 export function TopActionBar({
   open,
@@ -22,6 +23,8 @@ export function TopActionBar({
   // The sidebar warning is invisible while the sidebar is closed, so the button
   // that opens it carries a dot instead.
   const { notice } = usePeerVersion();
+  // Shares the archived banner's wash when the open page is archived.
+  const { isPageArchived } = usePageSettings();
 
   // On a landscape phone the keyboard already takes half the screen; the bar
   // would eat a third of what is left, so it steps aside while typing and comes
@@ -34,6 +37,7 @@ export function TopActionBar({
       className={clsx(
         style.appHeader,
         !open && style.appHeaderSidebarClosed,
+        isPageArchived && style.appHeaderArchived,
         collapsed && style.appHeaderCollapsed,
       )}
       inert={collapsed ? (true as unknown as boolean) : undefined}

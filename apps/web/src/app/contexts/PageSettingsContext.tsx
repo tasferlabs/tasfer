@@ -116,6 +116,14 @@ interface PageSettingsContextType {
   // Permission
   permission: PagePermission;
   setPermission: (permission: PagePermission) => void;
+  /**
+   * The open page is hidden from the app — archived, or inside an archived
+   * space — and shown read-only. The top action bar reads this to wash itself
+   * as the archived banner's surface; EditorPage portals the banner into it in
+   * place of the breadcrumb.
+   */
+  isPageArchived: boolean;
+  setIsPageArchived: (archived: boolean) => void;
   // Find in document
   onOpenFind: (() => void) | null;
   setOnOpenFind: (callback: (() => void) | null) => void;
@@ -172,6 +180,7 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [currentBlocks, setCurrentBlocks] = useState<Block[]>([]);
   const [onRestoreSnapshot, setOnRestoreSnapshotState] = useState<((blocks: Block[]) => void) | null>(null);
   const [permission, setPermission] = useState<PagePermission>("owner");
+  const [isPageArchived, setIsPageArchived] = useState(false);
   const [onOpenFind, setOnOpenFindState] = useState<(() => void) | null>(null);
 
   // The selected family is applied per editor instance: MountedEditor reads
@@ -237,6 +246,8 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         setOnRestoreSnapshot,
         permission,
         setPermission,
+        isPageArchived,
+        setIsPageArchived,
         onOpenFind,
         setOnOpenFind,
       }}
