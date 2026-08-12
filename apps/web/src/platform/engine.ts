@@ -2204,23 +2204,43 @@ export class Engine implements Platform {
       const archivedAt = space.archivedAt ?? null;
       const stamp = space.archiveStamp ?? 0;
       const by = space.archiveBy ?? null;
-      await this.driver.db.mutate(
-        `INSERT INTO spaces (id, name, created_at, personal, archived_at, archive_stamp, archive_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET archived_at = ?, archive_stamp = ?, archive_by = ?`,
-        [
-          space.id,
-          space.name,
-          now,
-          space.personal ? 1 : 0,
-          archivedAt,
-          stamp,
-          by,
-          archivedAt,
-          stamp,
-          by,
-        ],
-      );
+      // Merged by stamp like every other own-state exchange, never overwritten:
+      // this device has been running and may hold the newer decision. Taking the
+      // payload's outright would also reset the stamp to 0, dropping the local
+      // decision from `getOwnSpaceStates` so it could never be re-propagated —
+      // a space filed away here would silently unfile itself for good.
+      const [local] = await this.driver.db.query<{
+        archive_stamp: number;
+        archive_by: string | null;
+      }>("SELECT archive_stamp, archive_by FROM spaces WHERE id = ?", [
+        space.id,
+      ]);
+      if (!local) {
+        await this.driver.db.mutate(
+          `INSERT INTO spaces (id, name, created_at, personal, archived_at, archive_stamp, archive_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO NOTHING`,
+          [
+            space.id,
+            space.name,
+            now,
+            space.personal ? 1 : 0,
+            archivedAt,
+            stamp,
+            by,
+          ],
+        );
+      } else if (
+        decisionWins(
+          { stamp, by },
+          { stamp: local.archive_stamp, by: local.archive_by },
+        )
+      ) {
+        await this.driver.db.mutate(
+          "UPDATE spaces SET archived_at = ?, archive_stamp = ?, archive_by = ? WHERE id = ?",
+          [archivedAt, stamp, by, space.id],
+        );
+      }
       // Both this device and every sibling, so the personal-space gate has
       // something to admit before the first sync arrives.
       for (const deviceKey of [
