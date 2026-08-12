@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../../components/ui/dropdown-menu";
+import { Button } from "../../../components/ui/button";
 import Icons from "../../components/uiKit/Icons/Icons";
 import { useImportDialog } from "../../components/ImportDialogProvider";
 import type { ISpace } from "../../api/spaces.api";
@@ -76,10 +77,12 @@ export function SpaceSection({
           isDragging && style.appSidebarSectionDragging,
         )}
       >
-        <button
+        <Button
           type="button"
+          variant="unstyled"
+          size="unstyled"
           ref={setNodeRef}
-          className={style.appSidebarSectionHandle}
+          className={clsx(style.appSidebarSectionHandle, "justify-start")}
           onClick={handleToggle}
           aria-expanded={!collapsed}
           {...listeners}
@@ -97,13 +100,19 @@ export function SpaceSection({
             </span>
             <span className="truncate">{name}</span>
           </span>
-        </button>
+        </Button>
         <DropdownMenu>
-          <DropdownMenuTrigger className={style.appSidebarSectionButton}>
-            <Ellipsis size={20} />
-            <span className="sr-only">
-              {t("space.settings", "Space settings")}
-            </span>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="unstyled"
+              size="unstyled"
+              className={style.appSidebarSectionButton}
+            >
+              <Ellipsis className="size-5" />
+              <span className="sr-only">
+                {t("space.settings", "Space settings")}
+              </span>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuItem onSelect={() => onSpaceSettings(space.id)}>
@@ -123,14 +132,16 @@ export function SpaceSection({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <button
+        <Button
+          variant="unstyled"
+          size="unstyled"
           className={style.appSidebarSectionButton}
           onClick={() => onAddPage(space.id)}
           disabled={isCreating}
         >
-          <Plus size={20} />
+          <Plus className="size-5" />
           <span className="sr-only">{t("page.addPage", "Add page")}</span>
-        </button>
+        </Button>
       </div>
       {!collapsed && <PagesArea parentId={null} spaceId={space.id} />}
     </>

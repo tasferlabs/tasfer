@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
 import { usePeerVersion } from "../contexts/PeerVersionContext";
 import { NudgeCard } from "./NudgeCard";
 
@@ -33,12 +34,14 @@ export function PeerVersionBanner() {
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.18, ease: "easeInOut" }}
           >
-            <button
+            <Button
               type="button"
+              variant="unstyled"
+              size="unstyled"
               aria-expanded={false}
               aria-label={t("common.expand", "Expand")}
               onClick={() => setCollapsed(false)}
-              className="flex w-full cursor-pointer items-center gap-2 px-3.5 py-2.5 text-[11.5px] text-muted-foreground transition-colors hover:text-foreground"
+              className="w-full justify-start gap-2 px-3.5 py-2.5 text-[11.5px] font-normal text-muted-foreground hover:text-foreground"
             >
               <AlertTriangle className="size-3.5 shrink-0 text-warning" />
               <span>
@@ -48,7 +51,7 @@ export function PeerVersionBanner() {
                 )}
               </span>
               <ChevronUp className="ms-auto size-3.5 shrink-0" />
-            </button>
+            </Button>
           </motion.div>
         ) : (
           <motion.div
@@ -85,15 +88,17 @@ export function PeerVersionBanner() {
                     )
               }
               trailing={
-                <button
+                <Button
                   type="button"
+                  variant="unstyled"
+                  size="unstyled"
                   aria-expanded
                   aria-label={t("common.collapse", "Collapse")}
                   onClick={() => setCollapsed(true)}
-                  className="-me-1.5 -mt-1 cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                  className="-me-1.5 -mt-1 rounded-md p-1.5 text-muted-foreground hover:text-foreground"
                 >
                   <ChevronDown className="size-3.5" />
-                </button>
+                </Button>
               }
             />
           </motion.div>

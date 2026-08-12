@@ -177,19 +177,21 @@ export function StorageProtectionBanner() {
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.18, ease: "easeInOut" }}
             >
-              <button
+              <Button
                 type="button"
+                variant="unstyled"
+                size="unstyled"
                 aria-expanded={false}
                 aria-label={t("common.expand", "Expand")}
                 onClick={expand}
-                className="flex w-full cursor-pointer items-center gap-2 px-3.5 py-2.5 text-[11.5px] text-muted-foreground transition-colors hover:text-foreground"
+                className="w-full justify-start gap-2 px-3.5 py-2.5 text-[11.5px] font-normal text-muted-foreground hover:text-foreground"
               >
                 <Shield className="size-3.5 shrink-0" />
                 <span>
                   {t("storage.bannerCollapsedCta", "Notes in browser storage")}
                 </span>
                 <ChevronUp className="ms-auto size-3.5 shrink-0" />
-              </button>
+              </Button>
             </motion.div>
           ) : (
             <motion.div
@@ -235,15 +237,17 @@ export function StorageProtectionBanner() {
                   </Button>
                 }
                 trailing={
-                  <button
+                  <Button
                     type="button"
+                    variant="unstyled"
+                    size="unstyled"
                     aria-expanded
                     aria-label={t("common.collapse", "Collapse")}
                     onClick={collapse}
-                    className="-me-1.5 -mt-1 cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                    className="-me-1.5 -mt-1 rounded-md p-1.5 text-muted-foreground hover:text-foreground"
                   >
                     <ChevronDown className="size-3.5" />
-                  </button>
+                  </Button>
                 }
               />
             </motion.div>
