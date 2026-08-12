@@ -200,10 +200,16 @@ export async function getArchivedSpaces(): Promise<ArchivedSpaceItem[]> {
   return platform.spaces.listArchived();
 }
 
-export function useGetArchivedSpaces() {
+/**
+ * `enabled` exists for Layout, which only needs this list to tell a first run
+ * apart from someone who archived every space — and shouldn't pay for the
+ * lookup on every start when spaces are present.
+ */
+export function useGetArchivedSpaces(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["spaces-archived"],
     queryFn: getArchivedSpaces,
+    enabled: options?.enabled,
   });
 }
 
