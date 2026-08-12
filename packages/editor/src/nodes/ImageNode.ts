@@ -1773,25 +1773,49 @@ export class ImageNode extends AtomicNode<Image> {
         const b = block as Image;
         const src = ctx.mapAssetUrl(b.url);
         const alt = b.alt ? escapeAttr(b.alt) : "";
-        const styles: string[] = [
-          "max-width:100%",
-          "height:auto",
-          "display:block",
-          "margin:1em auto",
-        ];
+        const styles: string[] = ["display:block"];
+        // Set on a full-width image so the document shell can bleed it out
+        // over its side padding to the page edge (see the serializer's
+        // `img.full-bleed`); the sizing that follows is the block's own.
+        let className = "";
 
-        if (!isImageDefault(b)) {
-          if (typeof b.width === "number") styles.push(`width:${b.width}px`);
-          const fit = b.objectFit ?? "cover";
+        // The frame must be given a definite height, otherwise `height:auto`
+        // sizes the box to the source's own aspect ratio and both `object-fit`
+        // and `object-position` become no-ops — a cropped cover then exports
+        // (and prints to PDF) uncropped and off-position. Mirrors
+        // `imageGeometry`: full width keeps the stored height verbatim, while a
+        // user-sized image scales its height with the width when the page is
+        // narrower than the image, which `aspect-ratio` expresses.
+        const fit = b.objectFit ?? "cover";
+        const mode = imageWidthMode(b);
+        const height = b.height ?? IMAGE_DEFAULT_HEIGHT;
+
+        if (mode === "natural") {
+          // Contained default (a pasted image): the source's own size, capped
+          // to the column — no crop to preserve, so no frame to impose.
+          styles.push("max-width:100%", "height:auto", "margin:1em auto");
+        } else {
+          if (mode === "full") {
+            className = ' class="full-bleed"';
+            styles.push(`height:${Math.round(height)}px`);
+          } else {
+            styles.push(
+              "max-width:100%",
+              "margin:1em auto",
+              `width:${Math.round(mode)}px`,
+              `aspect-ratio:${Math.round(mode)}/${Math.round(height)}`,
+              "height:auto",
+            );
+          }
           styles.push(`object-fit:${fit}`);
-          if (b.objectPosition !== undefined) {
+          if (fit === "cover") {
             styles.push(
               `object-position:${formatObjectPosition(imageObjectPosition(b))}`,
             );
           }
         }
 
-        return `<img src="${escapeAttr(src)}" alt="${alt}" style="${styles.join(";")}" />`;
+        return `<img${className} src="${escapeAttr(src)}" alt="${alt}" style="${styles.join(";")}" />`;
       },
     },
     text: {
