@@ -363,10 +363,14 @@ export function mergeRegister(...disposers: Disposer[]): Disposer {
 // ─── Built-in actions ─────────────────────────────────────────────────────
 
 /**
- * A link was activated (Cmd/Ctrl-click on a `link` mark). Payload: the URL.
- * The editor registers a default handler (open in a new tab) at
- * {@link DEFAULT_ACTION_PRIORITY}; a host can register a higher-priority
- * handler that returns `true` to route the link itself (e.g. native nav).
+ * A link was activated (Cmd/Ctrl-click on a `link` mark). Payload: the URL —
+ * untrusted document content, not a vetted address.
+ *
+ * The editor registers a default handler at {@link DEFAULT_ACTION_PRIORITY}
+ * that opens the url in a new tab if its scheme passes `normalizeLinkUrl`, and
+ * drops it otherwise. A host can register a higher-priority handler returning
+ * `true` to route the link itself (native nav, a confirmation step); doing so
+ * makes the host responsible for the same protocol check.
  */
 export const OPEN_LINK = action<{ url: string }>("open-link");
 

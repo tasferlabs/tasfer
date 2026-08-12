@@ -191,6 +191,7 @@ import {
   type StructuredMutation,
 } from "../sync/structured-content";
 import { getVisibleBlocks } from "../sync/sync";
+import { normalizeLinkUrl } from "../url-safety";
 import type { CanvasLayers } from "./layers";
 
 // ── Per-block style: write-API expansion ─────────────────────────────────────
@@ -1255,10 +1256,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // returning true — e.g. a native shell taking over OPEN_LINK. Observe-only
     // actions (haptics, gesture milestones) have no default and are dispatched
     // as-is.
+    //
+    // The url is document data, so the default refuses any scheme outside the
+    // allowlist rather than handing it to `window.open` (a `javascript:` link
+    // would run in the host's origin). It claims the action either way, so a
+    // rejected link is silently dropped instead of falling through. Hosts that
+    // override this own the same check plus whatever confirmation they show.
     this._state.actionBus.register(
       OPEN_LINK,
       ({ url }) => {
-        window.open(url, "_blank", "noopener,noreferrer");
+        const safe = normalizeLinkUrl(url);
+        if (safe) window.open(safe, "_blank", "noopener,noreferrer");
         return true;
       },
       DEFAULT_ACTION_PRIORITY,

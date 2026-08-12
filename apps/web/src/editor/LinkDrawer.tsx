@@ -11,6 +11,7 @@ import {
 } from "../components/ui/drawer";
 import useMobileLayout from "../app/hooks/useMobileLayout";
 import { usePreventMobileKeyboard } from "../app/hooks/usePreventMobileKeyboard";
+import { useOpenExternalUrl } from "../app/components/ExternalLinkDialog";
 import { useTranslation } from "react-i18next";
 
 interface LinkDrawerProps {
@@ -39,6 +40,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
   const { isMobile } = useMobileLayout();
   const [editedUrl, setEditedUrl] = useState(url || "");
   const { t } = useTranslation();
+  const openExternalUrl = useOpenExternalUrl();
   // Prevent keyboard from appearing on mobile when drawer opens
   usePreventMobileKeyboard(isMobile);
 
@@ -119,11 +121,9 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             onTouchEnd={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              if (window.TasferBridge) {
-                window.TasferBridge.navigation.openUrl(editedUrl);
-              } else {
-                window.open(editedUrl, "_blank", "noopener,noreferrer");
-              }
+              // The field's live value, so this previews what is being typed —
+              // still protocol-checked and confirmed like any other open.
+              openExternalUrl(editedUrl);
             }}
             className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 px-3"
           >

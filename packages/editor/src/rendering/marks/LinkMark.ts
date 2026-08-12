@@ -10,6 +10,7 @@ import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import type { EditorState, LinkHoverState, Position } from "../../state-types";
 import { isTextualBlock } from "../../sync/block-registry";
 import { findCharInRuns, iterateVisibleChars } from "../../sync/char-runs";
+import { normalizeLinkUrl } from "../../url-safety";
 import { Mark, type MarkStyle, type MarkStyleCtx } from "./Mark";
 
 /** Set/clear the engine-owned link-hover tooltip state (inlined here so this
@@ -23,15 +24,20 @@ function setLinkHover(
 
 // `link` is parsed specially (its url arrives after its text), so it declares a
 // `toMarkdown` but no paired `tokens`. `html.priority` keeps it outermost (4).
+//
+// The HTML projection ends up in live DOM (the a11y mirror, host title previews)
+// and in exports, so the href goes through the protocol allowlist and a rejected
+// url degrades to plain text — escaping alone would keep `javascript:` clickable.
+// Markdown stays lossless: it is content, not a sink, and re-renders through here.
 const LINK_CODEC: MarkCodec = {
   type: "link",
   toMarkdown: (t, mark) => (mark.attrs?.url ? `[${t}](${mark.attrs.url})` : t),
   html: {
     priority: 4,
-    render: (inner, mark, ctx) =>
-      mark.attrs?.url
-        ? `<a href="${ctx.escapeAttr(String(mark.attrs.url))}">${inner}</a>`
-        : inner,
+    render: (inner, mark, ctx) => {
+      const href = normalizeLinkUrl(mark.attrs?.url);
+      return href ? `<a href="${ctx.escapeAttr(href)}">${inner}</a>` : inner;
+    },
   },
 };
 
@@ -65,8 +71,8 @@ export class LinkMark extends Mark {
         if (!modifiers.ctrlOrMeta) return;
         const link = getLinkAtPosition(position, state);
         if (!link) return;
-        // The editor's default opens it in a new tab; a native shell can override
-        // OPEN_LINK to route it itself.
+        // The editor's default opens an allowlisted url in a new tab; a host can
+        // override OPEN_LINK to route it itself (native nav, confirmation).
         state.actionBus.dispatch(OPEN_LINK, { url: link.url });
         return {
           state: {

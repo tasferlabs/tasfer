@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { registerSW } from "virtual:pwa-register";
 import { DatabaseLockedScreen } from "./app/components/DatabaseLockedScreen";
+import { ExternalLinkProvider } from "./app/components/ExternalLinkDialog";
 import { ToastProvider } from "./app/components/Toast";
 import { AuthProvider } from "./app/contexts/AuthContext";
 import { PopupQueueProvider } from "./app/contexts/PopupQueueContext";
@@ -145,14 +146,18 @@ const App = () => (
       <ThemeProvider>
         <DirectionWrapper>
           <ToastProvider>
-            <VersionProvider>
-              <Suspense fallback={<LoadingScreen />}>
-                <PopupQueueProvider>
-                  <RouterProvider router={router} />
-                  {/* <MobileAppNudge /> */}
-                </PopupQueueProvider>
-              </Suspense>
-            </VersionProvider>
+            {/* Above the router: every surface that can show a document link —
+                editor overlays, sidebar chrome — opens through it. */}
+            <ExternalLinkProvider>
+              <VersionProvider>
+                <Suspense fallback={<LoadingScreen />}>
+                  <PopupQueueProvider>
+                    <RouterProvider router={router} />
+                    {/* <MobileAppNudge /> */}
+                  </PopupQueueProvider>
+                </Suspense>
+              </VersionProvider>
+            </ExternalLinkProvider>
           </ToastProvider>
         </DirectionWrapper>
       </ThemeProvider>

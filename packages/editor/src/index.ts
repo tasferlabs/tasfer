@@ -514,6 +514,14 @@ export { DEFAULT_TOKENS, mergeTheme, resolveTheme } from "./styles";
 // the UI, need the same ⌘-vs-Ctrl answer the built-in keymap uses.
 export { isApplePlatform } from "./platform";
 
+// Link safety — a host that overrides OPEN_LINK, or renders a link's url in its
+// own chrome, must apply the same protocol allowlist the engine's own sinks do.
+export {
+  isSafeLinkUrl,
+  normalizeLinkUrl,
+  SAFE_LINK_PROTOCOLS,
+} from "./url-safety";
+
 // Serialization — project a document to Markdown / HTML, parse Markdown back
 // into blocks, and collect the asset urls a block tree references.
 export { collectAssetRefs } from "./baseDataSchema";

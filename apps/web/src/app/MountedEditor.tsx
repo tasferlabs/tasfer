@@ -148,6 +148,7 @@ import { useSafeAreaInsets } from "./hooks/useSafeAreaInsets";
 import { cn } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { CursorMagnifier } from "./components/CursorMagnifier";
+import { useOpenExternalUrl } from "./components/ExternalLinkDialog";
 import { MobileKeyboardToolbar } from "./components/MobileKeyboardToolbar";
 import {
   fontStyleToFamily,
@@ -705,13 +706,8 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
         x={containerRect.left + overlay.rect.x}
         y={containerRect.top + overlay.rect.y}
         onDismiss={() => editor.host.clearLinkHover()}
-        onOpen={() => {
-          if (window.TasferBridge) {
-            window.TasferBridge.navigation.openUrl(url);
-          } else {
-            window.open(url, "_blank", "noopener,noreferrer");
-          }
-        }}
+        // No `onOpen`: the tooltip's default path already routes through the
+        // app's link confirmation, the same one Ctrl+click takes.
         // Readonly documents show the tooltip for opening the link only —
         // editing the URL mutates the doc, so the Edit affordance is dropped
         // (the tooltip hides the button when `onEdit` is absent). Gated on
@@ -1451,6 +1447,15 @@ function PageEditor({
     const ctx = matrixContextForCaret(editor);
     setMatrixEditor(ctx ? { rows: ctx.rows, cols: ctx.cols } : { rows, cols });
   }, []);
+
+  // The mount effect registers OPEN_LINK once (it runs on `editor` alone), while
+  // the opener's identity changes with the UI language — so the handler reads it
+  // through a ref rather than capturing the mount-time closure.
+  const openExternalUrl = useOpenExternalUrl();
+  const openExternalUrlRef = useRef(openExternalUrl);
+  useEffect(() => {
+    openExternalUrlRef.current = openExternalUrl;
+  }, [openExternalUrl]);
 
   const closeMatrixEditor = useCallback(() => {
     setMatrixEditor(null);
@@ -2436,15 +2441,14 @@ function PageEditor({
       mounted.editor.registerAction(REGION_DRAG_START, ({ intensity }) =>
         fireHaptic(intensity),
       ),
-      // Override the editor's window.open default with native navigation.
-      ...(native
-        ? [
-            mounted.editor.registerAction(OPEN_LINK, ({ url }) => {
-              void native.navigation.openUrl(url);
-              return true;
-            }),
-          ]
-        : []),
+      // Take over the engine's window.open default on every platform: a link's
+      // url is document content, so Ctrl+click confirms the destination first
+      // (and native shells get their navigation) instead of opening straight
+      // out of the canvas.
+      mounted.editor.registerAction(OPEN_LINK, ({ url }) => {
+        openExternalUrlRef.current(url);
+        return true;
+      }),
       mounted.editor.registerAction(
         OPEN_CONTEXT_MENU,
         ({ x, y, hasSelection }) => {

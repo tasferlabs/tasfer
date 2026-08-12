@@ -106,7 +106,10 @@ export function TitlePreview({
       <span
         className={cn(style.preview, className)}
         // Safe by construction: inlineToHtml escapes all text; tags come only
-        // from the engine's own mark codecs and math SVG renderer.
+        // from the engine's own mark codecs and math SVG renderer. The one
+        // attribute carrying document data — a link's href — is filtered by the
+        // codec against the protocol allowlist (see url-safety), so a title with
+        // a `javascript:` link renders as plain text here.
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );

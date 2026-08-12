@@ -16,6 +16,7 @@ import {
 } from "electron";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import {
   FALLBACK_LOCALE,
   LOCALES,
@@ -31,6 +32,7 @@ import { registerUpdaterHandlers } from "./handlers/updater";
 import { registerPdfHandlers } from "./handlers/pdf";
 import { registerContextMenuHandlers } from "./handlers/contextMenu";
 import { registerThemeHandlers } from "./handlers/theme";
+import { applyNavigationPolicy } from "./externalLinks";
 
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -244,6 +246,45 @@ const DEV_SERVER_URL =
 const resourcesDir = isDev
   ? path.join(__dirname, "../../resources")
   : path.join(__dirname, "../../resources");
+
+/**
+ * True only for the renderer itself: the dev server's origin in development, and
+ * a file inside the packaged web bundle otherwise. Everything else — a link out
+ * of a document, above all — is foreign and gets sent to the OS browser.
+ */
+function isAppUrl(target: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(target);
+  } catch {
+    return false;
+  }
+
+  if (isDev) {
+    try {
+      return url.origin === new URL(DEV_SERVER_URL).origin;
+    } catch {
+      return false;
+    }
+  }
+
+  if (url.protocol !== "file:") return false;
+  // Scoped to the bundle rather than accepting file: wholesale, so a stray
+  // navigation can't walk the user's disk inside the app window.
+  try {
+    const webRoot = path.join(process.resourcesPath, "web");
+    const filePath = path.resolve(fileURLToPath(url));
+    return filePath === webRoot || filePath.startsWith(webRoot + path.sep);
+  } catch {
+    return false;
+  }
+}
+
+// Registered before any window exists so it covers every webContents Electron
+// creates, not just the main one.
+app.on("web-contents-created", (_event, contents) => {
+  applyNavigationPolicy(contents, isAppUrl);
+});
 
 function createWindow() {
   const isMac = process.platform === "darwin";
