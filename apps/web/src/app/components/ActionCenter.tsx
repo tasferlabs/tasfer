@@ -493,6 +493,15 @@ export function ActionCenter() {
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
+            // The desktop palette gets its dialog semantics from
+            // `Command.Dialog`; this hand-rolled full-screen overlay has to
+            // declare them itself. Beyond a11y, it is what tells the editor
+            // behind it to stand down — the editor's ⌘F shortcut listens on
+            // `document` and skips while a dialog is open, so without this an
+            // attached keyboard would open the find bar under the palette.
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("editor.actionCenter", "Action Center")}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8, pointerEvents: "none" }}
