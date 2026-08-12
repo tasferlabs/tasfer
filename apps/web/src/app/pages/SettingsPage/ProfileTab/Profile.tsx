@@ -33,6 +33,17 @@ export function Profile() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const avatarUrl = useAssetUrl(avatarId);
 
+  // The identity can change while this form is open: linking a device adopts the
+  // other device's name and avatar, and AuthContext re-reads on
+  // `identity.onChange`. Re-seed the inputs from it — left alone they would hold
+  // pre-link values, and Save would publish those back over the identity that
+  // just arrived, wiping the person's name on every device they own.
+  React.useEffect(() => {
+    setName(user?.name ?? "");
+    setAvatarId(user?.avatar ?? null);
+    setDeviceDescription(user?.deviceDescription ?? "");
+  }, [user?.name, user?.avatar, user?.deviceDescription]);
+
   const hasChanges =
     name !== (user?.name ?? "") ||
     deviceDescription !== (user?.deviceDescription ?? "") ||
