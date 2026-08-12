@@ -9,22 +9,24 @@ import { getPlatform } from "@/platform";
 import type {
   PageListItem,
   ArchivedPageItem,
+  ArchivedPageRef,
   PageFull,
   PageSearchResult,
   PageCalendarItem,
-  PageSnapshot,
+  PageVersion,
 } from "@/platform";
+import type { Block } from "@tasfer/editor";
 
 // =============================================================================
 // Type aliases — keep old names so consumers don't need updating
 // =============================================================================
 
 export type IListPage = PageListItem;
-export type { ArchivedPageItem };
+export type { ArchivedPageItem, ArchivedPageRef };
 export type IPage = PageFull;
 export type ISearchPage = PageSearchResult;
 export type ICalendarPage = PageCalendarItem;
-export type ISnapshot = PageSnapshot;
+export type IVersion = PageVersion;
 
 // =============================================================================
 // Pages API — delegates to platform
@@ -135,6 +137,14 @@ export function useDeletePage<TContext = unknown>(
     mutationFn: deletePage,
     ...options,
   });
+}
+
+// A page that was archived after someone saved its link
+export async function getArchivedPage(
+  id: string,
+): Promise<ArchivedPageRef | null> {
+  const platform = getPlatform();
+  return platform.pages.getArchived(id);
 }
 
 // Archived (soft-deleted) pages — the Archive
@@ -278,18 +288,54 @@ export function updateTitleFromCache(
 }
 
 // =============================================================================
-// Snapshot API
+// Version history API
 // =============================================================================
 
-export async function getPageSnapshots(pageId: string): Promise<ISnapshot[]> {
+export async function getPageVersions(pageId: string): Promise<IVersion[]> {
   const platform = getPlatform();
-  return platform.pages.snapshots(pageId);
+  return platform.pages.versions(pageId);
 }
 
-export function useGetPageSnapshots(pageId?: string) {
+export function useGetPageVersions(pageId?: string) {
   return useQuery({
-    queryKey: ["page-snapshots", pageId],
-    queryFn: () => getPageSnapshots(pageId!),
+    queryKey: ["page-versions", pageId],
+    queryFn: () => getPageVersions(pageId!),
+    enabled: !!pageId,
+  });
+}
+
+export async function getVersionBlocks(
+  pageId: string,
+  versionId: string,
+): Promise<Block[]> {
+  const platform = getPlatform();
+  return platform.pages.versionBlocks(pageId, versionId);
+}
+
+/**
+ * Content for one version entry, fetched only once the user opens it. The list
+ * itself carries no blocks — building all of them up front is a reducer replay
+ * per entry, for content nobody has asked to see.
+ */
+export function useVersionBlocks(pageId?: string, versionId?: string) {
+  return useQuery({
+    queryKey: ["page-version-blocks", pageId, versionId],
+    queryFn: () => getVersionBlocks(pageId!, versionId!),
+    enabled: !!pageId && !!versionId,
+    staleTime: Infinity,
+  });
+}
+
+/** Latest content rebuilt straight from the op log (works for archived pages). */
+export async function rebuildPageBlocks(pageId: string): Promise<Block[]> {
+  const platform = getPlatform();
+  return platform.pages.rebuild(pageId);
+}
+
+export function useRebuiltPageBlocks(pageId?: string) {
+  return useQuery({
+    queryKey: ["page-rebuild", pageId],
+    queryFn: () => rebuildPageBlocks(pageId!),
     enabled: !!pageId,
   });
 }

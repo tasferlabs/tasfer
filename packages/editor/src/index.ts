@@ -294,7 +294,9 @@ export {
   JOIN_WITH_PREVIOUS_BLOCK,
   joinWithPreviousBlock,
   MOVE_BLOCK,
+  MOVE_BLOCKS,
   moveBlock,
+  moveBlocks,
   registerEmptyBlockBackspaceExit,
   REVERT_INPUT_RULE,
   SELECT_ALL,
@@ -341,7 +343,7 @@ export {
   CLEAR_VISUAL_BLOCK_SELECTION,
   OPEN_BLOCK_OVERLAY,
   PLACE_CURSOR_AT_POINT,
-  PLACE_CURSOR_IN_SIDE_PADDING,
+  PLACE_CURSOR_IN_PADDING,
   SELECT_LINE_AT_POINT,
   SELECT_VISUAL_BLOCK,
   SELECT_WORD_AT_POINT,
@@ -513,6 +515,15 @@ export { DEFAULT_TOKENS, mergeTheme, resolveTheme } from "./styles";
 // Key conventions — hosts that register their own shortcuts, or label them in
 // the UI, need the same ⌘-vs-Ctrl answer the built-in keymap uses.
 export { isApplePlatform } from "./platform";
+
+// Link safety — a host that overrides OPEN_LINK, or renders a link's url in its
+// own chrome, must apply the same protocol allowlist the engine's own sinks do.
+export {
+  isSafeLinkUrl,
+  normalizeLinkUrl,
+  SAFE_LINK_PROTOCOLS,
+  safeLinkHref,
+} from "./url-safety";
 
 // Serialization — project a document to Markdown / HTML, parse Markdown back
 // into blocks, and collect the asset urls a block tree references.

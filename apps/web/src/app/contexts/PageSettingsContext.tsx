@@ -1,12 +1,18 @@
 import React, {
   createContext,
   useContext,
+  useMemo,
   useState,
   useCallback,
   useEffect,
 } from "react";
 import { invariant } from "@shared/invariant";
 import { resolveTheme, type EditorTheme, type FontFamily } from "@tasfer/editor";
+import {
+  computeSelectionStats,
+  type DocumentStats,
+  type SelectionSpan,
+} from "@/lib/documentStats";
 import useLocalStorage from "../hooks/useLocalStorage";
 import type { CursorUser } from "@tasfer/provider-core/cursors";
 import type { Block } from "@tasfer/editor";
@@ -104,6 +110,15 @@ interface PageSettingsContextType {
   setShowWordCount: (show: boolean) => void;
   wordCount: number;
   setWordCount: (count: number) => void;
+  /**
+   * The text span the active editor has selected, or `null` for a bare caret.
+   * Statistics follow it: a selection asks "how long is this part", not "how
+   * long is the document" (see {@link selectionStats}).
+   */
+  selectionSpan: SelectionSpan | null;
+  setSelectionSpan: (span: SelectionSpan | null) => void;
+  /** Statistics for {@link selectionSpan}, or `null` when nothing is selected. */
+  selectionStats: DocumentStats | null;
   activeUsers: CursorUser[];
   setActiveUsers: (users: CursorUser[]) => void;
   // Snapshot restore
@@ -116,6 +131,14 @@ interface PageSettingsContextType {
   // Permission
   permission: PagePermission;
   setPermission: (permission: PagePermission) => void;
+  /**
+   * The open page is hidden from the app — archived, or inside an archived
+   * space — and shown read-only. The top action bar reads this to wash itself
+   * as the archived banner's surface; EditorPage portals the banner into it in
+   * place of the breadcrumb.
+   */
+  isPageArchived: boolean;
+  setIsPageArchived: (archived: boolean) => void;
   // Find in document
   onOpenFind: (() => void) | null;
   setOnOpenFind: (callback: (() => void) | null) => void;
@@ -166,12 +189,14 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [showWordCount, setShowWordCountState] = useLocalStorage<boolean>("pageSettings.showWordCount", false);
   const [wordCount, setWordCount] = useState(0);
+  const [selectionSpan, setSelectionSpan] = useState<SelectionSpan | null>(null);
   const [activeUsers, setActiveUsers] = useState<CursorUser[]>([]);
   // Snapshot restore state
   const [pageId, setPageId] = useState<string | null>(null);
   const [currentBlocks, setCurrentBlocks] = useState<Block[]>([]);
   const [onRestoreSnapshot, setOnRestoreSnapshotState] = useState<((blocks: Block[]) => void) | null>(null);
   const [permission, setPermission] = useState<PagePermission>("owner");
+  const [isPageArchived, setIsPageArchived] = useState(false);
   const [onOpenFind, setOnOpenFindState] = useState<(() => void) | null>(null);
 
   // The selected family is applied per editor instance: MountedEditor reads
@@ -198,6 +223,14 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     applyDensityToRoot(density ?? DEFAULT_DENSITY);
   }, [density]);
+
+  // Derived here rather than at each read so the pill and the details surface
+  // share one computation, and so an edit under a held selection re-counts it.
+  const selectionStats = useMemo(
+    () =>
+      selectionSpan ? computeSelectionStats(currentBlocks, selectionSpan) : null,
+    [selectionSpan, currentBlocks],
+  );
 
   const setShowWordCount = useCallback((show: boolean) => {
     setShowWordCountState(show);
@@ -227,6 +260,9 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         setShowWordCount,
         wordCount,
         setWordCount,
+        selectionSpan,
+        setSelectionSpan,
+        selectionStats,
         activeUsers,
         setActiveUsers,
         pageId,
@@ -237,6 +273,8 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         setOnRestoreSnapshot,
         permission,
         setPermission,
+        isPageArchived,
+        setIsPageArchived,
         onOpenFind,
         setOnOpenFind,
       }}

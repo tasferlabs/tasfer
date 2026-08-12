@@ -6,6 +6,8 @@ import { useTranslation } from "react-i18next";
 import useMobileLayout from "../hooks/useMobileLayout";
 import useKeyboardInset from "../hooks/useKeyboardInset";
 import { Button } from "../../components/ui/button";
+import { usePeerVersion } from "../contexts/PeerVersionContext";
+import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useTopActionBarSlotRef } from "./TopActionBarSlot";
 export function TopActionBar({
   open,
@@ -18,6 +20,11 @@ export function TopActionBar({
   const { isMobile, isShort } = useMobileLayout();
   const keyboardInset = useKeyboardInset();
   const slotRef = useTopActionBarSlotRef();
+  // The sidebar warning is invisible while the sidebar is closed, so the button
+  // that opens it carries a dot instead.
+  const { notice } = usePeerVersion();
+  // Shares the archived banner's wash when the open page is archived.
+  const { isPageArchived } = usePageSettings();
 
   // On a landscape phone the keyboard already takes half the screen; the bar
   // would eat a third of what is left, so it steps aside while typing and comes
@@ -30,6 +37,7 @@ export function TopActionBar({
       className={clsx(
         style.appHeader,
         !open && style.appHeaderSidebarClosed,
+        isPageArchived && style.appHeaderArchived,
         collapsed && style.appHeaderCollapsed,
       )}
       inert={collapsed ? (true as unknown as boolean) : undefined}
@@ -38,7 +46,7 @@ export function TopActionBar({
         <Button
           variant="ghost"
           size="icon-sm"
-          className={clsx("text-muted-foreground hover:text-foreground", style.appHeaderOpenSidebar, {
+          className={clsx("relative text-muted-foreground hover:text-foreground", style.appHeaderOpenSidebar, {
             [style.visible]: isMobile || !open,
           })}
           onClick={() => setOpen(true)}
@@ -48,7 +56,18 @@ export function TopActionBar({
           ) : (
             <PanelLeft className="h-4 w-4 rtl:-scale-x-100" />
           )}
+          {notice !== null && (
+            <span
+              aria-hidden
+              className="absolute end-0.5 top-0.5 size-2 rounded-full bg-destructive ring-2 ring-background"
+            />
+          )}
           <span className="sr-only">{t("sidebar.open", "Open sidebar")}</span>
+          {notice !== null && (
+            <span className="sr-only">
+              {t("sync.versionIncompatibleTitle", "Can't sync with a device")}
+            </span>
+          )}
         </Button>
       )}
 

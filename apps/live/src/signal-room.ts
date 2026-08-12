@@ -192,6 +192,11 @@ export class SignalRoom extends DurableObject<Env> {
   /**
    * Handle WebSocket close (hibernation-safe).
    * Notify remaining peers that this peer left.
+   *
+   * The close handshake itself is the runtime's job: `web_socket_auto_reply_to_close`
+   * is on by default at this Worker's compatibility date, so a peer's Close frame
+   * is answered without us. Before that date it was not, and the client saw a bare
+   * 1006 instead — do not lower the compatibility date past 2026-04-07.
    */
   async webSocketClose(ws: WebSocket): Promise<void> {
     const peerId = this.ctx.getTags(ws)[0];

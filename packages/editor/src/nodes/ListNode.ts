@@ -171,6 +171,25 @@ function calculateListItemNumber(
   return number;
 }
 
+/**
+ * Inset of each marker from the gutter's *outer* edge (the side away from the
+ * text). RTL puts the gutter after the text, so a marker pinned to a fixed left
+ * offset would end up against the first character; mirroring keeps the gap to
+ * the text identical in both directions.
+ */
+const MARKER_INSET = { bullet: 6, numbered: 18, checkbox: 2 } as const;
+
+/** X of a `width`-wide marker at `inset` from the gutter's outer edge. */
+function markerSlotX(
+  markerX: number,
+  markerWidth: number,
+  isRTL: boolean,
+  inset: number,
+  width = 0,
+): number {
+  return isRTL ? markerX + markerWidth - inset - width : markerX + inset;
+}
+
 export class ListNode extends TextNode {
   // Representative type; registered under every LIST_BLOCK_TYPES key.
   readonly type: TextualBlock["type"] = "bullet_list";
@@ -212,7 +231,7 @@ export class ListNode extends TextNode {
   ): void {
     if (!isListBlock(block)) return;
 
-    const { fontMetrics, textStyle } = layout;
+    const { fontMetrics, textStyle, isRTL, markerWidth } = layout;
     const fontFamily = currentFontFamily(styles);
 
     if (block.type === "bullet_list") {
@@ -220,8 +239,16 @@ export class ListNode extends TextNode {
       ctx.fillStyle = styles.list.bullet.color;
       ctx.font = `${textStyle.fontWeight} ${styles.list.bullet.size}px ${getFontStack(fontFamily, styles.fonts)}`;
       ctx.textBaseline = "alphabetic";
+      // Mirrored inset measures from the gutter's outer edge, so the bullet is
+      // aligned to that edge rather than drawn from it.
+      ctx.textAlign = isRTL ? "right" : "left";
 
-      const bulletX = markerX + 6;
+      const bulletX = markerSlotX(
+        markerX,
+        markerWidth,
+        isRTL,
+        MARKER_INSET.bullet,
+      );
 
       ctx.fillText(
         styles.list.bullet.character,
@@ -237,17 +264,26 @@ export class ListNode extends TextNode {
       ctx.fillStyle = styles.list.numbered.color;
       ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily, styles.fonts)}`;
       ctx.textBaseline = "alphabetic";
-      ctx.textAlign = "right";
+      ctx.textAlign = isRTL ? "left" : "right";
 
-      ctx.fillText(numberText, markerX + 18, lineTopY + fontMetrics.ascent);
+      ctx.fillText(
+        numberText,
+        markerSlotX(markerX, markerWidth, isRTL, MARKER_INSET.numbered),
+        lineTopY + fontMetrics.ascent,
+      );
 
-      ctx.textAlign = "left"; // Reset
       ctx.restore();
     } else if (block.type === "todo_list") {
       const checkboxSize = styles.list.todo.checkboxSize;
       const checkboxY = lineTopY + fontMetrics.ascent - checkboxSize + 2;
 
-      const checkboxX = markerX + 2;
+      const checkboxX = markerSlotX(
+        markerX,
+        markerWidth,
+        isRTL,
+        MARKER_INSET.checkbox,
+        checkboxSize,
+      );
 
       ctx.save();
 
@@ -291,7 +327,7 @@ export class ListNode extends TextNode {
 
   /**
    * The todo checkbox is an interactive sub-region. Geometry mirrors
-   * paintMarker (marker gutter + 2, ascent-aligned, RTL-aware) with a small
+   * paintMarker (same gutter slot, ascent-aligned, RTL-aware) with a small
    * padding for easier clicking; the toggle behavior is bound to the
    * "todo-checkbox" id in the event layer.
    */
@@ -301,7 +337,7 @@ export class ListNode extends TextNode {
     return [
       {
         id: "todo-checkbox",
-        hitTest: (p) => {
+        hitTest: (p, pointerType) => {
           const styles = c.styles;
           const { indentOffset, markerWidth } = this.leadingInset(
             block,
@@ -309,12 +345,19 @@ export class ListNode extends TextNode {
           );
           const checkboxSize = styles.list.todo.checkboxSize;
 
-          // RTL puts the marker gutter on the right side
+          // RTL puts the marker gutter on the right side, after the text.
           const isRTL = getBlockDirection(block, c.marks) === "rtl";
           const adjustedMaxWidth = c.maxWidth - indentOffset - markerWidth;
-          const checkboxX = isRTL
-            ? c.origin.x + indentOffset + adjustedMaxWidth + 2
-            : c.origin.x + indentOffset + 2;
+          const markerX = isRTL
+            ? c.origin.x + adjustedMaxWidth
+            : c.origin.x + indentOffset;
+          const checkboxX = markerSlotX(
+            markerX,
+            markerWidth,
+            isRTL,
+            MARKER_INSET.checkbox,
+            checkboxSize,
+          );
 
           const textStyle = mergeBlockStyle(
             this.textStyle(styles, block.type),
@@ -328,10 +371,29 @@ export class ListNode extends TextNode {
           );
           const checkboxY = c.origin.y + fontMetrics.ascent - checkboxSize + 2;
 
-          const pad = 4; // click/tap tolerance beyond the drawn box
+          // Tolerance beyond the drawn box. A thumb needs far more of it than a
+          // cursor: the box is 16px, which is under half the target size either
+          // mobile platform asks for.
+          const pad = pointerType === "touch" ? 12 : 4;
+
+          // Growing towards the text would steal taps meant to put the caret on
+          // the first character, so that side stops at the text column. The
+          // gutter sits between the checkbox and the text on whichever side the
+          // paragraph's direction puts it.
+          const gutter = Math.max(
+            0,
+            markerWidth - MARKER_INSET.checkbox - checkboxSize,
+          );
+          const padTowardsText = Math.min(pad, gutter);
+          const padLeft = isRTL ? padTowardsText : pad;
+          const padRight = isRTL ? pad : padTowardsText;
+
+          // Vertical padding needs no such clamp: the dispatcher only consults
+          // this region when the point is inside the block's own box, so it can
+          // never reach the item above or below.
           const inside =
-            p.x >= checkboxX - pad &&
-            p.x <= checkboxX + checkboxSize + pad &&
+            p.x >= checkboxX - padLeft &&
+            p.x <= checkboxX + checkboxSize + padRight &&
             p.y >= checkboxY - pad &&
             p.y <= checkboxY + checkboxSize + pad;
           return inside ? { blockIndex: c.blockIndex } : null;

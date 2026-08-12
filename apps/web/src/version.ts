@@ -2,7 +2,6 @@
  * Version Configuration
  *
  * Values are injected at build time from /version.json at the monorepo root.
- * This is checked against the API's minimum required version.
  */
 
 declare const __CLIENT_VERSION__: number;
@@ -31,10 +30,3 @@ export function getBuildDate(): Date | null {
 /** Short git commit of the build (with a `-dirty` suffix when uncommitted) */
 export const BUILD_COMMIT: string =
   typeof __BUILD_COMMIT__ !== "undefined" ? __BUILD_COMMIT__ : "dev";
-
-/**
- * Check if current version meets the minimum required version
- */
-export function meetsMinimumVersion(current: number, minimum: number): boolean {
-  return current >= minimum;
-}

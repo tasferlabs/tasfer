@@ -1,6 +1,7 @@
 import { Edit2, ExternalLink } from "lucide-react";
 import React, { useRef, useLayoutEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useOpenExternalUrl } from "../app/components/ExternalLinkDialog";
 import { cn } from "../lib/utils";
 
 interface LinkTooltipProps {
@@ -30,6 +31,7 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
   onDismiss,
 }) => {
   const { t } = useTranslation();
+  const openExternalUrl = useOpenExternalUrl();
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x, y, transform: "translateY(4px)" });
 
@@ -69,17 +71,9 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
     });
   }, [x, y]);
 
-  const handleOpen = () => {
-    if (onOpen) {
-      onOpen();
-    } else {
-      if (window.TasferBridge) {
-        window.TasferBridge.navigation.openUrl(url);
-      } else {
-        window.open(url, "_blank", "noopener,noreferrer");
-      }
-    }
-  };
+  // Without an `onOpen` override this goes through the app's confirmation +
+  // protocol check; a caller supplying `onOpen` owns the same guarantees.
+  const handleOpen = () => (onOpen ? onOpen() : openExternalUrl(url));
 
   return (
     <div

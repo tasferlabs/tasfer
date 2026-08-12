@@ -34,6 +34,10 @@ const buttonVariants = cva(
         "icon-sm":
           "size-8 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-md",
         "icon-lg": "size-10",
+        // Contributes no box of its own: for elements whose size comes from a
+        // CSS module or the surrounding layout, but that still want the shared
+        // press/focus affordances.
+        unstyled: "",
       },
     },
     defaultVariants: {

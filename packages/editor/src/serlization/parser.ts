@@ -39,6 +39,7 @@ interface ParserContext {
   blockIdCounter: number; // Counter for generating unique block IDs
   charIdCounter: number; // Counter for generating unique char IDs
   schema: DataSchema; // Block/mark types in play (codec dispatch source)
+  untypedBlockIds?: Set<string>; // Blocks the source declared no type for
 }
 
 // Generate a unique char ID.
@@ -196,9 +197,16 @@ function generateEmptyTree(): Page {
   };
 }
 
+/**
+ * `untypedBlockIds`, when passed, collects the ids of blocks that fell through
+ * to the fallback codec — text the source wrote with no block marker at all.
+ * It is a side channel on purpose: the distinction describes the *source*, not
+ * the block, so it must never ride along on `Block` into a snapshot or op.
+ */
 export default function parsePage(
   tokens: Token[],
   schema: DataSchema = getCompatibilityDataSchema(),
+  untypedBlockIds?: Set<string>,
 ): Page {
   const tree = generateEmptyTree();
 
@@ -208,6 +216,7 @@ export default function parsePage(
     blockIdCounter: 0,
     charIdCounter: 0,
     schema,
+    untypedBlockIds,
   };
 
   while (!isEnd(context)) {
@@ -251,8 +260,16 @@ function makeInputCtx(context: ParserContext, indent: number): InputCtx {
     },
     rawText: (text: string) => {
       const chars: Char[] = [];
-      for (const char of text) {
-        chars.push({ id: generateCharId(context), char, deleted: false });
+      // One ID per UTF-16 unit — see `generateCharId`. Iterating by code point
+      // would hand an astral character (an emoji) a single ID for its two
+      // units, and every ID after it inside the run would then resolve to the
+      // wrong character.
+      for (let i = 0; i < text.length; i++) {
+        chars.push({
+          id: generateCharId(context),
+          char: text[i],
+          deleted: false,
+        });
       }
       return charsToRuns(chars);
     },
@@ -314,17 +331,24 @@ function parseBlock(context: ParserContext): Block {
     }
   }
 
-  // Everything else parses as paragraph text.
-  return context.schema.getFallbackCodec()!.markdown.input!(ctx);
+  // Everything else parses as paragraph text. No codec claimed the leading
+  // token, so this type is the fallback rather than something the source asked
+  // for — recorded so callers can tell the two apart (paste keeps the host
+  // block's own type when the source declared none).
+  const block = context.schema.getFallbackCodec()!.markdown.input!(ctx);
+  context.untypedBlockIds?.add(block.id);
+  return block;
 }
 
 function emptyBlock(context: ParserContext): Block {
-  return {
+  const block: Block = {
     id: `block-${context.blockIdCounter++}`,
     type: "paragraph",
     charRuns: [],
     formats: [],
   };
+  context.untypedBlockIds?.add(block.id);
+  return block;
 }
 
 // Parse text into Char[] and MarkSpan[] (CRDT native format)
@@ -392,7 +416,10 @@ function parseCharsAndFormats(context: ParserContext): {
       // retains its exact source. When no active codec/mark claimed it, parse
       // that source literally rather than losing delimiters or attributes.
       const content = node.raw ?? node.content;
-      for (const char of content) {
+      // One ID per UTF-16 unit, not per code point — see `generateCharId` and
+      // the `rawText` note above.
+      for (let ci = 0; ci < content.length; ci++) {
+        const char = content[ci];
         const charId = generateCharId(context);
         chars.push({ id: charId, char, deleted: false });
 

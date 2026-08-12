@@ -7,7 +7,11 @@
  * with the app's light/dark switch automatically.
  */
 
-.ob-wrap {
+/* Tokens + typography for every shell the flow renders in. The dialog shells
+   are portaled to <body>, so they can't inherit these from `.ob-wrap`. */
+.ob-wrap,
+.ob-dialog,
+.ob-cam-dialog {
   /* tokens the prototype pulled from its DS mirror, inlined onto real values */
   --ob-dur-fast: 0.15s;
   --ob-dur-base: 0.28s;
@@ -27,6 +31,13 @@
     "Poppins", "Noto Sans Arabic", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
 
+  color: var(--foreground);
+  font-family: var(--ob-font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── shell: full-screen page (mobile) ──────────────────────────────────── */
+.ob-wrap {
   /* Fixed (not min-) height so this element is itself the bounded scroll
      container — with min-height it would grow to fit content and overflow-y
      would never engage, leaving no scrollbar. */
@@ -35,24 +46,87 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* Center with auto margins (see .ob-dots / .ob-card) rather than
+  /* Center with auto margins (see .ob-card) rather than
      justify-content: center, which clips the top and blocks scrolling when
      the card is taller than the viewport. */
   padding: 32px 16px;
   background: var(--background);
-  color: var(--foreground);
-  font-family: var(--ob-font-sans);
   overflow-y: auto;
-  -webkit-font-smoothing: antialiased;
 }
 
-/* ── progress dots ─────────────────────────────────────────────────────── */
+/* ── shell: modal over the app shell (desktop) ─────────────────────────── */
+/* Above the dialog layer, or the window can't be dragged during onboarding. */
+.ob-drag-region {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  height: 48px;
+  z-index: 60;
+}
+
+/* The dialog content is only a positioner here — `.ob-card` stays the surface,
+   so these strip its own padding, background and ring. Unlayered, so they win
+   over the utility classes the primitive ships with. */
+.ob-dialog {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  /* the card's 420px plus room for its shadow inside the scroll box */
+  max-width: 436px;
+  max-height: calc(100dvh - 48px);
+  padding: 8px;
+  gap: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow-y: auto;
+}
+.ob-dialog .ob-card {
+  margin-block: 0;
+}
+
+/* The QR scanner's own dialog keeps the primitive's surface. */
+.ob-cam-dialog {
+  display: block;
+}
+
+/* ── card head: progress dots + escape hatch ───────────────────────────── */
+.ob-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ob-skip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: 500 12.5px var(--ob-font-sans);
+  color: var(--muted-foreground);
+  transition: color var(--ob-dur-fast);
+}
+.ob-skip:hover:not(:disabled) {
+  color: var(--foreground);
+}
+.ob-skip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.ob-skip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .ob-dots {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: auto;
-  margin-bottom: 28px;
 }
 .ob-dot {
   height: 6px;
@@ -73,11 +147,12 @@
 .ob-card {
   width: 100%;
   max-width: 420px;
-  margin-bottom: auto;
+  /* Centers the card in the full-screen shell; see the note on `.ob-wrap`. */
+  margin-block: auto;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 28px 28px 24px;
+  padding: 22px 28px 24px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -162,6 +237,11 @@
 }
 .ob-actions .ob-btn-primary {
   margin-inline-start: auto;
+}
+/* Identity step puts the alternate path on the action row itself. */
+.ob-actions-split {
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .ob-btn {
@@ -607,7 +687,8 @@
   justify-content: space-between;
   margin-bottom: 4px;
 }
-.ob-drawer-head h3 {
+/* h3 in the mobile sheet, the dialog's own <h2> title on desktop */
+.ob-drawer-head :is(h2, h3) {
   font-size: 16px;
   font-weight: 600;
   color: var(--foreground);
@@ -643,4 +724,36 @@
 .ob-drawer-foot .ob-btn {
   flex: 1;
   justify-content: center;
+}
+
+/* ── alternate path (bring an existing device in) ──────────────────────── */
+.ob-alt {
+  font: 400 13px var(--ob-font-sans);
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.ob-alt-link {
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: 500 13px var(--ob-font-sans);
+  color: var(--primary);
+  transition: opacity var(--ob-dur-fast);
+}
+.ob-alt-link:hover {
+  opacity: 0.8;
+}
+.ob-alt-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* Standalone hint line — .ob-scan-text is centred and narrow by its wrapper. */
+.ob-hint {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
 }

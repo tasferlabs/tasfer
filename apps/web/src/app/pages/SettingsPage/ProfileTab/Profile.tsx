@@ -5,9 +5,11 @@ import { AvatarPreviewDialog } from "@/app/components/AvatarPreviewDialog";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { getDisplayName } from "@tasfer/provider-core/cursors";
-import { Camera, Trash } from "lucide-react";
+import { LinkDeviceDialog } from "@/app/components/LinkDeviceDialog";
+import { Camera, MonitorSmartphone, Trash } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./Profile.module.css";
@@ -17,6 +19,9 @@ export function Profile() {
   const { user, updateUser } = useAuth();
 
   const [name, setName] = React.useState(user?.name ?? "");
+  const [deviceDescription, setDeviceDescription] = React.useState(
+    user?.deviceDescription ?? "",
+  );
   const [avatarId, setAvatarId] = React.useState<string | null>(
     user?.avatar ?? null,
   );
@@ -24,11 +29,25 @@ export function Profile() {
   const [saving, setSaving] = React.useState(false);
   const [pendingFile, setPendingFile] = React.useState<File | null>(null);
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [linkDeviceOpen, setLinkDeviceOpen] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const avatarUrl = useAssetUrl(avatarId);
 
+  // The identity can change while this form is open: linking a device adopts the
+  // other device's name and avatar, and AuthContext re-reads on
+  // `identity.onChange`. Re-seed the inputs from it — left alone they would hold
+  // pre-link values, and Save would publish those back over the identity that
+  // just arrived, wiping the person's name on every device they own.
+  React.useEffect(() => {
+    setName(user?.name ?? "");
+    setAvatarId(user?.avatar ?? null);
+    setDeviceDescription(user?.deviceDescription ?? "");
+  }, [user?.name, user?.avatar, user?.deviceDescription]);
+
   const hasChanges =
-    name !== (user?.name ?? "") || avatarId !== (user?.avatar ?? null);
+    name !== (user?.name ?? "") ||
+    deviceDescription !== (user?.deviceDescription ?? "") ||
+    avatarId !== (user?.avatar ?? null);
 
   function handleAvatarClick() {
     if (avatarId) {
@@ -73,6 +92,7 @@ export function Profile() {
       setSaving(true);
       const updated = await updateProfile({
         name: name.trim(),
+        deviceDescription: deviceDescription.trim(),
         avatar: avatarId,
       });
       updateUser(updated);
@@ -167,6 +187,54 @@ export function Profile() {
         </div>
       </div>
 
+      <div className={styles.section}>
+        <div className={styles.row}>
+          <div className={styles.column}>
+            <p className={cn("text-sm", styles.title)}>
+              {t("profile.deviceDescription", "This device")}
+            </p>
+            <p className="text-sm opacity-75">
+              {t(
+                "profile.deviceDescriptionHint",
+                "A note to tell this device apart from your others. It stays here and is never shared.",
+              )}
+            </p>
+          </div>
+
+          <Textarea
+            className={styles.deviceDescription}
+            value={deviceDescription}
+            onChange={(e) => setDeviceDescription(e.target.value)}
+            rows={2}
+            placeholder={t(
+              "profile.enterDeviceDescription",
+              "Work laptop, kitchen tablet…",
+            )}
+          />
+        </div>
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.row}>
+          <div className={styles.column}>
+            <p className={cn("text-sm", styles.title)}>
+              {t("device.sectionTitle", "Your devices")}
+            </p>
+            <p className="text-sm opacity-75">
+              {t(
+                "device.sectionDescription",
+                "Link another device to this identity so it shares all your spaces and appears as you, not as someone else.",
+              )}
+            </p>
+          </div>
+
+          <Button variant="outline" onClick={() => setLinkDeviceOpen(true)}>
+            <MonitorSmartphone size={16} />
+            {t("device.title", "Link a device")}
+          </Button>
+        </div>
+      </div>
+
       <div className={styles.actions}>
         <Button
           onClick={handleSave}
@@ -176,6 +244,11 @@ export function Profile() {
           {t("common.save", "Save")}
         </Button>
       </div>
+
+      <LinkDeviceDialog
+        open={linkDeviceOpen}
+        onOpenChange={setLinkDeviceOpen}
+      />
 
       <AvatarCropDialog
         file={pendingFile}

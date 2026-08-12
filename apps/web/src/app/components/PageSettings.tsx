@@ -25,7 +25,8 @@ import {
   Archive,
   Replace,
 } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
+import { lazy, Suspense, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { useDeletePage, useGetPage, useGetPages } from "../api/pages.api";
@@ -39,6 +40,24 @@ import {
 import useMobileLayout from "../hooks/useMobileLayout";
 import { useConfirmation } from "./ConfirmationDialog";
 // import { ShareDialog } from "./ShareDialog";
+
+/** Matches the sidebar's resize curve so panel motion stays consistent. */
+const MENU_EASE = [0.32, 0.72, 0, 1] as const;
+
+/** Each group of the menu settles in just behind the one above it. */
+const SECTION_VARIANTS = {
+  hidden: { opacity: 0, y: -4 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.15, ease: MENU_EASE },
+  },
+};
+
+const SECTION_LIST_VARIANTS = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.025, delayChildren: 0.02 } },
+};
 
 const ExportDialog = lazy(() =>
   import("./ExportDialog").then((module) => ({ default: module.ExportDialog })),
@@ -138,6 +157,10 @@ function PageSettingsImpl({
   } = usePageSettings();
   const isViewOnly = permission === "view";
   const { isMobile } = useMobileLayout();
+  const reduceMotion = useReducedMotion();
+  // Scoped per instance: a module-level id would let two mounted menus share
+  // one highlight and animate it between them.
+  const fontHighlightId = useId();
 
   // Page operations
   const { id: currentPageId } = useParams<{ id: string }>();
@@ -248,29 +271,46 @@ function PageSettingsImpl({
   ];
 
   const content = (
-    <div className="flex-1 py-4">
-      <div className="space-y-3 px-4 pb-8">
+    <motion.div
+      className="flex-1 py-4"
+      // The drawer's own slide already carries the motion on mobile, so the
+      // stagger is desktop-only.
+      initial={isMobile || reduceMotion ? false : "hidden"}
+      animate="visible"
+      variants={SECTION_LIST_VARIANTS}
+    >
+      <motion.div variants={SECTION_VARIANTS} className="space-y-3 px-4 pb-8">
         <label className="text-sm font-medium sr-only">
           {t("settings.fontStyle", "Font style")}
         </label>
         <div className="grid grid-cols-2 gap-2">
           {fontOptions.map((option) => (
-            <button
+            <motion.button
               key={option.value}
               onClick={() => setFontStyle(option.value)}
+              whileTap={reduceMotion ? undefined : { scale: 0.97 }}
               className={`
-                flex flex-col items-center justify-center
-                p-2 rounded-lg border-2 transition-all
+                relative flex flex-col items-center justify-center
+                p-2 rounded-lg border-2 border-border transition-colors
                 hover:bg-accent duration-200 cursor-pointer
-                ${
-                  fontStyle === option.value
-                    ? "border-primary"
-                    : "border-border"
-                }
               `}
             >
+              {/* The selected outline is one element that slides between the
+                  cards, so picking a font reads as a move rather than two
+                  independent repaints. Offset by the 2px border it covers. */}
+              {fontStyle === option.value && (
+                <motion.span
+                  layoutId={`${fontHighlightId}-font-selection`}
+                  className="absolute -inset-0.5 rounded-lg border-2 border-primary pointer-events-none"
+                  transition={
+                    reduceMotion
+                      ? { duration: 0 }
+                      : { duration: 0.2, ease: MENU_EASE }
+                  }
+                />
+              )}
               <span
-                className={`text-2xl font-medium mb-1 ${
+                className={`text-2xl font-medium mb-1 transition-colors ${
                   fontStyle === option.value ? "text-primary" : ""
                 } ${option.className}`}
               >
@@ -279,15 +319,18 @@ function PageSettingsImpl({
               <span className="text-xs text-muted-foreground">
                 {option.label}
               </span>
-            </button>
+            </motion.button>
           ))}
         </div>
-      </div>
+      </motion.div>
 
       {/* Full-width toggle is desktop/wide-device only: on mobile the column
           already fills the viewport, so there is no width to trade off. */}
       {!isMobile && (
-        <div className="flex items-center justify-between px-4 pb-6">
+        <motion.div
+          variants={SECTION_VARIANTS}
+          className="flex items-center justify-between px-4 pb-6"
+        >
           <label htmlFor="full-width-toggle" className="text-sm font-medium">
             {t("settings.fullWidth", "Full width")}
           </label>
@@ -298,10 +341,13 @@ function PageSettingsImpl({
               setEditorWidth(checked ? "wide" : "narrow")
             }
           />
-        </div>
+        </motion.div>
       )}
 
-      <div className="space-y-3 py-6 border-t border-border px-4">
+      <motion.div
+        variants={SECTION_VARIANTS}
+        className="space-y-3 py-6 border-t border-border px-4"
+      >
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <label htmlFor="word-count-toggle" className="text-sm font-medium">
@@ -321,10 +367,13 @@ function PageSettingsImpl({
             onCheckedChange={setShowWordCount}
           />
         </div>
-      </div>
+      </motion.div>
 
       {!isViewOnly && (
-        <div className="py-4 border-t border-border px-2">
+        <motion.div
+          variants={SECTION_VARIANTS}
+          className="py-4 border-t border-border px-2"
+        >
           {/* <Button
             variant="ghost"
             size="sm"
@@ -370,10 +419,13 @@ function PageSettingsImpl({
             <Archive className="h-4 w-4" />
             {t("common.archive", "Archive")}
           </Button>
-        </div>
+        </motion.div>
       )}
 
-      <div className="py-4 border-t border-border px-2">
+      <motion.div
+        variants={SECTION_VARIANTS}
+        className="py-4 border-t border-border px-2"
+      >
         <Button
           variant="ghost"
           size="sm"
@@ -415,7 +467,7 @@ function PageSettingsImpl({
           <History className="h-4 w-4" />
           {t("snapshot.versionHistory", "Version history")}
         </Button>
-      </div>
+      </motion.div>
 
       {/* {devToolsEnabled && !isViewOnly && (
         <div className="py-4 border-t border-border px-2">
@@ -430,7 +482,7 @@ function PageSettingsImpl({
           </Button>
         </div>
       )} */}
-    </div>
+    </motion.div>
   );
 
   if (isMobile) {

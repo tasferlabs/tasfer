@@ -7,6 +7,10 @@
  */
 
 import type { Block, HLC, Operation } from "@tasfer/editor";
+import type {
+  VersionChange,
+  VersionKind,
+} from "@tasfer/editor/sync/version-history";
 import type { CursorPresence } from "@tasfer/provider-core/cursors";
 import type { DbRow, DbRunResult } from "./driver";
 
@@ -25,6 +29,20 @@ export interface Identity {
   name: string;
   /** Avatar URL or data URI */
   avatar: string | null;
+  /**
+   * Root ("person") public key. `publicKey` names this DEVICE — every install
+   * generates its own — while this names the human who owns it and signs the
+   * certificate for each device they link. Null only on a replica that has not
+   * finished bootstrapping its identity.
+   */
+  rootPublicKey: string | null;
+  /**
+   * A free-text note about THIS device ("work laptop", "the one in the
+   * studio"). Unlike `name` and `avatar`, it never leaves the machine it was
+   * typed on: it is not published as `member_set` and not carried in the
+   * own-state profile message, so each linked device keeps its own.
+   */
+  deviceDescription: string;
 }
 
 /** A known peer */
@@ -85,12 +103,47 @@ export interface ArchivedPageItem {
   archivedAt: string;
 }
 
+/**
+ * Identity of a page a link can still reach but the app no longer shows —
+ * archived itself, or live inside an archived space. Backs the read-only view
+ * those links open.
+ */
+export interface ArchivedPageRef {
+  id: string;
+  title: string;
+  /** Markdown projection of the title line (see {@link PageListItem.titleMd}). */
+  titleMd?: string;
+  spaceId?: string | null;
+  color?: string | null;
+  /** ISO timestamp of the archive that hid this page — its own, or its space's. */
+  archivedAt: string;
+  /**
+   * Root of the archived subtree to restore. Restoring a lone descendant would
+   * re-parent it to the top level and lose its place, so the whole subtree the
+   * user deleted comes back together. Null when the page itself is live and
+   * only its space is archived — there is nothing to restore at the page level.
+   */
+  restoreRootId: string | null;
+  /**
+   * Set when the page's space is archived too — it has to be restored first, or
+   * the page comes back into a space nothing can see.
+   */
+  archivedSpaceId?: string | null;
+}
+
 /** Full page with content */
 export interface PageFull extends PageListItem {
   blocks: Block[] | null;
   createdAt: string;
   updatedAt: string;
   parents?: PagePathSegment[];
+  /**
+   * ISO timestamp when the page's space was archived, if it was. The page
+   * itself is live — an archived space is hidden as a whole rather than
+   * deleted page by page — so it still loads, but editing it would write into
+   * a space nothing can see. Null for pages in a live space.
+   */
+  spaceArchivedAt?: string | null;
 }
 
 /** Data needed to create a page */
@@ -180,16 +233,33 @@ export interface PageCalendarItem {
   createdAt: string;
 }
 
-/** Page version for version history (derived from operation log) */
-export interface PageSnapshot {
+/**
+ * One offered revert point, derived from the page's operation log by
+ * `buildVersionHistory`. Metadata only — the blocks at this point are built on
+ * demand by `pages.versionBlocks`, because materializing every entry costs a
+ * full reducer replay each and the user opens at most one.
+ */
+export interface PageVersion {
   id: string;
   pageId: string;
-  blocks: Block[];
-  clock: HLC | null;
-  /** Total operations at this version point */
+  clock: HLC;
+  /** Total operations in the log at this version point. */
   opCount: number;
+  /** Operations belonging to this entry alone. */
+  opSpan: number;
   /** Wall-clock timestamp (ms since epoch). 0 if unknown. */
   createdAt: number;
+  /** Wall-clock timestamp of the entry's first operation. */
+  startedAt: number;
+  /** CRDT peers that contributed, most-active first. */
+  peerIds: string[];
+  /** Live block count once this entry landed. */
+  blockCount: number;
+  /** What changed, for labelling. */
+  change: VersionChange;
+  kind: VersionKind;
+  /** Text this entry introduced that best names it, when it created any. */
+  subject?: string;
 }
 
 /** Stored asset metadata */
@@ -216,6 +286,12 @@ export interface RoomUser {
    * other tabs and label it "You" instead of as a separate anonymous peer.
    */
   deviceId?: string;
+  /**
+   * Root ("person") public key behind `deviceId`, shared by every device this
+   * person has linked, so a presence UI can show them once with a card per
+   * device. Absent until the local identity has a root key.
+   */
+  personId?: string;
 }
 
 // =============================================================================
@@ -227,6 +303,13 @@ export interface Space {
   id: string;
   name: string;
   createdAt: string;
+  /**
+   * A personal space admits only the owner's own devices and mints no invites,
+   * so nothing written in it can later become someone else's to read. Set at
+   * creation and never cleared — see the `spaces.personal` column for why the
+   * one-way direction is the point.
+   */
+  personal?: boolean;
 }
 
 /** An archived space surfaced in the Archive */
@@ -240,10 +323,18 @@ export interface ArchivedSpaceItem {
 /** A member of a space */
 export interface SpaceMember {
   spaceId: string;
+  /** Device public key — one row per device, not per person. */
   publicKey: string;
   name: string;
   avatar: string | null;
   addedAt: string;
+  /**
+   * Root ("person") key that certified this device, when one is known. Members
+   * sharing a root key are the same human on different devices and should be
+   * presented as one. Null for a device whose certificate this replica has not
+   * seen — including every member that predates device identity.
+   */
+  rootKey: string | null;
 }
 
 // =============================================================================
@@ -283,6 +374,32 @@ export interface MemberSet extends SpaceBaseOp {
 }
 
 /**
+ * Publish a device certificate: "this device key belongs to this person".
+ *
+ * Carries the proof itself rather than a claim, so any replica verifies it
+ * locally (see `verifyDeviceCert`). That is what keeps personal-space
+ * membership a pure function of the log — every replica holding these ops
+ * computes the same answer, instead of each one needing to be told separately
+ * which keys are the owner's.
+ *
+ * Not LWW and not removable. A device key binds to one root permanently; the
+ * first valid certificate a replica sees wins, so a second root cannot later
+ * claim a device that peers already resolved. There is no revocation op —
+ * see ./device-cert for why one would be theatre in a P2P network.
+ */
+export interface DeviceAdd extends SpaceBaseOp {
+  op: "device_add";
+  /** Root ("person") public key that signed the certificate. */
+  rootKey: string;
+  /** Device public key being vouched for. */
+  deviceKey: string;
+  /** Ed25519 signature over the canonical certificate statement. */
+  cert: string;
+  /** Unix ms of issuance; part of the signed statement. */
+  issuedAt: number;
+}
+
+/**
  * Add a page to the space (page created).
  *
  * Deliberately carries NO title: the page's title (plain and markdown) is a
@@ -319,16 +436,21 @@ export interface PageSet extends SpaceBaseOp {
 
 /** Union of all space operation types */
 export type SpaceOperation =
-  | SpaceSet
-  | MemberAdd
-  | MemberSet
-  | PageAdd
-  | PageRemove
-  | PageSet;
+  SpaceSet | MemberAdd | MemberSet | DeviceAdd | PageAdd | PageRemove | PageSet;
 
 // =============================================================================
 // Pairing
 // =============================================================================
+
+/**
+ * Sentinel `spaceId` marking a code as a device link, which joins no single
+ * space. Both kinds of code share one wire format, so this is what lets any
+ * paste or scan surface tell them apart offline, before pairing is attempted.
+ *
+ * Not a valid nanoid(10), so it can never collide with a real space, and the
+ * `invites.space_id` UNIQUE constraint keeps at most one device link pending.
+ */
+export const DEVICE_LINK_SCOPE = "@device";
 
 /** An invite for peer pairing + space joining */
 export interface SpaceInvite {
@@ -414,10 +536,7 @@ export interface PageEvents {
 
 /** Connection state */
 export type ConnectionState =
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  | "error";
+  "connecting" | "connected" | "disconnected" | "error";
 
 /**
  * Versions a remote peer advertised in its `hello`, with our local values for
@@ -458,8 +577,22 @@ export interface Platform {
   identity: {
     /** Get the local user's identity (generates keypair on first call) */
     get(): Promise<Identity>;
-    /** Update display name or avatar */
-    update(data: { name?: string; avatar?: string | null }): Promise<Identity>;
+    /**
+     * Update display name, avatar, or this device's description. The first two
+     * are replicated to the person's other devices and their co-members; the
+     * description stays local (see `Identity.deviceDescription`).
+     */
+    update(data: {
+      name?: string;
+      avatar?: string | null;
+      deviceDescription?: string;
+    }): Promise<Identity>;
+    /**
+     * Fires when the profile changes underneath the caller — a device link
+     * handing this device the person it belongs to, or a rename made on one of
+     * their other devices.
+     */
+    onChange(cb: () => void): () => void;
   };
 
   // ---------------------------------------------------------------------------
@@ -488,8 +621,12 @@ export interface Platform {
     listArchived(): Promise<ArchivedSpaceItem[]>;
     /** Get a space with its members */
     get(id: string): Promise<Space & { members: SpaceMember[] }>;
-    /** Create a new space (adds self as owner) */
-    create(name: string): Promise<Space>;
+    /**
+     * Create a new space (adds self as owner, plus every other device linked
+     * to this identity). `personal: true` restricts it to those devices
+     * permanently — it mints no invites and cannot be un-personalised.
+     */
+    create(name: string, options?: { personal?: boolean }): Promise<Space>;
     /** Rename a space */
     rename(id: string, name: string): Promise<void>;
     /** Archive a space locally (stop syncing, hide from list) */
@@ -505,6 +642,44 @@ export interface Platform {
     ): Promise<void>;
     /** Subscribe to space change events */
     onChange(cb: (spaceId: string) => void): () => void;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Person-private preferences
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Decisions that belong to the person rather than to a space or a device: how
+   * the sidebar is arranged, which walkthroughs have been read. Replicated to
+   * this person's other devices only, never to a co-member, and merged
+   * last-decision-wins per key (see `OwnPref` in ./sync).
+   *
+   * Values must be JSON-serializable; each key's shape is the caller's business.
+   * Genuinely per-device state (theme, last route, which banner this browser
+   * dismissed) does not belong here — it stays in the browser.
+   */
+  prefs: {
+    /** Every preference this device holds, keyed. Missing keys are unset. */
+    getAll(): Promise<Record<string, unknown>>;
+    /** Record a decision made here and announce it to the person's devices. */
+    set(key: string, value: unknown): Promise<void>;
+    /**
+     * Adopt a value this device held outside the register — a preference that
+     * used to live in browser storage — only if the key is still unset.
+     * Returns whether it took.
+     *
+     * Deliberately not `set`: the value is an old decision with no recorded
+     * time, so it is stamped to lose to every dated one. A device migrating its
+     * own leftover copy must not thereby outvote the arrangement the person has
+     * since made elsewhere.
+     */
+    seed(key: string, value: unknown): Promise<boolean>;
+    /**
+     * Fires with the changed keys when a preference moves underneath the
+     * caller — a decision made on another of the person's devices, or in
+     * another tab sharing this engine.
+     */
+    onChange(cb: (changed: Record<string, unknown>) => void): () => void;
   };
 
   // ---------------------------------------------------------------------------
@@ -531,6 +706,31 @@ export interface Platform {
     acceptInvite(invite: SpaceInvite, callbacks?: PairCallbacks): Promise<void>;
     /** Cancel the pairing session for an invite (acceptor side) */
     cancel(invite: SpaceInvite): Promise<void>;
+
+    /**
+     * Create (and persist) a device-link code — the invite that adds another
+     * of YOUR OWN devices rather than another person.
+     *
+     * Distinct from `createInvite` in what it grants: the accepting device
+     * receives the root identity and joins every space, personal ones
+     * included. At most one is pending at a time, and it should be given a
+     * short TTL, because for its lifetime the code is the account.
+     */
+    createDeviceLink(ttlMs: number): Promise<SpaceInvite>;
+    /** The pending (unexpired) device-link code, if any */
+    getDeviceLink(): Promise<SpaceInvite | null>;
+    /** Revoke the pending device-link code and stop listening for it */
+    revokeDeviceLink(): Promise<void>;
+    /** Attach UI callbacks to the device-link session (existing-device side) */
+    waitForDevice(
+      invite: SpaceInvite,
+      callbacks?: PairCallbacks,
+    ): Promise<void>;
+    /** Accept a device-link code on a new device */
+    acceptDeviceLink(
+      invite: SpaceInvite,
+      callbacks?: PairCallbacks,
+    ): Promise<void>;
   };
 
   // ---------------------------------------------------------------------------
@@ -552,6 +752,11 @@ export interface Platform {
     update(data: PageUpdateInput): Promise<PageFull>;
     /** Delete a page */
     delete(id: string): Promise<void>;
+    /**
+     * Resolve an archived page by id, for links that outlived the page.
+     * Returns null when the id is unknown or the page is live.
+     */
+    getArchived(id: string): Promise<ArchivedPageRef | null>;
     /** List soft-deleted (archived) pages across all spaces — roots of archived subtrees */
     listArchived(): Promise<ArchivedPageItem[]>;
     /** Restore a soft-deleted page (and its archived subtree) */
@@ -577,8 +782,22 @@ export interface Platform {
     search(spaceId: string, query: string): Promise<PageSearchResult[]>;
     /** Get pages in a calendar date range */
     calendar(start: number, end: number): Promise<PageCalendarItem[]>;
-    /** Get version history snapshots */
-    snapshots(pageId: string): Promise<PageSnapshot[]>;
+    /**
+     * Version-history entries derived from the op log, newest first. Metadata
+     * only; see `versionBlocks` for the content at one entry.
+     */
+    versions(pageId: string): Promise<PageVersion[]>;
+    /**
+     * Build the page's content as of one version entry. Returns `[]` when the
+     * id names no entry in the current log.
+     */
+    versionBlocks(pageId: string, versionId: string): Promise<Block[]>;
+    /**
+     * Rebuild the page's latest content straight from the op log, bypassing the
+     * `archived_at IS NULL` filter that `get` applies. This is how an archived
+     * or otherwise unloadable page is still previewable.
+     */
+    rebuild(pageId: string): Promise<Block[]>;
     /** Subscribe to page deletion events (fired for both local and remote deletions) */
     onDeleted(cb: (pageId: string) => void): () => void;
   };

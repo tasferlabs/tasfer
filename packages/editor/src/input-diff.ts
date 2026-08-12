@@ -9,6 +9,8 @@
  * unit-tested in isolation; the wiring lives in `entries/editor.ts`.
  */
 
+import { isMidSurrogatePair } from "./code-points";
+
 /**
  * The single character that always leads the input surface. It gives the OS
  * keyboard a real character before the caret (so Android keeps emitting
@@ -166,15 +168,9 @@ export function isEmptyDelta(d: SurfaceDelta): boolean {
 }
 
 // Back up an index off the low half of a surrogate pair so a delta never splits
-// an astral character (emoji): if `text[i]` is a low surrogate and `text[i-1]`
-// is a high surrogate, the boundary at `i` sits mid-character.
+// an astral character (emoji).
 function snapToCodePointBoundary(text: string, i: number): number {
-  if (i <= 0 || i >= text.length) return i;
-  const lead = text.charCodeAt(i - 1);
-  const trail = text.charCodeAt(i);
-  const isPair =
-    lead >= 0xd800 && lead <= 0xdbff && trail >= 0xdc00 && trail <= 0xdfff;
-  return isPair ? i - 1 : i;
+  return isMidSurrogatePair(text, i) ? i - 1 : i;
 }
 
 /**

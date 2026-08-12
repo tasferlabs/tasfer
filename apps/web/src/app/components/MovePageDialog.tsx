@@ -202,6 +202,13 @@ export function MovePageDialog({
               noneLabel={t("page.spaceRoot", "Space root (no parent)")}
             />
           </label>
+
+          <p className="text-muted-foreground text-xs">
+            {t(
+              "page.copyStartsFresh",
+              "Forking a page, or moving it into another space, starts it fresh: the content comes along, but its version history stays behind.",
+            )}
+          </p>
         </div>
 
         <DialogFooter>

@@ -23,6 +23,7 @@ import { RenameDialog } from "../../components/RenameDialog";
 import { TitlePreview } from "../../TitlePreview";
 import Icons from "../../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../../components/uiKit/VisuallyHidden/VisuallyHidden";
+import { Button } from "../../../components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,8 +44,10 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
+import { SUBTREE_EASE, SUBTREE_MOTION_MS } from "./subtreeMotion";
 import { type IParentsStack } from "./PagesLinks";
 import style from "./PagesLinks.module.css";
 import useResponsive from "@/app/hooks/useResponsive";
@@ -69,6 +72,14 @@ const PRESET_COLORS = [
   "#EC4899",
   "#F43F5E",
 ];
+
+/** One colour swatch in the page colour grid. */
+const swatchClass =
+  "w-full aspect-square rounded-lg border-2 transition-transform hover:scale-110";
+
+/** Rows of the page context menu. The size override keeps the 18px icons. */
+const menuItemClass =
+  "w-full justify-start gap-3 rounded-md px-3 py-2.5 text-start text-sm font-normal hover:bg-accent [&_svg:not([class*='size-'])]:size-[18px]";
 
 // Global flag to track recent drag - module level to avoid React timing issues
 let recentDragEnd = false;
@@ -107,6 +118,7 @@ export function PageLink({
   );
   const treeExpand = useTreeExpand();
   const isExpanded = useIsExpanded(data.id);
+  const reduceMotion = useReducedMotion();
   const setIsExpanded = useCallback(
     (value: boolean | ((old: boolean) => boolean)) => {
       const newValue = typeof value === "function" ? value(isExpanded) : value;
@@ -354,6 +366,7 @@ export function PageLink({
           position="inside"
           parentsStack={[...parentsStack, { id: data.id, order: data.order }]}
           spaceId={spaceId}
+          hasChildren={data.hasChildren}
         />
 
         <div
@@ -379,7 +392,9 @@ export function PageLink({
             }
           }}
         >
-          <button
+          <Button
+            variant="unstyled"
+            size="unstyled"
             onClick={() => setIsExpanded((old) => !old)}
             aria-expanded={isExpanded}
             className={clsx(
@@ -411,7 +426,7 @@ export function PageLink({
             <VisuallyHidden>
               {t("page.openSubPages", "Open sub pages")}
             </VisuallyHidden>
-          </button>
+          </Button>
           <span
             className={clsx(
               style.touchBlob,
@@ -519,18 +534,43 @@ export function PageLink({
         />
       </div>
 
-      {isExpanded /*  && data.hasChildren || isCoarse */ ? (
-        <div className={style.accordion}>
-          <PagesArea
-            parentId={data.id}
-            spaceId={spaceId}
-            parentsStack={parentsStack}
-            handleAdd={handleAdd}
-            isCreating={isCreating}
-            color={resolvedColor}
-          />
-        </div>
-      ) : null}
+      {/* The subtree grows and shrinks so it reads as one motion with the
+          chevron beside it. `initial={false}` keeps expansion state restored on
+          mount from animating, and the subtree still unmounts when collapsed —
+          its children each run their own page queries. */}
+      <AnimatePresence initial={false}>
+        {isExpanded /*  && data.hasChildren || isCoarse */ ? (
+          <motion.div
+            key="subtree"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : {
+                    height: {
+                      duration: SUBTREE_MOTION_MS / 1000,
+                      ease: SUBTREE_EASE,
+                    },
+                    opacity: { duration: 0.12 },
+                  }
+            }
+            style={{ overflow: "hidden" }}
+          >
+            <div className={style.accordion}>
+              <PagesArea
+                parentId={data.id}
+                spaceId={spaceId}
+                parentsStack={parentsStack}
+                handleAdd={handleAdd}
+                isCreating={isCreating}
+                color={resolvedColor}
+              />
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <RenameDialog
         pageId={data.id}
@@ -564,9 +604,11 @@ function ColorGrid({
       className="grid w-full max-w-sm grid-cols-8 gap-2 p-1"
       onClick={(e) => e.stopPropagation()}
     >
-      <button
+      <Button
+        variant="unstyled"
+        size="unstyled"
         className={clsx(
-          "w-full aspect-square rounded-lg border-2 cursor-pointer transition-transform hover:scale-110",
+          swatchClass,
           !color ? "border-foreground" : "border-transparent",
         )}
         style={{ backgroundColor: "var(--page-color-default)" }}
@@ -574,10 +616,12 @@ function ColorGrid({
         aria-label={t("editor.defaultColor", "Default color")}
       />
       {PRESET_COLORS.map((hex) => (
-        <button
+        <Button
           key={hex}
+          variant="unstyled"
+          size="unstyled"
           className={clsx(
-            "w-full aspect-square rounded-lg border-2 cursor-pointer transition-transform hover:scale-110",
+            swatchClass,
             color?.toUpperCase() === hex.toUpperCase()
               ? "border-foreground"
               : "border-transparent",
@@ -621,8 +665,10 @@ function PageLinkMenuContent({
   return (
     <>
       <div className="flex flex-col p-2 gap-1">
-        <button
-          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
+        <Button
+          variant="unstyled"
+          size="unstyled"
+          className={menuItemClass}
           onClick={() => {
             onClose();
             onRename();
@@ -630,10 +676,12 @@ function PageLinkMenuContent({
         >
           <Icons.Edit width={18} height={18} />
           {t("common.rename", "Rename")}
-        </button>
+        </Button>
         {onMove && (
-          <button
-            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
+          <Button
+            variant="unstyled"
+            size="unstyled"
+            className={menuItemClass}
             onClick={() => {
               onClose();
               onMove();
@@ -641,10 +689,12 @@ function PageLinkMenuContent({
           >
             <FolderInput size={18} />
             {t("page.movePage", "Move page")}
-          </button>
+          </Button>
         )}
-        <button
-          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
+        <Button
+          variant="unstyled"
+          size="unstyled"
+          className={menuItemClass}
           onClick={() => {
             onClose();
             onAdd();
@@ -657,9 +707,11 @@ function PageLinkMenuContent({
             <Icons.Plus width={18} height={18} />
           )}
           {t("page.addSubpage", "Add subpage")}
-        </button>
-        <button
-          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
+        </Button>
+        <Button
+          variant="unstyled"
+          size="unstyled"
+          className={menuItemClass}
           onClick={() => {
             onClose();
             onImport();
@@ -667,9 +719,11 @@ function PageLinkMenuContent({
         >
           <Download size={18} />
           {t("import.title", "Import")}
-        </button>
-        <button
-          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
+        </Button>
+        <Button
+          variant="unstyled"
+          size="unstyled"
+          className={menuItemClass}
           onClick={() => {
             onClose();
             onDelete();
@@ -682,7 +736,7 @@ function PageLinkMenuContent({
             <Archive size={18} />
           )}
           {t("common.archive", "Archive")}
-        </button>
+        </Button>
       </div>
       <div className="px-4 pb-4 pt-1">
         <div className="text-xs text-muted-foreground mb-2">
@@ -730,15 +784,17 @@ function PageLinkMenu({
   t: TFunction;
 }) {
   const triggerButton = (
-    <button
+    <Button
+      variant="unstyled"
+      size="unstyled"
       className={clsx(style.menuTrigger, open && style.menuTriggerOpen)}
       aria-label={t("page.options", "Page options")}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <Ellipsis size={18} />
-    </button>
+      <Ellipsis className="size-[18px]" />
+    </Button>
   );
 
   const contentProps = {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Block } from "@tasfer/editor";
-import { computeDocumentStats, countWordsFromBlocks } from "./documentStats";
+import {
+  computeDocumentStats,
+  computeSelectionStats,
+  countWordsFromBlocks,
+  selectionSpanFromRange,
+} from "./documentStats";
 
 function paragraph(text: string, id = "b", deleted = false): Block {
   return {
@@ -84,5 +89,78 @@ describe("computeDocumentStats", () => {
       paragraphs: 0,
       readingTimeMinutes: 0,
     });
+  });
+});
+
+describe("selectionSpanFromRange", () => {
+  it("keeps a range that covers text", () => {
+    expect(
+      selectionSpanFromRange({
+        from: { block: "b1", offset: 2 },
+        to: { block: "b2", offset: 4 },
+      }),
+    ).toEqual({
+      from: { block: "b1", offset: 2 },
+      to: { block: "b2", offset: 4 },
+    });
+  });
+
+  it("rejects a caret, a zero-width range and unresolved points", () => {
+    expect(selectionSpanFromRange(null)).toBeNull();
+    // A collapsed caret is a bare point, not a from/to pair.
+    expect(selectionSpanFromRange({ block: "b1", offset: 3 })).toBeNull();
+    // A node selection (an image held whole) is non-collapsed but zero-width.
+    expect(
+      selectionSpanFromRange({
+        from: { block: "img", offset: 0 },
+        to: { block: "img", offset: 0 },
+      }),
+    ).toBeNull();
+    expect(
+      selectionSpanFromRange({
+        from: { block: "b1", side: "before" },
+        to: { block: "b1", side: "after" },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("computeSelectionStats", () => {
+  const blocks = [
+    paragraph("Hello world.", "b1"),
+    paragraph("A middle line", "b2"),
+    imageBlock(),
+    paragraph("Last words here", "b3"),
+  ];
+
+  it("slices the first and last block and takes those between in full", () => {
+    const stats = computeSelectionStats(blocks, {
+      from: { block: "b1", offset: 6 },
+      to: { block: "b3", offset: 4 },
+    });
+
+    // "world." + "A middle line" + "Last"
+    expect(stats.words).toBe(5);
+    expect(stats.paragraphs).toBe(3);
+    expect(stats.characters).toBe("world.".length + "A middle line".length + "Last".length);
+  });
+
+  it("counts only the slice when the selection sits inside one block", () => {
+    const stats = computeSelectionStats(blocks, {
+      from: { block: "b2", offset: 2 },
+      to: { block: "b2", offset: 8 },
+    });
+
+    expect(stats.words).toBe(1); // "middle"
+    expect(stats.characters).toBe(6);
+    expect(stats.paragraphs).toBe(1);
+  });
+
+  it("counts nothing for a span whose blocks are gone", () => {
+    const stats = computeSelectionStats(blocks, {
+      from: { block: "removed", offset: 0 },
+      to: { block: "b3", offset: 4 },
+    });
+    expect(stats.words).toBe(0);
   });
 });

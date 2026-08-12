@@ -52,6 +52,7 @@ function makeReplicator(
     getPeerSharedKey,
     getSpaceIds,
     getSpaceMembers,
+    getOwnDeviceKeys: vi.fn(async () => [] as string[]),
   } as unknown as ReplicatorHost;
 
   const replicator = new Replicator(network, host);

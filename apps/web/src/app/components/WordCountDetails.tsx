@@ -29,13 +29,15 @@ interface WordCountDetailsProps {
  * mirroring the app's other adaptive dialogs (e.g. ExportDialog).
  */
 export function WordCountDetails({ open, onOpenChange }: WordCountDetailsProps) {
-  const { currentBlocks } = usePageSettings();
+  const { currentBlocks, selectionStats } = usePageSettings();
   const { t, i18n } = useTranslation();
   const { isMobile } = useMobileLayout();
 
+  // A selection narrows every row, not just the word count — the breakdown
+  // describes whatever the pill counted.
   const stats = useMemo(
-    () => computeDocumentStats(currentBlocks),
-    [currentBlocks],
+    () => selectionStats ?? computeDocumentStats(currentBlocks),
+    [selectionStats, currentBlocks],
   );
 
   const numberFormat = useMemo(
@@ -43,11 +45,12 @@ export function WordCountDetails({ open, onOpenChange }: WordCountDetailsProps) 
     [i18n.language],
   );
 
-  const title = t("wordCount.title", "Document statistics");
-  const description = t(
-    "wordCount.description",
-    "A breakdown of your document's content.",
-  );
+  const title = selectionStats
+    ? t("wordCount.selectionTitle", "Selection statistics")
+    : t("wordCount.title", "Document statistics");
+  const description = selectionStats
+    ? t("wordCount.selectionDescription", "A breakdown of the text you selected.")
+    : t("wordCount.description", "A breakdown of your document's content.");
 
   const rows: Array<{ label: string; value: string }> = [
     { label: t("wordCount.words", "Words"), value: numberFormat.format(stats.words) },

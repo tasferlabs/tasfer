@@ -27,7 +27,6 @@ export function VersionProvider({ children }: { children: ReactNode }) {
   const {
     isLoading,
     versionInfo,
-    meetsMinimum,
     updateAvailable: apiUpdateAvailable,
     platform,
     updateUrl,
@@ -98,8 +97,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
           "controllerchange",
           onControllerChange
         );
-        window.location.href =
-          window.location.pathname + "?_update=" + Date.now();
+        window.location.reload();
       };
       navigator.serviceWorker.addEventListener(
         "controllerchange",
@@ -115,8 +113,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
           "controllerchange",
           onControllerChange
         );
-        window.location.href =
-          window.location.pathname + "?_update=" + Date.now();
+        window.location.reload();
       }, 2000);
       return;
     }
@@ -127,8 +124,8 @@ export function VersionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Default: reload with cache-busting to get latest assets
-    window.location.href = window.location.pathname + "?_update=" + Date.now();
+    // Default: caches are already cleared, so a plain reload fetches fresh assets
+    window.location.reload();
   }, [activateServiceWorker, updateUrl, performPlatformUpdate]);
 
   return (
@@ -136,7 +133,6 @@ export function VersionProvider({ children }: { children: ReactNode }) {
       value={{
         isLoading,
         versionInfo,
-        meetsMinimum,
         updateAvailable,
         updateDismissed,
         serviceWorkerUpdateReady,

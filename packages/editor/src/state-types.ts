@@ -302,7 +302,12 @@ export interface SelectionHandleDragState {
  * insertion line there and the drag's `onEnd` resolves it to an `afterBlockId`.
  */
 export interface BlockDragState {
-  readonly blockId: string;
+  /**
+   * The blocks travelling with this drag, in visual order. A single grabbed
+   * block is a run of one; a selection spanning several lines drags them all
+   * from one handle on its first line.
+   */
+  readonly blockIds: readonly string[];
   readonly pointerY: number;
   readonly dropIndex: number;
 }

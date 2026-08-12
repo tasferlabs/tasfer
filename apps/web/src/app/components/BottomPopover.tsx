@@ -2,9 +2,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { AriaRole, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/* Shared shape for the floating bottom popovers (update prompt, peer-version
- * notice, mobile app nudge): slide-up animation, safe-area-aware placement,
- * and the card chrome. Content, queueing, and dismissal stay with callers. */
+/* Shared shape for the floating bottom popovers (update prompt, mobile app
+ * nudge): slide-up animation, safe-area-aware placement, and the card chrome.
+ * Content, queueing, and dismissal stay with callers. */
 
 const popupVariants = {
   hidden: { y: 80, opacity: 0 },
@@ -47,9 +47,12 @@ export function BottomPopover({
           variants={popupVariants}
           {...aria}
         >
+          {/* Not selectable: this is chrome, and the buttons already opt out of
+           * selection, so a double-click on the action row would otherwise land
+           * on the nearest selectable text and highlight the description. */}
           <div
             className={cn(
-              "max-w-md w-full overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg",
+              "max-w-md w-full select-none overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg",
               className,
             )}
           >

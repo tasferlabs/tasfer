@@ -24,7 +24,9 @@ import {
   clearNetLogs,
   onNetLogsChange,
   type NetDirection,
+  type NetLogEntry,
 } from "@/platform/devlog";
+import { useAssetUrl } from "../api/images.api";
 import { cn } from "@/lib/utils";
 import { DevEditorState } from "./DevEditorState";
 import useResponsive from "../hooks/useResponsive";
@@ -272,6 +274,7 @@ const TABLES = [
   "peers",
   "spaces",
   "space_members",
+  "own_prefs",
   "pages",
   "ops",
 ] as const;
@@ -617,6 +620,577 @@ function crdtOpSummary(op: CrdtOpEntry): string {
   }
 }
 
+// ─── Peers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Who a peer key belongs to. A peer key names a *device*, not a person — three
+ * of somebody's devices are three unrelated keys until a device certificate
+ * ties them to one root (see `platform/device-cert.ts`). The peers tab folds by
+ * that root so one collaborator on a laptop and a phone reads as one person.
+ */
+interface PeerIdentities {
+  /** Short (8-char) device key → root ("person") key. */
+  rootByDevice: Map<string, string>;
+  /** Root key → the profile that person publishes. */
+  profiles: Map<string, { name: string; avatar: string | null }>;
+  /** Our own root key, so our sibling devices are marked as ours. */
+  selfRoot: string | null;
+  /** This replica. It is never a peer of itself, so nothing else lists it. */
+  selfDevice: { shortKey: string; name: string } | null;
+}
+
+const EMPTY_PEER_IDENTITIES: PeerIdentities = {
+  rootByDevice: new Map(),
+  profiles: new Map(),
+  selfRoot: null,
+  selfDevice: null,
+};
+
+/**
+ * Read the device→person bindings and the profiles behind them straight from
+ * the local tables: `devices` holds the certificates this replica has verified,
+ * `space_members` the name and avatar each device published for its person.
+ */
+async function fetchPeerIdentities(): Promise<PeerIdentities> {
+  const db = getDb();
+  const [deviceRows, memberRows, identityRows] = await Promise.all([
+    db.query<{ public_key: string; root_key: string }>(
+      "SELECT public_key, root_key FROM devices",
+    ),
+    db.query<{ public_key: string; name: string; avatar: string | null }>(
+      "SELECT public_key, name, avatar FROM space_members",
+    ),
+    db.query<{
+      public_key: string;
+      name: string;
+      avatar: string | null;
+      root_public_key: string | null;
+    }>(
+      "SELECT public_key, name, avatar, root_public_key FROM identity WHERE id = 1",
+    ),
+  ]);
+
+  const rootByDevice = new Map<string, string>();
+  const rootByFullKey = new Map<string, string>();
+  for (const row of deviceRows) {
+    rootByDevice.set(row.public_key.slice(0, 8), row.root_key);
+    rootByFullKey.set(row.public_key, row.root_key);
+  }
+
+  // One member row per device per space, so a person has several — all naming
+  // the same human. First non-empty value of each field wins.
+  const profiles = new Map<string, { name: string; avatar: string | null }>();
+  for (const row of memberRows) {
+    const rootKey = rootByFullKey.get(row.public_key);
+    if (!rootKey) continue;
+    const existing = profiles.get(rootKey);
+    profiles.set(rootKey, {
+      name: existing?.name || row.name || "",
+      avatar: existing?.avatar ?? row.avatar ?? null,
+    });
+  }
+
+  // Our own devices are peers too, and their member rows may not have reached
+  // us yet — the identity row is the authority on our own profile regardless.
+  const self = identityRows[0];
+  const selfRoot = self?.root_public_key ?? null;
+  if (selfRoot) profiles.set(selfRoot, { name: self.name, avatar: self.avatar });
+
+  return {
+    rootByDevice,
+    profiles,
+    selfRoot,
+    selfDevice: self
+      ? { shortKey: self.public_key.slice(0, 8), name: self.name }
+      : null,
+  };
+}
+
+interface PeerStats {
+  sent: number;
+  recv: number;
+  bytesSent: number;
+  bytesRecv: number;
+  lastActivity: number;
+  types: Record<string, { send: number; recv: number }>;
+}
+
+interface PeerDevice {
+  shortKey: string;
+  name: string;
+  connected: boolean;
+  stats?: PeerStats;
+  /** Newest of this session's traffic and the stored last-seen stamp. */
+  lastComm: number;
+  /** This replica, listed for completeness — it never connects to itself. */
+  isLocal?: boolean;
+}
+
+interface PeerPerson {
+  key: string;
+  /** Null when no certificate binds this device to a person. */
+  rootKey: string | null;
+  name: string;
+  avatar: string | null;
+  isSelf: boolean;
+  devices: PeerDevice[];
+  connectedCount: number;
+  sent: number;
+  recv: number;
+  bytesSent: number;
+  bytesRecv: number;
+  lastComm: number;
+}
+
+/** Per-peer traffic for this session, keyed by short peer key. */
+function buildPeerStats(netLogs: NetLogEntry[]): Map<string, PeerStats> {
+  const statsMap = new Map<string, PeerStats>();
+  for (const entry of netLogs) {
+    let s = statsMap.get(entry.peer);
+    if (!s) {
+      s = { sent: 0, recv: 0, bytesSent: 0, bytesRecv: 0, lastActivity: 0, types: {} };
+      statsMap.set(entry.peer, s);
+    }
+    if (entry.direction === "send") { s.sent++; s.bytesSent += entry.size; }
+    else { s.recv++; s.bytesRecv += entry.size; }
+    if (entry.timestamp > s.lastActivity) s.lastActivity = entry.timestamp;
+    if (!s.types[entry.type]) s.types[entry.type] = { send: 0, recv: 0 };
+    if (entry.direction === "send") s.types[entry.type].send++;
+    else s.types[entry.type].recv++;
+  }
+  return statsMap;
+}
+
+/** Top message types by volume, for the type chips. */
+function topTypes(
+  types: Record<string, { send: number; recv: number }>,
+  limit: number,
+) {
+  return Object.entries(types)
+    .sort((a, b) => (b[1].send + b[1].recv) - (a[1].send + a[1].recv))
+    .slice(0, limit);
+}
+
+/**
+ * Fold every peer we know of — connected, seen this session, or only stored —
+ * into one entry per person, connected first and most recently active next.
+ * A device with no certificate stands on its own rather than being merged into
+ * somebody else.
+ */
+function groupPeersByPerson(args: {
+  connectedPeers: string[];
+  connectedPeerNames: string[];
+  knownPeers: Peer[];
+  identities: PeerIdentities;
+  stats: Map<string, PeerStats>;
+}): PeerPerson[] {
+  const { connectedPeers, connectedPeerNames, knownPeers, identities, stats } = args;
+
+  const knownByShortKey = new Map<string, Peer>();
+  for (const p of knownPeers) knownByShortKey.set(p.publicKey.slice(0, 8), p);
+  const connectedSet = new Set(connectedPeers.map((k) => k.slice(0, 8)));
+
+  const shortKeys = [...new Set([
+    ...connectedPeers.map((k) => k.slice(0, 8)),
+    ...stats.keys(),
+    ...knownPeers.map((p) => p.publicKey.slice(0, 8)),
+  ])];
+
+  const groups = new Map<string, PeerPerson>();
+  const groupFor = (rootKey: string | null, shortKey: string): PeerPerson => {
+    const groupKey = rootKey ?? `device:${shortKey}`;
+    let group = groups.get(groupKey);
+    if (!group) {
+      const profile = rootKey ? identities.profiles.get(rootKey) : undefined;
+      group = {
+        key: groupKey,
+        rootKey,
+        name: profile?.name ?? "",
+        avatar: profile?.avatar ?? null,
+        isSelf: rootKey !== null && rootKey === identities.selfRoot,
+        devices: [],
+        connectedCount: 0,
+        sent: 0,
+        recv: 0,
+        bytesSent: 0,
+        bytesRecv: 0,
+        lastComm: 0,
+      };
+      groups.set(groupKey, group);
+    }
+    return group;
+  };
+
+  for (const shortKey of shortKeys) {
+    const idx = connectedPeers.findIndex((k) => k.slice(0, 8) === shortKey);
+    const dbPeer = knownByShortKey.get(shortKey);
+    const s = stats.get(shortKey);
+    const dbSeen = dbPeer?.lastSeen ? new Date(dbPeer.lastSeen).getTime() : 0;
+    const device: PeerDevice = {
+      shortKey,
+      name: idx >= 0 ? connectedPeerNames[idx] : dbPeer?.name || shortKey,
+      connected: connectedSet.has(shortKey),
+      stats: s,
+      lastComm: Math.max(s?.lastActivity ?? 0, dbSeen),
+    };
+
+    const group = groupFor(identities.rootByDevice.get(shortKey) ?? null, shortKey);
+    group.devices.push(device);
+    if (device.connected) group.connectedCount++;
+    group.sent += s?.sent ?? 0;
+    group.recv += s?.recv ?? 0;
+    group.bytesSent += s?.bytesSent ?? 0;
+    group.bytesRecv += s?.bytesRecv ?? 0;
+    group.lastComm = Math.max(group.lastComm, device.lastComm);
+  }
+
+  // This replica, which no peer list mentions because it is the one doing the
+  // listing. Without it our own entry claims one device while two are running.
+  const { selfDevice, selfRoot } = identities;
+  if (selfDevice) {
+    const group = groupFor(selfRoot, selfDevice.shortKey);
+    group.isSelf = true;
+    if (!group.name) group.name = selfDevice.name;
+    group.devices.push({
+      shortKey: selfDevice.shortKey,
+      name: selfDevice.name || selfDevice.shortKey,
+      connected: false,
+      lastComm: 0,
+      isLocal: true,
+    });
+  }
+
+  // Connected first, then most recently in touch.
+  const byActivity = (
+    aOnline: boolean,
+    bOnline: boolean,
+    aLast: number,
+    bLast: number,
+  ) => (aOnline === bOnline ? bLast - aLast : Number(bOnline) - Number(aOnline));
+
+  const people = [...groups.values()];
+  for (const person of people) {
+    person.devices.sort((a, b) =>
+      // This device anchors its own group; the rest go by activity.
+      Number(!!b.isLocal) - Number(!!a.isLocal) ||
+      byActivity(a.connected, b.connected, a.lastComm, b.lastComm),
+    );
+    // No certificate, or one that arrived before the profile did: the devices
+    // are all we have to name them by.
+    if (!person.name) person.name = person.devices[0].name;
+  }
+  people.sort((a, b) =>
+    byActivity(a.connectedCount > 0, b.connectedCount > 0, a.lastComm, b.lastComm),
+  );
+  return people;
+}
+
+/** A person's avatar, falling back to the initial of their name. */
+function PeerAvatar({ avatar, name }: { avatar: string | null; name: string }) {
+  const url = useAssetUrl(avatar);
+  return (
+    <div className="w-5 h-5 rounded-full overflow-hidden bg-muted border border-border/60 shrink-0 flex items-center justify-center text-[9px] font-medium text-muted-foreground">
+      {url
+        ? <img src={url} alt="" className="w-full h-full object-cover" />
+        : (name.charAt(0).toUpperCase() || "?")}
+    </div>
+  );
+}
+
+/** Traffic counters shared by the person header and the device cards. */
+function PeerTraffic({
+  sent,
+  recv,
+  bytesSent,
+  bytesRecv,
+}: {
+  sent: number;
+  recv: number;
+  bytesSent: number;
+  bytesRecv: number;
+}) {
+  return (
+    <div className="flex items-center gap-3 text-[10px] font-mono">
+      <span className="text-sky-400">↑ {sent} <span className="text-muted-foreground/50">({fmtBytes(bytesSent)})</span></span>
+      <span className="text-amber-400">↓ {recv} <span className="text-muted-foreground/50">({fmtBytes(bytesRecv)})</span></span>
+    </div>
+  );
+}
+
+function PeerTypeChips({
+  types,
+  limit,
+}: {
+  types: Record<string, { send: number; recv: number }>;
+  limit: number;
+}) {
+  const chips = topTypes(types, limit);
+  if (chips.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {chips.map(([type, counts]) => (
+        <span
+          key={type}
+          className="inline-flex items-center gap-0.5 px-1 py-px rounded text-[9px] bg-muted text-muted-foreground font-mono"
+        >
+          {type}
+          {counts.send > 0 && <span className="text-sky-400/70">↑{counts.send}</span>}
+          {counts.recv > 0 && <span className="text-amber-400/70">↓{counts.recv}</span>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function PeerDeviceCard({ device, t }: { device: PeerDevice; t: TFunction }) {
+  return (
+    <div
+      className={cn(
+        "rounded-md border p-2 flex flex-col gap-1.5",
+        device.isLocal
+          ? "border-sky-500/30 bg-sky-500/5"
+          : device.connected
+            ? "border-emerald-500/30 bg-emerald-500/5"
+            : "border-border/50 bg-muted/20",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <div
+          className={cn(
+            "w-1.5 h-1.5 rounded-full shrink-0",
+            device.isLocal
+              ? "bg-sky-400"
+              : device.connected
+                ? "bg-emerald-500"
+                : "bg-muted-foreground/30",
+          )}
+        />
+        <span className="text-[11px] font-medium text-foreground truncate">{device.name}</span>
+        {device.isLocal && (
+          <span className="px-1 py-px rounded text-[9px] bg-sky-500/15 text-sky-300 shrink-0">
+            {t("devInspector.peers.thisDevice", "This device")}
+          </span>
+        )}
+        <span className="text-[10px] text-muted-foreground/50 font-mono shrink-0 ms-auto">{device.shortKey}</span>
+      </div>
+
+      {device.isLocal ? (
+        // Nothing to report: a replica neither connects to itself nor logs
+        // traffic against its own key.
+        <span className="text-[10px] text-muted-foreground/40">
+          {t("devInspector.peers.localReplica", "The replica running this inspector")}
+        </span>
+      ) : (
+        <>
+          <div className="text-[10px] text-muted-foreground/50">
+            {device.connected
+              ? <span className="text-emerald-400/80">{t("devInspector.peers.connected", "Connected")}</span>
+              : device.lastComm > 0
+                ? <span>{t("devInspector.peers.lastSeen", "Last seen {{time}}", { time: fmtRelTime(device.lastComm, t) })}</span>
+                : <span>{t("devInspector.peers.neverConnected", "Never connected")}</span>}
+          </div>
+
+          {device.stats ? (
+            <>
+              <PeerTraffic
+                sent={device.stats.sent}
+                recv={device.stats.recv}
+                bytesSent={device.stats.bytesSent}
+                bytesRecv={device.stats.bytesRecv}
+              />
+              <PeerTypeChips types={device.stats.types} limit={4} />
+            </>
+          ) : (
+            <span className="text-[10px] text-muted-foreground/40">
+              {t("devInspector.peers.noMessages", "No messages this session")}
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** One person: a header that folds open onto the devices they connect from. */
+function PeerPersonGroup({
+  person,
+  open,
+  onToggle,
+  t,
+}: {
+  person: PeerPerson;
+  open: boolean;
+  onToggle: () => void;
+  t: TFunction;
+}) {
+  const online = person.connectedCount > 0;
+  return (
+    <div
+      className={cn(
+        "rounded-lg border overflow-hidden",
+        online ? "border-emerald-500/30 bg-emerald-500/5" : "border-border/50 bg-muted/20",
+      )}
+    >
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 p-2.5 text-left hover:bg-muted/30 transition-colors"
+        aria-expanded={open}
+      >
+        <ChevronRight
+          className={cn(
+            "w-3 h-3 shrink-0 text-muted-foreground/60 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+        <PeerAvatar avatar={person.avatar} name={person.name} />
+        <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-[11px] font-medium text-foreground truncate">{person.name}</span>
+            {person.isSelf && (
+              <span className="px-1 py-px rounded text-[9px] bg-muted text-muted-foreground shrink-0">
+                {t("devInspector.peers.you", "You")}
+              </span>
+            )}
+            {!person.rootKey && (
+              <span
+                className="px-1 py-px rounded text-[9px] bg-muted text-muted-foreground/70 shrink-0"
+                title={t("devInspector.peers.unlinkedHint", "No device certificate binds this key to a person")}
+              >
+                {t("devInspector.peers.unlinked", "Unlinked")}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] text-muted-foreground/60">
+            {t("devInspector.peers.deviceSummary", "{{connected}}/{{total}} devices connected", {
+              connected: person.connectedCount,
+              total: person.devices.length,
+            })}
+            {!online && person.lastComm > 0 && (
+              <> · {t("devInspector.peers.lastSeen", "Last seen {{time}}", { time: fmtRelTime(person.lastComm, t) })}</>
+            )}
+          </span>
+        </div>
+        <div className="shrink-0">
+          <PeerTraffic
+            sent={person.sent}
+            recv={person.recv}
+            bytesSent={person.bytesSent}
+            bytesRecv={person.bytesRecv}
+          />
+        </div>
+        {person.rootKey && (
+          <span className="text-[10px] text-muted-foreground/40 font-mono shrink-0">
+            {person.rootKey.slice(0, 8)}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="px-2.5 pb-2.5 flex flex-col gap-1.5">
+          {person.devices.map((device) => (
+            <PeerDeviceCard key={device.shortKey} device={device} t={t} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PeersList({
+  connectedPeers,
+  connectedPeerNames,
+  knownPeers,
+  netLogs,
+  identities,
+}: {
+  connectedPeers: string[];
+  connectedPeerNames: string[];
+  knownPeers: Peer[];
+  netLogs: NetLogEntry[];
+  identities: PeerIdentities;
+}) {
+  const { t } = useTranslation();
+  // Only groups the reader has toggled; the rest follow the default below.
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+
+  const stats = buildPeerStats(netLogs);
+  const people = groupPeersByPerson({
+    connectedPeers,
+    connectedPeerNames,
+    knownPeers,
+    identities,
+    stats,
+  });
+
+  if (people.length === 0) {
+    return (
+      <div className="py-8 text-center text-muted-foreground/50 text-xs">
+        {t("devInspector.peers.noneSeen", "No peers seen yet")}
+      </div>
+    );
+  }
+
+  const totals = { sent: 0, recv: 0, bytesSent: 0, bytesRecv: 0 };
+  const totalTypes: Record<string, { send: number; recv: number }> = {};
+  let deviceCount = 0;
+  for (const person of people) {
+    totals.sent += person.sent;
+    totals.recv += person.recv;
+    totals.bytesSent += person.bytesSent;
+    totals.bytesRecv += person.bytesRecv;
+    deviceCount += person.devices.length;
+  }
+  for (const s of stats.values()) {
+    for (const [type, counts] of Object.entries(s.types)) {
+      if (!totalTypes[type]) totalTypes[type] = { send: 0, recv: 0 };
+      totalTypes[type].send += counts.send;
+      totalTypes[type].recv += counts.recv;
+    }
+  }
+
+  return (
+    <>
+      {/* Summary card */}
+      <div className="rounded-lg border border-border bg-muted/30 p-2.5 flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold text-foreground">
+            {t("devInspector.peers.all", "All peers")}
+          </span>
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            {t(
+              "devInspector.peers.summary",
+              "{{connected}} connected · {{devices}} devices · {{people}} people",
+              {
+                connected: connectedPeers.length,
+                devices: deviceCount,
+                people: people.length,
+              },
+            )}
+          </span>
+        </div>
+        <PeerTraffic {...totals} />
+        <PeerTypeChips types={totalTypes} limit={6} />
+      </div>
+
+      {people.map((person) => (
+        <PeerPersonGroup
+          key={person.key}
+          person={person}
+          // Anyone here now is worth seeing device-by-device without a click.
+          open={toggled[person.key] ?? person.connectedCount > 0}
+          onToggle={() =>
+            setToggled((prev) => ({
+              ...prev,
+              [person.key]: !(prev[person.key] ?? person.connectedCount > 0),
+            }))
+          }
+          t={t}
+        />
+      ))}
+    </>
+  );
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const PANEL_MIN_H = 200;
@@ -635,6 +1209,9 @@ export function DevToolbar() {
   const [connectedPeers, setConnectedPeers] = useState<string[]>([]);
   const [connectedPeerNames, setConnectedPeerNames] = useState<string[]>([]);
   const [knownPeers, setKnownPeers] = useState<Peer[]>([]);
+  const [peerIdentities, setPeerIdentities] = useState<PeerIdentities>(
+    EMPTY_PEER_IDENTITIES,
+  );
   const [peersLoading, setPeersLoading] = useState(false);
   const [panelHeight, setPanelHeight] = useState(() =>
     Math.min(PANEL_DEFAULT_H, Math.floor(window.innerHeight * (PANEL_MAX_H_VH / 100)))
@@ -828,15 +1405,22 @@ export function DevToolbar() {
   const loadPeers = useCallback(async () => {
     setPeersLoading(true);
     try {
-      setKnownPeers(await getPlatform().peers.list());
+      const [peers, identities] = await Promise.all([
+        getPlatform().peers.list(),
+        fetchPeerIdentities(),
+      ]);
+      setKnownPeers(peers);
+      setPeerIdentities(identities);
     } catch { /* not ready */ } finally {
       setPeersLoading(false);
     }
   }, []);
 
+  // Re-read on every connect/disconnect too: a device that links while the tab
+  // is open has no certificate here until we look again.
   useEffect(() => {
     if (open && tab === "peers") loadPeers();
-  }, [open, tab, loadPeers]);
+  }, [open, tab, loadPeers, connectedPeers]);
 
   const loadCrdtOps = useCallback(async () => {
     setCrdtLoading(true);
@@ -2255,200 +2839,13 @@ export function DevToolbar() {
               </div>
               <ScrollArea className="flex-1 min-h-0">
                 <div className="p-3 flex flex-col gap-2">
-                  {(() => {
-                    // Build per-peer stats from netLogs
-                    type PeerStats = {
-                      sent: number;
-                      recv: number;
-                      bytesSent: number;
-                      bytesRecv: number;
-                      lastActivity: number;
-                      types: Record<string, { send: number; recv: number }>;
-                    };
-                    const statsMap = new Map<string, PeerStats>();
-                    for (const entry of netLogs) {
-                      let s = statsMap.get(entry.peer);
-                      if (!s) {
-                        s = { sent: 0, recv: 0, bytesSent: 0, bytesRecv: 0, lastActivity: 0, types: {} };
-                        statsMap.set(entry.peer, s);
-                      }
-                      if (entry.direction === "send") { s.sent++; s.bytesSent += entry.size; }
-                      else { s.recv++; s.bytesRecv += entry.size; }
-                      if (entry.timestamp > s.lastActivity) s.lastActivity = entry.timestamp;
-                      if (!s.types[entry.type]) s.types[entry.type] = { send: 0, recv: 0 };
-                      if (entry.direction === "send") s.types[entry.type].send++;
-                      else s.types[entry.type].recv++;
-                    }
-
-                    // Build per-peer lookup from DB
-                    const knownByShortKey = new Map<string, Peer>();
-                    for (const p of knownPeers) knownByShortKey.set(p.publicKey.slice(0, 8), p);
-
-                    // Build display list: connected + netlog + all known DB peers
-                    const connectedSet = new Set(connectedPeers.map((k) => k.slice(0, 8)));
-                    const allPeerIds = [...new Set([
-                      ...connectedPeers.map((k) => k.slice(0, 8)),
-                      ...statsMap.keys(),
-                      ...knownPeers.map((p) => p.publicKey.slice(0, 8)),
-                    ])];
-
-                    // Compute last communicated for each peer (netlog activity > DB lastSeen)
-                    const lastComm = (shortKey: string): number => {
-                      const activity = statsMap.get(shortKey)?.lastActivity ?? 0;
-                      const dbSeen = knownByShortKey.get(shortKey)?.lastSeen
-                        ? new Date(knownByShortKey.get(shortKey)!.lastSeen!).getTime()
-                        : 0;
-                      return Math.max(activity, dbSeen);
-                    };
-
-                    // Sort: connected first, then by last communicated desc
-                    allPeerIds.sort((a, b) => {
-                      const aC = connectedSet.has(a) ? 1 : 0;
-                      const bC = connectedSet.has(b) ? 1 : 0;
-                      if (aC !== bC) return bC - aC;
-                      return lastComm(b) - lastComm(a);
-                    });
-
-                    // Aggregate totals across all peers
-                    let totalSent = 0, totalRecv = 0, totalBytesSent = 0, totalBytesRecv = 0;
-                    const totalTypes: Record<string, { send: number; recv: number }> = {};
-                    for (const s of statsMap.values()) {
-                      totalSent += s.sent;
-                      totalRecv += s.recv;
-                      totalBytesSent += s.bytesSent;
-                      totalBytesRecv += s.bytesRecv;
-                      for (const [type, counts] of Object.entries(s.types)) {
-                        if (!totalTypes[type]) totalTypes[type] = { send: 0, recv: 0 };
-                        totalTypes[type].send += counts.send;
-                        totalTypes[type].recv += counts.recv;
-                      }
-                    }
-                    const topTotalTypes = Object.entries(totalTypes)
-                      .sort((a, b) => (b[1].send + b[1].recv) - (a[1].send + a[1].recv))
-                      .slice(0, 6);
-
-                    if (allPeerIds.length === 0) {
-                      return (
-                        <div className="py-8 text-center text-muted-foreground/50 text-xs">
-                          {t("devInspector.peers.noneSeen", "No peers seen yet")}
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <>
-                        {/* Summary card */}
-                        <div className="rounded-lg border border-border bg-muted/30 p-2.5 flex flex-col gap-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-semibold text-foreground">
-                              {t("devInspector.peers.all", "All peers")}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground tabular-nums">
-                              {t(
-                                "devInspector.peers.summary",
-                                "{{connected}} connected · {{total}} total",
-                                {
-                                  connected: connectedPeers.length,
-                                  total: allPeerIds.length,
-                                },
-                              )}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3 text-[10px] font-mono">
-                            <span className="text-sky-400">↑ {totalSent} <span className="text-muted-foreground/50">({fmtBytes(totalBytesSent)})</span></span>
-                            <span className="text-amber-400">↓ {totalRecv} <span className="text-muted-foreground/50">({fmtBytes(totalBytesRecv)})</span></span>
-                          </div>
-                          {topTotalTypes.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {topTotalTypes.map(([type, counts]) => (
-                                <span key={type} className="inline-flex items-center gap-0.5 px-1 py-px rounded text-[9px] bg-muted text-muted-foreground font-mono">
-                                  {type}
-                                  {counts.send > 0 && <span className="text-sky-400/70">↑{counts.send}</span>}
-                                  {counts.recv > 0 && <span className="text-amber-400/70">↓{counts.recv}</span>}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Per-peer cards */}
-                        {allPeerIds.map((shortKey) => {
-                      const idx = connectedPeers.findIndex((k) => k.slice(0, 8) === shortKey);
-                      const dbPeer = knownByShortKey.get(shortKey);
-                      const name = idx >= 0
-                        ? connectedPeerNames[idx]
-                        : (dbPeer?.name || shortKey);
-                      const isConnected = connectedSet.has(shortKey);
-                      const stats = statsMap.get(shortKey);
-                      const topTypes = stats
-                        ? Object.entries(stats.types)
-                            .sort((a, b) => (b[1].send + b[1].recv) - (a[1].send + a[1].recv))
-                            .slice(0, 4)
-                        : [];
-                      const lc = lastComm(shortKey);
-
-                      return (
-                        <div
-                          key={shortKey}
-                          className={cn(
-                            "rounded-lg border p-2.5 flex flex-col gap-1.5",
-                            isConnected ? "border-emerald-500/30 bg-emerald-500/5" : "border-border/50 bg-muted/20",
-                          )}
-                        >
-                          {/* Header */}
-                          <div className="flex items-center gap-2">
-                            <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", isConnected ? "bg-emerald-500" : "bg-muted-foreground/30")} />
-                            <span className="text-[11px] font-medium text-foreground truncate flex-1">{name}</span>
-                            <span className="text-[10px] text-muted-foreground/50 font-mono shrink-0">{shortKey}</span>
-                          </div>
-
-                          {/* Last communicated */}
-                          <div className="text-[10px] text-muted-foreground/50">
-                            {isConnected
-                              ? <span className="text-emerald-400/80">
-                                  {t("devInspector.peers.connected", "Connected")}
-                                </span>
-                              : lc > 0
-                                ? <span>{t("devInspector.peers.lastSeen", "Last seen {{time}}", {
-                                    time: fmtRelTime(lc, t),
-                                  })}</span>
-                                : <span>{t("devInspector.peers.neverConnected", "Never connected")}</span>
-                            }
-                          </div>
-
-                          {/* Stats row */}
-                          {stats ? (
-                            <>
-                              <div className="flex items-center gap-3 text-[10px] font-mono">
-                                <span className="text-sky-400">↑ {stats.sent} <span className="text-muted-foreground/50">({fmtBytes(stats.bytesSent)})</span></span>
-                                <span className="text-amber-400">↓ {stats.recv} <span className="text-muted-foreground/50">({fmtBytes(stats.bytesRecv)})</span></span>
-                              </div>
-                              {topTypes.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                  {topTypes.map(([type, counts]) => (
-                                    <span
-                                      key={type}
-                                      className="inline-flex items-center gap-0.5 px-1 py-px rounded text-[9px] bg-muted text-muted-foreground font-mono"
-                                    >
-                                      {type}
-                                      {counts.send > 0 && <span className="text-sky-400/70">↑{counts.send}</span>}
-                                      {counts.recv > 0 && <span className="text-amber-400/70">↓{counts.recv}</span>}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-[10px] text-muted-foreground/40">
-                              {t("devInspector.peers.noMessages", "No messages this session")}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                      </>
-                    );
-                  })()}
+                  <PeersList
+                    connectedPeers={connectedPeers}
+                    connectedPeerNames={connectedPeerNames}
+                    knownPeers={knownPeers}
+                    netLogs={netLogs}
+                    identities={peerIdentities}
+                  />
                 </div>
               </ScrollArea>
             </motion.div>

@@ -1,8 +1,15 @@
 import { useDroppable, useDndContext } from "@dnd-kit/core";
 import clsx from "clsx";
+import { useEffect, useRef } from "react";
+import { triggerHaptic } from "@/platform/bridge";
+import { useIsExpanded, useTreeExpand } from "../../contexts/TreeExpandContext";
+import { SUBTREE_MOTION_MS } from "./subtreeMotion";
 import style from "./PagesLinks.module.css";
 
 export type DropPosition = "before" | "after" | "inside";
+
+/** How long a drag has to rest on a collapsed page before its children open. */
+const SPRING_LOAD_DELAY = 500;
 
 interface DropZoneProps {
   id: string;
@@ -11,6 +18,8 @@ interface DropZoneProps {
   position: DropPosition;
   parentsStack?: { id: string | null; order: number }[];
   spaceId?: string;
+  /** Only a nest zone over a page that has children can spring open. */
+  hasChildren?: boolean;
 }
 
 export function DropZone({
@@ -20,8 +29,9 @@ export function DropZone({
   position,
   parentsStack = [],
   spaceId,
+  hasChildren = false,
 }: DropZoneProps) {
-  const { active } = useDndContext();
+  const { active, measureDroppableContainers } = useDndContext();
 
   // A zone is invalid only when accepting the drop would be structurally
   // impossible (dropping a page into itself or one of its own descendants).
@@ -56,6 +66,49 @@ export function DropZone({
       spaceId,
     },
   });
+
+  const treeExpand = useTreeExpand();
+  const isExpanded = useIsExpanded(targetPageId);
+  const sprungOpen = useRef(false);
+
+  // Spring-loaded nesting: hold a drag still over a collapsed page and it opens,
+  // so a target further down the tree is reachable in one gesture instead of
+  // drop, expand, pick the page back up. Leaving the zone cancels the wait.
+  useEffect(() => {
+    if (!isOver || disabled || position !== "inside") return;
+    if (!hasChildren || isExpanded) return;
+
+    const timer = setTimeout(() => {
+      sprungOpen.current = true;
+      treeExpand.expand(targetPageId);
+      triggerHaptic("light");
+    }, SPRING_LOAD_DELAY);
+
+    return () => clearTimeout(timer);
+  }, [
+    isOver,
+    disabled,
+    position,
+    hasChildren,
+    isExpanded,
+    targetPageId,
+    treeExpand,
+  ]);
+
+  // dnd-kit measures drop targets once per drag, so every row below the subtree
+  // we just opened keeps a stale rect. Ask for a re-measure once it finishes
+  // growing, otherwise the rest of this drag lands one row off.
+  useEffect(() => {
+    if (!isExpanded || !sprungOpen.current) return;
+    sprungOpen.current = false;
+
+    const timer = setTimeout(
+      () => measureDroppableContainers([]),
+      SUBTREE_MOTION_MS + 32,
+    );
+
+    return () => clearTimeout(timer);
+  }, [isExpanded, measureDroppableContainers]);
 
   return (
     <div

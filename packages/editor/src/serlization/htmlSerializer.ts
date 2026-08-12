@@ -18,8 +18,14 @@ import { escapeHtml, inlineToHtml } from "./codecs/inline";
 import type { Block } from "./loadPage";
 
 const STYLES = `
-  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 720px; margin: 2em auto; padding: 0 1em; color: #111; line-height: 1.6; font-size: 11pt; }
-  @page { margin: 0.3in; }
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 720px; margin: 0 auto; padding: 2em 1em; color: #111; line-height: 1.6; font-size: 11pt; }
+  /* The side padding belongs to the text column, not to a full-width image:
+     a cover spans the sheet edge to edge, as it does on canvas, by growing
+     back out over it. The width lives here rather than in the block's inline
+     style because an inline max-width would clamp it straight back to the
+     column. Vertical page margins stay on @page so every page keeps them. */
+  img.full-bleed { width: calc(100% + 2em); margin: 1em -1em; }
+  @page { margin: 0.3in 0; }
   h1 { font-size: 2em; margin: 0.67em 0; }
   h2 { font-size: 1.5em; margin: 0.83em 0; }
   h3 { font-size: 1.17em; margin: 1em 0; }
@@ -34,7 +40,9 @@ const STYLES = `
   .todo li { display: flex; align-items: flex-start; gap: 0.5em; }
   .todo input { margin-top: 0.3em; }
   svg { max-width: 100%; }
-  @media print { html, body { margin: 0; padding: 0; max-width: none; } body > *:first-child { margin-top: 0; } a { color: inherit; text-decoration: none; } }
+  /* Only body carries the side padding — padding on both it and html would
+     nest, and a bleed can only grow back out over one of them. */
+  @media print { html { margin: 0; padding: 0; } body { margin: 0; padding: 0 0.3in; max-width: none; } img.full-bleed { width: calc(100% + 0.6in); margin: 1em -0.3in; } body > *:first-child { margin-top: 0; } a { color: inherit; text-decoration: none; } }
 `;
 
 function renderLegacyReplacement(

@@ -1,4 +1,5 @@
 import { LoaderCircle } from "lucide-react";
+import { Button } from "../../../components/ui/button";
 import { useGetPages } from "../../api/pages.api";
 import { PageLink } from "./PageLink";
 import style from "./PagesLinks.module.css";
@@ -45,9 +46,14 @@ export default function PagesLinks({
           <div className={style.empty}>
             <p>{t("page.noPagesHere", "No pages here")}</p>
           </div>
-          <button
+          <Button
+            variant="unstyled"
+            size="unstyled"
             onClick={() => handleAdd()}
-            className={style.accordionAddButton}
+            className={clsx(
+              style.accordionAddButton,
+              "justify-start font-normal",
+            )}
             disabled={isCreating}
           >
             {isCreating ? (
@@ -56,7 +62,7 @@ export default function PagesLinks({
               <Icons.Plus width={16} height={16} />
             )}
             <span>{t("page.addPage", "Add page")}</span>
-          </button>
+          </Button>
         </>
       )}
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { ActionCenter } from "../components/ActionCenter";
 import { AddSpaceDialog } from "../components/AddSpaceDialog";
 import { BottomToolDock } from "../components/BottomToolDock";
@@ -8,25 +8,27 @@ import { EditGroupDialog } from "../components/EditGroupDialog";
 import { ImportDialogProvider } from "../components/ImportDialogProvider";
 import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import { DatabaseLockedScreen } from "../components/DatabaseLockedScreen";
+import { NoSpacesScreen } from "../components/NoSpacesScreen";
 import { OnboardingScreen } from "../components/OnboardingScreen";
-import PeerVersionPopup from "../components/PeerVersionPopup";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
 import { WordCountOverlay } from "../components/WordCountOverlay";
+import { ActionCenterProvider } from "../contexts/ActionCenterContext";
 import { ActiveEditorProvider } from "../contexts/ActiveEditorContext";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
+import { PeerVersionProvider } from "../contexts/PeerVersionContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
+import { OwnPrefsProvider } from "../contexts/OwnPrefsContext";
+import { useGetArchivedSpaces } from "../api/spaces.api";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
-import { SpacePrefsProvider } from "../contexts/SpacePrefsContext";
 import { TreeExpandProvider } from "../contexts/TreeExpandContext";
-import { useVersion } from "../contexts/VersionContext";
 import { useFileDropImport } from "../hooks/useFileDropImport";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { useDevToolsEnabled } from "@/lib/devTools";
-import ForceUpdatePage from "../pages/ForceUpdatePage";
 import { FileDropChrome } from "./FileDropChrome";
 import { FloatingSidebar } from "./FloatingSidebar";
 import style from "./Layout.module.css";
+import { MockWorkspaceBackdrop } from "./MockWorkspaceBackdrop";
 import { ResizableSidebar } from "./ResizableSidebar";
 import { TopActionBar } from "./TopActionBar";
 import { TopActionBarSlotProvider } from "./TopActionBarSlot";
@@ -47,25 +49,10 @@ export default function Layout() {
     );
   }
 
-  const { isLoading, meetsMinimum } = useVersion();
-
-  // Track if app ever mounted with valid version (user was working)
-  const hadValidVersion = React.useRef(false);
-  if (!isLoading && meetsMinimum) {
-    hadValidVersion.current = true;
-  }
-
-  const needsForceUpdate = !isLoading && !meetsMinimum;
-
-  // If force update needed on first load, show update page directly
-  if (needsForceUpdate && !hadValidVersion.current) {
-    return <ForceUpdatePage />;
-  }
-
   return (
     <TopActionBarSlotProvider>
       <SpaceProvider>
-        <SpacePrefsProvider>
+        <OwnPrefsProvider>
           <TreeExpandProvider>
             <SidebarPanelProvider>
               <PageSettingsProvider>
@@ -73,7 +60,11 @@ export default function Layout() {
                   <ConfirmationDialogProvider>
                     <UnsavedChangesDialogProvider>
                       <ImportDialogProvider>
-                        <LayoutInner needsForceUpdate={needsForceUpdate} />
+                        <PeerVersionProvider>
+                          <ActionCenterProvider>
+                            <LayoutInner />
+                          </ActionCenterProvider>
+                        </PeerVersionProvider>
                       </ImportDialogProvider>
                     </UnsavedChangesDialogProvider>
                   </ConfirmationDialogProvider>
@@ -81,13 +72,13 @@ export default function Layout() {
               </PageSettingsProvider>
             </SidebarPanelProvider>
           </TreeExpandProvider>
-        </SpacePrefsProvider>
+        </OwnPrefsProvider>
       </SpaceProvider>
     </TopActionBarSlotProvider>
   );
 }
 
-function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
+function LayoutInner() {
   const [resizableOpen, setResizableOpen] = useLocalStorage(
     "resizable-sidebar-open",
     true,
@@ -110,6 +101,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
 
   // Remember the last visited route so we can restore it on next visit
   const location = useLocation();
+  const navigate = useNavigate();
   const isPageRoute =
     location.pathname === "/page" || location.pathname.startsWith("/page/");
 
@@ -118,6 +110,27 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
     if (path === "/") return;
     localStorage.setItem("lastRoute", path);
   }, [location.pathname]);
+
+  const hasNoSpaces = !spacesLoading && !loadError && spaces.length === 0;
+
+  // Two very different people arrive with zero spaces, and the archive tells
+  // them apart: a first run has nothing archived, while someone who archived
+  // their last space has their whole workspace waiting there. Only asked for
+  // when it decides something.
+  const { data: archivedSpaces, isLoading: archivedLoading } =
+    useGetArchivedSpaces({ enabled: hasNoSpaces });
+  const isReturning = hasNoSpaces && (archivedSpaces?.length ?? 0) > 0;
+  const needsOnboarding = hasNoSpaces && !isReturning;
+
+  // A remembered page id stops resolving the moment its space is gone. Drop
+  // back to the page root, which renders whichever zero-space state applies.
+  // Archive and Settings still work without a space, so they stay reachable —
+  // Archive is how a returning user gets their spaces back.
+  React.useEffect(() => {
+    if (hasNoSpaces && location.pathname.startsWith("/page/")) {
+      navigate("/page", { replace: true });
+    }
+  }, [hasNoSpaces, location.pathname, navigate]);
 
   // Wait for spaces to load before deciding what to show
   if (spacesLoading) {
@@ -128,17 +141,36 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
     return <DatabaseLockedScreen error={loadError} />;
   }
 
-  if (spaces.length === 0) {
-    return <OnboardingScreen />;
+  // Which zero-space state applies isn't settled yet; showing either one now
+  // would only have to be swapped a moment later.
+  if (hasNoSpaces && archivedLoading) {
+    return null;
+  }
+
+  // Mobile runs onboarding as its own page. Desktop shows it as a dialog, and
+  // deliberately does NOT mount the live shell behind it: with no space, the
+  // editor route flashes loading skeletons and lands on an empty state whose
+  // button can't work. A drawn-once mock of the shell stands in instead.
+  if (needsOnboarding) {
+    if (isMobile) return <OnboardingScreen />;
+    return (
+      <>
+        <MockWorkspaceBackdrop />
+        <OnboardingScreen />
+        <BottomToolDock>
+          {devToolsEnabled && (
+            <React.Suspense fallback={null}>
+              <DevToolbar />
+            </React.Suspense>
+          )}
+        </BottomToolDock>
+      </>
+    );
   }
 
   return (
     <>
-      <div
-        className={style.appContainer}
-        inert={needsForceUpdate ? (true as unknown as boolean) : undefined}
-        {...fileDrop.dropZoneProps}
-      >
+      <div className={style.appContainer} {...fileDrop.dropZoneProps}>
         {isMobile ? (
           <FloatingSidebar
             open={!!floatingOpen}
@@ -164,7 +196,13 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
               setOpen={isMobile ? setFloatingOpen : setResizableOpen}
             />
             <div className="flex-1 min-h-0 w-full">
-              <Outlet />
+              {/* Same reason the shell is skipped during onboarding: without a
+                  space the editor route has nothing to resolve. */}
+              {hasNoSpaces && isPageRoute ? (
+                <NoSpacesScreen onCreateSpace={() => setShowAddSpace(true)} />
+              ) : (
+                <Outlet />
+              )}
             </div>
           </div>
         )}
@@ -186,8 +224,9 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
         }
       />
       <FileDropChrome fileDrop={fileDrop} spaces={spaces} />
-      <ActionCenter />
-      <PeerVersionPopup />
+      {/* Nothing to search or act on yet, and its hotkey would open it over
+          the onboarding dialog. */}
+      {!needsOnboarding && <ActionCenter />}
       <BottomToolDock>
         {devToolsEnabled && (
           <React.Suspense fallback={null}>
@@ -196,7 +235,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
         )}
         {isPageRoute && <WordCountOverlay />}
       </BottomToolDock>
-      {needsForceUpdate && <ForceUpdatePage />}
+      {needsOnboarding && <OnboardingScreen />}
     </>
   );
 }

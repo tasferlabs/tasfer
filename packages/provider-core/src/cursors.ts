@@ -111,6 +111,14 @@ export interface CursorUser {
    * accordingly (e.g. "You") instead of as a separate anonymous peer.
    */
   readonly deviceId?: string;
+  /**
+   * Stable id of the human behind {@link deviceId}, shared by every device
+   * they have linked. Lets a presence UI show one person once, however many
+   * devices they are connected from. Absent for a peer whose host does not
+   * publish one — such a peer stands on its own rather than being folded into
+   * somebody else.
+   */
+  readonly personId?: string;
 }
 
 /**

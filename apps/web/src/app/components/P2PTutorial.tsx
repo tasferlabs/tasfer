@@ -3,25 +3,24 @@ import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Lock, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { OWN_PREF_KEYS, useOwnPref } from "../contexts/OwnPrefsContext";
 
-const STORAGE_KEY = "tasfer:p2p-tutorial-seen";
-
-/** Check whether the user has already completed the P2P tutorial. */
-export function hasSeenP2PTutorial(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-/** Mark the tutorial as completed so it won't show again. */
-export function markP2PTutorialSeen(): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, "1");
-  } catch {
-    // localStorage unavailable
-  }
+/**
+ * Whether the person has read this walkthrough — a fact about them, not about
+ * the browser they first read it in, so it is replicated to their other devices.
+ * `loaded` is false until the register arrives; showing the walkthrough before
+ * then would re-run it for someone who has already read it.
+ */
+export function useP2PTutorialSeen(): {
+  seen: boolean;
+  loaded: boolean;
+  markSeen: () => void;
+} {
+  const { value, loaded, set } = useOwnPref(
+    OWN_PREF_KEYS.p2pTutorialSeen,
+    false,
+  );
+  return { seen: value === true, loaded, markSeen: () => set(true) };
 }
 
 const STEP_COUNT = 3;
@@ -104,6 +103,7 @@ export function P2PTutorial({
   completeLabel,
 }: P2PTutorialProps) {
   const { t } = useTranslation();
+  const { markSeen } = useP2PTutorialSeen();
   const [[current, direction], setPage] = useState([0, 0]);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -118,9 +118,9 @@ export function P2PTutorial({
   );
 
   const complete = useCallback(() => {
-    markP2PTutorialSeen();
+    markSeen();
     onComplete();
-  }, [onComplete]);
+  }, [markSeen, onComplete]);
 
   return (
     <div className="flex flex-col">

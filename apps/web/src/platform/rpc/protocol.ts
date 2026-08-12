@@ -211,6 +211,7 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
   identity: {
     get: { kind: "request" },
     update: { kind: "request" },
+    onChange: { kind: "subscribe", cbArg: 0 },
   },
   peers: {
     list: { kind: "request" },
@@ -229,6 +230,12 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     updateMember: { kind: "request" },
     onChange: { kind: "subscribe", cbArg: 0 },
   },
+  prefs: {
+    getAll: { kind: "request" },
+    set: { kind: "request" },
+    seed: { kind: "request" },
+    onChange: { kind: "subscribe", cbArg: 0 },
+  },
   pairing: {
     createInvite: { kind: "request" },
     getInvite: { kind: "request" },
@@ -236,6 +243,11 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     waitForPeer: { kind: "callbackMethod", cbArg: 1 },
     acceptInvite: { kind: "callbackMethod", cbArg: 1 },
     cancel: { kind: "request" },
+    createDeviceLink: { kind: "request" },
+    getDeviceLink: { kind: "request" },
+    revokeDeviceLink: { kind: "request" },
+    waitForDevice: { kind: "callbackMethod", cbArg: 1 },
+    acceptDeviceLink: { kind: "callbackMethod", cbArg: 1 },
   },
   pages: {
     list: { kind: "request" },
@@ -243,6 +255,7 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     create: { kind: "request" },
     update: { kind: "request" },
     delete: { kind: "request" },
+    getArchived: { kind: "request" },
     listArchived: { kind: "request" },
     restore: { kind: "request" },
     move: { kind: "request" },
@@ -251,7 +264,9 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     reorder: { kind: "request" },
     search: { kind: "request" },
     calendar: { kind: "request" },
-    snapshots: { kind: "request" },
+    versions: { kind: "request" },
+    versionBlocks: { kind: "request" },
+    rebuild: { kind: "request" },
     onDeleted: { kind: "subscribe", cbArg: 0 },
   },
   assets: {

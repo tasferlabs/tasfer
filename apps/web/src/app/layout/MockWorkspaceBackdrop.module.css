@@ -1,0 +1,159 @@
+/*
+ * Styles for the still-life app shell drawn behind first-run onboarding.
+ *
+ * Every colour here is an app token on purpose: this is a portrait of Tasfer
+ * at rest, not a second design system. The layout classes come from
+ * Layout.module.css and PagesLinks.module.css so the proportions can never
+ * drift from the real shell. Only what the real shell has no equivalent for —
+ * the document body — is defined below.
+ */
+
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: var(--background);
+  user-select: none;
+  /* Nothing in here is reachable: no hover, no focus, no click. */
+  pointer-events: none;
+}
+
+/* ── the mock document ─────────────────────────────────────────────────── */
+.doc {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding-inline: 40px;
+  padding-block-start: 8px;
+}
+
+.docInner {
+  /* Matches NARROW_CONTENT_WIDTH, the editor's own measure. */
+  max-width: 720px;
+  margin-inline: auto;
+}
+
+.docTitle {
+  font-family: var(--font-display);
+  font-size: 2.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--foreground);
+  margin-block-end: 1.75rem;
+}
+
+.docText {
+  font-size: 1rem;
+  line-height: 1.8;
+  color: var(--foreground);
+  max-width: 62ch;
+}
+
+.docText + .docText {
+  margin-block-start: 1.25rem;
+}
+
+/* Preflight strips list markers, so this block restores them itself. */
+.docList {
+  margin-block-start: 1.25rem;
+  padding-inline-start: 1.5rem;
+  list-style: disc;
+  max-width: 62ch;
+  font-size: 1rem;
+  line-height: 1.8;
+  color: var(--foreground);
+}
+
+.docList li::marker {
+  color: var(--muted-foreground);
+}
+
+/*
+ * The signature: a display equation set in the page body. It is the one frame
+ * in this app no other notes tool produces, and it carries no words — so every
+ * locale inherits it unchanged, and it never needs translating.
+ */
+.math {
+  --math-size: 1.9rem;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.08em;
+  margin-block: 2.25rem;
+  /* Math is set left-to-right in every locale, Arabic included. */
+  direction: ltr;
+  font-family: "Times New Roman", Times, Georgia, serif;
+  font-size: var(--math-size);
+  line-height: 1;
+  color: var(--foreground);
+}
+
+/* Variables lean, operators stand up — the convention, not decoration. */
+.var {
+  font-style: italic;
+}
+
+.integral {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.02em;
+  margin-inline-end: 0.12em;
+}
+
+.integralGlyph {
+  font-size: 2.1em;
+  line-height: 1;
+  font-style: italic;
+}
+
+.limits {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: space-between;
+  /* Tied to the base size, not to `.limits`' own shrunken em. */
+  height: calc(var(--math-size) * 1.9);
+  padding-block: calc(var(--math-size) * 0.04);
+  font-size: calc(var(--math-size) * 0.46);
+}
+
+.sup {
+  font-size: 0.58em;
+  vertical-align: super;
+  line-height: 0;
+}
+
+.dx {
+  margin-inline-start: 0.28em;
+}
+
+.rel {
+  margin-inline: 0.34em;
+}
+
+.frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 0.92em;
+  line-height: 1.2;
+}
+
+.fracNum {
+  padding-inline: 0.3em;
+  padding-block-end: 0.1em;
+  border-block-end: 1px solid currentColor;
+}
+
+.fracDen {
+  padding-block-start: 0.1em;
+}
+
+/* Radical: the glyph, then an overbar drawn across what it covers. */
+.radicand {
+  border-block-start: 1px solid currentColor;
+  padding-inline: 0.08em 0.1em;
+  margin-inline-start: -0.06em;
+}

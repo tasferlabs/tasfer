@@ -84,12 +84,21 @@ describe("inline mark HTML output (via MarkCodec.html)", () => {
     ["strike", "~~struck~~", "<s>struck</s>"],
     ["code", "`snippet`", "<code>snippet</code>"],
     [
+      // The href is the url's normalized form (see url-safety) — hence the
+      // trailing slash on an origin-only link.
       "link",
       "[docs](https://example.com)",
-      '<a href="https://example.com">docs</a>',
+      '<a href="https://example.com/">docs</a>',
     ],
   ])("emits %s", (_name, md, fragment) => {
     expect(html(md)).toContain(fragment);
+  });
+
+  it("drops the anchor for a url outside the protocol allowlist", () => {
+    const out = html("[click me](javascript:alert(1))");
+    expect(out).not.toContain("<a");
+    expect(out).not.toContain("javascript:");
+    expect(out).toContain("click me");
   });
 
   it("nests code innermost under strong (preserved order)", () => {

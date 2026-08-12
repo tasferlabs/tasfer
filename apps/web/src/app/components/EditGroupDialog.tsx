@@ -1,3 +1,4 @@
+import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,14 +30,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useUpdateSpace,
+  useGetSpace,
   useGetSpaceMembers,
   type ISpace,
 } from "../api/spaces.api";
 import { useAssetUrl } from "../api/images.api";
+import { useAuth } from "../contexts/AuthContext";
 import { AvatarPreviewDialog } from "./AvatarPreviewDialog";
 import { RelativeDate } from "@/components/ui/relative-date";
 import { cn } from "@/lib/utils";
-import type { ISpaceMember } from "../api/spaces.api";
+import { DeviceCountBadge } from "./DeviceCountBadge";
+import type { ISpaceMember, ISpacePerson } from "../api/spaces.api";
 import useMobileLayout from "../hooks/useMobileLayout";
 
 interface EditGroupDialogProps {
@@ -54,6 +58,10 @@ export function EditGroupDialog({
 }: EditGroupDialogProps) {
   const { t } = useTranslation();
   const { isMobile } = useMobileLayout();
+  // An edited-but-unsaved name, reported up from the tab that owns the field so
+  // the drawer can refuse to be swiped away over it. The footer's Close button
+  // stays the deliberate way out.
+  const [nameEdited, setNameEdited] = useState(false);
 
   const content = (
     <Tabs defaultValue="general">
@@ -65,6 +73,7 @@ export function EditGroupDialog({
         <GeneralTab
           spaceId={spaceId}
           open={open}
+          onEditedChange={setNameEdited}
         />
       </TabsContent>
       <TabsContent value="members">
@@ -82,7 +91,7 @@ export function EditGroupDialog({
 
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
+      <Drawer open={open} onOpenChange={onOpenChange} dirty={nameEdited}>
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
@@ -115,9 +124,12 @@ export function EditGroupDialog({
 function GeneralTab({
   spaceId,
   open,
+  onEditedChange,
 }: {
   spaceId: string;
   open: boolean;
+  /** Reports an unsaved edit to the name, which pins the drawer open. */
+  onEditedChange: (edited: boolean) => void;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -153,6 +165,14 @@ function GeneralTab({
       form.reset();
     }
   }, [open]);
+
+  // Mirror the field's dirty state up to the drawer; a tab switch or a close
+  // unmounts this form, and the edit goes with it, so drop the guard too.
+  const nameEdited = form.formState.isDirty;
+  useEffect(() => {
+    onEditedChange(nameEdited);
+    return () => onEditedChange(false);
+  }, [nameEdited, onEditedChange]);
 
   function onSubmit(data: z.infer<typeof FormSchema>) {
     updateSpace({ id: spaceId, name: data.name });
@@ -209,11 +229,14 @@ function MemberAvatar({
   name,
   onClick,
   presence,
+  deviceCount = 1,
 }: {
   avatar?: string | null;
   name?: string | null;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent) => void;
   presence?: Presence;
+  /** Devices this person is in the space from — counted on a corner badge. */
+  deviceCount?: number;
 }) {
   const avatarUrl = useAssetUrl(avatar);
   return (
@@ -229,6 +252,8 @@ function MemberAvatar({
           name?.charAt(0).toUpperCase() || "?"
         )}
       </div>
+      {/* Top corner: the presence dot already owns the bottom one. */}
+      <DeviceCountBadge count={deviceCount} placement="top" />
       {presence === "online" && (
         <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 ring-2 ring-background" />
       )}
@@ -236,33 +261,103 @@ function MemberAvatar({
   );
 }
 
+/** Disclosure chevron, pointing at the content it opens in either direction. */
+function DisclosureChevron({ expanded }: { expanded: boolean }) {
+  return (
+    <ChevronDown
+      className={cn(
+        "size-3.5 shrink-0 transition-transform motion-reduce:transition-none",
+        !expanded && "-rotate-90 rtl:rotate-90",
+      )}
+    />
+  );
+}
+
+/**
+ * A person's devices carry no name of their own — every one of them publishes
+ * the same profile. The key fragment is what tells two of them apart.
+ */
+function deviceFingerprint(publicKey: string): string {
+  return publicKey.slice(0, 6);
+}
+
+function DeviceRow({
+  device,
+  isSelf,
+}: {
+  device: ISpaceMember;
+  /** The device this app is running on, named rather than fingerprinted. */
+  isSelf: boolean;
+}) {
+  const { t } = useTranslation();
+  const online = getPresence(device.lastSeen) === "online";
+  return (
+    <li className="flex items-center gap-2 py-1 text-xs">
+      <span
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          online ? "bg-green-500" : "bg-muted-foreground/40",
+        )}
+      />
+      <span className="truncate">
+        {isSelf ? (
+          t("space.thisDevice", "This device")
+        ) : (
+          <span className="font-mono">{deviceFingerprint(device.id)}</span>
+        )}
+      </span>
+      <span className="ms-auto shrink-0 text-muted-foreground">
+        {device.lastSeen ? (
+          <RelativeDate date={device.lastSeen} />
+        ) : (
+          t("space.noActivity", "No activity")
+        )}
+      </span>
+    </li>
+  );
+}
+
 function MemberRow({
   member,
   dimmed,
   onPreview,
+  selfDeviceId,
 }: {
-  member: ISpaceMember;
+  member: ISpacePerson;
   dimmed?: boolean;
   onPreview: (avatar: string, name: string | null) => void;
+  /** Public key of the device this app runs on, when known. */
+  selfDeviceId?: string;
 }) {
   const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
   const presence = getPresence(member.lastSeen);
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50",
-        dimmed && "opacity-60",
-      )}
-    >
+  const deviceCount = member.devices.length;
+  // One device is the row itself — there is no tree to open under it.
+  const expandable = deviceCount > 1;
+  const devicesId = `member-devices-${member.id}`;
+  const deviceLabel = t("common.deviceCount", {
+    count: deviceCount,
+    defaultValue_one: "{{count, number}} device",
+    defaultValue_other: "{{count, number}} devices",
+  });
+
+  const summary = (
+    <>
       <MemberAvatar
         avatar={member.userAvatar}
         name={member.userName}
         presence={presence}
-        onClick={() =>
-          member.userAvatar && onPreview(member.userAvatar, member.userName)
-        }
+        deviceCount={deviceCount}
+        onClick={(event) => {
+          if (!member.userAvatar) return;
+          // Inside an expandable row the avatar keeps its own job: opening the
+          // picture, not the device list.
+          event.stopPropagation();
+          onPreview(member.userAvatar, member.userName);
+        }}
       />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 text-start">
         <p className="text-sm font-medium truncate">{member.userName}</p>
         <p className="text-xs text-muted-foreground truncate">
           {member.lastSeen ? (
@@ -270,9 +365,109 @@ function MemberRow({
           ) : (
             t("space.noActivity", "No activity")
           )}
+          {deviceCount > 1 && <> · {deviceLabel}</>}
         </p>
       </div>
+      {expandable && (
+        <span className="text-muted-foreground">
+          <DisclosureChevron expanded={expanded} />
+        </span>
+      )}
+    </>
+  );
+
+  const rowClass = cn(
+    "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50",
+    dimmed && "opacity-60",
+  );
+
+  return (
+    <div>
+      {expandable ? (
+        <button
+          type="button"
+          className={rowClass}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls={devicesId}
+        >
+          {summary}
+        </button>
+      ) : (
+        <div className={rowClass}>{summary}</div>
+      )}
+
+      {expandable && (
+        // Grid rows animate from nothing to content height without the height
+        // having to be measured.
+        <div
+          id={devicesId}
+          // Collapsed rows stay mounted for the animation, so take them out of
+          // the reading and tabbing order rather than just hiding them.
+          inert={!expanded}
+          className={cn(
+            "grid transition-[grid-template-rows] duration-200 motion-reduce:transition-none",
+            expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+          )}
+        >
+          <ul
+            className="overflow-hidden ms-6 border-s border-border/70 ps-3.5"
+            aria-label={t("space.devicesHeading", "Devices")}
+          >
+            {member.devices.map((device) => (
+              <DeviceRow
+                key={device.id}
+                device={device}
+                isSelf={device.id === selfDeviceId}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * Top level of the tree: an activity group. It only becomes a toggle when
+ * there is another group to weigh it against — a lone group is just a label.
+ */
+function GroupHeader({
+  label,
+  count,
+  expanded,
+  onToggle,
+  controls,
+}: {
+  label: string;
+  count: number;
+  expanded?: boolean;
+  onToggle?: () => void;
+  controls?: string;
+}) {
+  const className =
+    "flex w-full items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground";
+
+  if (!onToggle) {
+    return (
+      <p className={cn(className, "pb-1")}>
+        {label} · {count}
+      </p>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={cn(className, "transition-colors hover:text-foreground")}
+      aria-expanded={expanded}
+      aria-controls={controls}
+    >
+      <DisclosureChevron expanded={!!expanded} />
+      <span>{label}</span>
+      <span className="opacity-70">· {count}</span>
+    </button>
   );
 }
 
@@ -293,11 +488,15 @@ function MembersTab({
   } | null>(null);
   const previewAvatarUrl = useAssetUrl(previewMember?.avatar);
 
+  const [showActive, setShowActive] = useState(true);
   const [showInactive, setShowInactive] = useState(false);
+  // Naming the device this app runs on beats fingerprinting it.
+  const { user: self } = useAuth();
 
   const { data: members, isLoading: isLoadingMembers } = useGetSpaceMembers(
     open ? spaceId : undefined,
   );
+  const { data: space } = useGetSpace(open ? spaceId : undefined);
 
   const handlePreview = (avatar: string, name: string | null) =>
     setPreviewMember({ avatar, name });
@@ -311,8 +510,8 @@ function MembersTab({
       if (!b.lastSeen) return -1;
       return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
     };
-    const active: ISpaceMember[] = [];
-    const inactive: ISpaceMember[] = [];
+    const active: ISpacePerson[] = [];
+    const inactive: ISpacePerson[] = [];
     for (const member of members ?? []) {
       if (getPresence(member.lastSeen) === "inactive") inactive.push(member);
       else active.push(member);
@@ -341,49 +540,66 @@ function MembersTab({
       {active.length > 0 && (
         <div className="space-y-0.5">
           {inactive.length > 0 && (
-            <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              {t("space.active", "Active")} · {active.length}
-            </p>
+            <GroupHeader
+              label={t("space.active", "Active")}
+              count={active.length}
+              expanded={showActive}
+              onToggle={() => setShowActive((v) => !v)}
+              controls="space-members-active"
+            />
           )}
-          {active.map((member) => (
-            <MemberRow key={member.id} member={member} onPreview={handlePreview} />
-          ))}
+          <div id="space-members-active" className="space-y-0.5">
+            {(showActive || inactive.length === 0) &&
+              active.map((member) => (
+                <MemberRow
+                  key={member.id}
+                  member={member}
+                  onPreview={handlePreview}
+                  selfDeviceId={self?.id}
+                />
+              ))}
+          </div>
         </div>
       )}
 
       {inactive.length > 0 && (
         <div className="space-y-0.5">
-          {active.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setShowInactive((v) => !v)}
-              className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
-              aria-expanded={inactiveExpanded}
-            >
-              <ChevronDown
-                className={cn(
-                  "size-3.5 transition-transform",
-                  !inactiveExpanded && "-rotate-90",
-                )}
-              />
-              <span>{t("space.inactive", "Inactive")}</span>
-              <span className="opacity-70">· {inactive.length}</span>
-            </button>
-          ) : (
-            <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              {t("space.inactive", "Inactive")} · {inactive.length}
-            </p>
-          )}
-          {inactiveExpanded &&
-            inactive.map((member) => (
-              <MemberRow key={member.id} member={member} dimmed onPreview={handlePreview} />
-            ))}
+          <GroupHeader
+            label={t("space.inactive", "Inactive")}
+            count={inactive.length}
+            expanded={inactiveExpanded}
+            onToggle={
+              active.length > 0 ? () => setShowInactive((v) => !v) : undefined
+            }
+            controls="space-members-inactive"
+          />
+          <div id="space-members-inactive" className="space-y-0.5">
+            {inactiveExpanded &&
+              inactive.map((member) => (
+                <MemberRow
+                  key={member.id}
+                  member={member}
+                  dimmed
+                  onPreview={handlePreview}
+                  selfDeviceId={self?.id}
+                />
+              ))}
+          </div>
         </div>
       )}
 
-      <Button variant="secondary" onClick={openInviteMembers} className="w-full">
-        {t("share.inviteMembers", "Invite members")}
-      </Button>
+      {space?.personal ? (
+        <p className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">
+          {t(
+            "space.personalSpaceMembersNote",
+            "This space is yours alone. Only your own devices can open it, and it cannot be shared.",
+          )}
+        </p>
+      ) : (
+        <Button variant="secondary" onClick={openInviteMembers} className="w-full">
+          {t("share.inviteMembers", "Invite members")}
+        </Button>
+      )}
 
       <AvatarPreviewDialog
         open={!!previewMember}

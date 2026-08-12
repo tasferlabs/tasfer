@@ -7,8 +7,6 @@ export interface VersionContextValue {
   isLoading: boolean;
   /** Version info from API */
   versionInfo: VersionInfo | null;
-  /** Whether client meets minimum version (blocks app if false) */
-  meetsMinimum: boolean;
   /** Whether a soft update is available (shows popup) */
   updateAvailable: boolean;
   /** Whether the update popup has been dismissed this session */

@@ -148,6 +148,7 @@ import { useSafeAreaInsets } from "./hooks/useSafeAreaInsets";
 import { cn } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { CursorMagnifier } from "./components/CursorMagnifier";
+import { useOpenExternalUrl } from "./components/ExternalLinkDialog";
 import { MobileKeyboardToolbar } from "./components/MobileKeyboardToolbar";
 import {
   fontStyleToFamily,
@@ -705,13 +706,8 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
         x={containerRect.left + overlay.rect.x}
         y={containerRect.top + overlay.rect.y}
         onDismiss={() => editor.host.clearLinkHover()}
-        onOpen={() => {
-          if (window.TasferBridge) {
-            window.TasferBridge.navigation.openUrl(url);
-          } else {
-            window.open(url, "_blank", "noopener,noreferrer");
-          }
-        }}
+        // No `onOpen`: the tooltip's default path already routes through the
+        // app's link confirmation, the same one Ctrl+click takes.
         // Readonly documents show the tooltip for opening the link only —
         // editing the URL mutates the doc, so the Edit affordance is dropped
         // (the tooltip hides the button when `onEdit` is absent). Gated on
@@ -1337,6 +1333,19 @@ function postKeyboardToolbar(model: NativeMobileToolbarModel): void {
 // that disable the accessory while they hold focus.
 
 /**
+ * Whether `el` is a surface that keystrokes are currently going into — a form
+ * field or any contenteditable, including another canvas editor's hidden input
+ * surface. A focused button or link is not one: it holds focus after a click
+ * without consuming typing, so it must not stop the editor from taking focus.
+ */
+function holdsTypedInput(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  return (
+    el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA"
+  );
+}
+
+/**
  * Public mount component. Keys the collaborative wrapper per page (or read-only
  * mode) so a page switch tears the doc + editor down and rebuilds them for the
  * new page — the `key` is how we recreate them, replacing the old in-effect
@@ -1451,6 +1460,15 @@ function PageEditor({
     const ctx = matrixContextForCaret(editor);
     setMatrixEditor(ctx ? { rows: ctx.rows, cols: ctx.cols } : { rows, cols });
   }, []);
+
+  // The mount effect registers OPEN_LINK once (it runs on `editor` alone), while
+  // the opener's identity changes with the UI language — so the handler reads it
+  // through a ref rather than capturing the mount-time closure.
+  const openExternalUrl = useOpenExternalUrl();
+  const openExternalUrlRef = useRef(openExternalUrl);
+  useEffect(() => {
+    openExternalUrlRef.current = openExternalUrl;
+  }, [openExternalUrl]);
 
   const closeMatrixEditor = useCallback(() => {
     setMatrixEditor(null);
@@ -2436,15 +2454,14 @@ function PageEditor({
       mounted.editor.registerAction(REGION_DRAG_START, ({ intensity }) =>
         fireHaptic(intensity),
       ),
-      // Override the editor's window.open default with native navigation.
-      ...(native
-        ? [
-            mounted.editor.registerAction(OPEN_LINK, ({ url }) => {
-              void native.navigation.openUrl(url);
-              return true;
-            }),
-          ]
-        : []),
+      // Take over the engine's window.open default on every platform: a link's
+      // url is document content, so Ctrl+click confirms the destination first
+      // (and native shells get their navigation) instead of opening straight
+      // out of the canvas.
+      mounted.editor.registerAction(OPEN_LINK, ({ url }) => {
+        openExternalUrlRef.current(url);
+        return true;
+      }),
       mounted.editor.registerAction(
         OPEN_CONTEXT_MENU,
         ({ x, y, hasSelection }) => {
@@ -3069,7 +3086,14 @@ function PageEditor({
 
     // Auto-focus the editor when requested
     if (autoFocus) {
-      mounted.editor.focus();
+      // ...unless something else is already taking typing. This effect runs
+      // once the document resolves, which can be long after mount: tapping
+      // Search in the mobile sidebar remounts this editor at the same moment
+      // the palette focuses its input, and grabbing focus back would route the
+      // keystrokes into the canvas hidden behind the palette. Only DOM focus is
+      // conceded — the caret and scroll are still restored below, so the page
+      // is where it was left when focus does come back.
+      if (!holdsTypedInput(document.activeElement)) mounted.editor.focus();
 
       // Restore by stable block id and viewport-relative anchor. The height
       // index can jump to this block using estimates, so opening near the end

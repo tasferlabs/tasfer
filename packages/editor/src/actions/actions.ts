@@ -1,5 +1,6 @@
 import { CONVERT_STRUCTURED_BLOCK, TEXT_INPUTTED } from "../action-bus";
 import { isCJKCharacter } from "../cjk";
+import { nextCodePointEnd, prevCodePointStart } from "../code-points";
 import { resolveMarkRuns } from "../inline-math-spans";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isBlockRTL } from "../rtl";
@@ -2032,10 +2033,16 @@ export function deleteText(state: EditorState): ActionResult {
   }
 
   if (textIndex > 0) {
+    // One character back, not one UTF-16 unit: an astral character (an emoji)
+    // is a surrogate pair, and halving it would leave text no font can draw.
+    const charStart = prevCodePointStart(
+      getBlockTextContent(oldBlock),
+      textIndex,
+    );
     if (
       rangeIntersectsStructuredMark(
         oldBlock,
-        textIndex - 1,
+        charStart,
         textIndex,
         state.schema,
       )
@@ -2046,7 +2053,7 @@ export function deleteText(state: EditorState): ActionResult {
     const { newPage, op } = deleteCharsInRange(
       state.document.page,
       oldBlock.id,
-      textIndex - 1,
+      charStart,
       textIndex,
       state.CRDTbinding,
     );
@@ -2059,7 +2066,7 @@ export function deleteText(state: EditorState): ActionResult {
         blockCopy,
         state.CRDTbinding,
         state.schema,
-        textIndex - 1,
+        charStart,
         false,
         state.ui.suppressedInputRule,
       );
@@ -2076,7 +2083,7 @@ export function deleteText(state: EditorState): ActionResult {
     newState = moveCursorToPosition(
       newState,
       blockIndex,
-      Math.max(0, textIndex - 1 - removedPrefixLength),
+      Math.max(0, charStart - removedPrefixLength),
       true,
     );
     return { state: newState, ops };
@@ -2394,13 +2401,10 @@ export function deleteForward(state: EditorState): ActionResult {
   }
 
   if (textIndex < oldText.length) {
+    // One character forward, not one UTF-16 unit — see the backward delete.
+    const charEnd = nextCodePointEnd(oldText, textIndex);
     if (
-      rangeIntersectsStructuredMark(
-        oldBlock,
-        textIndex,
-        textIndex + 1,
-        state.schema,
-      )
+      rangeIntersectsStructuredMark(oldBlock, textIndex, charEnd, state.schema)
     ) {
       return { state, ops: [] };
     }
@@ -2409,7 +2413,7 @@ export function deleteForward(state: EditorState): ActionResult {
       state.document.page,
       oldBlock.id,
       textIndex,
-      textIndex + 1,
+      charEnd,
       state.CRDTbinding,
     );
     ops.push(op);
@@ -3551,14 +3555,6 @@ export function splitBlock(state: EditorState): ActionResult {
   ) {
     return { state, ops: [] };
   }
-  // The list split path below transfers neither marks nor attachments; keep
-  // refusing there rather than degrade a moved projection to raw text.
-  if (
-    isListBlock(oldBlock) &&
-    structuredRuns.some((run) => run.endIndex > textIndex)
-  ) {
-    return { state, ops: [] };
-  }
   // Block 2's id is minted early so attachment clones can address it. The
   // clone itself is delayed until the block_insert is stamped in step 4: op
   // ids/clocks and batch order must all put the host block before its content.
@@ -3613,156 +3609,76 @@ export function splitBlock(state: EditorState): ActionResult {
   const isAtEnd = textIndex === oldText.length;
   const isEmpty = oldText.length === 0;
 
-  // Handle list blocks
-  if (isListBlock(oldBlock)) {
-    // When Enter is pressed in an empty list item, outdent or convert to paragraph
-    if (isEmpty) {
-      if (oldBlock.indent === 0) {
-        // Convert to paragraph if at base indent
-        const newParagraph: Block = carryStructuredContent(
-          {
-            id: oldBlock.id,
-            orderKey: oldBlock.orderKey,
-            type: "paragraph",
-            charRuns: [],
-            formats: [],
-          },
-          oldBlock,
-        );
-
-        const blockSetOp: BlockSet = {
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: oldBlock.id,
-          field: "type",
-          value: "paragraph",
-        };
-        ops.push(blockSetOp);
-
-        const newBlocks = [
-          ...state.document.page.blocks.slice(0, blockIndex),
-          newParagraph,
-          ...state.document.page.blocks.slice(blockIndex + 1),
-        ];
-        const newPage = { ...state.document.page, blocks: newBlocks };
-        return {
-          state: {
-            ...state,
-            document: { ...state.document, page: newPage },
-          },
-          ops,
-        };
-      } else {
-        // Outdent the list item
-        const outdentedBlock: Block = {
-          ...oldBlock,
-          indent: oldBlock.indent - 1,
-        };
-        invalidateBlockCache(outdentedBlock);
-
-        const blockSetOp: BlockSet = {
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: oldBlock.id,
-          field: "indent",
-          value: oldBlock.indent - 1,
-        };
-        ops.push(blockSetOp);
-
-        const newBlocks = [...state.document.page.blocks];
-        newBlocks[blockIndex] = outdentedBlock;
-        const newPage = { ...state.document.page, blocks: newBlocks };
-        return {
-          state: {
-            ...state,
-            document: { ...state.document, page: newPage },
-          },
-          ops,
-        };
-      }
-    }
-
-    // Split the text content at cursor position
-    const afterCharsText = oldText.slice(textIndex);
-    let pageAcc = state.document.page;
-    if (textIndex < oldText.length) {
-      const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
-        pageAcc,
-        oldBlock.id,
-        textIndex,
-        oldText.length,
-        state.CRDTbinding,
+  // Enter in an EMPTY list item leaves the list instead of splitting it:
+  // outdent one level, or fall out to a paragraph at base indent. A non-empty
+  // item takes the generic split below like any other textual block.
+  if (isListBlock(oldBlock) && isEmpty) {
+    if (oldBlock.indent === 0) {
+      // Convert to paragraph if at base indent
+      const newParagraph: Block = carryStructuredContent(
+        {
+          id: oldBlock.id,
+          orderKey: oldBlock.orderKey,
+          type: "paragraph",
+          charRuns: [],
+          formats: [],
+        },
+        oldBlock,
       );
-      pageAcc = pageAfterDelete;
-      ops.push(deleteOp);
+
+      const blockSetOp: BlockSet = {
+        op: "block_set",
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
+        blockId: oldBlock.id,
+        field: "type",
+        value: "paragraph",
+      };
+      ops.push(blockSetOp);
+
+      const newBlocks = [
+        ...state.document.page.blocks.slice(0, blockIndex),
+        newParagraph,
+        ...state.document.page.blocks.slice(blockIndex + 1),
+      ];
+      const newPage = { ...state.document.page, blocks: newBlocks };
+      return {
+        state: { ...state, document: { ...state.document, page: newPage } },
+        ops,
+      };
     }
 
-    const newBlockId = state.CRDTbinding.nextId();
-    // Continue the same list type — but clamp to the authoring allow-list so a
-    // restricted editor never MINTS a disallowed type (coerceCreatable is
-    // identity when unrestricted). The COERCED type is what we emit, so a remote
-    // replay of this op converges. List-specific initialProps (checked/indent)
-    // only apply while the continuation stays a list; a coerced-to-paragraph
-    // fallback drops them.
-    const newBlockType = state.schema.coerceCreatable(
-      oldBlock.type,
-    ) as Block["type"];
-    const continuesList = newBlockType === oldBlock.type;
+    // Outdent the list item
+    const outdentedBlock: Block = {
+      ...oldBlock,
+      indent: oldBlock.indent - 1,
+    };
+    invalidateBlockCache(outdentedBlock);
 
-    const blockInsertOp: BlockInsert = {
-      op: "block_insert",
+    const blockSetOp: BlockSet = {
+      op: "block_set",
       id: state.CRDTbinding.nextId(),
       clock: state.CRDTbinding.getClock(),
       pageId: state.CRDTbinding.pageId,
-      orderKey: orderKeyAfter(state.document.page.blocks, oldBlock.id),
-      blockId: newBlockId,
-      blockType: newBlockType,
-      initialProps: continuesList
-        ? isTogglable(oldBlock.type)
-          ? { checked: false, indent: oldBlock.indent }
-          : { indent: oldBlock.indent }
-        : undefined,
+      blockId: oldBlock.id,
+      field: "indent",
+      value: oldBlock.indent - 1,
     };
-    ops.push(blockInsertOp);
-    pageAcc = applyOps(pageAcc, [blockInsertOp]);
+    ops.push(blockSetOp);
 
-    if (afterCharsText.length > 0) {
-      const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
-        pageAcc,
-        newBlockId,
-        0,
-        afterCharsText,
-        state.CRDTbinding,
-      );
-      pageAcc = pageAfterInsert;
-      ops.push(insertOp);
-    }
-
-    const block1Index = findBlockIndex(pageAcc, oldBlock.id);
-    const block2Index = findBlockIndex(pageAcc, newBlockId);
-    if (block1Index !== -1) invalidateBlockCache(pageAcc.blocks[block1Index]);
-    if (block2Index !== -1) invalidateBlockCache(pageAcc.blocks[block2Index]);
-
-    const newState: EditorState = {
-      ...state,
-      document: { ...state.document, page: pageAcc },
-    };
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = outdentedBlock;
+    const newPage = { ...state.document.page, blocks: newBlocks };
     return {
-      state: moveCursorToPosition(
-        newState,
-        block2Index !== -1 ? block2Index : blockIndex + 1,
-        0,
-      ),
+      state: { ...state, document: { ...state.document, page: newPage } },
       ops,
     };
   }
 
-  // Handle non-list text blocks. Headings have their familiar asymmetric split
-  // policy; every other textual type preserves its registered type by default.
+  // Handle the remaining text blocks. Headings have their familiar asymmetric
+  // split policy; every other textual type preserves its registered type by
+  // default — a list item continues as the same kind of list item.
   // Node-specific handlers can still claim SPLIT_BLOCK for special exits
   // (MathNode, CodeNode, QuoteNode). Falling back to "paragraph" here used to
   // silently erase any new textual node type on Enter.
@@ -3803,6 +3719,16 @@ export function splitBlock(state: EditorState): ActionResult {
   blockCopy2Type = state.schema.coerceCreatable(
     blockCopy2Type,
   ) as Block["type"];
+
+  // List-specific initialProps (checked/indent) only apply while the
+  // continuation stays the same list type; a coerced-to-paragraph fallback in a
+  // restricted editor drops them. A todo item's continuation starts unchecked.
+  const listContinuationProps =
+    isListBlock(oldBlock) && blockCopy2Type === oldBlock.type
+      ? isTogglable(oldBlock.type)
+        ? { checked: false, indent: oldBlock.indent }
+        : { indent: oldBlock.indent }
+      : undefined;
 
   // Split the text content. Every modification below routes through ops
   // and is replayed onto `pageAcc` via applyOps, so the local page state
@@ -3897,6 +3823,7 @@ export function splitBlock(state: EditorState): ActionResult {
     orderKey: orderKeyAfter(pageAcc.blocks, oldBlock.id),
     blockId: newBlockId,
     blockType: blockCopy2Type,
+    initialProps: listContinuationProps,
   };
   const movedAttachments =
     movingContentIds.size > 0
@@ -4839,61 +4766,125 @@ export function outdentListItem(state: EditorState): ActionResult {
 }
 
 /**
- * Move a block to sit immediately after `afterBlockId` (null = head of the
- * document) by minting a fresh fractional-index `orderKey` and emitting a
- * single `block_set` op for it. Position is an LWW register, so a move
- * converges through the same last-writer-wins path as any other block property
- * — no neighbour re-anchoring, no dedicated move op.
- *
- * Pure `(state) => { state, ops }` transform. Guards refuse to emit a no-op;
- * the local page is derived by replaying the emitted op through `applyOp` so
- * local emit and remote apply can never drift.
+ * Re-point the caret and selection at the blocks they were sitting on. A move
+ * re-sorts `page.blocks`, and both carry array indices — left alone they would
+ * address whichever blocks slid into their slots.
  */
-export function moveBlock(
+function withPositionsRebased(
   state: EditorState,
-  blockId: string,
+  before: Block[],
+  after: Block[],
+): EditorState {
+  const rebase = (pos: Position): Position => {
+    const id = before[pos.blockIndex]?.id;
+    if (id === undefined) return pos;
+    const blockIndex = after.findIndex((b) => b.id === id);
+    return blockIndex === -1 || blockIndex === pos.blockIndex
+      ? pos
+      : { ...pos, blockIndex };
+  };
+
+  const { cursor, selection } = state.document;
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      cursor: cursor
+        ? { ...cursor, position: rebase(cursor.position) }
+        : cursor,
+      selection: selection
+        ? {
+            ...selection,
+            anchor: rebase(selection.anchor),
+            focus: rebase(selection.focus),
+          }
+        : selection,
+    },
+  };
+}
+
+/**
+ * Move a run of blocks so they sit — in their existing relative order —
+ * immediately after `afterBlockId` (null = head of the document), by minting a
+ * fresh fractional-index `orderKey` for each and emitting one `block_set` per
+ * block. Position is an LWW register, so a move converges through the same
+ * last-writer-wins path as any other block property — no neighbour
+ * re-anchoring, no dedicated move op.
+ *
+ * Pure `(state) => { state, ops }` transform. Guards refuse to emit a no-op —
+ * including a drop into a gap inside the run, or on either of its edges, which
+ * would leave the order unchanged. The local page is derived by replaying the
+ * emitted ops through `applyOp` so local emit and remote apply can never drift.
+ */
+export function moveBlocks(
+  state: EditorState,
+  blockIds: readonly string[],
   afterBlockId: string | null,
 ): ActionResult {
   const page = state.document.page;
+  const ordered = sortBlocksByOrder(page.blocks).filter((b) => !b.deleted);
+  const moving = ordered.filter((b) => blockIds.includes(b.id));
+  if (moving.length === 0) return { state, ops: [] };
 
-  const block = findBlock(page, blockId);
-  if (!block || block.deleted) return { state, ops: [] };
-
-  // A block cannot follow itself.
-  if (afterBlockId === blockId) return { state, ops: [] };
+  // A block cannot follow itself, nor a sibling travelling with it.
+  if (afterBlockId !== null && moving.some((b) => b.id === afterBlockId)) {
+    return { state, ops: [] };
+  }
 
   // Refuse to anchor to a target that does not exist (or is tombstoned): the
-  // block would silently jump to the end of the document.
+  // blocks would silently jump to the end of the document.
   if (afterBlockId !== null) {
     const target = findBlock(page, afterBlockId);
     if (!target || target.deleted) return { state, ops: [] };
   }
 
-  // Already positioned immediately after the requested anchor — nothing to do.
-  const ordered = sortBlocksByOrder(page.blocks);
-  const currentIndex = ordered.findIndex((b) => b.id === blockId);
-  const predecessorId = currentIndex > 0 ? ordered[currentIndex - 1].id : null;
-  if (predecessorId === afterBlockId) return { state, ops: [] };
+  // Already sitting as one contiguous run immediately after the requested
+  // anchor — nothing to do.
+  const firstIndex = ordered.findIndex((b) => b.id === moving[0].id);
+  const contiguous = moving.every(
+    (b, i) => ordered[firstIndex + i]?.id === b.id,
+  );
+  const predecessorId = firstIndex > 0 ? ordered[firstIndex - 1].id : null;
+  if (contiguous && predecessorId === afterBlockId) return { state, ops: [] };
 
-  const op: BlockSet = {
-    op: "block_set",
-    id: state.CRDTbinding.nextId(),
-    clock: state.CRDTbinding.getClock(),
-    pageId: state.CRDTbinding.pageId,
-    blockId,
-    field: "orderKey",
-    value: orderKeyAfter(page.blocks, afterBlockId),
-  };
-
-  const newPage = applyOp(page, op);
+  const ops: Operation[] = [];
+  let newPage = page;
+  let anchorId = afterBlockId;
+  for (const block of moving) {
+    const op: BlockSet = {
+      op: "block_set",
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
+      blockId: block.id,
+      field: "orderKey",
+      // Minted against the page as it stands after the previous block landed,
+      // so each one chains onto its predecessor and the run keeps its internal
+      // order instead of every block piling into the same gap.
+      value: orderKeyAfter(newPage.blocks, anchorId),
+    };
+    newPage = applyOp(newPage, op);
+    ops.push(op);
+    anchorId = block.id;
+  }
 
   return {
-    state: {
-      ...state,
-      document: { ...state.document, page: newPage },
-    },
-    ops: [op],
+    state: withPositionsRebased(
+      { ...state, document: { ...state.document, page: newPage } },
+      page.blocks,
+      newPage.blocks,
+    ),
+    ops,
   };
+}
+
+/** Single-block {@link moveBlocks} — one `block_set` of the block's `orderKey`. */
+export function moveBlock(
+  state: EditorState,
+  blockId: string,
+  afterBlockId: string | null,
+): ActionResult {
+  return moveBlocks(state, [blockId], afterBlockId);
 }
 
 /**

@@ -112,3 +112,67 @@ describe("paste into an empty block", () => {
     expect(blockText(blocks[1])).toBe("b");
   });
 });
+
+/**
+ * The empty host adopts a type the source declared, never the parser's fallback:
+ * unformatted text is a paragraph only for lack of a block marker, so adopting it
+ * would erase the type the user picked.
+ */
+describe("empty host with its own type", () => {
+  /** Empty block of `type`, caret at its start. */
+  function emptyHost(markdown: string): EditorState {
+    return moveCursorToPosition(createInitialState(loadPage(markdown)), 0, 0);
+  }
+
+  it("keeps an empty heading a heading when unformatted text is pasted", () => {
+    const state = emptyHost("# \n");
+    expect(getVisibleBlocks(state.document.page)[0].type).toBe("heading1");
+
+    const result = pasteText(state, "Just some prose");
+
+    const blocks = getVisibleBlocks(result!.state.document.page);
+    expect(blocks.map((b) => b.type)).toEqual(["heading1"]);
+    expect(blockText(blocks[0])).toBe("Just some prose");
+  });
+
+  it("fills the heading with line one and trails the rest as paragraphs", () => {
+    const result = pasteText(emptyHost("## \n"), "Title\nBody\nMore");
+
+    const blocks = getVisibleBlocks(result!.state.document.page);
+    expect(blocks.map((b) => b.type)).toEqual([
+      "heading2",
+      "paragraph",
+      "paragraph",
+    ]);
+    expect(blocks.map(blockText)).toEqual(["Title", "Body", "More"]);
+  });
+
+  it("still retypes when the source declares a type", () => {
+    const result = pasteText(emptyHost("## \n"), "# Real heading");
+
+    const blocks = getVisibleBlocks(result!.state.document.page);
+    expect(blocks.map((b) => b.type)).toEqual(["heading1"]);
+    expect(blockText(blocks[0])).toBe("Real heading");
+  });
+
+  it("keeps an empty quote a quote, and absorbs the pasted paragraphs", () => {
+    // With the host kept, `absorbsPastedParagraphs` on QuoteNode is reachable —
+    // it was unreachable while the retype flattened the quote first.
+    const state = emptyHost("> \n");
+    expect(getVisibleBlocks(state.document.page)[0].type).toBe("quote");
+
+    const result = pasteText(state, "First\nSecond");
+
+    const blocks = getVisibleBlocks(result!.state.document.page);
+    expect(blocks.map((b) => b.type)).toEqual(["quote", "quote"]);
+    expect(blocks.map(blockText)).toEqual(["First", "Second"]);
+  });
+
+  it("keeps an empty todo item a todo item", () => {
+    const result = pasteText(emptyHost("- [ ] \n"), "buy milk");
+
+    const blocks = getVisibleBlocks(result!.state.document.page);
+    expect(blocks.map((b) => b.type)).toEqual(["todo_list"]);
+    expect(blockText(blocks[0])).toBe("buy milk");
+  });
+});

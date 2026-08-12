@@ -3,9 +3,10 @@
  *
  * A page belongs to exactly one space and its content ops are scoped by its id,
  * so a cross-space "move" is a recreate: each page in the subtree is rebuilt as
- * a brand-new page in the destination space (new id, copied content), then the
- * originals are removed from the source via the normal delete() tombstone (CRDT
- * ops are never hard-deleted). This keeps every space's ids self-contained and
+ * a brand-new page in the destination space (new id, current content re-emitted
+ * as a fresh op log — no edit history travels), then the originals are removed
+ * from the source via the normal delete() tombstone (CRDT ops are never
+ * hard-deleted). This keeps every space's ids self-contained and
  * sidesteps the unresolvable page_add/page_remove race a shared id would create
  * for peers who belong to both spaces.
  *
