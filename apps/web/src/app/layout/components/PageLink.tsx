@@ -44,8 +44,10 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
+import { SUBTREE_EASE, SUBTREE_MOTION_MS } from "./subtreeMotion";
 import { type IParentsStack } from "./PagesLinks";
 import style from "./PagesLinks.module.css";
 import useResponsive from "@/app/hooks/useResponsive";
@@ -116,6 +118,7 @@ export function PageLink({
   );
   const treeExpand = useTreeExpand();
   const isExpanded = useIsExpanded(data.id);
+  const reduceMotion = useReducedMotion();
   const setIsExpanded = useCallback(
     (value: boolean | ((old: boolean) => boolean)) => {
       const newValue = typeof value === "function" ? value(isExpanded) : value;
@@ -530,18 +533,43 @@ export function PageLink({
         />
       </div>
 
-      {isExpanded /*  && data.hasChildren || isCoarse */ ? (
-        <div className={style.accordion}>
-          <PagesArea
-            parentId={data.id}
-            spaceId={spaceId}
-            parentsStack={parentsStack}
-            handleAdd={handleAdd}
-            isCreating={isCreating}
-            color={resolvedColor}
-          />
-        </div>
-      ) : null}
+      {/* The subtree grows and shrinks so it reads as one motion with the
+          chevron beside it. `initial={false}` keeps expansion state restored on
+          mount from animating, and the subtree still unmounts when collapsed —
+          its children each run their own page queries. */}
+      <AnimatePresence initial={false}>
+        {isExpanded /*  && data.hasChildren || isCoarse */ ? (
+          <motion.div
+            key="subtree"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : {
+                    height: {
+                      duration: SUBTREE_MOTION_MS / 1000,
+                      ease: SUBTREE_EASE,
+                    },
+                    opacity: { duration: 0.12 },
+                  }
+            }
+            style={{ overflow: "hidden" }}
+          >
+            <div className={style.accordion}>
+              <PagesArea
+                parentId={data.id}
+                spaceId={spaceId}
+                parentsStack={parentsStack}
+                handleAdd={handleAdd}
+                isCreating={isCreating}
+                color={resolvedColor}
+              />
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <RenameDialog
         pageId={data.id}
