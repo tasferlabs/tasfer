@@ -32,6 +32,13 @@ export interface Identity {
    * finished bootstrapping its identity.
    */
   rootPublicKey: string | null;
+  /**
+   * A free-text note about THIS device ("work laptop", "the one in the
+   * studio"). Unlike `name` and `avatar`, it never leaves the machine it was
+   * typed on: it is not published as `member_set` and not carried in the
+   * own-state profile message, so each linked device keeps its own.
+   */
+  deviceDescription: string;
 }
 
 /** A known peer */
@@ -92,12 +99,47 @@ export interface ArchivedPageItem {
   archivedAt: string;
 }
 
+/**
+ * Identity of a page a link can still reach but the app no longer shows —
+ * archived itself, or live inside an archived space. Backs the read-only view
+ * those links open.
+ */
+export interface ArchivedPageRef {
+  id: string;
+  title: string;
+  /** Markdown projection of the title line (see {@link PageListItem.titleMd}). */
+  titleMd?: string;
+  spaceId?: string | null;
+  color?: string | null;
+  /** ISO timestamp of the archive that hid this page — its own, or its space's. */
+  archivedAt: string;
+  /**
+   * Root of the archived subtree to restore. Restoring a lone descendant would
+   * re-parent it to the top level and lose its place, so the whole subtree the
+   * user deleted comes back together. Null when the page itself is live and
+   * only its space is archived — there is nothing to restore at the page level.
+   */
+  restoreRootId: string | null;
+  /**
+   * Set when the page's space is archived too — it has to be restored first, or
+   * the page comes back into a space nothing can see.
+   */
+  archivedSpaceId?: string | null;
+}
+
 /** Full page with content */
 export interface PageFull extends PageListItem {
   blocks: Block[] | null;
   createdAt: string;
   updatedAt: string;
   parents?: PagePathSegment[];
+  /**
+   * ISO timestamp when the page's space was archived, if it was. The page
+   * itself is live — an archived space is hidden as a whole rather than
+   * deleted page by page — so it still loads, but editing it would write into
+   * a space nothing can see. Null for pages in a live space.
+   */
+  spaceArchivedAt?: string | null;
 }
 
 /** Data needed to create a page */
@@ -373,17 +415,21 @@ export interface PageSet extends SpaceBaseOp {
 
 /** Union of all space operation types */
 export type SpaceOperation =
-  | SpaceSet
-  | MemberAdd
-  | MemberSet
-  | DeviceAdd
-  | PageAdd
-  | PageRemove
-  | PageSet;
+  SpaceSet | MemberAdd | MemberSet | DeviceAdd | PageAdd | PageRemove | PageSet;
 
 // =============================================================================
 // Pairing
 // =============================================================================
+
+/**
+ * Sentinel `spaceId` marking a code as a device link, which joins no single
+ * space. Both kinds of code share one wire format, so this is what lets any
+ * paste or scan surface tell them apart offline, before pairing is attempted.
+ *
+ * Not a valid nanoid(10), so it can never collide with a real space, and the
+ * `invites.space_id` UNIQUE constraint keeps at most one device link pending.
+ */
+export const DEVICE_LINK_SCOPE = "@device";
 
 /** An invite for peer pairing + space joining */
 export interface SpaceInvite {
@@ -469,10 +515,7 @@ export interface PageEvents {
 
 /** Connection state */
 export type ConnectionState =
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  | "error";
+  "connecting" | "connected" | "disconnected" | "error";
 
 /**
  * Versions a remote peer advertised in its `hello`, with our local values for
@@ -513,8 +556,22 @@ export interface Platform {
   identity: {
     /** Get the local user's identity (generates keypair on first call) */
     get(): Promise<Identity>;
-    /** Update display name or avatar */
-    update(data: { name?: string; avatar?: string | null }): Promise<Identity>;
+    /**
+     * Update display name, avatar, or this device's description. The first two
+     * are replicated to the person's other devices and their co-members; the
+     * description stays local (see `Identity.deviceDescription`).
+     */
+    update(data: {
+      name?: string;
+      avatar?: string | null;
+      deviceDescription?: string;
+    }): Promise<Identity>;
+    /**
+     * Fires when the profile changes underneath the caller — a device link
+     * handing this device the person it belongs to, or a rename made on one of
+     * their other devices.
+     */
+    onChange(cb: () => void): () => void;
   };
 
   // ---------------------------------------------------------------------------
@@ -564,6 +621,44 @@ export interface Platform {
     ): Promise<void>;
     /** Subscribe to space change events */
     onChange(cb: (spaceId: string) => void): () => void;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Person-private preferences
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Decisions that belong to the person rather than to a space or a device: how
+   * the sidebar is arranged, which walkthroughs have been read. Replicated to
+   * this person's other devices only, never to a co-member, and merged
+   * last-decision-wins per key (see `OwnPref` in ./sync).
+   *
+   * Values must be JSON-serializable; each key's shape is the caller's business.
+   * Genuinely per-device state (theme, last route, which banner this browser
+   * dismissed) does not belong here — it stays in the browser.
+   */
+  prefs: {
+    /** Every preference this device holds, keyed. Missing keys are unset. */
+    getAll(): Promise<Record<string, unknown>>;
+    /** Record a decision made here and announce it to the person's devices. */
+    set(key: string, value: unknown): Promise<void>;
+    /**
+     * Adopt a value this device held outside the register — a preference that
+     * used to live in browser storage — only if the key is still unset.
+     * Returns whether it took.
+     *
+     * Deliberately not `set`: the value is an old decision with no recorded
+     * time, so it is stamped to lose to every dated one. A device migrating its
+     * own leftover copy must not thereby outvote the arrangement the person has
+     * since made elsewhere.
+     */
+    seed(key: string, value: unknown): Promise<boolean>;
+    /**
+     * Fires with the changed keys when a preference moves underneath the
+     * caller — a decision made on another of the person's devices, or in
+     * another tab sharing this engine.
+     */
+    onChange(cb: (changed: Record<string, unknown>) => void): () => void;
   };
 
   // ---------------------------------------------------------------------------
@@ -636,6 +731,11 @@ export interface Platform {
     update(data: PageUpdateInput): Promise<PageFull>;
     /** Delete a page */
     delete(id: string): Promise<void>;
+    /**
+     * Resolve an archived page by id, for links that outlived the page.
+     * Returns null when the id is unknown or the page is live.
+     */
+    getArchived(id: string): Promise<ArchivedPageRef | null>;
     /** List soft-deleted (archived) pages across all spaces — roots of archived subtrees */
     listArchived(): Promise<ArchivedPageItem[]>;
     /** Restore a soft-deleted page (and its archived subtree) */

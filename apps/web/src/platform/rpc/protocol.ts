@@ -211,6 +211,7 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
   identity: {
     get: { kind: "request" },
     update: { kind: "request" },
+    onChange: { kind: "subscribe", cbArg: 0 },
   },
   peers: {
     list: { kind: "request" },
@@ -227,6 +228,12 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     archive: { kind: "request" },
     unarchive: { kind: "request" },
     updateMember: { kind: "request" },
+    onChange: { kind: "subscribe", cbArg: 0 },
+  },
+  prefs: {
+    getAll: { kind: "request" },
+    set: { kind: "request" },
+    seed: { kind: "request" },
     onChange: { kind: "subscribe", cbArg: 0 },
   },
   pairing: {
@@ -248,6 +255,7 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     create: { kind: "request" },
     update: { kind: "request" },
     delete: { kind: "request" },
+    getArchived: { kind: "request" },
     listArchived: { kind: "request" },
     restore: { kind: "request" },
     move: { kind: "request" },

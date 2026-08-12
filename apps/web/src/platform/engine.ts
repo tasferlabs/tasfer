@@ -11,6 +11,7 @@ import type {
   Platform,
   PageListItem,
   ArchivedPageItem,
+  ArchivedPageRef,
   PageFull,
   PageCreateInput,
   PageUpdateInput,
@@ -28,9 +29,11 @@ import type {
   ArchivedSpaceItem,
   SpaceMember,
   SpaceOperation,
+  MemberSet,
   SpaceInvite,
   PairCallbacks,
 } from "./types";
+import { DEVICE_LINK_SCOPE } from "./types";
 import { deriveIdentitySharedSignalingKey } from "./peer-shared-key";
 import {
   type DeviceCert,
@@ -41,7 +44,12 @@ import {
 import { invariant } from "@shared/invariant";
 import type { Driver, CryptoDriver, DbRow } from "./driver";
 import type { HLC } from "@tasfer/editor";
-import type { DeviceLinkPayload, ReplicatorHost } from "./sync";
+import type {
+  DeviceLinkPayload,
+  OwnPref,
+  OwnSpaceState,
+  ReplicatorHost,
+} from "./sync";
 import { nanoid } from "nanoid";
 // Deep import the DOM-free block-order module rather than the `/internal`
 // barrel — the barrel re-exports rendering/font code that touches `document`,
@@ -62,6 +70,10 @@ interface EngineReplicator {
     pageId: string,
     ops: import("@tasfer/editor/state-types").Operation[],
   ): void;
+  pushOwnState(update: {
+    spaces?: OwnSpaceState[];
+    prefs?: OwnPref[];
+  }): Promise<void>;
   requestAsset(hash: string): Promise<boolean>;
   onPeerReady(cb: (publicKey: string) => void): () => void;
   addPeer(publicKey: string): Promise<void>;
@@ -91,6 +103,38 @@ interface EngineReplicator {
 
 const SCHEMA_VERSION = 0;
 
+/**
+ * Whether an incoming person-private decision supersedes the one recorded.
+ *
+ * Later stamp wins; a tie falls to the higher device key, so two devices that
+ * decided in the same millisecond still land on the same answer rather than on
+ * whichever message arrived last. An identical (stamp, by) is the same decision
+ * coming back to us and wins nothing.
+ *
+ * Shared by every person-private register — the per-space archive flag and the
+ * preference store — because they all lack an op log to draw an order from.
+ */
+function decisionWins(
+  incoming: { stamp: number; by: string | null },
+  local: { stamp: number; by: string | null },
+): boolean {
+  if (incoming.stamp !== local.stamp) return incoming.stamp > local.stamp;
+  return (incoming.by ?? "") > (local.by ?? "");
+}
+
+/**
+ * Decode a stored preference value, or `undefined` if it will not decode.
+ * `undefined` is unambiguous as the failure signal: every value is written with
+ * `JSON.stringify`, which never produces it.
+ */
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 // Dates persist as UTC instants regardless of the zone the UI edited in.
 // scheduled_at range queries compare ISO strings lexicographically, which is
 // only correct when every stored value shares the UTC "Z" shape.
@@ -101,13 +145,6 @@ function toUtcIso(iso: string | null | undefined): string | null {
 // that an older snapshot writer could have omitted while still sharing the same
 // op-log frontier (v2 adds generic structured-content attachments).
 const PAGE_SNAPSHOT_FORMAT = 2;
-
-/**
- * Sentinel `invites.space_id` for a device link, which joins no single space.
- * Not a valid nanoid(10), so it can never collide with a real space, and the
- * column's UNIQUE constraint keeps at most one device link pending.
- */
-const DEVICE_LINK_SCOPE = "@device";
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS identity (
@@ -123,7 +160,12 @@ const SCHEMA_SQL = `
     -- otherwise strand the account with no way to add a device, and a linked
     -- device already holds the plaintext this key would protect.
     root_public_key  TEXT,
-    root_private_key TEXT
+    root_private_key TEXT,
+    -- A note the owner keeps about THIS machine. Deliberately never replicated:
+    -- name/avatar describe the person and follow them onto every linked device,
+    -- while this describes the one device it was typed on, so it is left out of
+    -- both the member_set fan-out and the own-state profile message.
+    device_description TEXT NOT NULL DEFAULT ''
   );
 
   -- Device certificates known to this replica, projected from device_add ops in
@@ -149,6 +191,13 @@ const SCHEMA_SQL = `
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL DEFAULT '',
     archived_at TEXT,
+    -- Stamp of the last archive/unarchive decision (unix ms) and the device key
+    -- that made it. Archiving is the person's decision, not the space's, so it
+    -- travels between their devices as an own-state message rather than as an op
+    -- (see sync.ts) — and with no op log behind it, the register has to carry
+    -- its own ordering. 0/NULL means "never decided", which anything outranks.
+    archive_stamp INTEGER NOT NULL DEFAULT 0,
+    archive_by  TEXT,
     created_at  TEXT NOT NULL,
     -- A personal space admits only devices certified by this replica's root
     -- identity, and mints no invites. Deliberately one-way: a flag you can turn
@@ -156,6 +205,20 @@ const SCHEMA_SQL = `
     -- here cannot later become someone else's to read. Sharing a personal page
     -- means moving it to a shared space, not reclassifying the space.
     personal    INTEGER NOT NULL DEFAULT 0
+  );
+
+  -- Person-private preferences: one LWW register per key, replicated to this
+  -- person's other devices as \`own-state\` (see sync.ts) and to nobody else.
+  -- Sidebar arrangement and "walkthrough read" flags live here rather than in a
+  -- space's op log, which every co-member reads, and rather than in the browser,
+  -- which the person's other devices cannot see. Stores JSON so the app layer
+  -- owns each key's shape; like the archive register it carries its own ordering,
+  -- since there is no op log behind it.
+  CREATE TABLE IF NOT EXISTS own_prefs (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    stamp INTEGER NOT NULL DEFAULT 0,
+    by    TEXT
   );
 
   CREATE TABLE IF NOT EXISTS invites (
@@ -227,7 +290,11 @@ export class Engine implements Platform {
     { counter: number; peerId: string }
   >();
   private spaceChangeListeners = new Set<(spaceId: string) => void>();
+  private prefsChangeListeners = new Set<
+    (changed: Record<string, unknown>) => void
+  >();
   private pageDeleteListeners = new Set<(pageId: string) => void>();
+  private identityChangeListeners = new Set<() => void>();
   /**
    * Shared bootstrap for the singleton `identity(id=1)` row. The RPC server
    * dispatches calls without awaiting each other, so `identity.get` and
@@ -348,6 +415,15 @@ export class Engine implements Platform {
       );
     }
 
+    // identity.device_description — a device-local note; an install that
+    // predates it simply has none, which is the same as never having written
+    // one.
+    if (!identityCols.some((c) => c.name === "device_description")) {
+      await this.driver.db.exec(
+        "ALTER TABLE identity ADD COLUMN device_description TEXT NOT NULL DEFAULT ''",
+      );
+    }
+
     // spaces.personal — existing spaces default to shared, which is what they
     // already are; personal is only ever set at creation.
     const spaceCols = await this.driver.db.query<{ name: string }>(
@@ -356,6 +432,28 @@ export class Engine implements Platform {
     if (!spaceCols.some((c) => c.name === "personal")) {
       await this.driver.db.exec(
         "ALTER TABLE spaces ADD COLUMN personal INTEGER NOT NULL DEFAULT 0",
+      );
+    }
+
+    // spaces.archive_stamp / archive_by — ordering for the archive register now
+    // that it travels between the person's devices. An archive made before this
+    // existed is backdated to when it happened, so it still reaches the other
+    // devices rather than being outranked by their silence; a space nobody ever
+    // filed keeps stamp 0, which is "no decision" and loses to every decision.
+    if (!spaceCols.some((c) => c.name === "archive_stamp")) {
+      await this.driver.db.exec(
+        "ALTER TABLE spaces ADD COLUMN archive_stamp INTEGER NOT NULL DEFAULT 0",
+      );
+      await this.driver.db.exec(
+        `UPDATE spaces
+            SET archive_stamp = CAST(strftime('%s', archived_at) AS INTEGER) * 1000
+          WHERE archived_at IS NOT NULL
+            AND strftime('%s', archived_at) IS NOT NULL`,
+      );
+    }
+    if (!spaceCols.some((c) => c.name === "archive_by")) {
+      await this.driver.db.exec(
+        "ALTER TABLE spaces ADD COLUMN archive_by TEXT",
       );
     }
   }
@@ -470,6 +568,10 @@ export class Engine implements Platform {
           ? ("active" as const)
           : ("archived" as const);
       },
+      getOwnSpaceStates: () => this.getOwnSpaceStates(),
+      applyOwnSpaceStates: (states) => this.applyOwnSpaceStates(states),
+      getOwnPrefs: () => this.getOwnPrefs(),
+      applyOwnPrefs: (prefs) => this.applyOwnPrefs(prefs),
       getPageSpaceState: async (pageId: string) => {
         const rows = await this.driver.db.query<{
           space_id: string;
@@ -745,16 +847,33 @@ export class Engine implements Platform {
       // A sibling device carries the same person's name; it is the same human,
       // and member_set propagates any later rename to every one of them.
       await this.driver.db.mutate(
-        `INSERT INTO space_members (space_id, public_key, name, added_at)
-           VALUES (?, ?, ?, ?)
+        `INSERT INTO space_members (space_id, public_key, name, avatar, added_at)
+           VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(space_id, public_key) DO UPDATE SET archived_at = NULL`,
-        [spaceId, cert.deviceKey, identity.name, new Date().toISOString()],
+        [
+          spaceId,
+          cert.deviceKey,
+          identity.name,
+          identity.avatar,
+          new Date().toISOString(),
+        ],
       );
       await this.emitSpaceOp(spaceId, {
         op: "member_add",
         publicKey: cert.deviceKey,
         name: identity.name,
       });
+      // member_add carries only a name, so the avatar needs its own op —
+      // without it the same person would show a picture on one device and
+      // initials on the next.
+      if (identity.avatar) {
+        await this.emitSpaceOp(spaceId, {
+          op: "member_set",
+          publicKey: cert.deviceKey,
+          field: "avatar",
+          value: identity.avatar,
+        });
+      }
     }
   }
 
@@ -783,25 +902,11 @@ export class Engine implements Platform {
   }
 
   /**
-   * Whether recreating `sourceId` into `destSpaceId` crosses out of a personal
-   * space into a shared one — the one boundary where history must not travel.
-   * Personal → personal keeps the log, since both sides are the same person.
-   */
-  private async leavesPersonalSpace(
-    sourceId: string,
-    destSpaceId: string,
-  ): Promise<boolean> {
-    const sourceSpaceId = await this.getPageSpaceId(sourceId);
-    if (!sourceSpaceId || sourceSpaceId === destSpaceId) return false;
-    if (!(await this.isPersonalSpace(sourceSpaceId))) return false;
-    return !(await this.isPersonalSpace(destSpaceId));
-  }
-
-  /**
    * Build a fresh operation log for `targetPageId` from the CURRENT state of
    * `sourceId` — new block ids, new character ids, no tombstones, no drafting
-   * history. The published page says what it says today and cannot be replayed
-   * backwards into what it used to say.
+   * history. Used by every copy of a page (move across spaces, fork), so a copy
+   * says what it says today and cannot be replayed backwards into what it used
+   * to say.
    */
   private async reoriginateContent(
     sourceId: string,
@@ -811,9 +916,8 @@ export class Engine implements Platform {
     if (!rebuilt) return [];
 
     const { blocksToOps } = await import("@tasfer/editor/sync/snapshot-diff");
-    const { createIdGenerator, generatePeerId } = await import(
-      "@tasfer/editor/sync/id"
-    );
+    const { createIdGenerator, generatePeerId } =
+      await import("@tasfer/editor/sync/id");
     const { createHLC, tickHLC } = await import("@tasfer/editor/sync/hlc");
 
     const peerId = generatePeerId();
@@ -935,8 +1039,9 @@ export class Engine implements Platform {
         name: string;
         avatar: string | null;
         root_public_key: string | null;
+        device_description: string;
       }>(
-        "SELECT public_key, name, avatar, root_public_key FROM identity WHERE id = 1",
+        "SELECT public_key, name, avatar, root_public_key, device_description FROM identity WHERE id = 1",
       );
 
       const row = rows[0];
@@ -945,12 +1050,14 @@ export class Engine implements Platform {
         name: row.name,
         avatar: row.avatar,
         rootPublicKey: row.root_public_key,
+        deviceDescription: row.device_description,
       };
     },
 
     update: async (data: {
       name?: string;
       avatar?: string | null;
+      deviceDescription?: string;
     }): Promise<Identity> => {
       const sets: string[] = [];
       const params: unknown[] = [];
@@ -963,6 +1070,10 @@ export class Engine implements Platform {
         sets.push("avatar = ?");
         params.push(data.avatar);
       }
+      if (data.deviceDescription !== undefined) {
+        sets.push("device_description = ?");
+        params.push(data.deviceDescription);
+      }
 
       if (sets.length > 0) {
         await this.driver.db.mutate(
@@ -971,34 +1082,100 @@ export class Engine implements Platform {
         );
       }
 
-      // Propagate changes to all spaces the user belongs to
+      // Propagate changes to all spaces the user belongs to — for every device
+      // of ours that is a member there, not just this one. Each device is its
+      // own member row, and the display folds them into one person by picking
+      // the most recently seen (see `groupMembersByPerson`), so leaving the
+      // siblings behind would make the name others see depend on which of our
+      // devices was online last. The device description is excluded on purpose:
+      // it describes this machine, so it has no member row to travel to.
       const identity = await this.identity.get();
+      if (data.name === undefined && data.avatar === undefined) {
+        this.notifyIdentityChange();
+        return identity;
+      }
+      const ownKeys = new Set(
+        (await this.getOwnDeviceCerts()).map((c) => c.deviceKey),
+      );
+      ownKeys.add(identity.publicKey);
       const memberships = await this.driver.db.query<{ space_id: string }>(
         "SELECT space_id FROM space_members WHERE public_key = ? AND archived_at IS NULL",
         [identity.publicKey],
       );
       for (const { space_id } of memberships) {
-        if (data.name !== undefined) {
-          await this.spaces.updateMember(
-            space_id,
-            identity.publicKey,
-            "name",
-            data.name,
-          );
-        }
-        if (data.avatar !== undefined) {
-          await this.spaces.updateMember(
-            space_id,
-            identity.publicKey,
-            "avatar",
-            data.avatar,
-          );
+        const rows = await this.driver.db.query<{ public_key: string }>(
+          "SELECT public_key FROM space_members WHERE space_id = ? AND archived_at IS NULL",
+          [space_id],
+        );
+        for (const { public_key } of rows) {
+          if (!ownKeys.has(public_key)) continue;
+          if (data.name !== undefined) {
+            await this.spaces.updateMember(
+              space_id,
+              public_key,
+              "name",
+              data.name,
+            );
+          }
+          if (data.avatar !== undefined) {
+            await this.spaces.updateMember(
+              space_id,
+              public_key,
+              "avatar",
+              data.avatar,
+            );
+          }
         }
       }
 
+      this.notifyIdentityChange();
       return identity;
     },
+
+    onChange: (cb: () => void): (() => void) => {
+      this.identityChangeListeners.add(cb);
+      return () => {
+        this.identityChangeListeners.delete(cb);
+      };
+    },
   };
+
+  /**
+   * Mirror a profile edit made on another of this person's devices into the
+   * local `identity` row.
+   *
+   * `identity.update` publishes a rename as `member_set` against every device
+   * of ours, but the row it was typed into is device-local — a sibling that
+   * only updated its `space_members` projection would keep the old name and
+   * push it back out the next time it enrolled into a space.
+   *
+   * Both the author and the subject must be devices certified under our root.
+   * A co-member renaming our member row is an existing (display-only) liberty;
+   * it must not become a way to rename the person on their own machine.
+   */
+  private async adoptOwnProfile(op: MemberSet): Promise<void> {
+    const ownKeys = new Set(
+      (await this.getOwnDeviceCerts()).map((c) => c.deviceKey),
+    );
+    if (!ownKeys.has(op.publicKey) || !ownKeys.has(op.clock.peerId)) return;
+
+    if (op.field === "name" && typeof op.value === "string") {
+      await this.driver.db.mutate("UPDATE identity SET name = ? WHERE id = 1", [
+        op.value,
+      ]);
+    } else if (
+      op.field === "avatar" &&
+      (typeof op.value === "string" || op.value === null)
+    ) {
+      await this.driver.db.mutate(
+        "UPDATE identity SET avatar = ? WHERE id = 1",
+        [op.value],
+      );
+    } else {
+      return;
+    }
+    this.notifyIdentityChange();
+  }
 
   // ---------------------------------------------------------------------------
   // Peers
@@ -1223,24 +1400,11 @@ export class Engine implements Platform {
     },
 
     archive: async (id: string): Promise<void> => {
-      const now = new Date().toISOString();
-      await this.driver.db.mutate(
-        "UPDATE spaces SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
-        [now, id],
-      );
-      // An archived space should not accept new members
-      await this.pairing.revokeInvite(id);
-      await this.replicator?.refreshSpaces();
-      this.notifySpaceChange(id);
+      await this.setArchiveState(id, new Date().toISOString());
     },
 
     unarchive: async (id: string): Promise<void> => {
-      await this.driver.db.mutate(
-        "UPDATE spaces SET archived_at = NULL WHERE id = ?",
-        [id],
-      );
-      await this.replicator?.refreshSpaces();
-      this.notifySpaceChange(id);
+      await this.setArchiveState(id, null);
     },
 
     updateMember: async (
@@ -1282,6 +1446,283 @@ export class Engine implements Platform {
       };
     },
   };
+
+  // ---------------------------------------------------------------------------
+  // Person-private space state (archive)
+  // ---------------------------------------------------------------------------
+  //
+  // Archiving a space files it away in one person's sidebar; the other members
+  // keep theirs. That makes it the one piece of space state that must NOT go
+  // into the space's op log, where every member would read it — and equally
+  // must not stay on the machine it was typed into, since the person's devices
+  // are replicas of each other. It travels between them as `own-state` (see
+  // sync.ts), an LWW register per space stamped with the deciding device.
+
+  /**
+   * Record an archive decision made here and tell this person's other devices.
+   *
+   * The stamp comes off the wall clock, so a decision always outranks whatever
+   * the register held — including the 0 that an install predating this carries.
+   */
+  private async setArchiveState(
+    spaceId: string,
+    archivedAt: string | null,
+  ): Promise<void> {
+    const identity = await this.identity.get();
+    const stamp = Date.now();
+    await this.driver.db.mutate(
+      "UPDATE spaces SET archived_at = ?, archive_stamp = ?, archive_by = ? WHERE id = ?",
+      [archivedAt, stamp, identity.publicKey, spaceId],
+    );
+    // Announce before reacting: archiving tears connections down, and the one
+    // device that must hear about it first is the one this is a decision for.
+    await this.replicator?.pushOwnState({
+      spaces: [{ spaceId, archivedAt, stamp, by: identity.publicKey }],
+    });
+    await this.afterArchiveChange(spaceId, archivedAt);
+
+    // A restored space may be one no sibling has ever been a member of — an
+    // archived space is skipped when a device is linked (see
+    // {@link enrollPriorSpaces}), and replication only ever reaches members.
+    // Restoring it is therefore also the moment to enrol them, exactly as
+    // `spaces.create` does. Idempotent, so a space they are already in costs
+    // two lookups and emits nothing.
+    if (archivedAt === null) await this.enrollOwnDevices(spaceId);
+  }
+
+  /**
+   * Merge the archive registers a sibling device sent, the newest decision per
+   * space winning.
+   *
+   * Spaces this device has never seen are skipped: there is no row to hold the
+   * flag, and materializing one from a bare id would put a nameless, empty
+   * space in the sidebar. Nothing is lost — a sibling re-sends its whole set on
+   * every handshake, so the state lands as soon as the space itself does.
+   */
+  private async applyOwnSpaceStates(states: OwnSpaceState[]): Promise<void> {
+    for (const state of states) {
+      const rows = await this.driver.db.query<{
+        archived_at: string | null;
+        archive_stamp: number;
+        archive_by: string | null;
+      }>(
+        "SELECT archived_at, archive_stamp, archive_by FROM spaces WHERE id = ?",
+        [state.spaceId],
+      );
+      if (rows.length === 0) continue;
+      const local = rows[0];
+      if (
+        !decisionWins(state, {
+          stamp: local.archive_stamp,
+          by: local.archive_by,
+        })
+      ) {
+        continue;
+      }
+
+      const flips =
+        (local.archived_at === null) !== (state.archivedAt === null);
+      await this.driver.db.mutate(
+        "UPDATE spaces SET archived_at = ?, archive_stamp = ?, archive_by = ? WHERE id = ?",
+        [state.archivedAt, state.stamp, state.by, state.spaceId],
+      );
+      // A newer stamp for the state we are already in is worth recording but
+      // not worth reacting to — otherwise every handshake would tear the
+      // transport down and rebuild it.
+      if (flips) await this.afterArchiveChange(state.spaceId, state.archivedAt);
+    }
+  }
+
+  /**
+   * React to the archive flag flipping, whichever device decided it: an
+   * archived space stops replicating and mints no invites, a restored one
+   * reconnects and catches up through the normal handshake.
+   */
+  private async afterArchiveChange(
+    spaceId: string,
+    archivedAt: string | null,
+  ): Promise<void> {
+    if (archivedAt !== null) await this.pairing.revokeInvite(spaceId);
+    await this.replicator?.refreshSpaces();
+    this.notifySpaceChange(spaceId);
+  }
+
+  /**
+   * The archive decisions this device holds, for every space it is a member of.
+   *
+   * Undecided spaces (stamp 0) are left out: they lose to everything, including
+   * each other, so sending them would be a message that says nothing about most
+   * of the sidebar.
+   */
+  private async getOwnSpaceStates(): Promise<OwnSpaceState[]> {
+    const identity = await this.identity.get();
+    const rows = await this.driver.db.query<{
+      id: string;
+      archived_at: string | null;
+      archive_stamp: number;
+      archive_by: string | null;
+    }>(
+      `SELECT s.id, s.archived_at, s.archive_stamp, s.archive_by FROM spaces s
+         JOIN space_members m ON m.space_id = s.id
+        WHERE m.public_key = ? AND s.archive_stamp > 0`,
+      [identity.publicKey],
+    );
+    return rows.map((r) => ({
+      spaceId: r.id,
+      archivedAt: r.archived_at,
+      stamp: r.archive_stamp,
+      by: r.archive_by,
+    }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Person-private preferences
+  // ---------------------------------------------------------------------------
+  //
+  // The same channel as the archive register, generalized: a keyed store of
+  // decisions that belong to the person rather than to any space. Sidebar
+  // arrangement and "already read this walkthrough" flags are the cases —
+  // co-members must not see them, and the person's other devices must.
+  //
+  // Values are opaque JSON here. Interpreting them is the app layer's business
+  // (see app/contexts/OwnPrefsContext), which keeps a new preference from being
+  // a change to the engine, the RPC schema and the wire all at once.
+
+  prefs = {
+    getAll: async (): Promise<Record<string, unknown>> => {
+      const rows = await this.driver.db.query<{ key: string; value: string }>(
+        "SELECT key, value FROM own_prefs",
+      );
+      const out: Record<string, unknown> = {};
+      for (const row of rows) {
+        const parsed = parseJson(row.value);
+        // A value this build cannot parse is a value a NEWER build wrote. Skip
+        // it rather than dropping the row: the register keeps its stamp, so the
+        // newer device stays the authority instead of losing to our silence.
+        if (parsed !== undefined) out[row.key] = parsed;
+      }
+      return out;
+    },
+
+    set: async (key: string, value: unknown): Promise<void> => {
+      const identity = await this.identity.get();
+      const stamp = Date.now();
+      const encoded = JSON.stringify(value ?? null);
+      await this.driver.db.mutate(
+        `INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = ?, stamp = ?, by = ?`,
+        [
+          key,
+          encoded,
+          stamp,
+          identity.publicKey,
+          encoded,
+          stamp,
+          identity.publicKey,
+        ],
+      );
+      await this.replicator?.pushOwnState({
+        prefs: [{ key, value: encoded, stamp, by: identity.publicKey }],
+      });
+      // Every tab shares one engine, so the tab that did not make the change
+      // still has to hear about it.
+      this.notifyPrefsChange({ [key]: value ?? null });
+    },
+
+    seed: async (key: string, value: unknown): Promise<boolean> => {
+      const rows = await this.driver.db.query<{ key: string }>(
+        "SELECT key FROM own_prefs WHERE key = ?",
+        [key],
+      );
+      if (rows.length > 0) return false;
+      const identity = await this.identity.get();
+      const encoded = JSON.stringify(value ?? null);
+      // Stamp 1, not now: this value was decided at some unrecorded past
+      // moment, so every real decision — including one already made on another
+      // device and still in flight to us — has to outrank it. Above 0 so it is
+      // still announced rather than treated as "never decided".
+      await this.driver.db.mutate(
+        "INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, 1, ?)",
+        [key, encoded, identity.publicKey],
+      );
+      await this.replicator?.pushOwnState({
+        prefs: [{ key, value: encoded, stamp: 1, by: identity.publicKey }],
+      });
+      this.notifyPrefsChange({ [key]: value ?? null });
+      return true;
+    },
+
+    onChange: (
+      cb: (changed: Record<string, unknown>) => void,
+    ): (() => void) => {
+      this.prefsChangeListeners.add(cb);
+      return () => {
+        this.prefsChangeListeners.delete(cb);
+      };
+    },
+  };
+
+  /** The preference registers this device holds, for a sibling to merge. */
+  private async getOwnPrefs(): Promise<OwnPref[]> {
+    const rows = await this.driver.db.query<{
+      key: string;
+      value: string;
+      stamp: number;
+      by: string | null;
+    }>("SELECT key, value, stamp, by FROM own_prefs WHERE stamp > 0");
+    return rows.map((r) => ({
+      key: r.key,
+      value: r.value,
+      stamp: r.stamp,
+      by: r.by,
+    }));
+  }
+
+  /**
+   * Merge the preference registers a sibling sent, the newest decision per key
+   * winning.
+   *
+   * Unknown keys are stored, not dropped: they belong to a build one of this
+   * person's devices is already running, and discarding them would make this
+   * device silently undo that device's choices on every handshake.
+   */
+  private async applyOwnPrefs(prefs: OwnPref[]): Promise<void> {
+    const changed: Record<string, unknown> = {};
+    for (const pref of prefs) {
+      const rows = await this.driver.db.query<{
+        value: string;
+        stamp: number;
+        by: string | null;
+      }>("SELECT value, stamp, by FROM own_prefs WHERE key = ?", [pref.key]);
+      const local = rows[0];
+      if (local && !decisionWins(pref, local)) continue;
+      await this.driver.db.mutate(
+        `INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = ?, stamp = ?, by = ?`,
+        [
+          pref.key,
+          pref.value,
+          pref.stamp,
+          pref.by,
+          pref.value,
+          pref.stamp,
+          pref.by,
+        ],
+      );
+      // Announce only what a tab can act on. A value we cannot parse is still
+      // worth holding (a sibling on a newer build wrote it) but there is
+      // nothing here that could render it.
+      const parsed = parseJson(pref.value);
+      if (parsed !== undefined && pref.value !== local?.value) {
+        changed[pref.key] = parsed;
+      }
+    }
+    if (Object.keys(changed).length > 0) this.notifyPrefsChange(changed);
+  }
+
+  private notifyPrefsChange(changed: Record<string, unknown>) {
+    for (const cb of this.prefsChangeListeners) cb(changed);
+  }
 
   // ---------------------------------------------------------------------------
   // Pairing
@@ -1639,8 +2080,12 @@ export class Engine implements Platform {
       id: string;
       name: string;
       personal: number;
+      archived_at: string | null;
+      archive_stamp: number;
+      archive_by: string | null;
     }>(
-      `SELECT s.id, s.name, s.personal FROM spaces s
+      `SELECT s.id, s.name, s.personal, s.archived_at, s.archive_stamp, s.archive_by
+         FROM spaces s
          JOIN space_members m ON m.space_id = s.id
         WHERE m.public_key = ?`,
       [identity.publicKey],
@@ -1664,17 +2109,31 @@ export class Engine implements Platform {
         id: s.id,
         name: s.name,
         personal: s.personal === 1,
+        archivedAt: s.archived_at,
+        archiveStamp: s.archive_stamp,
+        archiveBy: s.archive_by,
       })),
+      profile: { name: identity.name, avatar: identity.avatar },
+      prefs: await this.getOwnPrefs(),
     };
   }
 
   /**
    * Adopt an enrolment payload as the newly linked device.
    *
-   * Writes rows only — no ops. Every fact here already exists as a `device_add`
-   * or `member_add` in the sender's log and arrives again through normal
-   * replication; this is the local bootstrap that lets replication start at
-   * all, mirroring what `_acceptInvite` does for a single space.
+   * Writes rows only — no ops. Membership and certificates already exist as a
+   * `device_add` or `member_add` in the sender's log and arrive again through
+   * normal replication; this is the local bootstrap that lets replication start
+   * at all, mirroring what `_acceptInvite` does for a single space.
+   *
+   * The profile, the archive registers and the person's preferences are the
+   * exception: all live in rows no op describes, so nothing else in this
+   * bootstrap can carry them. They stay in step afterwards on their own
+   * channels — a rename as `member_set` (see `identity.update`), an archive or a
+   * preference as `own-state` (see {@link setArchiveState}, {@link prefs}).
+   *
+   * The payload only travels one way, so the spaces this device already had are
+   * enrolled here in the other — see {@link enrollPriorSpaces}.
    */
   private async applyDeviceLink(payload: DeviceLinkPayload): Promise<void> {
     const identity = await this.identity.get();
@@ -1704,6 +2163,22 @@ export class Engine implements Platform {
     ]);
     await this.storeDeviceCert(selfCert);
 
+    // The profile belongs to the person, not the device: adopting the root key
+    // without it would leave this device answering to the same identity under a
+    // different name. The avatar is a content hash, so queue the bytes too —
+    // nothing else will ask for them, the ops that mention it are the sender's.
+    const profile = payload.profile;
+    if (profile) {
+      await this.driver.db.mutate(
+        "UPDATE identity SET name = ?, avatar = ? WHERE id = 1",
+        [profile.name, profile.avatar],
+      );
+      if (profile.avatar) this.assetPrefetcher.noteRefs([profile.avatar]);
+      this.notifyIdentityChange();
+    }
+    const memberName = profile?.name ?? identity.name;
+    const memberAvatar = profile?.avatar ?? identity.avatar;
+
     for (const entry of payload.deviceCerts) {
       const cert: DeviceCert = {
         rootKey: payload.rootPublicKey,
@@ -1722,10 +2197,29 @@ export class Engine implements Platform {
 
     const now = new Date().toISOString();
     for (const space of payload.spaces) {
+      // Archive state comes from the sender rather than defaulting to active:
+      // the person filed this space away, and linking a device is not a reason
+      // to unfile it. A payload without the field is an older build's, where
+      // every space is reported active — the previous behaviour.
+      const archivedAt = space.archivedAt ?? null;
+      const stamp = space.archiveStamp ?? 0;
+      const by = space.archiveBy ?? null;
       await this.driver.db.mutate(
-        `INSERT INTO spaces (id, name, created_at, personal) VALUES (?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET archived_at = NULL`,
-        [space.id, space.name, now, space.personal ? 1 : 0],
+        `INSERT INTO spaces (id, name, created_at, personal, archived_at, archive_stamp, archive_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET archived_at = ?, archive_stamp = ?, archive_by = ?`,
+        [
+          space.id,
+          space.name,
+          now,
+          space.personal ? 1 : 0,
+          archivedAt,
+          stamp,
+          by,
+          archivedAt,
+          stamp,
+          by,
+        ],
       );
       // Both this device and every sibling, so the personal-space gate has
       // something to admit before the first sync arrives.
@@ -1734,13 +2228,97 @@ export class Engine implements Platform {
         ...payload.deviceCerts.map((c) => c.deviceKey),
       ]) {
         await this.driver.db.mutate(
-          `INSERT INTO space_members (space_id, public_key, name, added_at)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(space_id, public_key) DO UPDATE SET archived_at = NULL`,
-          [space.id, deviceKey, identity.name, now],
+          `INSERT INTO space_members (space_id, public_key, name, avatar, added_at)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, avatar = ?, archived_at = NULL`,
+          [
+            space.id,
+            deviceKey,
+            memberName,
+            memberAvatar,
+            now,
+            memberName,
+            memberAvatar,
+          ],
         );
       }
       this.notifySpaceChange(space.id);
+    }
+
+    // Merged rather than overwritten, and by the same rule as any other
+    // own-state exchange: this device has been running, so it may hold a newer
+    // decision than the one enrolling it — linking is a merge, not a handover
+    // (see {@link enrollPriorSpaces} for the same point about spaces).
+    if (payload.prefs?.length) await this.applyOwnPrefs(payload.prefs);
+
+    await this.enrollPriorSpaces(
+      new Set(payload.spaces.map((s) => s.id)),
+      identity.publicKey,
+      profile ? { name: memberName, avatar: memberAvatar } : null,
+    );
+  }
+
+  /**
+   * Enrol this person's devices into the spaces this device already had before
+   * it was linked.
+   *
+   * Linking is not a handover, it is a merge: the enrolment payload only travels
+   * from the existing device to the new one, so without this the new device's
+   * own spaces would stay stranded on it forever. Nothing later rescues them —
+   * every push and pull is filtered by shared membership
+   * (`broadcastToSpacePeers`, `recomputeSharedSpaces`), so a space a sibling is
+   * not a member of is one it can never be told about, however long both
+   * devices stay online. This is the same move `spaces.create` makes for a
+   * space created after linking, applied to the ones created before it.
+   *
+   * Archived spaces stay behind. Enrolling one would replicate it to every
+   * sibling as an active space — ops carry no archive flag, which is why
+   * `own-state` exists — unfiling what the person filed. They are picked up if
+   * and when the person restores one; see {@link setArchiveState}.
+   */
+  private async enrollPriorSpaces(
+    adopted: Set<string>,
+    localPublicKey: string,
+    profile: { name: string; avatar: string | null } | null,
+  ): Promise<void> {
+    const rows = await this.driver.db.query<{ id: string }>(
+      `SELECT s.id FROM spaces s
+         JOIN space_members m ON m.space_id = s.id
+        WHERE m.public_key = ? AND s.archived_at IS NULL AND m.archived_at IS NULL`,
+      [localPublicKey],
+    );
+
+    for (const { id } of rows) {
+      if (adopted.has(id)) continue;
+      // Per space, and never fatal: enrolment dials the siblings it publishes,
+      // so a signaling failure here must not undo an identity this device has
+      // already adopted — that would leave it linked to nothing.
+      try {
+        await this.enrollOwnDevices(id);
+        // Enrolment wrote the sibling rows under the adopted profile, but our
+        // own member row still carries the name this device answered to before
+        // it was this person's — publish the profile over it.
+        if (profile) {
+          await this.spaces.updateMember(
+            id,
+            localPublicKey,
+            "name",
+            profile.name,
+          );
+          await this.spaces.updateMember(
+            id,
+            localPublicKey,
+            "avatar",
+            profile.avatar,
+          );
+        }
+        this.notifySpaceChange(id);
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        console.error(
+          `[Engine] failed to enrol siblings into ${id.slice(0, 8)}: ${detail}`,
+        );
+      }
     }
   }
 
@@ -1774,7 +2352,7 @@ export class Engine implements Platform {
           const now = new Date().toISOString();
           await this.driver.db.mutate(
             `INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET archived_at = NULL`,
+             ON CONFLICT(id) DO NOTHING`,
             [invite.spaceId, spaceName ?? "", now],
           );
           // Add self as member
@@ -1803,6 +2381,25 @@ export class Engine implements Platform {
           // inviter would see one member per device of ours, unable to tell
           // they are the same person.
           await this.enrollOwnDevices(invite.spaceId);
+
+          // Accepting an invite to a space we had archived restores it — as a
+          // stamped decision, not a silent column write, so the sibling that
+          // still has it filed away follows us instead of archiving us back.
+          // After enrolment, so the reconnect it triggers sees the full roster.
+          await this.setArchiveState(invite.spaceId, null);
+
+          // The pairing handshake carries a name but no avatar, and the member
+          // row for this device is already in place by the time enrolment runs
+          // — so publish the picture ourselves, or the space shows our initials
+          // to everyone until the next profile edit.
+          if (identity.avatar) {
+            await this.spaces.updateMember(
+              invite.spaceId,
+              identity.publicKey,
+              "avatar",
+              identity.avatar,
+            );
+          }
 
           // Replicator.addPeer is called automatically after pairing completes
           this.notifySpaceChange(invite.spaceId);
@@ -1931,9 +2528,16 @@ export class Engine implements Platform {
         recurrence_id: string | null;
         created_at: string;
         updated_at: string;
+        space_archived_at: string | null;
       }>(
-        `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id AND c.archived_at IS NULL) as has_children
-         FROM pages p WHERE p.id = ? AND p.archived_at IS NULL`,
+        // A live page in an archived space still loads — the space is hidden as
+        // a whole, not deleted page by page — so the caller is told about it and
+        // opens the page read-only rather than editing into an invisible space.
+        `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id AND c.archived_at IS NULL) as has_children,
+                sp.archived_at as space_archived_at
+         FROM pages p
+         LEFT JOIN spaces sp ON p.space_id = sp.id
+         WHERE p.id = ? AND p.archived_at IS NULL`,
         [id],
       );
 
@@ -1952,9 +2556,8 @@ export class Engine implements Platform {
       // can match while the blocks are stale (see snapshots.save).
       const currentVV = await this.pageClockVV(id);
       const cached = await this.loadSnapshot(id);
-      let blocks:
-        | import("@tasfer/editor/serlization/loadPage").Block[]
-        | null = null;
+      let blocks: import("@tasfer/editor/serlization/loadPage").Block[] | null =
+        null;
       if (cached && vvEqual(cached.vv, currentVV) && cached.blocks.length > 0) {
         blocks = cached.blocks;
         // Free (blocks in hand, no op-log replay): reconcile the derived title
@@ -2031,6 +2634,7 @@ export class Engine implements Platform {
         createdAt: r.created_at,
         updatedAt: r.updated_at,
         parents,
+        spaceArchivedAt: r.space_archived_at,
       };
     },
 
@@ -2232,6 +2836,67 @@ export class Engine implements Platform {
       }
     },
 
+    getArchived: async (id: string): Promise<ArchivedPageRef | null> => {
+      // Resolve an id that `pages.get` refuses to return. A stale link, a
+      // bookmark, or the back button can land on a page that has since been
+      // archived; without this the id is indistinguishable from one that never
+      // existed. Metadata only — the content comes from `pages.snapshots`,
+      // which replays the op log with no archived filter.
+      const rows = await this.driver.db.query<{
+        title: string;
+        title_md: string;
+        space_id: string | null;
+        color: string | null;
+        archived_at: string | null;
+        space_archived_at: string | null;
+      }>(
+        `SELECT p.title, p.title_md, p.space_id, p.color, p.archived_at,
+                sp.archived_at as space_archived_at
+           FROM pages p
+           LEFT JOIN spaces sp ON p.space_id = sp.id
+          WHERE p.id = ?`,
+        [id],
+      );
+
+      if (rows.length === 0) return null;
+      const r = rows[0];
+      // Two ways a page stops being reachable: it was archived, or its space
+      // was archived with it still live inside.
+      if (r.archived_at === null && r.space_archived_at === null) return null;
+
+      let restoreRootId: string | null = null;
+      if (r.archived_at !== null) {
+        // Walk up to the top of the archived run: that page is the one the user
+        // deleted, and restoring it brings this page back with the rest of the
+        // subtree instead of orphaning it at the top level.
+        const roots = await this.driver.db.query<{ id: string }>(
+          `WITH RECURSIVE chain(id, parent_id, depth) AS (
+             SELECT id, parent_id, 0 FROM pages WHERE id = ? AND archived_at IS NOT NULL
+             UNION ALL
+             SELECT p.id, p.parent_id, c.depth + 1
+               FROM pages p JOIN chain c ON p.id = c.parent_id
+              WHERE p.archived_at IS NOT NULL
+           )
+           SELECT id FROM chain ORDER BY depth DESC LIMIT 1`,
+          [id],
+        );
+        restoreRootId = roots[0]?.id ?? id;
+      }
+
+      return {
+        id,
+        title: r.title,
+        titleMd: r.title_md,
+        spaceId: r.space_id,
+        color: r.color,
+        archivedAt: r.archived_at ?? r.space_archived_at!,
+        restoreRootId,
+        // A page restored into an archived space would be invisible — the space
+        // has to come back too (mirrors the exclusion in listArchived).
+        archivedSpaceId: r.space_archived_at !== null ? r.space_id : null,
+      };
+    },
+
     listArchived: async (): Promise<ArchivedPageItem[]> => {
       // Roots of archived subtrees across every space: a page is a "root" if it
       // has no parent, or its parent is not itself archived. This shows each
@@ -2313,11 +2978,11 @@ export class Engine implements Platform {
       const root = subtree.find((r) => r.id === id)!;
       let reparented = false;
       if (root.parent_id !== null) {
-        const parentRows = await this.driver.db.query<{ archived_at: string | null }>(
-          "SELECT archived_at FROM pages WHERE id = ?",
-          [root.parent_id],
-        );
-        const parentAlive = parentRows.length > 0 && parentRows[0].archived_at === null;
+        const parentRows = await this.driver.db.query<{
+          archived_at: string | null;
+        }>("SELECT archived_at FROM pages WHERE id = ?", [root.parent_id]);
+        const parentAlive =
+          parentRows.length > 0 && parentRows[0].archived_at === null;
         if (!parentAlive) {
           await this.driver.db.mutate(
             `UPDATE pages SET parent_id = NULL, updated_at = ? WHERE id = ?`,
@@ -2508,21 +3173,15 @@ export class Engine implements Platform {
         ],
       );
 
-      // Copy the content ops under the new page's scope. Block ids are
-      // page-local, so duplicating them into a distinct scope is safe.
+      // Give the new page a fresh op log rather than copying the source's.
       //
-      // Leaving a personal space is the exception. The op log holds every
-      // keystroke ever made on the page — tombstoned characters included — so
-      // copying it verbatim would hand the destination's members the page's
-      // entire drafting history, which is exactly what a personal space exists
-      // to prevent. Re-originate instead: rebuild the page's CURRENT blocks and
-      // emit fresh ops for them, the same way import writes a new document.
-      const contentOps = (await this.leavesPersonalSpace(
-        input.sourceId,
-        input.spaceId,
-      ))
-        ? await this.reoriginateContent(input.sourceId, newId)
-        : await this.ops.load(input.sourceId);
+      // The log holds every keystroke ever made on the page — tombstoned
+      // characters included — so copying it verbatim would hand the destination
+      // whatever the page used to say, and pay to replicate it. Re-originate
+      // instead: rebuild the page's CURRENT blocks and emit fresh ops for them,
+      // the same way import writes a new document. A copy says what it says
+      // today and cannot be replayed backwards.
+      const contentOps = await this.reoriginateContent(input.sourceId, newId);
       if (contentOps.length > 0) {
         await this.insertOpsBatch(newId, contentOps, Date.now());
       }
@@ -2688,8 +3347,7 @@ export class Engine implements Platform {
 
       let state = createEmptyPageState(pageId);
       const insertedCharIds = new Set<string>();
-      const deferredOps: import("@tasfer/editor/state-types").Operation[] =
-        [];
+      const deferredOps: import("@tasfer/editor/state-types").Operation[] = [];
       const results: PageSnapshot[] = [];
 
       for (let i = 0; i < total; i++) {
@@ -2971,8 +3629,7 @@ export class Engine implements Platform {
       pageId: string,
       blocks: import("@tasfer/editor/serlization/loadPage").Block[],
     ): Promise<void> => {
-      const { blocksToOps } =
-        await import("@tasfer/editor/sync/snapshot-diff");
+      const { blocksToOps } = await import("@tasfer/editor/sync/snapshot-diff");
       const { createIdGenerator, generatePeerId } =
         await import("@tasfer/editor/sync/id");
       const { createHLC, tickHLC } = await import("@tasfer/editor/sync/hlc");
@@ -3047,7 +3704,11 @@ export class Engine implements Platform {
         // and screen sizes.
         const cleanBlocks = blocks.map(({ cachedLayout: _l, ...b }) => b);
         const data = new TextEncoder().encode(
-          JSON.stringify({ format: PAGE_SNAPSHOT_FORMAT, vv, blocks: cleanBlocks }),
+          JSON.stringify({
+            format: PAGE_SNAPSHOT_FORMAT,
+            vv,
+            blocks: cleanBlocks,
+          }),
         );
         await this.driver.fs.write(this.snapshotPath(pageId), data);
       } catch (err) {
@@ -3196,7 +3857,10 @@ export class Engine implements Platform {
               this.assetPrefetcher.noteRefs(
                 collectAssetRefs(rebuilt.blocks, appDataSchema),
               );
-              return this.refreshDerivedTitlesFromBlocks(pageId, rebuilt.blocks);
+              return this.refreshDerivedTitlesFromBlocks(
+                pageId,
+                rebuilt.blocks,
+              );
             }
           })
           .catch((err) =>
@@ -3224,10 +3888,9 @@ export class Engine implements Platform {
       title_md: string;
       body_text: string | null;
       space_id: string | null;
-    }>(
-      "SELECT title, title_md, body_text, space_id FROM pages WHERE id = ?",
-      [pageId],
-    );
+    }>("SELECT title, title_md, body_text, space_id FROM pages WHERE id = ?", [
+      pageId,
+    ]);
     if (rows.length === 0) return;
     const titleChanged =
       rows[0].title !== title || rows[0].title_md !== titleMd;
@@ -3328,10 +3991,7 @@ export class Engine implements Platform {
     remotePageVVs: Record<string, Record<string, number>>,
   ): Promise<{
     spaceOps: SpaceOperation[];
-    pageOps: Record<
-      string,
-      import("@tasfer/editor/state-types").Operation[]
-    >;
+    pageOps: Record<string, import("@tasfer/editor/state-types").Operation[]>;
   }> {
     // Get missing space ops
     const allSpaceOps = await this.getSpaceOps(spaceId);
@@ -3720,6 +4380,7 @@ export class Engine implements Platform {
             [op.value, op.publicKey],
           );
         }
+        if (memberCol) await this.adoptOwnProfile(op);
         break;
       }
 
@@ -3823,6 +4484,10 @@ export class Engine implements Platform {
     for (const cb of this.pageDeleteListeners) cb(pageId);
   }
 
+  private notifyIdentityChange() {
+    for (const cb of this.identityChangeListeners) cb();
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -3918,10 +4583,7 @@ export class Engine implements Platform {
  * itself is highlighted by the caller.
  */
 const SNIPPET_RADIUS = 40;
-function bodySnippet(
-  bodyText: string | null,
-  query: string,
-): string | null {
+function bodySnippet(bodyText: string | null, query: string): string | null {
   const q = query.trim();
   if (!q || !bodyText) return null;
   const flat = bodyText.replace(/\s+/g, " ").trim();

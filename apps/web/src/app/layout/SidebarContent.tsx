@@ -27,7 +27,7 @@ import {
   User,
 } from "lucide-react";
 import React, { useState } from "react";
-import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { NavLink, useMatch, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import {
   DropdownMenu,
@@ -54,6 +54,7 @@ import { useConfirmation } from "../components/ConfirmationDialog";
 import { useToast, type ToastHandle } from "../components/Toast";
 import { movePageAcrossSpaces } from "@/lib/spaceMove";
 import Icons from "../components/uiKit/Icons/Icons";
+import { useActionCenter } from "../contexts/ActionCenterContext";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useOrderedSpaces, useSpacePrefs } from "../contexts/SpacePrefsContext";
@@ -68,6 +69,7 @@ import { useTranslation } from "react-i18next";
 import { useSidebarPanel } from "../contexts/SidebarPanelContext";
 import useResponsive from "../hooks/useResponsive";
 import style from "./Layout.module.css";
+import EmptyStateIllustration from "../components/illustrations/empty-state";
 
 /**
  * Resolve overlapping page drop zones by pointer position. The `before`/`after`
@@ -114,6 +116,13 @@ type ActiveDrag =
   | (IListPage & { type?: "pageLink" })
   | { type: "spaceLink"; spaceId: string; name: string };
 
+/**
+ * Nav rows keep their CSS-module look and borrow the shared Button base for the
+ * press ripple and focus ring. The base centers its content and bolds it, which
+ * a nav row does not want — hence the two overrides.
+ */
+const navLinkClass = clsx(style.appNavigationLink, "justify-start font-normal");
+
 /** Sort by order, tiebroken by id to match the server's deterministic order. */
 const byOrder = (a: IListPage, b: IListPage) =>
   a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -146,6 +155,7 @@ export function SidebarContent({
   const { getConfirmation } = useConfirmation();
   const { toast } = useToast();
   const { panelRef, hasPanel, setSlotMounted } = useSidebarPanel();
+  const { setOpen: setActionCenterOpen } = useActionCenter();
   const [activeId, setActiveId] = useState<string | null>(null);
   // Holds the `data.current` of whatever is being dragged — a page (IListPage)
   // or a space ({ type: "spaceLink", ... }). Read `.type` to distinguish.
@@ -296,9 +306,10 @@ export function SidebarContent({
   }
 
   function openSearch() {
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }),
-    );
+    // On mobile the sidebar covers the screen, so it has to step aside for the
+    // palette the way navigating away from it does.
+    if (isMobile) setOpen(false);
+    setActionCenterOpen(true);
   }
 
   async function archiveGroup(groupId: string) {
@@ -306,7 +317,7 @@ export function SidebarContent({
       title: t("space.archiveSpace", "Archive space"),
       description: t(
         "space.confirmArchiveSpace",
-        "Archiving deletes nothing. It hides this space and stops syncing here — your copy and every member's stay put. Unarchive anytime.",
+        "Archiving deletes nothing. It hides this space on all your devices and stops syncing it — your copy and every member's stay put. Restore it anytime.",
       ),
       confirmText: t("common.archive", "Archive"),
       cancelText: t("common.cancel", "Cancel"),
@@ -655,7 +666,7 @@ export function SidebarContent({
   }
 
   const displayName = user?.name.trim() ?? "";
-  const hasSidebarProfile = Boolean(displayName && user?.avatar);
+  const hasSidebarProfile = Boolean(displayName);
   const initials = displayName
     .split(" ")
     .map((w) => w[0])
@@ -695,27 +706,36 @@ export function SidebarContent({
               )}
             >
               <DropdownMenu>
-                <DropdownMenuTrigger className={style.mobileAccountTrigger}>
-                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      initials || <User size={16} />
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="unstyled"
+                    size="unstyled"
+                    className={clsx(
+                      style.mobileAccountTrigger,
+                      "justify-start",
                     )}
-                  </div>
-                  {displayName && (
-                    <span className="text-sm font-medium text-foreground truncate">
-                      {displayName}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        initials || <User size={16} className="size-4" />
+                      )}
+                    </div>
+                    {displayName && (
+                      <span className="text-sm font-medium text-foreground truncate">
+                        {displayName}
+                      </span>
+                    )}
+                    <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="sr-only">
+                      {t("sidebar.accountMenu", "Account menu")}
                     </span>
-                  )}
-                  <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="sr-only">
-                    {t("sidebar.accountMenu", "Account menu")}
-                  </span>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   {avatarUrl && (
@@ -737,43 +757,44 @@ export function SidebarContent({
                 </DropdownMenuContent>
               </DropdownMenu>
               <span className="flex-1" />
-              <button
+              <Button
                 type="button"
+                variant="unstyled"
+                size="unstyled"
                 className={style.mobileHeaderButton}
                 onClick={openSearch}
               >
-                <Search size={22} />
+                <Search className="size-[22px]" />
                 <span className="sr-only">{t("sidebar.search", "Search")}</span>
-              </button>
-              <NavLink
-                className={({ isActive }) =>
-                  clsx(
-                    style.mobileHeaderButton,
-                    isActive && style.mobileHeaderButtonActive,
-                  )
-                }
-                to={"/calendar"}
-              >
-                <Icons.Calendar width={24} height={24} />
+              </Button>
+              <MobileHeaderNavLink to="/calendar">
+                <Icons.Calendar className="size-6" />
                 <span className="sr-only">
                   {t("calendar.title", "Calendar")}
                 </span>
-              </NavLink>
-              <button
+              </MobileHeaderNavLink>
+              <Button
                 type="button"
+                variant="unstyled"
+                size="unstyled"
                 className={style.mobileHeaderButton}
                 onClick={() => onAddSpace()}
               >
-                <Plus size={22} />
+                <Plus className="size-[22px]" />
                 <span className="sr-only">
                   {t("space.addSpace", "Add space")}
                 </span>
-              </button>
+              </Button>
             </div>
           ) : shouldShowTheProfileAtTop ? (
             <div className={clsx(style.appSidebarHeader, "gap-3")}>
-              <button
-                className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
+              <Button
+                variant="unstyled"
+                size="unstyled"
+                className={clsx(
+                  style.appSidebarProfile,
+                  "justify-start gap-2 rounded-md px-1.5 py-1 hover:bg-accent/50",
+                )}
                 onClick={() => avatarUrl && setAvatarPreviewOpen(true)}
                 style={{ cursor: avatarUrl ? "pointer" : "default" }}
               >
@@ -791,7 +812,7 @@ export function SidebarContent({
                 <span className="text-sm font-medium text-foreground truncate">
                   {displayName}
                 </span>
-              </button>
+              </Button>
               {!isMobile && (
                 <Button
                   variant="ghost"
@@ -854,8 +875,11 @@ export function SidebarContent({
                     style.appNavigationLinksWithClose,
                 )}
               >
-                <button
-                  className={style.appNavigationLink}
+                <Button
+                  type="button"
+                  variant="unstyled"
+                  size="unstyled"
+                  className={navLinkClass}
                   onClick={openSearch}
                 >
                   <div className={style.appNavigationLinkIcon}>
@@ -867,33 +891,25 @@ export function SidebarContent({
                       {isApplePlatform() ? "\u2318K" : "Ctrl+K"}
                     </kbd>
                   )}
-                </button>
-                <NavLink
-                  className={({ isActive }) =>
-                    clsx(style.appNavigationLink, isActive && style.active)
-                  }
-                  to={"/settings"}
-                >
+                </Button>
+                <SidebarNavLink to="/settings">
                   <div className={style.appNavigationLinkIcon}>
                     <Icons.Gear width={24} height={24} />
                   </div>
                   {t("settings.title", "Settings")}
-                </NavLink>
-                <NavLink
-                  className={({ isActive }) =>
-                    clsx(style.appNavigationLink, isActive && style.active)
-                  }
-                  to={"/calendar"}
-                >
+                </SidebarNavLink>
+                <SidebarNavLink to="/calendar">
                   <div className={style.appNavigationLinkIcon}>
                     <Icons.Calendar width={24} height={24} />
                   </div>
                   {t("calendar.title", "Calendar")}
-                </NavLink>
+                </SidebarNavLink>
                 <ArchiveNavLink />
 
-                <button
-                  className={style.appNavigationLink}
+                <Button
+                  variant="unstyled"
+                  size="unstyled"
+                  className={navLinkClass}
                   onClick={() => {
                     onAddSpace();
                   }}
@@ -902,29 +918,55 @@ export function SidebarContent({
                     <Icons.AddGroup />
                   </div>
                   {t("space.addSpace", "Add space")}
-                </button>
+                </Button>
               </div>
             )}
 
             <div className={style.appSidebarMain}>
               <ScrollArea className={style.appSidebarScrollArea}>
-                {orderedSpaces.map((space) => (
-                  <SpaceSection
-                    key={space.id}
-                    space={space}
-                    isCreating={isCreating}
-                    onSpaceSettings={onSpaceSettings}
-                    onInviteMembers={onInviteMembers}
-                    onArchive={archiveGroup}
-                    onAddPage={(spaceId) => handleAdd(null, spaceId)}
-                  />
-                ))}
-                {/* Fills the space below the last space and stays droppable:
-                    append a page to the last space, or move a space to the end. */}
-                {orderedSpaces.length > 0 && (
-                  <SidebarTailDrop
-                    lastSpaceId={orderedSpaces[orderedSpaces.length - 1].id}
-                  />
+                {orderedSpaces.length === 0 ? (
+                  /* Every space archived. Nothing here is droppable and no tree
+                     can be drawn. On desktop a line of text is all this column
+                     owes — the content area beside it already shows the
+                     illustration and the way back, so repeating them here would
+                     only double the same offer. On mobile that content area is
+                     hidden behind the sidebar, so this column carries it. */
+                  isMobile ? (
+                    <div className={style.appSidebarNoSpaces}>
+                      <EmptyStateIllustration className={style.appSidebarNoSpacesIllustration} />
+                      <Button
+                        className={style.appSidebarNoSpacesButton}
+                        onClick={() => onAddSpace()}
+                      >
+                        <Plus className="size-4" />
+                        {t("space.createSpace", "Create space")}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className={style.appSidebarNoSpacesText}>
+                      {t("space.noSpacesYet", "No spaces yet")}
+                    </p>
+                  )
+                ) : (
+                  <>
+                    {orderedSpaces.map((space) => (
+                      <SpaceSection
+                        key={space.id}
+                        space={space}
+                        isCreating={isCreating}
+                        onSpaceSettings={onSpaceSettings}
+                        onInviteMembers={onInviteMembers}
+                        onArchive={archiveGroup}
+                        onAddPage={(spaceId) => handleAdd(null, spaceId)}
+                      />
+                    ))}
+                    {/* Fills the space below the last space and stays droppable:
+                        append a page to the last space, or move a space to the
+                        end. */}
+                    <SidebarTailDrop
+                      lastSpaceId={orderedSpaces[orderedSpaces.length - 1].id}
+                    />
+                  </>
                 )}
               </ScrollArea>
               <DragOverlay>
@@ -961,8 +1003,10 @@ export function SidebarContent({
 
           {!shouldShowTheProfileAtTop && hasSidebarProfile && (
             <div className={style.appSidebarFooter}>
-              <button
-                className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
+              <Button
+                variant="unstyled"
+                size="unstyled"
+                className="w-full min-w-0 justify-start gap-2 rounded-md px-1.5 py-1 hover:bg-accent/50"
                 onClick={() => avatarUrl && setAvatarPreviewOpen(true)}
                 style={{ cursor: avatarUrl ? "pointer" : "default" }}
               >
@@ -980,7 +1024,7 @@ export function SidebarContent({
                 <span className="text-sm font-medium text-foreground truncate">
                   {displayName}
                 </span>
-              </button>
+              </Button>
             </div>
           )}
         </>
@@ -993,6 +1037,63 @@ export function SidebarContent({
         name={displayName}
       />
     </>
+  );
+}
+
+/**
+ * A nav row that navigates. `asChild` cannot merge NavLink's render-prop
+ * className, so the active state is resolved with `useMatch` instead — `end:
+ * false` keeps NavLink's default behaviour of staying active on child routes.
+ */
+function SidebarNavLink({
+  to,
+  className,
+  ref,
+  children,
+}: {
+  to: string;
+  className?: string;
+  ref?: React.Ref<HTMLAnchorElement>;
+  children: React.ReactNode;
+}) {
+  const isActive = !!useMatch({ path: to, end: false });
+
+  return (
+    <Button
+      asChild
+      variant="unstyled"
+      size="unstyled"
+      className={clsx(navLinkClass, isActive && style.active, className)}
+    >
+      <NavLink to={to} ref={ref}>
+        {children}
+      </NavLink>
+    </Button>
+  );
+}
+
+/** The mobile header's toolbar equivalent of {@link SidebarNavLink}. */
+function MobileHeaderNavLink({
+  to,
+  children,
+}: {
+  to: string;
+  children: React.ReactNode;
+}) {
+  const isActive = !!useMatch({ path: to, end: false });
+
+  return (
+    <Button
+      asChild
+      variant="unstyled"
+      size="unstyled"
+      className={clsx(
+        style.mobileHeaderButton,
+        isActive && style.mobileHeaderButtonActive,
+      )}
+    >
+      <NavLink to={to}>{children}</NavLink>
+    </Button>
   );
 }
 
@@ -1012,21 +1113,15 @@ function ArchiveNavLink() {
   });
 
   return (
-    <NavLink
+    <SidebarNavLink
+      to="/archive"
       ref={setNodeRef}
-      className={({ isActive }) =>
-        clsx(
-          style.appNavigationLink,
-          isActive && style.active,
-          isOver && isPageDrag && style.archiveDropTarget,
-        )
-      }
-      to={"/archive"}
+      className={clsx(isOver && isPageDrag && style.archiveDropTarget)}
     >
       <div className={style.appNavigationLinkIcon}>
         <Archive width={24} height={24} />
       </div>
       {t("archive.title", "Archive")}
-    </NavLink>
+    </SidebarNavLink>
   );
 }

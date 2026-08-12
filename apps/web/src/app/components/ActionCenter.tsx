@@ -23,6 +23,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useCreatePage, useSearchPages, type ISearchPage } from "../api/pages.api";
 import { TitlePreview } from "../TitlePreview";
+import { useActionCenter } from "../contexts/ActionCenterContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useTheme } from "../hooks/useTheme";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,6 +35,7 @@ import {
   scoreMatch,
   type FrecencyEntry,
 } from "@/lib/actionRanking";
+import { Button } from "@/components/ui/button";
 
 const groupHeadingClass =
   "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground/70 [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide";
@@ -154,7 +156,7 @@ function MatchSnippet({ snippet, query }: { snippet: string; query: string }) {
 }
 
 export function ActionCenter() {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen } = useActionCenter();
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -515,12 +517,14 @@ export function ActionCenter() {
               <div
                 className={`flex items-center gap-2 px-2 shrink-0 ${isShort ? "h-11" : "h-12"}`}
               >
-                <button
+                <Button
+                  variant="unstyled"
+                  size="unstyled"
                   onClick={() => setOpen(false)}
-                  className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-muted-foreground active:bg-accent"
+                  className="size-9 shrink-0 rounded-full text-muted-foreground active:bg-accent"
                 >
-                  <ChevronLeft size={22} />
-                </button>
+                  <ChevronLeft className="size-[22px]" />
+                </Button>
                 <Command.Input
                   ref={inputRef}
                   value={search}
@@ -532,12 +536,14 @@ export function ActionCenter() {
                   className="flex-1 h-10 bg-transparent text-base outline-none placeholder:text-muted-foreground"
                 />
                 {search && (
-                  <button
+                  <Button
+                    variant="unstyled"
+                    size="unstyled"
                     onClick={() => setSearch("")}
-                    className="shrink-0 px-3 h-9 text-sm text-muted-foreground active:text-foreground"
+                    className="h-9 shrink-0 px-3 text-sm font-normal text-muted-foreground active:text-foreground"
                   >
                     {t("common.cancel", "Cancel")}
-                  </button>
+                  </Button>
                 )}
               </div>
               <div className="border-b border-border" />

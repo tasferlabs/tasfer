@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { NetworkDriver, NetworkPeer, NetworkTopic } from "./driver";
-import { PROTOCOL_VERSION, Replicator, type ReplicatorHost } from "./sync";
+import {
+  PROTOCOL_VERSION,
+  Replicator,
+  type OwnPref,
+  type OwnSpaceState,
+  type ReplicatorHost,
+} from "./sync";
 import type { Peer, SpaceOperation } from "./types";
 import { WIRE_VERSION } from "./wire-codec";
 
@@ -68,6 +74,10 @@ async function setup(options: {
   spaceIds?: string[];
   /** State reported for NEW_SPACE. */
   newSpaceState?: "active" | "archived" | "unknown";
+  /** Person-private archive registers this device would announce. */
+  ownSpaceStates?: OwnSpaceState[];
+  /** Person-private preferences this device would announce. */
+  ownPrefs?: OwnPref[];
 }) {
   const peer = new FakePeer();
   const topic: NetworkTopic = {
@@ -101,6 +111,10 @@ async function setup(options: {
         : ("active" as const),
     ),
     getSpaceMembers: vi.fn(async () => [{ publicKey: REMOTE_PUBLIC_KEY }]),
+    getOwnSpaceStates: vi.fn(async () => options.ownSpaceStates ?? []),
+    applyOwnSpaceStates: vi.fn(async () => {}),
+    getOwnPrefs: vi.fn(async () => options.ownPrefs ?? []),
+    applyOwnPrefs: vi.fn(async () => {}),
     getSpaceVV: vi.fn(async () => ({})),
     getPageVVs: vi.fn(async () => ({})),
     updatePeerLastSeen: vi.fn(async () => {}),
@@ -126,13 +140,30 @@ async function setup(options: {
     peer,
     host: host as ReplicatorHost & {
       applyRemoteSpaceOps: ReturnType<typeof vi.fn>;
+      applyOwnSpaceStates: ReturnType<typeof vi.fn>;
+      applyOwnPrefs: ReturnType<typeof vi.fn>;
     },
     pullsFor: (spaceId: string) =>
       peer.sent.filter(
         (message) =>
           message.type === "sync-pull" && message.spaceId === spaceId,
       ),
+    ownStates: () =>
+      peer.sent.filter((message) => message.type === "own-state"),
   };
+}
+
+function archived(spaceId: string, stamp: number): OwnSpaceState {
+  return {
+    spaceId,
+    archivedAt: new Date(stamp).toISOString(),
+    stamp,
+    by: LOCAL_PUBLIC_KEY,
+  };
+}
+
+function pref(key: string, value: unknown, stamp: number): OwnPref {
+  return { key, value: JSON.stringify(value), stamp, by: LOCAL_PUBLIC_KEY };
 }
 
 describe("Replicator — a person's own devices", () => {
@@ -217,5 +248,178 @@ describe("Replicator — a person's own devices", () => {
       expect.anything(),
     );
     expect(pullsFor(NEW_SPACE)).toEqual([]);
+  });
+});
+
+/**
+ * Archiving a space files it away for the person, not for the space, so it
+ * cannot ride the op log every member reads. These cover the channel that
+ * carries it instead: our own devices, and nobody else.
+ */
+describe("Replicator — person-private space state", () => {
+  it("hands our own device the whole archive register on handshake", async () => {
+    const { ownStates } = await setup({
+      ownDevice: true,
+      ownSpaceStates: [archived(KNOWN_SPACE, 1_000)],
+    });
+
+    await vi.waitFor(() =>
+      expect(ownStates()).toEqual([
+        { type: "own-state", spaces: [archived(KNOWN_SPACE, 1_000)], prefs: [] },
+      ]),
+    );
+  });
+
+  it("tells another person nothing about what we filed away", async () => {
+    const { ownStates } = await setup({
+      ownDevice: false,
+      spaceIds: [KNOWN_SPACE],
+      ownSpaceStates: [archived(KNOWN_SPACE, 1_000)],
+    });
+    await settle();
+
+    expect(ownStates()).toEqual([]);
+  });
+
+  it("adopts an archive decision made on another of our devices", async () => {
+    const { peer, host } = await setup({
+      ownDevice: true,
+      spaceIds: [KNOWN_SPACE],
+    });
+
+    peer.receive({
+      type: "own-state",
+      spaces: [archived(KNOWN_SPACE, 2_000)],
+    });
+
+    await vi.waitFor(() =>
+      expect(host.applyOwnSpaceStates).toHaveBeenCalledWith([
+        archived(KNOWN_SPACE, 2_000),
+      ]),
+    );
+  });
+
+  it("refuses an archive decision from another person", async () => {
+    const { peer, host } = await setup({
+      ownDevice: false,
+      spaceIds: [KNOWN_SPACE],
+    });
+
+    peer.receive({
+      type: "own-state",
+      spaces: [archived(KNOWN_SPACE, 2_000)],
+    });
+    await settle();
+
+    expect(host.applyOwnSpaceStates).not.toHaveBeenCalled();
+  });
+
+  it("pushes a fresh decision to our devices, whatever spaces they share", async () => {
+    // No shared space and no register to announce at handshake — the push is
+    // the only own-state on the wire, which is the point: an archive has to
+    // reach a sibling that the archive itself just stopped sharing with.
+    const { replicator, ownStates } = await setup({ ownDevice: true });
+    await settle();
+
+    await replicator.pushOwnState({ spaces: [archived(KNOWN_SPACE, 3_000)] });
+
+    expect(ownStates()).toEqual([
+      { type: "own-state", spaces: [archived(KNOWN_SPACE, 3_000)], prefs: [] },
+    ]);
+  });
+});
+
+/**
+ * Sidebar arrangement and "already read this" flags travel the same channel as
+ * the archive register and are hidden from co-members for the same reason: they
+ * are decisions about the person, and a space's log is read by everyone in it.
+ */
+describe("Replicator — person-private preferences", () => {
+  const ORDER = "sidebar.spaceOrder";
+
+  it("hands our own device its preferences on handshake", async () => {
+    const { ownStates } = await setup({
+      ownDevice: true,
+      ownPrefs: [pref(ORDER, ["a", "b"], 1_000)],
+    });
+
+    await vi.waitFor(() =>
+      expect(ownStates()).toEqual([
+        {
+          type: "own-state",
+          spaces: [],
+          prefs: [pref(ORDER, ["a", "b"], 1_000)],
+        },
+      ]),
+    );
+  });
+
+  it("tells another person nothing about how we arranged the sidebar", async () => {
+    const { ownStates } = await setup({
+      ownDevice: false,
+      spaceIds: [KNOWN_SPACE],
+      ownPrefs: [pref(ORDER, ["a", "b"], 1_000)],
+    });
+    await settle();
+
+    expect(ownStates()).toEqual([]);
+  });
+
+  it("adopts a preference decided on another of our devices", async () => {
+    // No space state alongside it: a preference is not about a space, so the
+    // message that carries one names none.
+    const { peer, host } = await setup({ ownDevice: true });
+
+    peer.receive({
+      type: "own-state",
+      spaces: [],
+      prefs: [pref(ORDER, ["b", "a"], 2_000)],
+    });
+
+    await vi.waitFor(() =>
+      expect(host.applyOwnPrefs).toHaveBeenCalledWith([
+        pref(ORDER, ["b", "a"], 2_000),
+      ]),
+    );
+  });
+
+  it("refuses a preference from another person", async () => {
+    const { peer, host } = await setup({
+      ownDevice: false,
+      spaceIds: [KNOWN_SPACE],
+    });
+
+    peer.receive({
+      type: "own-state",
+      spaces: [],
+      prefs: [pref(ORDER, ["b", "a"], 2_000)],
+    });
+    await settle();
+
+    expect(host.applyOwnPrefs).not.toHaveBeenCalled();
+  });
+
+  it("takes a sibling on an older build to mean no preferences, not empty ones", async () => {
+    const { peer, host } = await setup({ ownDevice: true });
+
+    peer.receive({ type: "own-state", spaces: [archived(KNOWN_SPACE, 2_000)] });
+
+    await vi.waitFor(() => expect(host.applyOwnSpaceStates).toHaveBeenCalled());
+    expect(host.applyOwnPrefs).not.toHaveBeenCalled();
+  });
+
+  it("pushes a preference change to our devices", async () => {
+    const { replicator, ownStates } = await setup({ ownDevice: true });
+    await settle();
+
+    await replicator.pushOwnState({ prefs: [pref(ORDER, ["b", "a"], 3_000)] });
+
+    expect(ownStates()).toEqual([
+      {
+        type: "own-state",
+        spaces: [],
+        prefs: [pref(ORDER, ["b", "a"], 3_000)],
+      },
+    ]);
   });
 });

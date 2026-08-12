@@ -100,6 +100,8 @@ async function setup() {
       state: "active" as const,
     })),
     getSpaceMembers: vi.fn(async () => [{ publicKey: REMOTE_PUBLIC_KEY }]),
+    getOwnSpaceStates: vi.fn(async () => []),
+    applyOwnSpaceStates: vi.fn(async () => {}),
     getSpaceVV: vi.fn(async () => ({})),
     getPageVVs: vi.fn(async () => ({})),
     updatePeerLastSeen: vi.fn(async () => {}),
@@ -125,9 +127,10 @@ async function setup() {
 
 describe("Replicator protocol negotiation", () => {
   it("uses a new semantic epoch while retaining the existing wire codec", () => {
-    // v3 adds the `device_add` space op (device certificates). The wire codec
-    // is untouched — no op encoding changed, only the union grew.
-    expect(PROTOCOL_VERSION).toBe(3);
+    // v4 adds the `own-state` message, which carries a person's archive
+    // decisions between their own devices. The wire codec is untouched — no op
+    // encoding changed, only the message set grew (v3 added `device_add`).
+    expect(PROTOCOL_VERSION).toBe(4);
     expect(WIRE_VERSION).toBe(1);
 
     const operation = {

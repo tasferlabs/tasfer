@@ -97,6 +97,7 @@ function serve(port: MessagePort): void {
     identity: engine.identity,
     peers: engine.peers,
     spaces: engine.spaces,
+    prefs: engine.prefs,
     pairing: engine.pairing,
     pages: engine.pages,
     assets: engine.assets,

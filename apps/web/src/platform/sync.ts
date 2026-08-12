@@ -22,6 +22,8 @@
  *     always dialed, and a space one of them pushes at us is adopted. They
  *     hold our root, so their spaces are already ours — this is what makes a
  *     space created after linking reach the devices linked before it existed.
+ *     They also exchange `own-state`, the person-private decisions that no op
+ *     can carry because co-members must not see them (see {@link OwnStateMsg}).
  *
  * Protocol:
  *   1. Connect to each admitted peer via deterministic topic
@@ -44,6 +46,9 @@
  *     { type: "space-ops",  spaceId, ops[] }
  *     { type: "page-ops",   spaceId, pageId, ops[] }
  *
+ *   Own-device state (only ever exchanged with our own devices):
+ *     { type: "own-state",  spaces[] }
+ *
  *   Room awareness (per-page presence):
  *     { type: "room-join",  pageId, peerId, user? }
  *     { type: "room-leave", pageId, peerId }
@@ -64,7 +69,7 @@
  *
  *   Device linking (one-time topic, distinct HKDF label):
  *     { type: "device-link", rootPublicKey, rootPrivateKey, cert, issuedAt,
- *                            deviceCerts[], spaces[] }
+ *                            deviceCerts[], spaces[], profile }
  *
  * Two kinds of pairing share this machinery and must not be confused. A space
  * invite adds another PERSON to one space. A device link adds another of the
@@ -130,7 +135,7 @@ import {
  * Bump on any protocol-level change; a higher remote value means "the peer may
  * speak things we don't yet understand".
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 // =============================================================================
 // ReplicatorHost — what the Replicator needs from the Engine
@@ -160,6 +165,14 @@ export interface ReplicatorHost {
   getOwnDeviceKeys(): Promise<string[]>;
   /** Whether a known space is currently eligible for replication. */
   getSpaceState(spaceId: string): Promise<"active" | "archived" | "unknown">;
+  /** This device's view of the person-private space state (see {@link OwnStateMsg}). */
+  getOwnSpaceStates(): Promise<OwnSpaceState[]>;
+  /** Merge a sibling device's {@link OwnSpaceState} entries, last decision wins. */
+  applyOwnSpaceStates(states: OwnSpaceState[]): Promise<void>;
+  /** This device's person-private preferences (see {@link OwnPref}). */
+  getOwnPrefs(): Promise<OwnPref[]>;
+  /** Merge a sibling device's {@link OwnPref} entries, last decision wins. */
+  applyOwnPrefs(prefs: OwnPref[]): Promise<void>;
   /** Resolve a page to its space and that space's current archive state. */
   getPageSpaceState(
     pageId: string,
@@ -241,6 +254,76 @@ interface PageOpsMsg {
   pageId: string;
   ops: Operation[];
 }
+/**
+ * One space's person-private state, as one device decided it.
+ *
+ * Archiving a space is a decision about the person's own sidebar, not about the
+ * space's content: the other members keep theirs. So it cannot travel as a
+ * space op — every op in a space log reaches every member — yet it still has to
+ * reach the person's other devices, or filing a space away on the laptop leaves
+ * it sitting in the phone's sidebar.
+ *
+ * `stamp` is wall-clock ms, not an HLC counter. There is no shared log to draw
+ * a counter from (that is the whole problem), and every stamp here is written
+ * by one person's own devices, where "the decision I made most recently wins"
+ * is both what they expect and what a counter would only approximate. `by` is
+ * the deciding device's key, breaking a same-millisecond tie the same way on
+ * every replica.
+ */
+export interface OwnSpaceState {
+  spaceId: string;
+  /** ISO timestamp the space was archived, or null while it is active. */
+  archivedAt: string | null;
+  /** Unix ms of the archive/unarchive decision; 0 if never decided. */
+  stamp: number;
+  /** Device key that made the decision, or null if never decided. */
+  by: string | null;
+}
+/**
+ * One person-private preference, as one device decided it.
+ *
+ * The same problem as {@link OwnSpaceState}, without the space: how the sidebar
+ * is arranged and which walkthroughs have been read are decisions about the
+ * person, so no space's op log can carry them — yet they still have to reach the
+ * person's other devices, or arranging the sidebar on the laptop leaves the
+ * phone showing the old order.
+ *
+ * One register per key, ordered by (`stamp`, `by`) exactly as the archive one
+ * is. A key is a whole register: two devices reordering spaces at once resolve
+ * to one of the two arrangements, not to a merge of both — which is what a
+ * person expects from "the arrangement I made last".
+ */
+export interface OwnPref {
+  /** Namespaced key, e.g. `sidebar.spaceOrder`. */
+  key: string;
+  /** JSON-encoded value. Opaque here: only the app layer reads the shape. */
+  value: string;
+  /** Unix ms of the decision. */
+  stamp: number;
+  /** Device key that made it, or null if unknown. */
+  by: string | null;
+}
+/**
+ * Person-private state, pushed on every decision and exchanged in full when two
+ * of our devices meet. Accepted from our own devices only — another person
+ * sending this is claiming to be a replica of us.
+ *
+ * The full exchange on `hello` is what makes it converge without an op log: a
+ * device that was offline for the decision learns it on reconnect, and learns
+ * it from any sibling that holds it, not only from the one that decided.
+ */
+interface OwnStateMsg {
+  type: "own-state";
+  spaces: OwnSpaceState[];
+  /**
+   * Absent from a build that predates person-private preferences, which is why
+   * adding them is not a {@link PROTOCOL_VERSION} bump: the field carries no
+   * merge semantics an older peer could get wrong, and denying that peer every
+   * op over a sidebar arrangement would be the worse trade. It simply keeps the
+   * old order until it updates.
+   */
+  prefs?: OwnPref[];
+}
 /** Sent when a peer opens a page. Announces presence to every other peer already in the room so they can show the peer's cursor and avatar. */
 interface RoomJoinMsg {
   type: "room-join";
@@ -319,7 +402,10 @@ interface PairAckMsg {
  * The space list travels here because a space cannot be pushed onto a peer over
  * normal replication (see `handleSyncData`): the newcomer must already own the
  * rows before it connects, exactly as `Engine.acceptInvite` writes them for a
- * single space.
+ * single space. The profile and the per-space archive flags travel for a
+ * different reason — no op describes either, so they would arrive only on the
+ * newcomer's first handshake, and it would spend the moments before that
+ * nameless with a sidebar full of spaces the person had filed away.
  */
 interface DeviceLinkMsg {
   type: "device-link";
@@ -331,8 +417,44 @@ interface DeviceLinkMsg {
   issuedAt: number;
   /** Certificates for the sender's own devices, so the newcomer can verify membership without waiting for replication. */
   deviceCerts: { deviceKey: string; cert: string; issuedAt: number }[];
-  /** Every space the sender belongs to, personal ones included. */
-  spaces: { id: string; name: string; personal: boolean }[];
+  /**
+   * Every space the sender belongs to, personal ones included, each with the
+   * sender's archive state. No op carries that flag — see {@link OwnStateMsg} —
+   * so without it a space filed away on one device would come back active on
+   * every device linked afterwards.
+   *
+   * The decision's stamp travels with it so the newcomer joins the LWW register
+   * already in step, instead of holding an undated copy that the next decision
+   * anywhere would have to outrank by luck.
+   */
+  spaces: {
+    id: string;
+    name: string;
+    personal: boolean;
+    archivedAt?: string | null;
+    archiveStamp?: number;
+    archiveBy?: string | null;
+  }[];
+  /**
+   * The person's display name and avatar, from the sender's `identity` row.
+   * That row is device-local and replication never carries it, so a newcomer
+   * without this would keep its own blank profile and show up as a nameless
+   * stranger beside its siblings in every shared space.
+   *
+   * Absent from a payload written by an older build; the newcomer then keeps
+   * whatever profile it already has.
+   */
+  profile?: { name: string; avatar: string | null };
+  /**
+   * The person's private preferences (see {@link OwnPref}), for the same reason
+   * the archive flags travel: nothing else in this bootstrap describes them, so
+   * without them the new device would spend its first moments with the sidebar
+   * arranged the way no device of this person's arranges it, and would re-run
+   * walkthroughs the person has already read.
+   *
+   * Stamps travel too, so the newcomer joins each register already in step.
+   */
+  prefs?: OwnPref[];
 }
 
 /** The enrolment data an already-linked device hands a newcomer. */
@@ -344,6 +466,7 @@ type Message =
   | SyncDataMsg
   | SpaceOpsMsg
   | PageOpsMsg
+  | OwnStateMsg
   | RoomJoinMsg
   | RoomLeaveMsg
   | RoomPeersMsg
@@ -1043,6 +1166,28 @@ export class Replicator {
     });
   }
 
+  /**
+   * Announce a person-private decision to this person's other devices.
+   *
+   * Not routed by shared space, unlike the op pushes: an archive is exactly the
+   * message that stops the space from being shared, and the sibling it is meant
+   * for may not be a member of the space at all yet. A preference is not about a
+   * space at all.
+   */
+  async pushOwnState(update: {
+    spaces?: OwnSpaceState[];
+    prefs?: OwnPref[];
+  }): Promise<void> {
+    const spaces = update.spaces ?? [];
+    const prefs = update.prefs ?? [];
+    if (spaces.length === 0 && prefs.length === 0) return;
+    const ownDevices = new Set(await this.host.getOwnDeviceKeys());
+    for (const conn of this.peers.values()) {
+      if (!ownDevices.has(conn.publicKey)) continue;
+      this.sendDirect(conn, { type: "own-state", spaces, prefs });
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Pairing (one-time topic for peer discovery + mutual auth)
   // ---------------------------------------------------------------------------
@@ -1335,6 +1480,11 @@ export class Replicator {
         await this.handlePageOps(fromPubKey, msg);
         break;
 
+      // Own-device state
+      case "own-state":
+        await this.handleOwnState(fromPubKey, msg);
+        break;
+
       // Room awareness
       case "room-join":
         this.handleRoomJoin(fromPubKey, msg);
@@ -1441,6 +1591,20 @@ export class Replicator {
 
     await this.host.updatePeerLastSeen(fromPubKey);
     await this.recomputeSharedSpaces(conn);
+
+    // Our own device: trade the person-private state in full before anything
+    // else. This is the only catch-up it gets — no version vector covers it —
+    // and doing it first means a space this device filed away is already
+    // filed on both sides by the time the pulls below run.
+    if (await this.isOwnDevice(fromPubKey)) {
+      const [states, prefs] = await Promise.all([
+        this.host.getOwnSpaceStates(),
+        this.host.getOwnPrefs(),
+      ]);
+      if (states.length > 0 || prefs.length > 0) {
+        this.sendDirect(conn, { type: "own-state", spaces: states, prefs });
+      }
+    }
 
     const shared = conn.sharedSpaces;
 
@@ -1558,8 +1722,10 @@ export class Replicator {
 
     // `sharedSpaces` is a cache that can outlive an archive, so re-check the
     // state: an archived space accepts no catch-up until it is restored. A
-    // sibling may only create a space we have never seen — one we archived
-    // here stays archived, since archiving is this device's own choice.
+    // sibling may only create a space we have never seen — an archived one
+    // stays archived, because ops are not how the archive flag moves between
+    // our devices (`own-state` is), and a restore has to be a decision rather
+    // than a side effect of a peer happening to push.
     const spaceState = await this.host.getSpaceState(msg.spaceId);
     const expected = adopting ? "unknown" : "active";
     if (spaceState !== expected) {
@@ -1667,6 +1833,30 @@ export class Replicator {
 
     // Persist to DB in the background
     this.host.applyRemotePageOps(msg.pageId, msg.ops);
+  }
+
+  // --- Own-device state ---
+
+  /**
+   * Adopt a sibling's person-private state.
+   *
+   * Gated on the device certificate rather than on membership: this message says
+   * "this is what you decided", which only a replica of us may say. A member of
+   * the same space is still another person, and letting them speak here would
+   * let them empty our sidebar.
+   */
+  private async handleOwnState(fromPubKey: string, msg: OwnStateMsg) {
+    if (!this.peers.has(fromPubKey)) return;
+    if (!(await this.isOwnDevice(fromPubKey))) {
+      console.warn(
+        `[Sync] dropped own-state from ${fromPubKey.slice(0, 8)} (not our device)`,
+      );
+      return;
+    }
+    // Either half may be empty — a preference change announces no space state,
+    // and a sibling on an older build sends no preferences at all.
+    if (msg.spaces?.length) await this.host.applyOwnSpaceStates(msg.spaces);
+    if (msg.prefs?.length) await this.host.applyOwnPrefs(msg.prefs);
   }
 
   // --- Room awareness ---
