@@ -1401,7 +1401,15 @@ class WebRtcTopic implements NetworkTopic {
     this.restartAttempted.delete(remotePeerId);
     this.pendingIce.delete(remotePeerId);
     this.signalQueues.delete(remotePeerId);
-    this.directFailedAt.set(remotePeerId, Date.now());
+    // Stamped once per window, not on every promotion: `_handlePeerJoin` comes
+    // straight here *because* of a recent failure, and re-stamping on that path
+    // would push the retry deadline out on each reconnect — a peer rejoining
+    // more often than DIRECT_RETRY_AFTER_MS would never be tried directly
+    // again, however long ago the network recovered. An expired stamp is
+    // cleared by the check itself, so a genuinely new failure restarts the clock.
+    if (!this.recentlyFailedDirect(remotePeerId)) {
+      this.directFailedAt.set(remotePeerId, Date.now());
+    }
 
     if (notifyRemote) {
       void this.sendSignal(remotePeerId, { type: "relay-start" }).catch((e) => {
