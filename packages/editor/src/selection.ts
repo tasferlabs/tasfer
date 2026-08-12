@@ -511,6 +511,11 @@ export function scrollToMakeCursorVisible(
  * Returns start or end of line based on text direction:
  * - LTR: left padding → start of line, right padding → end of line
  * - RTL: left padding → end of line, right padding → start of line
+ *
+ * Points above/below every block clamp the same way the main walk in
+ * {@link getTextPositionFromViewport} does — a drag that leaves the text column
+ * sideways and keeps going up or down must resolve to the same edge the flat
+ * path would, not to the opposite end of the document.
  */
 function getPositionFromPaddingClick(
   y: number,
@@ -519,13 +524,19 @@ function getPositionFromPaddingClick(
   maxWidth: number,
   startY: number,
   styles: EditorStyles,
+  viewportHeight: number,
   visibility?: VisibleBlockRange,
 ): Position | null {
-  let currentY = visibility?.startY ?? startY;
+  const contentTop = visibility?.startY ?? startY;
+  let currentY = contentTop;
 
   const visibleBlocks = state.view.visibleBlocks;
 
   const startIndex = visibility?.start ?? 0;
+  // The last block the walk visited, and whether it stopped at the viewport
+  // bottom rather than at the document's end (see the clamp below).
+  let lastWalkedOriginalIndex = -1;
+  let brokeEarly = false;
   for (
     let visibleIdx = startIndex;
     visibleIdx < visibleBlocks.length;
@@ -577,27 +588,42 @@ function getPositionFromPaddingClick(
       return { blockIndex: block.originalIndex, textIndex: 0 };
     }
 
+    lastWalkedOriginalIndex = block.originalIndex;
+
+    if (currentY > viewportHeight) {
+      brokeEarly = true;
+      break;
+    }
+
     currentY += blockHeight;
   }
 
-  // Click is below all blocks - position at end of last visible block
-  if (visibleBlocks.length > 0) {
-    const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
-    const allBlocks = state.document.page.blocks;
-    const lastBlockIndex = allBlocks.findIndex(
-      (b) => b.id === lastVisibleBlock.id,
-    );
-    if (lastBlockIndex === -1) return null;
-    const lastBlock = allBlocks[lastBlockIndex];
-    const content = getBlockTextContent(lastBlock);
+  if (visibleBlocks.length === 0) return null;
 
-    return {
-      blockIndex: lastBlockIndex,
-      textIndex: content.length,
-    };
+  // Above every block the walk covers — the top corner of the gutter: the start
+  // of the first painted block. Without this the walk falls through to the
+  // "below" clamp and a drag into that corner jumps the focus to the end of the
+  // document.
+  if (y < contentTop) {
+    const first = visibleBlocks[startIndex] ?? visibleBlocks[0];
+    return { blockIndex: first.originalIndex, textIndex: 0 };
   }
 
-  return null;
+  // Below everything the walk reached. When it stopped at the viewport bottom
+  // (a long document with content below the fold), clamp to the last block
+  // walked instead of the document's last block, so holding a gutter drag at
+  // the bottom edge reveals the rest one auto-scroll step at a time rather than
+  // selecting everything below the fold at once.
+  const targetOriginalIndex = brokeEarly
+    ? lastWalkedOriginalIndex
+    : visibleBlocks[visibleBlocks.length - 1].originalIndex;
+  const targetBlock = state.document.page.blocks[targetOriginalIndex];
+  if (!targetBlock) return null;
+
+  return {
+    blockIndex: targetOriginalIndex,
+    textIndex: getBlockTextContent(targetBlock).length,
+  };
 }
 
 /**
@@ -652,6 +678,7 @@ export function getTextPositionFromViewport(
       maxWidth,
       currentY,
       styles,
+      viewport.height,
       visibility,
     );
   }

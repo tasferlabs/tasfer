@@ -8,7 +8,7 @@ import {
   CLEAR_VISUAL_BLOCK_SELECTION,
   OPEN_BLOCK_OVERLAY,
   PLACE_CURSOR_AT_POINT,
-  PLACE_CURSOR_IN_SIDE_PADDING,
+  PLACE_CURSOR_IN_PADDING,
   SELECT_LINE_AT_POINT,
   SELECT_VISUAL_BLOCK,
   SELECT_WORD_AT_POINT,
@@ -247,7 +247,9 @@ export function handleMouseDown(
     canvasY < styles.canvas.paddingTop - viewport.scrollY;
 
   // If clicking in top padding, start a fresh paragraph above a leading
-  // self-contained block (code/math/quote); otherwise clear selection.
+  // self-contained block (code/math/quote); otherwise put the caret at the top
+  // of the document and arm a drag, so a sweep that starts in the margin above
+  // the text selects downward from the start.
   if (isClickInTopPadding) {
     if (state.ui.mode !== "readonly") {
       const edge = createParagraphAboveOnClick(state, canvasY, viewport);
@@ -255,9 +257,21 @@ export function handleMouseDown(
         return { state: edge.state, ops: [...ops, ...edge.ops] };
       }
     }
+    const topPosition = getTextPositionFromViewport(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      styles,
+      visibility,
+    );
     return {
-      state: state.actionBus.dispatchState(CLEAR_SELECTION_IN_PADDING, state)
-        .state,
+      state: topPosition
+        ? state.actionBus.dispatchState(PLACE_CURSOR_IN_PADDING, state, {
+            position: topPosition,
+          }).state
+        : state.actionBus.dispatchState(CLEAR_SELECTION_IN_PADDING, state)
+            .state,
       ops,
     };
   }
@@ -335,11 +349,9 @@ export function handleMouseDown(
         };
       }
       return {
-        state: state.actionBus.dispatchState(
-          PLACE_CURSOR_IN_SIDE_PADDING,
-          state,
-          { position: paddingPosition },
-        ).state,
+        state: state.actionBus.dispatchState(PLACE_CURSOR_IN_PADDING, state, {
+          position: paddingPosition,
+        }).state,
         ops,
       };
     }

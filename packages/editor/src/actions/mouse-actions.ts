@@ -101,16 +101,19 @@ export const PLACE_CURSOR_AT_POINT = stateAction<{
 });
 
 /**
- * Place the caret at a resolved position after a click in the left/right padding
- * gutter, clearing any active selection first and switching to `edit` mode. Pure,
- * no ops.
+ * Place the caret at the position a click in the padding (the left/right gutter
+ * or the top margin) resolved to, dropping any active selection first. Like a
+ * click in the content it anchors a fresh selection and enters `select` mode, so
+ * pressing in the margin and dragging into the text selects — the gutter is
+ * where a sweep down a paragraph's edge naturally starts. Pure, no ops.
  */
-export const PLACE_CURSOR_IN_SIDE_PADDING = stateAction<{
+export const PLACE_CURSOR_IN_PADDING = stateAction<{
   position: Position;
-}>("place-cursor-in-side-padding", (state, { position }) => {
+}>("place-cursor-in-padding", (state, { position }) => {
   let newState = clearSelection(state);
   newState = updateCursor(newState, position);
-  return { state: updateMode(newState, "edit"), ops: [] };
+  newState = startSelection(newState, position);
+  return { state: updateMode(newState, "select"), ops: [] };
 });
 
 // ─── Word / line selection (double / triple click) ───────────────────────────
@@ -190,8 +193,8 @@ export const CLEAR_VISUAL_BLOCK_SELECTION = stateAction(
 // ─── Padding / outside clicks ────────────────────────────────────────────────
 
 /**
- * Clear the selection on a click in the top padding area, switching to `edit`
- * mode. Pure, no ops.
+ * Clear the selection on a padding click that resolved to no position at all
+ * (an empty document), switching to `edit` mode. Pure, no ops.
  */
 export const CLEAR_SELECTION_IN_PADDING = stateAction(
   "clear-selection-in-padding",

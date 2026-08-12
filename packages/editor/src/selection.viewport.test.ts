@@ -105,6 +105,63 @@ describe("viewport pointer lookup", () => {
     expect(position).toEqual({ blockIndex: 121, textIndex: 0 });
   });
 
+  it("clamps gutter points to the same edges as the text column", () => {
+    // Regression: a drag that leaves the text column sideways (x in the
+    // left/right padding) and keeps going up or down took a separate walk that
+    // resolved BOTH cases to the document's last block — dragging up into the
+    // top corner jumped the focus to the end of the document, and holding at
+    // the bottom edge swallowed everything below the fold in one step.
+    class TestNode extends AtomicNode<TestBlock> {
+      readonly type = "viewport-test" as const;
+      protected intrinsicHeight(_c: NodeLayoutCtx): number {
+        return 40;
+      }
+      protected draw(_box: BlockBounds, _c: NodePaintCtx): void {}
+    }
+
+    const blocks = Array.from({ length: 1000 }, (_, index) => ({
+      id: `b${index}`,
+      type: "viewport-test",
+    })) as unknown as Block[];
+    const page: Page = { id: "page", title: "", blocks };
+    const state = createInitialState(page, {
+      nodes: new NodeRegistry().register(new TestNode()),
+    });
+    const viewport = {
+      width: 600,
+      height: 800,
+      scrollY: 4_000,
+      documentHeight: 40_000,
+    };
+    // Painted window: block 100 at canvas-y 20, 40px blocks.
+    const visibility = { start: 100, end: 120, startY: 20 };
+    const gutterX = 10; // inside the 40px left padding
+
+    // Above the first painted block → its start, not the document's end.
+    expect(
+      getTextPositionFromViewport(
+        gutterX,
+        5,
+        state,
+        viewport,
+        undefined,
+        visibility,
+      ),
+    ).toEqual({ blockIndex: 100, textIndex: 0 });
+
+    // Below the viewport with content past the fold → clamped to the fold.
+    expect(
+      getTextPositionFromViewport(
+        gutterX,
+        900,
+        state,
+        viewport,
+        undefined,
+        visibility,
+      ),
+    ).toEqual({ blockIndex: 120, textIndex: 0 });
+  });
+
   it("keeps typing scroll checks in the latest painted coordinate space", () => {
     const blocks = Array.from({ length: 1000 }, (_, index) => ({
       id: `p${index}`,
