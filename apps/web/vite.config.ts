@@ -92,6 +92,13 @@ if (isHostMode && !lanHttps) {
   );
 }
 
+// `wrangler dev` (apps/live) only listens on localhost, and in host mode the
+// page is HTTPS — so a LAN device can neither reach that port nor open a plain
+// `ws://` socket from a secure page. Proxying the signaling server through this
+// dev server fixes both: it is same-origin, so it inherits the LAN host and the
+// TLS. Point VITE_SIGNAL_URL at the path below (see .env.example) to use it.
+const signalProxyTarget = process.env.VITE_SIGNAL_PROXY ?? "http://127.0.0.1:8787";
+
 // Read version config from monorepo root
 const versionConfig = JSON.parse(
   readFileSync(join(__dirname, "../../version.json"), "utf-8"),
@@ -175,5 +182,15 @@ export default defineConfig({
     https: lanHttps,
     // Replaced by our own devtools-styled overlay (see src/dev/viteErrorOverlay).
     hmr: { overlay: false },
+    proxy: {
+      // The prefix is stripped so the worker sees its own `/topic/{hex}` route,
+      // and keeps the signaling path from colliding with an app route.
+      "/__signal": {
+        target: signalProxyTarget,
+        ws: true,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/__signal/, ""),
+      },
+    },
   },
 });

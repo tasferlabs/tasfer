@@ -149,11 +149,24 @@ export async function initPlatform(): Promise<Platform> {
   return _initPromise;
 }
 
+// A path-only VITE_SIGNAL_URL means "same origin as this page" — the dev-server
+// proxy in vite.config.ts. Resolving it here rather than shipping a relative URL
+// to `new WebSocket()` keeps the ws/wss choice tied to how the page was loaded,
+// which is what makes `dev:host` (HTTPS on the LAN) reach a local wrangler dev.
+function resolveSignalUrl(): string {
+  const configured = import.meta.env.VITE_SIGNAL_URL;
+  if (!configured) return "wss://signaling.tasfer.app";
+  if (!configured.startsWith("/")) return configured;
+
+  const url = new URL(configured, location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.href.replace(/\/$/, "");
+}
+
 async function _initPlatformInner(): Promise<Platform> {
   const env = detectAdapter();
 
-  const signalUrl =
-    import.meta.env.VITE_SIGNAL_URL ?? "wss://signaling.tasfer.app";
+  const signalUrl = resolveSignalUrl();
 
   // Web: the device-node SharedWorker is the one and only path. The Engine +
   // Replicator run in the worker, SQLite runs there on an IndexedDB-backed VFS,
