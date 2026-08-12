@@ -72,8 +72,10 @@ async function waitBoot(page, ms = 12000) {
 }
 
 // Walk the onboarding carousel by clicking its primary button
-// (Verify code → Continue → Continue → Just continue). Returns the number of
-// steps clicked (0 on a warm profile where onboarding is already done).
+// (Verify code → Continue → Continue). The last step offers no primary — its
+// way out is "Skip setup" in the card head, which creates the default space.
+// Returns the number of steps clicked (0 on a warm profile where onboarding is
+// already done).
 async function onboard(page, ms = 15000) {
   const deadline = Date.now() + ms;
   let steps = 0;
@@ -90,7 +92,13 @@ async function onboard(page, ms = 15000) {
     }
     await primary.click().catch(() => {});
     steps++;
-    await page.waitForTimeout(700); // "Just continue" persists a space async
+    await page.waitForTimeout(400);
+  }
+  const skip = page.locator(".ob-skip:visible").last();
+  if (await skip.count()) {
+    await skip.click().catch(() => {});
+    steps++;
+    await page.waitForTimeout(700); // the space persists async
   }
   return steps;
 }
