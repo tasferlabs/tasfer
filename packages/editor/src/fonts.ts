@@ -11,6 +11,7 @@
  */
 
 import { containsCJK, isCJKCharacter } from "./cjk";
+import { isHighSurrogate, isLowSurrogate } from "./code-points";
 import { resolveMarkRunsFromChars } from "./inline-math-spans";
 import type { MarkRegistry, MarkReplacement } from "./rendering/marks";
 import type { Char, CharRun, Mark, MarkSpan } from "./serlization/loadPage";
@@ -1090,6 +1091,24 @@ export function wrapText(
     const isCJK = isCJKCharacter(char);
     const isSpace = char === " ";
 
+    // An astral character (an emoji) is stored as two chars — a surrogate pair —
+    // but is ONE glyph. Measure and break it as one: the leading half carries
+    // the pair's width, the trailing half carries 0 and, like a chip's interior
+    // char, never wraps on its own. Measuring the halves separately would
+    // reserve two .notdef boxes' worth of advance, and breaking between them
+    // would leave half a character painting as tofu at each line's edge.
+    const nextChar = visibleChars[visibleIndex + 1]?.char;
+    const pairLead =
+      isHighSurrogate(char) &&
+      nextChar !== undefined &&
+      isLowSurrogate(nextChar)
+        ? char + nextChar
+        : null;
+    const isPairTail =
+      isLowSurrogate(char) &&
+      visibleIndex > 0 &&
+      isHighSurrogate(visibleChars[visibleIndex - 1].char);
+
     // A reflowing replacement run: pack its source into slices here rather than
     // letting the generic char path move the whole formula. The first slice
     // rides with the anchor char; each continuation slice opens its own line, so
@@ -1134,12 +1153,12 @@ export function wrapText(
     const isChipTail = segW === undefined && chipTail.has(visibleIndex);
     if (segW !== undefined) {
       charWidth = segW;
-    } else if (isChipTail) {
+    } else if (isChipTail || isPairTail) {
       charWidth = 0;
     } else {
       const { weight, style } = getFontVariantAtIndex(visibleIndex);
       charWidth = measureCtxText(
-        char,
+        pairLead ?? char,
         fontSize,
         weight,
         fontFamily,
@@ -1157,7 +1176,8 @@ export function wrapText(
     if (
       currentLineWidth + charWidth > maxWidth &&
       (currentLine.length > 0 || currentLead !== undefined) &&
-      !isChipTail
+      !isChipTail &&
+      !isPairTail
     ) {
       // Line is full, need to wrap
       if (isCJK || isSpace || hasCJK) {

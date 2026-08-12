@@ -801,11 +801,13 @@ function segmentsToCharsAndFormats(
   for (const segment of segments) {
     const startIdx = chars.length;
 
-    // Create chars for this segment
-    for (const char of segment.content) {
+    // Create chars for this segment — one per UTF-16 unit, the granularity a
+    // CharRun addresses. Iterating by code point would give a pasted emoji a
+    // single ID for its two units and desync every ID after it in the run.
+    for (let i = 0; i < segment.content.length; i++) {
       chars.push({
         id: idGen(),
-        char,
+        char: segment.content[i],
         deleted: false,
       });
     }

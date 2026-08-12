@@ -145,8 +145,10 @@ export function generateBlockId(genId: () => string): string {
 }
 
 /**
- * Generate unique character IDs for a string.
- * Creates an array of CharData objects with unique IDs.
+ * Generate unique character IDs for a string — one per UTF-16 unit, which is
+ * the granularity a `CharRun` addresses (`startCounter + offset` over
+ * `run.text`). An astral character (an emoji) is therefore two entries; giving
+ * it one would make every later ID in the run resolve to the wrong character.
  *
  * @param genId - ID generator function
  * @param text - Text to generate character IDs for
@@ -156,9 +158,9 @@ export function generateCharIds(
   genId: () => string,
   text: string,
 ): Array<{ id: string; char: string }> {
-  return Array.from(text).map((char) => ({
+  return Array.from({ length: text.length }, (_, i) => ({
     id: genId(),
-    char,
+    char: text[i],
   }));
 }
 /**

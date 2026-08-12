@@ -1,5 +1,6 @@
 import { CONVERT_STRUCTURED_BLOCK, TEXT_INPUTTED } from "../action-bus";
 import { isCJKCharacter } from "../cjk";
+import { nextCodePointEnd, prevCodePointStart } from "../code-points";
 import { resolveMarkRuns } from "../inline-math-spans";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isBlockRTL } from "../rtl";
@@ -2032,10 +2033,16 @@ export function deleteText(state: EditorState): ActionResult {
   }
 
   if (textIndex > 0) {
+    // One character back, not one UTF-16 unit: an astral character (an emoji)
+    // is a surrogate pair, and halving it would leave text no font can draw.
+    const charStart = prevCodePointStart(
+      getBlockTextContent(oldBlock),
+      textIndex,
+    );
     if (
       rangeIntersectsStructuredMark(
         oldBlock,
-        textIndex - 1,
+        charStart,
         textIndex,
         state.schema,
       )
@@ -2046,7 +2053,7 @@ export function deleteText(state: EditorState): ActionResult {
     const { newPage, op } = deleteCharsInRange(
       state.document.page,
       oldBlock.id,
-      textIndex - 1,
+      charStart,
       textIndex,
       state.CRDTbinding,
     );
@@ -2059,7 +2066,7 @@ export function deleteText(state: EditorState): ActionResult {
         blockCopy,
         state.CRDTbinding,
         state.schema,
-        textIndex - 1,
+        charStart,
         false,
         state.ui.suppressedInputRule,
       );
@@ -2076,7 +2083,7 @@ export function deleteText(state: EditorState): ActionResult {
     newState = moveCursorToPosition(
       newState,
       blockIndex,
-      Math.max(0, textIndex - 1 - removedPrefixLength),
+      Math.max(0, charStart - removedPrefixLength),
       true,
     );
     return { state: newState, ops };
@@ -2394,13 +2401,10 @@ export function deleteForward(state: EditorState): ActionResult {
   }
 
   if (textIndex < oldText.length) {
+    // One character forward, not one UTF-16 unit — see the backward delete.
+    const charEnd = nextCodePointEnd(oldText, textIndex);
     if (
-      rangeIntersectsStructuredMark(
-        oldBlock,
-        textIndex,
-        textIndex + 1,
-        state.schema,
-      )
+      rangeIntersectsStructuredMark(oldBlock, textIndex, charEnd, state.schema)
     ) {
       return { state, ops: [] };
     }
@@ -2409,7 +2413,7 @@ export function deleteForward(state: EditorState): ActionResult {
       state.document.page,
       oldBlock.id,
       textIndex,
-      textIndex + 1,
+      charEnd,
       state.CRDTbinding,
     );
     ops.push(op);

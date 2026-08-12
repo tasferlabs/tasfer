@@ -260,8 +260,16 @@ function makeInputCtx(context: ParserContext, indent: number): InputCtx {
     },
     rawText: (text: string) => {
       const chars: Char[] = [];
-      for (const char of text) {
-        chars.push({ id: generateCharId(context), char, deleted: false });
+      // One ID per UTF-16 unit — see `generateCharId`. Iterating by code point
+      // would hand an astral character (an emoji) a single ID for its two
+      // units, and every ID after it inside the run would then resolve to the
+      // wrong character.
+      for (let i = 0; i < text.length; i++) {
+        chars.push({
+          id: generateCharId(context),
+          char: text[i],
+          deleted: false,
+        });
       }
       return charsToRuns(chars);
     },
@@ -408,7 +416,10 @@ function parseCharsAndFormats(context: ParserContext): {
       // retains its exact source. When no active codec/mark claimed it, parse
       // that source literally rather than losing delimiters or attributes.
       const content = node.raw ?? node.content;
-      for (const char of content) {
+      // One ID per UTF-16 unit, not per code point — see `generateCharId` and
+      // the `rawText` note above.
+      for (let ci = 0; ci < content.length; ci++) {
+        const char = content[ci];
         const charId = generateCharId(context);
         chars.push({ id: charId, char, deleted: false });
 

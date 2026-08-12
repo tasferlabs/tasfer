@@ -1,3 +1,4 @@
+import { nextCodePointEnd, prevCodePointStart } from "./code-points";
 import { currentFontFamily, measureCharsUpToIndex } from "./fonts";
 import {
   getContentWithComposition,
@@ -2373,7 +2374,10 @@ export function moveCursorLeft(state: EditorState): EditorState {
 
     if (textIndex < currentBlockLength) {
       // Logical forward; clamp out of any atomic inline token (e.g. a math chip).
-      const target = textIndex + 1;
+      const target = nextCodePointEnd(
+        getBlockTextContent(currentBlock),
+        textIndex,
+      );
       const snapped = caretTokenClamp(state, currentBlock, target, "right");
       return moveCursorToPosition(state, blockIndex, snapped ?? target);
     } else {
@@ -2411,7 +2415,12 @@ export function moveCursorLeft(state: EditorState): EditorState {
       // construct) the caret snaps to the previous legal stop rather than landing
       // inside `\int`; in plain text it's a normal one-character step.
       const snapped = caretStep(state, currentBlock, textIndex, "left");
-      return moveCursorToPosition(state, blockIndex, snapped ?? textIndex - 1);
+      return moveCursorToPosition(
+        state,
+        blockIndex,
+        snapped ??
+          prevCodePointStart(getBlockTextContent(currentBlock), textIndex),
+      );
     } else {
       // Moving to previous visible block
       const prevBlockIndex = findPreviousVisibleBlockIndex(
@@ -2484,7 +2493,10 @@ export function moveCursorRight(state: EditorState): EditorState {
     // In RTL text, visual right is logical backward (decrement)
     if (textIndex > 0) {
       // Logical backward; clamp out of any atomic inline token (e.g. a math chip).
-      const target = textIndex - 1;
+      const target = prevCodePointStart(
+        getBlockTextContent(currentBlock),
+        textIndex,
+      );
       const snapped = caretTokenClamp(state, currentBlock, target, "left");
       return moveCursorToPosition(state, blockIndex, snapped ?? target);
     } else {
@@ -2523,7 +2535,12 @@ export function moveCursorRight(state: EditorState): EditorState {
       // construct) the caret snaps to the next legal stop rather than landing
       // inside `\int`; in plain text it's a normal one-character step.
       const snapped = caretStep(state, currentBlock, textIndex, "right");
-      return moveCursorToPosition(state, blockIndex, snapped ?? textIndex + 1);
+      return moveCursorToPosition(
+        state,
+        blockIndex,
+        snapped ??
+          nextCodePointEnd(getBlockTextContent(currentBlock), textIndex),
+      );
     } else {
       // Moving to next visible block
       const nextBlockIndex = findNextVisibleBlockIndex(

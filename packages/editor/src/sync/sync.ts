@@ -693,10 +693,13 @@ export function createSyncEngine(
       const block = findBlock(getState(), blockId);
       const afterCharId = block ? findCharIdAtPosition(block, position) : null;
 
-      const chars: Char[] = Array.from(text).map((char) => ({
-        id: binding.nextId(),
-        char,
-      }));
+      // One ID per UTF-16 unit: a run's IDs are rebuilt as
+      // `startCounter + offset` over `run.text`, so an astral character (an
+      // emoji) must claim an ID for each of its two units.
+      const chars: Char[] = [];
+      for (let i = 0; i < text.length; i++) {
+        chars.push({ id: binding.nextId(), char: text[i] });
+      }
 
       const charRuns = charsToCharRuns(chars);
       return createTextInsert(blockId, afterCharId, charRuns);

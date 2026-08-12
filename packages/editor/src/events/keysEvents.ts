@@ -44,6 +44,7 @@ import {
   MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
 import { CURSOR_MOVED } from "../actions/pointer-actions";
+import { isTextInputKey } from "../code-points";
 import { isApplePlatform } from "../platform";
 import {
   TOGGLE_CODE,
@@ -224,7 +225,7 @@ export function handleKeyDown(
     }
     // Block regular character input during composition
     if (
-      key.length === 1 &&
+      isTextInputKey(key) &&
       !keyEvent.ctrlKey &&
       !keyEvent.altKey &&
       !keyEvent.metaKey
@@ -1098,7 +1099,7 @@ export function handleKeyDown(
     }
     default:
       if (
-        key.length === 1 &&
+        isTextInputKey(key) &&
         !keyEvent.ctrlKey &&
         !keyEvent.altKey &&
         !keyEvent.metaKey

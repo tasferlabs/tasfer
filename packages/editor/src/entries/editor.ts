@@ -34,6 +34,7 @@ import {
   expandSelectionAroundStructuredMarks,
   rangeIntersectsStructuredMark,
 } from "../actions/structured-marks";
+import { isTextInputKey } from "../code-points";
 import { BLUR_SELECTION_CLEAR_DELAY } from "../constants";
 import { IS_DEV } from "../env";
 import { edgeScrollDelta } from "../events/autoScroll";
@@ -3505,7 +3506,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // not this keydown. Preserve its source for queueSyntheticKey; virtual
       // keyboards that only mutate the surface never arm this latch.
       this.pendingTextInputSource =
-        e.key.length === 1 && !e.altKey && e.isTrusted
+        isTextInputKey(e.key) && !e.altKey && e.isTrusted
           ? "hardware-keyboard"
           : null;
       e.stopPropagation();
