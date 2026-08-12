@@ -37,13 +37,16 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
         case "open-camera":
             imagePickerCoordinator?.openCamera()
         case "open-url":
-            // Web URLs only. The string comes from JavaScript, and `open` on an
-            // arbitrary scheme (a private deep link, itms-apps:, tel:) would let a
-            // document drive other apps on the device on the user's behalf.
+            // The string comes from JavaScript, and `open` on an arbitrary
+            // scheme (a private deep link, itms-apps:) would let a document
+            // drive other apps on the device on the user's behalf. The allowlist
+            // mirrors `SAFE_LINK_PROTOCOLS` in packages/editor — narrowing it
+            // here would strand link kinds the editor accepts and the
+            // confirmation sheet has already promised to open.
             if let urlString = body["url"] as? String,
                 let url = URL(string: urlString),
                 let scheme = url.scheme?.lowercased(),
-                scheme == "http" || scheme == "https"
+                ["http", "https", "mailto", "tel"].contains(scheme)
             {
                 DispatchQueue.main.async {
                     UIApplication.shared.open(url)
