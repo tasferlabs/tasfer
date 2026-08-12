@@ -366,6 +366,7 @@ export function PageLink({
           position="inside"
           parentsStack={[...parentsStack, { id: data.id, order: data.order }]}
           spaceId={spaceId}
+          hasChildren={data.hasChildren}
         />
 
         <div
