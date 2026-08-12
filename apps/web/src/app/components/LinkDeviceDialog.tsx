@@ -498,7 +498,13 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
 
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={handleOpenChange}>
+      <Drawer
+        open={open}
+        onOpenChange={handleOpenChange}
+        // A pasted code is easy to lose and tedious to get back, so the drawer
+        // sits still until it is used or the step is left by the Back button.
+        dirty={step === "enter" && !scanning && code.trim() !== ""}
+      >
         <DrawerContent {...describedBy}>
           <div className="mx-auto w-full max-w-sm px-4 pt-4 pb-6">{body}</div>
         </DrawerContent>

@@ -35,8 +35,21 @@ function raisesKeyboard(node: EventTarget | null): boolean {
 }
 
 function Drawer({
+  dirty = false,
+  dismissible = true,
   ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Root>) {
+}: React.ComponentProps<typeof DrawerPrimitive.Root> & {
+  /**
+   * The drawer holds input the user has typed but not committed. While set, the
+   * drawer refuses every accidental dismissal — swipe-down, backdrop tap and
+   * Escape — so a stray gesture cannot throw the edit away.
+   *
+   * Vaul implements this by swallowing *all* Radix-initiated closes, `DrawerClose`
+   * included, so a dirty drawer must offer its own way out: a Cancel/Save button
+   * that drives the owner's `open` state (controlled `open` still closes it).
+   */
+  dirty?: boolean;
+}) {
   // `DrawerContent` owns keyboard-inset handling itself (see `useKeyboardInset`
   // and the `expanded`/`paddingBottom` geometry below), so vaul's built-in
   // input repositioning is redundant here — and actively harmful. Vaul's
@@ -47,7 +60,12 @@ function Drawer({
   // iOS focus gesture so the soft keyboard never settles open. Disable it and
   // let our own inset logic be the single source of truth. Still overridable.
   return (
-    <DrawerPrimitive.Root data-slot="drawer" repositionInputs={false} {...props} />
+    <DrawerPrimitive.Root
+      data-slot="drawer"
+      repositionInputs={false}
+      dismissible={dismissible && !dirty}
+      {...props}
+    />
   );
 }
 

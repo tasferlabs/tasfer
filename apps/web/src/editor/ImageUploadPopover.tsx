@@ -123,6 +123,10 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
+      // The field is shared with the desktop popover, where Escape dismisses.
+      // In the drawer it is a dismissal like any other and must not discard
+      // typing — see `dirty` on the `Drawer` below.
+      if (isMobile && hasUnappliedUrl) return;
       onClose();
     } else if (e.key === "Enter" && uploadMode === "url") {
       e.preventDefault();
@@ -143,6 +147,10 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
   };
 
   const native = isNative();
+
+  // A URL typed but not applied yet. The mobile drawer holds itself open while
+  // this is true, so a swipe or a backdrop tap cannot discard the typing.
+  const hasUnappliedUrl = imageUrl.trim() !== (existingUrl ?? "").trim();
 
   // Shared content for both drawer and popover
   const content = (
@@ -323,7 +331,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
         open={true}
         onOpenChange={(open) => !open && onClose()}
         modal={true}
-        dismissible={true}
+        dirty={hasUnappliedUrl}
         shouldScaleBackground={false}
       >
         <DrawerContent
@@ -354,7 +362,19 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                   : t("image.addImage", "Add Image")}
               </DrawerTitle>
             </DrawerHeader>
-            <div className="space-y-4 p-4">{content}</div>
+            <div className="space-y-4 p-4">
+              {content}
+              {/* The swipe is blocked while the URL field is dirty, so leaving
+                  has to be something the user asks for. */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClose}
+                className="w-full"
+              >
+                {t("common.cancel", "Cancel")}
+              </Button>
+            </div>
           </div>
         </DrawerContent>
       </Drawer>

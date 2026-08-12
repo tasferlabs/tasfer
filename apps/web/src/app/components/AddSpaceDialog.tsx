@@ -231,6 +231,15 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
     setErrorMsg("");
   }
 
+  // Typed but unsubmitted input, which the mobile drawer refuses to be swiped
+  // away over. Scoped to the view that owns the field, so the back arrow — the
+  // way out of a drawer that will not dismiss itself — always clears the guard.
+  const createName = createForm.watch("name");
+  const joinCode = joinForm.watch("code");
+  const hasUnsavedInput =
+    (view === "create" && createName.trim() !== "") ||
+    (view === "join" && joinStatus === "input" && joinCode.trim() !== "");
+
   // --- Views ---
 
   const pickView = (
@@ -682,7 +691,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   // --- Render ---
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
+      <Drawer open={open} onOpenChange={onOpenChange} dirty={hasUnsavedInput}>
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm px-4 pb-6 pt-4">
             {header}

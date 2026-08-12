@@ -58,6 +58,10 @@ export function EditGroupDialog({
 }: EditGroupDialogProps) {
   const { t } = useTranslation();
   const { isMobile } = useMobileLayout();
+  // An edited-but-unsaved name, reported up from the tab that owns the field so
+  // the drawer can refuse to be swiped away over it. The footer's Close button
+  // stays the deliberate way out.
+  const [nameEdited, setNameEdited] = useState(false);
 
   const content = (
     <Tabs defaultValue="general">
@@ -69,6 +73,7 @@ export function EditGroupDialog({
         <GeneralTab
           spaceId={spaceId}
           open={open}
+          onEditedChange={setNameEdited}
         />
       </TabsContent>
       <TabsContent value="members">
@@ -86,7 +91,7 @@ export function EditGroupDialog({
 
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
+      <Drawer open={open} onOpenChange={onOpenChange} dirty={nameEdited}>
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
@@ -119,9 +124,12 @@ export function EditGroupDialog({
 function GeneralTab({
   spaceId,
   open,
+  onEditedChange,
 }: {
   spaceId: string;
   open: boolean;
+  /** Reports an unsaved edit to the name, which pins the drawer open. */
+  onEditedChange: (edited: boolean) => void;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -157,6 +165,14 @@ function GeneralTab({
       form.reset();
     }
   }, [open]);
+
+  // Mirror the field's dirty state up to the drawer; a tab switch or a close
+  // unmounts this form, and the edit goes with it, so drop the guard too.
+  const nameEdited = form.formState.isDirty;
+  useEffect(() => {
+    onEditedChange(nameEdited);
+    return () => onEditedChange(false);
+  }, [nameEdited, onEditedChange]);
 
   function onSubmit(data: z.infer<typeof FormSchema>) {
     updateSpace({ id: spaceId, name: data.name });
