@@ -301,7 +301,7 @@ export class ListNode extends TextNode {
     return [
       {
         id: "todo-checkbox",
-        hitTest: (p) => {
+        hitTest: (p, pointerType) => {
           const styles = c.styles;
           const { indentOffset, markerWidth } = this.leadingInset(
             block,
@@ -328,10 +328,26 @@ export class ListNode extends TextNode {
           );
           const checkboxY = c.origin.y + fontMetrics.ascent - checkboxSize + 2;
 
-          const pad = 4; // click/tap tolerance beyond the drawn box
+          // Tolerance beyond the drawn box. A thumb needs far more of it than a
+          // cursor: the box is 16px, which is under half the target size either
+          // mobile platform asks for.
+          const pad = pointerType === "touch" ? 12 : 4;
+
+          // Growing towards the text would steal taps meant to put the caret on
+          // the first character, so that side stops at the text column. The
+          // gutter sits between the checkbox and the text on whichever side the
+          // paragraph's direction puts it.
+          const gutter = Math.max(0, markerWidth - 2 - checkboxSize);
+          const padTowardsText = Math.min(pad, gutter);
+          const padLeft = isRTL ? padTowardsText : pad;
+          const padRight = isRTL ? pad : padTowardsText;
+
+          // Vertical padding needs no such clamp: the dispatcher only consults
+          // this region when the point is inside the block's own box, so it can
+          // never reach the item above or below.
           const inside =
-            p.x >= checkboxX - pad &&
-            p.x <= checkboxX + checkboxSize + pad &&
+            p.x >= checkboxX - padLeft &&
+            p.x <= checkboxX + checkboxSize + padRight &&
             p.y >= checkboxY - pad &&
             p.y <= checkboxY + checkboxSize + pad;
           return inside ? { blockIndex: c.blockIndex } : null;
