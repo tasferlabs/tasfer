@@ -895,6 +895,14 @@ function SpaceJoin({
       setWasRestored(true);
       setStatus("done");
     },
+    // The accept can reject before pairing starts, and `callbacks.onError` only
+    // covers failures the replicator reports — without this the screen sits on
+    // the connecting spinner for good.
+    onError: (err) => {
+      activeInviteRef.current = null;
+      setStatus("error");
+      setErrorMsg(err.message);
+    },
   });
 
   const canJoin =
