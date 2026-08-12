@@ -38,7 +38,7 @@ import {
   useCreateSpace,
 } from "../api/spaces.api";
 import useMobileLayout from "../hooks/useMobileLayout";
-import { decodeInvite, isInviteExpired } from "../inviteCode";
+import { decodeInvite, isDeviceLink, isInviteExpired } from "../inviteCode";
 import type { SpaceInvite } from "@/platform/types";
 import { QRScannerView } from "./QRScannerView";
 
@@ -147,6 +147,19 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
   });
 
   function runJoin(invite: SpaceInvite) {
+    // Device codes decode cleanly here and would only fail deep in pairing, so
+    // name the mistake and point at the flow that wants it. Every entry point
+    // (form, scan, file) lands here, so one check covers them all.
+    if (isDeviceLink(invite)) {
+      setJoinStatus("error");
+      setErrorMsg(
+        t(
+          "space.notASpaceInvite",
+          "That's a device code, not a space invite. Use it under Profile → Link a device.",
+        ),
+      );
+      return;
+    }
     if (isInviteExpired(invite)) {
       setJoinStatus("error");
       setErrorMsg(
@@ -593,7 +606,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
         {wasRestored
           ? t(
               "space.restoredSpace",
-              'Restored "{{name}}" — it was archived on this device.',
+              'Restored "{{name}}" — you had this space archived.',
               { name: spaceName },
             )
           : t("space.joinedSpace", 'Joined "{{name}}" successfully!', {

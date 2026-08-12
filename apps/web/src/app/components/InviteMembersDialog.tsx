@@ -17,7 +17,7 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import "dayjs/locale/ar";
 import { Button } from "@/components/ui/button";
-import { P2PTutorial, hasSeenP2PTutorial } from "./P2PTutorial";
+import { P2PTutorial, useP2PTutorialSeen } from "./P2PTutorial";
 import {
   Dialog,
   DialogContent,
@@ -39,12 +39,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   useCreateInvite,
+  useGetSpaceMembers,
   useWaitForPeer,
   cancelPairing,
   getInvite,
   getSpace,
   revokeInvite,
 } from "../api/spaces.api";
+import { useAuth } from "../contexts/AuthContext";
 import type { SpaceInvite, Peer } from "@/platform/types";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { getDisplayName } from "@tasfer/provider-core/cursors";
@@ -109,7 +111,13 @@ export function InviteMembersDialog({
   const { isMobile } = useMobileLayout();
   const dateLocale = i18n.language?.startsWith("ar") ? "ar" : "en";
 
-  const [showTutorial, setShowTutorial] = useState(false);
+  // Whether the walkthrough has been read follows the person across their
+  // devices, so it is read from the replicated register rather than held here.
+  // `dismissed` is only this dialog session: reading it through to the end hides
+  // it without waiting for the write to land.
+  const { seen: tutorialSeen, loaded: tutorialLoaded } = useP2PTutorialSeen();
+  const [tutorialDismissed, setTutorialDismissed] = useState(false);
+  const showTutorial = tutorialLoaded && !tutorialSeen && !tutorialDismissed;
   const [phase, setPhase] = useState<Phase>("setup");
   /** Ephemeral QR invite — dies with the dialog */
   const [qrInvite, setQrInvite] = useState<SpaceInvite | null>(null);
@@ -126,6 +134,21 @@ export function InviteMembersDialog({
   const [spaceName, setSpaceName] = useState<string | null>(null);
   const [ttlIndex, setTtlIndex] = useState(DEFAULT_TTL_INDEX);
   const justJoinedRef = useRef<string | null>(null);
+
+  // An invite lives in the `invites` table of the device that minted it, and
+  // only that device listens for someone accepting it. So this list is this
+  // device's, not the person's — worth saying out loud, but only to someone who
+  // actually has somewhere else to look. Own devices are enrolled into every
+  // space, so the roster is where to count them.
+  const { user } = useAuth();
+  const { data: members } = useGetSpaceMembers(open ? spaceId : undefined);
+  const hasOtherDevices = Boolean(
+    members?.some(
+      (person) =>
+        person.devices.length > 1 &&
+        person.devices.some((device) => device.id === user?.id),
+    ),
+  );
 
   const { mutate: createInvite, isPending: creating } = useCreateInvite({
     onSuccess: (inv) => {
@@ -164,7 +187,7 @@ export function InviteMembersDialog({
       setTab("qr");
       setTtlIndex(DEFAULT_TTL_INDEX);
       justJoinedRef.current = null;
-      setShowTutorial(!hasSeenP2PTutorial());
+      setTutorialDismissed(false);
 
       getInvite(spaceId).then(
         (existing) => setActiveInvite(existing),
@@ -369,6 +392,17 @@ export function InviteMembersDialog({
               {t("share.noActiveInvites", "No active invites.")}
             </div>
           ))}
+        {invitesOpen && hasOtherDevices && (
+          <div className="flex items-start gap-2 px-0.5">
+            <Info className="mt-px h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="text-xs leading-normal text-muted-foreground">
+              {t(
+                "share.invitesPerDevice",
+                "Invites stay on the device that made them. This list shows the ones made here — your other devices keep their own.",
+              )}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-2.5">
@@ -574,7 +608,7 @@ export function InviteMembersDialog({
     <div className="flex min-w-0 flex-col gap-4">
       {showTutorial && (
         <P2PTutorial
-          onComplete={() => setShowTutorial(false)}
+          onComplete={() => setTutorialDismissed(true)}
           onCancel={() => onOpenChange(false)}
           completeLabel={t("common.continue", "Continue")}
         />

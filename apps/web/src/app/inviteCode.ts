@@ -5,6 +5,7 @@
  * platform/sync.ts).
  */
 
+import { DEVICE_LINK_SCOPE } from "@/platform/types";
 import type { SpaceInvite } from "@/platform/types";
 
 const SECRET_BYTES = 32;
@@ -57,6 +58,16 @@ export function decodeInvite(code: string): SpaceInvite | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * True when the code adds another of your own devices rather than joining a
+ * space. The two are indistinguishable by shape, so every surface that takes a
+ * pasted or scanned code should check this and send the user to the right flow
+ * instead of letting the pairing fail.
+ */
+export function isDeviceLink(invite: SpaceInvite): boolean {
+  return invite.spaceId === DEVICE_LINK_SCOPE;
 }
 
 /** True once the invite's expiry has passed. */
