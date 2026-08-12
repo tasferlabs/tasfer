@@ -10,7 +10,7 @@ import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import type { EditorState, LinkHoverState, Position } from "../../state-types";
 import { isTextualBlock } from "../../sync/block-registry";
 import { findCharInRuns, iterateVisibleChars } from "../../sync/char-runs";
-import { normalizeLinkUrl } from "../../url-safety";
+import { safeLinkHref } from "../../url-safety";
 import { Mark, type MarkStyle, type MarkStyleCtx } from "./Mark";
 
 /** Set/clear the engine-owned link-hover tooltip state (inlined here so this
@@ -35,7 +35,7 @@ const LINK_CODEC: MarkCodec = {
   html: {
     priority: 4,
     render: (inner, mark, ctx) => {
-      const href = normalizeLinkUrl(mark.attrs?.url);
+      const href = safeLinkHref(mark.attrs?.url);
       return href ? `<a href="${ctx.escapeAttr(href)}">${inner}</a>` : inner;
     },
   },

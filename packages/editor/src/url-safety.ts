@@ -27,10 +27,20 @@ const SCHEME_PREFIX = /^[a-z][a-z0-9+.-]*:/i;
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/g;
 
 /**
- * Resolve an untrusted link URL to one that is safe to open or emit as an
- * `href`, or `null` if its scheme isn't allowed (and for input that isn't a URL
- * at all). The returned string is the parsed, normalized form — use it in place
- * of the raw attribute; keep the raw one for display only.
+ * A reference into some other document rather than a destination of its own: a
+ * path, a query, or a fragment. Tested only once `//` and a scheme have been
+ * ruled out, so it does not have to spell those exclusions itself.
+ */
+const RELATIVE_REF = /^([/?#]|\.\.?\/)/;
+
+/**
+ * Resolve an untrusted link URL to an absolute one that is safe to open, or
+ * `null` if its scheme isn't allowed (and for input that isn't a URL at all).
+ * The returned string is the parsed, normalized form — use it in place of the
+ * raw attribute; keep the raw one for display only.
+ *
+ * For the `href` sink use {@link safeLinkHref}, which keeps relative references
+ * this refuses.
  */
 export function normalizeLinkUrl(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -42,14 +52,22 @@ export function normalizeLinkUrl(raw: unknown): string | null {
   const cleaned = raw.replace(CONTROL_CHARS, "").trim();
   if (!cleaned) return null;
 
-  // Authors type bare hosts (`example.com`) and protocol-relative URLs
-  // (`//example.com`); both mean https. Anything that already carries a scheme
-  // is parsed as written, so the allowlist — never a guessed prefix — decides.
-  const candidate = cleaned.startsWith("//")
-    ? `https:${cleaned}`
-    : SCHEME_PREFIX.test(cleaned)
-      ? cleaned
-      : `https://${cleaned}`;
+  let candidate: string;
+  if (cleaned.startsWith("//")) {
+    // Protocol-relative — an absolute URL missing only its scheme, which is https.
+    candidate = `https:${cleaned}`;
+  } else if (SCHEME_PREFIX.test(cleaned)) {
+    // Already carries a scheme, so the allowlist — never a guessed prefix — decides.
+    candidate = cleaned;
+  } else if (RELATIVE_REF.test(cleaned)) {
+    // `/docs/setup`, `./setup.md`, `#intro`: there is nothing here to resolve
+    // them against, and guessing a scheme would invent a host
+    // (`/docs/setup` → `https://docs/setup`) pointing at someone else's site.
+    return null;
+  } else {
+    // A bare host, which is how authors type `example.com`.
+    candidate = `https://${cleaned}`;
+  }
 
   let url: URL;
   try {
@@ -59,6 +77,24 @@ export function normalizeLinkUrl(raw: unknown): string | null {
   }
 
   return SAFE_LINK_PROTOCOLS.includes(url.protocol) ? url.href : null;
+}
+
+/**
+ * Resolve an untrusted link URL for use as an `href`, or `null` if it may not
+ * be emitted at all.
+ *
+ * Same allowlist as {@link normalizeLinkUrl}, but relative references survive
+ * verbatim: an imported document's `/docs/setup` or `#intro` means a place in
+ * that document's own site, and rewriting it to an absolute URL would point it
+ * somewhere else entirely. They carry no scheme, so there is nothing to allow
+ * or refuse — the caller still escapes the result into the attribute.
+ */
+export function safeLinkHref(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const cleaned = raw.replace(CONTROL_CHARS, "").trim();
+  if (!cleaned) return null;
+  if (!cleaned.startsWith("//") && RELATIVE_REF.test(cleaned)) return cleaned;
+  return normalizeLinkUrl(cleaned);
 }
 
 /** True when {@link normalizeLinkUrl} would accept `raw`. */
