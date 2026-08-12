@@ -636,6 +636,7 @@
   "page.archivePage": "Archive Page",
   "page.confirmArchivePage": "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
   "page.confirmDeletePage": "Are you sure you want to delete this page?",
+  "page.copyStartsFresh": "Forking a page, or moving it into another space, starts it fresh: the content comes along, but its version history stays behind.",
   "page.createNewPage": "Create new page",
   "page.currentPage": "Current page",
   "page.deletePage": "Delete Page",
