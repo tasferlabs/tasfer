@@ -7,6 +7,10 @@
  */
 
 import type { Block, HLC, Operation } from "@tasfer/editor";
+import type {
+  VersionChange,
+  VersionKind,
+} from "@tasfer/editor/sync/version-history";
 import type { CursorPresence } from "@tasfer/provider-core/cursors";
 import type { DbRow, DbRunResult } from "./driver";
 
@@ -229,16 +233,33 @@ export interface PageCalendarItem {
   createdAt: string;
 }
 
-/** Page version for version history (derived from operation log) */
-export interface PageSnapshot {
+/**
+ * One offered revert point, derived from the page's operation log by
+ * `buildVersionHistory`. Metadata only — the blocks at this point are built on
+ * demand by `pages.versionBlocks`, because materializing every entry costs a
+ * full reducer replay each and the user opens at most one.
+ */
+export interface PageVersion {
   id: string;
   pageId: string;
-  blocks: Block[];
-  clock: HLC | null;
-  /** Total operations at this version point */
+  clock: HLC;
+  /** Total operations in the log at this version point. */
   opCount: number;
+  /** Operations belonging to this entry alone. */
+  opSpan: number;
   /** Wall-clock timestamp (ms since epoch). 0 if unknown. */
   createdAt: number;
+  /** Wall-clock timestamp of the entry's first operation. */
+  startedAt: number;
+  /** CRDT peers that contributed, most-active first. */
+  peerIds: string[];
+  /** Live block count once this entry landed. */
+  blockCount: number;
+  /** What changed, for labelling. */
+  change: VersionChange;
+  kind: VersionKind;
+  /** Text this entry introduced that best names it, when it created any. */
+  subject?: string;
 }
 
 /** Stored asset metadata */
@@ -761,8 +782,22 @@ export interface Platform {
     search(spaceId: string, query: string): Promise<PageSearchResult[]>;
     /** Get pages in a calendar date range */
     calendar(start: number, end: number): Promise<PageCalendarItem[]>;
-    /** Get version history snapshots */
-    snapshots(pageId: string): Promise<PageSnapshot[]>;
+    /**
+     * Version-history entries derived from the op log, newest first. Metadata
+     * only; see `versionBlocks` for the content at one entry.
+     */
+    versions(pageId: string): Promise<PageVersion[]>;
+    /**
+     * Build the page's content as of one version entry. Returns `[]` when the
+     * id names no entry in the current log.
+     */
+    versionBlocks(pageId: string, versionId: string): Promise<Block[]>;
+    /**
+     * Rebuild the page's latest content straight from the op log, bypassing the
+     * `archived_at IS NULL` filter that `get` applies. This is how an archived
+     * or otherwise unloadable page is still previewable.
+     */
+    rebuild(pageId: string): Promise<Block[]>;
     /** Subscribe to page deletion events (fired for both local and remote deletions) */
     onDeleted(cb: (pageId: string) => void): () => void;
   };

@@ -5,7 +5,7 @@ import { RotateCcw } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { MountedEditor } from "../../MountedEditor";
 import {
-  useGetPageSnapshots,
+  useRebuiltPageBlocks,
   type ArchivedPageItem,
 } from "../../api/pages.api";
 import { TitlePreview } from "../../TitlePreview";
@@ -23,8 +23,8 @@ interface ArchivePreviewProps {
 /**
  * Read-only preview of a deleted page. The page is archived, so it can't be
  * loaded through `pages.get` (which filters `archived_at IS NULL`). Instead we
- * read the latest version snapshot — `pages.snapshots` replays the op log with
- * no archived filter — and render it through the editor's static readonly mount
+ * rebuild it — `pages.rebuild` replays the op log with no archived filter —
+ * and render it through the editor's static readonly mount
  * (no sync, no offline store), mirroring SnapshotPreview.
  */
 export default function ArchivePreview({
@@ -34,10 +34,8 @@ export default function ArchivePreview({
   showHeader = true,
 }: ArchivePreviewProps) {
   const { t, i18n } = useTranslation();
-  const { data: snapshots, isLoading } = useGetPageSnapshots(item.id);
-
-  // Snapshots come newest-first; index 0 is the most recent full content.
-  const blocks = useMemo(() => snapshots?.[0]?.blocks ?? null, [snapshots]);
+  const { data: rebuilt, isLoading } = useRebuiltPageBlocks(item.id);
+  const blocks = useMemo(() => rebuilt ?? null, [rebuilt]);
 
   // Luxon defaults to the system locale, which is not what the app is set to.
   const archivedAgo =

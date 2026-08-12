@@ -77,7 +77,7 @@ import clsx from "clsx";
 import {
   getArchivedPage,
   getPage,
-  getPageSnapshots,
+  rebuildPageBlocks,
   useCreatePage,
   useGetPage,
   useGetPages,
@@ -394,13 +394,13 @@ export default function EditorPage() {
 
     // Mount the page read-only behind the archived banner. `blocks` is passed
     // when the page still loaded normally; otherwise the content is rebuilt
-    // from the op log, which `pages.snapshots` reads with no archived filter.
+    // from the op log, which `pages.rebuild` reads with no archived filter.
     async function showArchived(blocks?: Block[]): Promise<boolean> {
       try {
         const ref = await getArchivedPage(id!);
         if (!ref || cancelled) return false;
         const content =
-          blocks ?? (await getPageSnapshots(id!))[0]?.blocks ?? [];
+          blocks ?? (await rebuildPageBlocks(id!));
         if (cancelled) return true;
         setArchivedPage(ref);
         setPageSnapshot(content);

@@ -21,7 +21,7 @@ import type {
   PageSearchResult,
   PageCalendarItem,
   PagePathSegment,
-  PageSnapshot,
+  PageVersion,
   Identity,
   Peer,
   Asset,
@@ -43,7 +43,7 @@ import {
 } from "./device-cert";
 import { invariant } from "@shared/invariant";
 import type { Driver, CryptoDriver, DbRow } from "./driver";
-import type { HLC } from "@tasfer/editor";
+import type { Block, HLC } from "@tasfer/editor";
 import type {
   DeviceLinkPayload,
   OwnPref,
@@ -54,7 +54,6 @@ import { nanoid } from "nanoid";
 // Deep import the DOM-free block-order module rather than the `/internal`
 // barrel — the barrel re-exports rendering/font code that touches `document`,
 // which crashes the engine when it runs inside the SharedWorker (Phase 2).
-import { sortBlocksByOrder } from "@tasfer/editor/sync/block-order";
 // Worker-safe itself (deep imports only) — derives the title columns from
 // blocks; the doc's op log is the source of truth for titles.
 import { deriveTitles, extractBodyText } from "../lib/pageTitle";
@@ -2860,7 +2859,7 @@ export class Engine implements Platform {
       // Resolve an id that `pages.get` refuses to return. A stale link, a
       // bookmark, or the back button can land on a page that has since been
       // archived; without this the id is indistinguishable from one that never
-      // existed. Metadata only — the content comes from `pages.snapshots`,
+      // existed. Metadata only — the content comes from `pages.rebuild`,
       // which replays the op log with no archived filter.
       const rows = await this.driver.db.query<{
         title: string;
@@ -3324,89 +3323,62 @@ export class Engine implements Platform {
       return results;
     },
 
-    snapshots: async (pageId: string): Promise<PageSnapshot[]> => {
-      const rows = await this.driver.db.query<{
-        data: Uint8Array;
-        timestamp: number;
-      }>(
-        "SELECT data, timestamp FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
-        [pageId],
+    versions: async (pageId: string): Promise<PageVersion[]> => {
+      const timed = await this.loadTimedPageOps(pageId);
+      if (timed.length === 0) return [];
+
+      const { buildVersionHistory } = await import(
+        "@tasfer/editor/sync/version-history"
       );
-      if (rows.length === 0) return [];
 
-      type ParsedRow = {
-        op: import("@tasfer/editor/state-types").Operation;
-        timestamp: number;
-      };
-      const parsed: ParsedRow[] = [];
-      for (const r of rows) {
-        try {
-          parsed.push({
-            op: JSON.parse(new TextDecoder().decode(r.data as Uint8Array)),
-            timestamp: r.timestamp,
-          });
-        } catch {
-          /* skip corrupted */
-        }
-      }
-      if (parsed.length === 0) return [];
+      // Newest first — the list is read top-down and the recent past is what
+      // anyone is actually looking for.
+      return buildVersionHistory(timed, {
+        blockSubjectPriority: versionSubjectPriority,
+      })
+        .reverse()
+        .map((entry) => ({
+          id: entry.id,
+          pageId,
+          clock: entry.clock,
+          opCount: entry.opCount,
+          opSpan: entry.opSpan,
+          createdAt: entry.createdAt,
+          startedAt: entry.startedAt,
+          peerIds: [...entry.peerIds],
+          blockCount: entry.blockCount,
+          change: entry.change,
+          kind: entry.kind,
+          ...(entry.subject !== undefined ? { subject: entry.subject } : {}),
+        }));
+    },
 
-      // Pick evenly-spaced sample points
-      const MAX_VERSIONS = 25;
-      const total = parsed.length;
-      const step = Math.max(1, Math.floor(total / MAX_VERSIONS));
-      const sampleIndices = new Set<number>();
-      for (let i = step - 1; i < total; i += step) sampleIndices.add(i);
-      sampleIndices.add(total - 1);
+    versionBlocks: async (
+      pageId: string,
+      versionId: string,
+    ): Promise<Block[]> => {
+      const timed = await this.loadTimedPageOps(pageId);
+      if (timed.length === 0) return [];
 
-      // Apply ops incrementally, snapshot at sample points.
-      // Defers text_delete ops whose referenced chars haven't been inserted
-      // yet (HLC order ≠ causal order).
-      const { applyOp, createEmptyPageState } =
-        await import("@tasfer/editor/sync/reducer");
+      const { buildVersionHistory, materializeVersion } = await import(
+        "@tasfer/editor/sync/version-history"
+      );
 
-      let state = createEmptyPageState(pageId);
-      const insertedCharIds = new Set<string>();
-      const deferredOps: import("@tasfer/editor/state-types").Operation[] = [];
-      const results: PageSnapshot[] = [];
+      // Re-derive the entries rather than trusting a caller-supplied op index:
+      // the log grows while the history sheet is open, and an index minted
+      // against an older log would silently name a different point.
+      const entry = buildVersionHistory(timed, {
+        blockSubjectPriority: versionSubjectPriority,
+      }).find((e) => e.id === versionId);
+      if (!entry) return [];
 
-      for (let i = 0; i < total; i++) {
-        const { op, timestamp } = parsed[i];
+      const ops = timed.map((t) => t.op);
+      return materializeVersion(ops, entry.opIndex, appDataSchema).blocks;
+    },
 
-        if (op.op === "text_insert") {
-          for (const run of op.charRuns) {
-            for (let j = 0; j < run.text.length; j++) {
-              insertedCharIds.add(`${run.peerId}:${run.startCounter + j}`);
-            }
-          }
-        }
-
-        if (
-          op.op === "text_delete" &&
-          !op.charIds.every((id) => insertedCharIds.has(id))
-        ) {
-          deferredOps.push(op);
-        } else {
-          state = applyOp(state, op, appDataSchema);
-        }
-
-        if (sampleIndices.has(i)) {
-          let snapshotState = state;
-          for (const deferred of deferredOps) {
-            snapshotState = applyOp(snapshotState, deferred, appDataSchema);
-          }
-          results.push({
-            id: `${op.clock.counter}-${op.clock.peerId}`,
-            pageId,
-            blocks: sortBlocksByOrder(snapshotState.blocks),
-            clock: op.clock,
-            opCount: i + 1,
-            createdAt: timestamp || 0,
-          });
-        }
-      }
-
-      return results.reverse();
+    rebuild: async (pageId: string): Promise<Block[]> => {
+      const rebuilt = await this.rebuildBlocksFromOps(pageId);
+      return rebuilt?.blocks ?? [];
     },
 
     onDeleted: (cb: (pageId: string) => void): (() => void) => {
@@ -4547,6 +4519,38 @@ export class Engine implements Platform {
     return chain;
   }
 
+  /**
+   * Load a page's ops paired with the wall-clock time each was persisted.
+   * Version history needs the timestamps to tell an editing session from the
+   * silence around it; the plain op replay in `loadPageOps` does not.
+   */
+  private async loadTimedPageOps(
+    pageId: string,
+  ): Promise<
+    import("@tasfer/editor/sync/version-history").TimedOperation[]
+  > {
+    const rows = await this.driver.db.query<{
+      data: Uint8Array;
+      timestamp: number;
+    }>(
+      "SELECT data, timestamp FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
+      [pageId],
+    );
+    const timed: import("@tasfer/editor/sync/version-history").TimedOperation[] =
+      [];
+    for (const r of rows) {
+      try {
+        timed.push({
+          op: JSON.parse(new TextDecoder().decode(r.data as Uint8Array)),
+          timestamp: r.timestamp || 0,
+        });
+      } catch {
+        /* skip corrupted */
+      }
+    }
+    return timed;
+  }
+
   /** Load all ops for a page as parsed Operation objects */
   private async loadPageOps(
     pageId: string,
@@ -4594,6 +4598,18 @@ export class Engine implements Platform {
 // =============================================================================
 // Utilities
 // =============================================================================
+
+/**
+ * Ranks which of *this host's* block types best names a version-history entry.
+ * A heading the entry introduced reads as its subject ("added 'Pricing'");
+ * body text is a fallback. The editor core cannot make this call — it has no
+ * closed set of block types — so the host supplies it.
+ */
+function versionSubjectPriority(blockType: string): number {
+  if (blockType.startsWith("heading")) return 2;
+  if (blockType === "quote") return 1;
+  return 0;
+}
 
 /**
  * A short plain-text excerpt of a page body centered on the first occurrence of

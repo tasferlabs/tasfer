@@ -264,7 +264,9 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     reorder: { kind: "request" },
     search: { kind: "request" },
     calendar: { kind: "request" },
-    snapshots: { kind: "request" },
+    versions: { kind: "request" },
+    versionBlocks: { kind: "request" },
+    rebuild: { kind: "request" },
     onDeleted: { kind: "subscribe", cbArg: 0 },
   },
   assets: {
