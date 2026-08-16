@@ -31,7 +31,7 @@
  */
 
 import type { Page } from "../serlization/loadPage";
-import type { HLC, Operation } from "../state-types";
+import type { HLC, Operation, TextInsert } from "../state-types";
 import { sortBlocksByOrder } from "./block-order";
 import { applyOp, createEmptyPageState } from "./reducer";
 import type { DataSchema } from "./schema";
@@ -170,6 +170,13 @@ const MEANINGFUL_BLOCK_CHARS = 8;
 /** Longest `subject` kept; the rest is the host's to truncate for display. */
 const MAX_SUBJECT_CHARS = 80;
 
+/**
+ * Characters tracked per candidate-created block while reassembling its text.
+ * A subject only ever shows {@link MAX_SUBJECT_CHARS}; the slack is there so
+ * ties break on something closer to the real length than the visible prefix.
+ */
+const MAX_TRACKED_CHARS = 240;
+
 const WEIGHT = {
   charInserted: 1,
   charDeleted: 1.5,
@@ -196,6 +203,19 @@ interface MutableChange {
   structuredEdits: number;
 }
 
+/** One character of a block being reassembled, in document order. */
+interface TrackedChar {
+  readonly id: string;
+  readonly ch: string;
+  deleted: boolean;
+}
+
+/** A block created inside a candidate, with the text typed into it so far. */
+interface BornBlock {
+  blockType: string;
+  readonly chars: TrackedChar[];
+}
+
 interface Candidate {
   startIndex: number;
   endIndex: number;
@@ -212,6 +232,8 @@ interface Candidate {
   blockCountBefore: number;
   /** Holds a deletion of a block that had real content. */
   destructive: boolean;
+  /** Blocks this candidate created, keyed by id. Emptied once named. */
+  born: Map<string, BornBlock>;
   subject?: string;
   subjectPriority: number;
   subjectLength: number;
@@ -237,11 +259,83 @@ function charsInOp(op: Operation): number {
   return n;
 }
 
-function textOfOp(op: Operation): string {
-  if (op.op !== "text_insert") return "";
+/**
+ * Splices an insert into the text of a block this candidate created.
+ *
+ * Typing arrives one operation per keystroke, so a subject can only be read off
+ * the *assembled* block: each op carries the character it landed after, and
+ * replaying those anchors is what turns forty ops into "Release notes" instead
+ * of "s". An anchor this candidate never saw — text appended to a block whose
+ * earlier characters fell outside the tracked window — lands at the end, which
+ * is where continued typing goes anyway.
+ */
+function insertTracked(born: BornBlock, op: TextInsert): void {
+  const chars = born.chars;
+  let at = chars.length;
+  if (op.afterCharId === null) {
+    at = 0;
+  } else {
+    // Typing anchors on the character it just wrote, so search from the back.
+    for (let i = chars.length - 1; i >= 0; i--) {
+      if (chars[i].id === op.afterCharId) {
+        at = i + 1;
+        break;
+      }
+    }
+  }
+
+  for (const run of op.charRuns) {
+    for (let i = 0; i < run.text.length; i++) {
+      if (chars.length >= MAX_TRACKED_CHARS) return;
+      chars.splice(at, 0, {
+        id: `${run.peerId}:${run.startCounter + i}`,
+        ch: run.text[i],
+        deleted: false,
+      });
+      at++;
+    }
+  }
+}
+
+function deleteTracked(born: BornBlock, charIds: readonly string[]): void {
+  if (born.chars.length === 0) return;
+  const removed = new Set(charIds);
+  for (const char of born.chars) {
+    if (removed.has(char.id)) char.deleted = true;
+  }
+}
+
+/** The block's surviving text, flattened onto one line for a label. */
+function trackedText(born: BornBlock): string {
   let text = "";
-  for (const run of op.charRuns) text += run.text;
-  return text;
+  for (const char of born.chars) if (!char.deleted) text += char.ch;
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Names a candidate after the best block it created, once all of its operations
+ * have landed. Deferred to the end of the candidate rather than decided per
+ * operation, because a block's text is only complete when its last keystroke is.
+ */
+function nameCandidate(
+  candidate: Candidate,
+  subjectPriority: (blockType: string) => number,
+): void {
+  for (const born of candidate.born.values()) {
+    const text = trackedText(born);
+    if (text.length === 0) continue;
+    const priority = subjectPriority(born.blockType);
+    if (
+      priority > candidate.subjectPriority ||
+      (priority === candidate.subjectPriority &&
+        text.length > candidate.subjectLength)
+    ) {
+      candidate.subject = text.slice(0, MAX_SUBJECT_CHARS);
+      candidate.subjectPriority = priority;
+      candidate.subjectLength = text.length;
+    }
+  }
+  candidate.born.clear();
 }
 
 /**
@@ -318,8 +412,6 @@ function collectCandidates(
 ): Candidate[] {
   const live = new Set<string>();
   const charsPerBlock = new Map<string, number>();
-  /** Blocks created inside the candidate currently being built. */
-  let bornHere = new Map<string, string>();
   const inDeletionRun = markDeletionRuns(ops);
 
   const candidates: Candidate[] = [];
@@ -346,6 +438,7 @@ function collectCandidates(
       destructive !== prev.destructive;
 
     if (cut) {
+      if (current) nameCandidate(current, subjectPriority);
       current = {
         startIndex: i,
         endIndex: i,
@@ -358,11 +451,11 @@ function collectCandidates(
         blockCount: live.size,
         blockCountBefore: live.size,
         destructive: false,
+        born: new Map(),
         subjectPriority: -Infinity,
         subjectLength: 0,
       };
       candidates.push(current);
-      bornHere = new Map();
     }
 
     const entry = current!;
@@ -379,23 +472,22 @@ function collectCandidates(
         if (!live.has(op.blockId)) {
           live.add(op.blockId);
           entry.change.blocksAdded++;
-          bornHere.set(op.blockId, op.blockType);
+          entry.born.set(op.blockId, { blockType: op.blockType, chars: [] });
         }
         break;
       }
       case "block_delete": {
         if (live.delete(op.blockId)) {
           entry.change.blocksRemoved++;
-          bornHere.delete(op.blockId);
+          entry.born.delete(op.blockId);
         }
         break;
       }
       case "block_set": {
         if (op.field === "type") {
           entry.change.blocksRetyped++;
-          if (bornHere.has(op.blockId)) {
-            bornHere.set(op.blockId, String(op.value));
-          }
+          const born = entry.born.get(op.blockId);
+          if (born) born.blockType = String(op.value);
         } else if (op.field === "orderKey") {
           entry.change.blocksMoved++;
         }
@@ -407,26 +499,14 @@ function collectCandidates(
         charsPerBlock.set(op.blockId, (charsPerBlock.get(op.blockId) ?? 0) + n);
         // Only text landing in a block this candidate created can name it; text
         // typed into a pre-existing block describes an edit, not a subject.
-        const bornType = bornHere.get(op.blockId);
-        if (bornType !== undefined) {
-          const text = textOfOp(op).trim();
-          if (text.length > 0) {
-            const priority = subjectPriority(bornType);
-            if (
-              priority > entry.subjectPriority ||
-              (priority === entry.subjectPriority &&
-                text.length > entry.subjectLength)
-            ) {
-              entry.subject = text.slice(0, MAX_SUBJECT_CHARS);
-              entry.subjectPriority = priority;
-              entry.subjectLength = text.length;
-            }
-          }
-        }
+        const born = entry.born.get(op.blockId);
+        if (born) insertTracked(born, op);
         break;
       }
       case "text_delete": {
         entry.change.charsDeleted += op.charIds.length;
+        const born = entry.born.get(op.blockId);
+        if (born) deleteTracked(born, op.charIds);
         const remaining =
           (charsPerBlock.get(op.blockId) ?? 0) - op.charIds.length;
         charsPerBlock.set(op.blockId, Math.max(0, remaining));
@@ -446,6 +526,7 @@ function collectCandidates(
     prev = { peerId, timestamp, destructive };
   }
 
+  if (current) nameCandidate(current, subjectPriority);
   return candidates;
 }
 
@@ -611,6 +692,7 @@ function cloneCandidate(candidate: Candidate): Candidate {
     ...candidate,
     peers: new Map(candidate.peers),
     touched: new Set(candidate.touched),
+    born: new Map(candidate.born),
     change: { ...candidate.change },
   };
 }

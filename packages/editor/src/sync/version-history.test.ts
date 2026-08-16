@@ -16,6 +16,8 @@ type OpDraft<T = Operation> = T extends Operation
 class Log {
   private counter = 0;
   private charCounter = 0;
+  /** Anchor for the next keystroke in each block. */
+  private readonly lastCharId = new Map<string, string>();
   readonly ops: TimedOperation[] = [];
   private at = 1_700_000_000_000;
 
@@ -51,18 +53,26 @@ class Log {
     return this;
   }
 
+  /** Types `text` the way the editor emits it: one operation per keystroke. */
   type(blockId: string, text: string, peerId = "alice"): this {
+    for (const ch of text) this.paste(blockId, ch, peerId);
+    return this;
+  }
+
+  /** Inserts `text` as a single operation, appended to the block's end. */
+  paste(blockId: string, text: string, peerId = "alice"): this {
     const startCounter = this.charCounter;
     this.charCounter += text.length;
     this.push(
       {
         op: "text_insert",
         blockId,
-        afterCharId: null,
+        afterCharId: this.lastCharId.get(blockId) ?? null,
         charRuns: [{ peerId, startCounter, text }],
       },
       peerId,
     );
+    this.lastCharId.set(blockId, `${peerId}:${startCounter + text.length - 1}`);
     return this;
   }
 
@@ -197,6 +207,19 @@ describe("buildVersionHistory", () => {
     });
 
     expect(entries[1].subject).toBe("Pricing");
+  });
+
+  it("names an entry after the whole typed line, not one keystroke", () => {
+    const log = new Log();
+    paragraph(log, "b1");
+    log.idle(10 * MINUTE);
+    log.addBlock("h1", "heading1").type("h1", "Release notes").tick(200);
+
+    const entries = buildVersionHistory(log.ops, {
+      blockSubjectPriority: (type) => (type.startsWith("heading") ? 1 : 0),
+    });
+
+    expect(entries[1].subject).toBe("Release notes");
   });
 
   it("tracks the live block count without replaying the reducer", () => {
