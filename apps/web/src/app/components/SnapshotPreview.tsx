@@ -10,7 +10,7 @@ import {
   Plus,
   RotateCcw,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppMountedEditor } from "@/editorSchema";
 import { MountedEditor } from "../MountedEditor";
@@ -26,6 +26,9 @@ const DIFF_ADDED_FALLBACK = "#22c55e";
 const DIFF_CHANGED_FALLBACK = "#eab308";
 const DIFF_OPACITY = 0.16;
 const DIFF_LAYER = "version-diff";
+
+/** Where the first change is parked below the top edge when the preview opens. */
+const DIFF_SCROLL_TOP_MARGIN = 96;
 
 function readRootCssVar(name: string, fallback: string): string {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -79,6 +82,13 @@ export function SnapshotPreview({
     return diffPageWithSnapshot(blocks, previousBlocks);
   }, [blocks, previousBlocks]);
 
+  const touched = useMemo(
+    () =>
+      diff?.blocks.filter((b) => b.type === "added" || b.type === "modified") ??
+      [],
+    [diff],
+  );
+
   useEffect(() => {
     if (!editor) return;
     if (!diff) {
@@ -92,16 +102,40 @@ export function SnapshotPreview({
     );
     editor.view.setDecorations(
       DIFF_LAYER,
-      diff.blocks
-        .filter((b) => b.type === "added" || b.type === "modified")
-        .map((b) => ({
-          kind: "block" as const,
-          block: b.blockId,
-          color: b.type === "added" ? added : changed,
-          opacity: DIFF_OPACITY,
-        })),
+      touched.map((b) => ({
+        kind: "block" as const,
+        block: b.blockId,
+        color: b.type === "added" ? added : changed,
+        opacity: DIFF_OPACITY,
+      })),
     );
-  }, [editor, diff]);
+  }, [editor, diff, touched]);
+
+  // Topmost block this version touched, in document order — `diff.blocks` is
+  // keyed by id, so the content itself decides which change comes first.
+  const firstChangedBlockId = useMemo(() => {
+    if (!blocks || touched.length === 0) return null;
+    const ids = new Set(touched.map((b) => b.blockId));
+    return blocks.find((b) => !b.deleted && ids.has(b.id))?.id ?? null;
+  }, [blocks, touched]);
+
+  // Open on the change instead of at the top: a version that edited the tail of
+  // a long page otherwise shows a screenful of content it never touched. Guarded
+  // per editor instance (one per version — see the `preview-` pageId below) so a
+  // later re-render never yanks the reader back to the first change.
+  const scrolledIn = useRef<AppMountedEditor["editor"] | null>(null);
+  useEffect(() => {
+    if (!editor || !firstChangedBlockId) return;
+    if (scrolledIn.current === editor) return;
+    // The version's own editor is the only one holding this block; a handle left
+    // over from the previous selection must not be scrolled and marked done.
+    if (!editor.query.block({ block: firstChangedBlockId })) return;
+    editor.view.scrollToPosition(
+      { block: firstChangedBlockId, offset: 0 },
+      { viewportOffsetY: DIFF_SCROLL_TOP_MARGIN },
+    );
+    scrolledIn.current = editor;
+  }, [editor, firstChangedBlockId]);
 
   const blockCount = blocks?.filter((b) => !b.deleted).length ?? 0;
 
