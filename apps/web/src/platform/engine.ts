@@ -1030,6 +1030,25 @@ export class Engine implements Platform {
     );
   }
 
+  /**
+   * Store a certificate over whatever this device key was bound to before.
+   *
+   * {@link storeDeviceCert} is first-wins so that no root can quietly claim a
+   * device peers already resolved to another. Device linking is the one moment
+   * that rule has to yield: it is local, user-initiated, and gated on proving
+   * possession of the code. A device we already met as somebody else's — a
+   * co-member of a shared space, whose `device_add` we cached under THEIR root
+   * — would otherwise keep that binding, so the certificate we just issued for
+   * it is dropped and it never becomes one of our own devices: no enrolment
+   * into our spaces, and `isOwnDevice` false for everything it pushes back.
+   */
+  private async rebindDeviceCert(cert: DeviceCert): Promise<void> {
+    await this.driver.db.mutate("DELETE FROM devices WHERE public_key = ?", [
+      cert.deviceKey,
+    ]);
+    await this.storeDeviceCert(cert);
+  }
+
   identity = {
     get: async (): Promise<Identity> => {
       await this.ensureIdentity();
@@ -1909,7 +1928,10 @@ export class Engine implements Platform {
           },
           onError: callbacks?.onError,
         },
-        applyDeviceLink: (payload) => this.applyDeviceLink(payload),
+        applyDeviceLink: async (payload) => {
+          await this.applyDeviceLink(payload);
+          callbacks?.onEnrolled?.();
+        },
       });
     },
   };
@@ -2070,7 +2092,7 @@ export class Engine implements Platform {
       peerPublicKey,
       Date.now(),
     );
-    await this.storeDeviceCert(cert);
+    await this.rebindDeviceCert(cert);
 
     // Publish into every space, personal ones included — a linked device that
     // only received some of them would not be this person's device, just a
@@ -2152,15 +2174,10 @@ export class Engine implements Platform {
       [payload.rootPublicKey, payload.rootPrivateKey],
     );
     // This device already self-certified under the throwaway root it generated
-    // on first boot, and storeDeviceCert is first-wins — so the new binding
-    // would be silently ignored, leaving the device uncertified under the
-    // identity it just adopted and locked out of its own personal spaces.
-    // Adopting an identity is the one sanctioned re-binding, and it is local
-    // and user-initiated, so clear the stale row first.
-    await this.driver.db.mutate("DELETE FROM devices WHERE public_key = ?", [
-      identity.publicKey,
-    ]);
-    await this.storeDeviceCert(selfCert);
+    // on first boot, so the new binding has to displace that one or the device
+    // stays uncertified under the identity it just adopted, locked out of its
+    // own personal spaces. See {@link rebindDeviceCert}.
+    await this.rebindDeviceCert(selfCert);
 
     // The profile belongs to the person, not the device: adopting the root key
     // without it would leave this device answering to the same identity under a
@@ -2185,8 +2202,12 @@ export class Engine implements Platform {
         cert: entry.cert,
         issuedAt: entry.issuedAt,
       };
+      // Re-bound rather than merely cached: a sibling we already knew as
+      // another person — met through a space we both belong to — carries their
+      // old root here, and the payload is the authority on who it answers to
+      // now. Every entry is verified under the root we just adopted.
       if (await verifyDeviceCert(this.driver.crypto, cert)) {
-        await this.storeDeviceCert(cert);
+        await this.rebindDeviceCert(cert);
       } else {
         console.warn(
           `[Engine] discarded unverifiable sibling cert for ${entry.deviceKey.slice(0, 8)}`,
@@ -2306,6 +2327,15 @@ export class Engine implements Platform {
         WHERE m.public_key = ? AND s.archived_at IS NULL AND m.archived_at IS NULL`,
       [localPublicKey],
     );
+    // A space that reaches neither list is one this device will keep to itself
+    // forever, and nothing downstream reports that — the sibling simply never
+    // hears the id. Both sides are logged so a missing space can be traced to
+    // the filters above rather than guessed at from the sync log.
+    const candidates = rows.map((r) => r.id).filter((id) => !adopted.has(id));
+    console.log(
+      `[Engine] prior spaces to enrol: ${candidates.length} of ${rows.length} ` +
+        `(${candidates.join(", ") || "none"}); adopted ${adopted.size} from the payload`,
+    );
 
     for (const { id } of rows) {
       if (adopted.has(id)) continue;
@@ -2332,6 +2362,7 @@ export class Engine implements Platform {
           );
         }
         this.notifySpaceChange(id);
+        console.log(`[Engine] enrolled siblings into ${id}`);
       } catch (e) {
         const detail = e instanceof Error ? e.message : String(e);
         console.error(

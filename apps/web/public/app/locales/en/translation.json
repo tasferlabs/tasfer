@@ -248,6 +248,7 @@
   "device.codePlaceholder": "Paste the device code",
   "device.link": "Link device",
   "device.connecting": "Connecting",
+  "device.enrolling": "Setting up this device",
   "device.keepBothOpen": "Keep both devices open.",
   "device.doneTitle": "Linked",
   "device.doneDescription": "Your spaces are syncing to it now.",

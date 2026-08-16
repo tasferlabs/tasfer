@@ -475,6 +475,13 @@ export interface PairCallbacks {
   onConnected?: () => void;
   onPeerIdentity?: (peer: { publicKey: string; name: string }) => void;
   onComplete?: (peer: Peer, spaceName?: string) => void | Promise<void>;
+  /**
+   * Device linking only: the enrolment payload has been adopted. `onComplete`
+   * fires on the handshake, which proves the code and nothing more — a device
+   * that stops there holds no root identity and no spaces, so the accepting
+   * side is not linked until this runs.
+   */
+  onEnrolled?: () => void;
   onError?: (error: string) => void;
 }
 

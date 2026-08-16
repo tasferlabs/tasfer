@@ -234,6 +234,7 @@
   "device.codePlaceholder": "الصق رمز الجهاز",
   "device.link": "اربط الجهاز",
   "device.connecting": "جارٍ الاتصال",
+  "device.enrolling": "جارٍ تجهيز هذا الجهاز",
   "device.keepBothOpen": "أبقِ الجهازين مفتوحين.",
   "device.doneTitle": "تم الربط",
   "device.doneDescription": "تجري الآن مزامنة مساحاتك إليه.",

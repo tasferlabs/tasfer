@@ -56,7 +56,7 @@ interface LinkDeviceDialogProps {
  */
 const LINK_TTL_MS = 10 * 60_000;
 
-type Step = "choose" | "show" | "enter" | "connecting" | "done";
+type Step = "choose" | "show" | "enter" | "connecting" | "enrolling" | "done";
 
 /** Which side of the handshake we are on, so an error returns to its own step. */
 type Flow = "show" | "enter";
@@ -124,6 +124,18 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
       onPeerIdentity: (peer: { name: string }) => setPeerName(peer.name),
       onComplete: (peer: { name: string }) => {
         setPeerName((current) => current || peer.name);
+        // The handshake proves the code; the side accepting one is not linked
+        // until the enrolment payload lands. Calling it done here would offer a
+        // Done button that cancels the session still owed that payload, and the
+        // device would keep neither the identity nor the spaces.
+        if (flowRef.current === "enter") {
+          setStep("enrolling");
+          return;
+        }
+        setStep("done");
+        refreshEverything();
+      },
+      onEnrolled: () => {
         setStep("done");
         refreshEverything();
       },
@@ -247,6 +259,10 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
       title: t("device.connecting", "Connecting"),
       description: t("device.keepBothOpen", "Keep both devices open."),
     },
+    enrolling: {
+      title: t("device.enrolling", "Setting up this device"),
+      description: t("device.keepBothOpen", "Keep both devices open."),
+    },
     done: {
       title: t("device.doneTitle", "Linked"),
       description: t("device.doneDescription", "Your spaces are syncing to it now."),
@@ -264,7 +280,12 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
   // The connecting step centres its own copy under the spinner, so the heading
   // stays only as the surface's accessible name.
   const header = (
-    <div className={cn("flex flex-col gap-1", step === "connecting" && "sr-only")}>
+    <div
+      className={cn(
+        "flex flex-col gap-1",
+        (step === "connecting" || step === "enrolling") && "sr-only",
+      )}
+    >
       <Title className="text-[19px] font-semibold tracking-tight">{title}</Title>
       {description && (
         <Description className="text-sm text-muted-foreground">
@@ -450,11 +471,14 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
     </>
   );
 
-  const connectingStep = (
+  // Two waits, one shape. The second is the one that matters: the handshake is
+  // done and the account is on its way over, so it says so rather than leaving
+  // "Connecting" up over a connection that already succeeded.
+  const waitingStep = (label: string) => (
     <div className="flex flex-col items-center gap-4 py-6 text-center">
       <span className="size-6 animate-spin rounded-full border-2 border-border border-t-primary" />
       <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium">{t("device.connecting", "Connecting")}</p>
+        <p className="text-sm font-medium">{label}</p>
         <p className="text-sm text-muted-foreground">
           {t("device.keepBothOpen", "Keep both devices open.")}
         </p>
@@ -491,7 +515,10 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
       {step === "choose" && chooseStep}
       {step === "show" && showStep}
       {step === "enter" && enterStep}
-      {step === "connecting" && connectingStep}
+      {step === "connecting" &&
+        waitingStep(t("device.connecting", "Connecting"))}
+      {step === "enrolling" &&
+        waitingStep(t("device.enrolling", "Setting up this device"))}
       {step === "done" && doneStep}
     </div>
   );
