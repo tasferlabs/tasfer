@@ -1,4 +1,3 @@
-import { useP2PPageEventsWithQueryClient } from "@/app/hooks/useP2PPageEvents";
 import { triggerHaptic } from "@/platform/bridge";
 import {
   DndContext,
@@ -172,9 +171,6 @@ export function SidebarContent({
   const orderedSpaces = useOrderedSpaces(spaces);
   // const { data: sharedWithMe } = useGetSharedWithMe();
   // const { data: sharedByMe } = useGetSharedByMe();
-
-  // Subscribe to real-time page and space events from other users
-  useP2PPageEventsWithQueryClient();
 
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {

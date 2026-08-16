@@ -50,6 +50,11 @@ export function useP2PPageEvents(handlers: PageEventHandlers): void {
 /**
  * Convenience hook that automatically invalidates React Query cache on page events.
  *
+ * Mount it ONCE, above the routes — see `Layout`. It is the only thing that
+ * turns a remote change into a re-render, so a component that unmounts (a
+ * closed sidebar, a route you navigated away from) takes live updates down with
+ * it, and the stale list survives until the app is reloaded.
+ *
  * Subscribes to two event sources:
  *   1. Replicator pageEventListeners — per-room page lifecycle events
  *   2. Engine spaceChangeListeners — space-level CRDT ops (page_add, page_remove, etc.)

@@ -15,7 +15,6 @@ import { TitlePreview } from "../../TitlePreview";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useResponsive from "../../hooks/useResponsive";
 import useLocalStorage from "../../hooks/useLocalStorage";
-import { useP2PPageEventsWithQueryClient } from "../../hooks/useP2PPageEvents";
 import {
   useGetArchivedPages,
   useRestorePage,
@@ -40,7 +39,6 @@ export default function ArchivePage() {
   const { spaces } = useSpaces();
   const isMobile = useResponsive("(max-width: 768px)");
   const isFine = useResponsive("(pointer: fine)");
-  useP2PPageEventsWithQueryClient();
 
   const { data: archived, isLoading } = useGetArchivedPages();
   const { data: archivedSpaces, isLoading: spacesLoading } =

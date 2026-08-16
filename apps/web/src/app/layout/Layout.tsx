@@ -22,6 +22,7 @@ import { useGetArchivedSpaces } from "../api/spaces.api";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
 import { TreeExpandProvider } from "../contexts/TreeExpandContext";
 import { useFileDropImport } from "../hooks/useFileDropImport";
+import { useP2PPageEventsWithQueryClient } from "../hooks/useP2PPageEvents";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { useDevToolsEnabled } from "@/lib/devTools";
@@ -98,6 +99,14 @@ function LayoutInner() {
   const devToolsEnabled = useDevToolsEnabled();
   const { spaces, isLoading: spacesLoading, loadError } = useSpaces();
   const fileDrop = useFileDropImport();
+
+  // Mounted here, above every route and both sidebars, because this is the only
+  // thing listening for changes a peer made — a space adopted from another of
+  // this person's devices, a page added by a co-member. It used to live in
+  // SidebarContent, which unmounts whenever the sidebar is closed: with it shut,
+  // the engine applied the ops and nothing invalidated the queries, so the
+  // sidebar showed the state it had at open time until the app was reloaded.
+  useP2PPageEventsWithQueryClient();
 
   // Remember the last visited route so we can restore it on next visit
   const location = useLocation();

@@ -62,7 +62,6 @@ import {
   type ViewMode,
 } from "./utils";
 import { triggerHaptic } from "@/platform/bridge";
-import { useP2PPageEventsWithQueryClient } from "../../hooks/useP2PPageEvents";
 import { EventCard } from "./EventCard";
 import { EventPreview } from "./EventPreview";
 import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
@@ -123,7 +122,6 @@ export default function CalendarPage() {
   const { getConfirmation } = useConfirmation();
   const { isMobile } = useMobileLayout();
   const { activeSpaceId } = useSpaces();
-  useP2PPageEventsWithQueryClient();
   const timelineRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [selectedDate, setSelectedDate] = useState(() => wallNow());
