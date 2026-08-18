@@ -178,7 +178,7 @@ function IdentityStep({
       <p className="ob-sub">
         {t(
           "onboarding.identityIntro",
-          "The moment you opened Tasfer, it generated a keypair on this device — that's your identity. The private key never leaves this machine, and there's no account or server behind it.",
+          "The moment you opened Tasfer, it generated a keypair on this device — that's your identity, and there's no account or server behind it.",
         )}
       </p>
 
@@ -586,12 +586,12 @@ function ProfileStep({
         <Share2 size={22} strokeWidth={1.5} />
       </div>
       <h2 className="ob-title">
-        {t("onboarding.profileTitle", "A face for sharing — if you want one.")}
+        {t("onboarding.profileTitle", "A face for sharing, if you want one.")}
       </h2>
       <p className="ob-sub">
         {t(
           "onboarding.profileIntro",
-          "Tasfer works fully anonymous. The only time a name or avatar matters is when you invite someone to a space — it's how they'll tell your edits apart. You can add this now or never.",
+          "Tasfer works fully anonymous. The only time a name or avatar matters is when you invite someone to a space, since that's how they'll tell your edits apart. You can add this now or later.",
         )}
       </p>
 
