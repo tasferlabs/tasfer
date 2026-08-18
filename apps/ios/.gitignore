@@ -14,3 +14,9 @@ capacitor-cordova-ios-plugins
 # Generated Config files
 App/App/capacitor.config.json
 App/App/config.xml
+
+# String Catalog generated from the web locales by
+# apps/web/scripts/gen-ios-strings.mjs on every native build, then rewritten
+# again by Xcode (its own JSON spacing, plus a CFBundleName entry extracted
+# from Info.plist). Tracking it only recorded that tug-of-war.
+App/App/InfoPlist.xcstrings
