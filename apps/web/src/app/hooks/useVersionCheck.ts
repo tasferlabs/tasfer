@@ -1,5 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { getClientPlatform, type ClientPlatform } from "@/platform";
+import {
+  applyBundle,
+  findReadyBundle,
+  isLiveUpdateHost,
+  onLiveUpdateChange,
+} from "@/liveUpdates";
+import type { BundleInfo } from "@capgo/capacitor-updater";
 
 export interface UpdateUrls {
   ios: string | null;
@@ -47,7 +54,11 @@ function getElectronBridge(): TasferBridge | null {
  * Version check hook.
  *
  * On Electron: subscribes to auto-updater IPC events from the main process.
- * On other platforms: returns safe defaults (no central server to check).
+ * On iOS/Android: reports a downloaded live-update bundle waiting to be
+ * applied. The plugin does the checking and downloading on its own schedule
+ * (see liveUpdates.ts); this hook only asks what is ready and applies it when
+ * the user says so.
+ * On web: returns safe defaults — the service worker owns updates there.
  */
 export function useVersionCheck(): VersionCheckResult {
   const platform = getClientPlatform();
@@ -57,6 +68,30 @@ export function useVersionCheck(): VersionCheckResult {
   const [error, setError] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
+  const [readyBundle, setReadyBundle] = useState<BundleInfo | null>(null);
+
+  // Live updates (iOS/Android). The plugin downloads in the background, so a
+  // bundle can become ready between sessions — ask on mount, then re-ask
+  // whenever the plugin reports a download outcome.
+  useEffect(() => {
+    if (!isLiveUpdateHost()) return;
+
+    let active = true;
+    const refreshReady = () => {
+      void findReadyBundle().then((bundle) => {
+        if (!active) return;
+        setReadyBundle(bundle);
+        setUpdateAvailable(!!bundle);
+      });
+    };
+
+    refreshReady();
+    const unsubscribe = onLiveUpdateChange(refreshReady);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const bridge = bridgeRef.current;
@@ -105,10 +140,24 @@ export function useVersionCheck(): VersionCheckResult {
     const bridge = bridgeRef.current;
     if (bridge) {
       bridge.invoke("updater:check").catch(() => {});
+      return;
+    }
+    if (isLiveUpdateHost()) {
+      void findReadyBundle().then((bundle) => {
+        setReadyBundle(bundle);
+        setUpdateAvailable(!!bundle);
+      });
     }
   }, []);
 
   const performPlatformUpdate = useCallback(async () => {
+    // Native first: applying a bundle reloads the WebView, so nothing after the
+    // call runs.
+    if (readyBundle) {
+      await applyBundle(readyBundle);
+      return;
+    }
+
     const bridge = bridgeRef.current;
     if (!bridge) return;
 
@@ -118,7 +167,7 @@ export function useVersionCheck(): VersionCheckResult {
       await bridge.invoke("updater:download");
       // updater:downloaded event will fire → then user can trigger install
     }
-  }, [updateDownloaded]);
+  }, [readyBundle, updateDownloaded]);
 
   return {
     isLoading,
@@ -128,6 +177,7 @@ export function useVersionCheck(): VersionCheckResult {
     platform,
     updateUrl: null,
     refresh,
-    performPlatformUpdate: bridgeRef.current ? performPlatformUpdate : null,
+    performPlatformUpdate:
+      bridgeRef.current || readyBundle ? performPlatformUpdate : null,
   };
 }

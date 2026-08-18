@@ -1,6 +1,7 @@
 {
   "version": 40,
   "minVersion": 40,
+  "minBuiltin": "0.1.0",
   "updateUrls": {
     "ios": null,
     "android": null,

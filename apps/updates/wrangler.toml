@@ -1,0 +1,42 @@
+name = "tasfer-updates"
+main = "src/worker.ts"
+compatibility_date = "2026-07-21"
+
+# Custom domain — requires the tasfer.app zone in Cloudflare DNS.
+# The native apps hard-code these endpoints in apps/web/capacitor.config.js,
+# and a shipped store build can never be told a different host, so this
+# hostname is permanent once a build carrying it reaches the stores.
+routes = [
+  { pattern = "updates.tasfer.app", custom_domain = true }
+]
+
+# Published bundles. Objects are immutable and content-addressed by version:
+#   bundles/<version>.zip
+# Create once:  wrangler r2 bucket create tasfer-ota-bundles
+[[r2_buckets]]
+binding = "BUNDLES"
+bucket_name = "tasfer-ota-bundles"
+
+# The release pointer and per-version file manifests. KV rather than R2 because
+# the pointer is read on every app foreground and KV caches at the edge; a
+# rollback is a single write here.
+# Create once:  wrangler kv namespace create RELEASES
+#               wrangler kv namespace create RELEASES --preview
+# then paste the ids below.
+[[kv_namespaces]]
+binding = "RELEASES"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+preview_id = "REPLACE_WITH_KV_PREVIEW_ID"
+
+[vars]
+# Rejected outright if the check payload's app_id does not match. The endpoint
+# is public and unauthenticated by necessity — the plugin has no credential to
+# present — so this is a shape check, not a security control. Nothing here is
+# secret: the response only names a bundle that is already public.
+APP_ID = "app.tasfer"
+
+# Origin used to build bundle download URLs. Fixed rather than derived from
+# the incoming request: a request that arrives over http (or on a
+# workers.dev hostname) would otherwise be answered with a matching bundle
+# URL, and iOS App Transport Security refuses to fetch it.
+PUBLIC_ORIGIN = "https://updates.tasfer.app"

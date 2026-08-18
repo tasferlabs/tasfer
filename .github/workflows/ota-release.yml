@@ -1,0 +1,90 @@
+name: OTA Release
+
+# Publish a live (OTA) web-bundle update. The server is apps/updates.
+#
+# Two modes, chosen by whether `version` is filled in:
+#
+#   version blank  — build the current ref into a bundle, upload it, and make it
+#                    the current release. The version comes from
+#                    apps/web/package.json; the server only offers a bundle
+#                    strictly newer than what a device runs, so publishing
+#                    without bumping it is a no-op.
+#   version set    — point at a bundle that is ALREADY published. Nothing is
+#                    rebuilt: the metadata is read back out of R2, so the bytes
+#                    served are the bytes that were built. This is how a
+#                    rollback is done.
+#
+# There is one release for everyone — no channels, no staged rollout, no
+# per-platform split.
+#
+# This only moves web code. Anything native (plugins, permissions, icons, the
+# generated native strings) still needs a store release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Blank = build and publish the current ref; X.Y.Z = point at that published bundle"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ota-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/updates/package-lock.json
+            packages/*/package-lock.json
+
+      # web's postinstall also installs the source-aliased packages/*
+      - name: Install web
+        if: inputs.version == ''
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build bundle
+        if: inputs.version == ''
+        working-directory: apps/web
+        # Never set VERCEL here: it would select the microfrontends `/app` base
+        # and produce a bundle with absolute asset URLs that cannot boot from
+        # the device filesystem. pack-ota-bundle.mjs refuses if it is set.
+        env:
+          CAPGO_PRIVATE_KEY: ${{ secrets.CAPGO_PRIVATE_KEY }}
+        run: npm run build:ota
+
+      - name: Install publisher
+        working-directory: apps/updates
+        run: npm ci
+
+      - name: Publish
+        working-directory: apps/updates
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [[ -n "${{ inputs.version }}" ]]; then
+            node scripts/publish.mjs --version "${{ inputs.version }}"
+          else
+            version=$(node -p "require('../web/package.json').version")
+            node scripts/publish.mjs \
+              --zip "../../build/ota/${version}.zip" \
+              --meta ../../build/ota/bundle.json
+          fi

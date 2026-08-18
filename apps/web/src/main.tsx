@@ -23,6 +23,7 @@ import { initNativeDevToolsSync } from "./lib/devTools";
 import { faviconUrl } from "./lib/favicon";
 import { requestPersistentStorage } from "./lib/persistentStorage";
 import { initPlatform } from "./platform";
+import { isLiveUpdateHost, markBundleHealthy } from "./liveUpdates";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
 
 const initialFavicon = document.getElementById("favicon");
@@ -219,6 +220,13 @@ if (platformReady) {
       platformReady = true;
       (window as any).__TASFER_PLATFORM_READY__ = true;
       renderApp();
+
+      // Only now is a live-updated bundle allowed to call itself healthy. It
+      // has to be inside this `then`: the `catch` below is the case rollback
+      // exists for — a bundle that parses and runs but cannot open the
+      // database is broken, and staying silent here is what restores the
+      // previous bundle on the next launch. No-op off native.
+      void markBundleHealthy();
     })
     .catch((err) => {
       console.error("[Platform] Failed to initialize:", err);
@@ -226,9 +234,15 @@ if (platformReady) {
     });
 }
 
-// Register service worker for offline support (skip in Electron — loaded via file://)
+// Register service worker for offline support.
+//
+// Skipped in Electron (loaded via file://) and on iOS/Android, where the live
+// (OTA) updater owns updates instead. `navigator.serviceWorker` is absent in
+// the Capacitor WebView anyway, so registering there is already inert — the
+// point of the guard is that two update mechanisms must never both be able to
+// raise "update available" (see VersionContext).
 const isElectron = !!(window as any).tasfer;
-const updateSW = isElectron
+const updateSW = isElectron || isLiveUpdateHost()
   ? () => {}
   : registerSW({
       onNeedRefresh() {

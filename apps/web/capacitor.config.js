@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { loadEnv } from "vite";
 
 // Authored in JS, not TS: the Capacitor CLI parses a `.ts` config by
@@ -24,6 +25,16 @@ import { loadEnv } from "vite";
 const mode = process.env.NODE_ENV ?? "development";
 const env = loadEnv(mode, process.cwd(), "");
 const devServerUrl = process.env.CAP_SERVER_URL ?? env.CAP_SERVER_URL;
+
+// The bundle version the built-in bundle reports to the update server.
+//
+// Inferred from this package's version rather than tracked separately: it is
+// already the value vite.config.ts injects as __APP_VERSION__ and the one
+// set-native-version.mjs stamps onto MARKETING_VERSION / tasferVersionName, so
+// the app has exactly one version line and nothing to remember to bump.
+const bundleVersion = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+).version;
 
 export const appId = "app.tasfer";
 export const appName = "Tasfer";
@@ -69,5 +80,31 @@ export const plugins = {
     // visualViewport inset instead (useKeyboardInset; the editor's viewport
     // height formula in MountedEditor). window.innerHeight stays constant.
     resize: "none",
+  },
+  // Live (OTA) web-bundle updates. The server is apps/updates.
+  CapacitorUpdater: {
+    // Check on every foreground and download in the background, but never swap
+    // the running bundle on our own — src/liveUpdates.ts applies a downloaded
+    // bundle only when the user accepts the update prompt. A document editor
+    // must not reload itself mid-edit, and Apple's review guidelines caution
+    // against forcing an update to reach functionality.
+    autoUpdate: "onlyDownload",
+    // All three MUST be set. Their defaults point at plugin.capgo.app, so
+    // leaving any unset would send our app id and a per-install device id to
+    // Capgo's cloud on every launch. See apps/updates.
+    updateUrl: "https://updates.tasfer.app/check",
+    channelUrl: "https://updates.tasfer.app/channel",
+    statsUrl: "https://updates.tasfer.app/stats",
+    // The built-in bundle's version, baked into the native project by
+    // `cap copy` — a shipped store build reports this forever, so it has to
+    // sit on the same ordered line as the bundles the server will serve.
+    // Plain X.Y.Z only: semver ranks `-prerelease` BELOW the release and
+    // ignores `+build` entirely, so either suffix would read as a downgrade.
+    version: bundleVersion,
+    // Default is 10s. A cold start here boots a SharedWorker, SQLite on an
+    // IndexedDB VFS, and OPFS; on a low-end Android that can overrun and roll
+    // back a perfectly good bundle. Only applies to downloaded bundles, but
+    // there is no reason to wait until there are some.
+    appReadyTimeout: 30000,
   },
 };

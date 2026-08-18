@@ -8,7 +8,11 @@ buildscript {
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.13.0'
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21'
+        // Kotlin 2.2 is required by @capgo/capacitor-updater: it pulls
+        // okhttp 5.x, whose kotlin-stdlib resolves to 2.2.x, and a 2.0
+        // compiler cannot read 2.2 metadata ("binary version of its
+        // metadata is 2.2.0, expected version is 2.0.0").
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21'
         classpath 'com.google.gms:google-services:4.4.4'
 
         // NOTE: Do not place your application dependencies here; they belong

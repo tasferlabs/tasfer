@@ -28,6 +28,9 @@ fastlane/test_output
 fastlane/metadata/*/release_notes.txt
 fastlane/metadata/android/
 build/ios/
+
+# OTA bundle artifacts (apps/web/scripts/release/pack-ota-bundle.mjs)
+build/ota/
 fastlane/screenshots/source/*.png
 
 # My notes

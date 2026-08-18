@@ -7,3 +7,6 @@ project(':capacitor-filesystem').projectDir = new File('../web/node_modules/@cap
 
 include ':capacitor-keyboard'
 project(':capacitor-keyboard').projectDir = new File('../web/node_modules/@capacitor/keyboard/android')
+
+include ':capgo-capacitor-updater'
+project(':capgo-capacitor-updater').projectDir = new File('../web/node_modules/@capgo/capacitor-updater/android')
