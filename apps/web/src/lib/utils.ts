@@ -16,11 +16,11 @@ export function formatDurationLabel(minutes: number, t: TFunction): string {
   return t("format.hoursMinutes", { defaultValue: "{{hours}} hr {{mins}} min", hours, mins });
 }
 
-export const DURATION_OPTIONS = [
-  15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195, 210, 225, 240,
-  255, 270, 285, 300, 315, 330, 345, 360, 375, 390, 405, 420, 435, 450, 465,
-  480,
-];
+// 15 min up to a full day, in quarter-hour steps.
+export const DURATION_OPTIONS = Array.from(
+  { length: (24 * 60) / 15 },
+  (_, i) => (i + 1) * 15,
+);
 
 export function shallowEqual(objA: any, objB: any) {
   if (objA === objB) {
