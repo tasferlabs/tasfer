@@ -19,7 +19,7 @@ if (keystorePropsFile.exists()) {
 //
 // Tracks apps/web/package.json. The previous "0.0.0" placeholder is not
 // expressible here: it derives a versionCode of 0, which AGP rejects outright.
-def tasferVersionName = "0.1.0"
+def tasferVersionName = "0.1.1"
 def tasferSemver = (tasferVersionName =~ /^(\d+)\.(\d+)\.(\d+)$/)
 if (!tasferSemver.matches()) {
     throw new GradleException(

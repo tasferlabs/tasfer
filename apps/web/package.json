@@ -19,7 +19,7 @@
     "bench:oplog": "node scripts/bench-oplog.mjs",
     "extract:i18n": "node scripts/extract-i18n-keys.mjs",
     "generate:large-test-document": "node scripts/generate-large-test-document.mjs",
-    "set:native-version": "node scripts/release/set-native-version.mjs",
+    "set:native-version": "node ../../scripts/release/set-native-version.mjs",
     "prebuild": "node scripts/gen-third-party-licenses.mjs && node scripts/gen-manifest.mjs",
     "build": "tsc && vite build",
     "test": "vitest run",

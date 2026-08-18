@@ -1,1 +1,1 @@
-Initial release of Tasfer.
+Bug fixes and stability improvements.
