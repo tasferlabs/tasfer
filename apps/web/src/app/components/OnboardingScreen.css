@@ -159,6 +159,14 @@
   box-shadow: var(--ob-shadow-sm);
 }
 
+/* On the full-screen shell the card *is* the page, so its surface, ring and
+   shadow would only draw a box around the whole viewport. */
+.ob-wrap .ob-card {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .ob-icon-wrap {
   width: 44px;
   height: 44px;
