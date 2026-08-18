@@ -51,7 +51,11 @@ export function PagePicker({
   const anchorRef = useRef<HTMLDivElement>(null);
   const [anchorWidth, setAnchorWidth] = useState(0);
 
-  const { data: pages } = useSearchPages(spaceId, search);
+  // A parent must live in the picker's space, so this search stays scoped.
+  const { data: pages } = useSearchPages(search, {
+    spaceId,
+    enabled: !!spaceId,
+  });
 
   const filtered = excludeId
     ? pages?.filter(

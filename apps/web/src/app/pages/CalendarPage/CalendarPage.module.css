@@ -442,6 +442,17 @@
   flex-shrink: 0;
 }
 
+/* Read-only space name, sitting where a draft shows its space select. */
+.previewSpaceName {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .previewTitleRow {
   display: flex;
   align-items: center;

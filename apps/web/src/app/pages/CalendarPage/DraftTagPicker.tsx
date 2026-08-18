@@ -42,10 +42,17 @@ export function DraftTagPicker({
   spaceId,
   value,
   onChange,
+  excludeId,
 }: {
   spaceId: string | null;
   value: ISearchPage | null;
   onChange: (page: ISearchPage | null) => void;
+  /**
+   * A page that cannot be the parent — itself, when the picker re-parents an
+   * existing page. Hiding it hides its whole subtree too: rows only ever list
+   * the children of a page the user drilled into, and a hidden tag can't be.
+   */
+  excludeId?: string;
 }) {
   // The pages we've drilled into (each has children). `drillPath[i]` is the
   // opened page whose children fill row `i + 1`; row 0 is always the top level.
@@ -87,6 +94,7 @@ export function DraftTagPicker({
       title: page.title,
       titleMd: page.titleMd,
       parentId: page.parentId,
+      spaceId: page.spaceId ?? null,
       color: page.color ?? null,
       path: base.map((p) => ({
         id: p.id,
@@ -107,6 +115,7 @@ export function DraftTagPicker({
           selectedId={value?.id ?? null}
           openId={drillPath[i]?.id ?? null}
           inheritedColor={rowInheritedColors[i]}
+          excludeId={excludeId}
           onPick={(page) => pick(i, page)}
         />
       ))}
@@ -120,6 +129,7 @@ function TagRow({
   selectedId,
   openId,
   inheritedColor,
+  excludeId,
   onPick,
 }: {
   spaceId: string | null;
@@ -127,14 +137,16 @@ function TagRow({
   selectedId: string | null;
   openId: string | null;
   inheritedColor: string | null;
+  excludeId?: string;
   onPick: (page: IListPage) => void;
 }) {
   const { data: pages } = useGetPages(spaceId, parentId);
-  if (!pages || pages.length === 0) return null;
+  const visible = excludeId ? pages?.filter((p) => p.id !== excludeId) : pages;
+  if (!visible || visible.length === 0) return null;
 
   return (
     <div className={style.draftTagRow}>
-      {pages.map((page) => {
+      {visible.map((page) => {
         const isSelected = page.id === selectedId;
         const isOpen = page.id === openId;
         const resolvedColor = page.color ?? inheritedColor;
@@ -194,15 +206,29 @@ export function DraftParentSearch({
   spaceId,
   onSelect,
   onCancel,
+  excludeId,
 }: {
   spaceId: string | null;
   onSelect: (page: ISearchPage) => void;
   onCancel: () => void;
+  /** See {@link DraftTagPicker}; here its descendants have to go too. */
+  excludeId?: string;
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const { data: results } = useSearchPages(spaceId, query);
+  // Scoped: the draft is tagged onto a page inside its own space.
+  const { data: allResults } = useSearchPages(query, {
+    spaceId,
+    enabled: !!spaceId,
+  });
+  const results = excludeId
+    ? allResults?.filter(
+        (p) =>
+          p.id !== excludeId &&
+          !p.path?.some((ancestor) => ancestor.id === excludeId),
+      )
+    : allResults;
   // Results shrink as the query narrows; keep the highlight on a real row.
   const active = Math.min(activeIndex, (results?.length ?? 0) - 1);
 

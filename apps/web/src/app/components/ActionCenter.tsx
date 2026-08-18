@@ -160,7 +160,7 @@ export function ActionCenter() {
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { activeSpaceId } = useSpaces();
+  const { activeSpaceId, spaces } = useSpaces();
   const { setTheme, effectiveTheme } = useTheme();
   const queryClient = useQueryClient();
   const { isMobile, isShort } = useMobileLayout();
@@ -173,7 +173,17 @@ export function ActionCenter() {
   // frecency component of the ranking so frequently-used items float up.
   const [frecency, setFrecency] = useState<FrecencyStore>(loadFrecency);
 
-  const { data: pages } = useSearchPages(open ? activeSpaceId : null, search);
+  // The palette searches every space, not just the one new pages land in —
+  // the sidebar lists all spaces at once, so a page the user can see there
+  // must be reachable from here.
+  const { data: pages } = useSearchPages(search, { enabled: open });
+
+  // Name the owning space in the breadcrumb only when there is more than one;
+  // with a single space it would repeat on every row and say nothing.
+  const spaceNames = useMemo(() => {
+    if (spaces.length < 2) return null;
+    return new Map(spaces.map((s) => [s.id, s.name]));
+  }, [spaces]);
 
   const createPage = useCreatePage({
     onSuccess: (page) => {
@@ -387,6 +397,9 @@ export function ActionCenter() {
     const q = search.trim().toLowerCase();
     const titleMatched =
       q.length > 0 && (page.title ?? "").toLowerCase().includes(q);
+    const spaceName = page.spaceId
+      ? spaceNames?.get(page.spaceId)
+      : undefined;
     return (
     <Command.Item
       key={`page-${page.id}`}
@@ -416,11 +429,12 @@ export function ActionCenter() {
         <div className="truncate">
           <TitlePreview title={page.title} titleMd={page.titleMd} />
         </div>
-        {page.path && page.path.length > 0 && (
+        {(spaceName || (page.path && page.path.length > 0)) && (
           <div className="text-xs text-muted-foreground truncate">
-            {page.path.map((p, i) => (
+            {spaceName}
+            {page.path?.map((p, i) => (
               <Fragment key={p.id}>
-                {i > 0 && " / "}
+                {(i > 0 || spaceName) && " / "}
                 <TitlePreview
                   title={p.title}
                   titleMd={p.titleMd}

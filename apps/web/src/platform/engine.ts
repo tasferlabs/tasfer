@@ -3419,19 +3419,32 @@ export class Engine implements Platform {
     },
 
     search: async (
-      spaceId: string,
       query: string,
+      spaceId?: string | null,
     ): Promise<PageSearchResult[]> => {
+      // Pages in an archived space stay live but are hidden as a whole (see
+      // spaces.listArchived), so they must not surface here either.
       const rows = await this.driver.db.query<{
         id: string;
         title: string | null;
         title_md: string | null;
         body_text: string | null;
         parent_id: string | null;
+        space_id: string | null;
         color: string | null;
       }>(
-        "SELECT id, title, title_md, body_text, parent_id, color FROM pages WHERE space_id = ? AND (title LIKE ? OR body_text LIKE ?) AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 20",
-        [spaceId, `%${query}%`, `%${query}%`],
+        `SELECT p.id, p.title, p.title_md, p.body_text, p.parent_id, p.space_id, p.color
+           FROM pages p
+           LEFT JOIN spaces s ON s.id = p.space_id
+          WHERE (p.title LIKE ? OR p.body_text LIKE ?)
+            AND p.archived_at IS NULL
+            AND (p.space_id IS NULL OR s.archived_at IS NULL)
+            ${spaceId ? "AND p.space_id = ?" : ""}
+          ORDER BY p.updated_at DESC
+          LIMIT 20`,
+        spaceId
+          ? [`%${query}%`, `%${query}%`, spaceId]
+          : [`%${query}%`, `%${query}%`],
       );
 
       const results: PageSearchResult[] = [];
@@ -3442,6 +3455,7 @@ export class Engine implements Platform {
           title: r.title,
           titleMd: r.title_md,
           parentId: r.parent_id,
+          spaceId: r.space_id,
           path,
           color: r.color,
           snippet: bodySnippet(r.body_text, query),

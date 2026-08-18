@@ -1,5 +1,4 @@
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
-import { PagePicker } from "@/components/PagePicker";
 import { useConfirmation } from "@/app/components/ConfirmationDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,6 +58,7 @@ import {
   useDeletePage,
   updatePage as updatePageApi,
   useGetPage,
+  useGetPages,
   useMovePage,
   useUpdatePage,
   type ISearchPage,
@@ -580,6 +580,22 @@ export function EventPreview({
 
   const isDraft = !!draft && !pageId;
   const draftTargetSpaceId = draftSpaceId ?? activeSpaceId;
+  // The calendar draws every space's events, not only the active one, so the
+  // previewed page may well live somewhere else. Everything space-scoped here —
+  // the parent candidates above all — has to follow the page's own space; the
+  // active space's pages are not parents this page could have.
+  const eventSpaceId = isDraft
+    ? draftTargetSpaceId
+    : (previewPage?.spaceId ?? activeSpaceId);
+  const eventSpaceName = eventSpaceId
+    ? spaces.find((space) => space.id === eventSpaceId)?.name?.trim() ||
+      t("space.untitled", "Untitled space")
+    : null;
+
+  // A space whose only pages are none — or just this one — offers no parent to
+  // pick, so the whole picker (header included) stays out of the sheet.
+  const { data: rootPages } = useGetPages(eventSpaceId, null);
+  const hasParentCandidates = !!rootPages?.some((p) => p.id !== pageId);
 
   const handleDraftSpaceChange = useCallback((spaceId: string) => {
     setDraftSpaceId(spaceId);
@@ -609,15 +625,39 @@ export function EventPreview({
         return;
       }
       if (!pageId) return;
+      // The picker keeps the chosen tag lit from `previewPage`, so paint the
+      // move into the cache now rather than waiting out the round trip.
+      queryClient.setQueryData(["page", pageId], (old: any) =>
+        old
+          ? {
+              ...old,
+              parentId: page?.id ?? null,
+              parents: page
+                ? [
+                    ...(page.path ?? []),
+                    {
+                      id: page.id,
+                      title: page.title ?? "",
+                      titleMd: page.titleMd ?? undefined,
+                      color: page.color ?? null,
+                    },
+                  ]
+                : [],
+            }
+          : old,
+      );
       movePage({ id: pageId, parentId: page?.id ?? null });
     },
-    [isDraft, pageId, movePage],
+    [isDraft, pageId, movePage, queryClient],
   );
 
-  // Derive current parent for existing pages
-  const parentSegment = previewPage?.parents?.find(
-    (p) => p.id === previewPage.parentId,
-  );
+  // Derive current parent for existing pages. `parents` is the page's own
+  // ancestor chain, root first, so everything above the parent is the parent's
+  // path — which is what the drill-down picker opens itself to.
+  const ancestors = previewPage?.parents;
+  const parentIndex =
+    ancestors?.findIndex((p) => p.id === previewPage?.parentId) ?? -1;
+  const parentSegment = parentIndex >= 0 ? ancestors![parentIndex] : undefined;
   const currentParent: ISearchPage | null = isDraft
     ? draftParent
     : previewPage?.parentId
@@ -626,7 +666,9 @@ export function EventPreview({
           title: parentSegment?.title ?? null,
           titleMd: parentSegment?.titleMd ?? null,
           parentId: null,
-          path: null,
+          spaceId: previewPage.spaceId ?? null,
+          color: parentSegment?.color ?? null,
+          path: parentIndex > 0 ? ancestors!.slice(0, parentIndex) : null,
         }
       : null;
 
@@ -1061,9 +1103,18 @@ export function EventPreview({
           })
         : t("calendar.noDate", "No date"),
     duration: formatDurationLabel(currentDuration, t),
-    space: currentParent?.title?.trim() || t("common.none", "None"),
+    parent: currentParent?.title?.trim() || t("common.none", "None"),
     type: isTask ? t("calendar.task", "Task") : t("calendar.event", "Page"),
   };
+  // Space leads the meta line: with several spaces on one grid it is the coarsest
+  // thing about the event, and it drops out entirely when there is only one.
+  const scheduleSummaryMeta = [
+    spaces.length > 1 ? eventSpaceName : null,
+    scheduleSummary.parent,
+    scheduleSummary.type,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   const duplicateButton =
     pageId && onDuplicate ? (
@@ -1113,6 +1164,94 @@ export function EventPreview({
     </div>
   );
 
+  // The parent picker is the same drill-down everywhere — new draft or existing
+  // event, sheet or popover: rows of tags drilled top-to-bottom, with a search
+  // accelerator in the header. The magnifier swaps the tag rows for a flat
+  // all-pages search, and picking a result (or Esc) swaps back. The remounted
+  // picker opens its drill path to the selection. An existing page can't be its
+  // own parent, so it — and with it its subtree — is left out of the rows.
+  const renderParentPicker = (iconSize: number) =>
+    !hasParentCandidates ? null : (
+      <>
+        <div className={style.draftSectionHeader}>
+          <FolderOpen size={iconSize} className={style.previewRowIcon} />
+          <span>{t("calendar.parentPage", "Parent page")}</span>
+          <button
+            type="button"
+            className={`${style.draftSectionHeaderAction} ${parentSearchOpen ? style.draftSectionHeaderActionActive : ""}`}
+            onClick={() => setParentSearchOpen((open) => !open)}
+            aria-expanded={parentSearchOpen}
+            aria-label={t("calendar.findParentPage", "Find a page")}
+            title={t("calendar.findParentPage", "Find a page")}
+          >
+            <Search size={14} />
+          </button>
+        </div>
+        {parentSearchOpen ? (
+          <DraftParentSearch
+            spaceId={eventSpaceId}
+            excludeId={pageId || undefined}
+            onSelect={(page) => {
+              handleParentChange(page);
+              setParentSearchOpen(false);
+            }}
+            onCancel={() => setParentSearchOpen(false)}
+          />
+        ) : (
+          // An existing page's parent only arrives with the loaded page, after
+          // the picker has mounted; remount it then so the drill path opens to
+          // the parent instead of staying at the top level.
+          <DraftTagPicker
+            key={isDraft ? "draft" : `${pageId}:${previewPage ? "loaded" : ""}`}
+            spaceId={eventSpaceId}
+            value={currentParent}
+            onChange={handleParentChange}
+            excludeId={pageId || undefined}
+          />
+        )}
+      </>
+    );
+
+  // Which space this event lives in. Only worth a row once there is more than
+  // one space — but then it is the only thing on the sheet saying where the
+  // event is, since the grid mixes every space together. A draft still picks its
+  // target space; an existing page's is read-only, because moving one across
+  // spaces recreates its whole subtree under new ids and belongs in the move
+  // dialog, not in a select the user brushes past.
+  const spaceRow =
+    spaces.length > 1 && eventSpaceId ? (
+      <div className={style.previewRow}>
+        <Box size={14} className={style.previewRowIcon} />
+        {isDraft ? (
+          <Select value={eventSpaceId} onValueChange={handleDraftSpaceChange}>
+            <SelectTrigger
+              size="sm"
+              className="flex-1"
+              aria-label={t("space.selectSpace", "Select space")}
+            >
+              <SelectValue
+                placeholder={t("space.selectSpace", "Select space")}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {spaces.map((space) => (
+                <SelectItem key={space.id} value={space.id}>
+                  {space.name || t("space.untitled", "Untitled space")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span
+            className={style.previewSpaceName}
+            title={eventSpaceName ?? undefined}
+          >
+            {eventSpaceName}
+          </span>
+        )}
+      </div>
+    ) : null;
+
   const mobileScheduleFields = (
     <div className={style.previewDetailsBody}>
       <div className={style.previewRow}>
@@ -1150,46 +1289,13 @@ export function EventPreview({
           </ComboboxContent>
         </Combobox>
       </div>
-      <div className={style.previewRow}>
-        <FolderOpen size={14} className={style.previewRowIcon} />
-        <PagePicker
-          spaceId={activeSpaceId}
-          value={currentParent}
-          onChange={handleParentChange}
-          excludeId={pageId || undefined}
-        />
-      </div>
+      {spaceRow}
+      {hasParentCandidates && (
+        <div className={style.draftSection}>{renderParentPicker(14)}</div>
+      )}
       {taskEventRow}
     </div>
   );
-
-  const draftSpaceRow =
-    isDraft && spaces.length > 1 && draftTargetSpaceId ? (
-      <div className={style.previewRow}>
-        <Box size={14} className={style.previewRowIcon} />
-        <Select
-          value={draftTargetSpaceId}
-          onValueChange={handleDraftSpaceChange}
-        >
-          <SelectTrigger
-            size="sm"
-            className="flex-1"
-            aria-label={t("space.selectSpace", "Select space")}
-          >
-            <SelectValue
-              placeholder={t("space.selectSpace", "Select space")}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {spaces.map((space) => (
-              <SelectItem key={space.id} value={space.id}>
-                {space.name || t("space.untitled", "Untitled space")}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    ) : null;
 
   // Google-Calendar-style draft chrome (mobile). A top action bar (Cancel /
   // Save) sits above a scrollable body: title, then the date + duration rows,
@@ -1254,20 +1360,12 @@ export function EventPreview({
             </ComboboxContent>
           </Combobox>
         </div>
-        {draftSpaceRow}
+        {spaceRow}
       </div>
 
-      <div className={style.draftSection}>
-        <div className={style.draftSectionHeader}>
-          <FolderOpen size={16} className={style.previewRowIcon} />
-          <span>{t("calendar.parentPage", "Parent page")}</span>
-        </div>
-        <DraftTagPicker
-          spaceId={draftTargetSpaceId}
-          value={currentParent}
-          onChange={handleParentChange}
-        />
-      </div>
+      {hasParentCandidates && (
+        <div className={style.draftSection}>{renderParentPicker(16)}</div>
+      )}
 
       <div className={style.draftSection}>{taskEventRow}</div>
     </div>
@@ -1314,7 +1412,7 @@ export function EventPreview({
                 {scheduleSummary.when} · {scheduleSummary.duration}
               </span>
               <span className={style.previewDetailsSummaryMeta}>
-                {scheduleSummary.space} · {scheduleSummary.type}
+                {scheduleSummaryMeta}
               </span>
             </span>
             <ChevronDown
@@ -1380,55 +1478,8 @@ export function EventPreview({
           </ComboboxContent>
         </Combobox>
       </div>
-      {draftSpaceRow}
-      {isDraft ? (
-        // Drafts reuse the mobile sheet's drill-down parent picker, with a
-        // search accelerator in the header: the magnifier swaps the tag rows
-        // for a flat all-pages search, and picking a result (or Esc) swaps
-        // back. The remounted picker opens its drill path to the selection.
-        <>
-          <div className={style.draftSectionHeader}>
-            <FolderOpen size={14} className={style.previewRowIcon} />
-            <span>{t("calendar.parentPage", "Parent page")}</span>
-            <button
-              type="button"
-              className={`${style.draftSectionHeaderAction} ${parentSearchOpen ? style.draftSectionHeaderActionActive : ""}`}
-              onClick={() => setParentSearchOpen((open) => !open)}
-              aria-expanded={parentSearchOpen}
-              aria-label={t("calendar.findParentPage", "Find a page")}
-              title={t("calendar.findParentPage", "Find a page")}
-            >
-              <Search size={14} />
-            </button>
-          </div>
-          {parentSearchOpen ? (
-            <DraftParentSearch
-              spaceId={draftTargetSpaceId}
-              onSelect={(page) => {
-                handleParentChange(page);
-                setParentSearchOpen(false);
-              }}
-              onCancel={() => setParentSearchOpen(false)}
-            />
-          ) : (
-            <DraftTagPicker
-              spaceId={draftTargetSpaceId}
-              value={currentParent}
-              onChange={handleParentChange}
-            />
-          )}
-        </>
-      ) : (
-        <div className={style.previewRow}>
-          <FolderOpen size={14} className={style.previewRowIcon} />
-          <PagePicker
-            spaceId={activeSpaceId}
-            value={currentParent}
-            onChange={handleParentChange}
-            excludeId={pageId || undefined}
-          />
-        </div>
-      )}
+      {spaceRow}
+      {renderParentPicker(14)}
       {taskEventRow}
       {pageId && (
         <div className={style.previewRow}>

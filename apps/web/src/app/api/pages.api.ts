@@ -233,18 +233,26 @@ export function useReorderPage<TContext = unknown>(
 
 // Search pages
 export async function searchPages(
-  spaceId: string,
   query: string,
+  spaceId?: string | null,
 ): Promise<ISearchPage[]> {
   const platform = getPlatform();
-  return platform.pages.search(spaceId, query);
+  return platform.pages.search(query, spaceId);
 }
 
-export function useSearchPages(spaceId: string | null, query: string) {
+/**
+ * Search pages across every space. Pass `spaceId` to restrict the search to
+ * one space — for pickers that can only land a page inside a given space.
+ */
+export function useSearchPages(
+  query: string,
+  options?: { spaceId?: string | null; enabled?: boolean },
+) {
+  const spaceId = options?.spaceId ?? null;
   return useQuery({
     queryKey: ["pages-search", { spaceId, query }],
-    queryFn: () => searchPages(spaceId!, query),
-    enabled: !!spaceId,
+    queryFn: () => searchPages(query, spaceId),
+    enabled: options?.enabled ?? true,
     placeholderData: (prev) => prev,
   });
 }

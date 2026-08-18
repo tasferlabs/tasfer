@@ -205,6 +205,8 @@ export interface PageSearchResult {
   /** Markdown projection of the title line (see {@link PageListItem.titleMd}). */
   titleMd?: string | null;
   parentId: string | null;
+  /** Owning space — search spans every space, so results must say which. */
+  spaceId: string | null;
   path: PagePathSegment[] | null;
   color?: string | null;
   /**
@@ -785,8 +787,11 @@ export interface Platform {
     recreateInSpace(input: RecreatePageInput): Promise<string>;
     /** Reorder a page within its parent */
     reorder(id: string, order: number): Promise<void>;
-    /** Search pages by title */
-    search(spaceId: string, query: string): Promise<PageSearchResult[]>;
+    /**
+     * Search live pages by title and body text. Spans every non-archived space
+     * unless `spaceId` names one to restrict to.
+     */
+    search(query: string, spaceId?: string | null): Promise<PageSearchResult[]>;
     /** Get pages in a calendar date range */
     calendar(start: number, end: number): Promise<PageCalendarItem[]>;
     /**
