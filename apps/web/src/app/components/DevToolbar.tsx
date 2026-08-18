@@ -27,6 +27,7 @@ import {
   type NetLogEntry,
 } from "@/platform/devlog";
 import { useAssetUrl } from "../api/images.api";
+import { downloadFile } from "@/downloadFile";
 import { cn } from "@/lib/utils";
 import { DevEditorState } from "./DevEditorState";
 import useResponsive from "../hooks/useResponsive";
@@ -506,6 +507,12 @@ const OP_TYPE_COLORS: Record<string, string> = {
 };
 
 const CRDT_VIEW_LIMIT = 200;
+
+/** `logs-2026-08-17T12-32-39.log` — a filename that sorts by when it was taken. */
+function stampedName(prefix: string, ext: string) {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+  return `${prefix}-${stamp}.${ext}`;
+}
 
 function buildCrdtWhere(pageId: string, opType: string) {
   const params: unknown[] = [];
@@ -1496,24 +1503,17 @@ export function DevToolbar() {
     setCrdtExporting(true);
     try {
       const ops = await fetchCrdtOps(crdtPageId, crdtOpType, limit);
-      const filtered = ops.filter(
-        (o) =>
-          !crdtFilter ||
-          crdtOpSummary(o).toLowerCase().includes(crdtFilter.toLowerCase()) ||
-          o.peerId.toLowerCase().includes(crdtFilter.toLowerCase()),
-      );
       const json = JSON.stringify(
-        filtered.map((o) => o.data),
+        ops.filter((o) => crdtMatches(o, crdtFilter)).map((o) => o.data),
         null,
         2,
       );
       const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `crdt-ops-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadFile(
+        blob,
+        stampedName("crdt-ops", "json"),
+        "application/json",
+      );
       setCrdtExportOpen(false);
     } catch (e) {
       console.error("crdt export:", e);
@@ -1529,16 +1529,11 @@ export function DevToolbar() {
     setTimeout(() => setQueryCopied(false), 1500);
   }, [queryResult]);
 
-  const exportQueryResult = useCallback(() => {
+  const exportQueryResult = useCallback(async () => {
     if (!queryResult || !queryResult.ok) return;
     const json = JSON.stringify(queryResult.rows, null, 2);
     const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `query-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadFile(blob, stampedName("query", "json"), "application/json");
   }, [queryResult]);
 
   const runQuery = useCallback(async () => {
@@ -1595,17 +1590,12 @@ export function DevToolbar() {
     setTimeout(() => setLogsCopied(false), 1500);
   }, [filteredLogs]);
 
-  const exportLogs = useCallback(() => {
+  const exportLogs = useCallback(async () => {
     const text = filteredLogs
       .map((l) => `[${fmtTime(l.timestamp)}] [${l.level}] ${l.message}`)
       .join("\n");
     const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.log`;
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadFile(blob, stampedName("logs", "log"), "text/plain");
   }, [filteredLogs]);
 
   const copyNetLogs = useCallback(async () => {
@@ -1626,7 +1616,7 @@ export function DevToolbar() {
     setTimeout(() => setNetCopied(false), 1500);
   }, [filteredNet]);
 
-  const exportNetLogs = useCallback(() => {
+  const exportNetLogs = useCallback(async () => {
     const json = JSON.stringify(
       filteredNet.map((l) => ({
         time: fmtTime(l.timestamp),
@@ -1640,12 +1630,11 @@ export function DevToolbar() {
       2,
     );
     const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `network-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadFile(
+      blob,
+      stampedName("network", "json"),
+      "application/json",
+    );
   }, [filteredNet]);
 
   if (!devToolsEnabled || hidden) return null;
