@@ -152,6 +152,40 @@ export interface InteractionSession {
    * whole construct's edge, bouncing the loupe. Null between drags.
    */
   handleDragPrevHit: Position | null;
+  /**
+   * Caret a press that landed INSIDE the selection resolved to, held until the
+   * release. The press itself must leave the selection alone: the browser may
+   * be about to turn it into an HTML5 drag, and collapsing on the way down
+   * would empty the selection before `dragstart` could pick it up. If a drag
+   * does start it clears this, so the release does nothing; otherwise the
+   * release places the caret here — a plain click on a selection.
+   */
+  pressedOnSelection: Position | null;
+  /**
+   * A press that landed on draggable selected text and may still become an
+   * HTML5 drag — live from the DOM `mousedown` to its release. Unlike
+   * `pressedOnSelection` this is set SYNCHRONOUSLY in the press handler, not a
+   * frame later when the queue drains: the browser decides whether the gesture
+   * is a drag before that frame ever runs, and the blur the press causes
+   * arrives in between. Everything that must not tear the selection down
+   * mid-gesture keys off this.
+   */
+  textDragArmed: boolean;
+  /**
+   * A native HTML5 text drag this editor is the SOURCE of: the range it put on
+   * the `DataTransfer`, live from `dragstart` to `dragend`. Null while no drag
+   * is in flight, and — importantly — while a drag started somewhere else
+   * (another editor on the page, another application) passes over this one.
+   * That distinction is what makes a drop a move rather than an insert.
+   */
+  textDragSource: { start: Position; end: Position } | null;
+  /**
+   * Set when this editor's own `drop` committed the drag it also started, so the
+   * `dragend` that follows doesn't remove the source a second time — the drop
+   * already did, in the same transaction as the insert. Dropping into a
+   * different target leaves this false and `dragend` does the removal.
+   */
+  textDragHandled: boolean;
 }
 
 export function createInteractionSession(
@@ -179,6 +213,10 @@ export function createInteractionSession(
     handleDragLoupe: null,
     handleDragPrevRawFocus: null,
     handleDragPrevHit: null,
+    pressedOnSelection: null,
+    textDragArmed: false,
+    textDragSource: null,
+    textDragHandled: false,
   };
 }
 

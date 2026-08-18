@@ -2338,6 +2338,61 @@ export function pasteFromClipboardEvent(
 }
 
 /**
+ * Insert an already-built {@link ClipboardPayload} at the caret — the in-app
+ * counterpart to {@link pasteFromClipboardEvent} for content that never reached
+ * the platform clipboard, i.e. a dragged selection being dropped.
+ *
+ * It takes the same marker-carrying HTML path a Tasfer-to-Tasfer paste does, so
+ * a drop preserves marks, block types and math exactly like copy/paste rather
+ * than through a second, subtly different code path. Returns `null` when nothing
+ * could be parsed out of the payload.
+ */
+export function insertClipboardPayload(
+  state: EditorState,
+  payload: ClipboardPayload,
+): ActionResult | null {
+  state = expandSelectionAroundStructuredMarks(state);
+
+  // A nested selection is owned by its feature, not by the flat block parser —
+  // same hand-off the paste path makes.
+  if (
+    state.document.contentSelection ||
+    state.schema.ownsInput("before-insert", state, payload.plainText)
+  ) {
+    return payload.plainText ? insertText(state, payload.plainText) : null;
+  }
+
+  // See the empty-host retype in `insertBlocksAtCursor`.
+  const untypedBlockIds = new Set<string>();
+
+  if (payload.html) {
+    const blocks = parseHTMLToBlocks(
+      payload.html,
+      state.CRDTbinding,
+      state.schema,
+      untypedBlockIds,
+    );
+    if (blocks.length > 0) {
+      return insertBlocksAtCursor(state, blocks, untypedBlockIds);
+    }
+  }
+
+  if (payload.plainText) {
+    const blocks = parsePlainTextToBlocks(
+      payload.plainText,
+      state.CRDTbinding,
+      state.schema,
+      untypedBlockIds,
+    );
+    if (blocks.length > 0) {
+      return insertBlocksAtCursor(state, blocks, untypedBlockIds);
+    }
+  }
+
+  return null;
+}
+
+/**
  * Paste content from ClipboardEvent as plain text only (Ctrl+Shift+V)
  * This uses the paste event's clipboardData, which doesn't require permission
  */

@@ -390,7 +390,13 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   contentCanvas.style.display = "block";
   contentCanvas.setAttribute("draggable", "false");
   const preventSelectStart = (e: Event) => e.preventDefault();
-  const preventDragStart = (e: Event) => e.preventDefault();
+  // The canvas is only draggable while the pointer rests on selected text (the
+  // editor raises the flag from its hover path, so a native text drag can
+  // begin). Any other dragstart is the browser trying to drag the canvas image
+  // itself — refuse those.
+  const preventDragStart = (e: Event) => {
+    if (!contentCanvas.draggable) e.preventDefault();
+  };
   contentCanvas.addEventListener("selectstart", preventSelectStart);
   contentCanvas.addEventListener("dragstart", preventDragStart);
 

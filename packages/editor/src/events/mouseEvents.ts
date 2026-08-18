@@ -19,7 +19,7 @@ import {
   structuredMarkRunForContentPoint,
 } from "../actions/structured-marks";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
-import { isApplePlatform } from "../platform";
+import { isApplePlatform, supportsHtml5Drag } from "../platform";
 import {
   getScrollbarStyles,
   isPointInThumb,
@@ -32,6 +32,7 @@ import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
   getWordRangeFromViewport,
+  isPointWithinSelectionRects,
 } from "../selection";
 import { updateCursor } from "../selection";
 import { updateSelectionFocus } from "../selection";
@@ -75,6 +76,86 @@ import {
  */
 function commandModifier(event: { ctrlKey: boolean; metaKey: boolean }) {
   return isApplePlatform() ? event.metaKey : event.ctrlKey;
+}
+
+/**
+ * Whether the current selection is something an HTML5 drag can carry: a real
+ * text range in an editable document, not a nested (structured content)
+ * selection — a caret inside a formula belongs to its own feature.
+ *
+ * A state predicate only — whether the platform HAS the gesture is
+ * {@link supportsHtml5Drag}, asked at the points that touch the environment
+ * (the hover affordance and the press that arms the drag).
+ */
+export function canDragSelection(state: EditorState): boolean {
+  if (state.ui.mode === "readonly" || state.ui.mode === "suspended") {
+    return false;
+  }
+  if (state.document.contentSelection) return false;
+  const selection = state.document.selection;
+  return !!selection && !selection.isCollapsed;
+}
+
+/** Whether a press continues the previous click's double/triple-click run. */
+function continuesClickRun(
+  state: EditorState,
+  canvasX: number,
+  canvasY: number,
+): boolean {
+  const tracker = state.view.clickTracker;
+  return (
+    !!tracker.lastClickPosition &&
+    Date.now() - tracker.lastClickTime <= DOUBLE_CLICK_TIME &&
+    isWithinClickDistance({ x: canvasX, y: canvasY }, tracker.lastClickPosition)
+  );
+}
+
+/**
+ * Whether a press should arm an HTML5 text drag — raise the canvas's
+ * `draggable` flag and let the press's default action run, which is what hands
+ * the gesture to the browser.
+ *
+ * Answered synchronously in the DOM `mousedown` handler rather than from the
+ * queued pointer state: the browser resolves the press into a drag (or not)
+ * before the next animation frame, so a flag raised when the queue drains
+ * arrives after the gesture is already lost. It mirrors only the cheap half of
+ * {@link handleMouseDown}'s precedence — the chrome regions, tracked from the
+ * last hover, and the multi-click window, whose sweep extends the selection by
+ * word. The authoritative decision still happens there, in
+ * `session.pressedOnSelection`; being a superset here costs nothing, since a
+ * press that never crosses the drag threshold is still just a click.
+ */
+export function pressArmsTextDrag(
+  state: EditorState,
+  viewport: ViewportState,
+  canvasX: number,
+  canvasY: number,
+  visibility: VisibleBlockRange,
+  event: { button: number; shiftKey: boolean },
+): boolean {
+  if (event.button !== 0 || event.shiftKey) return false;
+  if (!supportsHtml5Drag() || !canDragSelection(state)) return false;
+  if (state.ui.activeMenu.type !== "none") return false;
+  // Chrome that owns the point in its own right. The hover flags are one
+  // mousemove old, which for a press is this very position.
+  if (
+    state.view.scrollbar.isHovered ||
+    state.ui.isHoveringCheckbox ||
+    state.ui.isHoveringPeerIndicator ||
+    state.ui.hoveredDragHandleBlockId !== null ||
+    state.ui.imageHover?.hoveredHandle
+  ) {
+    return false;
+  }
+  if (continuesClickRun(state, canvasX, canvasY)) return false;
+  return isPointWithinSelectionRects(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    undefined,
+    visibility,
+  );
 }
 
 export function handleMouseDown(
@@ -285,14 +366,7 @@ export function handleMouseDown(
   let isMultiClick = false;
   let clickCount = 1;
 
-  if (
-    state.view.clickTracker.lastClickPosition &&
-    currentTime - state.view.clickTracker.lastClickTime <= DOUBLE_CLICK_TIME &&
-    isWithinClickDistance(
-      currentPosition,
-      state.view.clickTracker.lastClickPosition,
-    )
-  ) {
+  if (continuesClickRun(state, canvasX, canvasY)) {
     clickCount = state.view.clickTracker.count + 1;
     isMultiClick = true;
   }
@@ -451,6 +525,27 @@ export function handleMouseDown(
   });
   if (clicked.claimed) {
     return { state: clicked.state, ops: [...ops, ...clicked.ops] };
+  }
+
+  // A press INSIDE the selection defers to the release. The browser may be about
+  // to turn it into an HTML5 text drag, and collapsing the selection here would
+  // empty it before `dragstart` could pick anything up. If no drag follows,
+  // `handleMouseUp` places the caret recorded here — which is what a plain click
+  // on a selection does anyway.
+  if (
+    !event.shiftKey &&
+    canDragSelection(state) &&
+    isPointWithinSelectionRects(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      styles,
+      visibility,
+    )
+  ) {
+    session.pressedOnSelection = position;
+    return { state, ops };
   }
 
   // Nothing claimed the click: place the caret. If Shift is held, extend the
@@ -648,6 +743,28 @@ export function handleMouseMove(
     };
   }
 
+  // Selection hover — the grab cursor that advertises "this text can be
+  // dragged". Only the affordance: whether a press actually starts a drag is
+  // decided at the press itself (`pressArmsTextDrag`), which is the only moment
+  // early enough for the browser to still take the gesture.
+  const isOverSelection =
+    supportsHtml5Drag() && canDragSelection(state)
+      ? isPointWithinSelectionRects(
+          canvasX,
+          canvasY,
+          state,
+          viewport,
+          undefined,
+          visibility,
+        )
+      : false;
+  if (isOverSelection !== state.ui.isHoveringSelection) {
+    state = {
+      ...state,
+      ui: { ...state.ui, isHoveringSelection: isOverSelection },
+    };
+  }
+
   // Block reorder handle hover — drives the gutter grip. Same hit-test the drag
   // uses, so the painted grip and the grabbable band can never disagree.
   const hoveredDragHandleBlockId =
@@ -788,6 +905,18 @@ export function handleMouseUp(
     };
   }
 
+  // A press on the selection that never became an HTML5 drag (`dragstart`
+  // clears this) — collapse to the caret it resolved to, the click it was.
+  const pressedOnSelection = session.pressedOnSelection;
+  session.pressedOnSelection = null;
+  if (pressedOnSelection) {
+    const placed = state.actionBus.dispatchState(PLACE_CURSOR_AT_POINT, state, {
+      position: pressedOnSelection,
+      extend: false,
+    });
+    return { state: updateMode(placed.state, "edit"), ops };
+  }
+
   if (state.ui.mode === "select") {
     // Clear the transient multi-click boundary when finishing selection.
     let newState = state;
@@ -826,6 +955,7 @@ export function handlePointerCancel(
 ): EditorState {
   stopAutoScroll(session);
   session.pendingCapture = null;
+  session.pressedOnSelection = null;
 
   // Cancel a captured region drag (scrollbar thumb)
   const cancelled = routeCapturedCancel({

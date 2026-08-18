@@ -617,6 +617,7 @@ export function handleEvents(
             imageHover: null,
             inlineMathHover: null,
             hoveredMathBlockIndex: null,
+            isHoveringSelection: false,
           },
         };
         break;

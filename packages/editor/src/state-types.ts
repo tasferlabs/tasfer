@@ -312,6 +312,22 @@ export interface BlockDragState {
   readonly dropIndex: number;
 }
 
+/**
+ * A native HTML5 text drag as this editor currently sees it. Ephemeral chrome —
+ * no CRDT op until the drop, never persisted. The OS paints the drag image and
+ * owns the cursor; all the editor tracks is where the drop would land.
+ *
+ * `source` is the range this editor put on the drag, or `null` when the drag
+ * came from somewhere else (another editor on the page, another application) —
+ * which is exactly what separates a move-within-this-document from an insert.
+ * `target` is the caret a drop would insert at, re-resolved on every `dragover`
+ * and `null` when the pointer is over nothing droppable.
+ */
+export interface TextDragState {
+  readonly source: { readonly start: Position; readonly end: Position } | null;
+  readonly target: Position | null;
+}
+
 // Image Hover State - Not a menu, just visual feedback
 export interface ImageHoverState {
   readonly blockIndex: number;
@@ -514,6 +530,12 @@ export interface UIState {
   readonly hoveredDragHandleBlockId: string | null;
   // Active block-reorder drag (left-gutter handle), or null.
   readonly blockDrag: BlockDragState | null;
+  // Active text drag — selected text being carried to a new spot — or null.
+  readonly textDrag: TextDragState | null;
+  // Whether a fine pointer is resting on the current selection. Drives the grab
+  // cursor that advertises "this text can be dragged" — the affordance only;
+  // the drag itself is armed at the press, off the same hit-test.
+  readonly isHoveringSelection: boolean;
   // Insertion-gap index for an external drag (e.g. a dropped image file) hovering
   // the canvas, or null. Drives the same insertion line the renderer paints for a
   // block reorder, minus the gutter grip. Set by the host via

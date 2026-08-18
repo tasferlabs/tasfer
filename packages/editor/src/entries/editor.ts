@@ -29,6 +29,7 @@ import {
   type HostClipboard,
   pasteFromSystemClipboard,
 } from "../actions/clipboard";
+import { DROP_TEXT, REMOVE_DRAGGED_TEXT } from "../actions/drag-actions";
 import { COPY, CUT } from "../actions/input-actions";
 import {
   expandSelectionAroundStructuredMarks,
@@ -39,11 +40,20 @@ import { BLUR_SELECTION_CLEAR_DELAY } from "../constants";
 import { IS_DEV } from "../env";
 import { edgeScrollDelta } from "../events/autoScroll";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
+import {
+  dragOrigin,
+  dropEffectFor,
+  dropTargetAt,
+  isTextDrag,
+  loadTextDrag,
+  readTextDrop,
+} from "../events/dragEvents";
 import { handleEvents } from "../events/events";
 import {
   createInteractionSession,
   isInLongPressMode,
 } from "../events/interaction-session";
+import { pressArmsTextDrag } from "../events/mouseEvents";
 import { onFontsReady } from "../fonts";
 import { resolveMarkRuns } from "../inline-math-spans";
 import {
@@ -60,7 +70,7 @@ import {
   SURFACE_SENTINEL,
 } from "../input-diff";
 import { getBlockTextContent, isAndroid, isIOS } from "../node-shared";
-import { isApplePlatform } from "../platform";
+import { isApplePlatform, supportsHtml5Drag } from "../platform";
 import {
   type BlockData as RuntimeBlockData,
   docMarks,
@@ -1179,6 +1189,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // Click handler for focusing input (stored for cleanup)
   private canvasClickHandler: (() => void) | null = null;
   private desktopPointerListenersAttached = false;
+  // Whether the HTML5 drag listeners went on (a platform without the gesture
+  // gets none), so teardown removes exactly what was attached.
+  private textDragListenersAttached = false;
 
   // Named actions (from the schema), resolvable by name from a keyboard
   // `shortcut`. A value is either a raw EditorAction or a listenable MutationAction.
@@ -1318,6 +1331,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.contentCanvas.addEventListener("wheel", this.eventsHandler, {
         passive: false,
       });
+
+      // HTML5 text drag-and-drop, attached only where the platform actually
+      // has the gesture (see `supportsHtml5Drag`) — the editor never stands in
+      // for a missing one.
+      if (supportsHtml5Drag()) {
+        this.textDragListenersAttached = true;
+        this.contentCanvas.addEventListener("dragstart", this.dragStartHandler);
+        this.contentCanvas.addEventListener("dragover", this.dragOverHandler);
+        this.contentCanvas.addEventListener("dragleave", this.dragLeaveHandler);
+        this.contentCanvas.addEventListener("drop", this.dropHandler);
+        this.contentCanvas.addEventListener("dragend", this.dragEndHandler);
+      }
 
       window.addEventListener("mouseup", this.windowMouseUpHandler);
       window.addEventListener("mousemove", this.windowMouseMoveHandler);
@@ -1543,6 +1568,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     isHoveringMath: boolean = false,
     isHoveringDragHandle: boolean = false,
     isDraggingBlock: boolean = false,
+    isHoveringSelection: boolean = false,
   ) => {
     // Only update the pointer cursor when a fine pointer is available.
     if (isTouchOnlyDevice()) {
@@ -1552,8 +1578,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (isDragging || isDraggingBlock) {
       // Dragging the scrollbar or reordering a block — closed-hand cursor.
       this.contentCanvas.style.cursor = "grabbing";
-    } else if (isHoveringDragHandle) {
-      // Hovering a block's reorder grip — open-hand "grab" affordance.
+    } else if (isHoveringDragHandle || isHoveringSelection) {
+      // Hovering a block's reorder grip, or selected text that can be dragged
+      // — open-hand "grab" affordance.
       this.contentCanvas.style.cursor = "grab";
     } else if (dragHandleHover) {
       // When hovering over a drag handle, use resize cursor
@@ -1762,6 +1789,20 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
           this.dirtyLayers.content = true;
         }
 
+        // Block-reorder chrome is painted on the content layer but is driven
+        // purely by pointer movement, which touches neither the page nor the
+        // selection — so nothing else here would mark the layer dirty and the
+        // gutter grip / insertion line would freeze while the pointer moves.
+        // (The text-drop caret needs no entry: HTML5 drag events are handled
+        // outside this queue and call `scheduleRender` themselves.)
+        if (
+          prevState.ui.blockDrag !== this._state.ui.blockDrag ||
+          prevState.ui.hoveredDragHandleBlockId !==
+            this._state.ui.hoveredDragHandleBlockId
+        ) {
+          this.dirtyLayers.content = true;
+        }
+
         // Math hover state changes affect rendered chip/block backgrounds. The
         // inline-math edit popover also styles its chip as hovered — the open
         // path records that range in `inlineMathHover`, so this check covers it.
@@ -1909,6 +1950,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             this._state.ui.inlineMathHover !== null,
             this._state.ui.hoveredDragHandleBlockId !== null,
             this._state.ui.blockDrag !== null,
+            this._state.ui.isHoveringSelection,
           );
 
           this.dirtyLayers.content = viewportChangedAfterPaint;
@@ -2052,11 +2094,40 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // alone (its focus/context-menu path is handled separately), and
     // selectstart/dragstart are already prevented on the canvas.
     if (e.type === "mousedown" && (e as MouseEvent).button === 0) {
-      e.preventDefault();
+      // ...except when the press lands on draggable selected text. Preventing
+      // the default there also cancels the HTML5 drag the browser is about to
+      // start, so the platform's own text drag-and-drop would never fire. The
+      // focus that this suppression protects is taken back when the press ends
+      // (`endTextDragPress`), and the deferred blur-clear is held off for its
+      // whole span (see `scheduleSelectionClearOnBlur`).
+      //
+      // Both halves of that decision have to be made HERE, synchronously: the
+      // browser resolves the press into a drag before the next frame drains
+      // the event queue, so a `draggable` flag raised from queued state — and
+      // a `preventDefault()` that read it — would always be one gesture late.
+      const press = e as MouseEvent;
+      const point = this.dragPoint(press);
+      const armed = pressArmsTextDrag(
+        this._state,
+        this.viewport,
+        point.x,
+        point.y,
+        this.visibility,
+        press,
+      );
+      this.session.textDragArmed = armed;
+      this.contentCanvas.draggable = armed;
+      if (!armed) e.preventDefault();
       // A left click that lands the caret elsewhere is a "jump" — arm the
       // landing morph for this frame. Ignored on touch (where `mousedown` is
       // synthesized but never places the caret).
       if (!isTouchOnlyDevice()) this.caretJumpPending = true;
+    }
+
+    // The end of a press the browser never turned into a drag (one it did is
+    // released by `dragend` instead, which gets no mouseup).
+    if (e.type === "mouseup" || e.type === "pointercancel") {
+      this.endTextDragPress();
     }
 
     // Paste is handled by the contenteditable surface's `paste` listener
@@ -2067,8 +2138,234 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.scheduleRender(); // Mark that we need to render due to this event
   };
 
+  // ─── HTML5 text drag-and-drop ──────────────────────────────────────────────
+  //
+  // These run synchronously in the DOM handler rather than through the event
+  // queue, because both ends of the platform contract are synchronous: a
+  // `dragover` that doesn't `preventDefault()` refuses the drop, and a
+  // `DataTransfer` is neutered the moment its event returns. Commits go through
+  // `dispatch`, which is the same undo + broadcast + notify path every other
+  // action takes.
+
+  /**
+   * End the press that armed a text drag — on its release, or on the `dragend`
+   * of the drag it became.
+   *
+   * Letting that press's default action run is what hands the gesture to the
+   * browser; the price is the focus it drops on the way (the canvas isn't
+   * focusable, so the default moves focus to <body>). Take it back here, unless
+   * something else has claimed it meanwhile — another editor on the page that
+   * took the drop focuses itself, and must keep it. Without this the editor is
+   * left blurred and the deferred blur-clear tears down the very selection the
+   * gesture was about.
+   */
+  private endTextDragPress = () => {
+    if (!this.session.textDragArmed) return;
+    this.session.textDragArmed = false;
+    this.contentCanvas.draggable = false;
+    if (
+      typeof document !== "undefined" &&
+      document.activeElement === document.body
+    ) {
+      this.focus();
+    } else {
+      this.syncBrowserFocus();
+    }
+  };
+
+  /** Canvas coordinates for a drag event, using the cached container rect. */
+  private dragPoint = (e: { clientX: number; clientY: number }) => {
+    if (this.rectNeedsUpdate) this.updateCachedRect();
+    return {
+      x: e.clientX - this.cachedRect.left,
+      y: e.clientY - this.cachedRect.top,
+    };
+  };
+
+  /** Paint (or move) the insertion caret a drop would land on. */
+  private setTextDropTarget = (target: Position | null) => {
+    const source = this.session.textDragSource;
+    const current = this._state.ui.textDrag;
+    if (current?.target === target && current?.source === source) return;
+    this._state = {
+      ...this._state,
+      ui: { ...this._state.ui, textDrag: { source, target } },
+    };
+    this.scheduleRender();
+  };
+
+  /** Tear the drop caret down — the drag left, landed, or was cancelled. */
+  private clearTextDrag = () => {
+    if (!this._state.ui.textDrag) return;
+    this._state = {
+      ...this._state,
+      ui: { ...this._state.ui, textDrag: null },
+    };
+    this.scheduleRender();
+  };
+
+  /**
+   * Give the drag a legible ghost. Left alone, the browser snapshots the drag
+   * source — which here is the whole canvas, so the pointer would carry a
+   * translucent copy of the entire page. A short one-line chip of the text
+   * being dragged reads like every other text drag on the platform.
+   */
+  private setTextDragImage = (transfer: DataTransfer, text: string) => {
+    if (typeof document === "undefined" || !transfer.setDragImage) return;
+    const styles = getEditorStyles(this._state);
+    const ghost = document.createElement("div");
+    const line = text.replace(/\s+/g, " ").trim();
+    ghost.textContent = line.length > 60 ? `${line.slice(0, 60)}…` : line;
+    Object.assign(ghost.style, {
+      position: "fixed",
+      // Off-screen, but laid out — the platform can only snapshot a rendered node.
+      top: "-1000px",
+      left: "-1000px",
+      maxWidth: "320px",
+      padding: "4px 8px",
+      borderRadius: "6px",
+      whiteSpace: "pre",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      font: `${styles.blocks.paragraph.fontSize}px system-ui, sans-serif`,
+      color: styles.blocks.paragraph.color,
+      backgroundColor: styles.selection.backgroundColor,
+    });
+    document.body.appendChild(ghost);
+    transfer.setDragImage(ghost, 12, 12);
+    // The snapshot is taken synchronously; the node is only needed until then.
+    setTimeout(() => ghost.remove(), 0);
+  };
+
+  private dragStartHandler = (e: DragEvent) => {
+    const range = e.dataTransfer
+      ? loadTextDrag(this._state, e.dataTransfer)
+      : null;
+    if (!range) {
+      // Nothing draggable under the pointer — never let the browser fall back
+      // to dragging the canvas bitmap.
+      e.preventDefault();
+      return;
+    }
+    // `getData` is readable on dragstart (only `dragover` withholds it), so the
+    // ghost reuses the very text that just went on the transfer.
+    this.setTextDragImage(
+      e.dataTransfer!,
+      e.dataTransfer!.getData("text/plain"),
+    );
+    // The press that started this is now a drag, not a click — the release must
+    // not collapse the selection out from under it.
+    this.session.pressedOnSelection = null;
+    this.session.textDragSource = range;
+    this.session.textDragHandled = false;
+  };
+
+  private dragOverHandler = (e: DragEvent) => {
+    if (!isTextDrag(e.dataTransfer, this._state)) return;
+    // Accepting a drop is expressed by preventing the default, which otherwise
+    // refuses it (and, for some flavors, navigates away).
+    e.preventDefault();
+    const source = this.session.textDragSource;
+    const { x, y } = this.dragPoint(e);
+    const target = dropTargetAt(
+      this._state,
+      this.viewport,
+      x,
+      y,
+      this.visibility,
+      source,
+    );
+    if (e.dataTransfer) {
+      // Nowhere to drop (off the text, or inside the range being carried) is
+      // reported as "none", not just left uncaught: a drag that ends on an
+      // impossible target must come back to `dragend` as cancelled, or the
+      // removal side of a move would run with no insert to pair it.
+      e.dataTransfer.dropEffect = target
+        ? dropEffectFor(dragOrigin(e.dataTransfer, source !== null), e)
+        : "none";
+    }
+    this.setTextDropTarget(target);
+  };
+
+  private dragLeaveHandler = (e: DragEvent) => {
+    if (!isTextDrag(e.dataTransfer, this._state)) return;
+    // `dragleave` also fires when crossing between the canvas and chrome layered
+    // over it, so only a pointer genuinely outside the canvas clears the caret.
+    const { x, y } = this.dragPoint(e);
+    if (
+      x >= 0 &&
+      x <= this.viewport.width &&
+      y >= 0 &&
+      y <= this.viewport.height
+    ) {
+      return;
+    }
+    this.clearTextDrag();
+  };
+
+  private dropHandler = (e: DragEvent) => {
+    if (!isTextDrag(e.dataTransfer, this._state)) return;
+    e.preventDefault();
+
+    const source = this.session.textDragSource;
+    // Read the transfer NOW: it is dead once this handler returns.
+    const payload = readTextDrop(e.dataTransfer);
+    const { x, y } = this.dragPoint(e);
+    const target = dropTargetAt(
+      this._state,
+      this.viewport,
+      x,
+      y,
+      this.visibility,
+      source,
+    );
+
+    this.clearTextDrag();
+    if (!payload || !target) {
+      // The drop reached us but resolved to nothing — claim it anyway so the
+      // `dragend` that follows doesn't remove a source we never re-inserted.
+      this.session.textDragHandled = true;
+      return;
+    }
+
+    // A move only when the browser says so AND this editor owns the source: a
+    // copy leaves the original alone, and text from another editor has no
+    // original here to remove (its own `dragend` handles that side).
+    const moving = source !== null && e.dataTransfer?.dropEffect !== "copy";
+    this.session.textDragHandled = moving;
+    this.dispatch(DROP_TEXT, {
+      source: moving ? source : null,
+      target,
+      payload,
+    });
+    // A drop is an edit, so the editor that received it takes the caret.
+    this.focus();
+  };
+
+  private dragEndHandler = (e: DragEvent) => {
+    const source = this.session.textDragSource;
+    this.session.textDragSource = null;
+    this.session.pressedOnSelection = null;
+    this.clearTextDrag();
+
+    // The drag landed as a move somewhere this editor never saw a drop for —
+    // another application, or another editor on the page. The insert happened
+    // over there; the removal is ours. A move that landed back here was already
+    // committed whole by the drop handler (`textDragHandled`).
+    const handled = this.session.textDragHandled;
+    this.session.textDragHandled = false;
+    if (source && !handled && e.dataTransfer?.dropEffect === "move") {
+      this.dispatch(REMOVE_DRAGGED_TEXT, { source });
+    }
+    // No `mouseup` reaches the page for a press the browser turned into a drag,
+    // so the release is this.
+    this.endTextDragPress();
+  };
+
   // Window-level mouse handlers to catch events outside canvas
   private windowMouseUpHandler = (e: Event) => {
+    // Also covers a press that started on the canvas and was released off it.
+    this.endTextDragPress();
     this.eventsQueue.push(e);
   };
 
@@ -2114,11 +2411,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // the next move and re-anchors at the pointer — collapsing everything dragged
     // so far ("less selection, not where I started"). An in-progress drag owns
     // the selection until mouseup flips the mode back to `edit`.
+    // A press that may become an HTML5 text drag blurs the editor immediately:
+    // the mousedown default that normally keeps focus put is deliberately not
+    // prevented there (preventing it would cancel the drag). The selection has
+    // to outlive that blur — it is what the gesture carries — so it is held for
+    // the whole span of the press (`textDragArmed`) and the drag it becomes.
     if (
       !focused &&
       this._state.document.selection !== null &&
       this._state.ui.mode !== "select" &&
-      !this.session.hostMenuCapturing
+      !this.session.hostMenuCapturing &&
+      !this.session.textDragArmed &&
+      this.session.textDragSource === null
     ) {
       this.scheduleSelectionClearOnBlur();
     }
@@ -2197,6 +2501,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // selection out from under an in-progress gesture (it would re-anchor at
       // the pointer on the next move).
       if (this._state.ui.mode === "select") return;
+      // Likewise a press on the selection, or the text drag it became: the
+      // selection IS the gesture. A press that began before this was scheduled
+      // reaches the guard in `applyBrowserFocus`; one that began after reaches
+      // this.
+      if (this.session.textDragArmed || this.session.textDragSource) return;
       if (this._state.document.selection === null) return;
       this._state = clearSelection(this._state);
       this.scheduleRender();
@@ -3569,6 +3878,23 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.contentCanvas.removeEventListener("mousemove", this.eventsHandler);
       this.contentCanvas.removeEventListener("mouseup", this.eventsHandler);
       this.contentCanvas.removeEventListener("mouseleave", this.eventsHandler);
+      if (this.textDragListenersAttached) {
+        this.contentCanvas.removeEventListener(
+          "dragstart",
+          this.dragStartHandler,
+        );
+        this.contentCanvas.removeEventListener(
+          "dragover",
+          this.dragOverHandler,
+        );
+        this.contentCanvas.removeEventListener(
+          "dragleave",
+          this.dragLeaveHandler,
+        );
+        this.contentCanvas.removeEventListener("drop", this.dropHandler);
+        this.contentCanvas.removeEventListener("dragend", this.dragEndHandler);
+        this.textDragListenersAttached = false;
+      }
       this.contentCanvas.removeEventListener("pointerdown", this.eventsHandler);
       this.contentCanvas.removeEventListener("pointermove", this.eventsHandler);
       this.contentCanvas.removeEventListener("pointerup", this.eventsHandler);

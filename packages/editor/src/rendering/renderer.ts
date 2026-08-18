@@ -11,6 +11,7 @@ import { currentFontFamily, getFontStack } from "../fonts";
 import type { TextualBlock } from "../nodes/TextNode";
 import { getBlockDirection, getTextDirection } from "../rtl";
 import {
+  getCursorDocumentCoords,
   isCursorBlinking,
   isNodeSelection,
   selectionHighlightEdge,
@@ -291,6 +292,11 @@ export function renderPage(
   // so the grip/line line up with the blocks rather than the (estimate-based)
   // flow walked from block 0.
   renderBlockDrag(ctx, state, viewport, styles, visibility);
+
+  // Text-drag chrome: the insertion caret at the drop position plus the ghost
+  // riding the pointer. Painted above everything, including the block-reorder
+  // line, since it tracks the pointer itself.
+  renderTextDrag(ctx, state, viewport, styles, visibility, heightIndex);
 
   // Restore context state (undo scaling)
   ctx.restore();
@@ -1575,6 +1581,59 @@ function renderDragGrip(
     }
   }
   ctx.restore();
+}
+
+/**
+ * Paint the insertion caret for an in-flight text drag — where a drop would
+ * land. Ephemeral chrome derived from `ui.textDrag`, never document content.
+ *
+ * Only the caret: a native drag brings its own drag image and cursor from the
+ * OS, so the editor has nothing to draw following the pointer. The source
+ * selection keeps its ordinary highlight throughout, which is what shows the
+ * text being carried.
+ *
+ * Drawn as the ordinary caret bar, not an I-beam: the drop lands where a caret
+ * would, so it should read as one.
+ */
+function renderTextDrag(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles,
+  visibility?: VisibleBlockRange,
+  heightIndex?: BlockHeightIndex,
+) {
+  const target = state.ui.textDrag?.target;
+  if (!target) return;
+
+  // Same basis as the caret the cursor layer paints: the height index when the
+  // paint has one, else the painted-visibility walk. Anything else drifts from
+  // the flow the blocks were just drawn on.
+  const coords = heightIndex
+    ? getIndexedCursorViewportCoords(
+        target,
+        state,
+        viewport,
+        styles,
+        heightIndex,
+      )
+    : mapToViewport(
+        getCursorDocumentCoords(target, state, viewport, styles, visibility),
+        viewport,
+      );
+  if (!coords) return;
+
+  ctx.save();
+  drawCaret(ctx, coords, styles);
+  ctx.restore();
+}
+
+/** Document coords → canvas coords, preserving a `null` miss. */
+function mapToViewport(
+  coords: { x: number; y: number; height: number } | null,
+  viewport: ViewportState,
+) {
+  return coords ? { ...coords, y: coords.y - viewport.scrollY } : null;
 }
 
 export function renderSelectionHandles(
