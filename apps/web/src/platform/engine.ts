@@ -42,7 +42,7 @@ import {
   verifyDeviceCert,
 } from "./device-cert";
 import { invariant } from "@shared/invariant";
-import type { Driver, CryptoDriver, DbRow } from "./driver";
+import type { Driver, CryptoDriver, DbDriver, DbRow } from "./driver";
 import type { Block, HLC } from "@tasfer/editor";
 import type {
   DeviceLinkPayload,
@@ -100,7 +100,9 @@ interface EngineReplicator {
 // Schema & Migrations
 // =============================================================================
 
-const SCHEMA_VERSION = 0;
+// v1 — give each page's initial heading block a page-scoped operation identity
+// (see `initBlockOp`) and rebuild the ones an earlier collision swallowed.
+const SCHEMA_VERSION = 1;
 
 /**
  * Whether an incoming person-private decision supersedes the one recorded.
@@ -140,6 +142,64 @@ function parseJson(raw: string): unknown {
 function toUtcIso(iso: string | null | undefined): string | null {
   return iso ? new Date(iso).toISOString() : null;
 }
+/**
+ * A page opens with one heading block, and every peer mints its `block_insert`
+ * independently rather than replicating one — so the operation has to be
+ * identical everywhere it is derived. Both the block id and the operation's
+ * identity therefore come from the page id.
+ *
+ * The synthetic peer must stay page-scoped. `ops` is keyed
+ * UNIQUE(scope_id, peer_id, clock) and the doc's version vector keys on the op
+ * id, so a peer shared across pages makes one page's heading block the *same
+ * operation* as another's: whichever arrives second is dropped by INSERT OR
+ * IGNORE and again by `isOpKnown`, and the title text on the losing block is
+ * left pointing at a block that no longer exists — the reducer discards it and
+ * the title silently disappears. A page id is a nanoid, so it can never contain
+ * the ":" that compound ids split on.
+ */
+const INIT_PEER_PREFIX = "__init__";
+const INIT_BLOCK_PREFIX = "__init_block__:";
+
+export function initBlockId(pageId: string): string {
+  return `${INIT_BLOCK_PREFIX}${pageId}`;
+}
+
+/** The page an initial heading block belongs to, or null if not one. */
+export function pageIdOfInitBlock(blockId: unknown): string | null {
+  return typeof blockId === "string" && blockId.startsWith(INIT_BLOCK_PREFIX)
+    ? blockId.slice(INIT_BLOCK_PREFIX.length) || null
+    : null;
+}
+
+/** The deterministic `block_insert` for a page's initial heading block. */
+export function initBlockOp(pageId: string) {
+  const peerId = `${INIT_PEER_PREFIX}${pageId}`;
+  return {
+    op: "block_insert" as const,
+    id: `${peerId}:0`,
+    clock: { counter: 0, peerId },
+    pageId,
+    // Canonical first fractional-index key (generateKeyBetween(null, null)).
+    orderKey: "a0",
+    blockId: initBlockId(pageId),
+    blockType: "heading1" as const,
+  };
+}
+
+/**
+ * Re-identify an initial heading `block_insert` still carrying the legacy
+ * page-agnostic identity (`__init__:0`). Applied on every write, not only in
+ * the migration, because an un-upgraded peer keeps sending the old shape and
+ * one such row is enough to re-block the page whose heading it collides with.
+ * Returns the op unchanged when it is not one.
+ */
+export function normalizeInitOp<T>(op: T): T {
+  const o = op as { op?: string; clock?: { peerId?: string }; blockId?: unknown };
+  if (o.op !== "block_insert" || o.clock?.peerId !== INIT_PEER_PREFIX) return op;
+  const pageId = pageIdOfInitBlock(o.blockId);
+  return pageId ? (initBlockOp(pageId) as T) : op;
+}
+
 // Bump whenever the materialized Block projection gains persisted semantics
 // that an older snapshot writer could have omitted while still sharing the same
 // op-log frontier (v2 adds generic structured-content attachments).
@@ -457,15 +517,134 @@ export class Engine implements Platform {
     }
   }
 
+  /**
+   * Every step brings the database from `version - 1` to `version`. A step must
+   * be safe to re-run: `user_version` is only stamped once the step returns, so
+   * a crash part-way through replays the whole step on the next boot.
+   */
+  private migrationSteps(): { version: number; run: () => Promise<void> }[] {
+    return [{ version: 1, run: () => this.migrateInitBlockIdentity() }];
+  }
+
   /** Apply all pending migrations. Safe to call multiple times. */
   async applyMigrations(): Promise<void> {
     const [{ user_version }] = await this.driver.db.query<{
       user_version: number;
     }>("PRAGMA user_version");
+    const from = user_version as number;
 
-    if (user_version < SCHEMA_VERSION) {
+    for (const step of this.migrationSteps()) {
+      if (step.version <= from) continue;
+      await step.run();
+      await this.driver.db.exec(`PRAGMA user_version = ${step.version}`);
+    }
+
+    // Covers a version number reserved without a step of its own, and leaves a
+    // database written by a newer build alone rather than stamping it back.
+    if (from < SCHEMA_VERSION) {
       await this.driver.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     }
+  }
+
+  /**
+   * v1 — page-scoped identity for the initial heading block.
+   *
+   * Until now every page's heading `block_insert` was the operation
+   * `__init__:0` (see {@link initBlockOp}). Two pages whose ops ended up in one
+   * scope therefore claimed the same operation, and UNIQUE(scope_id, peer_id,
+   * clock) kept only whichever landed first — the other page's heading block
+   * vanished from the log, leaving its title text addressed to a block the
+   * reducer no longer knows, which renders as a page with no title.
+   *
+   * Re-key what survived, then re-create what was dropped.
+   */
+  private async migrateInitBlockIdentity(): Promise<void> {
+    const decodeOp = (data: unknown): Record<string, unknown> | null => {
+      try {
+        return JSON.parse(
+          new TextDecoder().decode(data as Uint8Array),
+        ) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    };
+
+    // Every statement below runs on the handle the transaction hands us: the
+    // wa-sqlite driver holds its queue for the whole transaction and passes an
+    // unlocked view, so going back through `this.driver.db` would deadlock.
+    const writeInitOp = (
+      db: DbDriver,
+      scopeId: string,
+      pageId: string,
+      // `timestamp` is when this row was written locally, so a re-keyed op
+      // keeps the original and only a genuinely new row stamps now.
+      timestamp: number,
+    ) => {
+      const op = initBlockOp(pageId);
+      return db.mutate(
+        "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+        [
+          scopeId,
+          op.clock.peerId,
+          op.clock.counter,
+          op.op,
+          new TextEncoder().encode(JSON.stringify(op)),
+          timestamp,
+        ],
+      );
+    };
+
+    await this.driver.db.transaction(async (db) => {
+      // 1. Re-key the rows that survived. The page comes from the block id, not
+      //    from scope_id: ops written under another page's scope are exactly
+      //    what this repairs, and the block id is the only field that still
+      //    names the block's real owner. Insert-then-delete rather than UPDATE
+      //    so a scope that somehow holds both identities collapses to the new
+      //    one instead of tripping the unique index.
+      const legacy = await db.query<{
+        id: number;
+        scope_id: string;
+        data: Uint8Array;
+        timestamp: number;
+      }>("SELECT id, scope_id, data, timestamp FROM ops WHERE peer_id = ?", [
+        INIT_PEER_PREFIX,
+      ]);
+
+      for (const row of legacy) {
+        const pageId = pageIdOfInitBlock(decodeOp(row.data)?.blockId);
+        // A row we cannot attribute to a page has nothing to re-key onto;
+        // leaving it is strictly safer than guessing at its owner.
+        if (!pageId) continue;
+        await writeInitOp(db, row.scope_id, pageId, row.timestamp);
+        await db.mutate("DELETE FROM ops WHERE id = ?", [row.id]);
+      }
+
+      // 2. Re-create the inserts the collision dropped. Any scope holding ops
+      //    that address an initial heading block must also hold that block's
+      //    insert; INSERT OR IGNORE makes this a no-op wherever it survived, so
+      //    only real holes are filled. A restored insert carries counter 0 and
+      //    so replays before everything else, including a block_delete — a
+      //    heading the user actually deleted stays deleted.
+      const referencing = await db.query<{
+        scope_id: string;
+        data: Uint8Array;
+      }>(
+        `SELECT scope_id, data FROM ops
+          WHERE scope_id NOT LIKE 'space:%'
+            AND instr(CAST(data AS TEXT), ?) > 0`,
+        [INIT_BLOCK_PREFIX],
+      );
+
+      const done = new Set<string>();
+      for (const row of referencing) {
+        const pageId = pageIdOfInitBlock(decodeOp(row.data)?.blockId);
+        if (!pageId) continue;
+        const key = `${row.scope_id}\u0000${pageId}`;
+        if (done.has(key)) continue;
+        done.add(key);
+        await writeInitOp(db, row.scope_id, pageId, Date.now());
+      }
+    });
   }
 
   /** Load max HLC counters and LWW winners from persisted ops so we never regress after restart */
@@ -2635,33 +2814,15 @@ export class Engine implements Platform {
       if (!blocks || blocks.length === 0) {
         // Truly empty page — create default block and persist its
         // block_insert op so the block survives rebuild-from-ops.
-        // Derive blockId deterministically from pageId so every peer
-        // independently creates the exact same initial block.
-        const initialBlockId = `__init_block__:${id}`;
         blocks = [
           {
-            id: initialBlockId,
+            id: initBlockId(id),
             type: "heading1",
             charRuns: [],
             formats: [],
           },
         ];
-
-        const blockInsertOp = {
-          op: "block_insert" as const,
-          id: `__init__:0`,
-          clock: { counter: 0, peerId: "__init__" },
-          pageId: id,
-          // Canonical first fractional-index key (generateKeyBetween(null, null)).
-          orderKey: "a0",
-          blockId: initialBlockId,
-          blockType: "heading1" as const,
-        };
-        const opData = new TextEncoder().encode(JSON.stringify(blockInsertOp));
-        await this.driver.db.mutate(
-          "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-          [id, "__init__", 0, "block_insert", opData, Date.now()],
-        );
+        await this.persistInitBlockOp(id);
       }
 
       const parents = await this.buildParentChain(r.parent_id);
@@ -2722,26 +2883,8 @@ export class Engine implements Platform {
         ],
       );
 
-      // Derive blockId deterministically from pageId so every peer
-      // independently creates the exact same initial block.
-      const initialBlockId = `__init_block__:${id}`;
-
       // Persist a block_insert op for the initial block
-      const blockInsertOp = {
-        op: "block_insert" as const,
-        id: `__init__:0`,
-        clock: { counter: 0, peerId: "__init__" },
-        pageId: id,
-        // Canonical first fractional-index key (generateKeyBetween(null, null)).
-        orderKey: "a0",
-        blockId: initialBlockId,
-        blockType: "heading1" as const,
-      };
-      const opData = new TextEncoder().encode(JSON.stringify(blockInsertOp));
-      await this.driver.db.mutate(
-        "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-        [id, "__init__", 0, "block_insert", opData, Date.now()],
-      );
+      const blockInsertOp = await this.persistInitBlockOp(id);
 
       // Auto-generate space op if page belongs to a space
       if (data.spaceId) {
@@ -3598,13 +3741,41 @@ export class Engine implements Platform {
   // Ops (CRDT operation persistence)
   // ---------------------------------------------------------------------------
 
+  /**
+   * Write a page's initial heading `block_insert`, and return the op so the
+   * caller can push the same one to peers. INSERT OR IGNORE because every peer
+   * derives it independently — the second writer is a no-op, not a conflict.
+   */
+  private async persistInitBlockOp(
+    pageId: string,
+  ): Promise<ReturnType<typeof initBlockOp>> {
+    const op = initBlockOp(pageId);
+    await this.driver.db.mutate(
+      "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+      [
+        pageId,
+        op.clock.peerId,
+        op.clock.counter,
+        op.op,
+        new TextEncoder().encode(JSON.stringify(op)),
+        Date.now(),
+      ],
+    );
+    return op;
+  }
+
   /** Batch-insert ops using multi-row INSERT to minimise IPC round-trips on iOS. */
   private async insertOpsBatch(
     pageId: string,
-    operations: import("@tasfer/editor/state-types").Operation[],
+    ops: import("@tasfer/editor/state-types").Operation[],
     now: number,
   ): Promise<void> {
-    if (operations.length === 0) return;
+    if (ops.length === 0) return;
+    // An un-upgraded peer still sends the page-agnostic `__init__:0` identity;
+    // re-key it before it reaches the UNIQUE(scope_id, peer_id, clock) index,
+    // where it would collide with whichever page's heading block got there
+    // first and be dropped.
+    const operations = ops.map(normalizeInitOp);
     // SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; each row uses 6 params.
     // Chunk at 100 rows (600 params) to stay well within every platform's limit.
     const CHUNK = 100;
@@ -3671,7 +3842,7 @@ export class Engine implements Platform {
         nextId,
         getClock,
         schema: appDataSchema,
-        existingFirstBlockId: `__init_block__:${pageId}`,
+        existingFirstBlockId: initBlockId(pageId),
       });
       await this.ops.persist(pageId, ops);
 

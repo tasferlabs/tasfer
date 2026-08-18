@@ -21,6 +21,16 @@ Thus the editor should be tolerant for operations it has not seen, while also pr
 - Convergence holds only if every peer runs the same merge function. So the function should not change. Gate any semantic change behind a protocol-version bump.
 - The op log is the source of truth. A snapshot is a rebuildable cache and is not the source.
 
+An operation's identity is the one thing a migration may rewrite, and only when
+that identity was never sound to begin with. An id that two different operations
+can both claim is not an identity: the second one is discarded as a duplicate,
+by the storage constraint and by the version vector alike, and the work it
+carried is lost. Rewriting it is not a reshape, it is giving the operation the
+identity it always needed. Everything downstream — where it applies, what it
+means, how it merges — has to come out unchanged, and peers on the old build
+have to keep converging, so the new identity is also derived on ingest from
+whatever they send.
+
 # Sqlite database
 
 - SQLite schema changes per device using the `PRAGMA user_version`, this is a classic migration procedure.
