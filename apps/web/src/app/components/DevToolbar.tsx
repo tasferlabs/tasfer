@@ -620,6 +620,16 @@ function crdtOpSummary(op: CrdtOpEntry): string {
   }
 }
 
+/** The op list's free-text filter — matches an op's summary or its peer id. */
+function crdtMatches(op: CrdtOpEntry, filter: string): boolean {
+  if (!filter) return true;
+  const q = filter.toLowerCase();
+  return (
+    crdtOpSummary(op).toLowerCase().includes(q) ||
+    op.peerId.toLowerCase().includes(q)
+  );
+}
+
 // ─── Peers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -1443,25 +1453,29 @@ export function DevToolbar() {
   }, [open, tab, loadCrdtOps]);
 
   const getFilteredCrdtOps = useCallback(() => {
-    return crdtOps.filter(
-      (o) =>
-        !crdtFilter ||
-        crdtOpSummary(o).toLowerCase().includes(crdtFilter.toLowerCase()) ||
-        o.peerId.toLowerCase().includes(crdtFilter.toLowerCase()),
-    );
+    return crdtOps.filter((o) => crdtMatches(o, crdtFilter));
   }, [crdtOps, crdtFilter]);
 
   const copyCrdtOps = useCallback(async () => {
-    const filtered = getFilteredCrdtOps();
+    // Copy the whole log, not the CRDT_VIEW_LIMIT rows the table holds. The
+    // list is ordered newest-first, so copying what's on screen hands over a
+    // log missing its oldest ops — the block_inserts everything else depends
+    // on — which reads as data loss when it is only a truncated copy.
+    const total = await fetchCrdtOpCount(crdtPageId, crdtOpType);
+    const ops = await fetchCrdtOps(
+      crdtPageId,
+      crdtOpType,
+      Math.max(1, total),
+    );
     const json = JSON.stringify(
-      filtered.map((o) => o.data),
+      ops.filter((o) => crdtMatches(o, crdtFilter)).map((o) => o.data),
       null,
       2,
     );
     await navigator.clipboard.writeText(json);
     setCrdtCopied(true);
     setTimeout(() => setCrdtCopied(false), 1500);
-  }, [getFilteredCrdtOps]);
+  }, [crdtPageId, crdtOpType, crdtFilter]);
 
   const openCrdtExport = useCallback(async () => {
     setCrdtExportOpen(true);
