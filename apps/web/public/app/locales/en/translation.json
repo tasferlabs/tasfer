@@ -683,7 +683,7 @@
   "profile.clickToUpload": "Click to upload a profile picture",
   "profile.cropAvatar": "Crop avatar",
   "profile.deviceDescription": "This device",
-  "profile.deviceDescriptionHint": "A note to tell this device apart from your others. It stays here and is never shared.",
+  "profile.deviceDescriptionHint": "A note to tell this device apart from your others.",
   "profile.displayName": "Your display name",
   "profile.enterDeviceDescription": "Work laptop, kitchen tablet…",
   "profile.enterName": "Enter your name",

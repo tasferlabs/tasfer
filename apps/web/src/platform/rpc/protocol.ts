@@ -213,6 +213,11 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     update: { kind: "request" },
     onChange: { kind: "subscribe", cbArg: 0 },
   },
+  devices: {
+    list: { kind: "request" },
+    setNote: { kind: "request" },
+    onChange: { kind: "subscribe", cbArg: 0 },
+  },
   peers: {
     list: { kind: "request" },
     trust: { kind: "request" },

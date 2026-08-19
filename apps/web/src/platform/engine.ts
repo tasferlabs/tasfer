@@ -23,6 +23,7 @@ import type {
   PagePathSegment,
   PageVersion,
   Identity,
+  DeviceInfo,
   Peer,
   Asset,
   Space,
@@ -124,6 +125,17 @@ function decisionWins(
 }
 
 /**
+ * Preference key holding one device's note. The key carries the device it
+ * describes, so every device of this person's holds a register for every other
+ * one and none of them has to be the machine being described.
+ */
+const DEVICE_NOTE_PREFIX = "device.note.";
+
+function deviceNoteKey(publicKey: string): string {
+  return `${DEVICE_NOTE_PREFIX}${publicKey}`;
+}
+
+/**
  * Decode a stored preference value, or `undefined` if it will not decode.
  * `undefined` is unambiguous as the failure signal: every value is written with
  * `JSON.stringify`, which never produces it.
@@ -220,10 +232,11 @@ const SCHEMA_SQL = `
     -- device already holds the plaintext this key would protect.
     root_public_key  TEXT,
     root_private_key TEXT,
-    -- A note the owner keeps about THIS machine. Deliberately never replicated:
-    -- name/avatar describe the person and follow them onto every linked device,
-    -- while this describes the one device it was typed on, so it is left out of
-    -- both the member_set fan-out and the own-state profile message.
+    -- Legacy home of this machine's note, back when it never left the machine.
+    -- Device notes are now one own_prefs register per device key, so that the
+    -- person's other devices can say which device is which; read once, by
+    -- adoptLegacyDeviceNote, and never written again. Left in place because the
+    -- adoption is a seed, and a seed has to be able to find nothing.
     device_description TEXT NOT NULL DEFAULT ''
   );
 
@@ -273,6 +286,13 @@ const SCHEMA_SQL = `
   -- which the person's other devices cannot see. Stores JSON so the app layer
   -- owns each key's shape; like the archive register it carries its own ordering,
   -- since there is no op log behind it.
+  --
+  -- The engine reserves the \`device.note.<deviceKey>\` namespace for the label a
+  -- person gives each of their machines (see the \`devices\` namespace). It rides
+  -- this channel rather than one of its own because the properties it needs are
+  -- exactly this channel's: own-devices-only delivery, a per-key LWW register,
+  -- a place in the device-link bootstrap, and a build that does not recognise a
+  -- key still relaying it instead of dropping it.
   CREATE TABLE IF NOT EXISTS own_prefs (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -354,6 +374,7 @@ export class Engine implements Platform {
   >();
   private pageDeleteListeners = new Set<(pageId: string) => void>();
   private identityChangeListeners = new Set<() => void>();
+  private deviceChangeListeners = new Set<() => void>();
   /**
    * Shared bootstrap for the singleton `identity(id=1)` row. The RPC server
    * dispatches calls without awaiting each other, so `identity.get` and
@@ -400,6 +421,9 @@ export class Engine implements Platform {
     // first-load callers all observe an existing row instead of racing to
     // insert it.
     await this.ensureIdentity();
+    // Before anything replicates: a note kept from when notes were device-local
+    // becomes this device's entry in the person-private register.
+    await this.adoptLegacyDeviceNote();
     await this.loadSpaceHlcCounters();
     // Publish this device's certificate into spaces that predate device
     // identity. Idempotent and cheap after the first run (one indexed lookup
@@ -474,9 +498,9 @@ export class Engine implements Platform {
       );
     }
 
-    // identity.device_description — a device-local note; an install that
-    // predates it simply has none, which is the same as never having written
-    // one.
+    // identity.device_description — the legacy device-local note, kept only so
+    // adoptLegacyDeviceNote can find one; an install that predates the column
+    // simply has none, which is the same as never having written one.
     if (!identityCols.some((c) => c.name === "device_description")) {
       await this.driver.db.exec(
         "ALTER TABLE identity ADD COLUMN device_description TEXT NOT NULL DEFAULT ''",
@@ -1207,6 +1231,12 @@ export class Engine implements Platform {
       "INSERT OR IGNORE INTO devices (public_key, root_key, cert, issued_at) VALUES (?, ?, ?, ?)",
       [cert.deviceKey, cert.rootKey, cert.cert, cert.issuedAt],
     );
+    // Only our own roster is worth announcing: `device_add` ops from a shared
+    // space also land here, and a co-member's device is not a device of ours.
+    const [row] = await this.driver.db.query<{
+      root_public_key: string | null;
+    }>("SELECT root_public_key FROM identity WHERE id = 1");
+    if (row?.root_public_key === cert.rootKey) this.notifyDevicesChange();
   }
 
   /**
@@ -1236,9 +1266,8 @@ export class Engine implements Platform {
         name: string;
         avatar: string | null;
         root_public_key: string | null;
-        device_description: string;
       }>(
-        "SELECT public_key, name, avatar, root_public_key, device_description FROM identity WHERE id = 1",
+        "SELECT public_key, name, avatar, root_public_key FROM identity WHERE id = 1",
       );
 
       const row = rows[0];
@@ -1247,14 +1276,12 @@ export class Engine implements Platform {
         name: row.name,
         avatar: row.avatar,
         rootPublicKey: row.root_public_key,
-        deviceDescription: row.device_description,
       };
     },
 
     update: async (data: {
       name?: string;
       avatar?: string | null;
-      deviceDescription?: string;
     }): Promise<Identity> => {
       const sets: string[] = [];
       const params: unknown[] = [];
@@ -1266,10 +1293,6 @@ export class Engine implements Platform {
       if (data.avatar !== undefined) {
         sets.push("avatar = ?");
         params.push(data.avatar);
-      }
-      if (data.deviceDescription !== undefined) {
-        sets.push("device_description = ?");
-        params.push(data.deviceDescription);
       }
 
       if (sets.length > 0) {
@@ -1284,8 +1307,9 @@ export class Engine implements Platform {
       // own member row, and the display folds them into one person by picking
       // the most recently seen (see `groupMembersByPerson`), so leaving the
       // siblings behind would make the name others see depend on which of our
-      // devices was online last. The device description is excluded on purpose:
-      // it describes this machine, so it has no member row to travel to.
+      // devices was online last. A device's note is excluded on purpose: it
+      // describes one machine to its owner alone, so it has no member row to
+      // travel to (see the `devices` namespace).
       const identity = await this.identity.get();
       if (data.name === undefined && data.avatar === undefined) {
         this.notifyIdentityChange();
@@ -1372,6 +1396,89 @@ export class Engine implements Platform {
       return;
     }
     this.notifyIdentityChange();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Devices
+  // ---------------------------------------------------------------------------
+  //
+  // The person's own machines, and the labels that tell them apart. A label
+  // belongs to the person rather than to the machine it names — the point of
+  // writing one is that the OTHER devices can then say which device this is —
+  // so it lives in the person-private register (see `own_prefs`) and reaches
+  // every device of theirs and no co-member.
+
+  devices = {
+    list: async (): Promise<DeviceInfo[]> => {
+      const identity = await this.identity.get();
+      const certs = await this.getOwnDeviceCerts();
+      const notes = await this.getDeviceNotes();
+      return certs.map((cert) => ({
+        publicKey: cert.deviceKey,
+        note: notes.get(cert.deviceKey) ?? "",
+        linkedAt: new Date(cert.issuedAt).toISOString(),
+        current: cert.deviceKey === identity.publicKey,
+      }));
+    },
+
+    setNote: async (publicKey: string, note: string): Promise<void> => {
+      const certs = await this.getOwnDeviceCerts();
+      if (!certs.some((cert) => cert.deviceKey === publicKey)) {
+        throw new Error(`${publicKey.slice(0, 8)} is not one of your devices`);
+      }
+      // Through `prefs.set`, which is what pushes the register to the siblings
+      // and stamps it so a note written on two devices at once resolves the
+      // same way everywhere.
+      await this.prefs.set(deviceNoteKey(publicKey), note);
+      this.notifyDevicesChange();
+    },
+
+    onChange: (cb: () => void): (() => void) => {
+      this.deviceChangeListeners.add(cb);
+      return () => {
+        this.deviceChangeListeners.delete(cb);
+      };
+    },
+  };
+
+  /** Every device note this replica holds, by the device key it describes. */
+  private async getDeviceNotes(): Promise<Map<string, string>> {
+    const rows = await this.driver.db.query<{ key: string; value: string }>(
+      "SELECT key, value FROM own_prefs WHERE key LIKE ?",
+      [`${DEVICE_NOTE_PREFIX}%`],
+    );
+    const notes = new Map<string, string>();
+    for (const row of rows) {
+      const note = parseJson(row.value);
+      if (typeof note === "string") {
+        notes.set(row.key.slice(DEVICE_NOTE_PREFIX.length), note);
+      }
+    }
+    return notes;
+  }
+
+  private notifyDevicesChange() {
+    for (const cb of this.deviceChangeListeners) cb();
+  }
+
+  /**
+   * Adopt the note this device kept back when a note never left the machine it
+   * was typed on.
+   *
+   * Seeded, not set: the person wrote it at some moment this database never
+   * recorded, so it must lose to every dated decision — including one already
+   * made on another device and still in flight to us. Runs on every boot and
+   * does nothing after the first, since a seed only writes into an empty
+   * register.
+   */
+  private async adoptLegacyDeviceNote(): Promise<void> {
+    const [row] = await this.driver.db.query<{
+      public_key: string;
+      device_description: string;
+    }>("SELECT public_key, device_description FROM identity WHERE id = 1");
+    const note = row?.device_description?.trim();
+    if (!note) return;
+    await this.prefs.seed(deviceNoteKey(row.public_key), note);
   }
 
   // ---------------------------------------------------------------------------
@@ -1915,6 +2022,11 @@ export class Engine implements Platform {
       }
     }
     if (Object.keys(changed).length > 0) this.notifyPrefsChange(changed);
+    if (
+      Object.keys(changed).some((key) => key.startsWith(DEVICE_NOTE_PREFIX))
+    ) {
+      this.notifyDevicesChange();
+    }
   }
 
   private notifyPrefsChange(changed: Record<string, unknown>) {

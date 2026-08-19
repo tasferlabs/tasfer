@@ -668,7 +668,7 @@
   "profile.clickToUpload": "انقر لرفع صورة شخصية",
   "profile.cropAvatar": "قص الصورة الشخصية",
   "profile.deviceDescription": "هذا الجهاز",
-  "profile.deviceDescriptionHint": "ملاحظة تميّز هذا الجهاز عن بقية أجهزتك. تبقى عليه وحده ولا يراها أحد غيرك.",
+  "profile.deviceDescriptionHint": "ملاحظة تميّز هذا الجهاز عن بقية أجهزتك.",
   "profile.displayName": "اسمك الظاهر",
   "profile.enterDeviceDescription": "حاسوب العمل، الجهاز اللوحي في المطبخ…",
   "profile.enterName": "أدخل اسمك",

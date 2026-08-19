@@ -95,6 +95,7 @@ function serve(port: MessagePort): void {
   // which is this tab's RoomHub facade so the hub knows who is calling.
   const perConn: Platform = {
     identity: engine.identity,
+    devices: engine.devices,
     peers: engine.peers,
     spaces: engine.spaces,
     prefs: engine.prefs,

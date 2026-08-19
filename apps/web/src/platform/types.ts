@@ -36,13 +36,26 @@ export interface Identity {
    * finished bootstrapping its identity.
    */
   rootPublicKey: string | null;
-  /**
-   * A free-text note about THIS device ("work laptop", "the one in the
-   * studio"). Unlike `name` and `avatar`, it never leaves the machine it was
-   * typed on: it is not published as `member_set` and not carried in the
-   * own-state profile message, so each linked device keeps its own.
-   */
-  deviceDescription: string;
+}
+
+/**
+ * One of this person's devices, as this replica knows it.
+ *
+ * `note` is the person's own label for the machine ("work laptop", "the one in
+ * the studio"). It belongs to the person, not to the machine it describes: it
+ * travels to their other devices as `own-state`, which is what lets any of them
+ * say which device is which. It is never published to a co-member the way
+ * `name` and `avatar` are.
+ */
+export interface DeviceInfo {
+  /** Device public key — the same id presence carries as `deviceId`. */
+  publicKey: string;
+  /** The person's note about this device. Empty until one is written. */
+  note: string;
+  /** When this device's certificate was issued (ISO string). */
+  linkedAt: string;
+  /** True for the device answering the call. */
+  current: boolean;
 }
 
 /** A known peer */
@@ -606,20 +619,39 @@ export interface Platform {
     /** Get the local user's identity (generates keypair on first call) */
     get(): Promise<Identity>;
     /**
-     * Update display name, avatar, or this device's description. The first two
-     * are replicated to the person's other devices and their co-members; the
-     * description stays local (see `Identity.deviceDescription`).
+     * Update the person's display name or avatar. Both are replicated to their
+     * other devices and to their co-members. A device's own label is not part
+     * of the profile — see {@link Platform.devices}.
      */
-    update(data: {
-      name?: string;
-      avatar?: string | null;
-      deviceDescription?: string;
-    }): Promise<Identity>;
+    update(data: { name?: string; avatar?: string | null }): Promise<Identity>;
     /**
      * Fires when the profile changes underneath the caller — a device link
      * handing this device the person it belongs to, or a rename made on one of
      * their other devices.
      */
+    onChange(cb: () => void): () => void;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Devices
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The devices this person has linked, and the notes that tell them apart.
+   *
+   * A note is person-private: it reaches every device of theirs and no
+   * co-member (see {@link DeviceInfo}). Any device may write any of them, so a
+   * phone can be labelled from the laptop it was linked from.
+   */
+  devices: {
+    /** Every device linked to this person, oldest link first. */
+    list(): Promise<DeviceInfo[]>;
+    /**
+     * Label one of this person's devices. Rejects a key that is not one of
+     * theirs: this register is about their own machines, not about peers.
+     */
+    setNote(publicKey: string, note: string): Promise<void>;
+    /** Fires when a device is linked or any device's note changes. */
     onChange(cb: () => void): () => void;
   };
 

@@ -1,4 +1,8 @@
 import { updateProfile } from "@/app/api/auth.api";
+import {
+  useOwnDevices,
+  setDeviceNote as saveDeviceNote,
+} from "@/app/api/devices.api";
 import { useAssetUrl, uploadImage } from "@/app/api/images.api";
 import { AvatarCropDialog } from "@/app/components/AvatarCropDialog";
 import { AvatarPreviewDialog } from "@/app/components/AvatarPreviewDialog";
@@ -19,9 +23,11 @@ export function Profile() {
   const { user, updateUser } = useAuth();
 
   const [name, setName] = React.useState(user?.name ?? "");
-  const [deviceDescription, setDeviceDescription] = React.useState(
-    user?.deviceDescription ?? "",
-  );
+  const thisDevice = useOwnDevices().find((device) => device.current);
+  // Undefined until the person types: an override, not a copy of the stored
+  // note, so a note written on another of their devices lands here instead of
+  // being held off by a stale copy.
+  const [deviceNote, setDeviceNote] = React.useState<string | undefined>();
   const [avatarId, setAvatarId] = React.useState<string | null>(
     user?.avatar ?? null,
   );
@@ -41,13 +47,15 @@ export function Profile() {
   React.useEffect(() => {
     setName(user?.name ?? "");
     setAvatarId(user?.avatar ?? null);
-    setDeviceDescription(user?.deviceDescription ?? "");
-  }, [user?.name, user?.avatar, user?.deviceDescription]);
+  }, [user?.name, user?.avatar]);
+
+  const noteChanged =
+    deviceNote !== undefined && deviceNote.trim() !== (thisDevice?.note ?? "");
 
   const hasChanges =
     name !== (user?.name ?? "") ||
-    deviceDescription !== (user?.deviceDescription ?? "") ||
-    avatarId !== (user?.avatar ?? null);
+    avatarId !== (user?.avatar ?? null) ||
+    noteChanged;
 
   function handleAvatarClick() {
     if (avatarId) {
@@ -90,12 +98,20 @@ export function Profile() {
 
     try {
       setSaving(true);
-      const updated = await updateProfile({
-        name: name.trim(),
-        deviceDescription: deviceDescription.trim(),
-        avatar: avatarId,
-      });
-      updateUser(updated);
+      if (noteChanged && thisDevice) {
+        await saveDeviceNote(thisDevice.publicKey, deviceNote.trim());
+        setDeviceNote(undefined);
+      }
+      // Only when the profile itself moved: an update republishes the name and
+      // avatar as `member_set` into every space, which a note change has no
+      // business doing.
+      if (name !== (user?.name ?? "") || avatarId !== (user?.avatar ?? null)) {
+        const updated = await updateProfile({
+          name: name.trim(),
+          avatar: avatarId,
+        });
+        updateUser(updated);
+      }
     } catch (err) {
       console.error("Failed to update profile:", err);
     } finally {
@@ -196,15 +212,15 @@ export function Profile() {
             <p className="text-sm opacity-75">
               {t(
                 "profile.deviceDescriptionHint",
-                "A note to tell this device apart from your others. It stays here and is never shared.",
+                "A note to tell this device apart from your others.",
               )}
             </p>
           </div>
 
           <Textarea
             className={styles.deviceDescription}
-            value={deviceDescription}
-            onChange={(e) => setDeviceDescription(e.target.value)}
+            value={deviceNote ?? thisDevice?.note ?? ""}
+            onChange={(e) => setDeviceNote(e.target.value)}
             rows={2}
             placeholder={t(
               "profile.enterDeviceDescription",
