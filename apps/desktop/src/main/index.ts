@@ -240,7 +240,7 @@ const isDev = !app.isPackaged;
 const DEV_SERVER_URL =
   process.env.TASFER_DEV_URL ??
   import.meta.env.MAIN_VITE_DEV_URL ??
-  "https://localhost:4000";
+  "http://localhost:4000";
 
 // Icons are bundled inside the asar via the `files` config
 const resourcesDir = isDev
