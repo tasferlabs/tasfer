@@ -86,7 +86,7 @@ export default function DocsPage() {
               <p className="dx-branch-desc">
                 {t(
                   "docs.hub.app.desc",
-                  "A local-first, end-to-end encrypted markdown editor. Set it up, sync across your devices, run your own relay, and read exactly what stays on your disk.",
+                  "A local-first markdown editor with end-to-end encrypted sync. Set it up, sync across your devices, run your own relay, and read exactly what stays on your disk.",
                 )}
               </p>
               <div className="dx-branch-links">

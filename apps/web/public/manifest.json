@@ -1,7 +1,7 @@
 {
   "name": "Tasfer",
   "short_name": "Tasfer",
-  "description": "Markdown notes that stay on your device — end-to-end encrypted, syncing directly between your devices. No cloud, no account.",
+  "description": "Markdown notes that stay on your device, syncing directly between your devices over an end-to-end encrypted channel. No cloud, no account.",
   "lang": "en",
   "dir": "ltr",
   "id": "/",

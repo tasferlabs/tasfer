@@ -220,7 +220,7 @@ export default function DownloadPage() {
       name: "iOS",
       desc: t(
         "download.ios.desc",
-        "On the App Store. Reads and writes the same encrypted files as the desktop app.",
+        "On the App Store. The same documents as the desktop app, synced straight between your devices.",
       ),
       assets: [{ label: "App Store", href: APP_STORE_URL }],
     },

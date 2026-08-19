@@ -757,7 +757,7 @@ export default function HomePage() {
             <p className="lp-define-lede">
               {t(
                 "home.lp.define.lede",
-                "An app you write in. Notes, drafts, journals stored on your device, encrypted end-to-end on transient, synced device-to-device with no central server and no account.",
+                "An app you write in. Notes, drafts, journals stored on your device, encrypted end-to-end in transit, synced device-to-device with no central server and no account.",
               )}
             </p>
             <blockquote className="lp-pullquote">
