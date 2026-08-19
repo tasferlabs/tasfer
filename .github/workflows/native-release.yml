@@ -7,9 +7,9 @@ name: Native Release
 
 # There is no tag input: the build always uses the ref it was triggered on, and
 # the release tag is `v<appVersion>` read from version.json at that ref. Called
-# from release-please, that ref is the release commit, so the tag matches the one
-# release-please just created. Dispatched by hand, pick the branch or tag in the
-# UI instead of typing a version.
+# from release-please, that ref is the release commit, so the tag matches the
+# live release release-please just published — the artifacts land straight on
+# it, with no draft to un-hide afterwards.
 #
 # workflow_dispatch with publish=false is a safe dry run: full signed build,
 # artifacts uploaded to the workflow run instead of a release.
@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Upload to the GitHub release draft"
+        description: "Upload to the v<appVersion> GitHub release"
         type: boolean
         default: false
 
@@ -142,24 +142,3 @@ jobs:
           path: |
             apps/desktop/release/*.*
             !apps/desktop/release/builder-*.yml
-
-  # electron-builder uploads into the release-please draft; publish it only
-  # once every enabled platform has its artifacts, so updater clients never
-  # see a partial release.
-  publish-release:
-    needs: build
-    if: ${{ inputs.publish }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      # The draft release-please created is tagged v<appVersion> for the version
-      # this build just packaged, so read it back from the same file the build
-      # did rather than passing it around.
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tag="v$(node scripts/release/app-version.mjs)"
-          echo "Publishing $tag"
-          gh release edit "$tag" --repo "${{ github.repository }}" --draft=false

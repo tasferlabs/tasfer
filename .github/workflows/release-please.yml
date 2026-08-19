@@ -8,6 +8,10 @@ permissions:
   contents: write
   pull-requests: write
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
@@ -16,6 +20,21 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v5
         id: release
+
+      # The release goes out live on the latest channel — no draft to un-hide.
+      # release-please writes its own conventional-commit changelog into the
+      # body; replace it with GitHub's auto-generated notes, which credit
+      # contributors and link the PRs.
+      - name: Use GitHub's generated release notes
+        if: steps.release.outputs['apps/desktop--release_created'] == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.release.outputs['apps/desktop--tag_name'] }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/releases/generate-notes" -f tag_name="$TAG" --jq .body \
+            | gh release edit "$TAG" --repo "$REPO" --draft=false --latest --notes-file -
 
   native-release:
     needs: release-please

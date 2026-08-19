@@ -14,6 +14,11 @@ publish:
   provider: github
   owner: tasferlabs
   repo: tasfer
+  # Ship straight to the live release on the default `latest` update channel.
+  # electron-builder would otherwise create (or leave) the release as a draft,
+  # which electron-updater cannot see.
+  releaseType: release
+  channel: latest
 
 directories:
   output: release
