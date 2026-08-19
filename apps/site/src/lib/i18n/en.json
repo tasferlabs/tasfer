@@ -7,6 +7,7 @@
   "metadata.description": "A markdown-based editor that keeps your writing yours — every note stays on your device, syncing directly between your devices over an end-to-end encrypted channel. No cloud. No account. No company reading your words.",
   "notFound.title": "Page not found",
   "notFound.body": "This page doesn't exist, or it hasn't synced to this device yet. Check the link, or head back to your workspace.",
+  "notFound.goHome": "Back to home",
   "docs.metadata.title": "Documentation",
   "docs.metadata.description": "Guides for using Tasfer, syncing your notes, and hosting your own relay.",
   "docs.tag": "docs",
