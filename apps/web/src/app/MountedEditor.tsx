@@ -2615,6 +2615,9 @@ function PageEditor({
       return () => {
         unsubscribe();
         disposeActions();
+        // The loupe only hides on CURSOR_DRAG_END; dropping the handler with a
+        // drag in flight would pin it on screen.
+        setMagnifierActive(false);
         menuIconThemeObserver.disconnect();
         // The editor (useEditor) and the doc (our cleanup effects) are torn
         // down separately; here we only undo this effect's own wiring.
@@ -3127,6 +3130,7 @@ function PageEditor({
       offContent();
       offUi();
       disposeActions();
+      setMagnifierActive(false);
       offSelectionChange();
       offChangeAwareness();
       disconnectAwareness();

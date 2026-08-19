@@ -74,6 +74,18 @@ import {
   routeCapturedMove,
 } from "./regions";
 
+/**
+ * Tear down the cursor-drag magnifier if one is up: emit the matching
+ * CURSOR_DRAG_END so observers (the host loupe) can hide. Must be called by
+ * every path that drops `session.touch` — a START without its END leaves the
+ * host's loupe pinned on screen with no gesture left to close it.
+ */
+function endCursorDrag(state: EditorState, session: InteractionSession): void {
+  if (session.touch?.isCursorDrag) {
+    state.actionBus.dispatch(CURSOR_DRAG_END);
+  }
+}
+
 export function handleTouchStart(
   state: EditorState,
   viewport: ViewportState,
@@ -87,6 +99,11 @@ export function handleTouchStart(
   if (state.ui.mode === "suspended") {
     return state;
   }
+
+  // A new touch replaces `session.touch` wholesale below (a second finger for
+  // two-finger scroll, or a fresh single touch), which would strand a live
+  // cursor drag's loupe. No-op unless one is up.
+  endCursorDrag(state, session);
 
   // Image hover handles are a mouse-only affordance set on `mousemove` and never
   // touched by the touch path, so a lingering value is stale from an earlier
@@ -360,6 +377,7 @@ export function handleTouchMove(
       };
     }
 
+    endCursorDrag(state, session);
     session.touch = null;
     return state;
   }
@@ -728,6 +746,7 @@ export function handleTouchEnd(
 
   // Release a captured region drag (scrollbar thumb, selection handle).
   if (session.captured) {
+    endCursorDrag(state, session);
     session.touch = null;
     const endResult = routeCapturedEnd(null, {
       state,
@@ -767,6 +786,7 @@ export function handleTouchEnd(
       };
     }
 
+    endCursorDrag(state, session);
     session.touch = null;
     return { state, ops };
   }
@@ -1415,9 +1435,7 @@ export function handleTouchCancel(
   }
 
   // End cursor drag if active — let observers (e.g. a host magnifier) tear down.
-  if (session.touch?.isCursorDrag) {
-    state.actionBus.dispatch(CURSOR_DRAG_END);
-  }
+  endCursorDrag(state, session);
 
   // Clear touch state
   session.touch = null;
