@@ -25,6 +25,9 @@ const nextConfig: NextConfig = {
   agentRules: false,
   // NEXT_PUBLIC_APP_URL overrides the editor origin outside Vercel's
   // microfrontend routing and is exposed automatically by the public prefix.
+  // VERCEL itself is server-only, so mirror it into a public flag the client
+  // bundle can inline — appUrl.ts needs it to link to the /app microfrontend.
+  env: { NEXT_PUBLIC_ON_VERCEL: process.env.VERCEL ? "1" : "" },
 };
 
 // The docs articles (src/views/DocsPage/pages/**/*.mdx) are MDX imported as

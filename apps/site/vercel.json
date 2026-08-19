@@ -1,6 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "redirects": [
+    { "source": "/page/:path*", "destination": "/app/page/:path*", "permanent": false }
+  ],
   "installCommand": "npm ci",
   "ignoreCommand": "bash -c 'if [[ \"$VERCEL_GIT_COMMIT_MESSAGE\" == *\"[skip ci]\"* ]]; then exit 0; fi; git diff --quiet HEAD^ HEAD -- .'"
 }
