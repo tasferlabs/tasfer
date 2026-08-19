@@ -14,9 +14,12 @@ export async function generateMetadata({
   const title = dictionary["metadata.title"];
   const description = dictionary["metadata.description"];
   return {
+    // The landing page is the same page under its primary URL; /home is the
+    // copy that never redirects a returning visitor into the app. Point search
+    // engines at the one URL so the two don't compete.
     alternates: {
-      canonical: `/${lang}/home`,
-      languages: { en: "/en/home" },
+      canonical: `/${lang}`,
+      languages: { en: "/en" },
     },
     openGraph: {
       type: "website",

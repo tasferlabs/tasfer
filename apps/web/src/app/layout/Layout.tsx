@@ -27,6 +27,7 @@ import { useP2PPageEventsWithQueryClient } from "../hooks/useP2PPageEvents";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { useDevToolsEnabled } from "@/lib/devTools";
+import { setHasWorkspace } from "@/lib/workspaceMarker";
 import { FileDropChrome } from "./FileDropChrome";
 import { FloatingSidebar } from "./FloatingSidebar";
 import style from "./Layout.module.css";
@@ -133,6 +134,22 @@ function LayoutInner() {
     useGetArchivedSpaces({ enabled: hasNoSpaces });
   const isReturning = hasNoSpaces && (archivedSpaces?.length ?? 0) > 0;
   const needsOnboarding = hasNoSpaces && !isReturning;
+
+  // The marketing site shares this origin and reads the flag on its landing
+  // page: a browser with a workspace goes straight back into the editor, a
+  // first-time visitor sees the pitch. Written only once the zero-space
+  // question is settled, so a mid-load "nothing here" never sticks.
+  React.useEffect(() => {
+    if (spacesLoading || loadError) return;
+    if (hasNoSpaces && archivedLoading) return;
+    setHasWorkspace(!needsOnboarding);
+  }, [
+    spacesLoading,
+    loadError,
+    hasNoSpaces,
+    archivedLoading,
+    needsOnboarding,
+  ]);
 
   // A remembered page id stops resolving the moment its space is gone. Drop
   // back to the page root, which renders whichever zero-space state applies.
