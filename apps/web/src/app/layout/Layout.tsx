@@ -180,19 +180,23 @@ function LayoutInner() {
   // deliberately does NOT mount the live shell behind it: with no space, the
   // editor route flashes loading skeletons and lands on an empty state whose
   // button can't work. A drawn-once mock of the shell stands in instead.
+  // One tree for both, so that crossing the breakpoint mid-flow — rotating a
+  // tablet, resizing a window — re-renders the same OnboardingScreen instead of
+  // unmounting it and throwing away whatever had been entered.
   if (needsOnboarding) {
-    if (isMobile) return <OnboardingScreen />;
     return (
       <>
-        <MockWorkspaceBackdrop />
+        {!isMobile && <MockWorkspaceBackdrop />}
         <OnboardingScreen />
-        <BottomToolDock>
-          {devToolsEnabled && (
-            <React.Suspense fallback={null}>
-              <DevToolbar />
-            </React.Suspense>
-          )}
-        </BottomToolDock>
+        {!isMobile && (
+          <BottomToolDock>
+            {devToolsEnabled && (
+              <React.Suspense fallback={null}>
+                <DevToolbar />
+              </React.Suspense>
+            )}
+          </BottomToolDock>
+        )}
       </>
     );
   }

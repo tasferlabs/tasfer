@@ -226,12 +226,18 @@ function IdentityStep({
 
 /* ── 1b. link an existing device (branch off identity) ─────────────────── */
 function LinkExistingStep({
-  initialCode,
+  method,
+  setMethod,
+  code,
+  setCode,
   onBack,
   onSpaceInvite,
   onSetUpSpace,
 }: {
-  initialCode: string;
+  method: LinkMethod;
+  setMethod: (v: LinkMethod) => void;
+  code: string;
+  setCode: (v: string) => void;
   onBack: () => void;
   /** The pasted code turned out to be a space invite — hand it to step 3. */
   onSpaceInvite: (code: string) => void;
@@ -240,10 +246,6 @@ function LinkExistingStep({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [method, setMethod] = useState<"scan" | "code">(
-    initialCode ? "code" : "scan",
-  );
-  const [code, setCode] = useState(initialCode);
   const [camera, setCamera] = useState(false);
   const [status, setStatus] = useState<JoinStatus>("input");
   const [errorMsg, setErrorMsg] = useState("");
@@ -596,6 +598,8 @@ function ProfileStep({
   setName,
   avatarId,
   setAvatarId,
+  open,
+  setOpen,
   onNext,
   onBack,
 }: {
@@ -603,12 +607,13 @@ function ProfileStep({
   setName: (v: string) => void;
   avatarId: string | null;
   setAvatarId: (v: string | null) => void;
+  open: boolean;
+  setOpen: (v: boolean) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
   const { t } = useTranslation();
   const { updateUser } = useAuth();
-  const [open, setOpen] = useState(Boolean(name || avatarId));
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -667,7 +672,7 @@ function ProfileStep({
       </p>
 
       <div className="ob-collapse">
-        <button className="ob-collapse-head" onClick={() => setOpen((o) => !o)}>
+        <button className="ob-collapse-head" onClick={() => setOpen(!open)}>
           <User size={18} strokeWidth={1.5} />
           <div>
             <div className="ob-collapse-title">
@@ -837,10 +842,17 @@ function SpacePick({
 }
 
 /* ── 3b. space — create ────────────────────────────────────────────────── */
-function SpaceCreate({ setView }: { setView: (v: SpaceView) => void }) {
+function SpaceCreate({
+  setView,
+  name,
+  setName,
+}: {
+  setView: (v: SpaceView) => void;
+  name: string;
+  setName: (v: string) => void;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [org, setOrg] = useState("");
   const [createError, setCreateError] = useState("");
 
   const { mutate: createSpace, isPending: isCreating } = useCreateSpace({
@@ -853,7 +865,7 @@ function SpaceCreate({ setView }: { setView: (v: SpaceView) => void }) {
   function handleCreate() {
     // Space name is optional in the flow; fall back to a sensible default.
     setCreateError("");
-    createSpace({ name: org.trim() || "" });
+    createSpace({ name: name.trim() || "" });
   }
 
   return (
@@ -878,8 +890,8 @@ function SpaceCreate({ setView }: { setView: (v: SpaceView) => void }) {
       <input
         className="ob-input"
         placeholder={t("common.personal", "Personal")}
-        value={org}
-        onChange={(e) => setOrg(e.target.value)}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !isCreating) handleCreate();
         }}
@@ -927,23 +939,31 @@ function SpaceCreate({ setView }: { setView: (v: SpaceView) => void }) {
 
 /* ── 3c. space — join ──────────────────────────────────────────────────── */
 type JoinMethod = "code" | "file" | "scan";
+type LinkMethod = "scan" | "code";
 type JoinStatus = "input" | "connecting" | "done" | "error";
 
 function SpaceJoin({
   setView,
-  initialCode,
+  method,
+  setMethod,
+  code,
+  setCode,
+  fileName,
+  setFileName,
   onDeviceLink,
 }: {
   setView: (v: SpaceView) => void;
-  initialCode: string;
+  method: JoinMethod;
+  setMethod: (v: JoinMethod) => void;
+  code: string;
+  setCode: (v: string) => void;
+  fileName: string;
+  setFileName: (v: string) => void;
   /** The code turned out to link a device, not join a space. */
   onDeviceLink: (code: string) => void;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [method, setMethod] = useState<JoinMethod>("code");
-  const [code, setCode] = useState(initialCode);
-  const [fileName, setFileName] = useState("");
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [status, setStatus] = useState<JoinStatus>("input");
   const [camera, setCamera] = useState(false);
@@ -1404,22 +1424,46 @@ function CameraDrawer({
 type SpaceView = "pick" | "create" | "join";
 
 function SpaceStep({
+  view,
+  setView,
+  spaceName,
+  setSpaceName,
+  joinMethod,
+  setJoinMethod,
+  joinCode,
+  setJoinCode,
+  joinFileName,
+  setJoinFileName,
   onBack,
-  initialCode,
   onDeviceLink,
 }: {
+  view: SpaceView;
+  setView: (v: SpaceView) => void;
+  spaceName: string;
+  setSpaceName: (v: string) => void;
+  joinMethod: JoinMethod;
+  setJoinMethod: (v: JoinMethod) => void;
+  joinCode: string;
+  setJoinCode: (v: string) => void;
+  joinFileName: string;
+  setJoinFileName: (v: string) => void;
   onBack: () => void;
-  initialCode: string;
   onDeviceLink: (code: string) => void;
 }) {
-  // A code handed over from the link flow lands straight in the join view.
-  const [view, setView] = useState<SpaceView>(initialCode ? "join" : "pick");
-  if (view === "create") return <SpaceCreate setView={setView} />;
+  if (view === "create")
+    return (
+      <SpaceCreate setView={setView} name={spaceName} setName={setSpaceName} />
+    );
   if (view === "join")
     return (
       <SpaceJoin
         setView={setView}
-        initialCode={initialCode}
+        method={joinMethod}
+        setMethod={setJoinMethod}
+        code={joinCode}
+        setCode={setJoinCode}
+        fileName={joinFileName}
+        setFileName={setJoinFileName}
         onDeviceLink={onDeviceLink}
       />
     );
@@ -1585,12 +1629,29 @@ export function OnboardingScreen() {
   const { user } = useAuth();
   const { isMobile } = useMobileLayout();
   const [step, setStep] = useState<Step>(STEPS[0]);
-  const [name, setName] = useState(user?.name ?? "");
-  const [avatarId, setAvatarId] = useState<string | null>(user?.avatar ?? null);
   /** Linking branches off the identity step rather than sitting inside STEPS. */
   const [linking, setLinking] = useState(false);
-  /** A code being handed between the two flows after a wrong-kind mix-up. */
-  const [handoff, setHandoff] = useState("");
+
+  /* Everything the person has entered lives here rather than in the step that
+   * renders it. Crossing the mobile/desktop breakpoint — rotating a tablet,
+   * resizing a window — swaps `Shell` below, and a different component type
+   * unmounts the whole subtree under it: held one level lower, a half-typed
+   * name or a pasted invite code would be gone by the time the other shell
+   * drew. This is also what carries a code between the two flows when the
+   * wrong kind was pasted. Only entries are kept — an in-flight pairing
+   * attempt still restarts, since its session cannot outlive its step. */
+  const [name, setName] = useState(user?.name ?? "");
+  const [avatarId, setAvatarId] = useState<string | null>(user?.avatar ?? null);
+  const [profileOpen, setProfileOpen] = useState(
+    Boolean(user?.name || user?.avatar),
+  );
+  const [linkMethod, setLinkMethod] = useState<LinkMethod>("scan");
+  const [linkCode, setLinkCode] = useState("");
+  const [spaceView, setSpaceView] = useState<SpaceView>("pick");
+  const [spaceName, setSpaceName] = useState("");
+  const [joinMethod, setJoinMethod] = useState<JoinMethod>("code");
+  const [joinCode, setJoinCode] = useState("");
+  const [joinFileName, setJoinFileName] = useState("");
 
   const go = (s: Step) => setStep(s);
   const Shell = isMobile ? OnboardingPage : OnboardingDialog;
@@ -1602,18 +1663,22 @@ export function OnboardingScreen() {
       <Shell>
         {linking ? (
           <LinkExistingStep
-            initialCode={handoff}
-            onBack={() => {
-              setHandoff("");
-              setLinking(false);
-            }}
+            method={linkMethod}
+            setMethod={setLinkMethod}
+            code={linkCode}
+            setCode={setLinkCode}
+            onBack={() => setLinking(false)}
             onSpaceInvite={(code) => {
-              setHandoff(code);
+              // A space invite pasted into the link flow lands straight in the
+              // join view, filled in.
+              setJoinMethod("code");
+              setJoinCode(code);
+              setSpaceView("join");
               setLinking(false);
               go("space");
             }}
             onSetUpSpace={() => {
-              setHandoff("");
+              setSpaceView("pick");
               setLinking(false);
               go("space");
             }}
@@ -1623,10 +1688,7 @@ export function OnboardingScreen() {
             {step === "identity" && (
               <IdentityStep
                 onNext={() => go("profile")}
-                onLink={() => {
-                  setHandoff("");
-                  setLinking(true);
-                }}
+                onLink={() => setLinking(true)}
               />
             )}
             {step === "profile" && (
@@ -1635,19 +1697,30 @@ export function OnboardingScreen() {
                 setName={setName}
                 avatarId={avatarId}
                 setAvatarId={setAvatarId}
+                open={profileOpen}
+                setOpen={setProfileOpen}
                 onNext={() => go("space")}
                 onBack={() => go("identity")}
               />
             )}
             {step === "space" && (
               <SpaceStep
-                onBack={() => {
-                  setHandoff("");
-                  go("profile");
-                }}
-                initialCode={handoff}
+                view={spaceView}
+                setView={setSpaceView}
+                spaceName={spaceName}
+                setSpaceName={setSpaceName}
+                joinMethod={joinMethod}
+                setJoinMethod={setJoinMethod}
+                joinCode={joinCode}
+                setJoinCode={setJoinCode}
+                joinFileName={joinFileName}
+                setJoinFileName={setJoinFileName}
+                onBack={() => go("profile")}
                 onDeviceLink={(code) => {
-                  setHandoff(code);
+                  // Same handover the other way: a device code pasted into
+                  // join opens the link flow with it already filled in.
+                  setLinkMethod("code");
+                  setLinkCode(code);
                   setLinking(true);
                 }}
               />

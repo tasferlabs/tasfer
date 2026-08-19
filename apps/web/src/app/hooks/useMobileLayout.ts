@@ -13,7 +13,12 @@ export default function useMobileLayout(): {
   isMobile: boolean;
   isShort: boolean;
 } {
-  const isNarrow = useResponsive("(max-width: 768px)");
+  // One query rather than two ORed together: as separate matchMedia lists a
+  // rotation can report the width change before the height one, and the false
+  // reading in between is enough to tear down and rebuild the layout it feeds.
+  const isMobile = useResponsive(
+    "(max-width: 768px), (pointer: coarse) and (max-height: 600px)",
+  );
   const isShort = useResponsive("(pointer: coarse) and (max-height: 600px)");
-  return { isMobile: isNarrow || isShort, isShort };
+  return { isMobile, isShort };
 }
