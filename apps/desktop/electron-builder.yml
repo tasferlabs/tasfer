@@ -59,6 +59,8 @@ nsis:
   oneClick: true
   perMachine: false
 
+# Also kept ready but not built by Native Release: the download page offers no
+# Linux asset, so nothing links these artifacts. `--linux` still works locally.
 linux:
   icon: resources/icon.png
   target:

@@ -23,9 +23,9 @@ server to run.
 3. Release Please then calls
    [`native-release.yml`](../.github/workflows/native-release.yml), which builds
    the web app, compiles Electron, and runs `npm run package -- --publish always`
-   on a macOS and a Linux runner. Each uploads its artifacts plus the
-   `latest*.yml` update manifests into that draft.
-4. Once both succeed, the `publish-release` job un-drafts the release. Drafts
+   on a macOS runner. It uploads its artifacts plus the `latest*.yml` update
+   manifests into that draft.
+4. Once that succeeds, the `publish-release` job un-drafts the release. Drafts
    are invisible to `electron-updater`, so clients never see a release that is
    missing their platform.
 
@@ -72,7 +72,7 @@ Export a `.p12` for `MAC_CSC_LINK` with:
 base64 -i Certificates.p12 | pbcopy
 ```
 
-## Windows is off
+## Windows and Linux are off
 
 The `win` matrix entry in
 [`native-release.yml`](../.github/workflows/native-release.yml) is commented out
@@ -83,6 +83,14 @@ restoring the link in
 [`DownloadPage.tsx`](../apps/site/src/views/DownloadPage/DownloadPage.tsx)
 (`FILES.windows` is still there) along with the `download.windows.desc`,
 `download.windowsHint`, and `download.note` strings.
+
+The `linux` entry is commented out for a simpler reason: the download page
+links no Linux asset either, so the runner was publishing AppImage/deb/pacman
+that nothing pointed at. The `linux`/`pacman` config in
+[`electron-builder.yml`](../apps/desktop/electron-builder.yml) and the
+`package:linux*` scripts stay, so local builds still work. Turning it back on
+means uncommenting the matrix entry together with the Linux card and `FILES`
+entries in `DownloadPage.tsx`.
 
 Shipping unsigned Windows builds in the meantime is possible but not free:
 SmartScreen warns on every install, and the identity is a one-way door.
@@ -109,7 +117,7 @@ the in-app update prompt.
 | --- | --- |
 | macOS (`zip` feed, `dmg` download) | Yes — requires a signed, notarized build |
 | Windows (`nsis`) | Not built yet — see below |
-| Linux `AppImage` | Yes — `electron-updater` keys off the `APPIMAGE` env var |
+| Linux `AppImage` | Not built yet — see below; `electron-updater` would key off the `APPIMAGE` env var |
 | Linux `deb`, `pacman` | No — the package manager owns the install; the updater stays silent |
 
 ## Artifact names

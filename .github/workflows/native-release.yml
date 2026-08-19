@@ -47,8 +47,13 @@ jobs:
           # keep. See dev-docs/desktop-release.md.
           # - os: windows-latest
           #   platform: win
-          - os: ubuntu-latest
-            platform: linux
+          # Linux is off as well. The download page links no Linux asset —
+          # DownloadPage.tsx keeps its card and `linux*` FILES entries
+          # commented out — so this runner was publishing AppImage/deb/pacman
+          # that nothing pointed at. Uncomment here and restore that card
+          # together.
+          # - os: ubuntu-latest
+          #   platform: linux
 
     runs-on: ${{ matrix.os }}
 
@@ -139,7 +144,7 @@ jobs:
             !apps/desktop/release/builder-*.yml
 
   # electron-builder uploads into the release-please draft; publish it only
-  # once all three platforms have their artifacts, so updater clients never
+  # once every enabled platform has its artifacts, so updater clients never
   # see a partial release.
   publish-release:
     needs: build
