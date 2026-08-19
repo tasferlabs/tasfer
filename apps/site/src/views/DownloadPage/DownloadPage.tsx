@@ -3,12 +3,11 @@
 import { useEffect, useState, type SVGProps } from "react";
 import { Link } from "@/components/Link";
 import BrandMark from "@/components/BrandMark";
+import { REPO_URL, SiteHeader } from "@/components/SiteHeader";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "@/providers/ThemeProvider";
 import { APP_OPEN_URL } from "@/lib/appUrl";
 import "./DownloadPage.css";
 
-const REPO_URL = "https://github.com/tasferlabs/tasfer";
 const RELEASES_URL = `${REPO_URL}/releases`;
 const APP_STORE_URL = "https://apps.apple.com/app/tasfer/id6794223843";
 
@@ -65,48 +64,7 @@ const Icons = {
       <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.55 0-.27-.01-1.18-.02-2.14-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.18 1.18.92-.26 1.91-.39 2.89-.39.98 0 1.97.13 2.89.39 2.2-1.49 3.17-1.18 3.17-1.18.63 1.58.24 2.75.12 3.04.74.81 1.18 1.83 1.18 3.09 0 4.42-2.7 5.4-5.27 5.68.41.36.78 1.06.78 2.14 0 1.55-.01 2.79-.01 3.17 0 .31.21.67.8.55C20.22 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z" />
     </svg>
   ),
-  Sun: (p: SVGProps<SVGSVGElement>) => (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...p}
-    >
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-    </svg>
-  ),
-  Moon: (p: SVGProps<SVGSVGElement>) => (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...p}
-    >
-      <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
-    </svg>
-  ),
 };
-
-function ThemeToggle() {
-  const { effectiveTheme, setTheme } = useTheme();
-  const isDark = effectiveTheme === "dark";
-  return (
-    <button
-      className="dl-theme-btn"
-      aria-label="toggle theme"
-      onClick={() => setTheme(isDark ? "light" : "dark")}
-    >
-      {isDark ? <Icons.Sun /> : <Icons.Moon />}
-    </button>
-  );
-}
 
 /* ── Platform detection ── */
 
@@ -155,19 +113,10 @@ interface Asset {
 export default function DownloadPage() {
   const { t } = useTranslation();
   const [platform, setPlatform] = useState<PlatformId | null>(null);
-  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     setPlatform(detectPlatform());
   }, []);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
   const platforms: {
     id: PlatformId;
     name: string;
@@ -267,24 +216,7 @@ export default function DownloadPage() {
 
   return (
     <div className="dl-page">
-      <header className={"dl-header" + (scrolled ? " is-scrolled" : "")}>
-        <div className="dl-header-inner">
-          <Link to="/home" className="dl-wordmark" aria-label="Tasfer home">
-            <BrandMark className="dl-wordmark-mark" />
-            tasfer
-          </Link>
-          <nav className="dl-nav">
-            <Link to="/docs">{t("home.lp.nav.docs", "docs")}</Link>
-            <a href={REPO_URL} target="_blank" rel="noreferrer">
-              {t("home.lp.footer.source", "source")}
-            </a>
-            <ThemeToggle />
-            <a className="dl-nav-cta" href={APP_OPEN_URL}>
-              {t("home.lp.nav.open", "open tasfer")}
-            </a>
-          </nav>
-        </div>
-      </header>
+      <SiteHeader activeSection="download" />
 
       <main>
         <section className="dl-hero">

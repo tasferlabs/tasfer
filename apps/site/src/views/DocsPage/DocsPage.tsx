@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { isLng } from "@/lib/i18n/locales";
 import { Icons } from "./docsIcons";
-import { DocsHeader } from "./DocsHeader";
+import { SiteHeader } from "@/components/SiteHeader";
 import "./DocsPage.css";
 
 const REPO_URL = "https://github.com/tasferlabs/tasfer";
@@ -46,7 +46,7 @@ export default function DocsPage() {
 
   return (
     <div className="dx-page">
-      <DocsHeader />
+      <SiteHeader variant="docs" activeSection="docs" />
 
       <div className="dx-hub">
         <div className="dx-hub-grid" aria-hidden="true" />

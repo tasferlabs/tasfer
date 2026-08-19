@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "@/components/Link";
 import { DirArrow } from "@/components/DirArrow";
 import { PkgMgrProvider } from "@/views/DocsPage/docsComponents";
-import { DocsHeader } from "@/views/DocsPage/DocsHeader";
+import { SiteHeader } from "@/components/SiteHeader";
 import { NOTE_BY_SLUG } from "./internalsNav";
 import "@/views/DocsPage/DocsPage.css";
 import "./InternalsPage.css";
@@ -47,7 +47,7 @@ export default function InternalsArticle({ slug }: { slug: string }) {
     return (
       <PkgMgrProvider>
         <div className="dx-page ix-blog" lang="en" dir="ltr">
-          <DocsHeader />
+          <SiteHeader variant="docs" activeSection="docs" />
           <main className="ix-main">
             <article className="dx-article ix-article">
               <header className="ix-hero">
@@ -78,7 +78,7 @@ export default function InternalsArticle({ slug }: { slug: string }) {
   return (
     <PkgMgrProvider>
       <div className="dx-page ix-blog" lang="en" dir="ltr">
-        <DocsHeader />
+        <SiteHeader variant="docs" activeSection="docs" />
         <main className="ix-main">
           <article className="dx-article ix-article">
             <header className="ix-hero">

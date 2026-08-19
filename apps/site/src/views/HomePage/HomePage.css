@@ -91,89 +91,6 @@
    Header — minimal, sticky-light
    ------------------------------------------------------------ */
 
-.lp-header {
-  position: sticky;
-  /* The beta banner is in flow above this, so it scrolls away on its own and
-     the header pins at 0 behind it — no --site-banner-h offset needed. */
-  top: 0;
-  z-index: 50;
-  background: transparent;
-  transition:
-    background var(--cy-duration-fast),
-    backdrop-filter var(--cy-duration-fast);
-}
-.lp-header.is-scrolled {
-  background: oklch(from var(--bg) l c h / 0.72);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-}
-
-.lp-header-inner {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 18px 32px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.lp-wordmark {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  font-size: 22px;
-  letter-spacing: -0.03em;
-  color: var(--cy-wordmark-color);
-  text-decoration: none;
-}
-.lp-wordmark-mark {
-  width: 26px;
-  height: 26px;
-  display: inline-block;
-}
-
-.lp-nav {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-}
-.lp-nav a:not(.lp-nav-cta) {
-  font-size: 14px;
-  color: var(--cy-muted-fg);
-  text-decoration: none;
-  transition: color var(--cy-duration-fast);
-}
-.lp-nav a:not(.lp-nav-cta):hover {
-  color: var(--fg);
-}
-
-.lp-nav-cta {
-  font-size: 14px;
-  padding: 8px 14px;
-  border-radius: var(--cy-radius-md);
-  border: 1px solid var(--fg);
-  color: var(--fg) !important;
-  background: transparent;
-  text-decoration: none;
-  transition:
-    background var(--cy-duration-fast),
-    color var(--cy-duration-fast);
-  cursor: pointer;
-  font-family: inherit;
-}
-.lp-nav-cta:hover {
-  background: var(--fg);
-  color: var(--bg) !important;
-}
-
-@media (max-width: 720px) {
-  .lp-nav a {
-    display: none;
-  }
-}
-
 /* ------------------------------------------------------------
    Hero
    ------------------------------------------------------------ */
@@ -222,6 +139,10 @@
 }
 
 @media (max-width: 720px) {
+  .lp-hero {
+    padding-top: clamp(32px, 6vh, 56px);
+  }
+
   .lp-hero-grid {
     -webkit-mask-size: 200% auto;
     mask-size: 200% auto;
@@ -419,6 +340,13 @@
 .lp-hero-tagline {
   color: var(--primary);
   text-transform: capitalize;
+}
+/* Wraps into a cramped two-column block on narrow screens; the hero reads
+   fine without it. */
+@media (max-width: 720px) {
+  .lp-hero-meta {
+    display: none;
+  }
 }
 @keyframes lp-pulse-dot {
   0%,
@@ -1070,32 +998,6 @@
 }
 
 /* ------------------------------------------------------------
-   Theme toggle (sun/moon) — minimal
-   ------------------------------------------------------------ */
-
-.lp-theme-btn {
-  background: transparent;
-  border: 0;
-  padding: 6px;
-  color: var(--cy-muted-fg);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--cy-radius-sm);
-  transition:
-    color var(--cy-duration-fast),
-    background var(--cy-duration-fast);
-}
-.lp-theme-btn:hover {
-  color: var(--fg);
-  background: var(--cy-muted);
-}
-.lp-theme-btn svg {
-  width: 18px;
-  height: 18px;
-}
-
-/* ------------------------------------------------------------
    Arabic (RTL) type corrections
 
    The scale above is tuned for Latin: negative tracking and sub-1.2
@@ -1106,7 +1008,6 @@
    The wordmark is included: in Arabic it reads "تصفير", so it needs the
    same tracking reset as the rest of the display type.
    ------------------------------------------------------------ */
-[dir="rtl"] .lp-wordmark,
 [dir="rtl"] .lp-footer-brand .lp-footer-word,
 [dir="rtl"] .lp-hero-title,
 [dir="rtl"] .lp-section-title,

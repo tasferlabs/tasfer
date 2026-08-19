@@ -9,13 +9,9 @@ import {
 } from "react";
 import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
-import BrandMark from "@/components/BrandMark";
-import { APP_OPEN_URL } from "@/lib/appUrl";
-import { ThemeToggle } from "./DocsHeader";
+import { SiteNavLinks } from "@/components/SiteHeader";
 import { Icons } from "./docsIcons";
 import { NAV, FLAT, type NavItem } from "./docsNav";
-
-const REPO_URL = "https://github.com/tasferlabs/tasfer";
 
 function highlightTitle(title: string, q: string): ReactNode {
   if (!q) return title;
@@ -151,36 +147,16 @@ export function Sidebar({
         );
       })}
 
-      {/* The site links the header nav shows on wider screens. Once the header
-          collapses, the drawer is the only menu, so they live here instead of
-          behind a second toggle. Hidden by CSS above the drawer breakpoint. */}
+      {/* The same site links the header nav carries. Once the header collapses
+          the drawer is the only menu, so they live here instead of behind a
+          second toggle. Hidden by CSS above the drawer breakpoint. */}
       <div className="dx-sidebar-site">
-        <Link
-          className={
-            "dx-nav-link" + (current.startsWith("app/") ? " is-active" : "")
-          }
-          to="/docs/app/getting-started"
-          onClick={onNavigate}
-        >
-          {t("docs.nav.appDocs", "App docs")}
-        </Link>
-        <Link className="dx-nav-link" to="/home" onClick={onNavigate}>
-          {t("docs.nav.landing", "Landing")}
-        </Link>
-        <ThemeToggle showLabel />
-        <a
-          className="dx-nav-link"
-          href={REPO_URL}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <Icons.GitHub />
-          {t("docs.nav.github", "GitHub")}
-        </a>
-        <a className="dx-nav-link" href={APP_OPEN_URL}>
-          <BrandMark />
-          {t("docs.nav.openApp", "Open app")}
-        </a>
+        <SiteNavLinks
+          activeSection="docs"
+          linkClassName="dx-nav-link"
+          onNavigate={onNavigate}
+          showThemeLabel
+        />
       </div>
     </aside>
   );

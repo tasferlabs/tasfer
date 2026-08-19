@@ -6,7 +6,7 @@ import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { Icons } from "./docsIcons";
-import { DocsHeader } from "./DocsHeader";
+import { SiteHeader } from "@/components/SiteHeader";
 import { DRAWER_MEDIA, Sidebar } from "./Sidebar";
 import { Toc } from "./Toc";
 import { Pager } from "./Pager";
@@ -136,7 +136,11 @@ export default function DocsArticle({
   if (!meta) {
     return (
       <div className="dx-page" ref={setPage}>
-        <DocsHeader onMenu={() => setDrawer(true)} />
+        <SiteHeader
+          variant="docs"
+          activeSection="docs"
+          onMenu={() => setDrawer(true)}
+        />
         <div className="dx-shell">
           {nav}
           <main className="dx-main">
@@ -168,14 +172,14 @@ export default function DocsArticle({
   }
 
   const PageComp = meta.Comp;
-  const activeSection = meta.sectionId as "app" | "editor";
 
   return (
     <FrameworkProvider>
       <PkgMgrProvider>
         <div className="dx-page" ref={setPage}>
-          <DocsHeader
-            activeSection={activeSection}
+          <SiteHeader
+            variant="docs"
+            activeSection="docs"
             onMenu={() => setDrawer(true)}
           />
           <div className="dx-shell">

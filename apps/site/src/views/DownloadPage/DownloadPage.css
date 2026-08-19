@@ -58,109 +58,6 @@
 
 /* Transparent until scrolled, so the hero's dot field shows through the nav —
    same as the landing header. Backdrop arrives only once scrolled. */
-.dl-header {
-  position: sticky;
-  /* The beta banner is in flow above this, so it scrolls away on its own and
-     the header pins at 0 behind it — no --site-banner-h offset needed. */
-  top: 0;
-  z-index: 50;
-  background: transparent;
-  transition:
-    background var(--dl-duration),
-    backdrop-filter var(--dl-duration);
-}
-
-.dl-header.is-scrolled {
-  background: oklch(from var(--bg) l c h / 0.72);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-}
-
-.dl-header-inner {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 18px 32px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.dl-wordmark {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  font-size: 22px;
-  letter-spacing: -0.03em;
-  color: var(--wordmark-color);
-  text-decoration: none;
-}
-
-.dl-wordmark-mark {
-  width: 26px;
-  height: 26px;
-}
-
-.dl-nav {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-}
-
-.dl-nav a:not(.dl-nav-cta) {
-  font-size: 14px;
-  color: var(--dl-muted-fg);
-  text-decoration: none;
-  transition: color var(--dl-duration);
-}
-
-.dl-nav a:not(.dl-nav-cta):hover {
-  color: var(--fg);
-}
-
-.dl-nav-cta {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--fg);
-  text-decoration: none;
-  border: 1px solid var(--border);
-  border-radius: var(--dl-radius-sm);
-  padding: 8px 16px;
-  transition:
-    border-color var(--dl-duration),
-    background var(--dl-duration);
-}
-
-.dl-nav-cta:hover {
-  border-color: var(--fg);
-  background: var(--dl-muted);
-}
-
-.dl-theme-btn {
-  background: transparent;
-  border: 0;
-  padding: 6px;
-  color: var(--dl-muted-fg);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--dl-radius-sm);
-  transition:
-    color var(--dl-duration),
-    background var(--dl-duration);
-}
-
-.dl-theme-btn:hover {
-  color: var(--fg);
-  background: var(--dl-muted);
-}
-
-.dl-theme-btn svg {
-  width: 18px;
-  height: 18px;
-}
-
 /* ── Hero ── */
 
 /* Padding matches the landing hero so the dot field lands identically. */
@@ -500,19 +397,8 @@
   }
 
   .dl-column,
-  .dl-header-inner,
   .dl-footer-inner {
     padding-inline: 20px;
-  }
-
-  .dl-nav {
-    gap: 16px;
-  }
-
-  /* Docs and source stay in the footer on narrow screens; the nav keeps the
-     theme toggle and the one action worth thumb-reach. */
-  .dl-nav a:not(.dl-nav-cta) {
-    display: none;
   }
 
   .dl-lede {

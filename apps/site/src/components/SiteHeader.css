@@ -1,0 +1,318 @@
+/*
+ * Site header — one bar for the landing, download, privacy, and docs pages.
+ *
+ * `.is-docs` swaps the surface only: a solid bordered bar over long-form
+ * content instead of the marketing pages' transparent → blur-on-scroll. Every
+ * other rule below is shared, so the wordmark, links, and mobile disclosure
+ * land in the same place on every page.
+ */
+
+.site-header {
+  --site-pad: 32px;
+  --site-duration: 0.15s;
+  --site-radius: calc(0.45rem - 2px);
+
+  position: sticky;
+  /* The beta banner is in flow above this, so it scrolls away on its own and
+     the header pins at 0 behind it — no --site-banner-h offset needed. */
+  top: 0;
+  z-index: 60;
+  background: transparent;
+  transition:
+    background var(--site-duration),
+    backdrop-filter var(--site-duration);
+}
+
+.site-header.is-scrolled {
+  background: oklch(from var(--background) l c h / 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.site-header.is-docs {
+  --site-pad: 24px;
+  background: oklch(from var(--background) l c h / 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+
+.site-header-inner {
+  max-width: 1080px;
+  min-height: 70px;
+  margin: 0 auto;
+  padding-block: 12px;
+  padding-inline: var(--site-pad);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.site-header.is-docs .site-header-inner {
+  max-width: 1400px;
+  min-height: 60px;
+  padding-block: 0;
+  gap: 18px;
+}
+
+.site-header-spacer {
+  flex: 1;
+}
+
+/* ── Wordmark ── */
+
+.site-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--wordmark-color);
+  text-decoration: none;
+}
+
+.site-header.is-docs .site-wordmark {
+  font-size: 21px;
+}
+
+.site-wordmark-mark {
+  width: 26px;
+  height: 26px;
+  display: inline-block;
+}
+
+.site-header.is-docs .site-wordmark-mark {
+  width: 24px;
+  height: 24px;
+}
+
+/* In Arabic the wordmark reads "تصفير", which needs the tracking reset the
+   rest of the display type gets. */
+[dir="rtl"] .site-wordmark {
+  letter-spacing: normal;
+}
+
+/* ── Nav ── */
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.site-header.is-docs .site-nav {
+  gap: 22px;
+}
+
+.site-nav a:not(.site-nav-cta) {
+  font-size: 14px;
+  color: var(--muted-foreground);
+  text-decoration: none;
+  transition: color var(--site-duration);
+}
+
+.site-nav a:not(.site-nav-cta):hover,
+.site-nav a:not(.site-nav-cta).is-active {
+  color: var(--foreground);
+}
+
+.site-nav-cta {
+  padding: 8px 14px;
+  border: 1px solid var(--foreground);
+  border-radius: var(--site-radius);
+  background: transparent;
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background var(--site-duration),
+    color var(--site-duration);
+}
+
+.site-nav-cta:hover {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+/* ── Theme toggle ── */
+
+.site-theme-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--site-radius);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    color var(--site-duration),
+    background var(--site-duration);
+}
+
+.site-theme-btn:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.site-theme-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* In the header the label only earns its row once the nav is a stacked menu.
+   The docs sidebar drawer renders these links as full rows, so it keeps it. */
+.site-nav .site-theme-label {
+  display: none;
+}
+
+/* ── Menu buttons ──
+   `.site-nav-btn` discloses the nav below the collapse breakpoint.
+   `.site-sidebar-btn` opens the docs drawer; the docs shell decides when it
+   shows, since that breakpoint belongs to the shell, not the header. */
+
+.site-nav-btn,
+.site-sidebar-btn {
+  display: none;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--site-radius);
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.site-nav-btn svg,
+.site-sidebar-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+/* ── Collapsed nav ──
+   Below this width the links move into a panel under the bar. They used to be
+   display:none on the marketing pages, which left the download and source
+   links reachable only from the footer. */
+
+/* The dialog panel is portalled to <body>, so it is never rendered above the
+   breakpoint and needs no width guard of its own. Only the inline row and the
+   trigger swap at 860px. */
+
+.site-nav-panel {
+  display: none;
+}
+
+.site-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .site-header {
+    --site-pad: 20px;
+  }
+
+  .site-header-inner {
+    position: relative;
+    gap: 12px;
+  }
+
+  .site-nav-btn {
+    display: inline-flex;
+  }
+
+  .site-nav-inline {
+    display: none;
+  }
+
+  /* Covers the page, but sits under the header so the bar and its close
+     button stay lit and clickable while the panel is open. */
+  .site-nav-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: oklch(0 0 0 / 0.4);
+  }
+
+  /* The bar is translucent, so the scrim behind it would tint it grey and
+     split the top of the screen in two. While the panel is open the bar goes
+     opaque and drops its own divider: bar and panel read as one sheet.
+     The fill sits on the inner row, not the header — the scrim is a negative
+     z-index child, so it paints over the header's own background. */
+  .site-header.is-nav-open,
+  .site-header.is-nav-open.is-scrolled,
+  .site-header.is-nav-open.is-docs {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-bottom-color: transparent;
+  }
+
+  .site-header.is-nav-open .site-header-inner {
+    background: var(--background);
+  }
+
+  .site-nav-panel {
+    position: absolute;
+    top: 100%;
+    inset-inline: 0;
+    /* The bar can sit under a beta banner and changes height by variant, so
+       the panel hangs off the header box rather than a fixed offset. The bar
+       is at most 70px, so this leaves it visible on the shortest screens. */
+    max-height: calc(100dvh - 70px);
+    overflow-y: auto;
+    /* 8px here + 12px on each row puts the labels under the wordmark, and
+       leaves the hover fill and the call to action inset from the edges. */
+    padding: 8px 8px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    background: var(--background);
+    box-shadow: 0 14px 22px oklch(0 0 0 / 0.08);
+  }
+
+  .site-nav a,
+  .site-nav .site-theme-btn {
+    min-height: 44px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    border-radius: var(--site-radius);
+  }
+
+  .site-nav a:not(.site-nav-cta):hover,
+  .site-nav a:not(.site-nav-cta):focus-visible,
+  .site-nav .site-theme-btn:focus-visible {
+    background: var(--muted);
+    color: var(--foreground);
+  }
+
+  .site-nav .site-theme-label {
+    display: inline;
+    margin-inline-start: 10px;
+    font-size: 14px;
+  }
+
+  .site-nav .site-nav-cta {
+    justify-content: center;
+    margin-top: 8px;
+    font-weight: 500;
+  }
+
+  .site-nav a:focus-visible,
+  .site-nav .site-theme-btn:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
