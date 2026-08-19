@@ -41,7 +41,13 @@ import {
   isDeviceLink,
   isInviteExpired,
 } from "../inviteCode";
-import type { SpaceInvite } from "@/platform/types";
+import type { PairCallbacks, SpaceInvite } from "@/platform/types";
+import {
+  MAX_PAIR_RETRIES,
+  isTransientPairError,
+  pairErrorMessage,
+  pairRetryDelay,
+} from "../pairing";
 import { QRScannerView } from "./QRScannerView";
 
 interface LinkDeviceDialogProps {
@@ -55,6 +61,9 @@ interface LinkDeviceDialogProps {
  * the way a space invite can be.
  */
 const LINK_TTL_MS = 10 * 60_000;
+
+/** How long a wait stays quiet before it admits it is taking unusually long. */
+const SLOW_WAIT_MS = 12_000;
 
 type Step = "choose" | "show" | "enter" | "connecting" | "enrolling" | "done";
 
@@ -77,9 +86,23 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
   const [errorMsg, setErrorMsg] = useState("");
   const [peerName, setPeerName] = useState("");
   const [now, setNow] = useState(() => Date.now());
+  /** A wait that lost its peer says so instead of claiming to be connected. */
+  const [reconnecting, setReconnecting] = useState(false);
+  const [slow, setSlow] = useState(false);
 
   const activeInviteRef = useRef<SpaceInvite | null>(null);
   const flowRef = useRef<Flow>("show");
+  /**
+   * The step, readable from callbacks that outlive the render they were made
+   * in — the shown code keeps listening after a link succeeds, and its expiry
+   * an hour later must not drag a finished screen back to an error.
+   */
+  const stepRef = useRef<Step>("choose");
+  stepRef.current = step;
+  /** Restarts the attempt in flight — the retry needs no other context. */
+  const restartRef = useRef<(() => void) | null>(null);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCount = useRef(0);
 
   const { mutate: createLink, isPending: isCreating } = useCreateDeviceLink();
   const { mutate: acceptLink } = useAcceptDeviceLink();
@@ -100,8 +123,14 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
       setScanning(false);
       setErrorMsg("");
       setPeerName("");
+      setReconnecting(false);
+      setSlow(false);
+      retryCount.current = 0;
     }
     return () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+      restartRef.current = null;
       const pending = activeInviteRef.current;
       if (pending) {
         activeInviteRef.current = null;
@@ -109,6 +138,18 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
       }
     };
   }, [open]);
+
+  // Both waits look identical while they work, so an unusually long one has to
+  // say something — otherwise a stuck handshake is indistinguishable from a
+  // slow one.
+  useEffect(() => {
+    if (step !== "connecting" && step !== "enrolling") {
+      setSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlow(true), SLOW_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [step]);
 
   // Only the shown code counts down; nothing else on screen depends on the clock.
   useEffect(() => {
@@ -118,9 +159,63 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
     return () => clearInterval(timer);
   }, [step, invite]);
 
+  const clearRetry = useCallback(() => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+  }, []);
+
+  const failWith = useCallback(
+    (code: string) => {
+      if (stepRef.current === "done") return;
+      clearRetry();
+      setReconnecting(false);
+      setStep(flowRef.current);
+      setErrorMsg(pairErrorMessage(t, code));
+    },
+    [clearRetry, t],
+  );
+
+  /**
+   * Start the attempt over after a failure that is only the network. The code
+   * stays valid, so the wait keeps its screen and its spinner — nothing about
+   * the flow has changed, it just has not connected yet.
+   */
+  const retryAttempt = useCallback(
+    (code: string) => {
+      if (stepRef.current === "done") return;
+      const invite = activeInviteRef.current;
+      const restart = restartRef.current;
+      if (!invite || !restart) return failWith(code);
+      if (Date.now() >= invite.expiresAt) return failWith("expired");
+      if (retryCount.current >= MAX_PAIR_RETRIES) return failWith(code);
+
+      const delay = pairRetryDelay(retryCount.current);
+      retryCount.current += 1;
+      setReconnecting(true);
+      clearRetry();
+      retryTimer.current = setTimeout(() => {
+        retryTimer.current = null;
+        restart();
+      }, delay);
+    },
+    [clearRetry, failWith],
+  );
+
   const pairCallbacks = useCallback(
-    () => ({
-      onConnected: () => setStep("connecting"),
+    (): PairCallbacks => ({
+      onConnected: () => {
+        // Reaching a peer proves the transport, so a later failure starts from
+        // a clean budget rather than one spent getting here.
+        retryCount.current = 0;
+        clearRetry();
+        setReconnecting(false);
+        // A peer rejoining mid-enrolment announces itself again; the wait it
+        // interrupts is a later one, so it must not be rewound.
+        setStep((current) =>
+          current === "enrolling" || current === "done" ? current : "connecting",
+        );
+      },
+      onReconnecting: () => setReconnecting(true),
       onPeerIdentity: (peer: { name: string }) => setPeerName(peer.name),
       onComplete: (peer: { name: string }) => {
         setPeerName((current) => current || peer.name);
@@ -136,15 +231,19 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
         refreshEverything();
       },
       onEnrolled: () => {
+        clearRetry();
         setStep("done");
         refreshEverything();
       },
-      onError: (msg: string) => {
-        setStep(flowRef.current);
-        setErrorMsg(msg);
+      onError: (code) => {
+        if (isTransientPairError(code)) {
+          retryAttempt(code);
+          return;
+        }
+        failWith(code);
       },
     }),
-    [refreshEverything],
+    [clearRetry, failWith, refreshEverything, retryAttempt],
   );
 
   function handleShow() {
@@ -153,13 +252,24 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
     setErrorMsg("");
     setCopied(false);
     setInvite(null);
+    setReconnecting(false);
+    retryCount.current = 0;
+    clearRetry();
     createLink(
       { ttlMs: LINK_TTL_MS },
       {
         onSuccess: (created) => {
           setInvite(created);
           activeInviteRef.current = created;
-          void waitForDevice(created, pairCallbacks());
+          // Re-armable: listening can fail outright (offline at the moment the
+          // code appears), and the code outlives that failure.
+          const listen = () => {
+            void waitForDevice(created, pairCallbacks()).catch(() =>
+              retryAttempt("network"),
+            );
+          };
+          restartRef.current = listen;
+          listen();
         },
         onError: (err) => setErrorMsg(err.message),
       },
@@ -190,8 +300,20 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
     flowRef.current = "enter";
     setErrorMsg("");
     setStep("connecting");
+    setReconnecting(false);
     activeInviteRef.current = decoded;
-    acceptLink({ invite: decoded, callbacks: pairCallbacks() });
+    retryCount.current = 0;
+    clearRetry();
+    // A rejected accept never reaches `callbacks.onError` — without this the
+    // dialog would sit on the spinner for good.
+    const attempt = () => {
+      acceptLink(
+        { invite: decoded, callbacks: pairCallbacks() },
+        { onError: () => retryAttempt("network") },
+      );
+    };
+    restartRef.current = attempt;
+    attempt();
   }
 
   function handleScan(scanned: string) {
@@ -208,16 +330,21 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
   }
 
   function goBack() {
+    clearRetry();
+    restartRef.current = null;
     const pending = activeInviteRef.current;
     if (pending) {
       activeInviteRef.current = null;
       void cancelPairing(pending);
     }
-    if (step === "show") void revokeDeviceLink();
+    // Any code this device showed dies with the step that showed it, including
+    // when the way out is a cancelled handshake rather than the Back button.
+    if (invite) void revokeDeviceLink();
     setStep("choose");
     setInvite(null);
     setScanning(false);
     setErrorMsg("");
+    setReconnecting(false);
   }
 
   async function handleOpenChange(next: boolean) {
@@ -228,6 +355,22 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
     }
     onOpenChange(next);
   }
+
+  // What the wait says about itself, shared by the visible copy and the
+  // accessible description so both tell the same story.
+  const waitTitle = (label: string) =>
+    reconnecting ? t("device.reconnecting", "Reconnecting…") : label;
+  const waitSubtitle = reconnecting
+    ? t(
+        "device.reconnectingHint",
+        "The connection dropped. Trying again — keep both devices open.",
+      )
+    : slow
+      ? t(
+          "device.stillTrying",
+          "Still trying. Keep both devices open and on a network.",
+        )
+      : t("device.keepBothOpen", "Keep both devices open.");
 
   const remainingMs = invite ? invite.expiresAt - now : 0;
   const expired = !!invite && remainingMs <= 0;
@@ -256,12 +399,12 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
       description: t("device.enterHint", "Find it under Profile → Link a device."),
     },
     connecting: {
-      title: t("device.connecting", "Connecting"),
-      description: t("device.keepBothOpen", "Keep both devices open."),
+      title: waitTitle(t("device.connecting", "Connecting")),
+      description: waitSubtitle,
     },
     enrolling: {
-      title: t("device.enrolling", "Setting up this device"),
-      description: t("device.keepBothOpen", "Keep both devices open."),
+      title: waitTitle(t("device.enrolling", "Setting up this device")),
+      description: waitSubtitle,
     },
     done: {
       title: t("device.doneTitle", "Linked"),
@@ -478,11 +621,18 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
     <div className="flex flex-col items-center gap-4 py-6 text-center">
       <span className="size-6 animate-spin rounded-full border-2 border-border border-t-primary" />
       <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium">{label}</p>
-        <p className="text-sm text-muted-foreground">
-          {t("device.keepBothOpen", "Keep both devices open.")}
-        </p>
+        <p className="text-sm font-medium">{waitTitle(label)}</p>
+        <p className="text-sm text-muted-foreground">{waitSubtitle}</p>
       </div>
+      {/* A wait with no way out is the worst of the failure modes: nothing here
+          finishes on its own if the other device never comes back. */}
+      <button
+        type="button"
+        onClick={goBack}
+        className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {t("common.cancel", "Cancel")}
+      </button>
     </div>
   );
 

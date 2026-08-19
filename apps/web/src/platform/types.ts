@@ -472,9 +472,28 @@ export interface SpaceInvite {
   expiresAt: number;
 }
 
+/**
+ * Why a pairing attempt failed.
+ *
+ * A code, not a sentence: pairing runs below the UI — in a worker on some
+ * platforms — so the wording, and its translation, belong to the screen that
+ * shows it. Unknown codes must still render as something, since an older host
+ * can meet a newer engine.
+ */
+export type PairError =
+  | "expired"
+  | "network"
+  | "invalid-proof"
+  | "certificate"
+  | "enrollment"
+  | "no-root-identity"
+  | "bad-device-key";
+
 /** Pairing lifecycle callbacks */
 export interface PairCallbacks {
   onConnected?: () => void;
+  /** The peer dropped mid-pairing; the transport is reconnecting on its own. */
+  onReconnecting?: () => void;
   onPeerIdentity?: (peer: { publicKey: string; name: string }) => void;
   onComplete?: (peer: Peer, spaceName?: string) => void | Promise<void>;
   /**
@@ -484,7 +503,7 @@ export interface PairCallbacks {
    * side is not linked until this runs.
    */
   onEnrolled?: () => void;
-  onError?: (error: string) => void;
+  onError?: (error: PairError) => void;
 }
 
 // =============================================================================

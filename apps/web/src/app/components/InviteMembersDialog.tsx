@@ -47,10 +47,11 @@ import {
   revokeInvite,
 } from "../api/spaces.api";
 import { useAuth } from "../contexts/AuthContext";
-import type { SpaceInvite, Peer } from "@/platform/types";
+import type { PairCallbacks, SpaceInvite, Peer } from "@/platform/types";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { getDisplayName } from "@tasfer/provider-core/cursors";
 import { encodeInvite, mintEphemeralInvite } from "../inviteCode";
+import { pairErrorMessage } from "../pairing";
 import { downloadFile } from "@/downloadFile";
 
 dayjs.extend(relativeTime);
@@ -208,7 +209,7 @@ export function InviteMembersDialog({
   }, [open, qrInvite]);
 
   const peerCallbacks = useCallback(
-    () => ({
+    (): PairCallbacks => ({
       onComplete: (peer: Peer) => {
         justJoinedRef.current = peer.publicKey;
         setJoinedPeers((prev) => {
@@ -229,12 +230,12 @@ export function InviteMembersDialog({
           justJoinedRef.current = null;
         }, 2000);
       },
-      onError: (msg: string) => {
+      onError: (code) => {
         setStatus("error");
-        setErrorMsg(msg);
+        setErrorMsg(pairErrorMessage(t, code));
       },
     }),
-    [queryClient, spaceId],
+    [queryClient, spaceId, t],
   );
 
   // Listen on both invites while the dialog is open

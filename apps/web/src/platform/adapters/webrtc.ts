@@ -750,6 +750,11 @@ class WebRtcTopic implements NetworkTopic {
       const err = e instanceof Error ? e : new Error(String(e));
       console.error(`[WS] failed to create WebSocket topic=${topicShort} url=${url}:`, err.message);
       rejectReady(err);
+      // Constructing the socket can fail on its own (a resolver that is not up
+      // yet, a temporarily unusable network stack). Without a retry here the
+      // topic would have no live socket and no pending reconnect — silent for
+      // good, while callers wait on peers that can never arrive.
+      this.scheduleReconnect(topicShort);
       return this.wsReady;
     }
     this.ws = socket;
@@ -812,19 +817,7 @@ class WebRtcTopic implements NetworkTopic {
       this._dropSignalingDependentPeers();
       this.ws = null;
 
-      // Skip reconnect when destroyed (terminal) or suspended (backgrounded):
-      // suspend() closed this socket on purpose and resume() will re-open it.
-      if (this.destroyed || this.suspended) return;
-
-      // Reconnect with exponential backoff (1s, 2s, 4s, 8s, max 30s)
-      const delay = Math.min(1000 * 2 ** this.reconnectAttempt, 30000);
-      this.reconnectAttempt++;
-      console.log(`[WS] reconnecting topic=${topicShort} attempt=${this.reconnectAttempt} delay=${delay}ms`);
-
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        this.ensureWs().catch(() => { /* will retry on next onclose */ });
-      }, delay);
+      this.scheduleReconnect(topicShort);
     };
 
     socket.onerror = () => {
@@ -833,6 +826,25 @@ class WebRtcTopic implements NetworkTopic {
     };
 
     return this.wsReady;
+  }
+
+  /**
+   * Queue another connect attempt with exponential backoff (1s, 2s, 4s, 8s,
+   * max 30s). Skipped when destroyed (terminal) or suspended (backgrounded):
+   * suspend() closed the socket on purpose and resume() re-opens it.
+   */
+  private scheduleReconnect(topicShort: string): void {
+    if (this.destroyed || this.suspended) return;
+    if (this.reconnectTimer) return;
+
+    const delay = Math.min(1000 * 2 ** this.reconnectAttempt, 30000);
+    this.reconnectAttempt++;
+    console.log(`[WS] reconnecting topic=${topicShort} attempt=${this.reconnectAttempt} delay=${delay}ms`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.ensureWs().catch(() => { /* will retry on next onclose */ });
+    }, delay);
   }
 
   /**
@@ -1705,7 +1717,16 @@ class WebRtcNetworkDriver implements NetworkDriver, TurnCredentialManager {
     const nt = new WebRtcTopic(this.localPeerId, hex, this.signalUrl, encKey, this.currentRtcConfig, this);
     this.topics.set(hex, nt);
 
-    await nt.connect();
+    // A first connect that fails is not a dead topic: it has already queued its
+    // own retry, and its peer listeners fire whenever the socket comes back.
+    // Throwing here instead would strand the caller — the pairing session or
+    // peer connection it was about to attach never gets built, so the topic
+    // reconnects to nobody.
+    try {
+      await nt.connect();
+    } catch (e) {
+      console.warn(`[WebRTC] topic=${hex.slice(0, 8)} first connect failed, retrying in background:`, e);
+    }
     return nt;
   }
 

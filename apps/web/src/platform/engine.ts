@@ -2093,6 +2093,7 @@ export class Engine implements Platform {
         privateKey,
         callbacks: {
           onConnected: callbacks?.onConnected,
+          onReconnecting: callbacks?.onReconnecting,
           onPeerIdentity: callbacks?.onPeerIdentity,
           onComplete: async (peer) => {
             // Trust only; the enrolment payload that follows carries the root
@@ -2157,6 +2158,7 @@ export class Engine implements Platform {
       privateKey,
       callbacks: {
         onConnected: () => observer()?.onConnected?.(),
+        onReconnecting: () => observer()?.onReconnecting?.(),
         onPeerIdentity: (peer) => observer()?.onPeerIdentity?.(peer),
         onComplete: async (peer) => {
           // Derive shared signaling key from pairing secret + both public keys
@@ -2225,6 +2227,7 @@ export class Engine implements Platform {
       privateKey,
       callbacks: {
         onConnected: () => observer()?.onConnected?.(),
+        onReconnecting: () => observer()?.onReconnecting?.(),
         onPeerIdentity: (peer) => observer()?.onPeerIdentity?.(peer),
         onComplete: async (peer) => {
           const sharedKey = await deriveSharedSignalingKey(
@@ -2256,11 +2259,11 @@ export class Engine implements Platform {
     const identity = await this.identity.get();
     const rootPrivateKey = await this.getRootPrivateKey();
     if (!identity.rootPublicKey || !rootPrivateKey) {
-      observer?.onError?.("This device has no root identity to link with");
+      observer?.onError?.("no-root-identity");
       return null;
     }
     if (!isDeviceKeyShaped(peerPublicKey)) {
-      observer?.onError?.("The joining device presented an unusable key");
+      observer?.onError?.("bad-device-key");
       return null;
     }
 
@@ -2567,6 +2570,7 @@ export class Engine implements Platform {
       privateKey,
       callbacks: {
         onConnected: callbacks?.onConnected,
+        onReconnecting: callbacks?.onReconnecting,
         onPeerIdentity: callbacks?.onPeerIdentity,
         onComplete: async (peer, spaceName) => {
           // Derive shared signaling key from pairing secret + both public keys

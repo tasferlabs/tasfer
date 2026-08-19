@@ -1210,7 +1210,7 @@ export class Replicator {
     await this.cancelPairing(opts.invite.secret);
 
     if (Date.now() >= opts.invite.expiresAt) {
-      opts.callbacks.onError?.("Invite expired");
+      opts.callbacks.onError?.("expired");
       return;
     }
 
@@ -1224,7 +1224,19 @@ export class Replicator {
     const pairingKey = await derivePairingKey(opts.invite.secret, topicHex);
     this.network.registerTopicKey(topicHex, pairingKey);
 
-    const topic = await this.network.join(hexToBytes(topicHex));
+    // A topic whose first signaling connect fails is still handed back, and
+    // retries in the background — so pairing started offline picks up by
+    // itself once the network returns. Only a topic that could not be created
+    // at all is fatal here.
+    let topic: NetworkTopic;
+    try {
+      topic = await this.network.join(hexToBytes(topicHex));
+    } catch (e) {
+      console.error("[Sync] could not join pairing topic:", e);
+      this.network.unregisterTopicKey(topicHex);
+      opts.callbacks.onError?.("network");
+      return;
+    }
 
     const session: PairingSession = {
       topicHex,
@@ -1250,6 +1262,14 @@ export class Replicator {
     const handlePeer = (peer: NetworkPeer) => {
       if (session.completed) return;
       session.callbacks.onConnected?.();
+
+      // A drop before the exchange finishes is not the end of the attempt: the
+      // transport reconnects on its own and this handler runs again, sending a
+      // fresh hello. Say so, so the screen can stop claiming to be connected.
+      peer.onClose(() => {
+        if (session.completed) return;
+        session.callbacks.onReconnecting?.();
+      });
 
       peer.onMessage(async (data) => {
         const msg = decode(data);
@@ -1296,6 +1316,9 @@ export class Replicator {
   private armPairingExpiry(session: PairingSession): void {
     const delay = session.invite.expiresAt - Date.now();
     if (delay <= 0) {
+      // Tearing down silently leaves a waiting screen waiting for good — the
+      // acceptor still owed its enrolment payload most of all.
+      if (!session.completed) session.callbacks.onError?.("expired");
       void this.teardownPairingSession(session);
       return;
     }
@@ -2103,7 +2126,7 @@ export class Replicator {
   ): Promise<void> {
     const payload = await session.issueDeviceLink?.(peerPublicKey);
     if (!payload) {
-      session.callbacks.onError?.("Could not issue a certificate for this device");
+      session.callbacks.onError?.("certificate");
       return;
     }
     const msg: Message = { type: "device-link", ...payload };
@@ -2140,7 +2163,7 @@ export class Replicator {
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
       console.error(`[Sync] failed to adopt device-link: ${detail}`);
-      session.callbacks.onError?.("Could not complete device linking");
+      session.callbacks.onError?.("enrollment");
       return;
     }
     // Held open past the handshake for exactly this message — see
@@ -2165,17 +2188,25 @@ export class Replicator {
       return;
     }
 
-    // Skip if we already paired with this peer (multi-peer mode)
-    if (session.completedPeers.has(msg.publicKey)) return;
+    const alreadyPaired = session.completedPeers.has(msg.publicKey);
 
     const cryptoDriver = this.host.getCrypto();
     const challenge = await derivePairingProofChallenge(session.invite.secret);
     const valid = await cryptoDriver.verify(msg.publicKey, msg.proof, challenge);
 
     if (!valid) {
-      session.callbacks.onError?.(
-        "Invalid pairing proof — peer doesn't know the invite secret",
-      );
+      session.callbacks.onError?.("invalid-proof");
+      return;
+    }
+
+    // Already paired (multi-peer mode): the handshake does not repeat, but a
+    // device that dropped before its enrolment payload landed says hello again
+    // on reconnect, and it is the only thing it is still waiting for. Sent
+    // after the proof check above, never on the peer's word alone.
+    if (alreadyPaired) {
+      if (session.mode === "device" && session.role === "initiator") {
+        await this.sendDeviceLink(peer, msg.publicKey, session);
+      }
       return;
     }
 

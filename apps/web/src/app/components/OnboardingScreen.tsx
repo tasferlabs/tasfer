@@ -47,6 +47,12 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { decodeInvite, isDeviceLink, isInviteExpired } from "../inviteCode";
+import {
+  MAX_PAIR_RETRIES,
+  isTransientPairError,
+  pairErrorMessage,
+  pairRetryDelay,
+} from "../pairing";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { getPlatform } from "@/platform";
 import type { SpaceInvite } from "@/platform/types";
@@ -243,9 +249,77 @@ function LinkExistingStep({
   const [errorMsg, setErrorMsg] = useState("");
   /** Set when the failure is "wrong kind of code", which has a way out. */
   const [wrongKind, setWrongKind] = useState("");
+  /** The attempt lost its peer and is starting over on its own. */
+  const [reconnecting, setReconnecting] = useState(false);
   const activeInviteRef = useRef<SpaceInvite | null>(null);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCount = useRef(0);
 
   const { mutate: acceptDeviceLink } = useAcceptDeviceLink();
+
+  function failLink(code: string) {
+    // Cleared once the link lands (or is cancelled): a session that stays open
+    // afterwards must not drag a finished screen into an error.
+    if (!activeInviteRef.current) return;
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+    setReconnecting(false);
+    setStatus("error");
+    setErrorMsg(pairErrorMessage(t, code));
+  }
+
+  /**
+   * A network failure is not the user's problem to solve: the code is still
+   * good, so try again on a backoff and keep the screen as it is.
+   */
+  function retryLink(code: string) {
+    const invite = activeInviteRef.current;
+    if (!invite) return;
+    if (Date.now() >= invite.expiresAt) return failLink("expired");
+    if (retryCount.current >= MAX_PAIR_RETRIES) return failLink(code);
+
+    const delay = pairRetryDelay(retryCount.current);
+    retryCount.current += 1;
+    setReconnecting(true);
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = null;
+      startLink(invite);
+    }, delay);
+  }
+
+  function startLink(invite: SpaceInvite) {
+    acceptDeviceLink(
+      {
+        invite,
+        callbacks: {
+          onConnected: () => {
+            retryCount.current = 0;
+            setReconnecting(false);
+          },
+          onReconnecting: () => setReconnecting(true),
+          onComplete: () => {
+            activeInviteRef.current = null;
+            setReconnecting(false);
+            setStatus("done");
+            // Every space arrives at once, which is also what ends onboarding.
+            queryClient.invalidateQueries({ queryKey: ["spaces"] });
+            queryClient.invalidateQueries({ queryKey: ["pages"] });
+          },
+          onError: (code) => {
+            if (isTransientPairError(code)) {
+              retryLink(code);
+              return;
+            }
+            failLink(code);
+          },
+        },
+      },
+      // The accept can reject before pairing starts, and `callbacks.onError`
+      // never fires for that — the screen would sit on the spinner for good.
+      { onError: () => retryLink("network") },
+    );
+  }
 
   function runLink(raw: string) {
     const invite = decodeInvite(raw);
@@ -276,26 +350,15 @@ function LinkExistingStep({
     }
     setWrongKind("");
     setStatus("connecting");
+    setReconnecting(false);
+    retryCount.current = 0;
     activeInviteRef.current = invite;
-    acceptDeviceLink({
-      invite,
-      callbacks: {
-        onComplete: () => {
-          activeInviteRef.current = null;
-          setStatus("done");
-          // Every space arrives at once, which is also what ends onboarding.
-          queryClient.invalidateQueries({ queryKey: ["spaces"] });
-          queryClient.invalidateQueries({ queryKey: ["pages"] });
-        },
-        onError: (msg) => {
-          setStatus("error");
-          setErrorMsg(msg);
-        },
-      },
-    });
+    startLink(invite);
   }
 
   function cancelActiveLink() {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
     const invite = activeInviteRef.current;
     if (invite) {
       activeInviteRef.current = null;
@@ -323,15 +386,23 @@ function LinkExistingStep({
             <Loader2 size={24} strokeWidth={2} />
           </div>
           <div className="ob-status-title">
-            {t("space.connecting", "Connecting…")}
+            {reconnecting
+              ? t("device.reconnecting", "Reconnecting…")
+              : t("space.connecting", "Connecting…")}
           </div>
           <div className="ob-status-sub">
-            {t("device.keepBothOpen", "Keep both devices open.")}
+            {reconnecting
+              ? t(
+                  "device.reconnectingHint",
+                  "The connection dropped. Trying again — keep both devices open.",
+                )
+              : t("device.keepBothOpen", "Keep both devices open.")}
           </div>
           <button
             className="ob-btn ob-btn-outline"
             onClick={() => {
               cancelActiveLink();
+              setReconnecting(false);
               setStatus("input");
               setErrorMsg("");
             }}
@@ -952,9 +1023,9 @@ function SpaceJoin({
           queryClient.invalidateQueries({ queryKey: ["spaces"] });
           queryClient.invalidateQueries({ queryKey: ["pages"] });
         },
-        onError: (msg) => {
+        onError: (code) => {
           setStatus("error");
-          setErrorMsg(msg);
+          setErrorMsg(pairErrorMessage(t, code));
         },
       },
     });

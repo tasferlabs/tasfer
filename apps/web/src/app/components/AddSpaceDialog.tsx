@@ -39,6 +39,7 @@ import {
 } from "../api/spaces.api";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { decodeInvite, isDeviceLink, isInviteExpired } from "../inviteCode";
+import { pairErrorMessage } from "../pairing";
 import type { SpaceInvite } from "@/platform/types";
 import { QRScannerView } from "./QRScannerView";
 
@@ -180,9 +181,9 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
           queryClient.invalidateQueries({ queryKey: ["spaces"] });
           queryClient.invalidateQueries({ queryKey: ["pages"] });
         },
-        onError: (msg) => {
+        onError: (code) => {
           setJoinStatus("error");
-          setErrorMsg(msg);
+          setErrorMsg(pairErrorMessage(t, code));
         },
       },
     });
