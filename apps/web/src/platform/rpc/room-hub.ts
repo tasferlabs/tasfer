@@ -260,6 +260,12 @@ class ConnectionSync implements Sync {
     return this.hub.inner.onConnectedPeersChange(cb);
   }
 
+  onSyncingSpacesChange(
+    cb: Parameters<Sync["onSyncingSpacesChange"]>[0],
+  ): () => void {
+    return this.hub.inner.onSyncingSpacesChange(cb);
+  }
+
   onPeerVersionMismatch(
     cb: Parameters<Sync["onPeerVersionMismatch"]>[0],
   ): () => void {

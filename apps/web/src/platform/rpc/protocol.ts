@@ -294,6 +294,7 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     onConnectionChange: { kind: "subscribe", cbArg: 0 },
     getConnectedPeers: { kind: "getter" },
     onConnectedPeersChange: { kind: "subscribe", cbArg: 0 },
+    onSyncingSpacesChange: { kind: "subscribe", cbArg: 0 },
     onPeerVersionMismatch: { kind: "subscribe", cbArg: 0 },
   },
   ops: {

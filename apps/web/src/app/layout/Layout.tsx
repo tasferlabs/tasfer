@@ -20,6 +20,7 @@ import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { OwnPrefsProvider } from "../contexts/OwnPrefsContext";
 import { useGetArchivedSpaces } from "../api/spaces.api";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
+import { SyncActivityProvider } from "../contexts/SyncActivityContext";
 import { TreeExpandProvider } from "../contexts/TreeExpandContext";
 import { useFileDropImport } from "../hooks/useFileDropImport";
 import { useP2PPageEventsWithQueryClient } from "../hooks/useP2PPageEvents";
@@ -53,27 +54,29 @@ export default function Layout() {
   return (
     <TopActionBarSlotProvider>
       <SpaceProvider>
-        <OwnPrefsProvider>
-          <TreeExpandProvider>
-            <SidebarPanelProvider>
-              <PageSettingsProvider>
-                <ActiveEditorProvider>
-                  <ConfirmationDialogProvider>
-                    <UnsavedChangesDialogProvider>
-                      <ImportDialogProvider>
-                        <PeerVersionProvider>
-                          <ActionCenterProvider>
-                            <LayoutInner />
-                          </ActionCenterProvider>
-                        </PeerVersionProvider>
-                      </ImportDialogProvider>
-                    </UnsavedChangesDialogProvider>
-                  </ConfirmationDialogProvider>
-                </ActiveEditorProvider>
-              </PageSettingsProvider>
-            </SidebarPanelProvider>
-          </TreeExpandProvider>
-        </OwnPrefsProvider>
+        <SyncActivityProvider>
+          <OwnPrefsProvider>
+            <TreeExpandProvider>
+              <SidebarPanelProvider>
+                <PageSettingsProvider>
+                  <ActiveEditorProvider>
+                    <ConfirmationDialogProvider>
+                      <UnsavedChangesDialogProvider>
+                        <ImportDialogProvider>
+                          <PeerVersionProvider>
+                            <ActionCenterProvider>
+                              <LayoutInner />
+                            </ActionCenterProvider>
+                          </PeerVersionProvider>
+                        </ImportDialogProvider>
+                      </UnsavedChangesDialogProvider>
+                    </ConfirmationDialogProvider>
+                  </ActiveEditorProvider>
+                </PageSettingsProvider>
+              </SidebarPanelProvider>
+            </TreeExpandProvider>
+          </OwnPrefsProvider>
+        </SyncActivityProvider>
       </SpaceProvider>
     </TopActionBarSlotProvider>
   );

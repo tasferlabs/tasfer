@@ -283,10 +283,11 @@ export interface OwnSpaceState {
  * One person-private preference, as one device decided it.
  *
  * The same problem as {@link OwnSpaceState}, without the space: how the sidebar
- * is arranged and which walkthroughs have been read are decisions about the
- * person, so no space's op log can carry them — yet they still have to reach the
- * person's other devices, or arranging the sidebar on the laptop leaves the
- * phone showing the old order.
+ * is arranged, which walkthroughs have been read, and what the person calls
+ * each of their devices are decisions about the person, so no space's op log
+ * can carry them — yet they still have to reach the person's other devices, or
+ * arranging the sidebar on the laptop leaves the phone showing the old order,
+ * and the label put on the phone is readable only on the phone.
  *
  * One register per key, ordered by (`stamp`, `by`) exactly as the archive one
  * is. A key is a whole register: two devices reordering spaces at once resolve
@@ -449,8 +450,9 @@ interface DeviceLinkMsg {
    * The person's private preferences (see {@link OwnPref}), for the same reason
    * the archive flags travel: nothing else in this bootstrap describes them, so
    * without them the new device would spend its first moments with the sidebar
-   * arranged the way no device of this person's arranges it, and would re-run
-   * walkthroughs the person has already read.
+   * arranged the way no device of this person's arranges it, would re-run
+   * walkthroughs the person has already read, and would show the siblings it
+   * just joined as a row of unnamed devices.
    *
    * Stamps travel too, so the newcomer joins each register already in step.
    */
@@ -568,6 +570,14 @@ const dec = new TextDecoder();
  */
 const FLUSH_TIMEOUT_MS = 2500;
 
+/**
+ * How long a `sync-pull` may stay unanswered before it stops counting as
+ * catch-up in flight. A peer that goes quiet mid-exchange leaves its pull
+ * outstanding forever otherwise, and the host would show that space as
+ * syncing for as long as the connection lasts.
+ */
+const SYNC_PULL_TIMEOUT_MS = 15_000;
+
 function encode(msg: Message): Uint8Array {
   let wire: any = msg;
 
@@ -649,6 +659,18 @@ export class Replicator {
 
   /** True while suspended for app backgrounding (see pause()/resume()). */
   private paused = false;
+
+  /**
+   * Catch-up in flight: spaceId → the peers whose `sync-data` we are waiting
+   * for, each with the pull's token and its expiry timer. A token is compared
+   * on settle so a late reply cannot clear a pull sent after it.
+   */
+  private pendingPulls = new Map<
+    string,
+    Map<string, { token: number; timer: ReturnType<typeof setTimeout> }>
+  >();
+  private nextPullToken = 0;
+  private syncingSpacesListeners = new Set<(spaceIds: string[]) => void>();
 
   /** Connection state */
   private connectionState: ConnectionState = "disconnected";
@@ -823,6 +845,7 @@ export class Replicator {
       conn.netPeer.close();
       this.peers.delete(publicKey);
       this.emitConnectedPeers();
+      this.settlePeerPulls(publicKey);
     }
     for (const [hex, entry] of this.topics) {
       if (entry.remotePubKey === publicKey) {
@@ -859,6 +882,7 @@ export class Replicator {
     }
     this.peers.clear();
     this.emitConnectedPeers();
+    this.settleAllPulls();
 
     // Suspend the signaling sockets and halt reconnect backoff. Topic objects
     // and registered topic keys are preserved for resume().
@@ -1074,6 +1098,97 @@ export class Replicator {
     return () => {
       this.connectedPeersListeners.delete(cb);
     };
+  }
+
+  /**
+   * Subscribe to which spaces are catching up with a peer right now — from the
+   * `sync-pull` that opens the exchange until the matching `sync-data` has been
+   * applied (or the pull expires, see {@link SYNC_PULL_TIMEOUT_MS}). Fires
+   * immediately with the current set so a subscriber that arrives mid-exchange
+   * still sees it, then on every change.
+   *
+   * This covers the catch-up a peer owes us, not live edits: ops pushed while
+   * both sides are already up to date arrive on their own and finish as they
+   * land, with nothing to wait for.
+   */
+  onSyncingSpacesChange(cb: (spaceIds: string[]) => void): () => void {
+    this.syncingSpacesListeners.add(cb);
+    cb(this.syncingSpaces());
+    return () => {
+      this.syncingSpacesListeners.delete(cb);
+    };
+  }
+
+  private syncingSpaces(): string[] {
+    return Array.from(this.pendingPulls.keys());
+  }
+
+  private emitSyncingSpaces() {
+    const spaceIds = this.syncingSpaces();
+    for (const cb of this.syncingSpacesListeners) cb(spaceIds);
+  }
+
+  /**
+   * Send a pull for one space and record it as in flight. Every pull goes
+   * through here so the "syncing" set cannot drift from what is on the wire.
+   * Returns the token to settle it with.
+   */
+  private sendSyncPull(
+    conn: PeerConnection,
+    spaceId: string,
+    spaceVV: Record<string, number>,
+    pageVVs: Record<string, Record<string, number>>,
+  ): number {
+    this.sendDirect(conn, { type: "sync-pull", spaceId, spaceVV, pageVVs });
+
+    const byPeer = this.pendingPulls.get(spaceId) ?? new Map();
+    const previous = byPeer.get(conn.publicKey);
+    if (previous) clearTimeout(previous.timer);
+    const token = ++this.nextPullToken;
+    byPeer.set(conn.publicKey, {
+      token,
+      timer: setTimeout(
+        () => this.settlePull(spaceId, conn.publicKey, token),
+        SYNC_PULL_TIMEOUT_MS,
+      ),
+    });
+    const isNew = !this.pendingPulls.has(spaceId);
+    this.pendingPulls.set(spaceId, byPeer);
+    if (isNew) this.emitSyncingSpaces();
+    return token;
+  }
+
+  /**
+   * Mark one peer's pull for a space as finished. A token that no longer
+   * matches belongs to a superseded pull, so it settles nothing.
+   */
+  private settlePull(spaceId: string, publicKey: string, token?: number) {
+    const byPeer = this.pendingPulls.get(spaceId);
+    const pending = byPeer?.get(publicKey);
+    if (!byPeer || !pending) return;
+    if (token !== undefined && pending.token !== token) return;
+    clearTimeout(pending.timer);
+    byPeer.delete(publicKey);
+    if (byPeer.size > 0) return;
+    this.pendingPulls.delete(spaceId);
+    this.emitSyncingSpaces();
+  }
+
+  /** Settle every pull outstanding with a peer — it can no longer answer. */
+  private settlePeerPulls(publicKey: string) {
+    for (const spaceId of this.syncingSpaces()) {
+      this.settlePull(spaceId, publicKey);
+    }
+  }
+
+  /** Settle every outstanding pull — every peer is gone (pause, destroy). */
+  private settleAllPulls() {
+    if (this.pendingPulls.size === 0) return;
+    for (const byPeer of this.pendingPulls.values()) {
+      for (const pending of byPeer.values()) clearTimeout(pending.timer);
+    }
+    this.pendingPulls.clear();
+    this.emitSyncingSpaces();
   }
 
   /**
@@ -1427,6 +1542,7 @@ export class Replicator {
     conn.netPeer.close();
     this.peers.delete(publicKey);
     this.emitConnectedPeers();
+    this.settlePeerPulls(publicKey);
     this.removeConnectionPresence(publicKey);
     this.updateConnectionState();
   }
@@ -1639,12 +1755,7 @@ export class Replicator {
       const spaceVV = await this.host.getSpaceVV(spaceId);
       const pageVVs = await this.host.getPageVVs(spaceId);
 
-      this.sendDirect(conn, {
-        type: "sync-pull",
-        spaceId,
-        spaceVV,
-        pageVVs,
-      });
+      this.sendSyncPull(conn, spaceId, spaceVV, pageVVs);
     }
 
     // Announce all open rooms in shared spaces to this peer
@@ -1718,7 +1829,23 @@ export class Replicator {
     });
   }
 
+  /**
+   * A reply closes the pull that asked for it, whatever it turned out to hold —
+   * including the paths that drop it, since a dropped reply is still the last
+   * word we will get on that pull. The token captured up front keeps a reply
+   * from settling a pull sent while it was being applied (the newly-shared
+   * space below sends one).
+   */
   private async handleSyncData(fromPubKey: string, msg: SyncDataMsg) {
+    const token = this.pendingPulls.get(msg.spaceId)?.get(fromPubKey)?.token;
+    try {
+      await this.applySyncData(fromPubKey, msg);
+    } finally {
+      if (token !== undefined) this.settlePull(msg.spaceId, fromPubKey, token);
+    }
+  }
+
+  private async applySyncData(fromPubKey: string, msg: SyncDataMsg) {
     const conn = this.peers.get(fromPubKey);
     if (!conn) return;
     // A space we do not already belong to cannot arrive from another PERSON.
@@ -1788,12 +1915,7 @@ export class Replicator {
       );
       const spaceVV = await this.host.getSpaceVV(msg.spaceId);
       const pageVVs = await this.host.getPageVVs(msg.spaceId);
-      this.sendDirect(conn, {
-        type: "sync-pull",
-        spaceId: msg.spaceId,
-        spaceVV,
-        pageVVs,
-      });
+      this.sendSyncPull(conn, msg.spaceId, spaceVV, pageVVs);
     }
   }
 
@@ -1814,12 +1936,7 @@ export class Replicator {
     console.log(
       `[Sync] requesting unknown space ${spaceId.slice(0, 8)} from own device ${conn.publicKey.slice(0, 8)}`,
     );
-    this.sendDirect(conn, {
-      type: "sync-pull",
-      spaceId,
-      spaceVV: {},
-      pageVVs: {},
-    });
+    this.sendSyncPull(conn, spaceId, {}, {});
     return true;
   }
 
@@ -2344,6 +2461,7 @@ export class Replicator {
     }
     this.peers.clear();
     this.emitConnectedPeers();
+    this.settleAllPulls();
 
     for (const entry of this.topics.values()) {
       await entry.topic.destroy();

@@ -920,6 +920,17 @@ export interface Platform {
     /** Subscribe to connected peer list changes */
     onConnectedPeersChange(cb: (peers: string[]) => void): () => void;
     /**
+     * Subscribe to the spaces currently catching up with a peer, by space id.
+     * Fires immediately with the set as it stands, then on every change, so a
+     * host that subscribes mid-exchange still shows it.
+     *
+     * A space is listed from the moment we ask a peer for what we are missing
+     * until that peer's answer has been applied. Live edits arriving on an
+     * already-caught-up space are not listed: they land as they come, with no
+     * pending exchange to wait on.
+     */
+    onSyncingSpacesChange(cb: (spaceIds: string[]) => void): () => void;
+    /**
      * Subscribe to protocol/wire-version mismatches detected during a peer's
      * `hello` handshake — used to notify the user (e.g. "a connected device is
      * on an incompatible version"). Fires once per hello on any mismatch.

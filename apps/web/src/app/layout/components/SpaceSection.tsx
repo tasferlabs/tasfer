@@ -18,6 +18,7 @@ import {
   useIsSpaceCollapsed,
   useSpacePrefs,
 } from "../../contexts/SpacePrefsContext";
+import { useIsSpaceSyncing } from "../../contexts/SyncActivityContext";
 import style from "../Layout.module.css";
 import { PagesArea } from "./PagesArea";
 import { SpaceDropZone } from "./SpaceDropZone";
@@ -46,6 +47,7 @@ export function SpaceSection({
   const { openImport } = useImportDialog();
   const prefs = useSpacePrefs();
   const collapsed = useIsSpaceCollapsed(space.id);
+  const syncing = useIsSpaceSyncing(space.id);
   const name = space.name || t("common.untitled", "Untitled");
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -142,6 +144,14 @@ export function SpaceSection({
           <Plus className="size-5" />
           <span className="sr-only">{t("page.addPage", "Add page")}</span>
         </Button>
+        {syncing && (
+          <>
+            <span className={style.appSidebarSectionSyncBar} aria-hidden />
+            <span role="status" className="sr-only">
+              {t("space.syncing", "Syncing changes")}
+            </span>
+          </>
+        )}
       </div>
       {!collapsed && <PagesArea parentId={null} spaceId={space.id} />}
     </>

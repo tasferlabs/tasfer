@@ -563,12 +563,82 @@
 }
 
 .appSidebarSection {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   padding: 4px 1rem;
   flex-shrink: 0;
+}
+
+/*
+ * Runs along the bottom of a space header while that space is catching up with
+ * a peer. Indeterminate on purpose: the exchange knows what it is missing only
+ * as it arrives, so there is no honest percentage to show — the bar says work
+ * is happening, and its absence says the space is up to date.
+ */
+.appSidebarSectionSyncBar {
+  position: absolute;
+  bottom: 0;
+  inset-inline: 1rem;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 1px;
+  background-color: color-mix(in srgb, var(--primary), transparent 85%);
+  pointer-events: none;
+}
+
+.appSidebarSectionSyncBar::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 40%;
+  border-radius: inherit;
+  background-color: var(--primary);
+  animation: appSidebarSectionSyncSlide 1.1s ease-in-out infinite;
+}
+
+@keyframes appSidebarSectionSyncSlide {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(260%);
+  }
+}
+
+:global([dir="rtl"]) .appSidebarSectionSyncBar::after {
+  animation-name: appSidebarSectionSyncSlideRtl;
+}
+
+@keyframes appSidebarSectionSyncSlideRtl {
+  from {
+    transform: translateX(110%);
+  }
+  to {
+    transform: translateX(-260%);
+  }
+}
+
+/* No travel for reduced motion — the bar breathes in place instead. */
+@media (prefers-reduced-motion: reduce) {
+  .appSidebarSectionSyncBar::after {
+    width: 100%;
+    transform: none;
+    animation: appSidebarSectionSyncPulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes appSidebarSectionSyncPulse {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
 }
 
 /*
@@ -626,6 +696,10 @@
 @media (max-width: 768px) {
   .appSidebarSection {
     padding: 6px 0.75rem;
+  }
+
+  .appSidebarSectionSyncBar {
+    inset-inline: 0.75rem;
   }
 }
 

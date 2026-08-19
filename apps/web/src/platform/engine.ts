@@ -3857,6 +3857,10 @@ export class Engine implements Platform {
     onConnectedPeersChange() {
       return () => {};
     },
+    onSyncingSpacesChange(cb: (spaceIds: string[]) => void) {
+      cb([]);
+      return () => {};
+    },
     onPeerVersionMismatch() {
       return () => {};
     },
