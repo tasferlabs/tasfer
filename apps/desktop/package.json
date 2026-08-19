@@ -1,6 +1,5 @@
 {
   "name": "tasfer-desktop",
-  "version": "0.1.0",
   "license": "AGPL-3.0-or-later",
   "description": "Tasfer desktop application",
   "homepage": "https://github.com/tasferlabs/tasfer",
@@ -15,14 +14,14 @@
     "gen:strings": "node ../web/scripts/gen-desktop-strings.mjs",
     "build": "npm run gen:strings && electron-vite build",
     "preview": "electron-vite preview",
-    "package": "electron-builder",
-    "package:dir": "electron-builder --dir",
-    "package:linux": "electron-builder --linux",
-    "package:linux:appimage": "electron-builder --linux AppImage",
-    "package:linux:deb": "electron-builder --linux deb",
-    "package:linux:pacman": "electron-builder --linux pacman",
-    "package:mac": "electron-builder --mac",
-    "package:win": "electron-builder --win"
+    "package": "node scripts/package.mjs",
+    "package:dir": "node scripts/package.mjs --dir",
+    "package:linux": "node scripts/package.mjs --linux",
+    "package:linux:appimage": "node scripts/package.mjs --linux AppImage",
+    "package:linux:deb": "node scripts/package.mjs --linux deb",
+    "package:linux:pacman": "node scripts/package.mjs --linux pacman",
+    "package:mac": "node scripts/package.mjs --mac",
+    "package:win": "node scripts/package.mjs --win"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

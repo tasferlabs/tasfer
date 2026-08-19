@@ -20,3 +20,8 @@ App/App/config.xml
 # again by Xcode (its own JSON spacing, plus a CFBundleName entry extracted
 # from Info.plist). Tracking it only recorded that tug-of-war.
 App/App/InfoPlist.xcstrings
+
+# App version (MARKETING_VERSION / CURRENT_PROJECT_VERSION), generated from
+# /version.json by scripts/release/gen-ios-version.mjs on install and on every
+# native build. The Xcode project stores no version of its own.
+Version.xcconfig

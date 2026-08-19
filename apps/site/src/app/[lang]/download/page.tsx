@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-// import DownloadPage from "@/views/DownloadPage/DownloadPage";
+import DownloadPage from "@/views/DownloadPage/DownloadPage";
 import { getDictionary, isLng, SUPPORTED_LNGS } from "@/lib/i18n/locales";
 import { getOgImage } from "@/lib/og";
 
@@ -42,7 +41,5 @@ export async function generateMetadata({
 }
 
 export default function Page() {
-  // Keep the download page implementation available for when native builds launch.
-  // return <DownloadPage />;
-  notFound();
+  return <DownloadPage />;
 }

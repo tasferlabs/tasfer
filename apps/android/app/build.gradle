@@ -11,26 +11,31 @@ if (keystorePropsFile.exists()) {
     keystoreProps.load(new FileInputStream(keystorePropsFile))
 }
 
+// The app version lives in /version.json at the monorepo root — the single file
+// every build reads. Nothing is stored here, so a release is one edit there.
+//
 // Play rejects an upload whose versionCode was already used, so it has to grow on
 // every release. Derive it from the semver instead of keeping a second counter in
-// sync by hand: bumping versionName is then the only step. fastlane applies the
-// same packing (see `android_version_code` in fastlane/Fastfile); change both or
-// neither. The 1.4.2 -> 10402 layout caps minor and patch at 99.
-//
-// Tracks apps/web/package.json. The previous "0.0.0" placeholder is not
-// expressible here: it derives a versionCode of 0, which AGP rejects outright.
-def tasferVersionName = "0.1.1"
+// sync by hand. fastlane and the iOS build apply the same packing (see
+// `app_build_number` in fastlane/Fastfile and `buildNumber` in
+// scripts/release/app-version.mjs); change them together or none. The
+// 1.4.2 -> 10402 layout caps minor and patch at 99.
+def tasferVersionFile = rootProject.file("../../version.json")
+if (!tasferVersionFile.exists()) {
+    throw new GradleException("Could not find ${tasferVersionFile} — the app version comes from version.json at the monorepo root")
+}
+def tasferVersionName = new groovy.json.JsonSlurper().parse(tasferVersionFile).appVersion
 def tasferSemver = (tasferVersionName =~ /^(\d+)\.(\d+)\.(\d+)$/)
 if (!tasferSemver.matches()) {
     throw new GradleException(
-        "versionName '${tasferVersionName}' is not a bare major.minor.patch semver")
+        "version.json appVersion '${tasferVersionName}' is not a bare major.minor.patch semver")
 }
 def tasferMajor = tasferSemver.group(1).toInteger()
 def tasferMinor = tasferSemver.group(2).toInteger()
 def tasferPatch = tasferSemver.group(3).toInteger()
 if (tasferMinor > 99 || tasferPatch > 99) {
     throw new GradleException(
-        "versionName '${tasferVersionName}': minor and patch must each be <= 99, " +
+        "version.json appVersion '${tasferVersionName}': minor and patch must each be <= 99, " +
         "otherwise the derived versionCode collides with the next major/minor")
 }
 def tasferVersionCode = tasferMajor * 10000 + tasferMinor * 100 + tasferPatch

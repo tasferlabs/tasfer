@@ -27,13 +27,12 @@ import useMobileLayout from "../hooks/useMobileLayout";
 
 /**
  * Where each "install" button points. Desktop builds ship from GitHub
- * releases; neither store listing is live yet — the Play URL already uses the
- * real application id (app.tasfer) and the App Store URL is a placeholder
- * to swap once the listing exists.
+ * releases; the Play listing is not live yet, so that URL is built from the
+ * real application id (app.tasfer) and resolves once the listing exists.
  */
 const DOWNLOAD_LINKS = {
   desktop: "https://github.com/tasferlabs/tasfer/releases/latest",
-  appStore: "https://apps.apple.com/app/tasfer",
+  appStore: "https://apps.apple.com/app/tasfer/id6794223843",
   googlePlay: "https://play.google.com/store/apps/details?id=app.tasfer",
 };
 

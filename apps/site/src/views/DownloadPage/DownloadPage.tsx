@@ -10,6 +10,7 @@ import "./DownloadPage.css";
 
 const REPO_URL = "https://github.com/tasferlabs/tasfer";
 const RELEASES_URL = `${REPO_URL}/releases`;
+const APP_STORE_URL = "https://apps.apple.com/app/tasfer/id6794223843";
 
 /**
  * Release assets are linked through GitHub's `latest` permalink, so the site
@@ -21,6 +22,7 @@ const RELEASES_URL = `${REPO_URL}/releases`;
 const FILES = {
   macArm: "Tasfer-arm64.dmg",
   macIntel: "Tasfer-x64.dmg",
+  // Kept for when their cards come back — the page links to macOS only for now.
   windows: "Tasfer-x64.exe",
   linuxAppImage: "Tasfer-x86_64.AppImage",
   linuxDeb: "Tasfer-amd64.deb",
@@ -184,54 +186,53 @@ export default function DownloadPage() {
         { label: t("download.mac.intel", "Intel .dmg"), file: FILES.macIntel },
       ],
     },
-    {
-      id: "windows",
-      name: "Windows",
-      desc: t(
-        "download.windows.desc",
-        "Signed installer. Windows 10 or later, 64-bit.",
-      ),
-      assets: [
-        {
-          label: t("download.windows.exe", "Installer .exe"),
-          file: FILES.windows,
-        },
-      ],
-    },
-    {
-      id: "linux",
-      name: "Linux",
-      desc: t("download.linux.desc", "Pick the package your distro speaks."),
-      assets: [
-        {
-          label: t("download.linux.appimage", "AppImage"),
-          file: FILES.linuxAppImage,
-        },
-        { label: t("download.linux.deb", "Debian .deb"), file: FILES.linuxDeb },
-        {
-          label: t("download.linux.pacman", "Arch .pacman"),
-          file: FILES.linuxPacman,
-        },
-      ],
-    },
+    /* Windows, Linux, and Android are off the page for now. Their strings and
+       filenames are still in place — uncomment the card to bring one back. */
+    // {
+    //   id: "windows",
+    //   name: "Windows",
+    //   desc: t(
+    //     "download.windows.desc",
+    //     "No signed build yet. Until there is one, Tasfer runs in the browser on Windows.",
+    //   ),
+    //   assets: [
+    //     { label: t("download.windows.exe", "Installer .exe"), pending: true },
+    //   ],
+    // },
+    // {
+    //   id: "linux",
+    //   name: "Linux",
+    //   desc: t("download.linux.desc", "Pick the package your distro speaks."),
+    //   assets: [
+    //     {
+    //       label: t("download.linux.appimage", "AppImage"),
+    //       file: FILES.linuxAppImage,
+    //     },
+    //     { label: t("download.linux.deb", "Debian .deb"), file: FILES.linuxDeb },
+    //     {
+    //       label: t("download.linux.pacman", "Arch .pacman"),
+    //       file: FILES.linuxPacman,
+    //     },
+    //   ],
+    // },
     {
       id: "ios",
       name: "iOS",
       desc: t(
         "download.ios.desc",
-        "Reads and writes the same encrypted files. Until the store build lands, Safari installs it to your home screen.",
+        "On the App Store. Reads and writes the same encrypted files as the desktop app.",
       ),
-      assets: [{ label: "App Store", pending: true }],
+      assets: [{ label: "App Store", href: APP_STORE_URL }],
     },
-    {
-      id: "android",
-      name: "Android",
-      desc: t(
-        "download.android.desc",
-        "Same app, same files, no account. Until the store build lands, Chrome installs it to your home screen.",
-      ),
-      assets: [{ label: "Google Play", pending: true }],
-    },
+    // {
+    //   id: "android",
+    //   name: "Android",
+    //   desc: t(
+    //     "download.android.desc",
+    //     "Same app, same files, no account. Until the store build lands, Chrome installs it to your home screen.",
+    //   ),
+    //   assets: [{ label: "Google Play", pending: true }],
+    // },
     {
       id: "web",
       name: t("download.web.name", "Web"),
@@ -249,14 +250,20 @@ export default function DownloadPage() {
      both builds (see the note above detectPlatform). Before detection — what the
      prerendered HTML ships, and what a browser with JS off keeps — it points at
      the grid, so the page is never a dead end. */
-  const hero =
-    platform === "windows"
-      ? { name: "Windows", file: FILES.windows }
-      : platform === "linux"
-        ? { name: "Linux", file: FILES.linuxAppImage }
-        : null;
+  const HERO_ASSETS: Partial<
+    Record<PlatformId, { name: string; file: string }>
+  > = {
+    // Linux is off the page for now — uncomment to hand Linux visitors the
+    // AppImage again, alongside restoring its card below.
+    // linux: { name: "Linux", file: FILES.linuxAppImage },
+  };
+  const hero = (platform && HERO_ASSETS[platform]) || null;
 
   const isMobile = platform === "ios" || platform === "android";
+  /* Everything but macOS is on the browser build for now, so it gets the web
+     call to action — "pick your platform" would send those visitors to a grid
+     that has nothing for them. */
+  const webFirst = platform !== null && platform !== "mac";
 
   return (
     <div className="dl-page">
@@ -321,7 +328,12 @@ export default function DownloadPage() {
                     platform: hero.name,
                   })}
                 </a>
-              ) : isMobile ? (
+              ) : platform === "ios" ? (
+                <a className="dl-btn dl-btn-accent" href={APP_STORE_URL}>
+                  {t("download.ios.cta", "get it on the App Store")}
+                  <Icons.Arrow />
+                </a>
+              ) : webFirst ? (
                 <a className="dl-btn dl-btn-accent" href={APP_OPEN_URL}>
                   {t("download.web.cta", "open tasfer")}
                   <Icons.Arrow />
@@ -353,15 +365,25 @@ export default function DownloadPage() {
                           "download.macHint",
                           "macOS detected. Both builds are native — the Apple menu, then About This Mac, names your chip.",
                         )
-                      : isMobile
+                      : platform === "ios"
                         ? t(
-                            "download.mobileHint",
-                            "the store builds are not out yet — this one runs in your browser and installs to your home screen.",
+                            "download.iosHint",
+                            "the App Store build is out — or keep this one in Safari, nothing to install.",
                           )
-                        : t(
-                            "download.allHint",
-                            "macOS, Windows, Linux, and the browser — every build is below.",
-                          )}
+                        : platform === "windows" || platform === "linux"
+                          ? t(
+                              "download.desktopHint",
+                              "the build for your system is not out yet — this one runs in your browser, nothing to install.",
+                            )
+                          : isMobile
+                            ? t(
+                                "download.mobileHint",
+                                "the store builds are not out yet — this one runs in your browser and installs to your home screen.",
+                              )
+                            : t(
+                                "download.allHint",
+                                "macOS, iOS, and the browser — every build is below.",
+                              )}
                   </span>
                 )}
               </p>
@@ -421,7 +443,7 @@ export default function DownloadPage() {
             <p className="dl-note">
               {t(
                 "download.note",
-                "macOS builds are notarized by Apple, Windows builds are signed, and every release ships sha512 sums alongside the binaries.",
+                "macOS builds are notarized by Apple, and every release ships sha512 sums alongside the binaries.",
               )}{" "}
               {t(
                 "download.updates",

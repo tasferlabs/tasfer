@@ -75,6 +75,27 @@ cd "$WEB_DIR"
 # path — so a translation.json edit can never ship stale native text.
 npm run "gen:$PLATFORM-strings"
 
+# Xcode resolves build settings before any build phase runs, so this refreshes
+# Version.xcconfig for the *next* build, not this one. The release path
+# regenerates it in the fastlane lane before archiving, and `npm install` writes
+# it on a fresh clone; the check below covers everything else.
+if [[ "$PLATFORM" == "ios" ]]; then
+  npm run gen:ios-version
+
+  # MARKETING_VERSION is what THIS build already committed to. Compare it to
+  # version.json and stop if they differ — a stale Version.xcconfig, or none at
+  # all (Xcode skips a missing #include silently, which would otherwise ship an
+  # app with no version). Building again picks up the file just written.
+  if [[ -n "${XCODE_VERSION_ACTUAL:-}" ]]; then
+    expected="$(node ../../scripts/release/app-version.mjs)"
+    if [[ "${MARKETING_VERSION:-}" != "$expected" ]]; then
+      echo "build-and-sync.sh: this build is set to version '${MARKETING_VERSION:-<none>}', but version.json says '$expected'." >&2
+      echo "  apps/ios/Version.xcconfig has just been regenerated — build again." >&2
+      exit 1
+    fi
+  fi
+fi
+
 if [[ "${TASFER_SKIP_WEB_BUILD:-}" == "1" ]]; then
   echo "build-and-sync.sh: TASFER_SKIP_WEB_BUILD=1, skipping web build + sync"
   exit 0

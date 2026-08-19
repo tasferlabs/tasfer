@@ -10,11 +10,12 @@ const LS_KEY = "tasfer.banner.beta";
  * Site-wide beta notice. It sits in the flow above the page chrome and scrolls
  * away with the content.
  *
- * Sticky headers (docs) need nothing from it. The landing, download, and privacy
- * headers are overlays pinned to the viewport, so they would cover the bar: they
- * read `--site-banner-h`, which tracks how much of the banner is still on screen
- * and reaches 0 once it has scrolled past. globals.css seeds an estimate for the
- * frames before this mounts.
+ * Sticky headers (landing, download, docs) need nothing from it — they scroll
+ * away with the bar and pin at 0 behind it. The privacy header is an overlay
+ * pinned to the viewport, so it would cover the bar: it reads `--site-banner-h`,
+ * which tracks how much of the banner is still on screen and reaches 0 once it
+ * has scrolled past. Docs uses it for the chrome pinned under its header.
+ * globals.css seeds an estimate for the frames before this mounts.
  *
  * The bar is rendered server-side and hidden pre-paint by the inline script in
  * the locale layout when it was dismissed earlier — that keeps the markup stable

@@ -1,3 +1,6 @@
+/** Marketing version from /version.json, injected by electron.vite.config.ts. */
+declare const __APP_VERSION__: string;
+
 // Ambient types for the env vars electron-vite injects into `import.meta.env`.
 // Only `MAIN_VITE_`-prefixed vars from apps/desktop/.env reach the main process.
 

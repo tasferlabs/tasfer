@@ -13,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       desktop_release_created: ${{ steps.release.outputs['apps/desktop--release_created'] }}
-      desktop_tag: ${{ steps.release.outputs['apps/desktop--tag_name'] }}
     steps:
       - uses: googleapis/release-please-action@v5
         id: release
@@ -21,9 +20,10 @@ jobs:
   native-release:
     needs: release-please
     if: needs.release-please.outputs.desktop_release_created == 'true'
+    # No tag is passed: the called workflow builds this same release commit and
+    # reads v<appVersion> from version.json, which release-please just bumped.
     uses: ./.github/workflows/native-release.yml
     with:
-      tag: ${{ needs.release-please.outputs.desktop_tag }}
       publish: true
     secrets: inherit
     permissions:

@@ -3,10 +3,12 @@ name: Store Release
 # App Store / Google Play submissions, run in public CI for transparency.
 # Runs the same checked-in fastlane lanes a maintainer would run locally.
 #
+# The version comes from /version.json — iOS and Android derive theirs from it at
+# build time, so there is nothing to stamp.
+#
 # Before dispatching:
-#   1. node scripts/release/set-native-version.mjs   (stamp the released version)
-#   2. edit fastlane/release_notes/<lang>.txt        (all languages required)
-#   3. commit both — the workflow builds the ref you dispatch it on.
+#   1. edit fastlane/release_notes/<lang>.txt        (all languages required)
+#   2. commit them — the workflow builds the ref you dispatch it on.
 #
 # Dispatching with track "release" IS the review-submission confirmation
 # (RELEASE_CONFIRM=yes below); "beta" goes to TestFlight / Play open testing.

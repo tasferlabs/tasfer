@@ -56,15 +56,13 @@
 
 /* ── Header ── */
 
-/* Overlay, not sticky-in-flow — same as the landing header, so the hero's dot
-   field starts at the top of the viewport and shows through the nav. Backdrop
-   arrives only once scrolled. */
+/* Transparent until scrolled, so the hero's dot field shows through the nav —
+   same as the landing header. Backdrop arrives only once scrolled. */
 .dl-header {
-  position: fixed;
-  /* Rides below the beta banner until it has scrolled away (BetaBanner.tsx). */
-  top: var(--site-banner-h, 0px);
-  left: 0;
-  right: 0;
+  position: sticky;
+  /* The beta banner is in flow above this, so it scrolls away on its own and
+     the header pins at 0 behind it — no --site-banner-h offset needed. */
+  top: 0;
   z-index: 50;
   background: transparent;
   transition:
@@ -165,8 +163,7 @@
 
 /* ── Hero ── */
 
-/* Padding matches the landing hero so the dot field lands identically; the top
-   value also has to clear the fixed header. */
+/* Padding matches the landing hero so the dot field lands identically. */
 .dl-hero {
   position: relative;
   padding: clamp(80px, 14vh, 160px) 0 clamp(80px, 12vh, 140px);

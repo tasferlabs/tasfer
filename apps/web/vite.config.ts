@@ -104,12 +104,11 @@ const versionConfig = JSON.parse(
   readFileSync(join(__dirname, "../../version.json"), "utf-8"),
 );
 
-// Marketing version shown to users. This package is the source of truth the
-// native versions track (android `tasferVersionName`, iOS `MARKETING_VERSION`);
-// `versionConfig.version` is the separate integer the API min-version check uses.
-const appVersion: string = JSON.parse(
-  readFileSync(join(__dirname, "package.json"), "utf-8"),
-).version;
+// Marketing version shown to users, from the same root version.json every other
+// build reads (android `versionName`, iOS `MARKETING_VERSION`, the desktop
+// package). `versionConfig.version` is the separate integer the API
+// min-version check uses.
+const appVersion: string = versionConfig.appVersion;
 
 export default defineConfig({
   plugins: [

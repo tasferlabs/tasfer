@@ -116,10 +116,24 @@ All user-facing strings must use i18next — never hardcode text in components.
 
 ## Releases
 
-Desktop versioning is automated with
+Versioning is automated with
 [release-please](https://github.com/googleapis/release-please). Use Conventional
 Commits for release-worthy changes: `fix:` bumps patch, `feat:` bumps minor, and
 `feat!:`/`fix!:` bumps major.
+
+The version lives in one place: `appVersion` in [`version.json`](version.json) at
+the repo root. Every build derives its own version from it, so nothing is stamped
+by hand:
+
+| Build | How it reads the version |
+| --- | --- |
+| Web | `vite.config.ts` injects it as `APP_VERSION` |
+| Desktop | `apps/desktop/scripts/package.mjs` passes it to electron-builder as `extraMetadata.version`; `electron.vite.config.ts` injects it for dev runs |
+| Android | `app/build.gradle` parses `version.json`; `versionCode` is packed from the semver (`1.4.2` -> `10402`) |
+| iOS | `apps/ios/Version.xcconfig` (gitignored) is generated from it, and the Xcode project sets no version of its own |
+
+`version.json` is the only file release-please bumps — no package manifest
+carries a version — so a release is one merge and no follow-up edits.
 
 How the cycle works:
 
@@ -142,12 +156,15 @@ Store submissions run through the checked-in [`fastlane/Fastfile`](fastlane/Fast
 normally via the **Store Release** workflow so the exact build and submission
 happens in a public CI log. Flow:
 
-1. `npm --prefix apps/web run set:native-version` — stamps the released desktop
-   `v<version>` onto both native projects and bumps the shared build number.
-2. Edit `fastlane/release_notes/<lang>.txt` (all languages are required).
-3. Commit both, then dispatch **Store Release** on that ref, choosing the
+1. Edit `fastlane/release_notes/<lang>.txt` (all languages are required).
+2. Commit them, then dispatch **Store Release** on that ref, choosing the
    platform(s) and track: `beta` (TestFlight / Play open testing) or `release`
    (submits for store review — dispatching it is the confirmation).
+
+Both stores derive their version and build number from `version.json`, so there
+is nothing to stamp. The build number is packed from the semver, which means a
+given version uploads once — set `TASFER_BUILD_NUMBER` to re-upload an iOS build
+of a version TestFlight has already seen.
 
 The same lanes run locally with `bundle exec fastlane <ios|android> <beta|release>`
 (production lanes prompt for confirmation). One-time local setup: copy

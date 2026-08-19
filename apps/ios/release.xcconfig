@@ -1,2 +1,9 @@
+// App version, generated from /version.json by
+// scripts/release/gen-ios-version.mjs (gitignored — `npm --prefix ../web install`
+// writes it). Xcode skips a missing #include silently, so the "Build & sync web"
+// phase checks MARKETING_VERSION against version.json and fails the build if
+// this file was absent or stale.
+#include "Version.xcconfig"
+
 // Local, untracked signing settings (DEVELOPMENT_TEAM). Optional: skipped if absent.
 #include? "DeveloperSettings.xcconfig"

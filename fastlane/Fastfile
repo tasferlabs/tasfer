@@ -15,12 +15,13 @@
 #   - Android: the Gradle preBuild web-build task fires during `bundle`
 # so these lanes only drive the native build + upload.
 #
-# Versions follow the desktop release: stamp the released v<version> first with
-#   npm --prefix apps/web run set:native-version
+# The version comes from /version.json at the repo root — release-please bumps it
+# with the desktop release, and iOS/Android derive theirs from it at build time.
 #
 # Secrets are read from fastlane/.env (gitignored) — see fastlane/.env.example.
 require "dotenv"
 require "fileutils"
+require "json"
 Dotenv.load(File.expand_path(".env", __dir__))
 
 default_platform(:ios)
@@ -224,7 +225,7 @@ end
 # Play changelogs are keyed by <play-locale>/changelogs/<versionCode>.txt, so
 # write them on the fly from the same source. Returns the versionCode.
 def stage_android_changelog(notes)
-  version_code = android_version_code
+  version_code = app_build_number
   notes.each do |lang, text|
     if text.length > PLAY_CHANGELOG_MAX
       UI.user_error!("fastlane/release_notes/#{lang}.txt is #{text.length} chars; Play allows #{PLAY_CHANGELOG_MAX}.")
@@ -272,33 +273,41 @@ def confirm_release!(prompt)
   UI.user_error!("Release cancelled — nothing was built or uploaded.") unless UI.confirm(prompt)
 end
 
-def ios_marketing_version
+# The app version comes from /version.json — the one file that stores it. The
+# native projects derive theirs from it at build time (Gradle reads it directly;
+# the iOS project reads a Version.xcconfig generated from it), so nothing here
+# parses build.gradle or the pbxproj.
+def app_version
   # Explicit encoding: with no LANG set (CI runners) Ruby reads as US-ASCII and
-  # any non-ASCII byte in the file makes the regex below raise.
-  pbxproj = File.read(File.expand_path("../#{APP_PROJECT}/project.pbxproj", __dir__), encoding: "UTF-8")
-  pbxproj[/MARKETING_VERSION = ([^;]+);/, 1]&.strip
-end
-
-def android_version_name
-  gradle = File.read(File.expand_path("../apps/android/app/build.gradle", __dir__), encoding: "UTF-8")
-  gradle[/tasferVersionName\s*=\s*"([^"]+)"/, 1]
-end
-
-# build.gradle derives versionCode from versionName rather than storing a literal,
-# so mirror that packing here. Keep in step with the block at the top of
-# apps/android/app/build.gradle.
-def android_version_code
-  name = android_version_name
-  UI.user_error!("Could not read versionName from apps/android/app/build.gradle") unless name
-  parts = name.split(".")
-  unless parts.length == 3 && parts.all? { |p| p.match?(/\A\d+\z/) }
-    UI.user_error!("versionName '#{name}' is not a bare major.minor.patch semver")
+  # any non-ASCII byte in the file makes the parse below raise.
+  version = JSON.parse(
+    File.read(File.expand_path("../version.json", __dir__), encoding: "UTF-8"),
+  )["appVersion"]
+  unless version.is_a?(String) && version.match?(/\A\d+\.\d+\.\d+\z/)
+    UI.user_error!("version.json: appVersion must be a bare major.minor.patch semver, got #{version.inspect}")
   end
-  major, minor, patch = parts.map(&:to_i)
+  version
+end
+
+# Both stores need an integer build counter, packed from the semver rather than
+# tracked separately. Keep in step with the block at the top of
+# apps/android/app/build.gradle and with scripts/release/app-version.mjs.
+def app_build_number
+  name = app_version
+  major, minor, patch = name.split(".").map(&:to_i)
   if minor > 99 || patch > 99
-    UI.user_error!("versionName '#{name}': minor and patch must each be <= 99")
+    UI.user_error!("version.json appVersion '#{name}': minor and patch must each be <= 99")
   end
   major * 10000 + minor * 100 + patch
+end
+
+# Rewrite apps/ios/Version.xcconfig (gitignored) so the archive can never pick up
+# a stale number — Xcode resolves build settings before any build phase runs, so
+# the in-build regeneration in build-and-sync.sh lands one build late.
+def stamp_ios_version!
+  Dir.chdir(File.expand_path("..", __dir__)) do
+    sh("node", "scripts/release/gen-ios-version.mjs")
+  end
 end
 
 # App Store Connect API key — non-interactive auth (no Apple ID password / 2FA).
@@ -318,6 +327,7 @@ def apple_team_id
 end
 
 def archive_ios
+  stamp_ios_version!
   team_id = apple_team_id
   xcargs = "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{team_id}"
   # On CI there is no signed-in Xcode account or local certificate, so use
@@ -357,7 +367,7 @@ platform :ios do
 
   desc "Archive, upload to the App Store, and submit for review (release manually after approval)"
   lane :release do
-    confirm_release!("Submit Tasfer #{ios_marketing_version || "(unknown version)"} to the App Store and send it for review?")
+    confirm_release!("Submit Tasfer #{app_version} to the App Store and send it for review?")
     api_key = asc_api_key
     validate_ios_metadata!
     notes = release_notes_by_lang
@@ -446,7 +456,7 @@ platform :android do
 
   desc "Build a signed AAB, upload to the Play production track, and submit for review"
   lane :release do
-    confirm_release!("Submit Tasfer #{android_version_name || "(unknown version)"} to Google Play production and send it for review?")
+    confirm_release!("Submit Tasfer #{app_version} to Google Play production and send it for review?")
     ensure_java_home
     stage_android_changelog(release_notes_by_lang)
     gradle(project_dir: "apps/android", task: "clean")

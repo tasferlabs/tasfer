@@ -12,7 +12,7 @@ artifactName: ${productName}-${arch}.${ext}
 
 publish:
   provider: github
-  owner: hamza512b
+  owner: tasferlabs
   repo: tasfer
 
 directories:
@@ -48,6 +48,9 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   notarize: true
 
+# Kept ready, but Native Release does not build the Windows target yet — it
+# needs a signing identity first (dev-docs/desktop-release.md). `--win` still
+# works locally for an unsigned installer.
 win:
   icon: resources/icon.ico
   target: nsis

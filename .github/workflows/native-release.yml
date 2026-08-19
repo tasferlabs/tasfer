@@ -5,24 +5,22 @@ name: Native Release
 # manually after release notes are curated; they ship the same v<version>
 # this workflow builds.
 
-# Tags come from release-please (v<version>), which calls this workflow.
+# There is no tag input: the build always uses the ref it was triggered on, and
+# the release tag is `v<appVersion>` read from version.json at that ref. Called
+# from release-please, that ref is the release commit, so the tag matches the one
+# release-please just created. Dispatched by hand, pick the branch or tag in the
+# UI instead of typing a version.
+#
 # workflow_dispatch with publish=false is a safe dry run: full signed build,
 # artifacts uploaded to the workflow run instead of a release.
 on:
   workflow_call:
     inputs:
-      tag:
-        type: string
-        required: true
       publish:
         type: boolean
         default: true
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag to build (e.g. v0.1.0)"
-        type: string
-        required: true
       publish:
         description: "Upload to the GitHub release draft"
         type: boolean
@@ -42,8 +40,13 @@ jobs:
         include:
           - os: macos-latest
             platform: mac
-          - os: windows-latest
-            platform: win
+          # Windows is off until code signing is sorted out. An unsigned
+          # installer hands every visitor a SmartScreen warning, and the
+          # publisher name is baked into each client's app-update.yml — so the
+          # first signed release must already carry the identity we intend to
+          # keep. See dev-docs/desktop-release.md.
+          # - os: windows-latest
+          #   platform: win
           - os: ubuntu-latest
             platform: linux
 
@@ -51,8 +54,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.tag }}
 
       - uses: actions/setup-node@v7
         with:
@@ -77,20 +78,56 @@ jobs:
         working-directory: apps/desktop
         run: npm run build
 
+      # Notarization reuses the App Store Connect API key the store release
+      # already uses, so the desktop pipeline needs no separate Apple ID and
+      # app-specific password. All three values must be exported together —
+      # electron-builder fails the build on a partial set, but skips
+      # notarization entirely (with a warning) when none of them are present,
+      # which is what an unsigned dry run wants.
+      - name: Write App Store Connect API key
+        if: matrix.platform == 'mac'
+        env:
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${ASC_KEY_CONTENT:-}" || -z "${ASC_KEY_ID:-}" || -z "${ASC_ISSUER_ID:-}" ]]; then
+            echo "::notice::App Store Connect API key secrets are incomplete — the macOS build will not be notarized"
+            exit 0
+          fi
+
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          if ! printf '%s' "$ASC_KEY_CONTENT" | base64 -d > "$key_path"; then
+            echo "::error::ASC_KEY_CONTENT is not valid base64"
+            exit 1
+          fi
+          if ! openssl pkey -in "$key_path" -check -noout >/dev/null 2>&1; then
+            echo "::error::ASC_KEY_CONTENT does not decode to a valid App Store Connect .p8 private key"
+            exit 1
+          fi
+
+          {
+            echo "APPLE_API_KEY=$key_path"
+            echo "APPLE_API_KEY_ID=$ASC_KEY_ID"
+            echo "APPLE_API_ISSUER=$ASC_ISSUER_ID"
+          } >> "$GITHUB_ENV"
+
       - name: Package
         working-directory: apps/desktop
-        run: npx electron-builder --${{ matrix.platform }} --publish ${{ inputs.publish && 'always' || 'never' }}
+        run: npm run package -- --${{ matrix.platform }} --publish ${{ inputs.publish && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS code signing and notarization
+          # macOS code signing — a Developer ID Application certificate. Absent,
+          # electron-builder still produces the artifacts, but unsigned: macOS
+          # refuses to launch them and the updater cannot install them.
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows code signing
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          # Windows code signing — re-enable with the win matrix entry above.
+          # WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          # WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
       - name: Upload artifacts (dry run)
         if: ${{ !inputs.publish }}
@@ -109,7 +146,15 @@ jobs:
     if: ${{ inputs.publish }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+
+      # The draft release-please created is tagged v<appVersion> for the version
+      # this build just packaged, so read it back from the same file the build
+      # did rather than passing it around.
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ inputs.tag }}" --repo "${{ github.repository }}" --draft=false
+        run: |
+          tag="v$(node scripts/release/app-version.mjs)"
+          echo "Publishing $tag"
+          gh release edit "$tag" --repo "${{ github.repository }}" --draft=false

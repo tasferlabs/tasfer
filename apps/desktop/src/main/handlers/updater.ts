@@ -93,8 +93,11 @@ export function registerUpdaterHandlers() {
     autoUpdater.quitAndInstall(false, true);
   });
 
+  // Injected from /version.json at build time. A packaged app's
+  // `app.getVersion()` agrees with it (electron-builder stamps the same value),
+  // but an unpackaged one has no version to read and reports Electron's instead.
   ipcMain.handle("updater:get-version", () => {
-    return app.getVersion();
+    return __APP_VERSION__;
   });
 
   // ── Automatic checks ──────────────────────────────────────────────────

@@ -13,7 +13,7 @@ declare const __BUILD_COMMIT__: string;
 export const CLIENT_VERSION: number =
   typeof __CLIENT_VERSION__ !== "undefined" ? __CLIENT_VERSION__ : 1;
 
-/** Marketing version (semver) users see - from apps/web/package.json */
+/** Marketing version (semver) users see - from version.json */
 export const APP_VERSION: string =
   typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.0.0";
 

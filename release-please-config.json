@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "release-type": "node",
+  "release-type": "simple",
   "bump-minor-pre-major": true,
   "bump-patch-for-minor-pre-major": true,
   "separate-pull-requests": false,
@@ -8,7 +8,14 @@
     "apps/desktop": {
       "component": "desktop",
       "include-component-in-tag": false,
-      "draft": true
+      "draft": true,
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "/version.json",
+          "jsonpath": "$.appVersion"
+        }
+      ]
     }
   }
 }
