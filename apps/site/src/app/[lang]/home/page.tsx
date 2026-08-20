@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import HomePage from "@/views/HomePage/HomePage";
 import { getDictionary, isLng } from "@/lib/i18n/locales";
 import { getOgImage } from "@/lib/og";
+import { absoluteUrl, localizedPath, SITE_NAME } from "@/lib/seo";
 
 export async function generateMetadata({
   params,
@@ -16,18 +17,16 @@ export async function generateMetadata({
   return {
     // The landing page is the same page under its primary URL; /home is the
     // copy that never redirects a returning visitor into the app. Point search
-    // engines at the one URL so the two don't compete.
-    alternates: {
-      canonical: `/${lang}`,
-      languages: { en: "/en" },
-    },
+    // engines at the one URL so the two don't compete — canonical only, no
+    // hreflang set: the cluster belongs to the URL this consolidates into.
+    alternates: { canonical: absoluteUrl(localizedPath(lang)) },
     openGraph: {
       type: "website",
       locale: lang,
-      siteName: "Tasfer",
+      siteName: SITE_NAME,
       title,
       description,
-      url: `/${lang}/home`,
+      url: absoluteUrl(localizedPath(lang, "home")),
       images: [
         {
           url: getOgImage("home", lang),

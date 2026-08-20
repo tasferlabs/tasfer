@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { getDictionary, isLng } from "@/lib/i18n/locales";
 import { getOgImage } from "@/lib/og";
+import { absoluteUrl, alternates, localizedPath, SITE_NAME } from "@/lib/seo";
 import PrivacyPage from "@/views/PrivacyPage/PrivacyPage";
 
 export async function generateMetadata({
@@ -19,9 +20,14 @@ export async function generateMetadata({
   return {
     title,
     description,
+    alternates: alternates(lang, "privacy"),
     openGraph: {
+      type: "website",
+      locale: lang,
+      siteName: SITE_NAME,
       title,
       description,
+      url: absoluteUrl(localizedPath(lang, "privacy")),
       images: [{ url: image, width: 1200, height: 630, alt: title }],
     },
     twitter: { card: "summary_large_image", title, description, images: [image] },

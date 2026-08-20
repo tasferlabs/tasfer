@@ -16,9 +16,9 @@ import "@fontsource/space-grotesk/700.css";
 import { BetaBanner } from "@/components/BetaBanner";
 import { getDictionary, isLng, SUPPORTED_LNGS } from "@/lib/i18n/locales";
 import { getOgImage } from "@/lib/og";
+import { SITE_NAME, SITE_ORIGIN } from "@/lib/seo";
 import { Providers } from "@/providers/Providers";
 
-const SITE_ORIGIN = "https://www.tasfer.app";
 const themeScript = `(function(){try{var t=localStorage.getItem('theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;if(d){r.classList.add('dark');}r.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
 // Marks a previously dismissed beta banner before first paint, so the bar and
 // the space it reserves never flash in for a returning visitor.
@@ -44,15 +44,15 @@ export async function generateMetadata({
 
   return {
     metadataBase: new URL(SITE_ORIGIN),
-    title: { default: title, template: "%s — Tasfer" },
+    title: { default: title, template: `%s — ${SITE_NAME}` },
     description,
-    applicationName: "Tasfer",
+    applicationName: SITE_NAME,
     icons: { icon: "/logo.png" },
     robots: { index: true, follow: true },
     openGraph: {
       type: "website",
       locale: lang,
-      siteName: "Tasfer",
+      siteName: SITE_NAME,
       title,
       description,
       images: [{ url: ogImage, width: 1200, height: 630, alt: title }],

@@ -1,7 +1,17 @@
 import type { Metadata } from "next";
 import DownloadPage from "@/views/DownloadPage/DownloadPage";
-import { getDictionary, isLng, SUPPORTED_LNGS } from "@/lib/i18n/locales";
+import { getDictionary, isLng } from "@/lib/i18n/locales";
 import { getOgImage } from "@/lib/og";
+import {
+  absoluteUrl,
+  alternates,
+  breadcrumbNode,
+  graph,
+  localizedPath,
+  siteNodes,
+  SITE_NAME,
+} from "@/lib/seo";
+import { JsonLd } from "@/components/JsonLd";
 
 export async function generateMetadata({
   params,
@@ -18,9 +28,14 @@ export async function generateMetadata({
   return {
     title,
     description,
+    alternates: alternates(lang, "download"),
     openGraph: {
+      type: "website",
+      locale: lang,
+      siteName: SITE_NAME,
       title,
       description,
+      url: absoluteUrl(localizedPath(lang, "download")),
       images: [
         {
           url: image,
@@ -31,15 +46,33 @@ export async function generateMetadata({
       ],
     },
     twitter: { card: "summary_large_image", title, description, images: [image] },
-    alternates: {
-      canonical: `/${lang}/download`,
-      languages: Object.fromEntries(
-        SUPPORTED_LNGS.map((locale) => [locale, `/${locale}/download`]),
-      ),
-    },
   };
 }
 
-export default function Page() {
-  return <DownloadPage />;
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ lang: string }>;
+}) {
+  const { lang } = await params;
+  if (!isLng(lang)) return <DownloadPage />;
+  const dictionary = getDictionary(lang);
+
+  return (
+    <>
+      <JsonLd
+        data={graph(
+          ...siteNodes(lang, dictionary["metadata.description"]),
+          breadcrumbNode(
+            [
+              { name: SITE_NAME, path: "" },
+              { name: dictionary["download.metadata.title"], path: "download" },
+            ],
+            lang,
+          ),
+        )}
+      />
+      <DownloadPage />
+    </>
+  );
 }

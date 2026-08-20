@@ -10,7 +10,11 @@ export function isLng(value: string): value is Lng {
   return (SUPPORTED_LNGS as readonly string[]).includes(value);
 }
 
-export function getDictionary(_lng: Lng) {
+/** Every key the dictionary defines. Lets call sites that resolve a key at
+ *  runtime (nav-driven page metadata) still be checked at build time. */
+export type DictKey = keyof typeof en;
+
+export function getDictionary(_lng: Lng): Record<DictKey, string> {
   return en;
 }
 

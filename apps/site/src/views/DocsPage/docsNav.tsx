@@ -1,4 +1,6 @@
 import { type ComponentType, type ReactElement } from "react";
+
+import type { DictKey } from "@/lib/i18n/locales";
 import { Icons } from "./docsIcons";
 import {
   AppGettingStarted,
@@ -21,7 +23,10 @@ import {
 export interface NavItem {
   route: string;
   title: string;
-  titleKey: string;
+  titleKey: DictKey;
+  /** Meta description for the article's own URL. Kept next to the title so a
+   *  new page cannot ship without one. */
+  descKey: DictKey;
   Comp: ComponentType;
   kw: string;
 }
@@ -53,6 +58,7 @@ export const NAV: NavSection[] = [
             route: "app/getting-started",
             title: "Getting started",
             titleKey: "docs.navModel.app.gettingStarted",
+            descKey: "docs.navModel.app.gettingStarted.desc",
             Comp: AppGettingStarted,
             kw: "install build space desktop first document setup export markdown",
           },
@@ -60,6 +66,7 @@ export const NAV: NavSection[] = [
             route: "app/markdown",
             title: "Markdown guide",
             titleKey: "docs.navModel.app.markdown",
+            descKey: "docs.navModel.app.markdown.desc",
             Comp: AppMarkdown,
             kw: "markdown guide syntax shortcuts headings lists tasks code math latex images links import export",
           },
@@ -67,6 +74,7 @@ export const NAV: NavSection[] = [
             route: "app/sync-relay",
             title: "Sync & relay setup",
             titleKey: "docs.navModel.app.syncRelay",
+            descKey: "docs.navModel.app.syncRelay.desc",
             Comp: AppSyncRelay,
             kw: "sync pair devices peer to peer encrypted relay",
           },
@@ -74,6 +82,7 @@ export const NAV: NavSection[] = [
             route: "app/privacy",
             title: "Privacy & data",
             titleKey: "docs.navModel.app.privacy",
+            descKey: "docs.navModel.app.privacy.desc",
             Comp: AppPrivacy,
             kw: "privacy telemetry tracking keys encryption data ledger",
           },
@@ -81,6 +90,7 @@ export const NAV: NavSection[] = [
             route: "app/troubleshooting",
             title: "Troubleshooting & FAQ",
             titleKey: "docs.navModel.app.troubleshooting",
+            descKey: "docs.navModel.app.troubleshooting.desc",
             Comp: AppTroubleshooting,
             kw: "faq help fix problem backup export import account questions",
           },
@@ -88,6 +98,7 @@ export const NAV: NavSection[] = [
             route: "app/support",
             title: "Support",
             titleKey: "docs.navModel.app.support",
+            descKey: "docs.navModel.app.support.desc",
             Comp: AppSupport,
             kw: "support contact email help report bug feedback app store",
           },
@@ -95,6 +106,7 @@ export const NAV: NavSection[] = [
             route: "app/self-hosting",
             title: "Self-hosting the relay",
             titleKey: "docs.navModel.app.selfHosting",
+            descKey: "docs.navModel.app.selfHosting.desc",
             Comp: AppSelfHosting,
             kw: "self host relay signaling cloudflare worker wrangler deploy turn config server",
           },
@@ -116,6 +128,7 @@ export const NAV: NavSection[] = [
             route: "editor/roadmap",
             title: "Editor SDK roadmap",
             titleKey: "docs.navModel.editor.roadmap",
+            descKey: "docs.navModel.editor.roadmap.desc",
             Comp: EditorRoadmap,
             kw: "sdk roadmap package mit license future availability updates",
           },
