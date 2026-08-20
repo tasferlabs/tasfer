@@ -81,9 +81,18 @@ export function registerUpdaterHandlers() {
 
   // ── IPC handlers — renderer-initiated actions ──────────────────────────
 
+  // Returns a plain summary, never the `UpdateCheckResult` itself: that object
+  // carries a promise and a cancellation token, which the IPC structured clone
+  // cannot serialize. `supported: false` lets the renderer say why nothing
+  // happened on a build the updater can't drive (dev run, non-AppImage Linux).
   ipcMain.handle("updater:check", async () => {
-    if (!canUpdate) return null;
-    return autoUpdater.checkForUpdates();
+    if (!canUpdate) return { supported: false };
+    const result = await autoUpdater.checkForUpdates();
+    return {
+      supported: true,
+      available: result?.isUpdateAvailable ?? false,
+      version: result?.updateInfo?.version ?? null,
+    };
   });
 
   ipcMain.handle("updater:download", async () => {

@@ -34,6 +34,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
     updateDownloaded,
     platform,
     updateUrl,
+    checkForUpdate,
     performPlatformUpdate,
   } = useVersionCheck();
 
@@ -147,6 +148,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
         platform,
         updateUrl,
         dismissUpdate,
+        checkForUpdate,
         performUpdate,
         setServiceWorkerUpdateReady,
         activateServiceWorker,

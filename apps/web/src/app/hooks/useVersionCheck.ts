@@ -12,6 +12,21 @@ export interface VersionInfo {
   updateUrls: UpdateUrls;
 }
 
+/** What a user-initiated update check ended up finding. */
+export type UpdateCheckOutcome =
+  | { status: "available"; version: string | null }
+  | { status: "downloaded"; version: string | null }
+  | { status: "up-to-date" }
+  | { status: "unsupported" }
+  | { status: "error"; message: string };
+
+/** Plain summary returned by the desktop main process for `updater:check`. */
+type UpdateCheckReply = {
+  supported: boolean;
+  available?: boolean;
+  version?: string | null;
+};
+
 export interface VersionCheckResult {
   /** Whether version check is still loading */
   isLoading: boolean;
@@ -33,8 +48,8 @@ export interface VersionCheckResult {
   platform: ClientPlatform;
   /** Update URL for current platform */
   updateUrl: string | null;
-  /** Refresh version check */
-  refresh: () => void;
+  /** Run an update check on demand and report what it found */
+  checkForUpdate: () => Promise<UpdateCheckOutcome>;
   /** Platform-specific update action (download + install) */
   performPlatformUpdate: (() => Promise<void>) | null;
 }
@@ -138,10 +153,38 @@ export function useVersionCheck(): VersionCheckResult {
     return () => unsubs.forEach((fn) => fn());
   }, []);
 
-  const refresh = useCallback(() => {
+  // Checks on demand rather than waiting for the four-hourly timer. The result
+  // is returned instead of only pushed into state, so the caller can report the
+  // "already up to date" case — which produces no event the UI would otherwise
+  // notice.
+  const checkForUpdate = useCallback(async (): Promise<UpdateCheckOutcome> => {
     const bridge = bridgeRef.current;
-    if (bridge) {
-      bridge.invoke("updater:check").catch(() => {});
+    if (!bridge) return { status: "unsupported" };
+    setIsLoading(true);
+    setError(null);
+    try {
+      const reply = (await bridge.invoke(
+        "updater:check",
+      )) as UpdateCheckReply | null;
+      if (!reply?.supported) return { status: "unsupported" };
+      if (!reply.available) {
+        // Never retract a banner for an update that is already staged locally.
+        if (!downloadedVersion.current) setUpdateAvailable(false);
+        return { status: "up-to-date" };
+      }
+      const version = reply.version ?? null;
+      // An update already fetched by an earlier check only needs the restart;
+      // the events won't repeat for it.
+      if (version && version === downloadedVersion.current) {
+        return { status: "downloaded", version };
+      }
+      return { status: "available", version };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      return { status: "error", message };
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
@@ -177,7 +220,7 @@ export function useVersionCheck(): VersionCheckResult {
     updateDownloaded,
     platform,
     updateUrl: null,
-    refresh,
+    checkForUpdate,
     performPlatformUpdate: bridgeRef.current ? performPlatformUpdate : null,
   };
 }
