@@ -201,6 +201,9 @@
   --destructive: oklch(0.704 0.191 22.216);
   /* Amber, brightened for the dark surface (the light value reads as brown). */
   --warning: oklch(0.82 0.15 85);
+  /* Same, for green: the light value is too dim to read as text on the dark
+     sidebar. Matches the dark --sidebar-primary lightness. */
+  --success: oklch(0.78 0.15 145);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.6332 0.1426 145 / 60%);

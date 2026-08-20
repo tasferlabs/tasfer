@@ -47,6 +47,7 @@ import {
 import { useAssetUrl } from "../api/images.api";
 import { useArchiveSpace } from "../api/spaces.api";
 import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
+import { DesktopUpdateBanner } from "../components/DesktopUpdateBanner";
 import { PeerVersionBanner } from "../components/PeerVersionBanner";
 import { StorageProtectionBanner } from "../components/StorageProtectionBanner";
 import { useConfirmation } from "../components/ConfirmationDialog";
@@ -993,6 +994,8 @@ export function SidebarContent({
 
           <div>
             <PeerVersionBanner />
+
+            <DesktopUpdateBanner />
 
             <StorageProtectionBanner />
           </div>

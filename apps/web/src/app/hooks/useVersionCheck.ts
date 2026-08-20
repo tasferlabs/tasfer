@@ -21,6 +21,14 @@ export interface VersionCheckResult {
   versionInfo: VersionInfo | null;
   /** Whether a newer version is available */
   updateAvailable: boolean;
+  /** Version string of the pending update, when the host reports one */
+  updateVersion: string | null;
+  /** Whether the pending update is downloading right now */
+  updateDownloading: boolean;
+  /** Download progress 0–100 while downloading, null otherwise */
+  downloadPercent: number | null;
+  /** Whether the update is downloaded and only needs a restart */
+  updateDownloaded: boolean;
   /** Current platform */
   platform: ClientPlatform;
   /** Update URL for current platform */
@@ -56,7 +64,15 @@ export function useVersionCheck(): VersionCheckResult {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  const [updateDownloading, setUpdateDownloading] = useState(false);
+  const [downloadPercent, setDownloadPercent] = useState<number | null>(null);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
+
+  // The 4-hourly re-check re-announces an update that is already downloaded and
+  // waiting for a restart. Remember which version reached "downloaded" so those
+  // repeats don't drag the UI back to "downloading".
+  const downloadedVersion = useRef<string | null>(null);
 
   useEffect(() => {
     const bridge = bridgeRef.current;
@@ -72,9 +88,14 @@ export function useVersionCheck(): VersionCheckResult {
     );
 
     unsubs.push(
-      bridge.on("updater:available", () => {
+      bridge.on("updater:available", (data: any) => {
+        const version = data?.version ?? null;
         setIsLoading(false);
         setUpdateAvailable(true);
+        setUpdateVersion(version);
+        if (version && version === downloadedVersion.current) return;
+        // Main downloads automatically; progress events follow.
+        setUpdateDownloading(true);
       }),
     );
 
@@ -86,7 +107,21 @@ export function useVersionCheck(): VersionCheckResult {
     );
 
     unsubs.push(
-      bridge.on("updater:downloaded", () => {
+      bridge.on("updater:progress", (data: any) => {
+        if (downloadedVersion.current) return;
+        setUpdateDownloading(true);
+        const percent = data?.percent;
+        setDownloadPercent(typeof percent === "number" ? percent : null);
+      }),
+    );
+
+    unsubs.push(
+      bridge.on("updater:downloaded", (data: any) => {
+        downloadedVersion.current = data?.version ?? null;
+        setUpdateAvailable(true);
+        if (data?.version) setUpdateVersion(data.version);
+        setUpdateDownloading(false);
+        setDownloadPercent(null);
         setUpdateDownloaded(true);
       }),
     );
@@ -94,6 +129,8 @@ export function useVersionCheck(): VersionCheckResult {
     unsubs.push(
       bridge.on("updater:error", (data: any) => {
         setIsLoading(false);
+        setUpdateDownloading(false);
+        setDownloadPercent(null);
         setError(data?.message ?? "Update check failed");
       }),
     );
@@ -114,10 +151,19 @@ export function useVersionCheck(): VersionCheckResult {
 
     if (updateDownloaded) {
       await bridge.invoke("updater:install");
-    } else {
-      await bridge.invoke("updater:download");
-      // updater:downloaded event will fire → then user can trigger install
+      return;
     }
+
+    // Downloads normally start on their own; this covers a download that never
+    // began (or failed) without making the user wait for the next check.
+    setUpdateDownloading(true);
+    setError(null);
+    try {
+      await bridge.invoke("updater:download");
+    } catch {
+      setUpdateDownloading(false);
+    }
+    // updater:downloaded flips the banner to its restart state.
   }, [updateDownloaded]);
 
   return {
@@ -125,6 +171,10 @@ export function useVersionCheck(): VersionCheckResult {
     error,
     versionInfo: null,
     updateAvailable,
+    updateVersion,
+    updateDownloading,
+    downloadPercent,
+    updateDownloaded,
     platform,
     updateUrl: null,
     refresh,
