@@ -32,8 +32,11 @@ function updatesSupported(): boolean {
 export function registerUpdaterHandlers() {
   const canUpdate = updatesSupported();
 
-  // Let the renderer control when to download
-  autoUpdater.autoDownload = false;
+  // Fetch the update in the background as soon as a check finds one. The
+  // renderer only surfaces status and offers the restart — a user who has to
+  // ask for the download first mostly never gets one, since the sidebar banner
+  // is the only place an update is announced.
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
   // ── Forward autoUpdater events to renderer ─────────────────────────────
