@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   Moon,
   Plus,
+  RefreshCw,
   Settings,
   Sun,
   Archive,
@@ -25,6 +26,8 @@ import { useCreatePage, useSearchPages, type ISearchPage } from "../api/pages.ap
 import { TitlePreview } from "../TitlePreview";
 import { useActionCenter } from "../contexts/ActionCenterContext";
 import { useSpaces } from "../contexts/SpaceContext";
+import { useVersion } from "../contexts/VersionContext";
+import { useToast } from "./Toast";
 import { useTheme } from "../hooks/useTheme";
 import { useQueryClient } from "@tanstack/react-query";
 import useMobileLayout from "../hooks/useMobileLayout";
@@ -36,6 +39,7 @@ import {
   type FrecencyEntry,
 } from "@/lib/actionRanking";
 import { Button } from "@/components/ui/button";
+import { detectAdapter } from "@/platform";
 
 const groupHeadingClass =
   "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground/70 [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide";
@@ -165,6 +169,13 @@ export function ActionCenter() {
   const queryClient = useQueryClient();
   const { isMobile, isShort } = useMobileLayout();
   const keyboardInset = useKeyboardInset();
+  const { checkForUpdate } = useVersion();
+  const { toast } = useToast();
+
+  // Desktop-only action: the web build updates through the service worker and
+  // the mobile builds through their app stores, neither of which the user can
+  // ask for from here.
+  const isDesktop = detectAdapter() === "electron";
 
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -217,8 +228,66 @@ export function ActionCenter() {
     [bumpFrecency],
   );
 
-  const actions = useMemo<ActionItem[]>(
-    () => [
+  // One toast carries the whole check: it opens as "checking" and is updated in
+  // place with the outcome. The "up to date" case is the reason this reports at
+  // all — it produces no banner and would otherwise look like nothing happened.
+  const runUpdateCheck = useCallback(async () => {
+    const handle = toast.loading(
+      t("update.checking", "Checking for updates…"),
+    );
+    const outcome = await checkForUpdate();
+    switch (outcome.status) {
+      case "available":
+        handle.update({
+          variant: "success",
+          message: outcome.version
+            ? t(
+                "update.checkFoundVersion",
+                "Version {{version}} is downloading in the background",
+                { version: outcome.version },
+              )
+            : t(
+                "update.checkFound",
+                "A new version is downloading in the background",
+              ),
+        });
+        break;
+      case "downloaded":
+        handle.update({
+          variant: "success",
+          message: outcome.version
+            ? t("update.readyDescVersion", "Restart to install {{version}}", {
+                version: outcome.version,
+              })
+            : t("update.readyDesc", "Restart to finish installing."),
+        });
+        break;
+      case "up-to-date":
+        handle.update({
+          variant: "success",
+          message: t("update.upToDate", "You're on the latest version"),
+        });
+        break;
+      case "unsupported":
+        handle.update({
+          variant: "default",
+          message: t(
+            "update.checkUnsupported",
+            "This installation doesn't update itself",
+          ),
+        });
+        break;
+      case "error":
+        handle.update({
+          variant: "error",
+          message: t("update.checkFailed", "Couldn't check for updates"),
+        });
+        break;
+    }
+  }, [toast, t, checkForUpdate]);
+
+  const actions = useMemo<ActionItem[]>(() => {
+    const items: ActionItem[] = [
       {
         id: "new-page",
         label: t("page.newPageTitle", "New Page"),
@@ -306,9 +375,39 @@ export function ActionCenter() {
         icon: effectiveTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />,
         run: () => setTheme(effectiveTheme === "dark" ? "light" : "dark"),
       },
-    ],
-    [t, effectiveTheme, activeSpaceId, createPage, navigate, setTheme],
-  );
+    ];
+
+    if (isDesktop) {
+      items.push({
+        id: "check-updates",
+        label: t("update.checkForUpdates", "Check for Updates"),
+        keywords: [
+          "update",
+          t("update.updateKw", "update"),
+          "upgrade",
+          t("update.upgradeKw", "upgrade"),
+          "version",
+          t("update.versionKw", "version"),
+          "check",
+          t("update.checkKw", "check"),
+          "release",
+        ],
+        icon: <RefreshCw size={16} />,
+        run: () => void runUpdateCheck(),
+      });
+    }
+
+    return items;
+  }, [
+    t,
+    effectiveTheme,
+    activeSpaceId,
+    createPage,
+    navigate,
+    setTheme,
+    isDesktop,
+    runUpdateCheck,
+  ]);
 
   // Rank pages and actions for the current query. With a query, every item is
   // scored by text match plus a frecency boost and merged into one ordered
