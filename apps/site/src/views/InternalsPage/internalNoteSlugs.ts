@@ -7,7 +7,6 @@ export const INTERNAL_NOTE_SLUGS = [
   "manifest",
   "math-block",
   "obsidian",
-  "one-interface-mutliple-backends",
   "transition-plan",
 ] as const;
 

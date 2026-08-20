@@ -8,7 +8,6 @@ import * as latexAsModel from "./pages/latex-as-model.mdx";
 import * as manifest from "./pages/manifest.mdx";
 import * as mathBlock from "./pages/math-block.mdx";
 import * as obsidian from "./pages/obsidian.mdx";
-import * as oneInterface from "./pages/one-interface-mutliple-backends.mdx";
 import * as transitionPlan from "./pages/transition-plan.mdx";
 import {
   INTERNAL_NOTE_SLUGS,
@@ -70,7 +69,6 @@ const MODULES: Record<InternalNoteSlug, NoteModule> = {
   manifest,
   "math-block": mathBlock,
   obsidian,
-  "one-interface-mutliple-backends": oneInterface,
   "transition-plan": transitionPlan,
 };
 
