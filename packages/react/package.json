@@ -1,6 +1,6 @@
 {
   "name": "@tasfer/react",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "React 19 bindings for @tasfer/editor — a useEditor hook, an <Editor> component, and live state subscriptions.",
   "type": "module",
   "license": "MIT",

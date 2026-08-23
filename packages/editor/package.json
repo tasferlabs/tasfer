@@ -1,6 +1,6 @@
 {
   "name": "@tasfer/editor",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Canvas-based, CRDT-powered block editor engine (headless core).",
   "type": "module",
   "license": "MIT",
