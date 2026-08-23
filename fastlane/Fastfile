@@ -15,7 +15,7 @@
 #   - Android: the Gradle preBuild web-build task fires during `bundle`
 # so these lanes only drive the native build + upload.
 #
-# The version comes from /version.json at the repo root — release-please bumps it
+# The version comes from /version.json at the repo root — it is bumped by hand
 # with the desktop release, and iOS/Android derive theirs from it at build time.
 #
 # Secrets are read from fastlane/.env (gitignored) — see fastlane/.env.example.

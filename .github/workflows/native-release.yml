@@ -6,11 +6,12 @@ name: Native Release
 # this workflow builds.
 
 # There is no tag input: the build always uses the ref it was triggered on, and
-# the release tag is `v<appVersion>` read from version.json at that ref. Called
-# from release-please, that ref is the release commit, so the tag matches the
-# live release release-please just published — the artifacts land straight on
-# it, with no draft to un-hide afterwards. Dispatched by hand, the `prepare`
-# job cuts that release itself before any artifact is built.
+# the release tag is `v<appVersion>` read from version.json at that ref. So the
+# flow is to bump appVersion, merge, then dispatch this on that ref — the
+# `prepare` job cuts the release itself before any artifact is built.
+#
+# workflow_call is kept for a caller that creates the release first; nothing
+# calls it today.
 #
 # workflow_dispatch with publish=false is a safe dry run: full signed build,
 # artifacts uploaded to the workflow run instead of a release.

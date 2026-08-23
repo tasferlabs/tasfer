@@ -116,15 +116,13 @@ All user-facing strings must use i18next — never hardcode text in components.
 
 ## Releases
 
-Versioning is automated with
-[release-please](https://github.com/googleapis/release-please). Use
-[Conventional Commits](https://www.conventionalcommits.org/) for release-worthy
-changes: `fix:` bumps patch, `feat:` bumps minor, and `feat!:`/`fix!:` bumps
-major. A commit only affects the components whose directories it touches.
+Releases are cut by hand: bump the version, merge, then dispatch the workflow
+that builds it. Merging alone never cuts a release — the continuous deploys
+below are the only thing a push to `main` triggers.
 
 The version lives in one place: `appVersion` in [`version.json`](version.json) at
-the repo root. Every build derives its own version from it, so nothing is stamped
-by hand:
+the repo root. Every build derives its own version from it, so no build stamps a
+version of its own:
 
 | Build | How it reads the version |
 | --- | --- |
@@ -133,24 +131,26 @@ by hand:
 | Android | `app/build.gradle` parses `version.json`; `versionCode` is packed from the semver (`1.4.2` -> `10402`) |
 | iOS | `apps/ios/Version.xcconfig` (gitignored) is generated from it, and the Xcode project sets no version of its own |
 
-`version.json` is the only file release-please bumps for the app — no app
-manifest carries a version — so an app release is one merge and no follow-up
-edits. The `packages/*` libraries are versioned in lockstep with each other, in
-their own `package.json` files, independently of the app.
+`version.json` is the only file to edit for an app release — no app manifest
+carries a version — so the bump is one line and no follow-up edits. The
+`packages/*` libraries are versioned in lockstep with each other, in their own
+`package.json` files, independently of the app.
 
 How the cycle works:
 
-- release-please maintains a release PR on `main` that accumulates version bumps
-  and changelog entries.
-- Merging the release PR creates the tags and GitHub releases, and the desktop
-  app is built and signed for macOS, Windows, and Linux, with the artifacts
-  landing on the release release-please just published.
-- The `packages/*` libraries go to npm by dispatching the **npm Publish**
-  workflow, which builds them in dependency order and pins the peer ranges
-  between them at publish time. It is deliberately not chained off the release:
-  npm's trusted publishing validates the *calling* workflow's filename, so the
-  publish has to be dispatched directly. Versions already on the registry are
-  skipped, so re-running it is safe.
+- Bump `appVersion` in `version.json` and merge it to `main`.
+- Dispatch **Native Release** on that ref with `publish: true`. It creates the
+  `v<appVersion>` GitHub release from `version.json` before building — never
+  electron-builder, which would race one publisher per artifact — then builds
+  and signs the desktop app and uploads the artifacts onto that release.
+  macOS is the only platform currently built; the Windows and Linux targets are
+  configured but switched off in the workflow.
+- The `packages/*` libraries go to npm by bumping their `package.json` versions,
+  then dispatching the **npm Publish** workflow, which builds them in dependency
+  order and pins the peer ranges between them at publish time. It has to be
+  dispatched directly rather than chained off anything: npm's trusted publishing
+  validates the *calling* workflow's filename. Versions already on the registry
+  are skipped, so re-running it is safe.
 - `apps/live` deploys to Cloudflare on every push to `main` that touches it.
 - `apps/web` and `apps/site` deploy continuously via Vercel (two projects with
   root directories `apps/web` and `apps/site`; the web project needs "Include
