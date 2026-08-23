@@ -1,6 +1,6 @@
 {
   "name": "@tasfer/code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Syntax-highlighted code block node for @tasfer/editor (opt-in; owns the highlight.js grammar set).",
   "type": "module",
   "license": "MIT",

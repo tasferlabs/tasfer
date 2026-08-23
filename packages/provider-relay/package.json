@@ -1,6 +1,6 @@
 {
   "name": "@tasfer/provider-relay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "WebSocket-relay transport for @tasfer/editor — peers behind NATs sync through a relay that forwards AES-256-GCM sealed updates it cannot read.",
   "type": "module",
   "license": "MIT",
