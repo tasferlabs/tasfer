@@ -45,6 +45,36 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./rendering/marks": {
+      "import": {
+        "types": "./dist/rendering/marks/index.d.mts",
+        "default": "./dist/rendering/marks/index.mjs"
+      },
+      "require": {
+        "types": "./dist/rendering/marks/index.d.cts",
+        "default": "./dist/rendering/marks/index.cjs"
+      }
+    },
+    "./rendering/nodes": {
+      "import": {
+        "types": "./dist/rendering/nodes/index.d.mts",
+        "default": "./dist/rendering/nodes/index.mjs"
+      },
+      "require": {
+        "types": "./dist/rendering/nodes/index.d.cts",
+        "default": "./dist/rendering/nodes/index.cjs"
+      }
+    },
+    "./serlization/codecs": {
+      "import": {
+        "types": "./dist/serlization/codecs/index.d.mts",
+        "default": "./dist/serlization/codecs/index.mjs"
+      },
+      "require": {
+        "types": "./dist/serlization/codecs/index.d.cts",
+        "default": "./dist/serlization/codecs/index.cjs"
+      }
+    },
     "./*": {
       "import": {
         "types": "./dist/*.d.mts",
