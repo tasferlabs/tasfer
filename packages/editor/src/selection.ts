@@ -114,6 +114,47 @@ function getBlockTopDocument(
   return y;
 }
 
+/**
+ * Document-space rect of a whole block. The fallback for a block that has no
+ * caret to measure: a visual block (image, rule) carries no text node, so
+ * `getCursorDocumentCoords` misses there and anything anchoring on the
+ * selection — the keyboard-opened contextual menu — needs the block itself.
+ */
+export function getBlockDocumentRect(
+  state: EditorState,
+  blockIndex: number,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
+): { x: number; y: number; height: number } | null {
+  const visibleIndex = state.view.visibleBlocks.findIndex(
+    (block) => block.originalIndex === blockIndex,
+  );
+  if (visibleIndex < 0) return null;
+
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  return {
+    x: styles.canvas.paddingLeft,
+    y: getBlockTopDocument(
+      state,
+      blockIndex,
+      maxWidth,
+      styles,
+      viewport,
+      visibility,
+    ),
+    height: getBlockHeight(
+      state.nodes,
+      state.marks,
+      state.view.visibleBlocks[visibleIndex],
+      maxWidth,
+      styles,
+      visibleIndex === 0,
+    ),
+  };
+}
+
 /** Index of the layout line containing `textIndex` (first match), or -1. */
 function lineIndexAt(layout: TextNodeLayout, textIndex: number): number {
   for (let i = 0; i < layout.lines.length; i++) {

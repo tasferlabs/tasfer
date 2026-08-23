@@ -3467,8 +3467,20 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const isCopy = isShortcut && e.code === "KeyC";
       const isSelectAll = isShortcut && e.code === "KeyA";
       const isEscape = e.key === "Escape";
+      // The contextual menu is offered on readonly mounts too (Copy, Select
+      // All), so the chords that open it are readable-mode keys.
+      const isContextMenuChord =
+        (isShortcut && e.key === "Enter") ||
+        e.key === "ContextMenu" ||
+        (e.key === "F10" && e.shiftKey);
 
-      if (!isNavigationKey && !isCopy && !isSelectAll && !isEscape) {
+      if (
+        !isNavigationKey &&
+        !isCopy &&
+        !isSelectAll &&
+        !isEscape &&
+        !isContextMenuChord
+      ) {
         e.preventDefault();
         return;
       }
@@ -3476,6 +3488,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     // In suspended mode, block everything
     if (this._state.ui.mode === "suspended") {
+      e.preventDefault();
+      return;
+    }
+
+    // A host contextual menu owns the keyboard while it is up — the host runs
+    // its own capture-phase listener for arrow navigation, ↩ to invoke and ⎋ to
+    // dismiss, exactly as a native menu tracks. Swallow the key here so nothing
+    // types into the document behind the open menu; preventDefault also
+    // suppresses the `input` event a printable key would otherwise commit.
+    if (this.session.hostMenuCapturing) {
       e.preventDefault();
       return;
     }
@@ -3669,6 +3691,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (this.handleSchemaShortcut(e)) {
       e.preventDefault();
       e.stopPropagation();
+      return;
+    }
+
+    // The platform's dedicated contextual-menu chords. Neither is a text key nor
+    // a Ctrl/Cmd shortcut, so they'd otherwise stop at this surface without ever
+    // reaching the keymap — and preventing the default also stops the browser
+    // from synthesizing its own `contextmenu` event for the Menu key.
+    if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.eventsQueue.push(e);
+      this.scheduleRender();
       return;
     }
 

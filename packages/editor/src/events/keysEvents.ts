@@ -56,6 +56,8 @@ import {
 import { INDENT_LIST_ITEM, OUTDENT_LIST_ITEM } from "../rendering/nodes";
 import { getBlockDirection } from "../rtl";
 import {
+  getBlockDocumentRect,
+  getContentPointDocumentCoords,
   getContentSelectionFromViewport,
   getCursorDocumentCoords,
   getTextPositionFromViewport,
@@ -119,6 +121,7 @@ export function handleKeyDown(
   event: Event,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   visibility?: VisibleBlockRange,
+  session?: InteractionSession,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   const keyEvent = event as unknown as KeyboardEvent;
@@ -144,6 +147,12 @@ export function handleKeyDown(
   // Only bare Ctrl — with ⌘ or ⌥ also down the chord belongs to something else.
   const isMacEmacs =
     isApple && keyEvent.ctrlKey && !keyEvent.metaKey && !keyEvent.altKey;
+  // Open the contextual menu on the caret: ⌘↩ on Apple (Ctrl+↩ elsewhere), plus
+  // the ⇧F10 / Menu-key chord every desktop toolkit answers to.
+  const isContextMenuChord =
+    (isCmd && key === "Enter") ||
+    key === "ContextMenu" ||
+    (keyEvent.shiftKey && key === "F10");
   const inputSource =
     keyEvent.inputSource ??
     (keyEvent.isTrusted === true ? "hardware-keyboard" : "input-surface");
@@ -182,7 +191,9 @@ export function handleKeyDown(
       !isSelectAll &&
       !isEscape &&
       !isFind &&
-      !isEmacsNavigation
+      !isEmacsNavigation &&
+      // A readonly mount still offers the contextual menu (Copy, Select All).
+      !isContextMenuChord
     ) {
       return { state, ops };
     }
@@ -190,6 +201,14 @@ export function handleKeyDown(
 
   // If editor is not focused, ignore keyboard input
   if (!state.view.isFocused) {
+    return { state, ops };
+  }
+
+  // A host contextual menu is up. It tracks the keyboard the way a native menu
+  // does — arrows move the highlight, ↩ runs the item, ⎋ dismisses — so swallow
+  // every key here rather than editing the document behind the open menu. The
+  // host dispatches CLOSE_CONTEXT_MENU when it dismisses, which clears this.
+  if (session?.hostMenuCapturing) {
     return { state, ops };
   }
 
@@ -317,6 +336,13 @@ export function handleKeyDown(
       );
       return { state: emacs.state, ops: emacs.ops };
     }
+  }
+
+  // Must come before the `Enter` case in the switch below, which would otherwise
+  // split the block instead.
+  if (isContextMenuChord) {
+    event.preventDefault();
+    return { state: openContextMenuAtCaret(state, viewport, visibility), ops };
   }
 
   // Select All
@@ -1226,12 +1252,85 @@ export function handleContextMenu(
     state.actionBus.dispatch(OPEN_CONTEXT_MENU, {
       x: canvasX,
       y: canvasY,
-      hasSelection:
-        !!getSelectionRange(state) ||
-        (!!state.document.contentSelection &&
-          !isContentSelectionCollapsed(state.document.contentSelection)),
+      hasSelection: hasRangedSelection(state),
     });
   }
+
+  return state;
+}
+
+/**
+ * Whether either selection model holds a range — the flat block range or a
+ * nested structured one. What the menu means by "there is something to act on".
+ */
+function hasRangedSelection(state: EditorState): boolean {
+  return (
+    !!getSelectionRange(state) ||
+    (!!state.document.contentSelection &&
+      !isContentSelectionCollapsed(state.document.contentSelection))
+  );
+}
+
+/**
+ * Open the contextual menu from the keyboard, anchored on the caret rather than a
+ * pointer. Unlike the pointer path this never moves the caret: the menu acts on
+ * whatever was already selected. Structured-first, for the same reason
+ * `handleContextMenu` resolves that way — inside a tree-authoritative construct
+ * the flat projection is an empty compatibility stub.
+ */
+export function openContextMenuAtCaret(
+  state: EditorState,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): EditorState {
+  const contentSelection = state.document.contentSelection;
+  const caretPosition = state.document.cursor?.position;
+  const caretCoords = contentSelection
+    ? getContentPointDocumentCoords(
+        contentSelection.focus,
+        state,
+        viewport,
+        undefined,
+        visibility,
+      )
+    : caretPosition
+      ? getCursorDocumentCoords(
+          caretPosition,
+          state,
+          viewport,
+          undefined,
+          visibility,
+        )
+      : null;
+  // A visual block (a selected image) has no caret to measure — anchor the menu
+  // on the block itself so ⌘↩ there still reaches Copy image / Download image.
+  const coords =
+    caretCoords ??
+    (caretPosition
+      ? getBlockDocumentRect(
+          state,
+          caretPosition.blockIndex,
+          viewport,
+          undefined,
+          visibility,
+        )
+      : null);
+  if (!coords) return state;
+
+  state = {
+    ...state,
+    ui: {
+      ...state.ui,
+      isHoveringLinkWithModifier: false,
+    },
+  };
+
+  // Canvas coords, like the pointer path: document y minus the scroll offset.
+  state.actionBus.dispatch(OPEN_CONTEXT_MENU, {
+    x: coords.x,
+    y: coords.y - viewport.scrollY,
+    hasSelection: hasRangedSelection(state),
+  });
 
   return state;
 }

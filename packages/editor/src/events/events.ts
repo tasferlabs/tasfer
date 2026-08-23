@@ -680,6 +680,7 @@ export function handleEvents(
           event,
           updateViewportCallback,
           visibility,
+          session,
         );
         state = keyResult.state;
         collectedOps.push(...keyResult.ops);

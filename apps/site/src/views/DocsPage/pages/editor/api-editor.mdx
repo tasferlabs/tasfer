@@ -102,7 +102,8 @@ A handful of built-in actions are dispatched by the engine for hosts (and custom
   { name: "OPEN_LINK", type: "{ url }", desc: "A link mark was activated (Cmd/Ctrl-click). Claim it to route the URL yourself; the default opens a new tab." },
   { name: "IMAGE_PASTE", type: "ImagePasteEvent", desc: "An image file was pasted and a block inserted ({ file, blockId }). Observe at priority 0 to upload the file and rewrite the block url; a custom image node can claim it to handle its own upload." },
   { name: "SCROLL", type: "{ scrollY, deltaY, source }", desc: "The viewport is about to scroll (user input) or just did (programmatic). Payload carries source: 'user' | 'programmatic' — observe either to track the offset (e.g. position floating UI). Only a user scroll is claimable: a node under the pointer can return true to override page scrolling. A programmatic scroll (scrollToPosition) notifies observers after the fact and ignores the return value." },
-  { name: "OPEN_CONTEXT_MENU", type: "{ x, y, hasSelection }", desc: "A context menu was requested (right-click / long-press). Claim it to render your own menu." },
+  { name: "OPEN_CONTEXT_MENU", type: "{ x, y, hasSelection }", desc: "A context menu was requested — right-click, long-press, or the keyboard chord (Cmd/Ctrl+Enter, Shift+F10, the Menu key), which anchors x/y on the caret. Claim it to render your own menu." },
+  { name: "CLOSE_CONTEXT_MENU", type: "{}", desc: "Dispatch this to dismiss the menu you opened. While a menu is up the engine stops handling keys, so the host owns arrow navigation, Enter, type-select and Escape; this hands the keyboard back." },
 ]} />
 
 <h2 id="selection">Selection, focus & clipboard</h2>
