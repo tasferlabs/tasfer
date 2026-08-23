@@ -51,3 +51,8 @@ apps/web/.design-sync.compiled.css
 
 # Git
 .worktrees
+# Stray declaration output. tsdown's dts step emits a .d.ts next to any source
+# file outside its project root; packages/*/src holds hand-written source only.
+packages/*/src/**/*.d.ts
+!packages/tex/src/data/fontMetricsData.d.ts
+shared/**/*.d.ts
