@@ -18,7 +18,7 @@ import type { Block, MarkSpan, Page } from "../serlization/loadPage";
 import type { BlockSet, EditorState, Operation } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { getVisibleTextFromRuns } from "./char-runs";
-import { invertOperation } from "./inverse";
+import { invertOperation, invertOperations } from "./inverse";
 import { applyOp } from "./reducer";
 import { describe, expect, it } from "vitest";
 
@@ -151,5 +151,66 @@ describe("paragraph → code keeps its text across peers", () => {
     expect(formatsOf(undonePage.blocks[0]).map((s) => s.format.type)).toEqual([
       "bold",
     ]);
+  });
+});
+
+/**
+ * Convergence regression: morphing a list item away from the list family and
+ * back through undo must land every peer on the same indent/style.
+ *
+ * A `block_set type` rebuilds the block from the target type's defaults, so the
+ * indent and the block's own style are reset on originator and remote alike —
+ * fine, both sides agree. The inverse is where they used to part: it restored
+ * the type and nothing else, so undo flattened a level-2 item to level 0 on
+ * every peer that replayed it. The restores travel as ops of their own, after
+ * the type op that makes them settable again.
+ */
+describe("indented list item → paragraph converges, and undo restores it", () => {
+  function indentedBullet(): Block {
+    return {
+      id: "p-1",
+      orderKey: "a0",
+      deleted: false,
+      type: "bullet_list",
+      charRuns: [{ peerId: "peer", startCounter: 0, text: "hello" }],
+      formats: [],
+      indent: 2,
+      style: { fontSize: 24 },
+    } as unknown as Block;
+  }
+
+  it("replays the flattening remotely and puts the indent back on undo", () => {
+    const originator = caretAtEnd(pageWith(indentedBullet()));
+    const { state: localState, ops } = convertBlockAtCursor(originator, {
+      type: "paragraph",
+    });
+    expect(localState.document.page.blocks[0].type).toBe("paragraph");
+
+    // Remote peer: same starting item, replays only the emitted ops.
+    let remotePage = pageWith(indentedBullet());
+    for (const op of ops) {
+      remotePage = applyOp(remotePage, op, mathTestSchema.data);
+    }
+    expect(remotePage.blocks[0].type).toBe("paragraph");
+    expect(remotePage.blocks[0]).toEqual(localState.document.page.blocks[0]);
+
+    // Undo: inverses captured against the pre-op page, applied in array order.
+    const inverses = invertOperations(
+      ops,
+      pageWith(indentedBullet()),
+      (page, op) => applyOp(page, op, mathTestSchema.data),
+      originator.CRDTbinding,
+      mathTestSchema.data,
+    );
+    let undonePage = remotePage;
+    for (const inverse of inverses) {
+      undonePage = applyOp(undonePage, inverse, mathTestSchema.data);
+    }
+
+    const undone = undonePage.blocks[0] as Block & Record<string, unknown>;
+    expect(undone.type).toBe("bullet_list");
+    expect(undone.indent).toBe(2);
+    expect(undone.style).toEqual({ fontSize: 24 });
+    expect(textOf(undone)).toBe("hello");
   });
 });

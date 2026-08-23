@@ -37,12 +37,14 @@ import type {
 import { findBlock } from "./block-lookup";
 import {
   canHaveFormats,
+  createDefaultBlock,
   getBlockDescriptor,
   getBlockFieldNames,
   hasTextContent,
   isStyleField,
   isTextualBlock,
   readBlockStyle,
+  styleField,
   styleKeyOf,
 } from "./block-registry";
 import {
@@ -452,6 +454,62 @@ function restoreMorphedAwayMarks(
   return restores;
 }
 
+/**
+ * `block_set type` rebuilds the block from the TARGET type's defaults (the
+ * `type` branch of `applyBlockSet`), so inverting the field alone brings the
+ * block back wearing the SOURCE type's defaults: an indented list item returns
+ * at indent 0, a checked todo unchecked, a styled block unstyled.
+ *
+ * Each value the morph reset becomes one `block_set` on the restored type, so
+ * remote peers — which reset the same values from the same op — rebuild them
+ * too. Ordered after the type restore, which is what makes them settable again.
+ */
+function restoreMorphedAwayFields(
+  op: BlockSet,
+  block: Block,
+  binding: CRDTbinding,
+  schema?: DataSchema,
+): BlockSet[] {
+  const restore = (field: string, value: unknown): BlockSet => ({
+    op: "block_set",
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: op.pageId,
+    blockId: op.blockId,
+    field,
+    value,
+  });
+
+  const restores: BlockSet[] = [];
+
+  // Own fields, skipping the ones the source type's defaults already reproduce.
+  const defaults = (
+    schema
+      ? schema.createDefaultBlock(block.type, block.id, block.orderKey ?? "")
+      : createDefaultBlock(block.type, block.id, block.orderKey ?? "")
+  ) as Record<string, unknown> | undefined;
+  const descriptor =
+    schema?.getDescriptor(block.type) ?? getBlockDescriptor(block.type);
+  const fieldNames = schema
+    ? schema.getFieldNames(block.type)
+    : getBlockFieldNames(block.type);
+  for (const field of fieldNames) {
+    if (field === "type") continue;
+    const value = descriptor?.fields[field]?.extractForInverse(block);
+    if (value === undefined || value === defaults?.[field]) continue;
+    restores.push(restore(field, value));
+  }
+
+  // Per-block style overrides survive no morph at all, so every set key needs
+  // one. `undefined` would be a no-op op, and the key was never set anyway.
+  for (const [key, value] of Object.entries(readBlockStyle(block))) {
+    if (value === undefined) continue;
+    restores.push(restore(styleField(key), value));
+  }
+
+  return restores;
+}
+
 function invertBlockSet(
   op: BlockSet,
   pageBefore: Page,
@@ -489,10 +547,14 @@ function invertBlockSet(
     field: op.field,
     value: previousValue,
   };
-  // The type is restored first, so the mark ops below land on a block that can
-  // hold them again.
+  // The type is restored first, so the field/mark ops below land on a block that
+  // can hold them again.
   return op.field === "type"
-    ? [restoreType, ...restoreMorphedAwayMarks(op, block, binding, schema)]
+    ? [
+        restoreType,
+        ...restoreMorphedAwayFields(op, block, binding, schema),
+        ...restoreMorphedAwayMarks(op, block, binding, schema),
+      ]
     : [restoreType];
 }
 

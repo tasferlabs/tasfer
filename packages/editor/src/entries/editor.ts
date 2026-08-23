@@ -168,6 +168,7 @@ import {
 } from "../styles";
 import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import {
+  carriedMorphFields,
   isPlainStyleObject,
   isPreformattedType,
   isStyleField,
@@ -4942,9 +4943,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         block.orderKey ?? "",
       );
       if (!defaults) return { state: s, ops: [] };
+      // Fields both types declare keep their value (a list item's indent across
+      // bullet → numbered); only the target's own new fields take its defaults.
+      let newBlock: Block = {
+        ...defaults,
+        ...carriedMorphFields(block, type, s.schema),
+      } as Block;
       // Carry the source text/marks over only when both sides are textual;
       // otherwise the target type's defaults stand (a void block has no text).
-      let newBlock: Block = defaults;
       if (
         s.schema.isTextual(type) &&
         s.schema.isTextual(block.type) &&
@@ -4955,7 +4961,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         // reach them (the guard above refused every other target).
         newBlock = carryStructuredContent(
           {
-            ...defaults,
+            ...newBlock,
             charRuns: block.charRuns,
             formats: s.schema.hasFormats(type) ? block.formats : [],
           },

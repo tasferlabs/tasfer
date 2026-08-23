@@ -47,6 +47,7 @@ import {
 import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import {
   canHaveFormats,
+  carriedMorphFields,
   createDefaultBlock,
   getBlockDescriptor,
   getBlockFieldNames,
@@ -4545,6 +4546,10 @@ export function convertBlockAtCursor(
   const newBlock = carryStructuredContent(
     {
       ...defaults,
+      // Fields both types declare keep their value: an indented item stays at
+      // its level across bullet → numbered, and re-applying the type it already
+      // has doesn't snap it back to the target's default.
+      ...carriedMorphFields(block, action.type),
       charRuns: updatedCharRuns,
       formats: canHaveFormats(action.type) ? block.formats : [],
     },

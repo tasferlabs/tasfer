@@ -13,6 +13,7 @@
 import type { TextualBlock } from "../nodes/TextNode";
 import type { Block } from "../serlization/loadPage";
 import type { BlockType } from "../state-types";
+import type { DataSchema } from "./schema";
 
 // =============================================================================
 // Field descriptors
@@ -675,6 +676,36 @@ export function isValidStyleValue(value: unknown): boolean {
 export function getBlockFieldNames(type: string): readonly string[] {
   const descriptor = REGISTRY[type];
   return descriptor ? Object.keys(descriptor.fields) : [];
+}
+
+/**
+ * The values `from` already carries for the fields BOTH its type and `to`
+ * declare — what a type morph keeps instead of re-seeding from the target's
+ * defaults. A list item's `indent` survives bullet → numbered (and survives
+ * re-applying the type it already has); a field only the target declares is
+ * left to that default. `type` is excluded: it IS the morph.
+ *
+ * Driven by the descriptors, so a custom node declaring `indent` keeps it with
+ * no code here. `schema` is optional for the paths not yet threaded with one,
+ * which read the built-in registry like every other helper in this module.
+ */
+export function carriedMorphFields(
+  from: Block,
+  to: string,
+  schema?: DataSchema,
+): Record<string, unknown> {
+  const source =
+    schema?.getDescriptor(from.type) ?? getBlockDescriptor(from.type);
+  if (!source) return {};
+  const carried: Record<string, unknown> = {};
+  for (const field of schema
+    ? schema.getFieldNames(to)
+    : getBlockFieldNames(to)) {
+    if (field === "type") continue;
+    const value = source.fields[field]?.extractForInverse(from);
+    if (value !== undefined) carried[field] = value;
+  }
+  return carried;
 }
 
 /**
