@@ -44,6 +44,7 @@ import {
   MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
 import { CURSOR_MOVED } from "../actions/pointer-actions";
+import { OPEN_CONTEXT_MENU_AT } from "../actions/touch-actions";
 import { isTextInputKey } from "../code-points";
 import { isApplePlatform } from "../platform";
 import {
@@ -59,6 +60,7 @@ import {
 } from "../rendering/nodes";
 import { getBlockDirection } from "../rtl";
 import {
+  getContentPointDocumentCoords,
   getContentSelectionFromViewport,
   getCursorDocumentCoords,
   getTextPositionFromViewport,
@@ -116,6 +118,46 @@ function dispatchCursorCrossed(
   }).state;
 }
 
+/**
+ * Canvas point to anchor a keyboard-opened context menu at — the top of the
+ * caret, so the menu sits above the line instead of covering it. Structured
+ * caret first: inside a tree-authoritative equation the flat projection is an
+ * empty stub and would resolve nowhere. Document coords minus the scroll
+ * offset, matching the canvas point the pointer paths hand the host.
+ */
+function caretMenuAnchor(
+  state: EditorState,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): { x: number; y: number } | null {
+  const contentPoint = state.document.contentSelection?.focus;
+  const coords = contentPoint
+    ? getContentPointDocumentCoords(
+        contentPoint,
+        state,
+        viewport,
+        undefined,
+        visibility,
+      )
+    : state.document.cursor
+      ? getCursorDocumentCoords(
+          state.document.cursor.position,
+          state,
+          viewport,
+          undefined,
+          visibility,
+        )
+      : null;
+  if (!coords) return null;
+  // Clamp into the visible canvas: after Select All the caret sits at the
+  // document end, which can be far below the viewport, and the menu has to open
+  // somewhere the user can see it.
+  return {
+    x: Math.min(Math.max(coords.x, 0), viewport.width),
+    y: Math.min(Math.max(coords.y - viewport.scrollY, 0), viewport.height),
+  };
+}
+
 export function handleKeyDown(
   state: EditorState,
   viewport: ViewportState,
@@ -151,6 +193,20 @@ export function handleKeyDown(
     keyEvent.inputSource ??
     (keyEvent.isTrusted === true ? "hardware-keyboard" : "input-surface");
 
+  // The contextual menu has a keyboard route, not just right-click and
+  // long-press: ⌘⏎ is the Apple chord, and the Menu key / Shift+F10 are what
+  // Windows and Linux keyboards carry. Readonly answers to it too — its copy
+  // and select-all items are exactly what a reader needs.
+  const wantsContextMenu =
+    key === "ContextMenu" ||
+    (key === "F10" && keyEvent.shiftKey) ||
+    (isApple &&
+      key === "Enter" &&
+      keyEvent.metaKey &&
+      !keyEvent.ctrlKey &&
+      !keyEvent.altKey &&
+      !keyEvent.shiftKey);
+
   // In suspended mode, block all operations
   if (state.ui.mode === "suspended") {
     return { state, ops };
@@ -178,14 +234,16 @@ export function handleKeyDown(
       isMacEmacs &&
       ["KeyA", "KeyB", "KeyE", "KeyF", "KeyN", "KeyP"].includes(code);
 
-    // Allow navigation, copy, select all, find, and escape in readonly mode
+    // Allow navigation, copy, select all, find, escape and the context menu in
+    // readonly mode
     if (
       !isNavigationKey &&
       !isCopy &&
       !isSelectAll &&
       !isEscape &&
       !isFind &&
-      !isEmacsNavigation
+      !isEmacsNavigation &&
+      !wantsContextMenu
     ) {
       return { state, ops };
     }
@@ -232,6 +290,19 @@ export function handleKeyDown(
     ) {
       return { state, ops };
     }
+  }
+
+  // Open the host menu at the caret. Any selection is left untouched, so the
+  // menu's copy/cut/format items act on it just as they do after a right-click.
+  if (wantsContextMenu) {
+    const point = caretMenuAnchor(state, viewport, visibility);
+    if (!point) return { state, ops };
+    return {
+      state: state.actionBus.dispatchState(OPEN_CONTEXT_MENU_AT, state, {
+        point,
+      }).state,
+      ops,
+    };
   }
 
   // Undo/Redo - handle these first, even if slash action is open

@@ -3467,8 +3467,20 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const isCopy = isShortcut && e.code === "KeyC";
       const isSelectAll = isShortcut && e.code === "KeyA";
       const isEscape = e.key === "Escape";
+      // A reader gets the contextual menu too (copy, select all) — ⌘⏎ on Apple,
+      // the Menu key / Shift+F10 elsewhere.
+      const isContextMenu =
+        e.key === "ContextMenu" ||
+        (e.key === "F10" && e.shiftKey) ||
+        (e.key === "Enter" && e.metaKey);
 
-      if (!isNavigationKey && !isCopy && !isSelectAll && !isEscape) {
+      if (
+        !isNavigationKey &&
+        !isCopy &&
+        !isSelectAll &&
+        !isEscape &&
+        !isContextMenu
+      ) {
         e.preventDefault();
         return;
       }
@@ -3692,9 +3704,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       }
     }
 
+    // The Windows/Linux contextual-menu keys. Neither is a text-input key, so
+    // without this they would stop here instead of reaching the keymap (⌘⏎, the
+    // Apple chord for the same menu, already rides the Enter case below).
+    const isMenuKey =
+      e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey);
+
     // Only forward special keys to avoid duplication with input event
     // Regular text input is handled by hiddenInputHandler
     if (
+      isMenuKey ||
       [
         "Enter",
         "Tab",
