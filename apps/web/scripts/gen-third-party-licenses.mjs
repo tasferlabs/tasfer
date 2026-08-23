@@ -4,10 +4,10 @@
 // it bundles still require their copyright + license notices to be reproduced in
 // distributions; this file satisfies that obligation in one place.
 //
-// What it covers: the production dependency trees of apps/web AND of the
-// @tasfer/* packages it bundles from source via Vite aliases (editor, tex,
-// react) — because those are compiled into the same bundle, their runtime deps
-// (e.g. lowlight, turndown) ship too but do NOT appear in apps/web's own tree.
+// What it covers: the production dependency trees of apps/web AND of every
+// `packages/*` workspace it bundles from source via Vite aliases — because
+// those are compiled into the same bundle, their runtime deps (e.g. lowlight,
+// turndown) ship too but do NOT appear in apps/web's own tree.
 // It also embeds @tasfer/tex's NOTICE, since the KaTeX material it vendors is
 // shipped as source (a devDependency of tex, so it never shows up in a
 // --omit=dev dependency walk).
@@ -25,12 +25,19 @@ const here = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(here, "..");
 const repoRoot = resolve(webRoot, "..", "..");
 
-// Roots whose production dependency trees are bundled into the shipped app.
+// Roots whose production dependency trees are bundled into the shipped app:
+// apps/web itself, plus every `packages/*` workspace. The directory is walked
+// rather than hand-listed on purpose — a fixed list is one extracted package
+// away from silently dropping a notice (moving lowlight into @tasfer/code did
+// exactly that), and a root that never reaches the browser costs nothing here.
+const packagesDir = join(repoRoot, "packages");
 const ROOTS = [
   webRoot,
-  join(repoRoot, "packages", "editor"),
-  join(repoRoot, "packages", "tex"),
-  join(repoRoot, "packages", "react"),
+  ...readdirSync(packagesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(packagesDir, entry.name))
+    .filter((dir) => existsSync(join(dir, "package.json")))
+    .sort(),
 ];
 
 const OUT = join(webRoot, "public", "THIRD-PARTY-LICENSES.txt");
