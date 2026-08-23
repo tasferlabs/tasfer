@@ -570,6 +570,7 @@ export function PageLink({
               >
                 <PageLinkMenuContent
                   onClose={() => setContextPos(null)}
+                  isCoarse={false}
                   onColorChange={handleColorChange}
                   onRename={() => setShowRenameDialog(true)}
                   onMove={spaceId ? () => setShowMoveDialog(true) : undefined}
@@ -705,6 +706,7 @@ function ColorGrid({
 
 function PageLinkMenuContent({
   onClose,
+  isCoarse,
   onColorChange,
   onRename,
   onMove,
@@ -720,6 +722,8 @@ function PageLinkMenuContent({
   t,
 }: {
   onClose: () => void;
+  /** Touch surfaces get labelled rows instead of the compact icon pair. */
+  isCoarse: boolean;
   onColorChange: (color: string | null) => void;
   onRename: () => void;
   onMove?: () => void;
@@ -763,49 +767,97 @@ function PageLinkMenuContent({
             {t("page.movePage", "Move page")}
           </Button>
         )}
-        <Button
-          variant="unstyled"
-          size="unstyled"
-          className={menuItemClass}
-          onClick={() => {
-            onClose();
-            onAdd();
-          }}
-          disabled={isCreating}
-        >
-          {isCreating ? (
-            <LoaderCircle className="spin" size={18} />
-          ) : (
-            <Icons.Plus width={18} height={18} />
+        {/* The add cluster. On a pointer device the two positional inserts ride
+            along as icons on the "Add subpage" row rather than taking rows of
+            their own — they are the rarer choice, and the hover seam in the
+            sidebar is their primary entry point anyway. A drawer has no seam
+            and no tooltips, so there they get their own labelled rows. */}
+        <div className="flex items-center gap-1">
+          {/* The label button is `shrink-0 w-full` by way of the shared Button
+              base, so it needs a flexible wrapper or it shoves the icons past
+              the menu's edge. */}
+          <div className="min-w-0 flex-1">
+            <Button
+              variant="unstyled"
+              size="unstyled"
+              className={menuItemClass}
+              onClick={() => {
+                onClose();
+                onAdd();
+              }}
+              disabled={isCreating}
+            >
+              {isCreating ? (
+                <LoaderCircle className="spin" size={18} />
+              ) : (
+                <Icons.Plus width={18} height={18} />
+              )}
+              {t("page.addSubpage", "Add subpage")}
+            </Button>
+          </div>
+          {!isCoarse && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground shrink-0"
+                aria-label={t("page.addPageAbove", "Add page above")}
+                title={t("page.addPageAbove", "Add page above")}
+                onClick={() => {
+                  onClose();
+                  onAddAbove();
+                }}
+                disabled={isCreatingSibling}
+              >
+                <ArrowUpToLine size={16} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground shrink-0"
+                aria-label={t("page.addPageBelow", "Add page below")}
+                title={t("page.addPageBelow", "Add page below")}
+                onClick={() => {
+                  onClose();
+                  onAddBelow();
+                }}
+                disabled={isCreatingSibling}
+              >
+                <ArrowDownToLine size={16} />
+              </Button>
+            </>
           )}
-          {t("page.addSubpage", "Add subpage")}
-        </Button>
-        <Button
-          variant="unstyled"
-          size="unstyled"
-          className={menuItemClass}
-          onClick={() => {
-            onClose();
-            onAddAbove();
-          }}
-          disabled={isCreatingSibling}
-        >
-          <ArrowUpToLine size={18} />
-          {t("page.addPageAbove", "Add page above")}
-        </Button>
-        <Button
-          variant="unstyled"
-          size="unstyled"
-          className={menuItemClass}
-          onClick={() => {
-            onClose();
-            onAddBelow();
-          }}
-          disabled={isCreatingSibling}
-        >
-          <ArrowDownToLine size={18} />
-          {t("page.addPageBelow", "Add page below")}
-        </Button>
+        </div>
+        {isCoarse && (
+          <>
+            <Button
+              variant="unstyled"
+              size="unstyled"
+              className={menuItemClass}
+              onClick={() => {
+                onClose();
+                onAddAbove();
+              }}
+              disabled={isCreatingSibling}
+            >
+              <ArrowUpToLine size={18} />
+              {t("page.addPageAbove", "Add page above")}
+            </Button>
+            <Button
+              variant="unstyled"
+              size="unstyled"
+              className={menuItemClass}
+              onClick={() => {
+                onClose();
+                onAddBelow();
+              }}
+              disabled={isCreatingSibling}
+            >
+              <ArrowDownToLine size={18} />
+              {t("page.addPageBelow", "Add page below")}
+            </Button>
+          </>
+        )}
         <Button
           variant="unstyled"
           size="unstyled"
@@ -903,6 +955,7 @@ function PageLinkMenu({
 
   const contentProps = {
     onClose: () => onOpenChange(false),
+    isCoarse,
     onColorChange,
     onRename,
     onMove,

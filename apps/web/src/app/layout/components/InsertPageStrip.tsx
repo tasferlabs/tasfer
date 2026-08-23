@@ -56,7 +56,7 @@ export function InsertPageStrip({
       }}
     >
       <span className={style.insertStripPlus}>
-        <Icons.Plus width={10} height={10} />
+        <Icons.Plus width={11} height={11} />
       </span>
       <span className={style.insertStripLine} />
     </button>
