@@ -105,30 +105,38 @@ export default function DocsPage() {
               </div>
             </Link>
 
-            {/* Future SDK branch — visible without promising a supported API. */}
+            {/* Editor package branch — secondary, recessed. */}
             <Link
               className="dx-branch dx-branch--secondary"
-              to="/docs/editor/roadmap"
+              to="/docs/editor/install"
             >
               <div className="dx-branch-top">
                 <span className="dx-branch-ic">
                   <Icons.Terminal />
                 </span>
                 <span className="dx-branch-badge">
-                  {t("docs.hub.editor.badge", "roadmap · MIT")}
+                  {t("docs.hub.editor.badge", "the package · MIT")}
                 </span>
               </div>
               <h2 className="dx-branch-name mono">@tasfer/editor</h2>
               <p className="dx-branch-desc">
                 {t(
                   "docs.hub.editor.desc",
-                  "The Tasfer editor packages are MIT-licensed source. A supported public SDK is on the roadmap, but the packages are not published yet.",
+                  "The CRDT-first canvas editor as a standalone package. Read where the SDK stands, build your first editor, add collaboration, and dig into the full API reference.",
                 )}
               </p>
               <div className="dx-branch-links">
                 <BranchLink
-                  label={t("docs.hub.editor.link1", "View the roadmap")}
-                  to="/docs/editor/roadmap"
+                  label={t("docs.hub.editor.link1", "Installation")}
+                  to="/docs/editor/install"
+                />
+                <BranchLink
+                  label={t("docs.hub.editor.link2", "Your first editor")}
+                  to="/docs/editor/first-editor"
+                />
+                <BranchLink
+                  label={t("docs.hub.editor.link3", "API reference")}
+                  to="/docs/editor/api-editor"
                 />
               </div>
             </Link>
@@ -147,8 +155,8 @@ export default function DocsPage() {
             <Link to="/docs/app/getting-started">
               {t("docs.hub.foot.appDocs", "app docs")}
             </Link>
-            <Link to="/docs/editor/roadmap">
-              {t("docs.hub.foot.editorDocs", "SDK roadmap")}
+            <Link to="/docs/editor/install">
+              {t("docs.hub.foot.editorDocs", "editor docs")}
             </Link>
             <a href={REPO_URL} target="_blank" rel="noreferrer">
               {t("docs.hub.foot.source", "source")}

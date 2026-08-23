@@ -9,7 +9,7 @@
  * chaining.
  */
 
-import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
+import { getBaseDataSchema } from "../baseDataSchema";
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
 import { generateNKeysBetween } from "../sync/fractional-index";
 import { extractCounter, extractPeerId } from "../sync/id";
@@ -205,7 +205,7 @@ function generateEmptyTree(): Page {
  */
 export default function parsePage(
   tokens: Token[],
-  schema: DataSchema = getCompatibilityDataSchema(),
+  schema: DataSchema = getBaseDataSchema(),
   untypedBlockIds?: Set<string>,
 ): Page {
   const tree = generateEmptyTree();

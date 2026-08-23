@@ -234,7 +234,7 @@ export class QuoteNode extends TextNode {
    * Quote-specific editing affordances:
    * - Backspace at the start of an empty quote exits to a paragraph instead of
    *   merging into the previous block (shared
-   *   {@link TextNode.registerEmptyBackspaceExit}).
+   *   {@link registerEmptyBlockBackspaceExit}).
    * - Enter policy: inside text splits into two quotes; at the end keeps the
    *   quote and starts a paragraph below; on an empty quote converts to a
    *   paragraph.

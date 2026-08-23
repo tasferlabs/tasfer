@@ -9,6 +9,8 @@
 #
 #   tex            — no @tasfer deps
 #   editor         — reads tex source for types; needs nothing built first
+#   math           — reads editor + tex source for types; ordered after them
+#   code           — reads editor source for types; ordered after it anyway
 #   provider-core  — needs editor/dist
 #   provider-*     — need editor/dist (+ provider-core/dist)
 #   react          — needs editor/dist + tex/dist
@@ -17,7 +19,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-ORDER=(tex editor provider-core provider-indexeddb provider-relay provider-webrtc react)
+ORDER=(tex editor math code provider-core provider-indexeddb provider-relay provider-webrtc react)
 
 for p in "${ORDER[@]}"; do
   echo "▸ building @tasfer/$p"

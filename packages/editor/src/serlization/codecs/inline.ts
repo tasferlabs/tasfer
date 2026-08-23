@@ -7,7 +7,7 @@
  * format-agnostic about rich text.
  */
 
-import { resolveMarkRunsFromChars } from "../../inline-math-spans";
+import { resolveMarkRunsFromChars } from "../../mark-runs";
 import { titleInlineMarkdownProjection } from "../../sync/block-registry";
 import {
   findTitleBlock,

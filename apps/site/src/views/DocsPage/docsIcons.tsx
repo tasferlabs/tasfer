@@ -86,9 +86,8 @@ export const Icons: Record<string, Icon> = {
   ),
   Braces: (p) => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}>
-      <path d="M8 3c-1.5 0-2 1-2 2.5S6 8 5 9c1 1 1 2 1 3.5S5.5 15 5 15" />
-      <path d="M16 3c1.5 0 2 1 2 2.5S18 8 19 9c-1 1-1 2-1 3.5s.5 2.5 1 2.5" />
-      <path d="M8 21c-1.5 0-2-1-2-2.5" /><path d="M16 21c1.5 0 2-1 2-2.5" />
+      <path d="M9 3H8a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1" />
+      <path d="M15 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1" />
     </svg>
   ),
   Bolt: (p) => (

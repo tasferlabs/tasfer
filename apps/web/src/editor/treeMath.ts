@@ -9,13 +9,13 @@ import { isContentSelectionCollapsed } from "@tasfer/editor";
 import {
   printMathDocument,
   structuredToMathDocument,
-} from "@tasfer/editor/math/data";
+} from "@tasfer/math/data";
 import {
   contentPointToMathTreeCaret,
   mathSourceOffsetFromContentPoint,
   mathTreeCaretToContentSelection,
   trailingMathCommandRun,
-} from "@tasfer/editor/math";
+} from "@tasfer/math";
 import type { MathMenuTrigger } from "./mathCommandSearch";
 import type { AppEditor } from "../editorSchema";
 

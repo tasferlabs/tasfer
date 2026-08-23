@@ -367,9 +367,10 @@ export abstract class Mark {
   readonly metrics?: MarkMetrics;
 
   /**
-   * Whether `ChangeApi.toggleMark` may add/remove this mark directly.
+   * Whether a bare `ChangeApi.setMark(name)` may toggle this mark directly.
    * Marks that need extra input to apply (a link's url, math's LaTeX) set
-   * `false`; they're applied through their own dedicated actions instead.
+   * `false`; they're applied with explicit attrs and a range, or through their
+   * own dedicated actions.
    */
   readonly togglable: boolean = true;
 
@@ -412,7 +413,7 @@ export abstract class Mark {
    * state. The inline analogue of `Node.overlays`: identity + geometry only —
    * the host maps {@link NodeOverlay.key} to a component and mounts it at the
    * returned `rect`. Marks aren't tied to one block, so this is consulted once
-   * per registered mark by `editor.collectOverlays()`; read the run's
+   * per registered mark by `editor.host.collectOverlays()`; read the run's
    * block/range/position off `c.state`'s active menu. Return `[]` (or omit) for
    * none.
    */
@@ -424,7 +425,7 @@ export abstract class Mark {
    * {@link import("../nodes/Node").Node.registerActions}). This is how a mark
    * contributes pointer/cursor behavior — LinkMark claims Ctrl/Cmd+click
    * (`TEXT_CLICK`) to open the URL and observes `POINTER_MOVE` to drive its hover
-   * tooltip; MathMark observes `CURSOR_MOVED` to open the inline-math editor when
+   * tooltip; @tasfer/math's MathMark observes `CURSOR_MOVED` to open its editor when
    * the caret crosses a chip. The registry is per-editor-instance, so handlers
    * never leak across editors on the same page.
    */

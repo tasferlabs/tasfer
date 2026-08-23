@@ -4964,7 +4964,7 @@ permanent authorization for you to choose that version for the
 Library.
 
 ==============================================================================
-highlight.js@11.11.1  (BSD-3-Clause)
+highlight.js@11.11.2  (BSD-3-Clause)
 ==============================================================================
 
 BSD 3-Clause License

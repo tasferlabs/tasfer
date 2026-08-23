@@ -1,6 +1,7 @@
 {/* Tasfer app docs — Markdown guide. */}
 
-import { Callout, Lede } from "../../../docsComponents";
+import { Icons } from "../../../docsIcons";
+import { Callout, Card, CardGrid, Lede } from "../../../docsComponents";
 
 <Lede>
   يمنحك تصفير تجربة مرئية لاستخدام Markdown داخل محرر أصيل قائم على اللوحة.
@@ -63,3 +64,20 @@ import { Callout, Lede } from "../../../docsComponents";
   أو استخدامها كنسخة احتياطية. وتظل قاعدة بيانات تصفير المحلية هي مصدر
   الحقيقة للتحرير والمزامنة من نظير إلى نظير.
 </Callout>
+
+<h2 id="next">اقرأ بعد ذلك</h2>
+
+<CardGrid>
+  <Card
+    to="app/sync-relay"
+    icon={<Icons.Link />}
+    title="إعداد المزامنة والمُرحِّل"
+    desc="شارك مساحة برمز دعوة أو QR، وحررها من كل جهاز مباشرةً من نظير إلى نظير."
+  />
+  <Card
+    to="app/troubleshooting"
+    icon={<Icons.Help />}
+    title="استكشاف الأخطاء والأسئلة الشائعة"
+    desc="النسخ الاحتياطية، والعمل دون اتصال، والمزامنة التي تتعذّر — أكثر ما يُسأل عنه."
+  />
+</CardGrid>

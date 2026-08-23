@@ -1,3 +1,12 @@
 {
+  "packages/tex": "0.1.0",
+  "packages/editor": "0.1.0",
+  "packages/math": "0.1.0",
+  "packages/code": "0.1.0",
+  "packages/provider-core": "0.1.0",
+  "packages/provider-indexeddb": "0.1.0",
+  "packages/provider-relay": "0.1.0",
+  "packages/provider-webrtc": "0.1.0",
+  "packages/react": "0.1.0",
   "apps/desktop": "0.1.0"
 }

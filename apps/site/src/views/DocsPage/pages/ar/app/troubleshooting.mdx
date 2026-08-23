@@ -1,6 +1,7 @@
 {/* Tasfer app docs — Troubleshooting & FAQ. */}
 
-import { Callout, Lede, PropsTable } from "../../../docsComponents";
+import { Icons } from "../../../docsIcons";
+import { Callout, Card, CardGrid, Lede, PropsTable } from "../../../docsComponents";
 
 export const faqs = [
   [
@@ -60,3 +61,20 @@ export const faqs = [
     </tbody>
   </table>
 </div>
+
+<h2 id="next">اقرأ بعد ذلك</h2>
+
+<CardGrid>
+  <Card
+    to="app/support"
+    icon={<Icons.Users />}
+    title="الدعم"
+    desc="أين تسأل، وكيف تُبلغ عن خلل، وما الذي ترفقه مع بلاغك."
+  />
+  <Card
+    to="app/sync-relay"
+    icon={<Icons.Link />}
+    title="إعداد المزامنة والمُرحِّل"
+    desc="شارك مساحة برمز دعوة أو QR، وحررها من كل جهاز مباشرةً من نظير إلى نظير."
+  />
+</CardGrid>

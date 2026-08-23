@@ -20,14 +20,15 @@ import {
   StrongMark,
   TextNode,
 } from "@tasfer/editor";
-import { CodeNode, type NodeOverlay } from "@tasfer/editor/internal";
+import type { NodeOverlay } from "@tasfer/editor/internal";
+import { CodeNode } from "@tasfer/code";
 import {
   mathContentSelectionKind,
   mathInputRules,
   mathPasteRule,
   MathMark,
   MathNode,
-} from "@tasfer/editor/math";
+} from "@tasfer/math";
 import { appDataSchema } from "./appDataSchema";
 import { getPlatform } from "@/platform";
 

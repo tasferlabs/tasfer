@@ -8,6 +8,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@tasfer/editor": resolve(__dirname, "../../packages/editor/src"),
+      "@tasfer/math": resolve(__dirname, "../../packages/math/src"),
+      "@tasfer/code": resolve(__dirname, "../../packages/code/src"),
       "@tasfer/tex": resolve(__dirname, "../../packages/tex/src"),
       "@tasfer/react": resolve(__dirname, "../../packages/react/src"),
       "@tasfer/provider-core": resolve(

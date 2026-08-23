@@ -1,0 +1,74 @@
+name: npm Publish
+
+# Publishes the @tasfer/* packages to npm. Dispatch-only, on purpose: npm's
+# trusted publishing validates the *calling* workflow's filename, so a package
+# whose trusted publisher names `npm-publish.yml` can only be published by
+# running this workflow directly — never through `workflow_call` from another.
+#
+# Bootstrap (first release, before the packages exist on the registry):
+# publishes with the NPM_TOKEN secret. Once every package has a trusted
+# publisher configured on npmjs.com, delete the secret and the NODE_AUTH_TOKEN
+# line below — the CLI picks up the OIDC token by itself and attests provenance
+# without being asked.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run npm publish with --dry-run"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # OIDC for trusted publishing + provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: packages/*/package-lock.json
+          registry-url: https://registry.npmjs.org
+
+      # Node 22 bundles npm 10; trusted publishing needs 11.5.1 or newer.
+      - name: Use a current npm
+        run: npm install -g npm@latest
+
+      - name: Install
+        run: |
+          for p in tex editor math code provider-core provider-indexeddb provider-relay provider-webrtc react; do
+            (cd "packages/$p" && npm ci)
+          done
+
+      - name: Build in dependency order
+        run: bash packages/build-all.sh
+
+      - name: Pin intra-repo peer ranges
+        run: node scripts/release/pin-peer-ranges.mjs
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          for p in tex editor math code provider-core provider-indexeddb provider-relay provider-webrtc react; do
+            cd "packages/$p"
+            name=$(node -p "require('./package.json').name")
+            version=$(node -p "require('./package.json').version")
+            if npm view "$name@$version" version > /dev/null 2>&1; then
+              echo "▸ $name@$version already published, skipping"
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "▸ dry-run publish $name@$version"
+              npm publish --dry-run
+            else
+              echo "▸ publishing $name@$version"
+              npm publish
+            fi
+            cd ../..
+          done

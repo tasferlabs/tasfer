@@ -1,12 +1,16 @@
 /**
  * Declaration-emit project for tsdown's dts step (rolldown-plugin-dts) in the
- * packages that inline the repo-root `shared/` source (editor, tex).
+ * packages that reach outside their own directory for source — either the
+ * repo-root `shared/` helpers (editor, tex) or a sibling package's `src/`
+ * (math, code, which deep-import the engine).
  *
  * TypeScript 7's native compiler emits declarations only for files under the
  * dts project's root directory, which rolldown-plugin-dts fixes to this file's
- * directory. Rooting the project at the repo root lets `shared/` get
- * declarations alongside each package's `src/`. Not used for typechecking —
- * the per-package `tsconfig.json` remains the source of truth for that.
+ * directory. Rooting the project at the repo root lets `shared/` and the
+ * sibling packages get declarations alongside each package's `src/`. A package
+ * that omits this and points `paths` at a sibling's source instead scatters a
+ * stray `.d.ts` next to every out-of-root file it pulls in. Not used for
+ * typechecking — the per-package `tsconfig.json` remains the source of truth.
  */
 {
   "compilerOptions": {
@@ -31,9 +35,17 @@
 
     "paths": {
       "@shared/*": ["./shared/*"],
+      "@tasfer/editor": ["./packages/editor/src/index.ts"],
+      "@tasfer/editor/*": ["./packages/editor/src/*"],
       "@tasfer/tex": ["./packages/tex/src/index.ts"],
       "@tasfer/tex/*": ["./packages/tex/src/*"]
     }
   },
-  "include": ["packages/editor/src", "packages/tex/src", "shared"]
+  "include": [
+    "packages/editor/src",
+    "packages/tex/src",
+    "packages/math/src",
+    "packages/code/src",
+    "shared"
+  ]
 }

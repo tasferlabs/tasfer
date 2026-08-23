@@ -5,6 +5,6 @@
  */
 
 import { baseDataSchema } from "@tasfer/editor";
-import { mathDataExtension } from "@tasfer/editor/math/data";
+import { mathDataExtension } from "@tasfer/math/data";
 
 export const appDataSchema = baseDataSchema.extend(mathDataExtension());

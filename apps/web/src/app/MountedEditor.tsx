@@ -29,13 +29,11 @@ import {
   ENTER_IMAGE_REPOSITION,
   EXIT_IMAGE_REPOSITION,
   IMAGE_PASTE,
-  INDENT_CODE,
   INDENT_LIST_ITEM,
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
   OPEN_CONTEXT_MENU,
   OPEN_LINK,
-  OUTDENT_CODE,
   OUTDENT_LIST_ITEM,
   REGION_DRAG_START,
   SCROLL,
@@ -55,13 +53,17 @@ import {
   mathMatrixContextInRange,
   mathMatrixResize,
   mathSourceAtEdge,
-} from "@tasfer/editor/math";
+} from "@tasfer/math";
 import {
   CODE_LANGUAGES,
+  codeLanguageLabel,
+  INDENT_CODE,
+  OUTDENT_CODE,
+} from "@tasfer/code";
+import {
   cleanSnapshotForSave,
   clearFailedImageCache,
   canHaveFormats,
-  codeLanguageLabel,
   isAndroid,
   isTextualBlock,
   isTouchDevice,

@@ -1,6 +1,7 @@
 {/* Tasfer app docs — Sync & relay setup. */}
 
-import { Callout, Lede, PropsTable, Step, Steps } from "../../docsComponents";
+import { Icons } from "../../docsIcons";
+import { Callout, Card, CardGrid, Lede, PropsTable, Step, Steps } from "../../docsComponents";
 
 <Lede>
   Nothing syncs until you share it. When you share a space, your devices talk
@@ -59,3 +60,20 @@ There is currently no in-app setting to change it at runtime — pointing at you
   { name: "Connected, but not directly", type: "Strict NAT both ends", desc: "Expected — sync still works, just via the encrypted relay fallback. Nothing to fix." },
   { name: "Invite code rejected", type: "Code mistyped or truncated", desc: "Codes are long. Copy and paste them whole, or use the QR code or invite file instead." },
 ]} />
+
+<h2 id="next">What to read next</h2>
+
+<CardGrid>
+  <Card
+    to="app/self-hosting"
+    icon={<Icons.Server />}
+    title="Self-hosting the relay"
+    desc="Run the signaling relay as your own Cloudflare Worker — configuration and operational notes."
+  />
+  <Card
+    to="app/privacy"
+    icon={<Icons.Shield />}
+    title="Privacy & data"
+    desc="Exactly what stays on your device and what (nothing) we collect."
+  />
+</CardGrid>

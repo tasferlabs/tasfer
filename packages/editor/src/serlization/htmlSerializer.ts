@@ -4,12 +4,14 @@
  * Per-block-type markup lives in the block codecs (./codecs). This file owns
  * the cross-block concerns: <ul>/<ol> group wrapping (adjacent list items
  * share one parent element), edge trimming of empty blocks, and the document
- * shell. Hosts can inject feature replacement renderers; schema-optional legacy
- * calls retain the historical built-in math renderer.
+ * shell. Feature-owned replacements (math SVG, diagrams) are rendered by a
+ * host-supplied `renderReplacement`; with none supplied a feature codec falls
+ * back to its source text rather than core reaching for a renderer it would
+ * have to import. `mathReplacementRenderer` from `@tasfer/math` is the
+ * drop-in for math.
  */
 
-import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
-import { renderToSVG } from "../nodes/math";
+import { getBaseDataSchema } from "../baseDataSchema";
 import { iterateVisibleChars } from "../sync/char-runs";
 import type { DataSchema } from "../sync/schema";
 import { hasStructuredBlockAuthority } from "../sync/structured-content";
@@ -45,15 +47,6 @@ const STYLES = `
   @media print { html { margin: 0; padding: 0; } body { margin: 0; padding: 0 0.3in; max-width: none; } img.full-bleed { width: calc(100% + 0.6in); margin: 1em -0.3in; } body > *:first-child { margin-top: 0; } a { color: inherit; text-decoration: none; } }
 `;
 
-function renderLegacyReplacement(
-  type: string,
-  source: string,
-  displayMode: boolean,
-): string {
-  if (type !== "math") throw new Error(`No renderer for ${type}`);
-  return renderToSVG(source, displayMode);
-}
-
 export interface HtmlSerializeOptions {
   title?: string;
   /** Asset url → replacement url (e.g. data URIs for self-contained export). */
@@ -68,7 +61,10 @@ export interface HtmlSerializeOptions {
   extraCss?: string;
   /** Block/mark types in play. Defaults to the built-in set. */
   schema?: DataSchema;
-  /** Render feature-owned replacements such as math or diagrams. */
+  /**
+   * Render feature-owned replacements such as math or diagrams. Omitted, a
+   * feature codec emits its source text instead (math → `$$…$$`).
+   */
   renderReplacement?: ReplacementRenderer;
   /**
    * Emit editable source instead of rendered replacements (math → `$$…$$`
@@ -126,9 +122,8 @@ export function serializeToHTMLFragment(
   blocks: Block[],
   options: HtmlSerializeOptions = {},
 ): string {
-  const schema = options.schema ?? getCompatibilityDataSchema();
-  const renderReplacement =
-    options.renderReplacement ?? renderLegacyReplacement;
+  const schema = options.schema ?? getBaseDataSchema();
+  const renderReplacement = options.renderReplacement;
   const live = blocks.filter((b) => !b.deleted);
   while (live.length > 0 && isEmptyTextualBlock(live[0], schema)) live.shift();
   while (live.length > 0 && isEmptyTextualBlock(live[live.length - 1], schema))

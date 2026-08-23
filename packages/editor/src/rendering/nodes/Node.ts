@@ -437,7 +437,7 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
    * (read off `c.state`). Identity + geometry only — the actual React/DOM lives
    * host-side, keyed by {@link NodeOverlay.key}, so the engine stays
    * framework-agnostic. Collected per visible block by
-   * `editor.collectOverlays()`; the host maps each `key` to a component and
+   * `editor.host.collectOverlays()`; the host maps each `key` to a component and
    * mounts it at the returned `rect`. Return `[]` (or omit) for no overlay.
    */
   overlays?(c: NodeRegionCtx): readonly NodeOverlay[];

@@ -115,12 +115,3 @@ export { currentFontFamily, getFontMetrics, onFontsReady } from "./fonts";
 // for a cursor it paints itself, the same color the on-canvas caret uses).
 export { getEditorStyles } from "./styles";
 
-// ── Optional code-block node ─────────────────────────────────────────────────
-// `CodeNode` is an opt-in node a host registers in its schema; the highlight
-// catalog drives its language UI. Lives here until promoted to a stable node API.
-export {
-  CODE_LANGUAGES,
-  codeLanguageLabel,
-  type CodeLanguageOption,
-} from "./nodes/code-highlight";
-export { CodeNode } from "./nodes/CodeNode";

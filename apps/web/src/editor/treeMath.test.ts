@@ -1,8 +1,8 @@
 import {
   mathContentSelectionFromSourceOffset,
   mathMatrixContext,
-} from "@tasfer/editor/math";
-import { parseMathDocumentInit } from "@tasfer/editor/math/data";
+} from "@tasfer/math";
+import { parseMathDocumentInit } from "@tasfer/math/data";
 import { describe, expect, it } from "vitest";
 import type { AppEditor } from "../editorSchema";
 import { treeMathAtAnchor, treeMathAtFocus } from "./treeMath";

@@ -12,6 +12,7 @@ import {
   DELETE_WORD_FORWARD,
   escapeAboveSelfContainedBlock,
   escapeBelowSelfContainedBlock,
+  INSERT_TAB,
   INSERT_TEXT,
   REVERT_INPUT_RULE,
   SELECT_ALL,
@@ -52,11 +53,7 @@ import {
   TOGGLE_STRIKE,
   TOGGLE_STRONG,
 } from "../rendering/marks";
-import {
-  INDENT_LIST_ITEM,
-  INSERT_TAB,
-  OUTDENT_LIST_ITEM,
-} from "../rendering/nodes";
+import { INDENT_LIST_ITEM, OUTDENT_LIST_ITEM } from "../rendering/nodes";
 import { getBlockDirection } from "../rtl";
 import {
   getContentSelectionFromViewport,
@@ -87,7 +84,7 @@ import { ensureCursorVisible } from "./eventUtils";
 import type { InteractionSession } from "./interaction-session";
 
 // After an arrow-key caret move, dispatch CURSOR_MOVED so marks can react to the
-// caret crossing an inline boundary — MathMark opens the inline-math editor when
+// caret crossing an inline boundary — @tasfer/math's MathMark opens its editor when
 // the caret steps across a chip. Gated on staying within the same block (a move
 // to another block isn't a "cross"); the engine names no mark type.
 function dispatchCursorCrossed(

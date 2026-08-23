@@ -134,7 +134,7 @@ export const POINTER_MOVE = stateAction<{
 /**
  * A caret move that may have crossed an inline span/boundary — dispatched after
  * an Arrow Left/Right move, gated on staying within the same block (matching the
- * old `maybeOpenInlineMathOnArrowCross`). MathMark observes it to open the inline-
+ * old `maybeOpenInlineMathOnArrowCross`). `@tasfer/math`'s MathMark observes it to open the inline-
  * math editor when the caret steps across a math chip. Default is a no-op; do not
  * broaden the dispatch to other caret moves or unrelated moves would trigger it.
  */

@@ -4,7 +4,7 @@ import {
   filterMathCommands,
   MATH_COMMANDS,
   type MathCommand,
-} from "@tasfer/editor/math";
+} from "@tasfer/math";
 
 /** `\` completes LaTeX control words; `/` searches math elements by name. */
 export type MathMenuTrigger = "\\" | "/";

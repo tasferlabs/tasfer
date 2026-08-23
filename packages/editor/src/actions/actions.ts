@@ -1,7 +1,7 @@
 import { CONVERT_STRUCTURED_BLOCK, TEXT_INPUTTED } from "../action-bus";
 import { isCJKCharacter } from "../cjk";
 import { nextCodePointEnd, prevCodePointStart } from "../code-points";
-import { resolveMarkRuns } from "../inline-math-spans";
+import { resolveMarkRuns } from "../mark-runs";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isBlockRTL } from "../rtl";
 import {

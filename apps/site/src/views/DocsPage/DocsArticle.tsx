@@ -9,7 +9,6 @@ import { Icons } from "./docsIcons";
 import { SiteHeader } from "@/components/SiteHeader";
 import { DRAWER_MEDIA, Sidebar } from "./Sidebar";
 import { Toc } from "./Toc";
-import { Pager } from "./Pager";
 import { FrameworkProvider, PkgMgrProvider } from "./docsComponents";
 import { PAGE, type PageMeta } from "./docsNav";
 import "./DocsPage.css";
@@ -19,7 +18,7 @@ function Breadcrumb({ meta }: { meta: PageMeta }) {
   const sectionHome =
     meta.sectionId === "app"
       ? "/docs/app/getting-started"
-      : "/docs/editor/roadmap";
+      : "/docs/editor/install";
   return (
     <>
       <div className="dx-breadcrumb">
@@ -100,7 +99,7 @@ function DocsNav({
 }
 
 /** Documentation article shell: header, searchable sidebar, prose column,
- *  right-rail TOC, pager, and the mobile drawer. Routed at
+ *  right-rail TOC, and the mobile drawer. Routed at
  *  /docs/:section/:slug. */
 export default function DocsArticle({
   section,
@@ -188,7 +187,6 @@ export default function DocsArticle({
               <article className="dx-article">
                 <Breadcrumb meta={meta} />
                 <PageComp />
-                <Pager route={route} />
               </article>
             </main>
             <Toc route={route} />

@@ -13,7 +13,7 @@ import {
   getStructuredMathSource,
   mathContentSelectionFromSourceOffset,
   resolveStructuredInlineMathRuns,
-} from "@tasfer/editor/math";
+} from "@tasfer/math";
 
 export type FindMatchSelection =
   | {

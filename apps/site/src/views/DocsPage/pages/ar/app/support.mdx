@@ -1,6 +1,7 @@
 {/* Tasfer app docs — Support. */}
 
-import { Callout, Lede } from "../../../docsComponents";
+import { Icons } from "../../../docsIcons";
+import { Callout, Card, CardGrid, Lede } from "../../../docsComponents";
 
 <Lede>
   تصفير مشروع مفتوح المصدر. احصل على المساعدة من المجتمع، أو تواصل معنا مباشرةً
@@ -42,3 +43,20 @@ GitHub](https://github.com/tasferlabs/tasfer/discussions). ويمكنك أيضً
 
 راجع [الخصوصية والبيانات](/docs/app/privacy) لمعرفة تفاصيل التخزين المحلي
 والمزامنة المشفّرة والوصول إلى الشبكة وبيانات التشخيص.
+
+<h2 id="next">اقرأ بعد ذلك</h2>
+
+<CardGrid>
+  <Card
+    to="app/troubleshooting"
+    icon={<Icons.Help />}
+    title="استكشاف الأخطاء والأسئلة الشائعة"
+    desc="النسخ الاحتياطية، والعمل دون اتصال، والمزامنة التي تتعذّر — أكثر ما يُسأل عنه."
+  />
+  <Card
+    to="app/sync-relay"
+    icon={<Icons.Link />}
+    title="إعداد المزامنة والمُرحِّل"
+    desc="شارك مساحة برمز دعوة أو QR، وحررها من كل جهاز مباشرةً من نظير إلى نظير."
+  />
+</CardGrid>

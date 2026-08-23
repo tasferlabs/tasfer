@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    // This package deep-imports the engine (`@tasfer/editor/nodes/TextNode`,
+    // …), so it resolves the sibling from SOURCE rather than from the built
+    // `.d.mts` declarations: an extensionless subpath does not resolve to a
+    // `.d.mts` file, so the dist mapping the leaf packages use cannot serve a
+    // deep-import consumer. Same arrangement as apps/web. `@tasfer/editor`
+    // stays a peer dependency and is externalized at build time either way.
+    "paths": {
+      "*": ["./*"],
+
+      "@tasfer/editor": ["../editor/src/index.ts"],
+      "@tasfer/editor/*": ["../editor/src/*"],
+      "@tasfer/tex": ["../tex/src/index.ts"],
+      "@tasfer/tex/*": ["../tex/src/*"],
+      "@shared/*": ["../../shared/*"]
+    }
+  },
+  "include": ["src"]
+}

@@ -138,8 +138,8 @@ Interactive math editing uses the structured `MathDocument` model:
 
 ```ts
 import { baseDataSchema, baseSchema } from "@tasfer/editor";
-import { mathExtension } from "@tasfer/editor/math";
-import { mathDataExtension } from "@tasfer/editor/math/data";
+import { mathExtension } from "@tasfer/math";
+import { mathDataExtension } from "@tasfer/math/data";
 
 baseSchema.use(mathExtension());
 baseDataSchema.extend(mathDataExtension());
@@ -225,7 +225,7 @@ script-nestling differ from KaTeX by a few hundredths of an em.
     approximated). A headless `paint/render.test.ts` validates the paint output.
 - **Phase 4 — canvas editor integration** ✅ the `edit/` geometry
   (`hitTest` / `caretRect` / `selectionRects`) is built and tested; the opt-in
-  `MathNode` and `MathMark` from `@tasfer/editor/math` paint **directly** via
+  `MathNode` and `MathMark` from `@tasfer/math` paint **directly** via
   `layoutMath` + `paintMath` (no SVG or bitmaps). The 3.5 MB MathJax bundle, its
   rasterization path, and the service-worker size workaround are deleted.
 - **Phase 5 — structured editing** 🟡 `MathDocument`, canonical printing,

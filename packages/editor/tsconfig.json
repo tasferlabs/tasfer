@@ -23,13 +23,10 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
 
-    /* Resolve the repo-root shared helpers and the sibling @tasfer/tex
-       source the same way vitest/apps-web do — needed for a standalone
-       typecheck and for tsdown's .d.ts emit. */
+    /* Resolve the repo-root shared helpers the same way vitest/apps-web do —
+       needed for a standalone typecheck and for tsdown's .d.ts emit. */
     "paths": {
-      "@shared/*": ["../../shared/*"],
-      "@tasfer/tex": ["../tex/src/index.ts"],
-      "@tasfer/tex/*": ["../tex/src/*"]
+      "@shared/*": ["../../shared/*"]
     }
   },
   "include": ["src"]

@@ -45,7 +45,7 @@ import {
   type WrappedLine,
   wrapText,
 } from "../fonts";
-import { resolveMarkRunsFromChars } from "../inline-math-spans";
+import { resolveMarkRunsFromChars } from "../mark-runs";
 import {
   getBlockTextContent,
   memoizeNodeLayout,
@@ -113,7 +113,7 @@ import {
   iterateAllChars,
 } from "../sync/char-runs";
 import type { StructuredContentMap } from "../sync/structured-content";
-import type { CodeBlock } from "./CodeNode";
+import type { CodeBlock } from "./code-block";
 import type { ListBlock } from "./ListNode";
 import type { QuoteBlock } from "./QuoteNode";
 

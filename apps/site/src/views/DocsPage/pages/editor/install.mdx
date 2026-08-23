@@ -1,0 +1,136 @@
+{/* @tasfer/editor docs — Installation. */}
+
+import { Icons } from "../../docsIcons";
+import { Callout, Card, CardGrid, ForFramework, FrameworkTabs, InstallTabs, Lede, LicenseCard } from "../../docsComponents";
+
+<Lede>
+  `@tasfer/editor` is the editor engine behind the Tasfer app, published as a
+  standalone, framework-agnostic package. **It paints text onto a `<canvas>`
+  instead of the DOM, runs with no backend at all, and lets several people edit
+  the same document at once — offline, out of order, and their changes still
+  merge without conflicts.** The structure underneath is a
+  [CRDT](/docs/editor/concepts), but the API just looks like an editor.
+</Lede>
+
+<LicenseCard>Released under the **MIT license**. Use it in commercial and closed-source products, fork it, rebrand it — no copyleft, no attribution clause beyond keeping the license file. (The Tasfer *app* is AGPL-3.0; this package is deliberately permissive.)</LicenseCard>
+
+<h2 id="install">Install</h2>
+
+Add the package with your package manager of choice:
+
+<InstallTabs pkg="@tasfer/editor" />
+
+The core package pulls in one small runtime dependency — `turndown`, for HTML→markdown paste. The CRDT and the canvas renderer ship inside it. Anything with a heavy dependency of its own is a separate package you opt into: math ([`@tasfer/math`](/docs/editor/api-schema#math), which owns the `@tasfer/tex` layout engine) and syntax-highlighted code (`@tasfer/code`, which owns the highlight.js grammar set) are not in your bundle unless you install them. It ships both ESM and CommonJS builds with types bundled — no `@types` package to install.
+
+<ForFramework fw="js">
+
+You only add more packages when you want math or a network provider:
+
+<InstallTabs pkg="@tasfer/math @tasfer/tex @tasfer/provider-relay" />
+
+</ForFramework>
+
+<ForFramework fw="react">
+
+The React binding lives in its own package. Add it next to the engine — it is a thin layer over the same handle, not a fork of it — plus a provider when you want sync:
+
+<InstallTabs pkg="@tasfer/react @tasfer/provider-relay" />
+
+`react` is a peer dependency of the binding, not a bundled copy.
+
+</ForFramework>
+
+<h2 id="requirements">Requirements</h2>
+
+- **A browser with a 2D `<canvas>` context and `ResizeObserver`** — every evergreen browser since ~2020. The engine paints the document itself and reads input through a hidden `contenteditable` it creates for you.
+- **Nothing else.** No server, no `.wasm` to serve from `public/`, no bundler plugin, no polyfills. The document model runs without a DOM, so you can build, read, and persist a document in Node.
+
+<h2 id="first">A 30-second editor</h2>
+
+The smallest thing that works — an editable document with markdown shortcuts, history, and a blinking cursor.
+
+<ForFramework fw="js">
+
+Mount the engine into an element you own, and read the document back as markdown whenever it changes:
+
+</ForFramework>
+
+<ForFramework fw="react">
+
+Render the `<Editor>` component — it owns and sizes its host element for you and reports every edit through `onChange`:
+
+</ForFramework>
+
+<FrameworkTabs>
+
+```ts file="main.ts"
+import { createEditor } from "@tasfer/editor";
+
+const editor = createEditor({
+  element: document.querySelector("#editor")!,
+  markdown: "# Hello\n\nStart typing — *markdown* shortcuts just work.",
+  autofocus: true,
+});
+
+// Read it back at any time, as plain markdown:
+editor.on("change", () => {
+  localStorage.setItem("draft", editor.getMarkdown());
+});
+```
+
+```tsx file="App.tsx"
+import { Editor } from "@tasfer/react";
+
+export default function App() {
+  return (
+    <Editor
+      markdown={"# Hello\n\nStart typing — *markdown* shortcuts just work."}
+      autofocus
+      style={{ height: "70vh" }}
+      // Read it back as plain markdown on every edit:
+      onChange={(markdown) => localStorage.setItem("draft", markdown)}
+    />
+  );
+}
+```
+
+</FrameworkTabs>
+
+<Callout kind="tip" title="That document is already a CRDT.">Even with no provider attached, the editor's value is backed by a replicated data structure. Wiring up sync later is additive — you never rewrite your document model to "make it collaborative."</Callout>
+
+<h2 id="next">What to read next</h2>
+
+<CardGrid>
+  <Card
+    to="editor/quickstart"
+    icon={<Icons.Bolt />}
+    title="Quick start"
+    desc="The full mental model in five minutes — value, state, commands, and events."
+  />
+  <Card
+    to="editor/concepts"
+    icon={<Icons.Layers />}
+    title="Core concepts"
+    desc="Why CRDT-first changes how you think about an editor's document."
+  />
+  <Card
+    to="editor/first-editor"
+    icon={<Icons.Compass />}
+    title="Your first editor"
+    desc="A guided tutorial: toolbar, persistence, and live collaboration."
+  />
+  <Card
+    to="editor/api-editor"
+    icon={<Icons.Braces />}
+    title="Editor API"
+    desc="Every option, method, and event on the Editor instance."
+  />
+  <ForFramework fw="react">
+    <Card
+      to="editor/api-react"
+      icon={<Icons.Braces />}
+      title="React bindings"
+      desc="The Editor component, useEditor, and the state hooks."
+    />
+  </ForFramework>
+</CardGrid>

@@ -7,6 +7,7 @@
  *     doc: editor.doc,
  *     room: "team-notes",
  *     relay: "wss://relay.tasfer.app",
+ *     secret: roomSecret,          // shared out of band; the relay never sees it
  *   });
  *
  *   provider.on("sync", (s) => {
@@ -32,6 +33,17 @@ export interface CreateRelayProviderOptions {
   relay: string;
   /** This replica's stable id. Defaults to `doc.peerId`. */
   peerId?: string;
+  /**
+   * Shared room secret — a passphrase or raw key bytes, distributed to peers
+   * out of band (an invite link, your own auth). Document frames are sealed
+   * with AES-256-GCM under a key derived from it, so the relay forwards bytes
+   * it cannot read.
+   *
+   * `null` opts out and sends plaintext, which hands the relay operator every
+   * document in the room. Only reasonable when you run the relay yourself, or
+   * already encrypt above this provider.
+   */
+  secret: string | Uint8Array | null;
 }
 
 export function createRelayProvider(
@@ -41,6 +53,7 @@ export function createRelayProvider(
     room: options.room,
     relay: options.relay,
     peerId: options.peerId ?? options.doc.peerId,
+    secret: options.secret,
   });
   return createProvider({ doc: options.doc, transport });
 }

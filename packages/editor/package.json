@@ -1,7 +1,6 @@
 {
   "name": "@tasfer/editor",
   "version": "0.1.0",
-  "private": true,
   "description": "Canvas-based, CRDT-powered block editor engine (headless core).",
   "type": "module",
   "license": "MIT",
@@ -10,11 +9,14 @@
     "url": "git+https://github.com/tasferlabs/tasfer.git",
     "directory": "packages/editor"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "prepublishOnly": "node -e \"throw new Error('Publishing is disabled while the SDK is internal')\"",
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "dev": "tsdown --watch",
@@ -43,24 +45,34 @@
         "default": "./dist/index.cjs"
       }
     },
-    "./math": {
+    "./rendering/marks": {
       "import": {
-        "types": "./dist/math/index.d.mts",
-        "default": "./dist/math/index.mjs"
+        "types": "./dist/rendering/marks/index.d.mts",
+        "default": "./dist/rendering/marks/index.mjs"
       },
       "require": {
-        "types": "./dist/math/index.d.cts",
-        "default": "./dist/math/index.cjs"
+        "types": "./dist/rendering/marks/index.d.cts",
+        "default": "./dist/rendering/marks/index.cjs"
       }
     },
-    "./math/data": {
+    "./rendering/nodes": {
       "import": {
-        "types": "./dist/math/data.d.mts",
-        "default": "./dist/math/data.mjs"
+        "types": "./dist/rendering/nodes/index.d.mts",
+        "default": "./dist/rendering/nodes/index.mjs"
       },
       "require": {
-        "types": "./dist/math/data.d.cts",
-        "default": "./dist/math/data.cjs"
+        "types": "./dist/rendering/nodes/index.d.cts",
+        "default": "./dist/rendering/nodes/index.cjs"
+      }
+    },
+    "./serlization/codecs": {
+      "import": {
+        "types": "./dist/serlization/codecs/index.d.mts",
+        "default": "./dist/serlization/codecs/index.mjs"
+      },
+      "require": {
+        "types": "./dist/serlization/codecs/index.d.cts",
+        "default": "./dist/serlization/codecs/index.cjs"
       }
     },
     "./*": {
@@ -75,13 +87,7 @@
     }
   },
   "peerDependencies": {
-    "@tasfer/tex": "*",
     "typescript": ">=5.9.3"
-  },
-  "peerDependenciesMeta": {
-    "@tasfer/tex": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "@babel/core": "^8.0.1",
@@ -99,7 +105,6 @@
     "vitest": "^4.1.8"
   },
   "dependencies": {
-    "lowlight": "^3.3.0",
     "turndown": "^7.2.4"
   }
 }

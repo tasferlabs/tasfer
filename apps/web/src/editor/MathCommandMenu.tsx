@@ -9,7 +9,7 @@ import {
   type MathCommand,
   mathCommandInsertion,
   renderToSVG,
-} from "@tasfer/editor/math";
+} from "@tasfer/math";
 import {
   mathElementLabel,
   type MathMenuMode,
