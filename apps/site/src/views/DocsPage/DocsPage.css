@@ -451,7 +451,7 @@ body:has(.dx-page) .site-banner-inner {
 
 /* ============================================================
    Documentation shell — sidebar · prose · TOC, code blocks,
-   callouts, tables, steps, cards, pager, mobile drawer.
+   callouts, tables, steps, cards, mobile drawer.
    Ported from the Claude Design "Documentation" prototype
    (docs.css), scoped under .dx-page so it inherits the app's
    light/dark switch and never leaks into the rest of the app.
@@ -1299,57 +1299,6 @@ body:has(.dx-page) .site-banner-inner {
 .dx-page .dx-btn-ghost:hover {
   border-color: var(--fg);
 }
-.dx-page .dx-pager {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  margin-top: 64px;
-  padding-top: 28px;
-  border-top: 1px solid var(--border);
-}
-.dx-page .dx-pager-link {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 16px 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--cy-radius-lg);
-  text-decoration: none;
-  transition:
-    border-color var(--cy-duration-fast),
-    background var(--cy-duration-fast);
-}
-.dx-page .dx-pager-link:hover {
-  border-color: oklch(from var(--primary) l c h / 0.5);
-}
-.dx-page .dx-pager-link.next {
-  text-align: end;
-  align-items: flex-end;
-}
-.dx-page .dx-pager-dir {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-terminal);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--cy-muted-fg);
-}
-.dx-page .dx-pager-title {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--fg);
-}
-.dx-page .dx-pager-link:hover .dx-pager-title {
-  color: var(--primary);
-}
-
-@media (max-width: 560px) {
-  .dx-page .dx-pager {
-    grid-template-columns: 1fr;
-  }
-}
 .dx-page .dx-toc {
   position: sticky;
   top: var(--dx-chrome-top);
@@ -1579,7 +1528,6 @@ body:has(.dx-page) .site-banner-inner {
 [dir="rtl"] .dx-page .dx-breadcrumb,
 [dir="rtl"] .dx-page .dx-nav-section-head,
 [dir="rtl"] .dx-page .dx-toc-label,
-[dir="rtl"] .dx-page .dx-pager-dir,
 [dir="rtl"] .dx-page .dx-branch-badge,
 [dir="rtl"] .dx-page .dx-license-badge,
 [dir="rtl"] .dx-page .dx-meta-chip,

@@ -1,7 +1,7 @@
 /** Generic authoring seam for marks that own structured attachments. */
 
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "../feature-facets";
-import { type MarkRunData, resolveMarkRuns } from "../inline-math-spans";
+import { type MarkRunData, resolveMarkRuns } from "../mark-runs";
 import {
   moveCursorToPosition,
   startSelection,

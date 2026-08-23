@@ -1,6 +1,7 @@
 {/* Tasfer app docs — Markdown guide. */}
 
-import { Callout, Lede } from "../../docsComponents";
+import { Icons } from "../../docsIcons";
+import { Callout, Card, CardGrid, Lede } from "../../docsComponents";
 
 <Lede>
   Tasfer gives Markdown a visual, canvas-native editor. Type familiar Markdown
@@ -63,3 +64,20 @@ Export one page as Markdown from its page menu. To back up every page at once, u
   or use as a backup. Tasfer's local database remains the source of truth for
   editing and peer-to-peer sync.
 </Callout>
+
+<h2 id="next">What to read next</h2>
+
+<CardGrid>
+  <Card
+    to="app/sync-relay"
+    icon={<Icons.Link />}
+    title="Sync & relay setup"
+    desc="Share a space with an invite code or QR and edit it from every device, peer to peer."
+  />
+  <Card
+    to="app/troubleshooting"
+    icon={<Icons.Help />}
+    title="Troubleshooting & FAQ"
+    desc="Backups, offline edits, and sync that refuses to connect — the questions people actually ask."
+  />
+</CardGrid>

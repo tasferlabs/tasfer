@@ -23,7 +23,7 @@ import { serializeToMarkdown } from "@tasfer/editor";
 import { serializeToHTML } from "@tasfer/editor";
 import { collectAssetRefs } from "@tasfer/editor";
 import { extractTitleFromBlocks } from "@tasfer/editor/internal";
-import { renderToSVG } from "@tasfer/editor/math";
+import { renderToSVG } from "@tasfer/math";
 import { getTexFontUrl } from "@/fonts";
 import { extFromMime, fetchImageBlob } from "@/lib/exportAssets";
 import { getPage } from "../api/pages.api";

@@ -7,7 +7,17 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const linkedPackages = ["editor", "tex", "react", "provider-core"];
+// Keep in sync with the `@tasfer/*` aliases in vite.config.ts / vitest.config.ts:
+// each aliased package is compiled from source here, so its own install must
+// have run (code pulls lowlight, editor pulls turndown).
+const linkedPackages = [
+  "editor",
+  "math",
+  "code",
+  "tex",
+  "react",
+  "provider-core",
+];
 
 for (const name of linkedPackages) {
   const dir = resolve(repoRoot, "packages", name);

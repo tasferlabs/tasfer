@@ -200,6 +200,13 @@
   -webkit-app-region: no-drag;
 }
 
+/* Opt back in: a slot child that is a text strip, not a control — the archived
+   banner spans the whole bar, so blanket no-drag would leave the window with
+   almost nothing to grab. Controls inside it stay no-drag via the rules above. */
+:global(body.electron) .appHeaderSlot > [data-window-drag] {
+  -webkit-app-region: drag;
+}
+
 .iconButton {
   background-color: transparent;
   border: none;

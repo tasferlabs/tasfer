@@ -72,7 +72,7 @@ export default function SettingsPage() {
       <div className={style.scrollHost}>
         <div className={style.container}>
           <TopActionBarPortal>
-            <span className={style.heading}>
+            <span className={style.heading} data-window-drag>
               {t("settings.title", "Settings")}
             </span>
           </TopActionBarPortal>
@@ -121,7 +121,7 @@ export default function SettingsPage() {
     <div className={style.scrollHost}>
       <div className={style.container}>
         <TopActionBarPortal>
-          <span className={style.heading}>
+          <span className={style.heading} data-window-drag>
             {t("settings.title", "Settings")}
           </span>
         </TopActionBarPortal>

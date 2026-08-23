@@ -1,6 +1,7 @@
 {/* Tasfer app docs — Privacy & data. */}
 
-import { Callout, Lede } from "../../docsComponents";
+import { Icons } from "../../docsIcons";
+import { Callout, Card, CardGrid, Lede } from "../../docsComponents";
 
 export const ledger = [
   ["Your email address", "never asked"],
@@ -45,3 +46,20 @@ export const ledger = [
 <h2 id="keys">Your keys</h2>
 
 Your identity is a keypair generated on your device the first time the app runs. It is stored in the app's local database, its private half is never transmitted, and it is never escrowed with anyone. There is no key-recovery service — which also means there is no master key for anyone to compel. Your devices hold the only copies of your work, so treat the markdown export in **Settings → Data** as your backup: if you lose every device, there is no server to recover from.
+
+<h2 id="next">What to read next</h2>
+
+<CardGrid>
+  <Card
+    to="app/sync-relay"
+    icon={<Icons.Link />}
+    title="Sync & relay setup"
+    desc="Share a space with an invite code or QR and edit it from every device, peer to peer."
+  />
+  <Card
+    to="app/self-hosting"
+    icon={<Icons.Server />}
+    title="Self-hosting the relay"
+    desc="Run the signaling relay as your own Cloudflare Worker — configuration and operational notes."
+  />
+</CardGrid>

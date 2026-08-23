@@ -2247,7 +2247,10 @@ export default function CalendarPage() {
             {isRtl ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
           </button>
         </div>
-        <span className={clsx(style.headerTitle, style.headerTitleDesktop)}>
+        <span
+          className={clsx(style.headerTitle, style.headerTitleDesktop)}
+          data-window-drag
+        >
           {viewMode === "day"
             ? formatDate(selectedDate)
             : formatWeekRange(selectedDate)}

@@ -324,11 +324,13 @@ export default function ArchivePage() {
   return (
     <div className={style.container}>
       <TopActionBarPortal>
-        <span className={style.headerTitle}>
+        <span className={style.headerTitle} data-window-drag>
           {t("archive.title", "Archive")}
         </span>
         {!isEmpty && totalCount > 0 && (
-          <span className={style.headerCount}>{totalCount}</span>
+          <span className={style.headerCount} data-window-drag>
+            {totalCount}
+          </span>
         )}
         {!isMobile && selected && (
           <div className={style.headerPreview}>

@@ -13,16 +13,13 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "jsx": "react-jsx",
-    // Resolve sibling @tasfer packages from their built dist declarations
-    // (react re-exports editor types that reference @tasfer/tex). Build them
-    // in dependency order: tex and editor before this. React's own types come
-    // from the locally-installed @types/react(-dom) devDependencies.
+    // Resolve the sibling engine from its built dist declarations, so build in
+    // dependency order: editor before this. React's own types come from the
+    // locally-installed @types/react(-dom) devDependencies.
     "paths": {
       "*": ["./*"],
       "@tasfer/editor": ["../editor/dist/index.d.mts"],
-      "@tasfer/editor/*": ["../editor/dist/*"],
-      "@tasfer/tex": ["../tex/dist/index.d.mts"],
-      "@tasfer/tex/*": ["../tex/dist/*"]
+      "@tasfer/editor/*": ["../editor/dist/*"]
     }
   },
   "include": ["src"]

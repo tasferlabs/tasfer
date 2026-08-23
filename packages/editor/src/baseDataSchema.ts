@@ -12,6 +12,7 @@
  * build never cycles through the nodes at module-init).
  */
 
+import { codeBlockSpec } from "./nodes/code-block";
 import { defaultMarks } from "./rendering/marks/builtins";
 import { defaultNodes } from "./rendering/nodes";
 import type { BaseSchemaDefinition } from "./schema-types";
@@ -33,6 +34,10 @@ function buildBaseBlockSpecs(): BlockSpecCore[] {
       specs.push({ type, descriptor, codec });
     }
   }
+  // `code` is a core data type with no core node: the ``` fence, the CRDT
+  // descriptor and the round-trip ship here, while the painter lives in the
+  // opt-in `@tasfer/code`. Registering the node re-registers the same spec.
+  specs.push(codeBlockSpec);
   return specs;
 }
 

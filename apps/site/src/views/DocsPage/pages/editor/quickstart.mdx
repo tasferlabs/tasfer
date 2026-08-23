@@ -1,0 +1,172 @@
+{/* @tasfer/editor docs — Quick start. */}
+
+import { Icons } from "../../docsIcons";
+import { Card, CardGrid, ForFramework, FrameworkTabs, Lede, PropsTable } from "../../docsComponents";
+
+<Lede>
+  Four things make up the whole surface area: the **value** you put in, the
+  **state** you read out, the **commands** you dispatch, and the **events** you
+  listen to. Learn these and you know the editor.
+</Lede>
+
+<h2 id="value">1 — Value in</h2>
+
+An editor is created from markdown, a CRDT document, or nothing at all. These three are equivalent starting points:
+
+<FrameworkTabs>
+
+```ts
+import { createEditor, createDoc } from "@tasfer/editor";
+
+// from a markdown string
+createEditor({ element, markdown: "# Title" });
+
+// from an existing CRDT document (e.g. restored from disk)
+const doc = createDoc(savedBytes);
+createEditor({ element, doc });
+
+// empty
+createEditor({ element });
+```
+
+```tsx
+import { Editor, useEditor } from "@tasfer/react";
+import { createDoc } from "@tasfer/editor";
+
+// from a markdown string
+<Editor markdown="# Title" />;
+
+// from an existing CRDT document (e.g. restored from disk)
+const doc = createDoc(savedBytes);
+<Editor doc={doc} />;
+
+// empty
+<Editor />;
+
+// …or, for full control over the host element, the hook form:
+const { containerRef, editor } = useEditor({ markdown: "# Title" });
+```
+
+</FrameworkTabs>
+
+<h2 id="state">2 — State out</h2>
+
+<ForFramework fw="js">
+
+Read what's selected and which marks are active from `editor.state`, an immutable snapshot. It never changes underneath you — each edit produces a new one — so read it fresh where you need it rather than holding on to it.
+
+</ForFramework>
+
+<ForFramework fw="react">
+
+Read what's selected and which marks are active with `useEditorState(editor)`. It returns an immutable snapshot and re-renders your component each time that snapshot is replaced, so a toolbar stays in sync without any subscription of your own. It is `null` until the editor exists.
+
+</ForFramework>
+
+<FrameworkTabs>
+
+```ts
+const { selection, activeMarks, doc } = editor.state;
+
+selection.empty;              // true when it's just a caret
+activeMarks.has("strong");    // is bold active at the cursor?
+```
+
+```tsx
+import { useEditorState } from "@tasfer/react";
+
+const state = useEditorState(editor);   // null until the editor exists
+const active = state?.activeMarks ?? new Set();
+
+state?.selection.empty;   // true when it's just a caret
+active.has("strong");     // is bold active at the cursor?
+```
+
+</FrameworkTabs>
+
+<h2 id="commands">3 — Changes</h2>
+
+You never mutate the document directly. You call `change(fn)`, which hands you a `ChangeApi`: each method queues a transactional edit (it applies cleanly to the CRDT or no-ops) and chains. The whole callback commits as **one undoable step**, and `change` returns whether anything changed.
+
+```ts
+editor.change((c) => c.setMark("strong"));
+editor.change((c) => c.setBlock({ type: "heading", level: 2 }));
+
+// several edits, one undo step
+editor.change((c) =>
+  c.setMark("strong").setMark("emphasis").insertText(" ✶"),
+);
+```
+
+<ForFramework fw="react">
+
+There is no separate React command API: you call `change` on the same handle — the `editor` from `useEditor`, or the one `onReady` gives you — straight out of an `onClick`.
+
+</ForFramework>
+
+The full `ChangeApi`, dry runs (`canChange`), and the action bus are on [Changes & actions](/docs/editor/api-commands).
+
+<h2 id="events">4 — Events</h2>
+
+Subscribe to what the editor does. Every listener returns an unsubscribe function.
+
+<PropsTable cols={["Event", "Fires when", "Payload"]} rows={[
+  { name: "change", type: "ChangeTransaction", desc: "The document changed — typing, paste, undo, or a remote sync. Payload: { isRemote, ops }." },
+  { name: "selectionchange", type: "EditorStateSnapshot", desc: "The caret or selection moved, without a document edit." },
+  { name: "focus / blur", type: "EditorStateSnapshot", desc: "The canvas gained or lost focus." },
+]} />
+
+Connection status and peer count are **not** editor events — they live on the provider (`provider.on("sync")`), because the provider owns the transport. See [Collaboration](/docs/editor/collaboration).
+
+<ForFramework fw="js">
+
+Call `editor.on` to subscribe, and the function it hands back to stop.
+
+</ForFramework>
+
+<ForFramework fw="react">
+
+Subscribe from a `useEffect` keyed on the editor and return `on`'s unsubscribe as the cleanup. For UI that has to re-render on edits, reach for `useEditorState` / `useEditorMarkdown` first — wiring `on` by hand is for side effects, not rendering.
+
+</ForFramework>
+
+<FrameworkTabs>
+
+```ts
+const off = editor.on("change", (tx) => {
+  if (tx.isRemote) return;          // ignore edits that came from a peer
+  console.log("local edit:", tx.ops.length, "ops");
+});
+// later
+off();
+```
+
+```tsx
+useEffect(() => {
+  if (!editor) return;
+  // editor.on returns its unsubscribe fn — return it to clean up
+  return editor.on("change", (tx) => {
+    if (tx.isRemote) return;          // ignore edits that came from a peer
+    console.log("local edit:", tx.ops.length, "ops");
+  });
+}, [editor]);
+```
+
+</FrameworkTabs>
+
+<h2 id="next">What to read next</h2>
+
+<CardGrid>
+  <Card
+    to="editor/concepts"
+    icon={<Icons.Layers />}
+    title="Core concepts"
+    desc="Why CRDT-first changes how you think about an editor's document."
+  />
+  <Card
+    to="editor/first-editor"
+    icon={<Icons.Compass />}
+    title="Your first editor"
+    desc="A guided tutorial: toolbar, persistence, and live collaboration."
+  />
+</CardGrid>

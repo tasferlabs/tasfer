@@ -10,7 +10,7 @@
  */
 
 import { getFormatsAtPosition, getSelectionRange } from "./actions/actions";
-import { resolveMarkRuns } from "./inline-math-spans";
+import { resolveMarkRuns } from "./mark-runs";
 import { getBlockTextContent, getBlockTextLength } from "./node-shared";
 import {
   moveCursorToPosition,

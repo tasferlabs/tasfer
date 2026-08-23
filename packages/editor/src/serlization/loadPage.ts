@@ -1,5 +1,5 @@
-import { getCompatibilityDataSchema } from "../compatibilityDataSchema";
-import type { CodeBlock } from "../nodes/CodeNode";
+import { getBaseDataSchema } from "../baseDataSchema";
+import type { CodeBlock } from "../nodes/code-block";
 import type { ListBlock } from "../nodes/ListNode";
 import type { QuoteBlock } from "../nodes/QuoteNode";
 import type { TextBlock } from "../nodes/TextNode";
@@ -165,6 +165,8 @@ export interface Page {
   metadata?: PageMetadata;
 }
 
+const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/;
+
 /**
  * Strip YAML frontmatter from markdown and parse metadata.
  * Returns the content without frontmatter and any parsed metadata.
@@ -173,16 +175,16 @@ export function parseFrontmatter(content: string): {
   content: string;
   metadata?: PageMetadata;
 } {
-  if (!content.startsWith("---\n")) return { content };
+  // CRLF-tolerant: markdown authored on Windows still gets its frontmatter
+  // parsed rather than falling through as body content.
+  const match = FRONTMATTER_PATTERN.exec(content);
+  if (!match) return { content };
 
-  const endIndex = content.indexOf("\n---\n", 4);
-  if (endIndex === -1) return { content };
-
-  const frontmatterBody = content.slice(4, endIndex);
-  const remaining = content.slice(endIndex + 5);
+  const frontmatterBody = match[1] ?? "";
+  const remaining = content.slice(match[0].length);
 
   const metadata: PageMetadata = {};
-  for (const line of frontmatterBody.split("\n")) {
+  for (const line of frontmatterBody.split(/\r?\n/)) {
     const colonIdx = line.indexOf(":");
     if (colonIdx === -1) continue;
     const key = line.slice(0, colonIdx).trim();
@@ -209,9 +211,9 @@ export function loadPage(
   schema?: DataSchema,
   untypedBlockIds?: Set<string>,
 ): Page {
-  // Schema-optional callers retain the pre-feature-split built-in set. Passing
-  // an explicit schema remains the way to opt into a precise feature set.
-  schema ??= getCompatibilityDataSchema();
+  // Schema-optional callers get the core block/mark set. Optional features
+  // (math) are opted into by passing an explicit schema.
+  schema ??= getBaseDataSchema();
   const { content: body, metadata } = parseFrontmatter(content);
   const tokens = tokenizePage(body, schema);
   const page = parsePage(tokens, schema, untypedBlockIds);

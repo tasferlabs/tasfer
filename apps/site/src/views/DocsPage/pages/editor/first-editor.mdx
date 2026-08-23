@@ -1,0 +1,275 @@
+{/* @tasfer/editor docs — Your first editor (guided tutorial). */}
+
+import { Icons } from "../../docsIcons";
+import { Callout, Card, CardGrid, ForFramework, FrameworkTabs, Lede } from "../../docsComponents";
+
+<Lede>
+  We'll build a real editor from scratch: a writing surface, a formatting toolbar
+  wired to live state, local persistence, and — in the last step — two browser
+  tabs editing the same document in real time. It's the same engine in plain
+  TypeScript or React — flip the tab on any snippet and the page rewrites itself
+  around your choice.
+</Lede>
+
+<ForFramework fw="js">
+  <Callout kind="note" title="Following along.">Every snippet below is cumulative — by the end they add up to one small `main.ts` that does everything described.</Callout>
+</ForFramework>
+
+<ForFramework fw="react">
+  <Callout kind="note" title="Following along.">Every snippet below is cumulative — by the end they add up to one `App.tsx` plus a `Toolbar.tsx` that do everything described.</Callout>
+</ForFramework>
+
+<h2 id="mount">Step 1 — Mount the editor</h2>
+
+The editor needs a host with a height — the canvas fills its container.
+
+<ForFramework fw="js">
+
+Hand `createEditor` an element you own. It returns the live `editor` handle every later step builds on; call `editor.destroy()` when you tear the page down.
+
+</ForFramework>
+
+<ForFramework fw="react">
+
+`useEditor` creates the editor once and owns its teardown. It gives you a `containerRef` to mount and the live `editor` handle every later step builds on.
+
+</ForFramework>
+
+<FrameworkTabs>
+
+```ts file="main.ts"
+import { createEditor } from "@tasfer/editor";
+
+// mount into any element with a height: <div id="editor" style="height: 70vh"></div>
+const editor = createEditor({
+  element: document.querySelector("#editor")!,
+  markdown: "# My notes\n\nWrite something.",
+  placeholder: "Start writing…",
+  autofocus: true,
+});
+```
+
+```tsx file="App.tsx"
+import { useEditor } from "@tasfer/react";
+
+export default function App() {
+  const { containerRef, editor } = useEditor({
+    markdown: "# My notes\n\nWrite something.",
+    placeholder: "Start writing…",
+    autofocus: true,
+  });
+
+  // the div needs a height — the canvas fills it
+  return <div ref={containerRef} style={{ height: "70vh" }} />;
+}
+```
+
+</FrameworkTabs>
+
+<h2 id="toolbar">Step 2 — A toolbar that reflects state</h2>
+
+The key idea: the toolbar is a *function of editor state*, never a place where you track formatting yourself. Read `activeMarks` to light up buttons, dispatch a change on click.
+
+<ForFramework fw="js">
+
+Nothing repaints the buttons for you, so run one `paint()` on both `change` and `selectionchange` — a caret move with no edit still changes which marks are active.
+
+</ForFramework>
+
+<ForFramework fw="react">
+
+`useEditorState` re-renders the toolbar for you on both edits and caret moves, so there is no `paint()` step and no subscription to clean up.
+
+</ForFramework>
+
+<FrameworkTabs>
+
+```ts file="main.ts"
+const toolbar = document.querySelector("#toolbar")!;
+
+const buttons = [
+  { label: "B", mark: "strong" },
+  { label: "i", mark: "emphasis" },
+  { label: "</>", mark: "code" },
+];
+
+for (const b of buttons) {
+  const el = document.createElement("button");
+  el.textContent = b.label;
+  el.onclick = () => editor.change((c) => c.setMark(b.mark));
+  toolbar.append(el);
+  b.el = el;
+}
+
+// keep the active states in sync — runs on every edit & caret move
+function paint() {
+  const active = editor.state.activeMarks;
+  for (const b of buttons) {
+    b.el.classList.toggle("is-active", active.has(b.mark));
+  }
+}
+editor.on("change", paint);
+editor.on("selectionchange", paint);
+paint();
+```
+
+```tsx file="Toolbar.tsx"
+import { useEditorState, type TasferEditor } from "@tasfer/react";
+
+const MARKS = [
+  { label: "B", mark: "strong" },
+  { label: "i", mark: "emphasis" },
+  { label: "</>", mark: "code" },
+];
+
+export function Toolbar({ editor }: { editor: TasferEditor | null }) {
+  const active = useEditorState(editor)?.activeMarks ?? new Set();
+  return (
+    <div>
+      {MARKS.map((b) => (
+        <button
+          key={b.mark}
+          className={active.has(b.mark) ? "is-active" : ""}
+          onClick={() => editor?.change((c) => c.setMark(b.mark))}
+        >
+          {b.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+```
+
+</FrameworkTabs>
+
+<ForFramework fw="react">
+
+Render `<Toolbar editor={editor} />` just above the editor's `<div ref={containerRef} />`, passing the handle `useEditor` returned. It accepts `null`, so it is safe on the first frame.
+
+</ForFramework>
+
+<Callout kind="tip" title="Markdown shortcuts are already on.">Type `**bold**`, `## ` at the start of a line, or `- ` for a bullet — the built-in input rules transform them as you type. Delimiters also wrap a held selection: `(`/`[`/`{`/quotes enclose it literally, while a markdown delimiter applies its meaning — `*` italicizes (press again for bold) and `` ` `` makes code. Dollar signs stay literal in this core setup; install the opt-in [`mathExtension`](/docs/editor/api-schema#math) when the product needs inline or display math. Your toolbar and the shortcuts edit the same state.</Callout>
+
+<h2 id="persist">Step 3 — Persist locally</h2>
+
+Save on change. Because the document is a CRDT, the most robust thing to persist is its binary update — but for a single device, markdown is fine and human-readable.
+
+<ForFramework fw="react">
+
+Do it in an effect keyed on `editor`, returning `editor.on`'s unsubscribe as the cleanup:
+
+</ForFramework>
+
+<FrameworkTabs>
+
+```ts file="main.ts"
+// restore on load
+const saved = localStorage.getItem("draft");
+if (saved) editor.setMarkdown(saved);
+
+// save on change — `change` fires once per transaction, synchronously, so
+// debounce this yourself if serializing on every keystroke is too much
+editor.on("change", (tx) => {
+  if (tx.isRemote) return;
+  localStorage.setItem("draft", editor.getMarkdown());
+});
+```
+
+```tsx file="App.tsx"
+import { useEffect } from "react";
+
+// inside App, after useEditor(...)
+useEffect(() => {
+  if (!editor) return;
+
+  // restore on load
+  const saved = localStorage.getItem("draft");
+  if (saved) editor.setMarkdown(saved);
+
+  // save on change — `change` fires once per transaction, synchronously, so
+// debounce this yourself if serializing on every keystroke is too much
+  return editor.on("change", (tx) => {
+    if (tx.isRemote) return;
+    localStorage.setItem("draft", editor.getMarkdown());
+  });
+}, [editor]);
+```
+
+</FrameworkTabs>
+
+<h2 id="collab">Step 4 — Make it collaborative</h2>
+
+Here's the payoff for being CRDT-first. To sync two replicas, you attach a provider — a transport that ships CRDT updates between peers. Nothing about the steps above changes. Open the page in two tabs and watch.
+
+<ForFramework fw="react">
+
+Create the provider in an effect keyed on `editor`, keep its status in state, and `destroy()` it on unmount:
+
+</ForFramework>
+
+<FrameworkTabs>
+
+```ts file="main.ts"
+import { createRelayProvider } from "@tasfer/provider-relay";
+
+const provider = createRelayProvider({
+  doc: editor.doc,                 // sync THIS editor's document
+  room: "my-notes-demo",           // peers in the same room converge
+  relay: "wss://relay.tasfer.app",  // demo relay — run your own for real work
+  secret: "change-me-before-you-ship", // room key; peers need it, the relay must not
+});
+
+// Connection status comes from the provider, not the editor — the provider
+// owns the transport, so there is no "sync" event on the editor itself.
+provider.on("sync", (s) => {
+  status.textContent = s.connected ? `live · ${s.peers} peer(s)` : "offline";
+});
+```
+
+```tsx file="App.tsx"
+import { useState, useEffect } from "react";
+import { createRelayProvider } from "@tasfer/provider-relay";
+
+// inside App
+const [status, setStatus] = useState("offline");
+
+useEffect(() => {
+  if (!editor) return;
+  const provider = createRelayProvider({
+    doc: editor.doc,                 // sync THIS editor's document
+    room: "my-notes-demo",           // peers in the same room converge
+    relay: "wss://relay.tasfer.app",  // demo relay — run your own for real work
+    secret: "change-me-before-you-ship", // room key; peers need it, the relay must not
+  });
+  // status comes from the provider, not the editor
+  provider.on("sync", (s) =>
+    setStatus(s.connected ? `live · ${s.peers} peer(s)` : "offline"),
+  );
+  return () => provider.destroy();   // tear down on unmount
+}, [editor]);
+```
+
+</FrameworkTabs>
+
+<Callout kind="warn" title="The relay forwards what it can't read.">Updates are sealed with AES-256-GCM under a key derived from `secret` before they leave the tab, so the relay routes ciphertext. That holds only as long as the secret does: give every peer the same one through your own channel — an invite link, your auth — and never the relay. It still sees the room name, peer ids and frame timing; [Realtime collaboration](/docs/editor/collaboration) has the full picture.</Callout>
+
+<h2 id="done">What you built</h2>
+
+A canvas editor with markdown shortcuts, a state-driven toolbar, local persistence, and real-time collaboration — and step 4 was purely additive. That's the whole point of starting from a CRDT.
+
+<h2 id="next">What to read next</h2>
+
+<CardGrid>
+  <Card
+    to="editor/collaboration"
+    icon={<Icons.Users />}
+    title="Realtime collaboration"
+    desc="Providers, presence, remote cursors, and offline merge in depth."
+  />
+  <Card
+    to="editor/custom-nodes"
+    icon={<Icons.Puzzle />}
+    title="Custom nodes & marks"
+    desc="Teach the schema new block types — callouts, mentions, embeds."
+  />
+</CardGrid>

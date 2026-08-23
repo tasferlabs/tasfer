@@ -100,6 +100,18 @@ export const CONVERT_BLOCK = action<{
  * see `wrap-selection.ts`. Direct `insertText` callers (IME commit, hosts)
  * keep plain replace semantics.
  */
+/**
+ * Insert one indent level (two spaces) at the caret. Dispatched from the Tab
+ * key handler when the caret sits in a preformatted block — the capability gate
+ * lives in `events/keysEvents`, so any block type that declares itself verbatim
+ * gets this for free. A plain state action so a host can observe or override
+ * the indent behavior per instance.
+ */
+export const INSERT_TAB = stateAction("insert-tab", (state) => {
+  const r = insertText(state, "  ");
+  return { state: r.state, ops: r.ops };
+});
+
 export const INSERT_TEXT = stateAction<{ text: string }>(
   "insert-text",
   (state, { text }) => {

@@ -1441,7 +1441,7 @@ export class ImageNode extends AtomicNode<Image> {
     const { x, y, width, height } = box;
 
     // Upload status from transient per-block view-state (set by the host upload
-    // flow via `editor.setNodeViewState`). Not modelled as a menu/overlay.
+    // flow via `editor.host.setNodeViewState`). Not modelled as a menu/overlay.
     const uploadStatus = (
       state.ui.nodeViewState[block.id] as
         { uploadStatus?: "uploading" | "error" } | undefined

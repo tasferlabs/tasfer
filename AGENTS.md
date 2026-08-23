@@ -9,9 +9,11 @@ directly to HTML canvas and stores document state in a CRDT.
 - Do not introduce mutable global state. Multiple editors must work on one page;
   keep state in instances, arguments, or scoped context.
 - The editor core must remain node- and mark-agnostic. So that users who use package can opt in what to use.
+- The root `@tasfer/editor` entry must not reach an optional feature package.
+  Never re-export one (`@tasfer/math`, `@tasfer/code`) from `index.ts`; a
+  host that installs neither must not resolve them.
 - All user-facing strings must be i18n'd. Add translation keys with the UI text.
-- The editor SDK is not public yet. Internal package APIs may change with the
-  app and carry no external compatibility or documentation commitment.
+- Keep public editor documentation accurate when changing a public API.
 - Never do things with git with your intuitive, if unsure please consult me.
 - Stop wasting time on meaningless tests, there is no test for ux.
 - If you creating a worktree, put it in .worktrees
@@ -31,6 +33,8 @@ Compatibility requirements are documented in
 | -------------------------- | ----------------------------------------------------------------------- |
 | `packages/editor`          | Framework-agnostic canvas editor, document model, CRDT, actions, schema |
 | `packages/tex`             | Canvas-native LaTeX layout and rendering                                |
+| `packages/math`            | Opt-in math node and mark; owns the `@tasfer/tex` engine                |
+| `packages/code`       | Opt-in code-block node: canvas painting and syntax highlighting         |
 | `packages/react`           | React bindings for the editor                                           |
 | `packages/provider-*`      | Persistence and collaboration providers                                 |
 | `apps/web`                 | Main React host and cross-platform product logic                        |
@@ -57,12 +61,18 @@ package or application directory.
   outside it.
 - `apps/web/src/editor/` contains host UI chrome, not editor-engine logic.
 
-## Editor SDK status
+## Public API documentation
 
-The `packages/*` boundaries are internal product architecture. Their source is
-MIT-licensed, but the packages are unpublished and unsupported for external use
-while a public editor SDK remains on the roadmap. The public site should
-describe only that status, not an installation path or API contract.
+The editor API specification lives in:
+
+- `apps/site/src/views/DocsPage/pages/editor/api-editor.mdx`
+- `apps/site/src/views/DocsPage/pages/editor/api-commands.mdx`
+- `apps/site/src/views/DocsPage/pages/editor/api-schema.mdx`
+- `apps/site/src/views/DocsPage/pages/editor/custom-nodes.mdx`
+- `apps/site/src/views/DocsPage/pages/editor/collaboration.mdx`
+
+Update the relevant page whenever its public contract changes. These pages are
+English-only; the SDK section has no Arabic translation.
 
 # Translation
 

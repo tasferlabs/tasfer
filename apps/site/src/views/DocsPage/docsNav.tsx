@@ -10,7 +10,17 @@ import {
   AppSupport,
   AppSyncRelay,
   AppTroubleshooting,
-  EditorRoadmap,
+  EditorApiCommands,
+  EditorApiEditor,
+  EditorApiReact,
+  EditorApiSchema,
+  EditorCollaboration,
+  EditorConcepts,
+  EditorCustomNodes,
+  EditorFirstEditor,
+  EditorInstall,
+  EditorQuickstart,
+  EditorTheming,
 } from "./localizedDocs";
 
 /* ============================================================
@@ -122,15 +132,108 @@ export const NAV: NavSection[] = [
     mono: true,
     groups: [
       {
-        label: null,
+        label: "Getting started",
+        labelKey: "docs.navModel.group.gettingStarted",
         items: [
           {
-            route: "editor/roadmap",
-            title: "Editor SDK roadmap",
-            titleKey: "docs.navModel.editor.roadmap",
-            descKey: "docs.navModel.editor.roadmap.desc",
-            Comp: EditorRoadmap,
-            kw: "sdk roadmap package mit license future availability updates",
+            route: "editor/install",
+            title: "Installation",
+            titleKey: "docs.navModel.editor.installation",
+            descKey: "docs.navModel.editor.installation.desc",
+            Comp: EditorInstall,
+            kw: "install npm pnpm yarn requirements mit license",
+          },
+          {
+            route: "editor/quickstart",
+            title: "Quick start",
+            titleKey: "docs.navModel.editor.quickStart",
+            descKey: "docs.navModel.editor.quickStart.desc",
+            Comp: EditorQuickstart,
+            kw: "value state commands events mental model",
+          },
+          {
+            route: "editor/concepts",
+            title: "Core concepts",
+            titleKey: "docs.navModel.editor.concepts",
+            descKey: "docs.navModel.editor.concepts.desc",
+            Comp: EditorConcepts,
+            kw: "crdt canvas contenteditable document model",
+          },
+        ],
+      },
+      {
+        label: "Guides",
+        labelKey: "docs.navModel.group.guides",
+        items: [
+          {
+            route: "editor/first-editor",
+            title: "Your first editor",
+            titleKey: "docs.navModel.editor.firstEditor",
+            descKey: "docs.navModel.editor.firstEditor.desc",
+            Comp: EditorFirstEditor,
+            kw: "tutorial toolbar persistence collaboration build",
+          },
+          {
+            route: "editor/collaboration",
+            title: "Realtime collaboration",
+            titleKey: "docs.navModel.editor.collaboration",
+            descKey: "docs.navModel.editor.collaboration.desc",
+            Comp: EditorCollaboration,
+            kw: "provider presence cursors offline merge webrtc relay",
+          },
+          {
+            route: "editor/custom-nodes",
+            title: "Custom nodes & marks",
+            titleKey: "docs.navModel.editor.customNodes",
+            descKey: "docs.navModel.editor.customNodes.desc",
+            Comp: EditorCustomNodes,
+            kw: "schema node mark callout highlight extend define class register overlay slot strings nodeStrings localize",
+          },
+          {
+            route: "editor/theming",
+            title: "Theming the canvas",
+            titleKey: "docs.navModel.editor.theming",
+            descKey: "docs.navModel.editor.theming.desc",
+            Comp: EditorTheming,
+            kw: "theme color font metrics dark mode tokens",
+          },
+        ],
+      },
+      {
+        label: "API reference",
+        labelKey: "docs.navModel.group.apiReference",
+        items: [
+          {
+            route: "editor/api-editor",
+            title: "Editor",
+            titleKey: "docs.navModel.editor.apiEditor",
+            descKey: "docs.navModel.editor.apiEditor.desc",
+            Comp: EditorApiEditor,
+            kw: "createeditor options methods state events instance",
+          },
+          {
+            route: "editor/api-commands",
+            title: "Changes & actions",
+            titleKey: "docs.navModel.editor.apiCommands",
+            descKey: "docs.navModel.editor.apiCommands.desc",
+            Comp: EditorApiCommands,
+            kw: "change run changeapi togglemark setblock insert dispatch action mutation undo redo transaction",
+          },
+          {
+            route: "editor/api-schema",
+            title: "Schema & nodes",
+            titleKey: "docs.navModel.editor.apiSchema",
+            descKey: "docs.navModel.editor.apiSchema.desc",
+            Comp: EditorApiSchema,
+            kw: "schema baseschema nodes marks content expression math code highlight extension",
+          },
+          {
+            route: "editor/api-react",
+            title: "React bindings",
+            titleKey: "docs.navModel.editor.apiReact",
+            descKey: "docs.navModel.editor.apiReact.desc",
+            Comp: EditorApiReact,
+            kw: "react useeditor editor component useeditorstate hook jsx tsx binding",
           },
         ],
       },
@@ -146,7 +249,7 @@ export interface PageMeta extends NavItem {
   groupKey?: string;
 }
 
-/** Flat ordered list of pages (for the pager) + a route→meta lookup. */
+/** Flat ordered list of pages + a route→meta lookup. */
 export const FLAT: PageMeta[] = [];
 export const PAGE: Record<string, PageMeta> = {};
 

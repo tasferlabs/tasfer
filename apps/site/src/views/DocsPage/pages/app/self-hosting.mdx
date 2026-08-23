@@ -1,6 +1,7 @@
 {/* Tasfer app docs — Self-hosting the relay. */}
 
-import { Callout, Lede, PropsTable } from "../../docsComponents";
+import { Icons } from "../../docsIcons";
+import { Callout, Card, CardGrid, Lede, PropsTable } from "../../docsComponents";
 
 <Lede>
   The relay is a small, stateless signaling service: it introduces peers and
@@ -52,3 +53,20 @@ Set your domain in `apps/live/wrangler.toml`, then build the app against it with
 - **It forwards opaque ciphertext.** Signaling and fallback frames are encrypted on-device before they reach the Worker — there is no decryption key on the server to protect, which is the whole point.
 - **TURN minting is bounded.** Credentials are minted only for connected room members — never over anonymous HTTP — one mint is cached per room, and a global daily budget caps the account's worst-case TURN bill.
 - **It is Cloudflare-specific today.** The Worker relies on Durable Objects and on Cloudflare Calls for TURN; running it on other infrastructure means porting those two pieces.
+
+<h2 id="next">What to read next</h2>
+
+<CardGrid>
+  <Card
+    to="app/sync-relay"
+    icon={<Icons.Link />}
+    title="Sync & relay setup"
+    desc="Share a space with an invite code or QR and edit it from every device, peer to peer."
+  />
+  <Card
+    to="app/privacy"
+    icon={<Icons.Shield />}
+    title="Privacy & data"
+    desc="Exactly what stays on your device and what (nothing) we collect."
+  />
+</CardGrid>

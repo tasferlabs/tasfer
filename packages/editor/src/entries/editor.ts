@@ -55,7 +55,7 @@ import {
 } from "../events/interaction-session";
 import { pressArmsTextDrag } from "../events/mouseEvents";
 import { onFontsReady } from "../fonts";
-import { resolveMarkRuns } from "../inline-math-spans";
+import { resolveMarkRuns } from "../mark-runs";
 import {
   caretInProtectedSource,
   clampMirrorStartToSpans,
@@ -300,13 +300,13 @@ export interface ChangeTransaction {
 }
 
 /**
- * An inline mark name accepted by {@link ChangeApi.toggleMark} — any mark
+ * An inline mark name toggled by a bare {@link ChangeApi.setMark} — any mark
  * type registered on the editor's schema whose {@link Mark.togglable} is true
  * (the built-ins `strong`/`emphasis`/`strike`/`code`, plus any custom toggle
  * marks a host registers). `link` and `math` are valid mark types but are
  * `togglable: false` — they carry data (a url / LaTeX) and are applied through
- * {@link ChangeApi.setMarkRange} (which takes `mark.attrs`), so `toggleMark` is
- * a no-op for them.
+ * `setMark(name, { attrs, range })`, so the bare toggling form is a no-op for
+ * them.
  *
  * Typed as `string` rather than a closed union so custom marks are accepted;
  * the name is validated against the schema at call time.

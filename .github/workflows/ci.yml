@@ -23,7 +23,7 @@ jobs:
 
       - name: Install
         run: |
-          for p in tex editor provider-core provider-indexeddb provider-relay provider-webrtc react; do
+          for p in tex editor math code provider-core provider-indexeddb provider-relay provider-webrtc react; do
             (cd "packages/$p" && npm ci)
           done
 
@@ -32,7 +32,7 @@ jobs:
 
       - name: Test
         run: |
-          for p in tex editor provider-core; do
+          for p in tex editor math code provider-core; do
             (cd "packages/$p" && npm test)
           done
 

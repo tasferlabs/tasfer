@@ -45,7 +45,13 @@ export function ArchivedPageBanner({
       : t("archive.bannerTitle", "This page is archived");
 
   return (
-    <div role="status" className="flex min-w-0 flex-1 items-center gap-2.5">
+    <div
+      role="status"
+      // Text strip, not a control row: the desktop title bar keeps its drag
+      // region across the banner (see .appHeaderSlot in Layout.module.css).
+      data-window-drag
+      className="flex min-w-0 flex-1 items-center gap-2.5"
+    >
       <Archive className="size-4 shrink-0 text-warning" aria-hidden />
       <span className="truncate text-[13px] font-semibold text-foreground">
         {title}

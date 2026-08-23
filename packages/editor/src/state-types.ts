@@ -521,7 +521,7 @@ export interface UIState {
   // Transient, per-block canvas view-state, keyed by blockId. An opaque host
   // payload a node reads to paint ephemeral chrome (e.g. an image's upload
   // spinner) without the engine modelling that chrome as a menu/overlay. Set via
-  // `editor.setNodeViewState`; not document content, never persisted.
+  // `editor.host.setNodeViewState`; not document content, never persisted.
   readonly nodeViewState: Readonly<Record<string, unknown>>;
   readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
   // Block id whose left-gutter drag handle the mouse is currently over, or null.
@@ -634,7 +634,7 @@ export type NodeStringsMap = ReadonlyMap<
  * A renderer-agnostic descriptor for a piece of host UI a node wants floated
  * over one of its blocks — an "overlay slot." A node declares these from its
  * current data + UI state (see `Node.overlays`); the engine collects them per
- * visible block (`editor.collectOverlays()`); the host maps `key` to a
+ * visible block (`editor.host.collectOverlays()`); the host maps `key` to a
  * component and mounts it at `rect`.
  *
  * This is what lets a node own its UI without the engine importing React: the

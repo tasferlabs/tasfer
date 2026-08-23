@@ -3,7 +3,7 @@ import {
   tokenizePage,
 } from "@tasfer/editor";
 import { findTitleBlock, inlineToHtml } from "@tasfer/editor/internal";
-import { renderToSVG } from "@tasfer/editor/math";
+import { renderToSVG } from "@tasfer/math";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";

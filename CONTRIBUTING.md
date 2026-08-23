@@ -87,7 +87,7 @@ apps/
 ├── site/       # Marketing site + docs (Next.js)
 ├── ios/        # iOS (Capacitor)
 └── android/    # Android (Capacitor)
-packages/       # MIT-licensed @tasfer/* modules — internal product architecture
+packages/       # the @tasfer/* ecosystem — the product core, published for external consumers
 ├── editor/             # @tasfer/editor — headless canvas + CRDT editor engine
 ├── tex/                # @tasfer/tex — canvas-native LaTeX math layout & rendering
 ├── react/              # @tasfer/react — React 19 bindings (useEditor, <Editor>)
@@ -117,9 +117,10 @@ All user-facing strings must use i18next — never hardcode text in components.
 ## Releases
 
 Versioning is automated with
-[release-please](https://github.com/googleapis/release-please). Use Conventional
-Commits for release-worthy changes: `fix:` bumps patch, `feat:` bumps minor, and
-`feat!:`/`fix!:` bumps major.
+[release-please](https://github.com/googleapis/release-please). Use
+[Conventional Commits](https://www.conventionalcommits.org/) for release-worthy
+changes: `fix:` bumps patch, `feat:` bumps minor, and `feat!:`/`fix!:` bumps
+major. A commit only affects the components whose directories it touches.
 
 The version lives in one place: `appVersion` in [`version.json`](version.json) at
 the repo root. Every build derives its own version from it, so nothing is stamped
@@ -132,23 +133,32 @@ by hand:
 | Android | `app/build.gradle` parses `version.json`; `versionCode` is packed from the semver (`1.4.2` -> `10402`) |
 | iOS | `apps/ios/Version.xcconfig` (gitignored) is generated from it, and the Xcode project sets no version of its own |
 
-`version.json` is the only file release-please bumps — no package manifest
-carries a version — so a release is one merge and no follow-up edits.
+`version.json` is the only file release-please bumps for the app — no app
+manifest carries a version — so an app release is one merge and no follow-up
+edits. The `packages/*` libraries are versioned in lockstep with each other, in
+their own `package.json` files, independently of the app.
 
 How the cycle works:
 
-- release-please maintains a desktop release PR on `main` with version bumps and
-  changelog entries. The MIT-licensed `packages/*` modules are not published.
-- Merging the release PR creates the desktop tag and GitHub release. The app is
-  built and signed for macOS, Windows, and Linux into a draft release, which is
-  published once all platforms have uploaded.
+- release-please maintains a release PR on `main` that accumulates version bumps
+  and changelog entries.
+- Merging the release PR creates the tags and GitHub releases, and the desktop
+  app is built and signed for macOS, Windows, and Linux, with the artifacts
+  landing on the release release-please just published.
+- The `packages/*` libraries go to npm by dispatching the **npm Publish**
+  workflow, which builds them in dependency order and pins the peer ranges
+  between them at publish time. It is deliberately not chained off the release:
+  npm's trusted publishing validates the *calling* workflow's filename, so the
+  publish has to be dispatched directly. Versions already on the registry are
+  skipped, so re-running it is safe.
 - `apps/live` deploys to Cloudflare on every push to `main` that touches it.
 - `apps/web` and `apps/site` deploy continuously via Vercel (two projects with
   root directories `apps/web` and `apps/site`; the web project needs "Include
   source files outside of the Root Directory" enabled).
 
-The **Native Release** workflow can be dispatched with `publish: false` to build
-without publishing a release.
+Dry runs: the **npm Publish** workflow can be dispatched with `dry_run`, and
+**Native Release** can be dispatched with `publish: false` to build without
+publishing a release.
 
 ### App Store & Play (after a desktop release)
 

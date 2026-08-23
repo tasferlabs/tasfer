@@ -480,6 +480,22 @@ export function FrameworkTabs({ children }: { children?: ReactNode }) {
   );
 }
 
+/** Prose that belongs to one library only. Reads the same shared selection as
+ *  <FrameworkTabs>, so flipping a code tab rewrites the sentences around it too:
+ *  a plain-JS reader is never told about hooks, and a React reader is never told
+ *  to mount an element by hand. Keep the framework-neutral half of a paragraph
+ *  outside these blocks — only the part that names one library goes in. */
+export function ForFramework({
+  fw,
+  children,
+}: {
+  fw: Framework;
+  children?: ReactNode;
+}) {
+  const { framework } = useFramework();
+  return framework === fw ? <>{children}</> : null;
+}
+
 /* ── callout ── */
 export function Callout({
   kind = "note",

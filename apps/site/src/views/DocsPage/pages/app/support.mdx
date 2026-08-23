@@ -1,6 +1,7 @@
 {/* Tasfer app docs — Support. */}
 
-import { Callout, Lede } from "../../docsComponents";
+import { Icons } from "../../docsIcons";
+import { Callout, Card, CardGrid, Lede } from "../../docsComponents";
 
 <Lede>
   Tasfer is an open-source project. Get help from the community, or contact us
@@ -42,3 +43,20 @@ Open a [GitHub issue](https://github.com/tasferlabs/tasfer/issues) and include:
 
 Read [Privacy & data](/docs/app/privacy) for details about local storage,
 encrypted sync, network access, and diagnostics.
+
+<h2 id="next">What to read next</h2>
+
+<CardGrid>
+  <Card
+    to="app/troubleshooting"
+    icon={<Icons.Help />}
+    title="Troubleshooting & FAQ"
+    desc="Backups, offline edits, and sync that refuses to connect — the questions people actually ask."
+  />
+  <Card
+    to="app/sync-relay"
+    icon={<Icons.Link />}
+    title="Sync & relay setup"
+    desc="Share a space with an invite code or QR and edit it from every device, peer to peer."
+  />
+</CardGrid>

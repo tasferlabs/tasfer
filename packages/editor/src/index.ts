@@ -4,8 +4,10 @@
  * This module is the curated surface used by first-party consumers. Keep it
  * tight so it can become the basis of the public SDK when that roadmap work
  * begins. Engine machinery and host plumbing live under
- * `@tasfer/editor/internal`; optional features use entries such as
- * `@tasfer/editor/math`.
+ * `@tasfer/editor/internal`; optional features ship as their own packages
+ * (`@tasfer/math`, `@tasfer/code`). Nothing here may re-export a feature
+ * package: the root module graph must stay free of them so a host that installs
+ * none never resolves them.
  */
 
 // Mount / lifecycle
@@ -44,9 +46,6 @@ export {
   TextNode,
   type TextSpan,
 } from "./rendering/nodes";
-// Compatibility alias. New feature-oriented consumers should import this from
-// `@tasfer/editor/math` and install `mathExtension()` explicitly.
-export { type MathBlock, MathNode } from "./nodes/MathNode";
 
 // Inline marks. `Mark` is the base class to subclass for a custom mark's
 // on-canvas paint (its `style()` returns the visual channels — color, a chip,
@@ -71,8 +70,6 @@ export {
   StrikeMark,
   StrongMark,
 } from "./rendering/marks";
-// Compatibility alias; see the MathNode note above.
-export { MathMark } from "./rendering/marks/MathMark";
 
 // Interaction regions are an internal concept — there is no host-level region
 // API. Built-in chrome regions (scrollbar, selection handles, peer indicators)
@@ -371,13 +368,6 @@ export {
 } from "./rendering/marks";
 // Built-in node commands (co-located with the node each acts on).
 export {
-  EXIT_INLINE_MATH,
-  INSERT_MATH_COMMAND,
-  RESIZE_MATH_MATRIX,
-  SET_INLINE_MATH_HOVER,
-  SET_MATH_BLOCK_HOVER,
-} from "./nodes/MathNode";
-export {
   CANCEL_IMAGE_HANDLE_DRAG,
   canRepositionImage,
   canRepositionImageAt,
@@ -386,10 +376,8 @@ export {
   ENTER_IMAGE_REPOSITION,
   EXIT_IMAGE_REPOSITION,
   imageObjectPosition,
-  INDENT_CODE,
   INDENT_LIST_ITEM,
   isRepositioning,
-  OUTDENT_CODE,
   OUTDENT_LIST_ITEM,
   SET_IMAGE_HOVER,
   START_IMAGE_HANDLE_DRAG,
@@ -542,7 +530,7 @@ export { default as tokenizePage } from "./serlization/tokenizer";
 
 // Decorations — the generic, ephemeral overlay primitive (find highlights,
 // remote cursors, …). Produced by the host/providers and fed in via
-// `editor.setDecorations(layer, …)`; never document content.
+// `editor.view.setDecorations(layer, …)`; never document content.
 export type {
   CaretDecoration,
   CharacterDecorationPoint,
@@ -554,29 +542,6 @@ export type {
   LabelIconShape,
   RangeDecoration,
 } from "./rendering/decorations";
-
-// Legacy root math surface. The explicit `@tasfer/editor/math` entry is the
-// preferred home for new consumers, but moving these symbols must not break
-// existing applications.
-export { getInlineMathSpans, type InlineMathSpan } from "./inline-math-spans";
-export {
-  isValidLatex,
-  mathMatrixContext,
-  mathMatrixResize,
-  mathSourceAtEdge,
-  type MatrixContext,
-  type MatrixEditResult,
-  type MatrixTextEdit,
-  renderToSVG,
-} from "./nodes/math";
-export {
-  filterMathCommands,
-  MATH_COMMANDS,
-  type MathCommand,
-  mathCommandCaretOffset,
-  mathCommandInsertion,
-  unambiguousMathCommandCompletion,
-} from "./nodes/math-commands";
 
 // Host-convenience helpers (block/format/selection readers), the low-level
 // op-log engine, the image cache, magnifier geometry, and other engine

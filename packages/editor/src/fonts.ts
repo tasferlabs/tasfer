@@ -12,7 +12,7 @@
 
 import { containsCJK, isCJKCharacter } from "./cjk";
 import { isHighSurrogate, isLowSurrogate } from "./code-points";
-import { resolveMarkRunsFromChars } from "./inline-math-spans";
+import { resolveMarkRunsFromChars } from "./mark-runs";
 import type { MarkRegistry, MarkReplacement } from "./rendering/marks";
 import type { Char, CharRun, Mark, MarkSpan } from "./serlization/loadPage";
 // Formatted text measurement - handles Char[] with MarkSpan[]
@@ -373,8 +373,9 @@ let texFallbackCache = new Map<
 const TEX_FALLBACK_REF_PX = 100;
 
 /**
- * Measure a single character for the tex `\text{…}` fallback (see
- * {@link getTexTextFallback}), in em at size 1, using `fontFamily`. The math
+ * Measure a single character for the tex `\text{…}` fallback — the `measure`
+ * half of `@tasfer/tex`'s `TextFallback` hook — in em at size 1, using
+ * `fontFamily`. The math
  * engine calls this for characters its own fonts have no glyph for (CJK, emoji,
  * …) so they lay out at their true width; the same `fontFamily` paints them, so
  * geometry and paint agree. Height/depth come from the font's bounding box for a

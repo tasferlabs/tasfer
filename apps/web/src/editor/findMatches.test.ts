@@ -2,7 +2,7 @@ import type { Block } from "@tasfer/editor";
 import {
   mathContentIdForBlock,
   parseMathDocumentInit,
-} from "@tasfer/editor/math/data";
+} from "@tasfer/math/data";
 import { describe, expect, it } from "vitest";
 import { findDocumentMatches } from "./findMatches";
 

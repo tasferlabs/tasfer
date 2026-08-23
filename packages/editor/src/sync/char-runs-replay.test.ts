@@ -8,7 +8,7 @@
  * drops a mark span anchored on that id.
  */
 
-import { resolveMarkRunsFromChars } from "../inline-math-spans";
+import { resolveMarkRunsFromChars } from "../mark-runs";
 import type { Char, MarkSpan } from "../serlization/loadPage";
 import {
   charRunsToChars,

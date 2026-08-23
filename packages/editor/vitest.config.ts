@@ -4,7 +4,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
-      "@tasfer/tex": resolve(__dirname, "../tex/src"),
       "@shared": resolve(__dirname, "../../shared"),
     },
   },
