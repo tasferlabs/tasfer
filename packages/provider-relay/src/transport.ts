@@ -8,16 +8,21 @@
  * is reachable.
  *
  * ── Trust ────────────────────────────────────────────────────────────────────
- * This transport applies NO cryptography. Frames are base64-encoded, not
- * encrypted, so a relay operator (or anyone who can observe the WebSocket) can
- * read and tamper with every document that passes through. The `from` field on
- * each envelope is self-asserted and unauthenticated, so a peer in the room can
- * also forge frames attributed to another peer.
+ * `data` payloads are encrypted before they reach the relay — AES-256-GCM under
+ * a key derived from `secret` (see ./crypto). The relay routes ciphertext it
+ * cannot read and cannot alter undetected. Discovery envelopes (`join`,
+ * `announce`, `leave`) stay in the clear: they carry only peer ids, which the
+ * relay already sees in the connect URL.
  *
- * Treat the relay as a trusted party: run one you control, or wrap this
- * transport in one that encrypts and authenticates. The WebRTC transport is the
- * one that keeps the server out of the data path — its DataChannels are
- * DTLS-encrypted and, once ICE completes, bytes never touch the server.
+ * `secret: null` opts out and sends plaintext — for a LAN, a relay you own, or
+ * a host that already encrypts above this transport. Nothing else protects the
+ * frames in that mode.
+ *
+ * Two limits hold either way. Peers share the room key, so the self-asserted
+ * `from` field is unforgeable to the relay but not to another peer in the room.
+ * And the relay always learns the room name, peer ids, timing and frame sizes.
+ * The WebRTC transport is the one that keeps the server out of the data path
+ * entirely — once ICE completes, bytes never touch it.
  *
  * The relay is treated as a dumb broadcast bus (a sender never receives its own
  * posts), so peers find each other with the same handshake as the
@@ -40,6 +45,8 @@
  */
 
 import type { Transport, TransportPeer } from "@tasfer/provider-core";
+
+import { createFrameCipher, type FrameCipher } from "./crypto";
 
 /** Discovery + data envelopes exchanged over the relay, as JSON text frames. */
 type Envelope =
@@ -97,6 +104,7 @@ class RelayPeer implements TransportPeer {
   readonly id: string;
   private readonly post: (data: Uint8Array) => void;
   private readonly messageListeners = new Set<(b: Uint8Array) => void>();
+  private chain: Promise<void> = Promise.resolve();
   private readonly closeListeners = new Set<() => void>();
 
   constructor(id: string, post: (data: Uint8Array) => void) {
@@ -122,6 +130,22 @@ class RelayPeer implements TransportPeer {
     for (const cb of this.messageListeners) cb(bytes);
   }
 
+  /**
+   * Deliver a frame whose decoding is async. `send` is contractually ordered,
+   * so opening runs through a chain rather than racing frame against frame.
+   * A frame that fails to open (null) is dropped, not delivered.
+   */
+  _receiveAsync(open: () => Promise<Uint8Array | null>): void {
+    this.chain = this.chain
+      .then(async () => {
+        const bytes = await open();
+        if (bytes) this._receive(bytes);
+      })
+      .catch((err: unknown) => {
+        console.error("[provider-relay] failed to read frame", err);
+      });
+  }
+
   _close(): void {
     for (const cb of this.closeListeners) cb();
     this.messageListeners.clear();
@@ -136,12 +160,28 @@ export interface RelayTransportOptions {
   relay: string;
   /** This replica's stable id. Pass `doc.peerId`. */
   peerId: string;
+  /**
+   * Shared room secret — a passphrase or raw key bytes. Every peer in the room
+   * needs the same one; the relay must never see it. Pass `null` to send
+   * plaintext instead, which makes the relay operator a reader of every
+   * document in the room.
+   */
+  secret: string | Uint8Array | null;
+}
+
+/** Bind sender and recipient into the AEAD tag so a frame cannot be re-attributed. */
+function aad(from: string, to: string): string {
+  return JSON.stringify([from, to]);
 }
 
 export class RelayTransport implements Transport {
   private readonly room: string;
   private readonly relay: string;
   private readonly localId: string;
+  /** Room key, or null when the host opted out of encryption. */
+  private readonly cipher: Promise<FrameCipher> | null;
+  /** Sealing is async; outgoing frames queue here to keep `send` order. */
+  private sendChain: Promise<void> = Promise.resolve();
 
   private ws: WebSocket | null = null;
   private connecting: Promise<void> | null = null;
@@ -154,11 +194,30 @@ export class RelayTransport implements Transport {
     this.room = options.room;
     this.relay = options.relay.replace(/\/$/, "");
     this.localId = options.peerId;
+    if (options.secret === null) {
+      this.cipher = null;
+      console.warn(
+        `[provider-relay] room "${this.room}" is syncing unencrypted (secret: null). ` +
+          "Whoever runs the relay can read and modify every document in it.",
+      );
+    } else {
+      this.cipher = createFrameCipher(options.secret, this.room);
+      // connect() and postData() both surface a bad secret; this only keeps a
+      // transport that is never connected from tripping an unhandled rejection.
+      void this.cipher.catch(() => {});
+    }
   }
 
   connect(): Promise<void> {
     if (this.connecting) return this.connecting;
-    this.connecting = new Promise<void>((resolve, reject) => {
+    // Derive the room key first: an unusable secret should fail here, not
+    // silently on the first frame that tries to use it.
+    this.connecting = Promise.resolve(this.cipher).then(() => this.openSocket());
+    return this.connecting;
+  }
+
+  private openSocket(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
       // Room + identity live in the query string so a generic, content-blind
       // relay can group sockets by room without parsing any payload.
       const url = `${this.relay}/?room=${encodeURIComponent(this.room)}&peerId=${encodeURIComponent(this.localId)}`;
@@ -178,7 +237,6 @@ export class RelayTransport implements Transport {
         for (const id of Array.from(this.peers.keys())) this.drop(id);
       };
     });
-    return this.connecting;
   }
 
   /** Send one envelope as a JSON text frame, if the socket is open. */
@@ -186,6 +244,30 @@ export class RelayTransport implements Transport {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(env));
     }
+  }
+
+  /**
+   * Queue one `data` frame. Sealing is async while `send` is not, so frames go
+   * out through a chain that preserves the order they were handed to us in.
+   */
+  private postData(to: string, bytes: Uint8Array): void {
+    this.sendChain = this.sendChain
+      .then(async () => {
+        if (this.destroyed) return;
+        const cipher = await this.cipher;
+        const payload = cipher
+          ? await cipher.seal(bytes, aad(this.localId, to))
+          : bytes;
+        this.post({
+          kind: "data",
+          from: this.localId,
+          to,
+          data: toB64(payload),
+        });
+      })
+      .catch((err: unknown) => {
+        console.error("[provider-relay] failed to send frame", err);
+      });
   }
 
   private onMessage(raw: string): void {
@@ -205,14 +287,9 @@ export class RelayTransport implements Transport {
 
   private register(remoteId: string): void {
     if (remoteId === this.localId || this.peers.has(remoteId)) return;
-    const peer = new RelayPeer(remoteId, (data) => {
-      this.post({
-        kind: "data",
-        from: this.localId,
-        to: remoteId,
-        data: toB64(data),
-      });
-    });
+    const peer = new RelayPeer(remoteId, (data) =>
+      this.postData(remoteId, data),
+    );
     this.peers.set(remoteId, peer);
     for (const cb of this.joinListeners) cb(peer);
   }
@@ -235,7 +312,17 @@ export class RelayTransport implements Transport {
         // can outrun the `announce` that would register it, and dropping it
         // would lose a catch-up `hello`. register() is idempotent.
         this.register(env.from);
-        this.peers.get(env.from)?._receive(bytes);
+        const peer = this.peers.get(env.from);
+        if (!peer) break;
+        const cipher = this.cipher;
+        if (!cipher) {
+          peer._receive(bytes);
+          break;
+        }
+        const from = env.from;
+        peer._receiveAsync(async () =>
+          (await cipher).open(bytes, aad(from, this.localId)),
+        );
         break;
       }
       case "leave":
