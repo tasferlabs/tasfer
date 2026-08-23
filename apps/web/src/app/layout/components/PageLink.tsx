@@ -38,6 +38,8 @@ import {
 } from "../../../components/ui/drawer";
 import {
   Archive,
+  ArrowDownToLine,
+  ArrowUpToLine,
   Download,
   Ellipsis,
   FolderInput,
@@ -49,6 +51,8 @@ import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
 import { SUBTREE_EASE, SUBTREE_MOTION_MS } from "./subtreeMotion";
 import { type IParentsStack } from "./PagesLinks";
+import { InsertPageStrip } from "./InsertPageStrip";
+import { byOrder, placeRelative } from "./pageOrder";
 import style from "./PagesLinks.module.css";
 import useResponsive from "@/app/hooks/useResponsive";
 import { useTranslation } from "react-i18next";
@@ -95,11 +99,14 @@ export function PageLink({
   spaceId,
   parentsStack = [],
   color,
+  isFirst = false,
 }: {
   data: IListPage;
   spaceId?: string;
   parentsStack?: IParentsStack;
   color?: string | null;
+  /** First row of its sibling list — it also carries the "insert above" strip. */
+  isFirst?: boolean;
 }) {
   const { t } = useTranslation();
   const isCoarse = useResponsive("(pointer: coarse)");
@@ -130,6 +137,9 @@ export function PageLink({
 
   // Get root pages to determine navigation after deletion
   const { data: rootPages } = useGetPages(spaceId ?? null, null);
+
+  // Siblings, so an inserted page can be given an order between two of them.
+  const { data: siblings } = useGetPages(spaceId ?? null, data.parentId);
 
   const { mutate: updatePage } = useUpdatePage<{
     previousPages: IListPage[] | undefined;
@@ -260,6 +270,20 @@ export function PageLink({
     },
   });
 
+  // Sibling creation keeps its own mutation: it lands in this page's parent
+  // list, not in this page's children, so the cache work differs from `handleAdd`.
+  const { mutate: createSibling, isPending: isCreatingSibling } = useCreatePage({
+    onSuccess: (newPage) => {
+      queryClient.invalidateQueries({
+        queryKey: [
+          "pages",
+          { spaceId: spaceId ?? null, parentId: data.parentId },
+        ],
+      });
+      navigate(`/page/${newPage.id}`);
+    },
+  });
+
   // Use draggable for maximum flexibility
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: data.id,
@@ -313,6 +337,23 @@ export function PageLink({
       title: "",
       parentId: data.id,
       spaceId,
+    });
+  }
+
+  /**
+   * Insert a new page directly above or below this one. Without a resolvable
+   * placement (siblings not cached yet) the engine appends, which is the same
+   * behaviour as the plain "add page" button.
+   */
+  function handleAddSibling(position: "before" | "after") {
+    if (!spaceId) return;
+    const ordered = [...(siblings ?? [])].sort(byOrder);
+    const placement = placeRelative(ordered, data.id, position);
+    createSibling({
+      title: "",
+      parentId: data.parentId,
+      spaceId,
+      order: placement?.order,
     });
   }
 
@@ -469,11 +510,33 @@ export function PageLink({
             onDelete={handleDelete}
             isDeleting={isDeleting}
             onAdd={handleAdd}
+            onAddAbove={() => handleAddSibling("before")}
+            onAddBelow={() => handleAddSibling("after")}
             onImport={handleImport}
             isCreating={isCreating}
+            isCreatingSibling={isCreatingSibling}
             t={t}
           />
         </div>
+
+        {/* Hover-only insertion seams. The "before" seam belongs to the first
+            row alone — every other gap is some row's "after". An expanded row
+            hides its "after" seam: that gap starts its subtree, so inserting a
+            sibling there would read as inserting a child. */}
+        {!isCoarse && spaceId && isFirst && (
+          <InsertPageStrip
+            position="before"
+            disabled={isCreatingSibling}
+            onInsert={() => handleAddSibling("before")}
+          />
+        )}
+        {!isCoarse && spaceId && !isExpanded && (
+          <InsertPageStrip
+            position="after"
+            disabled={isCreatingSibling}
+            onInsert={() => handleAddSibling("after")}
+          />
+        )}
 
         {/* Right-click / long-press context menu positioned at cursor */}
         {contextPos && (
@@ -513,8 +576,11 @@ export function PageLink({
                   onDelete={handleDelete}
                   isDeleting={isDeleting}
                   onAdd={handleAdd}
+                  onAddAbove={() => handleAddSibling("before")}
+                  onAddBelow={() => handleAddSibling("after")}
                   onImport={handleImport}
                   isCreating={isCreating}
+                  isCreatingSibling={isCreatingSibling}
                   color={data.color}
                   t={t}
                 />
@@ -645,8 +711,11 @@ function PageLinkMenuContent({
   onDelete,
   isDeleting,
   onAdd,
+  onAddAbove,
+  onAddBelow,
   onImport,
   isCreating,
+  isCreatingSibling,
   color,
   t,
 }: {
@@ -657,8 +726,11 @@ function PageLinkMenuContent({
   onDelete: () => void;
   isDeleting: boolean;
   onAdd: () => void;
+  onAddAbove: () => void;
+  onAddBelow: () => void;
   onImport: () => void;
   isCreating: boolean;
+  isCreatingSibling: boolean;
   color: string | null | undefined;
   t: TFunction;
 }) {
@@ -707,6 +779,32 @@ function PageLinkMenuContent({
             <Icons.Plus width={18} height={18} />
           )}
           {t("page.addSubpage", "Add subpage")}
+        </Button>
+        <Button
+          variant="unstyled"
+          size="unstyled"
+          className={menuItemClass}
+          onClick={() => {
+            onClose();
+            onAddAbove();
+          }}
+          disabled={isCreatingSibling}
+        >
+          <ArrowUpToLine size={18} />
+          {t("page.addPageAbove", "Add page above")}
+        </Button>
+        <Button
+          variant="unstyled"
+          size="unstyled"
+          className={menuItemClass}
+          onClick={() => {
+            onClose();
+            onAddBelow();
+          }}
+          disabled={isCreatingSibling}
+        >
+          <ArrowDownToLine size={18} />
+          {t("page.addPageBelow", "Add page below")}
         </Button>
         <Button
           variant="unstyled"
@@ -765,8 +863,11 @@ function PageLinkMenu({
   onDelete,
   isDeleting,
   onAdd,
+  onAddAbove,
+  onAddBelow,
   onImport,
   isCreating,
+  isCreatingSibling,
   t,
 }: {
   open: boolean;
@@ -779,8 +880,11 @@ function PageLinkMenu({
   onDelete: () => void;
   isDeleting: boolean;
   onAdd: () => void;
+  onAddAbove: () => void;
+  onAddBelow: () => void;
   onImport: () => void;
   isCreating: boolean;
+  isCreatingSibling: boolean;
   t: TFunction;
 }) {
   const triggerButton = (
@@ -805,8 +909,11 @@ function PageLinkMenu({
     onDelete,
     isDeleting,
     onAdd,
+    onAddAbove,
+    onAddBelow,
     onImport,
     isCreating,
+    isCreatingSibling,
     color,
     t,
   };

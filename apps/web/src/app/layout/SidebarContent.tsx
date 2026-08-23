@@ -59,6 +59,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useOrderedSpaces, useSpacePrefs } from "../contexts/SpacePrefsContext";
 import { setRecentDragEnd } from "./components/PageLink";
+import { byOrder, placeRelative } from "./components/pageOrder";
 import { TitlePreview } from "../TitlePreview";
 import { SpaceSection } from "./components/SpaceSection";
 import { SidebarTailDrop } from "./components/SidebarTailDrop";
@@ -122,18 +123,6 @@ type ActiveDrag =
  * a nav row does not want — hence the two overrides.
  */
 const navLinkClass = clsx(style.appNavigationLink, "justify-start font-normal");
-
-/** Sort by order, tiebroken by id to match the server's deterministic order. */
-const byOrder = (a: IListPage, b: IListPage) =>
-  a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-
-/** Pick an order value strictly between two neighbours (null = open end). */
-function midOrder(lower: number | null, upper: number | null): number {
-  if (lower === null && upper === null) return 1;
-  if (lower === null) return upper! - 1;
-  if (upper === null) return lower + 1;
-  return (lower + upper) / 2;
-}
 
 export function SidebarContent({
   setOpen,
@@ -346,28 +335,6 @@ export function SidebarContent({
       { spaceId: siblingSpaceId ?? null, parentId, includeTasks: false },
     ]);
     return data ? [...data].sort(byOrder) : [];
-  }
-
-  /**
-   * Compute the target order for inserting before/after `targetPageId` within a
-   * sibling list that does NOT contain the dragged page. Returns the new order
-   * plus the ids that would bracket it (used for no-op detection).
-   */
-  function placeRelative(
-    others: IListPage[],
-    targetPageId: string,
-    position: "before" | "after",
-  ): { order: number; lowerId: string | null; upperId: string | null } | null {
-    const ti = others.findIndex((p) => p.id === targetPageId);
-    if (ti === -1) return null;
-    const insertIdx = position === "after" ? ti + 1 : ti;
-    const lower = others[insertIdx - 1] ?? null;
-    const upper = others[insertIdx] ?? null;
-    return {
-      order: midOrder(lower?.order ?? null, upper?.order ?? null),
-      lowerId: lower?.id ?? null,
-      upperId: upper?.id ?? null,
-    };
   }
 
   /**

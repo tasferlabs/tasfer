@@ -2970,15 +2970,20 @@ export class Engine implements Platform {
       const now = new Date().toISOString();
       const scheduledAt = toUtcIso(data.scheduledAt);
 
-      const orderRows = await this.driver.db.query<{
-        max_order: number | null;
-      }>(
-        data.parentId
-          ? 'SELECT MAX("order") as max_order FROM pages WHERE parent_id = ? AND archived_at IS NULL'
-          : 'SELECT MAX("order") as max_order FROM pages WHERE parent_id IS NULL AND archived_at IS NULL',
-        data.parentId ? [data.parentId] : [],
-      );
-      const order = (orderRows[0]?.max_order ?? 0) + 1;
+      // An explicit order places the page between siblings (insert above/below);
+      // without one it lands at the end of the list.
+      let order = data.order;
+      if (order === undefined) {
+        const orderRows = await this.driver.db.query<{
+          max_order: number | null;
+        }>(
+          data.parentId
+            ? 'SELECT MAX("order") as max_order FROM pages WHERE parent_id = ? AND archived_at IS NULL'
+            : 'SELECT MAX("order") as max_order FROM pages WHERE parent_id IS NULL AND archived_at IS NULL',
+          data.parentId ? [data.parentId] : [],
+        );
+        order = (orderRows[0]?.max_order ?? 0) + 1;
+      }
 
       await this.driver.db.mutate(
         `INSERT INTO pages (id, title, title_md, parent_id, "order", space_id, task, scheduled_at, duration, all_day, created_at, updated_at)

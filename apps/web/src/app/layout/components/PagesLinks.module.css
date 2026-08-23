@@ -451,3 +451,71 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Insertion seam.
+ *
+ * A hover-only hairline straddling the boundary between two rows. It is
+ * invisible until pointed at, so the sidebar keeps its resting look, and it
+ * overlays the row edges rather than adding height — a strip that took up
+ * layout space would push every row apart for a control almost never used.
+ * Only mounted for fine pointers and outside drags (see InsertPageStrip). */
+.insertStrip {
+  position: absolute;
+  inset-inline: 0;
+  height: 9px;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  padding-inline-start: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  /* Fades out immediately, but waits out a pointer merely crossing the seam. */
+  transition: opacity 0.1s ease;
+}
+
+.insertStripBefore {
+  top: -4px;
+}
+
+.insertStripAfter {
+  bottom: -4px;
+}
+
+.insertStrip:hover {
+  opacity: 1;
+  transition-delay: 0.14s;
+}
+
+.insertStripPlus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.insertStripLine {
+  flex: 1 1 0;
+  height: 1px;
+  background-color: var(--primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .insertStrip {
+    transition: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .insertStrip {
+    display: none;
+  }
+}

@@ -644,6 +644,8 @@
   "p2pTutorial.step3Desc": "Inviting replicates this entire space to their device. Archiving or leaving on your side deletes nothing from theirs — once it's sent, there's no recall.",
   "p2pTutorial.confirmPermanence": "I understand this can't be undone.",
   "page.addPage": "Add page",
+  "page.addPageAbove": "Add page above",
+  "page.addPageBelow": "Add page below",
   "page.addSubpage": "Add subpage",
   "page.archivePage": "Archive Page",
   "page.confirmArchivePage": "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",

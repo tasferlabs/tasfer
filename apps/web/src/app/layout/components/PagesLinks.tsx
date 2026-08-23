@@ -31,13 +31,14 @@ export default function PagesLinks({
 
   return (
     <>
-      {pages?.map((link) => (
+      {pages?.map((link, index) => (
         <PageLink
           key={link.id}
           data={link}
           spaceId={spaceId}
           parentsStack={[...parentsStack, { id: parentId, order: link.order }]}
           color={color}
+          isFirst={index === 0}
         />
       ))}
 

@@ -73,6 +73,8 @@ interface ICreatePage {
   titleMd?: string;
   parentId: string | null;
   spaceId: string;
+  /** Explicit sibling order; omit to append to the end of the list. */
+  order?: number;
   scheduledAt?: string;
   duration?: number;
   allDay?: boolean;

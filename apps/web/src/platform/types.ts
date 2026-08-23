@@ -166,6 +166,11 @@ export interface PageCreateInput {
   titleMd?: string;
   parentId: string | null;
   spaceId?: string;
+  /**
+   * Explicit sibling order. Fractional values are expected — callers inserting
+   * between two pages pass the midpoint. Defaults to the end of the list.
+   */
+  order?: number;
   scheduledAt?: string;
   duration?: number;
   allDay?: boolean;
