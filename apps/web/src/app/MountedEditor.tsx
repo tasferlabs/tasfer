@@ -1178,6 +1178,14 @@ interface MountedEditorProps {
   /** Callback for all content updates (local and remote) - used for word count, etc. */
   onContentUpdate?: (blocks: Block[]) => void;
   autoFocus?: boolean;
+  /**
+   * Take focus on mount even when another typing surface still holds it —
+   * the command palette that asked for this page, closing as we mount. Only
+   * meaningful together with `autoFocus`, and ignored on touch-only devices,
+   * where claiming focus would raise the soft keyboard on a page the user may
+   * only want to read.
+   */
+  claimFocus?: boolean;
   /** Unique page ID for CRDT sync - if provided, enables live collaboration */
   pageId: string;
   /** Space ID that owns this page - required for P2P sync to use the correct topic */
@@ -1397,6 +1405,7 @@ function PageEditor({
   onContentChange,
   onContentUpdate,
   autoFocus = false,
+  claimFocus = false,
   pageId,
   onAwarenessChange,
   onRestoreReady,
@@ -3087,6 +3096,10 @@ function PageEditor({
       });
     });
 
+    // Pending re-assert of a claimed focus (see below); cleared on teardown so
+    // a page switch mid-claim can't focus an editor that is going away.
+    let focusClaimTimer: number | null = null;
+
     // Auto-focus the editor when requested
     if (autoFocus) {
       // ...unless something else is already taking typing. This effect runs
@@ -3096,7 +3109,23 @@ function PageEditor({
       // keystrokes into the canvas hidden behind the palette. Only DOM focus is
       // conceded — the caret and scroll are still restored below, so the page
       // is where it was left when focus does come back.
-      if (!holdsTypedInput(document.activeElement)) mounted.editor.focus();
+      //
+      // `claimFocus` reverses that: this page IS what the palette was asked to
+      // open, so its input has no claim on the keystrokes that follow.
+      const claiming = claimFocus && !isTouchOnlyDevice();
+      if (claiming || !holdsTypedInput(document.activeElement)) {
+        mounted.editor.focus();
+      }
+      if (claiming) {
+        // The palette returns focus to whatever held it before it opened, from
+        // a timeout fired as it unmounts — which can land after the focus
+        // above. Re-assert once that has run so the caret ends up in the page
+        // the user picked, not behind it.
+        focusClaimTimer = window.setTimeout(() => {
+          focusClaimTimer = null;
+          if (mountedRef.current === mounted) mounted.editor.focus();
+        }, 0);
+      }
 
       // Restore by stable block id and viewport-relative anchor. The height
       // index can jump to this block using estimates, so opening near the end
@@ -3127,6 +3156,7 @@ function PageEditor({
     syncDrawerDragGuard(initialScrollY);
 
     return () => {
+      if (focusClaimTimer !== null) clearTimeout(focusClaimTimer);
       offContent();
       offUi();
       disposeActions();

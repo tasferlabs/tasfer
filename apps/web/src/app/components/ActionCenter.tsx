@@ -27,6 +27,7 @@ import { TitlePreview } from "../TitlePreview";
 import { useActionCenter } from "../contexts/ActionCenterContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useVersion } from "../contexts/VersionContext";
+import { OPEN_PAGE_NAV_STATE } from "../routes/pageNavState";
 import { useToast } from "./Toast";
 import { useTheme } from "../hooks/useTheme";
 import { useQueryClient } from "@tanstack/react-query";
@@ -199,7 +200,7 @@ export function ActionCenter() {
   const createPage = useCreatePage({
     onSuccess: (page) => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
-      navigate(`/page/${page.id}`);
+      navigate(`/page/${page.id}`, { state: OPEN_PAGE_NAV_STATE });
     },
   });
 
@@ -504,7 +505,9 @@ export function ActionCenter() {
       key={`page-${page.id}`}
       value={`page-${page.id}`}
       onSelect={() =>
-        runAction(`page-${page.id}`, () => navigate(`/page/${page.id}`))
+        runAction(`page-${page.id}`, () =>
+          navigate(`/page/${page.id}`, { state: OPEN_PAGE_NAV_STATE }),
+        )
       }
       className={cls}
     >

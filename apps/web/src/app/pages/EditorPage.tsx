@@ -64,6 +64,7 @@ import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import {
   Navigate,
+  useLocation,
   useNavigate,
   useParams,
   useSearchParams,
@@ -100,6 +101,7 @@ import { openImageUploadMenu } from "@/editorSchema";
 import { imageBleedHeight } from "@tasfer/editor/internal";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
+import { wantsEditorFocus } from "../routes/pageNavState";
 import {
   NARROW_CONTENT_WIDTH,
   usePageSettings,
@@ -136,6 +138,9 @@ export default function EditorPage() {
   const { toast } = useToast();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
+  // Opening a page from the action center should leave the caret in it, so the
+  // navigation carries that intent; see `claimFocus` on MountedEditor.
+  const openedByCommand = wantsEditorFocus(useLocation().state);
   const isNewPageDeepLink = !id && searchParams.has("new");
   const queryClient = useQueryClient();
   const {
@@ -734,6 +739,7 @@ export default function EditorPage() {
           onContentChange={readonly ? undefined : handleContentChange}
           onContentUpdate={handleContentUpdate}
           autoFocus={!readonly}
+          claimFocus={openedByCommand}
           pageId={id}
           spaceId={pageSpaceId ?? activeSpaceId ?? undefined}
           onSyncStateChange={setSyncState}
