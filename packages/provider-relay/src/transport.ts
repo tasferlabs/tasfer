@@ -212,11 +212,23 @@ export class RelayTransport implements Transport {
     if (this.connecting) return this.connecting;
     // Derive the room key first: an unusable secret should fail here, not
     // silently on the first frame that tries to use it.
-    this.connecting = Promise.resolve(this.cipher).then(() => this.openSocket());
-    return this.connecting;
+    const attempt = Promise.resolve(this.cipher).then(() => this.openSocket());
+    this.connecting = attempt;
+    // Only a *successful* attempt is worth caching. A relay that was
+    // unreachable can be up by the next call, so a rejected attempt is cleared
+    // instead of replayed forever. (A bad secret still fails every time — the
+    // key is derived once, in the constructor.)
+    void attempt.catch(() => {
+      if (this.connecting === attempt) this.connecting = null;
+    });
+    return attempt;
   }
 
   private openSocket(): Promise<void> {
+    // Key derivation is async, so destroy() can land between connect() and
+    // here. Opening now would produce a socket nothing ever closes: destroy()
+    // has already run and seen `ws` still null.
+    if (this.destroyed) return Promise.resolve();
     return new Promise<void>((resolve, reject) => {
       // Room + identity live in the query string so a generic, content-blind
       // relay can group sockets by room without parsing any payload.
@@ -249,11 +261,15 @@ export class RelayTransport implements Transport {
   /**
    * Queue one `data` frame. Sealing is async while `send` is not, so frames go
    * out through a chain that preserves the order they were handed to us in.
+   *
+   * Teardown is checked here, at hand-off, and not inside the chain: a frame
+   * handed over *before* destroy() still belongs on the wire, and destroy()
+   * drains the chain before it closes the socket.
    */
   private postData(to: string, bytes: Uint8Array): void {
+    if (this.destroyed) return;
     this.sendChain = this.sendChain
       .then(async () => {
-        if (this.destroyed) return;
         const cipher = await this.cipher;
         const payload = cipher
           ? await cipher.seal(bytes, aad(this.localId, to))
@@ -354,12 +370,19 @@ export class RelayTransport implements Transport {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
     this.destroyed = true;
-    this.post({ kind: "leave", from: this.localId });
     for (const id of Array.from(this.peers.keys())) this.drop(id);
-    this.ws?.close();
-    this.ws = null;
     this.joinListeners.clear();
     this.leaveListeners.clear();
+    // Sealing is async, so frames handed to us moments ago are still queued and
+    // have not reached the socket — the usual unmount is an edit immediately
+    // followed by destroy(). Drain the chain, then say goodbye and close.
+    // postData() refuses new frames from here on, so the chain cannot grow.
+    void this.sendChain.then(() => {
+      this.post({ kind: "leave", from: this.localId });
+      this.ws?.close();
+      this.ws = null;
+    });
   }
 }
