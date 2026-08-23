@@ -53,7 +53,12 @@ import style from "./PagesLinks.module.css";
 import useResponsive from "@/app/hooks/useResponsive";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { useIsExpanded, useTreeExpand } from "../../contexts/TreeExpandContext";
+import {
+  useIsExpanded,
+  useRevealRequest,
+  useTreeExpand,
+} from "../../contexts/TreeExpandContext";
+import scrollIntoView from "scroll-into-view-if-needed";
 
 const PRESET_COLORS = [
   "#EF4444",
@@ -127,6 +132,40 @@ export function PageLink({
     },
     [treeExpand, data.id, isExpanded],
   );
+
+  // Bring this row into view when a page opens somewhere outside the sidebar
+  // (search, a breadcrumb, a link in the document). The row may mount long after
+  // the request, once its parent's children finish loading, so the request is
+  // read from the store rather than pushed at us.
+  const rowRef = useRef<HTMLDivElement>(null);
+  const reveal = useRevealRequest();
+  const handledRevealRef = useRef(0);
+  useEffect(() => {
+    if (!reveal || reveal.id !== data.id) return;
+    if (handledRevealRef.current === reveal.nonce) return;
+    handledRevealRef.current = reveal.nonce;
+    const row = rowRef.current;
+    if (!row) return;
+    // Ancestor subtrees are still animating open above this row, so wait for
+    // their height to settle before measuring where it lands.
+    const timer = window.setTimeout(
+      () => {
+        scrollIntoView(row, {
+          scrollMode: "if-needed",
+          block: "center",
+          inline: "nearest",
+          behavior: reduceMotion ? "auto" : "smooth",
+          // Move the sidebar's own scroller and nothing above it — revealing a
+          // row must never scroll the document under the open page.
+          boundary:
+            row.closest<HTMLElement>('[data-slot="scroll-area-viewport"]') ??
+            undefined,
+        });
+      },
+      reduceMotion ? 0 : SUBTREE_MOTION_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [reveal, data.id, reduceMotion]);
 
   // Get root pages to determine navigation after deletion
   const { data: rootPages } = useGetPages(spaceId ?? null, null);
@@ -347,7 +386,7 @@ export function PageLink({
     <div className={style.pageWrapper}>
       {/* Row wrapper: drop zones are absolutely positioned against THIS box so
           they measure the row only, never the expanded children below it. */}
-      <div className={style.pageRow}>
+      <div className={style.pageRow} ref={rowRef}>
         {/* Drop zone BEFORE this item - insert above */}
         <DropZone
           id={`before-${data.id}`}

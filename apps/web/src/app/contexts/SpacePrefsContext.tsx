@@ -32,6 +32,8 @@ function readCollapsed(store: OwnPrefsStore): string[] {
 
 export interface SpacePrefs {
   toggleCollapsed(id: string): void;
+  /** Open a space, leaving an already-open one alone. */
+  expand(id: string): void;
   /**
    * Move `activeId` so it sits immediately before `beforeSpaceId`, or to the
    * end of the list when `beforeSpaceId` is null. Operates on the full visible
@@ -55,6 +57,15 @@ export function useSpacePrefs(): SpacePrefs {
           collapsed.includes(id)
             ? collapsed.filter((c) => c !== id)
             : [...collapsed, id],
+        );
+      },
+
+      expand: (id) => {
+        const collapsed = readCollapsed(store);
+        if (!collapsed.includes(id)) return;
+        store.set(
+          OWN_PREF_KEYS.spacesCollapsed,
+          collapsed.filter((c) => c !== id),
         );
       },
 
@@ -85,6 +96,16 @@ export function useIsSpaceCollapsed(id: string): boolean {
   // is where a change from another device has already landed by then.
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   return readCollapsed(store).includes(id);
+}
+
+/**
+ * False until the saved collapse state has been read. Spaces render open before
+ * that, so anything acting on "is this space collapsed" has to wait for it.
+ */
+export function useSpacePrefsLoaded(): boolean {
+  const store = useOwnPrefsStore();
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  return snapshot.loaded;
 }
 
 /**

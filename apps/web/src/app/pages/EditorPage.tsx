@@ -417,10 +417,13 @@ export default function EditorPage() {
           // debounced update path. Large documents should become interactive
           // before this full-content scan runs.
           debouncedWordCountUpdate(blocks);
-          // Expand all ancestor pages in the sidebar tree
-          if (page.parents && page.parents.length > 0) {
-            treeExpand.expandMany(page.parents.map((p) => p.id));
-          }
+          // Show the page in the sidebar: open its space and every ancestor,
+          // then let its row scroll itself into view if it sits off-screen.
+          treeExpand.revealPath({
+            id: page.id,
+            spaceId: page.spaceId,
+            ancestorIds: page.parents?.map((p) => p.id) ?? [],
+          });
         }
       } catch (error) {
         // `pages.get` filters archived rows, so a link saved before the page

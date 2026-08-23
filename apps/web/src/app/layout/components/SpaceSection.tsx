@@ -17,7 +17,9 @@ import type { ISpace } from "../../api/spaces.api";
 import {
   useIsSpaceCollapsed,
   useSpacePrefs,
+  useSpacePrefsLoaded,
 } from "../../contexts/SpacePrefsContext";
+import { useRevealRequest } from "../../contexts/TreeExpandContext";
 import { useIsSpaceSyncing } from "../../contexts/SyncActivityContext";
 import style from "../Layout.module.css";
 import { PagesArea } from "./PagesArea";
@@ -49,6 +51,19 @@ export function SpaceSection({
   const collapsed = useIsSpaceCollapsed(space.id);
   const syncing = useIsSpaceSyncing(space.id);
   const name = space.name || t("common.untitled", "Untitled");
+
+  // A page opened from outside the sidebar has to be reachable there, so its
+  // space opens even when it was collapsed. Each request is acted on once —
+  // after that the person can collapse the space again and it stays closed.
+  const reveal = useRevealRequest();
+  const prefsLoaded = useSpacePrefsLoaded();
+  const handledRevealRef = useRef(0);
+  useEffect(() => {
+    if (!prefsLoaded || reveal?.spaceId !== space.id) return;
+    if (handledRevealRef.current === reveal.nonce) return;
+    handledRevealRef.current = reveal.nonce;
+    if (collapsed) prefs.expand(space.id);
+  }, [reveal, prefsLoaded, collapsed, prefs, space.id]);
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `space-${space.id}`,
