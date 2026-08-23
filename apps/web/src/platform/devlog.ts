@@ -4,7 +4,7 @@
  * defaults on in staging). No-op otherwise.
  */
 
-import { isDevToolsEnabled } from "@/lib/devTools";
+import { isDevToolsEnabled } from "@/lib/devToolsFlag";
 
 export type NetDirection = "send" | "recv";
 

@@ -13,6 +13,8 @@
  *     cleartext fallback (`join()` throws rather than downgrade).
  *   - After signaling, data flows directly peer-to-peer over DataChannels
  *   - If ICE fails, falls back to relay through CF (also encrypted)
+ *   - A host with no WebRTC implementation (headless Node) can take that relay
+ *     path from the start — see {@link WebRtcDriverOptions.relayOnly}
  *
  * Signaling protocol (per-topic WebSocket, JSON):
  *
@@ -37,6 +39,23 @@ import type { NetworkDriver, NetworkTopic, NetworkPeer } from "../driver";
 // =============================================================================
 // Config
 // =============================================================================
+
+/** Options a host passes when it cannot use the driver's default transport. */
+export interface WebRtcDriverOptions {
+  /**
+   * Route every peer over the encrypted relay instead of attempting a direct
+   * DataChannel — the transport the driver otherwise reaches only when ICE
+   * fails. For a runtime with no WebRTC implementation at all (a headless Node
+   * host without `node-datachannel`), this is the whole transport, so nothing
+   * here builds an RTCPeerConnection and no TURN credentials are requested.
+   *
+   * Every frame is still encrypted to the topic key before it reaches the
+   * relay; what changes is that the relay carries document bytes rather than
+   * just the introduction. Peers on the other side need no special mode — the
+   * existing `relay-start` signal tells them to fall back.
+   */
+  relayOnly?: boolean;
+}
 
 const STUN_ONLY_CONFIG: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -660,6 +679,8 @@ class WebRtcTopic implements NetworkTopic {
   /** Read per connection, not captured: TURN credentials expire and are refreshed. */
   private getRtcConfig: () => RTCConfiguration;
   private turn: TurnCredentialManager;
+  /** See {@link WebRtcDriverOptions.relayOnly}. */
+  private relayOnly: boolean;
   private ws: WebSocket | null = null;
   private wsReady: Promise<void> = Promise.resolve();
   /** Serializes inbound frame handling — see {@link enqueueWsMessage}. */
@@ -697,6 +718,7 @@ class WebRtcTopic implements NetworkTopic {
     encKey: CryptoKey,
     getRtcConfig: () => RTCConfiguration,
     turn: TurnCredentialManager,
+    relayOnly = false,
   ) {
     this.localPeerId = localPeerId;
     this.topicHex = topicHex;
@@ -704,6 +726,7 @@ class WebRtcTopic implements NetworkTopic {
     this.encKey = encKey;
     this.getRtcConfig = getRtcConfig;
     this.turn = turn;
+    this.relayOnly = relayOnly;
   }
 
   /** Connect to the CF Worker and start receiving signals. */
@@ -1203,6 +1226,12 @@ class WebRtcTopic implements NetworkTopic {
     const rShort = remotePeerId.slice(0, 8);
     const topicShort = this.topicHex.slice(0, 8);
 
+    // No direct transport on this host at all — the relay is the only pipe.
+    if (this.relayOnly) {
+      this._promoteToRelay(remotePeerId);
+      return;
+    }
+
     // ICE already failed here recently — go straight to the relay rather than
     // spend another INITIAL_CONNECTION_TIMEOUT_MS proving it again.
     if (this.recentlyFailedDirect(remotePeerId)) {
@@ -1269,6 +1298,15 @@ class WebRtcTopic implements NetworkTopic {
 
     // Ignore signaling for peers that already fell back to relay
     if (peer instanceof RelayPeer) return;
+
+    // A relay-only host has no answer to give: an offer that arrives before
+    // the room's peer-join still has to produce a RelayPeer, and its SDP and
+    // candidates are dropped. `relay-start` needs no reply — the sender is
+    // already relaying.
+    if (this.relayOnly) {
+      if (!peer) this._promoteToRelay(from, data.type !== "relay-start");
+      return;
+    }
 
     if (data.type === "offer") {
       // Ignore renegotiation offers on an already-connected peer — these are
@@ -1439,7 +1477,11 @@ class WebRtcTopic implements NetworkTopic {
     );
     this.peers.set(remotePeerId, relayPeer);
 
-    console.log(`[WebRTC] direct transport unavailable for ${remotePeerId.slice(0, 8)}… — falling back to relay`);
+    console.log(
+      this.relayOnly
+        ? `[WebRTC] relay-only host — connecting to ${remotePeerId.slice(0, 8)}… through the relay`
+        : `[WebRTC] direct transport unavailable for ${remotePeerId.slice(0, 8)}… — falling back to relay`,
+    );
 
     // Fire join listeners so the Replicator sees a new (relay) peer
     for (const cb of this.joinListeners) cb(relayPeer);
@@ -1572,6 +1614,8 @@ class WebRtcTopic implements NetworkTopic {
 
 class WebRtcNetworkDriver implements NetworkDriver, TurnCredentialManager {
   private signalUrl: string;
+  /** See {@link WebRtcDriverOptions.relayOnly}. */
+  private relayOnly: boolean;
   private localPeerId: string = "";
   private topics = new Map<string, WebRtcTopic>();
   private topicKeys = new Map<string, Uint8Array>();
@@ -1586,8 +1630,9 @@ class WebRtcNetworkDriver implements NetworkDriver, TurnCredentialManager {
   } | null = null;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(signalUrl: string) {
+  constructor(signalUrl: string, options: WebRtcDriverOptions = {}) {
     this.signalUrl = signalUrl;
+    this.relayOnly = options.relayOnly ?? false;
   }
 
   /**
@@ -1617,6 +1662,9 @@ class WebRtcNetworkDriver implements NetworkDriver, TurnCredentialManager {
    * timeout) settles it via handleTurnResponse / finishTurnRequest.
    */
   private startTurnRequest(topic: WebRtcTopic, force: boolean): boolean {
+    // TURN exists to rescue a direct connection. A relay-only host builds none,
+    // so asking for credentials would only spend the server's mint budget.
+    if (this.relayOnly) return false;
     if (this.turnRequest) return false;
     const now = Date.now();
     if (!force && now - this.credentialsFetchedAt < TURN_CREDENTIAL_REFRESH_MS) return false;
@@ -1686,7 +1734,7 @@ class WebRtcNetworkDriver implements NetworkDriver, TurnCredentialManager {
    * expired at their TTL.
    */
   private startCredentialRefresh(): void {
-    if (this.refreshTimer) return;
+    if (this.relayOnly || this.refreshTimer) return;
     this.refreshTimer = setInterval(() => {
       // Any topic with an open socket can carry the request. If none is open,
       // skip: the next socketOpened() refreshes by staleness.
@@ -1714,7 +1762,7 @@ class WebRtcNetworkDriver implements NetworkDriver, TurnCredentialManager {
     // connections are built relay-capable.
     this.startCredentialRefresh();
 
-    const nt = new WebRtcTopic(this.localPeerId, hex, this.signalUrl, encKey, this.currentRtcConfig, this);
+    const nt = new WebRtcTopic(this.localPeerId, hex, this.signalUrl, encKey, this.currentRtcConfig, this, this.relayOnly);
     this.topics.set(hex, nt);
 
     // A first connect that fails is not a dead topic: it has already queued its
@@ -1783,6 +1831,9 @@ class WebRtcNetworkDriver implements NetworkDriver, TurnCredentialManager {
 // Factory
 // =============================================================================
 
-export function createWebRtcNetworkDriver(signalUrl: string): NetworkDriver {
-  return new WebRtcNetworkDriver(signalUrl);
+export function createWebRtcNetworkDriver(
+  signalUrl: string,
+  options?: WebRtcDriverOptions,
+): NetworkDriver {
+  return new WebRtcNetworkDriver(signalUrl, options);
 }

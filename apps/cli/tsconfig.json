@@ -1,0 +1,77 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ],
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@tasfer/editor": [
+        "../../packages/editor/src/index.ts"
+      ],
+      "@tasfer/editor/*": [
+        "../../packages/editor/src/*"
+      ],
+      "@tasfer/tex": [
+        "../../packages/tex/src/index.ts"
+      ],
+      "@tasfer/tex/*": [
+        "../../packages/tex/src/*"
+      ],
+      "@tasfer/provider-core": [
+        "../../packages/provider-core/src/index.ts"
+      ],
+      "@tasfer/provider-core/*": [
+        "../../packages/provider-core/src/*"
+      ],
+      "@shared/*": [
+        "../../shared/*"
+      ],
+      "@/*": [
+        "../web/src/*"
+      ],
+      "nanoid": [
+        "./node_modules/nanoid"
+      ],
+      "turndown": [
+        "./node_modules/@types/turndown"
+      ],
+      "lowlight": [
+        "./node_modules/lowlight"
+      ],
+      "hast": [
+        "./node_modules/@types/hast"
+      ],
+      "@noble/curves/*": [
+        "./node_modules/@noble/curves/*"
+      ]
+    },
+    "typeRoots": [
+      "./node_modules/@types",
+      "./types"
+    ]
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

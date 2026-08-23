@@ -5,19 +5,60 @@ import { Callout, Lede, PropsTable } from "../../docsComponents";
 <Lede>
   The relay is a small, stateless signaling service: it introduces peers and
   forwards encrypted bytes it cannot read. **It has no database, no accounts, and
-  nothing worth subpoenaing.** It ships as a Cloudflare Worker you deploy from the
-  repo.
+  nothing worth subpoenaing.** It ships two ways from this repo: a Cloudflare
+  Worker, or a plain Node process you run anywhere.
 </Lede>
 
 <h2 id="what">What it is</h2>
 
-The relay lives in [`apps/live`](https://github.com/tasferlabs/tasfer/tree/main/apps/live): a TypeScript Cloudflare Worker with one Durable Object per discovery topic, so peers on a topic always meet on the same instance. It exposes one endpoint:
+The relay lives in [`apps/live`](https://github.com/tasferlabs/tasfer/tree/main/apps/live): a TypeScript Cloudflare Worker with one Durable Object per discovery topic, so peers on a topic always meet on the same instance. [`apps/cli`](https://github.com/tasferlabs/tasfer/tree/main/apps/cli) carries the same service as a Node process for anyone who would rather not run it on someone else's platform. Either way it exposes one endpoint:
 
 <PropsTable cols={["Endpoint", "Type", "Description"]} rows={[
-  { name: "/topic/{topic}?peerId=…", type: "WebSocket", desc: "Joins the topic's room. Signaling and encrypted fallback frames are forwarded to the addressed peer, never stored. Connected members can also request short-lived TURN credentials (Cloudflare Calls) over this socket, so peers behind strict NAT can still connect." },
+  { name: "/topic/{topic}?peerId=…", type: "WebSocket", desc: "Joins the topic's room. Signaling and encrypted fallback frames are forwarded to the addressed peer, never stored. Connected members can also request short-lived TURN credentials over this socket, so peers behind strict NAT can still connect." },
 ]} />
 
-<h2 id="run">Run it</h2>
+<h2 id="node">Run it on your own machine</h2>
+
+The portable relay is the same service with no Cloudflare in it: one Node
+process, rooms in memory instead of Durable Objects, [coturn](https://github.com/coturn/coturn)
+instead of Cloudflare Calls. It speaks the identical protocol, so an app build
+pointed at it behaves exactly as it does against the hosted one.
+
+```bash
+cd apps/cli
+npm install
+npm run build
+
+# Behind a TLS-terminating proxy, bind to localhost (the default):
+node dist/main.mjs relay --port 8787
+
+# With TURN, so peers behind strict NAT still get a direct path:
+node dist/main.mjs relay --port 8787 \
+  --turn-url turn:turn.example.org:3478 \
+  --turn-secret "$(cat /etc/coturn/static-auth-secret)"
+```
+
+<PropsTable cols={["Option", "Default", "Description"]} rows={[
+  { name: "--port", type: "8787", desc: "Port to listen on. Also `PORT`." },
+  { name: "--host", type: "127.0.0.1", desc: "Address to bind. Keep it on localhost behind a reverse proxy; use 0.0.0.0 only when this process is the edge." },
+  { name: "--turn-url", type: "none", desc: "TURN URL(s) peers should use, comma-separated. A matching stun: entry is derived, so nothing points at anyone else's STUN server." },
+  { name: "--turn-secret", type: "none", desc: "coturn's `static-auth-secret`. Credentials are derived per mint — an expiry timestamp and its HMAC — exactly what coturn's `use-auth-secret` mode verifies. Also `TURN_SECRET`." },
+  { name: "--turn-ttl", type: "3600", desc: "Lifetime in seconds of a minted credential." },
+]} />
+
+Set `TURN_KEY_ID` and `TURN_API_TOKEN` in the environment instead, and it mints
+through Cloudflare Calls — the same path the Worker takes — for anyone who
+already has a key. With neither configured, peers run STUN-only and fall back to
+relaying their encrypted traffic through this process.
+
+WebSocket upgrades happen on `/topic/{topicHex}`, and `/health` answers with the
+current room and peer counts for a supervisor to probe. A reverse proxy needs to
+forward upgrade headers; in nginx that is `proxy_set_header Upgrade $http_upgrade;`
+and `proxy_set_header Connection "upgrade";`.
+
+<Callout kind="note" title="TLS is yours to terminate.">Unlike the Worker, this process serves plain HTTP. Put it behind Caddy, nginx or Traefik and the app reaches it as `wss://`.</Callout>
+
+<h2 id="run">Run it on Cloudflare</h2>
 
 Deploying takes a Cloudflare account and Wrangler:
 
@@ -44,6 +85,8 @@ Set your domain in `apps/live/wrangler.toml`, then build the app against it with
   { name: "VITE_SIGNAL_URL", type: "apps/web build env", desc: "Points the app at your relay. Baked in at build time." },
 ]} />
 
+The Node relay takes the same job from flags instead — see [Run it on your own machine](#node).
+
 <Callout kind="note" title="What it never stores.">The Worker keeps no user data. Each topic's Durable Object holds the currently connected WebSockets in memory; the only bytes it persists are a short-lived cached TURN credential and a daily mint counter. No message history, no peer directory, no account table — restart it and nothing of yours is lost.</Callout>
 
 <h2 id="notes">Operational notes</h2>
@@ -51,4 +94,9 @@ Set your domain in `apps/live/wrangler.toml`, then build the app against it with
 - **TLS and scaling are Cloudflare's problem.** The Worker runs on Cloudflare's edge; there are no certificates to manage and no load balancer to configure.
 - **It forwards opaque ciphertext.** Signaling and fallback frames are encrypted on-device before they reach the Worker — there is no decryption key on the server to protect, which is the whole point.
 - **TURN minting is bounded.** Credentials are minted only for connected room members — never over anonymous HTTP — one mint is cached per room, and a global daily budget caps the account's worst-case TURN bill.
-- **It is Cloudflare-specific today.** The Worker relies on Durable Objects and on Cloudflare Calls for TURN; running it on other infrastructure means porting those two pieces.
+- **Two deployments, one protocol.** The Worker leans on Durable Objects and Cloudflare Calls; the Node relay keeps rooms in process memory and mints coturn credentials. `apps/live` is the reference implementation of the protocol both implement — a client cannot tell them apart.
+- **The Node relay is one process.** Rooms live in its memory, so a fleet behind a load balancer needs peers on one topic to land on the same instance (hash on the path), and a restart drops every socket. Clients reconnect on their own; nothing of yours is lost, because nothing of yours was stored.
+
+<h2 id="also">See also</h2>
+
+- [Running a headless host](/docs/app/headless-host) — the other half of self-hosting: a replica of your own that stays online so your devices never have to overlap.

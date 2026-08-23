@@ -35,7 +35,8 @@ Compatibility requirements are documented in
 | `packages/provider-*`      | Persistence and collaboration providers                                 |
 | `apps/web`                 | Main React host and cross-platform product logic                        |
 | `apps/desktop`             | Electron wrapper and native IPC                                         |
-| `apps/live`                | Stateless WebRTC signaling relay                                        |
+| `apps/live`                | Stateless WebRTC signaling relay (Cloudflare Worker)                    |
+| `apps/cli`                 | `tasfer` CLI — headless host replica and portable Node relay            |
 | `apps/site`                | Marketing site and public documentation                                 |
 | `apps/ios`, `apps/android` | Capacitor native wrappers                                               |
 
