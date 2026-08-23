@@ -13,6 +13,10 @@
       "release-type": "node",
       "component": "editor"
     },
+    "packages/math": {
+      "release-type": "node",
+      "component": "math"
+    },
     "packages/code": {
       "release-type": "node",
       "component": "code"
@@ -56,6 +60,7 @@
       "components": [
         "tex",
         "editor",
+        "math",
         "code",
         "provider-core",
         "provider-indexeddb",
