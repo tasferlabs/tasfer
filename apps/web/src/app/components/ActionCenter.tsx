@@ -39,6 +39,7 @@ import {
   type FrecencyEntry,
 } from "@/lib/actionRanking";
 import { Button } from "@/components/ui/button";
+import { fullscreenChromeBarStyle, NO_DRAG } from "@/lib/fullscreenChrome";
 import { detectAdapter } from "@/platform";
 
 const groupHeadingClass =
@@ -636,14 +637,20 @@ export function ActionCenter() {
             }}
           >
             <Command shouldFilter={false} className="flex flex-col flex-1 min-h-0">
+              {/* A narrow desktop window takes this touch layout, and going
+                  full-screen escapes the shell's own chrome inset — on macOS
+                  the traffic lights are drawn over this row, so it has to
+                  clear them itself. No-op off Electron. */}
               <div
                 className={`flex items-center gap-2 px-2 shrink-0 ${isShort ? "h-11" : "h-12"}`}
+                style={fullscreenChromeBarStyle()}
               >
                 <Button
                   variant="unstyled"
                   size="unstyled"
                   onClick={() => setOpen(false)}
                   className="size-9 shrink-0 rounded-full text-muted-foreground active:bg-accent"
+                  style={NO_DRAG}
                 >
                   <ChevronLeft className="size-[22px]" />
                 </Button>
@@ -656,6 +663,7 @@ export function ActionCenter() {
                     "Search pages, actions...",
                   )}
                   className="flex-1 h-10 bg-transparent text-base outline-none placeholder:text-muted-foreground"
+                  style={NO_DRAG}
                 />
                 {search && (
                   <Button
@@ -663,6 +671,7 @@ export function ActionCenter() {
                     size="unstyled"
                     onClick={() => setSearch("")}
                     className="h-9 shrink-0 px-3 text-sm font-normal text-muted-foreground active:text-foreground"
+                    style={NO_DRAG}
                   >
                     {t("common.cancel", "Cancel")}
                   </Button>
