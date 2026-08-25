@@ -133,8 +133,8 @@ version of its own:
 
 `version.json` is the only file to edit for an app release — no app manifest
 carries a version — so the bump is one line and no follow-up edits. The
-`packages/*` libraries are versioned in lockstep with each other, in their own
-`package.json` files, independently of the app.
+`packages/*` libraries are versioned in lockstep with each other, from
+`packagesVersion` in the same file, independently of the app.
 
 How the cycle works:
 

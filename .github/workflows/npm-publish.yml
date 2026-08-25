@@ -56,6 +56,9 @@ jobs:
       - name: Build in dependency order
         run: bash packages/build-all.sh
 
+      - name: Stamp the version from version.json
+        run: node scripts/release/package-version.mjs --write
+
       - name: Pin intra-repo peer ranges
         run: node scripts/release/pin-peer-ranges.mjs
 
