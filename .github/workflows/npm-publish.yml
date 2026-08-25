@@ -5,11 +5,10 @@ name: npm Publish
 # whose trusted publisher names `npm-publish.yml` can only be published by
 # running this workflow directly — never through `workflow_call` from another.
 #
-# Bootstrap (first release, before the packages exist on the registry):
-# publishes with the NPM_TOKEN secret. Once every package has a trusted
-# publisher configured on npmjs.com, delete the secret and the NODE_AUTH_TOKEN
-# line below — the CLI picks up the OIDC token by itself and attests provenance
-# without being asked.
+# Publishes with trusted publishing: the CLI exchanges the job's OIDC token
+# by itself and attests provenance without being asked. Every package needs a
+# trusted publisher naming this workflow file configured on npmjs.com — a
+# package without one fails with ENEEDAUTH rather than falling back to a token.
 
 on:
   workflow_dispatch:
@@ -54,7 +53,6 @@ jobs:
 
       - name: Publish
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           for p in tex editor math code provider-core provider-indexeddb provider-relay provider-webrtc react; do
