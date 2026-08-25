@@ -17,6 +17,10 @@ on:
         description: "Run npm publish with --dry-run"
         type: boolean
         default: true
+      verbose:
+        description: "Log what npm does, including the OIDC exchange"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -54,6 +58,7 @@ jobs:
       - name: Publish
         env:
           DRY_RUN: ${{ inputs.dry_run }}
+          NPM_CONFIG_LOGLEVEL: ${{ inputs.verbose && 'verbose' || 'notice' }}
         run: |
           for p in tex editor math code provider-core provider-indexeddb provider-relay provider-webrtc react; do
             cd "packages/$p"
