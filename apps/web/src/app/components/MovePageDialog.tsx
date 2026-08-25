@@ -8,13 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SpaceSelect } from "./SpaceSelect";
 import { forkPageToSpace, movePageAcrossSpaces } from "@/lib/spaceMove";
 import { useQueryClient } from "@tanstack/react-query";
 import { GitFork, MoveRight } from "lucide-react";
@@ -23,7 +17,6 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { PopoverButton } from "@/components/ui/popover-button";
 import { type ISearchPage, useMovePage } from "../api/pages.api";
-import { useSpaces } from "../contexts/SpaceContext";
 import { useToast } from "./Toast";
 
 interface MovePageDialogProps {
@@ -42,7 +35,6 @@ export function MovePageDialog({
   onOpenChange,
 }: MovePageDialogProps) {
   const { t } = useTranslation();
-  const { spaces } = useSpaces();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -173,20 +165,11 @@ export function MovePageDialog({
             <span className="text-sm font-medium">
               {t("space.space", "Space")}
             </span>
-            <Select value={selectedSpaceId} onValueChange={handleSpaceChange}>
-              <SelectTrigger className="w-full">
-                <SelectValue
-                  placeholder={t("space.selectSpace", "Select space")}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {spaces.map((space) => (
-                  <SelectItem key={space.id} value={space.id}>
-                    {space.name || t("common.untitled", "Untitled")}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SpaceSelect
+              value={selectedSpaceId}
+              onChange={handleSpaceChange}
+              className="w-full"
+            />
           </label>
 
           <label className="grid gap-2">

@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { rememberChoice, REMEMBER_KEYS } from "@/lib/rememberedChoice";
 import type { ISpace } from "../api/spaces.api";
 
 interface SpacePickerDialogProps {
@@ -46,7 +47,12 @@ export function SpacePickerDialog({
           {spaces.map((space) => (
             <button
               key={space.id}
-              onClick={() => onSelect(space.id)}
+              onClick={() => {
+                // Keep the drop path and the import dialog on one memory of
+                // where imports go.
+                rememberChoice(REMEMBER_KEYS.importSpace, space.id);
+                onSelect(space.id);
+              }}
               className="flex items-center gap-3 rounded-lg border-2 border-border p-3 text-start transition-all hover:border-primary hover:bg-accent cursor-pointer"
             >
               <FolderInput className="h-5 w-5 shrink-0 text-muted-foreground" />

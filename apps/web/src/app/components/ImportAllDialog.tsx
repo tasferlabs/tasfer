@@ -8,13 +8,7 @@ import {
   DialogDescription,
 } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../components/ui/select";
+import { SpaceSelect } from "./SpaceSelect";
 import { ChevronRight, Upload } from "lucide-react";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,6 +17,7 @@ import type { ISearchPage } from "../api/pages.api";
 import { TitlePreview } from "../TitlePreview";
 import { PagePicker } from "@/components/PagePicker";
 import type { ImportParent } from "./ImportDialogProvider";
+import { getRememberedChoice, REMEMBER_KEYS } from "@/lib/rememberedChoice";
 import {
   importFilesToSpace,
   isImportableSpaceFile,
@@ -85,7 +80,15 @@ export function ImportAllDialog({
   // Initialize when dialog opens
   React.useEffect(() => {
     if (open) {
-      setSelectedSpaceId(spaceId || allSpaces[0]?.id || "");
+      setSelectedSpaceId(
+        spaceId ||
+          getRememberedChoice(
+            REMEMBER_KEYS.importSpace,
+            allSpaces.map((s) => s.id),
+          ) ||
+          allSpaces[0]?.id ||
+          "",
+      );
       setSelectedParent(null);
       setFiles([]);
       setPhase("select");
@@ -322,23 +325,12 @@ export function ImportAllDialog({
                 <span className="text-sm text-muted-foreground whitespace-nowrap">
                   {t("import.to", "Import to")}
                 </span>
-                <Select
+                <SpaceSelect
                   value={selectedSpaceId}
-                  onValueChange={handleSpaceChange}
-                >
-                  <SelectTrigger className="flex-1">
-                    <SelectValue
-                      placeholder={t("space.selectSpace", "Select space")}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allSpaces.map((space) => (
-                      <SelectItem key={space.id} value={space.id}>
-                        {space.name || t("common.untitled", "Untitled")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={handleSpaceChange}
+                  remember={REMEMBER_KEYS.importSpace}
+                  className="flex-1"
+                />
               </div>
             )}
 

@@ -8,13 +8,6 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import {
   Tooltip,
@@ -29,6 +22,7 @@ import {
 } from "@tasfer/editor/internal";
 import { deriveTitles } from "@/lib/pageTitle";
 import { getResolvedTimezone } from "@/lib/dateTimePreferences";
+import { REMEMBER_KEYS } from "@/lib/rememberedChoice";
 import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -63,6 +57,7 @@ import {
   useUpdatePage,
   type ISearchPage,
 } from "../../api/pages.api";
+import { SpaceSelect, rememberedSpaceId } from "../../components/SpaceSelect";
 import { useSidebarPanel } from "../../contexts/SidebarPanelContext";
 import { useSpaces } from "../../contexts/SpaceContext";
 import { useDebouncedSave } from "../../hooks/useDebouncedSave";
@@ -323,13 +318,23 @@ export function EventPreview({
   // schedule mints a new draft object every change, and re-running this would
   // wipe the space picker / collapse the details mid-edit.
   const draftActive = !!draft;
+  // Spaces change identity as their query settles, so they reach the reset
+  // below through a ref: in its deps they would re-run it mid-draft, which is
+  // exactly what the comment above rules out.
+  const spacesRef = useRef(spaces);
+  spacesRef.current = spaces;
   useEffect(() => {
     if (pageId || draftActive) {
       setSize({ ...lastSizeRef.current });
       setPos(null); // will be computed from anchor
       setDraftParent(null);
       setDraftIsTask(true);
-      setDraftSpaceId(activeSpaceId);
+      // A draft opens in the space the last one was filed under, not in
+      // whichever space the sidebar happens to be showing.
+      setDraftSpaceId(
+        rememberedSpaceId(REMEMBER_KEYS.eventSpace, spacesRef.current) ??
+          activeSpaceId,
+      );
       setParentSearchOpen(false);
       setDetailsOpen(false);
     }
@@ -1223,24 +1228,14 @@ export function EventPreview({
       <div className={style.previewRow}>
         <Box size={14} className={style.previewRowIcon} />
         {isDraft ? (
-          <Select value={eventSpaceId} onValueChange={handleDraftSpaceChange}>
-            <SelectTrigger
-              size="sm"
-              className="flex-1"
-              aria-label={t("space.selectSpace", "Select space")}
-            >
-              <SelectValue
-                placeholder={t("space.selectSpace", "Select space")}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {spaces.map((space) => (
-                <SelectItem key={space.id} value={space.id}>
-                  {space.name || t("space.untitled", "Untitled space")}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SpaceSelect
+            value={eventSpaceId}
+            onChange={handleDraftSpaceChange}
+            remember={REMEMBER_KEYS.eventSpace}
+            size="sm"
+            className="flex-1"
+            aria-label={t("space.selectSpace", "Select space")}
+          />
         ) : (
           <span
             className={style.previewSpaceName}
