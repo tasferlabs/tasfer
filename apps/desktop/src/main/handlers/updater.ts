@@ -29,7 +29,19 @@ function updatesSupported(): boolean {
   return true;
 }
 
-export function registerUpdaterHandlers() {
+export interface UpdaterHandlerOptions {
+  /**
+   * Called right before the platform updater is handed an install. The host
+   * uses it to drop the hide-to-tray interception on window close and to tear
+   * the window down without waiting for the renderer, so the process is gone
+   * before the installer checks whether the old app is still running.
+   */
+  onInstallRequested: () => void;
+}
+
+export function registerUpdaterHandlers({
+  onInstallRequested,
+}: UpdaterHandlerOptions) {
   const canUpdate = updatesSupported();
 
   // Fetch the update in the background as soon as a check finds one. The
@@ -100,8 +112,13 @@ export function registerUpdaterHandlers() {
     return autoUpdater.downloadUpdate();
   });
 
+  // The installer replaces a bundle this process is still holding open, so it
+  // only lands if we're gone promptly once it starts — see the deadline the
+  // host's 'before-quit' handler works to. `onInstallRequested` is what lets it
+  // recognise this quit and take the window down without waiting.
   ipcMain.handle("updater:install", () => {
     if (!canUpdate) return;
+    onInstallRequested();
     autoUpdater.quitAndInstall(false, true);
   });
 

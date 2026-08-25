@@ -37,6 +37,9 @@ import { applyNavigationPolicy } from "./externalLinks";
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
+// Set when the quit that follows is an update install, which has a deadline the
+// ordinary quit path doesn't (see the 'before-quit' handler).
+let quittingForUpdate = false;
 
 // ── Tiling window manager detection (Linux) ────────────────────────────────
 // i3, sway, bspwm and friends manage geometry themselves: minimizing an
@@ -500,7 +503,12 @@ app.whenReady().then(() => {
   registerDbHandlers();
   registerFsHandlers();
   registerCryptoHandlers();
-  registerUpdaterHandlers();
+  registerUpdaterHandlers({
+    onInstallRequested: () => {
+      isQuitting = true;
+      quittingForUpdate = true;
+    },
+  });
   registerPdfHandlers();
   registerContextMenuHandlers();
   registerThemeHandlers();
@@ -578,6 +586,16 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  // Installing an update is a race: Squirrel hands ShipIt the install request
+  // and then terminates us, and ShipIt gives up ("App Still Running Error",
+  // no update installed, no restart) if we're still around a second or so
+  // later. Renderer teardown is what eats that budget, so destroy the window
+  // rather than letting Electron close it — the quit finishes immediately once
+  // no window is left. That skips the renderer's unload work (cursor position,
+  // sync shutdown), the same thing it already survives losing on a crash.
+  if (quittingForUpdate && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.destroy();
+  }
 });
 
 app.on("will-quit", () => {
