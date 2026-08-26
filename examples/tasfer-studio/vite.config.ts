@@ -23,7 +23,7 @@ export default defineConfig({
     alias: {
       "@tasfer/editor": resolve(repoRoot, "packages/editor/src"),
       "@tasfer/tex": resolve(repoRoot, "packages/tex/src"),
-      "@tasfer/react": resolve(repoRoot, "packages/react/src"),
+      "@tasfer/editor-binding": resolve(repoRoot, "packages/react/src"),
       // editor's source imports the repo-root shared invariant helper.
       "@shared": resolve(repoRoot, "shared"),
       "@": resolve(__dirname, "src"),

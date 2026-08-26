@@ -1,5 +1,5 @@
 import type { TasferEditor } from "@tasfer/editor";
-import { useEditorMarkdown } from "@tasfer/react";
+import { useEditorMarkdown } from "@tasfer/editor-binding";
 import { useEffect, useState } from "react";
 import { ChaptersRail } from "./components/ChaptersRail";
 import { WritingStage } from "./components/WritingStage";

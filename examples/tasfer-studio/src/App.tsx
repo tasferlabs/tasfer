@@ -1,5 +1,5 @@
 import type { TasferEditor } from "@tasfer/editor";
-import { useEditorMarkdown } from "@tasfer/react";
+import { useEditorMarkdown } from "@tasfer/editor-binding";
 import { useMemo, useState } from "react";
 import { EditorPane } from "./components/EditorPane";
 import { FileTree } from "./components/FileTree";

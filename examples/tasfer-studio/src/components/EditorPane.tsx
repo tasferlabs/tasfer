@@ -1,5 +1,5 @@
 import type { TasferEditor } from "@tasfer/editor";
-import { Editor } from "@tasfer/react";
+import { Editor } from "@tasfer/editor-binding";
 import { studioTheme } from "../theme";
 
 interface EditorPaneProps {

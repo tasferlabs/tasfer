@@ -11,7 +11,7 @@ export default defineConfig({
       "@tasfer/math": resolve(__dirname, "../../packages/math/src"),
       "@tasfer/code": resolve(__dirname, "../../packages/code/src"),
       "@tasfer/tex": resolve(__dirname, "../../packages/tex/src"),
-      "@tasfer/react": resolve(__dirname, "../../packages/react/src"),
+      "@tasfer/editor-binding": resolve(__dirname, "../../packages/react/src"),
       "@tasfer/provider-core": resolve(
         __dirname,
         "../../packages/provider-core/src",

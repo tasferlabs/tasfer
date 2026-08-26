@@ -50,7 +50,7 @@ The editor never hands you a mutable store. `state` is a fresh, immutable snapsh
   { name: "portalContainer", type: "HTMLDivElement", desc: "Mount point for host overlays (slash menu, link editor) that float over the canvas." },
 ]} />
 
-<Callout kind="note" title="state is a value, not a store.">`editor.state` is replaced — never mutated — on each transaction. Capture it in a variable only for the duration of one read; for live UI, recompute inside a `change` / `selectionchange` handler.<ForFramework fw="react"> In React, don't: `useEditorState` from `@tasfer/react` does that subscription for you.</ForFramework></Callout>
+<Callout kind="note" title="state is a value, not a store.">`editor.state` is replaced — never mutated — on each transaction. Capture it in a variable only for the duration of one read; for live UI, recompute inside a `change` / `selectionchange` handler.<ForFramework fw="react"> In React, don't: `useEditorState` from `@tasfer/editor-binding` does that subscription for you.</ForFramework></Callout>
 
 <h2 id="writing">Changing the document</h2>
 

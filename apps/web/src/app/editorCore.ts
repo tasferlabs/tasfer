@@ -24,7 +24,7 @@ import {
   type TasferEditor,
   type UseEditorOptions,
   type UseEditorResult,
-} from "@tasfer/react";
+} from "@tasfer/editor-binding";
 import i18next from "i18next";
 import { useEffect } from "react";
 import { cssVarsToTheme } from "../editorTheme";
@@ -123,7 +123,7 @@ export function useLiveEditorTheme<
 }
 
 /**
- * Mount an editor on the app's shared core: it wraps `@tasfer/react`'s
+ * Mount an editor on the app's shared core: it wraps `@tasfer/editor-binding`'s
  * `useEditor` with this app's {@link appEditorTheme} and {@link editorStrings}
  * defaults, then wires {@link useLiveEditorTheme} so dark-mode and font-registry
  * changes restyle it. This is the ONE place the body {@link PageEditor} and the

@@ -108,7 +108,7 @@ The engine lives in `packages/`; the runnable apps live in `apps/`.
 ```
 packages/
 ├── editor/              Headless canvas editor engine — document model, CRDT, actions, schema (@tasfer/editor, MIT)
-├── react/               React 19 bindings — useEditor hook + <Editor> component (@tasfer/react, MIT)
+├── react/               React 19 bindings — useEditor hook + <Editor> component (@tasfer/editor-binding, MIT)
 ├── tex/                 Canvas-native LaTeX layout and rendering
 ├── provider-core/       Transport-agnostic sync protocol
 ├── provider-webrtc/     Direct peer-to-peer transport
@@ -142,7 +142,7 @@ shared/                  Shared TypeScript utilities (identity, invariants)
 
 ## Use the editor in your own app
 
-The editor engine is not tied to Tasfer, the app. It ships as a standalone, **MIT-licensed** package — `@tasfer/editor` for the framework-agnostic core, `@tasfer/react` for React 19 bindings — so you can drop a canvas-native, CRDT-backed editor into your own product and bring your own nodes, marks, theme, and providers.
+The editor engine is not tied to Tasfer, the app. It ships as a standalone, **MIT-licensed** package — `@tasfer/editor` for the framework-agnostic core, `@tasfer/editor-binding` for React 19 bindings — so you can drop a canvas-native, CRDT-backed editor into your own product and bring your own nodes, marks, theme, and providers.
 
 Start with the [editor documentation](https://www.tasfer.app/docs/editor/install): installation, your first editor, custom nodes, theming, collaboration, and the full API reference.
 
@@ -167,4 +167,4 @@ Need help using or contributing to Tasfer? See [SUPPORT.md](SUPPORT.md) for supp
 
 ## License
 
-The Tasfer app is licensed under the [GNU Affero General Public License v3.0](LICENSE). The editor engine packages (`@tasfer/editor`, `@tasfer/react`) are MIT-licensed. See [Licensing](LICENSING.md).
+The Tasfer app is licensed under the [GNU Affero General Public License v3.0](LICENSE). The editor engine packages (`@tasfer/editor`, `@tasfer/editor-binding`) are MIT-licensed. See [Licensing](LICENSING.md).
