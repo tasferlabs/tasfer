@@ -67,10 +67,6 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
           STAGE: ${{ inputs.stage }}
           NPM_CONFIG_LOGLEVEL: ${{ inputs.verbose && 'verbose' || 'notice' }}
-          # A trusted publisher can only be attached to a package that already
-          # exists, so a first-ever publish still needs a token. Provenance is
-          # unaffected: it signs with the job's OIDC token either way.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for p in tex editor math code provider-core provider-indexeddb provider-relay provider-webrtc react; do
             cd "packages/$p"

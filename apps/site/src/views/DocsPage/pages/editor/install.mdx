@@ -34,7 +34,7 @@ You only add more packages when you want math or a network provider:
 
 The React binding lives in its own package. Add it next to the engine — it is a thin layer over the same handle, not a fork of it — plus a provider when you want sync:
 
-<InstallTabs pkg="@tasfer/editor-binding @tasfer/provider-relay" />
+<InstallTabs pkg="@tasfer/react @tasfer/provider-relay" />
 
 `react` is a peer dependency of the binding, not a bundled copy.
 
@@ -79,7 +79,7 @@ editor.on("change", () => {
 ```
 
 ```tsx file="App.tsx"
-import { Editor } from "@tasfer/editor-binding";
+import { Editor } from "@tasfer/react";
 
 export default function App() {
   return (

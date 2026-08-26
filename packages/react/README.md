@@ -1,4 +1,4 @@
-# @tasfer/editor-binding
+# @tasfer/react
 
 **React 19 bindings** for [`@tasfer/editor`](https://www.npmjs.com/package/@tasfer/editor),
 the headless canvas editor engine. A thin layer over the same imperative
@@ -10,7 +10,7 @@ on one page.
 ## Install
 
 ```bash
-npm install @tasfer/editor @tasfer/editor-binding
+npm install @tasfer/editor @tasfer/react
 ```
 
 `react` and `react-dom` are peer dependencies, not a bundled copy.
@@ -20,7 +20,7 @@ npm install @tasfer/editor @tasfer/editor-binding
 The `<Editor>` component owns and sizes its host element for you:
 
 ```tsx
-import { Editor } from "@tasfer/editor-binding";
+import { Editor } from "@tasfer/react";
 
 export default function App() {
   return (
@@ -38,7 +38,7 @@ For full control over the host element, use the hook and render the container
 yourself:
 
 ```tsx
-import { useEditor } from "@tasfer/editor-binding";
+import { useEditor } from "@tasfer/react";
 
 const { containerRef, editor } = useEditor({ markdown: "# Title" });
 return <div ref={containerRef} className="my-editor" />;
@@ -51,7 +51,7 @@ component whenever the editor's snapshot is replaced, so a toolbar stays in sync
 without any subscription of your own. It is `null` until the editor exists.
 
 ```tsx
-import { useEditorState } from "@tasfer/editor-binding";
+import { useEditorState } from "@tasfer/react";
 
 function Toolbar({ editor }) {
   const state = useEditorState(editor);

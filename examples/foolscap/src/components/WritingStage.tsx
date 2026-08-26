@@ -1,4 +1,4 @@
-import { Editor } from "@tasfer/editor-binding";
+import { Editor } from "@tasfer/react";
 import type { TasferEditor } from "@tasfer/editor";
 import { foolscapTheme } from "../theme";
 import { ClockIcon, EyeIcon, WaveIcon } from "./icons";

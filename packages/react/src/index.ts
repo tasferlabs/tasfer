@@ -1,5 +1,5 @@
 /**
- * @tasfer/editor-binding — React 19 bindings for the headless `@tasfer/editor`
+ * @tasfer/react — React 19 bindings for the headless `@tasfer/editor`
  * canvas editor.
  *
  * Three pieces, all per-instance (no module-level state — multiple editors can
@@ -15,7 +15,7 @@
  * imperative `TasferEditor` handle (`setTheme`, `setMarkdown`, `change`, …).
  *
  * @example
- * import { Editor, useEditorState } from "@tasfer/editor-binding";
+ * import { Editor, useEditorState } from "@tasfer/react";
  *
  * function App() {
  *   return <Editor markdown="# Hello" autofocus style={{ height: "100vh" }} />;

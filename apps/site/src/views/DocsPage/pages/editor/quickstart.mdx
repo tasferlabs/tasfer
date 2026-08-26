@@ -30,7 +30,7 @@ createEditor({ element });
 ```
 
 ```tsx
-import { Editor, useEditor } from "@tasfer/editor-binding";
+import { Editor, useEditor } from "@tasfer/react";
 import { createDoc } from "@tasfer/editor";
 
 // from a markdown string
@@ -73,7 +73,7 @@ activeMarks.has("strong");    // is bold active at the cursor?
 ```
 
 ```tsx
-import { useEditorState } from "@tasfer/editor-binding";
+import { useEditorState } from "@tasfer/react";
 
 const state = useEditorState(editor);   // null until the editor exists
 const active = state?.activeMarks ?? new Set();

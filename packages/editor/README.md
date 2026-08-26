@@ -68,7 +68,7 @@ document in Node.
 
 | Package                                                                                  | What it adds                                |
 | ---------------------------------------------------------------------------------------- | ------------------------------------------- |
-| [`@tasfer/editor-binding`](https://www.npmjs.com/package/@tasfer/editor-binding)                           | React 19 bindings — `useEditor`, `<Editor>` |
+| [`@tasfer/react`](https://www.npmjs.com/package/@tasfer/react)                           | React 19 bindings — `useEditor`, `<Editor>` |
 | [`@tasfer/math`](https://www.npmjs.com/package/@tasfer/math)                             | Opt-in LaTeX math node and mark             |
 | [`@tasfer/code`](https://www.npmjs.com/package/@tasfer/code)                             | Opt-in syntax-highlighted code block        |
 | [`@tasfer/provider-indexeddb`](https://www.npmjs.com/package/@tasfer/provider-indexeddb) | Local persistence                           |

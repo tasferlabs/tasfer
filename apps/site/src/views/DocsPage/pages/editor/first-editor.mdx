@@ -50,7 +50,7 @@ const editor = createEditor({
 ```
 
 ```tsx file="App.tsx"
-import { useEditor } from "@tasfer/editor-binding";
+import { useEditor } from "@tasfer/react";
 
 export default function App() {
   const { containerRef, editor } = useEditor({
@@ -114,7 +114,7 @@ paint();
 ```
 
 ```tsx file="Toolbar.tsx"
-import { useEditorState, type TasferEditor } from "@tasfer/editor-binding";
+import { useEditorState, type TasferEditor } from "@tasfer/react";
 
 const MARKS = [
   { label: "B", mark: "strong" },

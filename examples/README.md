@@ -2,7 +2,7 @@
 
 Two complete, runnable product shells built around the **same** headless canvas
 editor — [`@tasfer/editor`](../packages/editor) wired up through its React
-bindings, [`@tasfer/editor-binding`](../packages/react). The engine only paints
+bindings, [`@tasfer/react`](../packages/react). The engine only paints
 glyphs; everything around it (sidebars, toolbars, status bars, theming) is the
 host's to invent. These two examples show how different that "everything around
 it" can look while the core stays identical.
@@ -29,7 +29,7 @@ npm install
 npm run dev
 ```
 
-> The apps consume `@tasfer/editor`, `@tasfer/editor-binding`, and `@tasfer/tex`
+> The apps consume `@tasfer/editor`, `@tasfer/react`, and `@tasfer/tex`
 > as **raw TypeScript source** via Vite/TS path aliases (exactly like
 > `apps/web`), so there is no build step for the packages. The engine's own
 > transitive dependencies (`turndown`, `lowlight`, `katex`) resolve from each
@@ -47,7 +47,7 @@ The integration is deliberately tiny — three pieces in every example:
    `tokens`, a deep-partial `styles` override (font sizes, padding), and the
    `fonts` registry. No CSS selectors reach into the canvas; the look is data.
 3. **Mount** — `<Editor markdown={…} theme={foolscapTheme} autofocus />` from
-   `@tasfer/editor-binding`, with the surrounding shell reading live state through
+   `@tasfer/react`, with the surrounding shell reading live state through
    `useEditorMarkdown(editor)`.
 
 That's the whole contract. Swap the theme and the chrome, keep the engine.

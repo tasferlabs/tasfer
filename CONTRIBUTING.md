@@ -59,7 +59,7 @@ npm run dev
 
 The web app runs at `http://localhost:4000`.
 
-The web app consumes `@tasfer/editor`, `@tasfer/tex`, and `@tasfer/editor-binding`
+The web app consumes `@tasfer/editor`, `@tasfer/tex`, and `@tasfer/react`
 as raw TypeScript source via path aliases, so engine changes show up in `apps/web`
 without a separate build step. `npm install` in `apps/web` also installs those
 packages' own dependencies via a postinstall hook; other packages are installed
@@ -90,7 +90,7 @@ apps/
 packages/       # the @tasfer/* ecosystem — the product core, published for external consumers
 ├── editor/             # @tasfer/editor — headless canvas + CRDT editor engine
 ├── tex/                # @tasfer/tex — canvas-native LaTeX math layout & rendering
-├── react/              # @tasfer/editor-binding — React 19 bindings (useEditor, <Editor>)
+├── react/              # @tasfer/react — React 19 bindings (useEditor, <Editor>)
 └── provider-*/         # sync transports: -core, -indexeddb, -relay, -webrtc
 examples/       # example apps built on @tasfer/* (tasfer-studio, foolscap)
 shared/         # small shared utilities (e.g. invariant)
