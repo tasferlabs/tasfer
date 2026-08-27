@@ -132,16 +132,94 @@ class SqlitePlugin : Plugin() {
         try {
             synchronized(lock) {
                 val handle = db ?: throw IllegalStateException("Database not open")
-                // execSQL runs a single statement, so split the schema DDL block.
-                for (part in sql.split(";")) {
-                    val s = part.trim()
-                    if (s.isNotEmpty()) handle.execSQL(s)
-                }
+                // execSQL runs a single statement, so the DDL block has to be
+                // split — but only on a `;` that actually ends one.
+                for (statement in splitStatements(sql)) handle.execSQL(statement)
             }
             call.resolve()
         } catch (e: Exception) {
             call.reject(e.message, e)
         }
+    }
+
+    /**
+     * Split a SQL block into statements. A `;` inside a comment or a quoted
+     * string or identifier is part of the text, not a statement boundary —
+     * splitting on it would hand execSQL a truncated statement.
+     */
+    private fun splitStatements(sql: String): List<String> {
+        val out = mutableListOf<String>()
+        val current = StringBuilder()
+        var i = 0
+        while (i < sql.length) {
+            val c = sql[i]
+            when {
+                c == '-' && sql.startsWith("--", i) -> {
+                    val end = sql.indexOf('\n', i).takeIf { it >= 0 } ?: sql.length
+                    current.append(sql, i, end)
+                    i = end
+                }
+                c == '/' && sql.startsWith("/*", i) -> {
+                    val end = sql.indexOf("*/", i + 2).takeIf { it >= 0 }?.plus(2) ?: sql.length
+                    current.append(sql, i, end)
+                    i = end
+                }
+                c == '\'' || c == '"' || c == '`' -> {
+                    // A doubled quote escapes itself, so the run ends on an odd one.
+                    var j = i + 1
+                    while (j < sql.length) {
+                        if (sql[j] != c) j++
+                        else if (sql.startsWith("$c$c", j)) j += 2
+                        else break
+                    }
+                    val end = (j + 1).coerceAtMost(sql.length)
+                    current.append(sql, i, end)
+                    i = end
+                }
+                c == '[' -> {
+                    val end = sql.indexOf(']', i).takeIf { it >= 0 }?.plus(1) ?: sql.length
+                    current.append(sql, i, end)
+                    i = end
+                }
+                c == ';' -> {
+                    out.addStatement(current)
+                    i++
+                }
+                else -> {
+                    current.append(c)
+                    i++
+                }
+            }
+        }
+        out.addStatement(current)
+        return out
+    }
+
+    /** Take what has accumulated, unless it is only whitespace and comments. */
+    private fun MutableList<String>.addStatement(buf: StringBuilder) {
+        val statement = buf.toString().trim()
+        buf.setLength(0)
+        if (statement.isNotEmpty() && hasSql(statement)) add(statement)
+    }
+
+    private fun hasSql(statement: String): Boolean {
+        var i = 0
+        while (i < statement.length) {
+            val c = statement[i]
+            when {
+                c.isWhitespace() -> i++
+                c == '-' && statement.startsWith("--", i) -> {
+                    val end = statement.indexOf('\n', i)
+                    i = if (end < 0) statement.length else end + 1
+                }
+                c == '/' && statement.startsWith("/*", i) -> {
+                    val end = statement.indexOf("*/", i + 2)
+                    i = if (end < 0) statement.length else end + 2
+                }
+                else -> return true
+            }
+        }
+        return false
     }
 
     @PluginMethod fun beginTransaction(call: PluginCall) = execRaw("BEGIN", call)

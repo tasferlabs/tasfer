@@ -217,6 +217,9 @@ export function normalizeInitOp<T>(op: T): T {
 // op-log frontier (v2 adds generic structured-content attachments).
 const PAGE_SNAPSHOT_FORMAT = 2;
 
+// Android reaches SQLite through a bridge that splits multi-statement blocks
+// itself, and builds already installed split naively — keep `;` out of the SQL
+// comments below until those are gone.
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS identity (
     id               INTEGER PRIMARY KEY CHECK (id = 1),
@@ -225,7 +228,7 @@ const SCHEMA_SQL = `
     name             TEXT NOT NULL DEFAULT '',
     avatar           TEXT,
     -- The root ("person") keypair. public_key/private_key above name this
-    -- DEVICE; the root names the human who owns it and signs a certificate for
+    -- DEVICE. The root names the human who owns it and signs a certificate for
     -- every device they link (see ./device-cert). Copied to each linked device
     -- so any of them can enroll the next one — losing the only copy would
     -- otherwise strand the account with no way to add a device, and a linked
@@ -234,7 +237,7 @@ const SCHEMA_SQL = `
     root_private_key TEXT,
     -- Legacy home of this machine's note, back when it never left the machine.
     -- Device notes are now one own_prefs register per device key, so that the
-    -- person's other devices can say which device is which; read once, by
+    -- person's other devices can say which device is which. Read once, by
     -- adoptLegacyDeviceNote, and never written again. Left in place because the
     -- adoption is a seed, and a seed has to be able to find nothing.
     device_description TEXT NOT NULL DEFAULT ''
@@ -284,7 +287,7 @@ const SCHEMA_SQL = `
   -- Sidebar arrangement and "walkthrough read" flags live here rather than in a
   -- space's op log, which every co-member reads, and rather than in the browser,
   -- which the person's other devices cannot see. Stores JSON so the app layer
-  -- owns each key's shape; like the archive register it carries its own ordering,
+  -- owns each key's shape. Like the archive register it carries its own ordering,
   -- since there is no op log behind it.
   --
   -- The engine reserves the \`device.note.<deviceKey>\` namespace for the label a
