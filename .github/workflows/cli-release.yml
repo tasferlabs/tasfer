@@ -91,13 +91,14 @@ jobs:
         with:
           node-version-file: .node-version
 
-      # `npm ci` cannot install this tree: node-datachannel declares an
-      # optional @node-datachannel/android-arm64 that was never published, so
-      # npm refuses the lockfile as out of sync. Nothing here is published to a
-      # registry, and the build's reproducibility comes from the release tag.
+      # `--no-package-lock` crashes the npm that ships with Node 22
+      # ("Cannot read properties of null (reading 'edgesOut')") on
+      # node-datachannel's optional @node-datachannel/android-arm64, which was
+      # never published. Resolving from the lockfile skips that fetch, and it
+      # is what a release build wants anyway.
       - name: Install
         working-directory: apps/cli
-        run: npm install --no-package-lock --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Typecheck
         working-directory: apps/cli
