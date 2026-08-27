@@ -7,18 +7,8 @@
 import { getPlatform } from "@/platform";
 import { imageCache } from "@tasfer/editor/internal";
 
-/** Guess file extension from mime type */
-export function extFromMime(mime: string): string {
-  const map: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/gif": "gif",
-    "image/webp": "webp",
-    "image/svg+xml": "svg",
-    "image/bmp": "bmp",
-  };
-  return map[mime] || "bin";
-}
+// Lives with the bundle builder, which has to name files without a DOM.
+export { extFromMime } from "@/lib/spaceExport";
 
 /** Convert a cached HTMLImageElement to a Blob by drawing to an offscreen canvas */
 function imageElementToBlob(img: HTMLImageElement): Promise<Blob | null> {

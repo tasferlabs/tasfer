@@ -9,19 +9,12 @@ import {
   DialogDescription,
 } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
-import { getPages, getPage, type IListPage } from "../api/pages.api";
+import { getPages, getPage } from "../api/pages.api";
 import { useSpaces } from "../contexts/SpaceContext";
-import {
-  serializeToMarkdown,
-  type Block,
-  type PageMetadata,
-} from "@tasfer/editor";
 import { downloadFile } from "@/downloadFile";
-import { collectAssetRefs } from "@tasfer/editor";
-import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
-import { appDataSchema } from "@/appDataSchema";
-import { extFromMime, fetchImageBlob } from "@/lib/exportAssets";
+import { fetchImageBlob } from "@/lib/exportAssets";
+import { buildSpaceExport } from "@/lib/spaceExport";
 
 interface ExportAllDialogProps {
   open: boolean;
@@ -31,29 +24,6 @@ interface ExportAllDialogProps {
 interface SpaceOption {
   id: string;
   name: string;
-}
-
-/** Sanitize a string for use as a filesystem name */
-function sanitizeName(name: string): string {
-  return (
-    (name || "Untitled").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim() ||
-    "Untitled"
-  );
-}
-
-/** Relative prefix from a file at zipPath up to the ZIP root (e.g. "Space/Page.md" → "../") */
-function relativeRootPrefix(zipPath: string): string {
-  return "../".repeat(zipPath.split("/").length - 1);
-}
-
-function extractPageMetadata(page: IPage): PageMetadata | undefined {
-  const meta: PageMetadata = {};
-  if (page.task) meta.task = true;
-  if (page.scheduledAt) meta.scheduledAt = page.scheduledAt;
-  if (page.duration != null) meta.duration = page.duration;
-  if (page.allDay != null) meta.allDay = page.allDay;
-  if (page.color) meta.color = page.color;
-  return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
 export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
@@ -95,162 +65,34 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
     setError(null);
 
     try {
-      const zip = new JSZip();
-      const assetRefs = new Set<string>();
-      const spacesToExport = allSpaces.filter((s) => selected.has(s.id));
-
-      // Pending pages — serialized after images are fetched, so asset refs can
-      // be mapped to bundled files by the serializer itself
-      const pendingFiles: Array<{
-        zipPath: string;
-        blocks: Block[];
-        metadata?: PageMetadata;
-      }> = [];
-
-      // First pass: count total pages for progress
-      let totalPages = 0;
-      const spacePageTrees: Array<{
-        space: SpaceOption;
-        pages: IListPage[];
-      }> = [];
-
-      for (const space of spacesToExport) {
-        if (abortRef.current) return;
-        const rootPages = await getPages(space.id, null, {
-          includeTasks: true,
-        });
-        spacePageTrees.push({ space, pages: rootPages });
-        totalPages += rootPages.length;
-      }
-
-      // Estimate total (will grow as children are discovered)
-      setProgress({ done: 0, total: totalPages });
-      let done = 0;
-
-      /** Deduplicate a name within a set of used names in the same directory */
-      function deduplicateName(name: string, usedNames: Set<string>): string {
-        if (!usedNames.has(name)) {
-          usedNames.add(name);
-          return name;
-        }
-        let i = 2;
-        while (usedNames.has(`${name} ${i}`)) i++;
-        const unique = `${name} ${i}`;
-        usedNames.add(unique);
-        return unique;
-      }
-
-      /** Recursively export pages under a given path.
-       *  reservedName is the parent's self-named file (e.g. "Foo" when inside Foo/) */
-      async function exportPages(
-        spaceId: string,
-        pages: IListPage[],
-        parentPath: string,
-        reservedName?: string,
-      ) {
-        const usedNames = new Set<string>();
-        // Reserve the parent's own name so children can't collide with it
-        if (reservedName) usedNames.add(reservedName);
-
-        for (const listPage of pages) {
-          if (abortRef.current) return;
-
-          const baseName = sanitizeName(listPage.title);
-          const pageName = deduplicateName(baseName, usedNames);
-
-          // Fetch full page content
-          const fullPage = await getPage(listPage.id);
-          const blocks = fullPage.blocks || [];
-          const metadata = extractPageMetadata(fullPage);
-
-          for (const ref of collectAssetRefs(blocks, appDataSchema)) {
-            assetRefs.add(ref);
-          }
-
-          const zipPath = listPage.hasChildren
-            ? `${parentPath}${pageName}/${pageName}.md`
-            : `${parentPath}${pageName}.md`;
-
-          pendingFiles.push({ zipPath, blocks, metadata });
-
-          if (listPage.hasChildren) {
-            const children = await getPages(spaceId, listPage.id, {
-              includeTasks: true,
-            });
-            setProgress((prev) => ({
-              ...prev,
-              total: prev.total + children.length,
-            }));
-            await exportPages(
-              spaceId,
-              children,
-              `${parentPath}${pageName}/`,
-              pageName,
-            );
-          }
-
-          done++;
-          setProgress((prev) => ({ ...prev, done }));
-        }
-      }
-
-      // Export each space
-      for (const { space, pages } of spacePageTrees) {
-        if (abortRef.current) return;
-        const spacePath = `${sanitizeName(space.name)}/`;
-        await exportPages(space.id, pages, spacePath);
-      }
-
-      // Fetch all images into the ZIP and build ref→filename map
-      const refToFileName = new Map<string, string>();
-
-      if (assetRefs.size > 0) {
-        setProgress((prev) => ({
-          done: prev.done,
-          total: prev.total + assetRefs.size,
-        }));
-      }
-
-      let imgIndex = 0;
-      for (const ref of assetRefs) {
-        if (abortRef.current) return;
-        const blob = await fetchImageBlob(ref);
-        if (blob) {
-          const ext = extFromMime(blob.type);
-          // Asset hashes double as stable filenames; other refs (e.g. external
-          // urls) get an indexed name
-          const fileName = /^[\w-]+$/.test(ref)
-            ? `${ref}.${ext}`
-            : `image_${imgIndex++}.${ext}`;
-          refToFileName.set(ref, fileName);
-          zip.file(`images/${fileName}`, blob);
-        }
-        done++;
-        setProgress((prev) => ({ ...prev, done }));
-      }
-
-      if (abortRef.current) return;
-
-      // Serialize each page, pointing asset refs at the bundled files.
-      // Unfetched refs keep their original url.
-      for (const { zipPath, blocks, metadata } of pendingFiles) {
-        const toRoot = relativeRootPrefix(zipPath);
-        const markdown = serializeToMarkdown(blocks, metadata, {
-          schema: appDataSchema,
-          mapAssetUrl: (url) => {
-            const fileName = refToFileName.get(url);
-            return fileName ? `${toRoot}images/${fileName}` : url;
+      const entries = await buildSpaceExport({
+        spaces: allSpaces.filter((s) => selected.has(s.id)),
+        source: {
+          listPages: (spaceId, parentId) =>
+            getPages(spaceId, parentId, { includeTasks: true }),
+          getPage,
+          fetchAsset: async (ref) => {
+            const blob = await fetchImageBlob(ref);
+            if (!blob) return null;
+            return {
+              data: new Uint8Array(await blob.arrayBuffer()),
+              mime: blob.type,
+            };
           },
-        });
-        zip.file(zipPath, markdown);
-      }
+        },
+        onProgress: setProgress,
+        isAborted: () => abortRef.current,
+      });
 
-      // Generate and download
+      const zip = new JSZip();
+      for (const entry of entries) zip.file(entry.path, entry.data);
+
       const blob = await zip.generateAsync({ type: "blob" });
       await downloadFile(blob, "tasfer-export.zip", "application/zip");
 
       onOpenChange(false);
     } catch (err) {
+      // A cancel unwinds through here too; the dialog is already closing.
       if (!abortRef.current) {
         setError(
           err instanceof Error
