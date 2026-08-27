@@ -1,6 +1,9 @@
 .appContainer {
   display: flex;
   flex-direction: row;
+  /* Chrome's overscroll-to-navigate would otherwise fire on the same
+     horizontal drags that pull the mobile drawer open. */
+  overscroll-behavior-x: none;
   height: calc(100dvh - var(--devtool-height, 0px));
   transition: height 0.05s ease-out;
   /* In landscape the notch sits on a side edge, so the docked layout — sidebar
@@ -889,9 +892,14 @@
   -webkit-app-region: no-drag;
 }
 
+/* Mobile drawer. Full width: open, it is the screen, the way Discord's is.
+   Position is written by useDrawerSwipe, which owns it for both the drag and
+   the open/close animation — nothing here may set transform or transition. */
 .floatingSidebar {
   position: fixed;
-  inset: 0;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 100%;
   background-color: var(--background);
   z-index: 50;
   /* Support both Android (--safe-area-inset-*) and iOS (env()) */
@@ -908,19 +916,11 @@
   flex-direction: column;
   gap: 0;
   transform: translateX(-100%);
-  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
 }
 
 :global([dir="rtl"]) .floatingSidebar {
   transform: translateX(100%);
-}
-
-.floatingSidebarOpen {
-  transform: translateX(0);
-}
-
-:global([dir="rtl"]) .floatingSidebarOpen {
-  transform: translateX(0);
 }
 
 .visible {

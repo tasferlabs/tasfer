@@ -2392,7 +2392,13 @@ export default function CalendarPage() {
               className={style.timeline}
               ref={timelineRef}
             >
-              <div className={style.swipeStrip} onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd} onTouchCancel={handleSwipeTouchEnd}>
+              <div
+                className={style.swipeStrip}
+                /* Day view pans between days on a horizontal drag, so the
+                   sidebar's open-drag must keep its hands off this one. The
+                   week-view strip below has no such drag and is left alone. */
+                data-drawer-swipe="off"
+                onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd} onTouchCancel={handleSwipeTouchEnd}>
               <div className={style.swipeTrack} ref={swipeTrackRef}>
                 {/* Previous day */}
                 <div className={style.swipePanel}>

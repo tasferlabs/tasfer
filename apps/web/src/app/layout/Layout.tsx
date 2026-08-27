@@ -222,23 +222,30 @@ function LayoutInner() {
           />
         )}
 
-        {!(isMobile && floatingOpen) && (
-          <div className={style.appFrame}>
-            <TopActionBar
-              open={isMobile ? !!floatingOpen : !!resizableOpen}
-              setOpen={isMobile ? setFloatingOpen : setResizableOpen}
-            />
-            <div className="flex-1 min-h-0 w-full">
-              {/* Same reason the shell is skipped during onboarding: without a
-                  space the editor route has nothing to resolve. */}
-              {hasNoSpaces && isPageRoute ? (
-                <NoSpacesScreen onCreateSpace={() => setShowAddSpace(true)} />
-              ) : (
-                <Outlet />
-              )}
-            </div>
+        {/* Stays mounted behind the mobile drawer rather than being torn down
+            for as long as it is open: this is the tree holding the editor, and
+            rebuilding it on every sidebar toggle is a cost with nothing to show
+            for it. Inert instead, so nothing behind the drawer is reachable. */}
+        <div
+          className={style.appFrame}
+          inert={
+            isMobile && floatingOpen ? (true as unknown as boolean) : undefined
+          }
+        >
+          <TopActionBar
+            open={isMobile ? !!floatingOpen : !!resizableOpen}
+            setOpen={isMobile ? setFloatingOpen : setResizableOpen}
+          />
+          <div className="flex-1 min-h-0 w-full">
+            {/* Same reason the shell is skipped during onboarding: without a
+                space the editor route has nothing to resolve. */}
+            {hasNoSpaces && isPageRoute ? (
+              <NoSpacesScreen onCreateSpace={() => setShowAddSpace(true)} />
+            ) : (
+              <Outlet />
+            )}
           </div>
-        )}
+        </div>
       </div>
       <AddSpaceDialog open={showAddSpace} onOpenChange={setShowAddSpace} />
       <EditGroupDialog

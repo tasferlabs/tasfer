@@ -782,6 +782,20 @@ export function SidebarContent({
                   {t("space.addSpace", "Add space")}
                 </span>
               </Button>
+              {/* The drawer covers the whole screen, so there is no page left
+                  showing to tap on the way out. Anyone not swiping needs this. */}
+              <Button
+                type="button"
+                variant="unstyled"
+                size="unstyled"
+                className={style.mobileHeaderButton}
+                onClick={() => setOpen(false)}
+              >
+                <PanelLeftClose className="size-[22px] rtl:-scale-x-100" />
+                <span className="sr-only">
+                  {t("sidebar.close", "Close sidebar")}
+                </span>
+              </Button>
             </div>
           ) : shouldShowTheProfileAtTop ? (
             <div className={clsx(style.appSidebarHeader, "gap-3")}>

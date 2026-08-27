@@ -1,6 +1,7 @@
-import { clsx } from "clsx";
+import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import useDrawerSwipe from "../hooks/useDrawerSwipe";
 import style from "./Layout.module.css";
 import { SidebarContent } from "./SidebarContent";
 
@@ -17,15 +18,18 @@ export function FloatingSidebar({
   onSpaceSettings: (spaceId: string) => void;
   onInviteMembers: (spaceId: string) => void;
 }) {
+  const { i18n } = useTranslation();
   const location = useLocation();
   const prevLocation = useRef(location);
-  const containerRef = useRef<HTMLDivElement>(null);
-  // Keep sidebar mounted during close animation
-  const [visible, setVisible] = useState(open);
 
-  useEffect(() => {
-    if (open) setVisible(true);
-  }, [open]);
+  // Stays mounted at every position, closed included: the drag has to have
+  // something to pull, and this is also the tree that has to be listening when a
+  // peer adds a page.
+  const { drawerRef } = useDrawerSwipe({
+    open,
+    setOpen,
+    isRtl: i18n.dir() === "rtl",
+  });
 
   // Close sidebar when navigating to a page
   useEffect(() => {
@@ -35,26 +39,19 @@ export function FloatingSidebar({
     }
   }, [location, open, setOpen]);
 
-  const handleTransitionEnd = useCallback(
-    (e: React.TransitionEvent) => {
-      // Only handle transitions on the container itself, not children
-      if (e.target === containerRef.current && !open) {
-        setVisible(false);
-      }
-    },
-    [open]
-  );
-
-  if (!visible && !open) return null;
-
   return (
     <div
-      ref={containerRef}
-      className={clsx(style.floatingSidebar, open && style.floatingSidebarOpen)}
-      onTransitionEnd={handleTransitionEnd}
+      ref={drawerRef}
+      className={style.floatingSidebar}
+      inert={!open ? (true as unknown as boolean) : undefined}
     >
-      <SidebarContent setOpen={setOpen} onAddSpace={onAddSpace} onSpaceSettings={onSpaceSettings} onInviteMembers={onInviteMembers} isMobile />
+      <SidebarContent
+        setOpen={setOpen}
+        onAddSpace={onAddSpace}
+        onSpaceSettings={onSpaceSettings}
+        onInviteMembers={onInviteMembers}
+        isMobile
+      />
     </div>
   );
 }
-
