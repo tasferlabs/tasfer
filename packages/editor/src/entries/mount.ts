@@ -633,6 +633,16 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   });
   resizeObserver.observe(container);
 
+  // iOS can drop a backgrounded WebView's canvas backing store: the layers come
+  // back blank (and their contexts reset to an unscaled transform) with nothing
+  // marked dirty, so the surface would sit on an empty or stale frame until the
+  // next edit. Re-size the layers and repaint on the way back to the foreground.
+  const onVisibilityChange = () => {
+    if (destroyed || document.visibilityState !== "visible") return;
+    resizeCanvas();
+  };
+  document.addEventListener("visibilitychange", onVisibilityChange);
+
   let blurTimeoutId: number | null = null;
 
   // Theme reactivity (e.g. dark-mode toggle) is the host's responsibility: the
@@ -655,6 +665,7 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   const destroy = () => {
     destroyed = true;
     resizeObserver.disconnect();
+    document.removeEventListener("visibilitychange", onVisibilityChange);
     // Detach the doc listener before tearing the editor down. The doc itself is
     // owned by the caller (a private doc by createEditor, the host's doc by the
     // app), so it is not destroyed here.

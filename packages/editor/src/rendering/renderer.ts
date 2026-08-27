@@ -161,6 +161,29 @@ export function clearAllBlockCaches(blocks: Block[]) {
   blocks.forEach((block) => invalidateBlockCache(block));
 }
 
+/**
+ * Re-establish the layer's device-pixel transform from its backing store.
+ *
+ * `layers.ts` scales a context once, when its canvas is created or resized, but
+ * a context can lose that transform without any resize: iOS drops a backgrounded
+ * WebView's canvas backing store and hands back a reset context when the app
+ * returns to the foreground. Painting then lands at 1/dpr in the top-left, and
+ * the CSS-pixel `clearRect` below only wipes that corner, so the rest of the
+ * previous frame stays on screen. Re-deriving the scale per frame is free and
+ * makes the paint self-correcting.
+ */
+function applyDevicePixelTransform(
+  ctx: CanvasRenderingContext2D,
+  viewport: ViewportState,
+) {
+  if (typeof ctx.setTransform !== "function") return;
+  const backingWidth = ctx.canvas?.width ?? 0;
+  const scale = viewport.width > 0 ? backingWidth / viewport.width : 0;
+  if (scale > 0 && Number.isFinite(scale)) {
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  }
+}
+
 // Rendering Functions
 
 export function renderPage(
@@ -175,6 +198,8 @@ export function renderPage(
   // a scroll region — skip the scrollbar (and its minimap markers) entirely.
   autoHeight = false,
 ) {
+  applyDevicePixelTransform(ctx, viewport);
+
   // Save context state
   ctx.save();
 
@@ -1095,6 +1120,8 @@ export function renderCursorLayer(
    */
   caretLandingStartedAt?: number | null,
 ) {
+  applyDevicePixelTransform(ctx, viewport);
+
   // Save context state
   ctx.save();
 
