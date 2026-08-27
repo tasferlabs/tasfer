@@ -516,6 +516,15 @@ export interface PairCallbacks {
    * side is not linked until this runs.
    */
   onEnrolled?: () => void;
+  /**
+   * Device linking, inviting side: the enrolment payload has been handed to
+   * the transport. The mirror of {@link onEnrolled} — `onComplete` fires
+   * before it, so a caller that treats `onComplete` as the end (a CLI about to
+   * exit, a process being torn down) cuts the handover off and leaves the
+   * other device trusted but empty. Delivery is still the transport's to
+   * finish: flush before shutting it down.
+   */
+  onHandover?: () => void;
   onError?: (error: PairError) => void;
 }
 

@@ -2323,6 +2323,7 @@ export class Replicator {
     if (alreadyPaired) {
       if (session.mode === "device" && session.role === "initiator") {
         await this.sendDeviceLink(peer, msg.publicKey, session);
+        session.callbacks.onHandover?.();
       }
       return;
     }
@@ -2369,6 +2370,7 @@ export class Replicator {
     // secret — because this payload is the account, not an introduction.
     if (session.mode === "device" && session.role === "initiator") {
       await this.sendDeviceLink(peer, msg.publicKey, session);
+      session.callbacks.onHandover?.();
     }
 
     // Establish replication connection to the new peer

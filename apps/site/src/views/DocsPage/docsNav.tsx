@@ -4,6 +4,7 @@ import type { DictKey } from "@/lib/i18n/locales";
 import { Icons } from "./docsIcons";
 import {
   AppGettingStarted,
+  AppHeadlessHost,
   AppMarkdown,
   AppPrivacy,
   AppSelfHosting,
@@ -119,6 +120,14 @@ export const NAV: NavSection[] = [
             descKey: "docs.navModel.app.selfHosting.desc",
             Comp: AppSelfHosting,
             kw: "self host relay signaling cloudflare worker wrangler deploy turn config server",
+          },
+          {
+            route: "app/headless-host",
+            title: "Running a headless host",
+            titleKey: "docs.navModel.app.headlessHost",
+            descKey: "docs.navModel.app.headlessHost.desc",
+            Comp: AppHeadlessHost,
+            kw: "headless host cli always on server node daemon systemd link device backup replica self host install update binary download release",
           },
         ],
       },

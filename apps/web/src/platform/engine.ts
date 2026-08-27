@@ -417,7 +417,9 @@ export class Engine implements Platform {
     // DevToolbar), because every query in this file assumes these columns.
     await this.ensureAdditiveColumns();
     // In staging, migrations are applied explicitly via DevToolbar.
-    if (import.meta.env.VITE_STAGING !== "true") {
+    // Optional chaining, not a bare read: `import.meta.env` is a Vite thing,
+    // and this engine also runs under plain Node in the headless host.
+    if (import.meta.env?.VITE_STAGING !== "true") {
       await this.applyMigrations();
     }
     // Create the identity now, before any RPC is served, so concurrent
@@ -2353,6 +2355,7 @@ export class Engine implements Platform {
           await this.peers.trust(peer.publicKey, peer.name, sharedKey);
           observer()?.onComplete?.(peer);
         },
+        onHandover: () => observer()?.onHandover?.(),
         onError: (error) => observer()?.onError?.(error),
       },
       // Enrolment runs from here rather than onComplete: the certificate must

@@ -1,0 +1,179 @@
+name: CLI Release
+
+# Builds `tasfer` (apps/cli) for every supported platform and uploads the
+# archives into the app's own `v<appVersion>` release — the same one the
+# desktop installers go to. The CLI is the app without a screen, so it carries
+# the app's version and rides its tag; there is no separate CLI version.
+#
+# The flow mirrors the desktop one: bump appVersion, merge, then dispatch this
+# on that ref. Running it against a release the desktop build already created
+# is fine and expected — `prepare` only creates the release when it is missing,
+# and every upload clobbers by name.
+#
+# `tasfer update` and the `install.sh` served from the site both read these
+# releases through the GitHub API, match an asset by `<platform>-<arch>` and
+# check it against `tasfer-checksums.txt`, so the asset names and that file are
+# a contract with the shipped binaries — not just build output.
+#
+# A `v*` release with no `tasfer-*` asset is one they simply skip, which is what
+# an app-only release looks like from the binary's side.
+#
+# macOS and Linux only: the host runs where a machine stays awake, and Windows
+# was never one of those boxes. Adding it back is a matrix entry plus a zip
+# branch here and in `src/cli/update.ts`.
+#
+# publish=false is the dry run: every archive is built and uploaded to the
+# workflow run instead of a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload to the v<appVersion> GitHub release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Create the release before anything uploads into it, for the same reason the
+  # desktop workflow does: concurrent uploads that each try to create it race,
+  # and the losers strand their assets.
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ensure the v<appVersion> release exists
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$(node scripts/release/cli-version.mjs --tag)"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::notice::$tag already exists — the build will upload into it"
+            exit 0
+          fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "${tag#v}" --generate-notes --latest
+
+  build:
+    needs: prepare
+    strategy:
+      # One platform failing should not strand the others: whatever built gets
+      # uploaded, and a re-run fills the gap. A platform missing from a release
+      # is one `tasfer update` passes over, so a partial release degrades to
+      # "no update yet" there rather than to an error.
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      # `npm ci` cannot install this tree: node-datachannel declares an
+      # optional @node-datachannel/android-arm64 that was never published, so
+      # npm refuses the lockfile as out of sync. Nothing here is published to a
+      # registry, and the build's reproducibility comes from the release tag.
+      - name: Install
+        working-directory: apps/cli
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: apps/cli
+        run: npm run typecheck
+
+      # The manifest is stamped here as well as in the repo, so a forgotten
+      # `--write` after an appVersion bump cannot ship a mismatched build.
+      - name: Stamp the version from version.json
+        run: node scripts/release/cli-version.mjs --write
+
+      # macOS binaries are ad-hoc signed. Gatekeeper lets a curl'd archive run
+      # unsigned-but-notarized-free because nothing quarantines it; a browser
+      # download would need a Developer ID here (set MAC_SIGN_IDENTITY once the
+      # certificate is imported, the way native-release.yml does for Electron).
+      - name: Build the binary
+        working-directory: apps/cli
+        run: npm run build:binary
+
+      - name: Archive
+        id: archive
+        working-directory: apps/cli/build
+        run: |
+          set -euo pipefail
+          version="$(node ../../../scripts/release/cli-version.mjs)"
+          dir="tasfer-${version}-${{ matrix.target }}"
+          [ -d "$dir" ] || { echo "::error::$dir was not built"; exit 1; }
+
+          archive="$dir.tar.gz"
+          tar -czf "$archive" "$dir"
+
+          # One `<sha256>  <name>` line, the shape update and install.sh parse.
+          if command -v sha256sum > /dev/null; then
+            sha256sum "$archive" > "$archive.sha256"
+          else
+            shasum -a 256 "$archive" > "$archive.sha256"
+          fi
+
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          cat "$archive.sha256"
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-${{ matrix.target }}
+          path: |
+            apps/cli/build/${{ steps.archive.outputs.archive }}
+            apps/cli/build/${{ steps.archive.outputs.archive }}.sha256
+
+  # The checksums file has to be written after every platform is in, because it
+  # covers all of them and `tasfer update` refuses an archive it cannot find a
+  # line for. It is named apart from the app's own release assets, since both
+  # land in the same release.
+  publish:
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Collect checksums
+        working-directory: assets
+        run: |
+          set -euo pipefail
+          cat ./*.sha256 > tasfer-checksums.txt
+          rm ./*.sha256
+          cat tasfer-checksums.txt
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$(node scripts/release/cli-version.mjs --tag)"
+          gh release upload "$tag" assets/* --repo "$GITHUB_REPOSITORY" --clobber

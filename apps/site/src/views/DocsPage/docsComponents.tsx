@@ -543,6 +543,9 @@ export function PropsTable({
     t("docs.table.type", "Type"),
     t("docs.table.description", "Description"),
   ];
+  // A two-heading table drops the type column so the body stays in step with
+  // the header.
+  const showType = headings.length > 2;
   return (
     <div className="dx-table-wrap">
       <table className="dx-table">
@@ -562,9 +565,11 @@ export function PropsTable({
                   <span className="req">{t("docs.table.required", "Required")}</span>
                 ) : null}
               </td>
-              <td>
-                <span className="ty">{r.type}</span>
-              </td>
+              {showType ? (
+                <td>
+                  <span className="ty">{r.type}</span>
+                </td>
+              ) : null}
               <td className="desc">{r.desc}</td>
             </tr>
           ))}

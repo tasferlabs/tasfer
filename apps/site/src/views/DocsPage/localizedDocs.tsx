@@ -3,6 +3,7 @@
 import { localizedMdx } from "../shared/LocalizedMdx";
 
 import AppGettingStartedEn from "./pages/app/getting-started.mdx";
+import AppHeadlessHostEn from "./pages/app/headless-host.mdx";
 import AppMarkdownEn from "./pages/app/markdown.mdx";
 import AppPrivacyEn from "./pages/app/privacy.mdx";
 import AppSelfHostingEn from "./pages/app/self-hosting.mdx";
@@ -22,6 +23,7 @@ import EditorQuickstartEn from "./pages/editor/quickstart.mdx";
 import EditorThemingEn from "./pages/editor/theming.mdx";
 
 import AppGettingStartedAr from "./pages/ar/app/getting-started.mdx";
+import AppHeadlessHostAr from "./pages/ar/app/headless-host.mdx";
 import AppMarkdownAr from "./pages/ar/app/markdown.mdx";
 import AppPrivacyAr from "./pages/ar/app/privacy.mdx";
 import AppSelfHostingAr from "./pages/ar/app/self-hosting.mdx";
@@ -32,6 +34,10 @@ import AppTroubleshootingAr from "./pages/ar/app/troubleshooting.mdx";
 export const AppGettingStarted = localizedMdx(
   AppGettingStartedEn,
   AppGettingStartedAr,
+);
+export const AppHeadlessHost = localizedMdx(
+  AppHeadlessHostEn,
+  AppHeadlessHostAr,
 );
 export const AppMarkdown = localizedMdx(AppMarkdownEn, AppMarkdownAr);
 export const AppPrivacy = localizedMdx(AppPrivacyEn, AppPrivacyAr);
