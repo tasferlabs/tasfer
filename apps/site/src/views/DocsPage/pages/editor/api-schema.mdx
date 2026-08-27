@@ -181,9 +181,9 @@ equation.
 <h2 id="code">Optional code rendering</h2>
 
 Code splits differently from math: the **type** is core, the **painter** is not.
-`@tasfer/editor` tokenizes ``` fences, describes the CRDT shape and owns the
+`@tasfer/editor` tokenizes ```fences, describes the CRDT shape and owns the
 Markdown/HTML/text round-trip, so a document containing code parses, syncs,
-serializes and exports with `baseSchema` alone. What lives outside is the
+serializes and exports with`baseSchema` alone. What lives outside is the
 on-canvas node — layout, editing behavior and syntax highlighting — because the
 highlighting carries a grammar set far larger than the engine itself:
 
@@ -191,13 +191,17 @@ highlighting carries a grammar set far larger than the engine itself:
 npm install @tasfer/editor @tasfer/code
 ```
 
-```ts
+````ts
 import { baseSchema, createEditor } from "@tasfer/editor";
 import { codeExtension } from "@tasfer/code";
 
 const schema = baseSchema.use(codeExtension());
-const editor = createEditor({ element, schema, markdown: "```ts\nconst x = 1\n```" });
-```
+const editor = createEditor({
+  element,
+  schema,
+  markdown: "```ts\nconst x = 1\n```",
+});
+````
 
 Skip the package and nothing is lost from the document: the block still round-trips
 and still replicates, it simply has no painter and renders as the same placeholder
@@ -293,6 +297,8 @@ const title = createEditor({ element, schema: titleSchema });
   document can never become unrepresentable — you never need to list it.
 - The default `baseSchema` is unrestricted: without a `restrict` call every
   registered type is authorable, exactly as before.
+- A third key, [`content`](#content), constrains the document's _shape_ — the
+  order and count of its blocks — rather than which types exist.
 
 **Authoring vs. rendering.** `restrict` gates _creation only_. Slash/menu
 conversions, Enter-splits, Markdown shortcuts (`# `, `- `), paste, and
@@ -318,6 +324,127 @@ restricted.data.isBlockAllowed("bullet_list"); // false
 restricted.data.isMarkAllowed("strong"); // false
 restricted.data.hasBlock("bullet_list"); // true — still registered, still renders
 ```
+
+<h2 id="content">Document shape (content expressions)</h2>
+
+`blocks` and `marks` say which types the user may author. `content` says in what
+**order** and **how many** — a ProseMirror-style content expression over the
+document's flat block sequence:
+
+```ts
+// A brief: one title, then at least one paragraph of body.
+const briefSchema = baseSchema.restrict({ content: "heading1 paragraph+" });
+
+// A card: a title and up to three body blocks, paragraphs or images.
+const cardSchema = baseSchema.restrict({
+  content: "heading1 (paragraph|image){1,3}",
+});
+
+// A titled page: one heading, then anything.
+const pageSchema = baseSchema.restrict({ content: "heading1 block*" });
+```
+
+**Grammar.** A sequence of names, with alternation `|`, grouping `(…)`, and the
+repetitions `+` (one or more), `*` (zero or more), `?` (optional), `{n}`,
+`{n,}` and `{n,m}`. Whitespace separates names and is otherwise insignificant.
+
+**Names.** Either a registered block type or a **group**. Groups are derived
+from each registered type's capabilities, so there is no group table to
+maintain:
+
+<PropsTable
+  cols={["Group", "Members", "Description"]}
+  rows={[
+    {
+      name: "block",
+      type: "every registered type",
+      desc: "The catch-all — use it for the unconstrained tail of a shape.",
+    },
+    {
+      name: "text",
+      type: "paragraph, headings, quote, lists, code",
+      desc: "Every text-bearing type. Its complement is void.",
+    },
+    {
+      name: "heading",
+      type: "heading1, heading2, heading3",
+      desc: "Heading-role types.",
+    },
+    {
+      name: "list",
+      type: "bullet_list, numbered_list, todo_list",
+      desc: "The list family.",
+    },
+    {
+      name: "void",
+      type: "image, line, custom leaf nodes",
+      desc: "Types that carry no text.",
+    },
+  ]}
+/>
+
+A custom type joins extra groups of its own with `defineNode(type, { groups })`,
+so a family of related types can be addressed as one (`"heading1 card+"`).
+
+**Enforcement is the same authoring contract as the allow-list.** An edit that
+would leave the document unable to satisfy the expression is refused, and the
+check is applied where an edit commits rather than inside each command — so it
+covers every gesture, including one a custom node or mark handles itself. A
+refused edit is rolled back whole: the key that triggered it does nothing.
+
+Where a command can adapt instead of failing it does. Enter splits into the type
+the shape permits, and goes inert only when it permits none; paste is repaired to
+the shape _where it lands_. Everything else refuses: a slash/menu conversion, a
+Backspace-merge, a delete of a whole-selected block, `change().deleteBlock()`, or
+one of the implicit conversions a delete key reaches (a list item demoting to a
+paragraph at indent 0, a display equation demoting at its leading edge) all leave
+the document as it was. `change()` returns `false` when its batch is refused, and
+`canChange()` reports it in advance. A loaded document is repaired as a whole — a
+block the shape rejects is demoted to a type it can morph into (text preserved)
+or dropped, and a missing tail is appended.
+
+An already-invalid document is never locked. A document synced from a peer on a
+looser schema, or stored before you tightened the expression, keeps editing
+normally — only edits that turn a _satisfying_ document into a non-satisfying
+one are refused.
+
+**The shape is a local authoring guard, not a collaborative invariant.** Each
+peer judges an edit against the document it can currently see, so two edits that
+are each legal on their own replica can merge into a sequence that is not — under
+`"heading1 paragraph+"`, one peer deleting the last paragraph while another
+concurrently deletes the first leaves a lone heading, and neither edit was
+refusable when it was made. The peers still converge on the same document, and
+the rule above keeps it editable. Peers on _different_ schemas reach the same
+place more directly: operations are never filtered on receipt (that would break
+convergence), so a looser peer's edit applies verbatim on a stricter one.
+
+Read `content` as "the editor will not let a user break this here", not as a
+guarantee the document always satisfies it. If your host depends on the shape —
+rendering, export, a downstream parser — validate with `contentAccepts` at the
+point you depend on it, and treat a document that fails as something to repair
+rather than something that cannot happen.
+
+```ts
+const shaped = baseSchema.restrict({ content: "heading1 paragraph+" });
+
+// Query the shape to gate your own chrome:
+shaped.data.contentAccepts(["heading1", "paragraph"]); // true
+shaped.data.contentAccepts(["paragraph"]); // false
+shaped.data.contentFill(["heading1"]); // ["paragraph"] — what's still missing
+shaped.data.contentTypesAt(["heading1"], 1); // ["paragraph"] — legal here
+```
+
+- Every name must already be registered (apply `use` / `extend` first, `restrict`
+  last). An unknown name, a malformed expression, or one no document could ever
+  satisfy throws at `restrict` time rather than at edit time.
+- Pairing `content` with `blocks` is checked: a shape that needs a type the
+  allow-list forbids is rejected as unsatisfiable.
+- With a `content` expression the automatic `paragraph` fallback is **not**
+  forced into the allow-list — the expression already guarantees a document can
+  be built, and a shaped schema shouldn't advertise a paragraph its own shape
+  would refuse.
+- Collaboration is safe on the same terms as the allow-list: the CRDT log and the
+  reducer never read the expression, so peers on different shapes converge.
 
 <h2 id="window">View windows (title surfaces)</h2>
 
@@ -396,6 +523,11 @@ Declares a custom block type. v1 custom nodes are leaf (`content: "none"`) void 
       name: "node",
       type: "Node",
       desc: "A custom canvas Node to render with, instead of the generated box. Owns its own draw/hit-test/overlays.",
+    },
+    {
+      name: "groups",
+      type: "string[]",
+      desc: "Extra names this type answers to inside a restrict({ content }) expression, on top of the capability-derived block and void groups.",
     },
     {
       name: "markdownSyntax",

@@ -5,6 +5,7 @@ import type { QuoteBlock } from "../nodes/QuoteNode";
 import type { TextBlock } from "../nodes/TextNode";
 import type { VisualBlock } from "../rendering/nodes/AtomicNode";
 import type { BlockRuntimeState } from "../rendering/nodes/Node";
+import { generateNKeysBetween } from "../sync/fractional-index";
 import type { DataSchema } from "../sync/schema";
 import type { HLC } from "../sync/sync";
 import { normalizeBlocks } from "./normalize";
@@ -122,11 +123,7 @@ export function areMarkArraysEqual(
 // the shared `BlockRuntimeState` fields and dispatches the rest to the type's
 // codec/descriptor/node, which narrow back to their own `CustomBlock` view.
 export type Block =
-  | TextBlock
-  | VisualBlock
-  | ListBlock
-  | CodeBlock
-  | QuoteBlock;
+  TextBlock | VisualBlock | ListBlock | CodeBlock | QuoteBlock;
 
 /**
  * The author-facing view of a custom block (see `defineNode`). Carries the
@@ -238,8 +235,40 @@ export function loadPage(
         : undefined;
       if (seeded) page.blocks = [seeded];
     }
+    fillPageToContent(page, schema);
   }
   return page;
+}
+
+/**
+ * Append the blocks a schema's `content` expression still requires. Import is
+ * the one normalization path allowed to mint ids — `normalizeBlocks` is
+ * contractually id-free so peers converge — so the shape rule's tail is filled
+ * here, deterministically: ids continue the parser's `block-N` sequence and the
+ * fractional-index keys are re-spread over the final list, exactly as
+ * `parsePage` assigns them. A no-op for a schema with no expression.
+ */
+function fillPageToContent(page: Page, schema: DataSchema): void {
+  const fill = schema.contentFill(page.blocks.map((block) => block.type));
+  if (!fill || fill.length === 0) return;
+
+  let counter = 0;
+  for (const block of page.blocks) {
+    const parsed = /^block-(\d+)$/.exec(block.id);
+    if (parsed) counter = Math.max(counter, Number(parsed[1]) + 1);
+  }
+  const appended: Block[] = [];
+  for (const type of fill) {
+    const block = schema.createDefaultBlock(type, `block-${counter++}`, "");
+    if (block) appended.push(block);
+  }
+  if (appended.length === 0) return;
+
+  page.blocks = [...page.blocks, ...appended];
+  const keys = generateNKeysBetween(null, null, page.blocks.length);
+  for (let i = 0; i < page.blocks.length; i++) {
+    page.blocks[i].orderKey = keys[i];
+  }
 }
 /**
  * Type guard for the bullet/numbered/todo list family. Lives here, next to the

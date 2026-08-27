@@ -11,6 +11,7 @@ import {
 import type { ContentSelectionSlice } from "../feature-facets";
 import type { TextualBlock } from "../nodes/TextNode";
 import { invalidateBlockCache } from "../rendering/renderer";
+import { documentBlockTypes, visibleIndex } from "../schema-content";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import { escapeHtml } from "../serlization/codecs/inline";
 import { serializeToHTMLFragment } from "../serlization/htmlSerializer";
@@ -23,7 +24,10 @@ import type {
   Page,
 } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
-import { normalizeBlocks } from "../serlization/normalize";
+import {
+  type ContentSurroundings,
+  normalizeBlocks,
+} from "../serlization/normalize";
 import { serializeToMarkdown } from "../serlization/serializer";
 import { serializeToText } from "../serlization/textSerializer";
 import type {
@@ -1069,6 +1073,23 @@ function parseRecognizedPlainTextToBlocks(
  * If there's a selection, it will be deleted first
  * If no cursor is set, inserts at the end of the document
  */
+/**
+ * The document types on either side of a paste, so the shape pass judges the
+ * payload where it actually lands rather than as a whole document. The caret
+ * block counts as "before" — a paste lands at or after it. Both sides are empty
+ * for a schema with no `content` expression, which makes the pass a no-op.
+ */
+function pasteSurroundings(state: EditorState): ContentSurroundings {
+  if (!state.schema.content) return { before: [], after: [] };
+  const types = documentBlockTypes(state.document.page);
+  const caret = state.document.cursor?.position.blockIndex;
+  const at =
+    caret === undefined
+      ? types.length
+      : Math.min(visibleIndex(state.document.page, caret) + 1, types.length);
+  return { before: types.slice(0, at), after: types.slice(at) };
+}
+
 function insertBlocksAtCursor(
   state: EditorState,
   blocks: Block[],
@@ -1082,7 +1103,7 @@ function insertBlocksAtCursor(
   // point (event paste, plain-text, system clipboard, internal-marker round-trip).
   // A disallowed block is coerced to a plain block (text preserved) or dropped,
   // and disallowed marks are stripped. No-op when unrestricted.
-  blocks = normalizeBlocks(blocks, state.schema);
+  blocks = normalizeBlocks(blocks, state.schema, pasteSurroundings(state));
   if (blocks.length === 0) return { state, ops: [] };
 
   // Trim leading/trailing empty text blocks the parser emits for blank lines in

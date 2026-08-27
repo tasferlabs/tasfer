@@ -76,6 +76,11 @@ import {
   isStyleField,
   isValidStyleValue,
 } from "./block-registry";
+import {
+  type CompiledContent,
+  parseContentExpression,
+  type ResolveContentName,
+} from "./content-expression";
 import type { StructuredDocument } from "./structured-content";
 import { invariant } from "@shared/invariant";
 
@@ -97,6 +102,13 @@ export interface BlockSpecCore<
    * rule and its claiming codec ride the same spec.
    */
   readonly markdownSyntax?: readonly SyntaxRule[];
+  /**
+   * Extra names this type answers to inside a `restrict({ content })`
+   * expression, on top of the groups derived from its capabilities (`block`,
+   * `text`, `heading`, `list`, `void`). Lets a family of custom types be
+   * addressed as one — `"heading1 card+"` rather than a long alternation.
+   */
+  readonly groups?: readonly string[];
   /** @internal Phantom carrier for the block's public attribute type. */
   readonly _attrs?: A;
 }
@@ -268,6 +280,15 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   readonly allowedBlocks?: ReadonlySet<string>;
   /** Authoring allow-list for inline marks; `undefined` = unrestricted. */
   readonly allowedMarks?: ReadonlySet<string>;
+  /**
+   * Compiled `content` expression — the document's SHAPE rule (ordering and
+   * counts), the ProseMirror content-expression analogue for this flat block
+   * model. `undefined` = unshaped, and every content query below is then an
+   * exact no-op. Like the allow-lists this gates authoring only: the reducer
+   * never reads it, so peers with different shapes still converge. Set it with
+   * `restrict({ content })`.
+   */
+  readonly content?: CompiledContent;
   /** Block-start token → codec, derived from each block's markdown.tokens. */
   readonly tokenDispatch: ReadonlyMap<TokenType, BlockCodec>;
   /** HTML tag (lowercase) → codec, derived from each block's markdown.htmlTags. */
@@ -297,6 +318,7 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     allowed?: {
       readonly blocks?: ReadonlySet<string>;
       readonly marks?: ReadonlySet<string>;
+      readonly content?: CompiledContent;
     },
     features: InstalledFeatureFacets = NO_FEATURES,
     structuredKinds: readonly StructuredKindSpec[] = [],
@@ -399,6 +421,7 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     this.marks = marks;
     this.allowedBlocks = allowed?.blocks;
     this.allowedMarks = allowed?.marks;
+    this.content = allowed?.content;
     this.tokenDispatch = tokenDispatch;
     this.htmlTagDispatch = htmlTagDispatch;
     this.markStartTokens = markStartTokens;
@@ -754,6 +777,81 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return this.isBlockAllowed(type) ? type : this.fallbackBlockType();
   }
 
+  // ── Document shape (content expression) ────────────────────────────────────
+  //
+  // The second authoring axis: the allow-list says which types exist for the
+  // user, `content` says in what ORDER and HOW MANY. Both are no-ops when unset,
+  // and neither is ever consulted by the reducer. The editor-side guards live in
+  // `../schema-content`, which builds the candidate sequence for an edit and
+  // asks the two queries below whether it survives.
+
+  /**
+   * Whether `types` — a whole document's block types, in order — satisfies the
+   * shape rule. Always true for an unshaped schema.
+   */
+  contentAccepts(types: readonly string[]): boolean {
+    if (!this.content) return true;
+    return this.content.match.matchSequence(types)?.validEnd ?? false;
+  }
+
+  /**
+   * The trailing block types that must be appended for `types` to become a
+   * complete document: `[]` when it already is, `null` when no tail can rescue
+   * it (the sequence itself is illegal). Always `[]` for an unshaped schema.
+   * Used on import, the one path allowed to mint the ids such a fill needs.
+   */
+  contentFill(types: readonly string[]): string[] | null {
+    if (!this.content) return [];
+    const match = this.content.match.matchSequence(types);
+    return match ? match.fillBefore([], true) : null;
+  }
+
+  /**
+   * The block types the shape rule permits at `index`, given the document's
+   * current `types`. `undefined` for an unshaped schema (every type is fine);
+   * `[]` when nothing may go there.
+   */
+  contentTypesAt(
+    types: readonly string[],
+    index: number,
+  ): readonly string[] | undefined {
+    if (!this.content) return undefined;
+    const prefix = this.content.match.matchSequence(types, 0, index);
+    return prefix?.allowedTypes() ?? [];
+  }
+
+  /**
+   * Resolve an expression name to the block types it stands for. A registered
+   * type stands for itself; a group name expands to its members. Groups are
+   * DERIVED from the registered specs — the capability-based `block`, `text`,
+   * `heading`, `list` and `void`, plus whatever extra names a spec declares in
+   * `groups` — so a schema never carries a separate group table to keep in sync.
+   */
+  private contentNameResolver(): ResolveContentName {
+    const groups = new Map<string, string[]>();
+    const add = (group: string, type: string): void => {
+      const members = groups.get(group);
+      if (members) members.push(type);
+      else groups.set(group, [type]);
+    };
+    for (const [type, spec] of this.blocks) {
+      const caps = spec.descriptor.capabilities;
+      add("block", type);
+      add(caps.hasText ? "text" : "void", type);
+      if (caps.isHeading) add("heading", type);
+      if (caps.listKind !== undefined) add("list", type);
+      for (const group of spec.groups ?? []) add(group, type);
+    }
+    for (const name of groups.keys()) {
+      invariant(
+        !this.blocks.has(name),
+        'restrict(): "%s" is both a registered block type and a group name — a content expression could not tell them apart. Rename the group.',
+        name,
+      );
+    }
+    return (name) => (this.blocks.has(name) ? [name] : groups.get(name));
+  }
+
   /**
    * Derive a new schema that restricts which registered types may be authored.
    * Omit a key to leave that dimension unrestricted; `marks: []` yields a
@@ -764,32 +862,74 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
    * excluded — a document must always be able to hold a plain block. Every named
    * type must already be registered in this schema (apply `extend()` first, then
    * `restrict()` last).
+   *
+   * `content` adds the second axis: a ProseMirror-style expression over the
+   * document's flat block sequence (`"heading1 paragraph+"`,
+   * `"heading1 (paragraph|image){1,3}"`, `"heading1 block*"`), constraining
+   * ORDER and COUNT where the allow-list constrains identity. It supplies its
+   * own representability guarantee, so the forced `paragraph` above is dropped
+   * when one is present.
    */
   restrict(restriction: {
     readonly blocks?: readonly string[];
     readonly marks?: readonly string[];
+    readonly content?: string;
   }): DataSchema<D> {
+    const content =
+      restriction.content === undefined
+        ? this.content
+        : this.compileContent(restriction.content);
     const allowedBlocks =
       restriction.blocks === undefined
         ? this.allowedBlocks
-        : this.buildAllowedBlockSet(restriction.blocks);
+        : this.buildAllowedBlockSet(restriction.blocks, content);
     const allowedMarks =
       restriction.marks === undefined
         ? this.allowedMarks
         : this.buildAllowedMarkSet(restriction.marks);
+    if (content && allowedBlocks) {
+      // Both axes gate creation, so a shape that calls for a type the
+      // allow-list forbids can never be satisfied. Fail here rather than
+      // leaving the host with an editor that silently refuses every edit.
+      for (const type of content.types) {
+        invariant(
+          allowedBlocks.has(type),
+          'restrict(): the content expression needs block type "%s", but it is absent from the `blocks` allow-list.',
+          type,
+        );
+      }
+    }
     return new DataSchema(
       this.blockSpecs(),
       this.markSpecs(),
       {
         blocks: allowedBlocks,
         marks: allowedMarks,
+        content,
       },
       this.features,
       this.structuredKindSpecs,
     );
   }
 
-  private buildAllowedBlockSet(names: readonly string[]): ReadonlySet<string> {
+  /** Compile a `content` expression against this schema's types and groups. */
+  private compileContent(source: string): CompiledContent {
+    const content = parseContentExpression(source, this.contentNameResolver());
+    // An expression no document can ever satisfy (`"heading1 heading1?" `is
+    // fine; `"(paragraph paragraph){0}"`-style dead ends are not) would leave
+    // every authoring path refusing forever.
+    invariant(
+      content.match.fillBefore([], true) !== null,
+      'restrict(): the content expression "%s" cannot be satisfied by any document.',
+      source,
+    );
+    return content;
+  }
+
+  private buildAllowedBlockSet(
+    names: readonly string[],
+    content: CompiledContent | undefined,
+  ): ReadonlySet<string> {
     const set = new Set<string>();
     for (const name of names) {
       invariant(
@@ -800,7 +940,12 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
       set.add(name);
     }
     // The fallback is never excludable, so a document can always hold a plain
-    // block (and coerceCreatable always has a legal target).
+    // block (and coerceCreatable always has a legal target). A content
+    // expression supplies that guarantee itself — its `contentFill` names the
+    // types a document needs — so the fallback is not forced in when one is
+    // present, and a shaped schema does not advertise a paragraph its own shape
+    // would refuse.
+    if (content) return set;
     const fallback = this.fallbackBlockType();
     invariant(
       this.hasBlock(fallback),
@@ -850,6 +995,7 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
       {
         blocks: this.allowedBlocks,
         marks: this.allowedMarks,
+        content: this.content,
       },
       this.features,
       structuredKinds,
@@ -870,6 +1016,7 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
       {
         blocks: this.allowedBlocks,
         marks: this.allowedMarks,
+        content: this.content,
       },
       {
         inputRules: upsertFacetsById(

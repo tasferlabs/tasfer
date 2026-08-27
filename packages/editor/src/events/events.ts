@@ -13,6 +13,7 @@ import {
   getScrollbarStyles,
   updateScrollbarFadeOpacity,
 } from "../rendering/scrollbar";
+import { editSatisfiesSchema } from "../schema-content";
 import {
   getContentSelectionFromViewport,
   getTextPositionFromViewport,
@@ -572,6 +573,12 @@ export function handleEvents(
     // move and paste behind it forever. Losing the one bad event is the cheap
     // failure; losing the queue is not.
     const event = events.shift()!;
+    // Snapshot the pre-event state and op count: an event whose edit does not
+    // survive the schema check below is rolled back to exactly here, so the
+    // gesture becomes a no-op rather than a document the schema forbids.
+    const beforeEvent = state;
+    const opsBeforeEvent = collectedOps.length;
+    const pastedBeforeEvent = pastedImageBlockIndex;
     switch (event.type) {
       case "contextmenu":
         state = handleContextMenu(
@@ -780,6 +787,24 @@ export function handleEvents(
         state = compResult.state;
         collectedOps.push(...compResult.ops);
         break;
+    }
+
+    // The authoring backstop. Undo/redo is exempt — it restores a state this
+    // document was already in, and refusing it would strand the user on a
+    // document they cannot walk back out of. (Only undo/redo swaps the undo
+    // manager mid-drain; ordinary edits are recorded after it.)
+    if (
+      state.undoManager === beforeEvent.undoManager &&
+      !editSatisfiesSchema(
+        beforeEvent,
+        state,
+        collectedOps.slice(opsBeforeEvent),
+      )
+    ) {
+      state = beforeEvent;
+      collectedOps.length = opsBeforeEvent;
+      // The block this event would have reported no longer exists.
+      pastedImageBlockIndex = pastedBeforeEvent;
     }
   }
 

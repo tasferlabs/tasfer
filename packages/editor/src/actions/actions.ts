@@ -5,6 +5,11 @@ import { resolveMarkRuns } from "../mark-runs";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isBlockRTL } from "../rtl";
 import {
+  contentAllowsMorph,
+  contentSplitType,
+  visibleIndex,
+} from "../schema-content";
+import {
   clearSelection,
   moveCursorToPosition,
   startSelection,
@@ -3720,6 +3725,22 @@ export function splitBlock(state: EditorState): ActionResult {
     blockCopy2Type,
   ) as Block["type"];
 
+  // Second clamp: the schema's `content` expression (the document's shape).
+  // A split both retypes block 1 and mints block 2, so both halves are judged
+  // together — the continuation degrades to the first type the shape permits
+  // after this block, and Enter goes inert when it permits none. Identity for a
+  // schema with no expression.
+  const shapedContinuation = contentSplitType(
+    state,
+    visibleIndex(state.document.page, blockIndex),
+    blockCopy1Type,
+    blockCopy2Type,
+  );
+  if (shapedContinuation === undefined) {
+    return { state: stateBeforeSplit, ops: [] };
+  }
+  blockCopy2Type = shapedContinuation as Block["type"];
+
   // List-specific initialProps (checked/indent) only apply while the
   // continuation stays the same list type; a coerced-to-paragraph fallback in a
   // restricted editor drops them. A todo item's continuation starts unchecked.
@@ -4375,6 +4396,21 @@ export function convertBlockAtCursor(
   // reducer dropping a type it can't model. No-op for an unrestricted schema.
   if (!state.schema.isBlockAllowed(params.type)) return { state, ops: [] };
 
+  // …and the document's shape: a conversion that would leave the block sequence
+  // unable to satisfy the schema's `content` expression is refused the same way.
+  if (
+    !contentAllowsMorph(
+      state,
+      visibleIndex(
+        state.document.page,
+        state.document.cursor.position.blockIndex,
+      ),
+      params.type,
+    )
+  ) {
+    return { state, ops: [] };
+  }
+
   const ops: Operation[] = [];
   const blockIndex = state.document.cursor.position.blockIndex;
   const cursorIndex = state.document.cursor.position.textIndex;
@@ -4953,6 +4989,21 @@ export function convertToList(
   // (bypassing createDefaultBlock/convertBlockAtCursor), so it needs its own
   // gate; a disallowed list type is a clean no-op. No-op when unrestricted.
   if (!state.schema.isBlockAllowed(listType)) return { state, ops: [] };
+
+  // Same shape guard as convertBlockAtCursor — this path builds its list block
+  // literal directly, so it re-states the check rather than inheriting one.
+  if (
+    !contentAllowsMorph(
+      state,
+      visibleIndex(
+        state.document.page,
+        state.document.cursor.position.blockIndex,
+      ),
+      listType,
+    )
+  ) {
+    return { state, ops: [] };
+  }
 
   const ops: Operation[] = [];
 

@@ -29,6 +29,12 @@ import {
 } from "../action-bus";
 import type { ChangeApi, DocRange } from "../entries/editor";
 import { invalidateBlockCache } from "../rendering/renderer";
+import {
+  contentAllowsRemove,
+  contentInsertType,
+  documentBlockTypes,
+  visibleIndex,
+} from "../schema-content";
 import type { AnySchemaDefinition } from "../schema-types";
 import {
   caretAtBlockBottom,
@@ -280,6 +286,20 @@ export function joinWithPreviousBlock(
   const target = findBlock(state.document.page, boundary.previousBlockId);
   if (!source || source.deleted || !target || target.deleted) return null;
   if (!isTextualBlock(source) || !isTextualBlock(target)) return null;
+
+  // The merge removes `source` from the document. Refuse it when that would
+  // leave the block sequence unable to satisfy the schema's `content`
+  // expression — Backspace at the boundary then just does nothing. No-op for a
+  // schema with no expression.
+  const sourceIndex = state.document.page.blocks.findIndex(
+    (block) => block.id === source.id,
+  );
+  if (
+    sourceIndex !== -1 &&
+    !contentAllowsRemove(state, visibleIndex(state.document.page, sourceIndex))
+  ) {
+    return null;
+  }
 
   const joined = mergeBlocksOps(
     state.document.page,
@@ -582,15 +602,25 @@ function appendTrailingParagraph(
 ): EdgeOutcome {
   const ops: Operation[] = [];
 
+  // Clamp the escape block to the document's shape: `paragraph` when the schema
+  // has no `content` expression or permits one here, else the first type it does
+  // permit at the tail, else no escape block at all (the edge stops being an
+  // escape and the caret simply stays put).
+  const type = contentInsertType(
+    state,
+    documentBlockTypes(state.document.page).length,
+    "paragraph",
+  );
+  if (type === undefined) return { kind: "fallthrough" };
+
   const newParagraphId = state.CRDTbinding.nextId();
   const orderKey = orderKeyAfter(state.document.page.blocks, afterBlock.id);
-  const newParagraph: Block = {
-    id: newParagraphId,
+  const newParagraph = state.schema.createDefaultBlock(
+    type,
+    newParagraphId,
     orderKey,
-    type: "paragraph",
-    charRuns: [],
-    formats: [],
-  };
+  );
+  if (!newParagraph) return { kind: "fallthrough" };
 
   const blockInsertOp: Operation = {
     op: "block_insert",
@@ -599,7 +629,7 @@ function appendTrailingParagraph(
     pageId: state.CRDTbinding.pageId,
     orderKey,
     blockId: newParagraphId,
-    blockType: "paragraph",
+    blockType: type as Block["type"],
   };
 
   const newBlocks = [...state.document.page.blocks, newParagraph];
@@ -627,15 +657,18 @@ function appendTrailingParagraph(
 function prependLeadingParagraph(state: EditorState): EdgeOutcome {
   const ops: Operation[] = [];
 
+  // Same shape clamp as {@link appendTrailingParagraph}, at the head.
+  const type = contentInsertType(state, 0, "paragraph");
+  if (type === undefined) return { kind: "fallthrough" };
+
   const newParagraphId = state.CRDTbinding.nextId();
   const orderKey = orderKeyAfter(state.document.page.blocks, null);
-  const newParagraph: Block = {
-    id: newParagraphId,
+  const newParagraph = state.schema.createDefaultBlock(
+    type,
+    newParagraphId,
     orderKey,
-    type: "paragraph",
-    charRuns: [],
-    formats: [],
-  };
+  );
+  if (!newParagraph) return { kind: "fallthrough" };
 
   const blockInsertOp: Operation = {
     op: "block_insert",
@@ -644,7 +677,7 @@ function prependLeadingParagraph(state: EditorState): EdgeOutcome {
     pageId: state.CRDTbinding.pageId,
     orderKey,
     blockId: newParagraphId,
-    blockType: "paragraph",
+    blockType: type as Block["type"],
   };
 
   const newBlocks = [newParagraph, ...state.document.page.blocks];

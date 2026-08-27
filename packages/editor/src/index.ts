@@ -203,6 +203,7 @@ export type {
   MarkHtmlCtx,
 } from "./serlization/codecs/mark-codec";
 export type { CustomBlock } from "./serlization/loadPage";
+export type { CompiledContent, ContentMatch } from "./sync/content-expression";
 export type {
   BlockSpecCore,
   DataSchema,

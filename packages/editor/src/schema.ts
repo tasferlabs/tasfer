@@ -143,7 +143,9 @@ export interface FeatureExtension extends SchemaExtension, FeatureFacets {
  * schema's own registered block/mark types (so they autocomplete). Omit a key to
  * leave that dimension unrestricted; `marks: []` yields a format-free field. The
  * fallback block type (`paragraph`) is always kept creatable and need not be
- * listed. The full registry is preserved — a restricted editor still RENDERS a
+ * listed — unless a `content` expression is supplied, which carries its own
+ * guarantee that a document can be built. The full registry is preserved — a
+ * restricted editor still RENDERS a
  * disallowed type that arrives via sync or an older document; it only stops the
  * local user from creating one.
  *
@@ -154,6 +156,26 @@ export interface SchemaRestriction<
 > {
   readonly blocks?: readonly BlockName<D>[];
   readonly marks?: readonly MarkNameOf<D>[];
+  /**
+   * The document's SHAPE — a ProseMirror-style content expression over the flat
+   * block sequence, constraining order and count where `blocks` constrains
+   * identity:
+   *
+   *   "heading1 paragraph+"              a heading, then one or more paragraphs
+   *   "heading1 (paragraph|image){1,3}"  a heading, then one to three of either
+   *   "heading1 block*"                  a heading, then anything
+   *
+   * A name is a registered block type or a group — `block`, `text`, `heading`,
+   * `list`, `void`, plus any extra names a spec declares via `groups`. Grammar:
+   * alternation `|`, grouping `(…)`, and the repetitions `+`, `*`, `?`,
+   * `{n}`, `{n,}`, `{n,m}`.
+   *
+   * Enforced at the same authoring boundaries as the allow-list: an edit that
+   * would leave the document unable to satisfy the expression is refused, and
+   * paste/import are repaired to it. Rendering, the reducer and the op log are
+   * untouched, so peers on different expressions still converge.
+   */
+  readonly content?: string;
 }
 
 type UnionToIntersection<U> = (
@@ -426,6 +448,12 @@ export interface DefineNodeConfig<
   content?: "none";
   /** Declared attributes (replicated as top-level fields via `block_set`). */
   attrs?: A;
+  /**
+   * Extra names this type answers to inside a `restrict({ content })`
+   * expression, on top of the capability-derived `block` / `void` groups — so a
+   * family of custom types can be addressed as one (`"heading1 card+"`).
+   */
+  groups?: readonly string[];
   /** Style for the generated {@link BoxNode}. Ignored when `node` is supplied. */
   render?: BoxRenderStyle;
   /** A custom Node to render with, instead of the generated BoxNode. */
@@ -592,6 +620,7 @@ function buildLeafSpec<T extends string, A extends Record<string, AttrSpec>>(
     descriptor,
     codec,
     markdownSyntax: config.markdownSyntax,
+    groups: config.groups,
     node,
   };
 }

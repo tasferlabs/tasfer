@@ -55,7 +55,6 @@ import {
 } from "../events/interaction-session";
 import { pressArmsTextDrag } from "../events/mouseEvents";
 import { onFontsReady } from "../fonts";
-import { resolveMarkRuns } from "../mark-runs";
 import {
   caretInProtectedSource,
   clampMirrorStartToSpans,
@@ -69,6 +68,7 @@ import {
   stripSentinel,
   SURFACE_SENTINEL,
 } from "../input-diff";
+import { resolveMarkRuns } from "../mark-runs";
 import { getBlockTextContent, isAndroid, isIOS } from "../node-shared";
 import { isApplePlatform, supportsHtml5Drag } from "../platform";
 import {
@@ -100,6 +100,13 @@ import {
   renderCursorLayer,
   renderPage,
 } from "../rendering/renderer";
+import {
+  contentAllowsInsert,
+  contentAllowsMorph,
+  contentAllowsRemove,
+  editSatisfiesSchema,
+  visibleIndex,
+} from "../schema-content";
 import type {
   AnySchemaDefinition,
   BaseSchemaDefinition,
@@ -1450,6 +1457,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private executeAction = (result: ActionResult): void => {
     const { state: newState, ops } = result;
     const prevState = this._state;
+
+    // The authoring backstop: an action that reshapes the document into
+    // something the schema forbids is dropped whole, so the gesture behind it
+    // does nothing. No-op for an unrestricted schema.
+    if (!editSatisfiesSchema(prevState, newState, ops)) return;
 
     // Update local state and record to undo stack (pass both before/after states for cursor restoration)
     this._state =
@@ -4835,6 +4847,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // sorts the minted key.
       const newBlocks = sortBlocksByOrder([...blocks, newBlock]);
 
+      // Second clamp: the document's shape. An insert that would leave the
+      // block sequence unable to satisfy the schema's `content` expression is
+      // refused, mirroring the allow-list check above. No-op when unshaped.
+      const insertedAt = newBlocks
+        .filter((b) => !b.deleted)
+        .findIndex((b) => b.id === blockId);
+      if (
+        insertedAt !== -1 &&
+        !contentAllowsInsert(s, insertedAt, block.type)
+      ) {
+        return { state: s, ops: [] };
+      }
+
       const ops: Operation[] = [
         {
           op: "block_insert",
@@ -4900,7 +4925,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // caret path's convertBlockAtCursor also no-ops, but gating here covers the
       // non-caret setBlockTypeAction too). Other attrs in the patch still apply.
       // No-op when unrestricted.
-      if (resolvedType !== undefined && s.schema.isBlockAllowed(resolvedType)) {
+      if (
+        resolvedType !== undefined &&
+        s.schema.isBlockAllowed(resolvedType) &&
+        contentAllowsMorph(s, visibleIndex(s.document.page, idx), resolvedType)
+      ) {
         const caretIdx = s.document.cursor?.position.blockIndex;
         let r =
           idx === caretIdx
@@ -5048,6 +5077,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const prev = this._state;
     const changed = ctx.state !== prev || ctx.ops.length > 0;
     if (!changed) return false;
+    // Same backstop the gesture paths get: a batch that would leave the
+    // document unable to satisfy the schema is refused whole, and `change()`
+    // reports it did nothing.
+    if (!editSatisfiesSchema(prev, ctx.state, ctx.ops)) return false;
     this._state =
       ctx.ops.length > 0
         ? recordUndoOps(prev, ctx.state, ctx.ops, prev.CRDTbinding.getPeerId())
@@ -5069,7 +5102,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   canChange = (fn: (c: ChangeApi) => void): boolean => {
     const ctx = { state: this._state, ops: [] as Operation[] };
     fn(this.makeChangeApi(ctx));
-    return ctx.state !== this._state || ctx.ops.length > 0;
+    return (
+      (ctx.state !== this._state || ctx.ops.length > 0) &&
+      editSatisfiesSchema(this._state, ctx.state, ctx.ops)
+    );
   };
 
   // Names already warned about, so a typo bound to a per-keystroke shortcut
@@ -5466,6 +5502,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       const blockIndex = findBlockIndex(s.document.page, blockId);
       const block = blocks[blockIndex];
       if (!block || block.deleted) return { state: s, ops: [] };
+
+      // Refuse a delete that would leave the block sequence unable to satisfy
+      // the schema's `content` expression. No-op when unshaped.
+      if (!contentAllowsRemove(s, visibleIndex(s.document.page, blockIndex))) {
+        return { state: s, ops: [] };
+      }
 
       // Tombstone the block (mark deleted) instead of splicing it out, so undo
       // can locate it in state to compute the inverse block_insert.
