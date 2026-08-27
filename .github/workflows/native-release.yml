@@ -7,11 +7,13 @@ name: Native Release
 
 # There is no tag input: the build always uses the ref it was triggered on, and
 # the release tag is `v<appVersion>` read from version.json at that ref. So the
-# flow is to bump appVersion, merge, then dispatch this on that ref — the
-# `prepare` job cuts the release itself before any artifact is built.
+# flow is to bump appVersion, merge, then dispatch on that ref.
 #
-# workflow_call is kept for a caller that creates the release first; nothing
-# calls it today.
+# The normal path is the Release workflow, which cuts the release first and
+# calls this and the CLI build on the same ref, so both land in `v<appVersion>`
+# from one commit. Dispatching this alone still works and is how a failed
+# desktop build is re-run without rebuilding the CLI — `prepare` cuts the
+# release when it is missing and falls through when Release already did.
 #
 # workflow_dispatch with publish=false is a safe dry run: full signed build,
 # artifacts uploaded to the workflow run instead of a release.

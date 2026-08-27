@@ -5,10 +5,12 @@ name: CLI Release
 # desktop installers go to. The CLI is the app without a screen, so it carries
 # the app's version and rides its tag; there is no separate CLI version.
 #
-# The flow mirrors the desktop one: bump appVersion, merge, then dispatch this
-# on that ref. Running it against a release the desktop build already created
-# is fine and expected — `prepare` only creates the release when it is missing,
-# and every upload clobbers by name.
+# The normal path is the Release workflow, which cuts the release once and
+# calls this and the desktop build on the same ref — one dispatch, one commit,
+# so the CLI in a release can never come from a different tree than the
+# installers beside it. Dispatching this alone is the way to fill a platform
+# a Release run missed; `prepare` only creates the release when it is missing,
+# and every upload clobbers by name, so a re-run into a live release is fine.
 #
 # `tasfer update` and the `install.sh` served from the site both read these
 # releases through the GitHub API, match an asset by `<platform>-<arch>` and
@@ -26,6 +28,13 @@ name: CLI Release
 # workflow run instead of a release.
 
 on:
+  # Called by Release, which has already cut the release — `prepare` finds it
+  # and falls through.
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
       publish:

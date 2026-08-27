@@ -1,0 +1,85 @@
+name: Release
+
+# Cuts `v<appVersion>` and drives every native build into it from one dispatch.
+#
+# Desktop installers and the `tasfer` binaries share a release by design — the
+# CLI is the app without a screen, so it carries appVersion and rides its tag
+# (see scripts/release/cli-version.mjs). Sharing a tag only stays honest if
+# both come from the same tree, and dispatching the two builds separately gave
+# no way to enforce that: ship the installers from one commit, the CLI from a
+# later one, and the release says 0.1.6 for both with nothing recording the
+# difference. Calling both from here pins them to this workflow's ref, so the
+# skew cannot happen rather than merely being caught.
+#
+# The builds stay in their own files. They share no runner, matrix axis, or
+# secret: the desktop job signs and notarizes on one macOS runner that
+# cross-builds both arches, while the CLI fans out over four platform-arch
+# runners and needs no secrets at all. Folding them into one matrix would make
+# a two-minute CLI re-run wait on notarization.
+#
+# The two assets sets never collide: electron-builder writes versionless
+# `Tasfer-<arch>.<ext>`, the CLI writes `tasfer-<version>-<platform>-<arch>.tar.gz`,
+# and every upload clobbers by name.
+#
+# iOS and Android are not here — store submissions go through Store Release
+# after release notes are curated.
+#
+# publish=false is the dry run: both pipelines build in full and upload to the
+# workflow run instead of a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload to the v<appVersion> GitHub release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # The sole creator. Both builds keep their own create-if-missing step for the
+  # standalone-dispatch path, but with this ahead of them they find the release
+  # already there and fall through — which is also what keeps them from racing
+  # each other to POST /releases, where the loser dies on 422 and strands its
+  # assets.
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ensure the v<appVersion> release exists
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="v$(node scripts/release/app-version.mjs)"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::notice::$tag already exists — the builds will upload into it"
+            exit 0
+          fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "${tag#v}" --generate-notes --latest
+
+  # `./` resolves both at this workflow's ref, which is the whole point.
+  desktop:
+    needs: prepare
+    uses: ./.github/workflows/native-release.yml
+    with:
+      publish: ${{ inputs.publish }}
+    secrets: inherit
+
+  # Not `needs: desktop` — nothing the CLI builds depends on the installers,
+  # and a signing failure should not cost the binaries their release.
+  cli:
+    needs: prepare
+    uses: ./.github/workflows/cli-release.yml
+    with:
+      publish: ${{ inputs.publish }}
+    secrets: inherit
