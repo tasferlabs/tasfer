@@ -5,5 +5,5 @@
     { "source": "/page/:path*", "destination": "/app/page/:path*", "permanent": false }
   ],
   "installCommand": "npm ci",
-  "ignoreCommand": "bash -c 'if [[ \"$VERCEL_GIT_COMMIT_MESSAGE\" == *\"[skip ci]\"* ]]; then exit 0; fi; git diff --quiet HEAD^ HEAD -- .'"
+  "ignoreCommand": "bash -c 'if [[ \"$VERCEL_GIT_COMMIT_MESSAGE\" == *\"[force deploy]\"* ]]; then exit 1; fi; if [[ \"$VERCEL_GIT_COMMIT_MESSAGE\" == *\"[skip ci]\"* ]]; then exit 0; fi; git diff --quiet HEAD^ HEAD -- .'"
 }

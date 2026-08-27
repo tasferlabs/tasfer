@@ -5,5 +5,5 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/app/index.html" }],
-  "ignoreCommand": "bash -c 'if [[ \"$VERCEL_GIT_COMMIT_MESSAGE\" == *\"[skip ci]\"* ]]; then exit 0; fi; git diff --quiet HEAD^ HEAD -- . ../../packages ../../shared ../../version.json'"
+  "ignoreCommand": "bash -c 'if [[ \"$VERCEL_GIT_COMMIT_MESSAGE\" == *\"[force deploy]\"* ]]; then exit 1; fi; if [[ \"$VERCEL_GIT_COMMIT_MESSAGE\" == *\"[skip ci]\"* ]]; then exit 0; fi; git diff --quiet HEAD^ HEAD -- . ../../packages ../../shared ../../version.json'"
 }
