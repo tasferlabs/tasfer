@@ -27,6 +27,16 @@ export function localizedPath(lang: string, path = ""): string {
 }
 
 /**
+ * The plain-markdown twin of a documentation article — the same URL with `.md`
+ * in place of the trailing slash. Generated into `public/` by
+ * scripts/generate-llms.mjs and declared as a `text/markdown` alternate, so a
+ * crawler or an assistant can read the source instead of the app shell.
+ */
+export function docsMarkdownUrl(lang: string, route: string): string {
+  return `${SITE_ORIGIN}/${lang}/docs/${route}.md`;
+}
+
+/**
  * Canonical + hreflang set for one locale-less route.
  *
  * The self-referencing hreflang is deliberate: Google requires every URL in an

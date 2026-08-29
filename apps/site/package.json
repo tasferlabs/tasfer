@@ -6,9 +6,10 @@
   "description": "Tasfer marketing site + documentation (Next.js, static export)",
   "scripts": {
     "dev": "next dev -p 4100",
-    "build": "npm run og && next build --webpack",
+    "build": "npm run og && npm run llms && next build --webpack",
     "start": "next start -p 4100",
-    "og": "node scripts/generate-og.mjs"
+    "og": "node scripts/generate-og.mjs",
+    "llms": "node scripts/generate-llms.mjs"
   },
   "dependencies": {
     "@fontsource/amiri": "^5.2.8",
@@ -36,7 +37,11 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.6",
-    "typescript": "^7.0.2"
+    "remark-mdx": "^3.1.1",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "typescript": "^7.0.2",
+    "unified": "^11.0.5"
   },
   "overrides": {
     "next": "$next"

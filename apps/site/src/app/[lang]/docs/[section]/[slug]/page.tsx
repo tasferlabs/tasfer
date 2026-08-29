@@ -7,6 +7,7 @@ import {
   absoluteUrl,
   alternates,
   breadcrumbNode,
+  docsMarkdownUrl,
   graph,
   localizedPath,
   siteNodes,
@@ -54,7 +55,10 @@ export async function generateMetadata({
   return {
     title,
     description,
-    alternates: alternates(lang, path),
+    alternates: {
+      ...alternates(lang, path),
+      types: { "text/markdown": docsMarkdownUrl(lang, meta.route) },
+    },
     openGraph: {
       type: "article",
       locale: lang,

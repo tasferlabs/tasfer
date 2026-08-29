@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { useParams } from "next/navigation";
 import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
+import { DEFAULT_LNG, isLng } from "@/lib/i18n/locales";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { Icons } from "./docsIcons";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -16,6 +18,24 @@ import {
 } from "./docsComponents";
 import { PAGE, type PageMeta } from "./docsNav";
 import "./DocsPage.css";
+
+/** Link to this article's plain-markdown twin (public/<lang>/docs/<route>.md,
+ *  written by scripts/generate-llms.mjs). A real anchor, not a copy button: it
+ *  is how a reader grabs the source and how anything crawling the page — a
+ *  search engine, an assistant reading the DOM — finds the machine-readable
+ *  version. The same URL is declared as a `text/markdown` alternate in the
+ *  page's metadata. */
+function MarkdownLink({ route }: { route: string }) {
+  const { t } = useTranslation();
+  const params = useParams<{ lang?: string }>();
+  const lang = params.lang && isLng(params.lang) ? params.lang : DEFAULT_LNG;
+  return (
+    <a className="dx-md-link" href={`/${lang}/docs/${route}.md`}>
+      <Icons.Braces />
+      {t("docs.markdown.view", "View as Markdown")}
+    </a>
+  );
+}
 
 function Breadcrumb({ meta }: { meta: PageMeta }) {
   const { t } = useTranslation();
@@ -41,6 +61,7 @@ function Breadcrumb({ meta }: { meta: PageMeta }) {
         ) : null}
         <span className="sep">/</span>
         <span className="cur">{t(meta.titleKey, meta.title)}</span>
+        <MarkdownLink route={meta.route} />
       </div>
       <h1 className="dx-h1">{t(meta.titleKey, meta.title)}</h1>
     </>

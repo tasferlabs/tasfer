@@ -1538,3 +1538,20 @@ body:has(.dx-page) .site-banner-inner {
   font-family: var(--font-ui);
   letter-spacing: normal;
 }
+
+/* The plain-markdown twin of the article, parked at the end of the breadcrumb
+   row (see MarkdownLink in DocsArticle.tsx). */
+.dx-page .dx-breadcrumb .dx-md-link {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.7;
+}
+.dx-page .dx-breadcrumb .dx-md-link:hover {
+  opacity: 1;
+}
+.dx-page .dx-breadcrumb .dx-md-link svg {
+  width: 14px;
+  height: 14px;
+}

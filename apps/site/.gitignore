@@ -23,3 +23,11 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# docs markdown mirror + llms.txt (scripts/generate-llms.mjs, run by `npm run build`).
+# One entry per exported locale — add a directory here when SUPPORTED_LNGS grows.
+/public/llms.txt
+/public/llms-full.txt
+/public/docs/
+/public/en/
+/public/ar/
