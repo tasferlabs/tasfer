@@ -678,6 +678,10 @@ export function SidebarContent({
     hasSidebarProfile && adapter !== "electron-macos";
   const shouldOverlaySidebarClose =
     !hasSidebarProfile && !isMobile && !isElectron;
+  // The bare /page route is the editor's "no page" empty state (and, without a
+  // space, the screen that stands in for it) — the one place where closing the
+  // drawer uncovers nothing to come back to.
+  const hasOpenPage = !useMatch("/page");
   return (
     <>
       {/* Portal target for page panels (e.g. calendar event preview) — replaces entire sidebar */}
@@ -783,19 +787,23 @@ export function SidebarContent({
                 </span>
               </Button>
               {/* The drawer covers the whole screen, so there is no page left
-                  showing to tap on the way out. Anyone not swiping needs this. */}
-              <Button
-                type="button"
-                variant="unstyled"
-                size="unstyled"
-                className={style.mobileHeaderButton}
-                onClick={() => setOpen(false)}
-              >
-                <PanelLeftClose className="size-[22px] rtl:-scale-x-100" />
-                <span className="sr-only">
-                  {t("sidebar.close", "Close sidebar")}
-                </span>
-              </Button>
+                  showing to tap on the way out. Anyone not swiping needs this —
+                  but only while there is a page behind it: with none open, the
+                  button leads to an empty state and nothing else. */}
+              {hasOpenPage && (
+                <Button
+                  type="button"
+                  variant="unstyled"
+                  size="unstyled"
+                  className={style.mobileHeaderButton}
+                  onClick={() => setOpen(false)}
+                >
+                  <PanelLeftClose className="size-[22px] rtl:-scale-x-100" />
+                  <span className="sr-only">
+                    {t("sidebar.close", "Close sidebar")}
+                  </span>
+                </Button>
+              )}
             </div>
           ) : shouldShowTheProfileAtTop ? (
             <div className={clsx(style.appSidebarHeader, "gap-3")}>
