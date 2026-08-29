@@ -5,22 +5,13 @@ directly to HTML canvas and stores document state in a CRDT.
 
 ## Non-negotiable rules
 
-- Do not run `git stash`, `git checkout` or similar unless the user explicitly requests it.
-- Do not introduce mutable global state. Multiple editors must work on one page;
-  keep state in instances, arguments, or scoped context.
+- Do not run `git stash`, `git checkout` or similar unless the user explicitly requests it. That is because I like to work in same work directory with many subagents, if you actually remove files suddenly the other subagents will get confused.
+- Do not introduce mutable global state. Multiple editors must work on one page; keep state in instances, arguments, or scoped context.
 - The editor core must remain node- and mark-agnostic. So that users who use package can opt in what to use.
-- The root `@tasfer/editor` entry must not reach an optional feature package.
-  Never re-export one (`@tasfer/math`, `@tasfer/code`) from `index.ts`; a
-  host that installs neither must not resolve them.
 - All user-facing strings must be i18n'd. Add translation keys with the UI text.
 - Keep public editor documentation accurate when changing a public API.
-- Never do things with git with your intuitive, if unsure please consult me.
-- Stop wasting time on meaningless tests, there is no test for ux.
-- If you creating a worktree, put it in .worktrees
-
-## Recommendations
-
-- I prefer concise comments and answers over verbose explanations. When adding comments, do not make it excessive. Some code explain for itself. Think if the comment adds value to future readers. This applies to conversation as well.
+- Stop philosophizing and talk in way I understand, such a there are thing that explain it self and others that need the extra mile.
+- Please ask questions if you do not get me.
 
 ## Compatibility status
 
@@ -34,7 +25,7 @@ Compatibility requirements are documented in
 | `packages/editor`          | Framework-agnostic canvas editor, document model, CRDT, actions, schema |
 | `packages/tex`             | Canvas-native LaTeX layout and rendering                                |
 | `packages/math`            | Opt-in math node and mark; owns the `@tasfer/tex` engine                |
-| `packages/code`       | Opt-in code-block node: canvas painting and syntax highlighting         |
+| `packages/code`            | Opt-in code-block node: canvas painting and syntax highlighting         |
 | `packages/react`           | React bindings for the editor                                           |
 | `packages/provider-*`      | Persistence and collaboration providers                                 |
 | `apps/web`                 | Main React host and cross-platform product logic                        |
