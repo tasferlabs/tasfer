@@ -127,7 +127,7 @@ export const NAV: NavSection[] = [
             titleKey: "docs.navModel.app.headlessHost",
             descKey: "docs.navModel.app.headlessHost.desc",
             Comp: AppHeadlessHost,
-            kw: "headless host cli always on server node daemon systemd link device backup replica self host install update binary download release",
+            kw: "headless host cli always on server node daemon systemd link device backup replica self host install update uninstall remove delete binary download release",
           },
         ],
       },

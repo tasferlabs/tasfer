@@ -1,7 +1,7 @@
 {/* Tasfer app docs — Running a headless host (Arabic). */}
 
 import { Icons } from "../../../docsIcons";
-import { Callout, Card, CardGrid, Lede, PropsTable, Step, Steps } from "../../../docsComponents";
+import { Callout, Card, CardGrid, ForTab, Lede, PropsTable, Step, Steps, Tabs } from "../../../docsComponents";
 
 <Lede>
   للعمل بين الأقران ثمن واحد صريح: على الجهازين أن يكونا مستيقظين معًا حتى
@@ -30,14 +30,40 @@ import { Callout, Card, CardGrid, Lede, PropsTable, Step, Steps } from "../../..
 كل إصدار ينشر بناءً مكتفيًا بذاته لكل منصّة: المضيف، والوحدتان الأصليتان اللتان
 يحمّلهما من جواره. لا يلزم شيء آخر — لا Node، ولا أدوات بناء، ولا نسخ للمستودع.
 
+وهو سطر واحد، لكن أيّ سطر يتوقف على صاحب الآلة: حاسوبك أنت، أم آلة مهمتها أن
+تكون المُضيف وتشغّله بحساب خاص بها. اختر جهتك هنا، وتتبعك بقية الصفحة.
+
+<Tabs group="install-scope" labels={["لي وحدي", "على مستوى النظام"]}>
+
 ```bash
 curl -fsSL https://tasfer.app/install.sh | sh
 ```
+
+```bash
+curl -fsSL https://tasfer.app/install.sh -o install.sh
+sudo TASFER_INSTALL_DIR=/opt/tasfer TASFER_BIN_DIR=/usr/local/bin sh install.sh
+```
+
+</Tabs>
+
+<ForTab group="install-scope" index={0}>
 
 يقرأ هذا السطر الإصداراتِ المنشورة، ويختار أحدثها حاملًا بناءً لآلتك، ويطابقه مع
 ملف tasfer-checksums.txt المرفق بذلك الإصدار، ثم يفكّه في ‎~/.local/lib/tasfer‎
 ويضع رابط `tasfer` في ‎~/.local/bin‎. ولا يحتاج شيء من ذلك إلى صلاحيات الجذر،
 وهذا هو المقصود: يكتب `tasfer update` بعد ذلك في مجلد تملكه أصلًا.
+
+</ForTab>
+
+<ForTab group="install-scope" index={1}>
+
+السكربت نفسه، لكن تنزّله أولًا ليشغّله `sudo` بدل أن يمرّ في أنبوب: يقرأ
+الإصداراتِ المنشورة، ويختار أحدثها حاملًا بناءً لآلتك، ويطابقه مع ملف
+tasfer-checksums.txt المرفق بذلك الإصدار، ثم يفكّه في ‎/opt/tasfer‎ ويضع رابط
+`tasfer` في ‎/usr/local/bin‎. والخروج من مجلد منزلك هو المقصود هنا: لا بد أن
+يستطيع حساب الخدمة تشغيله، وأن يكون التحديث بيد الجذر.
+
+</ForTab>
 
 تُنشر البناءات لماك ولينكس، على arm64 وx64، مع
 [كل إصدار](https://github.com/tasferlabs/tasfer/releases) إلى جانب مثبّتات سطح
@@ -51,14 +77,6 @@ curl -fsSL https://tasfer.app/install.sh | sh
   { name: "--bin-dir / TASFER_BIN_DIR", type: "~/.local/bin", desc: "المجلد الذي يوضع فيه رابط tasfer. ويخبرك السكربت إن لم يكن هذا المجلد في مسارك." },
 ]} />
 
-وللتثبيت على مستوى النظام — وهو ما تحتاجه وحدة systemd تعمل بمستخدم خاص بها —
-نزّل السكربت أولًا ثم شغّله بالصلاحيات التي سيحتاجها:
-
-```bash
-curl -fsSL https://tasfer.app/install.sh -o install.sh
-sudo TASFER_INSTALL_DIR=/opt/tasfer TASFER_BIN_DIR=/usr/local/bin sh install.sh
-```
-
 <Callout kind="note" title="أو ثبّته بيدك.">كل أرشيف وسطر sha256 الخاص به موجودان في [صفحة الإصدارات](https://github.com/tasferlabs/tasfer/releases): ملف `tasfer-<version>-<platform>-<arch>.tar.gz` بجوار `tasfer-checksums.txt`. فكّ ما تريد منها حيث تشاء — فالسكربت لا يفعل شيئًا يعجز عنه `curl` و`tar`.</Callout>
 
 <Callout kind="note" title="أو ابنه من المستودع.">‏Node 22 أو أحدث، ثم `npm install` و`npm run build` في `apps/cli`، و`npm link` يضع `tasfer` في مسارك. البناء من المصدر يُحدَّث بـ`git pull` لا بـ`tasfer update`.</Callout>
@@ -70,18 +88,26 @@ sudo TASFER_INSTALL_DIR=/opt/tasfer TASFER_BIN_DIR=/usr/local/bin sh install.sh
 
 <h2 id="update">أبقه محدّثًا</h2>
 
+<Tabs group="install-scope" labels={["لي وحدي", "على مستوى النظام"]}>
+
 ```bash
 tasfer update           # استبدل هذا التثبيت بأحدث إصدار
 tasfer update --check   # اكتفِ بمعرفة المتوفر
 ```
 
+```bash
+sudo tasfer update      # استبدل هذا التثبيت بأحدث إصدار
+tasfer update --check   # اكتفِ بمعرفة المتوفر — بلا صلاحيات
+```
+
+</Tabs>
+
 يقرأ الإصدارات المنشورة، وينزّل البناء الخاص بهذه المنصّة، ويطابقه مع
 tasfer-checksums.txt المرفق بالإصدار، ثم يضعه مكان القديم — ويرفض التثبيت إن لم تطابق
 البصمة. والمضيف العامل يبقى على البناء القديم؛ أعد تشغيله ليعمل بالجديد.
 
-يكتب التحديث في المجلد الذي يقيم فيه الملف التنفيذي، فيحتاج إلى صلاحيات من
-ثبّته. والتثبيت الافتراضي داخل مجلد المنزل لا يحتاج شيئًا منها، أما التثبيت على
-مستوى النظام فيريد `sudo tasfer update`.
+يكتب التحديث في المجلد الذي يقيم فيه الملف التنفيذي، فيحتاج إلى صلاحيات من ثبّته:
+<ForTab group="install-scope" index={0}>وهو مجلد تملكه أصلًا، فلا يحتاج شيئًا منها.</ForTab><ForTab group="install-scope" index={1}>وهو مجلد الجذر، ولهذا جاء `sudo`.</ForTab>
 
 <h2 id="link">اربطه بحسابك</h2>
 
@@ -102,6 +128,12 @@ tasfer-checksums.txt المرفق بالإصدار، ثم يضعه مكان ال
     صار المُضيف متصلًا ويزامن. ويخبرك `tasfer host status` بما يحتفظ به.
   </Step>
 </Steps>
+
+<ForTab group="install-scope" index={1}>
+
+<Callout kind="note" title="نفّذها بحساب الخدمة.">قاعدة البيانات تقيم في مجلد بيانات المستخدم الذي يشغّل الأمر، فاربطه بالحساب الذي ستعمل به الوحدة: ‎`sudo -u tasfer tasfer host link <code>`‎. وإن ربطته باسمك أنت صار جهازًا آخر غير الذي تشغّله الوحدة.</Callout>
+
+</ForTab>
 
 ويمكنك البدء من جهة المُضيف أيضًا: يطبع `tasfer host invite` رمزًا تلصقه في
 **إدخال رمز من جهاز آخر** داخل التطبيق. المصافحة نفسها، في الاتجاه المعاكس.
@@ -135,21 +167,66 @@ tasfer-checksums.txt المرفق بالإصدار، ثم يضعه مكان ال
 <h2 id="service">أبقه يعمل</h2>
 
 المُضيف عملية عادية في المقدمة تتوقف عند `SIGINT`/`SIGTERM`، فأي مشرف عمليات
-يفي بالغرض. وهذه وحدة systemd:
+يفي بالغرض. والوحدة تتبع التثبيت: وحدتك أنت تتبع دخولك، ووحدة النظام تتبع
+الحساب الذي تعطيها إياه.
 
-```ini
+<Tabs group="install-scope" labels={["لي وحدي", "على مستوى النظام"]}>
+
+```ini file="~/.config/systemd/user/tasfer.service"
+[Unit]
+Description=Tasfer host
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/tasfer host
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```ini file="/etc/systemd/system/tasfer.service"
 [Unit]
 Description=Tasfer host
 After=network-online.target
 
 [Service]
 ExecStart=/usr/local/bin/tasfer host
-Restart=on-failure
 User=tasfer
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+</Tabs>
+
+<Tabs group="install-scope" labels={["لي وحدي", "على مستوى النظام"]}>
+
+```bash
+systemctl --user enable --now tasfer
+loginctl enable-linger "$USER"   # وأبقه عاملًا بعد خروجك من الجلسة
+```
+
+```bash
+sudo systemctl enable --now tasfer
+```
+
+</Tabs>
+
+<ForTab group="install-scope" index={0}>
+
+وبدون السطر الثاني يتوقف المُضيف عند خروجك من الجلسة.
+
+</ForTab>
+
+<ForTab group="install-scope" index={1}>
+
+ولا حاجة هنا إلى إبقاء الجلسة — فالوحدة لم تتعلّق بدخولك أصلًا، بل تعمل مع
+الإقلاع. وسطر ‎`User=`‎ يسمّي الحساب الذي يملك مجلد البيانات الذي يقرؤه المُضيف،
+وهو الحساب الذي ربطته به.
+
+</ForTab>
 
 <h2 id="backup">خذ نسخة احتياطية</h2>
 
@@ -173,6 +250,53 @@ tasfer export --space "Work"     # أو مساحة واحدة فقط
 <Callout kind="note" title="التصدير نسخة محمولة لا نسخة طبق الأصل.">يحمل الصفحات والصور — لا سجل العمليات ولا هوية هذا الجهاز. واستيراده يُنشئ صفحات جديدة بدل أن يستعيد هذا المُضيف. أما النسخة طبق الأصل فأوقف المُضيف وخذ مجلد البيانات: ملف `tasfer.db` وملفات المرفقات بجواره. تلك تبقى هذا الجهاز نفسه، ومرتبطة كما كانت.</Callout>
 
 <Callout kind="note" title="ما لا يضيفه المُضيف.">لا حسابات، ولا معالجة على الخادم، ولا واجهة برمجية. لا يستطيع قراءة مساحة لم يُدعَ إليها، ولا يحمل مفتاحًا لا تحمله بقية أجهزتك.</Callout>
+
+<h2 id="uninstall">إزالة التثبيت</h2>
+
+لا يوجد أمر `tasfer uninstall`. التثبيت مجلدٌ ورابطٌ ومجلدُ بيانات. أوقف المُضيف
+أولًا، وصدّر ما يحمله ولا تحمله بقية أجهزتك.
+
+<Tabs group="install-scope" labels={["لي وحدي", "على مستوى النظام"]}>
+
+```bash
+tasfer export ~/tasfer-final.zip   # إن كانت هذه النسخة تستحق الاحتفاظ
+rm -rf ~/.local/lib/tasfer         # البناء
+rm -f  ~/.local/bin/tasfer         # الرابط
+```
+
+```bash
+sudo -u tasfer tasfer export /tmp/tasfer-final.zip   # إن كانت هذه النسخة تستحق الاحتفاظ
+sudo rm -rf /opt/tasfer                              # البناء
+sudo rm -f /usr/local/bin/tasfer                     # الرابط
+```
+
+</Tabs>
+
+هذه هي المسارات التي ثبّتَ فيها من هذه الصفحة؛ وقد يكون ‏`--install-dir`
+و`--bin-dir` وضعاها في غيرها، ويدلّك ‎`readlink -f "$(command -v tasfer)"`‎ على
+المجلد الذي تحذفه إن لم تعد تذكر أين وضعته. وإن كان يعمل تحت مشرف عمليات فأوقف
+وحدته أولًا — <ForTab group="install-scope" index={0}>بـ‏`systemctl --user disable --now tasfer`</ForTab><ForTab group="install-scope" index={1}>بـ‏`sudo systemctl disable --now tasfer`</ForTab> — ثم احذف ملف
+الوحدة. أما البناء من المصدر فيُفكّ ربطه بـ‏`npm unlink -g @tasfer/cli`.
+
+ويبقى مجلد البيانات، وهو ما يهم فعلًا:
+
+<Tabs group="install-scope" labels={["لي وحدي", "على مستوى النظام"]}>
+
+```bash
+rm -rf ~/.local/share/tasfer-cli                  # لينكس
+rm -rf ~/Library/Application\ Support/tasfer-cli  # ماك
+```
+
+```bash
+sudo rm -rf ~tasfer/.local/share/tasfer-cli   # نسخة حساب الخدمة
+```
+
+</Tabs>
+
+وحذف البناء يترك هذا المجلد مكانه، فإعادة التثبيت تعيد المُضيف الجهازَ نفسه
+مرتبطًا كما كان. وحذف المجلد هو ما يُلغي الجهاز.
+
+<Callout kind="warn" title="حذف مجلد البيانات لا رجعة فيه.">فيه هوية هذا الجهاز وسجل العمليات وملفات المرفقات، ولا جهاز آخر يحمل نسخة من الهوية. وإن ثبّتَّ تصفير على تلك الآلة من جديد فهي جهاز جديد: تربطه من جديد، ويزامن من الصفر. ولا شيء يُبطل الجهاز القديم — إذ لا سلطة تُبطله — فقد يبقى مذكورًا في قائمة أجهزتك.</Callout>
 
 <h2 id="next">اقرأ بعد ذلك</h2>
 

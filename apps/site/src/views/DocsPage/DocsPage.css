@@ -1516,7 +1516,8 @@ body:has(.dx-page) .site-banner-inner {
 }
 
 /* Terminal-styled *labels* (eyebrows, breadcrumbs, nav heads, table
-   headers) get a mono face plus wide positive tracking — a Latin
+   headers, the tab strip on a switchable code block) get a mono face
+   plus wide positive tracking — a Latin
    small-caps device. Neither works here: the mono stack has no Arabic
    glyphs, and positive tracking pulls a cursive script apart at the
    joins. Labels move to the UI face at normal tracking; anything
@@ -1531,6 +1532,7 @@ body:has(.dx-page) .site-banner-inner {
 [dir="rtl"] .dx-page .dx-branch-badge,
 [dir="rtl"] .dx-page .dx-license-badge,
 [dir="rtl"] .dx-page .dx-meta-chip,
+[dir="rtl"] .dx-page .dx-code-tab,
 [dir="rtl"] .dx-page .dx-table th,
 [dir="rtl"] .dx-page .dx-article > table th {
   font-family: var(--font-ui);

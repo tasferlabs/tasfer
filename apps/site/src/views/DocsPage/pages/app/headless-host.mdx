@@ -1,7 +1,7 @@
 {/* Tasfer app docs — Running a headless host. */}
 
 import { Icons } from "../../docsIcons";
-import { Callout, Card, CardGrid, Lede, PropsTable, Step, Steps } from "../../docsComponents";
+import { Callout, Card, CardGrid, ForTab, Lede, PropsTable, Step, Steps, Tabs } from "../../docsComponents";
 
 <Lede>
   Peer-to-peer has one honest cost: two devices have to be awake at the same
@@ -33,14 +33,42 @@ Each release publishes a self-contained build per platform — the host, and the
 two native modules it loads beside itself. Nothing else is required: no Node,
 no toolchain, no clone.
 
+It is one command, and which one depends on whose machine this is: your own
+laptop, or a box whose job is to be the host and that should run it under an
+account of its own. Pick a side and the rest of this page follows it.
+
+<Tabs group="install-scope" labels={["Just for me", "System-wide"]}>
+
 ```bash
 curl -fsSL https://tasfer.app/install.sh | sh
 ```
+
+```bash
+curl -fsSL https://tasfer.app/install.sh -o install.sh
+sudo TASFER_INSTALL_DIR=/opt/tasfer TASFER_BIN_DIR=/usr/local/bin sh install.sh
+```
+
+</Tabs>
+
+<ForTab group="install-scope" index={0}>
 
 That reads the releases, picks the newest one carrying a build for your machine,
 checks it against the release's `tasfer-checksums.txt`, and unpacks it to
 `~/.local/lib/tasfer` with a `tasfer` link in `~/.local/bin`. Nothing needs root,
 which is the point: `tasfer update` later writes to a directory you already own.
+
+</ForTab>
+
+<ForTab group="install-scope" index={1}>
+
+The same script, downloaded first so `sudo` runs it instead of a pipe: it reads
+the releases, picks the newest one carrying a build for your machine, checks it
+against the release's `tasfer-checksums.txt`, and unpacks it to `/opt/tasfer`
+with a `tasfer` link in `/usr/local/bin`. Outside your home directory is the
+point here — a service account has to be able to run it, and root has to be the
+one who updates it.
+
+</ForTab>
 
 Builds are published for macOS and Linux, on arm64 and x64, with
 [each release](https://github.com/tasferlabs/tasfer/releases) — beside the
@@ -55,14 +83,6 @@ The script takes a few knobs, as flags or as environment variables:
   { name: "--bin-dir / TASFER_BIN_DIR", type: "~/.local/bin", desc: "Where the `tasfer` symlink goes. The script says so if it is not on your PATH." },
 ]} />
 
-For a system-wide install — the one a systemd unit under its own user wants —
-download it first and run it with the rights it will need:
-
-```bash
-curl -fsSL https://tasfer.app/install.sh -o install.sh
-sudo TASFER_INSTALL_DIR=/opt/tasfer TASFER_BIN_DIR=/usr/local/bin sh install.sh
-```
-
 <Callout kind="note" title="Or do it by hand.">Every archive and its `sha256` line sit on the [releases page](https://github.com/tasferlabs/tasfer/releases): `tasfer-<version>-<platform>-<arch>.tar.gz` beside `tasfer-checksums.txt`. Unpack one wherever you like — the script does nothing you cannot do with `curl` and `tar`.</Callout>
 
 <Callout kind="note" title="Or build it from the repo.">Node 22 or newer, then `npm install && npm run build` in `apps/cli` — `npm link` puts `tasfer` on your PATH. A source build updates with `git pull`, not with `tasfer update`.</Callout>
@@ -74,19 +94,27 @@ back to. Everything is encrypted before it leaves the machine either way.
 
 <h2 id="update">Keep it up to date</h2>
 
+<Tabs group="install-scope" labels={["Just for me", "System-wide"]}>
+
 ```bash
 tasfer update           # replace this install with the newest release
 tasfer update --check   # just say what is available
 ```
+
+```bash
+sudo tasfer update      # replace this install with the newest release
+tasfer update --check   # just say what is available — no rights needed
+```
+
+</Tabs>
 
 It reads the published releases, downloads the build for this platform, checks
 it against the release's `tasfer-checksums.txt`, and swaps it into place — refusing
 rather than installing anything whose checksum does not match. A running host
 keeps running on the old build; restart it to pick the new one up.
 
-Updating writes to the directory the binary lives in, so it needs the rights
-that installed it. The default install is under your home directory and needs
-none; a system-wide one wants `sudo tasfer update`.
+Updating writes to the directory the binary lives in, so it needs the rights that
+installed it: <ForTab group="install-scope" index={0}>a directory you already own, so none.</ForTab><ForTab group="install-scope" index={1}>root's, which is what the `sudo` is for.</ForTab>
 
 <h2 id="link">Link it to your account</h2>
 
@@ -107,6 +135,12 @@ none; a system-wide one wants `sudo tasfer update`.
     The host is now online and syncing. `tasfer host status` says what it holds.
   </Step>
 </Steps>
+
+<ForTab group="install-scope" index={1}>
+
+<Callout kind="note" title="Run these as the service account.">The database lives in the running user's data directory, so link as the account the unit will use — `sudo -u tasfer tasfer host link <code>`. Linked as yourself, the host is a different device from the one the unit starts.</Callout>
+
+</ForTab>
 
 You can also start from the host: `tasfer host invite` prints a code to paste
 into the app's **Enter a code from another device**. Same handshake, opposite
@@ -141,21 +175,66 @@ direction.
 <h2 id="service">Keep it running</h2>
 
 The host is a plain foreground process that stops on `SIGINT`/`SIGTERM`, so any
-supervisor will do. A systemd unit:
+supervisor will do. The unit follows the install: yours belongs to your login,
+a system-wide one to the account you give it.
 
-```ini
+<Tabs group="install-scope" labels={["Just for me", "System-wide"]}>
+
+```ini file="~/.config/systemd/user/tasfer.service"
+[Unit]
+Description=Tasfer host
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/tasfer host
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```ini file="/etc/systemd/system/tasfer.service"
 [Unit]
 Description=Tasfer host
 After=network-online.target
 
 [Service]
 ExecStart=/usr/local/bin/tasfer host
-Restart=on-failure
 User=tasfer
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+</Tabs>
+
+<Tabs group="install-scope" labels={["Just for me", "System-wide"]}>
+
+```bash
+systemctl --user enable --now tasfer
+loginctl enable-linger "$USER"   # and keep it up while you are logged out
+```
+
+```bash
+sudo systemctl enable --now tasfer
+```
+
+</Tabs>
+
+<ForTab group="install-scope" index={0}>
+
+Without the second line the host stops when you log out.
+
+</ForTab>
+
+<ForTab group="install-scope" index={1}>
+
+Nothing to linger here — the unit never depended on a login, so it comes up at
+boot. `User=` names the account that owns the data directory the host reads, the
+one you linked it under.
+
+</ForTab>
 
 <h2 id="backup">Back it up</h2>
 
@@ -179,6 +258,54 @@ Which makes a scheduled backup a one-liner:
 <Callout kind="note" title="An export is the portable copy, not the exact one.">It carries pages and images — not the operation log, not this device's identity. Importing it back makes new pages rather than restoring this host. For the exact copy, stop the host and take the data directory: `tasfer.db` and the asset files beside it. That one is still this device, already linked.</Callout>
 
 <Callout kind="note" title="What a host does not add.">No accounts, no server-side rendering, no API. It cannot read a space it was never invited to, and it holds no key your other devices do not.</Callout>
+
+<h2 id="uninstall">Uninstall</h2>
+
+There is no `tasfer uninstall`. An install is a directory, a symlink, and a data
+directory. Stop the host first, and export anything it holds that your other
+devices do not.
+
+<Tabs group="install-scope" labels={["Just for me", "System-wide"]}>
+
+```bash
+tasfer export ~/tasfer-final.zip   # if this copy is worth keeping
+rm -rf ~/.local/lib/tasfer         # the build
+rm -f  ~/.local/bin/tasfer         # the link
+```
+
+```bash
+sudo -u tasfer tasfer export /tmp/tasfer-final.zip   # if this copy is worth keeping
+sudo rm -rf /opt/tasfer                              # the build
+sudo rm -f /usr/local/bin/tasfer                     # the link
+```
+
+</Tabs>
+
+Those are the paths this page installed to; `--install-dir` and `--bin-dir` may
+have put them elsewhere, and `readlink -f "$(command -v tasfer)"` names the
+directory to delete if you no longer remember where it went. Under a supervisor,
+retire the unit first — <ForTab group="install-scope" index={0}>`systemctl --user disable --now tasfer`</ForTab><ForTab group="install-scope" index={1}>`sudo systemctl disable --now tasfer`</ForTab> — then delete the unit
+file. A source build is unlinked instead, with `npm unlink -g @tasfer/cli`.
+
+That leaves the data directory, which is the part that matters:
+
+<Tabs group="install-scope" labels={["Just for me", "System-wide"]}>
+
+```bash
+rm -rf ~/.local/share/tasfer-cli                  # Linux
+rm -rf ~/Library/Application\ Support/tasfer-cli  # macOS
+```
+
+```bash
+sudo rm -rf ~tasfer/.local/share/tasfer-cli   # the service account's copy
+```
+
+</Tabs>
+
+Removing the build leaves it in place, so reinstalling brings the host back as
+the same device, still linked. Deleting it is what unmakes the device.
+
+<Callout kind="warn" title="Deleting the data directory is irreversible.">It holds this device's identity, its op log and its asset blobs, and no other device has a copy of the identity. Install Tasfer again on that machine and it is a new device: link it again, sync from scratch. Nothing revokes the old one — there is no authority to revoke against — so it may keep its entry in your device list.</Callout>
 
 <h2 id="next">What to read next</h2>
 

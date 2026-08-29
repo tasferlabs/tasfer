@@ -9,7 +9,11 @@ import { Icons } from "./docsIcons";
 import { SiteHeader } from "@/components/SiteHeader";
 import { DRAWER_MEDIA, Sidebar } from "./Sidebar";
 import { Toc } from "./Toc";
-import { FrameworkProvider, PkgMgrProvider } from "./docsComponents";
+import {
+  FrameworkProvider,
+  PkgMgrProvider,
+  TabsProvider,
+} from "./docsComponents";
 import { PAGE, type PageMeta } from "./docsNav";
 import "./DocsPage.css";
 
@@ -175,23 +179,25 @@ export default function DocsArticle({
   return (
     <FrameworkProvider>
       <PkgMgrProvider>
-        <div className="dx-page" ref={setPage}>
-          <SiteHeader
-            variant="docs"
-            activeSection="docs"
-            onMenu={() => setDrawer(true)}
-          />
-          <div className="dx-shell">
-            {nav}
-            <main className="dx-main">
-              <article className="dx-article">
-                <Breadcrumb meta={meta} />
-                <PageComp />
-              </article>
-            </main>
-            <Toc route={route} />
+        <TabsProvider>
+          <div className="dx-page" ref={setPage}>
+            <SiteHeader
+              variant="docs"
+              activeSection="docs"
+              onMenu={() => setDrawer(true)}
+            />
+            <div className="dx-shell">
+              {nav}
+              <main className="dx-main">
+                <article className="dx-article">
+                  <Breadcrumb meta={meta} />
+                  <PageComp />
+                </article>
+              </main>
+              <Toc route={route} />
+            </div>
           </div>
-        </div>
+        </TabsProvider>
       </PkgMgrProvider>
     </FrameworkProvider>
   );

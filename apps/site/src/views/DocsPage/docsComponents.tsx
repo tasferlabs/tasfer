@@ -40,18 +40,48 @@ function tintJS(code: string, keyPrefix: string): ReactNode[] {
   let i = 0;
   while ((m = re.exec(code))) {
     const k = keyPrefix + "-" + i++;
-    if (m[1]) out.push(<span key={k} className="tok-com">{m[1]}</span>);
-    else if (m[2]) out.push(<span key={k} className="tok-str">{m[2]}</span>);
-    else if (m[3]) out.push(<span key={k} className="tok-num">{m[3]}</span>);
+    if (m[1])
+      out.push(
+        <span key={k} className="tok-com">
+          {m[1]}
+        </span>,
+      );
+    else if (m[2])
+      out.push(
+        <span key={k} className="tok-str">
+          {m[2]}
+        </span>,
+      );
+    else if (m[3])
+      out.push(
+        <span key={k} className="tok-num">
+          {m[3]}
+        </span>,
+      );
     else if (m[4]) {
-      if (JS_KW.has(m[4])) out.push(<span key={k} className="tok-kw">{m[4]}</span>);
+      if (JS_KW.has(m[4]))
+        out.push(
+          <span key={k} className="tok-kw">
+            {m[4]}
+          </span>,
+        );
       else {
         const after = code[re.lastIndex];
-        if (after === "(") out.push(<span key={k} className="tok-fn">{m[4]}</span>);
+        if (after === "(")
+          out.push(
+            <span key={k} className="tok-fn">
+              {m[4]}
+            </span>,
+          );
         else out.push(m[4]);
       }
     } else if (m[5]) out.push(m[5]);
-    else out.push(<span key={k} className="tok-punc">{m[6]}</span>);
+    else
+      out.push(
+        <span key={k} className="tok-punc">
+          {m[6]}
+        </span>,
+      );
   }
   return out;
 }
@@ -65,16 +95,34 @@ function tintBash(code: string, keyPrefix: string): ReactNode[] {
     let firstWord = true;
     while ((m = re.exec(line))) {
       const k = keyPrefix + "-" + li + "-" + i++;
-      if (m[1]) nodes.push(<span key={k} className="tok-com">{m[1]}</span>);
-      else if (m[2]) nodes.push(<span key={k} className="tok-str">{m[2]}</span>);
+      if (m[1])
+        nodes.push(
+          <span key={k} className="tok-com">
+            {m[1]}
+          </span>,
+        );
+      else if (m[2])
+        nodes.push(
+          <span key={k} className="tok-str">
+            {m[2]}
+          </span>,
+        );
       else if (m[3]) nodes.push(m[3]);
       else {
         const w = m[4];
         if (firstWord && /^[a-z]/i.test(w)) {
-          nodes.push(<span key={k} className="tok-fn">{w}</span>);
+          nodes.push(
+            <span key={k} className="tok-fn">
+              {w}
+            </span>,
+          );
           firstWord = false;
         } else if (w.startsWith("-")) {
-          nodes.push(<span key={k} className="tok-kw">{w}</span>);
+          nodes.push(
+            <span key={k} className="tok-kw">
+              {w}
+            </span>,
+          );
         } else {
           nodes.push(w);
           if (w !== "&&" && w !== "|") firstWord = false;
@@ -214,10 +262,16 @@ function readFence(node: ReactNode): Fence | null {
       "data-meta"?: string;
     };
     if (typeof props.children === "string") {
-      const lang = /language-([^\s]+)/.exec(props.className ?? "")?.[1] ?? "text";
+      const lang =
+        /language-([^\s]+)/.exec(props.className ?? "")?.[1] ?? "text";
       const meta = props["data-meta"] ?? "";
       const file = /file="([^"]*)"/.exec(meta)?.[1];
-      return { code: props.children, lang, file, terminal: /\bterminal\b/.test(meta) };
+      return {
+        code: props.children,
+        lang,
+        file,
+        terminal: /\bterminal\b/.test(meta),
+      };
     }
     el = props.children;
   }
@@ -228,7 +282,12 @@ export function CodeFence({ children }: { children?: ReactNode }) {
   const fence = readFence(Children.only(children));
   if (!fence) return null;
   return (
-    <Code code={fence.code} lang={fence.lang} file={fence.file} terminal={fence.terminal} />
+    <Code
+      code={fence.code}
+      lang={fence.lang}
+      file={fence.file}
+      terminal={fence.terminal}
+    />
   );
 }
 
@@ -281,7 +340,9 @@ export function PkgMgrProvider({ children }: { children: ReactNode }) {
     }),
     [byGroup],
   );
-  return <PkgMgrContext.Provider value={store}>{children}</PkgMgrContext.Provider>;
+  return (
+    <PkgMgrContext.Provider value={store}>{children}</PkgMgrContext.Provider>
+  );
 }
 
 export function InstallTabs({
@@ -394,7 +455,9 @@ export function FrameworkProvider({ children }: { children: ReactNode }) {
     [framework],
   );
   return (
-    <FrameworkContext.Provider value={store}>{children}</FrameworkContext.Provider>
+    <FrameworkContext.Provider value={store}>
+      {children}
+    </FrameworkContext.Provider>
   );
 }
 
@@ -470,7 +533,9 @@ export function FrameworkTabs({ children }: { children?: ReactNode }) {
           ))}
         </div>
         <span className="dx-code-spacer" />
-        {active.file ? <span className="dx-code-file">{active.file}</span> : null}
+        {active.file ? (
+          <span className="dx-code-file">{active.file}</span>
+        ) : null}
         <CopyBtn text={trimmed} />
       </div>
       <pre>
@@ -496,6 +561,155 @@ export function ForFramework({
   return framework === fw ? <>{children}</> : null;
 }
 
+/* ── generic variant tabs ──
+   The framework switcher with the labels supplied by the page: one fence per tab,
+   in label order. Every <Tabs> sharing a `group` moves together and the choice
+   persists, so picking a variant once reads the rest of the page in it — and, unlike
+   two command blocks stacked one after the other, a reader following along only ever
+   sees the one command that applies to them. <ForTab> does the same for the prose
+   around them.
+
+       <Tabs group="install-scope" labels={["Just for me", "System-wide"]}>
+
+       ```bash
+       …first tab…
+       ```
+
+       ```bash
+       …second tab…
+       ```
+
+       </Tabs>
+
+   Labels are prose and live in the page, so each locale's article passes its own;
+   `group` and the tab order are the keys that survive translation. */
+function tabsLsKey(group: string) {
+  return `cy-tabs:${group}`;
+}
+function readTab(group: string): number {
+  try {
+    const v = Number(localStorage.getItem(tabsLsKey(group)));
+    return Number.isInteger(v) && v >= 0 ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+function writeTab(group: string, index: number) {
+  try {
+    localStorage.setItem(tabsLsKey(group), String(index));
+  } catch {
+    /* ignore */
+  }
+}
+
+interface TabsStore {
+  get(group: string): number;
+  set(group: string, index: number): void;
+}
+const TabsContext = createContext<TabsStore | null>(null);
+
+/** Shares the selected tab (per `group`) across everything rendered beneath it.
+ *  Stored preferences are read only after mount, so the server-rendered HTML and
+ *  the first client render agree; a returning reader sees the first tab for one
+ *  frame before their choice resolves. */
+export function TabsProvider({ children }: { children: ReactNode }) {
+  const [byGroup, setByGroup] = useState<Record<string, number>>({});
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  const store = useMemo<TabsStore>(
+    () => ({
+      get: (group) => (hydrated ? (byGroup[group] ?? readTab(group)) : 0),
+      set: (group, index) => {
+        setByGroup((prev) => ({ ...prev, [group]: index }));
+        writeTab(group, index);
+      },
+    }),
+    [byGroup, hydrated],
+  );
+  return <TabsContext.Provider value={store}>{children}</TabsContext.Provider>;
+}
+
+/** Read/flip one group's tab. Falls back to local state + localStorage when no
+ *  TabsProvider is mounted, so it is safe anywhere (mirrors useFramework). */
+function useTab(group: string): [number, (index: number) => void] {
+  const ctx = useContext(TabsContext);
+  const [local, setLocal] = useState(0);
+  useEffect(() => {
+    if (!ctx) setLocal(readTab(group));
+  }, [ctx, group]);
+  if (ctx) return [ctx.get(group), (index) => ctx.set(group, index)];
+  return [
+    local,
+    (index) => {
+      setLocal(index);
+      writeTab(group, index);
+    },
+  ];
+}
+
+export function Tabs({
+  group,
+  labels,
+  children,
+}: {
+  group: string;
+  labels: string[];
+  children?: ReactNode;
+}) {
+  const id = useId();
+  const [index, pick] = useTab(group);
+  const fences = Children.toArray(children)
+    .map(readFence)
+    .filter((f): f is Fence => f !== null);
+  const active = fences[index] ?? fences[0];
+  if (!active) return null;
+  const trimmed = active.code.replace(/^\n/, "").replace(/\s+$/, "");
+  return (
+    <div className={"dx-code" + (active.terminal ? " is-terminal" : "")}>
+      <div className="dx-code-head">
+        <div className="dx-code-tabs">
+          {labels.map((label, i) => (
+            <button
+              key={label}
+              className={"dx-code-tab" + (i === index ? " is-active" : "")}
+              onClick={() => pick(i)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <span className="dx-code-spacer" />
+        {active.file ? (
+          <span className="dx-code-file">{active.file}</span>
+        ) : null}
+        <CopyBtn text={trimmed} />
+      </div>
+      <pre>
+        <code>
+          {active.terminal ? <span className="tok-prompt">$ </span> : null}
+          {tint(trimmed, active.lang, id + index)}
+        </code>
+      </pre>
+    </div>
+  );
+}
+
+/** Prose that belongs to one tab only — the sentences explaining a variant live
+ *  and die with the command they explain. Keep the shared half of a paragraph
+ *  outside these blocks. */
+export function ForTab({
+  group,
+  index = 0,
+  children,
+}: {
+  group: string;
+  index?: number;
+  children?: ReactNode;
+}) {
+  const [active] = useTab(group);
+  return active === index ? <>{children}</> : null;
+}
+
 /* ── callout ── */
 export function Callout({
   kind = "note",
@@ -507,7 +721,13 @@ export function Callout({
   children?: ReactNode;
 }) {
   const ic =
-    kind === "warn" ? <Icons.Warn /> : kind === "tip" ? <Icons.Spark /> : <Icons.Info />;
+    kind === "warn" ? (
+      <Icons.Warn />
+    ) : kind === "tip" ? (
+      <Icons.Spark />
+    ) : (
+      <Icons.Info />
+    );
   return (
     <div className={"dx-callout " + kind}>
       <span className="dx-callout-icon">{ic}</span>
@@ -562,7 +782,9 @@ export function PropsTable({
               <td className="name">
                 <code>{r.name}</code>
                 {r.required ? (
-                  <span className="req">{t("docs.table.required", "Required")}</span>
+                  <span className="req">
+                    {t("docs.table.required", "Required")}
+                  </span>
                 ) : null}
               </td>
               {showType ? (
@@ -630,7 +852,13 @@ export function Card({
 export function Steps({ children }: { children: ReactNode }) {
   return <ol className="dx-steps">{children}</ol>;
 }
-export function Step({ title, children }: { title?: ReactNode; children?: ReactNode }) {
+export function Step({
+  title,
+  children,
+}: {
+  title?: ReactNode;
+  children?: ReactNode;
+}) {
   return (
     <li className="dx-step">
       {title ? <div className="dx-step-title">{title}</div> : null}
