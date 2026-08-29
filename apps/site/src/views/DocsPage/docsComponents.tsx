@@ -291,6 +291,39 @@ export function CodeFence({ children }: { children?: ReactNode }) {
   );
 }
 
+/* ── variant selection in the URL ──
+   Every switcher on a docs page also reads and writes a query parameter:
+
+     ?pm=pnpm          package manager (?pm.<group> for a block with its own group)
+     ?framework=react  plain JS vs React
+     ?tab.<group>=1    one of the page's own tab groups, by index
+
+   So a variant is addressable. A reader can share the page as they were reading
+   it, and an assistant answering "how do I install this with bun" can link the
+   page already showing bun instead of telling someone which tab to click. The
+   parameter wins over the stored preference; switching a tab rewrites it with
+   replaceState, since choosing a variant is not a navigation and has no business
+   pushing a history entry.
+
+   Both helpers are called from effects and event handlers only — never during
+   render — so the prerendered HTML and the first client render still agree. */
+function readParam(name: string): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get(name);
+  } catch {
+    return null;
+  }
+}
+function writeParam(name: string, value: string) {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set(name, value);
+    window.history.replaceState(null, "", url);
+  } catch {
+    /* ignore */
+  }
+}
+
 /* ── install tabs (npm / pnpm / yarn / bun) ──
    Every install block that shares a `group` stays in sync: picking a manager in
    one block switches all other blocks in the same group, live. The selection is
@@ -304,7 +337,12 @@ const MGRS: Mgr[] = ["npm", "pnpm", "yarn", "bun"];
 function pkgMgrLsKey(group: string) {
   return group === "pkg" ? "cy-pkg-mgr" : `cy-pkg-mgr:${group}`;
 }
+function pkgMgrParam(group: string) {
+  return group === "pkg" ? "pm" : `pm.${group}`;
+}
 function readPkgMgr(group: string): Mgr {
+  const fromUrl = readParam(pkgMgrParam(group)) as Mgr | null;
+  if (fromUrl && MGRS.includes(fromUrl)) return fromUrl;
   try {
     const v = localStorage.getItem(pkgMgrLsKey(group)) as Mgr | null;
     return v && MGRS.includes(v) ? v : "npm";
@@ -313,6 +351,7 @@ function readPkgMgr(group: string): Mgr {
   }
 }
 function writePkgMgr(group: string, mgr: Mgr) {
+  writeParam(pkgMgrParam(group), mgr);
   try {
     localStorage.setItem(pkgMgrLsKey(group), mgr);
   } catch {
@@ -330,15 +369,19 @@ const PkgMgrContext = createContext<PkgMgrStore | null>(null);
  *  rendered beneath it, so blocks with the same key switch together. */
 export function PkgMgrProvider({ children }: { children: ReactNode }) {
   const [byGroup, setByGroup] = useState<Record<string, Mgr>>({});
+  // The URL and the stored preference are read only after mount, so the
+  // prerendered HTML and the first client render agree (mirrors TabsProvider).
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
   const store = useMemo<PkgMgrStore>(
     () => ({
-      get: (group) => byGroup[group] ?? readPkgMgr(group),
+      get: (group) => (hydrated ? (byGroup[group] ?? readPkgMgr(group)) : "npm"),
       set: (group, mgr) => {
         setByGroup((prev) => ({ ...prev, [group]: mgr }));
         writePkgMgr(group, mgr);
       },
     }),
-    [byGroup],
+    [byGroup, hydrated],
   );
   return (
     <PkgMgrContext.Provider value={store}>{children}</PkgMgrContext.Provider>
@@ -358,7 +401,10 @@ export function InstallTabs({
   const ctx = useContext(PkgMgrContext);
   // Fallback for any InstallTabs rendered outside a PkgMgrProvider: behaves like
   // the old per-block state, still persisted to localStorage.
-  const [localMgr, setLocalMgr] = useState<Mgr>(() => readPkgMgr(group));
+  const [localMgr, setLocalMgr] = useState<Mgr>("npm");
+  useEffect(() => {
+    if (!ctx) setLocalMgr(readPkgMgr(group));
+  }, [ctx, group]);
   const mgr = ctx ? ctx.get(group) : localMgr;
   function pick(m: Mgr) {
     if (ctx) ctx.set(group, m);
@@ -413,6 +459,8 @@ const FRAMEWORKS: Framework[] = ["js", "react"];
 const FRAMEWORK_LS_KEY = "cy-framework";
 
 function readFramework(): Framework {
+  const fromUrl = readParam("framework") as Framework | null;
+  if (fromUrl && FRAMEWORKS.includes(fromUrl)) return fromUrl;
   try {
     const v = localStorage.getItem(FRAMEWORK_LS_KEY) as Framework | null;
     return v && FRAMEWORKS.includes(v) ? v : "js";
@@ -421,6 +469,7 @@ function readFramework(): Framework {
   }
 }
 function writeFramework(fw: Framework) {
+  writeParam("framework", fw);
   try {
     localStorage.setItem(FRAMEWORK_LS_KEY, fw);
   } catch {
@@ -586,7 +635,15 @@ export function ForFramework({
 function tabsLsKey(group: string) {
   return `cy-tabs:${group}`;
 }
+function tabsParam(group: string) {
+  return `tab.${group}`;
+}
 function readTab(group: string): number {
+  const raw = readParam(tabsParam(group));
+  if (raw !== null && raw !== "") {
+    const fromUrl = Number(raw);
+    if (Number.isInteger(fromUrl) && fromUrl >= 0) return fromUrl;
+  }
   try {
     const v = Number(localStorage.getItem(tabsLsKey(group)));
     return Number.isInteger(v) && v >= 0 ? v : 0;
@@ -595,6 +652,7 @@ function readTab(group: string): number {
   }
 }
 function writeTab(group: string, index: number) {
+  writeParam(tabsParam(group), String(index));
   try {
     localStorage.setItem(tabsLsKey(group), String(index));
   } catch {
