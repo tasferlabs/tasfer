@@ -1265,6 +1265,8 @@
   "devInspector.tabs.peers": "Peers",
   "devInspector.tabs.editor": "Editor",
   "devInspector.shortLabel": "Dev",
+  "devInspector.openLabel": "Open developer tools",
+  "devInspector.hide": "Hide developer tools",
   "devInspector.all": "all",
   "devInspector.filter": "Filter…",
   "devInspector.copy": "Copy",

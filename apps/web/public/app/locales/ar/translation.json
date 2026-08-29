@@ -1301,6 +1301,8 @@
   "devInspector.tabs.peers": "الأقران",
   "devInspector.tabs.editor": "المحرّر",
   "devInspector.shortLabel": "المفتّش",
+  "devInspector.openLabel": "فتح أدوات المطوّر",
+  "devInspector.hide": "إخفاء أدوات المطوّر",
   "devInspector.all": "الكل",
   "devInspector.filter": "تصفية…",
   "devInspector.copy": "نسخ",

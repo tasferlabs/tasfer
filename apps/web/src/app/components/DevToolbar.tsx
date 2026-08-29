@@ -30,6 +30,7 @@ import { useAssetUrl } from "../api/images.api";
 import { downloadFile } from "@/downloadFile";
 import { cn } from "@/lib/utils";
 import { DevEditorState } from "./DevEditorState";
+import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import useResponsive from "../hooks/useResponsive";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { motion, AnimatePresence } from "framer-motion";
@@ -1216,6 +1217,7 @@ const PANEL_DEFAULT_H = 520;
 
 export function DevToolbar() {
   const { t } = useTranslation();
+  const { editor } = useActiveEditor();
   const devToolsEnabled = useDevToolsEnabled();
   // Full-screen on touch devices (phones/tablets), not on narrow desktop windows.
   const isTouch = useResponsive("(pointer: coarse)");
@@ -1671,6 +1673,9 @@ export function DevToolbar() {
       {open ? (
         <motion.div
           key="panel"
+          // Full inspector surface, not a dock tag: keep normal click semantics
+          // so its scrollers, inputs and tab strip behave (see BottomToolDock).
+          data-dock-passthrough
           initial={{ y: 24, opacity: 0, scale: 0.98 }}
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: 24, opacity: 0, scale: 0.98 }}
@@ -2879,9 +2884,21 @@ export function DevToolbar() {
             "flex items-center h-8 px-0.5 gap-0.5",
           )}
         >
+          {/* One target for the whole tag: the status dot, the label and the
+              peer count all open the panel. A tap that lands between them used
+              to hit dead pill chrome — doing nothing while still dropping the
+              editor's focus and the soft keyboard with it. */}
           <button
-            onClick={() => setOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            onClick={() => {
+              // Drop the editor's focus so the soft keyboard retracts: the
+              // panel is full-screen on touch and would otherwise open with the
+              // keyboard covering its bottom half.
+              editor?.blur();
+              setOpen(true);
+            }}
+            className="flex items-center h-7 gap-1.5 ps-2.5 pe-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            aria-label={t("devInspector.openLabel", "Open developer tools")}
+            title={peersSummary}
           >
             <div
               className={cn(
@@ -2892,21 +2909,21 @@ export function DevToolbar() {
             <span className="text-[11px] font-medium">
               {t("devInspector.shortLabel", "Dev")}
             </span>
+            <span
+              className={cn(
+                "flex items-center h-5 px-1.5 gap-1 rounded-full",
+                "border border-border/70 bg-muted/40",
+                "text-[10px] text-muted-foreground tabular-nums",
+              )}
+            >
+              <Users className="w-2.5 h-2.5" />
+              {connectedPeers.length}
+            </span>
           </button>
-          <div
-            className={cn(
-              "flex items-center h-6 px-2 gap-1 rounded-full",
-              "border border-border/70 bg-muted/40",
-              "text-[10px] text-muted-foreground tabular-nums",
-            )}
-            title={peersSummary}
-          >
-            <Users className="w-2.5 h-2.5" />
-            {connectedPeers.length}
-          </div>
           <button
             onClick={() => setHidden(true)}
             className="flex items-center justify-center w-6 h-6 rounded-full text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
+            aria-label={t("devInspector.hide", "Hide developer tools")}
           >
             <X className="w-2.5 h-2.5" strokeWidth={2.5} />
           </button>

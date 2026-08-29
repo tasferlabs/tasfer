@@ -47,24 +47,10 @@ export function WordCountOverlay() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.96 }}
             transition={reduceMotion ? { duration: 0 } : { duration: 0.15 }}
-            // Open on pointerdown, not click. The dock rides above the soft
-            // keyboard, so dismissing it drops this button by the keyboard's
-            // height — and the browser hit-tests the synthesized click at the
-            // finger's original coordinates afterwards, where the canvas now
-            // sits, so an `onClick` tap never arrives (the engine's touchEnd
-            // handler documents the same race). Acting on pointerdown settles
-            // the intent before any of that; preventing the default also stops
-            // the button from taking focus, leaving `openDetails` the one thing
-            // that retracts the keyboard. `onClick` still covers keyboard
-            // activation (`detail === 0`).
-            onPointerDown={(e) => {
-              if (!e.isPrimary || e.button !== 0) return;
-              e.preventDefault();
-              openDetails();
-            }}
-            onClick={(e) => {
-              if (e.detail === 0) openDetails();
-            }}
+            // The dock settles the tap on pointerdown (it rides the keyboard,
+            // where a `click` never arrives) and forwards it here as a
+            // synthesized click; see BottomToolDock.
+            onClick={openDetails}
             className="flex h-8 cursor-pointer select-none items-center rounded-full border border-border bg-popover/95 px-3 shadow-lg backdrop-blur-xl transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={
               selectionStats
