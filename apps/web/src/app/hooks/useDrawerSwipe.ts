@@ -101,12 +101,28 @@ export default function useDrawerSwipe({
   open,
   setOpen,
   isRtl,
+  ownsGesture,
 }: {
   open: boolean;
   setOpen: (open: boolean) => void;
   isRtl: boolean;
+  /**
+   * Asked once, at the moment the drag would become ours: is some other
+   * surface already in a gesture of its own on this touch? The canvas answers
+   * for the editor — a selection handle being dragged sideways, a caret pulled
+   * along a line — and those cannot be told apart from the outside: the canvas
+   * is one element with no DOM under it to mark, and the touch reaches this
+   * hook (window, capture phase) before the canvas has even seen it, so the
+   * question has to be asked later than {@link claimedByContent}, not answered
+   * up front. Yes outranks everything here, the edge zone included: the finger
+   * is on a handle the user can see.
+   */
+  ownsGesture?: () => boolean;
 }) {
   const drawerRef = React.useRef<HTMLDivElement | null>(null);
+  // Read through a ref so a new closure per render never re-subscribes.
+  const ownsGestureRef = React.useRef(ownsGesture);
+  ownsGestureRef.current = ownsGesture;
 
   const applyProgress = React.useCallback(
     (progress: number, animate: boolean) => {
@@ -206,6 +222,10 @@ export default function useDrawerSwipe({
         // a clearly sideways drag, and only in the direction that would change
         // the drawer's state.
         if (Math.abs(dx) <= Math.abs(dy) * AXIS_DOMINANCE || inward === open) {
+          tracking = false;
+          return;
+        }
+        if (ownsGestureRef.current?.()) {
           tracking = false;
           return;
         }

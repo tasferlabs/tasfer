@@ -106,6 +106,16 @@ export interface InteractionSession {
    */
   outOfViewIndicatorHitAreas: IndicatorHitArea[];
   /**
+   * A touch that landed on something this editor owns — a selection handle, the
+   * caret, the existing selection, an interactive region — and so owns the
+   * gesture until it ends. Written synchronously in the DOM `touchstart`
+   * handler, not from the queued state transform, because the host reads it
+   * within the same gesture: a page-level drag (a drawer swipe) decides whether
+   * to take the touch a few pixels of movement later, often before the queue
+   * has drained. Read through `editor.host.ownsPointerGesture()`.
+   */
+  touchGestureOwned: boolean;
+  /**
    * A host pointer-capturing menu (the context menu) is open. Content-free — the
    * engine never knows it's a context menu; it only needs the flag to arbitrate
    * focus (don't blur the editor while it's up) and touch (route drag/release to
@@ -208,6 +218,7 @@ export function createInteractionSession(
     regions,
     captured: null,
     pendingCapture: null,
+    touchGestureOwned: false,
     outOfViewIndicatorHitAreas: [],
     hostMenuCapturing: false,
     handleDragLoupe: null,
@@ -234,6 +245,23 @@ export function stopAutoScroll(session: InteractionSession): void {
 
 export function isInLongPressMode(session: InteractionSession): boolean {
   return session.touch?.isLongPress === true;
+}
+
+/**
+ * Does a live pointer gesture belong to this editor? True from the touchstart
+ * that landed on something the editor owns (see `touchGestureOwned`), and for
+ * any gesture that has since become one: a captured region drag, a caret drag,
+ * a long-press selection.
+ *
+ * The question a host asks before claiming a touch for a gesture of its own.
+ */
+export function ownsPointerGesture(session: InteractionSession): boolean {
+  return (
+    session.touchGestureOwned ||
+    session.captured !== null ||
+    session.touch?.isCursorDrag === true ||
+    session.touch?.isLongPress === true
+  );
 }
 
 /**

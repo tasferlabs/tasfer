@@ -138,6 +138,7 @@ The everyday content/command/query surface lives flat on the handle. Two further
   { name: "host.openOverlay", type: "(o: { key, blockId, x, y, data? }) => void", desc: "Open a host-defined overlay. The engine stores { key, data } opaquely; the declaring node/mark reads it back by key. Dismiss with closeActiveMenu." },
   { name: "host.setNodeViewState", type: "(blockId: string, data: unknown | null) => void", desc: "Set/clear transient per-block canvas view-state (e.g. an upload spinner). Read by the painting node; not document content, no CRDT op." },
   { name: "host.closeActiveMenu", type: "() => void", desc: "Close whichever menu/overlay is open and notify subscribers." },
+  { name: "host.ownsPointerGesture", type: "() => boolean", desc: "Is a live pointer gesture the editor's own — a selection handle, a grabbed caret, a drag off the selection, a scrollbar or resize-handle drag? Ask before a page-level drag of your own (a drawer swipe) takes a touch that started on the canvas. Resolved synchronously at touchstart." },
   { name: "host.clearLinkHover", type: "() => void", desc: "Dismiss the link hover tooltip. The engine keeps it set once the pointer crosses onto the interactive popover; the host clears it when the pointer leaves the popover." },
   { name: "host.restoreFromSnapshot", type: "(blocks: Block[]) => void", desc: "Replace the document from a block snapshot, generating and broadcasting ops." },
 ]} />

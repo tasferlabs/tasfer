@@ -86,6 +86,82 @@ function endCursorDrag(state: EditorState, session: InteractionSession): void {
   }
 }
 
+/**
+ * Is `point` (canvas coords) close enough to the caret to grab it — the test
+ * that arms the cursor drag and its loupe. Only with a plain caret: a range or
+ * visual/atomic block selection has no caret to grab, and the loupe must not
+ * pop over it.
+ */
+function isPointNearCaret(
+  point: { x: number; y: number },
+  state: EditorState,
+  viewport: ViewportState,
+  isTouchingSelection: boolean,
+  visibility?: VisibleBlockRange,
+): boolean {
+  if (
+    !(state.document.cursor || state.document.contentSelection) ||
+    isTouchingSelection ||
+    hasActiveSelectionHighlight(state) ||
+    state.ui.mode === "readonly"
+  ) {
+    return false;
+  }
+  const cursorCoords = state.document.cursor
+    ? getCursorDocumentCoords(
+        state.document.cursor.position,
+        state,
+        viewport,
+        undefined,
+        visibility,
+      )
+    : getContentPointDocumentCoords(
+        state.document.contentSelection!.focus,
+        state,
+        viewport,
+        undefined,
+        visibility,
+      );
+  if (!cursorCoords) return false;
+  // Convert document coords to viewport coords
+  const cursorScreenX = cursorCoords.x;
+  const cursorScreenY = cursorCoords.y - viewport.scrollY;
+  const dx = point.x - cursorScreenX;
+  const dy = point.y - (cursorScreenY + cursorCoords.height / 2);
+  return Math.sqrt(dx * dx + dy * dy) <= CURSOR_TOUCH_RADIUS;
+}
+
+/**
+ * Would a touch starting at `point` begin a gesture this editor owns — a
+ * selection handle, a grabbed caret, a drag off the existing selection, or any
+ * other interactive region (scrollbar thumb, image resize handle)?
+ *
+ * A pure hit test — it starts nothing and mutates nothing — and one answered
+ * SYNCHRONOUSLY at `touchstart`:
+ * a host with a page-level drag of its own (a drawer pulled in from anywhere on
+ * the page) decides whether to take the touch the moment the finger crosses its
+ * axis-lock threshold, which can be before this editor's queued touchstart has
+ * drained. It cannot wait for `session.touch` to exist.
+ */
+export function touchStartsOwnedGesture(
+  point: { x: number; y: number },
+  ctx: RegionCtx,
+): boolean {
+  const { state, viewport, visibility } = ctx;
+  if (state.ui.mode === "suspended") return false;
+  if (hitTestAllRegions(point, "touch", ctx)) return true;
+  const onSelection = isPointWithinSelectionRects(
+    point.x,
+    point.y,
+    state,
+    viewport,
+    undefined,
+    visibility,
+  );
+  if (onSelection) return true;
+  return isPointNearCaret(point, state, viewport, onSelection, visibility);
+}
+
 export function handleTouchStart(
   state: EditorState,
   viewport: ViewportState,
@@ -226,41 +302,13 @@ export function handleTouchStart(
       };
     } else {
       // Regular touch (not on scrollbar)
-      // Check if touch is near the cursor for cursor drag mode. Only with a
-      // plain caret — a range or visual/atomic block selection has no caret to
-      // grab, and the loupe must not pop over it.
-      let isTouchingCursor = false;
-      if (
-        (state.document.cursor || state.document.contentSelection) &&
-        !isTouchingSelection &&
-        !hasActiveSelectionHighlight(state) &&
-        state.ui.mode !== "readonly"
-      ) {
-        const cursorCoords = state.document.cursor
-          ? getCursorDocumentCoords(
-              state.document.cursor.position,
-              state,
-              viewport,
-              undefined,
-              visibility,
-            )
-          : getContentPointDocumentCoords(
-              state.document.contentSelection!.focus,
-              state,
-              viewport,
-              undefined,
-              visibility,
-            );
-        if (cursorCoords) {
-          // Convert document coords to viewport coords
-          const cursorScreenX = cursorCoords.x;
-          const cursorScreenY = cursorCoords.y - viewport.scrollY;
-          const dx = canvasX - cursorScreenX;
-          const dy = canvasY - (cursorScreenY + cursorCoords.height / 2);
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          isTouchingCursor = dist <= CURSOR_TOUCH_RADIUS;
-        }
-      }
+      const isTouchingCursor = isPointNearCaret(
+        { x: canvasX, y: canvasY },
+        state,
+        viewport,
+        isTouchingSelection,
+        visibility,
+      );
 
       session.touch = {
         startY: canvasY,

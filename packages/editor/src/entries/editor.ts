@@ -52,8 +52,10 @@ import { handleEvents } from "../events/events";
 import {
   createInteractionSession,
   isInLongPressMode,
+  ownsPointerGesture,
 } from "../events/interaction-session";
 import { pressArmsTextDrag } from "../events/mouseEvents";
+import { touchStartsOwnedGesture } from "../events/touchEvents";
 import { onFontsReady } from "../fonts";
 import {
   caretInProtectedSource,
@@ -710,6 +712,18 @@ export interface EditorHostApi {
    * clears it on its own while the pointer is over the canvas.
    */
   clearLinkHover: () => void;
+  /**
+   * Is a live pointer gesture the editor's own — a selection handle being
+   * dragged, a grabbed caret, a drag off the existing selection, a scrollbar or
+   * resize-handle drag?
+   *
+   * For a host that grows a page-level drag of its own (a drawer pulled in from
+   * anywhere on the page, a swipe between views): ask before taking a touch
+   * that started on the canvas, and stand down when the answer is yes.
+   * Resolved synchronously at `touchstart`, so it is already true by the few
+   * pixels of movement a host takes to commit to its own gesture.
+   */
+  ownsPointerGesture: () => boolean;
   /** Restore from snapshot - generates and broadcasts operations */
   restoreFromSnapshot: (blocks: Block[]) => void;
 }
@@ -1365,9 +1379,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.contentCanvas.addEventListener("touchend", this.touchEndHandler, {
       passive: false,
     });
-    this.contentCanvas.addEventListener("touchcancel", this.eventsHandler, {
-      passive: false,
-    });
+    this.contentCanvas.addEventListener(
+      "touchcancel",
+      this.touchCancelHandler,
+      {
+        passive: false,
+      },
+    );
 
     // Keyboard, IME, and clipboard are NOT captured on `window` — they flow
     // through the per-instance contenteditable surface below. This keeps two
@@ -2598,6 +2616,21 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.touchHasMoved = false;
     }
 
+    // Resolve here, in the DOM handler, whether the editor owns this gesture —
+    // the queued touchstart that sets up `session.touch` runs a frame later, and
+    // a host with a page-level drag of its own asks well before that (see
+    // `touchStartsOwnedGesture`). A second finger never starts an owned gesture;
+    // it turns the touch into a two-finger scroll.
+    this.session.touchGestureOwned =
+      e.touches.length === 1 &&
+      touchStartsOwnedGesture(this.dragPoint(e.touches[0]), {
+        state: this._state,
+        viewport: this.viewport,
+        documentHeight: this.documentHeight,
+        session: this.session,
+        visibility: this.visibility,
+      });
+
     // Keep the soft keyboard up across canvas touch gestures. On Android the
     // WebView otherwise runs its own long-press / selection handling on the
     // touch and blurs the focused hidden input to <body> mid-gesture (the touch
@@ -2625,6 +2658,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Handle touchend - focus input if it was a tap (not a scroll)
   private touchEndHandler = (e: TouchEvent) => {
+    // The gesture is over — a claim that outlived it would keep the host's own
+    // drags stood down for every touch that follows.
+    if (e.touches.length === 0) this.session.touchGestureOwned = false;
+
     // Check if we're ending a long press selection or a cursor-drag BEFORE
     // processing the event, so we can focus the input synchronously with the user
     // gesture. A cursor-drag (magnifier) ends in neither a tap nor a long-press,
@@ -2666,6 +2703,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       if (e.cancelable) e.preventDefault();
       this.focus();
     }
+  };
+
+  // A cancel is another surface taking the gesture over (a host drawer swipe,
+  // the platform's own scroll) — drop this editor's claim on it along with the
+  // rest of the touch state.
+  private touchCancelHandler = (e: TouchEvent) => {
+    this.session.touchGestureOwned = false;
+    this.eventsHandler(e);
   };
 
   // Handle touchmove - track movement to distinguish taps from scrolls
@@ -3961,7 +4006,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     );
     this.contentCanvas.removeEventListener("touchmove", this.touchMoveHandler);
     this.contentCanvas.removeEventListener("touchend", this.touchEndHandler);
-    this.contentCanvas.removeEventListener("touchcancel", this.eventsHandler);
+    this.contentCanvas.removeEventListener(
+      "touchcancel",
+      this.touchCancelHandler,
+    );
     window.removeEventListener("resize", this.invalidateRectCache);
     window.removeEventListener("scroll", this.invalidateRectCache, true);
     window.removeEventListener("focus", this.browserFocusHandler);
@@ -6111,6 +6159,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   host: EditorHostApi = {
     setMode: this.setMode,
+    ownsPointerGesture: () => ownsPointerGesture(this.session),
     collectOverlays: this.collectOverlays,
     openOverlay: this.openOverlay,
     setNodeViewState: this.setNodeViewState,
