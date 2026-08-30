@@ -47,6 +47,7 @@ import {
   isTextDrag,
   loadTextDrag,
   readTextDrop,
+  sameDropTarget,
 } from "../events/dragEvents";
 import { handleEvents } from "../events/events";
 import {
@@ -148,6 +149,7 @@ import type {
   EditorTheme,
   NodeOverlay,
   Position,
+  TextDropTarget,
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
@@ -2213,10 +2215,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   /** Paint (or move) the insertion caret a drop would land on. */
-  private setTextDropTarget = (target: Position | null) => {
+  private setTextDropTarget = (target: TextDropTarget | null) => {
     const source = this.session.textDragSource;
     const current = this._state.ui.textDrag;
-    if (current?.target === target && current?.source === source) return;
+    if (
+      current &&
+      current.source === source &&
+      sameDropTarget(current.target, target)
+    ) {
+      return;
+    }
     this._state = {
       ...this._state,
       ui: { ...this._state.ui, textDrag: { source, target } },

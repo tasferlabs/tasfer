@@ -30,9 +30,10 @@ import { isTouchOnlyDevice } from "../state-utils";
 import {
   type ContentPoint,
   isContentSelectionCollapsed,
+  updateContentSelection,
 } from "../structured-selection";
 import { getEditorStyles } from "../styles";
-import { findBlock } from "../sync/block-lookup";
+import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromChars } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
@@ -1633,19 +1634,47 @@ function renderTextDrag(
   const target = state.ui.textDrag?.target;
   if (!target) return;
 
+  // A drop aimed inside a node's own content (a table cell) is addressed by a
+  // content point, which both coordinate paths read off the ACTIVE content
+  // selection. Resolve it against a state carrying the target as that selection,
+  // so the caret is placed by the node's own geometry — the same route the real
+  // nested caret takes — rather than by a second, drag-only one.
+  let position: Position;
+  let caretState = state;
+  if (target.kind === "content") {
+    const point = target.selection.focus;
+    const blockIndex = findBlockIndex(state.document.page, point.blockId);
+    if (blockIndex < 0) return;
+    const nested = updateContentSelection(state, {
+      anchor: point,
+      focus: point,
+    });
+    if (!nested.document.contentSelection) return;
+    position = { blockIndex, textIndex: 0 };
+    caretState = nested;
+  } else {
+    position = target.position;
+  }
+
   // Same basis as the caret the cursor layer paints: the height index when the
   // paint has one, else the painted-visibility walk. Anything else drifts from
   // the flow the blocks were just drawn on.
   const coords = heightIndex
     ? getIndexedCursorViewportCoords(
-        target,
-        state,
+        position,
+        caretState,
         viewport,
         styles,
         heightIndex,
       )
     : mapToViewport(
-        getCursorDocumentCoords(target, state, viewport, styles, visibility),
+        getCursorDocumentCoords(
+          position,
+          caretState,
+          viewport,
+          styles,
+          visibility,
+        ),
         viewport,
       );
   if (!coords) return;

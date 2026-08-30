@@ -323,9 +323,20 @@ export interface BlockDragState {
  * `target` is the caret a drop would insert at, re-resolved on every `dragover`
  * and `null` when the pointer is over nothing droppable.
  */
+/**
+ * Where a drop lands, in whichever currency the block under the pointer speaks:
+ * an offset into flat block text, or a caret inside a node's own structured
+ * content (a table cell). The two are not interchangeable — a block with nested
+ * content has no flat text an index could address — so a drop carries the one
+ * its target resolved to rather than flattening both into a {@link Position}.
+ */
+export type TextDropTarget =
+  | { readonly kind: "text"; readonly position: Position }
+  | { readonly kind: "content"; readonly selection: ContentSelection };
+
 export interface TextDragState {
   readonly source: { readonly start: Position; readonly end: Position } | null;
-  readonly target: Position | null;
+  readonly target: TextDropTarget | null;
 }
 
 // Image Hover State - Not a menu, just visual feedback

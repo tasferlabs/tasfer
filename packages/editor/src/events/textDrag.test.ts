@@ -15,20 +15,24 @@
  * are driven through the actions directly rather than resolved from pixels.
  */
 
+import { convertBlockAtCursor } from "../actions/actions";
 import {
   type DragRange,
   DROP_TEXT,
   REMOVE_DRAGGED_TEXT,
 } from "../actions/drag-actions";
+import { getBlockHeight } from "../rendering/renderer";
 import { loadPage } from "../serlization/loadPage";
 import type { EditorState, Position } from "../state-types";
 import { createInitialState } from "../state-utils";
+import { getEditorStyles } from "../styles";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { getVisibleBlocks } from "../sync/reducer";
 import {
   dragOrigin,
   type DragTransfer,
   dropEffectFor,
+  dropTargetAt,
   isTextDrag,
   loadTextDrag,
   readTextDrop,
@@ -103,7 +107,7 @@ function dragAndDrop(
   expect(payload).not.toBeNull();
   return state.actionBus.dispatchState(DROP_TEXT, state, {
     source: copy ? null : source,
-    target,
+    target: { kind: "text", position: target },
     payload: payload!,
   });
 }
@@ -201,11 +205,93 @@ describe("dropping text", () => {
 
     const result = state.actionBus.dispatchState(DROP_TEXT, state, {
       source: null,
-      target: { blockIndex: 0, textIndex: 4 },
+      target: { kind: "text", position: { blockIndex: 0, textIndex: 4 } },
       payload: { plainText: "ed", html: "", markdown: "ed" },
     });
 
     expect(texts(result.state)).toEqual(["hosted"]);
+  });
+});
+
+describe("where a drop would land", () => {
+  const viewport = {
+    scrollY: 0,
+    width: 800,
+    height: 600,
+    documentHeight: 600,
+  };
+
+  /** A document whose second block is a horizontal rule. */
+  function withRule(): EditorState {
+    const state = createInitialState(loadPage("alpha\n\nbravo"));
+    const withCursor = {
+      ...state,
+      document: {
+        ...state.document,
+        cursor: {
+          position: { blockIndex: 1, textIndex: 0 },
+          lastUpdate: Date.now(),
+        },
+      },
+    };
+    const converted = convertBlockAtCursor(withCursor, { type: "line" }).state;
+    // Actions edit the document; the visible-block projection the hit-test walks
+    // is refreshed by the render loop, which no test runs.
+    return {
+      ...converted,
+      view: {
+        ...converted.view,
+        visibleBlocks: getVisibleBlocks(converted.document.page),
+      },
+    };
+  }
+
+  /** The vertical middle of the block at `index`. Only heights, no measurement. */
+  function midpointOf(state: EditorState, index: number) {
+    const styles = getEditorStyles(state);
+    const maxWidth =
+      viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+    let top = styles.canvas.paddingTop;
+    for (let at = 0; at < index; at++) {
+      top += getBlockHeight(
+        state.nodes,
+        state.marks,
+        state.view.visibleBlocks[at],
+        maxWidth,
+        styles,
+        at === 0,
+      );
+    }
+    const height = getBlockHeight(
+      state.nodes,
+      state.marks,
+      state.view.visibleBlocks[index],
+      maxWidth,
+      styles,
+      index === 0,
+    );
+    return { x: styles.canvas.paddingLeft + 1, y: top + height / 2 };
+  }
+
+  it("takes a drop over ordinary text", () => {
+    const state = createInitialState(loadPage("alpha\n\nbravo"));
+    const { x, y } = midpointOf(state, 0);
+
+    expect(dropTargetAt(state, viewport, x, y, undefined, null)).toEqual({
+      kind: "text",
+      position: { blockIndex: 0, textIndex: expect.any(Number) },
+    });
+  });
+
+  it("refuses a block that holds no text to insert into", () => {
+    // The flat walk answers with the rule's own index and offset 0, which used
+    // to be dropped into: the text was removed from its source and inserted
+    // into text the block does not have, i.e. lost.
+    const state = withRule();
+    const { x, y } = midpointOf(state, 1);
+
+    expect(state.view.visibleBlocks[1].type).toBe("line");
+    expect(dropTargetAt(state, viewport, x, y, undefined, null)).toBeNull();
   });
 });
 

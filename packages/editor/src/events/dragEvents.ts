@@ -28,13 +28,19 @@ import type { ClipboardPayload } from "../actions/clipboard";
 import { buildClipboardPayload } from "../actions/clipboard";
 import { type DragRange, positionWithinRange } from "../actions/drag-actions";
 import { isApplePlatform } from "../platform";
-import { getTextPositionFromViewport } from "../selection";
+import {
+  getContentSelectionFromViewport,
+  getTextPositionFromViewport,
+} from "../selection";
 import type {
   EditorState,
-  Position,
+  TextDropTarget,
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
+import { contentPointsEqual } from "../structured-selection";
+import { findBlockIndex } from "../sync/block-lookup";
+import { isTextualBlock } from "../sync/block-registry";
 import { canDragSelection } from "./mouseEvents";
 
 /**
@@ -140,9 +146,24 @@ export function dropEffectFor(
 
 /**
  * Where a drop at a canvas point would insert, or `null` when there is nowhere
- * to put it — off the text, or inside the range being carried, which has
- * nowhere to move to. A `null` target paints no insertion caret, so an invalid
- * drop reads as invalid before the pointer is released.
+ * to put it — off the text, on a block that has no caret to offer, or inside the
+ * range being carried, which has nowhere to move to. A `null` target paints no
+ * insertion caret, so an invalid drop reads as invalid before the pointer is
+ * released.
+ *
+ * A block with no flat text of its own (a table) is asked where inside itself
+ * the drop goes, because the flat walk has no offset to give there and answers
+ * with the block's own index and zero. Dropped at that, the text was removed
+ * from its source and inserted into text the block does not have — it simply
+ * disappeared. When the block's node claims no caret either (an image, a
+ * horizontal rule, a table the pointer missed the cells of) the drop is refused
+ * rather than committed somewhere invisible.
+ *
+ * The flat walk is asked FIRST wherever it can answer, so a paragraph carrying
+ * an inline chip (a math formula) still takes the drop as prose beside the chip
+ * rather than as characters typed into the formula. A click descends into the
+ * chip because a caret is a precise gesture; a drop lands wherever the dragged
+ * text happened to be let go.
  */
 export function dropTargetAt(
   state: EditorState,
@@ -151,11 +172,12 @@ export function dropTargetAt(
   canvasY: number,
   visibility: VisibleBlockRange | undefined,
   source: DragRange | null,
-): Position | null {
+): TextDropTarget | null {
   if (state.ui.mode === "readonly" || state.ui.mode === "suspended") {
     return null;
   }
-  const target = getTextPositionFromViewport(
+
+  const position = getTextPositionFromViewport(
     canvasX,
     canvasY,
     state,
@@ -163,8 +185,68 @@ export function dropTargetAt(
     undefined,
     visibility,
   );
-  if (!target || !source) return target;
-  return positionWithinRange(target, source.start, source.end) ? null : target;
+  if (!position) return null;
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted) return null;
+
+  if (isTextualBlock(block)) {
+    return source && positionWithinRange(position, source.start, source.end)
+      ? null
+      : { kind: "text", position };
+  }
+
+  // The block itself is being carried away, so whatever is inside it goes too:
+  // there is nothing left to drop into.
+  if (
+    source &&
+    position.blockIndex >= source.start.blockIndex &&
+    position.blockIndex <= source.end.blockIndex
+  ) {
+    return null;
+  }
+  const nested = getContentSelectionFromViewport(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    "mouse",
+    undefined,
+    visibility,
+  );
+  // A drop lands at one caret, never over a range — the hit-test's focus is it.
+  if (
+    !nested ||
+    findBlockIndex(state.document.page, nested.focus.blockId) < 0
+  ) {
+    return null;
+  }
+  return {
+    kind: "content",
+    selection: { anchor: nested.focus, focus: nested.focus },
+  };
+}
+
+/**
+ * Whether two resolved drop targets address the same caret. `dragover` fires
+ * continuously, and each pass resolves a fresh target object; comparing by value
+ * is what keeps a pointer resting in one spot from repainting every event.
+ */
+export function sameDropTarget(
+  left: TextDropTarget | null,
+  right: TextDropTarget | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.kind !== right.kind) return false;
+  if (left.kind === "text" && right.kind === "text") {
+    return (
+      left.position.blockIndex === right.position.blockIndex &&
+      left.position.textIndex === right.position.textIndex
+    );
+  }
+  if (left.kind === "content" && right.kind === "content") {
+    return contentPointsEqual(left.selection.focus, right.selection.focus);
+  }
+  return false;
 }
 
 /**

@@ -18,8 +18,14 @@
 
 import { stateAction } from "../action-bus";
 import { clearSelection, updateCursor } from "../selection";
-import type { EditorState, Operation, Position } from "../state-types";
+import type {
+  EditorState,
+  Operation,
+  Position,
+  TextDropTarget,
+} from "../state-types";
 import { getBlockTextLength, updateMode } from "../state-utils";
+import { updateContentSelection } from "../structured-selection";
 import { deleteSelectedText } from "./actions";
 import { type ClipboardPayload, insertClipboardPayload } from "./clipboard";
 
@@ -130,35 +136,60 @@ function selectRange(state: EditorState, range: DragRange): EditorState {
  * resolved it to a move: the range is then removed and the insert re-pointed
  * across that removal, both in one transaction so the whole move is a single
  * undo step. A copy (or a drag from elsewhere) passes `null` and only inserts.
+ *
+ * A drop into a node's own content (a table cell) puts the nested caret there
+ * and lets {@link insertClipboardPayload} hand the text to the owning feature —
+ * the same route a paste into a cell takes, so the cell's tree invariants are
+ * the feature's business here as they are there. Nothing needs re-pointing
+ * across the removal on that path: a content point addresses CRDT identities,
+ * which a deletion elsewhere in the document cannot move.
  */
 export const DROP_TEXT = stateAction<{
   source: DragRange | null;
-  target: Position;
+  target: TextDropTarget;
   payload: ClipboardPayload;
 }>("drop-text", (state, { source, target, payload }) => {
   const ops: Operation[] = [];
   let next = state;
-  let insertAt = target;
+  let insertAt = target.kind === "text" ? target.position : null;
 
   if (source) {
     // A move onto itself has nowhere to go.
-    if (positionWithinRange(target, source.start, source.end)) {
+    if (insertAt && positionWithinRange(insertAt, source.start, source.end)) {
       return { state, ops: [] };
     }
     const removed = deleteSelectedText(selectRange(next, source));
     if (removed.ops.length === 0) return { state, ops: [] };
     ops.push(...removed.ops);
     next = removed.state;
-    insertAt = retargetAfterDeletion(
-      target,
-      source,
-      next.document.cursor?.position ?? source.start,
-    );
+    if (insertAt) {
+      insertAt = retargetAfterDeletion(
+        insertAt,
+        source,
+        next.document.cursor?.position ?? source.start,
+      );
+    }
   }
 
-  const anchor = clampToBlock(next, insertAt);
-  if (!anchor) return { state, ops: [] };
-  next = clearSelection(updateCursor(next, anchor));
+  // The flat anchor the insert runs from, or `null` for a nested drop, where the
+  // caret is the feature's to place and there is no block-text index to hold.
+  let anchor: Position | null = null;
+  if (insertAt) {
+    anchor = clampToBlock(next, insertAt);
+    if (!anchor) return { state, ops: [] };
+    next = clearSelection(updateCursor(next, anchor));
+  } else if (target.kind === "content") {
+    // Normalization refuses a point whose block or node is gone — including one
+    // the removal above just took — so the drop is abandoned rather than
+    // committed as a deletion on its own.
+    const nested = updateContentSelection(next, {
+      anchor: target.selection.anchor,
+      focus: target.selection.focus,
+      lastUpdate: Date.now(),
+    });
+    if (!nested.document.contentSelection) return { state, ops: [] };
+    next = nested;
+  }
 
   const inserted = insertClipboardPayload(next, payload);
   // Nothing parsed back out of the payload — abandon the drop rather than
@@ -168,9 +199,12 @@ export const DROP_TEXT = stateAction<{
   next = inserted.state;
 
   // Leave the dropped text selected: the caret sits at its far end, and an
-  // insert always runs forward from where it started.
+  // insert always runs forward from where it started. Only for a flat drop — a
+  // nested insert leaves the caret its own feature placed, exactly as a paste
+  // into a cell does.
   const landed = next.document.cursor?.position;
   if (
+    anchor &&
     landed &&
     (landed.blockIndex !== anchor.blockIndex ||
       landed.textIndex !== anchor.textIndex)
