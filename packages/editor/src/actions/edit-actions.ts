@@ -579,12 +579,18 @@ export type EdgeOutcome =
  * *and* vertical moves alike. The vertical-only escape for self-contained text
  * blocks (code / math / quote) lives in {@link escapeAboveSelfContainedBlock}.
  * Returns `fallthrough` unless the edge applies.
+ *
+ * A live nested selection means the caret is inside a block that runs its own
+ * caret model (a table cell), even though the flat cursor still names that
+ * block. Its first row is not the document's edge, so the escape belongs to
+ * that block's own handler, not here — see `exitTable` in `@tasfer/table`.
  */
 export function createParagraphAbove(
   state: EditorState,
   isFirstBlock: boolean,
   currentBlock: Block | undefined,
 ): EdgeOutcome {
+  if (state.document.contentSelection) return { kind: "fallthrough" };
   if (!(isFirstBlock && currentBlock && !isTextualBlock(currentBlock))) {
     return { kind: "fallthrough" };
   }
@@ -595,9 +601,16 @@ export function createParagraphAbove(
  * Append an empty paragraph after `afterBlock` (assumed to be the last block),
  * move the caret into it, and emit the `block_insert`. The shared body behind
  * every "escape into a trailing paragraph" edge; callers do the gating. Always
- * returns `break`.
+ * returns `break`, unless the schema's `content` expression forbids a block at
+ * the tail.
+ *
+ * Exported for blocks that own their own caret model and so answer the edge
+ * themselves: a block with a nested selection (a table's cells) claims the
+ * vertical moves before core sees them, and calls this when its own walk runs
+ * out of grid. Growing the paragraph here keeps one implementation of the
+ * schema clamp, the order key and the caret hand-off.
  */
-function appendTrailingParagraph(
+export function appendTrailingParagraph(
   state: EditorState,
   afterBlock: Block,
 ): EdgeOutcome {
@@ -652,10 +665,10 @@ function appendTrailingParagraph(
 /**
  * Prepend an empty paragraph at the head of the document (before the current
  * first block), move the caret into it, and emit the `block_insert`. The
- * upward-escape counterpart to {@link appendTrailingParagraph}; callers do the
- * gating. Always returns `break`.
+ * upward-escape counterpart to {@link appendTrailingParagraph}, exported for
+ * the same reason; callers do the gating.
  */
-function prependLeadingParagraph(state: EditorState): EdgeOutcome {
+export function prependLeadingParagraph(state: EditorState): EdgeOutcome {
   const ops: Operation[] = [];
 
   // Same shape clamp as {@link appendTrailingParagraph}, at the head.
@@ -708,12 +721,16 @@ function prependLeadingParagraph(state: EditorState): EdgeOutcome {
  * vertical-only escape for self-contained text blocks (code / math / quote)
  * lives in {@link escapeBelowSelfContainedBlock}. Returns `fallthrough` unless
  * the edge applies.
+ *
+ * Nested selections are left to their owner, for the reason given on
+ * {@link createParagraphAbove}.
  */
 export function createParagraphBelow(
   state: EditorState,
   isLastBlock: boolean,
   currentBlock: Block | undefined,
 ): EdgeOutcome {
+  if (state.document.contentSelection) return { kind: "fallthrough" };
   if (!(isLastBlock && currentBlock && !isTextualBlock(currentBlock))) {
     return { kind: "fallthrough" };
   }

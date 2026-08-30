@@ -14,6 +14,7 @@
  */
 
 import type { EditorState, Position } from "../state-types";
+import type { ContentPoint } from "../structured-selection";
 import type { Region, RegionRegistry } from "./regions";
 
 /** Edge-of-viewport auto-scroll engaged during a drag (selection, image resize, …). */
@@ -77,6 +78,12 @@ export interface IndicatorHitArea {
   height: number;
   blockIndex: number;
   textIndex: number;
+  /**
+   * The peer's nested address, when their caret sits in content a node owns (a
+   * table cell). The flat `blockIndex`/`textIndex` pair cannot express it — a
+   * table has no text to index — so a jump to that peer needs the point itself.
+   */
+  contentPoint?: ContentPoint;
 }
 
 export interface InteractionSession {

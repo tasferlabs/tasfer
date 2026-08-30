@@ -31,12 +31,15 @@ import {
 import {
   dropIndexAtPoint,
   getBlockIndexAtPoint,
+  getContentPointDocumentCoords,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
+  scrollToMakeSpanVisible,
   selectedBlockIds,
   snapSelectionToConstructs,
 } from "../selection";
 import type { EditorState } from "../state-types";
+import type { ContentPoint } from "../structured-selection";
 import { getEditorStyles } from "../styles";
 import { getAtomicBlockAtPoint, getSelectionHandleAtPoint } from "./eventUtils";
 import {
@@ -432,20 +435,34 @@ const peerIndicatorRegion: Region = {
     return getOutOfViewIndicatorAtPoint(ctx.session, p.x, p.y);
   },
   onTap(hit, _p, _tapCount, ctx) {
-    const target = hit as { blockIndex: number; textIndex: number };
+    const target = hit as {
+      blockIndex: number;
+      textIndex: number;
+      contentPoint?: ContentPoint;
+    };
     if (ctx.scrollPositionIntoView) {
       // Corrected scroll: re-measures over the next few frames so it lands on
       // the peer's exact caret even when the target is far off-screen (where a
       // one-shot jump from estimated heights would land short).
-      ctx.scrollPositionIntoView(target);
+      ctx.scrollPositionIntoView(target, target.contentPoint);
     } else {
       // Fallback for a host that builds its own region context without the
-      // correction hook: a single estimate-based make-visible jump.
-      const newScrollY = scrollToMakeCursorVisible(
-        target,
-        ctx.state,
-        ctx.viewport,
-      );
+      // correction hook: a single estimate-based make-visible jump. A peer
+      // inside a table cell has no flat position to jump to, so their nested
+      // point resolves its own coordinates.
+      const coords = target.contentPoint
+        ? getContentPointDocumentCoords(
+            target.contentPoint,
+            ctx.state,
+            ctx.viewport,
+          )
+        : null;
+      const newScrollY = coords
+        ? scrollToMakeSpanVisible(
+            { top: coords.y, bottom: coords.y + coords.height },
+            ctx.viewport,
+          )
+        : scrollToMakeCursorVisible(target, ctx.state, ctx.viewport);
       if (newScrollY !== null) {
         ctx.updateViewport?.({ scrollY: newScrollY });
       }

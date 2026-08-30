@@ -36,12 +36,16 @@ export {
   type NodeActivateCtx,
   type NodeActivation,
   type NodeAtomicHit,
+  type NodeCaretRect,
+  type NodeContentCaretCtx,
   type NodeContentHitCtx,
   type NodeContentHitOptions,
   type NodeHitRegion,
   type NodePointerType,
   type NodeRegionCtx,
   NodeRegistry,
+  paintTextRun,
+  type PaintTextRunArgs,
   QuoteNode,
   TextNode,
   type TextSpan,
@@ -278,8 +282,12 @@ export {
 // `TEXT_INPUT` / `TEXT_INPUTTED`) are exported flat above alongside them.
 
 // Content-editing commands.
-export type { BlockBoundaryContext } from "./actions/edit-actions";
+export type { BlockBoundaryContext, EdgeOutcome } from "./actions/edit-actions";
 export {
+  // Grow the empty paragraph a block at the document's first/last position
+  // has no caret position to offer. Nodes that own a nested caret claim the
+  // vertical moves, so they answer their own edges with these.
+  appendTrailingParagraph,
   CLEAR_SELECTION,
   CONVERT_BLOCK,
   DELETE_BACKWARD,
@@ -295,6 +303,7 @@ export {
   MOVE_BLOCKS,
   moveBlock,
   moveBlocks,
+  prependLeadingParagraph,
   registerEmptyBlockBackspaceExit,
   REVERT_INPUT_RULE,
   SELECT_ALL,
@@ -364,6 +373,7 @@ export {
 export {
   TOGGLE_CODE,
   TOGGLE_EMPHASIS,
+  TOGGLE_MARK,
   TOGGLE_STRIKE,
   TOGGLE_STRONG,
 } from "./rendering/marks";
@@ -409,6 +419,8 @@ export type {
   HLC,
   Operation,
   ScrollbarStyles,
+  // The grid appearance leaf a host restyles a table through.
+  TableBlockStyle,
   ThemeTokens,
   VersionVector,
   ViewWindow,
@@ -446,6 +458,7 @@ export {
   parseAllocatedIdentity,
 } from "./sync/id";
 export type {
+  StructuredChildIndex,
   StructuredContentMap,
   StructuredDocument,
   StructuredEdit,

@@ -59,18 +59,23 @@ export {
 export { type QuoteBlock, QuoteNode } from "../../nodes/QuoteNode";
 export {
   getContentWithComposition,
+  paintTextRun,
+  type PaintTextRunArgs,
   TEXT_BLOCK_TYPES,
   TextNode,
   type TextNodeLayout,
 } from "../../nodes/TextNode";
 export { AtomicNode } from "./AtomicNode";
 export type { CaretModel, CaretMotion, TextSpan } from "./caret-model";
+export { contentPointCaretRect } from "./content-caret";
 export {
   hitRegion,
   Node,
   type NodeActivateCtx,
   type NodeActivation,
   type NodeAtomicHit,
+  type NodeCaretRect,
+  type NodeContentCaretCtx,
   type NodeContentHitCtx,
   type NodeContentHitOptions,
   type NodeHitRegion,

@@ -44,7 +44,10 @@ import type {
   VisibleBlockRange,
 } from "../state-types";
 import { closeActiveMenu, setLinkHover, updateMode } from "../state-utils";
-import { updateContentSelection } from "../structured-selection";
+import {
+  type ContentPoint,
+  updateContentSelection,
+} from "../structured-selection";
 import { getEditorStyles } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
@@ -167,7 +170,10 @@ export function handleMouseDown(
   session: InteractionSession,
   visibility: VisibleBlockRange,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
-  scrollPositionIntoView?: (position: Position) => void,
+  scrollPositionIntoView?: (
+    position: Position,
+    contentPoint?: ContentPoint,
+  ) => void,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   stopAutoScroll(session);
@@ -751,6 +757,27 @@ export function handleMouseMove(
         isHoveringPeerIndicator: isOverPeerIndicator,
       },
     };
+  }
+
+  // Region hover affordance — the cursor a region asks for while the pointer
+  // rests on it, plus its own name for the exact thing under the pointer (a
+  // table's column edge). Read off the winning claim, so what the cursor
+  // promises is what the press would grab. Compared by value: an identical
+  // hover must keep the same object, or every mousemove would repaint the
+  // content layer.
+  const hover = hoverClaim?.region.hover?.(hoverClaim.hit) ?? null;
+  const previousHover = state.ui.regionHover;
+  const regionHover =
+    hover && hoverClaim
+      ? previousHover &&
+        previousHover.regionId === hoverClaim.region.id &&
+        previousHover.target === hover.target &&
+        previousHover.cursor === hover.cursor
+        ? previousHover
+        : { regionId: hoverClaim.region.id, ...hover }
+      : null;
+  if (regionHover !== previousHover) {
+    state = { ...state, ui: { ...state.ui, regionHover } };
   }
 
   // Selection hover — the grab cursor that advertises "this text can be

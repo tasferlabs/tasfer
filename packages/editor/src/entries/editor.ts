@@ -19,7 +19,6 @@ import {
   convertBlockAtCursor,
   deleteSelectedText,
   insertText,
-  toggleFormat,
 } from "../actions/actions";
 import {
   buildClipboardPayload,
@@ -94,6 +93,7 @@ import {
   removeDecorationLayer,
   setDecorationLayer,
 } from "../rendering/decorations";
+import { TOGGLE_MARK } from "../rendering/marks/toggle-actions";
 import {
   clearAllBlockCaches,
   collectOverlays,
@@ -149,6 +149,7 @@ import type {
   EditorTheme,
   NodeOverlay,
   Position,
+  RegionHoverCursor,
   TextDropTarget,
   ViewportState,
   VisibleBlockRange,
@@ -1116,6 +1117,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private readonly blockHeights = new BlockHeightIndex();
   private pendingViewportAnchor: {
     position: Position;
+    /** Set when the target is a nested caret (see `scrollPositionIntoView`). */
+    contentPoint?: ContentPoint;
     viewportOffsetY: number;
     remainingCorrections: number;
   } | null = null;
@@ -1601,6 +1604,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     isHoveringDragHandle: boolean = false,
     isDraggingBlock: boolean = false,
     isHoveringSelection: boolean = false,
+    regionCursor: RegionHoverCursor | null = null,
   ) => {
     // Only update the pointer cursor when a fine pointer is available.
     if (isTouchOnlyDevice()) {
@@ -1610,6 +1614,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (isDragging || isDraggingBlock) {
       // Dragging the scrollbar or reordering a block — closed-hand cursor.
       this.contentCanvas.style.cursor = "grabbing";
+    } else if (regionCursor) {
+      // A hit region that advertises its own affordance (a table's column edge
+      // → `ew-resize`). It won the same hit-test the press routes through, so
+      // it outranks the generic hovers below — the cursor names whatever the
+      // press would actually grab.
+      this.contentCanvas.style.cursor = regionCursor;
     } else if (isHoveringDragHandle || isHoveringSelection) {
       // Hovering a block's reorder grip, or selected text that can be dragged
       // — open-hand "grab" affordance.
@@ -1835,6 +1845,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
           this.dirtyLayers.content = true;
         }
 
+        // A region's hover affordance is painted by the node that owns it (a
+        // table lights up the column edge under the pointer), and pointer
+        // movement alone would mark nothing else dirty — so the highlight would
+        // stick to the first edge it landed on. The hover keeps its object
+        // identity while it names the same affordance, so this is one compare
+        // per frame, not a repaint per mousemove.
+        if (prevState.ui.regionHover !== this._state.ui.regionHover) {
+          this.dirtyLayers.content = true;
+        }
+
         // Math hover state changes affect rendered chip/block backgrounds. The
         // inline-math edit popover also styles its chip as hovered — the open
         // path records that range in `inlineMathHover`, so this check covers it.
@@ -1945,7 +1965,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
           const anchor = this.pendingViewportAnchor;
           if (anchor) {
-            const coords = this.coordsAtIndexPosition(anchor.position);
+            const coords = anchor.contentPoint
+              ? this.coordsAtContentPoint(anchor.contentPoint)
+              : this.coordsAtIndexPosition(anchor.position);
             const delta = coords ? coords.y - anchor.viewportOffsetY : 0;
             if (coords && Math.abs(delta) > 0.5) {
               const maxScroll = Math.max(
@@ -1983,6 +2005,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             this._state.ui.hoveredDragHandleBlockId !== null,
             this._state.ui.blockDrag !== null,
             this._state.ui.isHoveringSelection,
+            this._state.ui.regionHover?.cursor ?? null,
           );
 
           this.dirtyLayers.content = viewportChangedAfterPaint;
@@ -4331,10 +4354,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
    * scrollPositionIntoView` so the out-of-view peer indicator lands a click on
    * the peer's actual caret rather than an estimate.
    */
-  private scrollPositionIntoView = (position: Position): void => {
+  private scrollPositionIntoView = (
+    position: Position,
+    contentPoint?: ContentPoint,
+  ): void => {
     const block = this._state.document.page.blocks[position.blockIndex];
     if (!block || block.deleted) return;
-    const coords = this.coordsAtIndexPosition(position);
+    // A caret in content a node owns (a peer in a table cell) has no index into
+    // block text; its coordinates come from the point itself.
+    const coords = contentPoint
+      ? this.coordsAtContentPoint(contentPoint)
+      : this.coordsAtIndexPosition(position);
     if (!coords) return;
 
     // Match scrollToMakeCursorVisible: keep the target this far from the edge.
@@ -4361,6 +4391,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.applyProgrammaticScroll(scrollY);
     this.pendingViewportAnchor = {
       position,
+      ...(contentPoint ? { contentPoint } : {}),
       viewportOffsetY,
       remainingCorrections: 3,
     };
@@ -4618,10 +4649,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // toggleMark dispatch is registry-driven: any togglable mark on the schema
   // can be toggled by name (built-ins + custom). Marks that need extra input
   // (link → url, math → LaTeX) are `togglable: false` and ignored here.
+  // Through the bus, not straight to `toggleFormat`: a host toolbar button and
+  // Ctrl+B must reach the same handlers, or a node that claims the toggle for
+  // its own content works from the keyboard and silently does nothing from the
+  // menu. `TOGGLE_MARK` falls through to `toggleFormat` when nothing claims it.
   private toggleMarkAction =
     (name: MarkName): StateAction =>
     (s) =>
-      toggleFormat(s, name);
+      s.actionBus.dispatchState(TOGGLE_MARK, s, { name });
 
   private canToggleMark = (name: MarkName): boolean =>
     this._state.marks.get(name)?.togglable === true;

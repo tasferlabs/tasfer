@@ -535,8 +535,16 @@ export function updateContentSelection(
   ) {
     return state;
   }
+  // A markdown auto-format is revertible only while the caret sits where the
+  // transform left it, and a nested caret moves through here rather than
+  // through `updateCursor` — without this, arrowing to the next cell would
+  // leave a stale wrap armed for the Backspace after it.
+  const ui = state.ui.revertibleInputRule
+    ? { ...state.ui, revertibleInputRule: null }
+    : state.ui;
   return {
     ...state,
+    ui,
     document: {
       ...state.document,
       cursor: contentSelection ? null : state.document.cursor,

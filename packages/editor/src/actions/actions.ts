@@ -1,5 +1,4 @@
 import { CONVERT_STRUCTURED_BLOCK, TEXT_INPUTTED } from "../action-bus";
-import { isCJKCharacter } from "../cjk";
 import { nextCodePointEnd, prevCodePointStart } from "../code-points";
 import { resolveMarkRuns } from "../mark-runs";
 import { invalidateBlockCache } from "../rendering/renderer";
@@ -92,7 +91,14 @@ import {
   carryStructuredContent,
   hasStructuredBlockAuthority,
 } from "../sync/structured-content";
-import { isWordChar } from "../word-chars";
+import {
+  findWordBoundary,
+  findWordDeleteBoundaryLeft,
+  findWordDeleteBoundaryRight,
+  findWordEnd,
+  findWordStart,
+  isWordChar,
+} from "../word-chars";
 import {
   cloneStructuredBlockContent,
   createFeatureMarkInRange,
@@ -228,6 +234,44 @@ export function getFormatsAtPosition(
   return getFormatsAtCharPosition(block.charRuns, block.formats, textIndex);
 }
 
+/** One live inline-markdown auto-format: the syntax, and the mark it means. */
+export interface InlineMarkdownPattern {
+  /** Anchored at the caret; capture group 1 is the wrapped text. */
+  readonly regex: RegExp;
+  /** Length of one delimiter (`**` is 2, `` ` `` is 1). */
+  readonly markerLen: number;
+  readonly format: Mark;
+}
+
+/**
+ * What the inline markdown shortcuts mean, in the order they are tried.
+ *
+ * Exported because a feature that owns its own text surface runs the same
+ * shortcuts over it — a table cell auto-formats `**bold**` exactly the way a
+ * paragraph does (see `@tasfer/table`'s cell markdown rule). One list, so `**`
+ * can never come to mean two different things depending on where it is typed.
+ */
+export const INLINE_MARKDOWN_PATTERNS: readonly InlineMarkdownPattern[] = [
+  { regex: /\*\*([^\*]+)\*\*$/, markerLen: 2, format: { type: "strong" } },
+  {
+    regex: /(?<!\*)\*([^\*]+)\*$/,
+    markerLen: 1,
+    format: { type: "emphasis" },
+  },
+  { regex: /~~([^~]+)~~$/, markerLen: 2, format: { type: "strike" } },
+  { regex: /`([^`]+)`$/, markerLen: 1, format: { type: "code" } },
+];
+
+/**
+ * Whether this keystroke could close an inline markdown wrap.
+ *
+ * Detection runs only on these characters: the wrap is what the user just
+ * finished typing, never something an unrelated edit stumbled into.
+ */
+export function isInlineMarkdownDelimiter(input: string): boolean {
+  return input === "*" || input === "`" || input === "~";
+}
+
 /**
  * Detect and apply live markdown inline formatting patterns.
  * Returns null if no pattern matched, otherwise the transformed page,
@@ -250,22 +294,7 @@ function detectAndApplyInlineMarkdown(
   if (!block || !isTextualBlock(block)) return null;
   const fullText = getVisibleTextFromRuns(block.charRuns);
 
-  const patterns: Array<{
-    regex: RegExp;
-    markerLen: number;
-    format: Mark;
-  }> = [
-    { regex: /\*\*([^\*]+)\*\*$/, markerLen: 2, format: { type: "strong" } },
-    {
-      regex: /(?<!\*)\*([^\*]+)\*$/,
-      markerLen: 1,
-      format: { type: "emphasis" },
-    },
-    { regex: /~~([^~]+)~~$/, markerLen: 2, format: { type: "strike" } },
-    { regex: /`([^`]+)`$/, markerLen: 1, format: { type: "code" } },
-  ];
-
-  for (const { regex, markerLen, format } of patterns) {
+  for (const { regex, markerLen, format } of INLINE_MARKDOWN_PATTERNS) {
     // Skip auto-format for a mark the schema forbids authoring (no-op when
     // unrestricted). Leaves the literal delimiters in place.
     if (!schema.isMarkAllowed(format.type)) continue;
@@ -667,6 +696,11 @@ function applyMarkdownPrefix(
 export function revertInputRule(state: EditorState): ActionResult | null {
   const record = state.ui.revertibleInputRule;
   if (!record) return null;
+  // A feature-owned record is opaque here: the feature claims the same
+  // `REVERT_INPUT_RULE` action ahead of this default and undoes its own
+  // transform. Returning null lets Backspace and undo fall through unharmed
+  // when that feature is not installed.
+  if (record.kind === "feature") return null;
 
   const block = findBlock(state.document.page, record.blockId);
   if (!block || block.deleted) return null;
@@ -2556,127 +2590,6 @@ export function deleteForward(state: EditorState): ActionResult {
   return { state, ops };
 }
 
-// Helper function to find word boundaries - distinguishes between word characters and non-word characters
-// Uses Unicode property escapes to support all languages
-// For CJK text, each character is treated as a word boundary
-function findWordBoundary(
-  text: string,
-  index: number,
-  direction: "left" | "right",
-): number {
-  if (direction === "left") {
-    // Move left to find start of previous word
-    let i = index;
-
-    if (i === 0) return 0;
-
-    // Check if current position is a CJK character
-    if (i > 0 && isCJKCharacter(text[i - 1])) {
-      // For CJK, move one character at a time
-      return i - 1;
-    }
-
-    // Skip current character type for non-CJK
-    const startIsWordChar = isWordChar(text[i - 1]);
-    if (startIsWordChar) {
-      while (i > 0 && isWordChar(text[i - 1]) && !isCJKCharacter(text[i - 1])) {
-        i--;
-      }
-    } else {
-      while (i > 0 && !isWordChar(text[i - 1])) {
-        i--;
-      }
-    }
-
-    return i;
-  } else {
-    // Move right to find end of next word
-    let i = index;
-
-    if (i === text.length) return text.length;
-
-    // Check if current position is a CJK character
-    if (i < text.length && isCJKCharacter(text[i])) {
-      // For CJK, move one character at a time
-      return i + 1;
-    }
-
-    // Skip current character type for non-CJK
-    const startIsWordChar = isWordChar(text[i]);
-    if (startIsWordChar) {
-      while (
-        i < text.length &&
-        isWordChar(text[i]) &&
-        !isCJKCharacter(text[i])
-      ) {
-        i++;
-      }
-    } else {
-      while (i < text.length && !isWordChar(text[i])) {
-        i++;
-      }
-    }
-
-    return i;
-  }
-}
-
-function findWordDeleteBoundaryLeft(text: string, index: number): number {
-  let i = index;
-
-  if (i === 0) return 0;
-
-  // For CJK characters, delete one character at a time
-  if (isCJKCharacter(text[i - 1])) {
-    return i - 1;
-  }
-
-  // Check what type of character we're starting from (Unicode-aware)
-  const startsOnWord = isWordChar(text[i - 1]);
-
-  if (startsOnWord) {
-    // Delete word characters (see isWordChar: letters, numbers, marks, joiners, underscore)
-    while (i > 0 && isWordChar(text[i - 1]) && !isCJKCharacter(text[i - 1])) {
-      i--;
-    }
-  } else {
-    // Delete non-word characters (spaces, punctuation, special characters together)
-    while (i > 0 && !isWordChar(text[i - 1])) {
-      i--;
-    }
-  }
-
-  return i;
-}
-
-function findWordDeleteBoundaryRight(text: string, index: number): number {
-  let i = index;
-
-  if (i === text.length) return text.length;
-
-  // For CJK characters, delete one character at a time
-  if (isCJKCharacter(text[i])) {
-    return i + 1;
-  }
-
-  // Check what type of character we're starting from (Unicode-aware)
-  const startsOnWord = isWordChar(text[i]);
-
-  if (startsOnWord) {
-    // Delete word characters (see isWordChar: letters, numbers, marks, joiners, underscore)
-    while (i < text.length && isWordChar(text[i]) && !isCJKCharacter(text[i])) {
-      i++;
-    }
-  } else {
-    // Delete non-word characters (spaces, punctuation, special characters together)
-    while (i < text.length && !isWordChar(text[i])) {
-      i++;
-    }
-  }
-
-  return i;
-}
-
 // Move cursor to previous word boundary
 /**
  * Keep a word-movement `target` out of the middle of an atomic inline token by
@@ -3212,42 +3125,6 @@ export function deleteToLineStart(state: EditorState): ActionResult {
 
 export function deleteToLineEnd(state: EditorState): ActionResult {
   return deleteToLineEdge(state, "end");
-}
-
-// Find word boundaries for selection. Word characters are defined by
-// `isWordChar` (letters, numbers, combining marks, joiners, underscore) so
-// vocalized Arabic and joined Persian/Indic words stay whole.
-// For CJK characters, each character is treated as a word.
-function findWordStart(text: string, index: number): number {
-  let i = index;
-
-  // If we're at a CJK character, just select that one character
-  if (i < text.length && isCJKCharacter(text[i])) {
-    return i;
-  }
-
-  // Move left while we're in word characters (see isWordChar)
-  // Stop at CJK characters
-  while (i > 0 && isWordChar(text[i - 1]) && !isCJKCharacter(text[i - 1])) {
-    i--;
-  }
-  return i;
-}
-
-function findWordEnd(text: string, index: number): number {
-  let i = index;
-
-  // If we're at a CJK character, just select that one character
-  if (i < text.length && isCJKCharacter(text[i])) {
-    return i + 1;
-  }
-
-  // Move right while we're in word characters (see isWordChar)
-  // Stop at CJK characters
-  while (i < text.length && isWordChar(text[i]) && !isCJKCharacter(text[i])) {
-    i++;
-  }
-  return i;
 }
 
 // Select word at cursor position (for double-click)

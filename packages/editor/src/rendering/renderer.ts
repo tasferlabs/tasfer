@@ -8,8 +8,11 @@ import type {
   InteractionSession,
 } from "../events/interaction-session";
 import { currentFontFamily, getFontStack } from "../fonts";
-import type { TextualBlock } from "../nodes/TextNode";
-import { getBlockDirection, getTextDirection } from "../rtl";
+import {
+  type DirectionalContent,
+  getBlockDirection,
+  getTextDirection,
+} from "../rtl";
 import {
   getCursorDocumentCoords,
   isCursorBlinking,
@@ -49,6 +52,11 @@ import {
 import type { MarkRegistry } from "./marks";
 import type { NodeRegionCtx, NodeRegistry } from "./nodes";
 import { getContentWithComposition, TextNode, UnknownNode } from "./nodes";
+import {
+  blockOwnsContentCaret,
+  contentPointCaretRect,
+  nodePlacesContentCaret,
+} from "./nodes/content-caret";
 import { renderScrollbar } from "./scrollbar";
 
 // Helper to get a block's flow height. The base height comes from the block's
@@ -535,10 +543,6 @@ function calculateCursorPosition(
   renderFormats?: MarkSpan[],
   heightIndex?: BlockHeightIndex,
 ): { x: number; y: number; height: number } | null {
-  if (!isTextualBlock(block)) return null;
-  const node = state.nodes.get(block.type);
-  if (!(node instanceof TextNode)) return null;
-
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   const blockTop = getBlockTopViewport(
@@ -549,6 +553,27 @@ function calculateCursorPosition(
     styles,
     heightIndex,
   );
+
+  // A caret the block's node places inside its own structured content (a table
+  // cell). Asked first so a non-textual block can carry an editable caret; every
+  // built-in node leaves the hook unset and falls through unchanged.
+  const contentPoint = state.document.contentSelection?.focus;
+  if (contentPoint && contentPoint.blockId === block.id) {
+    const rect = contentPointCaretRect(
+      contentPoint,
+      block,
+      position.blockIndex,
+      state,
+      maxWidth,
+      styles,
+      { x: styles.canvas.paddingLeft, y: blockTop },
+    );
+    if (rect) return rect;
+  }
+
+  if (!isTextualBlock(block)) return null;
+  const node = state.nodes.get(block.type);
+  if (!(node instanceof TextNode)) return null;
 
   // With composition content the layout is recomputed from the injected chars
   // (exactly as paint() does); otherwise the canonical layout is used.
@@ -611,7 +636,13 @@ export function getIndexedCursorViewportCoords(
   heightIndex: BlockHeightIndex,
 ): { x: number; y: number; height: number } | null {
   const block = state.document.page.blocks[position.blockIndex];
-  if (!block || block.deleted || !isTextualBlock(block)) return null;
+  if (!block || block.deleted) return null;
+  // A block with no flat text still has coordinates when its node places the
+  // caret in its own content — that is what anchors scroll-into-view and any
+  // host menu opened from a table cell.
+  if (!isTextualBlock(block) && !blockOwnsContentCaret(block, state)) {
+    return null;
+  }
   const visibleIndex = heightIndex.visibleIndexOfOriginal(position.blockIndex);
   if (visibleIndex === null) return null;
   const maxWidth =
@@ -649,11 +680,18 @@ export function getIndexedCursorViewportCoords(
 interface ResolvedCaret {
   decoration: CaretDecoration;
   position: Position;
-  block: TextualBlock;
+  block: Block;
   contentPoint?: ContentPoint;
 }
 
-/** Resolve every caret decoration to a paintable position in a textual block. */
+/**
+ * Resolve every caret decoration to a paintable position.
+ *
+ * A flat caret needs a block with text to index into. A structured one does
+ * not: it addresses content the node owns, so the gate is whether that node
+ * declares nested caret geometry — which is what lets a peer's caret show in a
+ * table cell, a block that has no flat text at all.
+ */
 function collectCaretDecorations(state: EditorState): ResolvedCaret[] {
   const out: ResolvedCaret[] = [];
   for (const deco of allDecorations(state.ui.decorations)) {
@@ -661,14 +699,19 @@ function collectCaretDecorations(state: EditorState): ResolvedCaret[] {
     const position = resolveDecorationPoint(deco.point, state.document.page);
     if (!position) continue;
     const block = state.document.page.blocks[position.blockIndex];
-    if (!block || block.deleted || !isTextualBlock(block)) continue;
+    if (!block || block.deleted) continue;
+    const contentPoint = isContentDecorationPoint(deco.point)
+      ? deco.point
+      : undefined;
+    const placeable = contentPoint
+      ? nodePlacesContentCaret(block, state)
+      : isTextualBlock(block);
+    if (!placeable) continue;
     out.push({
       decoration: deco,
       position,
       block,
-      ...(isContentDecorationPoint(deco.point)
-        ? { contentPoint: deco.point }
-        : {}),
+      ...(contentPoint ? { contentPoint } : {}),
     });
   }
   return out;
@@ -689,7 +732,11 @@ export function getOutOfViewIndicatorAtPoint(
   session: InteractionSession,
   canvasX: number,
   canvasY: number,
-): { blockIndex: number; textIndex: number } | null {
+): {
+  blockIndex: number;
+  textIndex: number;
+  contentPoint?: ContentPoint;
+} | null {
   for (const area of session.outOfViewIndicatorHitAreas) {
     if (
       canvasX >= area.x &&
@@ -697,7 +744,11 @@ export function getOutOfViewIndicatorAtPoint(
       canvasY >= area.y &&
       canvasY <= area.y + area.height
     ) {
-      return { blockIndex: area.blockIndex, textIndex: area.textIndex };
+      return {
+        blockIndex: area.blockIndex,
+        textIndex: area.textIndex,
+        ...(area.contentPoint ? { contentPoint: area.contentPoint } : {}),
+      };
     }
   }
   return null;
@@ -766,6 +817,9 @@ function renderOutOfViewIndicators(
       height: pillHeight + chevronSize,
       blockIndex: peer.blockIndex,
       textIndex: peer.textIndex,
+      ...(peer.caret.contentPoint
+        ? { contentPoint: peer.caret.contentPoint }
+        : {}),
     });
 
     // Draw chevron pointing up
@@ -815,6 +869,9 @@ function renderOutOfViewIndicators(
       height: pillHeight + chevronSize,
       blockIndex: peer.blockIndex,
       textIndex: peer.textIndex,
+      ...(peer.caret.contentPoint
+        ? { contentPoint: peer.caret.contentPoint }
+        : {}),
     });
 
     // Draw pill background
@@ -978,8 +1035,15 @@ function renderCaretDecorations(
 
       // Detect RTL to position label on the correct side of cursor. Uses the
       // block direction (inline-math source excluded), matching how the block
-      // itself lays out, so the label sits on the same side as the caret.
-      const isCursorRTL = getBlockDirection(block, state.marks) === "rtl";
+      // itself lays out, so the label sits on the same side as the caret. A
+      // block with no flat text of its own (a table, whose text lives in its
+      // cells) has no such direction; empty content makes `getBlockDirection`
+      // fall back to the UI default, which is the side its chrome reads from.
+      const directionContent: DirectionalContent = isTextualBlock(block)
+        ? block
+        : {};
+      const isCursorRTL =
+        getBlockDirection(directionContent, state.marks) === "rtl";
 
       // In RTL, label extends to the left of cursor; in LTR, to the right
       let labelX = isCursorRTL ? cursorPos.x - labelWidth : cursorPos.x;
@@ -1196,9 +1260,16 @@ export function renderCursorLayer(
     return;
   }
   const block = state.document.page.blocks[cursorBlockIndex];
-  if (!block || block.deleted) return;
+  if (!block || block.deleted) {
+    ctx.restore();
+    return;
+  }
 
-  if (!isTextualBlock(block)) {
+  // Draw for a block whose node owns the caret inside its own content, too —
+  // `calculateCursorPosition` already resolves that rect first, and gating the
+  // paint on flat text is what left a table cell with a caret position and
+  // nothing drawn at it.
+  if (!isTextualBlock(block) && !blockOwnsContentCaret(block, state)) {
     ctx.restore();
     return;
   }

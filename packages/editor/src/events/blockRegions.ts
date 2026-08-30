@@ -61,6 +61,7 @@ function bindNodeRegion(hitRegion: NodeHitRegion): Region | null {
       hitTest: (p, pointerType) => hitRegion.hitTest(p, pointerType),
       onTap: hitRegion.onTap,
       drag: hitRegion.drag,
+      hover: hitRegion.hover,
     };
   }
   switch (hitRegion.id) {

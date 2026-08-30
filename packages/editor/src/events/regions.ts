@@ -27,9 +27,11 @@ import { REGION_DRAG_START } from "../action-bus";
 import type {
   EditorState,
   Position,
+  RegionHoverState,
   ViewportState,
   VisibleBlockRange,
 } from "../state-types";
+import type { ContentPoint } from "../structured-selection";
 import type { Operation } from "../sync/sync";
 import type { InteractionSession } from "./interaction-session";
 
@@ -57,7 +59,15 @@ export interface RegionCtx {
    * still lands on its true position. Used by the out-of-view peer indicator so
    * clicking a peer's pill lands on their actual caret rather than an estimate.
    */
-  readonly scrollPositionIntoView?: (position: Position) => void;
+  readonly scrollPositionIntoView?: (
+    position: Position,
+    /**
+     * The peer's nested address, when their caret is in content a node owns (a
+     * table cell). A flat position cannot place such a caret, so the scroll
+     * resolves the point instead of an index into text the block does not have.
+     */
+    contentPoint?: ContentPoint,
+  ) => void;
 }
 
 /** `null` declines — the pointer falls through to whatever is underneath. */
@@ -137,6 +147,13 @@ export interface Region {
     ctx: RegionCtx,
   ): RegionResult;
   drag?: RegionDragSpec;
+  /**
+   * Optional: how this region advertises itself while a mouse merely rests on
+   * it — the cursor to show, and a stable name for the exact affordance the
+   * `hit` resolved to. Recorded in `ui.regionHover` by the hover path, off this
+   * same hit-test, and `null` for a region with nothing to advertise.
+   */
+  hover?(hit: unknown): Omit<RegionHoverState, "regionId"> | null;
 }
 
 const DEFAULT_MODES: readonly string[] = ["edit", "select"];

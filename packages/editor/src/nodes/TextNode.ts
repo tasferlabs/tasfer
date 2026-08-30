@@ -405,6 +405,59 @@ function replacementFragmentGeometry(
   };
 }
 
+/**
+ * Arguments to {@link paintTextRun} — the reusable marked-text line painter.
+ *
+ * `chars`/`formats` are one text field's document-order characters and its mark
+ * ranges; `startIndex`/`endIndex` are the visible-offset range of the line to
+ * draw. The block's own line-wrapping is NOT implied — a caller that owns its
+ * own line boxes (a table cell) supplies one range per line it laid out.
+ */
+export interface PaintTextRunArgs {
+  readonly ctx: CanvasRenderingContext2D;
+  readonly chars: Char[];
+  readonly formats: readonly MarkRange[];
+  readonly startIndex: number;
+  readonly endIndex: number;
+  /** Start edge of the run: its left edge in LTR text, its right edge in RTL. */
+  readonly x: number;
+  readonly baselineY: number;
+  /** Base metrics; a mark's own channels (bold, color, chip) layer over these. */
+  readonly textStyle: TextStyle;
+  readonly fontFamily: FontFamily;
+  readonly styles: EditorStyles;
+  readonly marks: MarkRegistry;
+  readonly isRTL: boolean;
+  readonly requestRedraw: () => void;
+}
+
+/**
+ * Paint one line of mark-formatted CRDT text.
+ *
+ * This is the engine's own line renderer — the one every prose block draws
+ * through — exposed for nodes that lay out text somewhere the block-level text
+ * pipeline does not reach (a table cell). Painting a cell any other way would
+ * mean a second implementation of mark resolution, batching for Arabic
+ * ligatures, and replacement runs, and the two would drift.
+ */
+export function paintTextRun(args: PaintTextRunArgs): void {
+  renderLine(
+    args.ctx,
+    args.chars,
+    args.formats,
+    args.startIndex,
+    args.endIndex,
+    args.x,
+    args.baselineY,
+    args.textStyle,
+    args.fontFamily,
+    args.styles,
+    args.marks,
+    args.isRTL,
+    args.requestRedraw,
+  );
+}
+
 /** Arguments to the {@link TextNode.renderLineText} glyph-drawing hook. */
 export interface RenderLineTextArgs<B extends TextualBlockBase = TextualBlock> {
   readonly block: B;

@@ -350,6 +350,29 @@ export interface ImageHoverState {
 }
 
 /**
+ * The pointer shape a hit region asks for while the pointer rests on it. A
+ * closed set, because the engine sets it on the canvas element: a region names
+ * the affordance ("this edge can be dragged sideways"), never a raw CSS value.
+ */
+export type RegionHoverCursor =
+  "ew-resize" | "ns-resize" | "pointer" | "grab" | "text";
+
+/**
+ * What the pointer is resting on, as the hit region under it describes itself.
+ *
+ * The engine only stores this and paints the cursor — it never interprets
+ * `target`, which is the region's own name for the exact affordance under the
+ * pointer (one column edge, not "the table"). A node paints its hover highlight
+ * by rebuilding the same string and comparing, so the painted affordance and
+ * the grabbable one cannot disagree. Ephemeral: never persisted, never in undo.
+ */
+export interface RegionHoverState {
+  readonly regionId: string;
+  readonly cursor: RegionHoverCursor;
+  readonly target: string;
+}
+
+/**
  * Caret-anchored scratch stashed by a node/mark in {@link UIState.caretScratch}.
  * `type` is the owning node/mark type (for debugging / future multi-owner use);
  * `blockId`/`offset` anchor it to a caret position. It's "active" only while the
@@ -391,6 +414,19 @@ export type RevertibleInputRule =
       readonly start: number;
       readonly innerLen: number;
       readonly caretAfter: number;
+    }
+  | {
+      /**
+       * An auto-format a feature applied to text core does not own — the two
+       * variants above address flat block characters, and a table cell has
+       * none. Core only carries this slot and clears it when the caret moves;
+       * the arming feature claims {@link REVERT_INPUT_RULE} ahead of the
+       * default handler and reads its own {@link data} back.
+       */
+      readonly kind: "feature";
+      readonly ruleId: string;
+      /** Opaque to core. */
+      readonly data: unknown;
     };
 
 export type BlockPrefixRevert = Extract<
@@ -525,6 +561,12 @@ export interface UIState {
   readonly composition: CompositionState | null;
   readonly activeMarksMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
+  // The hit region the mouse is resting on, when that region advertises a hover
+  // affordance (see `Region.hover`). Drives the canvas cursor, and lets the node
+  // that owns the region paint the thing under the pointer as live. Set from the
+  // same hit-test the press uses, so the affordance can never point at an edge
+  // the drag would not take. Null on touch, where there is no hover.
+  readonly regionHover: RegionHoverState | null;
   // Link hover state (not a blocking menu): the engine detects hover over a link
   // mark and records it here; the host `link` mark renders a tooltip overlay from
   // it. Engine-owned hover state, parallel to imageHover/inlineMathHover.

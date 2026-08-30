@@ -7,6 +7,7 @@ import {
   type TextualBlock,
 } from "./nodes/TextNode";
 import type { MarkRegistry } from "./rendering/marks";
+import { contentPointCaretRect } from "./rendering/nodes/content-caret";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import { getBlockHeight } from "./rendering/renderer";
 import { getBlockDirection } from "./rtl";
@@ -281,6 +282,34 @@ export function getCursorDocumentCoords(
   const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
+  // A nested caret the block's node places itself (a table cell): the flat
+  // `position` carries no offset into it, so the address comes off the active
+  // content selection. Asked before the text-node path so a non-textual block
+  // can own a caret; nodes without the hook fall straight through.
+  const contentPoint = state.document.contentSelection?.focus;
+  if (contentPoint && contentPoint.blockId === block.id) {
+    const rect = contentPointCaretRect(
+      contentPoint,
+      block,
+      position.blockIndex,
+      state,
+      maxWidth,
+      styles,
+      {
+        x: styles.canvas.paddingLeft,
+        y: getBlockTopDocument(
+          state,
+          position.blockIndex,
+          maxWidth,
+          styles,
+          viewport,
+          visibility,
+        ),
+      },
+    );
+    if (rect) return rect;
+  }
+
   const node = textNodeFor(state, block);
   if (!node) return null;
 
@@ -532,17 +561,32 @@ export function scrollToMakeCursorVisible(
     visibility,
   );
   if (!cursorPos) return null;
+  return scrollToMakeSpanVisible(cursorPos, viewport);
+}
 
+/**
+ * The scroll that brings a document-space span into view, or `null` when it
+ * already is comfortably there.
+ *
+ * Split out of {@link scrollToMakeCursorVisible} because a caret addressed by
+ * a {@link ContentPoint} — a peer's, inside a table cell — has no flat position
+ * to derive the span from; the caller resolves its coordinates and hands them
+ * over. Same margin either way, so both land the target in the same place.
+ */
+export function scrollToMakeSpanVisible(
+  span: { top: number; bottom: number },
+  viewport: ViewportState,
+): number | null {
   const margin = 40;
   const viewportTop = viewport.scrollY;
   const viewportBottom = viewport.scrollY + viewport.height;
 
-  if (cursorPos.top < viewportTop + margin) {
-    return Math.max(0, cursorPos.top - margin);
+  if (span.top < viewportTop + margin) {
+    return Math.max(0, span.top - margin);
   }
 
-  if (cursorPos.bottom > viewportBottom - margin) {
-    return cursorPos.bottom - viewport.height + margin;
+  if (span.bottom > viewportBottom - margin) {
+    return span.bottom - viewport.height + margin;
   }
 
   return null;

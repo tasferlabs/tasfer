@@ -53,6 +53,7 @@ import type {
 } from "../state-types";
 import { closeActiveMenu } from "../state-utils";
 import {
+  type ContentPoint,
   contentPointsEqual,
   updateContentSelection,
 } from "../structured-selection";
@@ -783,7 +784,10 @@ export function handleTouchEnd(
   documentHeight: number,
   session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
-  scrollPositionIntoView?: (position: Position) => void,
+  scrollPositionIntoView?: (
+    position: Position,
+    contentPoint?: ContentPoint,
+  ) => void,
   visibility?: VisibleBlockRange,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];

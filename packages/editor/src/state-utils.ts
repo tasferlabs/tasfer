@@ -158,6 +158,7 @@ export function createInitialState(
       composition: null,
       activeMarksMode: { type: "inherit" },
       imageHover: null,
+      regionHover: null,
       linkHover: null,
       nodeViewState: {},
       selectionHandleDrag: null,

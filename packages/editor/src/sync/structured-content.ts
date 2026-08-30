@@ -317,21 +317,76 @@ export function getStructuredText(
   return getVisibleTextFromRuns(runs ? [...runs] : undefined);
 }
 
+/** Group key for one parent's children in one slot. */
+function childGroupKey(parentId: string, slot: string): string {
+  // NUL-separated so no (id, slot) pair can collide with another — the same
+  // composite-key convention the op-log replay uses.
+  return `${parentId}\u0000${slot}`;
+}
+
+/**
+ * Every parent/slot's children, resolved once for a whole document.
+ *
+ * {@link getStructuredChildren} answers one question by scanning every node, so
+ * a caller that walks a whole tree is quadratic in the node count. That is
+ * nothing for the small trees a formula is, and it is the wrong shape for a
+ * grid: a 100-row table asks 100 times, a spreadsheet-sized document far more.
+ *
+ * Build one of these before such a walk and pass it back in. It is a value
+ * derived from — and only valid for — the exact `document` it was built from;
+ * it is deliberately NOT a cache hidden inside this module, so two editors on
+ * one page can never share or invalidate each other's.
+ */
+export interface StructuredChildIndex {
+  readonly groups: ReadonlyMap<string, readonly StructuredNode[]>;
+}
+
+/** Index one document's children by parent and slot, in document order. */
+export function buildStructuredChildIndex(
+  document: StructuredDocument,
+): StructuredChildIndex {
+  const groups = new Map<string, StructuredNode[]>();
+  for (const node of Object.values(document.nodes)) {
+    const { parentId, slot } = node.placement;
+    if (parentId === null) continue;
+    const key = childGroupKey(parentId, slot);
+    const group = groups.get(key);
+    if (group) group.push(node);
+    else groups.set(key, [node]);
+  }
+  for (const group of groups.values()) group.sort(compareStructuredSiblings);
+  return { groups };
+}
+
 /**
  * Resolve direct children in deterministic document order.
  *
  * Orphans are retained by the reducer but do not appear until their parent is
  * present. A deleted parent is not traversable; callers naturally hide its
  * whole subtree by never asking for its children.
+ *
+ * Pass `index` (see {@link buildStructuredChildIndex}) when walking a whole
+ * tree; without it every call scans the document's nodes. The two paths return
+ * the same nodes in the same order.
  */
 export function getStructuredChildren(
   document: StructuredDocument,
   parentId: string,
   slot: string,
-  options: { readonly includeDeleted?: boolean } = {},
+  options: {
+    readonly includeDeleted?: boolean;
+    readonly index?: StructuredChildIndex;
+  } = {},
 ): StructuredNode[] {
   const parent = document.nodes[parentId];
   if (!parent || (parent.deleted && !options.includeDeleted)) return [];
+
+  if (options.index) {
+    const group = options.index.groups.get(childGroupKey(parentId, slot)) ?? [];
+    return options.includeDeleted
+      ? [...group]
+      : group.filter((node) => !node.deleted);
+  }
 
   return Object.values(document.nodes)
     .filter(
@@ -618,15 +673,32 @@ export function canonicalizeStructuredDocument(
  * Clone a normalized document into a fresh identity domain.
  *
  * The caller chooses the new root/content id; every other node and every text
- * character is allocated from the same persisted allocator. Placements are
- * rewritten generically. Feature-defined attrs are copied verbatim, so a
- * feature storing identity references inside attrs must rewrite those itself
- * instead of using this helper directly.
+ * character is allocated from the same persisted allocator. Placements and mark
+ * anchors are rewritten generically.
+ *
+ * Feature-defined attrs are copied verbatim, because core cannot know which of
+ * them are identities. A kind that stores a node reference in an attr — a table
+ * cell naming its column, say — passes {@link CloneStructuredOptions.rewriteAttrs}
+ * to re-point it; without that the copy would still reference the source's
+ * identities and resolve to nothing.
  */
+export interface CloneStructuredOptions {
+  /**
+   * Rewrite one node's attrs for the clone. `resolveId` maps a source node id
+   * to its counterpart, or `undefined` for an id this document never held (a
+   * dangling reference, which the feature decides how to treat).
+   */
+  readonly rewriteAttrs?: (
+    attrs: Readonly<Record<string, StructuredValue>>,
+    resolveId: (sourceId: string) => string | undefined,
+  ) => Readonly<Record<string, StructuredValue>>;
+}
+
 export function cloneStructuredDocumentWithFreshIdentities(
   document: StructuredDocument,
   targetRootId: string,
   identities: IdentityAllocator,
+  options: CloneStructuredOptions = {},
 ): StructuredDocument {
   const source = canonicalizeStructuredDocument(document);
   const nodeIds = new Map<string, string>([[source.rootId, targetRootId]]);
@@ -656,6 +728,7 @@ export function cloneStructuredDocumentWithFreshIdentities(
     }
 
     const textFields: Record<string, readonly CharRun[]> = {};
+    const charIds = new Map<string, string>();
     for (const field of Object.keys(sourceNode.textFields).sort()) {
       const chars: Char[] = [];
       for (const entry of iterateAllChars([...sourceNode.textFields[field]])) {
@@ -666,6 +739,7 @@ export function cloneStructuredDocumentWithFreshIdentities(
           );
         }
         reserved.add(id);
+        charIds.set(entry.id, id);
         chars.push({
           id,
           char: entry.char,
@@ -802,12 +876,23 @@ function applyNodeInsert(
     textFields[field] = runs.map(cloneCharRun);
   }
 
+  // Marks are only meaningful over a field the seed actually carries; a span
+  // over a missing field would anchor to characters that do not exist here.
+  const markFields: Record<string, readonly MarkRange[]> = {};
+  for (const [field, spans] of Object.entries(seed.markFields ?? {})) {
+    if (field.length === 0 || !areValidMarkSpans(spans)) return document;
+    if (!textFields[field]) return document;
+    const normalized = normalizeMarkSpans(spans);
+    if (normalized.length > 0) markFields[field] = normalized;
+  }
+
   return replaceNode(document, {
     id: seed.id,
     type: seed.type,
     placement: { ...seed.placement },
     attrs,
     textFields,
+    ...(Object.keys(markFields).length > 0 ? { markFields } : {}),
   });
 }
 
@@ -922,6 +1007,153 @@ function applyTextDelete(
   });
 }
 
+/**
+ * Apply or clear one inline mark over a range of a node's text field.
+ *
+ * The span algebra is shared with the block-level `mark_set` reducer (see
+ * `mark-spans`); what differs here is only that the stored spans carry no clock.
+ * Marks live only over a field that actually exists, so a mark can never
+ * resurrect or invent text.
+ */
+function applyMarkSet(
+  document: StructuredDocument,
+  edit: Extract<StructuredEdit, { kind: "mark_set" }>,
+): StructuredDocument {
+  const node = document.nodes[edit.nodeId];
+  if (!node || edit.field.length === 0 || edit.charIds.length === 0) {
+    return document;
+  }
+  if (!isValidMark(edit.mark)) return document;
+  const runs = node.textFields[edit.field];
+  if (!runs) return document;
+
+  const current = node.markFields?.[edit.field] ?? [];
+  const next = edit.value
+    ? applyMarkToRange(
+        iterateAllChars([...runs]),
+        current,
+        edit.charIds,
+        edit.mark,
+        (range) => range,
+      )
+    : removeMarkFromRange(
+        iterateAllChars([...runs]),
+        current,
+        edit.charIds,
+        edit.mark.type,
+        (range) => range,
+      );
+  if (!next) return document;
+
+  const normalized = normalizeMarkSpans(next);
+  if (sameMarkSpans(current, normalized)) return document;
+  return replaceNode(document, withMarkField(node, edit.field, normalized));
+}
+
+/**
+ * Replace one field's spans on a node, dropping the whole `markFields` map when
+ * nothing is left — a node that carries no marks must not grow an empty object,
+ * or documents that never use marks stop being byte-identical across peers that
+ * did and did not touch one.
+ */
+function withMarkField(
+  node: StructuredNode,
+  field: string,
+  spans: readonly MarkRange[],
+): StructuredNode {
+  const fields: Record<string, readonly MarkRange[]> = {
+    ...(node.markFields ?? {}),
+  };
+  if (spans.length > 0) fields[field] = spans;
+  else delete fields[field];
+  const { markFields: _previous, ...rest } = node;
+  return Object.keys(fields).length > 0
+    ? { ...rest, markFields: fields }
+    : rest;
+}
+
+/**
+ * Canonical span order: sorted by anchor then mark identity, exact duplicates
+ * collapsed. Applied on every write AND on every insert, so a document rebuilt
+ * from an op log and the same document loaded from a snapshot are byte-equal.
+ */
+function normalizeMarkSpans(spans: readonly MarkRange[]): MarkRange[] {
+  const sorted = [...spans].sort((a, b) => {
+    if (a.startCharId !== b.startCharId) {
+      return a.startCharId < b.startCharId ? -1 : 1;
+    }
+    if (a.endCharId !== b.endCharId) {
+      return a.endCharId < b.endCharId ? -1 : 1;
+    }
+    const left = markKey(a.format);
+    const right = markKey(b.format);
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+  const unique: MarkRange[] = [];
+  for (const span of sorted) {
+    const previous = unique[unique.length - 1];
+    if (
+      previous &&
+      previous.startCharId === span.startCharId &&
+      previous.endCharId === span.endCharId &&
+      areMarksEqual(previous.format, span.format)
+    ) {
+      continue;
+    }
+    unique.push(cloneMarkSpan(span));
+  }
+  return unique;
+}
+
+function cloneMarkSpan(span: MarkRange): MarkRange {
+  return {
+    startCharId: span.startCharId,
+    endCharId: span.endCharId,
+    format: span.format.attrs
+      ? { type: span.format.type, attrs: { ...span.format.attrs } }
+      : { type: span.format.type },
+  };
+}
+
+function sameMarkSpans(
+  left: readonly MarkRange[],
+  right: readonly MarkRange[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every(
+    (span, index) =>
+      span.startCharId === right[index].startCharId &&
+      span.endCharId === right[index].endCharId &&
+      areMarksEqual(span.format, right[index].format),
+  );
+}
+
+function isValidMark(mark: Mark): boolean {
+  return (
+    mark !== null &&
+    typeof mark === "object" &&
+    typeof mark.type === "string" &&
+    mark.type.length > 0 &&
+    (mark.attrs === undefined || isStructuredValue(mark.attrs))
+  );
+}
+
+function areValidMarkSpans(spans: readonly MarkRange[]): boolean {
+  return (
+    Array.isArray(spans) &&
+    spans.every(
+      (span) =>
+        span !== null &&
+        typeof span === "object" &&
+        typeof span.startCharId === "string" &&
+        span.startCharId.length > 0 &&
+        typeof span.endCharId === "string" &&
+        span.endCharId.length > 0 &&
+        isValidMark(span.format),
+    )
+  );
+}
+
 function replaceNode(
   document: StructuredDocument,
   node: StructuredNode,
@@ -936,6 +1168,7 @@ function seedFromNode(node: StructuredNode): StructuredNodeSeed {
     placement: node.placement,
     attrs: node.attrs,
     textFields: node.textFields,
+    ...(node.markFields ? { markFields: node.markFields } : {}),
   };
 }
 

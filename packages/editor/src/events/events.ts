@@ -30,7 +30,11 @@ import type {
 } from "../state-types";
 import type { Operation } from "../state-types";
 import { closeActiveMenu } from "../state-utils";
-import { updateContentSelection } from "../structured-selection";
+import {
+  type ContentPoint,
+  isContentSelectionCollapsed,
+  updateContentSelection,
+} from "../structured-selection";
 import { applyEdgeScroll } from "./autoScroll";
 import {
   handleCompositionEnd,
@@ -90,7 +94,10 @@ export function handleEvents(
   session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string; imageFile: File | null } | null,
-  scrollPositionIntoView?: (position: Position) => void,
+  scrollPositionIntoView?: (
+    position: Position,
+    contentPoint?: ContentPoint,
+  ) => void,
 ): { state: EditorState; ops: Operation[]; pastedImageBlockIndex?: number } {
   // Collect operations from actions
   let collectedOps: Operation[] = [];
@@ -290,10 +297,23 @@ export function handleEvents(
           touchRadiusY: session.touch.touchRadiusY,
         });
       } else {
-        // Readonly (no caret editing) or no resolvable position: fall back to a
-        // plain long-press that opens the context menu on release.
+        // Readonly (no caret editing), no resolvable position, or a live
+        // selection the loupe must not displace: fall back to a plain
+        // long-press that opens the context menu on release.
         session.touch.isLongPress = true;
-        if (position) {
+        // A nested range lives in neither `document.selection` nor a flat
+        // position, so `isTouchingSelection` above cannot see one and a hold on
+        // text selected inside a table cell lands here. `updateCursor` would
+        // clear it — the one thing a hold on a selection must not do — so a
+        // hold that resolves back into the same attachment leaves it alone and
+        // lets the release open the menu over it.
+        const held = state.document.contentSelection;
+        const holdsNestedSelection =
+          !!held &&
+          !isContentSelectionCollapsed(held) &&
+          contentSelection?.focus.blockId === held.focus.blockId &&
+          contentSelection?.focus.contentId === held.focus.contentId;
+        if (position && !holdsNestedSelection) {
           state = updateCursor(state, position);
         }
         state = closeActiveMenu({
@@ -622,6 +642,7 @@ export function handleEvents(
             ...state.ui,
             isHoveringLinkWithModifier: false,
             imageHover: null,
+            regionHover: null,
             inlineMathHover: null,
             hoveredMathBlockIndex: null,
             isHoveringSelection: false,

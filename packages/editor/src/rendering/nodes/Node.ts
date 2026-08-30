@@ -37,6 +37,7 @@ import type {
   EditorStyles,
   NodeOverlay,
   Position,
+  RegionHoverState,
   RenderedBlock,
   RenderedLine,
   TextStyle,
@@ -195,6 +196,27 @@ export interface Point {
   readonly y: number;
 }
 
+/**
+ * Context for {@link Node.contentCaretRect} — a layout context plus the block's
+ * painted origin, so the node returns a rect in the caller's coordinate space
+ * (viewport for the renderer, document for scroll/menu anchoring).
+ */
+export interface NodeContentCaretCtx<
+  B extends NodeBlock = NodeBlock,
+> extends Omit<NodeLayoutCtx, "block"> {
+  readonly state: EditorState;
+  readonly block: B;
+  /** Top-left of the block's content box in the caller's coordinate space. */
+  readonly origin: Point;
+}
+
+/** A caret rect: `x`/`y` are its top-left, `height` its full drawn extent. */
+export interface NodeCaretRect {
+  readonly x: number;
+  readonly y: number;
+  readonly height: number;
+}
+
 /** Context for {@link Node.activate} — enough to decide which overlay to open. */
 export interface NodeActivateCtx {
   readonly state: EditorState;
@@ -257,6 +279,14 @@ export interface NodeHitRegion<H = unknown> {
   ): RegionResult;
   /** Drag behavior (carried with the region). */
   drag?: RegionDragSpec<H>;
+  /**
+   * Optional hover affordance: the cursor to show while a mouse rests on this
+   * region, plus a stable name for the exact thing under it (one column edge,
+   * one handle). The engine records it in `ui.regionHover` and paints the
+   * cursor; the node reads it back in `paint` — rebuilding the same `target`
+   * string — to draw the hovered affordance as live. Never called on touch.
+   */
+  hover?(hit: H): Omit<RegionHoverState, "regionId"> | null;
 }
 
 /**
@@ -384,8 +414,7 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
    */
   textStyle(styles: EditorStyles, type: B["type"]): TextStyle {
     const style = styles.blocks[type as keyof EditorStyles["blocks"]] as
-      | TextStyle
-      | undefined;
+      TextStyle | undefined;
     return style ?? styles.blocks.paragraph;
   }
 
@@ -414,6 +443,26 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
   ): ContentSelection | null {
     return null;
   }
+
+  /**
+   * Optionally place the caret for a nested {@link ContentPoint} this node owns.
+   *
+   * The inverse of {@link contentSelectionFromPoint}: that maps a point to an
+   * identity-bearing address, this maps the address back to a rect. Core's caret
+   * geometry is otherwise reachable only through `TextNode.caretRect`, which
+   * addresses a flat text index — so a node that stores its text entirely in a
+   * structured attachment (a table's cells) has no flat index to offer and would
+   * paint no caret at all. Declaring this is what lets a non-textual block carry
+   * an editable caret without pretending to be a text flow.
+   *
+   * Returning `null` (or leaving it unset, as every built-in node does) keeps the
+   * existing text-node caret path untouched.
+   */
+  contentCaretRect?(
+    layout: NodeLayout,
+    point: ContentPoint,
+    c: NodeContentCaretCtx<B>,
+  ): NodeCaretRect | null;
 
   /**
    * Optional: adjust how much vertical flow this block consumes, given its

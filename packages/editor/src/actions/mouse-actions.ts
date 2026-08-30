@@ -74,7 +74,11 @@ export const PLACE_CURSOR_AT_POINT = stateAction<{
               focus: contentSelection.focus,
               lastUpdate: Date.now(),
             }
-          : contentSelection;
+          : // Stamp the plain click too. The blink clock reads `lastUpdate ?? 0`,
+            // so an unstamped caret lands wherever the cycle happens to be and
+            // can spend its first moments dark — which reads as a click that
+            // did nothing.
+            { ...contentSelection, lastUpdate: Date.now() };
       const nested = updateContentSelection(state, selection);
       if (nested.document.contentSelection) {
         return {

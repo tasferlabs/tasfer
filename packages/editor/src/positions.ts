@@ -17,9 +17,14 @@ import {
   updateCursor,
   updateSelection,
 } from "./selection";
-import type { Block } from "./serlization/loadPage";
+import type { Block, MarkSpan } from "./serlization/loadPage";
 import type { EditorState } from "./state-types";
-import { findBlockIndex } from "./sync/block-lookup";
+import {
+  isSameContentTextField,
+  resolveContentTextPointOffset,
+} from "./structured-selection";
+import { findBlock, findBlockIndex } from "./sync/block-lookup";
+import { getStructuredMarks } from "./sync/structured-content";
 import { isTextualBlock } from "./sync/block-registry";
 import { allCharsHaveFormat } from "./sync/crdt-utils";
 
@@ -48,9 +53,7 @@ export type DocPoint =
  * inline methods). Cross-block explicit ranges resolve to a no-op.
  */
 export type DocRange =
-  | "selection"
-  | DocPoint
-  | { from: DocPoint; to: DocPoint };
+  "selection" | DocPoint | { from: DocPoint; to: DocPoint };
 
 /**
  * Plain-data view of a block returned by the read API — never the internal
@@ -335,12 +338,71 @@ export function activeCaretMarks(s: EditorState): Set<string> {
   return result;
 }
 
+/**
+ * The inline marks active on a nested selection — a table cell's text, say.
+ *
+ * The structured-content counterpart of the flat branch below, and generic to
+ * any node that stores text in an attachment: the field's character runs and
+ * mark ranges are read straight out of the document, so nothing here knows what
+ * kind of node owns them. A collapsed caret falls back to the explicit toggle
+ * mode, exactly as {@link activeCaretMarks} does for flat text — that is what
+ * lets Ctrl+B, then typing, come out bold inside a cell.
+ */
+function contentSelectionMarks(s: EditorState): Set<string> {
+  const result = new Set<string>();
+  const selection = s.document.contentSelection;
+  const { anchor, focus } = selection ?? {};
+  if (!selection || anchor?.kind !== "text" || focus?.kind !== "text") {
+    return result;
+  }
+  const mode = s.ui.activeMarksMode;
+  if (mode.type === "explicit") {
+    for (const format of mode.formats) result.add(format.type);
+    return result;
+  }
+  if (!isSameContentTextField(anchor, focus)) return result;
+
+  const block = findBlock(s.document.page, focus.blockId);
+  const document = block?.structuredContent?.[focus.contentId];
+  const runs = document?.nodes[focus.nodeId]?.textFields[focus.field];
+  if (!runs) return result;
+  const marks = getStructuredMarks(document, focus.nodeId, focus.field);
+  if (marks.length === 0) return result;
+
+  const anchorOffset = resolveContentTextPointOffset(s.document.page, anchor);
+  const focusOffset = resolveContentTextPointOffset(s.document.page, focus);
+  if (anchorOffset === null || focusOffset === null) return result;
+  const start = Math.min(anchorOffset, focusOffset);
+  const end = Math.max(anchorOffset, focusOffset);
+
+  const charRuns = [...runs];
+  const spans = marks as MarkSpan[];
+  for (const mark of s.marks.markList()) {
+    // A collapsed caret inherits from the character behind it, the way flat
+    // prose does, so continuing to type keeps the run's formatting.
+    const from = start === end ? Math.max(0, start - 1) : start;
+    if (from === end) continue;
+    if (allCharsHaveFormat(charRuns, spans, from, end, mark.type)) {
+      result.add(mark.type);
+    }
+  }
+  return result;
+}
+
 // Inline marks active over a range (default: selection). Collapsed → caret
 // semantics; a span → marks every char in it carries.
 export function docMarks(
   s: EditorState,
   range: DocRange | undefined,
 ): Set<string> {
+  // A caret inside a node's structured content addresses no flat range, so the
+  // ordinary resolution below reports "no marks here" and every host affordance
+  // that reads this — the toolbar's bold state, the Format menu's enablement —
+  // concludes the text cannot be formatted. Resolved from the attachment
+  // instead, which is core's own storage, so this stays node-agnostic.
+  if (range === undefined && s.document.contentSelection) {
+    return contentSelectionMarks(s);
+  }
   const r = resolveInlineRange(s, range);
   if (!r) return new Set<string>();
   if (r.start === r.end) return activeCaretMarks(s);

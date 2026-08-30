@@ -37,6 +37,7 @@ export { StrongMark } from "./StrongMark";
 export {
   TOGGLE_CODE,
   TOGGLE_EMPHASIS,
+  TOGGLE_MARK,
   TOGGLE_STRIKE,
   TOGGLE_STRONG,
 } from "./toggle-actions";
