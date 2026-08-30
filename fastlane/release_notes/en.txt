@@ -1,1 +1,2 @@
-Bug fixes and stability improvements.
+- The app now supports tables blocks.
+- Bug fixes and improvements.
